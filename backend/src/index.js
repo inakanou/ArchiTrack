@@ -46,6 +46,11 @@ app.get('/health', async (req, res) => {
   });
 });
 
+// Favicon handler - ブラウザのfaviconリクエストに対応
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end(); // No Content
+});
+
 // API routes
 app.get('/api', (req, res) => {
   res.json({
