@@ -1,0 +1,10 @@
+# Railway deployment configuration for Frontend
+# Root Directory should be set to /frontend in Railway UI
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
