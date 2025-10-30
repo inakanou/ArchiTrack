@@ -16,28 +16,34 @@ app.use(express.json());
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
+  const services = {};
+
+  // PostgreSQL チェック（オプショナル）
   try {
-    // PostgreSQL チェック
     await db.query('SELECT 1');
-
-    // Redis チェック
-    await redis.ping();
-
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      services: {
-        database: 'connected',
-        redis: 'connected',
-      },
-    });
+    services.database = 'connected';
   } catch (error) {
-    console.error('Health check failed:', error);
-    res.status(503).json({
-      status: 'error',
-      message: error.message,
-    });
+    console.warn('PostgreSQL not available:', error.message);
+    services.database = 'disconnected';
+    // DB接続がない場合でもサーバーは稼働可能
   }
+
+  // Redis チェック（オプショナル）
+  try {
+    await redis.ping();
+    services.redis = 'connected';
+  } catch (error) {
+    console.warn('Redis not available:', error.message);
+    services.redis = 'disconnected';
+    // Redis接続がない場合でもサーバーは稼働可能
+  }
+
+  // サーバー自体が起動していればOK
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    services,
+  });
 });
 
 // API routes
