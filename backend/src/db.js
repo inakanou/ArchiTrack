@@ -2,18 +2,38 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
+let pool = null;
 
-// テスト接続
-pool.on('connect', () => {
-  console.log('✓ PostgreSQL connected');
-});
+// Lazy initialization - only create pool when DATABASE_URL is available
+function getPool() {
+  if (!pool && process.env.DATABASE_URL) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
 
-pool.on('error', (err) => {
-  console.error('PostgreSQL error:', err);
-});
+    pool.on('connect', () => {
+      console.log('✓ PostgreSQL connected');
+    });
 
-export default pool;
+    pool.on('error', (err) => {
+      console.error('PostgreSQL error:', err);
+    });
+  }
+  return pool;
+}
+
+export default {
+  query: (...args) => {
+    const p = getPool();
+    if (!p) {
+      throw new Error('DATABASE_URL not configured');
+    }
+    return p.query(...args);
+  },
+  end: () => {
+    if (pool) {
+      return pool.end();
+    }
+  },
+};
