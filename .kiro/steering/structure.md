@@ -9,19 +9,37 @@ ArchiTrack/
 │       └── kiro/           # Kiro開発コマンド群
 ├── .github/                # GitHub設定
 │   └── workflows/          # GitHub Actions CI/CD
+│       └── ci.yml          # CI/CDパイプライン定義
 ├── .kiro/                  # Kiro開発管理
 │   ├── steering/           # プロジェクトステアリング
+│   │   ├── product.md      # プロダクト概要
+│   │   ├── tech.md         # 技術スタック
+│   │   └── structure.md    # プロジェクト構造
 │   └── specs/              # 機能仕様（動的生成）
 ├── frontend/               # フロントエンドアプリケーション
 │   ├── src/                # ソースコード
+│   │   ├── App.jsx         # メインAppコンポーネント
+│   │   └── main.jsx        # エントリーポイント
+│   ├── public/             # 公開静的ファイル
 │   ├── package.json        # 依存関係
 │   ├── vite.config.js      # Vite設定
 │   ├── nginx.conf          # 本番環境nginx設定
+│   ├── Dockerfile          # 本番環境Dockerイメージ
+│   ├── Dockerfile.dev      # 開発環境Dockerイメージ
+│   ├── railway.toml        # Railway デプロイ設定
+│   ├── .eslintrc.json      # ESLint設定
 │   └── .env.example        # 環境変数テンプレート
 ├── backend/                # バックエンドAPI
 │   ├── src/                # ソースコード
+│   │   ├── index.js        # Expressサーバーエントリーポイント
+│   │   ├── db.js           # PostgreSQL接続管理
+│   │   └── redis.js        # Redis接続管理
 │   ├── package.json        # 依存関係
+│   ├── Dockerfile.dev      # 開発環境Dockerイメージ
+│   ├── railway.toml        # Railway デプロイ設定
+│   ├── .eslintrc.json      # ESLint設定
 │   └── .env.example        # 環境変数テンプレート
+├── docker-compose.yml      # ローカル開発環境定義
 ├── .gitignore              # Git除外設定
 ├── CLAUDE.md               # Claude Code設定・ガイドライン
 └── README.md               # プロジェクトREADME
@@ -78,42 +96,103 @@ Kiro-styleスペック駆動開発のカスタムコマンドを格納します�
 
 フロントエンドアプリケーションのソースコードと設定。
 
-**想定される構成:**
+**現在の構成:**
 
 ```
 frontend/
 ├── src/
-│   ├── components/        # UIコンポーネント
-│   ├── pages/             # ページコンポーネント
-│   ├── utils/             # ユーティリティ関数
-│   ├── services/          # APIクライアント
-│   ├── stores/            # 状態管理（Vuex/Redux/Pinia等）
-│   ├── assets/            # 静的アセット
-│   └── main.js            # エントリーポイント
+│   ├── App.jsx            # メインAppコンポーネント
+│   └── main.jsx           # Reactエントリーポイント
 ├── public/                # 公開静的ファイル
-├── tests/                 # テストコード
-└── dist/                  # ビルド成果物（.gitignore）
+├── dist/                  # ビルド成果物（.gitignore）
+├── Dockerfile             # 本番環境用（nginx）
+├── Dockerfile.dev         # 開発環境用（Vite dev server）
+├── railway.toml           # Railway デプロイ設定
+├── nginx.conf             # nginx本番環境設定
+├── vite.config.js         # Vite設定
+├── package.json           # 依存関係
+├── .eslintrc.json         # ESLint設定
+└── .env.example           # 環境変数テンプレート
+```
+
+**想定される拡張:**
+
+```
+frontend/src/
+├── components/        # UIコンポーネント（今後追加）
+├── pages/             # ページコンポーネント（今後追加）
+├── utils/             # ユーティリティ関数（今後追加）
+├── services/          # APIクライアント（今後追加）
+├── stores/            # 状態管理（今後追加）
+└── assets/            # 静的アセット（今後追加）
 ```
 
 ### `backend/`
 
 バックエンドAPIのソースコードと設定。
 
-**想定される構成:**
+**現在の構成:**
 
 ```
 backend/
 ├── src/
-│   ├── controllers/       # APIコントローラー
-│   ├── models/            # データモデル
-│   ├── services/          # ビジネスロジック
-│   ├── routes/            # ルーティング定義
-│   ├── middlewares/       # ミドルウェア
-│   ├── utils/             # ユーティリティ関数
-│   └── index.js           # エントリーポイント
-├── tests/                 # テストコード
-└── dist/                  # ビルド成果物（TypeScript使用時）
+│   ├── index.js           # Expressサーバーエントリーポイント
+│   ├── db.js              # PostgreSQL接続管理（lazy initialization）
+│   └── redis.js           # Redis接続管理（lazy initialization）
+├── Dockerfile.dev         # 開発環境用Dockerイメージ
+├── railway.toml           # Railway デプロイ設定
+├── package.json           # 依存関係
+├── .eslintrc.json         # ESLint設定
+└── .env.example           # 環境変数テンプレート
 ```
+
+**想定される拡張:**
+
+```
+backend/src/
+├── controllers/       # APIコントローラー（今後追加）
+├── models/            # データモデル（今後追加）
+├── services/          # ビジネスロジック（今後追加）
+├── routes/            # ルーティング定義（今後追加）
+├── middlewares/       # ミドルウェア（今後追加）
+└── utils/             # ユーティリティ関数（今後追加）
+```
+
+**主要ファイルの説明:**
+
+- `index.js`: Expressサーバーのメインファイル。ヘルスチェック、APIルート、エラーハンドリング、favicon処理を提供
+- `db.js`: PostgreSQL接続プールのlazy initialization実装。初回アクセス時に接続確立
+- `redis.js`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
+
+**実装済みAPI:**
+
+- `GET /health`: ヘルスチェックエンドポイント。サービス状態とDB/Redis接続状態を返却
+- `GET /api`: API情報エンドポイント。バージョン情報を返却
+- `GET /favicon.ico`: 404エラー防止用faviconハンドラー
+
+## Docker構成
+
+### `docker-compose.yml`
+
+ローカル開発環境全体を定義します。
+
+**サービス構成:**
+
+- `postgres`: PostgreSQL 15データベース（ポート5432）
+- `redis`: Redis 7キャッシュ（ポート6379）
+- `backend`: Node.js/Expressバックエンド（ポート3000）
+- `frontend`: React/Viteフロントエンド（ポート5173）
+
+各サービスはヘルスチェック付きで起動し、依存関係を適切に管理します。
+
+### Dockerfile構成
+
+**Frontend:**
+- `Dockerfile`: 本番環境用。マルチステージビルドでViteビルド→nginx配信
+- `Dockerfile.dev`: 開発環境用。Vite dev serverでホットリロード対応
+
+**Backend:**
+- `Dockerfile.dev`: 開発環境用。Node.js --watchでホットリロード対応
 
 ## コード構成パターン
 
@@ -123,6 +202,7 @@ backend/
 2. **疎結合**: モジュール間の依存を最小限に
 3. **高凝集**: 関連する機能を同じモジュールに配置
 4. **階層化**: プレゼンテーション層・ビジネスロジック層・データ層を分離
+5. **Lazy Initialization**: データベース・キャッシュ接続は初回アクセス時に確立
 
 ### ディレクトリ命名規則
 

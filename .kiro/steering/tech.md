@@ -16,37 +16,82 @@ ArchiTrack/
 
 ## フロントエンド
 
-### 技術スタック（予定）
+### 技術スタック
 
-- **ビルドツール**: Vite
+- **フレームワーク**: React 18.2.0
+- **ビルドツール**: Vite 5.1.0
 - **開発サーバー**: Vite Dev Server
 - **Webサーバー（本番）**: nginx
-- **パッケージマネージャ**: npm/yarn/pnpm
+- **パッケージマネージャ**: npm
+
+### 主要な依存関係
+
+- `react` ^18.2.0 - UIライブラリ
+- `react-dom` ^18.2.0 - React DOM操作
+- `@vitejs/plugin-react` ^4.2.1 - Vite React プラグイン
+- `eslint` ^8.56.0 - コード品質チェック
 
 ### 設定ファイル
 
 - `frontend/vite.config.js` - Vite設定
-- `frontend/nginx.conf` - nginx設定
+- `frontend/nginx.conf` - nginx設定（本番環境）
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート
+- `frontend/.eslintrc.json` - ESLint設定
+- `frontend/Dockerfile` - 本番環境用Dockerイメージ
+- `frontend/Dockerfile.dev` - 開発環境用Dockerイメージ
+- `frontend/railway.toml` - Railway デプロイ設定
 
 ## バックエンド
 
-### 技術スタック（予定）
+### 技術スタック
 
-- **パッケージマネージャ**: npm/yarn/pnpm
-- **設定管理**: .envファイル
+- **ランタイム**: Node.js 20
+- **フレームワーク**: Express 4.18.2
+- **データベースクライアント**: pg (PostgreSQL) 8.11.3
+- **キャッシュクライアント**: ioredis 5.3.2
+- **パッケージマネージャ**: npm
+- **設定管理**: dotenv (.envファイル)
+
+### 主要な依存関係
+
+- `express` ^4.18.2 - Webフレームワーク
+- `cors` ^2.8.5 - CORS ミドルウェア
+- `pg` ^8.11.3 - PostgreSQL クライアント
+- `ioredis` ^5.3.2 - Redis クライアント
+- `dotenv` ^16.4.1 - 環境変数管理
+- `eslint` ^8.56.0 - コード品質チェック
 
 ### 設定ファイル
 
 - `backend/package.json` - 依存関係管理
 - `backend/.env.example` - 環境変数テンプレート
+- `backend/.eslintrc.json` - ESLint設定
+- `backend/Dockerfile.dev` - 開発環境用Dockerイメージ
+- `backend/railway.toml` - Railway デプロイ設定
+
+## データベース・キャッシュ
+
+### PostgreSQL
+
+- **バージョン**: PostgreSQL 15 (Alpine)
+- **用途**: メインデータストア
+- **接続方式**: pgクライアントライブラリ経由
+- **ヘルスチェック**: `pg_isready`コマンド
+
+### Redis
+
+- **バージョン**: Redis 7 (Alpine)
+- **用途**: キャッシュ・セッション管理
+- **接続方式**: ioredisクライアントライブラリ経由
+- **ヘルスチェック**: `redis-cli ping`コマンド
 
 ## 開発環境
 
 ### 必須ツール
 
-- **Node.js**: フロントエンド・バックエンドの実行環境
+- **Node.js 20以上**: フロントエンド・バックエンドの実行環境
+- **Docker & Docker Compose**: コンテナ化開発環境
 - **Git**: バージョン管理
 - **Claude Code**: AI支援開発環境
 - **テキストエディタ/IDE**: VS Code推奨
@@ -54,11 +99,35 @@ ArchiTrack/
 ### 推奨ツール
 
 - **GitHub CLI (gh)**: PRやイシュー管理
-- **Docker**: コンテナ化（将来的な拡張）
+- **Railway CLI**: デプロイメント管理
+- **PostgreSQL クライアント**: データベース管理（TablePlus、pgAdmin等）
+- **Redis クライアント**: キャッシュ確認（RedisInsight等）
 
 ## よく使うコマンド
 
-### プロジェクトセットアップ
+### Docker Compose による起動（推奨）
+
+```bash
+# すべてのサービスを起動（PostgreSQL、Redis、Backend、Frontend）
+docker-compose up
+
+# バックグラウンドで起動
+docker-compose up -d
+
+# 特定のサービスのみ起動
+docker-compose up postgres redis
+
+# サービス停止
+docker-compose down
+
+# ボリュームも含めて完全削除
+docker-compose down -v
+
+# 再ビルドして起動
+docker-compose up --build
+```
+
+### プロジェクトセットアップ（個別実行時）
 
 ```bash
 # フロントエンド依存関係のインストール
@@ -66,16 +135,48 @@ cd frontend && npm install
 
 # バックエンド依存関係のインストール
 cd backend && npm install
+
+# 環境変数ファイルの作成
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
 ```
 
-### 開発サーバー起動
+### 開発サーバー起動（個別実行時）
 
 ```bash
-# フロントエンド開発サーバー
+# PostgreSQLとRedisをDocker Composeで起動
+docker-compose up postgres redis
+
+# フロントエンド開発サーバー（別ターミナル）
 cd frontend && npm run dev
 
-# バックエンド開発サーバー
+# バックエンド開発サーバー（別ターミナル）
 cd backend && npm run dev
+
+# バックエンド本番モード起動
+cd backend && npm start
+```
+
+### ビルド・リント
+
+```bash
+# フロントエンドビルド
+cd frontend && npm run build
+
+# フロントエンドプレビュー
+cd frontend && npm run preview
+
+# ESLint実行（フロントエンド）
+cd frontend && npm run lint
+
+# ESLint修正（フロントエンド）
+cd frontend && npm run lint:fix
+
+# ESLint実行（バックエンド）
+cd backend && npm run lint
+
+# ESLint修正（バックエンド）
+cd backend && npm run lint:fix
 ```
 
 ### Kiroスラッシュコマンド
@@ -124,19 +225,43 @@ git push origin main
 
 ### フロントエンド環境変数
 
-詳細は `frontend/.env.example` を参照してください。
+```bash
+# API接続先URL
+VITE_API_URL=http://localhost:3000
+```
+
+本番環境では `https://your-backend.railway.app` のようなRailway URLを指定します。
 
 ### バックエンド環境変数
 
-詳細は `backend/.env.example` を参照してください。
+```bash
+# サーバー設定
+PORT=3000
+NODE_ENV=development  # または production
+
+# データベース接続
+DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_dev
+
+# Redis接続
+REDIS_URL=redis://localhost:6379
+
+# CORS設定
+FRONTEND_URL=http://localhost:5173
+```
+
+本番環境では各サービスのRailway内部URLまたは公開URLを指定します。
 
 ## ポート設定
 
-デフォルトのポート設定（予定）:
+デフォルトのポート設定:
 
-- **フロントエンド**: 5173 (Vite default)
-- **バックエンド**: 3000 (または環境変数で指定)
+- **フロントエンド**: 5173 (Vite dev server)
+- **バックエンド**: 3000
+- **PostgreSQL**: 5432
+- **Redis**: 6379
 - **nginx（本番）**: 80/443
+
+Railway環境では動的に割り当てられるPORTを使用します。
 
 ## CI/CD
 
@@ -146,7 +271,18 @@ git push origin main
 
 - **自動テスト**: プッシュ・PR時に実行
 - **ビルド検証**: フロントエンド・バックエンドのビルド確認
-- **リンター**: コード品質チェック（設定予定）
+- **ESLintチェック**: コード品質自動検証
+
+### Railway デプロイメント
+
+GitHubリポジトリと連携し、mainブランチへのプッシュで自動デプロイを実施：
+
+- **Backend Service**: `backend/` ディレクトリから自動ビルド・デプロイ
+- **Frontend Service**: `frontend/` ディレクトリからnginx本番イメージをビルド・デプロイ
+- **PostgreSQL**: RailwayマネージドPostgreSQL 15
+- **Redis**: RailwayマネージドRedis 7
+
+各サービスの環境変数はRailway UIまたは `railway.toml` で管理します。
 
 ## 開発ガイドライン
 
