@@ -1,6 +1,3 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 # Backend linting
 if git diff --cached --name-only | grep -q '^backend/.*\.js$'; then
   echo "🔍 Running ESLint on backend files..."
