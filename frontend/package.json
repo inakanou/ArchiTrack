@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "test": "echo \"Error: no test specified\" && exit 0",
     "lint": "eslint src/**/*.{js,jsx}",
-    "lint:fix": "eslint src/**/*.{js,jsx} --fix",
-    "prepare": "husky || true"
+    "lint:fix": "eslint src/**/*.{js,jsx} --fix"
   },
   "dependencies": {
     "react": "^18.2.0",
