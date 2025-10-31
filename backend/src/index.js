@@ -29,8 +29,8 @@ app.get('/health', async (req, res) => {
     return Promise.race([
       promise,
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), timeoutMs)
-      )
+        setTimeout(() => reject(new Error('Timeout')), timeoutMs),
+      ),
     ]);
   };
 
@@ -110,6 +110,7 @@ app.listen(PORT, () => {
     msg: 'Server started',
     port: PORT,
     env: process.env.NODE_ENV || 'development',
-    healthCheck: `http://localhost:${PORT}/health`
+    healthCheck: `http://localhost:${PORT}/health`,
   });
 });
+// test lint check
