@@ -1,4 +1,5 @@
 import pg from 'pg';
+import logger from './utils/logger.js';
 
 const { Pool } = pg;
 
@@ -13,11 +14,11 @@ function getPool() {
     });
 
     pool.on('connect', () => {
-      console.log('✓ PostgreSQL connected');
+      logger.info('PostgreSQL connected');
     });
 
     pool.on('error', (err) => {
-      console.error('PostgreSQL error:', err);
+      logger.error({ err }, 'PostgreSQL error');
     });
   }
   return pool;
