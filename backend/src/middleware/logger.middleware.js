@@ -21,7 +21,7 @@ export const httpLogger = pinoHttp({
   },
 
   // ヘルスチェックは簡略化（debugレベルに）
-  customSuccessMessage: (req, res) => {
+  customSuccessMessage: (req, _res) => {
     if (req.url === '/health') {
       return 'health check';
     }
@@ -36,7 +36,7 @@ export const httpLogger = pinoHttp({
         return logger.level !== 'debug';
       }
       return false;
-    }
+    },
   },
 
   // レスポンスタイムも記録
@@ -44,7 +44,7 @@ export const httpLogger = pinoHttp({
     req: 'req',
     res: 'res',
     err: 'err',
-    responseTime: 'responseTime'
+    responseTime: 'responseTime',
   },
 
   // リクエスト/レスポンスの詳細をカスタマイズ
@@ -57,13 +57,13 @@ export const httpLogger = pinoHttp({
       headers: {
         'user-agent': req.headers?.['user-agent'],
         'x-forwarded-for': req.headers?.['x-forwarded-for'],
-        'x-railway-request-id': req.headers?.['x-railway-request-id']
+        'x-railway-request-id': req.headers?.['x-railway-request-id'],
       },
       remoteAddress: req.remoteAddress,
-      remotePort: req.remotePort
+      remotePort: req.remotePort,
     }),
     res: (res) => ({
-      statusCode: res.statusCode
-    })
-  }
+      statusCode: res.statusCode,
+    }),
+  },
 });

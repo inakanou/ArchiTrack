@@ -14,15 +14,15 @@ const logger = pino({
       colorize: true,
       translateTime: 'SYS:standard',
       ignore: 'pid,hostname',
-      singleLine: false
-    }
+      singleLine: false,
+    },
   } : undefined,
 
   // Railway用のメタデータ
   base: {
     env: process.env.NODE_ENV || 'development',
     railway: isRailway,
-    service: process.env.RAILWAY_SERVICE_NAME || 'backend'
+    service: process.env.RAILWAY_SERVICE_NAME || 'backend',
   },
 
   // タイムスタンプ形式（ISO 8601）
@@ -32,15 +32,15 @@ const logger = pino({
   serializers: {
     err: pino.stdSerializers.err,
     req: pino.stdSerializers.req,
-    res: pino.stdSerializers.res
+    res: pino.stdSerializers.res,
   },
 
   // Railway環境ではフォーマット済みエラーを出力
   formatters: {
     level: (label) => {
       return { level: label };
-    }
-  }
+    },
+  },
 });
 
 export default logger;

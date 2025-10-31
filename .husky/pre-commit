@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Backend linting
+if git diff --cached --name-only | grep -q '^backend/.*\.js$'; then
+  echo "🔍 Running ESLint on backend files..."
+  cd backend && npx lint-staged
+fi
+
+# Frontend linting (run in Docker container if running)
+if git diff --cached --name-only | grep -q '^frontend/.*\.\(js\|jsx\)$'; then
+  echo "🔍 Running ESLint on frontend files..."
+  if docker compose ps frontend | grep -q "Up"; then
+    docker compose exec -T frontend npx lint-staged
+  else
+    echo "⚠️  Frontend container not running. Please start with 'docker compose up -d'"
+    exit 1
+  fi
+fi

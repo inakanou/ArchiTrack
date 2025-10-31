@@ -9,7 +9,8 @@
     "dev": "node --watch src/index.js",
     "test": "echo \"Error: no test specified\" && exit 0",
     "lint": "eslint src/**/*.js",
-    "lint:fix": "eslint src/**/*.js --fix"
+    "lint:fix": "eslint src/**/*.js --fix",
+    "prepare": "husky"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -22,7 +23,14 @@
   },
   "devDependencies": {
     "eslint": "^8.56.0",
-    "pino-pretty": "^10.3.0"
+    "pino-pretty": "^10.3.0",
+    "husky": "^9.0.11",
+    "lint-staged": "^15.2.0"
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix"
+    ]
   },
   "engines": {
     "node": ">=20.0.0"
