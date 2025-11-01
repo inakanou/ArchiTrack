@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
  * タイムスタンプ付きディレクトリ名を生成
  * 形式: YYYYMMDD-HHMMSS
  */
-function getTimestampedDir() {
+function getTimestampedDir(): string {
   const now = new Date();
   const timestamp = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
   return timestamp;

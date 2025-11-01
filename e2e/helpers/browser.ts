@@ -1,17 +1,52 @@
-import { chromium } from '@playwright/test';
+import { chromium, LaunchOptions, BrowserContextOptions } from '@playwright/test';
 
 /**
  * Claude Code用ブラウザ操作ヘルパー
  * Claude Codeから直接ブラウザを起動して操作するためのユーティリティ
  */
 
+interface CaptureScreenshotOptions {
+  launchOptions?: LaunchOptions;
+  contextOptions?: BrowserContextOptions;
+}
+
+interface ScreenshotResult {
+  success: boolean;
+  path?: string;
+  error?: string;
+}
+
+interface PageInfo {
+  title: string;
+  url: string;
+  content: string;
+}
+
+interface PageInfoError {
+  error: string;
+}
+
+interface ApiResult {
+  status: number;
+  ok: boolean;
+  body: unknown;
+}
+
+interface ApiError {
+  error: string;
+}
+
 /**
  * ブラウザを起動してスクリーンショットを撮影
- * @param {string} url - アクセスするURL
- * @param {string} outputPath - スクリーンショットの保存先
- * @param {Object} options - オプション
+ * @param url - アクセスするURL
+ * @param outputPath - スクリーンショットの保存先
+ * @param options - オプション
  */
-export async function captureScreenshot(url, outputPath = 'screenshot.png', options = {}) {
+export async function captureScreenshot(
+  url: string,
+  outputPath: string = 'screenshot.png',
+  options: CaptureScreenshotOptions = {}
+): Promise<ScreenshotResult> {
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-dev-shm-usage', '--no-sandbox'],
@@ -32,8 +67,9 @@ export async function captureScreenshot(url, outputPath = 'screenshot.png', opti
 
     return { success: true, path: outputPath };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('エラー:', error);
-    return { success: false, error: error.message };
+    return { success: false, error: errorMessage };
   } finally {
     await browser.close();
   }
@@ -41,9 +77,9 @@ export async function captureScreenshot(url, outputPath = 'screenshot.png', opti
 
 /**
  * ブラウザを起動してページ情報を取得
- * @param {string} url - アクセスするURL
+ * @param url - アクセスするURL
  */
-export async function getPageInfo(url) {
+export async function getPageInfo(url: string): Promise<PageInfo | PageInfoError> {
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-dev-shm-usage', '--no-sandbox'],
@@ -54,7 +90,7 @@ export async function getPageInfo(url) {
   try {
     await page.goto(url, { waitUntil: 'networkidle' });
 
-    const info = {
+    const info: PageInfo = {
       title: await page.title(),
       url: page.url(),
       content: await page.content(),
@@ -63,8 +99,9 @@ export async function getPageInfo(url) {
     console.log('ページ情報:', info);
     return info;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('エラー:', error);
-    return { error: error.message };
+    return { error: errorMessage };
   } finally {
     await browser.close();
   }
@@ -72,9 +109,9 @@ export async function getPageInfo(url) {
 
 /**
  * APIエンドポイントをテスト
- * @param {string} apiUrl - APIのURL
+ * @param apiUrl - APIのURL
  */
-export async function testAPI(apiUrl) {
+export async function testAPI(apiUrl: string): Promise<ApiResult | ApiError> {
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-dev-shm-usage', '--no-sandbox'],
@@ -87,14 +124,14 @@ export async function testAPI(apiUrl) {
     const status = response.status();
     const body = await response.text();
 
-    let json = null;
+    let json: unknown = null;
     try {
       json = JSON.parse(body);
     } catch {
       // JSON以外のレスポンス
     }
 
-    const result = {
+    const result: ApiResult = {
       status,
       ok: response.ok(),
       body: json || body.substring(0, 200),
@@ -103,8 +140,9 @@ export async function testAPI(apiUrl) {
     console.log('APIレスポンス:', result);
     return result;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('エラー:', error);
-    return { error: error.message };
+    return { error: errorMessage };
   } finally {
     await browser.close();
   }
