@@ -23,7 +23,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
 
             # 各禁止コマンドをチェック
             for blocked_cmd in $COMMANDS; do
-                if echo "$COMMAND" | grep -qF "$blocked_cmd"; then
+                if echo "$COMMAND" | grep -qE "(^|[;&|]| )$blocked_cmd( |[;&|]|$)"; then
                     # エラーメッセージを構成
                     ERROR_MESSAGE=$(cat << EOF
 ❌ エラー: 禁止されたコマンド「$blocked_cmd」が検出されました。
