@@ -2,8 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Alpine Linux用の必要なビルドツールをインストール
+RUN apk add --no-cache python3 make g++
+
 COPY package*.json ./
 
+# npm installを実行し、Alpine用のネイティブモジュールを確実にインストール
 RUN npm install
 
 COPY . .
