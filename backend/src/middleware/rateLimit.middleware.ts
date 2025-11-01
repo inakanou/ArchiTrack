@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { Request, Response } from 'express';
 
 /**
@@ -13,14 +13,15 @@ export const apiLimiter = rateLimit({
   },
   standardHeaders: true, // RateLimit-* ヘッダーを返す
   legacyHeaders: false, // X-RateLimit-* ヘッダーを無効化
-  // カスタムキー生成（プロキシ環境対応）
+  // カスタムキー生成（プロキシ環境対応、IPv6対応）
   keyGenerator: (req: Request): string => {
-    return (
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
-      (req.headers['x-real-ip'] as string) ||
-      req.ip ||
-      'unknown'
-    );
+    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
+    const realIp = req.headers['x-real-ip'] as string | undefined;
+
+    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+
+    // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
+    return ipKeyGenerator(ip);
   },
   // レート制限到達時のハンドラー
   handler: (req: Request, res: Response) => {
@@ -51,12 +52,13 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return (
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
-      (req.headers['x-real-ip'] as string) ||
-      req.ip ||
-      'unknown'
-    );
+    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
+    const realIp = req.headers['x-real-ip'] as string | undefined;
+
+    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+
+    // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
+    return ipKeyGenerator(ip);
   },
   handler: (req: Request, res: Response) => {
     req.log.warn(
@@ -83,11 +85,12 @@ export const healthCheckLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return (
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
-      (req.headers['x-real-ip'] as string) ||
-      req.ip ||
-      'unknown'
-    );
+    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
+    const realIp = req.headers['x-real-ip'] as string | undefined;
+
+    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+
+    // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
+    return ipKeyGenerator(ip);
   },
 });
