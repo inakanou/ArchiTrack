@@ -1,5 +1,7 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { Request, Response } from 'express';
+import redis from '../redis.js';
+import { RedisRateLimitStore } from './RedisRateLimitStore.js';
 
 /**
  * 一般的なAPIエンドポイント用のレート制限
@@ -13,6 +15,8 @@ export const apiLimiter = rateLimit({
   },
   standardHeaders: true, // RateLimit-* ヘッダーを返す
   legacyHeaders: false, // X-RateLimit-* ヘッダーを無効化
+  // カスタムRedisストアを使用（遅延初期化）
+  store: new RedisRateLimitStore(() => redis.getClient(), 'rl:api:'),
   // カスタムキー生成（プロキシ環境対応、IPv6対応）
   keyGenerator: (req: Request): string => {
     const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
@@ -51,6 +55,8 @@ export const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // カスタムRedisストアを使用（遅延初期化）
+  store: new RedisRateLimitStore(() => redis.getClient(), 'rl:auth:'),
   keyGenerator: (req: Request): string => {
     const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
     const realIp = req.headers['x-real-ip'] as string | undefined;
@@ -84,6 +90,8 @@ export const healthCheckLimiter = rateLimit({
   max: 60, // 最大60リクエスト
   standardHeaders: true,
   legacyHeaders: false,
+  // カスタムRedisストアを使用（遅延初期化）
+  store: new RedisRateLimitStore(() => redis.getClient(), 'rl:health:'),
   keyGenerator: (req: Request): string => {
     const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
     const realIp = req.headers['x-real-ip'] as string | undefined;

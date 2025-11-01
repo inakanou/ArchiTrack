@@ -59,11 +59,19 @@ describe('API Integration Tests', () => {
       },
     });
 
+    // Rate limitキーをクリア
     const client = redis.getClient();
     if (client) {
-      const keys = await client.keys('test-api-integration:*');
-      if (keys.length > 0) {
-        await client.del(...keys);
+      // テストデータのキーをクリア
+      const testKeys = await client.keys('test-api-integration:*');
+      if (testKeys.length > 0) {
+        await client.del(...testKeys);
+      }
+
+      // Rate limitキーをクリア
+      const rateLimitKeys = await client.keys('rl:*');
+      if (rateLimitKeys.length > 0) {
+        await client.del(...rateLimitKeys);
       }
     }
   });

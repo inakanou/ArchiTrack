@@ -10,4 +10,7 @@ else
   echo "Dependencies are up to date"
 fi
 
+echo "Generating Prisma Client..."
+npm run prisma:generate
+
 exec "$@"
