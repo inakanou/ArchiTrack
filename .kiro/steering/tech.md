@@ -10,6 +10,7 @@ ArchiTrackは、フロントエンドとバックエンドを分離したモノ�
 ArchiTrack/
 ├── frontend/     # フロントエンドアプリケーション
 ├── backend/      # バックエンドAPI
+├── e2e/          # E2Eテスト（Playwright）
 ├── .claude/      # Claude Codeカスタムコマンド
 └── .kiro/        # ステアリング・スペック管理
 ```
@@ -95,6 +96,63 @@ ArchiTrack/
 - **接続方式**: ioredisクライアントライブラリ経由
 - **ヘルスチェック**: `redis-cli ping`コマンド
 
+## E2Eテスト
+
+### 技術スタック
+
+- **テストフレームワーク**: Playwright 1.40.0
+- **ブラウザ**: Chromium (Playwright管理)
+- **テスト構成**: カテゴリ分け（api, ui, integration）
+- **レポート**: HTML形式、タイムスタンプ付きディレクトリ管理
+
+### 主要な依存関係
+
+- `@playwright/test` ^1.40.0 - E2Eテストフレームワーク
+- Chromium - Playwright経由で自動インストール
+
+### 設定ファイル
+
+- `playwright.config.js` - Playwright設定（WSL2最適化、タイムスタンプ機能）
+- `package.json` - E2Eテスト用依存関係とスクリプト
+- `.github/workflows/e2e-tests.yml` - CI/CD E2Eテストワークフロー
+
+### テストカテゴリ
+
+- `e2e/specs/api/` - APIエンドポイントのテスト
+- `e2e/specs/ui/` - UIコンポーネントとページのテスト
+- `e2e/specs/integration/` - システム統合テスト
+- `e2e/helpers/` - Claude Code統合ヘルパー（ブラウザ操作、スクリーンショット）
+
+### タイムスタンプ機能
+
+テスト実行時、結果は自動的にタイムスタンプ付きディレクトリに保存されます：
+
+```
+playwright-report/
+└── YYYY-MM-DD_HH-MM-SS-MMMZ/
+    └── index.html
+
+test-results/
+└── YYYY-MM-DD_HH-MM-SS-MMMZ/
+    ├── screenshots/  # 失敗時のスクリーンショット
+    └── videos/       # 失敗時のビデオ
+```
+
+### Claude Code統合
+
+`e2e/helpers/browser.js`により、Claude Codeから直接ブラウザ操作が可能：
+
+```bash
+# スクリーンショット撮影
+node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+
+# ページ情報取得
+node e2e/helpers/browser.js info http://localhost:5173
+
+# APIテスト
+node e2e/helpers/browser.js api http://localhost:3000/health
+```
+
 ## 開発環境
 
 ### 必須ツール
@@ -103,6 +161,8 @@ ArchiTrack/
 - **Docker & Docker Compose**: コンテナ化開発環境
 - **Git**: バージョン管理
 - **Claude Code**: AI支援開発環境
+- **Chromium（システム依存関係）**: E2Eテスト（Playwright）の実行に必要
+- **jq**: JSONパーサー（Claude Codeのカスタムフック実行に必要）
 - **テキストエディタ/IDE**: VS Code推奨
 
 ### 推奨ツール
@@ -192,6 +252,39 @@ cd backend && npm run lint:fix
 
 # Prettier実行（バックエンド）
 cd backend && npx prettier --write "src/**/*.js"
+```
+
+### E2Eテスト（Playwright）
+
+```bash
+# E2Eテストセットアップ（初回のみ）
+npm install
+sudo npx playwright install-deps chromium  # WSL2/Linuxのみ
+
+# E2Eテスト実行
+npm run test:e2e
+
+# UIモードで実行（対話的）
+npm run test:e2e:ui
+
+# ヘッドフルモード（ブラウザを表示）
+npm run test:e2e:headed
+
+# デバッグモード
+npm run test:e2e:debug
+
+# レポート表示（最新）
+npm run test:e2e:report
+
+# カテゴリ別実行
+npx playwright test api/           # APIテストのみ
+npx playwright test ui/            # UIテストのみ
+npx playwright test integration/   # 統合テストのみ
+
+# Claude Codeからブラウザ操作
+node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+node e2e/helpers/browser.js info http://localhost:5173
+node e2e/helpers/browser.js api http://localhost:3000/health
 ```
 
 ### Kiroスラッシュコマンド
@@ -286,12 +379,19 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 ### GitHub Actions
 
-`.github/workflows/ci.yml` でCI/CDパイプラインを定義しています。
+`.github/workflows/ci.yml` および `.github/workflows/e2e-tests.yml` でCI/CDパイプラインを定義しています。
 
+**CIワークフロー:**
 - **自動テスト**: プッシュ・PR時に実行
 - **ビルド検証**: フロントエンド・バックエンドのビルド確認
 - **ESLintチェック**: コード品質自動検証
 - **再現可能なビルド**: `npm ci` による依存関係インストール
+
+**E2Eテストワークフロー:**
+- **自動E2Eテスト**: PRおよびmainブランチへのpush時に実行
+- **Docker Compose統合**: テスト実行前にすべてのサービスを起動
+- **失敗時のアーティファクト**: スクリーンショット・ビデオを自動保存
+- **テストレポート**: HTML形式のレポートをアーティファクトとして保存
 
 ### Railway デプロイメント
 

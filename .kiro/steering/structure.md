@@ -11,7 +11,8 @@ ArchiTrack/
 │       └── hook_pre_commands.sh  # コマンド実行前フック
 ├── .github/                # GitHub設定
 │   └── workflows/          # GitHub Actions CI/CD
-│       └── ci.yml          # CI/CDパイプライン定義
+│       ├── ci.yml          # CI/CDパイプライン定義
+│       └── e2e-tests.yml   # E2Eテストワークフロー
 ├── .husky/                 # Git フック管理
 │   └── pre-commit          # pre-commitフックスクリプト
 ├── .kiro/                  # Kiro開発管理
@@ -20,6 +21,13 @@ ArchiTrack/
 │   │   ├── tech.md         # 技術スタック
 │   │   └── structure.md    # プロジェクト構造
 │   └── specs/              # 機能仕様（動的生成）
+├── e2e/                    # E2Eテスト（Playwright）
+│   ├── specs/              # テスト仕様（カテゴリ分け）
+│   │   ├── api/            # APIエンドポイントテスト
+│   │   ├── ui/             # UIコンポーネントテスト
+│   │   └── integration/    # システム統合テスト
+│   └── helpers/            # Claude Code統合ヘルパー
+│       └── browser.js      # ブラウザ操作・スクリーンショット
 ├── frontend/               # フロントエンドアプリケーション
 │   ├── src/                # ソースコード
 │   │   ├── App.jsx         # メインAppコンポーネント
@@ -44,6 +52,8 @@ ArchiTrack/
 │   ├── .eslintrc.json      # ESLint設定
 │   └── .env.example        # 環境変数テンプレート
 ├── docker-compose.yml      # ローカル開発環境定義
+├── package.json            # E2Eテスト依存関係
+├── playwright.config.js    # Playwright設定
 ├── .prettierrc             # Prettierコードフォーマット設定
 ├── .gitignore              # Git除外設定
 ├── CLAUDE.md               # Claude Code設定・ガイドライン
@@ -121,6 +131,55 @@ git config core.hooksPath .husky
 ├── design.md              # 技術設計
 ├── tasks.md               # 実装タスク一覧
 └── implementation/        # 実装記録（オプション）
+```
+
+### `e2e/`
+
+Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可能。
+
+**ディレクトリ構成:**
+
+```
+e2e/
+├── specs/                 # テスト仕様（カテゴリ分け）
+│   ├── api/              # APIエンドポイントテスト
+│   │   └── *.spec.js
+│   ├── ui/               # UIコンポーネント・ページテスト
+│   │   └── *.spec.js
+│   └── integration/      # システム統合テスト
+│       └── *.spec.js
+└── helpers/              # テストヘルパー・ユーティリティ
+    └── browser.js        # Claude Code統合ブラウザ操作
+```
+
+**テストカテゴリ:**
+
+- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、データ取得等）
+- `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
+- `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
+
+**Claude Code統合:**
+
+`e2e/helpers/browser.js` により、AIアシスタントから直接ブラウザ操作が可能：
+
+```bash
+# スクリーンショット撮影
+node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+
+# ページ情報取得
+node e2e/helpers/browser.js info http://localhost:5173
+
+# APIテスト
+node e2e/helpers/browser.js api http://localhost:3000/health
+```
+
+**テスト実行結果:**
+
+テスト実行時、結果はタイムスタンプ付きディレクトリに保存されます：
+
+```
+playwright-report/YYYY-MM-DD_HH-MM-SS-MMMZ/  # HTMLレポート
+test-results/YYYY-MM-DD_HH-MM-SS-MMMZ/       # スクリーンショット・ビデオ
 ```
 
 ### `frontend/`
@@ -277,9 +336,15 @@ backend/src/
 ### 特殊ファイル
 
 - `index.js` - ディレクトリのエントリーポイント・エクスポート集約
-- `*.test.js` - テストファイル
-- `*.spec.js` - スペックファイル（BDD）
+- `*.test.js` - ユニットテストファイル
+- `*.spec.js` - E2Eテストファイル（Playwright）またはスペックファイル（BDD）
 - `.env.example` - 環境変数テンプレート
+
+**E2Eテストファイル命名規則:**
+
+- `e2e/specs/api/*.spec.js` - APIエンドポイントテスト（例: `health.spec.js`）
+- `e2e/specs/ui/*.spec.js` - UIテスト（例: `homepage.spec.js`）
+- `e2e/specs/integration/*.spec.js` - 統合テスト（例: `database.spec.js`）
 
 ## インポート構成
 
@@ -386,5 +451,7 @@ import './styles.css'
 - `node_modules/` - 依存関係
 - `.env` - 環境変数（機密情報）
 - `dist/`, `build/` - ビルド成果物
+- `playwright-report/` - Playwrightテストレポート（タイムスタンプ付き）
+- `test-results/` - Playwrightテスト結果（スクリーンショット・ビデオ）
 - IDE設定ファイル
 - ログファイル
