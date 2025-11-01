@@ -28,6 +28,26 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# Backend unit tests
+if [ -d "backend" ]; then
+  echo "🧪 Running backend unit tests..."
+  npm --prefix backend run test
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend unit tests failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# Frontend unit tests
+if [ -d "frontend" ]; then
+  echo "🧪 Running frontend unit tests..."
+  npm --prefix frontend run test
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend unit tests failed. Push aborted."
+    exit 1
+  fi
+fi
+
 # E2Eテストの実行
 # プッシュ前に時間がかかる場合はコメントアウトしてください
 echo "🧪 Running E2E tests..."

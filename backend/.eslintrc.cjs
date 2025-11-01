@@ -18,6 +18,7 @@ module.exports = {
   overrides: [
     {
       files: ['**/*.ts'],
+      excludedFiles: ['vitest.config.ts'],
       parser: '@typescript-eslint/parser',
       parserOptions: {
         ecmaVersion: 'latest',
@@ -33,6 +34,27 @@ module.exports = {
       rules: {
         'prettier/prettier': 'error',
         'no-console': 'off',
+        '@typescript-eslint/no-unused-vars': [
+          'error',
+          { argsIgnorePattern: '^_' },
+        ],
+      },
+    },
+    {
+      files: ['vitest.config.ts'],
+      parser: '@typescript-eslint/parser',
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+      plugins: ['@typescript-eslint', 'prettier'],
+      extends: [
+        'eslint:recommended',
+        'plugin:@typescript-eslint/recommended',
+        'prettier',
+      ],
+      rules: {
+        'prettier/prettier': 'error',
         '@typescript-eslint/no-unused-vars': [
           'error',
           { argsIgnorePattern: '^_' },

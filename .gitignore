@@ -15,6 +15,10 @@ test-results/
 dist/
 build/
 
+# TypeScript
+*.tsbuildinfo
+.tsbuildinfo
+
 # Environment variables
 .env
 .env.local
