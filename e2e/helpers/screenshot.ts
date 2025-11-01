@@ -74,7 +74,7 @@ export async function takeScreenshot(
   // ディレクトリが存在しない場合は作成
   try {
     await mkdir(dirname(screenshotPath), { recursive: true });
-  } catch (error) {
+  } catch {
     // ディレクトリが既に存在する場合は無視
   }
 
