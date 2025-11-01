@@ -46,10 +46,14 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Clear npm cache
+        run: npm cache clean --force
+
       - name: Install dependencies
         working-directory: ./backend
         run: |
           rm -rf node_modules package-lock.json
+          npm install --no-optional
           npm install
 
       - name: Run tests
@@ -89,10 +93,14 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Clear npm cache
+        run: npm cache clean --force
+
       - name: Install dependencies
         working-directory: ./frontend
         run: |
           rm -rf node_modules package-lock.json
+          npm install --no-optional
           npm install
 
       - name: Run tests
