@@ -80,11 +80,11 @@ services:
       - ./.prettierignore:/app/.prettierignore:ro
     # commandはDockerfileのCMDを使用
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      test: ["CMD-SHELL", "curl -f http://localhost:5173 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 40s
+      retries: 15
+      start_period: 60s
 
 volumes:
   postgres_data:

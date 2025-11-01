@@ -34,6 +34,12 @@ jobs:
       - name: Run E2E code format check
         run: npm run format:check
 
+      - name: Clean up old Docker resources
+        run: |
+          echo "Removing old containers and volumes..."
+          docker compose down -v || true
+          docker system prune -f || true
+
       - name: Start Docker Compose services
         run: |
           echo "Building and starting Docker Compose services..."
@@ -53,7 +59,16 @@ jobs:
             echo "Waiting for services... ($(date +%H:%M:%S))"
             docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Health}}"
             sleep 5
-          done'
+          done' || {
+            echo "Timeout waiting for services to become healthy"
+            echo "=== Final service status ==="
+            docker compose ps
+            echo "=== Frontend logs (last 50 lines) ==="
+            docker compose logs --tail=50 frontend
+            echo "=== Backend logs (last 30 lines) ==="
+            docker compose logs --tail=30 backend
+            exit 1
+          }
           echo "All services are healthy!"
           docker compose ps
 
