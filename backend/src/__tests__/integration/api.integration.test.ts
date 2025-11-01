@@ -1,27 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
-
-// 環境変数の初期化をモック（appのインポート前に必要）
-vi.mock('../../config/env.js', async () => {
-  const actual = await vi.importActual('../../config/env.js');
-  return {
-    ...actual,
-    validateEnv: vi.fn(),
-    getEnv: vi.fn().mockReturnValue({
-      NODE_ENV: 'test',
-      PORT: 3000,
-      LOG_LEVEL: 'info',
-      DATABASE_URL: process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test',
-      REDIS_HOST: process.env.REDIS_HOST || 'localhost',
-      REDIS_PORT: parseInt(process.env.REDIS_PORT || '6379'),
-      REDIS_PASSWORD: process.env.REDIS_PASSWORD || '',
-      REDIS_DB: parseInt(process.env.REDIS_DB || '0'),
-      SESSION_SECRET: 'test-secret',
-      CORS_ORIGIN: 'http://localhost:5173',
-    }),
-  };
-});
-
 import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';

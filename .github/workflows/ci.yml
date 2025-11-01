@@ -344,6 +344,12 @@ jobs:
         working-directory: ./backend
         run: npm run prisma:generate
 
+      - name: Run database migrations
+        working-directory: ./backend
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/architrack_test
+
       - name: Run integration tests with coverage
         working-directory: ./backend
         run: npm run test:integration:coverage
