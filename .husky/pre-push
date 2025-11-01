@@ -1,0 +1,40 @@
+echo "🔎 Running type checks before push..."
+
+# Backend type check
+if [ -d "backend" ]; then
+  echo "🔍 Checking backend types..."
+  npm --prefix backend run type-check
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend type check failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# Frontend type check
+if [ -d "frontend" ]; then
+  echo "🔍 Checking frontend types..."
+  npm --prefix frontend run type-check
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend type check failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# E2E type check
+echo "🔍 Checking E2E types..."
+npm run type-check
+if [ $? -ne 0 ]; then
+  echo "❌ E2E type check failed. Push aborted."
+  exit 1
+fi
+
+# E2Eテストの実行
+# プッシュ前に時間がかかる場合はコメントアウトしてください
+echo "🧪 Running E2E tests..."
+npm run test:e2e
+if [ $? -ne 0 ]; then
+  echo "❌ E2E tests failed. Push aborted."
+  exit 1
+fi
+
+echo "✅ All checks passed!"
