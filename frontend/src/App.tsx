@@ -1,16 +1,21 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 
+interface ApiData {
+  message: string;
+  version: string;
+}
+
 function App() {
-  const [apiStatus, setApiStatus] = useState('checking...');
-  const [apiData, setApiData] = useState(null);
+  const [apiStatus, setApiStatus] = useState<string>('checking...');
+  const [apiData, setApiData] = useState<ApiData | null>(null);
 
   useEffect(() => {
     const checkApi = async () => {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
         const response = await fetch(`${apiUrl}/api`);
-        const data = await response.json();
+        const data: ApiData = await response.json();
         setApiData(data);
         setApiStatus('connected');
       } catch (error) {

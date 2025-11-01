@@ -3,10 +3,10 @@ import logger from './utils/logger.js';
 
 const { Pool } = pg;
 
-let pool = null;
+let pool: pg.Pool | null = null;
 
 // Lazy initialization - only create pool when DATABASE_URL is available
-function getPool() {
+function getPool(): pg.Pool | null {
   if (!pool && process.env.DATABASE_URL) {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -25,16 +25,16 @@ function getPool() {
 }
 
 export default {
-  query: (...args) => {
+  query: (text: string, params?: unknown[]): Promise<pg.QueryResult> => {
     const p = getPool();
     if (!p) {
       throw new Error('DATABASE_URL not configured');
     }
-    return p.query(...args);
+    return p.query(text, params);
   },
-  end: () => {
+  end: async (): Promise<void> => {
     if (pool) {
-      return pool.end();
+      await pool.end();
     }
   },
 };

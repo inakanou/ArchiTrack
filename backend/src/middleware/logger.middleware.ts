@@ -1,17 +1,22 @@
 import pinoHttp from 'pino-http';
 import { randomUUID } from 'crypto';
+import type { IncomingMessage, ServerResponse } from 'http';
 import logger from '../utils/logger.js';
 
 export const httpLogger = pinoHttp({
   logger,
 
   // Railway環境でのリクエストID追跡
-  genReqId: (req) => {
-    return req.headers['x-request-id'] || req.headers['x-railway-request-id'] || randomUUID();
+  genReqId: (req: IncomingMessage) => {
+    return (
+      (req.headers['x-request-id'] as string) ||
+      (req.headers['x-railway-request-id'] as string) ||
+      randomUUID()
+    );
   },
 
   // カスタムログレベル
-  customLogLevel: (req, res, err) => {
+  customLogLevel: (_req: IncomingMessage, res: ServerResponse, err?: Error) => {
     if (res.statusCode >= 500 || err) return 'error';
     if (res.statusCode >= 400) return 'warn';
     if (res.statusCode >= 300) return 'info';
@@ -19,7 +24,7 @@ export const httpLogger = pinoHttp({
   },
 
   // ヘルスチェックは簡略化（debugレベルに）
-  customSuccessMessage: (req, _res) => {
+  customSuccessMessage: (req: IncomingMessage, _res: ServerResponse) => {
     if (req.url === '/health') {
       return 'health check';
     }
@@ -28,7 +33,7 @@ export const httpLogger = pinoHttp({
 
   // ヘルスチェックはdebugレベルでログ
   autoLogging: {
-    ignore: (req) => {
+    ignore: (req: IncomingMessage) => {
       // ヘルスチェックとfaviconはdebugレベルのみ
       if (req.url === '/health' || req.url === '/favicon.ico') {
         return logger.level !== 'debug';
@@ -47,7 +52,8 @@ export const httpLogger = pinoHttp({
 
   // リクエスト/レスポンスの詳細をカスタマイズ
   serializers: {
-    req: (req) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    req: (req: any) => ({
       id: req.id,
       method: req.method,
       url: req.url,
@@ -60,7 +66,8 @@ export const httpLogger = pinoHttp({
       remoteAddress: req.remoteAddress,
       remotePort: req.remotePort,
     }),
-    res: (res) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    res: (res: any) => ({
       statusCode: res.statusCode,
     }),
   },

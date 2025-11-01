@@ -40,7 +40,7 @@ const logger = pino({
 
   // Railway環境ではフォーマット済みエラーを出力
   formatters: {
-    level: (label) => {
+    level: (label: string) => {
       return { level: label };
     },
   },

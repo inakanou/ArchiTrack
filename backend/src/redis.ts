@@ -1,14 +1,14 @@
 import Redis from 'ioredis';
 import logger from './utils/logger.js';
 
-let redis = null;
+let redis: Redis | null = null;
 
 // Lazy initialization - only create redis client when REDIS_URL is available
-function getRedis() {
+function getRedis(): Redis | null {
   if (!redis && process.env.REDIS_URL) {
     redis = new Redis(process.env.REDIS_URL, {
       maxRetriesPerRequest: 3,
-      retryStrategy(times) {
+      retryStrategy(times: number): number {
         const delay = Math.min(times * 50, 2000);
         return delay;
       },
@@ -19,7 +19,7 @@ function getRedis() {
       logger.info('Redis connected');
     });
 
-    redis.on('error', (err) => {
+    redis.on('error', (err: Error) => {
       logger.error({ err }, 'Redis error');
     });
   }
@@ -27,7 +27,7 @@ function getRedis() {
 }
 
 export default {
-  ping: async () => {
+  ping: async (): Promise<string> => {
     const r = getRedis();
     if (!r) {
       throw new Error('REDIS_URL not configured');
@@ -37,7 +37,7 @@ export default {
     }
     return r.ping();
   },
-  disconnect: () => {
+  disconnect: (): void => {
     if (redis) {
       redis.disconnect();
     }
