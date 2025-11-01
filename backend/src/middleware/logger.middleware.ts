@@ -52,8 +52,7 @@ export const httpLogger = pinoHttp({
 
   // リクエスト/レスポンスの詳細をカスタマイズ
   serializers: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    req: (req: any) => ({
+    req: (req: IncomingMessage & { id?: string }) => ({
       id: req.id,
       method: req.method,
       url: req.url,
@@ -63,11 +62,10 @@ export const httpLogger = pinoHttp({
         'x-forwarded-for': req.headers?.['x-forwarded-for'],
         'x-railway-request-id': req.headers?.['x-railway-request-id'],
       },
-      remoteAddress: req.remoteAddress,
-      remotePort: req.remotePort,
+      remoteAddress: (req as unknown as { remoteAddress?: string }).remoteAddress,
+      remotePort: (req as unknown as { remotePort?: number }).remotePort,
     }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    res: (res: any) => ({
+    res: (res: ServerResponse & { statusCode: number }) => ({
       statusCode: res.statusCode,
     }),
   },

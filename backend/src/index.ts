@@ -7,7 +7,7 @@ import logger from './utils/logger.js';
 import { httpLogger } from './middleware/logger.middleware.js';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 // Middleware
 // HTTPロギングを最初に適用
@@ -39,8 +39,7 @@ app.get('/health', async (req: Request, res: Response) => {
     await withTimeout(db.query('SELECT 1'), CHECK_TIMEOUT);
     services.database = 'connected';
   } catch (error) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req as any).log.warn({ err: error }, 'PostgreSQL not available');
+    req.log.warn({ err: error }, 'PostgreSQL not available');
     services.database = 'disconnected';
     // DB接続がない場合でもサーバーは稼働可能
   }
@@ -50,8 +49,7 @@ app.get('/health', async (req: Request, res: Response) => {
     await withTimeout(redis.ping(), CHECK_TIMEOUT);
     services.redis = 'connected';
   } catch (error) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req as any).log.warn({ err: error }, 'Redis not available');
+    req.log.warn({ err: error }, 'Redis not available');
     services.redis = 'disconnected';
     // Redis接続がない場合でもサーバーは稼働可能
   }
@@ -84,13 +82,12 @@ app.use((_req: Request, res: Response) => {
 
 // Error handler
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (req as any).log.error({ err }, 'Internal server error');
+  req.log.error({ err }, 'Internal server error');
   res.status(500).json({ error: 'Internal server error' });
 });
 
 // Graceful shutdown
-const gracefulShutdown = async () => {
+const gracefulShutdown = async (): Promise<void> => {
   logger.info('Shutting down gracefully...');
 
   try {
@@ -99,7 +96,8 @@ const gracefulShutdown = async () => {
     logger.info('Connections closed');
     process.exit(0);
   } catch (error) {
-    logger.error({ err: error }, 'Error during shutdown');
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ err }, 'Error during shutdown');
     process.exit(1);
   }
 };
