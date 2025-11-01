@@ -13,8 +13,10 @@ ArchiTrack/
 │   └── workflows/          # GitHub Actions CI/CD
 │       ├── ci.yml          # CI/CDパイプライン定義
 │       └── e2e-tests.yml   # E2Eテストワークフロー
-├── .husky/                 # Git フック管理
-│   └── pre-commit          # pre-commitフックスクリプト
+├── .husky/                 # Git フック管理（Husky v9）
+│   ├── pre-commit          # コミット前フック（lint-staged + 型チェック）
+│   ├── commit-msg          # コミットメッセージ検証（commitlint）
+│   └── pre-push            # プッシュ前フック（型チェック + E2Eテスト）
 ├── .kiro/                  # Kiro開発管理
 │   ├── steering/           # プロジェクトステアリング
 │   │   ├── product.md      # プロダクト概要
@@ -57,7 +59,9 @@ ArchiTrack/
 │   └── .env.example        # 環境変数テンプレート
 ├── docker-compose.yml      # ローカル開発環境定義
 ├── package.json            # E2Eテスト依存関係
-├── playwright.config.js    # Playwright設定
+├── tsconfig.json           # TypeScript設定（E2Eテスト用）
+├── playwright.config.ts    # Playwright設定（TypeScript）
+├── commitlint.config.js    # Commitlint設定（Conventional Commits）
 ├── .prettierrc             # Prettierコードフォーマット設定
 ├── .gitignore              # Git除外設定
 ├── CLAUDE.md               # Claude Code設定・ガイドライン
@@ -99,9 +103,18 @@ Gitフック管理ディレクトリ（Husky v9使用）。
 **主要ファイル:**
 
 - `pre-commit` - コミット前に自動実行されるスクリプト
-  - バックエンドの変更: Prettier + ESLintを実行
-  - フロントエンドの変更: Prettier + ESLintを実行
+  - バックエンドの変更: Prettier + ESLint + TypeScript型チェック
+  - フロントエンドの変更: Prettier + ESLint + TypeScript型チェック
+  - E2Eテストの変更: Prettier + ESLint + TypeScript型チェック
   - lint-stagedと連携して、ステージングされたファイルのみ処理
+- `commit-msg` - コミットメッセージ検証スクリプト
+  - commitlintによるConventional Commits形式の強制
+  - type: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+  - subject: 小文字始まり、100文字以内、末尾にピリオド不要
+- `pre-push` - プッシュ前に自動実行されるスクリプト
+  - Backend、Frontend、E2EのTypeScript型チェック
+  - E2Eテストの実行
+  - 失敗時はプッシュを中断
 
 **有効化方法:**
 
@@ -195,10 +208,12 @@ test-results/YYYY-MM-DD_HH-MM-SS-MMMZ/       # スクリーンショット・ビ
 ```
 frontend/
 ├── src/
-│   ├── App.jsx            # メインAppコンポーネント
-│   └── main.jsx           # Reactエントリーポイント
+│   ├── App.tsx            # メインAppコンポーネント（TypeScript）
+│   ├── main.tsx           # Reactエントリーポイント（TypeScript）
+│   └── vite-env.d.ts      # Vite環境変数型定義
 ├── public/                # 公開静的ファイル
 ├── dist/                  # ビルド成果物（.gitignore）
+├── tsconfig.json          # TypeScript設定（Vite/React専用）
 ├── Dockerfile             # 本番環境用（nginx）
 ├── Dockerfile.dev         # 開発環境用（Vite dev server）
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック（アーキテクチャ固有モジュール対応）
@@ -206,7 +221,7 @@ frontend/
 ├── nginx.conf             # nginx本番環境設定
 ├── vite.config.js         # Vite設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
-├── .eslintrc.json         # ESLint設定
+├── .eslintrc.json         # ESLint設定（TypeScript対応）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
@@ -215,7 +230,7 @@ frontend/
 
 ```json
 "lint-staged": {
-  "*.{js,jsx}": [
+  "*.{ts,tsx}": [
     "prettier --write",
     "eslint --fix"
   ]
@@ -243,14 +258,20 @@ frontend/src/
 ```
 backend/
 ├── src/
-│   ├── index.js           # Expressサーバーエントリーポイント
-│   ├── db.js              # PostgreSQL接続管理（lazy initialization）
-│   └── redis.js           # Redis接続管理（lazy initialization）
+│   ├── index.ts           # Expressサーバーエントリーポイント（TypeScript）
+│   ├── db.ts              # PostgreSQL接続管理（lazy initialization）
+│   ├── redis.ts           # Redis接続管理（lazy initialization）
+│   ├── middleware/
+│   │   └── logger.middleware.ts  # Pino HTTPロギングミドルウェア
+│   └── types/             # カスタム型定義
+│       ├── express.d.ts   # Express Request拡張（pinoログ追加）
+│       └── env.d.ts       # 環境変数型定義（型安全なprocess.env）
+├── tsconfig.json          # TypeScript設定（Node.js専用、strictモード）
 ├── Dockerfile.dev         # 開発環境用Dockerイメージ
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック
 ├── railway.toml           # Railway デプロイ設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
-├── .eslintrc.json         # ESLint設定
+├── .eslintrc.json         # ESLint設定（TypeScript対応）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
@@ -259,7 +280,7 @@ backend/
 
 ```json
 "lint-staged": {
-  "*.js": [
+  "*.ts": [
     "prettier --write",
     "eslint --fix"
   ]
@@ -341,12 +362,13 @@ backend/src/
 
 ### 一般規則
 
-- **拡張子**: `.js`, `.ts`, `.jsx`, `.tsx`, `.vue`など適切な拡張子を使用
+- **拡張子**: `.ts`, `.tsx`（TypeScript）、設定ファイルは`.js`も許可
 - **ケース**:
-  - コンポーネント: PascalCase (`UserProfile.jsx`)
-  - ユーティリティ: camelCase (`formatDate.js`)
-  - 定数: UPPER_SNAKE_CASE (`API_ENDPOINTS.js`)
+  - コンポーネント: PascalCase (`UserProfile.tsx`)
+  - ユーティリティ: camelCase (`formatDate.ts`)
+  - 定数: UPPER_SNAKE_CASE (`API_ENDPOINTS.ts`)
 - **意味のある名前**: 機能を明確に表現
+- **型定義ファイル**: `.d.ts`拡張子（例: `express.d.ts`, `env.d.ts`, `vite-env.d.ts`）
 
 ### 特殊ファイル
 
@@ -357,9 +379,10 @@ backend/src/
 
 **E2Eテストファイル命名規則:**
 
-- `e2e/specs/api/*.spec.js` - APIエンドポイントテスト（例: `health.spec.js`）
-- `e2e/specs/ui/*.spec.js` - UIテスト（例: `homepage.spec.js`）
-- `e2e/specs/integration/*.spec.js` - 統合テスト（例: `database.spec.js`）
+- `e2e/specs/api/*.spec.ts` - APIエンドポイントテスト（例: `health.spec.ts`）
+- `e2e/specs/ui/*.spec.ts` - UIテスト（例: `homepage.spec.ts`）
+- `e2e/specs/integration/*.spec.ts` - 統合テスト（例: `database.spec.ts`）
+- `e2e/helpers/*.ts` - テストヘルパー関数（例: `browser.ts`）
 
 ## インポート構成
 
@@ -444,20 +467,67 @@ import './styles.css'
 
 ### コミットメッセージ
 
-日本語で明確に記述し、以下の情報を含めます：
+**Conventional Commits形式を厳格に適用**（commitlintで強制）：
 
-- 変更の概要（1行目）
-- 詳細な説明（必要に応じて）
-- 関連する仕様やイシュー番号
+**形式**: `type: subject`
 
-### Pre-commitフック
+**許可されるtype**:
+- `feat`: 新機能
+- `fix`: バグ修正
+- `docs`: ドキュメント変更
+- `style`: コードスタイル変更（機能に影響なし）
+- `refactor`: リファクタリング
+- `perf`: パフォーマンス改善
+- `test`: テスト追加・修正
+- `build`: ビルドシステム変更
+- `ci`: CI設定変更
+- `chore`: その他の変更
+- `revert`: コミットの取り消し
 
-`.husky/pre-commit` により、コミット前に自動的に以下が実行されます：
+**subjectルール**:
+- 小文字始まり（例: ✅ `add user authentication` ❌ `Add user authentication`）
+- 100文字以内
+- 末尾にピリオド不要
+- 日本語または英語で簡潔に記述
 
-1. 変更されたバックエンドファイル（`*.js`）: Prettier + ESLint
-2. 変更されたフロントエンドファイル（`*.{js,jsx}`）: Prettier + ESLint
+**例**:
+```
+feat: add user authentication with JWT
+fix: resolve database connection timeout issue
+docs: update README with TypeScript setup guide
+refactor: improve type safety by eliminating any types
+```
 
-これにより、コード品質が自動的に維持されます。
+**詳細説明**（オプション）:
+- 空行の後に複数行で記述可能
+- 関連する仕様やイシュー番号を含める
+
+### Git Hooks
+
+`.husky/`により、以下の3段階でコード品質を自動保証：
+
+#### 1. Pre-commitフック
+
+コミット前に自動的に以下が実行されます：
+
+- 変更されたバックエンドファイル（`*.ts`）: Prettier + ESLint + TypeScript型チェック
+- 変更されたフロントエンドファイル（`*.{ts,tsx}`）: Prettier + ESLint + TypeScript型チェック
+- 変更されたE2Eファイル（`*.ts`, `playwright.config.ts`）: Prettier + ESLint + TypeScript型チェック
+
+型エラーがある場合、コミットは中断されます。
+
+#### 2. Commit-msgフック
+
+コミットメッセージが Conventional Commits形式に従っているかチェック。形式違反の場合はコミットを中断します。
+
+#### 3. Pre-pushフック
+
+プッシュ前に以下を実行：
+
+- Backend、Frontend、E2EのTypeScript型チェック
+- E2Eテストの実行
+
+型エラーまたはテスト失敗がある場合、プッシュは中断されます。
 
 ### .gitignore
 

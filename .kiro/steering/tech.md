@@ -19,6 +19,7 @@ ArchiTrack/
 
 ### 技術スタック
 
+- **言語**: TypeScript 5.9.3
 - **フレームワーク**: React 18.2.0
 - **ビルドツール**: Vite 5.1.0
 - **開発サーバー**: Vite Dev Server
@@ -29,13 +30,20 @@ ArchiTrack/
 
 - `react` ^18.2.0 - UIライブラリ
 - `react-dom` ^18.2.0 - React DOM操作
+- `typescript` ^5.9.3 - TypeScriptコンパイラ
+- `@types/react` ^19.2.2 - React型定義
+- `@types/react-dom` ^19.2.2 - React DOM型定義
 - `@vitejs/plugin-react` ^4.2.1 - Vite React プラグイン
+- `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
 - `eslint` ^8.56.0 - コード品質チェック
 - `prettier` ^3.6.2 - コードフォーマッター
 - `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
 
 ### 設定ファイル
 
+- `frontend/tsconfig.json` - TypeScript設定（Vite/React専用）
+- `frontend/src/vite-env.d.ts` - Vite環境変数型定義
 - `frontend/vite.config.js` - Vite設定
 - `frontend/nginx.conf` - nginx設定（本番環境）
 - `frontend/package.json` - 依存関係管理
@@ -52,7 +60,9 @@ ArchiTrack/
 
 ### 技術スタック
 
+- **言語**: TypeScript 5.9.3
 - **ランタイム**: Node.js 20
+- **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 4.18.2
 - **データベースクライアント**: pg (PostgreSQL) 8.11.3
 - **キャッシュクライアント**: ioredis 5.3.2
@@ -66,14 +76,27 @@ ArchiTrack/
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `dotenv` ^16.4.1 - 環境変数管理
+- `pino` ^8.17.0 - ロガー
+- `pino-http` ^9.0.0 - HTTP ロギングミドルウェア
+- `pino-pretty` ^10.3.0 - ログの整形出力
+- `typescript` ^5.9.3 - TypeScriptコンパイラ
+- `tsx` ^4.20.6 - TypeScript実行環境
+- `@types/express` ^5.0.5 - Express型定義
+- `@types/cors` ^2.8.19 - CORS型定義
+- `@types/node` ^24.9.2 - Node.js型定義
+- `@types/pg` ^8.15.6 - PostgreSQL型定義
+- `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
 - `eslint` ^8.56.0 - コード品質チェック
 - `prettier` ^3.6.2 - コードフォーマッター
 - `husky` ^9.0.11 - Git フックマネージャー
 - `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
-- `pino-pretty` ^10.3.0 - ログの整形出力
 
 ### 設定ファイル
 
+- `backend/tsconfig.json` - TypeScript設定（Node.js専用）
+- `backend/src/types/express.d.ts` - Express Request拡張型定義（pinoログ追加）
+- `backend/src/types/env.d.ts` - 環境変数型定義（型安全なprocess.env）
 - `backend/package.json` - 依存関係管理
 - `backend/.env.example` - 環境変数テンプレート
 - `backend/.eslintrc.json` - ESLint設定
@@ -104,6 +127,7 @@ ArchiTrack/
 
 ### 技術スタック
 
+- **言語**: TypeScript 5.9.3
 - **テストフレームワーク**: Playwright 1.40.0
 - **ブラウザ**: Chromium (Playwright管理)
 - **テスト構成**: カテゴリ分け（api, ui, integration）
@@ -112,11 +136,16 @@ ArchiTrack/
 ### 主要な依存関係
 
 - `@playwright/test` ^1.40.0 - E2Eテストフレームワーク
+- `typescript` ^5.9.3 - TypeScriptコンパイラ
+- `@types/node` ^24.9.2 - Node.js型定義
+- `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
 - Chromium - Playwright経由で自動インストール
 
 ### 設定ファイル
 
-- `playwright.config.js` - Playwright設定（WSL2最適化、タイムスタンプ機能）
+- `tsconfig.json` - TypeScript設定（E2Eテスト用）
+- `playwright.config.ts` - Playwright設定（WSL2最適化、タイムスタンプ機能）
 - `package.json` - E2Eテスト用依存関係とスクリプト
 - `.github/workflows/e2e-tests.yml` - CI/CD E2Eテストワークフロー
 
@@ -355,6 +384,25 @@ node e2e/helpers/browser.js api http://localhost:3000/health
 /kiro:validate-gap [feature-name]
 ```
 
+### TypeScript開発
+
+```bash
+# Backend型チェック
+cd backend && npm run type-check
+
+# Frontend型チェック
+cd frontend && npm run type-check
+
+# E2E型チェック
+npm run type-check
+
+# Backendビルド
+cd backend && npm run build
+
+# Frontend TSビルド
+cd frontend && npm run build
+```
+
 ### Git操作
 
 ```bash
@@ -366,11 +414,13 @@ git config core.hooksPath .husky
 
 # 変更のコミット
 git add .
-git commit -m "commit message"
-# 注: pre-commitフックが自動的にPrettier + ESLintを実行します
+git commit -m "feat: commit message"
+# 注1: commit-msgフックがConventional Commits形式をチェック
+# 注2: pre-commitフックが自動的にPrettier + ESLint + TypeScript型チェックを実行
 
 # リモートへプッシュ
 git push origin main
+# 注: pre-pushフックがTypeScript型チェックとE2Eテストを実行
 ```
 
 ## 環境変数
@@ -469,21 +519,50 @@ GitHubリポジトリと連携し、mainブランチへのプッシュで自動�
 
 ### コード品質管理
 
-#### Pre-commitフック
+ArchiTrackでは、3段階のGit hooksにより品質を自動保証しています。
+
+#### Pre-commitフック（`.husky/pre-commit`）
 
 コミット前に自動的に以下が実行されます：
 
-1. **Prettier**: ステージングされたファイルを自動フォーマット
-2. **ESLint**: コード品質チェックと自動修正
+1. **lint-staged**: ステージングされたファイルのみ処理
+2. **Prettier**: コードフォーマット自動適用
+3. **ESLint**: コード品質チェックと自動修正
+4. **TypeScript型チェック**: 型エラーがある場合はコミット中断
 
-設定は `.husky/pre-commit` および各 `package.json` の `lint-staged` セクションで管理されています。
+**実行対象:**
+- Backend: `*.ts`ファイルが変更された場合
+- Frontend: `*.{ts,tsx}`ファイルが変更された場合
+- E2E: `*.ts`または`playwright.config.ts`が変更された場合
+
+#### Commit-msgフック（`.husky/commit-msg`）
+
+コミットメッセージが以下の形式に従っているかチェック：
+
+- **Conventional Commits形式**: `type: subject`
+- **許可されるtype**: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+- **subject制約**: 小文字始まり、100文字以内、末尾にピリオド不要
+- **ツール**: commitlint + @commitlint/config-conventional
+
+**設定ファイル**: `commitlint.config.js`
+
+#### Pre-pushフック（`.husky/pre-push`）
+
+プッシュ前に自動的に以下が実行されます：
+
+1. **Backend型チェック**: `npm --prefix backend run type-check`
+2. **Frontend型チェック**: `npm --prefix frontend run type-check`
+3. **E2E型チェック**: `npm run type-check`
+4. **E2Eテスト実行**: `npm run test:e2e`
+
+型エラーまたはテスト失敗がある場合、プッシュは中断されます。
 
 #### lint-staged設定
 
 **フロントエンド**:
 ```json
 "lint-staged": {
-  "*.{js,jsx}": [
+  "*.{ts,tsx}": [
     "prettier --write",
     "eslint --fix"
   ]
@@ -493,7 +572,17 @@ GitHubリポジトリと連携し、mainブランチへのプッシュで自動�
 **バックエンド**:
 ```json
 "lint-staged": {
-  "*.js": [
+  "*.ts": [
+    "prettier --write",
+    "eslint --fix"
+  ]
+}
+```
+
+**E2E**:
+```json
+"lint-staged": {
+  "*.ts": [
     "prettier --write",
     "eslint --fix"
   ]

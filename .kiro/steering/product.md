@@ -15,7 +15,11 @@ ArchiTrackは、Claude Codeを活用したKiro-style Spec Driven Development（�
 - **マルチサービスアーキテクチャ**: PostgreSQL、Redis統合による堅牢なデータ層
 - **最適化されたDocker開発環境**: エントリポイントスクリプトによる依存関係自動管理、ヘルスチェック統合、高速起動（フロントエンド起動時間を45-60秒から10-15秒に短縮）
 - **ヘルスチェック機能**: 全サービス（PostgreSQL、Redis、Backend、Frontend）でヘルスチェックを実装し、起動順序と依存関係を保証
-- **E2Eテスト環境**: Playwright + Chromiumによるブラウザ自動化テスト、タイムスタンプ付き結果管理
+- **TypeScript完全サポート**: Backend、Frontend、E2Eテスト全体でTypeScript採用、厳格な型安全性を実現
+- **型安全性の徹底**: カスタム型定義ファイル（Express拡張、環境変数）による`any`型の完全排除
+- **自動品質保証**: Git hooks（pre-commit、commit-msg、pre-push）による型チェック・lint・テスト実行の強制
+- **Conventional Commits強制**: commitlintによるコミットメッセージ規約の厳格な適用
+- **E2Eテスト環境**: Playwright + TypeScriptによるブラウザ自動化テスト、タイムスタンプ付き結果管理
 - **Claude Code統合テスト**: AIアシスタントから直接ブラウザ操作・スクリーンショット撮影が可能
 - **本番環境デプロイ**: Railwayプラットフォームによる継続的デプロイ
 
