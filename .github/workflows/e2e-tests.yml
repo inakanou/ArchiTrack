@@ -30,16 +30,42 @@ jobs:
 
       - name: Start Docker Compose services
         run: |
-          docker compose up -d
-          # サービスが起動するまで待機
-          sleep 10
+          docker compose up -d --build
+          echo "Waiting for services to start..."
+          sleep 15
 
-      - name: Wait for services to be ready
+      - name: Check Docker containers status
+        run: docker compose ps
+
+      - name: Wait for PostgreSQL to be ready
         run: |
-          # フロントエンドの起動を待つ
-          timeout 120 bash -c 'until curl -s http://localhost:5173 > /dev/null; do sleep 2; done'
-          # バックエンドの起動を待つ
-          timeout 120 bash -c 'until curl -s http://localhost:3000/api/health > /dev/null; do sleep 2; done'
+          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U postgres; do sleep 2; done'
+
+      - name: Wait for Redis to be ready
+        run: |
+          timeout 60 bash -c 'until docker compose exec -T redis redis-cli ping; do sleep 2; done'
+
+      - name: Wait for Backend to be ready
+        run: |
+          echo "Waiting for backend to start..."
+          timeout 180 bash -c 'until curl -s http://localhost:3000/health > /dev/null 2>&1; do echo "Waiting for backend..."; sleep 5; done'
+          echo "Backend is ready!"
+
+      - name: Wait for Frontend to be ready
+        run: |
+          echo "Waiting for frontend to start..."
+          timeout 180 bash -c 'until curl -s http://localhost:5173 > /dev/null 2>&1; do echo "Waiting for frontend..."; sleep 5; done'
+          echo "Frontend is ready!"
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker Compose Services ==="
+          docker compose ps
+          echo "=== Backend Logs ==="
+          docker compose logs backend
+          echo "=== Frontend Logs ==="
+          docker compose logs frontend
 
       - name: Run Playwright tests
         run: npm run test:e2e
