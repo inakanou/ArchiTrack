@@ -7,9 +7,7 @@ export const httpLogger = pinoHttp({
 
   // Railway環境でのリクエストID追跡
   genReqId: (req) => {
-    return req.headers['x-request-id'] ||
-           req.headers['x-railway-request-id'] ||
-           randomUUID();
+    return req.headers['x-request-id'] || req.headers['x-railway-request-id'] || randomUUID();
   },
 
   // カスタムログレベル

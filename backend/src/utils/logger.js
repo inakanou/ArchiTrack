@@ -8,15 +8,18 @@ const logger = pino({
 
   // Railway環境では常にJSON出力
   // 開発環境ではpino-prettyで見やすく
-  transport: !isRailway && !isProduction ? {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
-      translateTime: 'SYS:standard',
-      ignore: 'pid,hostname',
-      singleLine: false,
-    },
-  } : undefined,
+  transport:
+    !isRailway && !isProduction
+      ? {
+          target: 'pino-pretty',
+          options: {
+            colorize: true,
+            translateTime: 'SYS:standard',
+            ignore: 'pid,hostname',
+            singleLine: false,
+          },
+        }
+      : undefined,
 
   // Railway用のメタデータ
   base: {

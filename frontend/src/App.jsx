@@ -1,21 +1,21 @@
-import { useState, useEffect } from 'react';
-import './App.css';
+import { useState, useEffect } from "react";
+import "./App.css";
 
 function App() {
-  const [apiStatus, setApiStatus] = useState('checking...');
+  const [apiStatus, setApiStatus] = useState("checking...");
   const [apiData, setApiData] = useState(null);
 
   useEffect(() => {
     const checkApi = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
         const response = await fetch(`${apiUrl}/api`);
         const data = await response.json();
         setApiData(data);
-        setApiStatus('connected');
+        setApiStatus("connected");
       } catch (error) {
-        console.error('API connection failed:', error);
-        setApiStatus('disconnected');
+        console.error("API connection failed:", error);
+        setApiStatus("disconnected");
       }
     };
 

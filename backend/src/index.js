@@ -13,10 +13,12 @@ const PORT = process.env.PORT || 3000;
 // HTTPロギングを最初に適用
 app.use(httpLogger);
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // Health check endpoint with timeout
@@ -28,9 +30,7 @@ app.get('/health', async (req, res) => {
   const withTimeout = (promise, timeoutMs) => {
     return Promise.race([
       promise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), timeoutMs),
-      ),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeoutMs)),
     ]);
   };
 
