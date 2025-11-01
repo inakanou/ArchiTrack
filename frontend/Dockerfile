@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (npm ci for reproducible builds)
-RUN npm ci --include=optional
+# Install dependencies (workaround for npm optional dependencies bug)
+RUN rm -rf node_modules package-lock.json && npm install
 
 # Copy source files
 COPY . .
