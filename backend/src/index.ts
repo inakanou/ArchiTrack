@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import app from './app.js';
-import db from './db.js';
+import { disconnectPrisma } from './db.js';
 import redis from './redis.js';
 import logger from './utils/logger.js';
 
@@ -11,7 +11,7 @@ const gracefulShutdown = async (): Promise<void> => {
   logger.info('Shutting down gracefully...');
 
   try {
-    await db.end();
+    await disconnectPrisma();
     redis.disconnect();
     logger.info('Connections closed');
     process.exit(0);

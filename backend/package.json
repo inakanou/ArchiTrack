@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run prisma:generate && tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "dev:js": "node --watch src/index.js",
@@ -17,9 +17,15 @@
     "lint:fix": "eslint src/**/*.{js,ts} --fix",
     "format": "prettier --write \"src/**/*.{js,ts}\"",
     "format:check": "prettier --check \"src/**/*.{js,ts}\"",
-    "type-check": "tsc --noEmit"
+    "type-check": "npm run prisma:generate && tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "prisma:format": "prisma format"
   },
   "dependencies": {
+    "@prisma/client": "^6.18.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
@@ -44,6 +50,7 @@
     "lint-staged": "^15.2.0",
     "pino-pretty": "^10.3.0",
     "prettier": "^3.6.2",
+    "prisma": "^6.18.0",
     "supertest": "^7.1.4",
     "ts-node": "^10.9.2",
     "tsx": "^4.20.6",
@@ -54,6 +61,9 @@
     "*.{js,ts}": [
       "prettier --write",
       "eslint --fix"
+    ],
+    "prisma/schema.prisma": [
+      "prisma format"
     ]
   },
   "engines": {

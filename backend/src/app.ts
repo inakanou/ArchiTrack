@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import db from './db.js';
+import getPrismaClient from './db.js';
 import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
 
@@ -33,7 +33,8 @@ app.get('/health', async (req: Request, res: Response) => {
 
   // PostgreSQL チェック（オプショナル）
   try {
-    await withTimeout(db.query('SELECT 1'), CHECK_TIMEOUT);
+    const prisma = getPrismaClient();
+    await withTimeout(prisma.$queryRaw`SELECT 1`, CHECK_TIMEOUT);
     services.database = 'connected';
   } catch (error) {
     req.log.warn({ err: error }, 'PostgreSQL not available');

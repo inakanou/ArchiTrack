@@ -1,40 +1,35 @@
-import pg from 'pg';
+import { PrismaClient } from '@prisma/client';
 import logger from './utils/logger.js';
 
-const { Pool } = pg;
+// Singleton Prisma Client instance
+// https://www.prisma.io/docs/guides/performance-and-optimization/connection-management#prismaclient-in-long-running-applications
+let prisma: PrismaClient | null = null;
 
-let pool: pg.Pool | null = null;
-
-// Lazy initialization - only create pool when DATABASE_URL is available
-function getPool(): pg.Pool | null {
-  if (!pool && process.env.DATABASE_URL) {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+// Lazy initialization - only create client when DATABASE_URL is available
+function getPrismaClient(): PrismaClient {
+  if (!prisma && process.env.DATABASE_URL) {
+    prisma = new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     });
 
-    pool.on('connect', () => {
-      logger.info('PostgreSQL connected');
-    });
-
-    pool.on('error', (err) => {
-      logger.error({ err }, 'PostgreSQL error');
-    });
+    logger.info('Prisma Client initialized');
   }
-  return pool;
+
+  if (!prisma) {
+    throw new Error('DATABASE_URL not configured');
+  }
+
+  return prisma;
 }
 
-export default {
-  query: (text: string, params?: unknown[]): Promise<pg.QueryResult> => {
-    const p = getPool();
-    if (!p) {
-      throw new Error('DATABASE_URL not configured');
-    }
-    return p.query(text, params);
-  },
-  end: async (): Promise<void> => {
-    if (pool) {
-      await pool.end();
-    }
-  },
-};
+// Export singleton instance getter
+export default getPrismaClient;
+
+// Graceful shutdown helper
+export async function disconnectPrisma(): Promise<void> {
+  if (prisma) {
+    await prisma.$disconnect();
+    logger.info('Prisma Client disconnected');
+    prisma = null;
+  }
+}
