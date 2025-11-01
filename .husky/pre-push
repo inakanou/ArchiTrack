@@ -28,6 +28,58 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+echo "🔍 Running full lint checks before push..."
+
+# Backend lint
+if [ -d "backend" ]; then
+  echo "🔍 Linting backend..."
+  npm --prefix backend run lint
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend lint failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# Frontend lint
+if [ -d "frontend" ]; then
+  echo "🔍 Linting frontend..."
+  npm --prefix frontend run lint
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend lint failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# E2E lint
+echo "🔍 Linting E2E tests..."
+npm run lint
+if [ $? -ne 0 ]; then
+  echo "❌ E2E lint failed. Push aborted."
+  exit 1
+fi
+
+echo "🔨 Building projects before push..."
+
+# Backend build
+if [ -d "backend" ]; then
+  echo "🔨 Building backend..."
+  npm --prefix backend run build
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend build failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# Frontend build
+if [ -d "frontend" ]; then
+  echo "🔨 Building frontend..."
+  npm --prefix frontend run build
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend build failed. Push aborted."
+    exit 1
+  fi
+fi
+
 # Backend unit tests
 if [ -d "backend" ]; then
   echo "🧪 Running backend unit tests..."
