@@ -278,15 +278,279 @@ main (本番)
       └── bugfix/yyy
 ```
 
-### 開発手順
+### 開発手順（詳細）
 
-1. **仕様作成**: Claude Codeのスラッシュコマンドで仕様を作成
-2. **ブランチ作成**: `feature/*` ブランチで開発
-3. **実装**: スペックに従って段階的に実装
-4. **コミット**: pre-commitフックが自動的にコード品質をチェック
-5. **PR作成**: `develop` へのPRを作成
-6. **テスト**: テスト環境で確認
-7. **デプロイ**: `develop` を `main` へマージして本番デプロイ
+新機能を追加する際の具体的なワークフローです。
+
+#### Step 1: 開発準備
+
+```bash
+# リポジトリの最新状態を取得
+git pull origin main
+
+# 開発環境を起動
+docker-compose up -d
+```
+
+#### Step 2: ステアリングドキュメントの確認・更新（初回または大きな変更時）
+
+Claude Codeで以下のコマンドを実行：
+
+```
+/kiro:steering
+```
+
+これにより、プロジェクトの最新状態がAIに共有されます。
+
+#### Step 3: フィーチャーブランチの作成
+
+```bash
+# 機能名でブランチを作成（例: feature/user-auth）
+git checkout -b feature/user-auth
+```
+
+#### Step 4: 仕様の作成（Kiro-style SDD）
+
+**4-1. 仕様の初期化**
+
+Claude Codeで新機能の概要を詳しく説明して初期化：
+
+```
+/kiro:spec-init ユーザー認証機能を追加します。JWT形式のトークンベース認証を実装し、ログイン・ログアウト・トークン更新の機能を提供します。フロントエンドはReact、バックエンドはExpressで実装します。
+```
+
+これにより `.kiro/specs/user-auth/` ディレクトリが作成されます。
+
+**4-2. 要件定義の生成**
+
+```
+/kiro:spec-requirements user-auth
+```
+
+生成された `requirements.md` を確認し、必要に応じて手動で修正・追記します。
+
+**4-3. 技術設計の作成**
+
+```
+/kiro:spec-design user-auth
+```
+
+対話形式で要件を確認済みか聞かれるので、確認後に `y` で進めます。
+生成された `design.md` をレビューし、アーキテクチャや技術選定が適切か確認します。
+
+**4-4. 実装タスクの生成**
+
+```
+/kiro:spec-tasks user-auth
+```
+
+対話形式で要件と設計の確認を経て、実装タスクが `tasks.md` に生成されます。
+各タスクは小さな単位に分割されており、段階的に実装できます。
+
+**4-5. 仕様の進捗確認**
+
+```
+/kiro:spec-status user-auth
+```
+
+現在のフェーズ（要件/設計/タスク/実装）と進捗状況を確認できます。
+
+#### Step 5: 仕様のコミットとレビュー依頼
+
+```bash
+# 仕様ファイルをステージング
+git add .kiro/specs/user-auth/
+
+# 仕様をコミット
+git commit -m "docs: ユーザー認証機能の仕様を追加
+
+- 要件定義
+- 技術設計
+- 実装タスク"
+
+# リモートにプッシュ
+git push origin feature/user-auth
+
+# 仕様レビュー用のPRを作成
+gh pr create --title "Spec: ユーザー認証機能" --body "## 概要
+ユーザー認証機能の仕様を作成しました。
+
+## レビューポイント
+- [ ] 要件定義が適切か
+- [ ] 技術設計がプロジェクトのアーキテクチャに適合しているか
+- [ ] 実装タスクが適切に分割されているか
+
+## 仕様ファイル
+- .kiro/specs/user-auth/requirements.md
+- .kiro/specs/user-auth/design.md
+- .kiro/specs/user-auth/tasks.md
+
+## 次のステップ
+仕様承認後、同じブランチで実装を開始します。" --draft
+```
+
+**レビュー対応:**
+- レビューフィードバックに基づいて仕様を修正
+- 承認されたらPRのドラフトを解除してマージ準備
+- または、実装を含めた最終PRまでドラフトのまま継続
+
+#### Step 6: 実装
+
+**6-1. タスクの確認**
+
+`.kiro/specs/user-auth/tasks.md` を開き、実装するタスクを確認します。
+
+**6-2. Claude Codeで実装**
+
+Claude Codeに以下のように依頼：
+
+```
+/kiro:spec-impl user-auth 1,2,3
+```
+
+または、個別に指示：
+
+```
+.kiro/specs/user-auth/tasks.md のタスク1「JWT認証ミドルウェアの実装」を実装してください
+```
+
+**6-3. 実装の確認**
+
+- コードレビュー
+- ローカルで動作確認
+- 必要に応じてテストの追加
+
+```bash
+# フロントエンド確認
+curl http://localhost:5173
+
+# バックエンドAPI確認
+curl http://localhost:3000/health
+```
+
+```bash
+# 変更を確認
+git status
+git diff
+
+# ステージング
+git add .
+
+# コミット（pre-commitフックが自動実行されます）
+git commit -m "feat: JWT認証ミドルウェアの実装"
+# Prettier + ESLintが自動的に実行され、コードが整形されます
+```
+
+**コミットメッセージの規約:**
+- `feat:` - 新機能
+- `fix:` - バグ修正
+- `docs:` - ドキュメント更新
+- `style:` - コードフォーマット
+- `refactor:` - リファクタリング
+- `test:` - テスト追加・修正
+- `chore:` - ビルド・ツール設定
+
+```bash
+# 実装をプッシュ
+git push origin feature/user-auth
+
+# Step 5でドラフトPRを作成している場合は更新
+# PRの説明を実装内容に更新
+gh pr edit --body "## 概要
+ユーザー認証機能を追加しました。
+
+## 仕様
+- .kiro/specs/user-auth/requirements.md
+- .kiro/specs/user-auth/design.md
+- .kiro/specs/user-auth/tasks.md
+
+## 変更内容
+- JWT認証ミドルウェアの実装
+- ログイン/ログアウトAPIの実装
+- トークン更新APIの実装
+
+## テスト
+- [x] ログイン動作確認
+- [x] トークン検証動作確認
+- [x] ログアウト動作確認
+
+## スクリーンショット
+（必要に応じて追加）"
+
+# ドラフトを解除してレビュー依頼
+gh pr ready
+```
+
+PR上でレビューを受け、必要に応じて修正：
+
+```bash
+# フィードバックに基づいて修正
+# ...
+
+# 再度コミット
+git add .
+git commit -m "fix: レビューフィードバックの反映"
+git push origin feature/user-auth
+```
+
+```bash
+# PRがレビュー承認されたらマージ
+# GitHub UI上でマージボタンをクリック
+# または
+gh pr merge --squash
+
+# mainブランチに移動して最新化
+git checkout main
+git pull origin main
+
+# Railwayへの自動デプロイが開始されます
+# Railway UIで状態を確認
+```
+
+#### Step 11: デプロイ確認
+
+```bash
+# Railway UIでデプロイログを確認
+# ヘルスチェックエンドポイントで確認
+curl https://your-backend.railway.app/health
+
+# フロントエンドの確認
+# ブラウザで https://your-frontend.railway.app にアクセス
+```
+
+### 日常的な開発フロー
+
+小規模な修正や改善の場合：
+
+```bash
+# 1. 最新状態を取得
+git pull origin main
+
+# 2. ブランチ作成
+git checkout -b fix/button-color
+
+# 3. Claude Codeに依頼
+# 「ログインボタンの色を青から緑に変更してください」
+
+# 4. 確認・コミット
+git add .
+git commit -m "fix: ログインボタンの色を変更"
+
+# 5. プッシュ・PR作成
+git push origin fix/button-color
+gh pr create --title "fix: ログインボタンの色を変更" --body "UIの視認性向上のため、ログインボタンの色を変更"
+
+# 6. マージ
+gh pr merge --squash
+```
+
+### チーム開発での注意点
+
+1. **仕様を必ず作成**: 中規模以上の機能は必ず `/kiro:spec-init` から開始
+2. **レビューを依頼**: PRは必ず他のメンバーにレビューを依頼
+3. **コミットは小さく**: 1つのコミットで1つの変更
+4. **ステアリング更新**: 大きな変更後は `/kiro:steering` を実行
+5. **進捗共有**: `/kiro:spec-status` で進捗を共有
 
 ## トラブルシューティング
 
