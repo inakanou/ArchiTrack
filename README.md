@@ -2,12 +2,25 @@
 
 アーキテクチャ決定記録（ADR）管理システム
 
+## 開発アプローチ
+
+このプロジェクトは **Claude Code** を活用した **Kiro-style Spec Driven Development（スペック駆動開発）** で開発されています。
+
+### 主な特徴
+
+- **AI支援開発**: Claude Codeによる体系的な開発ワークフロー
+- **スペック駆動**: 要件定義 → 設計 → タスク分解 → 実装の明確なフェーズ管理
+- **カスタムコマンド**: `/kiro:spec-init`, `/kiro:spec-requirements` などの開発支援コマンド
+- **コンテナ化**: Dockerによる一貫した開発・本番環境
+
 ## 技術スタック
 
 - **Frontend**: React 18 + Vite 5
 - **Backend**: Node.js 20 + Express
 - **Database**: PostgreSQL 15
 - **Cache**: Redis 7
+- **Development**: Docker & Docker Compose
+- **AI Tool**: Claude Code
 - **Deployment**: Railway (Railpack)
 
 ## プロジェクト構成
@@ -30,8 +43,46 @@ ArchiTrack/
 
 ### 前提条件
 
-- Node.js 20以上
-- Docker & Docker Compose
+このプロジェクトの開発には以下のツールが必要です：
+
+#### 必須ツール
+
+- **Node.js 20以上** - フロントエンド・バックエンドの実行環境
+- **Docker & Docker Compose** - コンテナ化された開発環境（PostgreSQL、Redis、アプリケーション）
+- **Claude Code** - AI支援開発環境（推奨）
+- **jq** - JSONパーサー（Claude Codeのカスタムフック実行に必要）
+
+#### Claude Code関連ツール
+
+- **cc-sdd (Claude Code Spec Driven Development)**
+  ```bash
+  # 最新版のインストール・更新
+  npx cc-sdd@latest --lang ja
+  ```
+
+  このツールにより、Kiro-style開発ワークフローのスラッシュコマンドが利用可能になります。
+
+#### jqのインストール
+
+```bash
+# macOS
+brew install jq
+
+# Ubuntu/Debian
+sudo apt-get install jq
+
+# Windows (Chocolatey)
+choco install jq
+
+# Windows (Scoop)
+scoop install jq
+```
+
+### 開発環境の特徴
+
+- **Dockerベース**: すべてのサービス（PostgreSQL、Redis、Frontend、Backend）をコンテナで実行
+- **Claude Code統合**: カスタムスラッシュコマンドとフックによる開発支援
+- **自動コード品質管理**: Git pre-commitフックによるPrettier + ESLint自動実行
 
 ### 手順1: Docker Composeでの起動
 
@@ -58,14 +109,43 @@ docker-compose up
 
 ### Git Hooksについて
 
-このプロジェクトではコミット前に自動的にESLintを実行するGit hooksを使用しています。
+このプロジェクトではコミット前に自動的にコード品質チェックを実行するGit hooksを使用しています。
 
 **セットアップ:**
 ```bash
 git config core.hooksPath .husky
 ```
 
-これにより、コミット時に変更されたJavaScriptファイルが自動的にリントされ、コードの品質が保たれます。
+これにより、コミット時に変更されたファイルに対して以下が自動実行されます：
+- **Prettier**: コードフォーマット
+- **ESLint**: コード品質チェックと自動修正
+
+### Claude Codeによる開発
+
+このプロジェクトはClaude Codeを使った開発を前提としています。
+
+**利用可能なカスタムコマンド:**
+```bash
+# ステアリングドキュメント管理
+/kiro:steering
+
+# 新機能の仕様初期化
+/kiro:spec-init [詳細な説明]
+
+# 要件定義生成
+/kiro:spec-requirements [feature-name]
+
+# 技術設計作成
+/kiro:spec-design [feature-name]
+
+# 実装タスク生成
+/kiro:spec-tasks [feature-name]
+
+# 仕様の進捗確認
+/kiro:spec-status [feature-name]
+```
+
+詳細は `CLAUDE.md` および `.claude/commands/kiro/` を参照してください。
 
 ### 手順2: ローカルでNode.js直接実行
 
@@ -175,6 +255,20 @@ git push origin main
 
 ## 開発ワークフロー
 
+### Kiro-style Spec Driven Development
+
+このプロジェクトはスペック駆動開発を採用しています：
+
+1. **ステアリング更新** - `/kiro:steering` でプロジェクトコンテキストを最新化（任意）
+2. **仕様初期化** - `/kiro:spec-init` で新機能の仕様を作成
+3. **要件定義** - `/kiro:spec-requirements` で詳細な要件を生成
+4. **設計** - `/kiro:spec-design` で技術設計を作成
+5. **タスク分解** - `/kiro:spec-tasks` で実装タスクに分解
+6. **実装** - タスクに従って段階的に実装
+7. **進捗確認** - `/kiro:spec-status` で進捗を追跡
+
+各フェーズで人間のレビューを実施し、品質を確保します。
+
 ### ブランチ戦略
 
 ```
@@ -186,10 +280,13 @@ main (本番)
 
 ### 開発手順
 
-1. `feature/*` ブランチで開発
-2. PRを作成して `develop` へマージ
-3. テスト環境で確認
-4. `develop` を `main` へマージして本番デプロイ
+1. **仕様作成**: Claude Codeのスラッシュコマンドで仕様を作成
+2. **ブランチ作成**: `feature/*` ブランチで開発
+3. **実装**: スペックに従って段階的に実装
+4. **コミット**: pre-commitフックが自動的にコード品質をチェック
+5. **PR作成**: `develop` へのPRを作成
+6. **テスト**: テスト環境で確認
+7. **デプロイ**: `develop` を `main` へマージして本番デプロイ
 
 ## トラブルシューティング
 
