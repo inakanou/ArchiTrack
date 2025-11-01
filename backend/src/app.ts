@@ -1,8 +1,11 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import getPrismaClient from './db.js';
 import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
+import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middleware.js';
+import { getEnv } from './config/env.js';
 
 const app = express();
 
@@ -10,16 +13,38 @@ const app = express();
 // HTTPロギングを最初に適用
 app.use(httpLogger);
 
+// 環境変数を取得（すでにindex.tsで検証済み）
+const env = getEnv();
+
+// セキュリティヘッダーの設定
+app.use(
+  helmet({
+    // Content Security Policy
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+      },
+    },
+    // Cross-Origin-Embedder-Policy
+    crossOriginEmbedderPolicy: false, // フロントエンドとの連携のため無効化
+    // Cross-Origin-Resource-Policy
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: env.FRONTEND_URL,
     credentials: true,
   })
 );
 app.use(express.json());
 
 // Health check endpoint with timeout
-app.get('/health', async (req: Request, res: Response) => {
+app.get('/health', healthCheckLimiter, async (req: Request, res: Response) => {
   const services: Record<string, string> = {};
   const CHECK_TIMEOUT = 2000; // 2秒でタイムアウト
 
@@ -66,6 +91,9 @@ app.get('/favicon.ico', (_req: Request, res: Response) => {
 });
 
 // API routes
+// 全APIエンドポイントにレート制限を適用
+app.use('/api', apiLimiter);
+
 app.get('/api', (_req: Request, res: Response) => {
   res.json({
     message: 'ArchiTrack API',

@@ -1,10 +1,13 @@
 import 'dotenv/config';
 import app from './app.js';
 import { disconnectPrisma } from './db.js';
-import redis from './redis.js';
+import redis, { initRedis } from './redis.js';
 import logger from './utils/logger.js';
+import { validateEnv } from './config/env.js';
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
+// 環境変数の検証
+const env = validateEnv();
+const PORT = env.PORT;
 
 // Graceful shutdown
 const gracefulShutdown = async (): Promise<void> => {
@@ -12,7 +15,7 @@ const gracefulShutdown = async (): Promise<void> => {
 
   try {
     await disconnectPrisma();
-    redis.disconnect();
+    await redis.disconnect();
     logger.info('Connections closed');
     process.exit(0);
   } catch (error) {
@@ -25,12 +28,26 @@ const gracefulShutdown = async (): Promise<void> => {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-// Start server
-app.listen(PORT, () => {
-  logger.info({
-    msg: 'Server started',
-    port: PORT,
-    env: process.env.NODE_ENV || 'development',
-    healthCheck: `http://localhost:${PORT}/health`,
-  });
-});
+// アプリケーション初期化と起動
+async function startServer(): Promise<void> {
+  try {
+    // Redisの初期化（失敗してもアプリケーションは起動）
+    await initRedis();
+
+    // サーバー起動
+    app.listen(PORT, () => {
+      logger.info({
+        msg: 'Server started',
+        port: PORT,
+        env: env.NODE_ENV,
+        healthCheck: `http://localhost:${PORT}/health`,
+      });
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ err }, 'Failed to start server');
+    process.exit(1);
+  }
+}
+
+startServer();

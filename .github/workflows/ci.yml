@@ -244,13 +244,21 @@ jobs:
         working-directory: ./backend
         run: npm run prisma:generate
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: ./backend
-        run: npm test
+        run: npm run test:coverage
         env:
           NODE_ENV: test
           DATABASE_URL: postgresql://postgres:test@localhost:5432/architrack_test
           REDIS_URL: redis://localhost:6379
+
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 30
 
   test-frontend:
     name: Frontend Unit Tests
@@ -271,9 +279,17 @@ jobs:
         working-directory: ./frontend
         run: npm ci
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: ./frontend
-        run: npm test
+        run: npm run test:coverage
+
+      - name: Upload frontend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          retention-days: 30
 
   # ============================================================================
   # Stage 4: E2E Tests (Heaviest - 5-10 minutes, runs only if Stage 3 passes)
