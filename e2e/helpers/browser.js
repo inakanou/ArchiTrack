@@ -11,11 +11,7 @@ import { chromium } from '@playwright/test';
  * @param {string} outputPath - スクリーンショットの保存先
  * @param {Object} options - オプション
  */
-export async function captureScreenshot(
-  url,
-  outputPath = 'screenshot.png',
-  options = {},
-) {
+export async function captureScreenshot(url, outputPath = 'screenshot.png', options = {}) {
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-dev-shm-usage', '--no-sandbox'],

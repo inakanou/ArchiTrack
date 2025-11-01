@@ -10,9 +10,17 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
-    "test:e2e:report": "playwright show-report $(ls -td playwright-report/*/ | head -1)"
+    "test:e2e:report": "playwright show-report $(ls -td playwright-report/*/ | head -1)",
+    "lint": "eslint e2e/**/*.js playwright.config.js",
+    "lint:fix": "eslint e2e/**/*.js playwright.config.js --fix",
+    "format": "prettier --write \"e2e/**/*.js\" \"playwright.config.js\"",
+    "format:check": "prettier --check \"e2e/**/*.js\" \"playwright.config.js\""
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0"
+    "@playwright/test": "^1.40.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.6.2"
   }
 }

@@ -6,11 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 function getTimestampedDir() {
   const now = new Date();
-  const timestamp = now
-    .toISOString()
-    .replace(/[:.]/g, '-')
-    .replace('T', '_')
-    .split('.')[0];
+  const timestamp = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
   return timestamp;
 }
 
@@ -76,11 +72,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         // WSL2環境用の設定
         launchOptions: {
-          args: [
-            '--disable-dev-shm-usage',
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-          ],
+          args: ['--disable-dev-shm-usage', '--no-sandbox', '--disable-setuid-sandbox'],
         },
       },
     },

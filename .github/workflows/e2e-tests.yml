@@ -28,6 +28,12 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      - name: Run E2E code lint
+        run: npm run lint
+
+      - name: Run E2E code format check
+        run: npm run format:check
+
       - name: Start Docker Compose services
         run: |
           docker compose up -d --build
