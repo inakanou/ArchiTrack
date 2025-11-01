@@ -9,25 +9,31 @@
     "dev": "node --watch src/index.js",
     "test": "echo \"Error: no test specified\" && exit 0",
     "lint": "eslint src/**/*.js",
-    "lint:fix": "eslint src/**/*.js --fix"
+    "lint:fix": "eslint src/**/*.js --fix",
+    "format": "prettier --write \"src/**/*.js\"",
+    "format:check": "prettier --check \"src/**/*.js\""
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "pg": "^8.11.3",
-    "ioredis": "^5.3.2",
     "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "ioredis": "^5.3.2",
+    "pg": "^8.11.3",
     "pino": "^8.17.0",
     "pino-http": "^9.0.0"
   },
   "devDependencies": {
     "eslint": "^8.56.0",
-    "pino-pretty": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
     "husky": "^9.0.11",
-    "lint-staged": "^15.2.0"
+    "lint-staged": "^15.2.0",
+    "pino-pretty": "^10.3.0",
+    "prettier": "^3.6.2"
   },
   "lint-staged": {
     "*.js": [
+      "prettier --write",
       "eslint --fix"
     ]
   },
