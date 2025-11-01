@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import getPrismaClient from '../../db.js';
+import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '@prisma/client';
+
+// 環境変数を初期化（モジュールインポート前に実行）
+validateEnv();
+
+import getPrismaClient from '../../db.js';
 
 /**
  * データベース統合テスト

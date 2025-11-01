@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
+import { validateEnv } from '../../config/env.js';
+import type { PrismaClient } from '@prisma/client';
+
+// 環境変数を初期化（モジュールインポート前に実行）
+validateEnv();
+
 import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
-import type { PrismaClient } from '@prisma/client';
 
 /**
  * API統合テスト
