@@ -48,23 +48,42 @@ if [ -d "frontend" ]; then
   fi
 fi
 
-# Backend integration tests - データベース接続が必要なためスキップ
-# if [ -d "backend" ]; then
-#   echo "🔗 Running backend integration tests..."
-#   npm --prefix backend run test:integration
-#   if [ $? -ne 0 ]; then
-#     echo "❌ Backend integration tests failed. Push aborted."
-#     exit 1
-#   fi
-# fi
+# Backend integration tests
+# Docker環境が必須 - 起動していない場合はエラー
+if [ -d "backend" ]; then
+  echo "🔗 Running backend integration tests..."
 
-# E2Eテストの実行 - ブラウザ環境が必要なためスキップ
-# プッシュ前に時間がかかる場合はコメントアウトしてください
-# echo "🧪 Running E2E tests..."
-# npm run test:e2e
-# if [ $? -ne 0 ]; then
-#   echo "❌ E2E tests failed. Push aborted."
-#   exit 1
-# fi
+  # Docker環境のチェック
+  if ! docker ps | grep -q architrack-postgres; then
+    echo "❌ Docker containers are not running. Integration tests cannot be executed."
+    echo "   Please run 'docker compose up -d' and try again."
+    echo "   Push aborted to ensure all tests are executed."
+    exit 1
+  fi
+
+  npm --prefix backend run test:integration
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend integration tests failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# E2E tests
+# Docker環境が必須 - 起動していない場合はエラー
+echo "🧪 Running E2E tests..."
+
+# Docker環境のチェック
+if ! docker ps | grep -q architrack-backend; then
+  echo "❌ Docker containers are not running. E2E tests cannot be executed."
+  echo "   Please run 'docker compose up -d' and try again."
+  echo "   Push aborted to ensure all tests are executed."
+  exit 1
+fi
+
+npm run test:e2e
+if [ $? -ne 0 ]; then
+  echo "❌ E2E tests failed. Push aborted."
+  exit 1
+fi
 
 echo "✅ All checks passed!"

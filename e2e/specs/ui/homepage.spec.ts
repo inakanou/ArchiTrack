@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { takeScreenshot, takeScreenshotOnFailure } from '../../helpers/screenshot.js';
 
 /**
  * ホームページUIテスト
@@ -8,17 +9,20 @@ test.describe('Homepage', () => {
     await page.goto('/');
   });
 
-  test('フロントエンドが正常に起動すること', async ({ page }) => {
+  // 失敗時に自動的にスクリーンショットを撮影
+  test.afterEach(async ({ page }, testInfo) => {
+    await takeScreenshotOnFailure(page, testInfo);
+  });
+
+  test('フロントエンドが正常に起動すること', async ({ page }, testInfo) => {
     // ページタイトルが存在することを確認
     await expect(page).toHaveTitle(/ArchiTrack|Vite/);
 
-    // スクリーンショットを撮影（デバッグ用）
-    await page.screenshot({
-      path: 'playwright-report/screenshots/homepage.png',
-    });
+    // スクリーンショットを撮影（タイムスタンプ付きフォルダに保存）
+    await takeScreenshot(page, testInfo, 'homepage-loaded');
   });
 
-  test('ページ要素が正しく表示されること', async ({ page }) => {
+  test('ページ要素が正しく表示されること', async ({ page }, testInfo) => {
     // ページが読み込まれるまで待機
     await page.waitForLoadState('networkidle');
 
@@ -26,10 +30,7 @@ test.describe('Homepage', () => {
     const root = page.locator('#root');
     await expect(root).toBeVisible();
 
-    // スクリーンショット撮影
-    await page.screenshot({
-      path: 'playwright-report/screenshots/page-elements.png',
-      fullPage: true,
-    });
+    // スクリーンショット撮影（タイムスタンプ付きフォルダに保存）
+    await takeScreenshot(page, testInfo, 'page-elements', { fullPage: true });
   });
 });

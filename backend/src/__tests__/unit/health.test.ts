@@ -3,18 +3,21 @@ import request from 'supertest';
 
 // 環境変数の初期化をモック（appのインポート前に必要）
 vi.mock('../../config/env.js', () => ({
-  validateEnv: vi.fn().mockReturnValue(undefined),
+  validateEnv: vi.fn().mockReturnValue({
+    NODE_ENV: 'test',
+    PORT: 3000,
+    LOG_LEVEL: 'info',
+    DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+    REDIS_URL: 'redis://localhost:6379',
+    FRONTEND_URL: 'http://localhost:5173',
+  }),
   getEnv: vi.fn().mockReturnValue({
     NODE_ENV: 'test',
     PORT: 3000,
     LOG_LEVEL: 'info',
     DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
-    REDIS_HOST: 'localhost',
-    REDIS_PORT: 6379,
-    REDIS_PASSWORD: '',
-    REDIS_DB: 0,
-    SESSION_SECRET: 'test-secret',
-    CORS_ORIGIN: 'http://localhost:5173',
+    REDIS_URL: 'redis://localhost:6379',
+    FRONTEND_URL: 'http://localhost:5173',
   }),
 }));
 

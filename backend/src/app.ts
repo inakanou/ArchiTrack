@@ -5,7 +5,7 @@ import getPrismaClient from './db.js';
 import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
 import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middleware.js';
-import { getEnv } from './config/env.js';
+import { validateEnv } from './config/env.js';
 
 const app = express();
 
@@ -13,8 +13,8 @@ const app = express();
 // HTTPロギングを最初に適用
 app.use(httpLogger);
 
-// 環境変数を取得（すでにindex.tsで検証済み）
-const env = getEnv();
+// 環境変数を検証して取得
+const env = validateEnv();
 
 // セキュリティヘッダーの設定
 app.use(
