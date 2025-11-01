@@ -15,7 +15,8 @@
     "lint:fix": "eslint e2e/**/*.{js,ts} playwright.config.{js,ts} --fix",
     "format": "prettier --write \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\"",
     "format:check": "prettier --check \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\"",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
@@ -25,6 +26,7 @@
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
+    "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3"
   }
