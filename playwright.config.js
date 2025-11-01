@@ -78,13 +78,16 @@ export default defineConfig({
     },
   ],
 
-  // Webサーバーの設定（ローカルテスト用）
-  webServer: {
-    command: 'docker-compose up',
-    url: 'http://localhost:5173',
-    timeout: 120000,
-    reuseExistingServer: !process.env.CI,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  // Webサーバーの設定（ローカルテスト用のみ）
+  // CI環境ではワークフローで明示的にDocker Composeを管理
+  webServer: process.env.CI
+    ? undefined
+    : {
+        command: 'docker compose up',
+        url: 'http://localhost:5173',
+        timeout: 120000,
+        reuseExistingServer: true,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
 });

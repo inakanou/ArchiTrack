@@ -36,12 +36,17 @@ jobs:
 
       - name: Start Docker Compose services
         run: |
+          echo "Building and starting Docker Compose services..."
           docker compose up -d --build
-          echo "Waiting for services to start..."
-          sleep 15
+          echo "Waiting for containers to initialize..."
+          sleep 20
 
       - name: Check Docker containers status
-        run: docker compose ps
+        run: |
+          echo "=== Docker Compose Services Status ==="
+          docker compose ps
+          echo "=== Docker Container Details ==="
+          docker compose ps --format json | jq '.'
 
       - name: Wait for PostgreSQL to be ready
         run: |
@@ -60,8 +65,13 @@ jobs:
       - name: Wait for Frontend to be ready
         run: |
           echo "Waiting for frontend to start..."
-          timeout 180 bash -c 'until curl -s http://localhost:5173 > /dev/null 2>&1; do echo "Waiting for frontend..."; sleep 5; done'
+          echo "Checking frontend container status..."
+          docker compose ps frontend
+          echo "Checking frontend logs (last 20 lines)..."
+          docker compose logs --tail=20 frontend || true
+          timeout 300 bash -c 'until curl -sf http://localhost:5173 > /dev/null 2>&1; do echo "Waiting for frontend... ($(date +%H:%M:%S))"; sleep 5; done'
           echo "Frontend is ready!"
+          curl -I http://localhost:5173
 
       - name: Show Docker logs on failure
         if: failure()
