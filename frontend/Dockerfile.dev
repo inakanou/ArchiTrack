@@ -1,21 +1,20 @@
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
-# Alpine Linux用の必要なビルドツールとヘルスチェック用ツールをインストール
-RUN apk add --no-cache python3 make g++ wget
+# ヘルスチェック用にcurlをインストール
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 
-# npm installを実行し、Alpine用のネイティブモジュールを確実にインストール
+# npm installを実行（Debianベースなのでネイティブモジュールの互換性問題なし）
 RUN npm install
-
-# エントリーポイントスクリプトをコピー
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
 
 COPY . .
 
 EXPOSE 5173
 
-CMD ["/usr/local/bin/entrypoint.sh"]
+CMD ["npm", "run", "dev"]
