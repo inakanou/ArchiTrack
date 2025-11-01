@@ -6,10 +6,6 @@ import type { PrismaClient } from '@prisma/client';
 // 環境変数を初期化（モジュールインポート前に実行）
 validateEnv();
 
-// デバッグ: 環境変数を確認
-console.log('[TEST DEBUG] DATABASE_URL:', process.env.DATABASE_URL);
-console.log('[TEST DEBUG] NODE_ENV:', process.env.NODE_ENV);
-
 import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';

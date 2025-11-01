@@ -5,9 +5,6 @@ import type { PrismaClient } from '@prisma/client';
 // 環境変数を初期化（モジュールインポート前に実行）
 validateEnv();
 
-// デバッグ: DATABASE_URLを確認
-console.log('[TEST DEBUG] DATABASE_URL:', process.env.DATABASE_URL);
-
 import getPrismaClient from '../../db.js';
 
 /**
