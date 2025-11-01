@@ -17,6 +17,7 @@ ArchiTrackは、Claude Codeを活用したKiro-style Spec Driven Development（�
 - **ヘルスチェック機能**: 全サービス（PostgreSQL、Redis、Backend、Frontend）でヘルスチェックを実装し、起動順序と依存関係を保証
 - **TypeScript完全サポート**: Backend、Frontend、E2Eテスト全体でTypeScript採用、厳格な型安全性を実現
 - **型安全性の徹底**: カスタム型定義ファイル（Express拡張、環境変数）による`any`型の完全排除
+- **Prisma ORM統合**: PostgreSQLとの型安全なデータアクセスを実現、マイグレーション管理とスキーマ駆動開発をサポート
 - **自動品質保証**: Git hooks（pre-commit、commit-msg、pre-push）による型チェック・lint・テスト実行の強制
 - **Conventional Commits強制**: commitlintによるコミットメッセージ規約の厳格な適用
 - **包括的なテスト環境**:

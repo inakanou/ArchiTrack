@@ -46,15 +46,24 @@ ArchiTrack/
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
 ├── backend/                # バックエンドAPI
+│   ├── prisma/             # Prisma ORM
+│   │   └── schema.prisma   # スキーマ定義（データモデル、マイグレーション）
 │   ├── src/                # ソースコード
-│   │   ├── index.js        # Expressサーバーエントリーポイント
-│   │   ├── db.js           # PostgreSQL接続管理
-│   │   └── redis.js        # Redis接続管理
+│   │   ├── index.ts        # Expressサーバーエントリーポイント
+│   │   ├── app.ts          # Expressアプリケーション（テスト用に分離）
+│   │   ├── db.ts           # Prisma Clientシングルトン
+│   │   ├── redis.ts        # Redis接続管理
+│   │   ├── middleware/     # ミドルウェア
+│   │   ├── types/          # カスタム型定義
+│   │   ├── utils/          # ユーティリティ関数
+│   │   └── __tests__/      # 単体テスト
 │   ├── package.json        # 依存関係
+│   ├── tsconfig.json       # TypeScript設定
+│   ├── vitest.config.ts    # Vitest設定
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
 │   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
 │   ├── railway.toml        # Railway デプロイ設定
-│   ├── .eslintrc.json      # ESLint設定
+│   ├── .eslintrc.cjs       # ESLint設定
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
 ├── docker-compose.yml      # ローカル開発環境定義
@@ -263,6 +272,8 @@ frontend/src/
 
 ```
 backend/
+├── prisma/
+│   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト
 │   │   ├── app.test.ts    # Expressアプリケーションテスト（6テスト）
@@ -272,9 +283,11 @@ backend/
 │   ├── types/             # カスタム型定義
 │   │   ├── express.d.ts   # Express Request拡張（pinoログ追加）
 │   │   └── env.d.ts       # 環境変数型定義（型安全なprocess.env）
+│   ├── utils/             # ユーティリティ関数
+│   │   └── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
 │   ├── app.ts             # Expressアプリケーション（テスト用に分離）
 │   ├── index.ts           # Expressサーバーエントリーポイント（app.tsをimportして起動）
-│   ├── db.ts              # PostgreSQL接続管理（lazy initialization）
+│   ├── db.ts              # Prisma Clientシングルトン（lazy initialization）
 │   └── redis.ts           # Redis接続管理（lazy initialization）
 ├── tsconfig.json          # TypeScript設定（Node.js専用、strictモード、Incremental Build有効）
 ├── vitest.config.ts       # Vitest設定（Node.js環境）
@@ -292,9 +305,12 @@ backend/
 
 ```json
 "lint-staged": {
-  "*.ts": [
+  "*.{js,ts}": [
     "prettier --write",
     "eslint --fix"
+  ],
+  "prisma/schema.prisma": [
+    "prisma format"
   ]
 }
 ```
@@ -313,10 +329,12 @@ backend/src/
 
 **主要ファイルの説明:**
 
+- `prisma/schema.prisma`: Prismaスキーマ定義。データモデル、リレーション、インデックスを定義
 - `app.ts`: Expressアプリケーション本体。ミドルウェア、ルート、エラーハンドリングを定義。単体テスト可能にするためindex.tsから分離
 - `index.ts`: サーバー起動エントリーポイント。app.tsからExpressアプリをimportし、ポートをリッスン
-- `db.ts`: PostgreSQL接続プールのlazy initialization実装。初回アクセス時に接続確立
+- `db.ts`: Prisma Clientのシングルトン実装。lazy initializationにより初回アクセス時に接続確立
 - `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
+- `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
 **実装済みAPI:**
 

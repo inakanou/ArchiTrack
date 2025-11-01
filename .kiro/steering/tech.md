@@ -72,7 +72,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 20
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 4.18.2
-- **データベースクライアント**: pg (PostgreSQL) 8.11.3
+- **ORM**: Prisma 6.18.0（PostgreSQL用の型安全なデータアクセス）
+- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.18.0
 - **キャッシュクライアント**: ioredis 5.3.2
 - **パッケージマネージャ**: npm
 - **設定管理**: dotenv (.envファイル)
@@ -81,12 +82,13 @@ ArchiTrack/
 
 - `express` ^4.18.2 - Webフレームワーク
 - `cors` ^2.8.5 - CORS ミドルウェア
+- `@prisma/client` ^6.18.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `dotenv` ^16.4.1 - 環境変数管理
 - `pino` ^8.17.0 - ロガー
 - `pino-http` ^9.0.0 - HTTP ロギングミドルウェア
-- `pino-pretty` ^10.3.0 - ログの整形出力
+- `pino-pretty` ^10.3.0 - ログの整形出力（開発環境）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `tsx` ^4.20.6 - TypeScript実行環境
 - `@types/express` ^5.0.5 - Express型定義
@@ -103,12 +105,16 @@ ArchiTrack/
 - `@vitest/ui` ^4.0.6 - Vitest UIツール
 - `supertest` ^7.2.0 - APIテストライブラリ
 - `@types/supertest` ^6.1.0 - supertest型定義
+- `prisma` ^6.18.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
 
 - `backend/tsconfig.json` - TypeScript設定（Node.js専用、Incremental Build有効）
+- `backend/prisma/schema.prisma` - Prismaスキーマ定義（データモデル、マイグレーション）
 - `backend/src/types/express.d.ts` - Express Request拡張型定義（pinoログ追加）
 - `backend/src/types/env.d.ts` - 環境変数型定義（型安全なprocess.env）
+- `backend/src/utils/logger.ts` - Pinoロガー設定（Railway環境対応）
 - `backend/vitest.config.ts` - Vitest設定（Node.js環境）
 - `backend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `backend/package.json` - 依存関係管理
@@ -513,6 +519,25 @@ npm --prefix backend run build
 npm --prefix frontend run build
 ```
 
+### Prisma開発
+
+```bash
+# Prisma Clientを生成
+npm --prefix backend run prisma:generate
+
+# マイグレーションを作成・実行（開発環境）
+npm --prefix backend run prisma:migrate
+
+# 本番環境へマイグレーション適用
+npm --prefix backend run prisma:migrate:deploy
+
+# Prisma Studio起動（データベースGUI）
+npm --prefix backend run prisma:studio
+
+# スキーマフォーマット
+npm --prefix backend run prisma:format
+```
+
 #### TypeScript Incremental Build
 
 全てのtsconfig.json（backend、frontend、E2E）でIncremental Buildを有効化しています：
@@ -725,9 +750,12 @@ ArchiTrackでは、3段階のGit hooksにより品質を自動保証していま
 **バックエンド**:
 ```json
 "lint-staged": {
-  "*.ts": [
+  "*.{js,ts}": [
     "prettier --write",
     "eslint --fix"
+  ],
+  "prisma/schema.prisma": [
+    "prisma format"
   ]
 }
 ```

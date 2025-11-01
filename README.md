@@ -428,7 +428,64 @@ gh pr create --title "Spec: ユーザー認証機能" --body "## 概要
 
 `.kiro/specs/user-auth/tasks.md` を開き、実装するタスクを確認します。
 
-**6-2. Claude Codeで実装**
+**6-2. データベーススキーマの変更（必要な場合）**
+
+新機能でデータベースの変更が必要な場合は、以下の手順で進めます：
+
+**6-2-1. Prismaスキーマの編集**
+
+`backend/prisma/schema.prisma` を編集して、必要なモデルを追加・変更します：
+
+```prisma
+// 例: ユーザーモデルにリフレッシュトークンフィールドを追加
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+```
+
+**6-2-2. マイグレーションの作成・実行**
+
+スキーマ変更をデータベースに反映します：
+
+```bash
+# マイグレーションファイルを生成・実行
+npm --prefix backend run prisma:migrate
+
+# マイグレーション名を入力（例: add_refresh_token_to_users）
+# Enter a name for the new migration: › add_refresh_token_to_users
+```
+
+これにより以下が自動実行されます：
+- マイグレーションファイルが `backend/prisma/migrations/` に生成
+- データベースにマイグレーションが適用
+- Prisma Clientが自動再生成
+
+**6-2-3. マイグレーションの確認**
+
+```bash
+# Prisma Studioでデータベースを確認（オプション）
+npm --prefix backend run prisma:studio
+# ブラウザで http://localhost:5555 が開きます
+
+# マイグレーションファイルをコミット対象に追加
+git add backend/prisma/migrations/
+git add backend/prisma/schema.prisma
+```
+
+**重要な注意点:**
+- マイグレーションファイルは必ずGitにコミットしてください
+- 本番環境へのマイグレーション適用は `npm --prefix backend run prisma:migrate:deploy` を使用
+- スキーマ変更後は必ずPrisma Clientが再生成されているか確認
+
+**6-3. Claude Codeで実装**
 
 Claude Codeに以下のように依頼：
 
@@ -442,7 +499,7 @@ Claude Codeに以下のように依頼：
 .kiro/specs/user-auth/tasks.md のタスク1「JWT認証ミドルウェアの実装」を実装してください
 ```
 
-**6-3. 実装の確認**
+**6-4. 実装の確認**
 
 - コードレビュー
 - ローカルで動作確認
@@ -461,12 +518,13 @@ curl http://localhost:3000/health
 git status
 git diff
 
-# ステージング
+# ステージング（データベース変更がある場合はマイグレーションも含める）
 git add .
+git add backend/prisma/migrations/  # マイグレーションがある場合
 
 # コミット（pre-commitフックが自動実行されます）
 git commit -m "feat: JWT認証ミドルウェアの実装"
-# Prettier + ESLintが自動的に実行され、コードが整形されます
+# Prettier + ESLint + Prismaフォーマットが自動的に実行され、コードが整形されます
 ```
 
 **コミットメッセージの規約:**
@@ -477,6 +535,15 @@ git commit -m "feat: JWT認証ミドルウェアの実装"
 - `refactor:` - リファクタリング
 - `test:` - テスト追加・修正
 - `chore:` - ビルド・ツール設定
+
+**データベース変更を含むコミットの例:**
+```bash
+# スキーマ変更とマイグレーションを含むコミット
+git commit -m "feat: ユーザー認証機能のデータベーススキーマを追加
+
+- UserモデルにpasswordHashとrefreshTokenフィールドを追加
+- マイグレーション: add_refresh_token_to_users"
+```
 
 ```bash
 # 実装をプッシュ
@@ -497,10 +564,15 @@ gh pr edit --body "## 概要
 - ログイン/ログアウトAPIの実装
 - トークン更新APIの実装
 
+## データベース変更（該当する場合のみ）
+- Userモデルにpasswordハッシュとリフレッシュトークンを追加
+- マイグレーション: \`add_refresh_token_to_users\`
+
 ## テスト
 - [x] ログイン動作確認
 - [x] トークン検証動作確認
 - [x] ログアウト動作確認
+- [x] マイグレーションの動作確認（データベース変更がある場合）
 
 ## スクリーンショット
 （必要に応じて追加）"
@@ -545,6 +617,31 @@ curl https://your-backend.railway.app/health
 # フロントエンドの確認
 # ブラウザで https://your-frontend.railway.app にアクセス
 ```
+
+**データベース変更がある場合の確認:**
+
+Railway環境では、`package.json`の`build`スクリプトで`prisma:generate`が実行され、Prisma Clientが自動生成されます。マイグレーションは以下の方法で適用されます：
+
+1. **自動マイグレーション適用（推奨）:**
+   - Railway UIでbackendサービスの環境変数に`MIGRATE_ON_DEPLOY=true`を設定
+   - デプロイ時に自動的に`prisma migrate deploy`が実行される
+
+2. **手動マイグレーション適用:**
+   ```bash
+   # Railway CLIを使用
+   railway run npm --prefix backend run prisma:migrate:deploy
+   ```
+
+3. **マイグレーション適用の確認:**
+   ```bash
+   # Railway UIでデプロイログを確認し、以下のメッセージを探す
+   # "Migration applied: add_refresh_token_to_users"
+   ```
+
+**重要な注意点:**
+- 本番環境では必ず`prisma:migrate:deploy`を使用（`prisma:migrate`は開発環境専用）
+- マイグレーションファイルがGitにコミットされていることを確認
+- データベースの破壊的変更（カラム削除など）は慎重に実施
 
 ### 日常的な開発フロー
 
