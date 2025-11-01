@@ -50,6 +50,8 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - ./.prettierrc:/app/.prettierrc:ro
+      - ./.prettierignore:/app/.prettierignore:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +72,8 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - ./.prettierrc:/app/.prettierrc:ro
+      - ./.prettierignore:/app/.prettierignore:ro
     command: npm run dev
 
 volumes:
