@@ -20,6 +20,7 @@
 - **Database**: PostgreSQL 15
 - **Cache**: Redis 7
 - **Development**: Docker & Docker Compose
+- **E2E Testing**: Playwright + Chromium
 - **AI Tool**: Claude Code
 - **Deployment**: Railway (Railpack)
 
@@ -36,7 +37,11 @@ ArchiTrack/
 │   ├── src/
 │   ├── Dockerfile.dev  # 開発用
 │   └── railway.toml    # Railway設定
-└── docker-compose.yml  # ローカル開発環境
+├── e2e/                # E2Eテスト（Playwright）
+│   ├── specs/          # テストファイル（api, ui, integration）
+│   └── helpers/        # ヘルパー関数
+├── docker-compose.yml  # ローカル開発環境
+└── playwright.config.js # Playwright設定
 ```
 
 ## ローカル開発環境のセットアップ
@@ -51,6 +56,7 @@ ArchiTrack/
 - **Docker & Docker Compose** - コンテナ化された開発環境（PostgreSQL、Redis、アプリケーション）
 - **Claude Code** - AI支援開発環境（推奨）
 - **jq** - JSONパーサー（Claude Codeのカスタムフック実行に必要）
+- **Chromium（システム依存関係）** - E2Eテスト（Playwright）の実行に必要
 
 #### Claude Code関連ツール
 
@@ -77,6 +83,28 @@ choco install jq
 # Windows (Scoop)
 scoop install jq
 ```
+
+#### Chromium（E2Eテスト用）のインストール
+
+E2Eテストを実行するには、Playwrightブラウザとシステム依存関係のインストールが必要です：
+
+```bash
+# 1. プロジェクトルートで依存関係をインストール
+cd ArchiTrack
+npm install
+# ↑ postinstallフックでPlaywright Chromiumが自動インストールされます
+
+# 2. システム依存関係をインストール（初回のみ）
+# WSL2/Linux環境の場合
+sudo npx playwright install-deps chromium
+
+# macOS/Windowsの場合
+# 通常は不要（Playwrightが自動的に必要な依存関係を管理）
+```
+
+**注意事項:**
+- システム依存関係のインストールは、環境ごとに初回のみ実行すれば以降は不要です
+- E2Eテストを実行しない場合は、このステップをスキップできます
 
 ### 開発環境の特徴
 
@@ -579,6 +607,153 @@ docker-compose logs postgres
 # Backend APIのURLが正しいか確認
 echo $VITE_API_URL
 ```
+
+### E2Eテストが実行できない場合
+
+```bash
+# Chromiumの依存関係を確認
+ldd ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome | grep "not found"
+
+# 依存関係が不足している場合
+sudo npx playwright install-deps chromium
+
+# Chromiumを再インストール
+npx playwright install chromium
+```
+
+## E2Eテスト（Playwright）
+
+### テスト環境のセットアップ
+
+Playwrightブラウザとシステム依存関係をインストール：
+
+```bash
+# 1. プロジェクトルートで依存関係をインストール
+npm install
+# ↑ postinstallフックでPlaywright Chromiumが自動インストールされます
+
+# 2. システム依存関係をインストール（WSL2/Linuxの場合、初回のみ）
+sudo npx playwright install-deps chromium
+```
+
+**注意事項:**
+- `npm install` で自動的にChromiumがインストールされます
+- システム依存関係のインストールは環境ごとに初回のみ実行すれば、以降は不要です
+
+### テストの実行
+
+#### 1. 基本的なテスト実行
+
+```bash
+# アプリケーションを起動
+docker-compose up -d
+
+# E2Eテストを実行
+npm run test:e2e
+```
+
+#### 2. UIモードで実行（対話的）
+
+```bash
+npm run test:e2e:ui
+```
+
+#### 3. ヘッドフルモード（ブラウザを表示）
+
+```bash
+npm run test:e2e:headed
+```
+
+#### 4. デバッグモード
+
+```bash
+npm run test:e2e:debug
+```
+
+#### 5. レポートの確認
+
+```bash
+# 最新のレポートを表示
+npm run test:e2e:report
+```
+
+### テスト結果の管理
+
+テスト実行時、結果はタイムスタンプ付きディレクトリに保存されます：
+
+```
+playwright-report/
+└── 2025-11-01_03-32-57-560Z/    # タイムスタンプ付きレポート
+    └── index.html
+
+test-results/
+└── 2025-11-01_03-32-57-560Z/    # タイムスタンプ付き結果
+    ├── screenshots/              # 失敗時のスクリーンショット
+    └── videos/                   # 失敗時のビデオ
+```
+
+**メリット:**
+- 複数回の実行結果を履歴として保存
+- デバッグ時に過去の結果と比較可能
+- ファイル名の衝突を防止
+
+### Claude Codeから直接ブラウザを操作
+
+#### スクリーンショット撮影
+
+```bash
+node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+```
+
+#### ページ情報取得
+
+```bash
+node e2e/helpers/browser.js info http://localhost:5173
+```
+
+#### APIテスト
+
+```bash
+node e2e/helpers/browser.js api http://localhost:3000/api/health
+```
+
+### テストファイルの追加
+
+テストは適切なカテゴリに分けて配置：
+
+```
+e2e/specs/
+├── api/              # APIエンドポイントのテスト
+├── ui/               # UIコンポーネントとページのテスト
+└── integration/      # システム統合テスト
+```
+
+**UIテストの例:**
+```javascript
+// e2e/specs/ui/new-feature.spec.js
+import { test, expect } from '@playwright/test';
+
+test.describe('新機能', () => {
+  test('テスト名', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveTitle(/ArchiTrack/);
+  });
+});
+```
+
+**特定カテゴリのみ実行:**
+```bash
+npx playwright test api/      # APIテストのみ
+npx playwright test ui/       # UIテストのみ
+npx playwright test integration/  # 統合テストのみ
+```
+
+### CI/CD
+
+GitHub Actionsで自動的にE2Eテストが実行されます：
+- PRのたびに実行
+- mainブランチへのpushで実行
+- テスト失敗時はスクリーンショットがアップロードされます
 
 ## ライセンス
 
