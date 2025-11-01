@@ -208,12 +208,19 @@ test-results/YYYY-MM-DD_HH-MM-SS-MMMZ/       # スクリーンショット・ビ
 ```
 frontend/
 ├── src/
+│   ├── __tests__/         # 単体テスト
+│   │   ├── App.test.tsx   # Appコンポーネントテスト（4テスト）
+│   │   └── formatters.test.ts  # ユーティリティ関数テスト（9テスト）
+│   ├── utils/             # ユーティリティ関数
+│   │   └── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   ├── App.tsx            # メインAppコンポーネント（TypeScript）
 │   ├── main.tsx           # Reactエントリーポイント（TypeScript）
 │   └── vite-env.d.ts      # Vite環境変数型定義
 ├── public/                # 公開静的ファイル
 ├── dist/                  # ビルド成果物（.gitignore）
-├── tsconfig.json          # TypeScript設定（Vite/React専用）
+├── tsconfig.json          # TypeScript設定（Vite/React専用、Incremental Build有効）
+├── vitest.config.ts       # Vitest設定（jsdom環境）
+├── vitest.setup.ts        # Vitestセットアップスクリプト
 ├── Dockerfile             # 本番環境用（nginx）
 ├── Dockerfile.dev         # 開発環境用（Vite dev server）
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック（アーキテクチャ固有モジュール対応）
@@ -221,7 +228,7 @@ frontend/
 ├── nginx.conf             # nginx本番環境設定
 ├── vite.config.js         # Vite設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
-├── .eslintrc.json         # ESLint設定（TypeScript対応）
+├── .eslintrc.cjs          # ESLint設定（TypeScript対応、vitest.config.ts除外）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
@@ -243,7 +250,6 @@ frontend/
 frontend/src/
 ├── components/        # UIコンポーネント（今後追加）
 ├── pages/             # ページコンポーネント（今後追加）
-├── utils/             # ユーティリティ関数（今後追加）
 ├── services/          # APIクライアント（今後追加）
 ├── stores/            # 状態管理（今後追加）
 └── assets/            # 静的アセット（今後追加）
@@ -258,20 +264,26 @@ frontend/src/
 ```
 backend/
 ├── src/
-│   ├── index.ts           # Expressサーバーエントリーポイント（TypeScript）
-│   ├── db.ts              # PostgreSQL接続管理（lazy initialization）
-│   ├── redis.ts           # Redis接続管理（lazy initialization）
+│   ├── __tests__/         # 単体テスト
+│   │   ├── app.test.ts    # Expressアプリケーションテスト（6テスト）
+│   │   └── health.test.ts # ヘルスチェックエンドポイントテスト（5テスト）
 │   ├── middleware/
 │   │   └── logger.middleware.ts  # Pino HTTPロギングミドルウェア
-│   └── types/             # カスタム型定義
-│       ├── express.d.ts   # Express Request拡張（pinoログ追加）
-│       └── env.d.ts       # 環境変数型定義（型安全なprocess.env）
-├── tsconfig.json          # TypeScript設定（Node.js専用、strictモード）
+│   ├── types/             # カスタム型定義
+│   │   ├── express.d.ts   # Express Request拡張（pinoログ追加）
+│   │   └── env.d.ts       # 環境変数型定義（型安全なprocess.env）
+│   ├── app.ts             # Expressアプリケーション（テスト用に分離）
+│   ├── index.ts           # Expressサーバーエントリーポイント（app.tsをimportして起動）
+│   ├── db.ts              # PostgreSQL接続管理（lazy initialization）
+│   └── redis.ts           # Redis接続管理（lazy initialization）
+├── tsconfig.json          # TypeScript設定（Node.js専用、strictモード、Incremental Build有効）
+├── vitest.config.ts       # Vitest設定（Node.js環境）
+├── vitest.setup.ts        # Vitestセットアップスクリプト
 ├── Dockerfile.dev         # 開発環境用Dockerイメージ
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック
 ├── railway.toml           # Railway デプロイ設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
-├── .eslintrc.json         # ESLint設定（TypeScript対応）
+├── .eslintrc.cjs          # ESLint設定（TypeScript対応、vitest.config.ts除外）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
@@ -301,9 +313,10 @@ backend/src/
 
 **主要ファイルの説明:**
 
-- `index.js`: Expressサーバーのメインファイル。ヘルスチェック、APIルート、エラーハンドリング、favicon処理を提供
-- `db.js`: PostgreSQL接続プールのlazy initialization実装。初回アクセス時に接続確立
-- `redis.js`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
+- `app.ts`: Expressアプリケーション本体。ミドルウェア、ルート、エラーハンドリングを定義。単体テスト可能にするためindex.tsから分離
+- `index.ts`: サーバー起動エントリーポイント。app.tsからExpressアプリをimportし、ポートをリッスン
+- `db.ts`: PostgreSQL接続プールのlazy initialization実装。初回アクセス時に接続確立
+- `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
 
 **実装済みAPI:**
 
@@ -524,10 +537,17 @@ refactor: improve type safety by eliminating any types
 
 プッシュ前に以下を実行：
 
-- Backend、Frontend、E2EのTypeScript型チェック
-- E2Eテストの実行
+1. Backend、Frontend、E2EのTypeScript型チェック
+2. Backend単体テスト（11テスト）
+3. Frontend単体テスト（13テスト）
+4. E2Eテストの実行
 
 型エラーまたはテスト失敗がある場合、プッシュは中断されます。
+
+**テスト実行順序の理由:**
+- 単体テスト（高速）→ E2Eテスト（低速）の順で実行
+- 早期フィードバック: 問題を早期発見
+- Defense in Depth戦略: 複数レイヤーでの品質保証
 
 ### .gitignore
 
@@ -536,6 +556,7 @@ refactor: improve type safety by eliminating any types
 - `node_modules/` - 依存関係
 - `.env` - 環境変数（機密情報）
 - `dist/`, `build/` - ビルド成果物
+- `*.tsbuildinfo`, `.tsbuildinfo` - TypeScript Incremental Buildキャッシュ
 - `playwright-report/` - Playwrightテストレポート（タイムスタンプ付き）
 - `test-results/` - Playwrightテスト結果（スクリーンショット・ビデオ）
 - IDE設定ファイル

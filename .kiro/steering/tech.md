@@ -39,16 +39,24 @@ ArchiTrack/
 - `eslint` ^8.56.0 - コード品質チェック
 - `prettier` ^3.6.2 - コードフォーマッター
 - `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
+- `vitest` ^4.0.6 - 単体テストフレームワーク
+- `@vitest/ui` ^4.0.6 - Vitest UIツール
+- `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
+- `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
+- `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
+- `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
 
 ### 設定ファイル
 
-- `frontend/tsconfig.json` - TypeScript設定（Vite/React専用）
+- `frontend/tsconfig.json` - TypeScript設定（Vite/React専用、Incremental Build有効）
 - `frontend/src/vite-env.d.ts` - Vite環境変数型定義
 - `frontend/vite.config.js` - Vite設定
+- `frontend/vitest.config.ts` - Vitest設定（jsdom環境）
+- `frontend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `frontend/nginx.conf` - nginx設定（本番環境）
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート
-- `frontend/.eslintrc.json` - ESLint設定
+- `frontend/.eslintrc.cjs` - ESLint設定（vitest.config.ts除外対応）
 - `frontend/.prettierrc` - Prettier設定（フロントエンド用、プロジェクトルートからコピー）
 - `.prettierrc` - Prettier設定（プロジェクトルート）
 - `frontend/Dockerfile` - 本番環境用Dockerイメージ
@@ -91,15 +99,21 @@ ArchiTrack/
 - `prettier` ^3.6.2 - コードフォーマッター
 - `husky` ^9.0.11 - Git フックマネージャー
 - `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
+- `vitest` ^4.0.6 - 単体テストフレームワーク
+- `@vitest/ui` ^4.0.6 - Vitest UIツール
+- `supertest` ^7.2.0 - APIテストライブラリ
+- `@types/supertest` ^6.1.0 - supertest型定義
 
 ### 設定ファイル
 
-- `backend/tsconfig.json` - TypeScript設定（Node.js専用）
+- `backend/tsconfig.json` - TypeScript設定（Node.js専用、Incremental Build有効）
 - `backend/src/types/express.d.ts` - Express Request拡張型定義（pinoログ追加）
 - `backend/src/types/env.d.ts` - 環境変数型定義（型安全なprocess.env）
+- `backend/vitest.config.ts` - Vitest設定（Node.js環境）
+- `backend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `backend/package.json` - 依存関係管理
 - `backend/.env.example` - 環境変数テンプレート
-- `backend/.eslintrc.json` - ESLint設定
+- `backend/.eslintrc.cjs` - ESLint設定（vitest.config.ts除外対応）
 - `backend/.prettierrc` - Prettier設定（バックエンド用、プロジェクトルートからコピー）
 - `.prettierrc` - Prettier設定（プロジェクトルート）
 - `.husky/` - Git フック設定ディレクトリ
@@ -123,6 +137,83 @@ ArchiTrack/
 - **接続方式**: ioredisクライアントライブラリ経由
 - **ヘルスチェック**: `redis-cli ping`コマンド
 
+## 単体テスト
+
+### 技術スタック
+
+- **テストフレームワーク**: Vitest 4.0.6
+- **Backend**: supertest (APIテスト) + Vitest
+- **Frontend**: React Testing Library + jsdom + Vitest
+- **モック**: Vitest標準モック機能（vi.fn(), vi.mock()）
+- **カバレッジ**: Vitest Coverage (v8プロバイダー)
+- **UIツール**: Vitest UI
+
+### Backend単体テスト
+
+**主要な依存関係:**
+- `vitest` ^4.0.6 - テストランナー
+- `supertest` ^7.2.0 - HTTPアサーション
+- `@vitest/ui` ^4.0.6 - 対話的UIツール
+
+**設定ファイル:**
+- `backend/vitest.config.ts` - Node.js環境設定
+- `backend/vitest.setup.ts` - グローバルセットアップ
+
+**テスト構成:**
+- `backend/src/__tests__/` - テストファイル配置
+- `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
+
+**実行方法:**
+```bash
+npm --prefix backend run test        # 全テスト実行
+npm --prefix backend run test:watch  # ウォッチモード
+npm --prefix backend run test:ui     # UIモード
+npm --prefix backend run test:coverage  # カバレッジレポート
+```
+
+**テストカバレッジ:**
+- APIエンドポイントテスト（6テスト）
+- ヘルスチェックエンドポイントテスト（5テスト）
+- 合計: 11テスト
+
+### Frontend単体テスト
+
+**主要な依存関係:**
+- `vitest` ^4.0.6 - テストランナー
+- `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
+- `@testing-library/jest-dom` ^6.9.1 - DOMマッチャー
+- `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
+- `jsdom` ^27.1.0 - ブラウザ環境エミュレーション
+- `@vitest/ui` ^4.0.6 - 対話的UIツール
+
+**設定ファイル:**
+- `frontend/vitest.config.ts` - jsdom環境、React プラグイン設定
+- `frontend/vitest.setup.ts` - @testing-library/jest-dom グローバルセットアップ
+
+**テスト構成:**
+- `frontend/src/__tests__/` - テストファイル配置
+
+**実行方法:**
+```bash
+npm --prefix frontend run test        # 全テスト実行
+npm --prefix frontend run test:watch  # ウォッチモード
+npm --prefix frontend run test:ui     # UIモード
+npm --prefix frontend run test:coverage  # カバレッジレポート
+```
+
+**テストカバレッジ:**
+- Reactコンポーネントテスト（4テスト）
+- ユーティリティ関数テスト（9テスト）
+- 合計: 13テスト
+
+### なぜVitestを選択したか
+
+- **ES Modulesネイティブサポート**: Jest の実験的ESMサポートよりも安定
+- **Viteとの統合**: フロントエンドがViteを使用しているため、一貫性のある設定
+- **高速実行**: Viteのトランスフォーム機能を活用した高速テスト
+- **TypeScriptファーストサポート**: 追加設定不要でTypeScript実行可能
+- **統一されたテスト環境**: Backend/Frontend両方で同じツールチェーン
+
 ## E2Eテスト
 
 ### 技術スタック
@@ -144,7 +235,7 @@ ArchiTrack/
 
 ### 設定ファイル
 
-- `tsconfig.json` - TypeScript設定（E2Eテスト用）
+- `tsconfig.json` - TypeScript設定（E2Eテスト用、Incremental Build有効）
 - `playwright.config.ts` - Playwright設定（WSL2最適化、タイムスタンプ機能）
 - `package.json` - E2Eテスト用依存関係とスクリプト
 - `.github/workflows/e2e-tests.yml` - CI/CD E2Eテストワークフロー
@@ -323,6 +414,25 @@ cd backend && npm run lint:fix
 cd backend && npx prettier --write "src/**/*.js"
 ```
 
+### 単体テスト（Vitest）
+
+```bash
+# Backend単体テスト
+npm --prefix backend run test        # 全テスト実行
+npm --prefix backend run test:watch  # ウォッチモード
+npm --prefix backend run test:ui     # UIモード
+npm --prefix backend run test:coverage  # カバレッジレポート
+
+# Frontend単体テスト
+npm --prefix frontend run test        # 全テスト実行
+npm --prefix frontend run test:watch  # ウォッチモード
+npm --prefix frontend run test:ui     # UIモード
+npm --prefix frontend run test:coverage  # カバレッジレポート
+
+# 全ての単体テストを実行（Backend + Frontend）
+npm --prefix backend run test && npm --prefix frontend run test
+```
+
 ### E2Eテスト（Playwright）
 
 ```bash
@@ -388,20 +498,44 @@ node e2e/helpers/browser.js api http://localhost:3000/health
 
 ```bash
 # Backend型チェック
-cd backend && npm run type-check
+npm --prefix backend run type-check
 
 # Frontend型チェック
-cd frontend && npm run type-check
+npm --prefix frontend run type-check
 
 # E2E型チェック
 npm run type-check
 
 # Backendビルド
-cd backend && npm run build
+npm --prefix backend run build
 
 # Frontend TSビルド
-cd frontend && npm run build
+npm --prefix frontend run build
 ```
+
+#### TypeScript Incremental Build
+
+全てのtsconfig.json（backend、frontend、E2E）でIncremental Buildを有効化しています：
+
+```json
+{
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo"
+  }
+}
+```
+
+**パフォーマンス向上:**
+- Backend: 1.485s → 0.800s（46%高速化）
+- Frontend: 0.895s → 0.632s（29%高速化）
+- E2E: 0.847s → 0.710s（16%高速化）
+- **合計: 3.227s → 2.142s（34%高速化）**
+
+**仕組み:**
+- 初回実行時に`.tsbuildinfo`ファイルを生成
+- 2回目以降は変更されたファイルのみ型チェック
+- `.tsbuildinfo`は`.gitignore`に追加済み（ビルドキャッシュのため）
 
 ### Git操作
 
@@ -469,27 +603,39 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 ### GitHub Actions
 
-`.github/workflows/ci.yml` および `.github/workflows/e2e-tests.yml` でCI/CDパイプラインを定義しています。
+`.github/workflows/ci.yml` でCI/CDパイプラインを定義しています。
 
-**CIワークフロー:**
-- **自動テスト**: プッシュ・PR時に実行
-- **ビルド検証**: フロントエンド・バックエンドのビルド確認
-- **ESLintチェック**: コード品質自動検証
+**CIワークフロー（ステージ型）:**
+
+プッシュ・PR時に自動実行されます。
+
+**Stage 1: TypeScript型チェック**
+- Backend: `npm --prefix backend run type-check`
+- Frontend: `npm --prefix frontend run type-check`
+- E2E: `npm run type-check`
+- **Fail-fast戦略**: いずれかの型チェック失敗で即座に終了
+
+**Stage 2: コード品質チェック**
+- Backend: `npm --prefix backend run lint`
+- Frontend: `npm --prefix frontend run lint`
+
+**Stage 3: 単体テスト**
+- Backend: `npm --prefix backend run test`（11テスト）
+- Frontend: `npm --prefix frontend run test`（13テスト）
+- **Fail-fast戦略**: いずれかのテスト失敗で即座に終了
+
+**Stage 4: E2Eテスト**
+- Docker Composeでサービス起動
+- ヘルスチェック待機（最大180秒）
+- Playwright E2Eテスト実行
+- 失敗時にスクリーンショット・ビデオを保存
+
+**ワークフローの特徴:**
+- **ステージ型構成**: 型チェック→品質→単体→E2Eの順で段階的に実行
+- **Fail-fast戦略**: 早期ステージでの失敗で即座に終了（無駄なリソース消費を回避）
 - **再現可能なビルド**: `npm ci` による依存関係インストール
+- **並列実行**: 同一ステージ内のジョブは並列実行
 
-**E2Eテストワークフロー:**
-- **自動E2Eテスト**: PRおよびmainブランチへのpush時に実行
-- **段階的な依存関係インストール**: ルート、バックエンド、フロントエンドを個別にインストール
-  ```yaml
-  - npm ci                      # ルート（E2Eテスト）
-  - npm --prefix backend ci     # バックエンド依存関係
-  - npm --prefix frontend ci    # フロントエンド依存関係
-  ```
-- **lint/format実行前の準備**: 各サービスの依存関係インストール後にlint・formatチェック
-- **Docker Compose統合**: テスト実行前にすべてのサービスを起動
-- **ヘルスチェック待機**: 全サービスが健全状態になるまで最大180秒待機
-- **失敗時のアーティファクト**: スクリーンショット・ビデオを自動保存
-- **テストレポート**: HTML形式のレポートをアーティファクトとして保存
 
 ### Railway デプロイメント
 
@@ -553,9 +699,16 @@ ArchiTrackでは、3段階のGit hooksにより品質を自動保証していま
 1. **Backend型チェック**: `npm --prefix backend run type-check`
 2. **Frontend型チェック**: `npm --prefix frontend run type-check`
 3. **E2E型チェック**: `npm run type-check`
-4. **E2Eテスト実行**: `npm run test:e2e`
+4. **Backend単体テスト**: `npm --prefix backend run test`
+5. **Frontend単体テスト**: `npm --prefix frontend run test`
+6. **E2Eテスト実行**: `npm run test:e2e`
 
 型エラーまたはテスト失敗がある場合、プッシュは中断されます。
+
+**テスト実行順序の理由:**
+- 単体テスト（高速、11+13=24テスト）→ E2Eテスト（低速）の順で実行
+- 早期フィードバック: 単体テストで問題を早期発見
+- Defense in Depth戦略: 複数レイヤーでの品質保証
 
 #### lint-staged設定
 

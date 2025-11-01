@@ -19,9 +19,13 @@ ArchiTrackは、Claude Codeを活用したKiro-style Spec Driven Development（�
 - **型安全性の徹底**: カスタム型定義ファイル（Express拡張、環境変数）による`any`型の完全排除
 - **自動品質保証**: Git hooks（pre-commit、commit-msg、pre-push）による型チェック・lint・テスト実行の強制
 - **Conventional Commits強制**: commitlintによるコミットメッセージ規約の厳格な適用
-- **E2Eテスト環境**: Playwright + TypeScriptによるブラウザ自動化テスト、タイムスタンプ付き結果管理
+- **包括的なテスト環境**:
+  - **単体テスト**: Vitest + supertest/React Testing Library（Backend 11テスト、Frontend 13テスト）
+  - **E2Eテスト**: Playwright + TypeScriptによるブラウザ自動化テスト、タイムスタンプ付き結果管理
+- **TypeScript Incremental Build**: 型チェック速度を34%向上（3.2秒 → 2.1秒）
 - **Claude Code統合テスト**: AIアシスタントから直接ブラウザ操作・スクリーンショット撮影が可能
 - **本番環境デプロイ**: Railwayプラットフォームによる継続的デプロイ
+- **ステージ型CI/CD**: 型チェック→品質→単体→E2Eの段階的検証とfail-fast戦略
 
 ## ターゲットユースケース
 
