@@ -72,7 +72,7 @@ services:
       - /app/node_modules
       - ./.prettierrc:/app/.prettierrc:ro
       - ./.prettierignore:/app/.prettierignore:ro
-    command: npm run dev
+    # commandはDockerfileのCMDを使用（entrypoint.sh）
 
 volumes:
   postgres_data:
