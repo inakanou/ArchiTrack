@@ -45,32 +45,23 @@ jobs:
         run: |
           echo "=== Docker Compose Services Status ==="
           docker compose ps
-          echo "=== Docker Container Details ==="
-          docker compose ps --format json | jq '.'
 
-      - name: Wait for PostgreSQL to be ready
+      - name: Wait for all services to be healthy
         run: |
-          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U postgres; do sleep 2; done'
+          echo "Waiting for all services to become healthy..."
+          timeout 180 bash -c 'until [ "$(docker compose ps --format json | jq -r ".[] | select(.Health != \"healthy\") | .Name" | wc -l)" -eq 0 ]; do
+            echo "Waiting for services... ($(date +%H:%M:%S))"
+            docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Health}}"
+            sleep 5
+          done'
+          echo "All services are healthy!"
+          docker compose ps
 
-      - name: Wait for Redis to be ready
+      - name: Verify service endpoints
         run: |
-          timeout 60 bash -c 'until docker compose exec -T redis redis-cli ping; do sleep 2; done'
-
-      - name: Wait for Backend to be ready
-        run: |
-          echo "Waiting for backend to start..."
-          timeout 180 bash -c 'until curl -s http://localhost:3000/health > /dev/null 2>&1; do echo "Waiting for backend..."; sleep 5; done'
-          echo "Backend is ready!"
-
-      - name: Wait for Frontend to be ready
-        run: |
-          echo "Waiting for frontend to start..."
-          echo "Checking frontend container status..."
-          docker compose ps frontend
-          echo "Checking frontend logs (last 20 lines)..."
-          docker compose logs --tail=20 frontend || true
-          timeout 300 bash -c 'until curl -sf http://localhost:5173 > /dev/null 2>&1; do echo "Waiting for frontend... ($(date +%H:%M:%S))"; sleep 5; done'
-          echo "Frontend is ready!"
+          echo "Verifying backend health endpoint..."
+          curl -f http://localhost:3000/health
+          echo "Verifying frontend is accessible..."
           curl -I http://localhost:5173
 
       - name: Show Docker logs on failure

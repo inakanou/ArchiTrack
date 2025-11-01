@@ -2,8 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Alpine Linux用の必要なビルドツールをインストール
-RUN apk add --no-cache python3 make g++
+# Alpine Linux用の必要なビルドツールとヘルスチェック用ツールをインストール
+RUN apk add --no-cache python3 make g++ wget
 
 COPY package*.json ./
 
