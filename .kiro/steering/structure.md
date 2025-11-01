@@ -38,8 +38,10 @@ ArchiTrack/
 │   ├── nginx.conf          # 本番環境nginx設定
 │   ├── Dockerfile          # 本番環境Dockerイメージ
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
+│   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
 │   ├── railway.toml        # Railway デプロイ設定
 │   ├── .eslintrc.json      # ESLint設定
+│   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
 ├── backend/                # バックエンドAPI
 │   ├── src/                # ソースコード
@@ -48,8 +50,10 @@ ArchiTrack/
 │   │   └── redis.js        # Redis接続管理
 │   ├── package.json        # 依存関係
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
+│   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
 │   ├── railway.toml        # Railway デプロイ設定
 │   ├── .eslintrc.json      # ESLint設定
+│   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
 ├── docker-compose.yml      # ローカル開発環境定義
 ├── package.json            # E2Eテスト依存関係
@@ -197,11 +201,13 @@ frontend/
 ├── dist/                  # ビルド成果物（.gitignore）
 ├── Dockerfile             # 本番環境用（nginx）
 ├── Dockerfile.dev         # 開発環境用（Vite dev server）
+├── docker-entrypoint.sh   # Docker起動時の依存関係チェック（アーキテクチャ固有モジュール対応）
 ├── railway.toml           # Railway デプロイ設定
 ├── nginx.conf             # nginx本番環境設定
 ├── vite.config.js         # Vite設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
 ├── .eslintrc.json         # ESLint設定
+├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
 
@@ -241,9 +247,11 @@ backend/
 │   ├── db.js              # PostgreSQL接続管理（lazy initialization）
 │   └── redis.js           # Redis接続管理（lazy initialization）
 ├── Dockerfile.dev         # 開発環境用Dockerイメージ
+├── docker-entrypoint.sh   # Docker起動時の依存関係チェック
 ├── railway.toml           # Railway デプロイ設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
 ├── .eslintrc.json         # ESLint設定
+├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
 
@@ -295,16 +303,23 @@ backend/src/
 - `backend`: Node.js/Expressバックエンド（ポート3000）
 - `frontend`: React/Viteフロントエンド（ポート5173）
 
-各サービスはヘルスチェック付きで起動し、依存関係を適切に管理します。
+**開発環境の特徴:**
+
+- **ヘルスチェック**: 全サービスでヘルスチェックを実装し、起動順序と依存関係を保証
+- **名前付きボリューム**: `node_modules`を名前付きボリュームとしてマウント、パーミッション問題を回避
+- **エントリポイントスクリプト**: 各サービスは専用のdocker-entrypoint.shで依存関係を自動管理
+- **フロントエンド最適化**: アーキテクチャ固有モジュールの選択的再インストールで起動時間を短縮（45-60秒 → 10-15秒）
 
 ### Dockerfile構成
 
 **Frontend:**
 - `Dockerfile`: 本番環境用。マルチステージビルドでViteビルド→nginx配信
 - `Dockerfile.dev`: 開発環境用。Vite dev serverでホットリロード対応
+- `docker-entrypoint.sh`: 起動時にアーキテクチャ固有モジュール（`@rollup/rollup-linux-${arch}-gnu`）をチェックし、不足時のみ再インストール
 
 **Backend:**
 - `Dockerfile.dev`: 開発環境用。Node.js --watchでホットリロード対応
+- `docker-entrypoint.sh`: 起動時にnode_modulesをチェックし、不足時のみ依存関係をインストール
 
 ## コード構成パターン
 

@@ -41,9 +41,11 @@ ArchiTrack/
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート
 - `frontend/.eslintrc.json` - ESLint設定
+- `frontend/.prettierrc` - Prettier設定（フロントエンド用、プロジェクトルートからコピー）
 - `.prettierrc` - Prettier設定（プロジェクトルート）
 - `frontend/Dockerfile` - 本番環境用Dockerイメージ
 - `frontend/Dockerfile.dev` - 開発環境用Dockerイメージ
+- `frontend/docker-entrypoint.sh` - Docker起動時の依存関係チェックスクリプト
 - `frontend/railway.toml` - Railway デプロイ設定
 
 ## バックエンド
@@ -75,9 +77,11 @@ ArchiTrack/
 - `backend/package.json` - 依存関係管理
 - `backend/.env.example` - 環境変数テンプレート
 - `backend/.eslintrc.json` - ESLint設定
+- `backend/.prettierrc` - Prettier設定（バックエンド用、プロジェクトルートからコピー）
 - `.prettierrc` - Prettier設定（プロジェクトルート）
 - `.husky/` - Git フック設定ディレクトリ
 - `backend/Dockerfile.dev` - 開発環境用Dockerイメージ
+- `backend/docker-entrypoint.sh` - Docker起動時の依存関係チェックスクリプト
 - `backend/railway.toml` - Railway デプロイ設定
 
 ## データベース・キャッシュ
@@ -154,6 +158,42 @@ node e2e/helpers/browser.js api http://localhost:3000/health
 ```
 
 ## 開発環境
+
+### Docker開発環境パターン
+
+ArchiTrackでは、開発環境の一貫性と再現性を確保するため、以下のDocker開発パターンを採用しています。
+
+#### エントリポイントスクリプトパターン
+
+各サービス（backend/frontend）は専用のエントリポイントスクリプトを持ち、起動時の依存関係を自動管理します：
+
+**フロントエンド (`frontend/docker-entrypoint.sh`):**
+- アーキテクチャ固有モジュール（`@rollup/rollup-linux-${arch}-gnu`）のチェック
+- 不足している場合のみ必要なモジュールを再インストール
+- 起動時間の最適化（45-60秒 → 10-15秒）
+
+**バックエンド (`backend/docker-entrypoint.sh`):**
+- `node_modules/.bin`の存在確認
+- 不足している場合のみ依存関係をインストール
+
+#### ヘルスチェック設定
+
+全サービスにヘルスチェックを実装し、依存関係の起動順序を保証：
+
+- **PostgreSQL**: `pg_isready`コマンドで接続可能性を確認
+- **Redis**: `redis-cli ping`でサービス状態を確認
+- **Backend**: `curl http://localhost:3000/health`でAPIの準備状態を確認
+- **Frontend**: `curl http://localhost:5173`でViteサーバーの起動を確認（`start_period: 45s`でnpm install時間を考慮）
+
+#### 名前付きボリュームパターン
+
+`node_modules`は名前付きボリュームとしてマウントし、ホストとコンテナ間のパーミッション問題を回避：
+
+```yaml
+volumes:
+  - ./frontend:/app
+  - frontend_node_modules:/app/node_modules
+```
 
 ### 必須ツール
 
@@ -389,7 +429,15 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 **E2Eテストワークフロー:**
 - **自動E2Eテスト**: PRおよびmainブランチへのpush時に実行
+- **段階的な依存関係インストール**: ルート、バックエンド、フロントエンドを個別にインストール
+  ```yaml
+  - npm ci                      # ルート（E2Eテスト）
+  - npm --prefix backend ci     # バックエンド依存関係
+  - npm --prefix frontend ci    # フロントエンド依存関係
+  ```
+- **lint/format実行前の準備**: 各サービスの依存関係インストール後にlint・formatチェック
 - **Docker Compose統合**: テスト実行前にすべてのサービスを起動
+- **ヘルスチェック待機**: 全サービスが健全状態になるまで最大180秒待機
 - **失敗時のアーティファクト**: スクリーンショット・ビデオを自動保存
 - **テストレポート**: HTML形式のレポートをアーティファクトとして保存
 
