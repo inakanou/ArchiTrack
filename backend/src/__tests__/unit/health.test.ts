@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import request from 'supertest';
-import app from '../app.js';
-import redis from '../redis.js';
+import app from '../../app.js';
+import redis from '../../redis.js';
 
 // DB/Redisモジュールをモック
 // Prisma Clientは関数として返され、$queryRawメソッドを持つ
-vi.mock('../db.js', () => ({
+vi.mock('../../db.js', () => ({
   default: vi.fn(() => ({
     $queryRaw: vi.fn(),
     $disconnect: vi.fn().mockResolvedValue(undefined),
@@ -13,7 +13,7 @@ vi.mock('../db.js', () => ({
   disconnectPrisma: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../redis.js', () => ({
+vi.mock('../../redis.js', () => ({
   default: {
     ping: vi.fn(),
     disconnect: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock('../redis.js', () => ({
 }));
 
 // logger middlewareをモック（pino-httpの複雑な依存を回避）
-vi.mock('../middleware/logger.middleware.js', () => ({
+vi.mock('../../middleware/logger.middleware.js', () => ({
   httpLogger: vi.fn((req, res, next) => {
     req.log = {
       info: vi.fn(),
@@ -32,7 +32,7 @@ vi.mock('../middleware/logger.middleware.js', () => ({
   }),
 }));
 
-vi.mock('../utils/logger.js', () => ({
+vi.mock('../../utils/logger.js', () => ({
   default: {
     info: vi.fn(),
     warn: vi.fn(),

@@ -1,16 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
-import app from '../app.js';
+import app from '../../app.js';
 
 // DB/Redisモジュールをモック
-vi.mock('../db.js', () => ({
+vi.mock('../../db.js', () => ({
   default: {
     query: vi.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }),
     end: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
-vi.mock('../redis.js', () => ({
+vi.mock('../../redis.js', () => ({
   default: {
     ping: vi.fn().mockResolvedValue('PONG'),
     disconnect: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('../redis.js', () => ({
 }));
 
 // logger middlewareをモック（pino-httpの複雑な依存を回避）
-vi.mock('../middleware/logger.middleware.js', () => ({
+vi.mock('../../middleware/logger.middleware.js', () => ({
   httpLogger: vi.fn((req, res, next) => {
     req.log = {
       info: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock('../middleware/logger.middleware.js', () => ({
   }),
 }));
 
-vi.mock('../utils/logger.js', () => ({
+vi.mock('../../utils/logger.js', () => ({
   default: {
     info: vi.fn(),
     warn: vi.fn(),

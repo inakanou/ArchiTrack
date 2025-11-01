@@ -31,7 +31,7 @@ fi
 # Backend unit tests
 if [ -d "backend" ]; then
   echo "🧪 Running backend unit tests..."
-  npm --prefix backend run test
+  npm --prefix backend run test:unit
   if [ $? -ne 0 ]; then
     echo "❌ Backend unit tests failed. Push aborted."
     exit 1
@@ -44,6 +44,16 @@ if [ -d "frontend" ]; then
   npm --prefix frontend run test
   if [ $? -ne 0 ]; then
     echo "❌ Frontend unit tests failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# Backend integration tests
+if [ -d "backend" ]; then
+  echo "🔗 Running backend integration tests..."
+  npm --prefix backend run test:integration
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend integration tests failed. Push aborted."
     exit 1
   fi
 fi
