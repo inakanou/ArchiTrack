@@ -1,4 +1,5 @@
 module.exports = {
+  root: true, // 親ディレクトリの設定を読み込まない
   env: {
     browser: true,
     es2022: true,
