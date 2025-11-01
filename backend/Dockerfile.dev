@@ -8,12 +8,28 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# package.jsonとpackage-lock.jsonをコピー
 COPY package*.json ./
 
-RUN rm -rf node_modules package-lock.json && npm install
+# node_modulesが空の場合にnpm installを実行するスクリプト
+RUN echo '#!/bin/sh\n\
+echo "Checking and installing dependencies..."\n\
+if [ ! -d "node_modules/.bin" ]; then\n\
+  echo "node_modules is empty, installing dependencies..."\n\
+  npm install\n\
+else\n\
+  echo "Verifying node_modules integrity..."\n\
+  npm install --prefer-offline\n\
+fi\n\
+exec "$@"' > /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# 初回ビルド時にnode_modulesをインストール
+RUN npm install
 
 COPY . .
 
 EXPOSE 3000
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["npm", "run", "dev"]

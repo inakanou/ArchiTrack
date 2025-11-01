@@ -8,13 +8,29 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# package.jsonとpackage-lock.jsonをコピー
 COPY package*.json ./
 
-# npm installを実行（Debianベースなのでネイティブモジュールの互換性問題なし）
+# node_modulesが空の場合にnpm installを実行するスクリプト
+RUN echo '#!/bin/sh\n\
+echo "Checking dependencies..."\n\
+if [ ! -d "node_modules/.bin" ]; then\n\
+  echo "node_modules is empty, installing dependencies..."\n\
+  npm install\n\
+else\n\
+  echo "Cleaning and reinstalling dependencies to ensure correct architecture..."\n\
+  rm -rf node_modules package-lock.json\n\
+  npm install\n\
+fi\n\
+exec "$@"' > /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# 初回ビルド時にnode_modulesをインストール
 RUN npm install
 
 COPY . .
 
 EXPOSE 5173
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["npm", "run", "dev"]
