@@ -14,4 +14,14 @@ COPY . .
 
 EXPOSE 5173
 
-CMD ["npm", "run", "dev"]
+# 起動時スクリプトを作成
+RUN echo '#!/bin/sh\n\
+# Alpine環境用のネイティブモジュールを確実にインストール\n\
+echo "Rebuilding native modules for Alpine..."\n\
+npm install --force --no-save @rollup/rollup-linux-x64-musl 2>/dev/null || true\n\
+npm rebuild\n\
+echo "Starting Vite dev server..."\n\
+exec npm run dev\n\
+' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+CMD ["/app/entrypoint.sh"]
