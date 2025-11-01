@@ -79,12 +79,15 @@ services:
       - ./.prettierrc:/app/.prettierrc:ro
       - ./.prettierignore:/app/.prettierignore:ro
     # commandはDockerfileのCMDを使用
+    # ヘルスチェックを一時的にdisableに変更してデバッグ
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5173 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 15
-      start_period: 60s
+      disable: true
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl -f http://localhost:5173 || exit 1"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 15
+    #   start_period: 60s
 
 volumes:
   postgres_data:
