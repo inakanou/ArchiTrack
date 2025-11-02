@@ -29,12 +29,24 @@ vi.mock('../../db.js', () => ({
   },
 }));
 
-vi.mock('../../redis.js', () => ({
-  default: {
+vi.mock('../../redis.js', () => {
+  const mockRedisClient = {
     ping: vi.fn().mockResolvedValue('PONG'),
-    disconnect: vi.fn(),
-  },
-}));
+    incr: vi.fn().mockResolvedValue(1),
+    pexpire: vi.fn().mockResolvedValue(1),
+    pttl: vi.fn().mockResolvedValue(60000),
+    decr: vi.fn().mockResolvedValue(0),
+    del: vi.fn().mockResolvedValue(1),
+  };
+
+  return {
+    default: {
+      ping: vi.fn().mockResolvedValue('PONG'),
+      disconnect: vi.fn(),
+      getClient: vi.fn().mockReturnValue(mockRedisClient),
+    },
+  };
+});
 
 // logger middlewareをモック（pino-httpの複雑な依存を回避）
 vi.mock('../../middleware/logger.middleware.js', () => ({
