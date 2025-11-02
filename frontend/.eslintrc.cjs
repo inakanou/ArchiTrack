@@ -34,7 +34,7 @@ module.exports = {
   overrides: [
     {
       files: ['**/*.ts', '**/*.tsx'],
-      excludedFiles: ['vitest.config.ts'],
+      excludedFiles: ['vitest.config.ts', 'vite.config.ts'],
       parser: '@typescript-eslint/parser',
       parserOptions: {
         ecmaVersion: 'latest',
@@ -62,7 +62,7 @@ module.exports = {
       },
     },
     {
-      files: ['vitest.config.ts'],
+      files: ['vitest.config.ts', 'vite.config.ts'],
       parser: '@typescript-eslint/parser',
       parserOptions: {
         ecmaVersion: 'latest',
