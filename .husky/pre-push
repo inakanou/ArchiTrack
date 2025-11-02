@@ -1,3 +1,36 @@
+echo "🔍 Running format checks before push..."
+
+# Backend format check
+if [ -d "backend" ]; then
+  echo "🔍 Checking backend formatting..."
+  npm --prefix backend run format:check
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend format check failed. Push aborted."
+    echo "   Run 'npm --prefix backend run format' to fix formatting issues."
+    exit 1
+  fi
+fi
+
+# Frontend format check
+if [ -d "frontend" ]; then
+  echo "🔍 Checking frontend formatting..."
+  npm --prefix frontend run format:check
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend format check failed. Push aborted."
+    echo "   Run 'npm --prefix frontend run format' to fix formatting issues."
+    exit 1
+  fi
+fi
+
+# E2E format check
+echo "🔍 Checking E2E formatting..."
+npm run format:check
+if [ $? -ne 0 ]; then
+  echo "❌ E2E format check failed. Push aborted."
+  echo "   Run 'npm run format' to fix formatting issues."
+  exit 1
+fi
+
 echo "🔎 Running type checks before push..."
 
 # Backend type check
