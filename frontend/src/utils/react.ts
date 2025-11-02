@@ -74,7 +74,7 @@ export function useThrottle<T extends (...args: unknown[]) => unknown>(
  * console.log(`Current: ${count}, Previous: ${prevCount}`);
  */
 export function usePrevious<T>(value: T): T | undefined {
-  const ref = useRef<T>();
+  const ref = useRef<T | undefined>(undefined);
 
   useEffect(() => {
     ref.current = value;
@@ -131,7 +131,9 @@ export function useIntersectionObserver(
   const observer = useMemo(
     () =>
       new IntersectionObserver(([entry]) => {
-        setIsIntersecting(entry.isIntersecting);
+        if (entry) {
+          setIsIntersecting(entry.isIntersecting);
+        }
       }, options),
     [options]
   );
@@ -141,6 +143,7 @@ export function useIntersectionObserver(
       observer.observe(node);
       return () => observer.disconnect();
     }
+    return undefined;
   }, [node, observer]);
 
   return [setNode, isIntersecting];
@@ -304,7 +307,7 @@ export function useRenderCount(componentName: string): void {
  * }
  */
 export function useWhyDidYouUpdate(name: string, props: Record<string, unknown>): void {
-  const previousProps = useRef<Record<string, unknown>>();
+  const previousProps = useRef<Record<string, unknown> | undefined>(undefined);
 
   useEffect(() => {
     if (previousProps.current && import.meta.env.DEV) {
