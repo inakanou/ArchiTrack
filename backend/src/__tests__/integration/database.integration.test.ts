@@ -144,9 +144,9 @@ describe('Database Integration Tests', () => {
       });
 
       expect(users).toHaveLength(3);
-      expect(users[0].email).toBe('test-integration-list-1@example.com');
-      expect(users[1].email).toBe('test-integration-list-2@example.com');
-      expect(users[2].email).toBe('test-integration-list-3@example.com');
+      expect(users[0]?.email).toBe('test-integration-list-1@example.com');
+      expect(users[1]?.email).toBe('test-integration-list-2@example.com');
+      expect(users[2]?.email).toBe('test-integration-list-3@example.com');
     });
   });
 
@@ -180,7 +180,7 @@ describe('Database Integration Tests', () => {
   describe('Database Connection', () => {
     it('データベースに接続できること', async () => {
       const result = await prisma.$queryRaw<Array<{ result: number }>>`SELECT 1 as result`;
-      expect(result[0].result).toBe(1);
+      expect(result[0]?.result).toBe(1);
     });
 
     it('トランザクションが正常に動作すること', async () => {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiClient, ApiError } from './api/client';
 import './App.css';
 
 interface ApiData {
@@ -13,13 +14,15 @@ function App() {
   useEffect(() => {
     const checkApi = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-        const response = await fetch(`${apiUrl}/api`);
-        const data: ApiData = await response.json();
+        const data = await apiClient.get<ApiData>('/api');
         setApiData(data);
         setApiStatus('connected');
       } catch (error) {
         console.error('API connection failed:', error);
+        if (error instanceof ApiError) {
+          console.error('Status:', error.statusCode);
+          console.error('Response:', error.response);
+        }
         setApiStatus('disconnected');
       }
     };

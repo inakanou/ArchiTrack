@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import getPrismaClient from './db.js';
@@ -6,11 +6,18 @@ import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
 import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middleware.js';
 import { validateEnv } from './config/env.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
+import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
+import adminRoutes from './routes/admin.routes.js';
 
 const app = express();
 
 // Middleware
-// HTTPロギングを最初に適用
+// HTTPS強制（本番環境のみ）
+app.use(httpsRedirect);
+app.use(hsts);
+
+// HTTPロギングを適用
 app.use(httpLogger);
 
 // 環境変数を検証して取得
@@ -101,15 +108,13 @@ app.get('/api', (_req: Request, res: Response) => {
   });
 });
 
-// 404 handler
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ error: 'Not found' });
-});
+// Admin routes (TODO: 認証ミドルウェアを追加)
+app.use('/admin', adminRoutes);
 
-// Error handler
-app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  req.log.error({ err }, 'Internal server error');
-  res.status(500).json({ error: 'Internal server error' });
-});
+// 404 handler
+app.use(notFoundHandler);
+
+// Error handler (must be last)
+app.use(errorHandler);
 
 export default app;

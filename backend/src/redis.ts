@@ -1,6 +1,17 @@
 import Redis from 'ioredis';
 import logger from './utils/logger.js';
 
+/**
+ * Redis キーのTTL定数（秒単位）
+ */
+export const CACHE_TTL = {
+  SHORT: 60, // 1分
+  MEDIUM: 300, // 5分
+  LONG: 3600, // 1時間
+  DAY: 86400, // 1日
+  WEEK: 604800, // 1週間
+} as const;
+
 let redis: Redis | null = null;
 let isConnecting = false;
 

@@ -17,11 +17,14 @@ export class RedisRateLimitStore implements Store {
 
   /**
    * Redisクライアントを取得（遅延初期化）
+   * Redisが利用できない場合はnullを返す（メモリストアにフォールバック）
    */
-  private getClient(): RedisType {
+  private getClient(): RedisType | null {
     const client = this.clientGetter();
     if (!client) {
-      throw new Error('Redis client is not initialized');
+      // Redisが利用できない場合、express-rate-limitは自動的に
+      // メモリストアにフォールバックする
+      return null;
     }
     return client;
   }
@@ -37,42 +40,75 @@ export class RedisRateLimitStore implements Store {
    * キーのカウントをインクリメント
    */
   async increment(key: string): Promise<IncrementResponse> {
-    const redisKey = `${this.prefix}${key}`;
     const client = this.getClient();
 
-    // カウントをインクリメント
-    const totalHits = await client.incr(redisKey);
-
-    // 初回アクセス時にTTLを設定
-    if (totalHits === 1) {
-      await client.pexpire(redisKey, this.windowMs);
+    // Redisが利用できない場合は、デフォルト値を返す
+    // express-rate-limitがメモリストアにフォールバックする
+    if (!client) {
+      return {
+        totalHits: 1,
+        resetTime: new Date(Date.now() + this.windowMs),
+      };
     }
 
-    // TTLを取得してresetTimeを計算
-    const ttl = await client.pttl(redisKey);
-    const resetTime = ttl > 0 ? new Date(Date.now() + ttl) : undefined;
+    const redisKey = `${this.prefix}${key}`;
 
-    return {
-      totalHits,
-      resetTime,
-    };
+    try {
+      // カウントをインクリメント
+      const totalHits = await client.incr(redisKey);
+
+      // 初回アクセス時にTTLを設定
+      if (totalHits === 1) {
+        await client.pexpire(redisKey, this.windowMs);
+      }
+
+      // TTLを取得してresetTimeを計算
+      const ttl = await client.pttl(redisKey);
+      const resetTime = ttl > 0 ? new Date(Date.now() + ttl) : undefined;
+
+      return {
+        totalHits,
+        resetTime,
+      };
+    } catch (error) {
+      // Redisエラー時はフォールバック
+      console.warn('Redis error during increment, falling back to memory store:', error);
+      return {
+        totalHits: 1,
+        resetTime: new Date(Date.now() + this.windowMs),
+      };
+    }
   }
 
   /**
    * キーのカウントをデクリメント
    */
   async decrement(key: string): Promise<void> {
-    const redisKey = `${this.prefix}${key}`;
     const client = this.getClient();
-    await client.decr(redisKey);
+    if (!client) return; // Redisが利用できない場合は何もしない
+
+    const redisKey = `${this.prefix}${key}`;
+
+    try {
+      await client.decr(redisKey);
+    } catch (error) {
+      console.warn('Redis error during decrement:', error);
+    }
   }
 
   /**
    * キーをリセット
    */
   async resetKey(key: string): Promise<void> {
-    const redisKey = `${this.prefix}${key}`;
     const client = this.getClient();
-    await client.del(redisKey);
+    if (!client) return; // Redisが利用できない場合は何もしない
+
+    const redisKey = `${this.prefix}${key}`;
+
+    try {
+      await client.del(redisKey);
+    } catch (error) {
+      console.warn('Redis error during reset:', error);
+    }
   }
 }

@@ -50,7 +50,7 @@ vi.mock('../../redis.js', () => {
 
 // logger middlewareをモック（pino-httpの複雑な依存を回避）
 vi.mock('../../middleware/logger.middleware.js', () => ({
-  httpLogger: vi.fn((req, res, next) => {
+  httpLogger: vi.fn((req, _res, next) => {
     req.log = {
       info: vi.fn(),
       warn: vi.fn(),
