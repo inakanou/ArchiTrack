@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:analyze": "tsc && vite build --mode production && echo 'Bundle analysis report generated at dist/stats.html'",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -42,6 +43,7 @@
     "jsdom": "^27.1.0",
     "lint-staged": "^15.2.0",
     "prettier": "^3.6.2",
+    "rollup-plugin-visualizer": "^6.0.5",
     "terser": "^5.36.0",
     "typescript": "^5.9.3",
     "vite": "^5.1.0",

@@ -30,7 +30,7 @@
     },
 
     /* Testing */
-    "types": ["vitest/globals", "@testing-library/jest-dom"],
+    "types": ["vitest/globals"],
 
     /* Performance */
     "incremental": true,

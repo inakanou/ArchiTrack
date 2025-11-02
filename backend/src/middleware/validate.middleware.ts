@@ -29,6 +29,7 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
       const validated = await schema.parseAsync(data);
 
       // バリデーション済みデータを専用プロパティに格納（型安全）
+      // validated*プロパティを使用することで、型安全なアクセスが可能
       if (source === 'body') {
         req.validatedBody = validated;
       } else if (source === 'query') {

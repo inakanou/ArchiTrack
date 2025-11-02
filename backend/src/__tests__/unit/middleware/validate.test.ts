@@ -123,7 +123,7 @@ describe('validate middleware', () => {
         await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
         expect(mockNext).toHaveBeenCalledWith();
-        expect(mockRequest.query).toEqual({
+        expect(mockRequest.validatedQuery).toEqual({
           page: 1,
           limit: 10,
           search: 'test',
@@ -346,7 +346,7 @@ describe('validate middleware', () => {
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockNext).toHaveBeenCalledWith();
-      expect(mockRequest.query).toEqual({
+      expect(mockRequest.validatedQuery).toEqual({
         page: 2,
         limit: 20,
         sortBy: 'createdAt',
