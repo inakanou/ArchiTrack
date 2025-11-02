@@ -12,6 +12,9 @@ describe('App Component', () => {
 
   it('初期表示時に"ArchiTrack"タイトルが表示される', () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ message: 'test', version: '1.0.0' }),
     } as Response);
 
@@ -23,6 +26,9 @@ describe('App Component', () => {
 
   it('API接続成功時にconnectedステータスを表示する', async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ message: 'ArchiTrack API', version: '1.0.0' }),
     } as Response);
 
@@ -59,13 +65,21 @@ describe('App Component', () => {
 
   it('正しいAPIエンドポイントにリクエストを送信する', async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ message: 'test', version: '1.0.0' }),
     } as Response);
 
     render(<App />);
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith('http://localhost:3000/api');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api',
+        expect.objectContaining({
+          method: 'GET',
+        })
+      );
     });
   });
 });

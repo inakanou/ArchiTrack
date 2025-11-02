@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { ApiError } from '../errors/ApiError.js';
 import { Prisma } from '@prisma/client';
+import { captureException } from '../utils/sentry.js';
 
 /**
  * グローバルエラーハンドラーミドルウェア
@@ -11,6 +12,17 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   // ApiErrorの場合
   if (err instanceof ApiError) {
     req.log.warn({ err, statusCode: err.statusCode }, 'API error');
+
+    // 5xxエラーの場合はSentryに送信
+    if (err.statusCode >= 500) {
+      captureException(err, {
+        url: req.url,
+        method: req.method,
+        ip: req.ip,
+        statusCode: err.statusCode,
+      });
+    }
+
     res.status(err.statusCode).json(err.toJSON());
     return;
   }
@@ -69,6 +81,14 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     err instanceof Prisma.PrismaClientRustPanicError
   ) {
     req.log.error({ err }, 'Prisma connection error');
+
+    // データベース接続エラーをSentryに送信
+    captureException(err, {
+      url: req.url,
+      method: req.method,
+      errorType: 'database_connection',
+    });
+
     res.status(503).json({
       error: 'Database connection error',
       code: 'DATABASE_UNAVAILABLE',
@@ -78,6 +98,16 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 
   // その他のエラー（予期しないエラー）
   req.log.error({ err }, 'Internal server error');
+
+  // 予期しないエラーをSentryに送信
+  captureException(err, {
+    url: req.url,
+    method: req.method,
+    ip: req.ip,
+    body: req.body,
+    query: req.query,
+    params: req.params,
+  });
 
   // 本番環境ではスタックトレースを隠す
   const isDevelopment = process.env.NODE_ENV === 'development';

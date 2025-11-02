@@ -1,8 +1,9 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
+import { captureException } from '../utils/sentry';
 
 interface Props {
   children: ReactNode;
-  fallback?: ReactNode;
+  fallback?: ReactNode | ((props: { error: Error; resetError: () => void }) => ReactNode);
 }
 
 interface State {
@@ -31,16 +32,17 @@ class ErrorBoundary extends Component<Props, State> {
     // エラーログをコンソールに出力
     console.error('Uncaught error:', error, errorInfo);
 
+    // Sentryにエラーを送信
+    captureException(error, {
+      errorInfo,
+      componentStack: errorInfo.componentStack,
+    });
+
     // エラー情報を状態に保存
     this.setState({
       error,
       errorInfo,
     });
-
-    // TODO: エラートラッキングサービス（Sentry等）に送信
-    // if (window.Sentry) {
-    //   window.Sentry.captureException(error, { extra: errorInfo });
-    // }
   }
 
   private handleReset = () => {
@@ -51,6 +53,12 @@ class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       // カスタムフォールバックUIが提供されている場合はそれを使用
       if (this.props.fallback) {
+        if (typeof this.props.fallback === 'function') {
+          return this.props.fallback({
+            error: this.state.error!,
+            resetError: this.handleReset,
+          });
+        }
         return this.props.fallback;
       }
 

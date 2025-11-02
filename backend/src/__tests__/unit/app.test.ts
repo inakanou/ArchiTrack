@@ -120,6 +120,7 @@ describe('ArchiTrack Backend API', () => {
       expect(response.status).toBe(404);
       expect(response.body).toEqual({
         error: 'Not found',
+        code: 'NOT_FOUND',
       });
     });
   });

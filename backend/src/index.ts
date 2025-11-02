@@ -1,9 +1,13 @@
 import 'dotenv/config';
+import { initSentry } from './utils/sentry.js';
 import app from './app.js';
 import { disconnectPrisma } from './db.js';
 import redis, { initRedis } from './redis.js';
 import logger from './utils/logger.js';
 import { validateEnv } from './config/env.js';
+
+// Sentryの初期化（最初に実行）
+initSentry();
 
 // 環境変数の検証
 const env = validateEnv();

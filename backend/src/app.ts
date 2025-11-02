@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import getPrismaClient from './db.js';
 import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
@@ -48,6 +49,17 @@ app.use(
     credentials: true,
   })
 );
+
+// 圧縮ミドルウェア（レスポンスサイズを削減）
+app.use(
+  compression({
+    // 1KB以上のレスポンスのみ圧縮
+    threshold: 1024,
+    // 圧縮レベル（0-9、6がデフォルト）
+    level: 6,
+  })
+);
+
 app.use(express.json());
 
 // Health check endpoint with timeout

@@ -3,7 +3,7 @@ import { ZodSchema, ZodError } from 'zod';
 import { ValidationError } from '../errors/ApiError.js';
 
 /**
- * Zodスキーマを使用したバリデーションミドルウェア
+ * Zodスキーマを使用したバリデーションミドルウェア（型安全版）
  *
  * @param schema Zodスキーマ
  * @param source バリデーション対象（body | query | params）
@@ -15,7 +15,10 @@ import { ValidationError } from '../errors/ApiError.js';
  *   name: z.string().min(1).max(100),
  * });
  *
- * app.post('/users', validate(createUserSchema), createUserHandler);
+ * app.post('/users', validate(createUserSchema), (req, res) => {
+ *   const data = req.validatedBody as z.infer<typeof createUserSchema>;
+ *   // data.email, data.name が型安全に利用可能
+ * });
  */
 export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' = 'body') {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
@@ -25,8 +28,14 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
       // Zodでバリデーション
       const validated = await schema.parseAsync(data);
 
-      // バリデーション済みデータで置き換え
-      req[source] = validated;
+      // バリデーション済みデータを専用プロパティに格納（型安全）
+      if (source === 'body') {
+        req.validatedBody = validated;
+      } else if (source === 'query') {
+        req.validatedQuery = validated;
+      } else if (source === 'params') {
+        req.validatedParams = validated;
+      }
 
       next();
     } catch (error) {
@@ -47,7 +56,16 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
 }
 
 /**
- * 複数ソースのバリデーション（body + query + params）
+ * 複数ソースのバリデーション（body + query + params）型安全版
+ *
+ * @example
+ * app.get('/users/:id', validateMultiple({
+ *   params: z.object({ id: z.string().cuid() }),
+ *   query: z.object({ include: z.string().optional() }),
+ * }), (req, res) => {
+ *   const params = req.validatedParams as { id: string };
+ *   const query = req.validatedQuery as { include?: string };
+ * });
  */
 export function validateMultiple(schemas: {
   body?: ZodSchema;
@@ -61,10 +79,14 @@ export function validateMultiple(schemas: {
       // Body のバリデーション
       if (schemas.body) {
         try {
-          req.body = await schemas.body.parseAsync(req.body);
+          const validated = await schemas.body.parseAsync(req.body);
+          req.validatedBody = validated;
         } catch (error) {
           if (error instanceof ZodError) {
             errors.push({ source: 'body', issues: error.issues });
+          } else {
+            // ZodError以外の予期しないエラーはスロー
+            throw error;
           }
         }
       }
@@ -72,11 +94,14 @@ export function validateMultiple(schemas: {
       // Query のバリデーション
       if (schemas.query) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          req.query = (await schemas.query.parseAsync(req.query)) as any;
+          const validated = await schemas.query.parseAsync(req.query);
+          req.validatedQuery = validated;
         } catch (error) {
           if (error instanceof ZodError) {
             errors.push({ source: 'query', issues: error.issues });
+          } else {
+            // ZodError以外の予期しないエラーはスロー
+            throw error;
           }
         }
       }
@@ -84,11 +109,14 @@ export function validateMultiple(schemas: {
       // Params のバリデーション
       if (schemas.params) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          req.params = (await schemas.params.parseAsync(req.params)) as any;
+          const validated = await schemas.params.parseAsync(req.params);
+          req.validatedParams = validated;
         } catch (error) {
           if (error instanceof ZodError) {
             errors.push({ source: 'params', issues: error.issues });
+          } else {
+            // ZodError以外の予期しないエラーはスロー
+            throw error;
           }
         }
       }

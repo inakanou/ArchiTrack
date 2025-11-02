@@ -1,13 +1,23 @@
-import { Logger } from 'pino';
-
-/**
- * Express Request型の拡張
- * pino-httpによって追加されるlogプロパティの型定義
- */
 declare global {
   namespace Express {
     interface Request {
-      log: Logger;
+      /**
+       * Zodバリデーション済みのbodyデータ
+       * validate middleware使用後に利用可能
+       */
+      validatedBody?: unknown;
+
+      /**
+       * Zodバリデーション済みのqueryデータ
+       * validate middleware使用後に利用可能
+       */
+      validatedQuery?: unknown;
+
+      /**
+       * Zodバリデーション済みのparamsデータ
+       * validate middleware使用後に利用可能
+       */
+      validatedParams?: unknown;
     }
   }
 }
