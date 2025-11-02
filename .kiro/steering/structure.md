@@ -218,16 +218,20 @@ test-results/YYYY-MM-DD_HH-MM-SS-MMMZ/       # スクリーンショット・ビ
 frontend/
 ├── src/
 │   ├── __tests__/         # 単体テスト
-│   │   ├── App.test.tsx   # Appコンポーネントテスト（4テスト）
-│   │   └── formatters.test.ts  # ユーティリティ関数テスト（9テスト）
+│   │   ├── api/           # APIクライアントテスト
+│   │   │   └── client.test.ts  # APIクライアントテスト（fetch、エラーハンドリング）
+│   │   └── components/    # Reactコンポーネントテスト
+│   │       └── ErrorBoundary.test.tsx  # エラーバウンダリコンポーネントテスト
 │   ├── utils/             # ユーティリティ関数
-│   │   └── formatters.ts  # 日付フォーマット、APIステータス変換等
+│   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
+│   │   └── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
 │   ├── App.tsx            # メインAppコンポーネント（TypeScript）
 │   ├── main.tsx           # Reactエントリーポイント（TypeScript）
 │   └── vite-env.d.ts      # Vite環境変数型定義
 ├── public/                # 公開静的ファイル
 ├── dist/                  # ビルド成果物（.gitignore）
 ├── tsconfig.json          # TypeScript設定（Vite/React専用、Incremental Build有効）
+├── tsconfig.node.json     # TypeScript設定（Vite設定ファイル用、composite: true）
 ├── vitest.config.ts       # Vitest設定（jsdom環境）
 ├── vitest.setup.ts        # Vitestセットアップスクリプト
 ├── Dockerfile             # 本番環境用（nginx）
@@ -235,9 +239,9 @@ frontend/
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック（アーキテクチャ固有モジュール対応）
 ├── railway.toml           # Railway デプロイ設定
 ├── nginx.conf             # nginx本番環境設定
-├── vite.config.js         # Vite設定
+├── vite.config.ts         # Vite設定（TypeScript版、ベストプラクティス）
 ├── package.json           # 依存関係（lint-staged設定を含む）
-├── .eslintrc.cjs          # ESLint設定（TypeScript対応、vitest.config.ts除外）
+├── .eslintrc.cjs          # ESLint設定（TypeScript対応、vitest.config.ts, vite.config.ts除外）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
@@ -276,10 +280,24 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト
-│   │   ├── app.test.ts    # Expressアプリケーションテスト（6テスト）
-│   │   └── health.test.ts # ヘルスチェックエンドポイントテスト（5テスト）
-│   ├── middleware/
-│   │   └── logger.middleware.ts  # Pino HTTPロギングミドルウェア
+│   │   └── unit/          # ユニットテスト
+│   │       ├── errors/    # エラークラステスト
+│   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
+│   │       ├── middleware/  # ミドルウェアテスト
+│   │       │   ├── errorHandler.test.ts  # エラーハンドリング（Zod、Prisma、一般エラー）
+│   │       │   ├── httpsRedirect.test.ts  # HTTPS強制とHSTSヘッダー
+│   │       │   └── validate.test.ts       # Zodバリデーション（body/query/params）
+│   │       └── routes/    # ルートテスト
+│   │           └── admin.routes.test.ts  # 管理者ルート（ログレベル動的変更）
+│   ├── errors/            # カスタムエラー定義
+│   │   └── ApiError.ts    # カスタムAPIエラークラス
+│   ├── middleware/        # ミドルウェア
+│   │   ├── errorHandler.middleware.ts  # エラーハンドリング
+│   │   ├── httpsRedirect.middleware.ts  # HTTPS強制リダイレクト
+│   │   ├── logger.middleware.ts         # Pino HTTPロギング
+│   │   └── validate.middleware.ts       # Zodバリデーション
+│   ├── routes/            # ルート定義
+│   │   └── admin.routes.ts  # 管理者ルート
 │   ├── types/             # カスタム型定義
 │   │   ├── express.d.ts   # Express Request拡張（pinoログ追加）
 │   │   └── env.d.ts       # 環境変数型定義（型安全なprocess.env）
@@ -334,13 +352,28 @@ backend/src/
 - `index.ts`: サーバー起動エントリーポイント。app.tsからExpressアプリをimportし、ポートをリッスン
 - `db.ts`: Prisma Clientのシングルトン実装。lazy initializationにより初回アクセス時に接続確立
 - `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
+- `errors/ApiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
+- `middleware/errorHandler.middleware.ts`: グローバルエラーハンドラー。Zod、Prisma、一般エラーを統一的に処理
+- `middleware/httpsRedirect.middleware.ts`: 本番環境でHTTPSへの強制リダイレクトとHSTSヘッダー設定
+- `middleware/validate.middleware.ts`: Zodスキーマによるリクエストバリデーション（body/query/params）
+- `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
 **実装済みAPI:**
 
 - `GET /health`: ヘルスチェックエンドポイント。サービス状態とDB/Redis接続状態を返却
 - `GET /api`: API情報エンドポイント。バージョン情報を返却
+- `POST /admin/log-level`: ログレベル動的変更（本番環境でのデバッグ用）
+- `GET /admin/log-level`: 現在のログレベル取得
 - `GET /favicon.ico`: 404エラー防止用faviconハンドラー
+
+**実装済みミドルウェア:**
+
+- エラーハンドリング: ApiError、Zod、Prismaエラーの統一処理
+- HTTPSリダイレクト: 本番環境でHTTP→HTTPS強制
+- HSTSヘッダー: Strict-Transport-Securityヘッダー設定
+- リクエストバリデーション: Zodスキーマによる型安全なバリデーション
+- ロギング: Pino HTTPロギングミドルウェア
 
 ## Docker構成
 

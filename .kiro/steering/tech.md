@@ -49,14 +49,15 @@ ArchiTrack/
 ### 設定ファイル
 
 - `frontend/tsconfig.json` - TypeScript設定（Vite/React専用、Incremental Build有効）
+- `frontend/tsconfig.node.json` - TypeScript設定（Vite設定ファイル用、composite: true）
 - `frontend/src/vite-env.d.ts` - Vite環境変数型定義
-- `frontend/vite.config.js` - Vite設定
+- `frontend/vite.config.ts` - Vite設定（TypeScript版、ベストプラクティス）
 - `frontend/vitest.config.ts` - Vitest設定（jsdom環境）
 - `frontend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `frontend/nginx.conf` - nginx設定（本番環境）
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート
-- `frontend/.eslintrc.cjs` - ESLint設定（vitest.config.ts除外対応）
+- `frontend/.eslintrc.cjs` - ESLint設定（vitest.config.ts, vite.config.ts除外対応）
 - `frontend/.prettierrc` - Prettier設定（フロントエンド用、プロジェクトルートからコピー）
 - `.prettierrc` - Prettier設定（プロジェクトルート）
 - `frontend/Dockerfile` - 本番環境用Dockerイメージ
@@ -167,6 +168,14 @@ ArchiTrack/
 
 **テスト構成:**
 - `backend/src/__tests__/` - テストファイル配置
+  - `unit/errors/` - エラークラステスト
+    - `ApiError.test.ts` - カスタムAPIエラークラスのテスト
+  - `unit/middleware/` - ミドルウェアテスト
+    - `errorHandler.test.ts` - エラーハンドリングミドルウェア（Zod、Prisma、一般エラー）
+    - `httpsRedirect.test.ts` - HTTPS強制リダイレクトとHSTSヘッダー
+    - `validate.test.ts` - Zodバリデーションミドルウェア（body/query/params）
+  - `unit/routes/` - ルートテスト
+    - `admin.routes.test.ts` - 管理者用ルート（ログレベル動的変更）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
 **実行方法:**
@@ -178,9 +187,17 @@ npm --prefix backend run test:coverage  # カバレッジレポート
 ```
 
 **テストカバレッジ:**
-- APIエンドポイントテスト（6テスト）
-- ヘルスチェックエンドポイントテスト（5テスト）
-- 合計: 11テスト
+- エラークラステスト（ApiError.test.ts）
+- ミドルウェアテスト（errorHandler, httpsRedirect, validate）
+- ルートテスト（admin.routes）
+- 合計: 包括的なユニットテスト群
+
+**型安全性のベストプラクティス:**
+- Vitest MockとExpress型の互換性: `as unknown as Type` パターンを使用
+- すべての型アサーションに説明コメントを追加
+- ZodIssue型対応: `as unknown as ZodIssue` で新バージョンのZod型に対応
+- NextFunction型: `vi.fn() as unknown as NextFunction` で適切に型付け
+- process.env操作: テスト環境でのみ `eslint-disable` コメント付きで許可
 
 ### Frontend単体テスト
 
@@ -198,6 +215,10 @@ npm --prefix backend run test:coverage  # カバレッジレポート
 
 **テスト構成:**
 - `frontend/src/__tests__/` - テストファイル配置
+  - `api/` - APIクライアントテスト
+    - `client.test.ts` - APIクライアント（fetch、エラーハンドリング）
+  - `components/` - Reactコンポーネントテスト
+    - `ErrorBoundary.test.tsx` - エラーバウンダリコンポーネント
 
 **実行方法:**
 ```bash
@@ -208,9 +229,16 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 ```
 
 **テストカバレッジ:**
-- Reactコンポーネントテスト（4テスト）
-- ユーティリティ関数テスト（9テスト）
-- 合計: 13テスト
+- APIクライアントテスト（client.test.ts）
+- Reactコンポーネントテスト（ErrorBoundary.test.tsx）
+- 合計: 包括的なユニットテスト群
+
+**型安全性のベストプラクティス:**
+- `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
+- `import.meta.env.DEV`: 型を `boolean` に統一（`string | undefined` から変更）
+- `useRef<T | undefined>(undefined)`: 明示的な undefined 初期値で型エラーを解消
+- IntersectionObserver: entry null チェックを追加してランタイム安全性を向上
+- useEffect cleanup: 明示的な `return undefined` でTypeScript型エラーを解消
 
 ### なぜVitestを選択したか
 
