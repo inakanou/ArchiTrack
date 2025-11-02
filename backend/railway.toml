@@ -1,5 +1,8 @@
+# Railway deployment configuration for Backend
+# Root Directory should be set to /backend in Railway UI
+
 [build]
-builder = "RAILPACK"
+builder = "DOCKERFILE"
 
 [deploy]
 healthcheckPath = "/health"

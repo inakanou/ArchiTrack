@@ -6,6 +6,7 @@ README.md
 .env
 .env.local
 .env.*.local
+dist
 coverage
 .vscode
 .idea
