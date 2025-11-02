@@ -113,7 +113,9 @@ if [ -d "backend" ]; then
     exit 1
   fi
 
-  npm --prefix backend run test:integration
+  # インテグレーションテストはDockerコンテナ内で実行
+  # ローカル環境でのPrisma Query Engine問題を回避
+  docker exec architrack-backend npm run test:integration
   if [ $? -ne 0 ]; then
     echo "❌ Backend integration tests failed. Push aborted."
     exit 1
