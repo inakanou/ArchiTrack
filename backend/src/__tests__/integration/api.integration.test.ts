@@ -174,7 +174,7 @@ describe('API Integration Tests', () => {
       const response = await request(app).get('/non-existent-endpoint');
 
       expect(response.status).toBe(404);
-      expect(response.body).toEqual({ error: 'Not found' });
+      expect(response.body).toEqual({ error: 'Not found', code: 'NOT_FOUND' });
     });
 
     it('faviconリクエストで204を返すこと', async () => {
