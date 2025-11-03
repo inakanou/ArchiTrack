@@ -113,22 +113,25 @@ if [ -d "frontend" ]; then
   fi
 fi
 
-# Backend unit tests
+# Backend unit tests with coverage
 if [ -d "backend" ]; then
-  echo "🧪 Running backend unit tests..."
-  npm --prefix backend run test:unit
+  echo "🧪 Running backend unit tests with coverage..."
+  npm --prefix backend run test:unit:coverage
   if [ $? -ne 0 ]; then
-    echo "❌ Backend unit tests failed. Push aborted."
+    echo "❌ Backend unit tests or coverage check failed. Push aborted."
+    echo "   Coverage thresholds: statements 80%, branches 80%, functions 80%, lines 80%"
+    echo "   Run 'npm --prefix backend run test:unit:coverage' to check coverage locally."
     exit 1
   fi
 fi
 
-# Frontend unit tests
+# Frontend unit tests with coverage
 if [ -d "frontend" ]; then
-  echo "🧪 Running frontend unit tests..."
-  npm --prefix frontend run test
+  echo "🧪 Running frontend unit tests with coverage..."
+  npm --prefix frontend run test:coverage
   if [ $? -ne 0 ]; then
-    echo "❌ Frontend unit tests failed. Push aborted."
+    echo "❌ Frontend unit tests or coverage check failed. Push aborted."
+    echo "   Run 'npm --prefix frontend run test:coverage' to check coverage locally."
     exit 1
   fi
 fi
