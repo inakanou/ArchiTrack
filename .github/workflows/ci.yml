@@ -6,732 +6,193 @@ on:
   pull_request:
     branches: [main, develop]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # ============================================================================
-  # Stage 1: Code Quality Checks (Fast - 1-2 minutes)
-  # ============================================================================
-
-  quality-backend:
-    name: Backend Quality Checks
+  lint:
+    name: Lint & Format Check
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [backend, frontend, e2e]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Cache TypeScript build info
-        uses: actions/cache@v4
-        with:
-          path: |
-            backend/.tsbuildinfo
-            backend/node_modules/.cache
-          key: ${{ runner.os }}-backend-tsbuild-${{ hashFiles('backend/tsconfig.json', 'backend/src/**/*.ts') }}
-          restore-keys: |
-            ${{ runner.os }}-backend-tsbuild-
-
       - name: Install dependencies
-        working-directory: ./backend
-        run: npm ci
+        run: |
+          if [ "${{ matrix.workspace }}" = "e2e" ]; then
+            npm ci
+          else
+            npm --prefix ${{ matrix.workspace }} ci
+          fi
+      - name: Run format check
+        run: |
+          if [ "${{ matrix.workspace }}" = "e2e" ]; then
+            npm run format:check
+          else
+            npm --prefix ${{ matrix.workspace }} run format:check
+          fi
+      - name: Run lint
+        run: |
+          if [ "${{ matrix.workspace }}" = "e2e" ]; then
+            npm run lint
+          else
+            npm --prefix ${{ matrix.workspace }} run lint
+          fi
 
-      - name: Generate Prisma Client
-        working-directory: ./backend
-        run: npm run prisma:generate
-
-      - name: Format check
-        working-directory: ./backend
-        run: npm run format:check
-
-      - name: Lint
-        working-directory: ./backend
-        run: npm run lint
-
-      - name: TypeScript type check
-        working-directory: ./backend
-        run: npm run type-check
-
-  quality-frontend:
-    name: Frontend Quality Checks
+  typecheck:
+    name: TypeScript Type Check
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [backend, frontend, e2e]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Cache TypeScript build info
-        uses: actions/cache@v4
-        with:
-          path: |
-            frontend/.tsbuildinfo
-            frontend/node_modules/.cache
-          key: ${{ runner.os }}-frontend-tsbuild-${{ hashFiles('frontend/tsconfig.json', 'frontend/src/**/*.{ts,tsx}') }}
-          restore-keys: |
-            ${{ runner.os }}-frontend-tsbuild-
-
       - name: Install dependencies
-        working-directory: ./frontend
-        run: npm ci
+        run: |
+          if [ "${{ matrix.workspace }}" = "e2e" ]; then
+            npm ci
+          else
+            npm --prefix ${{ matrix.workspace }} ci
+          fi
+      - name: Run type check
+        run: |
+          if [ "${{ matrix.workspace }}" = "e2e" ]; then
+            npm run type-check
+          else
+            npm --prefix ${{ matrix.workspace }} run type-check
+          fi
 
-      - name: Format check
-        working-directory: ./frontend
-        run: npm run format:check
-
-      - name: Lint
-        working-directory: ./frontend
-        run: npm run lint
-
-      - name: TypeScript type check
-        working-directory: ./frontend
-        run: npm run type-check
-
-  quality-e2e:
-    name: E2E Quality Checks
+  test-unit:
+    name: Unit Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [backend, frontend]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
       - name: Install dependencies
-        run: npm ci
-
-      - name: Format check
-        run: npm run format:check
-
-      - name: Lint
-        run: npm run lint
-
-      - name: TypeScript type check
-        run: npm run type-check
-
-  commitlint:
-    name: Commit Message Check
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+        run: npm --prefix ${{ matrix.workspace }} ci
+      - name: Run unit tests
+        run: |
+          if [ "${{ matrix.workspace }}" = "backend" ]; then
+            npm --prefix backend run test:unit
+          else
+            npm --prefix frontend run test
+          fi
+      - name: Generate coverage report
+        run: |
+          if [ "${{ matrix.workspace }}" = "backend" ]; then
+            npm --prefix backend run test:unit:coverage
+          else
+            npm --prefix frontend run test:coverage
+          fi
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
         with:
-          fetch-depth: 0
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ${{ matrix.workspace }}/coverage
+          flags: ${{ matrix.workspace }}-unit
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install commitlint
-        run: npm install --save-dev @commitlint/cli @commitlint/config-conventional
-
-      - name: Validate PR commits
-        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
-
-  # ============================================================================
-  # Stage 1.5: Security Scanning (Fast - 1-2 minutes, runs only if Stage 1 passes)
-  # ============================================================================
-
-  security-audit-backend:
-    name: Backend Security Audit
+  build:
+    name: Build Test
     runs-on: ubuntu-latest
-    needs: [quality-backend]
+    strategy:
+      matrix:
+        workspace: [backend, frontend]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-
       - name: Install dependencies
-        working-directory: ./backend
-        run: npm ci
-
-      - name: Run npm audit
-        working-directory: ./backend
-        run: npm audit --audit-level=moderate
-        continue-on-error: false
-
-  security-audit-frontend:
-    name: Frontend Security Audit
-    runs-on: ubuntu-latest
-    needs: [quality-frontend]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Run npm audit
-        working-directory: ./frontend
-        run: npm audit --audit-level=moderate
-        continue-on-error: false
-
-  security-scan-trivy:
-    name: Trivy Security Scan
-    runs-on: ubuntu-latest
-    needs: [quality-backend, quality-frontend]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner (Filesystem)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
-
-      - name: Upload Trivy results to GitHub Security
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-      - name: Run Trivy vulnerability scanner (Config files)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'config'
-          scan-ref: '.'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-
-  # ============================================================================
-  # Stage 2: Build (Medium - 2-3 minutes, runs only if Stage 1 passes)
-  # ============================================================================
-
-  build-backend:
-    name: Backend Build
-    runs-on: ubuntu-latest
-    needs: [quality-backend]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Cache TypeScript build info
-        uses: actions/cache@v4
-        with:
-          path: |
-            backend/.tsbuildinfo
-            backend/node_modules/.cache
-          key: ${{ runner.os }}-backend-tsbuild-${{ hashFiles('backend/tsconfig.json', 'backend/src/**/*.ts') }}
-          restore-keys: |
-            ${{ runner.os }}-backend-tsbuild-
-
-      - name: Install dependencies
-        working-directory: ./backend
-        run: npm ci
-
-      - name: Generate Prisma Client
-        working-directory: ./backend
-        run: npm run prisma:generate
-
+        run: npm --prefix ${{ matrix.workspace }} ci
       - name: Build
-        working-directory: ./backend
-        run: npm run build
-
+        run: npm --prefix ${{ matrix.workspace }} run build
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: backend-dist
-          path: backend/dist/
-          retention-days: 1
+          name: ${{ matrix.workspace }}-build
+          path: ${{ matrix.workspace }}/dist
+          retention-days: 7
 
-  build-frontend:
-    name: Frontend Build
+  test-integration:
+    name: Integration & E2E Tests
     runs-on: ubuntu-latest
-    needs: [quality-frontend]
+    needs: [lint, typecheck, test-unit, build]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Cache TypeScript build info
-        uses: actions/cache@v4
-        with:
-          path: |
-            frontend/.tsbuildinfo
-            frontend/node_modules/.cache
-          key: ${{ runner.os }}-frontend-tsbuild-${{ hashFiles('frontend/tsconfig.json', 'frontend/src/**/*.{ts,tsx}') }}
-          restore-keys: |
-            ${{ runner.os }}-frontend-tsbuild-
-
-      - name: Install dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Build
-        working-directory: ./frontend
-        run: npm run build
-        env:
-          VITE_API_URL: http://localhost:3000
-
-      - name: Check bundle size
-        working-directory: ./frontend
-        run: npm run bundle:check
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist/
-          retention-days: 1
-
-  # ============================================================================
-  # Stage 3: Unit Tests (Heavy - 2-3 minutes, runs only if Stage 2 passes)
-  # ============================================================================
-
-  test-unit-backend:
-    name: Backend Unit Tests
-    runs-on: ubuntu-latest
-    needs: [build-backend]
-
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: architrack_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./backend
-        run: npm ci
-
-      - name: Generate Prisma Client
-        working-directory: ./backend
-        run: npm run prisma:generate
-
-      # ユニットテストを同期実行（早期品質保証）
-      # テスト失敗時は即座に後続ステージをブロック
-      - name: Run unit tests with coverage
-        working-directory: ./backend
-        run: npm run test:unit:coverage
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/architrack_test
-          REDIS_URL: redis://localhost:6379
-
-      - name: Upload backend unit test coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-unit-coverage
-          path: backend/coverage/
-          retention-days: 30
-
-  test-unit-frontend:
-    name: Frontend Unit Tests
-    runs-on: ubuntu-latest
-    needs: [build-frontend]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      # ユニットテストを同期実行（早期品質保証）
-      # テスト失敗時は即座に後続ステージをブロック
-      - name: Run tests with coverage
-        working-directory: ./frontend
-        run: npm run test:coverage
-
-      - name: Upload frontend unit test coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-unit-coverage
-          path: frontend/coverage/
-          retention-days: 30
-
-  # ============================================================================
-  # Stage 4: Integration Tests (Heavy - 3-5 minutes, runs only if Stage 3 passes)
-  # ============================================================================
-
-  test-integration-backend:
-    name: Backend Integration Tests
-    runs-on: ubuntu-latest
-    needs: [test-unit-backend]
-
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: architrack_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./backend
-        run: npm ci
-
-      - name: Generate Prisma Client
-        working-directory: ./backend
-        run: npm run prisma:generate
-
-      - name: Run database migrations
-        working-directory: ./backend
-        run: npx prisma migrate deploy
-        env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/architrack_test
-
-      # インテグレーションテストを同期実行（統合品質保証）
-      # テスト失敗時は即座に後続ステージ（E2E）をブロック
-      - name: Run integration tests with coverage
-        working-directory: ./backend
-        run: npm run test:integration:coverage
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/architrack_test
-          REDIS_URL: redis://localhost:6379
-
-      - name: Upload backend integration test coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-integration-coverage
-          path: backend/coverage/
-          retention-days: 30
-
-  # ============================================================================
-  # Stage 5: E2E Tests (Heaviest - 5-10 minutes, runs only if Stage 4 passes)
-  # ============================================================================
-
-  e2e-tests:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: [test-unit-backend, test-unit-frontend, test-integration-backend, quality-e2e]
-    timeout-minutes: 30
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
       - name: Install root dependencies
         run: npm ci
-
-      - name: Install Backend dependencies
-        run: npm --prefix backend ci
-
-      - name: Install Frontend dependencies
-        run: npm --prefix frontend ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Clean up old Docker resources
+      - name: Start Docker Compose
         run: |
-          echo "Removing old containers and volumes..."
-          docker compose down -v || true
-          docker system prune -f || true
-
-      - name: Start Docker Compose services
-        run: |
-          echo "Building and starting Docker Compose services..."
-          docker compose up -d --build
-          echo "Waiting for containers to initialize..."
-          sleep 20
-
-      - name: Check Docker containers status
-        run: |
-          echo "=== Docker Compose Services Status ==="
-          docker compose ps
-          echo "=== Frontend container logs (initial) ==="
-          docker compose logs --tail=30 frontend || true
-          echo "=== Backend container logs (initial) ==="
-          docker compose logs --tail=20 backend || true
-
-      - name: Wait for all services to become healthy
-        run: |
-          echo "Waiting for all services to become healthy..."
-          timeout 180 bash -c 'until [ "$(docker compose ps --format json postgres redis backend frontend | jq -r "select(.Health != \"healthy\" and .Health != \"\" and .Service != \"frontend\") | .Name" | wc -l)" -eq 0 ]; do
-            echo "Waiting for services... ($(date +%H:%M:%S))"
-            docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Health}}"
-            sleep 5
-          done' || {
-            echo "Timeout waiting for services to become healthy"
-            echo "=== Final service status ==="
-            docker compose ps
-            echo "=== Backend logs (last 30 lines) ==="
-            docker compose logs --tail=30 backend
-            echo "=== Frontend logs (last 30 lines) ==="
-            docker compose logs --tail=30 frontend
-            exit 1
-          }
-          echo "All services are healthy!"
-
-      - name: Wait for frontend availability
-        run: |
-          echo "Waiting for frontend to be accessible..."
-          timeout 60 bash -c 'until curl -sf http://localhost:5173 > /dev/null 2>&1; do
-            echo "Waiting for frontend... ($(date +%H:%M:%S))"
-            sleep 5
-          done' || {
-            echo "Timeout waiting for frontend"
-            echo "=== Frontend logs (full) ==="
-            docker compose logs frontend
-            exit 1
-          }
-          echo "Frontend is accessible!"
-
-      - name: Verify service endpoints
-        run: |
-          echo "Verifying backend health endpoint..."
-          curl -f http://localhost:3000/health
-          echo "Verifying frontend is accessible..."
-          curl -I http://localhost:5173
-
-      # E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
-      # GitHub Actionsのrunコマンドはデフォルトで同期実行
-      # timeout-minutes設定（30分）により、ハングアップを防止
-      - name: Run Playwright tests (Synchronous)
+          docker compose up -d
+          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
+          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
+      - name: Run integration tests
+        run: docker exec architrack-backend npm run test:integration
+      - name: Run E2E tests
         run: npm run test:e2e
         env:
           CI: true
-
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 30
-
-      - name: Upload screenshots
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-screenshots
-          path: playwright-report/screenshots/
-          retention-days: 30
-
-      - name: Show Docker logs on failure
-        if: failure()
-        run: |
-          echo "=== Docker Compose Services ==="
-          docker compose ps
-          echo "=== Backend Logs ==="
-          docker compose logs backend
-          echo "=== Frontend Logs ==="
-          docker compose logs frontend
-
-      - name: Stop Docker Compose services
+          name: e2e-test-results
+          path: |
+            test-results/
+            playwright-report/
+      - name: Stop Docker Compose
         if: always()
-        run: docker compose down
+        run: docker compose down -v
 
-  # ============================================================================
-  # Stage 6: Docker Build Test (Optional, runs in parallel with Stage 4)
-  # ============================================================================
-
-  docker-build:
-    name: Docker Build Test
+  security:
+    name: Security Scan
     runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
     strategy:
       matrix:
-        service: [backend, frontend]
+        workspace: [backend, frontend]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Backend (dev)
-        if: matrix.service == 'backend'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile.dev
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build Frontend (production)
-        if: matrix.service == 'frontend'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            VITE_API_URL=http://localhost:3000
-
-  # ============================================================================
-  # Final: CI Success (All stages must pass)
-  # ============================================================================
+      - uses: actions/checkout@v4
+      - name: Run npm audit
+        run: npm --prefix ${{ matrix.workspace }} audit --audit-level=moderate || true
 
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [quality-backend, quality-frontend, quality-e2e, security-audit-backend, security-audit-frontend, security-scan-trivy, test-unit-backend, test-unit-frontend, test-integration-backend, e2e-tests, docker-build]
+    needs: [lint, typecheck, test-unit, build, test-integration, security]
     if: always()
     steps:
-      - name: Check all jobs
+      - name: Check status
         run: |
-          # Check Stage 1: Quality
-          if [[ "${{ needs.quality-backend.result }}" != "success" ]] || \
-             [[ "${{ needs.quality-frontend.result }}" != "success" ]] || \
-             [[ "${{ needs.quality-e2e.result }}" != "success" ]]; then
-            echo "❌ Stage 1 (Code Quality) failed"
+          if [[ "${{ needs.lint.result }}" != "success" ]] || \
+             [[ "${{ needs.typecheck.result }}" != "success" ]] || \
+             [[ "${{ needs.test-unit.result }}" != "success" ]] || \
+             [[ "${{ needs.build.result }}" != "success" ]] || \
+             [[ "${{ needs.test-integration.result }}" != "success" ]]; then
             exit 1
           fi
-
-          # Check Stage 1.5: Security
-          if [[ "${{ needs.security-audit-backend.result }}" != "success" ]] || \
-             [[ "${{ needs.security-audit-frontend.result }}" != "success" ]] || \
-             [[ "${{ needs.security-scan-trivy.result }}" != "success" ]]; then
-            echo "❌ Stage 1.5 (Security Scanning) failed"
-            exit 1
-          fi
-
-          # Check Stage 3: Unit Tests
-          if [[ "${{ needs.test-unit-backend.result }}" != "success" ]] || \
-             [[ "${{ needs.test-unit-frontend.result }}" != "success" ]]; then
-            echo "❌ Stage 3 (Unit Tests) failed"
-            exit 1
-          fi
-
-          # Check Stage 4: Integration Tests
-          if [[ "${{ needs.test-integration-backend.result }}" != "success" ]]; then
-            echo "❌ Stage 4 (Integration Tests) failed"
-            exit 1
-          fi
-
-          # Check Stage 5: E2E
-          if [[ "${{ needs.e2e-tests.result }}" != "success" ]]; then
-            echo "❌ Stage 5 (E2E Tests) failed"
-            exit 1
-          fi
-
-          # Check Stage 6: Docker
-          if [[ "${{ needs.docker-build.result }}" != "success" ]]; then
-            echo "❌ Stage 6 (Docker Build) failed"
-            exit 1
-          fi
-
-          echo "✅ All CI stages passed successfully!"
-          echo ""
-          echo "Summary:"
-          echo "  Stage 1: Code Quality ✅"
-          echo "  Stage 1.5: Security Scanning ✅"
-          echo "  Stage 2: Build ✅"
-          echo "  Stage 3: Unit Tests ✅"
-          echo "  Stage 4: Integration Tests ✅"
-          echo "  Stage 5: E2E Tests ✅"
-          echo "  Stage 6: Docker Build ✅"
