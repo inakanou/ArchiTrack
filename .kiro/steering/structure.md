@@ -10,9 +10,12 @@ ArchiTrack/
 │   └── hooks/              # Claude Code フック
 │       └── hook_pre_commands.sh  # コマンド実行前フック
 ├── .github/                # GitHub設定
-│   └── workflows/          # GitHub Actions CI/CD
-│       ├── ci.yml          # CI/CDパイプライン定義
-│       └── e2e-tests.yml   # E2Eテストワークフロー
+│   ├── workflows/          # GitHub Actions CI/CD
+│   │   ├── ci.yml          # CI/CDパイプライン定義
+│   │   ├── cd.yml          # 継続的デプロイ（Railway staging/production）
+│   │   ├── e2e-tests.yml   # E2Eテストワークフロー
+│   │   └── dependabot-automerge.yml  # Dependabot自動マージ
+│   └── dependabot.yml      # Dependabot自動依存関係管理設定
 ├── .husky/                 # Git フック管理（Husky v9）
 │   ├── pre-commit          # コミット前フック（lint-staged + 型チェック）
 │   ├── commit-msg          # コミットメッセージ検証（commitlint）
@@ -31,6 +34,9 @@ ArchiTrack/
 │   └── helpers/            # Claude Code統合ヘルパー
 │       └── browser.js      # ブラウザ操作・スクリーンショット
 ├── frontend/               # フロントエンドアプリケーション
+│   ├── .storybook/         # Storybook設定（コンポーネントドキュメント）
+│   │   ├── main.ts         # Storybook設定ファイル
+│   │   └── preview.ts      # グローバルパラメータ・デコレータ
 │   ├── src/                # ソースコード
 │   │   ├── App.jsx         # メインAppコンポーネント
 │   │   └── main.jsx        # エントリーポイント
@@ -46,6 +52,11 @@ ArchiTrack/
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
 ├── backend/                # バックエンドAPI
+│   ├── docs/               # API ドキュメント
+│   │   └── api-spec.json   # OpenAPI 3.0仕様（自動生成）
+│   ├── performance/        # パフォーマンステスト
+│   │   ├── autocannon.d.ts # autocannonカスタム型定義
+│   │   └── health-check.perf.ts  # ヘルスチェック負荷テスト
 │   ├── prisma/             # Prisma ORM
 │   │   └── schema.prisma   # スキーマ定義（データモデル、マイグレーション）
 │   ├── src/                # ソースコード
@@ -53,12 +64,13 @@ ArchiTrack/
 │   │   ├── app.ts          # Expressアプリケーション（テスト用に分離）
 │   │   ├── db.ts           # Prisma Clientシングルトン
 │   │   ├── redis.ts        # Redis接続管理
+│   │   ├── generate-swagger.ts  # Swagger/OpenAPI仕様生成スクリプト
 │   │   ├── middleware/     # ミドルウェア
 │   │   ├── types/          # カスタム型定義
 │   │   ├── utils/          # ユーティリティ関数
 │   │   └── __tests__/      # 単体テスト
 │   ├── package.json        # 依存関係
-│   ├── tsconfig.json       # TypeScript設定
+│   ├── tsconfig.json       # TypeScript設定（performance/含む）
 │   ├── vitest.config.ts    # Vitest設定
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
 │   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
@@ -221,12 +233,18 @@ test-results/YYYY-MM-DD_HH-MM-SS-MMMZ/       # スクリーンショット・ビ
 
 ```
 frontend/
+├── .storybook/            # Storybook設定
+│   ├── main.ts            # Storybook設定ファイル（React-Vite統合）
+│   └── preview.ts         # グローバルパラメータ・デコレータ
 ├── src/
 │   ├── __tests__/         # 単体テスト
 │   │   ├── api/           # APIクライアントテスト
 │   │   │   └── client.test.ts  # APIクライアントテスト（fetch、エラーハンドリング）
 │   │   └── components/    # Reactコンポーネントテスト
 │   │       └── ErrorBoundary.test.tsx  # エラーバウンダリコンポーネントテスト
+│   ├── components/        # Reactコンポーネント
+│   │   ├── ErrorBoundary.tsx       # エラーバウンダリコンポーネント
+│   │   └── ErrorBoundary.stories.tsx  # Storybook ストーリー（5バリアント）
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   │   └── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
@@ -281,6 +299,11 @@ frontend/src/
 
 ```
 backend/
+├── docs/                  # API ドキュメント
+│   └── api-spec.json      # OpenAPI 3.0仕様（自動生成）
+├── performance/           # パフォーマンステスト
+│   ├── autocannon.d.ts    # autocannonカスタム型定義
+│   └── health-check.perf.ts  # ヘルスチェック負荷テスト（<100ms、>1000req/s）
 ├── prisma/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
@@ -302,17 +325,18 @@ backend/
 │   │   ├── logger.middleware.ts         # Pino HTTPロギング
 │   │   └── validate.middleware.ts       # Zodバリデーション
 │   ├── routes/            # ルート定義
-│   │   └── admin.routes.ts  # 管理者ルート
+│   │   └── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   ├── types/             # カスタム型定義
 │   │   ├── express.d.ts   # Express Request拡張（pinoログ追加）
 │   │   └── env.d.ts       # 環境変数型定義（型安全なprocess.env）
 │   ├── utils/             # ユーティリティ関数
 │   │   └── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
-│   ├── app.ts             # Expressアプリケーション（テスト用に分離）
+│   ├── app.ts             # Expressアプリケーション（テスト用に分離、Swagger UI統合）
 │   ├── index.ts           # Expressサーバーエントリーポイント（app.tsをimportして起動）
+│   ├── generate-swagger.ts  # Swagger/OpenAPI仕様生成スクリプト（JSDocから生成）
 │   ├── db.ts              # Prisma Clientシングルトン（lazy initialization）
 │   └── redis.ts           # Redis接続管理（lazy initialization）
-├── tsconfig.json          # TypeScript設定（Node.js専用、strictモード、Incremental Build有効）
+├── tsconfig.json          # TypeScript設定（Node.js専用、strictモード、Incremental Build有効、performance/含む）
 ├── vitest.config.ts       # Vitest設定（Node.js環境）
 ├── vitest.setup.ts        # Vitestセットアップスクリプト
 ├── Dockerfile.dev         # 開発環境用Dockerイメージ
@@ -353,21 +377,26 @@ backend/src/
 **主要ファイルの説明:**
 
 - `prisma/schema.prisma`: Prismaスキーマ定義。データモデル、リレーション、インデックスを定義
-- `app.ts`: Expressアプリケーション本体。ミドルウェア、ルート、エラーハンドリングを定義。単体テスト可能にするためindex.tsから分離
+- `app.ts`: Expressアプリケーション本体。ミドルウェア、ルート、エラーハンドリング、Swagger UI統合を定義。単体テスト可能にするためindex.tsから分離
 - `index.ts`: サーバー起動エントリーポイント。app.tsからExpressアプリをimportし、ポートをリッスン
+- `generate-swagger.ts`: Swagger/OpenAPI 3.0仕様生成スクリプト。JSDocコメントからapi-spec.jsonを自動生成
+- `docs/api-spec.json`: 自動生成されたOpenAPI 3.0仕様ファイル。Swagger UIで提供される
+- `performance/health-check.perf.ts`: autocannonを使用したヘルスチェックエンドポイントの負荷テスト（目標: <100ms、>1000req/s）
+- `performance/autocannon.d.ts`: autocannonライブラリのカスタム型定義ファイル（TypeScript型安全性）
 - `db.ts`: Prisma Clientのシングルトン実装。lazy initializationにより初回アクセス時に接続確立
 - `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
 - `errors/ApiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
 - `middleware/errorHandler.middleware.ts`: グローバルエラーハンドラー。Zod、Prisma、一般エラーを統一的に処理
 - `middleware/httpsRedirect.middleware.ts`: 本番環境でHTTPSへの強制リダイレクトとHSTSヘッダー設定
 - `middleware/validate.middleware.ts`: Zodスキーマによるリクエストバリデーション（body/query/params）
-- `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）
+- `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
 **実装済みAPI:**
 
 - `GET /health`: ヘルスチェックエンドポイント。サービス状態とDB/Redis接続状態を返却
 - `GET /api`: API情報エンドポイント。バージョン情報を返却
+- `GET /docs`: Swagger UIによるインタラクティブなAPIドキュメント（開発環境のみ）
 - `POST /admin/log-level`: ログレベル動的変更（本番環境でのデバッグ用）
 - `GET /admin/log-level`: 現在のログレベル取得
 - `GET /favicon.ico`: 404エラー防止用faviconハンドラー
@@ -444,6 +473,7 @@ backend/src/
 - `index.js` - ディレクトリのエントリーポイント・エクスポート集約
 - `*.test.js` - ユニットテストファイル
 - `*.spec.js` - E2Eテストファイル（Playwright）またはスペックファイル（BDD）
+- `*.stories.tsx` - Storybookストーリーファイル（コンポーネントバリアント定義）
 - `.env.example` - 環境変数テンプレート
 
 **E2Eテストファイル命名規則:**
@@ -452,6 +482,11 @@ backend/src/
 - `e2e/specs/ui/*.spec.ts` - UIテスト（例: `homepage.spec.ts`）
 - `e2e/specs/integration/*.spec.ts` - 統合テスト（例: `database.spec.ts`）
 - `e2e/helpers/*.ts` - テストヘルパー関数（例: `browser.ts`）
+
+**Storybookストーリーファイル命名規則:**
+
+- `frontend/src/components/*.stories.tsx` - コンポーネントのストーリー（例: `ErrorBoundary.stories.tsx`）
+- CSF 3.0（Component Story Format 3.0）形式で記述
 
 ## インポート構成
 
@@ -623,5 +658,7 @@ refactor: improve type safety by eliminating any types
 - `*.tsbuildinfo`, `.tsbuildinfo` - TypeScript Incremental Buildキャッシュ
 - `playwright-report/` - Playwrightテストレポート（タイムスタンプ付き）
 - `test-results/` - Playwrightテスト結果（スクリーンショット・ビデオ）
+- `storybook-static/` - Storybookビルド成果物
+- `.storybook-cache/` - Storybookキャッシュ
 - IDE設定ファイル
 - ログファイル

@@ -41,10 +41,16 @@ ArchiTrack/
 - `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.6 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.0.6 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-istanbul` ^4.0.6 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
 - `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
+- `storybook` ^8.6.14 - コンポーネントドキュメント・開発環境
+- `@storybook/react-vite` ^8.6.14 - Storybook React + Vite統合
+- `@storybook/addon-essentials` ^8.6.14 - Storybook基本アドオン
+- `@storybook/addon-interactions` ^8.6.14 - インタラクションテスト
 
 ### 設定ファイル
 
@@ -54,6 +60,8 @@ ArchiTrack/
 - `frontend/vite.config.ts` - Vite設定（TypeScript版、ベストプラクティス）
 - `frontend/vitest.config.ts` - Vitest設定（jsdom環境）
 - `frontend/vitest.setup.ts` - Vitestセットアップスクリプト
+- `frontend/.storybook/main.ts` - Storybook設定（React-Vite統合）
+- `frontend/.storybook/preview.ts` - Storybookグローバルパラメータ
 - `frontend/nginx.conf` - nginx設定（本番環境）
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート
@@ -90,12 +98,16 @@ ArchiTrack/
 - `pino` ^8.17.0 - ロガー
 - `pino-http` ^9.0.0 - HTTP ロギングミドルウェア
 - `pino-pretty` ^10.3.0 - ログの整形出力（開発環境）
+- `swagger-jsdoc` ^6.2.8 - JSDocからOpenAPI仕様を生成
+- `swagger-ui-express` ^5.0.1 - Swagger UI統合（開発環境）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `tsx` ^4.20.6 - TypeScript実行環境
 - `@types/express` ^5.0.5 - Express型定義
 - `@types/cors` ^2.8.19 - CORS型定義
 - `@types/node` ^24.9.2 - Node.js型定義
 - `@types/pg` ^8.15.6 - PostgreSQL型定義
+- `@types/swagger-jsdoc` ^6.0.4 - swagger-jsdoc型定義
+- `@types/swagger-ui-express` ^4.1.8 - swagger-ui-express型定義
 - `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
 - `eslint` ^8.56.0 - コード品質チェック
@@ -104,18 +116,24 @@ ArchiTrack/
 - `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.6 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.0.6 - Vitestカバレッジ（V8プロバイダー）
 - `supertest` ^7.2.0 - APIテストライブラリ
 - `@types/supertest` ^6.1.0 - supertest型定義
+- `autocannon` ^8.0.0 - 高性能負荷テストツール
 - `prisma` ^6.18.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
 
-- `backend/tsconfig.json` - TypeScript設定（Node.js専用、Incremental Build有効）
+- `backend/tsconfig.json` - TypeScript設定（Node.js専用、Incremental Build有効、performance/含む）
 - `backend/prisma/schema.prisma` - Prismaスキーマ定義（データモデル、マイグレーション）
 - `backend/src/types/express.d.ts` - Express Request拡張型定義（pinoログ追加）
 - `backend/src/types/env.d.ts` - 環境変数型定義（型安全なprocess.env）
 - `backend/src/utils/logger.ts` - Pinoロガー設定（Railway環境対応）
+- `backend/src/generate-swagger.ts` - OpenAPI仕様生成スクリプト
+- `backend/docs/api-spec.json` - 生成されたOpenAPI 3.0仕様
+- `backend/performance/health-check.perf.ts` - ヘルスチェックAPI負荷テスト
+- `backend/performance/autocannon.d.ts` - autocannon型定義ファイル
 - `backend/vitest.config.ts` - Vitest設定（Node.js環境）
 - `backend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `backend/package.json` - 依存関係管理
@@ -500,6 +518,26 @@ node e2e/helpers/browser.js info http://localhost:5173
 node e2e/helpers/browser.js api http://localhost:3000/health
 ```
 
+### フロントエンド開発ツール
+
+```bash
+# Storybook起動（ポート6006）
+npm --prefix frontend run storybook
+
+# Storybookビルド（静的サイト生成）
+npm --prefix frontend run build-storybook
+```
+
+### バックエンド開発ツール
+
+```bash
+# Swagger仕様生成
+npm --prefix backend run swagger:generate
+
+# パフォーマンステスト実行
+npm --prefix backend run perf:health
+```
+
 ### Kiroスラッシュコマンド
 
 ```bash
@@ -656,78 +694,85 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 ### GitHub Actions
 
-`.github/workflows/ci.yml` でCI/CDパイプラインを定義しています。
+`.github/workflows/ci.yml` と `.github/workflows/cd.yml` でCI/CDパイプラインを定義しています。
 
-**CIワークフロー（ステージ型）:**
+**CIワークフロー（最適化された並列実行）:**
 
 プッシュ・PR時に自動実行されます。
 
-**Stage 1: Code Quality Checks（コード品質チェック）**
-- Backend: Format check, Lint, TypeScript型チェック
-- Frontend: Format check, Lint, TypeScript型チェック
-- E2E: Format check, Lint, TypeScript型チェック
-- **Fail-fast戦略**: いずれかのチェック失敗で即座に終了
-- **同期実行**: 各ジョブは完了を待ってから次のステージへ進行
-
-**Stage 1.5: Security Scanning（セキュリティスキャン）**
-- Backend/Frontend: `npm audit --audit-level=moderate`
-- Trivy: ファイルシステム・設定ファイルのセキュリティスキャン
-- **Stage 1成功後に実行**
-
-**Stage 2: Build（ビルド）**
-- Backend: `npm run build`
-- Frontend: `npm run build`
-- **Stage 1成功後に実行**
-- ビルド成果物をartifactとしてアップロード
-
-**Stage 3: Unit Tests（単体テスト）**
-- Backend: `npm run test:unit:coverage`（11テスト）
-  - **同期実行**: テスト完了を待ってから次のステージへ進行（Shift-Left原則）
-- Frontend: `npm run test:coverage`（13テスト）
-  - **同期実行**: テスト完了を待ってから次のステージへ進行（Shift-Left原則）
-- **Stage 2成功後に実行**
-- **Fail-fast戦略**: いずれかのテスト失敗で即座に終了
-- カバレッジレポートをartifactとしてアップロード
-
-**Stage 4: Integration Tests（統合テスト）**
-- Backend: `npm run test:integration:coverage`
-  - **同期実行**: テスト完了を待ってから次のステージへ進行（Shift-Left原則）
-- PostgreSQL/Redisサービスを起動
-- **Stage 3成功後に実行**
-- カバレッジレポートをartifactとしてアップロード
-
-**Stage 5: E2E Tests（E2Eテスト）**
-- Docker Composeでサービス起動
-- ヘルスチェック待機（最大180秒）
-- Playwright E2Eテスト実行（タイムアウト: 30分）
-  - **同期実行**: テスト完了を待ってからワークフロー完了（Shift-Left原則）
-  - **タイムアウト保護**: 30分でハングアップを防止
-- **Stage 3,4成功後に実行**
-- 失敗時にスクリーンショット・ビデオをartifactとしてアップロード
-
-**Stage 6: Docker Build Test（Dockerビルドテスト）**
-- Backend/Frontend: Dockerイメージビルド検証
-- **Stage 2成功後に実行（Stage 4と並列）**
+**主要ジョブ:**
+1. **lint** - フォーマット・構文チェック（backend/frontend/e2e並列）
+   - Matrix strategy活用で並列実行
+   - Prettier + ESLint
+2. **typecheck** - TypeScript型チェック（backend/frontend/e2e並列）
+   - Matrix strategy活用で並列実行
+3. **test-unit** - ユニットテスト（backend/frontend並列）
+   - Matrix strategy活用で並列実行
+   - Codecov連携でカバレッジ自動アップロード
+4. **build** - ビルドテスト（backend/frontend並列）
+   - Matrix strategy活用で並列実行
+   - ビルド成果物をartifactとしてアップロード
+5. **test-integration** - 統合・E2Eテスト（順次実行）
+   - Docker Composeでサービス起動
+   - Backend統合テスト + Playwright E2Eテスト
+   - ヘルスチェック待機（最大120秒）
+   - 失敗時にスクリーンショット・ビデオをartifactとしてアップロード
+6. **security** - セキュリティスキャン（backend/frontend並列）
+   - Matrix strategy活用で並列実行
+   - npm audit実行
+7. **ci-success** - 全ジョブ成功確認ゲート
 
 **ワークフローの特徴:**
-- **ステージ型構成**: 品質→セキュリティ→ビルド→単体→統合→E2Eの順で段階的に実行
-- **Fail-fast戦略**: 早期ステージでの失敗で即座に終了（無駄なリソース消費を回避）
-- **Shift-Left原則**: すべてのテストを同期実行し、品質を早期保証
-- **Defense in Depth戦略**: 複数レイヤーでの品質・セキュリティ保証
+- **Matrix Strategy**: 並列実行による高速化
+- **Concurrency設定**: 同一ワークフロー内での重複実行を自動キャンセル
+- **Codecov連携**: テストカバレッジの自動アップロード・レポート
+- **Fail-fast戦略**: 早期ステージでの失敗で即座に終了
+- **Shift-Left原則**: 問題を早期発見し、品質を保証
 - **再現可能なビルド**: `npm ci` による依存関係インストール
-- **並列実行**: 同一ステージ内のジョブは並列実行（Backend/Frontend）
 
+**CDワークフロー（Railway デプロイメント）:**
 
-### Railway デプロイメント
+CI成功後、mainブランチへのプッシュまたは手動トリガーで実行されます。
 
-GitHubリポジトリと連携し、mainブランチへのプッシュで自動デプロイを実施：
+**主要ステップ:**
+1. **Railway CLI セットアップ**: Railway環境へのデプロイ準備
+2. **デプロイ実行**: staging/production環境へのデプロイ
+3. **ヘルスチェック**: デプロイ後のサービス状態確認
+   - 最大10回リトライ（30秒間隔）
+   - /healthエンドポイントで確認
+4. **GitHub Environment統合**: デプロイ履歴の記録
 
+**デプロイ環境:**
 - **Backend Service**: `backend/` ディレクトリから自動ビルド・デプロイ
 - **Frontend Service**: `frontend/` ディレクトリからnginx本番イメージをビルド・デプロイ
 - **PostgreSQL**: RailwayマネージドPostgreSQL 15
 - **Redis**: RailwayマネージドRedis 7
 
 各サービスの環境変数はRailway UIまたは `railway.toml` で管理します。
+
+### Dependabot 自動依存関係管理
+
+`.github/dependabot.yml` と `.github/workflows/dependabot-automerge.yml` で自動依存関係更新を実装しています。
+
+**監視対象エコシステム（5つ、計85依存関係）:**
+1. **NPM Root** - E2Eテスト（7依存関係）
+2. **NPM Backend** - バックエンドAPI（42依存関係）
+3. **NPM Frontend** - フロントエンドUI（36依存関係）
+4. **GitHub Actions** - ワークフロー（5 actions）
+5. **Docker** - ベースイメージ（2 images）
+
+**更新スケジュール:**
+- 週次月曜 09:00-10:00 UTC（各エコシステムで時間差）
+- 最大5件のPRまで同時作成
+
+**自動マージ戦略:**
+- **minor/patchアップデート**: CI成功後に自動マージ
+- **majorアップデート**: 手動レビュー必須
+- SemVerベースの判断で安全性を確保
+
+**セキュリティ統合:**
+- GitHub Advisory Databaseとの連携
+- セキュリティ脆弱性の優先的な更新
 
 ## 開発ガイドライン
 
