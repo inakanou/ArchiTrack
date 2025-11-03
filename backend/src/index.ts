@@ -45,6 +45,10 @@ async function startServer(): Promise<void> {
         port: PORT,
         env: env.NODE_ENV,
         healthCheck: `http://localhost:${PORT}/health`,
+        ...(env.NODE_ENV !== 'production' && {
+          documentation: `http://localhost:${PORT}/docs`,
+          apiSpec: `http://localhost:${PORT}/docs/json`,
+        }),
       });
     });
   } catch (error) {

@@ -4,11 +4,44 @@ import logger from '../utils/logger.js';
 const router = Router();
 
 /**
- * ログレベル変更エンドポイント
- * 本番環境での使用には認証が必要（将来実装）
- *
- * POST /admin/log-level
- * Body: { "level": "debug" | "info" | "warn" | "error" }
+ * @swagger
+ * /admin/log-level:
+ *   post:
+ *     summary: Change log level
+ *     description: Change the application's log level. Requires authentication in production.
+ *     tags:
+ *       - Admin
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - level
+ *             properties:
+ *               level:
+ *                 type: string
+ *                 enum: [trace, debug, info, warn, error, fatal]
+ *                 description: The log level to set
+ *     responses:
+ *       200:
+ *         description: Log level changed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 level:
+ *                   type: string
+ *                   example: debug
+ *                 message:
+ *                   type: string
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
  */
 router.post('/log-level', (req: Request, res: Response): void => {
   const { level } = req.body;
@@ -53,8 +86,28 @@ router.post('/log-level', (req: Request, res: Response): void => {
 });
 
 /**
- * 現在のログレベル取得エンドポイント
- * GET /admin/log-level
+ * @swagger
+ * /admin/log-level:
+ *   get:
+ *     summary: Get current log level
+ *     description: Retrieve the current application log level and environment
+ *     tags:
+ *       - Admin
+ *     responses:
+ *       200:
+ *         description: Current log level retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 level:
+ *                   type: string
+ *                   example: info
+ *                 environment:
+ *                   type: string
+ *                   enum: [development, production]
+ *                   example: development
  */
 router.get('/log-level', (_req: Request, res: Response) => {
   res.json({
