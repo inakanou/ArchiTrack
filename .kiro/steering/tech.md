@@ -179,36 +179,58 @@ ArchiTrack/
 - `vitest` ^4.0.6 - テストランナー
 - `supertest` ^7.2.0 - HTTPアサーション
 - `@vitest/ui` ^4.0.6 - 対話的UIツール
+- `@vitest/coverage-v8` ^4.0.6 - カバレッジツール（V8プロバイダー）
 
 **設定ファイル:**
-- `backend/vitest.config.ts` - Node.js環境設定
+- `backend/vitest.config.ts` - Node.js環境設定、カバレッジ閾値設定
 - `backend/vitest.setup.ts` - グローバルセットアップ
+
+**カバレッジ閾値（2025-11-03更新）:**
+```typescript
+coverage: {
+  thresholds: {
+    statements: 80,  // 現在: 92.64%
+    branches: 80,    // 現在: 86.7%
+    functions: 80,   // 現在: 88.67%
+    lines: 80        // 現在: 92.83%
+  }
+}
+```
 
 **テスト構成:**
 - `backend/src/__tests__/` - テストファイル配置
-  - `unit/errors/` - エラークラステスト
+  - `unit/errors/` - エラークラステスト（21テスト）
     - `ApiError.test.ts` - カスタムAPIエラークラスのテスト
-  - `unit/middleware/` - ミドルウェアテスト
+  - `unit/middleware/` - ミドルウェアテスト（91テスト）
     - `errorHandler.test.ts` - エラーハンドリングミドルウェア（Zod、Prisma、一般エラー）
     - `httpsRedirect.test.ts` - HTTPS強制リダイレクトとHSTSヘッダー
     - `validate.test.ts` - Zodバリデーションミドルウェア（body/query/params）
-  - `unit/routes/` - ルートテスト
+    - `RedisRateLimitStore.test.ts` - Redisレート制限ストア（14テスト、カバレッジ100%）
+    - `rateLimit.test.ts` - レート制限ミドルウェア（3テスト）
+    - `logger.test.ts` - HTTPロガーミドルウェア（17テスト）
+  - `unit/routes/` - ルートテスト（23テスト）
     - `admin.routes.test.ts` - 管理者用ルート（ログレベル動的変更）
+  - `unit/utils/` - ユーティリティテスト（13テスト）
+    - `sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
+
+**テスト合計:** 149テスト
 
 **実行方法:**
 ```bash
 npm --prefix backend run test        # 全テスト実行
 npm --prefix backend run test:watch  # ウォッチモード
 npm --prefix backend run test:ui     # UIモード
-npm --prefix backend run test:coverage  # カバレッジレポート
+npm --prefix backend run test:coverage  # カバレッジレポート（閾値チェック付き）
+npm --prefix backend run test:unit   # ユニットテストのみ
+npm --prefix backend run test:unit:coverage  # ユニットテストカバレッジ
 ```
 
-**テストカバレッジ:**
-- エラークラステスト（ApiError.test.ts）
-- ミドルウェアテスト（errorHandler, httpsRedirect, validate）
-- ルートテスト（admin.routes）
-- 合計: 包括的なユニットテスト群
+**カバレッジ改善履歴（2025-11-03）:**
+- Statements: 79.6% → 92.64% (+13.04%)
+- Branches: 69.5% → 86.7% (+17.2%)
+- Functions: 76.59% → 88.67% (+12.08%)
+- Lines: 80.47% → 92.83% (+12.36%)
 
 **型安全性のベストプラクティス:**
 - Vitest MockとExpress型の互換性: `as unknown as Type` パターンを使用

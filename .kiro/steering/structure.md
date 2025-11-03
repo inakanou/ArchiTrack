@@ -308,16 +308,21 @@ backend/
 ├── prisma/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
-│   ├── __tests__/         # 単体テスト
+│   ├── __tests__/         # 単体テスト（カバレッジ80%以上達成）
 │   │   └── unit/          # ユニットテスト
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
-│   │       │   ├── errorHandler.test.ts  # エラーハンドリング（Zod、Prisma、一般エラー）
-│   │       │   ├── httpsRedirect.test.ts  # HTTPS強制とHSTSヘッダー
-│   │       │   └── validate.test.ts       # Zodバリデーション（body/query/params）
-│   │       └── routes/    # ルートテスト
-│   │           └── admin.routes.test.ts  # 管理者ルート（ログレベル動的変更）
+│   │       │   ├── errorHandler.test.ts        # エラーハンドリング（Zod、Prisma、一般エラー）
+│   │       │   ├── httpsRedirect.test.ts       # HTTPS強制とHSTSヘッダー
+│   │       │   ├── validate.test.ts            # Zodバリデーション（body/query/params）
+│   │       │   ├── RedisRateLimitStore.test.ts # Redisレート制限ストア（14テスト）
+│   │       │   ├── rateLimit.test.ts           # レート制限ミドルウェア（3テスト）
+│   │       │   └── logger.test.ts              # HTTPロガーミドルウェア（17テスト）
+│   │       ├── routes/    # ルートテスト
+│   │       │   └── admin.routes.test.ts  # 管理者ルート（ログレベル動的変更）
+│   │       └── utils/     # ユーティリティテスト
+│   │           └── sentry.test.ts  # Sentryエラートラッキング（13テスト）
 │   ├── errors/            # カスタムエラー定義
 │   │   └── ApiError.ts    # カスタムAPIエラークラス
 │   ├── middleware/        # ミドルウェア
@@ -633,8 +638,8 @@ refactor: improve type safety by eliminating any types
 2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
 3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
 4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認
-5. **Backend単体テスト**: `npm --prefix backend run test:unit`（11テスト）
-6. **Frontend単体テスト**: `npm --prefix frontend run test`（13テスト）
+5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（149テスト、カバレッジ閾値80%）
+6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（13テスト、カバレッジ閾値80%）
 7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`（Docker環境必須）
 8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分、Docker環境必須）
    - **同期実行**: テスト完了を待ってからプッシュ実行
