@@ -1,9 +1,67 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 import { ZodError, ZodIssue } from 'zod';
-import { Prisma } from '@prisma/client';
 import { errorHandler, notFoundHandler } from '../../../middleware/errorHandler.middleware.js';
 import { ApiError, BadRequestError, ValidationError } from '../../../errors/ApiError.js';
+
+// Prismaモジュールのモック（ホイスティングされるため、クラス定義をモック内に移動）
+vi.mock('@prisma/client', async () => {
+  // Prismaエラークラスのモック
+  class MockPrismaClientKnownRequestError extends Error {
+    code: string;
+    meta?: Record<string, unknown>;
+    clientVersion: string;
+
+    constructor(
+      message: string,
+      {
+        code,
+        clientVersion,
+        meta,
+      }: { code: string; clientVersion: string; meta?: Record<string, unknown> }
+    ) {
+      super(message);
+      this.name = 'PrismaClientKnownRequestError';
+      this.code = code;
+      this.clientVersion = clientVersion;
+      this.meta = meta;
+      Object.setPrototypeOf(this, MockPrismaClientKnownRequestError.prototype);
+    }
+  }
+
+  class MockPrismaClientInitializationError extends Error {
+    clientVersion: string;
+
+    constructor(message: string, clientVersion: string) {
+      super(message);
+      this.name = 'PrismaClientInitializationError';
+      this.clientVersion = clientVersion;
+      Object.setPrototypeOf(this, MockPrismaClientInitializationError.prototype);
+    }
+  }
+
+  class MockPrismaClientRustPanicError extends Error {
+    clientVersion: string;
+
+    constructor(message: string, clientVersion: string) {
+      super(message);
+      this.name = 'PrismaClientRustPanicError';
+      this.clientVersion = clientVersion;
+      Object.setPrototypeOf(this, MockPrismaClientRustPanicError.prototype);
+    }
+  }
+
+  return {
+    Prisma: {
+      PrismaClientKnownRequestError: MockPrismaClientKnownRequestError,
+      PrismaClientInitializationError: MockPrismaClientInitializationError,
+      PrismaClientRustPanicError: MockPrismaClientRustPanicError,
+    },
+  };
+});
+
+// モック後にPrismaをインポート
+const { Prisma } = await import('@prisma/client');
 
 describe('errorHandler middleware', () => {
   let mockRequest: Partial<Request>;
