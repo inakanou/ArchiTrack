@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:analyze": "tsc && vite build --mode production && echo 'Bundle analysis report generated at dist/stats.html'",
+    "bundle:check": "node scripts/check-bundle-size.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

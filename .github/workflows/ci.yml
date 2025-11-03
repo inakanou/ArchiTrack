@@ -25,6 +25,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
+      - name: Cache TypeScript build info
+        uses: actions/cache@v4
+        with:
+          path: |
+            backend/.tsbuildinfo
+            backend/node_modules/.cache
+          key: ${{ runner.os }}-backend-tsbuild-${{ hashFiles('backend/tsconfig.json', 'backend/src/**/*.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-backend-tsbuild-
+
       - name: Install dependencies
         working-directory: ./backend
         run: npm ci
@@ -58,6 +68,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Cache TypeScript build info
+        uses: actions/cache@v4
+        with:
+          path: |
+            frontend/.tsbuildinfo
+            frontend/node_modules/.cache
+          key: ${{ runner.os }}-frontend-tsbuild-${{ hashFiles('frontend/tsconfig.json', 'frontend/src/**/*.{ts,tsx}') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-tsbuild-
 
       - name: Install dependencies
         working-directory: ./frontend
@@ -225,6 +245,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
+      - name: Cache TypeScript build info
+        uses: actions/cache@v4
+        with:
+          path: |
+            backend/.tsbuildinfo
+            backend/node_modules/.cache
+          key: ${{ runner.os }}-backend-tsbuild-${{ hashFiles('backend/tsconfig.json', 'backend/src/**/*.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-backend-tsbuild-
+
       - name: Install dependencies
         working-directory: ./backend
         run: npm ci
@@ -259,6 +289,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Cache TypeScript build info
+        uses: actions/cache@v4
+        with:
+          path: |
+            frontend/.tsbuildinfo
+            frontend/node_modules/.cache
+          key: ${{ runner.os }}-frontend-tsbuild-${{ hashFiles('frontend/tsconfig.json', 'frontend/src/**/*.{ts,tsx}') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-tsbuild-
+
       - name: Install dependencies
         working-directory: ./frontend
         run: npm ci
@@ -268,6 +308,10 @@ jobs:
         run: npm run build
         env:
           VITE_API_URL: http://localhost:3000
+
+      - name: Check bundle size
+        working-directory: ./frontend
+        run: npm run bundle:check
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

@@ -68,7 +68,7 @@ export async function captureScreenshot(
     return { success: true, path: outputPath };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('エラー:', error);
+    console.error('Error:', errorMessage);
     return { success: false, error: errorMessage };
   } finally {
     await browser.close();
@@ -100,7 +100,7 @@ export async function getPageInfo(url: string): Promise<PageInfo | PageInfoError
     return info;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('エラー:', error);
+    console.error('Error:', errorMessage);
     return { error: errorMessage };
   } finally {
     await browser.close();
@@ -141,11 +141,26 @@ export async function testAPI(apiUrl: string): Promise<ApiResult | ApiError> {
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('エラー:', error);
+    console.error('Error:', errorMessage);
     return { error: errorMessage };
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * Display usage information
+ */
+function showUsage(): void {
+  console.log('Usage:');
+  console.log('  node browser.js screenshot <URL> [output-path]');
+  console.log('  node browser.js info <URL>');
+  console.log('  node browser.js api <API_URL>');
+  console.log('');
+  console.log('Examples:');
+  console.log('  node browser.js screenshot http://localhost:5173 screenshot.png');
+  console.log('  node browser.js info http://localhost:5173');
+  console.log('  node browser.js api http://localhost:3000/health');
 }
 
 // スクリプトとして直接実行された場合
@@ -154,20 +169,40 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const arg1 = process.argv[3];
   const arg2 = process.argv[4];
 
+  if (!command) {
+    console.error('Error: No command specified\n');
+    showUsage();
+    process.exit(1);
+  }
+
   switch (command) {
     case 'screenshot':
+      if (!arg1) {
+        console.error('Error: URL is required for screenshot command\n');
+        showUsage();
+        process.exit(1);
+      }
       await captureScreenshot(arg1, arg2 || 'screenshot.png');
       break;
     case 'info':
+      if (!arg1) {
+        console.error('Error: URL is required for info command\n');
+        showUsage();
+        process.exit(1);
+      }
       await getPageInfo(arg1);
       break;
     case 'api':
+      if (!arg1) {
+        console.error('Error: API URL is required for api command\n');
+        showUsage();
+        process.exit(1);
+      }
       await testAPI(arg1);
       break;
     default:
-      console.log('使い方:');
-      console.log('  node browser.js screenshot <URL> [出力パス]');
-      console.log('  node browser.js info <URL>');
-      console.log('  node browser.js api <API_URL>');
+      console.error(`Error: Unknown command "${command}"\n`);
+      showUsage();
+      process.exit(1);
   }
 }

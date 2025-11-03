@@ -7,6 +7,9 @@ import { defineConfig, devices } from '@playwright/test';
 function getTimestampedDir(): string {
   const now = new Date();
   const timestamp = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
+  if (!timestamp) {
+    throw new Error('Failed to generate timestamp');
+  }
   return timestamp;
 }
 
