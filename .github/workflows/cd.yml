@@ -1,0 +1,264 @@
+name: CD
+
+on:
+  # CI成功後に自動実行
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [main]
+
+  # 手動実行でデプロイ環境を選択可能
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+        default: 'staging'
+
+# デプロイメント実行の同時実行制御
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  # CI成功確認ジョブ
+  check-ci:
+    name: Verify CI Success
+    runs-on: ubuntu-latest
+    # workflow_runトリガーの場合のみ実行
+    if: github.event_name == 'workflow_run'
+    outputs:
+      ci-success: ${{ steps.check.outputs.success }}
+    steps:
+      - name: Check CI workflow result
+        id: check
+        run: |
+          if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "CI workflow succeeded"
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "CI workflow failed or was cancelled"
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'Production' }}
+    runs-on: ubuntu-latest
+    # CI成功時、またはworkflow_dispatchの場合に実行
+    needs: [check-ci]
+    if: |
+      always() &&
+      (needs.check-ci.outputs.ci-success == 'true' || github.event_name == 'workflow_dispatch')
+
+    # GitHub環境設定（デプロイ履歴・承認フロー用）
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # デプロイ前の通知とバックアップ記録
+      - name: Pre-deployment notification
+        run: |
+          echo "========================================="
+          echo "Deployment Information"
+          echo "========================================="
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Commit Message: ${{ github.event.head_commit.message }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "========================================="
+
+          # GitHub環境にデプロイ開始を記録
+          echo "DEPLOY_START_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_ENV
+          echo "DEPLOY_COMMIT=${{ github.sha }}" >> $GITHUB_ENV
+
+      # Railway CLIを使用したデプロイ（オプション）
+      # Railway CLIを使用する場合は以下のコメントを解除
+      # - name: Setup Railway CLI
+      #   run: |
+      #     npm i -g @railway/cli
+      #
+      # - name: Deploy to Railway
+      #   id: deploy
+      #   env:
+      #     RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      #   run: |
+      #     # プロジェクトID・環境変数を設定
+      #     # RAILWAY_PROJECT_ID: Railway プロジェクトID
+      #     # RAILWAY_ENVIRONMENT: production または staging
+      #
+      #     # デプロイ実行
+      #     railway up --detach
+      #
+      #     # デプロイURL取得
+      #     DEPLOY_URL=$(railway status --json | jq -r '.deployments[0].url')
+      #     echo "url=https://${DEPLOY_URL}" >> $GITHUB_OUTPUT
+
+      # Railway自動デプロイ（デフォルト）
+      - name: Deploy to Railway
+        id: deploy
+        run: |
+          echo "========================================="
+          echo "Railway Auto-Deploy"
+          echo "========================================="
+          echo "Deployment will be triggered automatically by Railway"
+          echo "Make sure Railway is connected to this repository"
+          echo ""
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "========================================="
+
+          # 本番環境URLを設定（実際のURLに置き換えてください）
+          if [[ "${{ github.event.inputs.environment || 'production' }}" == "production" ]]; then
+            echo "url=https://architrack-production.railway.app" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://architrack-staging.railway.app" >> $GITHUB_OUTPUT
+          fi
+
+      # デプロイ後の待機（Railwayがデプロイを完了するまで）
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for Railway deployment to complete..."
+          sleep 30
+
+      # ヘルスチェック実行
+      - name: Health check
+        id: health-check
+        run: |
+          echo "========================================="
+          echo "Running Health Checks"
+          echo "========================================="
+
+          APP_URL="${{ steps.deploy.outputs.url }}"
+          MAX_RETRIES=10
+          RETRY_INTERVAL=10
+
+          echo "Target URL: ${APP_URL}"
+          echo ""
+
+          # バックエンドヘルスチェック
+          echo "1. Backend Health Check"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${APP_URL}/api/health" || echo "000")
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "Backend health check passed (HTTP $HTTP_CODE)"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "Backend health check failed after $MAX_RETRIES attempts (HTTP $HTTP_CODE)"
+              exit 1
+            else
+              echo "Backend not ready yet (HTTP $HTTP_CODE), retrying in ${RETRY_INTERVAL}s..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          echo ""
+
+          # API基本疎通確認
+          echo "2. API Basic Connectivity Check"
+
+          # プロジェクト一覧API（認証不要エンドポイントの例）
+          # 実際のエンドポイントに応じて調整してください
+          API_RESPONSE=$(curl -s -w "\n%{http_code}" "${APP_URL}/api/projects" || echo -e "\n000")
+          API_HTTP_CODE=$(echo "$API_RESPONSE" | tail -n1)
+          API_BODY=$(echo "$API_RESPONSE" | head -n-1)
+
+          if [[ "$API_HTTP_CODE" =~ ^(200|401|403)$ ]]; then
+            echo "API endpoint accessible (HTTP $API_HTTP_CODE)"
+            echo "Response preview: ${API_BODY:0:200}"
+          else
+            echo "Warning: API endpoint returned unexpected status (HTTP $API_HTTP_CODE)"
+            echo "Response: $API_BODY"
+          fi
+
+          echo ""
+          echo "========================================="
+          echo "Health Checks Completed Successfully"
+          echo "========================================="
+
+      # デプロイ完了通知
+      - name: Post-deployment notification
+        if: success()
+        run: |
+          echo "========================================="
+          echo "Deployment Completed Successfully"
+          echo "========================================="
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "URL: ${{ steps.deploy.outputs.url }}"
+          echo "Commit: ${{ env.DEPLOY_COMMIT }}"
+          echo "Duration: from ${{ env.DEPLOY_START_TIME }}"
+          echo "========================================="
+
+      # デプロイ失敗時の通知
+      - name: Deployment failure notification
+        if: failure()
+        run: |
+          echo "========================================="
+          echo "Deployment Failed"
+          echo "========================================="
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "Commit: ${{ env.DEPLOY_COMMIT }}"
+          echo "Check logs for details"
+          echo ""
+          echo "Rollback may be required - see rollback section below"
+          echo "========================================="
+
+  # ロールバック手順（参考情報）
+  #
+  # ロールバックが必要な場合は以下の手順を実行してください：
+  #
+  # 方法1: GitHub Actions workflow_dispatchで前回のコミットをデプロイ
+  #   1. Actions タブを開く
+  #   2. "CD" workflowを選択
+  #   3. "Run workflow" をクリック
+  #   4. 対象環境を選択して実行
+  #
+  # 方法2: Railway Dashboard から直接ロールバック
+  #   1. Railway Dashboard にログイン
+  #   2. 対象プロジェクトを選択
+  #   3. Deployments タブから前回のデプロイメントを選択
+  #   4. "Redeploy" をクリック
+  #
+  # 方法3: Railway CLI を使用
+  #   ```bash
+  #   # Railway CLIをインストール
+  #   npm i -g @railway/cli
+  #
+  #   # ログイン
+  #   railway login
+  #
+  #   # デプロイメント履歴を確認
+  #   railway status
+  #
+  #   # 特定のデプロイメントにロールバック
+  #   railway rollback <deployment-id>
+  #   ```
+  #
+  # 方法4: Gitで前回のコミットに戻してプッシュ
+  #   ```bash
+  #   # 前回のコミットを確認
+  #   git log --oneline -n 10
+  #
+  #   # 特定のコミットに戻す
+  #   git revert <commit-sha>
+  #
+  #   # または直接リセット（注意: force pushが必要）
+  #   git reset --hard <commit-sha>
+  #   git push --force-with-lease origin main
+  #   ```
+  #
+  # 緊急時の連絡先:
+  #   - チームSlack: #architrack-alerts
+  #   - オンコール担当: @platform-team
