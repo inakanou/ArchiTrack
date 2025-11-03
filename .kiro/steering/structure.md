@@ -5,6 +5,7 @@
 ```
 ArchiTrack/
 ├── .claude/                 # Claude Codeカスタマイズ
+│   ├── CLAUDE.md           # プロジェクト固有AI運用ルール（AI運用5原則）
 │   ├── commands/           # カスタムスラッシュコマンド
 │   │   └── kiro/           # Kiro開発コマンド群
 │   └── hooks/              # Claude Code フック
