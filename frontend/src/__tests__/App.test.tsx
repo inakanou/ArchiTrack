@@ -10,7 +10,7 @@ describe('App Component', () => {
     vi.clearAllMocks();
   });
 
-  it('初期表示時に"ArchiTrack"タイトルが表示される', () => {
+  it('初期表示時に"ArchiTrack"タイトルが表示される', async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       status: 200,
@@ -20,7 +20,11 @@ describe('App Component', () => {
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /ArchiTrack/i })).toBeInTheDocument();
+    // 非同期の状態更新を待機
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /ArchiTrack/i })).toBeInTheDocument();
+    });
+
     expect(screen.getByText(/建築プロジェクト管理システム/i)).toBeInTheDocument();
   });
 

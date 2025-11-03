@@ -11,6 +11,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:report": "playwright show-report $(ls -td playwright-report/*/ | head -1)",
+    "test:coverage": "npm --prefix backend run test:coverage && npm --prefix frontend run test:coverage",
     "lint": "eslint e2e/**/*.{js,ts} playwright.config.{js,ts}",
     "lint:fix": "eslint e2e/**/*.{js,ts} playwright.config.{js,ts} --fix",
     "format": "prettier --write \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\"",

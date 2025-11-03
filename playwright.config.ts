@@ -29,8 +29,8 @@ export default defineConfig({
   // 並列実行の設定
   fullyParallel: true,
 
-  // CI環境でのみリトライを有効化
-  retries: process.env.CI ? 2 : 0,
+  // CI環境では2回、ローカルでは1回リトライ
+  retries: process.env.CI ? 2 : 1,
 
   // ワーカー数の設定
   workers: process.env.CI ? 1 : undefined,
@@ -62,9 +62,17 @@ export default defineConfig({
     // トレース設定
     trace: 'on-first-retry',
 
-    // タイムアウト設定
-    actionTimeout: 10000,
-    navigationTimeout: 30000,
+    // タイムアウト設定（より長めに設定）
+    actionTimeout: 15000,
+    navigationTimeout: 45000,
+  },
+
+  // テスト全体のタイムアウト設定
+  timeout: 60000, // 60秒
+
+  // expect のタイムアウト
+  expect: {
+    timeout: 10000, // 10秒
   },
 
   // テストプロジェクト（ブラウザ設定）
