@@ -18,8 +18,10 @@ ArchiTrackは、Claude Codeを活用したKiro-style Spec Driven Development（�
 - **TypeScript完全サポート**: Backend、Frontend、E2Eテスト全体でTypeScript採用、厳格な型安全性を実現
 - **型安全性の徹底**: カスタム型定義ファイル（Express拡張、環境変数）による`any`型の完全排除
 - **Prisma ORM統合**: PostgreSQLとの型安全なデータアクセスを実現、マイグレーション管理とスキーマ駆動開発をサポート
-- **自動品質保証**: Git hooks（pre-commit、commit-msg、pre-push）による型チェック・lint・テスト実行の強制
+- **自動品質保証**: Git hooks（pre-commit、commit-msg、pre-push）による型チェック・lint・format check・テスト実行の強制
 - **Conventional Commits強制**: commitlintによるコミットメッセージ規約の厳格な適用
+- **同期テスト実行**: すべてのテスト（単体・統合・E2E）を同期実行し、完了を待ってから次の処理へ進行（Shift-Left原則）
+- **タイムアウト保護**: E2Eテストに10分（Git hooks）/30分（CI/CD）のタイムアウト設定でハングアップを防止
 - **包括的なテスト環境**:
   - **単体テスト**: Vitest + supertest/React Testing Library（Backend 11テスト、Frontend 13テスト）
   - **E2Eテスト**: Playwright + TypeScriptによるブラウザ自動化テスト、タイムスタンプ付き結果管理

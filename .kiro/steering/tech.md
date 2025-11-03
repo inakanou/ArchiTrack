@@ -662,32 +662,60 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 プッシュ・PR時に自動実行されます。
 
-**Stage 1: TypeScript型チェック**
-- Backend: `npm --prefix backend run type-check`
-- Frontend: `npm --prefix frontend run type-check`
-- E2E: `npm run type-check`
-- **Fail-fast戦略**: いずれかの型チェック失敗で即座に終了
+**Stage 1: Code Quality Checks（コード品質チェック）**
+- Backend: Format check, Lint, TypeScript型チェック
+- Frontend: Format check, Lint, TypeScript型チェック
+- E2E: Format check, Lint, TypeScript型チェック
+- **Fail-fast戦略**: いずれかのチェック失敗で即座に終了
+- **同期実行**: 各ジョブは完了を待ってから次のステージへ進行
 
-**Stage 2: コード品質チェック**
-- Backend: `npm --prefix backend run lint`
-- Frontend: `npm --prefix frontend run lint`
+**Stage 1.5: Security Scanning（セキュリティスキャン）**
+- Backend/Frontend: `npm audit --audit-level=moderate`
+- Trivy: ファイルシステム・設定ファイルのセキュリティスキャン
+- **Stage 1成功後に実行**
 
-**Stage 3: 単体テスト**
-- Backend: `npm --prefix backend run test`（11テスト）
-- Frontend: `npm --prefix frontend run test`（13テスト）
+**Stage 2: Build（ビルド）**
+- Backend: `npm run build`
+- Frontend: `npm run build`
+- **Stage 1成功後に実行**
+- ビルド成果物をartifactとしてアップロード
+
+**Stage 3: Unit Tests（単体テスト）**
+- Backend: `npm run test:unit:coverage`（11テスト）
+  - **同期実行**: テスト完了を待ってから次のステージへ進行（Shift-Left原則）
+- Frontend: `npm run test:coverage`（13テスト）
+  - **同期実行**: テスト完了を待ってから次のステージへ進行（Shift-Left原則）
+- **Stage 2成功後に実行**
 - **Fail-fast戦略**: いずれかのテスト失敗で即座に終了
+- カバレッジレポートをartifactとしてアップロード
 
-**Stage 4: E2Eテスト**
+**Stage 4: Integration Tests（統合テスト）**
+- Backend: `npm run test:integration:coverage`
+  - **同期実行**: テスト完了を待ってから次のステージへ進行（Shift-Left原則）
+- PostgreSQL/Redisサービスを起動
+- **Stage 3成功後に実行**
+- カバレッジレポートをartifactとしてアップロード
+
+**Stage 5: E2E Tests（E2Eテスト）**
 - Docker Composeでサービス起動
 - ヘルスチェック待機（最大180秒）
-- Playwright E2Eテスト実行
-- 失敗時にスクリーンショット・ビデオを保存
+- Playwright E2Eテスト実行（タイムアウト: 30分）
+  - **同期実行**: テスト完了を待ってからワークフロー完了（Shift-Left原則）
+  - **タイムアウト保護**: 30分でハングアップを防止
+- **Stage 3,4成功後に実行**
+- 失敗時にスクリーンショット・ビデオをartifactとしてアップロード
+
+**Stage 6: Docker Build Test（Dockerビルドテスト）**
+- Backend/Frontend: Dockerイメージビルド検証
+- **Stage 2成功後に実行（Stage 4と並列）**
 
 **ワークフローの特徴:**
-- **ステージ型構成**: 型チェック→品質→単体→E2Eの順で段階的に実行
+- **ステージ型構成**: 品質→セキュリティ→ビルド→単体→統合→E2Eの順で段階的に実行
 - **Fail-fast戦略**: 早期ステージでの失敗で即座に終了（無駄なリソース消費を回避）
+- **Shift-Left原則**: すべてのテストを同期実行し、品質を早期保証
+- **Defense in Depth戦略**: 複数レイヤーでの品質・セキュリティ保証
 - **再現可能なビルド**: `npm ci` による依存関係インストール
-- **並列実行**: 同一ステージ内のジョブは並列実行
+- **並列実行**: 同一ステージ内のジョブは並列実行（Backend/Frontend）
 
 
 ### Railway デプロイメント
@@ -749,19 +777,32 @@ ArchiTrackでは、3段階のGit hooksにより品質を自動保証していま
 
 プッシュ前に自動的に以下が実行されます：
 
-1. **Backend型チェック**: `npm --prefix backend run type-check`
-2. **Frontend型チェック**: `npm --prefix frontend run type-check`
-3. **E2E型チェック**: `npm run type-check`
-4. **Backend単体テスト**: `npm --prefix backend run test`
-5. **Frontend単体テスト**: `npm --prefix frontend run test`
-6. **E2Eテスト実行**: `npm run test:e2e`
+1. **Formatチェック（Backend/Frontend/E2E）**: `npm run format:check`
+   - Prettierによるコードフォーマット検証
+   - 整形されていないコードがある場合は警告
+2. **型チェック（Backend/Frontend/E2E）**: `npm run type-check`
+   - TypeScript型エラーの検出
+3. **Lintチェック（Backend/Frontend/E2E）**: `npm run lint`
+   - ESLintによるコード品質検証
+4. **ビルド（Backend/Frontend）**: `npm run build`
+   - 本番環境ビルドの成功確認
+5. **Backend単体テスト**: `npm --prefix backend run test:unit`
+6. **Frontend単体テスト**: `npm --prefix frontend run test`
+7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`
+   - Docker環境必須（起動していない場合はエラー）
+8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分）
+   - Docker環境必須（起動していない場合はエラー）
+   - **同期実行**: テスト完了を待ってからプッシュ実行（Shift-Left原則）
+   - **タイムアウト保護**: 10分でハングアップを防止
+   - **詳細なエラーハンドリング**: タイムアウトとテスト失敗を区別
 
-型エラーまたはテスト失敗がある場合、プッシュは中断されます。
+型エラー、テスト失敗、またはタイムアウトがある場合、プッシュは中断されます。
 
 **テスト実行順序の理由:**
-- 単体テスト（高速、11+13=24テスト）→ E2Eテスト（低速）の順で実行
-- 早期フィードバック: 単体テストで問題を早期発見
-- Defense in Depth戦略: 複数レイヤーでの品質保証
+- Format/Lint/型チェック（超高速）→ ビルド（高速）→ 単体テスト（高速）→ 統合テスト（中速）→ E2Eテスト（低速）の順で実行
+- **Fail-fast戦略**: 早期ステージでの失敗で即座に中断（無駄なリソース消費を回避）
+- **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
+- **Defense in Depth戦略**: 複数レイヤーでの品質保証（Format → Lint → Type → Build → Unit → Integration → E2E）
 
 #### lint-staged設定
 

@@ -121,8 +121,13 @@ Gitフック管理ディレクトリ（Husky v9使用）。
   - type: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
   - subject: 小文字始まり、100文字以内、末尾にピリオド不要
 - `pre-push` - プッシュ前に自動実行されるスクリプト
-  - Backend、Frontend、E2EのTypeScript型チェック
-  - E2Eテストの実行
+  - Format check、Lint、TypeScript型チェック（Backend/Frontend/E2E）
+  - ビルド（Backend/Frontend）
+  - Backend単体テスト、Frontend単体テスト
+  - Backend統合テスト（Docker環境必須）
+  - E2Eテスト実行（Docker環境必須、タイムアウト: 10分）
+  - **同期実行**: すべてのテストを完了してからプッシュ実行
+  - **タイムアウト保護**: E2Eテストに10分のタイムアウト設定
   - 失敗時はプッシュを中断
 
 **有効化方法:**
@@ -588,17 +593,25 @@ refactor: improve type safety by eliminating any types
 
 プッシュ前に以下を実行：
 
-1. Backend、Frontend、E2EのTypeScript型チェック
-2. Backend単体テスト（11テスト）
-3. Frontend単体テスト（13テスト）
-4. E2Eテストの実行
+1. **Formatチェック（Backend/Frontend/E2E）**: Prettierによるコードフォーマット検証
+2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
+3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
+4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認
+5. **Backend単体テスト**: `npm --prefix backend run test:unit`（11テスト）
+6. **Frontend単体テスト**: `npm --prefix frontend run test`（13テスト）
+7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`（Docker環境必須）
+8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分、Docker環境必須）
+   - **同期実行**: テスト完了を待ってからプッシュ実行
+   - **タイムアウト保護**: 10分でハングアップを防止
+   - **詳細なエラーハンドリング**: タイムアウトとテスト失敗を区別
 
-型エラーまたはテスト失敗がある場合、プッシュは中断されます。
+型エラー、テスト失敗、またはタイムアウトがある場合、プッシュは中断されます。
 
 **テスト実行順序の理由:**
-- 単体テスト（高速）→ E2Eテスト（低速）の順で実行
-- 早期フィードバック: 問題を早期発見
-- Defense in Depth戦略: 複数レイヤーでの品質保証
+- Format/Lint/型チェック（超高速）→ ビルド（高速）→ 単体テスト（高速）→ 統合テスト（中速）→ E2Eテスト（低速）の順で実行
+- **Fail-fast戦略**: 早期ステージでの失敗で即座に中断
+- **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
+- **Defense in Depth戦略**: 複数レイヤーでの品質保証
 
 ### .gitignore
 
