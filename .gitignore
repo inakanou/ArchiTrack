@@ -15,6 +15,10 @@ test-results/
 dist/
 build/
 
+# Storybook
+storybook-static/
+.storybook-cache/
+
 # TypeScript
 *.tsbuildinfo
 .tsbuildinfo
