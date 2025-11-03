@@ -27,8 +27,12 @@ test.describe('Homepage', () => {
     await page.waitForLoadState('networkidle');
 
     // 基本的なDOM要素の存在確認
+    // #root要素が存在し、子要素を持つことを確認（ReactがマウントされたことをLet's確認）
     const root = page.locator('#root');
-    await expect(root).toBeVisible();
+    await expect(root).toBeAttached();
+
+    // Reactコンテンツがレンダリングされるまで待機
+    await expect(root.locator('*').first()).toBeVisible({ timeout: 10000 });
 
     // スクリーンショット撮影（タイムスタンプ付きフォルダに保存）
     await takeScreenshot(page, testInfo, 'page-elements', { fullPage: true });
