@@ -373,6 +373,8 @@ jobs:
         working-directory: ./backend
         run: npm run prisma:generate
 
+      # ユニットテストを同期実行（早期品質保証）
+      # テスト失敗時は即座に後続ステージをブロック
       - name: Run unit tests with coverage
         working-directory: ./backend
         run: npm run test:unit:coverage
@@ -408,6 +410,8 @@ jobs:
         working-directory: ./frontend
         run: npm ci
 
+      # ユニットテストを同期実行（早期品質保証）
+      # テスト失敗時は即座に後続ステージをブロック
       - name: Run tests with coverage
         working-directory: ./frontend
         run: npm run test:coverage
@@ -479,6 +483,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/architrack_test
 
+      # インテグレーションテストを同期実行（統合品質保証）
+      # テスト失敗時は即座に後続ステージ（E2E）をブロック
       - name: Run integration tests with coverage
         working-directory: ./backend
         run: npm run test:integration:coverage
@@ -588,7 +594,10 @@ jobs:
           echo "Verifying frontend is accessible..."
           curl -I http://localhost:5173
 
-      - name: Run Playwright tests
+      # E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
+      # GitHub Actionsのrunコマンドはデフォルトで同期実行
+      # timeout-minutes設定（30分）により、ハングアップを防止
+      - name: Run Playwright tests (Synchronous)
         run: npm run test:e2e
         env:
           CI: true

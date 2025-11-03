@@ -167,8 +167,16 @@ if ! docker ps | grep -q architrack-backend; then
   exit 1
 fi
 
-npm run test:e2e
-if [ $? -ne 0 ]; then
+# E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
+# タイムアウト設定: 10分（600秒）でハングアップを防止
+echo "   Note: E2E tests will run synchronously to ensure quality before push."
+timeout 600 npm run test:e2e
+E2E_EXIT_CODE=$?
+
+if [ $E2E_EXIT_CODE -eq 124 ]; then
+  echo "❌ E2E tests timed out after 10 minutes. Push aborted."
+  exit 1
+elif [ $E2E_EXIT_CODE -ne 0 ]; then
   echo "❌ E2E tests failed. Push aborted."
   exit 1
 fi
