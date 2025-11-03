@@ -2,6 +2,10 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import swaggerUi from 'swagger-ui-express';
+import { readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import getPrismaClient from './db.js';
 import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
@@ -10,6 +14,8 @@ import { validateEnv } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import adminRoutes from './routes/admin.routes.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
@@ -62,6 +68,66 @@ app.use(
 
 app.use(express.json());
 
+// Swagger UI setup (development環境のみ有効)
+if (env.NODE_ENV !== 'production') {
+  try {
+    const swaggerSpec = JSON.parse(readFileSync(join(__dirname, '../docs/api-spec.json'), 'utf-8'));
+    app.use(
+      '/docs',
+      swaggerUi.serve,
+      swaggerUi.setup(swaggerSpec, {
+        customCss: '.swagger-ui .topbar { display: none }',
+        customSiteTitle: 'ArchiTrack API Documentation',
+        swaggerOptions: {
+          persistAuthorization: true,
+          displayOperationId: false,
+        },
+      })
+    );
+
+    // Swagger JSON spec endpoint
+    app.get('/docs/json', (_req: Request, res: Response) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.send(swaggerSpec);
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.warn('Swagger spec not available:', err.message);
+  }
+}
+
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Health check
+ *     description: Check the health status of the API and its dependencies (Database, Redis)
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Server is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                 services:
+ *                   type: object
+ *                   properties:
+ *                     database:
+ *                       type: string
+ *                       enum: [connected, disconnected]
+ *                     redis:
+ *                       type: string
+ *                       enum: [connected, disconnected]
+ */
 // Health check endpoint with timeout
 app.get('/health', healthCheckLimiter, async (req: Request, res: Response) => {
   const services: Record<string, string> = {};
@@ -109,6 +175,29 @@ app.get('/favicon.ico', (_req: Request, res: Response) => {
   res.status(204).end(); // No Content
 });
 
+/**
+ * @swagger
+ * /api:
+ *   get:
+ *     summary: API Information
+ *     description: Returns API version and basic information
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: API information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: ArchiTrack API
+ *                 version:
+ *                   type: string
+ *                   example: 1.0.0
+ */
 // API routes
 // 全APIエンドポイントにレート制限を適用
 app.use('/api', apiLimiter);
