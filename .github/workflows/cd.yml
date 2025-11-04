@@ -89,13 +89,14 @@ jobs:
         id: deploy-backend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           echo "========================================="
           echo "Deploying Backend to Railway"
           echo "========================================="
 
           # Backendサービスをデプロイ
-          railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --project ${{ secrets.RAILWAY_PROJECT_ID }} --detach
+          railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --detach
 
           echo "Backend deployment initiated"
           echo "url=${{ secrets.PRODUCTION_BACKEND_URL }}" >> $GITHUB_OUTPUT
@@ -104,13 +105,14 @@ jobs:
         id: deploy-frontend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           echo "========================================="
           echo "Deploying Frontend to Railway"
           echo "========================================="
 
           # Frontendサービスをデプロイ
-          railway up --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }} --project ${{ secrets.RAILWAY_PROJECT_ID }} --detach
+          railway up --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }} --detach
 
           echo "Frontend deployment initiated"
 
