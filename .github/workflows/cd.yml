@@ -59,7 +59,7 @@ jobs:
     # GitHub環境設定（デプロイ履歴・承認フロー用）
     environment:
       name: ${{ github.event.inputs.environment || 'production' }}
-      url: ${{ steps.deploy.outputs.url }}
+      url: ${{ steps.deploy-backend.outputs.url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -81,54 +81,44 @@ jobs:
           echo "DEPLOY_START_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_ENV
           echo "DEPLOY_COMMIT=${{ github.sha }}" >> $GITHUB_ENV
 
-      # Railway CLIを使用したデプロイ（オプション）
-      # Railway CLIを使用する場合は以下のコメントを解除
-      # - name: Setup Railway CLI
-      #   run: |
-      #     npm i -g @railway/cli
-      #
-      # - name: Deploy to Railway
-      #   id: deploy
-      #   env:
-      #     RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      #   run: |
-      #     # プロジェクトID・環境変数を設定
-      #     # RAILWAY_PROJECT_ID: Railway プロジェクトID
-      #     # RAILWAY_ENVIRONMENT: production または staging
-      #
-      #     # デプロイ実行
-      #     railway up --detach
-      #
-      #     # デプロイURL取得
-      #     DEPLOY_URL=$(railway status --json | jq -r '.deployments[0].url')
-      #     echo "url=https://${DEPLOY_URL}" >> $GITHUB_OUTPUT
+      # Railway CLIを使用したデプロイ
+      - name: Setup Railway CLI
+        run: npm i -g @railway/cli
 
-      # Railway自動デプロイ（デフォルト）
-      - name: Deploy to Railway
-        id: deploy
+      - name: Deploy Backend to Railway
+        id: deploy-backend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           echo "========================================="
-          echo "Railway Auto-Deploy"
-          echo "========================================="
-          echo "Deployment will be triggered automatically by Railway"
-          echo "Make sure Railway is connected to this repository"
-          echo ""
-          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
-          echo "Branch: ${{ github.ref_name }}"
+          echo "Deploying Backend to Railway"
           echo "========================================="
 
-          # 本番環境URLを設定（実際のURLに置き換えてください）
-          if [[ "${{ github.event.inputs.environment || 'production' }}" == "production" ]]; then
-            echo "url=https://architrack-production.railway.app" >> $GITHUB_OUTPUT
-          else
-            echo "url=https://architrack-staging.railway.app" >> $GITHUB_OUTPUT
-          fi
+          # Backendサービスをデプロイ
+          railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --detach
+
+          echo "Backend deployment initiated"
+          echo "url=${{ secrets.PRODUCTION_BACKEND_URL }}" >> $GITHUB_OUTPUT
+
+      - name: Deploy Frontend to Railway
+        id: deploy-frontend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "========================================="
+          echo "Deploying Frontend to Railway"
+          echo "========================================="
+
+          # Frontendサービスをデプロイ
+          railway up --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }} --detach
+
+          echo "Frontend deployment initiated"
 
       # デプロイ後の待機（Railwayがデプロイを完了するまで）
       - name: Wait for deployment
         run: |
           echo "Waiting for Railway deployment to complete..."
-          sleep 30
+          sleep 90
 
       # ヘルスチェック実行
       - name: Health check
@@ -138,11 +128,11 @@ jobs:
           echo "Running Health Checks"
           echo "========================================="
 
-          APP_URL="${{ steps.deploy.outputs.url }}"
+          BACKEND_URL="${{ secrets.PRODUCTION_BACKEND_URL }}"
           MAX_RETRIES=10
           RETRY_INTERVAL=10
 
-          echo "Target URL: ${APP_URL}"
+          echo "Target Backend URL: ${BACKEND_URL}"
           echo ""
 
           # バックエンドヘルスチェック
@@ -150,7 +140,7 @@ jobs:
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
 
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${APP_URL}/api/health" || echo "000")
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
 
             if [[ "$HTTP_CODE" == "200" ]]; then
               echo "Backend health check passed (HTTP $HTTP_CODE)"
@@ -165,25 +155,6 @@ jobs:
           done
 
           echo ""
-
-          # API基本疎通確認
-          echo "2. API Basic Connectivity Check"
-
-          # プロジェクト一覧API（認証不要エンドポイントの例）
-          # 実際のエンドポイントに応じて調整してください
-          API_RESPONSE=$(curl -s -w "\n%{http_code}" "${APP_URL}/api/projects" || echo -e "\n000")
-          API_HTTP_CODE=$(echo "$API_RESPONSE" | tail -n1)
-          API_BODY=$(echo "$API_RESPONSE" | head -n-1)
-
-          if [[ "$API_HTTP_CODE" =~ ^(200|401|403)$ ]]; then
-            echo "API endpoint accessible (HTTP $API_HTTP_CODE)"
-            echo "Response preview: ${API_BODY:0:200}"
-          else
-            echo "Warning: API endpoint returned unexpected status (HTTP $API_HTTP_CODE)"
-            echo "Response: $API_BODY"
-          fi
-
-          echo ""
           echo "========================================="
           echo "Health Checks Completed Successfully"
           echo "========================================="
@@ -196,7 +167,8 @@ jobs:
           echo "Deployment Completed Successfully"
           echo "========================================="
           echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
-          echo "URL: ${{ steps.deploy.outputs.url }}"
+          echo "Backend URL: ${{ secrets.PRODUCTION_BACKEND_URL }}"
+          echo "Frontend URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}"
           echo "Commit: ${{ env.DEPLOY_COMMIT }}"
           echo "Duration: from ${{ env.DEPLOY_START_TIME }}"
           echo "========================================="

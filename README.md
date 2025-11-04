@@ -233,8 +233,67 @@ GET /api
 
 ## Railwayへのデプロイ
 
-### 1. Railway CLIのインストールとログイン
+このプロジェクトは**GitHub Actionsによる自動デプロイ**を使用しています。
+mainブランチへのpush/マージで自動的にRailwayにデプロイされます。
 
+### デプロイ方式
+
+- **自動デプロイ**: GitHub Actions（CD workflow）がRailway CLIを使用してデプロイ
+- **手動デプロイ**: GitHub Actionsから手動実行可能
+
+### 初回セットアップ
+
+#### 1. Railwayプロジェクトの作成
+
+1. https://railway.app にログイン
+2. 新しいプロジェクトを作成
+3. 以下のサービスを追加：
+   - **PostgreSQL** - Railwayテンプレートから作成
+   - **Redis** - Railwayテンプレートから作成
+   - **Backend** - Empty Serviceとして作成
+   - **Frontend** - Empty Serviceとして作成
+
+#### 2. Railway設定
+
+各サービス（Backend/Frontend）の設定：
+
+**Backend Service:**
+- Root Directory: `/backend`
+- Build Command: Dockerfileから自動検出
+- 環境変数:
+  ```
+  DATABASE_URL=${{Postgres.DATABASE_URL}}
+  REDIS_URL=${{Redis.REDIS_URL}}
+  NODE_ENV=production
+  FRONTEND_URL=https://your-frontend.railway.app
+  PORT=3000
+  ```
+
+**Frontend Service:**
+- Root Directory: `/frontend`
+- Build Command: Dockerfileから自動検出
+- 環境変数:
+  ```
+  VITE_API_URL=https://your-backend.railway.app
+  ```
+
+**重要:** Railway UIで「Watch Paths」を空にするか、各サービスの自動デプロイを無効化してください
+（GitHub Actionsから制御するため、railway.tomlに`watchPatterns = []`が設定されています）
+
+#### 3. GitHub Secretsの設定
+
+リポジトリの Settings > Secrets and variables > Actions に以下を追加：
+
+| Secret名 | 説明 | 取得方法 |
+|---------|------|---------|
+| `RAILWAY_TOKEN` | Railway APIトークン | Railway Dashboard > Account Settings > Tokens |
+| `RAILWAY_PROJECT_ID` | プロジェクトID | `railway status --json \| jq -r '.project.id'` |
+| `RAILWAY_BACKEND_SERVICE_ID` | BackendサービスID | `railway status --json \| jq -r '.services[] \| select(.name=="backend") \| .id'` |
+| `RAILWAY_FRONTEND_SERVICE_ID` | FrontendサービスID | `railway status --json \| jq -r '.services[] \| select(.name=="frontend") \| .id'` |
+| `PRODUCTION_BACKEND_URL` | BackendのURL | Railway Dashboard で確認 |
+| `PRODUCTION_FRONTEND_URL` | FrontendのURL | Railway Dashboard で確認 |
+
+**Railway CLIでID取得:**
 ```bash
 # Railway CLIをインストール
 npm i -g @railway/cli
@@ -242,44 +301,47 @@ npm i -g @railway/cli
 # ログイン
 railway login
 
-# プロジェクトを初期化
-railway init
+# プロジェクトにリンク
+cd /path/to/ArchiTrack
+railway link
+
+# プロジェクトIDとサービスID取得
+railway status --json
 ```
 
-### 2. サービス作成
-
-Railwayダッシュボードで以下のサービスを作成：
-
-- **PostgreSQL** - Railwayテンプレートから作成
-- **Redis** - Railwayテンプレートから作成
-- **Backend** - GitHubリポジトリから作成: `/backend`
-- **Frontend** - GitHubリポジトリから作成: `/frontend`
-
-### 3. 環境変数ファイルを設定
-
-#### Backend Service
-```
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-REDIS_URL=${{Redis.REDIS_URL}}
-NODE_ENV=production
-FRONTEND_URL=https://your-frontend.railway.app
-PORT=3000
-```
-
-#### Frontend Service
-```
-VITE_API_URL=https://your-backend.railway.app
-```
-
-### 4. デプロイ
-
-GitHubへのプッシュでダッシュボードが自動デプロイされます：
+### デプロイフロー
 
 ```bash
+# 1. 開発ブランチで作業
+git checkout -b feature/new-feature
+
+# 2. 変更をコミット
 git add .
-git commit -m "Deploy to Railway"
-git push origin main
+git commit -m "feat: 新機能を追加"
+
+# 3. PRを作成
+git push origin feature/new-feature
+gh pr create
+
+# 4. CIが自動実行（テスト・ビルド確認）
+
+# 5. PRをマージ
+gh pr merge --squash
+
+# 6. CDが自動実行（Railwayへデプロイ）
+# - Railway CLIでBackend/Frontendを順次デプロイ
+# - ヘルスチェック実行
+# - 結果通知
 ```
+
+### 手動デプロイ（緊急時）
+
+GitHub Actionsから手動実行：
+
+1. GitHub リポジトリの Actions タブを開く
+2. "CD" workflowを選択
+3. "Run workflow" をクリック
+4. 環境を選択（production/staging）して実行
 
 ## 開発ワークフロー
 
