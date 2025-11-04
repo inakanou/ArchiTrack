@@ -30,22 +30,11 @@ jobs:
   check-ci:
     name: Verify CI Success
     runs-on: ubuntu-latest
-    # workflow_runトリガーの場合のみ実行
-    if: github.event_name == 'workflow_run'
-    outputs:
-      ci-success: ${{ steps.check.outputs.success }}
+    # workflow_runトリガーかつCI成功時のみ実行（失敗/キャンセル時はスキップ）
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Check CI workflow result
-        id: check
-        run: |
-          if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
-            echo "success=true" >> $GITHUB_OUTPUT
-            echo "CI workflow succeeded"
-          else
-            echo "success=false" >> $GITHUB_OUTPUT
-            echo "CI workflow failed or was cancelled"
-            exit 1
-          fi
+      - name: CI workflow succeeded
+        run: echo "CI workflow succeeded - proceeding with deployment"
 
   deploy:
     name: Deploy to ${{ github.event.inputs.environment || 'Production' }}
@@ -53,8 +42,8 @@ jobs:
     # CI成功時、またはworkflow_dispatchの場合に実行
     needs: [check-ci]
     if: |
-      always() &&
-      (needs.check-ci.outputs.ci-success == 'true' || github.event_name == 'workflow_dispatch')
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'workflow_run' && needs.check-ci.result == 'success')
 
     # GitHub環境設定（デプロイ履歴・承認フロー用）
     environment:
