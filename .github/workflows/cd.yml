@@ -59,7 +59,6 @@ jobs:
     # GitHub環境設定（デプロイ履歴・承認フロー用）
     environment:
       name: ${{ github.event.inputs.environment || 'production' }}
-      url: ${{ steps.deploy-backend.outputs.url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -99,7 +98,6 @@ jobs:
           railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --detach
 
           echo "Backend deployment initiated"
-          echo "url=${{ secrets.PRODUCTION_BACKEND_URL }}" >> $GITHUB_OUTPUT
 
       - name: Deploy Frontend to Railway
         id: deploy-frontend
