@@ -95,7 +95,7 @@ jobs:
           echo "========================================="
 
           # Backendサービスをデプロイ
-          railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --detach
+          railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --project ${{ secrets.RAILWAY_PROJECT_ID }} --detach
 
           echo "Backend deployment initiated"
           echo "url=${{ secrets.PRODUCTION_BACKEND_URL }}" >> $GITHUB_OUTPUT
@@ -110,7 +110,7 @@ jobs:
           echo "========================================="
 
           # Frontendサービスをデプロイ
-          railway up --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }} --detach
+          railway up --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }} --project ${{ secrets.RAILWAY_PROJECT_ID }} --detach
 
           echo "Frontend deployment initiated"
 
