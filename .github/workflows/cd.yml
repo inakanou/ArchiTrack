@@ -50,7 +50,7 @@ jobs:
       name: ${{ github.event.inputs.environment || 'production' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # デプロイ前の通知とバックアップ記録
       - name: Pre-deployment notification
