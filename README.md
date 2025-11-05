@@ -246,6 +246,8 @@ ArchiTrack/
 - **Claude Code** - AI支援開発環境（推奨）
 - **jq** - JSONパーサー（Claude Codeのカスタムフック実行に必要）
 - **Chromium（システム依存関係）** - E2Eテスト（Playwright）の実行に必要
+- **GitHub CLI** - PR/Issue管理、CI/CD操作に必要（推奨）
+- **Railway CLI** - 本番環境のデプロイ・管理に必要（推奨）
 
 #### Claude Code関連ツール
 
@@ -294,6 +296,84 @@ sudo npx playwright install-deps chromium
 **注意事項:**
 - システム依存関係のインストールは、環境ごとに初回のみ実行すれば以降は不要です
 - E2Eテストを実行しない場合は、このステップをスキップできます
+
+#### GitHub CLI環境構築
+
+GitHub CLIを使用することで、PR/Issue管理、CI/CD操作が効率的に行えます。
+
+**インストール方法:**
+
+```bash
+# Ubuntu/Debian
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+sudo apt update
+sudo apt install gh
+
+# macOS (Homebrew)
+brew install gh
+
+# Windows (winget)
+winget install --id GitHub.cli
+```
+
+**認証設定:**
+
+```bash
+# GitHub認証（ブラウザ経由）
+gh auth login
+
+# 必要なスコープ:
+# - repo (リポジトリへのフルアクセス)
+# - read:org (組織情報の読み取り)
+# - workflow (GitHub Actionsワークフローの管理)
+```
+
+**確認コマンド:**
+
+```bash
+# バージョン確認
+gh --version
+
+# 認証状態確認
+gh auth status
+```
+
+#### Railway CLI環境構築
+
+Railway CLIを使用することで、本番環境のデプロイ・管理が可能になります。
+
+**インストール方法:**
+
+```bash
+# npm経由（推奨）
+npm install -g @railway/cli
+
+# またはcurlスクリプト経由（Linux/macOS）
+sh -c "$(curl -fsSL https://railway.app/install.sh)"
+```
+
+**認証設定:**
+
+```bash
+# Railway認証（ブラウザ経由）
+railway login
+
+# プロジェクトリンク（プロジェクトルートで実行）
+cd ArchiTrack
+railway link
+```
+
+**確認コマンド:**
+
+```bash
+# バージョン確認
+railway --version
+
+# 認証状態確認
+railway whoami
+```
 
 ### 開発環境の特徴
 
