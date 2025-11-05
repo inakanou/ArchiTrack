@@ -7,10 +7,17 @@ import logger from '../utils/logger.js';
  *
  * Railwayやその他のプロキシ環境では、x-forwarded-protoヘッダーで
  * 元のプロトコルを判定
+ *
+ * ヘルスチェックエンドポイントは内部通信用のため除外
  */
 export function httpsRedirect(req: Request, res: Response, next: NextFunction): void {
   // 本番環境のみ適用
   if (process.env.NODE_ENV !== 'production') {
+    return next();
+  }
+
+  // ヘルスチェックエンドポイントは除外（内部通信用）
+  if (req.path === '/health') {
     return next();
   }
 

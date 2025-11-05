@@ -19,6 +19,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
+// Trust proxy - Railway等のプロキシ環境で必須
+// X-Forwarded-* ヘッダーを信頼する
+app.set('trust proxy', true);
+
 // Middleware
 // HTTPS強制（本番環境のみ）
 app.use(httpsRedirect);
