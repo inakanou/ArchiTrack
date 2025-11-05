@@ -1,6 +1,74 @@
+<div align="center">
+
 # ArchiTrack
 
-アーキテクチャ決定記録（ADR）管理システム
+**アーキテクチャ決定記録（ADR）管理システム**
+
+[![CI](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml)
+[![CD](https://github.com/your-org/ArchiTrack/actions/workflows/cd.yml/badge.svg)](https://github.com/your-org/ArchiTrack/actions/workflows/cd.yml)
+[![codecov](https://codecov.io/gh/your-org/ArchiTrack/branch/main/graph/badge.svg)](https://codecov.io/gh/your-org/ArchiTrack)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+[English](README.md) | [日本語](README.ja.md)
+
+</div>
+
+---
+
+## 📋 目次
+
+- [概要](#概要)
+- [主な機能](#主な機能)
+- [技術スタック](#技術スタック)
+- [プロジェクト構成](#プロジェクト構成)
+- [アーキテクチャ](#アーキテクチャ)
+- [セットアップ](#ローカル開発環境のセットアップ)
+- [開発ワークフロー](#開発ワークフロー)
+- [テスト](#e2eテストplaywright)
+- [デプロイ](#railwayへのデプロイ)
+- [コントリビューション](#コントリビューション)
+- [ライセンス](#ライセンス)
+
+---
+
+## 概要
+
+ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。
+
+### 主な特徴
+
+- 🤖 **AI支援開発**: Claude Codeによる体系的な開発ワークフロー
+- 📝 **スペック駆動**: 要件定義 → 設計 → タスク分解 → 実装の明確なフェーズ管理
+- ⚡ **高速**: Vite + React 18によるモダンなフロントエンド
+- 🔒 **セキュア**: Helmet、CORS、Rate Limitingによる多層防御
+- 🐳 **コンテナ化**: Dockerによる一貫した開発・本番環境
+- 🧪 **高品質**: 80%以上のテストカバレッジ要件
+- 🚀 **自動デプロイ**: GitHub ActionsによるCI/CDパイプライン
+
+---
+
+## 主な機能
+
+### 現在実装済み
+
+- ✅ ヘルスチェックAPI
+- ✅ Swagger/OpenAPI仕様書自動生成
+- ✅ PostgreSQLデータベース統合
+- ✅ Redisキャッシング準備
+- ✅ Sentry統合（エラー監視）
+- ✅ E2Eテスト環境（Playwright）
+
+### 開発予定
+
+- 🚧 ADR作成・編集・削除
+- 🚧 ADRバージョン管理
+- 🚧 ユーザー認証・認可
+- 🚧 チーム管理機能
+- 🚧 ADR検索・フィルタリング
+- 🚧 Markdown エディタ
+- 🚧 ADRテンプレート管理
+
+---
 
 ## 開発アプローチ
 
@@ -28,20 +96,141 @@
 
 ```
 ArchiTrack/
-├── frontend/           # React/Viteフロントエンド
+├── frontend/              # React/Viteフロントエンド
 │   ├── src/
-│   ├── Dockerfile      # 本番用(nginx)
-│   ├── Dockerfile.dev  # 開発用
-│   └── railway.toml    # Railway設定
-├── backend/            # Node.js/Expressバックエンド
+│   │   ├── components/   # Reactコンポーネント
+│   │   ├── api/          # APIクライアント
+│   │   ├── utils/        # ユーティリティ関数
+│   │   └── __tests__/    # テスト（Unit/Integration）
+│   ├── Dockerfile        # 本番用（nginx）
+│   ├── Dockerfile.dev    # 開発用
+│   └── railway.toml      # Railway設定
+├── backend/              # Node.js/Expressバックエンド
 │   ├── src/
-│   ├── Dockerfile.dev  # 開発用
-│   └── railway.toml    # Railway設定
-├── e2e/                # E2Eテスト（Playwright）
-│   ├── specs/          # テストファイル（api, ui, integration）
-│   └── helpers/        # ヘルパー関数
-├── docker-compose.yml  # ローカル開発環境
+│   │   ├── routes/      # APIルート
+│   │   ├── middleware/  # ミドルウェア
+│   │   ├── config/      # 設定
+│   │   ├── errors/      # エラーハンドリング
+│   │   ├── utils/       # ユーティリティ
+│   │   └── __tests__/   # テスト（Unit/Integration）
+│   ├── prisma/
+│   │   ├── schema.prisma    # データベーススキーマ
+│   │   └── migrations/      # マイグレーションファイル
+│   ├── Dockerfile.dev   # 開発用
+│   └── railway.toml     # Railway設定
+├── e2e/                 # E2Eテスト（Playwright）
+│   ├── specs/
+│   │   ├── api/         # APIテスト
+│   │   ├── ui/          # UIテスト
+│   │   └── integration/ # 統合テスト
+│   └── helpers/         # ヘルパー関数
+├── .kiro/               # Kiro-style SDD
+│   ├── steering/        # ステアリングドキュメント
+│   └── specs/           # 仕様管理
+├── .claude/             # Claude Code設定
+│   └── commands/        # カスタムコマンド
+├── .github/
+│   └── workflows/       # CI/CD（GitHub Actions）
+├── .husky/              # Git hooks
+├── docker-compose.yml   # ローカル開発環境
 └── playwright.config.js # Playwright設定
+```
+
+---
+
+## アーキテクチャ
+
+### システム構成図
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         クライアント                              │
+│                      (ブラウザ/モバイル)                          │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ HTTPS
+                             │
+┌────────────────────────────┴────────────────────────────────────┐
+│                      Railway (Production)                        │
+│  ┌──────────────────┐              ┌─────────────────────┐     │
+│  │   Frontend       │              │   Backend API       │     │
+│  │   (Nginx/React)  │──────────────│   (Node.js/Express) │     │
+│  │   Port: 443      │   API calls  │   Port: 3000        │     │
+│  └──────────────────┘              └──────────┬──────────┘     │
+│                                                │                 │
+│                                    ┌───────────┴─────────┐      │
+│                                    │                     │      │
+│                          ┌─────────▼──────┐   ┌─────────▼─────┐│
+│                          │  PostgreSQL 15 │   │   Redis 7     ││
+│                          │  (Database)    │   │   (Cache)     ││
+│                          └────────────────┘   └───────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+
+                        ローカル開発環境 (Docker Compose)
+┌─────────────────────────────────────────────────────────────────┐
+│  ┌──────────────────┐              ┌─────────────────────┐     │
+│  │   Frontend       │              │   Backend API       │     │
+│  │   (Vite HMR)     │──────────────│   (tsx watch)       │     │
+│  │   Port: 5173     │              │   Port: 3000        │     │
+│  └──────────────────┘              └──────────┬──────────┘     │
+│                                                │                 │
+│                                    ┌───────────┴─────────┐      │
+│                                    │                     │      │
+│                          ┌─────────▼──────┐   ┌─────────▼─────┐│
+│                          │  PostgreSQL 15 │   │   Redis 7     ││
+│                          │  (Docker)      │   │   (Docker)    ││
+│                          └────────────────┘   └───────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### データフロー
+
+```
+1. クライアントリクエスト
+   ↓
+2. Nginx/Viteでルーティング
+   ↓
+3. バックエンドAPI (Express)
+   ↓
+4. ミドルウェアチェーン
+   - CORS検証
+   - Rate Limiting (Redis)
+   - 認証/認可 (JWT - 実装予定)
+   - リクエスト検証 (Zod)
+   ↓
+5. ビジネスロジック
+   ↓
+6. データベースアクセス (Prisma)
+   - PostgreSQL (永続化)
+   - Redis (キャッシング)
+   ↓
+7. レスポンス生成
+   ↓
+8. クライアントに返却
+```
+
+### セキュリティ層
+
+```
+┌─────────────────────────────────────────────┐
+│ Application Layer                           │
+│ - Helmet (セキュリティヘッダー)              │
+│ - CORS (オリジン制限)                        │
+│ - Rate Limiting (DDoS対策)                  │
+│ - Input Validation (Zod)                    │
+└─────────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────────┐
+│ Transport Layer                             │
+│ - HTTPS強制 (本番環境)                      │
+│ - HSTS ヘッダー                             │
+└─────────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────────┐
+│ Infrastructure Layer                        │
+│ - Railway (プラットフォームセキュリティ)     │
+│ - PostgreSQL (接続暗号化)                   │
+│ - Redis (接続暗号化)                        │
+└─────────────────────────────────────────────┘
 ```
 
 ## ローカル開発環境のセットアップ
@@ -780,6 +969,132 @@ sudo npx playwright install-deps chromium
 npx playwright install chromium
 ```
 
+## テスト戦略
+
+ArchiTrackでは、3層のテストアプローチを採用しています：
+
+### テストピラミッド
+
+```
+        ┌─────────────────┐
+        │   E2E Tests     │  少数・高価値
+        │   (Playwright)  │  システム全体の動作確認
+        └─────────────────┘
+              ↑
+     ┌────────────────────┐
+     │ Integration Tests  │  中量・ビジネスロジック
+     │ (Vitest)           │  API・DB統合テスト
+     └────────────────────┘
+              ↑
+   ┌──────────────────────────┐
+   │     Unit Tests           │  多数・高速
+   │     (Vitest)             │  関数・コンポーネント単位
+   └──────────────────────────┘
+```
+
+### 1. ユニットテスト（Unit Tests）
+
+**目的**: 個別の関数・コンポーネント・モジュールの動作を検証
+
+**ツール**: Vitest + React Testing Library
+
+**カバレッジ目標**: 80%以上（statements/branches/functions/lines）
+
+**実行方法**:
+```bash
+# Backend
+npm --prefix backend run test:unit
+npm --prefix backend run test:unit:coverage
+
+# Frontend
+npm --prefix frontend run test
+npm --prefix frontend run test:coverage
+```
+
+**テストファイル配置**:
+- Backend: `backend/src/**/*.test.ts`
+- Frontend: `frontend/src/**/*.test.tsx`
+
+**例**:
+```typescript
+// backend/src/utils/validation.test.ts
+describe('validateEmail', () => {
+  it('有効なメールアドレスを検証', () => {
+    expect(validateEmail('test@example.com')).toBe(true);
+  });
+
+  it('無効なメールアドレスを拒否', () => {
+    expect(validateEmail('invalid')).toBe(false);
+  });
+});
+```
+
+### 2. 統合テスト（Integration Tests）
+
+**目的**: 複数のモジュール・システムの統合動作を検証
+
+**ツール**: Vitest + Supertest (Backend) / React Testing Library (Frontend)
+
+**実行方法**:
+```bash
+# Backend統合テスト（Docker環境で実行）
+docker exec architrack-backend npm run test:integration
+```
+
+**テストファイル配置**:
+- Backend: `backend/src/__tests__/integration/**/*.test.ts`
+- Frontend: `frontend/src/__tests__/integration/**/*.test.tsx`
+
+**例**:
+```typescript
+// backend/src/__tests__/integration/api.test.ts
+describe('POST /api/adr', () => {
+  it('新しいADRを作成できる', async () => {
+    const response = await request(app)
+      .post('/api/adr')
+      .send({ title: 'Test ADR', content: 'Content' })
+      .expect(201);
+
+    expect(response.body).toHaveProperty('id');
+  });
+});
+```
+
+### 3. E2Eテスト（End-to-End Tests）
+
+**目的**: ユーザー視点でシステム全体の動作を検証
+
+**ツール**: Playwright (Chromium)
+
+**実行方法**: 後述の「E2Eテスト（Playwright）」セクション参照
+
+### カバレッジレポート
+
+テストカバレッジは以下の方法で確認できます：
+
+```bash
+# すべてのカバレッジを取得
+npm run test:coverage
+
+# カバレッジレポート（HTML）
+# backend/coverage/index.html
+# frontend/coverage/index.html
+```
+
+### CI/CDでのテスト実行
+
+GitHub Actionsで自動的に以下が実行されます：
+
+1. **Lint & Format Check**: コード品質チェック
+2. **Type Check**: TypeScript型チェック
+3. **Unit Tests**: ユニットテスト + カバレッジ検証
+4. **Build Test**: ビルド成功確認
+5. **Integration & E2E Tests**: Docker環境で統合・E2Eテスト
+
+詳細は `.github/workflows/ci.yml` を参照してください。
+
+---
+
 ## E2Eテスト（Playwright）
 
 ### テスト環境のセットアップ
@@ -914,6 +1229,270 @@ GitHub Actionsで自動的にE2Eテストが実行されます：
 - mainブランチへのpushで実行
 - テスト失敗時はスクリーンショットがアップロードされます
 
+---
+
+## コントリビューション
+
+ArchiTrackへのコントリビューションを歓迎します！以下のガイドラインに従ってください。
+
+### コントリビューションの流れ
+
+1. **Issueの作成または確認**
+   - 新機能・バグ修正の前に、既存のIssueを確認
+   - 存在しない場合は新しいIssueを作成
+   - Issueで実装方針を議論
+
+2. **リポジトリのFork**
+   ```bash
+   # GitHubでForkボタンをクリック
+   git clone https://github.com/your-username/ArchiTrack.git
+   cd ArchiTrack
+   ```
+
+3. **開発環境のセットアップ**
+   ```bash
+   # Git hooksを有効化
+   git config core.hooksPath .husky
+
+   # Docker Composeで起動
+   docker-compose up -d
+   ```
+
+4. **フィーチャーブランチの作成**
+   ```bash
+   git checkout -b feature/your-feature-name
+   # または
+   git checkout -b fix/issue-number-description
+   ```
+
+5. **仕様駆動開発（中規模以上の機能）**
+   ```bash
+   # Claude Codeを使用している場合
+   /kiro:spec-init [詳細な機能説明]
+   /kiro:spec-requirements [feature-name]
+   /kiro:spec-design [feature-name]
+   /kiro:spec-tasks [feature-name]
+   ```
+
+6. **実装**
+   - コーディング規約に従う（下記参照）
+   - テストを追加（カバレッジ80%以上維持）
+   - コミットメッセージ規約に従う（下記参照）
+
+7. **ローカルテスト**
+   ```bash
+   # フォーマット・Lint・型チェック
+   npm --prefix backend run format:check
+   npm --prefix backend run lint
+   npm --prefix backend run type-check
+
+   npm --prefix frontend run format:check
+   npm --prefix frontend run lint
+   npm --prefix frontend run type-check
+
+   # テスト実行
+   npm --prefix backend run test:unit
+   npm --prefix frontend run test
+
+   # ビルド確認
+   npm --prefix backend run build
+   npm --prefix frontend run build
+   ```
+
+8. **コミット＆プッシュ**
+   ```bash
+   git add .
+   git commit -m "feat: 新機能の説明"
+   git push origin feature/your-feature-name
+   ```
+
+9. **Pull Requestの作成**
+   - GitHubでPull Requestを作成
+   - PRテンプレートに従って記入
+   - レビュアーを指定（可能であれば）
+
+10. **レビュー対応**
+    - レビューコメントに対応
+    - 必要に応じて修正をコミット
+    - 承認後にマージ
+
+### コーディング規約
+
+#### TypeScript/JavaScript
+
+- **フォーマット**: Prettierに従う（自動整形）
+- **Lint**: ESLintルールに準拠
+- **命名規則**:
+  - 変数/関数: camelCase (`getUserById`)
+  - クラス/型: PascalCase (`UserModel`)
+  - 定数: UPPER_SNAKE_CASE (`MAX_RETRY_COUNT`)
+  - プライベート変数: `_`プレフィックス (`_internalState`)
+- **型定義**: `any`を避け、厳密な型を使用
+- **エラーハンドリング**: 適切なエラーハンドリングを実装
+
+#### React
+
+- **関数コンポーネント**: クラスコンポーネントは使用しない
+- **Hooks**: React Hooksのルールに従う
+- **Props**: 型定義を必ず行う
+- **ファイル命名**: PascalCase (`UserProfile.tsx`)
+
+#### データベース（Prisma）
+
+- **スキーマ**: 変更後は必ずマイグレーションを生成
+- **命名**: snake_case（テーブル・カラム名）
+- **インデックス**: パフォーマンス考慮した適切なインデックス設定
+
+### コミットメッセージ規約
+
+Conventional Commitsに従います：
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+#### Type（必須）
+
+- `feat`: 新機能
+- `fix`: バグ修正
+- `docs`: ドキュメント変更
+- `style`: コードフォーマット（機能変更なし）
+- `refactor`: リファクタリング
+- `perf`: パフォーマンス改善
+- `test`: テスト追加・修正
+- `chore`: ビルド・ツール設定変更
+- `ci`: CI/CD設定変更
+
+#### Scope（任意）
+
+変更の影響範囲: `backend`, `frontend`, `e2e`, `docker`, `ci`等
+
+#### Subject（必須）
+
+- 50文字以内
+- 命令形（"add" not "added"）
+- 先頭は小文字
+- 末尾にピリオドをつけない
+
+#### 例
+
+```bash
+# 良い例
+feat(backend): JWT認証ミドルウェアを追加
+fix(frontend): ログインボタンが押せない問題を修正
+docs: READMEにセットアップ手順を追加
+test(backend): ユーザーAPI統合テストを追加
+
+# 悪い例
+update code
+Fixed bug
+Add feature.
+```
+
+### Pull Request（PR）ガイドライン
+
+#### PRタイトル
+
+コミットメッセージと同じ規約に従います：
+
+```
+feat(backend): ユーザー認証機能を実装
+```
+
+#### PR本文テンプレート
+
+```markdown
+## 概要
+この変更の目的を簡潔に説明してください。
+
+## 変更内容
+- 変更1
+- 変更2
+- 変更3
+
+## 関連Issue
+Closes #123
+
+## テスト
+- [ ] ユニットテスト追加
+- [ ] 統合テスト追加
+- [ ] E2Eテスト追加（該当する場合）
+- [ ] 手動テスト完了
+
+## チェックリスト
+- [ ] コーディング規約に準拠
+- [ ] テストカバレッジ80%以上維持
+- [ ] ドキュメント更新（該当する場合）
+- [ ] データベースマイグレーション生成（該当する場合）
+- [ ] 破壊的変更がある場合は明記
+
+## スクリーンショット（該当する場合）
+変更前後のスクリーンショットを添付してください。
+```
+
+### レビュー基準
+
+レビュアーは以下の観点でチェックします：
+
+#### コード品質
+
+- [ ] コーディング規約に準拠しているか
+- [ ] 適切な型定義がされているか
+- [ ] エラーハンドリングが適切か
+- [ ] セキュリティ上の問題がないか
+
+#### テスト
+
+- [ ] テストが追加されているか
+- [ ] カバレッジが維持されているか（80%以上）
+- [ ] エッジケースが考慮されているか
+
+#### 設計
+
+- [ ] 既存のアーキテクチャに適合しているか
+- [ ] DRY原則に従っているか
+- [ ] 拡張性が考慮されているか
+
+#### ドキュメント
+
+- [ ] コードコメントが適切か
+- [ ] README等のドキュメントが更新されているか
+- [ ] APIドキュメント（Swagger）が更新されているか
+
+### 行動規範
+
+- **尊重**: すべてのコントリビューターを尊重する
+- **建設的**: フィードバックは建設的に行う
+- **協力的**: チームワークを重視する
+- **包括的**: すべての人が参加しやすい環境を作る
+
+### 質問・サポート
+
+- **Issue**: バグ報告・機能要望は[GitHub Issues](https://github.com/your-org/ArchiTrack/issues)で
+- **Discussion**: 議論は[GitHub Discussions](https://github.com/your-org/ArchiTrack/discussions)で
+- **セキュリティ**: セキュリティ問題は直接報告（security@example.com）
+
+---
+
 ## ライセンス
 
 MIT
+
+---
+
+## 謝辞
+
+このプロジェクトは以下のオープンソースプロジェクトに支えられています：
+
+- [React](https://react.dev/)
+- [Vite](https://vitejs.dev/)
+- [Express](https://expressjs.com/)
+- [Prisma](https://www.prisma.io/)
+- [Playwright](https://playwright.dev/)
+- [Claude Code](https://claude.ai/claude-code)
+
+そして、すべてのコントリビューターに感謝します 🎉
