@@ -32,7 +32,11 @@ ArchiTrackは、Claude Codeを活用したKiro-style Spec Driven Development（�
 - **コンポーネントドキュメント**: Storybook 8.6.14による視覚的なコンポーネントライブラリとデザインシステム
 - **自動依存関係管理**: Dependabotによる週次セキュリティ更新と自動マージ（5エコシステム、85依存関係）
 - **本番環境デプロイ**: Railwayプラットフォームによる継続的デプロイ（staging/productionサポート）
+  - Prismaマイグレーション自動適用
+  - HTTPS強制リダイレクトとヘルスチェック統合
+  - CI失敗時のCD自動スキップ
 - **最適化されたCI/CD**: Matrix strategyによる並列実行、5ジョブ構成、Codecov連携
+- **開発者体験の向上**: pre-pushフック実行時のDocker環境自動構築により、手動セットアップ不要
 
 ## ターゲットユースケース
 

@@ -769,13 +769,22 @@ CI成功後、mainブランチへのプッシュまたは手動トリガーで�
 **主要ステップ:**
 1. **Railway CLI セットアップ**: Railway環境へのデプロイ準備
 2. **デプロイ実行**: staging/production環境へのデプロイ
+   - Backend: Prisma Client自動生成（`npm run build`内で実行）
+   - Backend: マイグレーション自動適用（Railway環境でデプロイ時に実行）
 3. **ヘルスチェック**: デプロイ後のサービス状態確認
    - 最大10回リトライ（30秒間隔）
-   - /healthエンドポイントで確認
+   - /healthエンドポイントで確認（HTTPS対応）
+   - Railway環境ではHTTPSリダイレクトが有効化
 4. **GitHub Environment統合**: デプロイ履歴の記録
+   - 環境URL設定（シークレット警告対策済み）
+5. **エラーハンドリング**: CI失敗/キャンセル時のCD自動スキップ
+   - CIステータスをチェックし、失敗時はCDを実行しない
 
 **デプロイ環境:**
 - **Backend Service**: `backend/` ディレクトリから自動ビルド・デプロイ
+  - Prisma Client自動生成（ビルド時）
+  - マイグレーション自動適用（デプロイ時）
+  - HTTPS強制リダイレクト有効（本番環境）
 - **Frontend Service**: `frontend/` ディレクトリからnginx本番イメージをビルド・デプロイ
 - **PostgreSQL**: RailwayマネージドPostgreSQL 15
 - **Redis**: RailwayマネージドRedis 7
@@ -854,6 +863,10 @@ ArchiTrackでは、3段階のGit hooksにより品質を自動保証していま
 
 プッシュ前に自動的に以下が実行されます：
 
+0. **Docker環境自動構築**: `docker-compose up -d`
+   - 統合テスト・E2Eテスト実行に必要なサービスを自動起動
+   - PostgreSQL、Redis、Backend、Frontendが起動していない場合に自動セットアップ
+   - 既に起動している場合はスキップ
 1. **Formatチェック（Backend/Frontend/E2E）**: `npm run format:check`
    - Prettierによるコードフォーマット検証
    - 整形されていないコードがある場合は警告
@@ -866,9 +879,9 @@ ArchiTrackでは、3段階のGit hooksにより品質を自動保証していま
 5. **Backend単体テスト**: `npm --prefix backend run test:unit`
 6. **Frontend単体テスト**: `npm --prefix frontend run test`
 7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`
-   - Docker環境必須（起動していない場合はエラー）
+   - Docker環境が自動起動されているため実行可能
 8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分）
-   - Docker環境必須（起動していない場合はエラー）
+   - Docker環境が自動起動されているため実行可能
    - **同期実行**: テスト完了を待ってからプッシュ実行（Shift-Left原則）
    - **タイムアウト保護**: 10分でハングアップを防止
    - **詳細なエラーハンドリング**: タイムアウトとテスト失敗を区別
