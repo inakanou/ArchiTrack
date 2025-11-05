@@ -44,22 +44,22 @@ export function useThrottle<T extends (...args: unknown[]) => unknown>(
   callback: T,
   delay: number
 ): T {
-  const lastRan = useRef<number>(Date.now());
+  const lastRan = useRef<number>(0);
   const callbackRef = useRef(callback);
 
   useEffect(() => {
     callbackRef.current = callback;
   }, [callback]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useCallback(
-    ((...args) => {
-      const now = Date.now();
-      if (now - lastRan.current >= delay) {
-        callbackRef.current(...args);
-        lastRan.current = now;
-      }
-    }) as T,
+  return useMemo(
+    () =>
+      ((...args) => {
+        const now = Date.now();
+        if (now - lastRan.current >= delay) {
+          callbackRef.current(...args);
+          lastRan.current = now;
+        }
+      }) as T,
     [delay]
   );
 }
@@ -74,13 +74,15 @@ export function useThrottle<T extends (...args: unknown[]) => unknown>(
  * console.log(`Current: ${count}, Previous: ${prevCount}`);
  */
 export function usePrevious<T>(value: T): T | undefined {
-  const ref = useRef<T | undefined>(undefined);
+  const [current, setCurrent] = useState<T>(value);
+  const [previous, setPrevious] = useState<T | undefined>(undefined);
 
-  useEffect(() => {
-    ref.current = value;
-  }, [value]);
+  if (value !== current) {
+    setPrevious(current);
+    setCurrent(value);
+  }
 
-  return ref.current;
+  return previous;
 }
 
 /**
