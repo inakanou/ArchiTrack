@@ -1,11 +1,15 @@
 # プロジェクト構造
 
+ArchiTrackのプロジェクト構造とコーディング規約を定義します。
+
+_最終更新: 2025-11-05（README.md充実化、AI運用6原則更新を反映）_
+
 ## ルートディレクトリ構成
 
 ```
 ArchiTrack/
 ├── .claude/                 # Claude Codeカスタマイズ
-│   ├── CLAUDE.md           # プロジェクト固有AI運用ルール（AI運用5原則）
+│   ├── CLAUDE.md           # プロジェクト固有AI運用ルール（AI運用6原則）
 │   ├── commands/           # カスタムスラッシュコマンド
 │   │   └── kiro/           # Kiro開発コマンド群
 │   └── hooks/              # Claude Code フック
@@ -87,7 +91,7 @@ ArchiTrack/
 ├── .prettierrc             # Prettierコードフォーマット設定
 ├── .gitignore              # Git除外設定
 ├── CLAUDE.md               # Claude Code設定・ガイドライン
-└── README.md               # プロジェクトREADME
+└── README.md               # プロジェクトREADME（包括的なドキュメント、アーキテクチャ図、コントリビューションガイド含む）
 ```
 
 ## 主要ディレクトリの詳細
