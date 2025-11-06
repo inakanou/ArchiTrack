@@ -15,6 +15,8 @@ export const apiLimiter = rateLimit({
   },
   standardHeaders: true, // RateLimit-* ヘッダーを返す
   legacyHeaders: false, // X-RateLimit-* ヘッダーを無効化
+  // OPTIONSリクエスト（CORS preflight）はスキップ
+  skip: (req: Request) => req.method === 'OPTIONS',
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:api:'),
   // カスタムキー生成（プロキシ環境対応、IPv6対応）
@@ -55,6 +57,8 @@ export const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // OPTIONSリクエスト（CORS preflight）はスキップ
+  skip: (req: Request) => req.method === 'OPTIONS',
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:auth:'),
   keyGenerator: (req: Request): string => {
