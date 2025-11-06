@@ -193,6 +193,15 @@ jobs:
              [[ "${{ needs.typecheck.result }}" != "success" ]] || \
              [[ "${{ needs.test-unit.result }}" != "success" ]] || \
              [[ "${{ needs.build.result }}" != "success" ]] || \
-             [[ "${{ needs.test-integration.result }}" != "success" ]]; then
+             [[ "${{ needs.test-integration.result }}" != "success" ]] || \
+             [[ "${{ needs.security.result }}" != "success" ]]; then
+            echo "❌ CI check failed:"
+            echo "   - Lint: ${{ needs.lint.result }}"
+            echo "   - TypeCheck: ${{ needs.typecheck.result }}"
+            echo "   - Unit Tests: ${{ needs.test-unit.result }}"
+            echo "   - Build: ${{ needs.build.result }}"
+            echo "   - Integration Tests: ${{ needs.test-integration.result }}"
+            echo "   - Security: ${{ needs.security.result }}"
             exit 1
           fi
+          echo "✅ All CI checks passed successfully"

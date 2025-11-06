@@ -113,6 +113,40 @@ if [ -d "frontend" ]; then
   fi
 fi
 
+echo "🔒 Running security scan before push..."
+
+# Backend security scan
+if [ -d "backend" ]; then
+  echo "🔍 Scanning backend dependencies for vulnerabilities..."
+  npm --prefix backend audit --audit-level=moderate
+  BACKEND_AUDIT_EXIT=$?
+  if [ $BACKEND_AUDIT_EXIT -ne 0 ]; then
+    echo "⚠️  Backend security vulnerabilities detected (moderate or higher)."
+    echo "   This is a WARNING - push will continue, but please address these issues."
+    echo "   Run 'npm --prefix backend audit' to see details."
+    echo "   Run 'npm --prefix backend audit fix' to attempt automatic fixes."
+    echo ""
+  else
+    echo "✅ Backend security scan passed."
+  fi
+fi
+
+# Frontend security scan
+if [ -d "frontend" ]; then
+  echo "🔍 Scanning frontend dependencies for vulnerabilities..."
+  npm --prefix frontend audit --audit-level=moderate
+  FRONTEND_AUDIT_EXIT=$?
+  if [ $FRONTEND_AUDIT_EXIT -ne 0 ]; then
+    echo "⚠️  Frontend security vulnerabilities detected (moderate or higher)."
+    echo "   This is a WARNING - push will continue, but please address these issues."
+    echo "   Run 'npm --prefix frontend audit' to see details."
+    echo "   Run 'npm --prefix frontend audit fix' to attempt automatic fixes."
+    echo ""
+  else
+    echo "✅ Frontend security scan passed."
+  fi
+fi
+
 # Backend unit tests with coverage
 if [ -d "backend" ]; then
   echo "🧪 Running backend unit tests with coverage..."
