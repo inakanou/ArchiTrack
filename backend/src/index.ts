@@ -39,7 +39,8 @@ async function startServer(): Promise<void> {
     await initRedis();
 
     // サーバー起動
-    app.listen(PORT, () => {
+    // 0.0.0.0 でリスン（Railway等のコンテナ環境で外部アクセスを受け付けるため）
+    app.listen(PORT, '0.0.0.0', () => {
       logger.info({
         msg: 'Server started',
         port: PORT,
