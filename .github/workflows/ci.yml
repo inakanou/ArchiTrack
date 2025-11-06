@@ -282,7 +282,7 @@ jobs:
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
 
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
 
             if [[ "$HTTP_CODE" == "200" ]]; then
               echo "✓ Backend health check passed (HTTP $HTTP_CODE)"
@@ -302,7 +302,7 @@ jobs:
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
 
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" || echo "000")
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" || echo "000")
 
             if [[ "$HTTP_CODE" == "200" ]]; then
               echo "✓ Frontend health check passed (HTTP $HTTP_CODE)"
@@ -435,7 +435,7 @@ jobs:
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
 
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
 
             if [[ "$HTTP_CODE" == "200" ]]; then
               echo "✓ Backend health check passed (HTTP $HTTP_CODE)"
@@ -455,7 +455,7 @@ jobs:
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
 
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" || echo "000")
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" || echo "000")
 
             if [[ "$HTTP_CODE" == "200" ]]; then
               echo "✓ Frontend health check passed (HTTP $HTTP_CODE)"
