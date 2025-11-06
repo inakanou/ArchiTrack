@@ -1,8 +1,11 @@
 name: CD - Staging
 
 on:
-  # developブランチへのpushで自動デプロイ
-  push:
+  # CIワークフロー完了後に自動デプロイ（developブランチのみ）
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches: [develop]
 
   # 手動実行も可能
@@ -17,6 +20,8 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
+    # CIが成功した場合のみ実行
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     environment:
       name: staging
 
