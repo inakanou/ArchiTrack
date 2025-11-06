@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-05（README.md充実化、AI運用6原則更新を反映）_
+_最終更新: 2025-11-06（Dependabotメジャーバージョンアップ、ESLint v9移行を反映）_
 
 ## ルートディレクトリ構成
 
@@ -53,7 +53,7 @@ ArchiTrack/
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
 │   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
 │   ├── railway.toml        # Railway デプロイ設定
-│   ├── .eslintrc.json      # ESLint設定
+│   ├── eslint.config.js    # ESLint設定（Flat Config形式）
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
 ├── backend/                # バックエンドAPI
@@ -80,13 +80,14 @@ ArchiTrack/
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
 │   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
 │   ├── railway.toml        # Railway デプロイ設定
-│   ├── .eslintrc.cjs       # ESLint設定
+│   ├── eslint.config.js    # ESLint設定（Flat Config形式）
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
 ├── docker-compose.yml      # ローカル開発環境定義
 ├── package.json            # E2Eテスト依存関係
 ├── tsconfig.json           # TypeScript設定（E2Eテスト用）
 ├── playwright.config.ts    # Playwright設定（TypeScript）
+├── eslint.config.js        # ESLint設定（Flat Config形式、E2Eテスト用）
 ├── commitlint.config.js    # Commitlint設定（Conventional Commits）
 ├── .prettierrc             # Prettierコードフォーマット設定
 ├── .gitignore              # Git除外設定
@@ -269,7 +270,7 @@ frontend/
 ├── nginx.conf             # nginx本番環境設定
 ├── vite.config.ts         # Vite設定（TypeScript版、ベストプラクティス）
 ├── package.json           # 依存関係（lint-staged設定を含む）
-├── .eslintrc.cjs          # ESLint設定（TypeScript対応、vitest.config.ts, vite.config.ts除外）
+├── eslint.config.js       # ESLint設定（Flat Config形式、vitest.config.ts, vite.config.ts除外）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```
@@ -353,7 +354,7 @@ backend/
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック
 ├── railway.toml           # Railway デプロイ設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
-├── .eslintrc.cjs          # ESLint設定（TypeScript対応、vitest.config.ts除外）
+├── eslint.config.js       # ESLint設定（Flat Config形式、vitest.config.ts除外）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）
 └── .env.example           # 環境変数テンプレート
 ```

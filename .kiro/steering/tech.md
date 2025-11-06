@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-05（README.md充実化、AI運用6原則更新を反映）_
+_最終更新: 2025-11-06（Dependabotメジャーバージョンアップ、ESLint v9移行を反映）_
 
 ## アーキテクチャ
 
@@ -25,7 +25,7 @@ ArchiTrack/
 
 - **言語**: TypeScript 5.9.3
 - **フレームワーク**: React 18.2.0
-- **ビルドツール**: Vite 5.1.0
+- **ビルドツール**: Vite 7.2.0
 - **開発サーバー**: Vite Dev Server
 - **Webサーバー（本番）**: nginx
 - **パッケージマネージャ**: npm
@@ -40,9 +40,10 @@ ArchiTrack/
 - `@vitejs/plugin-react` ^4.2.1 - Vite React プラグイン
 - `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
-- `eslint` ^8.56.0 - コード品質チェック
+- `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
+- `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.6.2 - コードフォーマッター
-- `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
+- `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.6 - Vitest UIツール
 - `@vitest/coverage-v8` ^4.0.6 - Vitestカバレッジ（V8プロバイダー）
@@ -51,10 +52,9 @@ ArchiTrack/
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
 - `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
-- `storybook` ^8.6.14 - コンポーネントドキュメント・開発環境
-- `@storybook/react-vite` ^8.6.14 - Storybook React + Vite統合
-- `@storybook/addon-essentials` ^8.6.14 - Storybook基本アドオン
-- `@storybook/addon-interactions` ^8.6.14 - インタラクションテスト
+- `storybook` ^10.0.5 - コンポーネントドキュメント・開発環境
+- `@storybook/react` ^10.0.5 - Storybook React統合
+- `@storybook/react-vite` ^10.0.5 - Storybook React + Vite統合
 
 ### 設定ファイル
 
@@ -69,7 +69,7 @@ ArchiTrack/
 - `frontend/nginx.conf` - nginx設定（本番環境）
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート
-- `frontend/.eslintrc.cjs` - ESLint設定（vitest.config.ts, vite.config.ts除外対応）
+- `frontend/eslint.config.js` - ESLint設定（Flat Config形式、vitest.config.ts, vite.config.ts除外対応）
 - `frontend/.prettierrc` - Prettier設定（フロントエンド用、プロジェクトルートからコピー）
 - `.prettierrc` - Prettier設定（プロジェクトルート）
 - `frontend/Dockerfile` - 本番環境用Dockerイメージ
@@ -84,7 +84,7 @@ ArchiTrack/
 - **言語**: TypeScript 5.9.3
 - **ランタイム**: Node.js 20
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
-- **フレームワーク**: Express 4.18.2
+- **フレームワーク**: Express 5.1.0
 - **ORM**: Prisma 6.18.0（PostgreSQL用の型安全なデータアクセス）
 - **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.18.0
 - **キャッシュクライアント**: ioredis 5.3.2
@@ -93,15 +93,15 @@ ArchiTrack/
 
 ### 主要な依存関係
 
-- `express` ^4.18.2 - Webフレームワーク
+- `express` ^5.1.0 - Webフレームワーク
 - `cors` ^2.8.5 - CORS ミドルウェア
 - `@prisma/client` ^6.18.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `dotenv` ^16.4.1 - 環境変数管理
-- `pino` ^8.17.0 - ロガー
-- `pino-http` ^9.0.0 - HTTP ロギングミドルウェア
-- `pino-pretty` ^10.3.0 - ログの整形出力（開発環境）
+- `pino` ^10.1.0 - ロガー
+- `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
+- `pino-pretty` ^13.1.2 - ログの整形出力（開発環境）
 - `swagger-jsdoc` ^6.2.8 - JSDocからOpenAPI仕様を生成
 - `swagger-ui-express` ^5.0.1 - Swagger UI統合（開発環境）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
@@ -114,10 +114,10 @@ ArchiTrack/
 - `@types/swagger-ui-express` ^4.1.8 - swagger-ui-express型定義
 - `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
-- `eslint` ^8.56.0 - コード品質チェック
+- `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `prettier` ^3.6.2 - コードフォーマッター
 - `husky` ^9.0.11 - Git フックマネージャー
-- `lint-staged` ^15.2.0 - ステージングファイルへのリンター実行
+- `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.6 - Vitest UIツール
 - `@vitest/coverage-v8` ^4.0.6 - Vitestカバレッジ（V8プロバイダー）
@@ -142,7 +142,7 @@ ArchiTrack/
 - `backend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `backend/package.json` - 依存関係管理
 - `backend/.env.example` - 環境変数テンプレート
-- `backend/.eslintrc.cjs` - ESLint設定（vitest.config.ts除外対応）
+- `backend/eslint.config.js` - ESLint設定（Flat Config形式、vitest.config.ts除外対応）
 - `backend/.prettierrc` - Prettier設定（バックエンド用、プロジェクトルートからコピー）
 - `.prettierrc` - Prettier設定（プロジェクトルート）
 - `.husky/` - Git フック設定ディレクトリ
