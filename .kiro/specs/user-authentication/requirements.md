@@ -236,7 +236,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 10. WHERE トーストメッセージが表示される THE UIは3-5秒後に自動的に非表示にしなければならない
 11. WHEN モーダルダイアログが開かれる THEN UIはフォーカストラップを実装し、Escキーで閉じられるようにしなければならない
 12. WHERE 全ての入力フィールドがある THE UIは適切なautocomplete属性（email、current-password、new-password）を設定しなければならない
-13. WHEN セッションが期限切れになる THEN UIは自動的にログイン画面へリダイレクトし、「セッションの期限が切れました」というメッセージを表示しなければならない
+13. WHEN セッションが期限切れになる THEN UIは自動的にログイン画面へリダイレクトし、「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない（詳細は要件17を参照）
 
 ### 要件16: Storybookによるビジュアル要件管理
 
@@ -347,3 +347,39 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 3. **Interaction Testing** により、ユーザーインタラクションを自動テスト
 4. **Visual Regression Testing** により、意図しないビジュアル変更を検出
 5. **Accessibility Testing** により、WCAG 2.1 AA準拠を自動検証
+
+### 要件17: セッション有効期限切れ時の自動リダイレクト
+
+**目的:** システム全体として、セッション有効期限切れを統一的に処理したい。そうすることで、ユーザーはスムーズに再ログインでき、セキュリティとユーザー体験を両立できるようになる。
+
+#### 受入基準
+
+1. WHEN アクセストークンの有効期限が切れる AND ユーザーが保護されたAPIを呼び出す THEN Backend Serviceは401 Unauthorizedレスポンスを返さなければならない
+2. WHERE Backend Serviceが401レスポンスを返す THE レスポンスボディに統一的なエラーコード（"TOKEN_EXPIRED"）を含めなければならない
+3. WHEN Frontend Serviceがバックエンドから401レスポンスを受信する THEN HTTPインターセプターで自動的に検知しなければならない
+4. IF 401エラーの原因がアクセストークン有効期限切れである THEN Frontend Serviceはリフレッシュトークンを使用して自動トークンリフレッシュを試みなければならない
+5. IF トークンリフレッシュが成功する THEN Frontend Serviceは元のAPIリクエストを自動的に再実行しなければならない
+6. IF トークンリフレッシュが失敗する OR リフレッシュトークンが存在しない THEN Frontend Serviceはユーザーをログイン画面へリダイレクトしなければならない
+7. WHEN ログイン画面へリダイレクトされる THEN Frontend Serviceは現在のページURLをクエリパラメータ（redirectUrl）として保存しなければならない
+8. WHEN ログイン画面が表示される AND redirectUrlが存在する THEN UIは「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない
+9. WHEN ユーザーが再ログインに成功する AND redirectUrlが存在する THEN Frontend Serviceは保存されたURLへユーザーを自動的にリダイレクトしなければならない
+10. WHERE HTTPインターセプターが401エラーを処理する THE Frontend Serviceは複数の同時401エラーに対してリフレッシュ処理を1回のみ実行しなければならない
+11. WHEN リフレッシュトークンリクエストが処理中である THEN Frontend Serviceは他のAPIリクエストをキューに保持しなければならない
+12. WHEN トークンリフレッシュが完了する THEN Frontend Serviceはキューに保持された全てのリクエストを新しいトークンで再実行しなければならない
+13. IF ユーザーが明示的にログアウトする THEN Frontend ServiceはredirectUrlパラメータを設定せずにログイン画面へリダイレクトしなければならない
+14. WHERE セッション有効期限切れメッセージが表示される THE メッセージはアクセシビリティ（aria-live="polite"）をサポートしなければならない
+15. WHEN アクセストークンが5分以内に有効期限切れになる THEN Frontend Serviceはバックグラウンドで自動的にトークンをリフレッシュしなければならない
+16. IF バックグラウンドリフレッシュが失敗する THEN Frontend Serviceは次のAPIリクエスト時に401エラーハンドリングフローを実行しなければならない
+17. WHERE Backend Serviceが401レスポンスを返す THE レスポンスヘッダーにWWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token"を含めなければならない
+18. WHEN HTTPインターセプターが401エラーを検知する THEN Frontend Serviceはローカルストレージまたはクッキーから認証トークンを削除しなければならない
+19. IF ログイン画面以外の公開ページで401エラーが発生する THEN Frontend Serviceはエラーをサイレントに処理し、ユーザーをリダイレクトしてはならない
+20. WHERE 開発環境である THE Frontend Serviceはトークン有効期限切れをコンソールにログ出力しなければならない
+
+#### 技術的考慮事項
+
+- **RFC 6750準拠**: Bearer Token仕様に従い、WWW-Authenticateヘッダーを使用
+- **トークンリフレッシュ戦略**: プロアクティブ（5分前）＋リアクティブ（401エラー時）のハイブリッド方式
+- **同時リクエスト対策**: トークンリフレッシュ中の重複リクエストをキューイング
+- **セキュリティ**: リフレッシュトークンはHttpOnly Cookieで保存（XSS攻撃対策）
+- **ユーザー体験**: 元のページへの自動復帰により、シームレスな再認証を実現
+- **エラー分類**: 401エラーの原因を細分化（TOKEN_EXPIRED、TOKEN_INVALID、TOKEN_MISSING）
