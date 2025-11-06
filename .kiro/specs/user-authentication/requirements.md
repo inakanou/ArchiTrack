@@ -84,17 +84,22 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 5. IF アクセストークンが改ざんされている THEN Authentication Serviceはリクエストを拒否しなければならない
 6. WHEN トークンにユーザー情報を含める THEN Authentication ServiceはユーザーID、メールアドレス、ロール（admin/user）を含めなければならない
 
-### 要件6: ロールベースアクセス制御（RBAC）
+### 要件6: 拡張可能なロールベースアクセス制御（RBAC）
 
-**目的:** システムとして、ロールに基づいてアクセス権限を制御したい。そうすることで、管理機能への不正アクセスを防止できるようになる。
+**目的:** システムとして、細粒度かつ拡張可能なロールベースアクセス制御を実装したい。そうすることで、組織の職務に応じた柔軟な権限管理と、管理機能への不正アクセス防止を両立できるようになる。
+
+**RBACモデル:** NIST RBAC標準のCore RBAC + Hierarchical RBACに準拠し、Role（ロール）、Permission（権限）、User-Role紐付け、Role-Permission紐付けの4つのエンティティで構成する。
 
 #### 受入基準
 
-1. WHERE 管理者専用APIエンドポイントにアクセスする THE Authentication Serviceはユーザーが管理者ロール（admin）を持つことを検証しなければならない
-2. IF ユーザーが必要なロールを持たない THEN Authentication Serviceは403 Forbiddenエラーを返さなければならない
-3. WHEN ユーザーアカウントが作成される THEN Authentication Serviceはデフォルトで一般ユーザーロール（user）を割り当てなければならない
-4. WHERE 管理者が他のユーザーのロールを変更する THE Authentication Serviceはロール変更をログに記録しなければならない
-5. IF 最後の管理者アカウントのロールを変更しようとする THEN Authentication Serviceは変更を拒否しなければならない
+1. WHERE 保護されたAPIエンドポイントにアクセスする THE Authorization Serviceは必要な権限（Permission）を検証しなければならない
+2. IF ユーザーが必要な権限を持たない THEN Authorization Serviceは403 Forbiddenエラーを返さなければならない
+3. WHEN ユーザーアカウントが作成される THEN Authorization Serviceはデフォルトロール（例: 一般ユーザー）を割り当てなければならない
+4. WHEN ユーザーに複数のロールが割り当てられている THEN Authorization Serviceは全てのロールの権限を統合して評価しなければならない
+5. WHERE システム管理者が他のユーザーのロールを変更する THE Authorization Serviceはロール変更を監査ログに記録しなければならない
+6. IF 最後のシステム管理者ロールを持つユーザーのロールを変更しようとする THEN Authorization Serviceは変更を拒否しなければならない
+7. WHEN 権限チェックを実行する THEN Authorization Serviceはリソースタイプとアクションの組み合わせで判定しなければならない
+8. WHERE リソースレベルの権限チェックを実行する THE Authorization Serviceは所有者情報を考慮しなければならない
 
 ### 要件7: パスワード管理
 
@@ -383,3 +388,205 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 - **セキュリティ**: リフレッシュトークンはHttpOnly Cookieで保存（XSS攻撃対策）
 - **ユーザー体験**: 元のページへの自動復帰により、シームレスな再認証を実現
 - **エラー分類**: 401エラーの原因を細分化（TOKEN_EXPIRED、TOKEN_INVALID、TOKEN_MISSING）
+
+### 要件18: 動的ロール管理
+
+**目的:** システム管理者として、組織の職務構造に合わせてロールを柔軟に作成・管理したい。そうすることで、現場の実態に即した権限管理を実現できるようになる。
+
+#### 受入基準
+
+1. WHEN システム管理者が新しいロールを作成する THEN Authorization Serviceはロール名、説明、優先順位を保存しなければならない
+2. IF ロール名が既に存在する THEN Authorization Serviceは409 Conflictエラーを返さなければならない
+3. WHEN システム管理者がロール情報を更新する THEN Authorization Serviceは変更履歴を監査ログに記録しなければならない
+4. WHERE システム管理者がロール一覧を取得する THE Authorization Serviceは全てのロール（名前、説明、割り当てユーザー数、権限数）を返さなければならない
+5. WHEN システム管理者がロールを削除する AND ロールが少なくとも1人のユーザーに割り当てられている THEN Authorization Serviceは削除を拒否しなければならない
+6. IF システム管理者が事前定義ロール（システム管理者）を削除しようとする THEN Authorization Serviceは削除を拒否しなければならない
+7. WHEN ロールを作成する THEN Authorization Serviceは一意のロールIDを生成しなければならない
+8. WHERE ロール優先順位を設定する THE Authorization Serviceは整数値（高い値が高優先度）を受け入れなければならない
+9. WHEN 新しいロールを作成する THEN Authorization Serviceはデフォルトで空の権限セットを割り当てなければならない
+
+#### 事前定義ロール
+
+以下のロールはシステムインストール時に自動作成されます：
+
+- **システム管理者（System Administrator）**: 全ての権限を持つ最高権限ロール、削除不可
+- **積算担当（Cost Estimator）**: ADRの作成・編集・閲覧、見積もり関連機能へのアクセス
+- **現場担当（Site Manager）**: 現場関連ADRの閲覧・更新、現場データの管理
+- **購買担当（Procurement）**: 購買関連ADRの閲覧・作成、ベンダー情報の管理
+- **経理担当（Accounting）**: 全ADRの閲覧（編集不可）、経理レポートの生成
+- **一般ユーザー（General User）**: 自分が作成したADRの閲覧・編集のみ
+
+### 要件19: 権限（Permission）管理
+
+**目的:** システム管理者として、細粒度な権限を定義し、リソースとアクションの組み合わせで制御したい。そうすることで、最小権限の原則に基づいた安全なアクセス制御を実現できるようになる。
+
+#### 受入基準
+
+1. WHEN システムが初期化される THEN Authorization Serviceは事前定義権限を自動作成しなければならない
+2. WHERE 権限を定義する THE Authorization Serviceは `resource:action` 形式（例: `adr:read`, `user:delete`）を使用しなければならない
+3. WHEN システム管理者が権限一覧を取得する THEN Authorization Serviceは全ての権限（リソースタイプ、アクション、説明）を返さなければならない
+4. WHERE 権限チェックを実行する THE Authorization Serviceはワイルドカード権限（例: `adr:*`, `*:read`）をサポートしなければならない
+5. IF ユーザーが `*:*` 権限を持つ THEN Authorization Serviceは全てのリソースへの全てのアクションを許可しなければならない
+6. WHEN 権限を評価する THEN Authorization Serviceは最も具体的な権限を優先しなければならない
+7. WHERE システム管理者がカスタム権限を作成する THE Authorization Serviceは権限の名前、リソースタイプ、アクション、説明を保存しなければならない
+
+#### 権限の構造
+
+**リソースタイプ:**
+- `adr`: アーキテクチャ決定記録
+- `user`: ユーザー管理
+- `role`: ロール管理
+- `permission`: 権限管理
+- `project`: プロジェクト管理（将来的な拡張）
+- `report`: レポート生成（将来的な拡張）
+- `settings`: システム設定
+
+**アクション:**
+- `create`: リソースの作成
+- `read`: リソースの閲覧
+- `update`: リソースの更新
+- `delete`: リソースの削除
+- `manage`: リソースの完全管理（create + read + update + delete）
+- `approve`: リソースの承認（ワークフロー用）
+- `export`: リソースのエクスポート
+
+**権限の例:**
+- `adr:read` - ADRの閲覧権限
+- `adr:create` - ADRの作成権限
+- `adr:*` - ADRに関する全ての操作権限
+- `user:manage` - ユーザーの完全管理権限
+- `*:read` - 全てのリソースの閲覧権限
+- `*:*` - 全ての権限（システム管理者専用）
+
+### 要件20: ロールへの権限割り当て
+
+**目的:** システム管理者として、ロールに権限を割り当てたい。そうすることで、職務に応じた適切なアクセス権限を定義できるようになる。
+
+#### 受入基準
+
+1. WHEN システム管理者がロールに権限を追加する THEN Authorization Serviceはロール・権限の紐付けを保存しなければならない
+2. IF 権限が既にロールに割り当てられている THEN Authorization Serviceは重複を無視しなければならない
+3. WHEN システム管理者がロールから権限を削除する THEN Authorization Serviceは紐付けを削除しなければならない
+4. WHERE システム管理者がロールの権限一覧を取得する THE Authorization Serviceは全ての割り当てられた権限を返さなければならない
+5. WHEN ロールの権限を変更する THEN Authorization Serviceは変更履歴を監査ログに記録しなければならない
+6. IF システム管理者ロールから `*:*` 権限を削除しようとする THEN Authorization Serviceは削除を拒否しなければならない
+7. WHEN 複数の権限を一括で割り当てる THEN Authorization Serviceはトランザクション内で処理しなければならない
+8. WHERE ロールに権限を割り当てる THE Authorization Serviceは権限の存在を事前に検証しなければならない
+
+#### 事前定義ロールの権限セット
+
+**システム管理者:**
+- `*:*` - 全ての権限
+
+**積算担当:**
+- `adr:create`, `adr:read`, `adr:update`
+- `project:read` （将来的な拡張）
+- `report:read`, `report:export`
+
+**現場担当:**
+- `adr:read`, `adr:update` （自分が担当するプロジェクトのみ）
+- `project:read`, `project:update`
+
+**購買担当:**
+- `adr:create`, `adr:read`
+- `project:read`
+
+**経理担当:**
+- `adr:read` （全て）
+- `report:read`, `report:export`
+
+**一般ユーザー:**
+- `adr:read` （自分が作成したもののみ）
+- `adr:create`, `adr:update` （自分が作成したもののみ）
+
+### 要件21: ユーザーへのロール割り当て（マルチロール対応）
+
+**目的:** システム管理者として、ユーザーに複数のロールを割り当てたい。そうすることで、兼務や職務変更に柔軟に対応できるようになる。
+
+#### 受入基準
+
+1. WHEN システム管理者がユーザーにロールを追加する THEN Authorization Serviceはユーザー・ロールの紐付けを保存しなければならない
+2. IF ロールが既にユーザーに割り当てられている THEN Authorization Serviceは重複を無視しなければならない
+3. WHEN システム管理者がユーザーからロールを削除する THEN Authorization Serviceは紐付けを削除しなければならない
+4. WHERE ユーザーが複数のロールを持つ THE Authorization Serviceは全てのロールの権限を統合（OR演算）しなければならない
+5. WHEN ユーザーのロールを変更する THEN Authorization Serviceは変更履歴を監査ログに記録しなければならない
+6. IF ユーザーが最後のシステム管理者ロール保持者である AND システム管理者ロールを削除しようとする THEN Authorization Serviceは削除を拒否しなければならない
+7. WHEN ユーザーに新しいロールが割り当てられる THEN Authorization Serviceは次回トークンリフレッシュ時に新しい権限を反映しなければならない
+8. WHERE システム管理者がユーザーのロール一覧を取得する THE Authorization Serviceは全ての割り当てられたロール（名前、割り当て日時）を返さなければならない
+9. WHEN 複数のロールを一括で割り当てる THEN Authorization Serviceはトランザクション内で処理しなければならない
+
+### 要件22: 権限チェック機能
+
+**目的:** システムとして、リソースとアクションに基づいて権限を検証したい。そうすることで、細粒度なアクセス制御を実現できるようになる。
+
+#### 受入基準
+
+1. WHEN APIエンドポイントにアクセスする THEN Authorization Middlewareは必要な権限を検証しなければならない
+2. IF ユーザーが必要な権限を持たない THEN Authorization Middlewareは403 Forbiddenエラーを返さなければならない
+3. WHERE 権限チェックを実行する THE Authorization Serviceはユーザーの全てのロールから権限を収集しなければならない
+4. WHEN ワイルドカード権限（`*:read`, `adr:*`）が存在する THEN Authorization Serviceは該当する全てのリソース・アクションにマッチさせなければならない
+5. IF ユーザーが `*:*` 権限を持つ THEN Authorization Serviceは全ての権限チェックを通過させなければならない
+6. WHERE リソースレベルの権限チェックを実行する THE Authorization Serviceは所有者フィルタリングを適用しなければならない
+7. WHEN 権限チェックに失敗する THEN Authorization Serviceは失敗理由（必要な権限、ユーザーの権限）を監査ログに記録しなければならない
+8. IF ユーザーのロールまたは権限が変更される THEN Authorization Serviceはキャッシュされた権限情報を無効化しなければならない
+9. WHERE パフォーマンス最適化が必要な場合 THE Authorization Serviceは権限情報をRedisにキャッシュ（TTL: 5分）しなければならない
+
+#### 権限チェックAPI
+
+```typescript
+// 疑似コード例
+interface PermissionCheck {
+  userId: string;
+  resource: string;  // 例: "adr", "user"
+  action: string;    // 例: "read", "update"
+  resourceId?: string; // リソースレベルチェック用（オプション）
+}
+
+function hasPermission(check: PermissionCheck): boolean;
+```
+
+### 要件23: 監査ログとコンプライアンス
+
+**目的:** システム管理者として、権限変更の履歴を追跡したい。そうすることで、セキュリティ監査とコンプライアンス要件を満たせるようになる。
+
+#### 受入基準
+
+1. WHEN ロールが作成・更新・削除される THEN Authorization Serviceは監査ログに記録しなければならない
+2. WHEN 権限がロールに追加・削除される THEN Authorization Serviceは監査ログに記録しなければならない
+3. WHEN ユーザーにロールが割り当て・削除される THEN Authorization Serviceは監査ログに記録しなければならない
+4. WHERE 監査ログを記録する THE Authorization Serviceは実行者、対象、アクション、タイムスタンプを含めなければならない
+5. WHEN システム管理者が監査ログを取得する THEN Authorization Serviceはフィルタリング（ユーザー、日付範囲、アクションタイプ）をサポートしなければならない
+6. IF 監査ログの保存に失敗する THEN Authorization Serviceは操作を中断しなければならない
+7. WHERE 監査ログを保存する THE Authorization Serviceは変更前後の値を含めなければならない
+8. WHEN 権限チェックに失敗する THEN Authorization Serviceは失敗をセキュリティログに記録しなければならない
+9. IF センシティブな操作（システム管理者ロールの変更）が実行される THEN Authorization Serviceはアラート通知を送信しなければならない
+10. WHERE 監査ログをエクスポートする THE Authorization ServiceはJSON形式でダウンロード可能にしなければならない
+
+#### 監査ログの構造
+
+```json
+{
+  "id": "uuid",
+  "timestamp": "ISO 8601",
+  "actor": {
+    "userId": "uuid",
+    "email": "admin@example.com",
+    "role": "システム管理者"
+  },
+  "action": "ROLE_CREATED | ROLE_UPDATED | ROLE_DELETED | PERMISSION_ASSIGNED | PERMISSION_REVOKED | USER_ROLE_ASSIGNED | USER_ROLE_REVOKED | PERMISSION_CHECK_FAILED",
+  "target": {
+    "type": "role | permission | user",
+    "id": "uuid",
+    "name": "積算担当"
+  },
+  "changes": {
+    "before": { ... },
+    "after": { ... }
+  },
+  "metadata": {
+    "ipAddress": "192.168.1.100",
+    "userAgent": "Mozilla/5.0...",
+    "requestId": "uuid"
+  }
+}
+```
