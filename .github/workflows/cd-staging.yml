@@ -1,0 +1,169 @@
+name: CD - Staging
+
+on:
+  # developブランチへのpushで自動デプロイ
+  push:
+    branches: [develop]
+
+  # 手動実行も可能
+  workflow_dispatch:
+
+# デプロイメント実行の同時実行制御
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ secrets.STAGING_FRONTEND_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # デプロイ前の通知
+      - name: Pre-deployment notification
+        run: |
+          echo "========================================="
+          echo "Staging Deployment Information"
+          echo "========================================="
+          echo "Environment: staging"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Commit Message: ${{ github.event.head_commit.message }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "========================================="
+
+      # Railway CLIを使用したデプロイ
+      - name: Setup Railway CLI
+        run: npm i -g @railway/cli
+
+      - name: Deploy Backend to Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "========================================="
+          echo "Deploying Backend to Railway (Staging)"
+          echo "========================================="
+          railway up --service ${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }} --environment staging --detach
+          echo "Backend deployment initiated"
+
+      - name: Deploy Frontend to Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "========================================="
+          echo "Deploying Frontend to Railway (Staging)"
+          echo "========================================="
+          railway up --service ${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }} --environment staging --detach
+          echo "Frontend deployment initiated"
+
+      # デプロイ後の待機（Railwayがデプロイを完了するまで）
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for Railway deployment to complete..."
+          sleep 90
+
+      # ヘルスチェック実行
+      - name: Health check
+        id: health-check
+        run: |
+          echo "========================================="
+          echo "Running Health Checks (Staging)"
+          echo "========================================="
+
+          BACKEND_URL="${{ secrets.STAGING_BACKEND_URL }}"
+          FRONTEND_URL="${{ secrets.STAGING_FRONTEND_URL }}"
+          MAX_RETRIES=10
+          RETRY_INTERVAL=10
+
+          echo "Target Backend URL: ${BACKEND_URL}"
+          echo "Target Frontend URL: ${FRONTEND_URL}"
+          echo ""
+
+          # バックエンドヘルスチェック
+          echo "1. Backend Health Check"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "✓ Backend health check passed (HTTP $HTTP_CODE)"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "✗ Backend health check failed after $MAX_RETRIES attempts (HTTP $HTTP_CODE)"
+              exit 1
+            else
+              echo "Backend not ready yet (HTTP $HTTP_CODE), retrying in ${RETRY_INTERVAL}s..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          # フロントエンドヘルスチェック
+          echo ""
+          echo "2. Frontend Health Check"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" || echo "000")
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "✓ Frontend health check passed (HTTP $HTTP_CODE)"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "✗ Frontend health check failed after $MAX_RETRIES attempts (HTTP $HTTP_CODE)"
+              exit 1
+            else
+              echo "Frontend not ready yet (HTTP $HTTP_CODE), retrying in ${RETRY_INTERVAL}s..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          echo ""
+          echo "========================================="
+          echo "All Health Checks Passed"
+          echo "========================================="
+
+      # デプロイ完了通知
+      - name: Post-deployment notification
+        if: success()
+        run: |
+          echo "========================================="
+          echo "Staging Deployment Completed Successfully"
+          echo "========================================="
+          echo "Environment: staging"
+          echo "Backend URL: ${{ secrets.STAGING_BACKEND_URL }}"
+          echo "Frontend URL: ${{ secrets.STAGING_FRONTEND_URL }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo ""
+          echo "Next steps:"
+          echo "1. Run integration tests on staging environment"
+          echo "2. Perform QA validation"
+          echo "3. If tests pass, create PR to merge develop → main"
+          echo "========================================="
+
+      # デプロイ失敗時の通知
+      - name: Deployment failure notification
+        if: failure()
+        run: |
+          echo "========================================="
+          echo "Staging Deployment Failed"
+          echo "========================================="
+          echo "Environment: staging"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo ""
+          echo "Action required:"
+          echo "1. Check Railway deployment logs"
+          echo "2. Review CI test results"
+          echo "3. Fix issues and push again to develop"
+          echo "========================================="

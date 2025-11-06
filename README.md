@@ -503,12 +503,16 @@ GET /api
 ## Railwayへのデプロイ
 
 このプロジェクトは**GitHub Actionsによる自動デプロイ**を使用しています。
-mainブランチへのpush/マージで自動的にRailwayにデプロイされます。
 
 ### デプロイ方式
 
-- **自動デプロイ**: GitHub Actions（CD workflow）がRailway CLIを使用してデプロイ
-- **手動デプロイ**: GitHub Actionsから手動実行可能
+| 環境 | トリガー | ワークフロー | 用途 |
+|------|---------|------------|------|
+| **Staging** | `develop`ブランチへのpush | `cd-staging.yml` | 統合テスト・QA検証 |
+| **Production** | `main`ブランチへのpush | `cd-production.yml` | 本番環境デプロイ |
+
+- **自動デプロイ**: 各ブランチへのpushで自動実行
+- **手動デプロイ**: GitHub Actionsから手動実行可能（workflow_dispatch）
 
 ### 初回セットアップ
 
@@ -553,14 +557,30 @@ mainブランチへのpush/マージで自動的にRailwayにデプロイされ�
 
 リポジトリの Settings > Secrets and variables > Actions に以下を追加：
 
+**共通設定:**
+
 | Secret名 | 説明 | 取得方法 |
 |---------|------|---------|
 | `RAILWAY_TOKEN` | Railway APIトークン | Railway Dashboard > Account Settings > Tokens |
 | `RAILWAY_PROJECT_ID` | プロジェクトID | `railway status --json \| jq -r '.project.id'` |
-| `RAILWAY_BACKEND_SERVICE_ID` | BackendサービスID | `railway status --json \| jq -r '.services[] \| select(.name=="backend") \| .id'` |
-| `RAILWAY_FRONTEND_SERVICE_ID` | FrontendサービスID | `railway status --json \| jq -r '.services[] \| select(.name=="frontend") \| .id'` |
-| `PRODUCTION_BACKEND_URL` | BackendのURL | Railway Dashboard で確認 |
-| `PRODUCTION_FRONTEND_URL` | FrontendのURL | Railway Dashboard で確認 |
+
+**Staging環境:**
+
+| Secret名 | 説明 | 取得方法 |
+|---------|------|---------|
+| `RAILWAY_BACKEND_STAGING_SERVICE_ID` | BackendサービスID（Staging） | `railway status --json \| jq -r '.services[] \| select(.name=="backend-staging") \| .id'` |
+| `RAILWAY_FRONTEND_STAGING_SERVICE_ID` | FrontendサービスID（Staging） | `railway status --json \| jq -r '.services[] \| select(.name=="frontend-staging") \| .id'` |
+| `STAGING_BACKEND_URL` | BackendのURL（Staging） | Railway Dashboard で確認 |
+| `STAGING_FRONTEND_URL` | FrontendのURL（Staging） | Railway Dashboard で確認 |
+
+**Production環境:**
+
+| Secret名 | 説明 | 取得方法 |
+|---------|------|---------|
+| `RAILWAY_BACKEND_SERVICE_ID` | BackendサービスID（Production） | `railway status --json \| jq -r '.services[] \| select(.name=="backend") \| .id'` |
+| `RAILWAY_FRONTEND_SERVICE_ID` | FrontendサービスID（Production） | `railway status --json \| jq -r '.services[] \| select(.name=="frontend") \| .id'` |
+| `PRODUCTION_BACKEND_URL` | BackendのURL（Production） | Railway Dashboard で確認 |
+| `PRODUCTION_FRONTEND_URL` | FrontendのURL（Production） | Railway Dashboard で確認 |
 
 **Railway CLIでID取得:**
 ```bash
@@ -580,37 +600,101 @@ railway status --json
 
 ### デプロイフロー
 
+#### Staging環境へのデプロイ
+
 ```bash
-# 1. 開発ブランチで作業
+# 1. featureブランチで開発
 git checkout -b feature/new-feature
 
 # 2. 変更をコミット
 git add .
 git commit -m "feat: 新機能を追加"
 
-# 3. PRを作成
+# 3. developへPRを作成
 git push origin feature/new-feature
-gh pr create
+gh pr create --base develop
 
-# 4. CIが自動実行（テスト・ビルド確認）
+# 4. CI自動実行（テスト・ビルド確認）
 
-# 5. PRをマージ
+# 5. レビュー承認後、developへマージ
 gh pr merge --squash
 
-# 6. CDが自動実行（Railwayへデプロイ）
-# - Railway CLIでBackend/Frontendを順次デプロイ
-# - ヘルスチェック実行
-# - 結果通知
+# 6. developへのpushでStaging環境へ自動デプロイ
+# → cd-staging.yml が実行される
+# → Railway (staging environment) へデプロイ
+# → ヘルスチェック実行
+
+# 7. Staging環境でQA検証
+curl https://<staging-backend-url>/health
 ```
 
-### 手動デプロイ（緊急時）
+#### Production環境へのデプロイ
+
+```bash
+# 1. Staging環境での検証が完了したら、mainへPRを作成
+git checkout develop
+git pull origin develop
+gh pr create --base main --title "Release: 新機能をリリース"
+
+# 2. CI自動実行（全テスト再実行）
+
+# 3. レビュー承認後、mainへマージ
+gh pr merge --squash
+
+# 4. mainへのpushでProduction環境へ自動デプロイ
+# → cd-production.yml が実行される
+# → Railway (production environment) へデプロイ
+# → ヘルスチェック実行
+
+# 5. 本番環境の動作確認
+curl https://<production-backend-url>/health
+```
+
+### 手動デプロイ（緊急時・再デプロイ）
 
 GitHub Actionsから手動実行：
 
+**Staging環境:**
 1. GitHub リポジトリの Actions タブを開く
-2. "CD" workflowを選択
+2. "CD - Staging" workflowを選択
 3. "Run workflow" をクリック
-4. 環境を選択（production/staging）して実行
+4. ブランチ `develop` を選択して実行
+
+**Production環境:**
+1. GitHub リポジトリの Actions タブを開く
+2. "CD - Production" workflowを選択
+3. "Run workflow" をクリック
+4. ブランチ `main` を選択して実行
+
+### ロールバック手順
+
+本番環境でデプロイが失敗した場合のロールバック方法：
+
+**方法1: Railway Dashboardから直接ロールバック（推奨）**
+```bash
+1. Railway Dashboard にログイン
+2. ArchiTrack プロジェクトを選択
+3. Deployments タブを開く
+4. 前回の成功したデプロイメントを選択
+5. "Redeploy" をクリック
+```
+
+**方法2: Git revertでロールバック**
+```bash
+# 問題のあるコミットをrevert
+git checkout main
+git revert <commit-sha>
+git push origin main
+# → cd-production.yml が自動実行され、revert後の状態がデプロイされる
+```
+
+**方法3: 手動デプロイで前回のコミットを指定**
+```bash
+1. Actions タブ > "CD - Production" を選択
+2. "Run workflow" をクリック
+3. ブランチ選択で前回の成功コミットSHAを入力
+4. 実行
+```
 
 ## 開発ワークフロー
 
