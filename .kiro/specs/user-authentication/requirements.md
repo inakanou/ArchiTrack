@@ -237,3 +237,113 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 11. WHEN モーダルダイアログが開かれる THEN UIはフォーカストラップを実装し、Escキーで閉じられるようにしなければならない
 12. WHERE 全ての入力フィールドがある THE UIは適切なautocomplete属性（email、current-password、new-password）を設定しなければならない
 13. WHEN セッションが期限切れになる THEN UIは自動的にログイン画面へリダイレクトし、「セッションの期限が切れました」というメッセージを表示しなければならない
+
+### 要件16: Storybookによるビジュアル要件管理
+
+**目的:** 開発チームとステークホルダーとして、実装前にUIコンポーネントを視覚的に確認・検証したい。そうすることで、要件の認識齟齬を早期に発見し、効率的な開発を実現できるようになる。
+
+#### 受入基準
+
+1. WHERE 全ての認証画面コンポーネントがある THE Storybookは個別のストーリーを提供しなければならない
+2. WHEN ログインフォームストーリーが表示される THEN Storybookは以下の状態バリアントを提供しなければならない
+   - デフォルト状態（空のフォーム）
+   - 入力中状態（フォーカス、入力値あり）
+   - バリデーションエラー状態（メール形式エラー、必須フィールドエラー）
+   - ローディング状態（ログイン処理中）
+   - 認証エラー状態（ログイン失敗）
+   - アカウントロック状態（ロック解除までの時間表示）
+3. WHEN ユーザー登録フォームストーリーが表示される THEN Storybookは以下の状態バリアントを提供しなければならない
+   - 招待トークン検証中
+   - 招待トークン有効（フォーム表示）
+   - 招待トークン無効/期限切れ
+   - パスワード強度表示（弱い/普通/強い）
+   - パスワード要件チェックリスト
+   - バリデーションエラー状態
+   - 登録処理中
+   - 登録成功
+4. WHEN 管理者招待画面ストーリーが表示される THEN Storybookは以下の状態バリアントを提供しなければならない
+   - 招待一覧（0件、1-9件、10件以上）
+   - 招待ステータス別表示（未使用、使用済み、期限切れ）
+   - 招待成功モーダル（URLコピー機能付き）
+   - 招待エラー状態
+   - 取り消し確認ダイアログ
+5. WHEN プロフィール画面ストーリーが表示される THEN Storybookは以下の状態バリアントを提供しなければならない
+   - 一般ユーザー表示
+   - 管理者ユーザー表示
+   - 編集モード
+   - パスワード変更モード
+   - 更新処理中
+6. WHERE 全てのストーリーがある THE Storybookはインタラクティブコントロール（Controls addon）を提供しなければならない
+7. WHEN Storybookコントロールが提供される THEN 以下のプロパティを調整可能にしなければならない
+   - テキスト入力値
+   - ローディング状態（true/false）
+   - エラーメッセージ
+   - ユーザーロール（admin/user）
+   - ブレークポイント（モバイル/タブレット/デスクトップ）
+8. WHERE 全てのストーリーがある THE Storybookはアクセシビリティアドオン（a11y addon）を有効化しなければならない
+9. WHEN a11yアドオンが実行される THEN 以下の項目を自動検証しなければならない
+   - コントラスト比（最低4.5:1）
+   - ARIA属性の適切性
+   - キーボードナビゲーション
+   - フォーカス管理
+   - セマンティックHTML
+10. WHERE Storybookドキュメントがある THE 各ストーリーは対応する要件番号と受入基準を明記しなければならない
+11. WHEN ストーリーがレンダリングされる THEN レスポンシブデザインを検証するためのビューポートアドオンを提供しなければならない
+12. WHERE ビューポートアドオンがある THE 以下のプリセットを提供しなければならない
+    - モバイル（375px）
+    - タブレット（768px）
+    - デスクトップ（1280px）
+13. WHEN コンポーネントの視覚的な変更が発生する THEN Storybookはビジュアルリグレッションテスト用のスナップショットを生成できなければならない
+14. WHERE 全てのフォームコンポーネントがある THE Storybookはユーザーインタラクションをシミュレートする「Play function」を提供しなければならない
+15. WHEN Play functionが実行される THEN 以下のユーザーアクションをシミュレートしなければならない
+    - フォーム入力
+    - バリデーショントリガー
+    - ボタンクリック
+    - キーボード操作（Tab、Enter、Escape）
+
+#### ストーリー構成例
+
+各画面コンポーネントは以下の構造でストーリーを定義します：
+
+**ログインフォーム (`LoginForm.stories.tsx`)**
+- Default - デフォルト状態
+- Filled - 入力済み状態
+- ValidationError - バリデーションエラー
+- Loading - ローディング中
+- AuthenticationError - 認証エラー
+- AccountLocked - アカウントロック
+
+**ユーザー登録フォーム (`SignupForm.stories.tsx`)**
+- ValidatingToken - トークン検証中
+- ValidToken - 有効なトークン
+- InvalidToken - 無効なトークン
+- ExpiredToken - 期限切れトークン
+- WeakPassword - 弱いパスワード
+- StrongPassword - 強いパスワード
+- ValidationError - バリデーションエラー
+- Submitting - 送信中
+- Success - 登録成功
+
+**管理者招待画面 (`InvitationManager.stories.tsx`)**
+- EmptyList - 招待なし
+- WithInvitations - 招待あり
+- PendingInvitations - 未使用の招待
+- UsedInvitations - 使用済みの招待
+- ExpiredInvitations - 期限切れの招待
+- SuccessModal - 招待成功モーダル
+- CancelDialog - 取り消し確認ダイアログ
+
+**プロフィール画面 (`ProfilePage.stories.tsx`)**
+- UserProfile - 一般ユーザー
+- AdminProfile - 管理者
+- EditMode - 編集モード
+- PasswordChangeMode - パスワード変更モード
+- Updating - 更新中
+
+#### ベストプラクティス
+
+1. **Component Story Format (CSF) 3.0** を使用して、TypeScriptで型安全なストーリーを定義
+2. **Storybook Docs** を活用して、要件定義とストーリーを自動的にドキュメント化
+3. **Interaction Testing** により、ユーザーインタラクションを自動テスト
+4. **Visual Regression Testing** により、意図しないビジュアル変更を検出
+5. **Accessibility Testing** により、WCAG 2.1 AA準拠を自動検証
