@@ -1,0 +1,8 @@
+# Railway Configuration
+# ArchiTrackプロジェクトのRailway設定
+
+# 自動デプロイの無効化
+# GitHub Actionsを使用してデプロイを制御するため、
+# Railway側の自動デプロイ（Git Push検知）を無効化します
+[build]
+watchPaths = []
