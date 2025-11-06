@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-06（Dependabotメジャーバージョンアップ、ESLint v9移行を反映）_
+_最終更新: 2025-11-06（コンテナ環境対応、CI/CDワークフロー統合を反映）_
 
 ## ルートディレクトリ構成
 
@@ -16,7 +16,7 @@ ArchiTrack/
 │       └── hook_pre_commands.sh  # コマンド実行前フック
 ├── .github/                # GitHub設定
 │   ├── workflows/          # GitHub Actions CI/CD
-│   │   ├── ci.yml          # CI/CDパイプライン定義
+│   │   ├── ci.yml          # CI/CDパイプライン定義（デプロイジョブ統合）
 │   │   ├── cd.yml          # 継続的デプロイ（Railway staging/production）
 │   │   ├── e2e-tests.yml   # E2Eテストワークフロー
 │   │   └── dependabot-automerge.yml  # Dependabot自動マージ

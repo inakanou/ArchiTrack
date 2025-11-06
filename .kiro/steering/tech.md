@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-06（Dependabotメジャーバージョンアップ、ESLint v9移行を反映）_
+_最終更新: 2025-11-06（コンテナ環境対応、CI/CDワークフロー統合を反映）_
 
 ## アーキテクチャ
 
@@ -412,7 +412,7 @@ volumes:
 ### 必須ツール
 
 - **Node.js 20以上**: フロントエンド・バックエンドの実行環境
-- **Docker & Docker Compose**: コンテナ化開発環境
+- **Docker & Docker Compose**: コンテナ化開発環境（コンテナ環境では0.0.0.0でリスンして外部アクセスを許可）
 - **Git**: バージョン管理
 - **Claude Code**: AI支援開発環境
 - **Chromium（システム依存関係）**: E2Eテスト（Playwright）の実行に必要
@@ -774,21 +774,23 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 **CDワークフロー（Railway デプロイメント）:**
 
-CI成功後、mainブランチへのプッシュまたは手動トリガーで実行されます。
+CI成功後、CIワークフロー内でデプロイジョブが実行されます（統合パイプライン構成）。
 
 **主要ステップ:**
 1. **Railway CLI セットアップ**: Railway環境へのデプロイ準備
 2. **デプロイ実行**: staging/production環境へのデプロイ
    - Backend: Prisma Client自動生成（`npm run build`内で実行）
    - Backend: マイグレーション自動適用（Railway環境でデプロイ時に実行）
+   - Backend: 0.0.0.0でリスンしてコンテナ環境の外部アクセスを許可
 3. **ヘルスチェック**: デプロイ後のサービス状態確認
    - 最大10回リトライ（30秒間隔）
    - /healthエンドポイントで確認（HTTPS対応）
-   - Railway環境ではHTTPSリダイレクトが有効化
+   - Railway環境ではHTTPSリダイレクトが有効化（CORS preflight対応を改善）
 4. **GitHub Environment統合**: デプロイ履歴の記録
    - 環境URL設定（シークレット警告対策済み）
 5. **エラーハンドリング**: CI失敗/キャンセル時のCD自動スキップ
    - CIステータスをチェックし、失敗時はCDを実行しない
+   - ciワークフロー内にデプロイジョブを統合し、ci完了後にcdを自動実行
 
 **デプロイ環境:**
 - **Backend Service**: `backend/` ディレクトリから自動ビルド・デプロイ
