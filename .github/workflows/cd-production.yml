@@ -19,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: ${{ secrets.PRODUCTION_FRONTEND_URL }}
 
     steps:
       - name: Checkout code

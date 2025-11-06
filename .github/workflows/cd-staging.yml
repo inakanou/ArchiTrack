@@ -19,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: ${{ secrets.STAGING_FRONTEND_URL }}
 
     steps:
       - name: Checkout code
