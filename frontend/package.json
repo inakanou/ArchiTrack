@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
+    "test-storybook": "test-storybook",
+    "test-storybook:ci": "concurrently -k -s first -n \"SB,TEST\" -c \"magenta,blue\" \"npm run storybook -- --ci --quiet\" \"wait-on tcp:6006 && npm run test-storybook\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -29,8 +31,11 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.56.1",
+    "@storybook/addon-a11y": "^10.0.5",
     "@storybook/react": "^10.0.5",
     "@storybook/react-vite": "^10.0.5",
+    "@storybook/test": "^10.0.5",
+    "@storybook/test-runner": "^0.21.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
@@ -42,6 +47,8 @@
     "@vitest/coverage-istanbul": "^4.0.6",
     "@vitest/coverage-v8": "^4.0.6",
     "@vitest/ui": "^4.0.6",
+    "axe-playwright": "^2.0.3",
+    "concurrently": "^9.1.2",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
@@ -58,7 +65,8 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.3",
     "vite": "^7.2.0",
-    "vitest": "^4.0.6"
+    "vitest": "^4.0.6",
+    "wait-on": "^8.0.3"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx}": [

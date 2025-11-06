@@ -708,9 +708,43 @@ git push origin main
 4. **設計** - `/kiro:spec-design` で技術設計を作成
 5. **タスク分解** - `/kiro:spec-tasks` で実装タスクに分解
 6. **実装** - タスクに従って段階的に実装
-7. **進捗確認** - `/kiro:spec-status` で進捗を追跡
+7. **Storybookストーリー作成** - 実装したコンポーネントのストーリーを作成（実装後ドキュメント化アプローチ）
+8. **進捗確認** - `/kiro:spec-status` で進捗を追跡
 
 各フェーズで人間のレビューを実施し、品質を確保します。
+
+### Storybookによるコンポーネント管理
+
+ArchiTrackでは「**実装後ドキュメント化アプローチ**」を採用しています：
+
+```
+要件定義 → 設計 → 実装 → Storybookストーリー作成 → ビジュアルテスト
+```
+
+**ワークフロー:**
+1. 要件定義・設計に基づいてコンポーネントを実装
+2. 実装完了後、Storybookストーリーを作成（`.stories.tsx`）
+3. Storybook UIでビジュアル確認
+4. Test Runnerでインタラクションテストとアクセシビリティテストを自動実行
+
+**メリット:**
+- 実装が確定してからドキュメント化するため、手戻りが少ない
+- コンポーネントの実際の振る舞いを正確に記録
+- UIの問題を実装後に発見
+
+**Storybookテストの実行:**
+```bash
+# Storybookを起動（インタラクティブ確認）
+npm --prefix frontend run storybook
+
+# Test Runnerでストーリーを自動テスト
+# - レンダリングテスト
+# - アクセシビリティテスト（WCAG 2.1 AA準拠）
+npm --prefix frontend run test-storybook
+
+# CI/CD用（Storybookを起動してテスト実行後に自動終了）
+npm --prefix frontend run test-storybook:ci
+```
 
 ### ブランチ戦略
 

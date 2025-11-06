@@ -64,11 +64,11 @@ export default [
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
     files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['vitest.config.ts', 'vite.config.ts'],
+    ignores: ['vitest.config.ts', 'vite.config.ts', '.storybook/**/*.ts'],
   })),
   {
     files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['vitest.config.ts', 'vite.config.ts'],
+    ignores: ['vitest.config.ts', 'vite.config.ts', '.storybook/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {

@@ -170,6 +170,17 @@ if [ -d "frontend" ]; then
   fi
 fi
 
+# Storybook tests (Interaction + Accessibility)
+if [ -d "frontend" ] && git diff --cached --name-only | grep -q "^frontend/"; then
+  echo "📖 Running Storybook tests..."
+  npm --prefix frontend run test-storybook:ci
+  if [ $? -ne 0 ]; then
+    echo "❌ Storybook tests failed. Push aborted."
+    echo "   Run 'npm --prefix frontend run test-storybook:ci' to check locally."
+    exit 1
+  fi
+fi
+
 # Docker環境の自動構築
 echo "🐳 Setting up Docker environment for integration tests..."
 
