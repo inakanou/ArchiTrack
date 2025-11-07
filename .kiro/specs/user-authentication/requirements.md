@@ -164,7 +164,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 3. WHEN ユーザーが入力フィールドにフォーカスする THEN UIは視覚的なフィードバック（アウトライン表示）を提供しなければならない
 4. IF メールアドレス形式が無効である THEN UIはリアルタイムバリデーションエラーを表示しなければならない
 5. WHEN ログインボタンがクリックされる AND フォームが未入力である THEN UIは必須フィールドエラーを表示しなければならない
-6. WHILE ログインAPIリクエストが処理中である THE UIはローディングスピナーとボタンの無効化を表示しなければならない
+6. WHILE ログイン処理が進行中である THE UIはローディングスピナーとボタンの無効化を表示しなければならない
 7. IF ログインに失敗する THEN UIは汎用的なエラーメッセージ（「メールアドレスまたはパスワードが正しくありません」）を表示しなければならない
 8. WHEN アカウントがロックされている THEN UIはロック解除までの残り時間を表示しなければならない
 9. WHEN ログイン画面が表示される THEN UIは「パスワードを忘れた場合」リンクを提供しなければならない
@@ -184,7 +184,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 5. WHEN パスワードが入力される THEN UIはパスワード要件の達成状況をチェックリストで表示しなければならない
 6. IF パスワードとパスワード確認が一致しない THEN UIはリアルタイムバリデーションエラーを表示しなければならない
 7. WHEN 登録ボタンがクリックされる THEN UIは利用規約とプライバシーポリシーへの同意確認を要求しなければならない
-8. WHILE 登録APIリクエストが処理中である THE UIはローディングスピナーとボタンの無効化を表示しなければならない
+8. WHILE 登録処理が進行中である THE UIはローディングスピナーとボタンの無効化を表示しなければならない
 9. WHEN 登録が成功する THEN UIは成功メッセージを表示し、自動的にダッシュボードへリダイレクトしなければならない
 10. WHEN デバイス画面幅が768px未満である THEN UIはモバイル最適化されたレイアウトを表示しなければならない
 
@@ -236,12 +236,12 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 5. WHEN カラー情報を使用する THEN UIは色だけに依存せず、テキストやアイコンで補完しなければならない
 6. WHEN フォームバリデーションエラーが発生する THEN UIはエラーメッセージをaria-liveリージョンで通知しなければならない
 7. WHEN 全ての画面が表示される THEN UIは最低コントラスト比4.5:1（WCAG 2.1 AA準拠）を維持しなければならない
-8. WHEN APIリクエストが長時間かかる THEN UIはプログレスバーまたは進捗メッセージを表示しなければならない
-9. IF APIリクエストがネットワークエラーで失敗する THEN UIは「ネットワーク接続を確認してください」というエラーメッセージとリトライボタンを表示しなければならない
+8. WHEN 処理が長時間かかる THEN UIはプログレスバーまたは進捗メッセージを表示しなければならない
+9. IF 処理がネットワークエラーで失敗する THEN UIは「ネットワーク接続を確認してください」というエラーメッセージとリトライボタンを表示しなければならない
 10. WHEN トーストメッセージが表示される THEN UIは自動的に非表示にしなければならない
 11. WHEN モーダルダイアログが開かれる THEN UIはフォーカストラップを実装し、Escキーで閉じられるようにしなければならない
 12. WHEN 全ての入力フィールドが表示される THEN UIは適切なautocomplete属性（email、current-password、new-password）を設定しなければならない
-13. WHEN セッションが期限切れになる THEN UIは自動的にログイン画面へリダイレクトし、「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない（詳細は要件17を参照）
+13. WHEN セッションが期限切れになる THEN UIは自動的にログイン画面へリダイレクトし、「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない
 
 ### 要件16: Storybookによるビジュアル要件定義
 
@@ -353,24 +353,24 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN アクセストークンの有効期限が切れる AND ユーザーが保護されたAPIを呼び出す THEN Authentication Serviceは401 Unauthorizedレスポンスを返さなければならない
+1. WHEN アクセストークンの有効期限が切れる AND ユーザーが保護されたリソースにアクセスする THEN Authentication Serviceは401 Unauthorizedレスポンスを返さなければならない
 2. WHEN Authentication Serviceが401レスポンスを返す THEN レスポンスボディに統一的なエラーコード（"TOKEN_EXPIRED"）を含めなければならない
-3. WHEN Frontend Serviceがバックエンドから401レスポンスを受信する THEN HTTPインターセプターで自動的に検知しなければならない
+3. WHEN Frontend Serviceがバックエンドから401レスポンスを受信する THEN 自動的に検知しなければならない
 4. IF 401エラーの原因がアクセストークン有効期限切れである THEN Frontend Serviceはリフレッシュトークンを使用して自動トークンリフレッシュを試みなければならない
-5. IF トークンリフレッシュが成功する THEN Frontend Serviceは元のAPIリクエストを自動的に再実行しなければならない
+5. IF トークンリフレッシュが成功する THEN Frontend Serviceは元のリクエストを自動的に再実行しなければならない
 6. IF トークンリフレッシュが失敗する OR リフレッシュトークンが存在しない THEN Frontend Serviceはユーザーをログイン画面へリダイレクトしなければならない
 7. WHEN ログイン画面へリダイレクトされる THEN Frontend Serviceは現在のページURLをクエリパラメータ（redirectUrl）として保存しなければならない
 8. WHEN ログイン画面が表示される AND redirectUrlが存在する THEN UIは「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない
 9. WHEN ユーザーが再ログインに成功する AND redirectUrlが存在する THEN Frontend Serviceは保存されたURLへユーザーを自動的にリダイレクトしなければならない
-10. WHEN HTTPインターセプターが401エラーを処理する THEN Frontend Serviceは複数の同時401エラーに対してリフレッシュ処理を1回のみ実行しなければならない
-11. WHILE リフレッシュトークンリクエストが処理中である THE Frontend Serviceは他のAPIリクエストをキューに保持しなければならない
+10. WHEN 401エラーを処理する THEN Frontend Serviceは複数の同時401エラーに対してリフレッシュ処理を1回のみ実行しなければならない
+11. WHILE トークンリフレッシュ処理が進行中である THE Frontend Serviceは他のリクエストをキューに保持しなければならない
 12. WHEN トークンリフレッシュが完了する THEN Frontend Serviceはキューに保持された全てのリクエストを新しいトークンで再実行しなければならない
 13. IF ユーザーが明示的にログアウトする THEN Frontend ServiceはredirectUrlパラメータを設定せずにログイン画面へリダイレクトしなければならない
 14. WHEN セッション有効期限切れメッセージが表示される THEN メッセージはアクセシビリティ（aria-live="polite"）をサポートしなければならない
 15. WHEN アクセストークンが有効期限切れに近づく THEN Frontend Serviceはバックグラウンドで自動的にトークンをリフレッシュしなければならない
-16. IF バックグラウンドリフレッシュが失敗する THEN Frontend Serviceは次のAPIリクエスト時に401エラーハンドリングフローを実行しなければならない
+16. IF バックグラウンドリフレッシュが失敗する THEN Frontend Serviceは次のリクエスト時に401エラーハンドリングフローを実行しなければならない
 17. WHEN Authentication Serviceが401レスポンスを返す THEN レスポンスヘッダーにWWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token"を含めなければならない
-18. WHEN HTTPインターセプターが401エラーを検知する THEN Frontend Serviceはローカルストレージまたはクッキーから認証トークンを削除しなければならない
+18. WHEN 401エラーを検知する THEN Frontend Serviceはローカルストレージまたはクッキーから認証トークンを削除しなければならない
 19. IF ログイン画面以外の公開ページで401エラーが発生する THEN Frontend Serviceはエラーをサイレントに処理し、ユーザーをリダイレクトしてはならない
 20. WHEN 開発環境である THEN Frontend Serviceはトークン有効期限切れをコンソールにログ出力しなければならない
 
@@ -534,20 +534,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 7. WHEN 権限チェックに失敗する THEN Authentication Serviceは失敗理由（必要な権限、ユーザーの権限）を監査ログに記録しなければならない
 8. IF ユーザーのロールまたは権限が変更される THEN Authentication Serviceはキャッシュされた権限情報を無効化しなければならない
 9. WHEN パフォーマンス最適化が必要な場合 THEN Authentication Serviceは権限情報を適切なキャッシュ機構に保存しなければならない
-
-#### 権限チェックAPI
-
-```typescript
-// 疑似コード例
-interface PermissionCheck {
-  userId: string;
-  resource: string;  // 例: "adr", "user"
-  action: string;    // 例: "read", "update"
-  resourceId?: string; // リソースレベルチェック用（オプション）
-}
-
-function hasPermission(check: PermissionCheck): boolean;
-```
+10. WHEN 権限チェックを実行する THEN Authentication ServiceはユーザーID、リソースタイプ、アクション、オプションのリソースIDを受け入れなければならない
 
 ### 要件23: 監査ログとコンプライアンス
 
@@ -565,35 +552,14 @@ function hasPermission(check: PermissionCheck): boolean;
 8. WHEN 権限チェックに失敗する THEN Authentication Serviceは失敗をセキュリティログに記録しなければならない
 9. IF センシティブな操作（システム管理者ロールの変更）が実行される THEN Authentication Serviceはアラート通知を送信しなければならない
 10. WHEN 監査ログをエクスポートする THEN Authentication ServiceはJSON形式でダウンロード可能にしなければならない
-
-#### 監査ログの構造
-
-```json
-{
-  "id": "uuid",
-  "timestamp": "ISO 8601",
-  "actor": {
-    "userId": "uuid",
-    "email": "admin@example.com",
-    "role": "システム管理者"
-  },
-  "action": "ROLE_CREATED | ROLE_UPDATED | ROLE_DELETED | PERMISSION_ASSIGNED | PERMISSION_REVOKED | USER_ROLE_ASSIGNED | USER_ROLE_REVOKED | PERMISSION_CHECK_FAILED",
-  "target": {
-    "type": "role | permission | user",
-    "id": "uuid",
-    "name": "積算担当"
-  },
-  "changes": {
-    "before": { ... },
-    "after": { ... }
-  },
-  "metadata": {
-    "ipAddress": "192.168.1.100",
-    "userAgent": "Mozilla/5.0...",
-    "requestId": "uuid"
-  }
-}
-```
+11. WHEN 監査ログを構造化する THEN Authentication Serviceは以下の情報を含めなければならない
+    - 一意の監査ログID
+    - 操作実行日時（ISO 8601形式）
+    - 実行者情報（ユーザーID、メールアドレス、ロール）
+    - アクション種別（ROLE_CREATED、ROLE_UPDATED、ROLE_DELETED、PERMISSION_ASSIGNED、PERMISSION_REVOKED、USER_ROLE_ASSIGNED、USER_ROLE_REVOKED、PERMISSION_CHECK_FAILED）
+    - 対象リソース情報（タイプ、ID、名前）
+    - 変更前後の値
+    - メタデータ（IPアドレス、ユーザーエージェント、リクエストID）
 
 ### 要件24: 非機能要件（パフォーマンス・スケーラビリティ）
 
@@ -601,12 +567,12 @@ function hasPermission(check: PermissionCheck): boolean;
 
 #### 受入基準
 
-1. WHEN ログインAPIリクエストが送信される THEN Authentication Serviceは95パーセンタイルで目標レスポンス時間以内にレスポンスを返さなければならない
-2. WHEN 権限チェックAPIが呼び出される THEN Authentication Serviceは99パーセンタイルで目標レスポンス時間以内にレスポンスを返さなければならない
-3. WHEN システムが大量の同時ユーザーを処理する THEN Authentication Serviceはレスポンスタイムの劣化率を許容範囲内に抑えなければならない
-4. WHEN 権限情報がキャッシュされる THEN Authentication Serviceは高いキャッシュヒット率を維持しなければならない
-5. WHEN データベース接続プールを管理する THEN Authentication Serviceは適切な接続プールを維持しなければならない
-6. WHEN トークンリフレッシュAPIが呼び出される THEN Authentication Serviceは95パーセンタイルで目標レスポンス時間以内にレスポンスを返さなければならない
+1. WHEN ログインAPIリクエストが送信される THEN Authentication Serviceは95パーセンタイルで500ms以内にレスポンスを返さなければならない
+2. WHEN 権限チェックAPIが呼び出される THEN Authentication Serviceは99パーセンタイルで100ms以内にレスポンスを返さなければならない
+3. WHEN システムが大量の同時ユーザーを処理する THEN Authentication Serviceはレスポンスタイムの劣化率を20%以内に抑えなければならない
+4. WHEN 権限情報がキャッシュされる THEN Authentication Serviceは90%以上のキャッシュヒット率を維持しなければならない
+5. WHEN データベース接続プールを管理する THEN Authentication Serviceは10-50接続の接続プールサイズを維持しなければならない
+6. WHEN トークンリフレッシュAPIが呼び出される THEN Authentication Serviceは95パーセンタイルで300ms以内にレスポンスを返さなければならない
 7. WHEN システムが水平スケーリングされる THEN Authentication Serviceはステートレス設計により、複数インスタンス間でセッション共有を可能にしなければならない
 8. WHEN データベースクエリを実行する THEN Authentication Serviceは適切なインデックスを使用して、クエリ時間を最小限に維持しなければならない
 

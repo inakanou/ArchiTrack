@@ -1,9 +1,9 @@
 {
   "feature_name": "user-authentication",
   "created_at": "2025-11-06T00:00:00Z",
-  "updated_at": "2025-11-07T16:00:00Z",
+  "updated_at": "2025-11-07T19:30:00Z",
   "language": "ja",
-  "phase": "requirements-updated",
+  "phase": "requirements-refined",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -22,5 +22,5 @@
   "related_specs": [
     "approval-workflow"
   ],
-  "notes": "要件定義をベストプラクティスに完全準拠（2025-11-07更新完了）: 1) サービス境界を統一（Backend Service → Authentication Service、パターンB: モノリス/モジュラーモノリス採用）、2) EARS形式改善（WHERE → WHENの修正、約40箇所）、3) 技術詳細を完全削除（bcrypt、具体的な有効期限、パフォーマンス数値、要件17の技術的考慮事項セクション等）、4) UI/UX要件は統合維持（オプション2）。要件定義は技術中立となり、design.mdで技術選択を行う準備が整いました。"
+  "notes": "要件定義をベストプラクティスに完全準拠し、さらに洗練（2025-11-07最終更新）: 1) EARS構文改善（要件15の括弧書き参照削除）、2) パフォーマンス要件の具体化（要件24: ログイン500ms、権限チェック100ms、トークンリフレッシュ300ms、劣化率20%、キャッシュヒット率90%、接続プール10-50）、3) UI/UX要件の抽象化（要件11-17: 「APIリクエスト」→「処理」、技術中立性を確保）、4) 疑似コード削除（要件22: TypeScriptインターフェース削除、受入基準に統合）、5) JSONスキーマ削除（要件23: 監査ログ構造を受入基準に統合）。要件定義はテスト可能かつ技術中立で、設計フェーズへの準備が完了。"
 }
