@@ -1,13 +1,13 @@
 {
   "feature_name": "user-authentication",
   "created_at": "2025-11-06T00:00:00Z",
-  "updated_at": "2025-11-07T20:30:00Z",
+  "updated_at": "2025-11-07T21:00:00Z",
   "language": "ja",
-  "phase": "requirements-refined",
+  "phase": "design-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
       "generated": true,
@@ -22,5 +22,5 @@
   "related_specs": [
     "approval-workflow"
   ],
-  "notes": "要件定義をベストプラクティスに完全準拠（2025-11-07最終更新）: 1) 用語集追加（招待トークン7日間、アクセストークン15分、リフレッシュトークン7日間、リセットトークン24時間）、2) 数値基準の具体化（要件1: 招待トークン7日間、要件4: アクセストークン15分・リフレッシュトークン7日間・アカウントロック5回失敗後15分間、要件7: リセットトークン24時間）、3) 事前定義ロールの整理（要件17: システム管理者・一般ユーザーのみ、両方とも削除不可）、4) Storybook要件削除（旧要件16、設計フェーズで定義）、5) テスト戦略削除（旧要件28、要件定義には不適切）、6) 要件番号再採番（要件17-27→要件16-26、最終26要件）。要件定義はテスト可能かつ技術中立で、設計フェーズへの準備が完了。"
+  "notes": "技術設計書を生成（2025-11-07最終更新）: 1) JWT + Refresh Token認証方式、2) NIST RBAC標準準拠の動的ロール・権限管理、3) マルチデバイスセッション管理、4) Prismaスキーマ拡張（User, Invitation, RefreshToken, Role, Permission, UserRole, RolePermission, AuditLog）、5) 既存アーキテクチャとの統合（Express, Prisma, Redis）、6) セキュリティ対策（JWT署名、bcryptハッシュ、レート制限、アカウントロック）、7) パフォーマンス要件（ログインAPI: 500ms以内、権限チェックAPI: 100ms以内、キャッシュヒット率: 90%以上）。要件定義から技術設計への移行が完了。"
 }
