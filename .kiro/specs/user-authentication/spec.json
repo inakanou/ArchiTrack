@@ -22,5 +22,5 @@
   "related_specs": [
     "approval-workflow"
   ],
-  "notes": "要件定義をベストプラクティスに準拠させるため更新（2025-11-07）: 1) サービス境界を統一（Authorization Service → Authentication Service、パターンB: モノリス/モジュラーモノリス採用）、2) EARS形式改善（WHERE/WHILEの使い分け修正）、3) 技術詳細を削除（bcrypt、HS256、Redis TTL等を技術中立的表現に変更）、4) Storybookストーリーと要件のトレーサビリティマッピング追加、5) E2Eテストシナリオ例を具体化。design.mdの再レビューと更新が必要。"
+  "notes": "要件定義をベストプラクティスに完全準拠（2025-11-07更新完了）: 1) サービス境界を統一（Backend Service → Authentication Service、パターンB: モノリス/モジュラーモノリス採用）、2) EARS形式改善（WHERE → WHENの修正、約40箇所）、3) 技術詳細を完全削除（bcrypt、具体的な有効期限、パフォーマンス数値、要件17の技術的考慮事項セクション等）、4) UI/UX要件は統合維持（オプション2）。要件定義は技術中立となり、design.mdで技術選択を行う準備が整いました。"
 }
