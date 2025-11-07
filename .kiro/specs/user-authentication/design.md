@@ -63,6 +63,7 @@ graph TB
     subgraph "Backend (Express)"
         AuthRoutes[Auth Routes<br/>/auth/*]
         RBACRoutes[RBAC Routes<br/>/rbac/*]
+        WorkflowRoutes[Workflow Routes<br/>/workflow/*]
         AuthMiddleware[JWT Auth Middleware]
         AuthzMiddleware[Authorization Middleware]
 
@@ -73,6 +74,9 @@ graph TB
         RoleService[Role Service]
         PermissionService[Permission Service]
         AuditService[Audit Log Service]
+        WorkflowService[Workflow Service]
+        ApprovalService[Approval Service]
+        NotificationService[Notification Service]
     end
 
     subgraph "Data Layer"
@@ -84,10 +88,12 @@ graph TB
     AuthContext --> Interceptor
     Interceptor -->|Bearer Token| AuthRoutes
     Interceptor -->|Bearer Token| RBACRoutes
+    Interceptor -->|Bearer Token| WorkflowRoutes
     Interceptor -->|401 Error| TokenService
 
     AuthRoutes --> AuthMiddleware
     RBACRoutes --> AuthMiddleware
+    WorkflowRoutes --> AuthMiddleware
     AuthMiddleware --> AuthzMiddleware
     AuthzMiddleware --> AuthzService
 
@@ -98,12 +104,20 @@ graph TB
     AuthzService --> PermissionService
     AuthzService --> AuditService
 
+    WorkflowService --> ApprovalService
+    WorkflowService --> NotificationService
+    WorkflowService --> RoleService
+    ApprovalService --> AuthzService
+    ApprovalService --> AuditService
+
     TokenService --> Redis
     SessionService --> Redis
     AuthService --> PostgreSQL
     RoleService --> PostgreSQL
     PermissionService --> PostgreSQL
     AuditService --> PostgreSQL
+    WorkflowService --> PostgreSQL
+    ApprovalService --> PostgreSQL
 ```
 
 ### アーキテクチャ統合
@@ -119,6 +133,9 @@ graph TB
 - **Role Service**: ロールのライフサイクル管理、事前定義ロールの初期化
 - **Permission Service**: 権限の評価、ワイルドカード権限のマッチング
 - **Audit Log Service**: 監査ログの記録と取得、コンプライアンス対応
+- **Workflow Service**: 決裁ワークフローのライフサイクル管理、金額閾値ベースのルート選択、ワークフロー状態追跡
+- **Approval Service**: 承認・差し戻し・代理承認の実行、承認権限の検証、承認履歴の記録
+- **Notification Service**: ワークフロー開始・承認待ち・完了時の通知、リマインダー送信
 
 **技術スタック整合性:**
 - TypeScript完全対応: 既存の型安全性パターンを維持
@@ -489,6 +506,129 @@ sequenceDiagram
     UI-->>Admin: 権限が追加されました
 ```
 
+### シーケンス図: 決裁ワークフロー開始と金額閾値ベースのルート選択
+
+```mermaid
+sequenceDiagram
+    actor User as ユーザー（起案者）
+    participant UI as Frontend UI
+    participant API as Backend API
+    participant WorkflowService as Workflow Service
+    participant AuthzService as Authorization Service
+    participant NotificationService as Notification Service
+    participant DB as PostgreSQL
+
+    User->>UI: 見積もりADRを作成
+    UI->>User: 金額入力（例: 600万円）
+    User->>UI: 決裁申請ボタンをクリック
+    UI->>API: POST /workflow/start<br/>{type: "見積もり", amount: 6000000, adrId: "adr-123"}
+    API->>WorkflowService: startWorkflow(type, amount, adrId, userId)
+
+    WorkflowService->>DB: 金額閾値によるルート選択<br/>SELECT * FROM WorkflowRoute<br/>WHERE type='見積もり' AND minAmount <= 6000000 AND maxAmount > 6000000
+    DB-->>WorkflowService: ルート: "営業 → 積算担当 → 購買担当"
+
+    WorkflowService->>DB: ワークフロー作成<br/>INSERT INTO Workflow<br/>(type, status, currentStep, totalSteps)
+    DB-->>WorkflowService: workflowId
+
+    WorkflowService->>DB: 承認ステップ作成<br/>INSERT INTO WorkflowStep<br/>(step 1: 営業, step 2: 積算担当, step 3: 購買担当)
+
+    WorkflowService->>AuthzService: getApprovers(roleId: "営業")
+    AuthzService->>DB: SELECT * FROM UserRole WHERE roleId = "営業"
+    DB-->>AuthzService: [user1, user2]
+    AuthzService-->>WorkflowService: approvers
+
+    WorkflowService->>NotificationService: notifyApprovers(workflowId, step: 1, approvers)
+    NotificationService-->>WorkflowService: 通知送信完了
+
+    WorkflowService->>DB: ワークフロー保存
+    WorkflowService-->>API: {workflowId, status: "進行中", currentStep: 1}
+    API-->>UI: 201 Created
+    UI-->>User: 決裁申請が開始されました（承認者: 営業）
+```
+
+### シーケンス図: 承認・差し戻しフロー
+
+```mermaid
+sequenceDiagram
+    actor Approver as 承認者
+    participant UI as Frontend UI
+    participant API as Backend API
+    participant AuthzMiddleware as Authorization Middleware
+    participant ApprovalService as Approval Service
+    participant WorkflowService as Workflow Service
+    participant NotificationService as Notification Service
+    participant AuditService as Audit Log Service
+    participant DB as PostgreSQL
+
+    Approver->>UI: 承認待ちワークフロー一覧を表示
+    UI->>API: GET /workflow/pending
+    API->>WorkflowService: getPendingWorkflows(approverId)
+    WorkflowService->>DB: SELECT * FROM Workflow<br/>WHERE status='進行中' AND currentStepApproverId = approverId
+    DB-->>WorkflowService: [workflow1, workflow2]
+    WorkflowService-->>API: workflows
+    API-->>UI: 200 OK
+    UI-->>Approver: 承認待ちワークフロー2件
+
+    Approver->>UI: ワークフロー詳細を開く
+    Approver->>UI: 「承認」ボタンをクリック
+    UI->>API: POST /workflow/:workflowId/approve<br/>{comment: "承認します"}
+    API->>AuthzMiddleware: requirePermission('workflow:approve')
+    AuthzMiddleware->>ApprovalService: checkApprovalPermission(workflowId, userId)
+
+    ApprovalService->>DB: 現在のステップの承認者かチェック
+    DB-->>ApprovalService: true
+    ApprovalService-->>AuthzMiddleware: Authorized
+    AuthzMiddleware-->>API: Authorized
+
+    API->>ApprovalService: approve(workflowId, approverId, comment)
+    ApprovalService->>DB: トランザクション開始
+
+    ApprovalService->>DB: 承認履歴記録<br/>INSERT INTO ApprovalHistory<br/>(workflowId, stepNumber, approverId, action: "承認", comment)
+
+    ApprovalService->>WorkflowService: moveToNextStep(workflowId)
+    WorkflowService->>DB: 次のステップを確認<br/>SELECT * FROM WorkflowStep WHERE workflowId = ... AND stepNumber = currentStep + 1
+
+    alt 次のステップが存在
+        DB-->>WorkflowService: nextStep: 積算担当
+        WorkflowService->>DB: currentStep更新<br/>UPDATE Workflow SET currentStep = currentStep + 1
+        WorkflowService->>AuthzService: getApprovers(roleId: "積算担当")
+        AuthzService->>DB: SELECT * FROM UserRole WHERE roleId = "積算担当"
+        DB-->>AuthzService: [user3]
+        WorkflowService->>NotificationService: notifyApprovers(workflowId, step: 2, approvers)
+        NotificationService-->>WorkflowService: 通知送信完了
+        WorkflowService-->>ApprovalService: nextStep: 積算担当
+    else 全ステップ完了
+        DB-->>WorkflowService: No next step
+        WorkflowService->>DB: ワークフロー完了<br/>UPDATE Workflow SET status = '承認済み'
+        WorkflowService->>NotificationService: notifyCompletion(workflowId, initiatorId)
+        WorkflowService-->>ApprovalService: completed
+    end
+
+    ApprovalService->>AuditService: logAction(actor, WORKFLOW_APPROVED, target, changes)
+    AuditService->>DB: 監査ログ保存
+    ApprovalService->>DB: トランザクションコミット
+    ApprovalService-->>API: Success
+    API-->>UI: 200 OK
+    UI-->>Approver: 承認が完了しました
+
+    Note over Approver,DB: --- 差し戻しフロー ---
+
+    alt 承認者が差し戻しを選択
+        Approver->>UI: 「差し戻し」ボタンをクリック
+        UI->>Approver: 差し戻し理由を入力
+        Approver->>UI: 送信
+        UI->>API: POST /workflow/:workflowId/reject<br/>{reason: "見積もり金額の再計算が必要"}
+        API->>ApprovalService: reject(workflowId, approverId, reason)
+        ApprovalService->>DB: 承認履歴記録<br/>action: "差し戻し"
+        ApprovalService->>DB: ワークフロー状態更新<br/>UPDATE Workflow SET status = '差し戻し'
+        ApprovalService->>NotificationService: notifyRejection(workflowId, initiatorId, reason)
+        ApprovalService->>AuditService: logAction(actor, WORKFLOW_REJECTED, target, changes)
+        ApprovalService-->>API: Success
+        API-->>UI: 200 OK
+        UI-->>Approver: 差し戻しが完了しました
+    end
+```
+
 ## 要件トレーサビリティ
 
 | 要件 | 要件概要 | コンポーネント | インターフェース | フロー |
@@ -511,6 +651,9 @@ sequenceDiagram
 | 21 | ユーザーへのロール割り当て（マルチロール） | Role Service | POST /rbac/users/:id/roles, DELETE /rbac/users/:id/roles/:roleId | - |
 | 22 | 権限チェック機能 | Authorization Service, Permission Service | requirePermission('resource:action'), hasPermission() | 権限チェックフロー図 |
 | 23 | 監査ログとコンプライアンス | Audit Log Service | GET /rbac/audit-logs, POST /rbac/audit-logs/export | - |
+| 24 | 決裁ワークフロー設計 | Workflow Service, Workflow Route Model, Workflow Step Model | POST /workflow/start, GET /workflow/:id | 決裁ワークフロー開始フロー図 |
+| 25 | 決裁承認機能 | Approval Service, Workflow Service, Notification Service | POST /workflow/:id/approve, POST /workflow/:id/reject, GET /workflow/pending | 承認・差し戻しフロー図 |
+| 26 | 業務別決裁ルートの最適化 | Workflow Service, Workflow Route Model | POST /workflow/routes, GET /workflow/routes, PATCH /workflow/routes/:id | - |
 
 ## コンポーネントとインターフェース
 
@@ -1125,6 +1268,192 @@ interface AuditLogFilter {
 - 監査ログは削除不可（追記のみ）
 - 全ての権限変更操作は監査ログに記録される
 
+### Workflow Domain
+
+#### Workflow Service
+
+**責務と境界**
+- **主要責務**: 決裁ワークフローのライフサイクル管理、金額閾値ベースのルート選択、ワークフロー状態追跡
+- **ドメイン境界**: Workflow、WorkflowRoute、WorkflowStepの管理
+- **データ所有権**: ワークフローインスタンス、承認ステップ、ワークフロー設定
+- **トランザクション境界**: ワークフロー作成・更新・完了の各操作はトランザクション内で実行
+
+**依存関係**
+- **インバウンド**: Workflow Routes、Frontend UI
+- **アウトバウンド**: Approval Service、Notification Service、Authorization Service、PostgreSQL
+- **外部依存**: なし
+
+**契約定義**
+
+**サービスインターフェース:**
+```typescript
+interface WorkflowService {
+  // ワークフロー開始
+  startWorkflow(input: StartWorkflowInput): Promise<Result<Workflow, WorkflowError>>;
+
+  // ワークフロー取得
+  getWorkflow(workflowId: string): Promise<Result<Workflow, NotFoundError>>;
+
+  // 承認待ちワークフロー取得
+  getPendingWorkflows(approverId: string): Promise<Result<Workflow[], WorkflowError>>;
+
+  // 次のステップに進む
+  moveToNextStep(workflowId: string): Promise<Result<WorkflowStep | null, WorkflowError>>;
+
+  // ワークフロー完了
+  completeWorkflow(workflowId: string): Promise<Result<Workflow, WorkflowError>>;
+
+  // カスタム決裁ルート作成
+  createWorkflowRoute(input: CreateWorkflowRouteInput): Promise<Result<WorkflowRoute, WorkflowError>>;
+
+  // 決裁ルート取得
+  getWorkflowRoutes(type?: WorkflowType): Promise<Result<WorkflowRoute[], WorkflowError>>;
+}
+
+interface StartWorkflowInput {
+  type: WorkflowType; // 'quotation' | 'procurement' | 'payment' | 'site_change'
+  amount: number;
+  adrId: string;
+  initiatorId: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface CreateWorkflowRouteInput {
+  name: string;
+  type: WorkflowType;
+  minAmount: number;
+  maxAmount: number;
+  steps: WorkflowStepDefinition[];
+  createdBy: string;
+}
+```
+
+**事前条件:**
+- `startWorkflow`: type、amount、adrId、initiatorIdが提供され、起案者が有効なユーザーである
+- `createWorkflowRoute`: 承認ステップに循環参照がなく、ロールが有効である
+
+**事後条件:**
+- `startWorkflow`: ワークフローインスタンスが作成され、最初の承認者に通知が送信される
+- `moveToNextStep`: currentStepが更新され、次の承認者に通知が送信される、または全ステップ完了でステータスが「承認済み」になる
+- `completeWorkflow`: ワークフローステータスが「承認済み」に更新され、起案者に完了通知が送信される
+
+**不変条件:**
+- ワークフローは常に有効な状態（進行中、承認済み、差し戻し、キャンセル）のいずれか
+- currentStepは常にtotalSteps以下
+- 承認済みワークフローは変更不可
+
+**状態管理:**
+```mermaid
+stateDiagram-v2
+    [*] --> 進行中: startWorkflow
+    進行中 --> 進行中: moveToNextStep
+    進行中 --> 承認済み: completeWorkflow
+    進行中 --> 差し戻し: rejectWorkflow
+    差し戻し --> [*]
+    承認済み --> [*]
+```
+
+#### Approval Service
+
+**責務と境界**
+- **主要責務**: 承認・差し戻し・代理承認の実行、承認権限の検証、承認履歴の記録
+- **ドメイン境界**: ApprovalHistoryの管理
+- **データ所有権**: 承認履歴、承認アクション
+- **トランザクション境界**: 承認・差し戻し操作はトランザクション内で実行
+
+**依存関係**
+- **インバウンド**: Workflow Routes、Frontend UI
+- **アウトバウンド**: Workflow Service、Authorization Service、Audit Log Service、Notification Service、PostgreSQL
+- **外部依存**: なし
+
+**契約定義**
+
+**サービスインターフェース:**
+```typescript
+interface ApprovalService {
+  // ワークフロー承認
+  approve(input: ApprovalInput): Promise<Result<ApprovalHistory, ApprovalError>>;
+
+  // ワークフロー差し戻し
+  reject(input: RejectionInput): Promise<Result<ApprovalHistory, ApprovalError>>;
+
+  // 承認権限チェック
+  checkApprovalPermission(workflowId: string, userId: string): Promise<Result<boolean, ApprovalError>>;
+
+  // 承認履歴取得
+  getApprovalHistory(workflowId: string): Promise<Result<ApprovalHistory[], ApprovalError>>;
+}
+
+interface ApprovalInput {
+  workflowId: string;
+  approverId: string;
+  comment?: string;
+  delegatedBy?: string; // 代理承認の場合
+}
+
+interface RejectionInput {
+  workflowId: string;
+  approverId: string;
+  reason: string;
+}
+```
+
+**事前条件:**
+- `approve`: approverId が現在のステップの承認者であり、ワークフローが「進行中」状態である
+- `reject`: approverId が現在のステップの承認者であり、ワークフローが「進行中」状態である
+- `checkApprovalPermission`: workflowId が有効で、userId が存在する
+
+**事後条件:**
+- `approve`: 承認履歴が記録され、次のステップに進む、または全ステップ完了でワークフローが完了する
+- `reject`: 承認履歴が記録され、ワークフローステータスが「差し戻し」に更新され、起案者に通知が送信される
+- `checkApprovalPermission`: 承認者が現在のステップの承認者である場合trueを返す
+
+**不変条件:**
+- 承認履歴は追記のみ（削除・更新不可）
+- 全ての承認・差し戻しアクションは監査ログに記録される
+- 同じステップで重複承認は不可
+
+#### Notification Service
+
+**責務と境界**
+- **主要責務**: ワークフロー開始・承認待ち・完了・差し戻し時の通知送信、リマインダー送信
+- **ドメイン境界**: 通知の送信（データ永続化なし）
+- **データ所有権**: なし（通知は外部サービスに委譲）
+
+**依存関係**
+- **インバウンド**: Workflow Service、Approval Service
+- **アウトバウンド**: メール送信サービス（将来的に実装）
+- **外部依存**: SMTPサーバー、または外部メールサービスAPI（SendGrid、AWS SESなど）
+
+**契約定義**
+
+**サービスインターフェース:**
+```typescript
+interface NotificationService {
+  // 承認者に通知
+  notifyApprovers(workflowId: string, step: number, approvers: User[]): Promise<Result<void, NotificationError>>;
+
+  // ワークフロー完了通知
+  notifyCompletion(workflowId: string, initiatorId: string): Promise<Result<void, NotificationError>>;
+
+  // 差し戻し通知
+  notifyRejection(workflowId: string, initiatorId: string, reason: string): Promise<Result<void, NotificationError>>;
+
+  // リマインダー送信（スケジュール実行）
+  sendReminders(): Promise<Result<void, NotificationError>>;
+}
+```
+
+**事前条件:**
+- `notifyApprovers`: approvers が空でない有効なユーザーリストである
+- `notifyCompletion`, `notifyRejection`: initiatorId が有効なユーザーIDである
+
+**事後条件:**
+- 通知が承認者または起案者に送信される（メール、または将来的にプッシュ通知）
+
+**不変条件:**
+- 通知送信失敗は上位層にエラーとして返されるが、ワークフロー自体の進行を妨げない
+
 ### Middleware Layer
 
 #### Authorization Middleware
@@ -1435,18 +1764,164 @@ enum AuditAction {
   USER_ROLE_ASSIGNED
   USER_ROLE_REVOKED
   PERMISSION_CHECK_FAILED
+  WORKFLOW_STARTED
+  WORKFLOW_APPROVED
+  WORKFLOW_REJECTED
+  WORKFLOW_COMPLETED
+}
+
+// ワークフローモデル
+model Workflow {
+  id            String          @id @default(uuid())
+  type          WorkflowType
+  status        WorkflowStatus  @default(PENDING)
+  amount        Decimal         @db.Decimal(15, 2)
+  adrId         String
+  initiatorId   String
+  currentStep   Int             @default(1)
+  totalSteps    Int
+  routeId       String          // 使用された決裁ルートID
+  metadata      Json?           // 追加のメタデータ
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  completedAt   DateTime?
+
+  // リレーション
+  initiator     User            @relation("WorkflowInitiator", fields: [initiatorId], references: [id])
+  route         WorkflowRoute   @relation(fields: [routeId], references: [id])
+  steps         WorkflowStep[]
+  approvals     ApprovalHistory[]
+
+  // インデックス
+  @@index([initiatorId])
+  @@index([status, currentStep])
+  @@index([createdAt])
+  @@map("workflows")
+}
+
+// ワークフロールートモデル（決裁ルート定義）
+model WorkflowRoute {
+  id          String          @id @default(uuid())
+  name        String
+  type        WorkflowType
+  minAmount   Decimal         @db.Decimal(15, 2)
+  maxAmount   Decimal         @db.Decimal(15, 2)
+  isSystem    Boolean         @default(false) // システム定義（削除不可）
+  createdBy   String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  // リレーション
+  creator     User            @relation("WorkflowRouteCreator", fields: [createdBy], references: [id])
+  steps       WorkflowStepDefinition[]
+  workflows   Workflow[]
+
+  // インデックス
+  @@index([type, minAmount, maxAmount])
+  @@map("workflow_routes")
+}
+
+// ワークフローステップ定義モデル（ルートに紐付くステップのテンプレート）
+model WorkflowStepDefinition {
+  id          String          @id @default(uuid())
+  routeId     String
+  stepNumber  Int
+  roleId      String
+  isParallel  Boolean         @default(false) // 並列承認の場合true
+
+  // リレーション
+  route       WorkflowRoute   @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  role        Role            @relation(fields: [roleId], references: [id])
+
+  // インデックス
+  @@unique([routeId, stepNumber])
+  @@map("workflow_step_definitions")
+}
+
+// ワークフローステップモデル（ワークフローインスタンスに紐付く実行時ステップ）
+model WorkflowStep {
+  id          String          @id @default(uuid())
+  workflowId  String
+  stepNumber  Int
+  roleId      String
+  status      StepStatus      @default(PENDING)
+  createdAt   DateTime        @default(now())
+
+  // リレーション
+  workflow    Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  role        Role            @relation("WorkflowStepRole", fields: [roleId], references: [id])
+
+  // インデックス
+  @@unique([workflowId, stepNumber])
+  @@index([workflowId, status])
+  @@map("workflow_steps")
+}
+
+// 承認履歴モデル
+model ApprovalHistory {
+  id          String          @id @default(uuid())
+  workflowId  String
+  stepNumber  Int
+  approverId  String
+  action      ApprovalAction
+  comment     String?
+  reason      String?         // 差し戻しの場合の理由
+  delegatedBy String?         // 代理承認の場合、委譲元のユーザーID
+  createdAt   DateTime        @default(now())
+
+  // リレーション
+  workflow    Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  approver    User            @relation("Approver", fields: [approverId], references: [id])
+  delegator   User?           @relation("Delegator", fields: [delegatedBy], references: [id])
+
+  // インデックス
+  @@index([workflowId])
+  @@index([approverId])
+  @@index([createdAt])
+  @@map("approval_history")
+}
+
+// ワークフロー種別列挙型
+enum WorkflowType {
+  QUOTATION      // 見積もり
+  PROCUREMENT    // 購買
+  PAYMENT        // 支払い
+  SITE_CHANGE    // 現場変更
+}
+
+// ワークフロー状態列挙型
+enum WorkflowStatus {
+  PENDING     // 進行中
+  APPROVED    // 承認済み
+  REJECTED    // 差し戻し
+  CANCELLED   // キャンセル
+}
+
+// ステップ状態列挙型
+enum StepStatus {
+  PENDING     // 承認待ち
+  APPROVED    // 承認済み
+  REJECTED    // 差し戻し
+}
+
+// 承認アクション列挙型
+enum ApprovalAction {
+  APPROVED    // 承認
+  REJECTED    // 差し戻し
 }
 ```
 
 **マイグレーション戦略:**
 1. 既存のUserテーブルに新しいカラムを追加（password、failedLoginCount、lockedUntil）
 2. 新しいテーブルを作成（Role、Permission、UserRole、RolePermission、Invitation、RefreshToken、AuditLog）
-3. 事前定義ロールと権限をシーディング（`npm run seed`）
-4. 初期管理者アカウントをシーディングし、システム管理者ロールを割り当て
+3. ワークフロー関連テーブルを作成（Workflow、WorkflowRoute、WorkflowStepDefinition、WorkflowStep、ApprovalHistory）
+4. 事前定義ロールと権限をシーディング（`npm run seed`）
+5. 事前定義ワークフロールート（見積もり、購買、支払い、現場変更）をシーディング
+6. 初期管理者アカウントをシーディングし、システム管理者ロールを割り当て
 
 **データ整合性:**
-- **外部キー制約**: UserRole.userId → User.id、UserRole.roleId → Role.id、RolePermission.roleId → Role.id等（CASCADE削除）
-- **ユニーク制約**: User.email、Role.name、Permission.name、Invitation.email、Invitation.token、RefreshToken.token、UserRole(userId, roleId)、RolePermission(roleId, permissionId)
+- **外部キー制約**: UserRole.userId → User.id、UserRole.roleId → Role.id、RolePermission.roleId → Role.id、Workflow.initiatorId → User.id、WorkflowStep.workflowId → Workflow.id（CASCADE削除）、ApprovalHistory.workflowId → Workflow.id（CASCADE削除）等
+- **ユニーク制約**: User.email、Role.name、Permission.name、Invitation.email、Invitation.token、RefreshToken.token、UserRole(userId, roleId)、RolePermission(roleId, permissionId)、WorkflowStepDefinition(routeId, stepNumber)、WorkflowStep(workflowId, stepNumber)
 - **インデックス**: 頻繁にクエリされるカラム（email、name、token、status、expiresAt、action、createdAt）
 
 **パフォーマンス最適化:**
@@ -1455,6 +1930,11 @@ enum AuditAction {
 - `@@index([userId, roleId])`: ユーザーのロール取得クエリ最適化
 - `@@index([roleId, permissionId])`: ロールの権限取得クエリ最適化
 - `@@index([action, createdAt])`: 監査ログのフィルタリングクエリ最適化
+- `@@index([initiatorId])`: ユーザーのワークフロー一覧取得クエリ最適化
+- `@@index([status, currentStep])`: 承認待ちワークフロー取得クエリ最適化
+- `@@index([type, minAmount, maxAmount])`: 金額閾値によるルート選択クエリ最適化
+- `@@index([workflowId, status])`: ワークフローステップステータス取得クエリ最適化
+- `@@index([approverId])`: 承認者の承認履歴取得クエリ最適化
 
 ### Redisデータモデル
 
@@ -1769,6 +2249,23 @@ async function handleApiError(error: ApiError): Promise<void> {
    - `requirePermission()`: 権限チェック、403エラーレスポンス
    - `requireResourceOwnership()`: 所有者フィルタリング
 
+8. **Workflow Service**
+   - `startWorkflow()`: ワークフロー開始、金額閾値によるルート選択、ステップ初期化
+   - `getPendingWorkflows()`: 承認者IDによるフィルタリング、複数ロール対応
+   - `moveToNextStep()`: 次ステップへの遷移、ステータス更新
+   - `completeWorkflow()`: ワークフロー完了、ADRステータス更新
+   - `createWorkflowRoute()`: カスタムルート作成、金額閾値バリデーション
+
+9. **Approval Service**
+   - `approveStep()`: 承認処理、次ステップへの自動遷移、通知送信
+   - `rejectStep()`: 差し戻し処理、理由バリデーション、申請者への通知
+   - `delegateApproval()`: 委譲処理、権限チェック、履歴記録
+
+10. **Notification Service**
+    - `sendApprovalRequest()`: 承認依頼通知、メール送信、プッシュ通知
+    - `sendApprovalResult()`: 承認結果通知、申請者への通知
+    - `sendReminderNotification()`: リマインダー通知、24時間経過時
+
 **Frontend単体テスト:**
 
 1. **Auth Context（既存テストを更新）**
@@ -1803,6 +2300,21 @@ async function handleApiError(error: ApiError): Promise<void> {
    - 権限チェック実行 → Redisにキャッシュ → 2回目のチェックはキャッシュから取得
    - ロール変更 → キャッシュ無効化 → 3回目のチェックはDBから再取得
 
+6. **ワークフロー完全フローテスト**
+   - 営業がADR作成（金額: 1,200万円）→ 見積もりワークフロー開始 → 4ステップルート自動選択 → 積算担当に承認依頼通知
+   - 積算担当がワークフロー承認 → 購買担当へ遷移 → 購買担当が承認 → 経営へ遷移 → 経営が承認 → ワークフロー完了 → ADRステータス更新
+
+7. **ワークフロー差し戻しテスト**
+   - 積算担当がワークフロー差し戻し（理由必須）→ ステータスREJECTED → 申請者への通知 → 監査ログ記録
+
+8. **ワークフロー委譲テスト**
+   - 積算担当が別の積算担当に委譲 → 権限チェック成功 → 承認履歴に委譲記録 → 新承認者への通知
+
+9. **金額閾値ルート選択テスト**
+   - 見積もり金額: 300万円 → 2ステップルート（営業 → 積算担当）
+   - 見積もり金額: 800万円 → 3ステップルート（営業 → 積算担当 → 購買担当）
+   - 見積もり金額: 1,500万円 → 4ステップルート（営業 → 積算担当 → 購買担当 → 経営）
+
 ### E2Eテスト（Playwright）
 
 1. **システム管理者によるロール管理フロー**
@@ -1822,6 +2334,26 @@ async function handleApiError(error: ApiError): Promise<void> {
    - レスポンシブデザイン（モバイル・タブレット・デスクトップ）
    - アクセシビリティ（キーボードナビゲーション、スクリーンリーダー）
    - ロール選択ドロップダウン、権限チェックボックスのインタラクション
+
+6. **ワークフロー承認ダッシュボードフロー**
+   - 積算担当でログイン → 承認待ちダッシュボード表示 → 3件の承認待ち確認 → 緊急ワークフロー（🔴）を優先表示
+   - フィルタ適用（種類: 見積もり、金額範囲: 1,000万円以上）→ フィルタ結果反映 → ワークフロー詳細画面へ遷移
+
+7. **ワークフロー承認・差し戻しフロー**
+   - ワークフロー詳細画面で承認ボタンクリック → 承認アクションモーダル表示 → コメント入力 → 承認実行 → 次のステップへ遷移確認 → トースト通知表示
+   - 別のワークフロー詳細画面で差し戻しボタンクリック → 差し戻し理由選択（必須）→ コメント入力 → 差し戻し実行 → ステータスREJECTED確認 → 申請者への通知確認
+
+8. **ワークフロー委譲フロー**
+   - ワークフロー詳細画面で委譲ボタンクリック → 委譲先承認者選択ドロップダウン表示（同じロールのユーザーのみ）→ 委譲先選択 → コメント入力 → 委譲実行 → 承認履歴に委譲記録確認
+
+9. **ワークフロー通知・リアルタイム更新**
+   - 営業ユーザーがADR作成（金額: 1,200万円）→ ワークフロー開始 → 積算担当ユーザーのブラウザで🔔アイコンにバッジ表示（リアルタイム）
+   - 積算担当がダッシュボード更新 → 新規ワークフロー表示確認 → 詳細画面で金額・ルート確認
+
+10. **ワークフローStorybookビジュアル回帰テスト**
+    - 承認待ちダッシュボードの全ストーリー（7種類）をスナップショット比較 → ビジュアル差分なし確認
+    - ワークフロー詳細画面の全ストーリー（9種類）をスナップショット比較 → ビジュアル差分なし確認
+    - 承認アクションモーダルの全ストーリー（8種類）をスナップショット比較 → ビジュアル差分なし確認
 
 ### パフォーマンステスト（Autocannon）
 
@@ -2449,6 +2981,221 @@ async function handleApiError(error: ApiError): Promise<void> {
 - **アクセシビリティ**: aria-live="polite"属性でスクリーンリーダーに通知（要件17.14）
 - **自動トークンリフレッシュ**: バックグラウンドで5分前にトークンを自動更新し、UX向上（要件17.15）
 
+### 8. 承認待ちダッシュボード
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        承認待ちワークフロー                              │
+│  [🔔 3件の承認待ち]                           [👤 山田太郎 ▼] [ログアウト] │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  フィルター: [全て ▼] [種類: 全て ▼] [金額範囲: 指定なし ▼]          │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  🔴 緊急  見積もりワークフロー #WF-2025-1107-001                      │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  金額: ¥12,500,000  |  開始: 2025-11-07 09:30  |  経過: 2時間        │
+  │  申請者: 鈴木花子 (営業)  →  現在のステップ: 積算担当                 │
+  │                                                                     │
+  │  ルート: 営業 → 積算担当 → 購買担当 → 経営                          │
+  │         ✅      ⏳ あなた     ⏸️         ⏸️                         │
+  │                                                                     │
+  │  関連ADR: ADR-2025-1107-001 「新オフィスビル建設プロジェクト」       │
+  │                                             [詳細を見る] [承認/差し戻し] │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  🟡 通常  購買ワークフロー #WF-2025-1106-042                         │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  金額: ¥3,200,000  |  開始: 2025-11-06 14:20  |  経過: 18時間        │
+  │  申請者: 佐藤次郎 (購買)  →  現在のステップ: 購買担当                 │
+  │                                                                     │
+  │  ルート: 購買 → 購買担当                                             │
+  │         ✅      ⏳ あなた                                           │
+  │                                                                     │
+  │  関連ADR: ADR-2025-1106-015 「建材一括発注」                         │
+  │                                             [詳細を見る] [承認/差し戻し] │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  🟢 低優先  支払いワークフロー #WF-2025-1105-128                     │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  金額: ¥450,000  |  開始: 2025-11-05 10:15  |  経過: 2日間           │
+  │  申請者: 田中一郎 (経理)  →  現在のステップ: 経理担当                 │
+  │                                                                     │
+  │  ルート: 経理 → 経理担当                                             │
+  │         ✅      ⏳ あなた                                           │
+  │                                                                     │
+  │  関連ADR: ADR-2025-1105-033 「設計ソフトウェアライセンス更新」       │
+  │                                             [詳細を見る] [承認/差し戻し] │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────┐
+  │  ページ: [<] 1 2 3 [>]  合計: 23件   │
+  └───────────────────────────────────────┘
+```
+
+**UI/UX特徴:**
+- **優先度表示**: 金額と経過時間に基づいて緊急度を色分け表示（要件24.5）
+  - 🔴 緊急: 1,000万円以上または24時間以上経過
+  - 🟡 通常: 300万円以上または12時間以上経過
+  - 🟢 低優先: その他
+- **ワークフロー進行状況**: ルート全体を視覚化し、現在地を明示（要件24.3）
+- **リアルタイム通知**: 新規承認依頼時に🔔アイコンにバッジ表示（要件25.4）
+- **フィルタリング**: 種類、金額範囲、優先度でフィルタ可能（要件24.6）
+- **レスポンシブ対応**: モバイルではカード形式に変換し、スワイプで承認/差し戻し（要件13.11）
+- **アクセシビリティ**: ステータスアイコンにaria-label付与（要件15.4）
+
+### 9. ワークフロー詳細画面
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ← 戻る          ワークフロー詳細 #WF-2025-1107-001                      │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  基本情報                                                            │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  種類:           見積もりワークフロー                                │
+  │  金額:           ¥12,500,000                                        │
+  │  申請者:         鈴木花子 (営業部)                                   │
+  │  申請日時:       2025-11-07 09:30:15                                │
+  │  現在のステータス: ⏳ 承認待ち（積算担当）                            │
+  │  関連ADR:        ADR-2025-1107-001 「新オフィスビル建設プロジェクト」 │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  承認ルート                                                          │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │                                                                     │
+  │   Step 1: 営業                                                      │
+  │   ✅ 承認済み                                                       │
+  │   鈴木花子 (suzuki.hanako@example.com)                              │
+  │   承認日時: 2025-11-07 09:30:15                                     │
+  │   コメント: 「大型案件のため、慎重な見積もりをお願いします」          │
+  │                                                                     │
+  │   ↓                                                                │
+  │                                                                     │
+  │   Step 2: 積算担当  ⏳ 現在のステップ                               │
+  │   承認者: 山田太郎 (yamada.taro@example.com) - あなた               │
+  │   待機時間: 2時間15分                                               │
+  │                                                                     │
+  │   ↓                                                                │
+  │                                                                     │
+  │   Step 3: 購買担当                                                  │
+  │   ⏸️ 待機中                                                        │
+  │   承認者: 佐藤次郎 (sato.jiro@example.com)                          │
+  │                                                                     │
+  │   ↓                                                                │
+  │                                                                     │
+  │   Step 4: 経営                                                      │
+  │   ⏸️ 待機中                                                        │
+  │   承認者: 田中社長 (tanaka.ceo@example.com)                         │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  メタデータ                                                          │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  プロジェクト名: 新オフィスビル建設                                  │
+  │  顧客:          株式会社サンプル                                     │
+  │  納期:          2025-12-31                                          │
+  │  備考:          初期見積もり、詳細な積算が必要                       │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  関連ADR内容                                                         │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  タイトル: 新オフィスビル建設プロジェクト                            │
+  │  ステータス: Draft                                                   │
+  │  作成者: 鈴木花子                                                    │
+  │  作成日: 2025-11-07                                                  │
+  │                                                                     │
+  │  [ADRの詳細を見る]                                                  │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────┐
+  │      [承認する]  [差し戻す]           │
+  └───────────────────────────────────────┘
+```
+
+**UI/UX特徴:**
+- **タイムライン表示**: 承認ルート全体を縦型タイムラインで視覚化（要件24.3）
+- **ステータスアイコン**: ✅承認済み、⏳現在、⏸️待機中を明示（要件24.4）
+- **待機時間表示**: 各ステップの経過時間をリアルタイム更新（要件24.5）
+- **コメント履歴**: 各承認者のコメントを時系列で表示（要件25.2）
+- **関連ADRプレビュー**: ワークフロー対象のADR情報を埋め込み表示（要件24.7）
+- **パンくずナビゲーション**: ダッシュボードへの戻りリンク（要件13.9）
+- **キーボード操作**: Tab + Enterで承認/差し戻しアクションが可能（要件15.3）
+
+### 10. 承認・差し戻し画面（モーダル）
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ワークフロー詳細 #WF-2025-1107-001                    [背景: 半透明暗転] │
+└─────────────────────────────────────────────────────────────────────────┘
+
+    ┌───────────────────────────────────────────────────────┐
+    │  承認アクション選択                              [✕]  │
+    │  ───────────────────────────────────────────────────  │
+    │                                                       │
+    │  ワークフロー: 見積もりワークフロー #WF-2025-1107-001  │
+    │  金額: ¥12,500,000                                    │
+    │  申請者: 鈴木花子 (営業)                              │
+    │                                                       │
+    │  ───────────────────────────────────────────────────  │
+    │                                                       │
+    │  ○ 承認する                                           │
+    │     次のステップ（購買担当）に進みます                 │
+    │                                                       │
+    │  ○ 差し戻す                                           │
+    │     申請者に再提出を依頼します                         │
+    │                                                       │
+    │  ○ 別の承認者に委譲する                               │
+    │     権限を持つ他の承認者を指定します                   │
+    │                                                       │
+    │  ───────────────────────────────────────────────────  │
+    │                                                       │
+    │  コメント（任意）:                                     │
+    │  ┌─────────────────────────────────────────────────┐ │
+    │  │ 積算内容を確認しました。購買担当に進めてください  │ │
+    │  │                                                  │ │
+    │  │                                                  │ │
+    │  └─────────────────────────────────────────────────┘ │
+    │  残り 500文字                                          │
+    │                                                       │
+    │  [ 委譲先選択時のみ表示 ]                              │
+    │  委譲先承認者:                                         │
+    │  ┌─────────────────────────────────────────────────┐ │
+    │  │ 佐藤次郎 (積算担当) ▼                             │ │
+    │  └─────────────────────────────────────────────────┘ │
+    │                                                       │
+    │  差し戻し理由（差し戻し選択時は必須）:                 │
+    │  ┌─────────────────────────────────────────────────┐ │
+    │  │ ☐ 見積もり金額が不明確                            │ │
+    │  │ ☐ 必要な添付書類が不足                            │ │
+    │  │ ☐ 納期が現実的でない                              │ │
+    │  │ ☑ その他（詳細をコメントに記載）                  │ │
+    │  └─────────────────────────────────────────────────┘ │
+    │                                                       │
+    │  ┌─────────────────────────────────────────────────┐ │
+    │  │          [ キャンセル ]    [ 実行する ]          │ │
+    │  └─────────────────────────────────────────────────┘ │
+    └───────────────────────────────────────────────────────┘
+```
+
+**UI/UX特徴:**
+- **3つのアクション**: 承認/差し戻し/委譲を明確に分離（要件25.1, 25.3）
+- **条件付きフィールド**: 選択したアクションに応じて必要なフィールドを動的表示（要件25.2）
+- **差し戻し理由チェックリスト**: 一般的な理由を選択肢として提示（要件25.2）
+- **コメント文字数制限**: 500文字まで、残り文字数をリアルタイム表示（要件25.2）
+- **委譲先権限チェック**: 委譲先は同じロールまたは上位ロールのみ選択可能（要件25.3）
+- **確認ダイアログ**: 実行ボタンクリック時に最終確認ダイアログを表示（要件25.5）
+- **モーダルフォーカストラップ**: Escキーで閉じる、Tabキーでモーダル内を循環（要件15.11）
+- **ローディング状態**: 実行中はボタンを無効化しスピナー表示（要件11.6）
+- **エラーハンドリング**: API失敗時は具体的なエラーメッセージを表示（要件25.6）
+
 ### レスポンシブデザイン
 
 **ブレークポイント:**
@@ -2559,6 +3306,36 @@ Level 3: 0 4px 12px rgba(0,0,0,0.20)
 - EditRole（ロール編集）
 - AssignPermissions（権限割り当て）
 - DeleteConfirmation（削除確認）
+
+**ApprovalDashboard.stories.tsx:**
+- EmptyState（承認待ちなし）
+- WithPendingApprovals（承認待ちあり）
+- UrgentWorkflows（緊急ワークフローのみ）
+- FilteredByType（種類別フィルタ適用）
+- FilteredByAmount（金額範囲フィルタ適用）
+- Loading（ローディング中）
+- Error（エラー状態）
+
+**WorkflowDetail.stories.tsx:**
+- QuotationWorkflow（見積もりワークフロー）
+- ProcurementWorkflow（購買ワークフロー）
+- PaymentWorkflow（支払いワークフロー）
+- SiteChangeWorkflow（現場変更ワークフロー）
+- ApprovedWorkflow（承認済みワークフロー）
+- RejectedWorkflow（差し戻しワークフロー）
+- CompletedWorkflow（完了ワークフロー）
+- WithComments（コメント履歴あり）
+- Loading（ローディング中）
+
+**ApprovalActionModal.stories.tsx:**
+- Default（デフォルト）
+- ApproveSelected（承認選択）
+- RejectSelected（差し戻し選択）
+- DelegateSelected（委譲選択）
+- WithComment（コメント入力済み）
+- ValidationError（バリデーションエラー）
+- Submitting（送信中）
+- Success（承認成功）
 
 ## 移行戦略
 
