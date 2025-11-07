@@ -82,7 +82,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 3. WHEN ユーザーがログアウトする THEN Authentication Serviceはリフレッシュトークンを無効化しなければならない
 4. WHERE 保護されたAPIエンドポイントにアクセスする THE Authentication Serviceは有効なアクセストークンを検証しなければならない
 5. IF アクセストークンが改ざんされている THEN Authentication Serviceはリクエストを拒否しなければならない
-6. WHEN トークンにユーザー情報を含める THEN Authentication ServiceはユーザーID、メールアドレス、ロール（admin/user）を含めなければならない
+6. WHEN トークンにユーザー情報を含める THEN Authentication ServiceはユーザーID、メールアドレス、ロール情報を含めなければならない
 
 ### 要件6: 拡張可能なロールベースアクセス制御（RBAC）
 
@@ -92,14 +92,14 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHERE 保護されたAPIエンドポイントにアクセスする THE Authorization Serviceは必要な権限（Permission）を検証しなければならない
-2. IF ユーザーが必要な権限を持たない THEN Authorization Serviceは403 Forbiddenエラーを返さなければならない
-3. WHEN ユーザーアカウントが作成される THEN Authorization Serviceはデフォルトロール（例: 一般ユーザー）を割り当てなければならない
-4. WHEN ユーザーに複数のロールが割り当てられている THEN Authorization Serviceは全てのロールの権限を統合して評価しなければならない
-5. WHERE システム管理者が他のユーザーのロールを変更する THE Authorization Serviceはロール変更を監査ログに記録しなければならない
-6. IF 最後のシステム管理者ロールを持つユーザーのロールを変更しようとする THEN Authorization Serviceは変更を拒否しなければならない
-7. WHEN 権限チェックを実行する THEN Authorization Serviceはリソースタイプとアクションの組み合わせで判定しなければならない
-8. WHERE リソースレベルの権限チェックを実行する THE Authorization Serviceは所有者情報を考慮しなければならない
+1. WHERE 保護されたAPIエンドポイントにアクセスする THE Authentication Serviceは必要な権限（Permission）を検証しなければならない
+2. IF ユーザーが必要な権限を持たない THEN Authentication Serviceは403 Forbiddenエラーを返さなければならない
+3. WHEN ユーザーアカウントが作成される THEN Authentication Serviceはデフォルトロール（例: 一般ユーザー）を割り当てなければならない
+4. WHEN ユーザーに複数のロールが割り当てられている THEN Authentication Serviceは全てのロールの権限を統合して評価しなければならない
+5. WHERE システム管理者が他のユーザーのロールを変更する THE Authentication Serviceはロール変更を監査ログに記録しなければならない
+6. IF 最後のシステム管理者ロールを持つユーザーのロールを変更しようとする THEN Authentication Serviceは変更を拒否しなければならない
+7. WHEN 権限チェックを実行する THEN Authentication Serviceはリソースタイプとアクションの組み合わせで判定しなければならない
+8. WHERE リソースレベルの権限チェックを実行する THE Authentication Serviceは所有者情報を考慮しなければならない
 
 ### 要件7: パスワード管理
 
@@ -144,12 +144,12 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 #### 受入基準
 
 1. WHEN 認証エラーが発生する THEN Authentication Serviceは詳細なエラー情報（メールアドレスの存在有無など）を返してはならない
-2. WHERE パスワードを保存する THE Authentication Serviceはbcryptアルゴリズム（saltラウンド10以上）を使用しなければならない
-3. WHEN JWTトークンを生成する THEN Authentication ServiceはHS256アルゴリズムを使用しなければならない
+2. WHERE パスワードを保存する THE Authentication Serviceは業界標準の暗号学的ハッシュアルゴリズムを使用しなければならない
+3. WHEN JWTトークンを生成する THEN Authentication Serviceは業界標準の署名アルゴリズムを使用しなければならない
 4. IF データベース接続エラーが発生する THEN Authentication Serviceは適切なエラーメッセージとHTTPステータス500を返さなければならない
 5. WHEN APIリクエストのバリデーションが失敗する THEN Authentication Serviceは詳細なバリデーションエラーメッセージを返さなければならない
 6. WHERE センシティブな操作（パスワード変更、ロール変更、ユーザー招待）を実行する THE Authentication Serviceはログに記録しなければならない
-7. WHEN 招待トークンまたはリセットトークンを生成する THEN Authentication Serviceは暗号学的に安全なランダム文字列（32バイト以上）を使用しなければならない
+7. WHEN 招待トークンまたはリセットトークンを生成する THEN Authentication Serviceは暗号学的に安全なランダム文字列を使用しなければならない
 
 ## UI/UX要件
 
@@ -336,6 +336,17 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 1. **Component Story Format (CSF) 3.0** を使用して、TypeScriptで型安全なストーリーを定義
 2. **Storybook Docs** を活用して、要件定義とストーリーを自動的にドキュメント化
 
+#### ストーリーと要件のマッピング
+
+各Storybookストーリーは対応する要件の受入基準を実装します：
+
+- **LoginForm.stories.tsx** → 要件11（ログイン画面のUI/UX）の受入基準1-11を実装
+- **SignupForm.stories.tsx** → 要件12（ユーザー登録画面のUI/UX）の受入基準1-10を実装
+- **InvitationManager.stories.tsx** → 要件13（管理者ユーザー招待画面のUI/UX）の受入基準1-11を実装
+- **ProfilePage.stories.tsx** → 要件14（プロフィール画面のUI/UX）の受入基準1-10を実装
+
+トレーサビリティにより、各ストーリーが特定の要件を満たしていることを確認できます。
+
 ### 要件17: セッション有効期限切れ時の自動リダイレクト
 
 **目的:** システム全体として、セッション有効期限切れを統一的に処理したい。そうすることで、ユーザーはスムーズに再ログインでき、セキュリティとユーザー体験を両立できるようになる。
@@ -352,7 +363,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 8. WHEN ログイン画面が表示される AND redirectUrlが存在する THEN UIは「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない
 9. WHEN ユーザーが再ログインに成功する AND redirectUrlが存在する THEN Frontend Serviceは保存されたURLへユーザーを自動的にリダイレクトしなければならない
 10. WHERE HTTPインターセプターが401エラーを処理する THE Frontend Serviceは複数の同時401エラーに対してリフレッシュ処理を1回のみ実行しなければならない
-11. WHEN リフレッシュトークンリクエストが処理中である THEN Frontend Serviceは他のAPIリクエストをキューに保持しなければならない
+11. WHILE リフレッシュトークンリクエストが処理中である THE Frontend Serviceは他のAPIリクエストをキューに保持しなければならない
 12. WHEN トークンリフレッシュが完了する THEN Frontend Serviceはキューに保持された全てのリクエストを新しいトークンで再実行しなければならない
 13. IF ユーザーが明示的にログアウトする THEN Frontend ServiceはredirectUrlパラメータを設定せずにログイン画面へリダイレクトしなければならない
 14. WHERE セッション有効期限切れメッセージが表示される THE メッセージはアクセシビリティ（aria-live="polite"）をサポートしなければならない
@@ -378,15 +389,15 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN システム管理者が新しいロールを作成する THEN Authorization Serviceはロール名、説明、優先順位を保存しなければならない
-2. IF ロール名が既に存在する THEN Authorization Serviceは409 Conflictエラーを返さなければならない
-3. WHEN システム管理者がロール情報を更新する THEN Authorization Serviceは変更履歴を監査ログに記録しなければならない
-4. WHERE システム管理者がロール一覧を取得する THE Authorization Serviceは全てのロール（名前、説明、割り当てユーザー数、権限数）を返さなければならない
-5. WHEN システム管理者がロールを削除する AND ロールが少なくとも1人のユーザーに割り当てられている THEN Authorization Serviceは削除を拒否しなければならない
-6. IF システム管理者が事前定義ロール（システム管理者）を削除しようとする THEN Authorization Serviceは削除を拒否しなければならない
-7. WHEN ロールを作成する THEN Authorization Serviceは一意のロールIDを生成しなければならない
-8. WHERE ロール優先順位を設定する THE Authorization Serviceは整数値（高い値が高優先度）を受け入れなければならない
-9. WHEN 新しいロールを作成する THEN Authorization Serviceはデフォルトで空の権限セットを割り当てなければならない
+1. WHEN システム管理者が新しいロールを作成する THEN Authentication Serviceはロール名、説明、優先順位を保存しなければならない
+2. IF ロール名が既に存在する THEN Authentication Serviceは409 Conflictエラーを返さなければならない
+3. WHEN システム管理者がロール情報を更新する THEN Authentication Serviceは変更履歴を監査ログに記録しなければならない
+4. WHERE システム管理者がロール一覧を取得する THE Authentication Serviceは全てのロール（名前、説明、割り当てユーザー数、権限数）を返さなければならない
+5. WHEN システム管理者がロールを削除する AND ロールが少なくとも1人のユーザーに割り当てられている THEN Authentication Serviceは削除を拒否しなければならない
+6. IF システム管理者が事前定義ロール（システム管理者）を削除しようとする THEN Authentication Serviceは削除を拒否しなければならない
+7. WHEN ロールを作成する THEN Authentication Serviceは一意のロールIDを生成しなければならない
+8. WHERE ロール優先順位を設定する THE Authentication Serviceは整数値（高い値が高優先度）を受け入れなければならない
+9. WHEN 新しいロールを作成する THEN Authentication Serviceはデフォルトで空の権限セットを割り当てなければならない
 
 #### 事前定義ロール
 
@@ -407,13 +418,13 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN システムが初期化される THEN Authorization Serviceは事前定義権限を自動作成しなければならない
-2. WHERE 権限を定義する THE Authorization Serviceは `resource:action` 形式（例: `adr:read`, `user:delete`）を使用しなければならない
-3. WHEN システム管理者が権限一覧を取得する THEN Authorization Serviceは全ての権限（リソースタイプ、アクション、説明）を返さなければならない
-4. WHERE 権限チェックを実行する THE Authorization Serviceはワイルドカード権限（例: `adr:*`, `*:read`）をサポートしなければならない
-5. IF ユーザーが `*:*` 権限を持つ THEN Authorization Serviceは全てのリソースへの全てのアクションを許可しなければならない
-6. WHEN 権限を評価する THEN Authorization Serviceは最も具体的な権限を優先しなければならない
-7. WHERE システム管理者がカスタム権限を作成する THE Authorization Serviceは権限の名前、リソースタイプ、アクション、説明を保存しなければならない
+1. WHEN システムが初期化される THEN Authentication Serviceは事前定義権限を自動作成しなければならない
+2. WHERE 権限を定義する THE Authentication Serviceは `resource:action` 形式（例: `adr:read`, `user:delete`）を使用しなければならない
+3. WHEN システム管理者が権限一覧を取得する THEN Authentication Serviceは全ての権限（リソースタイプ、アクション、説明）を返さなければならない
+4. WHERE 権限チェックを実行する THE Authentication Serviceはワイルドカード権限（例: `adr:*`, `*:read`）をサポートしなければならない
+5. IF ユーザーが `*:*` 権限を持つ THEN Authentication Serviceは全てのリソースへの全てのアクションを許可しなければならない
+6. WHEN 権限を評価する THEN Authentication Serviceは最も具体的な権限を優先しなければならない
+7. WHERE システム管理者がカスタム権限を作成する THE Authentication Serviceは権限の名前、リソースタイプ、アクション、説明を保存しなければならない
 
 #### 権限の構造
 
@@ -451,14 +462,14 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN システム管理者がロールに権限を追加する THEN Authorization Serviceはロール・権限の紐付けを保存しなければならない
-2. IF 権限が既にロールに割り当てられている THEN Authorization Serviceは重複を無視しなければならない
-3. WHEN システム管理者がロールから権限を削除する THEN Authorization Serviceは紐付けを削除しなければならない
-4. WHERE システム管理者がロールの権限一覧を取得する THE Authorization Serviceは全ての割り当てられた権限を返さなければならない
-5. WHEN ロールの権限を変更する THEN Authorization Serviceは変更履歴を監査ログに記録しなければならない
-6. IF システム管理者ロールから `*:*` 権限を削除しようとする THEN Authorization Serviceは削除を拒否しなければならない
-7. WHEN 複数の権限を一括で割り当てる THEN Authorization Serviceはトランザクション内で処理しなければならない
-8. WHERE ロールに権限を割り当てる THE Authorization Serviceは権限の存在を事前に検証しなければならない
+1. WHEN システム管理者がロールに権限を追加する THEN Authentication Serviceはロール・権限の紐付けを保存しなければならない
+2. IF 権限が既にロールに割り当てられている THEN Authentication Serviceは重複を無視しなければならない
+3. WHEN システム管理者がロールから権限を削除する THEN Authentication Serviceは紐付けを削除しなければならない
+4. WHERE システム管理者がロールの権限一覧を取得する THE Authentication Serviceは全ての割り当てられた権限を返さなければならない
+5. WHEN ロールの権限を変更する THEN Authentication Serviceは変更履歴を監査ログに記録しなければならない
+6. IF システム管理者ロールから `*:*` 権限を削除しようとする THEN Authentication Serviceは削除を拒否しなければならない
+7. WHEN 複数の権限を一括で割り当てる THEN Authentication Serviceはトランザクション内で処理しなければならない
+8. WHERE ロールに権限を割り当てる THE Authentication Serviceは権限の存在を事前に検証しなければならない
 
 #### 事前定義ロールの権限セット
 
@@ -507,15 +518,15 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN システム管理者がユーザーにロールを追加する THEN Authorization Serviceはユーザー・ロールの紐付けを保存しなければならない
-2. IF ロールが既にユーザーに割り当てられている THEN Authorization Serviceは重複を無視しなければならない
-3. WHEN システム管理者がユーザーからロールを削除する THEN Authorization Serviceは紐付けを削除しなければならない
-4. WHERE ユーザーが複数のロールを持つ THE Authorization Serviceは全てのロールの権限を統合（OR演算）しなければならない
-5. WHEN ユーザーのロールを変更する THEN Authorization Serviceは変更履歴を監査ログに記録しなければならない
-6. IF ユーザーが最後のシステム管理者ロール保持者である AND システム管理者ロールを削除しようとする THEN Authorization Serviceは削除を拒否しなければならない
-7. WHEN ユーザーに新しいロールが割り当てられる THEN Authorization Serviceは次回トークンリフレッシュ時に新しい権限を反映しなければならない
-8. WHERE システム管理者がユーザーのロール一覧を取得する THE Authorization Serviceは全ての割り当てられたロール（名前、割り当て日時）を返さなければならない
-9. WHEN 複数のロールを一括で割り当てる THEN Authorization Serviceはトランザクション内で処理しなければならない
+1. WHEN システム管理者がユーザーにロールを追加する THEN Authentication Serviceはユーザー・ロールの紐付けを保存しなければならない
+2. IF ロールが既にユーザーに割り当てられている THEN Authentication Serviceは重複を無視しなければならない
+3. WHEN システム管理者がユーザーからロールを削除する THEN Authentication Serviceは紐付けを削除しなければならない
+4. WHERE ユーザーが複数のロールを持つ THE Authentication Serviceは全てのロールの権限を統合（OR演算）しなければならない
+5. WHEN ユーザーのロールを変更する THEN Authentication Serviceは変更履歴を監査ログに記録しなければならない
+6. IF ユーザーが最後のシステム管理者ロール保持者である AND システム管理者ロールを削除しようとする THEN Authentication Serviceは削除を拒否しなければならない
+7. WHEN ユーザーに新しいロールが割り当てられる THEN Authentication Serviceは次回トークンリフレッシュ時に新しい権限を反映しなければならない
+8. WHERE システム管理者がユーザーのロール一覧を取得する THE Authentication Serviceは全ての割り当てられたロール（名前、割り当て日時）を返さなければならない
+9. WHEN 複数のロールを一括で割り当てる THEN Authentication Serviceはトランザクション内で処理しなければならない
 
 ### 要件22: 権限チェック機能
 
@@ -523,15 +534,15 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN APIエンドポイントにアクセスする THEN Authorization Middlewareは必要な権限を検証しなければならない
-2. IF ユーザーが必要な権限を持たない THEN Authorization Middlewareは403 Forbiddenエラーを返さなければならない
-3. WHERE 権限チェックを実行する THE Authorization Serviceはユーザーの全てのロールから権限を収集しなければならない
-4. WHEN ワイルドカード権限（`*:read`, `adr:*`）が存在する THEN Authorization Serviceは該当する全てのリソース・アクションにマッチさせなければならない
-5. IF ユーザーが `*:*` 権限を持つ THEN Authorization Serviceは全ての権限チェックを通過させなければならない
-6. WHERE リソースレベルの権限チェックを実行する THE Authorization Serviceは所有者フィルタリングを適用しなければならない
-7. WHEN 権限チェックに失敗する THEN Authorization Serviceは失敗理由（必要な権限、ユーザーの権限）を監査ログに記録しなければならない
-8. IF ユーザーのロールまたは権限が変更される THEN Authorization Serviceはキャッシュされた権限情報を無効化しなければならない
-9. WHERE パフォーマンス最適化が必要な場合 THE Authorization Serviceは権限情報をRedisにキャッシュ（TTL: 5分）しなければならない
+1. WHEN APIエンドポイントにアクセスする THEN Authentication Middlewareは必要な権限を検証しなければならない
+2. IF ユーザーが必要な権限を持たない THEN Authentication Middlewareは403 Forbiddenエラーを返さなければならない
+3. WHERE 権限チェックを実行する THE Authentication Serviceはユーザーの全てのロールから権限を収集しなければならない
+4. WHEN ワイルドカード権限（`*:read`, `adr:*`）が存在する THEN Authentication Serviceは該当する全てのリソース・アクションにマッチさせなければならない
+5. IF ユーザーが `*:*` 権限を持つ THEN Authentication Serviceは全ての権限チェックを通過させなければならない
+6. WHERE リソースレベルの権限チェックを実行する THE Authentication Serviceは所有者フィルタリングを適用しなければならない
+7. WHEN 権限チェックに失敗する THEN Authentication Serviceは失敗理由（必要な権限、ユーザーの権限）を監査ログに記録しなければならない
+8. IF ユーザーのロールまたは権限が変更される THEN Authentication Serviceはキャッシュされた権限情報を無効化しなければならない
+9. WHERE パフォーマンス最適化が必要な場合 THE Authentication Serviceは権限情報を適切なキャッシュ機構（適切な有効期限）に保存しなければならない
 
 #### 権限チェックAPI
 
@@ -553,16 +564,16 @@ function hasPermission(check: PermissionCheck): boolean;
 
 #### 受入基準
 
-1. WHEN ロールが作成・更新・削除される THEN Authorization Serviceは監査ログに記録しなければならない
-2. WHEN 権限がロールに追加・削除される THEN Authorization Serviceは監査ログに記録しなければならない
-3. WHEN ユーザーにロールが割り当て・削除される THEN Authorization Serviceは監査ログに記録しなければならない
-4. WHERE 監査ログを記録する THE Authorization Serviceは実行者、対象、アクション、タイムスタンプを含めなければならない
-5. WHEN システム管理者が監査ログを取得する THEN Authorization Serviceはフィルタリング（ユーザー、日付範囲、アクションタイプ）をサポートしなければならない
-6. IF 監査ログの保存に失敗する THEN Authorization Serviceは操作を中断しなければならない
-7. WHERE 監査ログを保存する THE Authorization Serviceは変更前後の値を含めなければならない
-8. WHEN 権限チェックに失敗する THEN Authorization Serviceは失敗をセキュリティログに記録しなければならない
-9. IF センシティブな操作（システム管理者ロールの変更）が実行される THEN Authorization Serviceはアラート通知を送信しなければならない
-10. WHERE 監査ログをエクスポートする THE Authorization ServiceはJSON形式でダウンロード可能にしなければならない
+1. WHEN ロールが作成・更新・削除される THEN Authentication Serviceは監査ログに記録しなければならない
+2. WHEN 権限がロールに追加・削除される THEN Authentication Serviceは監査ログに記録しなければならない
+3. WHEN ユーザーにロールが割り当て・削除される THEN Authentication Serviceは監査ログに記録しなければならない
+4. WHERE 監査ログを記録する THE Authentication Serviceは実行者、対象、アクション、タイムスタンプを含めなければならない
+5. WHEN システム管理者が監査ログを取得する THEN Authentication Serviceはフィルタリング（ユーザー、日付範囲、アクションタイプ）をサポートしなければならない
+6. IF 監査ログの保存に失敗する THEN Authentication Serviceは操作を中断しなければならない
+7. WHERE 監査ログを保存する THE Authentication Serviceは変更前後の値を含めなければならない
+8. WHEN 権限チェックに失敗する THEN Authentication Serviceは失敗をセキュリティログに記録しなければならない
+9. IF センシティブな操作（システム管理者ロールの変更）が実行される THEN Authentication Serviceはアラート通知を送信しなければならない
+10. WHERE 監査ログをエクスポートする THE Authentication ServiceはJSON形式でダウンロード可能にしなければならない
 
 #### 監査ログの構造
 
@@ -600,9 +611,9 @@ function hasPermission(check: PermissionCheck): boolean;
 #### 受入基準
 
 1. WHEN ログインAPIリクエストが送信される THEN Authentication Serviceは95パーセンタイルで500ms以内にレスポンスを返さなければならない
-2. WHEN 権限チェックAPIが呼び出される THEN Authorization Serviceは99パーセンタイルで100ms以内にレスポンスを返さなければならない
+2. WHEN 権限チェックAPIが呼び出される THEN Authentication Serviceは99パーセンタイルで100ms以内にレスポンスを返さなければならない
 3. WHERE システムが1000人の同時ユーザーを処理する THE Authentication Serviceはレスポンスタイムの劣化率を20%以内に抑えなければならない
-4. WHEN 権限情報がRedisにキャッシュされる THEN Authorization Serviceはキャッシュヒット率を90%以上に維持しなければならない
+4. WHEN 権限情報がキャッシュされる THEN Authentication Serviceはキャッシュヒット率を90%以上に維持しなければならない
 5. WHERE データベース接続プールを管理する THE Authentication Serviceは最小10接続、最大100接続のプールを維持しなければならない
 6. WHEN トークンリフレッシュAPIが呼び出される THEN Authentication Serviceは95パーセンタイルで200ms以内にレスポンスを返さなければならない
 7. WHERE システムが水平スケーリングされる THE Authentication Serviceはステートレス設計により、複数インスタンス間でセッション共有を可能にしなければならない
@@ -615,12 +626,12 @@ function hasPermission(check: PermissionCheck): boolean;
 #### 受入基準
 
 1. IF データベース接続が5秒以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない
-2. IF Redis接続が失敗する THEN Authorization Serviceはデータベースから直接権限情報を取得しなければならない
+2. IF キャッシュ接続が失敗する THEN Authentication Serviceはデータベースから直接権限情報を取得しなければならない
 3. WHEN 外部メールサービスが応答しない THEN Authentication Serviceはメール送信をキューに保存し、5分後にリトライしなければならない
 4. WHERE トークンリフレッシュ中に複数のAPIリクエストが発生する THE Frontend Serviceはリフレッシュ処理を1回のみ実行し、他のリクエストはその完了を待機しなければならない
 5. IF トークンリフレッシュが3回連続で失敗する THEN Frontend Serviceはユーザーをログイン画面へリダイレクトしなければならない
 6. WHEN データベース接続がタイムアウトする THEN Authentication Serviceはリトライ（最大3回、エクスポネンシャルバックオフ）を実行しなければならない
-7. IF Redis障害時にフォールバック処理が実行される THEN Authorization Serviceは警告ログを記録しなければならない
+7. IF キャッシュ障害時にフォールバック処理が実行される THEN Authentication Serviceは警告ログを記録しなければならない
 8. WHERE 外部サービス（メール送信）が利用不可である THE Authentication Serviceはユーザー登録・招待処理を非同期キューで処理しなければならない
 9. WHEN サービスが部分的な障害から復旧する THEN Authentication Serviceはヘルスチェックエンドポイントで障害状態を報告しなければならない
 
@@ -632,11 +643,11 @@ function hasPermission(check: PermissionCheck): boolean;
 
 1. WHEN ユーザー登録が実行される THEN Authentication Serviceはユーザー作成、招待トークン無効化、ロール割り当てを単一トランザクション内で処理しなければならない
 2. IF トランザクション内で1つでも処理が失敗する THEN Authentication Serviceは全ての変更をロールバックしなければならない
-3. WHEN 複数のロールを一括で割り当てる THEN Authorization Serviceはトランザクション内で処理しなければならない
+3. WHEN 複数のロールを一括で割り当てる THEN Authentication Serviceはトランザクション内で処理しなければならない
 4. WHERE データベース書き込み操作を実行する THE Authentication ServiceはACID特性を保証しなければならない
-5. IF 監査ログの保存に失敗する THEN Authorization Serviceは元の操作をロールバックしなければならない
+5. IF 監査ログの保存に失敗する THEN Authentication Serviceは元の操作をロールバックしなければならない
 6. WHEN パスワードリセット処理が実行される THEN Authentication Serviceはリセットトークン生成、メール送信、ログ記録をトランザクション内で処理しなければならない
-7. WHERE ロール・権限の紐付けを変更する THE Authorization Serviceは変更前後の整合性を検証しなければならない
+7. WHERE ロール・権限の紐付けを変更する THE Authentication Serviceは変更前後の整合性を検証しなければならない
 8. IF 楽観的ロック競合が発生する THEN Authentication Serviceはリトライまたはエラーレスポンスを返さなければならない
 
 ### 要件27: セキュリティ対策（脅威モデリング）
@@ -652,7 +663,7 @@ function hasPermission(check: PermissionCheck): boolean;
 5. WHERE トークンをCookieに保存する THE Authentication ServiceはHttpOnly、Secure、SameSite=Strict属性を設定しなければならない
 6. WHEN APIエンドポイントにアクセスする THEN Backend Serviceは適切なCORSヘッダーを設定しなければならない
 7. IF リフレッシュトークンがHttpOnly Cookieで送信される THEN Backend ServiceはXSS攻撃によるトークン窃取を防止しなければならない
-8. WHERE パスワードリセットトークンを生成する THE Authentication Serviceは暗号学的に安全なランダム文字列（crypto.randomBytes(32)）を使用しなければならない
+8. WHERE パスワードリセットトークンを生成する THE Authentication Serviceは暗号学的に安全な乱数生成器を使用しなければならない
 9. WHEN 複数回のログイン失敗が検出される THEN Authentication Serviceはタイミング攻撃を防ぐため、一定時間の遅延を挿入しなければならない
 10. IF セキュリティ関連のヘッダー（X-Frame-Options、X-Content-Type-Options、Strict-Transport-Security）が設定されていない THEN Backend Serviceは適切なセキュリティヘッダーを追加しなければならない
 11. WHERE 機密情報（パスワード、トークン）をログに記録する THE Authentication Serviceはマスキング処理を適用しなければならない
@@ -676,6 +687,31 @@ function hasPermission(check: PermissionCheck): boolean;
 10. WHERE 統合テストを実行する THE テストチームはDocker Compose環境でPostgreSQL、Redis、Backend、Frontendを起動しなければならない
 11. IF E2Eテストが失敗する THEN CI/CDパイプラインはスクリーンショットとビデオを自動保存しなければならない
 12. WHERE セキュリティテストを実行する THE テストチームはOWASP ZAPまたは同等のツールで脆弱性スキャンを実施しなければならない
+
+#### E2Eテストシナリオ例
+
+以下の主要なエンドツーエンドシナリオを自動テストします：
+
+1. **ユーザー招待・登録フロー**
+   - 管理者が招待メール送信 → ユーザーが招待リンクをクリック → 有効なトークン確認 → パスワード設定 → 登録完了 → ダッシュボードへ自動リダイレクト
+
+2. **ログイン・セッション管理フロー**
+   - ユーザーがログイン → アクセストークン有効期限切れ → 自動トークンリフレッシュ → 元のページで継続作業
+
+3. **権限チェックフロー**
+   - 一般ユーザーが管理画面URLに直接アクセス → 403エラー → エラーメッセージ表示 → ダッシュボードへリダイレクト
+
+4. **パスワードリセットフロー**
+   - 「パスワードを忘れた場合」リンククリック → メールアドレス入力 → リセットメール受信 → リセットリンククリック → 新しいパスワード設定 → ログイン成功
+
+5. **マルチデバイスログアウトフロー**
+   - ユーザーが複数デバイスでログイン → プロフィール画面でパスワード変更 → 全デバイスから自動ログアウト → 再ログイン要求
+
+6. **アカウントロックフロー**
+   - ユーザーが5回連続でログイン失敗 → アカウントが15分間ロック → ロック解除までの残り時間表示 → 15分後に再ログイン成功
+
+7. **招待取り消しフロー**
+   - 管理者が未使用の招待を取り消し → 確認ダイアログ表示 → 取り消し実行 → ユーザーが招待リンクにアクセス → 「招待が無効です」エラー表示
 
 #### Storybookテスト戦略
 
