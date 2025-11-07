@@ -395,8 +395,8 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 以下のロールはシステムインストール時に自動作成されます：
 
 - **システム管理者（System Administrator）**: 全ての権限を持つ最高権限ロール、削除不可
-- **経営（Executive）**: 最終承認権限、全ADRの閲覧・エクスポート、経営ダッシュボードへのアクセス
-- **営業（Sales）**: 見積もりADRの作成・編集、顧客情報管理、売上レポート閲覧
+- **統括責任者（General Manager）**: 最終承認権限、全ADRの閲覧・エクスポート、経営ダッシュボードへのアクセス
+- **営業担当（Sales）**: 見積もりADRの作成・編集、顧客情報管理、売上レポート閲覧
 - **積算担当（Cost Estimator）**: ADRの作成・編集・閲覧、見積もり関連機能へのアクセス、積算ワークフロー承認
 - **購買担当（Procurement）**: 購買関連ADRの閲覧・作成、ベンダー情報の管理、購買承認権限
 - **現場担当（Site Manager）**: 現場関連ADRの閲覧・更新、現場データの管理、進捗報告
@@ -467,14 +467,14 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 **システム管理者:**
 - `*:*` - 全ての権限
 
-**経営:**
+**統括責任者:**
 - `adr:read` - 全ADRの閲覧
 - `adr:approve` - 最終承認権限（金額制限なし）
 - `adr:delegate` - 承認権限の委譲
 - `report:read`, `report:export` - 経営レポートの閲覧・エクスポート
 - `settings:read` - システム設定の閲覧
 
-**営業:**
+**営業担当:**
 - `adr:create`, `adr:read`, `adr:update` - 見積もりADRの作成・編集・閲覧
 - `project:create`, `project:read`, `project:update` - 顧客プロジェクト管理
 - `report:read` - 売上レポート閲覧
