@@ -245,11 +245,1104 @@ graph TB
 
 ## System Flows
 
-（システムフローの詳細は実装フェーズで順次追加します）
+### ユーザー招待フロー
+
+```mermaid
+sequenceDiagram
+    participant Admin as 管理者
+    participant Frontend as Frontend
+    participant Backend as Backend API
+    participant DB as PostgreSQL
+    participant Email as Email Service
+
+    Admin->>Frontend: 招待メールアドレス入力
+    Frontend->>Backend: POST /api/invitations
+    Backend->>Backend: 権限チェック（admin権限）
+    Backend->>DB: メールアドレス重複チェック
+    alt メールアドレスが既に登録済み
+        DB-->>Backend: 重複エラー
+        Backend-->>Frontend: 409 Conflict
+        Frontend-->>Admin: エラーメッセージ表示
+    else メールアドレスが未登録
+        Backend->>Backend: 招待トークン生成（暗号学的に安全）
+        Backend->>DB: 招待レコード作成（token, email, expiresAt: 7日後）
+        Backend->>Email: 招待メール送信（招待URL含む）
+        Backend-->>Frontend: 201 Created（招待情報）
+        Frontend-->>Admin: 成功メッセージ + 招待URL表示
+    end
+```
+
+### ユーザー登録フロー（招待経由）
+
+```mermaid
+sequenceDiagram
+    participant User as 招待ユーザー
+    participant Frontend as Frontend
+    participant Backend as Backend API
+    participant DB as PostgreSQL
+
+    User->>Frontend: 招待URL アクセス
+    Frontend->>Backend: GET /api/invitations/verify?token={token}
+    Backend->>DB: 招待トークン検証
+    alt トークンが無効または期限切れ
+        DB-->>Backend: エラー
+        Backend-->>Frontend: 400 Bad Request
+        Frontend-->>User: エラーメッセージ表示
+    else トークンが有効
+        DB-->>Backend: 招待情報（email）
+        Backend-->>Frontend: 200 OK（email）
+        Frontend-->>User: 登録フォーム表示（email読み取り専用）
+
+        User->>Frontend: 表示名、パスワード入力
+        Frontend->>Backend: POST /api/auth/register
+        Backend->>Backend: パスワード強度バリデーション
+        Backend->>Backend: bcryptハッシュ（cost: 12）
+        Backend->>DB: トランザクション開始
+        Backend->>DB: ユーザー作成
+        Backend->>DB: 招待トークンを使用済みにマーク
+        Backend->>DB: デフォルトロール（user）割り当て
+        Backend->>DB: トランザクションコミット
+        Backend->>Backend: JWT生成（access + refresh）
+        Backend-->>Frontend: 201 Created（tokens, user）
+        Frontend->>Frontend: トークンをlocalStorageに保存
+        Frontend-->>User: ダッシュボードへリダイレクト
+    end
+```
+
+### ログインフロー
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Frontend as Frontend
+    participant Backend as Backend API
+    participant DB as PostgreSQL
+    participant Redis as Redis Cache
+
+    User->>Frontend: メールアドレス、パスワード入力
+    Frontend->>Backend: POST /api/auth/login
+    Backend->>DB: メールアドレスでユーザー検索
+    alt ユーザーが見つからない
+        DB-->>Backend: Not Found
+        Backend-->>Frontend: 401 Unauthorized（汎用エラー）
+        Frontend-->>User: 「メールアドレスまたはパスワードが正しくありません」
+    else ユーザーが見つかる
+        DB-->>Backend: ユーザー情報
+        Backend->>Backend: アカウントロック確認
+        alt アカウントがロックされている
+            Backend-->>Frontend: 401 Unauthorized（ロック情報）
+            Frontend-->>User: 「アカウントがロックされています。{残り時間}後に再試行してください」
+        else アカウントがロックされていない
+            Backend->>Backend: bcrypt.compare（パスワード検証）
+            alt パスワードが正しくない
+                Backend->>DB: failedLoginAttempts++
+                alt failedLoginAttempts >= 5
+                    Backend->>DB: lockedUntil = now + 15分
+                end
+                Backend-->>Frontend: 401 Unauthorized（汎用エラー）
+                Frontend-->>User: 「メールアドレスまたはパスワードが正しくありません」
+            else パスワードが正しい
+                Backend->>DB: failedLoginAttempts = 0
+                Backend->>DB: ユーザーのロールと権限を取得
+                Backend->>Backend: JWT生成（access: 15分, refresh: 7日間）
+                Backend->>DB: RefreshToken作成（deviceInfo含む）
+                Backend->>Redis: 権限情報キャッシュ（TTL: 15分）
+                Backend-->>Frontend: 200 OK（tokens, user）
+                Frontend->>Frontend: トークンをlocalStorageに保存
+                Frontend-->>User: ダッシュボードへリダイレクト
+            end
+        end
+    end
+```
+
+### 権限チェックフロー
+
+```mermaid
+sequenceDiagram
+    participant Frontend as Frontend
+    participant Backend as Backend API
+    participant Auth as authenticate MW
+    participant Authz as authorize MW
+    participant Redis as Redis Cache
+    participant DB as PostgreSQL
+
+    Frontend->>Backend: API Request（Authorization: Bearer {token}）
+    Backend->>Auth: authenticate middleware
+    Auth->>Auth: JWT検証（署名、有効期限）
+    alt トークンが無効または期限切れ
+        Auth-->>Backend: 401 Unauthorized（TOKEN_EXPIRED）
+        Backend-->>Frontend: 401 Unauthorized
+        Frontend->>Frontend: トークンリフレッシュ試行
+    else トークンが有効
+        Auth->>Auth: req.user = decoded payload
+        Auth->>Authz: 次のミドルウェア
+        Authz->>Redis: 権限キャッシュ取得（user:{userId}:permissions）
+        alt キャッシュヒット
+            Redis-->>Authz: 権限リスト
+        else キャッシュミス
+            Authz->>DB: ユーザーのロールと権限を取得
+            DB-->>Authz: ロール・権限リスト
+            Authz->>Redis: 権限キャッシュ保存（TTL: 15分）
+        end
+        Authz->>Authz: 必要な権限チェック（resource:action）
+        alt 権限不足
+            Authz-->>Backend: 403 Forbidden
+            Backend-->>Frontend: 403 Forbidden
+            Frontend-->>Frontend: エラーメッセージ表示
+        else 権限あり
+            Authz->>Backend: 次のハンドラー
+            Backend-->>Frontend: API Response
+        end
+    end
+```
+
+### トークンリフレッシュフロー
+
+```mermaid
+sequenceDiagram
+    participant Frontend as Frontend
+    participant Backend as Backend API
+    participant DB as PostgreSQL
+    participant Redis as Redis Cache
+
+    Frontend->>Backend: POST /api/auth/refresh（refresh token）
+    Backend->>Backend: Refresh Token検証
+    Backend->>DB: Refresh Token検索
+    alt Refresh Tokenが無効または期限切れ
+        DB-->>Backend: Not Found or Expired
+        Backend-->>Frontend: 401 Unauthorized
+        Frontend->>Frontend: ログイン画面へリダイレクト
+    else Refresh Tokenが有効
+        DB-->>Backend: Refresh Token情報
+        Backend->>DB: ユーザーのロールと権限を取得
+        Backend->>Backend: 新しいAccess Token生成（15分）
+        Backend->>Backend: 新しいRefresh Token生成（7日間）
+        Backend->>DB: 古いRefresh Token削除
+        Backend->>DB: 新しいRefresh Token保存
+        Backend->>Redis: 権限情報キャッシュ更新（TTL: 15分）
+        Backend-->>Frontend: 200 OK（new tokens）
+        Frontend->>Frontend: トークンをlocalStorageに更新
+        Frontend->>Frontend: 元のリクエストを再実行
+    end
+```
+
+### パスワードリセットフロー
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Frontend as Frontend
+    participant Backend as Backend API
+    participant DB as PostgreSQL
+    participant Email as Email Service
+
+    User->>Frontend: パスワードリセット要求（メールアドレス入力）
+    Frontend->>Backend: POST /api/auth/password/reset-request
+    Backend->>DB: メールアドレス検索
+    alt ユーザーが見つからない
+        Backend-->>Frontend: 200 OK（セキュリティ上、成功と同じレスポンス）
+        Frontend-->>User: 「リセットメールを送信しました」
+    else ユーザーが見つかる
+        Backend->>Backend: リセットトークン生成（暗号学的に安全）
+        Backend->>DB: リセットトークン保存（expiresAt: 24時間後）
+        Backend->>Email: リセットメール送信（リセットURL含む）
+        Backend-->>Frontend: 200 OK
+        Frontend-->>User: 「リセットメールを送信しました」
+    end
+
+    User->>Frontend: リセットURL アクセス
+    Frontend->>Backend: GET /api/auth/password/verify-reset?token={token}
+    Backend->>DB: リセットトークン検証
+    alt トークンが無効または期限切れ
+        DB-->>Backend: エラー
+        Backend-->>Frontend: 400 Bad Request
+        Frontend-->>User: エラーメッセージ表示
+    else トークンが有効
+        Backend-->>Frontend: 200 OK
+        Frontend-->>User: 新しいパスワード入力フォーム表示
+
+        User->>Frontend: 新しいパスワード入力
+        Frontend->>Backend: POST /api/auth/password/reset
+        Backend->>Backend: パスワード強度バリデーション
+        Backend->>Backend: bcryptハッシュ（cost: 12）
+        Backend->>DB: トランザクション開始
+        Backend->>DB: パスワード更新
+        Backend->>DB: リセットトークン削除
+        Backend->>DB: 全RefreshToken削除（全デバイスログアウト）
+        Backend->>DB: トランザクションコミット
+        Backend-->>Frontend: 200 OK
+        Frontend-->>User: 「パスワードを更新しました。ログインしてください」
+        Frontend->>Frontend: ログイン画面へリダイレクト
+    end
+```
+
+## Requirements Traceability
+
+| 要件ID | 要件概要 | 実現するコンポーネント | インターフェース | フロー |
+|--------|----------|----------------------|----------------|--------|
+| 1 | 管理者によるユーザー招待 | InvitationService, EmailService | POST /api/invitations | ユーザー招待フロー |
+| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, InvitationService | POST /api/auth/register | ユーザー登録フロー |
+| 3 | 初期管理者アカウントのセットアップ | Prisma Seed Script | npm run prisma:seed | - |
+| 4 | ログイン | AuthService, TokenService | POST /api/auth/login | ログインフロー |
+| 5 | トークン管理 | TokenService, SessionService | POST /api/auth/refresh | トークンリフレッシュフロー |
+| 6 | 拡張可能なRBAC | RBACService, authorize middleware | authorize(permission) | 権限チェックフロー |
+| 7 | パスワード管理 | PasswordService, EmailService | POST /api/auth/password/reset-request | パスワードリセットフロー |
+| 8 | セッション管理 | SessionService, RefreshToken model | POST /api/auth/logout | - |
+| 9 | ユーザー情報取得・管理 | UserService, authenticate middleware | GET /api/users/me | - |
+| 10 | セキュリティとエラーハンドリング | errorHandler middleware, ApiError | - | 全フロー |
+| 11-16 | UI/UX要件 | React Components, Auth Context | - | Frontend Flows |
+| 17 | 動的ロール管理 | RBACService, Role model | POST /api/roles | - |
+| 18 | 権限管理 | RBACService, Permission model | GET /api/permissions | - |
+| 19 | ロールへの権限割り当て | RBACService, RolePermission model | POST /api/roles/{id}/permissions | - |
+| 20 | ユーザーへのロール割り当て | RBACService, UserRole model | POST /api/users/{id}/roles | - |
+| 21 | 権限チェック機能 | authorize middleware, RBACService | authorize(permission) | 権限チェックフロー |
+| 22 | 監査ログとコンプライアンス | AuditLogService, AuditLog model | GET /api/audit-logs | - |
+| 23 | 非機能要件（パフォーマンス） | Redis Cache, Database Indexing | - | 全フロー |
+| 24 | フォールトトレランス | Error Handler, Retry Logic | - | 全フロー |
+| 25 | データ整合性とトランザクション管理 | Prisma Transactions | - | 全フロー |
+| 26 | セキュリティ対策 | helmet, cors, rateLimit middleware | - | 全フロー |
 
 ## Components and Interfaces
 
-（コンポーネント設計の詳細は実装フェーズで順次追加します）
+### Backend / Service Layer
+
+#### AuthService
+
+**責任と境界**:
+- **主要責任**: ユーザー認証（ログイン、登録、トークン発行）
+- **ドメイン境界**: 認証ドメイン
+- **データ所有権**: なし（他サービスに委譲）
+- **トランザクション境界**: ユーザー登録時のトランザクション管理
+
+**依存関係**:
+- **インバウンド**: AuthController（API Layer）
+- **アウトバウンド**: TokenService, PasswordService, SessionService, InvitationService, RBACService, AuditLogService
+- **外部**: jsonwebtoken, bcrypt
+
+**契約定義**:
+
+```typescript
+interface AuthService {
+  // ユーザー登録（招待経由）
+  register(invitationToken: string, data: RegisterData): Promise<Result<AuthResponse, AuthError>>;
+
+  // ログイン
+  login(email: string, password: string, deviceInfo?: string): Promise<Result<AuthResponse, AuthError>>;
+
+  // ログアウト
+  logout(userId: string, refreshToken: string): Promise<Result<void, AuthError>>;
+
+  // 全デバイスログアウト
+  logoutAll(userId: string): Promise<Result<void, AuthError>>;
+
+  // トークンリフレッシュ
+  refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>>;
+
+  // 現在のユーザー情報取得
+  getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>>;
+}
+
+interface RegisterData {
+  displayName: string;
+  password: string;
+}
+
+interface AuthResponse {
+  accessToken: string;
+  refreshToken: string;
+  user: UserProfile;
+}
+
+interface UserProfile {
+  id: string;
+  email: string;
+  displayName: string;
+  roles: string[];
+  createdAt: Date;
+}
+
+type AuthError =
+  | { type: 'INVALID_CREDENTIALS' }
+  | { type: 'ACCOUNT_LOCKED'; unlocksAt: Date }
+  | { type: 'INVITATION_INVALID' }
+  | { type: 'INVITATION_EXPIRED' }
+  | { type: 'TOKEN_EXPIRED' }
+  | { type: 'WEAK_PASSWORD'; details: string[] };
+```
+
+**事前条件・事後条件**:
+- **register**: 招待トークンが有効であること、パスワードが強度要件を満たすこと
+- **login**: メールアドレスが登録済みであること、アカウントがロックされていないこと
+- **logout**: リフレッシュトークンが有効であること
+
+**状態管理**:
+- ステートレス（トークンベース）
+- リフレッシュトークンはデータベースに永続化
+
+#### InvitationService
+
+**責任と境界**:
+- **主要責任**: 招待管理（招待作成、検証、無効化）
+- **ドメイン境界**: 招待ドメイン
+- **データ所有権**: Invitationテーブル
+- **トランザクション境界**: 招待作成時のトランザクション
+
+**依存関係**:
+- **インバウンド**: AuthService, InvitationController
+- **アウトバウンド**: EmailService, AuditLogService
+- **外部**: crypto（トークン生成）
+
+**契約定義**:
+
+```typescript
+interface InvitationService {
+  // 招待作成
+  createInvitation(inviterUserId: string, email: string): Promise<Result<Invitation, InvitationError>>;
+
+  // 招待検証
+  verifyInvitation(token: string): Promise<Result<InvitationInfo, InvitationError>>;
+
+  // 招待無効化（取り消し）
+  revokeInvitation(invitationId: string, userId: string): Promise<Result<void, InvitationError>>;
+
+  // 招待一覧取得
+  listInvitations(userId: string, filter?: InvitationFilter): Promise<Result<Invitation[], InvitationError>>;
+
+  // 招待再送信
+  resendInvitation(invitationId: string, userId: string): Promise<Result<Invitation, InvitationError>>;
+}
+
+interface Invitation {
+  id: string;
+  email: string;
+  token: string;
+  status: InvitationStatus;
+  expiresAt: Date;
+  createdAt: Date;
+  inviter: { id: string; email: string; displayName: string };
+}
+
+enum InvitationStatus {
+  PENDING = 'PENDING',
+  USED = 'USED',
+  EXPIRED = 'EXPIRED',
+  REVOKED = 'REVOKED',
+}
+
+interface InvitationInfo {
+  email: string;
+  expiresAt: Date;
+}
+
+interface InvitationFilter {
+  status?: InvitationStatus;
+  email?: string;
+}
+
+type InvitationError =
+  | { type: 'EMAIL_ALREADY_REGISTERED' }
+  | { type: 'INVITATION_NOT_FOUND' }
+  | { type: 'INVITATION_EXPIRED' }
+  | { type: 'INVITATION_ALREADY_USED' }
+  | { type: 'INVITATION_REVOKED' };
+```
+
+#### RBACService
+
+**責任と境界**:
+- **主要責任**: 権限チェック、ロール管理、権限管理
+- **ドメイン境界**: 認可ドメイン
+- **データ所有権**: Role, Permission, UserRole, RolePermissionテーブル
+- **トランザクション境界**: ロール・権限変更時のトランザクション
+
+**依存関係**:
+- **インバウンド**: authorize middleware, RoleController, PermissionController
+- **アウトバウンド**: AuditLogService, Redis Client
+- **外部**: なし
+
+**契約定義**:
+
+```typescript
+interface RBACService {
+  // 権限チェック
+  hasPermission(userId: string, resource: string, action: string): Promise<boolean>;
+
+  // ユーザーの権限取得
+  getUserPermissions(userId: string): Promise<Permission[]>;
+
+  // ロール作成
+  createRole(data: CreateRoleData): Promise<Result<Role, RBACError>>;
+
+  // ロール更新
+  updateRole(roleId: string, data: UpdateRoleData): Promise<Result<Role, RBACError>>;
+
+  // ロール削除
+  deleteRole(roleId: string): Promise<Result<void, RBACError>>;
+
+  // ロールに権限追加
+  addPermissionsToRole(roleId: string, permissionIds: string[]): Promise<Result<void, RBACError>>;
+
+  // ロールから権限削除
+  removePermissionsFromRole(roleId: string, permissionIds: string[]): Promise<Result<void, RBACError>>;
+
+  // ユーザーにロール追加
+  assignRolesToUser(userId: string, roleIds: string[]): Promise<Result<void, RBACError>>;
+
+  // ユーザーからロール削除
+  removeRolesFromUser(userId: string, roleIds: string[]): Promise<Result<void, RBACError>>;
+}
+
+interface Role {
+  id: string;
+  name: string;
+  description: string;
+  priority: number;
+  isDeletable: boolean;
+  permissions: Permission[];
+}
+
+interface Permission {
+  id: string;
+  name: string; // resource:action format
+  resource: string;
+  action: string;
+  description: string;
+}
+
+interface CreateRoleData {
+  name: string;
+  description: string;
+  priority?: number;
+}
+
+interface UpdateRoleData {
+  name?: string;
+  description?: string;
+  priority?: number;
+}
+
+type RBACError =
+  | { type: 'ROLE_NOT_FOUND' }
+  | { type: 'ROLE_NAME_CONFLICT' }
+  | { type: 'ROLE_IN_USE'; userCount: number }
+  | { type: 'CANNOT_DELETE_SYSTEM_ROLE' }
+  | { type: 'CANNOT_REVOKE_LAST_ADMIN' }
+  | { type: 'PERMISSION_NOT_FOUND' }
+  | { type: 'INSUFFICIENT_PERMISSIONS' };
+```
+
+**パフォーマンス最適化**:
+- Redis キャッシュ（`user:{userId}:permissions`、TTL: 15分）
+- キャッシュ無効化: ロール・権限変更時、ユーザー・ロール変更時
+
+#### TokenService
+
+**責任と境界**:
+- **主要責任**: JWT生成、検証、リフレッシュ
+- **ドメイン境界**: トークンドメイン
+- **データ所有権**: なし
+- **トランザクション境界**: なし（ステートレス）
+
+**依存関係**:
+- **インバウンド**: AuthService, authenticate middleware
+- **アウトバウンド**: SessionService
+- **外部**: jsonwebtoken
+
+**外部依存関係調査（jsonwebtoken）**:
+- **公式ドキュメント**: https://github.com/auth0/node-jsonwebtoken
+- **API**: `jwt.sign(payload, secret, options)`, `jwt.verify(token, secret, options)`
+- **推奨アルゴリズム**: HS256（HMAC SHA256）、RS256（RSA署名）、EdDSA（2025年推奨）
+- **セキュリティ**: シークレット長は最低256ビット（32バイト）、環境変数で管理
+- **有効期限**: アクセストークン15分、リフレッシュトークン7日間
+
+**契約定義**:
+
+```typescript
+interface TokenService {
+  // アクセストークン生成
+  generateAccessToken(payload: TokenPayload): string;
+
+  // リフレッシュトークン生成
+  generateRefreshToken(payload: TokenPayload): string;
+
+  // トークン検証
+  verifyToken(token: string, type: 'access' | 'refresh'): Result<TokenPayload, TokenError>;
+
+  // トークンデコード（検証なし）
+  decodeToken(token: string): TokenPayload | null;
+}
+
+interface TokenPayload {
+  userId: string;
+  email: string;
+  roles: string[];
+  permissions?: string[];
+}
+
+type TokenError =
+  | { type: 'TOKEN_EXPIRED' }
+  | { type: 'TOKEN_INVALID' }
+  | { type: 'TOKEN_MALFORMED' };
+```
+
+#### PasswordService
+
+**責任と境界**:
+- **主要責任**: パスワードハッシュ、検証、リセット
+- **ドメイン境界**: パスワードドメイン
+- **データ所有権**: なし（Userテーブルのパスワードフィールド）
+- **トランザクション境界**: なし
+
+**依存関係**:
+- **インバウンド**: AuthService
+- **アウトバウンド**: EmailService
+- **外部**: bcrypt
+
+**外部依存関係調査（bcrypt）**:
+- **公式ドキュメント**: https://www.npmjs.com/package/bcrypt
+- **API**: `bcrypt.hash(password, saltRounds)`, `bcrypt.compare(password, hash)`
+- **推奨コスト係数**: 12-14（2025年推奨）
+- **パフォーマンス**: rounds=12で2-3ハッシュ/秒
+- **セキュリティ**: 自動ソルト生成、レインボーテーブル攻撃耐性
+
+**契約定義**:
+
+```typescript
+interface PasswordService {
+  // パスワードハッシュ化
+  hashPassword(password: string): Promise<string>;
+
+  // パスワード検証
+  verifyPassword(password: string, hash: string): Promise<boolean>;
+
+  // パスワード強度検証
+  validatePasswordStrength(password: string): Result<void, PasswordError>;
+
+  // パスワードリセット要求
+  requestPasswordReset(email: string): Promise<Result<void, PasswordError>>;
+
+  // パスワードリセット実行
+  resetPassword(resetToken: string, newPassword: string): Promise<Result<void, PasswordError>>;
+}
+
+type PasswordError =
+  | { type: 'WEAK_PASSWORD'; reasons: string[] }
+  | { type: 'RESET_TOKEN_INVALID' }
+  | { type: 'RESET_TOKEN_EXPIRED' };
+```
+
+**パスワード強度要件**:
+- 最小文字数: 8文字
+- 英大文字、英小文字、数字、特殊文字のうち3種類以上を含む
+
+#### SessionService
+
+**責任と境界**:
+- **主要責任**: セッション管理（リフレッシュトークンの永続化）
+- **ドメイン境界**: セッションドメイン
+- **データ所有権**: RefreshTokenテーブル
+- **トランザクション境界**: セッション作成・削除時のトランザクション
+
+**依存関係**:
+- **インバウンド**: AuthService, TokenService
+- **アウトバウンド**: Redis Client（オプション、セッション情報キャッシュ）
+- **外部**: なし
+
+**契約定義**:
+
+```typescript
+interface SessionService {
+  // セッション作成
+  createSession(userId: string, refreshToken: string, deviceInfo?: string): Promise<RefreshToken>;
+
+  // セッション削除
+  deleteSession(refreshToken: string): Promise<void>;
+
+  // ユーザーの全セッション削除
+  deleteAllSessions(userId: string): Promise<void>;
+
+  // セッション検証
+  validateSession(refreshToken: string): Promise<Result<RefreshToken, SessionError>>;
+
+  // ユーザーのセッション一覧取得
+  getUserSessions(userId: string): Promise<RefreshToken[]>;
+}
+
+interface RefreshToken {
+  id: string;
+  userId: string;
+  token: string;
+  deviceInfo?: string;
+  expiresAt: Date;
+  createdAt: Date;
+}
+
+type SessionError =
+  | { type: 'SESSION_NOT_FOUND' }
+  | { type: 'SESSION_EXPIRED' };
+```
+
+### Backend / Middleware Layer
+
+#### authenticate
+
+**責任と境界**:
+- **主要責任**: JWTトークン検証、リクエストへのユーザー情報追加
+- **ドメイン境界**: 認証ドメイン
+- **データ所有権**: なし
+- **トランザクション境界**: なし
+
+**依存関係**:
+- **インバウンド**: Protected API Routes
+- **アウトバウンド**: TokenService
+- **外部**: jsonwebtoken
+
+**契約定義**:
+
+```typescript
+function authenticate(req: Request, res: Response, next: NextFunction): void;
+
+// Express Request拡張
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        userId: string;
+        email: string;
+        roles: string[];
+      };
+    }
+  }
+}
+```
+
+**実装フロー**:
+1. `Authorization: Bearer {token}` ヘッダーからトークン抽出
+2. TokenService.verifyToken() でトークン検証
+3. 検証成功時、`req.user` にユーザー情報を設定
+4. 検証失敗時、`UnauthorizedError` をスロー
+
+**エラーハンドリング**:
+- `MISSING_TOKEN`: トークンが提供されていない（401）
+- `INVALID_TOKEN`: トークンが無効（401）
+- `TOKEN_EXPIRED`: トークンが期限切れ（401、レスポンスに `TOKEN_EXPIRED` コード）
+
+#### authorize
+
+**責任と境界**:
+- **主要責任**: 権限チェック（resource:action）
+- **ドメイン境界**: 認可ドメイン
+- **データ所有権**: なし
+- **トランザクション境界**: なし
+
+**依存関係**:
+- **インバウンド**: Protected API Routes
+- **アウトバウンド**: RBACService
+- **外部**: なし
+
+**契約定義**:
+
+```typescript
+function authorize(permission: string): (req: Request, res: Response, next: NextFunction) => Promise<void>;
+
+// 使用例
+app.get('/api/users', authenticate, authorize('user:read'), listUsers);
+app.post('/api/roles', authenticate, authorize('role:create'), createRole);
+app.delete('/api/users/:id', authenticate, authorize('user:delete'), deleteUser);
+```
+
+**実装フロー**:
+1. `req.user.userId` からユーザーIDを取得
+2. RBACService.hasPermission() で権限チェック
+3. 権限あり: 次のミドルウェアへ
+4. 権限なし: `ForbiddenError` をスロー
+
+**エラーハンドリング**:
+- `INSUFFICIENT_PERMISSIONS`: 権限不足（403）
+
+### Backend / Controller Layer
+
+**API Contract（OpenAPI 3.0形式）**:
+
+| Method | Endpoint | Description | Request | Response | Middleware |
+|--------|----------|-------------|---------|----------|------------|
+| POST | /api/auth/register | ユーザー登録（招待経由） | RegisterRequest | AuthResponse | validate |
+| POST | /api/auth/login | ログイン | LoginRequest | AuthResponse | validate |
+| POST | /api/auth/logout | ログアウト | - | void | authenticate |
+| POST | /api/auth/logout-all | 全デバイスログアウト | - | void | authenticate |
+| POST | /api/auth/refresh | トークンリフレッシュ | RefreshRequest | AuthResponse | validate |
+| GET | /api/users/me | 現在のユーザー情報取得 | - | UserProfile | authenticate |
+| PATCH | /api/users/me | ユーザー情報更新 | UpdateProfileRequest | UserProfile | authenticate, validate |
+| POST | /api/invitations | 招待作成 | CreateInvitationRequest | Invitation | authenticate, authorize('user:invite') |
+| GET | /api/invitations | 招待一覧取得 | InvitationFilter | Invitation[] | authenticate, authorize('user:invite') |
+| POST | /api/invitations/:id/revoke | 招待取り消し | - | void | authenticate, authorize('user:invite') |
+| POST | /api/invitations/:id/resend | 招待再送信 | - | Invitation | authenticate, authorize('user:invite') |
+| GET | /api/invitations/verify | 招待検証 | ?token={token} | InvitationInfo | - |
+| POST | /api/auth/password/reset-request | パスワードリセット要求 | PasswordResetRequest | void | validate |
+| GET | /api/auth/password/verify-reset | リセットトークン検証 | ?token={token} | void | - |
+| POST | /api/auth/password/reset | パスワードリセット実行 | ResetPasswordRequest | void | validate |
+| GET | /api/roles | ロール一覧取得 | - | Role[] | authenticate, authorize('role:read') |
+| POST | /api/roles | ロール作成 | CreateRoleRequest | Role | authenticate, authorize('role:create') |
+| PATCH | /api/roles/:id | ロール更新 | UpdateRoleRequest | Role | authenticate, authorize('role:update') |
+| DELETE | /api/roles/:id | ロール削除 | - | void | authenticate, authorize('role:delete') |
+| POST | /api/roles/:id/permissions | ロールに権限追加 | AssignPermissionsRequest | void | authenticate, authorize('role:update') |
+| DELETE | /api/roles/:id/permissions/:permissionId | ロールから権限削除 | - | void | authenticate, authorize('role:update') |
+| GET | /api/permissions | 権限一覧取得 | - | Permission[] | authenticate, authorize('permission:read') |
+| POST | /api/users/:id/roles | ユーザーにロール追加 | AssignRolesRequest | void | authenticate, authorize('user:update') |
+| DELETE | /api/users/:id/roles/:roleId | ユーザーからロール削除 | - | void | authenticate, authorize('user:update') |
+| GET | /api/audit-logs | 監査ログ取得 | AuditLogFilter | AuditLog[] | authenticate, authorize('audit:read') |
+
+### Frontend / Component Architecture
+
+#### 認証コンポーネント階層
+
+```
+App
+├── ErrorBoundary
+├── AuthProvider (Context)
+│   ├── PrivateRoute (Protected Routes)
+│   │   ├── DashboardLayout
+│   │   │   ├── Header
+│   │   │   │   ├── UserMenu
+│   │   │   │   └── NotificationBell
+│   │   │   ├── Sidebar
+│   │   │   └── MainContent
+│   │   └── AdminLayout (Admin Only)
+│   │       ├── AdminHeader
+│   │       ├── AdminSidebar
+│   │       └── AdminMainContent
+│   └── PublicRoute (Public Routes)
+│       ├── LoginPage
+│       │   └── LoginForm
+│       ├── RegisterPage
+│       │   └── RegisterForm
+│       ├── PasswordResetRequestPage
+│       │   └── PasswordResetRequestForm
+│       └── PasswordResetPage
+│           └── PasswordResetForm
+```
+
+#### AuthContext
+
+**責任と境界**:
+- **主要責任**: 認証状態管理、トークン管理、自動リフレッシュ
+- **ドメイン境界**: 認証ドメイン
+- **データ所有権**: トークン（localStorage）、ユーザー情報（state）
+- **状態管理**: React Context API
+
+**依存関係**:
+- **インバウンド**: App, PrivateRoute, PublicRoute
+- **アウトバウンド**: apiClient
+- **外部**: React Context API
+
+**契約定義**:
+
+```typescript
+interface AuthContextValue {
+  user: UserProfile | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  register: (invitationToken: string, data: RegisterData) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshToken: () => Promise<void>;
+}
+
+interface RegisterData {
+  displayName: string;
+  password: string;
+}
+
+function useAuth(): AuthContextValue;
+```
+
+**実装詳細**:
+- **自動トークンリフレッシュ**: アクセストークン期限切れ5分前に自動リフレッシュ
+- **401エラーハンドリング**: apiClientインターセプターで自動リフレッシュ試行
+- **リフレッシュ失敗時**: ログイン画面へリダイレクト、`redirectUrl` クエリパラメータ設定
+
+#### APIクライアント拡張
+
+**既存のAPIクライアントに以下の機能を追加**:
+
+```typescript
+class ApiClient {
+  private accessToken: string | null = null;
+  private refreshPromise: Promise<void> | null = null;
+
+  // トークン設定
+  setAccessToken(token: string): void;
+
+  // トークンクリア
+  clearTokens(): void;
+
+  // リクエストインターセプター（Authorizationヘッダー追加）
+  private addAuthHeader(headers: Record<string, string>): Record<string, string>;
+
+  // レスポンスインターセプター（401エラーハンドリング）
+  private handle401Error<T>(error: ApiError, retryRequest: () => Promise<T>): Promise<T>;
+
+  // トークンリフレッシュ（同時実行防止）
+  private refreshAccessToken(): Promise<void>;
+}
+```
+
+**401エラーハンドリングフロー**:
+1. API リクエストが401エラーを返す
+2. `handle401Error` がエラーをキャッチ
+3. `refreshAccessToken` でリフレッシュトークンを使用して新しいアクセストークンを取得
+4. 新しいトークンで元のリクエストを再実行
+5. リフレッシュ失敗時: AuthContextの `logout()` を呼び出し、ログイン画面へリダイレクト
+
+## UI/UX Design
+
+### 画面一覧
+
+| 画面名 | パス | アクセス権限 | 主要コンポーネント |
+|--------|------|--------------|-------------------|
+| ログイン画面 | /login | 公開 | LoginForm |
+| ユーザー登録画面 | /register?token={token} | 公開（招待経由） | RegisterForm |
+| パスワードリセット要求画面 | /password/reset-request | 公開 | PasswordResetRequestForm |
+| パスワードリセット画面 | /password/reset?token={token} | 公開 | PasswordResetForm |
+| ダッシュボード | /dashboard | 認証必須 | DashboardLayout |
+| プロフィール画面 | /profile | 認証必須 | ProfilePage |
+| 招待管理画面 | /admin/invitations | 管理者 | InvitationManagementPage |
+| ロール管理画面 | /admin/roles | 管理者 | RoleManagementPage |
+| 権限管理画面 | /admin/permissions | 管理者 | PermissionManagementPage |
+| 監査ログ画面 | /admin/audit-logs | 管理者 | AuditLogPage |
+
+### ログイン画面（LoginPage）
+
+**目的**: ユーザーがメールアドレスとパスワードでログインする
+
+**コンポーネント構成**:
+```
+LoginPage
+├── LoginForm
+│   ├── FormField (email)
+│   ├── FormField (password)
+│   │   └── PasswordVisibilityToggle
+│   ├── Button (login)
+│   └── Link (forgot password)
+└── ErrorMessage
+```
+
+**画面要素**:
+- **メールアドレス入力**: type="email", autocomplete="email", required
+- **パスワード入力**: type="password", autocomplete="current-password", required
+- **パスワード表示/非表示切り替え**: アイコンボタン
+- **ログインボタン**: ローディングスピナー対応
+- **パスワードを忘れた場合リンク**: `/password/reset-request` へ遷移
+- **エラーメッセージ**: 汎用的なメッセージ（「メールアドレスまたはパスワードが正しくありません」）
+
+**バリデーション**:
+- メールアドレス形式チェック（リアルタイム）
+- 必須フィールドチェック（送信時）
+
+**アクセシビリティ**:
+- 自動フォーカス（メールアドレスフィールド）
+- aria-label, aria-describedby
+- エラーメッセージのaria-live="polite"
+
+**レスポンシブデザイン**:
+- モバイル（320px-767px）: 縦積みレイアウト
+- タブレット/デスクトップ（768px以上）: 中央配置、max-width: 400px
+
+### ユーザー登録画面（RegisterPage）
+
+**目的**: 招待リンク経由でユーザーがアカウントを作成する
+
+**コンポーネント構成**:
+```
+RegisterPage
+├── InvitationVerificationLoader
+├── RegisterForm
+│   ├── FormField (email, readonly)
+│   ├── FormField (displayName)
+│   ├── FormField (password)
+│   │   ├── PasswordVisibilityToggle
+│   │   └── PasswordStrengthIndicator
+│   ├── FormField (confirmPassword)
+│   ├── PasswordRequirementsChecklist
+│   ├── Checkbox (terms and privacy)
+│   └── Button (register)
+└── ErrorMessage
+```
+
+**画面要素**:
+- **招待トークン検証**: ページ読み込み時に自動検証
+- **メールアドレス表示**: 読み取り専用（招待時のメールアドレス）
+- **表示名入力**: required, max: 100文字
+- **パスワード入力**: type="password", autocomplete="new-password", required
+- **パスワード確認入力**: type="password", autocomplete="new-password", required
+- **パスワード強度インジケーター**: 弱い/普通/強い（色と文字で表現）
+- **パスワード要件チェックリスト**:
+  - ✓ 8文字以上
+  - ✓ 英大文字を含む
+  - ✓ 英小文字を含む
+  - ✓ 数字を含む
+  - ✓ 特殊文字を含む
+- **利用規約とプライバシーポリシー同意チェックボックス**: required
+- **登録ボタン**: ローディングスピナー対応
+
+**バリデーション**:
+- パスワード強度チェック（リアルタイム）
+- パスワードと確認パスワードの一致チェック（リアルタイム）
+- 全フィールド必須チェック（送信時）
+
+**エラーハンドリング**:
+- 招待トークンが無効または期限切れ: エラーメッセージ + 管理者への連絡手段表示
+- 登録失敗: フィールドレベルのエラーメッセージ
+
+**成功時の挙動**:
+- 成功メッセージ表示（2秒）
+- ダッシュボードへ自動リダイレクト
+
+### 招待管理画面（InvitationManagementPage）
+
+**目的**: 管理者が新規ユーザーを招待し、招待状況を管理する
+
+**コンポーネント構成**:
+```
+InvitationManagementPage
+├── InvitationForm
+│   ├── FormField (email)
+│   └── Button (invite)
+├── InvitationList
+│   ├── InvitationTable (Desktop)
+│   │   ├── TableHeader
+│   │   └── TableRow[]
+│   │       ├── Email
+│   │       ├── Status (Badge)
+│   │       ├── ExpiresAt
+│   │       ├── CreatedAt
+│   │       └── Actions (Dropdown)
+│   └── InvitationCardList (Mobile)
+│       └── InvitationCard[]
+├── CopyInvitationURLModal
+└── Pagination
+```
+
+**画面要素**:
+- **招待フォーム**:
+  - メールアドレス入力: type="email", required
+  - 招待ボタン: ローディングスピナー対応
+- **招待一覧テーブル（デスクトップ）**:
+  - 列: メールアドレス、ステータス、有効期限、招待日時、アクション
+  - ステータスバッジ: 未使用（青）、使用済み（緑）、期限切れ（グレー）、取り消し済み（赤）
+  - アクション: 取り消し、再送信、URLコピー（ドロップダウンメニュー）
+- **招待カードリスト（モバイル）**:
+  - カード形式で表示
+  - ステータス、有効期限、アクションボタンを含む
+- **招待URL コピーモーダル**:
+  - 招待URL表示
+  - コピーボタン（クリップボードへコピー）
+  - 閉じるボタン
+- **ページネーション**: 1ページあたり10件
+
+**機能**:
+- **招待作成**: メールアドレス入力 → 招待ボタン → 成功メッセージ + URLコピーモーダル表示
+- **招待取り消し**: 確認ダイアログ → 取り消し実行 → 一覧更新
+- **招待再送信**: 確認ダイアログ → メール再送信 → 成功メッセージ
+- **URLコピー**: クリップボードにコピー → トーストメッセージ「コピーしました」
+
+**フィルタリング**:
+- ステータスフィルター: 全て、未使用、使用済み、期限切れ、取り消し済み
+- メールアドレス検索
+
+### プロフィール画面（ProfilePage）
+
+**目的**: ユーザーが自分のプロフィール情報を確認・編集する
+
+**コンポーネント構成**:
+```
+ProfilePage
+├── ProfileSection
+│   ├── FormField (email, readonly)
+│   ├── FormField (displayName)
+│   ├── RoleBadgeList (readonly)
+│   ├── FormField (createdAt, readonly)
+│   └── Button (save)
+├── PasswordChangeSection
+│   ├── FormField (currentPassword)
+│   ├── FormField (newPassword)
+│   │   ├── PasswordVisibilityToggle
+│   │   └── PasswordStrengthIndicator
+│   ├── FormField (confirmNewPassword)
+│   ├── PasswordRequirementsChecklist
+│   └── Button (change password)
+└── AdminLinkSection (Admin Only)
+    └── Link (user management)
+```
+
+**画面要素**:
+- **プロフィール情報セクション**:
+  - メールアドレス: 読み取り専用
+  - 表示名: 編集可能
+  - ロール: バッジ表示（読み取り専用）
+  - 作成日時: 読み取り専用
+  - 保存ボタン: 変更がある場合のみ有効
+- **パスワード変更セクション**:
+  - 現在のパスワード: type="password", autocomplete="current-password", required
+  - 新しいパスワード: type="password", autocomplete="new-password", required
+  - パスワード確認: type="password", autocomplete="new-password", required
+  - パスワード強度インジケーター
+  - パスワード要件チェックリスト
+  - パスワード変更ボタン
+- **管理者リンクセクション（管理者のみ表示）**:
+  - ユーザー管理リンク: `/admin/users` へ遷移
+
+**機能**:
+- **プロフィール更新**: 表示名変更 → 保存ボタン → 成功トーストメッセージ
+- **パスワード変更**: 確認ダイアログ（「全デバイスからログアウトされます」）→ パスワード変更実行 → 成功メッセージ → ログイン画面へリダイレクト
+
+### 共通UI/UXガイドライン
+
+**レスポンシブデザイン**:
+- モバイル: 320px-767px
+- タブレット: 768px-1023px
+- デスクトップ: 1024px以上
+
+**カラーパレット**:
+- Primary: #1976d2（青）
+- Secondary: #424242（グレー）
+- Success: #4caf50（緑）
+- Warning: #ff9800（オレンジ）
+- Error: #d32f2f（赤）
+- Info: #2196f3（水色）
+
+**タイポグラフィ**:
+- フォントファミリー: system-ui, -apple-system, 'Segoe UI', sans-serif
+- 見出し: 24px-32px
+- 本文: 16px
+- キャプション: 14px
+
+**アクセシビリティ**:
+- 最低コントラスト比: 4.5:1（WCAG 2.1 AA準拠）
+- キーボード操作: Tab、Enter、Spaceキー対応
+- スクリーンリーダー: aria-label, aria-describedby, role属性
+- エラーメッセージ: aria-live="polite"
+- フォーカスインジケーター: 明確なアウトライン表示
+
+**ローディング状態**:
+- ボタン: スピナー + 無効化
+- ページ: スケルトンスクリーン or ローディングスピナー
+- 長時間処理: プログレスバー + 進捗メッセージ
+
+**エラーハンドリング**:
+- フィールドレベルエラー: 入力フィールド下に赤色テキスト
+- ページレベルエラー: 最初のエラーフィールドにスクロール + フォーカス
+- ネットワークエラー: エラーメッセージ + リトライボタン
+
+**トーストメッセージ**:
+- 表示位置: 画面右上
+- 自動非表示: 3秒後
+- 種類: Success、Warning、Error、Info
+
+**モーダルダイアログ**:
+- フォーカストラップ: モーダル内にフォーカス閉じ込め
+- Escキー: モーダルを閉じる
+- 背景クリック: モーダルを閉じる（オプション）
 
 ## Data Models
 
@@ -300,6 +1393,7 @@ enum InvitationStatus {
   PENDING
   USED
   EXPIRED
+  REVOKED
 }
 
 // リフレッシュトークンモデル
@@ -411,66 +1505,335 @@ model AuditLog {
 既存のApiErrorクラスを活用し、認証・認可に特化したエラーハンドリングを実装します。
 
 **認証エラー (401)**:
-- MISSING_TOKEN: トークンが提供されていない
-- INVALID_TOKEN: トークンが無効
-- TOKEN_EXPIRED: トークンが期限切れ
-- INVALID_CREDENTIALS: 認証情報が正しくない
-- ACCOUNT_LOCKED: アカウントがロックされている
-- INVITATION_INVALID: 招待トークンが無効
-- INVITATION_EXPIRED: 招待トークンが期限切れ
-- INVITATION_ALREADY_USED: 招待トークンが既に使用済み
+- `MISSING_TOKEN`: トークンが提供されていない
+- `INVALID_TOKEN`: トークンが無効
+- `TOKEN_EXPIRED`: トークンが期限切れ
+- `INVALID_CREDENTIALS`: 認証情報が正しくない
+- `ACCOUNT_LOCKED`: アカウントがロックされている
+- `INVITATION_INVALID`: 招待トークンが無効
+- `INVITATION_EXPIRED`: 招待トークンが期限切れ
+- `INVITATION_ALREADY_USED`: 招待トークンが既に使用済み
 
 **認可エラー (403)**:
-- INSUFFICIENT_PERMISSIONS: 権限不足
-- ROLE_NOT_FOUND: ロールが見つからない
-- PERMISSION_NOT_FOUND: 権限が見つからない
-- CANNOT_DELETE_SYSTEM_ROLE: システムロールは削除不可
-- CANNOT_REVOKE_LAST_ADMIN: 最後の管理者ロールは削除不可
+- `INSUFFICIENT_PERMISSIONS`: 権限不足
+- `ROLE_NOT_FOUND`: ロールが見つからない
+- `PERMISSION_NOT_FOUND`: 権限が見つからない
+- `CANNOT_DELETE_SYSTEM_ROLE`: システムロールは削除不可
+- `CANNOT_REVOKE_LAST_ADMIN`: 最後の管理者ロールは削除不可
+
+**バリデーションエラー (400)**:
+- `WEAK_PASSWORD`: パスワード強度不足
+- `PASSWORD_MISMATCH`: パスワード不一致
+- `INVITATION_EMAIL_ALREADY_REGISTERED`: 招待メールアドレスが既に登録済み
 
 ## Testing Strategy
 
+### Storybook（コンポーネントドキュメント・視覚的テスト）
+
+**目的**: UIコンポーネントの視覚的なバリアント定義、インタラクションテスト、アクセシビリティテスト
+
+**テスト対象コンポーネント（20+ stories）**:
+
+1. **LoginForm** (5 stories)
+   - Default: デフォルト状態
+   - With Email: メールアドレス入力済み
+   - With Error: 認証エラー表示
+   - Loading: ログイン処理中
+   - Account Locked: アカウントロック状態
+
+2. **RegisterForm** (5 stories)
+   - Default: デフォルト状態
+   - With Weak Password: 弱いパスワード入力中
+   - With Strong Password: 強いパスワード入力中
+   - Password Mismatch: パスワード不一致
+   - Loading: 登録処理中
+
+3. **InvitationForm** (3 stories)
+   - Default: デフォルト状態
+   - With Email: メールアドレス入力済み
+   - Loading: 招待送信中
+
+4. **InvitationTable** (4 stories)
+   - Empty: 招待なし
+   - With Pending Invitations: 未使用招待あり
+   - With Mixed Status: 混在状態
+   - Mobile View: モバイル表示（カード形式）
+
+5. **PasswordStrengthIndicator** (4 stories)
+   - Weak: 弱いパスワード
+   - Medium: 普通のパスワード
+   - Strong: 強いパスワード
+   - Very Strong: 非常に強いパスワード
+
+6. **RoleBadge** (3 stories)
+   - System Admin: システム管理者バッジ
+   - General User: 一般ユーザーバッジ
+   - Custom Role: カスタムロールバッジ
+
+7. **PasswordRequirementsChecklist** (3 stories)
+   - All Failed: 全要件未達成
+   - Partially Met: 一部要件達成
+   - All Met: 全要件達成
+
+**Storybook Addons**:
+- **@storybook/addon-a11y**: アクセシビリティチェック（WCAG 2.1 AA準拠）
+- **@storybook/addon-interactions**: インタラクションテスト（play function）
+- **@storybook/addon-viewport**: レスポンシブデザインテスト
+
+**インタラクションテスト例（play function）**:
+
+```typescript
+// LoginForm.stories.tsx
+export const FilledForm: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // メールアドレス入力
+    await userEvent.type(canvas.getByLabelText(/email/i), 'user@example.com');
+
+    // パスワード入力
+    await userEvent.type(canvas.getByLabelText(/password/i), 'password123');
+
+    // ログインボタンクリック
+    await userEvent.click(canvas.getByRole('button', { name: /login/i }));
+
+    // ローディング状態を確認
+    expect(canvas.getByRole('button', { name: /login/i })).toBeDisabled();
+  },
+};
+```
+
 ### 単体テスト（Vitest）
-- **Backend**: AuthService, InvitationService, PasswordService, TokenService, RBACService（目標: 200+テスト、カバレッジ80%以上）
-- **Frontend**: Auth Context, Auth Components, Auth Hooks（目標: 30+テスト）
+
+**Backend（目標: 200+ tests, カバレッジ80%以上）**:
+
+**Service Layer Tests**:
+- **AuthService** (30 tests): 登録、ログイン、ログアウト、トークンリフレッシュ
+- **InvitationService** (20 tests): 招待作成、検証、無効化、再送信
+- **RBACService** (30 tests): 権限チェック、ロール管理、権限管理
+- **TokenService** (15 tests): JWT生成、検証、デコード
+- **PasswordService** (15 tests): ハッシュ、検証、強度チェック、リセット
+- **SessionService** (15 tests): セッション作成、削除、検証
+- **AuditLogService** (10 tests): 監査ログ記録、取得
+
+**Middleware Tests**:
+- **authenticate** (15 tests): トークン検証、エラーハンドリング
+- **authorize** (15 tests): 権限チェック、ワイルドカード対応
+
+**Frontend（目標: 50+ tests）**:
+
+**Context Tests**:
+- **AuthContext** (20 tests): ログイン、ログアウト、トークンリフレッシュ、自動リフレッシュ
+
+**Component Tests**:
+- **LoginForm** (10 tests): バリデーション、送信、エラーハンドリング
+- **RegisterForm** (10 tests): バリデーション、パスワード強度、送信
+- **PasswordStrengthIndicator** (5 tests): 強度計算、表示
+- **PasswordRequirementsChecklist** (5 tests): 要件チェック、表示
 
 ### 統合テスト（Vitest + supertest）
-- 認証フロー、権限チェックフロー、監査ログフロー（目標: 30テスト）
+
+**Backend統合テスト（目標: 40 tests）**:
+
+**認証フロー** (15 tests):
+- ユーザー登録フロー（招待経由）
+- ログインフロー（成功、失敗、アカウントロック）
+- ログアウトフロー
+- トークンリフレッシュフロー
+- パスワードリセットフロー
+
+**権限チェックフロー** (10 tests):
+- 権限あり: APIアクセス成功
+- 権限なし: 403エラー
+- トークンなし: 401エラー
+- トークン期限切れ: 401エラー
+- マルチロール権限統合
+
+**招待フロー** (10 tests):
+- 招待作成 → メール送信
+- 招待検証 → ユーザー登録
+- 招待取り消し
+- 招待再送信
+
+**監査ログフロー** (5 tests):
+- ロール変更 → 監査ログ記録
+- 権限変更 → 監査ログ記録
+- ユーザー・ロール変更 → 監査ログ記録
 
 ### E2Eテスト（Playwright）
-- ユーザー招待・登録フロー、ログイン・ログアウトフロー、権限チェックフロー、セッション管理フロー（目標: 20テスト）
+
+**E2Eテストシナリオ（目標: 25 tests）**:
+
+**認証フロー** (10 tests):
+- ユーザー招待 → 登録 → ログイン → ダッシュボード
+- ログイン → ログアウト
+- パスワードリセット要求 → メール受信 → パスワード変更
+- アカウントロック（5回ログイン失敗）
+- セッション有効期限切れ → 自動リダイレクト
+
+**権限チェックフロー** (8 tests):
+- 管理者: 全画面アクセス可能
+- 一般ユーザー: 管理画面アクセス不可（403エラー）
+- ロール変更 → 権限反映確認
+- 権限なしユーザー: 特定機能アクセス不可
+
+**招待管理フロー** (5 tests):
+- 管理者: 招待作成 → 招待一覧表示
+- 招待取り消し → ステータス更新
+- 招待再送信 → メール受信確認
+- 招待URLコピー → クリップボード確認
+
+**UI/UXフロー** (2 tests):
+- レスポンシブデザイン: モバイル、タブレット、デスクトップ
+- アクセシビリティ: キーボード操作、スクリーンリーダー
 
 ### パフォーマンステスト（Autocannon）
-- ログインAPI、権限チェックAPI、トークンリフレッシュAPI（目標: 各95/99パーセンタイル達成）
+
+**パフォーマンステスト（目標: 3 tests）**:
+
+**ログインAPI** (1 test):
+- 目標: 95パーセンタイルで500ms以内
+- 同時接続数: 100
+- 実行時間: 30秒
+
+**権限チェックAPI** (1 test):
+- 目標: 99パーセンタイルで100ms以内
+- 同時接続数: 200
+- 実行時間: 30秒
+
+**トークンリフレッシュAPI** (1 test):
+- 目標: 95パーセンタイルで300ms以内
+- 同時接続数: 100
+- 実行時間: 30秒
 
 ## Security Considerations
 
 ### 脅威モデル（STRIDE分析）
-- **Spoofing**: JWT署名検証、HTTPS通信、HttpOnly Cookie
-- **Tampering**: JWT署名検証、リフレッシュトークンのDB保存
-- **Repudiation**: 不変の監査ログ
-- **Information Disclosure**: HTTPS通信、bcryptハッシュ、トークンのローテーション
-- **Denial of Service**: レート制限、アカウントロック
-- **Elevation of Privilege**: 厳格な権限チェック、最小権限の原則
+
+**Spoofing（なりすまし）**:
+- 対策: JWT署名検証、HTTPS通信、HttpOnly Cookie
+
+**Tampering（改ざん）**:
+- 対策: JWT署名検証、リフレッシュトークンのDB保存、CSRFトークン
+
+**Repudiation（否認）**:
+- 対策: 不変の監査ログ、タイムスタンプ付きログ
+
+**Information Disclosure（情報漏洩）**:
+- 対策: HTTPS通信、bcryptハッシュ、トークンのローテーション、エラーメッセージの汎用化
+
+**Denial of Service（サービス拒否）**:
+- 対策: レート制限、アカウントロック、タイムアウト設定
+
+**Elevation of Privilege（権限昇格）**:
+- 対策: 厳格な権限チェック、最小権限の原則、最後の管理者削除防止
 
 ### セキュリティ対策
-- JWT署名（HMAC SHA256）、トークンローテーション、HttpOnly Cookie
-- bcryptハッシュ（コスト係数10以上）、パスワード強度要件
-- HTTPS強制、セキュリティヘッダー（Helmet）、CORS設定
-- レート制限、アカウントロック、CSRFトークン
+
+**JWT署名**:
+- アルゴリズム: HS256（HMAC SHA256）
+- シークレット: 256ビット以上（環境変数で管理）
+- トークンローテーション: リフレッシュ時に新しいトークン発行
+
+**bcryptハッシュ**:
+- コスト係数: 12（2025年推奨）
+- 自動ソルト生成
+- レインボーテーブル攻撃耐性
+
+**HTTPS強制**:
+- 本番環境でHTTPSへの強制リダイレクト
+- HSTSヘッダー設定（max-age: 31536000）
+- HttpOnly Cookie（XSS攻撃対策）
+
+**セキュリティヘッダー**:
+- helmet ミドルウェア使用
+- Content-Security-Policy
+- X-Frame-Options: DENY
+- X-Content-Type-Options: nosniff
+- Strict-Transport-Security
+
+**レート制限**:
+- ログインAPI: 10回/分/IP
+- トークンリフレッシュAPI: 20回/分/IP
+- 招待API: 5回/分/ユーザー
+
+**アカウントロック**:
+- 5回連続ログイン失敗でロック
+- ロック時間: 15分
+
+**CSRFトークン**:
+- 状態変更APIに対するCSRF保護
+- SameSite=Strict Cookie
 
 ## Performance & Scalability
 
 ### パフォーマンス要件
-- ログインAPI: 95パーセンタイルで500ms以内
-- 権限チェックAPI: 99パーセンタイルで100ms以内
-- トークンリフレッシュAPI: 95パーセンタイルで300ms以内
-- キャッシュヒット率: 90%以上
+
+- **ログインAPI**: 95パーセンタイルで500ms以内
+- **権限チェックAPI**: 99パーセンタイルで100ms以内
+- **トークンリフレッシュAPI**: 95パーセンタイルで300ms以内
+- **キャッシュヒット率**: 90%以上
 
 ### キャッシング戦略
-- Redisキャッシュ（user:{userId}:permissions, user:{userId}:roles）
+
+**Redis キャッシュ**:
+- キーパターン: `user:{userId}:permissions`、`user:{userId}:roles`
 - TTL: 15分（アクセストークンの有効期限と同期）
-- キャッシュ無効化: ロール・権限の変更時
+- キャッシュ無効化: ロール・権限の変更時、ユーザー・ロール変更時
+
+**データベースインデックス**:
+- `users.email`: ログイン時の高速検索
+- `invitations.token`: 招待検証時の高速検索
+- `refresh_tokens.token`: トークンリフレッシュ時の高速検索
+- `audit_logs.actorId`, `audit_logs.createdAt`: 監査ログ取得時の高速検索
 
 ### スケーリング戦略
-- 水平スケーリング: ステートレス設計、リフレッシュトークンの共有、Redisキャッシュの共有
-- データベース最適化: インデックス、接続プール、クエリ最適化
+
+**水平スケーリング**:
+- ステートレス設計: アクセストークンによる認証
+- リフレッシュトークンの共有: PostgreSQL
+- Redisキャッシュの共有: Redis Cluster
+
+**データベース最適化**:
+- 接続プール: 10-50接続
+- クエリ最適化: N+1問題の解消
+- マイグレーション: Prismaマイグレーション
+
+**非同期処理**:
+- メール送信: キュー（Redis Bull）
+- 監査ログ記録: バックグラウンドジョブ
+
+## Migration Strategy
+
+本機能は新規機能のため、マイグレーション戦略は以下の通りです：
+
+### Phase 1: データベースマイグレーション
+
+1. Prismaマイグレーション実行（User, Invitation, RefreshToken, Role, Permission, UserRole, RolePermission, AuditLog）
+2. 初期データシーディング（事前定義ロール、権限）
+
+### Phase 2: Backend実装
+
+1. Service Layer実装
+2. Middleware実装
+3. Controller実装
+4. 単体テスト・統合テスト実装
+
+### Phase 3: Frontend実装
+
+1. AuthContext実装
+2. UI Components実装
+3. Storybook実装
+4. 単体テスト実装
+
+### Phase 4: E2Eテスト・パフォーマンステスト
+
+1. E2Eテスト実装
+2. パフォーマンステスト実装
+3. セキュリティテスト実施
+
+### Phase 5: 本番環境デプロイ
+
+1. Railway環境へのデプロイ
+2. 初期管理者アカウント作成
+3. ヘルスチェック確認
