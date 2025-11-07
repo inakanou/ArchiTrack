@@ -1,22 +1,22 @@
-# 技術設計書: ユーザー認証・認可機能（拡張可能RBAC対応）
+# 技術設計書: ユーザー認証・認可機能
 
 ## 概要
 
-この機能は、ArchiTrackプロジェクトに招待制のユーザー認証システムと、拡張可能なロールベースアクセス制御（RBAC）を提供します。管理者による招待制の登録フロー、JWT（JSON Web Token）ベースの認証、細粒度な権限管理、堅牢なセッション管理、および監査ログ機能を実装します。
+この機能は、ArchiTrackプロジェクトに招待制のユーザー認証システムとロールベースアクセス制御（RBAC）を提供します。管理者による招待制の登録フロー、JWT（JSON Web Token）ベースの認証、細粒度な権限管理、堅牢なセッション管理、および監査ログ機能を実装します。
 
 **対象ユーザー:** ArchiTrackのシステム管理者、積算担当、現場担当、購買担当、経理担当、および一般ユーザーが、各職務に応じた適切な権限で安全にシステムを利用できるようにします。
 
-**システムへの影響:** この機能は、現在の認証なしのArchiTrackシステムを、招待制でセキュアなマルチユーザー・マルチロールアプリケーションに変換します。既存のバックエンドAPIとフロントエンドUIに認証・認可層を追加し、全てのAPIエンドポイントに細粒度なアクセス制御を統合します。組織の職務構造に合わせてロールと権限を柔軟に管理できるようになります。
+**システムへの影響:** この機能は、現在の認証なしのArchiTrackシステムを、招待制でセキュアなマルチユーザー・マルチロールアプリケーションに変換します。既存のバックエンドAPIとフロントエンドUIに認証・認可層を追加し、全てのAPIエンドポイントに細粒度なアクセス制御を統合します。
 
 ### 目標
 
 - 管理者による招待制のユーザー登録システムを実装
 - JWT認証とリフレッシュトークンによる安全なセッション管理を確立
-- **NIST RBAC標準（Core RBAC + Hierarchical RBAC）に準拠した拡張可能な権限管理を実現**
-- **`resource:action` 形式の細粒度な権限定義とワイルドカード権限をサポート**
-- **マルチロール対応と権限統合（OR演算）による柔軟な職務管理**
+- NIST RBAC標準（Core RBAC + Hierarchical RBAC）に準拠した権限管理を実現
+- `resource:action` 形式の細粒度な権限定義とワイルドカード権限をサポート
+- マルチロール対応と権限統合（OR演算）による柔軟な職務管理
 - セッション有効期限切れ時の自動トークンリフレッシュとログイン画面リダイレクトを提供
-- **全ての権限変更を監査ログに記録し、コンプライアンス要件を満たす**
+- 全ての権限変更を監査ログに記録し、コンプライアンス要件を満たす
 - OWASP Top 10とRFC 6750（Bearer Token）に準拠したセキュアな実装
 
 ### 非目標
@@ -26,7 +26,6 @@
 - 外部IDプロバイダー連携（SAML、LDAP）は対象外
 - リアルタイムセッション無効化通知（WebSocket）は将来的な拡張
 - 属性ベースアクセス制御（ABAC）は将来的な拡張
-- ロール階層の継承機能は将来的な拡張（Hierarchical RBACの基盤は実装）
 
 ## アーキテクチャ
 
@@ -63,20 +62,18 @@ graph TB
     subgraph "Backend (Express)"
         AuthRoutes[Auth Routes<br/>/auth/*]
         RBACRoutes[RBAC Routes<br/>/rbac/*]
-        WorkflowRoutes[Workflow Routes<br/>/workflow/*]
         AuthMiddleware[JWT Auth Middleware]
         AuthzMiddleware[Authorization Middleware]
 
-        AuthService[Auth Service]
+        AuthService[Authentication Service]
         TokenService[Token Service]
         SessionService[Session Service]
         AuthzService[Authorization Service]
         RoleService[Role Service]
         PermissionService[Permission Service]
         AuditService[Audit Log Service]
-        WorkflowService[Workflow Service]
-        ApprovalService[Approval Service]
-        NotificationService[Notification Service]
+        InvitationService[Invitation Service]
+        UserService[User Service]
     end
 
     subgraph "Data Layer"
@@ -88,3367 +85,2820 @@ graph TB
     AuthContext --> Interceptor
     Interceptor -->|Bearer Token| AuthRoutes
     Interceptor -->|Bearer Token| RBACRoutes
-    Interceptor -->|Bearer Token| WorkflowRoutes
-    Interceptor -->|401 Error| TokenService
+    Interceptor -->|401 Error| AuthContext
 
     AuthRoutes --> AuthMiddleware
     RBACRoutes --> AuthMiddleware
-    WorkflowRoutes --> AuthMiddleware
     AuthMiddleware --> AuthzMiddleware
     AuthzMiddleware --> AuthzService
 
     AuthService --> TokenService
     AuthService --> SessionService
-    AuthService --> RoleService
+    AuthService --> UserService
     AuthzService --> RoleService
     AuthzService --> PermissionService
-    AuthzService --> AuditService
-
-    WorkflowService --> ApprovalService
-    WorkflowService --> NotificationService
-    WorkflowService --> RoleService
-    ApprovalService --> AuthzService
-    ApprovalService --> AuditService
+    RoleService --> AuditService
+    PermissionService --> AuditService
 
     TokenService --> Redis
     SessionService --> Redis
-    AuthService --> PostgreSQL
+    AuthzService --> Redis
+    UserService --> PostgreSQL
     RoleService --> PostgreSQL
     PermissionService --> PostgreSQL
     AuditService --> PostgreSQL
-    WorkflowService --> PostgreSQL
-    ApprovalService --> PostgreSQL
+    InvitationService --> PostgreSQL
 ```
 
-### アーキテクチャ統合
+### レイヤードアーキテクチャ
 
-**既存パターンの保持:**
-- Expressミドルウェアチェーンパターン（既存: httpLogger → cors → compression → routes → errorHandler）
-- Prisma ORMによる型安全なデータアクセス
-- ApiErrorクラスによる統一的なエラーレスポンス
-- フロントエンドのAPIクライアントパターン（シングルトン、fetch-based）
-
-**新規コンポーネントの根拠:**
-- **Authorization Service**: 権限チェックと評価ロジックをカプセル化、認証と認可の関心を分離
-- **Role Service**: ロールのライフサイクル管理、事前定義ロールの初期化
-- **Permission Service**: 権限の評価、ワイルドカード権限のマッチング
-- **Audit Log Service**: 監査ログの記録と取得、コンプライアンス対応
-- **Workflow Service**: 決裁ワークフローのライフサイクル管理、金額閾値ベースのルート選択、ワークフロー状態追跡
-- **Approval Service**: 承認・差し戻し・代理承認の実行、承認権限の検証、承認履歴の記録
-- **Notification Service**: ワークフロー開始・承認待ち・完了時の通知、リマインダー送信
-
-**技術スタック整合性:**
-- TypeScript完全対応: 既存の型安全性パターンを維持
-- Prismaスキーマ拡張: 既存のUserモデルを拡張し、RBAC関連モデル追加
-- Redisセッション管理: 既存のRedis接続を再利用、権限キャッシングに活用
-
-**ステアリング準拠:**
-- structure.md: モジュール分割の原則（単一責任、疎結合）に準拠
-- tech.md: 既存の技術スタック（TypeScript、Express、Prisma、Redis）を活用
-- product.md: スペック駆動開発のワークフローに従った段階的実装
-
-## 技術スタックとアライメント
-
-### 技術スタック整合性
-
-この機能は、既存のArchiTrack技術スタックと完全に整合します：
-
-**Backend:**
-- **既存技術の継続使用**: Express 5.1.0、TypeScript 5.9.3、Prisma ORM 6.18.0、PostgreSQL 15、Redis 7
-- **新規依存関係の追加**:
-  - `jsonwebtoken` ^9.0.2: JWT生成・検証（Node.js標準、広く採用）
-  - `bcrypt` ^5.1.1: パスワードハッシュ化（OWASP推奨、bcryptアルゴリズム）
-  - `zod` ^3.22.4: バリデーションスキーマ（既存のvalidate.middlewareと統合）
-
-**Frontend:**
-- **既存技術の継続使用**: React 18.2.0、TypeScript 5.9.3、Vite 7.2.0
-- **新規依存関係の追加**:
-  - React Context API（組み込み）: グローバル認証状態管理
-  - React Router v6（追加必要）: 認証ルーティングとガード
-
-**技術選択の根拠:**
-- `jsonwebtoken` vs `jose`: jsonwebtokenはNode.js標準ライブラリ、コミュニティサポートが豊富、既存プロジェクトとの互換性
-- `bcrypt` vs `argon2`: bcryptはOWASP推奨、業界標準、saltラウンド調整が容易
-- React Context vs Redux: シンプルな認証状態管理にはContextが適切、オーバーエンジニアリングを回避
-
-### 主要な設計判断
-
-#### 設計判断1: NIST RBAC標準（Core RBAC + Hierarchical RBAC）の採用
-
-**決定:** NIST RBAC標準のCore RBACとHierarchical RBACに準拠したモデルを採用
-
-**コンテキスト:** シンプルな2ロール（admin/user）では、組織の職務構造（積算担当、現場担当、購買担当、経理担当等）に対応できない。柔軟かつ標準的なRBACモデルが必要。
-
-**代替案:**
-1. **シンプルなロール列挙型**: admin, user, estimator, site_manager等を列挙型で定義
-2. **グループベースアクセス制御（GBAC）**: Linuxのようなグループ管理
-3. **属性ベースアクセス制御（ABAC）**: ユーザー属性とリソース属性に基づく動的ポリシー
-
-**選択したアプローチ（NIST RBAC）:**
-- **Core RBAC**: Role、Permission、User-Role、Role-Permissionの4エンティティ
-- **Role（ロール）**: 職務に対応する権限のグループ（例: 積算担当、現場担当）
-- **Permission（権限）**: `resource:action` 形式（例: `adr:read`, `user:manage`）
-- **User-Role**: 1ユーザーに複数ロール割り当て可能（マルチロール対応）
-- **Role-Permission**: 1ロールに複数権限割り当て可能
-- **Hierarchical RBAC（将来的な拡張）**: ロール階層と権限継承をサポート
-
-**根拠:**
-- **業界標準**: NIST標準に準拠することで、将来的な拡張や他システムとの統合が容易
-- **柔軟性**: ロールと権限を動的に追加・削除可能、組織変更に対応
-- **最小権限の原則**: 職務に必要な最小限の権限のみを付与可能
-- **監査性**: 権限変更の履歴を追跡可能、コンプライアンス要件を満たす
-
-**トレードオフ:**
-- **得られるもの**: 拡張性、標準準拠、細粒度な権限管理、監査性
-- **犠牲にするもの**: 実装の複雑性（4エンティティの管理）、初期セットアップの手間
-
-#### 設計判断2: `resource:action` 形式の権限定義とワイルドカード権限
-
-**決定:** 権限を `resource:action` 形式で定義し、ワイルドカード（`adr:*`, `*:read`, `*:*`）をサポート
-
-**コンテキスト:** 細粒度なアクセス制御が必要。リソースごとにCRUD操作を個別に制御したい。例えば、「経理担当はADRを閲覧できるが編集できない」を表現可能にする。
-
-**代替案:**
-1. **フラットな権限名**: `adr_read`, `adr_write`, `user_manage`（アンダースコア区切り）
-2. **階層的な権限**: `admin.users.create`, `viewer.adrs.read`（ドット区切り）
-3. **RESTfulパーミッション**: `GET:/api/adrs`, `POST:/api/users`（HTTPメソッド + パス）
-
-**選択したアプローチ:**
 ```
-permission := resource ":" action
-resource   := "adr" | "user" | "role" | "permission" | "project" | "report" | "settings" | "*"
-action     := "create" | "read" | "update" | "delete" | "manage" | "approve" | "export" | "*"
+┌─────────────────────────────────────┐
+│  Presentation Layer (React)         │
+│  - LoginForm, SignupForm            │
+│  - RoleManager, PermissionManager   │
+│  - UserProfile, InvitationManager   │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│  API Layer (Express Routes)         │
+│  - /auth/* (login, signup, token)   │
+│  - /rbac/* (roles, permissions)     │
+│  - /users/* (profile, management)   │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│  Middleware Layer                   │
+│  - authenticateJWT                  │
+│  - requirePermission                │
+│  - rateLimiter                      │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│  Service Layer                      │
+│  - AuthService, TokenService        │
+│  - AuthzService, RoleService        │
+│  - SessionService, AuditService     │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│  Data Access Layer                  │
+│  - Prisma ORM                       │
+│  - Redis Client                     │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│  Data Storage                       │
+│  - PostgreSQL (Users, Roles, Perms) │
+│  - Redis (Sessions, Permissions)    │
+└─────────────────────────────────────┘
 ```
 
-**権限の例:**
-- `adr:read` - ADRの閲覧権限
-- `adr:*` - ADRに関する全ての操作権限
-- `*:read` - 全てのリソースの閲覧権限
-- `*:*` - 全ての権限（システム管理者専用）
+## 技術選定
 
-**ワイルドカード評価ルール:**
-1. 最も具体的な権限を優先（`adr:read` > `adr:*` > `*:read` > `*:*`）
-2. ユーザーが持つ全ロールの権限を統合（OR演算）
-3. `*:*` を持つユーザーは全ての権限チェックを通過
+### 認証・認可技術
 
-**根拠:**
-- **直感的**: リソースとアクションの対応が明確、理解しやすい
-- **拡張性**: 新しいリソースタイプやアクションを追加しやすい
-- **柔軟性**: ワイルドカードにより、権限セットを簡潔に定義可能
-- **パフォーマンス**: 権限チェックのロジックがシンプル、高速に評価可能
+| 技術 | 選定理由 | 代替案 |
+|------|----------|--------|
+| **JWT (jsonwebtoken)** | ステートレス認証、水平スケーラビリティ、RFC 7519標準準拠 | セッションベース認証（スケーラビリティに課題） |
+| **bcrypt** | パスワードハッシュ化のデファクトスタンダード、ソルト自動生成、レインボーテーブル攻撃耐性 | argon2（より新しいが導入事例が少ない） |
+| **Redis** | セッション・権限キャッシュの高速アクセス、TTL機能、既存インフラ活用 | Memcached（TTL機能が限定的） |
+| **Prisma ORM** | 型安全なデータアクセス、既存プロジェクトとの統合性 | TypeORM（学習コストが高い） |
 
-**トレードオフ:**
-- **得られるもの**: 細粒度な制御、拡張性、直感的なAPI
-- **犠牲にするもの**: ワイルドカード評価の実装複雑性、優先順位ルールの理解コスト
+### セキュリティ標準
 
-#### 設計判断3: JWT + リフレッシュトークンのハイブリッド戦略（既存設計を維持）
+| 標準 | 適用箇所 | 目的 |
+|------|----------|------|
+| **OWASP Top 10** | 全体 | 一般的な脆弱性対策（SQLインジェクション、XSS、CSRF等） |
+| **RFC 6750 (Bearer Token)** | トークン伝送 | Authorizationヘッダーによる安全なトークン送信 |
+| **NIST RBAC Standard** | RBAC設計 | Core RBAC + Hierarchical RBACの標準準拠 |
+| **OWASP ASVS** | 認証フロー | パスワードポリシー、セッション管理のベストプラクティス |
 
-**決定:** アクセストークン（短期: 15分）とリフレッシュトークン（長期: 7日）の2トークン方式を採用
+### トークン設計
 
-**コンテキスト:** セキュリティとユーザー体験のバランスが必要。頻繁な再ログインはUXを損ない、長期JWTはセキュリティリスクを増大させる。
-
-**代替案:**
-1. **セッションCookieのみ**: サーバー側セッション管理、水平スケールが困難
-2. **長期JWT（24時間以上）**: XSS攻撃時のトークン漏洩リスクが高い
-3. **OAuth2リフレッシュトークングラント**: 外部IDプロバイダー依存、初期実装には過剰
-
-**選択したアプローチ:**
-- **アクセストークン**: JWTとしてメモリまたはlocalStorageに保存、15分で期限切れ
-- **JWTペイロード拡張**: ユーザーID、メールアドレス、**ロールID配列**を含める
-- **リフレッシュトークン**: HttpOnly Cookie（XSS対策）、Redisにホワイトリスト保存、7日で期限切れ
-- **プロアクティブリフレッシュ**: 有効期限5分前に自動更新
-- **リアクティブリフレッシュ**: 401エラー時にHTTPインターセプターで自動再試行
-
-**根拠:**
-- **セキュリティ**: 短期アクセストークンで攻撃ウィンドウを最小化
-- **UX**: 自動リフレッシュにより、ユーザーは再ログイン不要
-- **スケーラビリティ**: Redisによるリフレッシュトークン管理で水平スケール可能
-- **RFC 6750準拠**: Bearer Token仕様に従ったWWW-Authenticateヘッダー
-
-**トレードオフ:**
-- **得られるもの**: 高いセキュリティ、優れたUX、水平スケーラビリティ
-- **犠牲にするもの**: 実装の複雑性（2つのトークン管理）、Redisへの依存
-
-#### 設計判断4: マルチロール対応と権限統合（OR演算）
-
-**決定:** 1ユーザーに複数のロールを割り当て可能とし、全ロールの権限を統合（OR演算）して評価
-
-**コンテキスト:** 実際の組織では、1人が複数の職務を兼務することがある（例: 積算担当兼現場担当）。ロールを柔軟に組み合わせられる必要がある。
-
-**代替案:**
-1. **シングルロールのみ**: 1ユーザーに1ロールのみ割り当て、兼務時は複合ロールを作成
-2. **ロール優先順位**: 複数ロールを持つ場合、最も優先度の高いロールのみを適用
-3. **AND演算**: 全てのロールが持つ権限のみを有効とする（交差集合）
-
-**選択したアプローチ:**
-```typescript
-// ユーザーの権限評価
-function getUserPermissions(userId: string): Set<string> {
-  const roles = getRolesForUser(userId); // 例: [積算担当, 現場担当]
-  const permissions = new Set<string>();
-
-  for (const role of roles) {
-    const rolePermissions = getPermissionsForRole(role.id);
-    for (const perm of rolePermissions) {
-      permissions.add(perm); // OR演算: 和集合
-    }
+**アクセストークン (Access Token)**
+- **有効期限**: 15分
+- **ペイロード**:
+  ```json
+  {
+    "sub": "user-uuid",
+    "email": "user@example.com",
+    "roles": ["role-uuid-1", "role-uuid-2"],
+    "iat": 1234567890,
+    "exp": 1234568790,
+    "type": "access"
   }
+  ```
+- **用途**: API認証、短命で頻繁に更新
 
-  return permissions; // 例: {adr:read, adr:create, adr:update, project:read, project:update}
-}
-```
-
-**根拠:**
-- **柔軟性**: 兼務や職務変更に対応しやすい、ロールを組み合わせて権限を拡張
-- **最小権限の原則**: 各ロールは最小限の権限を持ち、必要に応じて組み合わせる
-- **直感的**: ユーザーは複数のロールから得られる全ての権限を利用可能
-
-**トレードオフ:**
-- **得られるもの**: 柔軟な権限管理、兼務対応、拡張性
-- **犠牲にするもの**: 権限評価の複雑性、意図しない権限拡大のリスク（適切なロール設計が必要）
+**リフレッシュトークン (Refresh Token)**
+- **有効期限**: 7日間
+- **ペイロード**:
+  ```json
+  {
+    "sub": "user-uuid",
+    "sessionId": "session-uuid",
+    "iat": 1234567890,
+    "exp": 1235172690,
+    "type": "refresh"
+  }
+  ```
+- **用途**: アクセストークンの更新のみ
+- **保存**: HttpOnly Cookie（XSS対策）またはセキュアストレージ
+- **ローテーション**: 使用時に新しいリフレッシュトークンを発行（トークン窃取対策）
 
 ## システムフロー
 
-### シーケンス図: 管理者によるユーザー招待フロー
+### 1. ユーザー招待フロー
 
 ```mermaid
 sequenceDiagram
-    actor Admin as 管理者
-    participant UI as Frontend UI
+    participant Admin as 管理者
+    participant UI as Frontend
     participant API as Backend API
-    participant AuthService as Auth Service
-    participant RoleService as Role Service
     participant DB as PostgreSQL
     participant Email as Email Service
 
-    Admin->>UI: メールアドレスを入力
-    UI->>API: POST /auth/invitations<br/>{email}
-    API->>AuthService: createInvitation(email, adminId)
-    AuthService->>DB: ユーザー存在チェック
+    Admin->>UI: 招待フォーム入力<br/>(email, role)
+    UI->>API: POST /auth/invitations<br/>{email, roleIds}
+    API->>API: 権限チェック<br/>(user:invite)
+    API->>DB: 既存ユーザー確認
     alt ユーザーが既に存在
-        DB-->>AuthService: User found
-        AuthService-->>API: Error: Already registered
-        API-->>UI: 409 Conflict
-        UI-->>Admin: エラーメッセージ表示
-    else ユーザーが存在しない
-        DB-->>AuthService: User not found
-        AuthService->>AuthService: トークン生成（crypto.randomBytes）
-        AuthService->>DB: Invitation保存<br/>{email, token, expiresAt: +7days}
-        DB-->>AuthService: Success
-        AuthService->>Email: 招待メール送信<br/>URL: /signup?token=xxx
-        Email-->>AuthService: Email sent
-        AuthService-->>API: {invitationId, invitationUrl}
+        API-->>UI: 400 Bad Request
+    else 新規ユーザー
+        API->>DB: Invitation作成<br/>(token, email, roleIds)
+        API->>Email: 招待メール送信<br/>(token付きURL)
         API-->>UI: 201 Created
-        UI-->>Admin: 成功メッセージ + URLコピー
     end
+    Email-->>Admin: 招待メール送信完了通知
 ```
 
-### シーケンス図: ユーザー登録とデフォルトロール割り当てフロー
+**セキュリティ考慮事項:**
+- 招待トークンは暗号学的に安全なランダム文字列（32バイト）
+- 有効期限: 72時間（configurable）
+- 使用済みトークンは無効化（ワンタイムユース）
+- レート制限: 1管理者あたり100件/日
+
+### 2. アカウント作成フロー
 
 ```mermaid
 sequenceDiagram
-    actor User as 招待されたユーザー
-    participant UI as Frontend UI
+    participant User as 新規ユーザー
+    participant UI as Frontend
     participant API as Backend API
-    participant AuthService as Auth Service
-    participant RoleService as Role Service
-    participant TokenService as Token Service
+    participant DB as PostgreSQL
+    participant Audit as Audit Log
+
+    User->>UI: 招待URLクリック
+    UI->>API: GET /auth/invitations/:token
+    API->>DB: トークン検証<br/>(有効期限、未使用)
+    alt トークン無効
+        API-->>UI: 400 Invalid Token
+    else トークン有効
+        API-->>UI: 200 OK<br/>{email, roles}
+        UI->>User: サインアップフォーム表示<br/>(email固定)
+        User->>UI: パスワード入力<br/>(名前、パスワード)
+        UI->>API: POST /auth/signup<br/>{token, name, password}
+        API->>API: パスワード検証<br/>(8文字以上、複雑性)
+        API->>API: bcryptでハッシュ化<br/>(cost=12)
+        API->>DB: User作成<br/>(UserRole紐付け)
+        API->>DB: Invitation無効化
+        API->>Audit: 監査ログ記録<br/>(USER_CREATED)
+        API-->>UI: 201 Created
+        UI->>User: ログイン画面へリダイレクト
+    end
+```
+
+**パスワードポリシー:**
+- 最小長: 8文字
+- 複雑性: 大文字、小文字、数字、記号のうち3種類以上
+- 禁止リスト: よくあるパスワード（"password123"等）をブロック
+- bcrypt cost factor: 12（セキュリティと性能のバランス）
+
+### 3. 初回管理者セットアップフロー
+
+```mermaid
+sequenceDiagram
+    participant Setup as セットアップ画面
+    participant API as Backend API
+    participant DB as PostgreSQL
+    participant Seed as Seed Script
+
+    Setup->>API: GET /auth/setup/status
+    API->>DB: ユーザー数確認
+    alt ユーザーが既に存在
+        API-->>Setup: 200 {needsSetup: false}
+        Setup->>Setup: ログイン画面へリダイレクト
+    else ユーザー0件
+        API-->>Setup: 200 {needsSetup: true}
+        Setup->>Setup: セットアップフォーム表示
+        Setup->>API: POST /auth/setup<br/>{email, password, name}
+        API->>API: セットアップロック取得<br/>(Redis)
+        API->>Seed: デフォルトロール・権限作成<br/>(system_admin等)
+        API->>DB: 初回管理者作成<br/>(system_admin role付与)
+        API->>API: セットアップロック解放
+        API-->>Setup: 201 Created<br/>{accessToken, refreshToken}
+        Setup->>Setup: ダッシュボードへリダイレクト
+    end
+```
+
+**セキュリティ考慮事項:**
+- セットアップエンドポイントはユーザー0件の時のみ有効
+- Redisロックで並行セットアップを防止（TTL: 5分）
+- セットアップ完了後はエンドポイント無効化
+
+### 4. ログインフロー
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant UI as Frontend
+    participant API as Backend API
     participant DB as PostgreSQL
     participant Redis as Redis
+    participant Audit as Audit Log
 
-    User->>UI: 招待URL（/signup?token=xxx）にアクセス
-    UI->>API: GET /auth/invitations/verify?token=xxx
-    API->>AuthService: verifyInvitationToken(token)
-    AuthService->>DB: Invitationレコード取得
-    alt トークンが無効または期限切れ
-        DB-->>AuthService: Not found or expired
-        AuthService-->>API: Error: Invalid token
-        API-->>UI: 400 Bad Request
-        UI-->>User: エラーメッセージ表示
-    else トークンが有効
-        DB-->>AuthService: Invitation found
-        AuthService-->>API: {email, invitedBy}
-        API-->>UI: 200 OK
-        UI-->>User: 登録フォーム表示<br/>（メール読み取り専用）
+    User->>UI: ログインフォーム入力<br/>(email, password)
+    UI->>API: POST /auth/login<br/>{email, password}
+    API->>DB: ユーザー取得<br/>(email検索)
+    alt ユーザー不存在
+        API->>Audit: ログイン失敗記録
+        API-->>UI: 401 Invalid credentials
+    else ユーザー存在
+        API->>API: パスワード検証<br/>(bcrypt.compare)
+        alt パスワード不一致
+            API->>Audit: ログイン失敗記録
+            API-->>UI: 401 Invalid credentials
+        else パスワード一致
+            API->>DB: UserRole取得<br/>(ロール情報)
+            API->>API: セッション作成<br/>(sessionId生成)
+            API->>Redis: セッション保存<br/>(TTL: 7日)
+            API->>API: トークン生成<br/>(access+refresh)
+            API->>Audit: ログイン成功記録
+            API-->>UI: 200 OK<br/>{accessToken, refreshToken}
+            UI->>UI: トークン保存<br/>(localStorage/Cookie)
+            UI->>User: ダッシュボードへリダイレクト
+        end
     end
-
-    User->>UI: パスワード + 表示名を入力
-    UI->>API: POST /auth/signup<br/>{token, password, name}
-    API->>AuthService: signup(token, password, name)
-    AuthService->>DB: ユーザー作成<br/>{email, password: bcrypt}
-    AuthService->>RoleService: assignDefaultRole(userId)
-    RoleService->>DB: デフォルトロール（一般ユーザー）を割り当て<br/>UserRoleレコード作成
-    AuthService->>DB: Invitation更新<br/>{usedAt, status: USED}
-    AuthService->>TokenService: generateTokens(userId, roleIds: [generalUserId])
-    TokenService->>TokenService: アクセストークン生成<br/>JWT(userId, email, roleIds, exp: 15min)
-    TokenService->>TokenService: リフレッシュトークン生成<br/>uuid()
-    TokenService->>Redis: リフレッシュトークン保存<br/>TTL: 7days
-    TokenService-->>AuthService: {accessToken, refreshToken}
-    AuthService-->>API: {user, accessToken, refreshToken}
-    API-->>UI: 200 OK + Set-Cookie: refreshToken
-    UI-->>User: ダッシュボードへリダイレクト
 ```
 
-### シーケンス図: 権限チェックフロー（拡張RBAC）
+**レート制限:**
+- IPベース: 10回/5分（ブルートフォース攻撃対策）
+- アカウントベース: 5回失敗でアカウントロック（15分間）
+
+### 5. トークンリフレッシュフロー
 
 ```mermaid
 sequenceDiagram
-    actor User as ユーザー
-    participant UI as Frontend UI
+    participant UI as Frontend
     participant API as Backend API
-    participant AuthMiddleware as Auth Middleware
-    participant AuthzMiddleware as Authorization Middleware
-    participant AuthzService as Authorization Service
-    participant PermissionService as Permission Service
-    participant Redis as Redis Cache
+    participant Redis as Redis
     participant DB as PostgreSQL
 
-    User->>UI: ADR編集ボタンをクリック
-    UI->>API: PUT /api/adrs/:id<br/>Authorization: Bearer {accessToken}
-    API->>AuthMiddleware: JWTトークン検証
-    AuthMiddleware->>AuthMiddleware: JWT署名検証
-    AuthMiddleware->>AuthMiddleware: ペイロードからuserIdとroleIdsを抽出
-    AuthMiddleware->>AuthzMiddleware: requirePermission('adr:update')
-    AuthzMiddleware->>AuthzService: hasPermission(userId, 'adr', 'update', resourceId)
-
-    AuthzService->>Redis: キャッシュからユーザーの権限セットを取得
-    alt 権限がキャッシュされている
-        Redis-->>AuthzService: {adr:read, adr:update, project:read}
-        AuthzService->>PermissionService: matchPermission('adr:update', permissions)
-        PermissionService->>PermissionService: ワイルドカード評価<br/>adr:update, adr:*, *:update, *:*
-        PermissionService-->>AuthzService: true（一致）
-        AuthzService-->>AuthzMiddleware: Authorized
-        AuthzMiddleware->>API: 処理続行
-        API-->>UI: 200 OK（ADR更新成功）
-        UI-->>User: 成功メッセージ表示
-    else 権限がキャッシュされていない
-        Redis-->>AuthzService: Cache miss
-        AuthzService->>DB: ユーザーのロール取得<br/>SELECT * FROM UserRole WHERE userId = ?
-        DB-->>AuthzService: [roleId1, roleId2]
-        AuthzService->>DB: 各ロールの権限取得<br/>SELECT * FROM RolePermission WHERE roleId IN (?, ?)
-        DB-->>AuthzService: [{adr:read}, {adr:update}, {project:read}]
-        AuthzService->>AuthzService: 権限を統合（OR演算）
-        AuthzService->>Redis: 権限セットをキャッシュ（TTL: 5分）
-        AuthzService->>PermissionService: matchPermission('adr:update', permissions)
-        PermissionService-->>AuthzService: true
-        AuthzService-->>AuthzMiddleware: Authorized
-        AuthzMiddleware->>API: 処理続行
-        API-->>UI: 200 OK
-        UI-->>User: 成功メッセージ表示
-    end
-
-    alt 権限チェック失敗
-        PermissionService-->>AuthzService: false（権限なし）
-        AuthzService->>DB: 監査ログに記録<br/>PERMISSION_CHECK_FAILED
-        AuthzService-->>AuthzMiddleware: Forbidden
-        AuthzMiddleware-->>API: 403 Forbidden
-        API-->>UI: エラーレスポンス
-        UI-->>User: 「この操作を実行する権限がありません」
+    UI->>API: API呼び出し<br/>(期限切れaccess token)
+    API-->>UI: 401 Unauthorized<br/>{error: "token_expired"}
+    UI->>UI: Interceptor検出
+    UI->>API: POST /auth/refresh<br/>{refreshToken}
+    API->>API: リフレッシュトークン検証
+    alt トークン無効
+        API-->>UI: 401 Invalid refresh token
+        UI->>UI: ログイン画面へリダイレクト
+    else トークン有効
+        API->>Redis: セッション確認<br/>(sessionId)
+        alt セッション不存在
+            API-->>UI: 401 Session expired
+            UI->>UI: ログイン画面へリダイレクト
+        else セッション有効
+            API->>DB: ユーザー・ロール取得
+            API->>API: 新トークンペア生成<br/>(rotation)
+            API->>Redis: 旧リフレッシュトークン無効化
+            API->>Redis: セッションTTL更新
+            API-->>UI: 200 OK<br/>{accessToken, refreshToken}
+            UI->>UI: トークン更新
+            UI->>API: 元のAPI再試行<br/>(新access token)
+        end
     end
 ```
 
-### シーケンス図: ロール管理フロー（CRUD操作）
+**トークンローテーション:**
+- リフレッシュトークン使用時に新しいペアを発行
+- 旧リフレッシュトークンは即座に無効化
+- 窃取されたトークンの悪用を最小化
+
+### 6. 権限チェックフロー
 
 ```mermaid
 sequenceDiagram
-    actor Admin as システム管理者
-    participant UI as Frontend UI
+    participant UI as Frontend
     participant API as Backend API
-    participant AuthzMiddleware as Authorization Middleware
-    participant RoleService as Role Service
-    participant AuditService as Audit Log Service
+    participant Cache as Redis Cache
     participant DB as PostgreSQL
 
-    Admin->>UI: 新しいロール作成画面
-    UI->>Admin: ロール名、説明、優先順位を入力
-    Admin->>UI: 保存ボタンをクリック
-    UI->>API: POST /rbac/roles<br/>{name: "営業担当", description: "...", priority: 50}
-    API->>AuthzMiddleware: requirePermission('role:create')
-    AuthzMiddleware-->>API: Authorized
-    API->>RoleService: createRole(name, description, priority, creatorId)
-
-    RoleService->>DB: ロール名の重複チェック
-    alt ロール名が既に存在
-        DB-->>RoleService: Duplicate found
-        RoleService-->>API: Error: Role already exists
-        API-->>UI: 409 Conflict
-        UI-->>Admin: エラーメッセージ表示
-    else ロール名が一意
-        DB-->>RoleService: No duplicate
-        RoleService->>DB: ロール作成<br/>INSERT INTO Role
-        DB-->>RoleService: roleId
-        RoleService->>AuditService: logAction(actor, ROLE_CREATED, target, changes)
-        AuditService->>DB: 監査ログ保存<br/>INSERT INTO AuditLog
-        RoleService-->>API: {roleId, name, description, priority}
-        API-->>UI: 201 Created
-        UI-->>Admin: 成功メッセージ表示
-    end
-
-    Note over Admin,DB: --- ロールへの権限割り当て ---
-
-    Admin->>UI: ロール詳細画面で権限を選択
-    Admin->>UI: 権限追加ボタンをクリック
-    UI->>API: POST /rbac/roles/:roleId/permissions<br/>{permissionIds: [p1, p2, p3]}
-    API->>AuthzMiddleware: requirePermission('role:manage')
-    AuthzMiddleware-->>API: Authorized
-    API->>RoleService: assignPermissions(roleId, permissionIds, adminId)
-
-    RoleService->>DB: トランザクション開始
-    RoleService->>DB: 権限の存在確認<br/>SELECT * FROM Permission WHERE id IN (...)
-    DB-->>RoleService: All permissions found
-    RoleService->>DB: ロール・権限紐付け作成<br/>INSERT INTO RolePermission
-    RoleService->>AuditService: logAction(actor, PERMISSION_ASSIGNED, target, changes)
-    AuditService->>DB: 監査ログ保存
-    RoleService->>DB: トランザクションコミット
-    RoleService->>Redis: ロールに割り当てられたユーザーの権限キャッシュを無効化
-    RoleService-->>API: Success
-    API-->>UI: 200 OK
-    UI-->>Admin: 権限が追加されました
-```
-
-### シーケンス図: 決裁ワークフロー開始と金額閾値ベースのルート選択
-
-```mermaid
-sequenceDiagram
-    actor User as ユーザー（起案者）
-    participant UI as Frontend UI
-    participant API as Backend API
-    participant WorkflowService as Workflow Service
-    participant AuthzService as Authorization Service
-    participant NotificationService as Notification Service
-    participant DB as PostgreSQL
-
-    User->>UI: 見積もりADRを作成
-    UI->>User: 金額入力（例: 600万円）
-    User->>UI: 決裁申請ボタンをクリック
-    UI->>API: POST /workflow/start<br/>{type: "見積もり", amount: 6000000, adrId: "adr-123"}
-    API->>WorkflowService: startWorkflow(type, amount, adrId, userId)
-
-    WorkflowService->>DB: 金額閾値によるルート選択<br/>SELECT * FROM WorkflowRoute<br/>WHERE type='見積もり' AND minAmount <= 6000000 AND maxAmount > 6000000
-    DB-->>WorkflowService: ルート: "営業 → 積算担当 → 購買担当"
-
-    WorkflowService->>DB: ワークフロー作成<br/>INSERT INTO Workflow<br/>(type, status, currentStep, totalSteps)
-    DB-->>WorkflowService: workflowId
-
-    WorkflowService->>DB: 承認ステップ作成<br/>INSERT INTO WorkflowStep<br/>(step 1: 営業, step 2: 積算担当, step 3: 購買担当)
-
-    WorkflowService->>AuthzService: getApprovers(roleId: "営業")
-    AuthzService->>DB: SELECT * FROM UserRole WHERE roleId = "営業"
-    DB-->>AuthzService: [user1, user2]
-    AuthzService-->>WorkflowService: approvers
-
-    WorkflowService->>NotificationService: notifyApprovers(workflowId, step: 1, approvers)
-    NotificationService-->>WorkflowService: 通知送信完了
-
-    WorkflowService->>DB: ワークフロー保存
-    WorkflowService-->>API: {workflowId, status: "進行中", currentStep: 1}
-    API-->>UI: 201 Created
-    UI-->>User: 決裁申請が開始されました（承認者: 営業）
-```
-
-### シーケンス図: 承認・差し戻しフロー
-
-```mermaid
-sequenceDiagram
-    actor Approver as 承認者
-    participant UI as Frontend UI
-    participant API as Backend API
-    participant AuthzMiddleware as Authorization Middleware
-    participant ApprovalService as Approval Service
-    participant WorkflowService as Workflow Service
-    participant NotificationService as Notification Service
-    participant AuditService as Audit Log Service
-    participant DB as PostgreSQL
-
-    Approver->>UI: 承認待ちワークフロー一覧を表示
-    UI->>API: GET /workflow/pending
-    API->>WorkflowService: getPendingWorkflows(approverId)
-    WorkflowService->>DB: SELECT * FROM Workflow<br/>WHERE status='進行中' AND currentStepApproverId = approverId
-    DB-->>WorkflowService: [workflow1, workflow2]
-    WorkflowService-->>API: workflows
-    API-->>UI: 200 OK
-    UI-->>Approver: 承認待ちワークフロー2件
-
-    Approver->>UI: ワークフロー詳細を開く
-    Approver->>UI: 「承認」ボタンをクリック
-    UI->>API: POST /workflow/:workflowId/approve<br/>{comment: "承認します"}
-    API->>AuthzMiddleware: requirePermission('workflow:approve')
-    AuthzMiddleware->>ApprovalService: checkApprovalPermission(workflowId, userId)
-
-    ApprovalService->>DB: 現在のステップの承認者かチェック
-    DB-->>ApprovalService: true
-    ApprovalService-->>AuthzMiddleware: Authorized
-    AuthzMiddleware-->>API: Authorized
-
-    API->>ApprovalService: approve(workflowId, approverId, comment)
-    ApprovalService->>DB: トランザクション開始
-
-    ApprovalService->>DB: 承認履歴記録<br/>INSERT INTO ApprovalHistory<br/>(workflowId, stepNumber, approverId, action: "承認", comment)
-
-    ApprovalService->>WorkflowService: moveToNextStep(workflowId)
-    WorkflowService->>DB: 次のステップを確認<br/>SELECT * FROM WorkflowStep WHERE workflowId = ... AND stepNumber = currentStep + 1
-
-    alt 次のステップが存在
-        DB-->>WorkflowService: nextStep: 積算担当
-        WorkflowService->>DB: currentStep更新<br/>UPDATE Workflow SET currentStep = currentStep + 1
-        WorkflowService->>AuthzService: getApprovers(roleId: "積算担当")
-        AuthzService->>DB: SELECT * FROM UserRole WHERE roleId = "積算担当"
-        DB-->>AuthzService: [user3]
-        WorkflowService->>NotificationService: notifyApprovers(workflowId, step: 2, approvers)
-        NotificationService-->>WorkflowService: 通知送信完了
-        WorkflowService-->>ApprovalService: nextStep: 積算担当
-    else 全ステップ完了
-        DB-->>WorkflowService: No next step
-        WorkflowService->>DB: ワークフロー完了<br/>UPDATE Workflow SET status = '承認済み'
-        WorkflowService->>NotificationService: notifyCompletion(workflowId, initiatorId)
-        WorkflowService-->>ApprovalService: completed
-    end
-
-    ApprovalService->>AuditService: logAction(actor, WORKFLOW_APPROVED, target, changes)
-    AuditService->>DB: 監査ログ保存
-    ApprovalService->>DB: トランザクションコミット
-    ApprovalService-->>API: Success
-    API-->>UI: 200 OK
-    UI-->>Approver: 承認が完了しました
-
-    Note over Approver,DB: --- 差し戻しフロー ---
-
-    alt 承認者が差し戻しを選択
-        Approver->>UI: 「差し戻し」ボタンをクリック
-        UI->>Approver: 差し戻し理由を入力
-        Approver->>UI: 送信
-        UI->>API: POST /workflow/:workflowId/reject<br/>{reason: "見積もり金額の再計算が必要"}
-        API->>ApprovalService: reject(workflowId, approverId, reason)
-        ApprovalService->>DB: 承認履歴記録<br/>action: "差し戻し"
-        ApprovalService->>DB: ワークフロー状態更新<br/>UPDATE Workflow SET status = '差し戻し'
-        ApprovalService->>NotificationService: notifyRejection(workflowId, initiatorId, reason)
-        ApprovalService->>AuditService: logAction(actor, WORKFLOW_REJECTED, target, changes)
-        ApprovalService-->>API: Success
-        API-->>UI: 200 OK
-        UI-->>Approver: 差し戻しが完了しました
+    UI->>API: API呼び出し<br/>(Authorization: Bearer token)
+    API->>API: JWT検証<br/>(署名、有効期限)
+    API->>API: ユーザーID抽出<br/>(token.sub)
+    API->>Cache: 権限キャッシュ取得<br/>(user:{userId}:permissions)
+    alt キャッシュヒット
+        API->>API: 必要な権限チェック<br/>(例: project:update)
+        alt 権限あり
+            API->>API: ビジネスロジック実行
+            API-->>UI: 200 OK
+        else 権限なし
+            API-->>UI: 403 Forbidden
+        end
+    else キャッシュミス
+        API->>DB: UserRole取得
+        API->>DB: RolePermission取得
+        API->>DB: Permission取得
+        API->>API: 権限リスト統合<br/>(OR演算)
+        API->>Cache: 権限キャッシュ保存<br/>(TTL: 5分)
+        API->>API: 必要な権限チェック
+        alt 権限あり
+            API->>API: ビジネスロジック実行
+            API-->>UI: 200 OK
+        else 権限なし
+            API-->>UI: 403 Forbidden
+        end
     end
 ```
 
-## 要件トレーサビリティ
-
-| 要件 | 要件概要 | コンポーネント | インターフェース | フロー |
-|------|----------|--------------|------------------|--------|
-| 1 | 管理者によるユーザー招待 | Auth Service, Invitation Model | POST /auth/invitations, GET /auth/invitations | 招待フロー図 |
-| 2 | 招待を受けたユーザーのアカウント作成 | Auth Service, Token Service, Role Service | GET /auth/invitations/verify, POST /auth/signup | 登録フロー図 |
-| 3 | 初期管理者アカウントのセットアップ | Auth Service, Role Service, Database Seeding | npm run seed | - |
-| 4 | ログイン | Auth Service, Token Service, Session Service | POST /auth/login | ログインフロー図（既存設計を参照） |
-| 5 | トークン管理 | Token Service, Session Service | POST /auth/refresh, POST /auth/logout | リフレッシュフロー図（既存設計を参照） |
-| 6 | 拡張可能なRBAC | Authorization Service, Role Service, Permission Service | requirePermission('resource:action') | 権限チェックフロー図 |
-| 7 | パスワード管理 | Auth Service | POST /auth/password/reset, POST /auth/password/change | - |
-| 8 | セッション管理 | Session Service, Redis | Redis TTL, Session Invalidation | - |
-| 9 | ユーザー情報取得・管理 | Auth Service | GET /auth/me, PATCH /auth/me | - |
-| 10 | セキュリティとエラーハンドリング | Error Handler, Auth Middleware | ApiError, 401/403レスポンス | - |
-| 11-16 | UI/UX要件 | Frontend Components | LoginForm, SignupForm, ProfilePage | - |
-| 17 | セッション有効期限切れ時の自動リダイレクト | HTTP Interceptor, Token Service | POST /auth/refresh, redirectUrl機能 | セッション期限切れフロー図（既存設計を参照） |
-| 18 | 動的ロール管理 | Role Service | POST /rbac/roles, GET /rbac/roles, PATCH /rbac/roles/:id, DELETE /rbac/roles/:id | ロール管理フロー図 |
-| 19 | 権限（Permission）管理 | Permission Service | GET /rbac/permissions, POST /rbac/permissions | - |
-| 20 | ロールへの権限割り当て | Role Service, Permission Service | POST /rbac/roles/:id/permissions, DELETE /rbac/roles/:id/permissions/:permissionId | ロール管理フロー図 |
-| 21 | ユーザーへのロール割り当て（マルチロール） | Role Service | POST /rbac/users/:id/roles, DELETE /rbac/users/:id/roles/:roleId | - |
-| 22 | 権限チェック機能 | Authorization Service, Permission Service | requirePermission('resource:action'), hasPermission() | 権限チェックフロー図 |
-| 23 | 監査ログとコンプライアンス | Audit Log Service | GET /rbac/audit-logs, POST /rbac/audit-logs/export | - |
-| 24 | 決裁ワークフロー設計 | Workflow Service, Workflow Route Model, Workflow Step Model | POST /workflow/start, GET /workflow/:id | 決裁ワークフロー開始フロー図 |
-| 25 | 決裁承認機能 | Approval Service, Workflow Service, Notification Service | POST /workflow/:id/approve, POST /workflow/:id/reject, GET /workflow/pending | 承認・差し戻しフロー図 |
-| 26 | 業務別決裁ルートの最適化 | Workflow Service, Workflow Route Model | POST /workflow/routes, GET /workflow/routes, PATCH /workflow/routes/:id | - |
-
-## コンポーネントとインターフェース
-
-### Authentication Domain
-
-#### Auth Service
-
-**責務と境界**
-- **主要責務**: ユーザー認証とライフサイクル管理（招待、登録、ログイン、パスワード管理）
-- **ドメイン境界**: Authenticationドメインのコアビジネスロジック
-- **データ所有権**: User、Invitation、認証イベントログ
-- **トランザクション境界**: 単一ユーザーアカウント操作（登録、ログイン）
-
-**依存関係**
-- **Inbound**: Auth Routes、Admin Routes
-- **Outbound**: Token Service、Session Service、Role Service、Prisma Client、Email Service（将来的）
-- **External**: `bcrypt`（パスワードハッシュ化）、`crypto`（招待トークン生成）
-
-**サービスインターフェース**
-
-```typescript
-interface AuthService {
-  // 招待管理
-  createInvitation(email: string, invitedBy: string): Promise<Result<Invitation, AuthError>>;
-  verifyInvitationToken(token: string): Promise<Result<InvitationInfo, AuthError>>;
-  listInvitations(invitedBy: string): Promise<Result<Invitation[], AuthError>>;
-  cancelInvitation(invitationId: string, adminId: string): Promise<Result<void, AuthError>>;
-
-  // ユーザー登録
-  signup(token: string, password: string, name: string): Promise<Result<AuthResponse, AuthError>>;
-
-  // 認証
-  login(email: string, password: string): Promise<Result<AuthResponse, AuthError>>;
-  logout(userId: string, refreshToken: string): Promise<Result<void, AuthError>>;
-
-  // ユーザー管理
-  getProfile(userId: string): Promise<Result<UserProfile, AuthError>>;
-  updateProfile(userId: string, updates: ProfileUpdates): Promise<Result<UserProfile, AuthError>>;
-  changePassword(userId: string, currentPassword: string, newPassword: string): Promise<Result<void, AuthError>>;
-
-  // パスワードリセット
-  requestPasswordReset(email: string): Promise<Result<void, AuthError>>;
-  resetPassword(token: string, newPassword: string): Promise<Result<void, AuthError>>;
-}
-
-type Result<T, E> = { success: true; data: T } | { success: false; error: E };
-
-interface AuthResponse {
-  user: UserProfile;
-  accessToken: string;
-  refreshToken: string;
-}
-
-interface UserProfile {
-  id: string;
-  email: string;
-  name: string;
-  roles: RoleInfo[]; // マルチロール対応
-  createdAt: Date;
-}
-
-interface RoleInfo {
-  id: string;
-  name: string;
-  description: string;
-}
-
-interface AuthError {
-  code: 'INVALID_CREDENTIALS' | 'ACCOUNT_LOCKED' | 'INVITATION_EXPIRED' | 'USER_ALREADY_EXISTS' | 'WEAK_PASSWORD';
-  message: string;
-  details?: Record<string, unknown>;
-}
-```
-
-**事前条件:**
-- `createInvitation`: invitedByは有効なシステム管理者IDである必要がある
-- `signup`: 招待トークンが有効かつ未使用である必要がある
-- `changePassword`: currentPasswordが正しいハッシュと一致する必要がある
-
-**事後条件:**
-- `signup`: ユーザーレコードが作成され、デフォルトロール（一般ユーザー）が割り当てられ、招待トークンが使用済みとしてマークされる
-- `login`: 成功時にfailedLoginCountがリセットされる、失敗時にカウントが増加
-- `logout`: リフレッシュトークンがRedisから削除される
-
-**不変条件:**
-- パスワードは常にbcryptでハッシュ化されて保存される
-- 5回連続ログイン失敗後、アカウントは15分間ロックされる
-- 招待トークンは一度のみ使用可能
-
-#### Token Service
-
-**責務と境界**
-- **主要責務**: JWT生成、検証、リフレッシュ、失効管理
-- **ドメイン境界**: トークンライフサイクル管理
-- **データ所有権**: RefreshToken（Redisホワイトリスト）
-- **トランザクション境界**: 単一トークンペア（アクセス + リフレッシュ）
-
-**依存関係**
-- **Inbound**: Auth Service、HTTP Interceptor（Frontend）
-- **Outbound**: Redis Client
-- **External**: `jsonwebtoken`（JWT生成・検証）、環境変数（JWT_SECRET）
-
-**サービスインターフェース**
-
-```typescript
-interface TokenService {
-  // トークン生成（マルチロール対応）
-  generateTokenPair(userId: string, roleIds: string[]): Promise<TokenPair>;
-
-  // トークン検証
-  verifyAccessToken(token: string): Result<TokenPayload, TokenError>;
-  verifyRefreshToken(token: string): Promise<Result<TokenPayload, TokenError>>;
-
-  // トークンリフレッシュ
-  refreshAccessToken(refreshToken: string): Promise<Result<string, TokenError>>;
-
-  // トークン失効
-  revokeRefreshToken(token: string): Promise<void>;
-  revokeAllUserTokens(userId: string): Promise<void>;
-}
-
-interface TokenPair {
-  accessToken: string;  // JWT、有効期限15分
-  refreshToken: string; // UUID、有効期限7日
-}
-
-interface TokenPayload {
-  userId: string;
-  email: string;
-  roleIds: string[];  // マルチロール対応
-  iat: number; // issued at
-  exp: number; // expiration
-}
-
-interface TokenError {
-  code: 'TOKEN_EXPIRED' | 'TOKEN_INVALID' | 'TOKEN_MISSING';
-  message: string;
-}
-```
-
-**外部依存関係調査:**
-- **jsonwebtoken**: Node.js標準JWTライブラリ、GitHub 18k+ stars、週1000万+ downloads
-  - API: `jwt.sign(payload, secret, { expiresIn: '15m' })`、`jwt.verify(token, secret)`
-  - アルゴリズム: HS256（HMAC SHA-256）を使用
-  - エラータイプ: `TokenExpiredError`, `JsonWebTokenError`, `NotBeforeError`
-- **Redis TTL管理**: `SET key value EX 604800`（7日 = 604800秒）
-  - 自動失効: TTL経過後にRedisが自動削除
-
-**事前条件:**
-- `generateTokenPair`: userIdは有効なUUID形式、roleIdsは有効なロールID配列である必要がある
-- `verifyAccessToken`: トークンはJWT形式である必要がある
-- `refreshAccessToken`: リフレッシュトークンがRedisホワイトリストに存在する必要がある
-
-**事後条件:**
-- `generateTokenPair`: 新しいリフレッシュトークンがRedisに保存され、7日後に自動失効
-- `revokeRefreshToken`: 対象トークンがRedisから即座に削除される
-- `revokeAllUserTokens`: 特定ユーザーの全リフレッシュトークンがRedisから削除される
-
-**不変条件:**
-- アクセストークンの有効期限は15分を超えない
-- リフレッシュトークンの有効期限は7日を超えない
-- JWT署名は常にHS256アルゴリズムを使用
-
-### Authorization Domain
-
-#### Authorization Service
-
-**責務と境界**
-- **主要責務**: 権限チェック、ユーザーの権限評価、権限キャッシング
-- **ドメイン境界**: Authorizationドメインのコアビジネスロジック
-- **データ所有権**: 権限評価ロジック、キャッシュされた権限情報
-- **トランザクション境界**: 単一権限チェック操作
-
-**依存関係**
-- **Inbound**: Authorization Middleware、RBAC Routes
-- **Outbound**: Role Service、Permission Service、Audit Log Service、Redis Client、Prisma Client
-- **External**: なし
-
-**サービスインターフェース**
-
-```typescript
-interface AuthorizationService {
-  // 権限チェック
-  hasPermission(
-    userId: string,
-    resource: string,
-    action: string,
-    resourceId?: string
-  ): Promise<boolean>;
-
-  // ユーザーの全権限を取得
-  getUserPermissions(userId: string): Promise<Set<string>>;
-
-  // キャッシュ無効化
-  invalidateUserPermissionCache(userId: string): Promise<void>;
-  invalidateRolePermissionCache(roleId: string): Promise<void>;
-
-  // リソースレベルの権限チェック（所有者フィルタリング）
-  canAccessResource(
-    userId: string,
-    resource: string,
-    action: string,
-    resourceOwnerId: string
-  ): Promise<boolean>;
-}
-```
-
-**権限評価アルゴリズム:**
-```typescript
-// 疑似コード
-async function hasPermission(
-  userId: string,
-  resource: string,
-  action: string
-): Promise<boolean> {
-  // 1. キャッシュから権限セットを取得
-  let permissions = await getPermissionsFromCache(userId);
-
-  if (!permissions) {
-    // 2. ユーザーのロールを取得
-    const roles = await roleService.getUserRoles(userId);
-
-    // 3. 各ロールの権限を取得
-    permissions = new Set<string>();
-    for (const role of roles) {
-      const rolePermissions = await roleService.getRolePermissions(role.id);
-      for (const perm of rolePermissions) {
-        permissions.add(perm); // OR演算
-      }
-    }
-
-    // 4. キャッシュに保存（TTL: 5分）
-    await cachePermissions(userId, permissions);
-  }
-
-  // 5. ワイルドカード権限マッチング
-  const requiredPerm = `${resource}:${action}`;
-  return permissionService.matchPermission(requiredPerm, permissions);
-}
-```
-
-**事前条件:**
-- `hasPermission`: userIdは有効なユーザーID、resourceとactionは非空文字列である必要がある
-- `canAccessResource`: resourceOwnerIdは有効なユーザーIDである必要がある
-
-**事後条件:**
-- `getUserPermissions`: ユーザーの全ロールから統合された権限セットを返す
-- `invalidateUserPermissionCache`: 対象ユーザーの権限キャッシュがRedisから削除される
-
-**不変条件:**
-- 権限評価は常にユーザーの全ロールの権限を統合（OR演算）する
-- キャッシュされた権限情報は最大5分間有効
-
-#### Role Service
-
-**責務と境界**
-- **主要責務**: ロールのCRUD操作、ロール・権限紐付け、ユーザー・ロール紐付け
-- **ドメイン境界**: ロール管理
-- **データ所有権**: Role、UserRole、RolePermission
-- **トランザクション境界**: 単一ロール操作またはバルク操作
-
-**依存関係**
-- **Inbound**: Auth Service、Authorization Service、RBAC Routes
-- **Outbound**: Audit Log Service、Prisma Client、Redis Client（キャッシュ無効化）
-- **External**: なし
-
-**サービスインターフェース**
-
-```typescript
-interface RoleService {
-  // ロールCRUD
-  createRole(
-    name: string,
-    description: string,
-    priority: number,
-    creatorId: string
-  ): Promise<Result<Role, RoleError>>;
-
-  updateRole(
-    roleId: string,
-    updates: RoleUpdates,
-    updaterId: string
-  ): Promise<Result<Role, RoleError>>;
-
-  deleteRole(roleId: string, deleterId: string): Promise<Result<void, RoleError>>;
-
-  getRole(roleId: string): Promise<Result<Role, RoleError>>;
-
-  listRoles(): Promise<Role[]>;
-
-  // ロール・権限紐付け
-  assignPermissions(
-    roleId: string,
-    permissionIds: string[],
-    adminId: string
-  ): Promise<Result<void, RoleError>>;
-
-  removePermission(
-    roleId: string,
-    permissionId: string,
-    adminId: string
-  ): Promise<Result<void, RoleError>>;
-
-  getRolePermissions(roleId: string): Promise<string[]>; // ["adr:read", "adr:update"]
-
-  // ユーザー・ロール紐付け
-  assignRolesToUser(
-    userId: string,
-    roleIds: string[],
-    adminId: string
-  ): Promise<Result<void, RoleError>>;
-
-  removeRoleFromUser(
-    userId: string,
-    roleId: string,
-    adminId: string
-  ): Promise<Result<void, RoleError>>;
-
-  getUserRoles(userId: string): Promise<Role[]>;
-
-  // 事前定義ロール初期化
-  initializePredefinedRoles(): Promise<void>;
-}
-
-interface Role {
-  id: string;
-  name: string;
-  description: string;
-  priority: number; // 高い値が高優先度
-  isSystemRole: boolean; // システム管理者等の削除不可ロール
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface RoleError {
-  code: 'ROLE_ALREADY_EXISTS' | 'ROLE_NOT_FOUND' | 'ROLE_IN_USE' | 'SYSTEM_ROLE_PROTECTED' | 'LAST_ADMIN_PROTECTED';
-  message: string;
-}
-```
-
-**事前定義ロールの初期化:**
-```typescript
-// データベースシーディング時に実行
-async function initializePredefinedRoles(): Promise<void> {
-  const predefinedRoles = [
-    {
-      name: 'システム管理者',
-      description: '全ての権限を持つ最高権限ロール',
-      priority: 1000,
-      isSystemRole: true,
-      permissions: ['*:*']
-    },
-    {
-      name: '積算担当',
-      description: 'ADRの作成・編集・閲覧、見積もり関連機能へのアクセス',
-      priority: 500,
-      isSystemRole: false,
-      permissions: ['adr:create', 'adr:read', 'adr:update', 'report:read', 'report:export']
-    },
-    {
-      name: '現場担当',
-      description: '現場関連ADRの閲覧・更新、現場データの管理',
-      priority: 500,
-      isSystemRole: false,
-      permissions: ['adr:read', 'adr:update', 'project:read', 'project:update']
-    },
-    {
-      name: '購買担当',
-      description: '購買関連ADRの閲覧・作成、ベンダー情報の管理',
-      priority: 500,
-      isSystemRole: false,
-      permissions: ['adr:create', 'adr:read', 'project:read']
-    },
-    {
-      name: '経理担当',
-      description: '全ADRの閲覧（編集不可）、経理レポートの生成',
-      priority: 400,
-      isSystemRole: false,
-      permissions: ['adr:read', 'report:read', 'report:export']
-    },
-    {
-      name: '一般ユーザー',
-      description: '自分が作成したADRの閲覧・編集のみ',
-      priority: 100,
-      isSystemRole: false,
-      permissions: ['adr:read', 'adr:create', 'adr:update'] // 所有者フィルタリング適用
-    }
-  ];
-
-  for (const roleDef of predefinedRoles) {
-    // ロール作成とバルク権限割り当て
-    await createRoleWithPermissions(roleDef);
-  }
-}
-```
-
-**事前条件:**
-- `createRole`: nameは一意である必要がある
-- `deleteRole`: ロールがユーザーに割り当てられていない、またはシステムロールではない必要がある
-- `assignRolesToUser`: roleIdsは全て存在する有効なロールIDである必要がある
-
-**事後条件:**
-- `createRole`: 新しいRoleレコードが作成され、空の権限セットが割り当てられる
-- `assignPermissions`: 全ての権限がトランザクション内で割り当てられ、監査ログに記録される
-- `removeRoleFromUser`: 対象ユーザーがシステム管理者ロールを持つ最後のユーザーでない場合のみ削除される
-
-**不変条件:**
-- システムロール（isSystemRole=true）は削除できない
-- 最後のシステム管理者ロールを持つユーザーからロールを削除できない
-
-#### Permission Service
-
-**責務と境界**
-- **主要責務**: 権限の定義、ワイルドカード権限のマッチング、権限評価
-- **ドメイン境界**: 権限管理
-- **データ所有権**: Permission
-- **トランザクション境界**: 単一権限操作
-
-**依存関係**
-- **Inbound**: Authorization Service、RBAC Routes
-- **Outbound**: Prisma Client
-- **External**: なし
-
-**サービスインターフェース**
-
-```typescript
-interface PermissionService {
-  // 権限CRUD
-  createPermission(
-    resource: string,
-    action: string,
-    description: string
-  ): Promise<Result<Permission, PermissionError>>;
-
-  listPermissions(): Promise<Permission[]>;
-
-  getPermission(permissionId: string): Promise<Result<Permission, PermissionError>>;
-
-  // ワイルドカード権限マッチング
-  matchPermission(
-    required: string,      // 例: "adr:update"
-    available: Set<string> // 例: {"adr:read", "adr:*", "project:read"}
-  ): boolean;
-
-  // 事前定義権限初期化
-  initializePredefinedPermissions(): Promise<void>;
-}
-
-interface Permission {
-  id: string;
-  resource: string; // "adr", "user", "role", "*"
-  action: string;   // "create", "read", "update", "delete", "manage", "*"
-  name: string;     // "adr:read"
-  description: string;
-  createdAt: Date;
-}
-
-interface PermissionError {
-  code: 'PERMISSION_ALREADY_EXISTS' | 'PERMISSION_NOT_FOUND' | 'INVALID_FORMAT';
-  message: string;
-}
-```
-
-**ワイルドカード権限マッチングアルゴリズム:**
-```typescript
-// 疑似コード
-function matchPermission(required: string, available: Set<string>): boolean {
-  // 1. 完全一致
-  if (available.has(required)) {
-    return true;
-  }
-
-  // 2. ワイルドカード評価（優先順位順）
-  const [reqResource, reqAction] = required.split(':');
-
-  // 2a. *:* （全ての権限）
-  if (available.has('*:*')) {
-    return true;
-  }
-
-  // 2b. resource:* （特定リソースの全アクション）
-  if (available.has(`${reqResource}:*`)) {
-    return true;
-  }
-
-  // 2c. *:action （全リソースの特定アクション）
-  if (available.has(`*:${reqAction}`)) {
-    return true;
-  }
-
-  return false;
-}
-```
-
-**事前定義権限の初期化:**
-```typescript
-// データベースシーディング時に実行
-async function initializePredefinedPermissions(): Promise<void> {
-  const resources = ['adr', 'user', 'role', 'permission', 'project', 'report', 'settings', '*'];
-  const actions = ['create', 'read', 'update', 'delete', 'manage', 'approve', 'export', '*'];
-
-  for (const resource of resources) {
-    for (const action of actions) {
-      // 権限レコード作成
-      await createPermission(resource, action, `${resource}:${action}`);
-    }
-  }
-}
-```
-
-**事前条件:**
-- `matchPermission`: requiredは `resource:action` 形式である必要がある
-
-**事後条件:**
-- `matchPermission`: 最も具体的な権限を優先して評価し、一致すればtrueを返す
-
-**不変条件:**
-- 権限名は常に `resource:action` 形式である
-
-#### Audit Log Service
-
-**責務と境界**
-- **主要責務**: 監査ログの記録、取得、エクスポート、コンプライアンス対応
-- **ドメイン境界**: 監査とコンプライアンス
-- **データ所有権**: AuditLog
-- **トランザクション境界**: 単一監査ログ記録
-
-**依存関係**
-- **Inbound**: Auth Service、Role Service、Permission Service、Authorization Service
-- **Outbound**: Prisma Client、Notification Service（将来的）
-- **External**: なし
-
-**サービスインターフェース**
-
-```typescript
-interface AuditLogService {
-  // 監査ログ記録
-  logAction(
-    actorId: string,
-    action: AuditAction,
-    targetType: string,
-    targetId: string,
-    targetName: string,
-    changes: { before: unknown; after: unknown },
-    metadata?: Record<string, unknown>
-  ): Promise<void>;
-
-  // 監査ログ取得
-  getAuditLogs(filter: AuditLogFilter): Promise<AuditLog[]>;
-
-  // 監査ログエクスポート
-  exportAuditLogs(filter: AuditLogFilter): Promise<string>; // JSON文字列
-
-  // アラート通知（センシティブな操作）
-  sendSecurityAlert(log: AuditLog): Promise<void>;
-}
-
-type AuditAction =
-  | 'ROLE_CREATED'
-  | 'ROLE_UPDATED'
-  | 'ROLE_DELETED'
-  | 'PERMISSION_ASSIGNED'
-  | 'PERMISSION_REVOKED'
-  | 'USER_ROLE_ASSIGNED'
-  | 'USER_ROLE_REVOKED'
-  | 'PERMISSION_CHECK_FAILED';
-
-interface AuditLog {
-  id: string;
-  timestamp: Date;
-  actor: {
-    userId: string;
-    email: string;
-    roles: string[];
-  };
-  action: AuditAction;
-  target: {
-    type: string; // "role" | "permission" | "user"
-    id: string;
-    name: string;
-  };
-  changes: {
-    before: unknown;
-    after: unknown;
-  };
-  metadata: {
-    ipAddress: string;
-    userAgent: string;
-    requestId: string;
-  };
-}
-
-interface AuditLogFilter {
-  actorId?: string;
-  targetId?: string;
-  action?: AuditAction;
-  startDate?: Date;
-  endDate?: Date;
-  limit?: number;
-  offset?: number;
-}
-```
-
-**事前条件:**
-- `logAction`: actorIdは有効なユーザーID、targetIdは存在するリソースIDである必要がある
-
-**事後条件:**
-- `logAction`: 監査ログがPostgreSQLに永続化される。失敗時は操作全体がロールバックされる
-- `sendSecurityAlert`: センシティブな操作（システム管理者ロール変更）の場合、アラート通知が送信される
-
-**不変条件:**
-- 監査ログは削除不可（追記のみ）
-- 全ての権限変更操作は監査ログに記録される
-
-### Workflow Domain
-
-#### Workflow Service
-
-**責務と境界**
-- **主要責務**: 決裁ワークフローのライフサイクル管理、金額閾値ベースのルート選択、ワークフロー状態追跡
-- **ドメイン境界**: Workflow、WorkflowRoute、WorkflowStepの管理
-- **データ所有権**: ワークフローインスタンス、承認ステップ、ワークフロー設定
-- **トランザクション境界**: ワークフロー作成・更新・完了の各操作はトランザクション内で実行
-
-**依存関係**
-- **インバウンド**: Workflow Routes、Frontend UI
-- **アウトバウンド**: Approval Service、Notification Service、Authorization Service、PostgreSQL
-- **外部依存**: なし
-
-**契約定義**
-
-**サービスインターフェース:**
-```typescript
-interface WorkflowService {
-  // ワークフロー開始
-  startWorkflow(input: StartWorkflowInput): Promise<Result<Workflow, WorkflowError>>;
-
-  // ワークフロー取得
-  getWorkflow(workflowId: string): Promise<Result<Workflow, NotFoundError>>;
-
-  // 承認待ちワークフロー取得
-  getPendingWorkflows(approverId: string): Promise<Result<Workflow[], WorkflowError>>;
-
-  // 次のステップに進む
-  moveToNextStep(workflowId: string): Promise<Result<WorkflowStep | null, WorkflowError>>;
-
-  // ワークフロー完了
-  completeWorkflow(workflowId: string): Promise<Result<Workflow, WorkflowError>>;
-
-  // カスタム決裁ルート作成
-  createWorkflowRoute(input: CreateWorkflowRouteInput): Promise<Result<WorkflowRoute, WorkflowError>>;
-
-  // 決裁ルート取得
-  getWorkflowRoutes(type?: WorkflowType): Promise<Result<WorkflowRoute[], WorkflowError>>;
-}
-
-interface StartWorkflowInput {
-  type: WorkflowType; // 'quotation' | 'procurement' | 'payment' | 'site_change'
-  amount: number;
-  adrId: string;
-  initiatorId: string;
-  metadata?: Record<string, unknown>;
-}
-
-interface CreateWorkflowRouteInput {
-  name: string;
-  type: WorkflowType;
-  minAmount: number;
-  maxAmount: number;
-  steps: WorkflowStepDefinition[];
-  createdBy: string;
-}
-```
-
-**事前条件:**
-- `startWorkflow`: type、amount、adrId、initiatorIdが提供され、起案者が有効なユーザーである
-- `createWorkflowRoute`: 承認ステップに循環参照がなく、ロールが有効である
-
-**事後条件:**
-- `startWorkflow`: ワークフローインスタンスが作成され、最初の承認者に通知が送信される
-- `moveToNextStep`: currentStepが更新され、次の承認者に通知が送信される、または全ステップ完了でステータスが「承認済み」になる
-- `completeWorkflow`: ワークフローステータスが「承認済み」に更新され、起案者に完了通知が送信される
-
-**不変条件:**
-- ワークフローは常に有効な状態（進行中、承認済み、差し戻し、キャンセル）のいずれか
-- currentStepは常にtotalSteps以下
-- 承認済みワークフローは変更不可
-
-**状態管理:**
-```mermaid
-stateDiagram-v2
-    [*] --> 進行中: startWorkflow
-    進行中 --> 進行中: moveToNextStep
-    進行中 --> 承認済み: completeWorkflow
-    進行中 --> 差し戻し: rejectWorkflow
-    差し戻し --> [*]
-    承認済み --> [*]
-```
-
-#### Approval Service
-
-**責務と境界**
-- **主要責務**: 承認・差し戻し・代理承認の実行、承認権限の検証、承認履歴の記録
-- **ドメイン境界**: ApprovalHistoryの管理
-- **データ所有権**: 承認履歴、承認アクション
-- **トランザクション境界**: 承認・差し戻し操作はトランザクション内で実行
-
-**依存関係**
-- **インバウンド**: Workflow Routes、Frontend UI
-- **アウトバウンド**: Workflow Service、Authorization Service、Audit Log Service、Notification Service、PostgreSQL
-- **外部依存**: なし
-
-**契約定義**
-
-**サービスインターフェース:**
-```typescript
-interface ApprovalService {
-  // ワークフロー承認
-  approve(input: ApprovalInput): Promise<Result<ApprovalHistory, ApprovalError>>;
-
-  // ワークフロー差し戻し
-  reject(input: RejectionInput): Promise<Result<ApprovalHistory, ApprovalError>>;
-
-  // 承認権限チェック
-  checkApprovalPermission(workflowId: string, userId: string): Promise<Result<boolean, ApprovalError>>;
-
-  // 承認履歴取得
-  getApprovalHistory(workflowId: string): Promise<Result<ApprovalHistory[], ApprovalError>>;
-}
-
-interface ApprovalInput {
-  workflowId: string;
-  approverId: string;
-  comment?: string;
-  delegatedBy?: string; // 代理承認の場合
-}
-
-interface RejectionInput {
-  workflowId: string;
-  approverId: string;
-  reason: string;
-}
-```
-
-**事前条件:**
-- `approve`: approverId が現在のステップの承認者であり、ワークフローが「進行中」状態である
-- `reject`: approverId が現在のステップの承認者であり、ワークフローが「進行中」状態である
-- `checkApprovalPermission`: workflowId が有効で、userId が存在する
-
-**事後条件:**
-- `approve`: 承認履歴が記録され、次のステップに進む、または全ステップ完了でワークフローが完了する
-- `reject`: 承認履歴が記録され、ワークフローステータスが「差し戻し」に更新され、起案者に通知が送信される
-- `checkApprovalPermission`: 承認者が現在のステップの承認者である場合trueを返す
-
-**不変条件:**
-- 承認履歴は追記のみ（削除・更新不可）
-- 全ての承認・差し戻しアクションは監査ログに記録される
-- 同じステップで重複承認は不可
-
-#### Notification Service
-
-**責務と境界**
-- **主要責務**: ワークフロー開始・承認待ち・完了・差し戻し時の通知送信、リマインダー送信
-- **ドメイン境界**: 通知の送信（データ永続化なし）
-- **データ所有権**: なし（通知は外部サービスに委譲）
-
-**依存関係**
-- **インバウンド**: Workflow Service、Approval Service
-- **アウトバウンド**: メール送信サービス（将来的に実装）
-- **外部依存**: SMTPサーバー、または外部メールサービスAPI（SendGrid、AWS SESなど）
-
-**契約定義**
-
-**サービスインターフェース:**
-```typescript
-interface NotificationService {
-  // 承認者に通知
-  notifyApprovers(workflowId: string, step: number, approvers: User[]): Promise<Result<void, NotificationError>>;
-
-  // ワークフロー完了通知
-  notifyCompletion(workflowId: string, initiatorId: string): Promise<Result<void, NotificationError>>;
-
-  // 差し戻し通知
-  notifyRejection(workflowId: string, initiatorId: string, reason: string): Promise<Result<void, NotificationError>>;
-
-  // リマインダー送信（スケジュール実行）
-  sendReminders(): Promise<Result<void, NotificationError>>;
-}
-```
-
-**事前条件:**
-- `notifyApprovers`: approvers が空でない有効なユーザーリストである
-- `notifyCompletion`, `notifyRejection`: initiatorId が有効なユーザーIDである
-
-**事後条件:**
-- 通知が承認者または起案者に送信される（メール、または将来的にプッシュ通知）
-
-**不変条件:**
-- 通知送信失敗は上位層にエラーとして返されるが、ワークフロー自体の進行を妨げない
-
-### Middleware Layer
-
-#### Authorization Middleware
-
-**責務と境界**
-- **主要責務**: リソース・アクションベースの権限検証、403エラーレスポンス
-- **ドメイン境界**: HTTPリクエスト認可レイヤー
-
-**依存関係**
-- **Inbound**: Express Router
-- **Outbound**: Authorization Service、Audit Log Service
-- **External**: `express`
-
-**APIコントラクト**
-
-```typescript
-// Expressミドルウェア関数
-function requirePermission(resource: string, action: string): RequestHandler;
-
-// リソースレベル権限チェック（所有者フィルタリング）
-function requireResourceOwnership(
-  resource: string,
-  action: string,
-  ownerIdExtractor: (req: Request) => string
-): RequestHandler;
-
-// Expressリクエスト型拡張（既存のAuth Middlewareを拡張）
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        userId: string;
-        email: string;
-        roleIds: string[]; // マルチロール対応
-      };
-    }
-  }
-}
-```
-
-**使用例:**
-```typescript
-// 保護されたルート（権限ベース）
-router.post('/api/adrs', requireAuth(), requirePermission('adr', 'create'), (req, res) => {
-  // ADR作成ロジック
-});
-
-// リソースレベル権限チェック（所有者のみ）
-router.put('/api/adrs/:id', requireAuth(), requireResourceOwnership('adr', 'update', (req) => {
-  // データベースからADRの所有者IDを取得
-  const adr = await getADR(req.params.id);
-  return adr.ownerId;
-}), (req, res) => {
-  // ADR更新ロジック
-});
-```
-
-**エラーレスポンス:**
-```json
-// 403 Forbidden
-{
-  "error": "Forbidden",
-  "code": "INSUFFICIENT_PERMISSIONS",
-  "message": "You do not have permission to perform this action",
-  "required": "adr:update"
-}
-```
+**権限キャッシュ戦略:**
+- TTL: 5分（権限変更の反映速度とパフォーマンスのバランス）
+- ロール・権限変更時にキャッシュ無効化
+- ワイルドカード権限のマッチング（例: `project:*` は `project:read`, `project:update` 等を包含）
 
 ## データモデル
 
-### ドメインモデル
+### ERダイアグラム
 
-**コアエンティティ:**
-- **User**: システムの主体、IDとライフサイクルを持つ
-- **Role**: 職務に対応する権限のグループ、動的に作成・管理可能
-- **Permission**: リソースとアクションの組み合わせ、細粒度なアクセス制御
-- **Invitation**: 招待状態を管理、時間制限とステータスを持つ
-- **RefreshToken**: トークン失効管理、ユーザーに紐づく
-- **AuditLog**: 権限変更の履歴、不変レコード
+```mermaid
+erDiagram
+    User ||--o{ UserRole : has
+    User ||--o{ Invitation : invited_by
+    User ||--o{ Session : has
+    User ||--o{ AuditLog : performed
+    Role ||--o{ UserRole : assigned_to
+    Role ||--o{ RolePermission : has
+    Permission ||--o{ RolePermission : granted_to
 
-**Value Objects:**
-- **InvitationStatus**: PENDING | USED | EXPIRED | CANCELLED
-- **AuditAction**: 監査アクションの列挙型
-- **DeviceInfo**: userAgent、ipAddress、deviceType
+    User {
+        uuid id PK
+        string email UK
+        string passwordHash
+        string name
+        datetime createdAt
+        datetime updatedAt
+        datetime lastLoginAt
+    }
 
-**集約ルート:**
-- **User Aggregate**: User + UserRoles + RefreshTokens + Invitations（inviterとして）
-  - トランザクション境界: 単一ユーザーの認証情報変更
-  - 不変条件: パスワード変更時に全リフレッシュトークンを無効化
-- **Role Aggregate**: Role + RolePermissions
-  - トランザクション境界: 単一ロールの権限変更
-  - 不変条件: システムロールは削除できない、最後のシステム管理者ロールを持つユーザーからロールを削除できない
+    Role {
+        uuid id PK
+        string name UK
+        string description
+        uuid parentRoleId FK
+        datetime createdAt
+        datetime updatedAt
+    }
 
-**ドメインイベント:**
-- `UserRegistered`: 新規ユーザー登録完了
-- `UserLoggedIn`: ログイン成功
-- `RoleCreated`: ロール作成
-- `RoleAssignedToUser`: ユーザーへのロール割り当て
-- `PermissionAssignedToRole`: ロールへの権限割り当て
-- `PasswordChanged`: パスワード変更
-- `AccountLocked`: アカウントロック
+    Permission {
+        uuid id PK
+        string resource
+        string action
+        string code UK
+        string description
+        datetime createdAt
+    }
 
-**ビジネスルールと不変条件:**
-- パスワードは最低8文字、英数字と特殊文字を含む
-- 5回連続ログイン失敗後、アカウントは15分間ロックされる
-- 招待トークンは7日間有効、一度のみ使用可能
-- 最後のシステム管理者ロールを持つユーザーからロールを削除できない
-- リフレッシュトークンは7日間有効、パスワード変更時に全て無効化
-- システムロール（isSystemRole=true）は削除できない
-- 権限名は常に `resource:action` 形式である
+    UserRole {
+        uuid id PK
+        uuid userId FK
+        uuid roleId FK
+        datetime assignedAt
+        uuid assignedBy FK
+    }
 
-### 物理データモデル（PostgreSQL）
+    RolePermission {
+        uuid id PK
+        uuid roleId FK
+        uuid permissionId FK
+        datetime createdAt
+    }
+
+    Invitation {
+        uuid id PK
+        string email
+        string token UK
+        uuid invitedById FK
+        json roleIds
+        datetime expiresAt
+        boolean used
+        datetime createdAt
+    }
+
+    Session {
+        uuid id PK
+        uuid userId FK
+        string refreshToken UK
+        datetime expiresAt
+        datetime createdAt
+    }
+
+    AuditLog {
+        uuid id PK
+        uuid userId FK
+        string action
+        string resource
+        json changes
+        string ipAddress
+        string userAgent
+        datetime createdAt
+    }
+```
+
+### Prismaスキーマ
 
 ```prisma
-// Prisma Schema Definition
-generator client {
-  provider = "prisma-client-js"
-}
+// backend/prisma/schema.prisma
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-// ユーザーモデル
 model User {
-  id               String    @id @default(uuid())
-  email            String    @unique
-  name             String?
-  password         String    // bcryptハッシュ
-  failedLoginCount Int       @default(0)
-  lockedUntil      DateTime? // アカウントロックの解除時刻
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id            String      @id @default(uuid())
+  email         String      @unique
+  passwordHash  String      @map("password_hash")
+  name          String
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  lastLoginAt   DateTime?   @map("last_login_at")
 
-  // リレーション
-  roles            UserRole[]
-  invitations      Invitation[]   @relation("InvitedBy")
-  receivedInvitation Invitation?  @relation("InvitedUser")
-  refreshTokens    RefreshToken[]
-  auditLogsAsActor AuditLog[]    @relation("Actor")
+  // Relations
+  userRoles     UserRole[]
+  invitationsSent Invitation[] @relation("InvitedBy")
+  sessions      Session[]
+  auditLogs     AuditLog[]
 
-  // インデックス
-  @@index([email])
-  @@index([createdAt])
   @@map("users")
 }
 
-// ロールモデル
 model Role {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String
-  priority    Int      @default(100) // 高い値が高優先度
-  isSystemRole Boolean @default(false) // システムロール（削除不可）
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String      @id @default(uuid())
+  name          String      @unique
+  description   String?
+  parentRoleId  String?     @map("parent_role_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
 
-  // リレーション
-  userRoles    UserRole[]
-  permissions  RolePermission[]
+  // Relations
+  parentRole    Role?       @relation("RoleHierarchy", fields: [parentRoleId], references: [id])
+  childRoles    Role[]      @relation("RoleHierarchy")
+  userRoles     UserRole[]
+  rolePermissions RolePermission[]
 
-  // インデックス
-  @@index([name])
-  @@index([priority])
   @@map("roles")
 }
 
-// 権限モデル
 model Permission {
-  id          String   @id @default(uuid())
-  resource    String   // "adr", "user", "role", "*"
-  action      String   // "create", "read", "update", "delete", "manage", "*"
-  name        String   @unique // "adr:read"
-  description String
-  createdAt   DateTime @default(now())
+  id            String      @id @default(uuid())
+  resource      String      // 例: "project", "user", "role"
+  action        String      // 例: "create", "read", "update", "delete", "*"
+  code          String      @unique // 例: "project:create", "user:*"
+  description   String?
+  createdAt     DateTime    @default(now()) @map("created_at")
 
-  // リレーション
-  roles       RolePermission[]
+  // Relations
+  rolePermissions RolePermission[]
 
-  // インデックス
-  @@index([name])
-  @@index([resource, action])
+  @@unique([resource, action])
   @@map("permissions")
 }
 
-// ユーザー・ロール多対多関係
 model UserRole {
-  id         String   @id @default(uuid())
-  userId     String
-  roleId     String
-  assignedBy String   // 割り当てた管理者のID
-  assignedAt DateTime @default(now())
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  roleId        String      @map("role_id")
+  assignedAt    DateTime    @default(now()) @map("assigned_at")
+  assignedBy    String      @map("assigned_by")
 
-  // リレーション
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  // Relations
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
-  // ユニーク制約
   @@unique([userId, roleId])
-  // インデックス
-  @@index([userId])
-  @@index([roleId])
   @@map("user_roles")
 }
 
-// ロール・権限多対多関係
 model RolePermission {
-  id           String   @id @default(uuid())
-  roleId       String
-  permissionId String
-  assignedBy   String   // 割り当てた管理者のID
-  assignedAt   DateTime @default(now())
+  id            String      @id @default(uuid())
+  roleId        String      @map("role_id")
+  permissionId  String      @map("permission_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
 
-  // リレーション
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  // Relations
+  role          Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission    Permission  @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
-  // ユニーク制約
   @@unique([roleId, permissionId])
-  // インデックス
-  @@index([roleId])
-  @@index([permissionId])
   @@map("role_permissions")
 }
 
-// 招待モデル
 model Invitation {
-  id        String           @id @default(uuid())
-  email     String           @unique
-  token     String           @unique // crypto.randomBytes(32).toString('hex')
-  invitedBy String
-  expiresAt DateTime         // created_at + 7 days
-  usedAt    DateTime?        // 招待使用日時
-  status    InvitationStatus @default(PENDING)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id            String      @id @default(uuid())
+  email         String
+  token         String      @unique
+  invitedById   String      @map("invited_by_id")
+  roleIds       Json        @map("role_ids") // JSON配列: ["role-uuid-1", "role-uuid-2"]
+  expiresAt     DateTime    @map("expires_at")
+  used          Boolean     @default(false)
+  createdAt     DateTime    @default(now()) @map("created_at")
 
-  // リレーション
-  inviter     User   @relation("InvitedBy", fields: [invitedBy], references: [id])
-  invitedUser User?  @relation("InvitedUser")
+  // Relations
+  invitedBy     User        @relation("InvitedBy", fields: [invitedById], references: [id])
 
-  // インデックス
-  @@index([token])
-  @@index([status])
-  @@index([invitedBy])
-  @@index([expiresAt])
   @@map("invitations")
 }
 
-// 招待ステータス列挙型
-enum InvitationStatus {
-  PENDING   // 未使用
-  USED      // 使用済み
-  EXPIRED   // 期限切れ
-  CANCELLED // 取り消し
+model Session {
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  refreshToken  String      @unique @map("refresh_token")
+  expiresAt     DateTime    @map("expires_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  // Relations
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
 }
 
-// リフレッシュトークンモデル
-model RefreshToken {
-  id         String   @id @default(uuid())
-  token      String   @unique // uuid()
-  userId     String
-  expiresAt  DateTime // created_at + 7 days
-  deviceInfo Json     // { userAgent, ipAddress, deviceType }
-  createdAt  DateTime @default(now())
-
-  // リレーション
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // インデックス
-  @@index([token])
-  @@index([userId])
-  @@index([expiresAt])
-  @@map("refresh_tokens")
-}
-
-// 監査ログモデル
 model AuditLog {
-  id        String      @id @default(uuid())
-  actorId   String
-  action    AuditAction
-  targetType String     // "role" | "permission" | "user"
-  targetId   String
-  targetName String
-  changes   Json        // { before: {...}, after: {...} }
-  metadata  Json        // { ipAddress, userAgent, requestId }
-  createdAt DateTime    @default(now())
+  id            String      @id @default(uuid())
+  userId        String?     @map("user_id")
+  action        String      // 例: "USER_CREATED", "ROLE_ASSIGNED", "PERMISSION_GRANTED"
+  resource      String      // 例: "user", "role", "permission"
+  changes       Json?       // 変更内容の詳細
+  ipAddress     String?     @map("ip_address")
+  userAgent     String?     @map("user_agent")
+  createdAt     DateTime    @default(now()) @map("created_at")
 
-  // リレーション
-  actor     User        @relation("Actor", fields: [actorId], references: [id])
+  // Relations
+  user          User?       @relation(fields: [userId], references: [id])
 
-  // インデックス
-  @@index([actorId])
-  @@index([targetId])
+  @@index([userId])
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
 }
+```
 
-// 監査アクション列挙型
-enum AuditAction {
-  ROLE_CREATED
-  ROLE_UPDATED
-  ROLE_DELETED
-  PERMISSION_ASSIGNED
-  PERMISSION_REVOKED
-  USER_ROLE_ASSIGNED
-  USER_ROLE_REVOKED
-  PERMISSION_CHECK_FAILED
-  WORKFLOW_STARTED
-  WORKFLOW_APPROVED
-  WORKFLOW_REJECTED
-  WORKFLOW_COMPLETED
+### デフォルトロールと権限
+
+初回セットアップ時に以下のロールと権限を作成：
+
+**ロール:**
+
+| ロール名 | 説明 | デフォルト権限 |
+|---------|------|---------------|
+| `system_admin` | システム管理者（最高権限） | `*:*` (全権限) |
+| `project_manager` | プロジェクト管理者 | `project:*`, `estimation:*`, `user:read` |
+| `accountant` | 経理担当 | `estimation:read`, `project:read`, `invoice:*` |
+| `purchaser` | 購買担当 | `project:read`, `estimation:read`, `purchase:*` |
+| `site_staff` | 現場担当 | `project:read`, `estimation:read`, `progress:*` |
+| `viewer` | 閲覧者（最低権限） | `project:read`, `estimation:read` |
+
+**権限コード例:**
+
+```
+# ユーザー管理
+user:create
+user:read
+user:update
+user:delete
+user:invite
+user:*
+
+# ロール・権限管理
+role:create
+role:read
+role:update
+role:delete
+role:assign
+role:*
+
+permission:create
+permission:read
+permission:update
+permission:delete
+permission:*
+
+# プロジェクト管理
+project:create
+project:read
+project:update
+project:delete
+project:*
+
+# 積算管理
+estimation:create
+estimation:read
+estimation:update
+estimation:delete
+estimation:*
+
+# その他
+*:* (全権限)
+```
+
+## コンポーネント設計
+
+### バックエンドサービス
+
+#### 1. AuthenticationService
+
+**責務:** ユーザー認証（ログイン、サインアップ、トークン管理）
+
+```typescript
+// backend/src/services/AuthenticationService.ts
+
+interface LoginCredentials {
+  email: string;
+  password: string;
 }
 
-// ワークフローモデル
-model Workflow {
-  id            String          @id @default(uuid())
-  type          WorkflowType
-  status        WorkflowStatus  @default(PENDING)
-  amount        Decimal         @db.Decimal(15, 2)
-  adrId         String
-  initiatorId   String
-  currentStep   Int             @default(1)
-  totalSteps    Int
-  routeId       String          // 使用された決裁ルートID
-  metadata      Json?           // 追加のメタデータ
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  completedAt   DateTime?
-
-  // リレーション
-  initiator     User            @relation("WorkflowInitiator", fields: [initiatorId], references: [id])
-  route         WorkflowRoute   @relation(fields: [routeId], references: [id])
-  steps         WorkflowStep[]
-  approvals     ApprovalHistory[]
-
-  // インデックス
-  @@index([initiatorId])
-  @@index([status, currentStep])
-  @@index([createdAt])
-  @@map("workflows")
+interface SignupData {
+  token: string;
+  name: string;
+  password: string;
 }
 
-// ワークフロールートモデル（決裁ルート定義）
-model WorkflowRoute {
-  id          String          @id @default(uuid())
-  name        String
-  type        WorkflowType
-  minAmount   Decimal         @db.Decimal(15, 2)
-  maxAmount   Decimal         @db.Decimal(15, 2)
-  isSystem    Boolean         @default(false) // システム定義（削除不可）
-  createdBy   String
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-
-  // リレーション
-  creator     User            @relation("WorkflowRouteCreator", fields: [createdBy], references: [id])
-  steps       WorkflowStepDefinition[]
-  workflows   Workflow[]
-
-  // インデックス
-  @@index([type, minAmount, maxAmount])
-  @@map("workflow_routes")
+interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
 }
 
-// ワークフローステップ定義モデル（ルートに紐付くステップのテンプレート）
-model WorkflowStepDefinition {
-  id          String          @id @default(uuid())
-  routeId     String
-  stepNumber  Int
-  roleId      String
-  isParallel  Boolean         @default(false) // 並列承認の場合true
+class AuthenticationService {
+  constructor(
+    private prisma: PrismaClient,
+    private tokenService: TokenService,
+    private sessionService: SessionService,
+    private auditService: AuditService
+  ) {}
 
-  // リレーション
-  route       WorkflowRoute   @relation(fields: [routeId], references: [id], onDelete: Cascade)
-  role        Role            @relation(fields: [roleId], references: [id])
+  /**
+   * ユーザーログイン
+   * @throws UnauthorizedError - 認証情報が無効
+   */
+  async login(credentials: LoginCredentials, ipAddress: string): Promise<TokenPair> {
+    // 1. ユーザー取得
+    const user = await this.prisma.user.findUnique({
+      where: { email: credentials.email },
+      include: { userRoles: { include: { role: true } } }
+    });
 
-  // インデックス
-  @@unique([routeId, stepNumber])
-  @@map("workflow_step_definitions")
+    if (!user) {
+      await this.auditService.logFailedLogin(credentials.email, ipAddress);
+      throw new UnauthorizedError('Invalid credentials');
+    }
+
+    // 2. パスワード検証
+    const isValid = await bcrypt.compare(credentials.password, user.passwordHash);
+    if (!isValid) {
+      await this.auditService.logFailedLogin(credentials.email, ipAddress);
+      throw new UnauthorizedError('Invalid credentials');
+    }
+
+    // 3. セッション作成
+    const session = await this.sessionService.createSession(user.id);
+
+    // 4. トークンペア生成
+    const roleIds = user.userRoles.map(ur => ur.roleId);
+    const tokens = await this.tokenService.generateTokenPair(user.id, user.email, roleIds, session.id);
+
+    // 5. 最終ログイン時刻更新
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() }
+    });
+
+    // 6. 監査ログ
+    await this.auditService.logSuccessfulLogin(user.id, ipAddress);
+
+    return tokens;
+  }
+
+  /**
+   * ユーザーサインアップ（招待ベース）
+   * @throws BadRequestError - 招待トークンが無効
+   */
+  async signup(data: SignupData): Promise<void> {
+    // 1. 招待トークン検証
+    const invitation = await this.prisma.invitation.findUnique({
+      where: { token: data.token }
+    });
+
+    if (!invitation || invitation.used || invitation.expiresAt < new Date()) {
+      throw new BadRequestError('Invalid or expired invitation token');
+    }
+
+    // 2. パスワード検証
+    this.validatePassword(data.password);
+
+    // 3. トランザクション内でユーザー作成
+    await this.prisma.$transaction(async (tx) => {
+      // 3.1. パスワードハッシュ化
+      const passwordHash = await bcrypt.hash(data.password, 12);
+
+      // 3.2. ユーザー作成
+      const user = await tx.user.create({
+        data: {
+          email: invitation.email,
+          name: data.name,
+          passwordHash
+        }
+      });
+
+      // 3.3. ロール割り当て
+      const roleIds = invitation.roleIds as string[];
+      await tx.userRole.createMany({
+        data: roleIds.map(roleId => ({
+          userId: user.id,
+          roleId,
+          assignedBy: invitation.invitedById
+        }))
+      });
+
+      // 3.4. 招待トークン無効化
+      await tx.invitation.update({
+        where: { id: invitation.id },
+        data: { used: true }
+      });
+
+      // 3.5. 監査ログ
+      await this.auditService.logUserCreated(user.id, invitation.invitedById);
+    });
+  }
+
+  /**
+   * トークンリフレッシュ
+   * @throws UnauthorizedError - リフレッシュトークンが無効
+   */
+  async refreshTokens(refreshToken: string): Promise<TokenPair> {
+    // 1. リフレッシュトークン検証
+    const payload = await this.tokenService.verifyRefreshToken(refreshToken);
+
+    // 2. セッション確認
+    const session = await this.sessionService.getSession(payload.sessionId);
+    if (!session || session.refreshToken !== refreshToken) {
+      throw new UnauthorizedError('Invalid refresh token');
+    }
+
+    // 3. ユーザー・ロール取得
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      include: { userRoles: true }
+    });
+
+    if (!user) {
+      throw new UnauthorizedError('User not found');
+    }
+
+    // 4. 新トークンペア生成（ローテーション）
+    const roleIds = user.userRoles.map(ur => ur.roleId);
+    const newTokens = await this.tokenService.generateTokenPair(
+      user.id,
+      user.email,
+      roleIds,
+      session.id
+    );
+
+    // 5. セッション更新
+    await this.sessionService.updateSession(session.id, newTokens.refreshToken);
+
+    return newTokens;
+  }
+
+  /**
+   * ログアウト
+   */
+  async logout(sessionId: string): Promise<void> {
+    await this.sessionService.deleteSession(sessionId);
+  }
+
+  /**
+   * パスワードポリシー検証
+   * @throws BadRequestError - パスワードがポリシーに違反
+   */
+  private validatePassword(password: string): void {
+    if (password.length < 8) {
+      throw new BadRequestError('Password must be at least 8 characters');
+    }
+
+    const hasUpper = /[A-Z]/.test(password);
+    const hasLower = /[a-z]/.test(password);
+    const hasDigit = /\d/.test(password);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+    const complexity = [hasUpper, hasLower, hasDigit, hasSpecial].filter(Boolean).length;
+    if (complexity < 3) {
+      throw new BadRequestError(
+        'Password must contain at least 3 of: uppercase, lowercase, digit, special character'
+      );
+    }
+
+    // 禁止リスト（簡易版）
+    const commonPasswords = ['password', '12345678', 'qwerty', 'admin'];
+    if (commonPasswords.some(p => password.toLowerCase().includes(p))) {
+      throw new BadRequestError('Password is too common');
+    }
+  }
+}
+```
+
+#### 2. TokenService
+
+**責務:** JWTトークンの生成・検証
+
+```typescript
+// backend/src/services/TokenService.ts
+
+interface AccessTokenPayload {
+  sub: string; // userId
+  email: string;
+  roles: string[]; // roleIds
+  type: 'access';
 }
 
-// ワークフローステップモデル（ワークフローインスタンスに紐付く実行時ステップ）
-model WorkflowStep {
-  id          String          @id @default(uuid())
-  workflowId  String
-  stepNumber  Int
-  roleId      String
-  status      StepStatus      @default(PENDING)
-  createdAt   DateTime        @default(now())
-
-  // リレーション
-  workflow    Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  role        Role            @relation("WorkflowStepRole", fields: [roleId], references: [id])
-
-  // インデックス
-  @@unique([workflowId, stepNumber])
-  @@index([workflowId, status])
-  @@map("workflow_steps")
+interface RefreshTokenPayload {
+  sub: string; // userId
+  sessionId: string;
+  type: 'refresh';
 }
 
-// 承認履歴モデル
-model ApprovalHistory {
-  id          String          @id @default(uuid())
-  workflowId  String
-  stepNumber  Int
-  approverId  String
-  action      ApprovalAction
-  comment     String?
-  reason      String?         // 差し戻しの場合の理由
-  delegatedBy String?         // 代理承認の場合、委譲元のユーザーID
-  createdAt   DateTime        @default(now())
+class TokenService {
+  private readonly ACCESS_TOKEN_EXPIRY = '15m';
+  private readonly REFRESH_TOKEN_EXPIRY = '7d';
+  private readonly JWT_SECRET = process.env.JWT_SECRET!;
 
-  // リレーション
-  workflow    Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  approver    User            @relation("Approver", fields: [approverId], references: [id])
-  delegator   User?           @relation("Delegator", fields: [delegatedBy], references: [id])
+  /**
+   * アクセストークンとリフレッシュトークンのペアを生成
+   */
+  async generateTokenPair(
+    userId: string,
+    email: string,
+    roles: string[],
+    sessionId: string
+  ): Promise<TokenPair> {
+    const accessToken = this.generateAccessToken(userId, email, roles);
+    const refreshToken = this.generateRefreshToken(userId, sessionId);
 
-  // インデックス
-  @@index([workflowId])
-  @@index([approverId])
-  @@index([createdAt])
-  @@map("approval_history")
+    return { accessToken, refreshToken };
+  }
+
+  /**
+   * アクセストークン生成
+   */
+  private generateAccessToken(userId: string, email: string, roles: string[]): string {
+    const payload: AccessTokenPayload = {
+      sub: userId,
+      email,
+      roles,
+      type: 'access'
+    };
+
+    return jwt.sign(payload, this.JWT_SECRET, {
+      expiresIn: this.ACCESS_TOKEN_EXPIRY,
+      issuer: 'architracker',
+      audience: 'architracker-api'
+    });
+  }
+
+  /**
+   * リフレッシュトークン生成
+   */
+  private generateRefreshToken(userId: string, sessionId: string): string {
+    const payload: RefreshTokenPayload = {
+      sub: userId,
+      sessionId,
+      type: 'refresh'
+    };
+
+    return jwt.sign(payload, this.JWT_SECRET, {
+      expiresIn: this.REFRESH_TOKEN_EXPIRY,
+      issuer: 'architracker',
+      audience: 'architracker-api'
+    });
+  }
+
+  /**
+   * アクセストークン検証
+   * @throws UnauthorizedError - トークンが無効
+   */
+  async verifyAccessToken(token: string): Promise<AccessTokenPayload> {
+    try {
+      const payload = jwt.verify(token, this.JWT_SECRET, {
+        issuer: 'architracker',
+        audience: 'architracker-api'
+      }) as AccessTokenPayload;
+
+      if (payload.type !== 'access') {
+        throw new UnauthorizedError('Invalid token type');
+      }
+
+      return payload;
+    } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        throw new UnauthorizedError('Token expired');
+      }
+      throw new UnauthorizedError('Invalid token');
+    }
+  }
+
+  /**
+   * リフレッシュトークン検証
+   * @throws UnauthorizedError - トークンが無効
+   */
+  async verifyRefreshToken(token: string): Promise<RefreshTokenPayload> {
+    try {
+      const payload = jwt.verify(token, this.JWT_SECRET, {
+        issuer: 'architracker',
+        audience: 'architracker-api'
+      }) as RefreshTokenPayload;
+
+      if (payload.type !== 'refresh') {
+        throw new UnauthorizedError('Invalid token type');
+      }
+
+      return payload;
+    } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        throw new UnauthorizedError('Refresh token expired');
+      }
+      throw new UnauthorizedError('Invalid refresh token');
+    }
+  }
+}
+```
+
+#### 3. SessionService
+
+**責務:** セッション管理（Redis）
+
+```typescript
+// backend/src/services/SessionService.ts
+
+interface SessionData {
+  id: string;
+  userId: string;
+  refreshToken: string;
+  expiresAt: Date;
+  createdAt: Date;
 }
 
-// ワークフロー種別列挙型
-enum WorkflowType {
-  QUOTATION      // 見積もり
-  PROCUREMENT    // 購買
-  PAYMENT        // 支払い
-  SITE_CHANGE    // 現場変更
+class SessionService {
+  private readonly SESSION_TTL = 7 * 24 * 60 * 60; // 7日（秒）
+
+  constructor(
+    private redis: RedisClientType,
+    private prisma: PrismaClient
+  ) {}
+
+  /**
+   * セッション作成
+   */
+  async createSession(userId: string): Promise<SessionData> {
+    const sessionId = randomUUID();
+    const expiresAt = new Date(Date.now() + this.SESSION_TTL * 1000);
+
+    const session: SessionData = {
+      id: sessionId,
+      userId,
+      refreshToken: '', // TokenServiceで設定
+      expiresAt,
+      createdAt: new Date()
+    };
+
+    // Redisに保存
+    await this.redis.setEx(
+      `session:${sessionId}`,
+      this.SESSION_TTL,
+      JSON.stringify(session)
+    );
+
+    return session;
+  }
+
+  /**
+   * セッション取得
+   */
+  async getSession(sessionId: string): Promise<SessionData | null> {
+    const data = await this.redis.get(`session:${sessionId}`);
+    if (!data) return null;
+
+    return JSON.parse(data) as SessionData;
+  }
+
+  /**
+   * セッション更新（トークンローテーション時）
+   */
+  async updateSession(sessionId: string, newRefreshToken: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    session.refreshToken = newRefreshToken;
+
+    await this.redis.setEx(
+      `session:${sessionId}`,
+      this.SESSION_TTL,
+      JSON.stringify(session)
+    );
+  }
+
+  /**
+   * セッション削除（ログアウト）
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.redis.del(`session:${sessionId}`);
+  }
+
+  /**
+   * ユーザーの全セッション削除
+   */
+  async deleteAllUserSessions(userId: string): Promise<void> {
+    const keys = await this.redis.keys(`session:*`);
+    for (const key of keys) {
+      const data = await this.redis.get(key);
+      if (data) {
+        const session = JSON.parse(data) as SessionData;
+        if (session.userId === userId) {
+          await this.redis.del(key);
+        }
+      }
+    }
+  }
+}
+```
+
+#### 4. AuthorizationService
+
+**責務:** 権限チェック、権限キャッシュ管理
+
+```typescript
+// backend/src/services/AuthorizationService.ts
+
+class AuthorizationService {
+  private readonly PERMISSION_CACHE_TTL = 5 * 60; // 5分（秒）
+
+  constructor(
+    private prisma: PrismaClient,
+    private redis: RedisClientType
+  ) {}
+
+  /**
+   * ユーザーの権限リストを取得（キャッシュ対応）
+   */
+  async getUserPermissions(userId: string): Promise<string[]> {
+    const cacheKey = `user:${userId}:permissions`;
+
+    // 1. キャッシュ確認
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as string[];
+    }
+
+    // 2. DBから取得
+    const userRoles = await this.prisma.userRole.findMany({
+      where: { userId },
+      include: {
+        role: {
+          include: {
+            rolePermissions: {
+              include: {
+                permission: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // 3. 権限コードを統合（OR演算）
+    const permissionSet = new Set<string>();
+    for (const userRole of userRoles) {
+      for (const rp of userRole.role.rolePermissions) {
+        permissionSet.add(rp.permission.code);
+      }
+    }
+
+    const permissions = Array.from(permissionSet);
+
+    // 4. キャッシュ保存
+    await this.redis.setEx(cacheKey, this.PERMISSION_CACHE_TTL, JSON.stringify(permissions));
+
+    return permissions;
+  }
+
+  /**
+   * ユーザーが特定の権限を持っているかチェック
+   */
+  async hasPermission(userId: string, requiredPermission: string): Promise<boolean> {
+    const permissions = await this.getUserPermissions(userId);
+
+    // ワイルドカード権限チェック
+    return permissions.some(p => this.matchesPermission(p, requiredPermission));
+  }
+
+  /**
+   * 権限マッチング（ワイルドカード対応）
+   * 例: "project:*" は "project:read", "project:update" 等にマッチ
+   */
+  private matchesPermission(userPermission: string, requiredPermission: string): boolean {
+    // 完全一致
+    if (userPermission === requiredPermission) return true;
+
+    // 全権限
+    if (userPermission === '*:*') return true;
+
+    // リソースワイルドカード
+    const [userResource, userAction] = userPermission.split(':');
+    const [reqResource, reqAction] = requiredPermission.split(':');
+
+    if (userResource === reqResource && userAction === '*') return true;
+
+    return false;
+  }
+
+  /**
+   * 権限キャッシュ無効化（ロール・権限変更時）
+   */
+  async invalidateUserPermissions(userId: string): Promise<void> {
+    await this.redis.del(`user:${userId}:permissions`);
+  }
+
+  /**
+   * ロールに紐づく全ユーザーの権限キャッシュ無効化
+   */
+  async invalidateRolePermissions(roleId: string): Promise<void> {
+    const userRoles = await this.prisma.userRole.findMany({
+      where: { roleId },
+      select: { userId: true }
+    });
+
+    for (const ur of userRoles) {
+      await this.invalidateUserPermissions(ur.userId);
+    }
+  }
+}
+```
+
+#### 5. InvitationService
+
+**責務:** ユーザー招待管理
+
+```typescript
+// backend/src/services/InvitationService.ts
+
+interface CreateInvitationData {
+  email: string;
+  roleIds: string[];
+  invitedById: string;
 }
 
-// ワークフロー状態列挙型
-enum WorkflowStatus {
-  PENDING     // 進行中
-  APPROVED    // 承認済み
-  REJECTED    // 差し戻し
-  CANCELLED   // キャンセル
+class InvitationService {
+  private readonly INVITATION_EXPIRY_HOURS = 72;
+
+  constructor(
+    private prisma: PrismaClient,
+    private emailService: EmailService,
+    private auditService: AuditService
+  ) {}
+
+  /**
+   * 招待作成
+   * @throws BadRequestError - ユーザーが既に存在
+   */
+  async createInvitation(data: CreateInvitationData): Promise<Invitation> {
+    // 1. 既存ユーザーチェック
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: data.email }
+    });
+
+    if (existingUser) {
+      throw new BadRequestError('User already exists');
+    }
+
+    // 2. 招待トークン生成
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + this.INVITATION_EXPIRY_HOURS * 60 * 60 * 1000);
+
+    // 3. 招待作成
+    const invitation = await this.prisma.invitation.create({
+      data: {
+        email: data.email,
+        token,
+        invitedById: data.invitedById,
+        roleIds: data.roleIds,
+        expiresAt
+      }
+    });
+
+    // 4. 招待メール送信
+    await this.emailService.sendInvitation(data.email, token);
+
+    // 5. 監査ログ
+    await this.auditService.logInvitationCreated(invitation.id, data.invitedById);
+
+    return invitation;
+  }
+
+  /**
+   * 招待トークン検証
+   */
+  async validateInvitationToken(token: string): Promise<Invitation> {
+    const invitation = await this.prisma.invitation.findUnique({
+      where: { token }
+    });
+
+    if (!invitation || invitation.used || invitation.expiresAt < new Date()) {
+      throw new BadRequestError('Invalid or expired invitation token');
+    }
+
+    return invitation;
+  }
+
+  /**
+   * 期限切れ招待の削除（バッチ処理）
+   */
+  async cleanupExpiredInvitations(): Promise<number> {
+    const result = await this.prisma.invitation.deleteMany({
+      where: {
+        expiresAt: { lt: new Date() },
+        used: false
+      }
+    });
+
+    return result.count;
+  }
+}
+```
+
+#### 6. AuditService
+
+**責務:** 監査ログ記録
+
+```typescript
+// backend/src/services/AuditService.ts
+
+interface AuditLogData {
+  userId?: string;
+  action: string;
+  resource: string;
+  changes?: Record<string, any>;
+  ipAddress?: string;
+  userAgent?: string;
 }
 
-// ステップ状態列挙型
-enum StepStatus {
-  PENDING     // 承認待ち
-  APPROVED    // 承認済み
-  REJECTED    // 差し戻し
+class AuditService {
+  constructor(private prisma: PrismaClient) {}
+
+  /**
+   * 監査ログ記録（汎用）
+   */
+  async log(data: AuditLogData): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        userId: data.userId,
+        action: data.action,
+        resource: data.resource,
+        changes: data.changes || {},
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent
+      }
+    });
+  }
+
+  /**
+   * ログイン成功
+   */
+  async logSuccessfulLogin(userId: string, ipAddress: string): Promise<void> {
+    await this.log({
+      userId,
+      action: 'LOGIN_SUCCESS',
+      resource: 'auth',
+      ipAddress
+    });
+  }
+
+  /**
+   * ログイン失敗
+   */
+  async logFailedLogin(email: string, ipAddress: string): Promise<void> {
+    await this.log({
+      action: 'LOGIN_FAILED',
+      resource: 'auth',
+      changes: { email },
+      ipAddress
+    });
+  }
+
+  /**
+   * ユーザー作成
+   */
+  async logUserCreated(userId: string, createdBy: string): Promise<void> {
+    await this.log({
+      userId: createdBy,
+      action: 'USER_CREATED',
+      resource: 'user',
+      changes: { targetUserId: userId }
+    });
+  }
+
+  /**
+   * ロール割り当て
+   */
+  async logRoleAssigned(userId: string, roleId: string, assignedBy: string): Promise<void> {
+    await this.log({
+      userId: assignedBy,
+      action: 'ROLE_ASSIGNED',
+      resource: 'role',
+      changes: { targetUserId: userId, roleId }
+    });
+  }
+
+  /**
+   * 権限変更
+   */
+  async logPermissionChanged(roleId: string, permissionId: string, action: 'GRANTED' | 'REVOKED', changedBy: string): Promise<void> {
+    await this.log({
+      userId: changedBy,
+      action: `PERMISSION_${action}`,
+      resource: 'permission',
+      changes: { roleId, permissionId }
+    });
+  }
+
+  /**
+   * 招待作成
+   */
+  async logInvitationCreated(invitationId: string, invitedBy: string): Promise<void> {
+    await this.log({
+      userId: invitedBy,
+      action: 'INVITATION_CREATED',
+      resource: 'invitation',
+      changes: { invitationId }
+    });
+  }
+}
+```
+
+### ミドルウェア
+
+#### 1. authenticateJWT
+
+**責務:** JWTトークン検証、ユーザー情報抽出
+
+```typescript
+// backend/src/middleware/authenticateJWT.ts
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    roles: string[];
+  };
 }
 
-// 承認アクション列挙型
-enum ApprovalAction {
-  APPROVED    // 承認
-  REJECTED    // 差し戻し
+const authenticateJWT = (tokenService: TokenService) => {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      // 1. Authorizationヘッダー取得
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        throw new UnauthorizedError('No token provided');
+      }
+
+      // 2. トークン抽出
+      const token = authHeader.substring(7);
+
+      // 3. トークン検証
+      const payload = await tokenService.verifyAccessToken(token);
+
+      // 4. リクエストオブジェクトにユーザー情報を付与
+      req.user = {
+        id: payload.sub,
+        email: payload.email,
+        roles: payload.roles
+      };
+
+      next();
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return res.status(401).json({ error: error.message });
+      }
+      next(error);
+    }
+  };
+};
+```
+
+#### 2. requirePermission
+
+**責務:** 権限チェック
+
+```typescript
+// backend/src/middleware/requirePermission.ts
+
+const requirePermission = (requiredPermission: string, authzService: AuthorizationService) => {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        throw new UnauthorizedError('Not authenticated');
+      }
+
+      const hasPermission = await authzService.hasPermission(req.user.id, requiredPermission);
+
+      if (!hasPermission) {
+        throw new ForbiddenError(`Permission denied: ${requiredPermission}`);
+      }
+
+      next();
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        return res.status(403).json({ error: error.message });
+      }
+      next(error);
+    }
+  };
+};
+```
+
+#### 3. rateLimiter
+
+**責務:** レート制限（ブルートフォース攻撃対策）
+
+```typescript
+// backend/src/middleware/rateLimiter.ts
+
+import rateLimit from 'express-rate-limit';
+
+// ログインエンドポイント用レート制限
+const loginRateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5分
+  max: 10, // 10回まで
+  message: 'Too many login attempts, please try again later',
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// 招待エンドポイント用レート制限
+const invitationRateLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24時間
+  max: 100, // 100回まで
+  keyGenerator: (req: AuthenticatedRequest) => req.user?.id || req.ip,
+  message: 'Too many invitations sent, please try again later'
+});
+```
+
+### APIルート
+
+#### 1. 認証ルート
+
+```typescript
+// backend/src/routes/auth.ts
+
+const router = express.Router();
+
+/**
+ * POST /auth/login
+ * ユーザーログイン
+ */
+router.post('/login', loginRateLimiter, async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    const ipAddress = req.ip;
+
+    const tokens = await authService.login({ email, password }, ipAddress);
+
+    res.json(tokens);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /auth/signup
+ * ユーザーサインアップ（招待ベース）
+ */
+router.post('/signup', async (req, res, next) => {
+  try {
+    const { token, name, password } = req.body;
+
+    await authService.signup({ token, name, password });
+
+    res.status(201).json({ message: 'Account created successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /auth/refresh
+ * トークンリフレッシュ
+ */
+router.post('/refresh', async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body;
+
+    const tokens = await authService.refreshTokens(refreshToken);
+
+    res.json(tokens);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /auth/logout
+ * ログアウト
+ */
+router.post('/logout', authenticateJWT(tokenService), async (req: AuthenticatedRequest, res, next) => {
+  try {
+    // セッションID取得（トークンペイロードから）
+    const sessionId = req.body.sessionId;
+
+    await authService.logout(sessionId);
+
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /auth/setup/status
+ * 初回セットアップ状態確認
+ */
+router.get('/setup/status', async (req, res, next) => {
+  try {
+    const userCount = await prisma.user.count();
+    res.json({ needsSetup: userCount === 0 });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /auth/setup
+ * 初回管理者セットアップ
+ */
+router.post('/setup', async (req, res, next) => {
+  try {
+    const { email, password, name } = req.body;
+
+    // セットアップロック取得
+    const lockAcquired = await redis.set('setup:lock', '1', {
+      NX: true,
+      EX: 300 // 5分
+    });
+
+    if (!lockAcquired) {
+      throw new BadRequestError('Setup already in progress');
+    }
+
+    try {
+      const userCount = await prisma.user.count();
+      if (userCount > 0) {
+        throw new BadRequestError('Setup already completed');
+      }
+
+      // デフォルトロール・権限作成
+      await seedDefaultRolesAndPermissions(prisma);
+
+      // 初回管理者作成
+      const passwordHash = await bcrypt.hash(password, 12);
+      const systemAdminRole = await prisma.role.findUnique({
+        where: { name: 'system_admin' }
+      });
+
+      const user = await prisma.user.create({
+        data: {
+          email,
+          name,
+          passwordHash,
+          userRoles: {
+            create: {
+              roleId: systemAdminRole!.id,
+              assignedBy: 'system' // 初回セットアップは'system'
+            }
+          }
+        }
+      });
+
+      // トークン発行
+      const session = await sessionService.createSession(user.id);
+      const tokens = await tokenService.generateTokenPair(
+        user.id,
+        user.email,
+        [systemAdminRole!.id],
+        session.id
+      );
+
+      res.status(201).json(tokens);
+    } finally {
+      // セットアップロック解放
+      await redis.del('setup:lock');
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /auth/invitations
+ * ユーザー招待
+ */
+router.post(
+  '/invitations',
+  authenticateJWT(tokenService),
+  requirePermission('user:invite', authzService),
+  invitationRateLimiter,
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { email, roleIds } = req.body;
+
+      const invitation = await invitationService.createInvitation({
+        email,
+        roleIds,
+        invitedById: req.user!.id
+      });
+
+      res.status(201).json(invitation);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /auth/invitations/:token
+ * 招待トークン検証
+ */
+router.get('/invitations/:token', async (req, res, next) => {
+  try {
+    const { token } = req.params;
+
+    const invitation = await invitationService.validateInvitationToken(token);
+
+    res.json({
+      email: invitation.email,
+      roleIds: invitation.roleIds
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+export default router;
+```
+
+#### 2. RBACルート
+
+```typescript
+// backend/src/routes/rbac.ts
+
+const router = express.Router();
+
+// 全エンドポイントに認証が必要
+router.use(authenticateJWT(tokenService));
+
+/**
+ * GET /rbac/roles
+ * ロール一覧取得
+ */
+router.get(
+  '/roles',
+  requirePermission('role:read', authzService),
+  async (req, res, next) => {
+    try {
+      const roles = await prisma.role.findMany({
+        include: {
+          rolePermissions: {
+            include: {
+              permission: true
+            }
+          }
+        }
+      });
+
+      res.json(roles);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /rbac/roles
+ * ロール作成
+ */
+router.post(
+  '/roles',
+  requirePermission('role:create', authzService),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { name, description, permissionIds } = req.body;
+
+      const role = await prisma.role.create({
+        data: {
+          name,
+          description,
+          rolePermissions: {
+            create: permissionIds.map((pid: string) => ({ permissionId: pid }))
+          }
+        }
+      });
+
+      res.status(201).json(role);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /rbac/roles/:roleId/permissions
+ * ロールに権限追加
+ */
+router.post(
+  '/roles/:roleId/permissions',
+  requirePermission('permission:create', authzService),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { roleId } = req.params;
+      const { permissionId } = req.body;
+
+      await prisma.rolePermission.create({
+        data: { roleId, permissionId }
+      });
+
+      // 権限キャッシュ無効化
+      await authzService.invalidateRolePermissions(roleId);
+
+      // 監査ログ
+      await auditService.logPermissionChanged(roleId, permissionId, 'GRANTED', req.user!.id);
+
+      res.status(201).json({ message: 'Permission granted' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * DELETE /rbac/roles/:roleId/permissions/:permissionId
+ * ロールから権限削除
+ */
+router.delete(
+  '/roles/:roleId/permissions/:permissionId',
+  requirePermission('permission:delete', authzService),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { roleId, permissionId } = req.params;
+
+      await prisma.rolePermission.deleteMany({
+        where: { roleId, permissionId }
+      });
+
+      // 権限キャッシュ無効化
+      await authzService.invalidateRolePermissions(roleId);
+
+      // 監査ログ
+      await auditService.logPermissionChanged(roleId, permissionId, 'REVOKED', req.user!.id);
+
+      res.json({ message: 'Permission revoked' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /rbac/permissions
+ * 権限一覧取得
+ */
+router.get(
+  '/permissions',
+  requirePermission('permission:read', authzService),
+  async (req, res, next) => {
+    try {
+      const permissions = await prisma.permission.findMany();
+      res.json(permissions);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /rbac/users/:userId/roles
+ * ユーザーにロール割り当て
+ */
+router.post(
+  '/users/:userId/roles',
+  requirePermission('role:assign', authzService),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { roleId } = req.body;
+
+      await prisma.userRole.create({
+        data: {
+          userId,
+          roleId,
+          assignedBy: req.user!.id
+        }
+      });
+
+      // 権限キャッシュ無効化
+      await authzService.invalidateUserPermissions(userId);
+
+      // 監査ログ
+      await auditService.logRoleAssigned(userId, roleId, req.user!.id);
+
+      res.status(201).json({ message: 'Role assigned' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * DELETE /rbac/users/:userId/roles/:roleId
+ * ユーザーからロール削除
+ */
+router.delete(
+  '/users/:userId/roles/:roleId',
+  requirePermission('role:assign', authzService),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { userId, roleId } = req.params;
+
+      await prisma.userRole.deleteMany({
+        where: { userId, roleId }
+      });
+
+      // 権限キャッシュ無効化
+      await authzService.invalidateUserPermissions(userId);
+
+      res.json({ message: 'Role removed' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+export default router;
+```
+
+#### 3. ユーザー管理ルート
+
+```typescript
+// backend/src/routes/users.ts
+
+const router = express.Router();
+
+router.use(authenticateJWT(tokenService));
+
+/**
+ * GET /users/me
+ * 自分のプロフィール取得
+ */
+router.get('/me', async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      include: {
+        userRoles: {
+          include: {
+            role: true
+          }
+        }
+      }
+    });
+
+    res.json(user);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /users/me
+ * 自分のプロフィール更新
+ */
+router.patch('/me', async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { name } = req.body;
+
+    const user = await prisma.user.update({
+      where: { id: req.user!.id },
+      data: { name }
+    });
+
+    res.json(user);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /users
+ * ユーザー一覧取得
+ */
+router.get(
+  '/',
+  requirePermission('user:read', authzService),
+  async (req, res, next) => {
+    try {
+      const users = await prisma.user.findMany({
+        include: {
+          userRoles: {
+            include: {
+              role: true
+            }
+          }
+        }
+      });
+
+      res.json(users);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+export default router;
+```
+
+### フロントエンドコンポーネント
+
+#### 1. AuthContext
+
+**責務:** グローバル認証状態管理、トークン管理
+
+```typescript
+// frontend/src/contexts/AuthContext.tsx
+
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  roles: Role[];
 }
+
+interface AuthContextValue {
+  user: User | null;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshAccessToken: () => Promise<string>;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // 初回ロード時にトークン確認
+  useEffect(() => {
+    const accessToken = localStorage.getItem('accessToken');
+    if (accessToken) {
+      fetchUserProfile();
+    }
+  }, []);
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await apiClient.get('/users/me');
+      setUser(response.data);
+      setIsAuthenticated(true);
+    } catch (error) {
+      logout();
+    }
+  };
+
+  const login = async (email: string, password: string) => {
+    const response = await apiClient.post('/auth/login', { email, password });
+    const { accessToken, refreshToken } = response.data;
+
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+
+    await fetchUserProfile();
+  };
+
+  const logout = async () => {
+    try {
+      await apiClient.post('/auth/logout');
+    } finally {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      setUser(null);
+      setIsAuthenticated(false);
+    }
+  };
+
+  const refreshAccessToken = async (): Promise<string> => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!refreshToken) {
+      throw new Error('No refresh token');
+    }
+
+    const response = await apiClient.post('/auth/refresh', { refreshToken });
+    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data;
+
+    localStorage.setItem('accessToken', newAccessToken);
+    localStorage.setItem('refreshToken', newRefreshToken);
+
+    return newAccessToken;
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, refreshAccessToken }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
 ```
 
-**マイグレーション戦略:**
-1. 既存のUserテーブルに新しいカラムを追加（password、failedLoginCount、lockedUntil）
-2. 新しいテーブルを作成（Role、Permission、UserRole、RolePermission、Invitation、RefreshToken、AuditLog）
-3. ワークフロー関連テーブルを作成（Workflow、WorkflowRoute、WorkflowStepDefinition、WorkflowStep、ApprovalHistory）
-4. 事前定義ロールと権限をシーディング（`npm run seed`）
-5. 事前定義ワークフロールート（見積もり、購買、支払い、現場変更）をシーディング
-6. 初期管理者アカウントをシーディングし、システム管理者ロールを割り当て
+#### 2. APIクライアント（HTTPインターセプター付き）
 
-**データ整合性:**
-- **外部キー制約**: UserRole.userId → User.id、UserRole.roleId → Role.id、RolePermission.roleId → Role.id、Workflow.initiatorId → User.id、WorkflowStep.workflowId → Workflow.id（CASCADE削除）、ApprovalHistory.workflowId → Workflow.id（CASCADE削除）等
-- **ユニーク制約**: User.email、Role.name、Permission.name、Invitation.email、Invitation.token、RefreshToken.token、UserRole(userId, roleId)、RolePermission(roleId, permissionId)、WorkflowStepDefinition(routeId, stepNumber)、WorkflowStep(workflowId, stepNumber)
-- **インデックス**: 頻繁にクエリされるカラム（email、name、token、status、expiresAt、action、createdAt）
+**責務:** API通信、自動トークンリフレッシュ、401エラーハンドリング
 
-**パフォーマンス最適化:**
-- `@@index([email])`: ログイン時のメールアドレス検索
-- `@@index([name])`: ロール・権限名検索の高速化
-- `@@index([userId, roleId])`: ユーザーのロール取得クエリ最適化
-- `@@index([roleId, permissionId])`: ロールの権限取得クエリ最適化
-- `@@index([action, createdAt])`: 監査ログのフィルタリングクエリ最適化
-- `@@index([initiatorId])`: ユーザーのワークフロー一覧取得クエリ最適化
-- `@@index([status, currentStep])`: 承認待ちワークフロー取得クエリ最適化
-- `@@index([type, minAmount, maxAmount])`: 金額閾値によるルート選択クエリ最適化
-- `@@index([workflowId, status])`: ワークフローステップステータス取得クエリ最適化
-- `@@index([approverId])`: 承認者の承認履歴取得クエリ最適化
+```typescript
+// frontend/src/services/apiClient.ts
 
-### Redisデータモデル
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-**セッション管理:**
-```
-Key: session:{sessionId}
-Value: JSON { userId, deviceInfo, createdAt, lastAccessedAt }
-TTL: 7 days (604800 seconds)
+const apiClient = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000',
+  timeout: 10000
+});
+
+// リクエストインターセプター（トークン付与）
+apiClient.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const accessToken = localStorage.getItem('accessToken');
+    if (accessToken && config.headers) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// レスポンスインターセプター（401エラーハンドリング）
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: any) => void;
+}> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else if (token) {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    // 401エラーかつトークンリフレッシュ未実施
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        // リフレッシュ中は待機
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            if (originalRequest.headers) {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+            }
+            return apiClient(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const refreshToken = localStorage.getItem('refreshToken');
+        if (!refreshToken) {
+          throw new Error('No refresh token');
+        }
+
+        const response = await axios.post(`${apiClient.defaults.baseURL}/auth/refresh`, {
+          refreshToken
+        });
+
+        const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data;
+
+        localStorage.setItem('accessToken', newAccessToken);
+        localStorage.setItem('refreshToken', newRefreshToken);
+
+        // 待機中のリクエストを再試行
+        processQueue(null, newAccessToken);
+
+        // 元のリクエストを再試行
+        if (originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        }
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+
+        // リフレッシュ失敗時はログイン画面へリダイレクト
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        window.location.href = '/login';
+
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+export default apiClient;
 ```
 
-**ユーザーセッション一覧:**
-```
-Key: user_sessions:{userId}
-Value: Set[sessionId1, sessionId2, ...]
-TTL: なし（手動管理）
+#### 3. ログインフォーム
+
+```typescript
+// frontend/src/components/LoginForm.tsx
+
+const LoginForm: React.FC = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await login(email, password);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'ログインに失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <h2>ログイン</h2>
+      {error && <div className="error">{error}</div>}
+      <div>
+        <label>メールアドレス</label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <label>パスワード</label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+      </div>
+      <button type="submit" disabled={isLoading}>
+        {isLoading ? 'ログイン中...' : 'ログイン'}
+      </button>
+    </form>
+  );
+};
 ```
 
-**リフレッシュトークンホワイトリスト:**
-```
-Key: refresh_token:{token}
-Value: userId
-TTL: 7 days (604800 seconds)
-```
+#### 4. サインアップフォーム
 
-**失敗ログイン試行カウント:**
-```
-Key: login_attempts:{email}
-Value: failedCount
-TTL: 15 minutes (900 seconds)
-```
+```typescript
+// frontend/src/components/SignupForm.tsx
 
-**アカウントロック:**
-```
-Key: account_lock:{userId}
-Value: lockedUntil (ISO 8601 timestamp)
-TTL: 15 minutes (900 seconds)
-```
+const SignupForm: React.FC = () => {
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [invitation, setInvitation] = useState<{ email: string } | null>(null);
+  const navigate = useNavigate();
+  const { token } = useParams<{ token: string }>();
 
-**権限キャッシュ（新規追加）:**
-```
-Key: user_permissions:{userId}
-Value: JSON Set<string> ["adr:read", "adr:update", "project:read"]
-TTL: 5 minutes (300 seconds)
-```
+  useEffect(() => {
+    // 招待トークン検証
+    const validateToken = async () => {
+      try {
+        const response = await apiClient.get(`/auth/invitations/${token}`);
+        setInvitation(response.data);
+      } catch (err) {
+        setError('招待トークンが無効です');
+      }
+    };
 
-**ロール権限キャッシュ（新規追加）:**
-```
-Key: role_permissions:{roleId}
-Value: JSON string[] ["adr:read", "adr:update"]
-TTL: 10 minutes (600 seconds)
-```
+    validateToken();
+  }, [token]);
 
-**Redis操作パターン:**
-- **SET with EX**: `SET refresh_token:abc123 user-uuid-here EX 604800`
-- **GET with DEL**: トークン検証後、使用済みトークンは削除
-- **SADD for Sets**: `SADD user_sessions:user-uuid session-id-1 session-id-2`
-- **INCR for Counters**: `INCR login_attempts:user@example.com`
-- **JSON Cache**: `SET user_permissions:user-uuid '["adr:read","adr:update"]' EX 300`
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (password !== confirmPassword) {
+      setError('パスワードが一致しません');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      await apiClient.post('/auth/signup', { token, name, password });
+      navigate('/login');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'アカウント作成に失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!invitation) {
+    return <div>招待情報を確認中...</div>;
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <h2>アカウント作成</h2>
+      {error && <div className="error">{error}</div>}
+      <div>
+        <label>メールアドレス</label>
+        <input type="email" value={invitation.email} disabled />
+      </div>
+      <div>
+        <label>名前</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <label>パスワード</label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          minLength={8}
+        />
+      </div>
+      <div>
+        <label>パスワード確認</label>
+        <input
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          required
+        />
+      </div>
+      <button type="submit" disabled={isLoading}>
+        {isLoading ? 'アカウント作成中...' : 'アカウント作成'}
+      </button>
+    </form>
+  );
+};
+```
 
 ## エラーハンドリング
 
-### エラー戦略
+### カスタムエラークラス
 
-認証・認可システムのエラーハンドリングは、セキュリティとユーザー体験のバランスを重視します。OWASP Authentication Cheat Sheetに準拠し、攻撃者に有用な情報を提供しないよう、認証エラーメッセージは汎用的にします。
-
-**統一的なエラーレスポンス形式（既存のApiErrorパターンを拡張）:**
 ```typescript
-interface ErrorResponse {
-  error: string;        // 人間が読めるエラーメッセージ
-  code: string;         // マシンリーダブルなエラーコード
-  details?: Record<string, unknown>; // 追加のコンテキスト
-  stack?: string;       // 開発環境のみ
+// backend/src/errors/index.ts
+
+export class ApiError extends Error {
+  constructor(
+    public statusCode: number,
+    public message: string,
+    public code?: string
+  ) {
+    super(message);
+    this.name = this.constructor.name;
+    Error.captureStackTrace(this, this.constructor);
+  }
 }
-```
 
-### エラーカテゴリとレスポンス
-
-#### ユーザーエラー（4xx）
-
-**401 Unauthorized - 認証エラー**
-```json
-{
-  "error": "Unauthorized",
-  "code": "TOKEN_EXPIRED",
-  "message": "Access token has expired"
+export class UnauthorizedError extends ApiError {
+  constructor(message = 'Unauthorized') {
+    super(401, message, 'UNAUTHORIZED');
+  }
 }
-```
 
-**WWW-Authenticateヘッダー（RFC 6750準拠）:**
-```
-WWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token", error_description="The access token expired"
-```
-
-**エラーコード一覧:**
-- `TOKEN_EXPIRED`: アクセストークン期限切れ → フロントエンドで自動リフレッシュ
-- `TOKEN_INVALID`: トークンが不正または改ざん → ログイン画面へリダイレクト
-- `TOKEN_MISSING`: Authorizationヘッダーがない → ログイン画面へリダイレクト
-- `INVALID_CREDENTIALS`: メールアドレスまたはパスワードが正しくない（汎用メッセージ）
-- `ACCOUNT_LOCKED`: アカウントがロックされている → ロック解除時刻を提供
-
-**403 Forbidden - 権限エラー**
-```json
-{
-  "error": "Forbidden",
-  "code": "INSUFFICIENT_PERMISSIONS",
-  "message": "You do not have permission to perform this action",
-  "required": "adr:update"
+export class ForbiddenError extends ApiError {
+  constructor(message = 'Forbidden') {
+    super(403, message, 'FORBIDDEN');
+  }
 }
-```
 
-**エラーコード:**
-- `INSUFFICIENT_PERMISSIONS`: 権限が不足（例: 経理担当がADRを編集しようとした）
-- `LAST_ADMIN_PROTECTED`: 最後のシステム管理者ロールの削除/変更を防止
-- `SYSTEM_ROLE_PROTECTED`: システムロール（削除不可）の削除を防止
-
-**400 Bad Request - バリデーションエラー**
-```json
-{
-  "error": "Validation failed",
-  "code": "VALIDATION_ERROR",
-  "details": [
-    { "path": "password", "message": "Password must be at least 8 characters" },
-    { "path": "email", "message": "Invalid email format" }
-  ]
-}
-```
-
-**エラーコード:**
-- `VALIDATION_ERROR`: Zodスキーマバリデーション失敗
-- `WEAK_PASSWORD`: パスワードが強度要件を満たさない
-- `INVITATION_EXPIRED`: 招待トークンが期限切れ
-- `INVITATION_ALREADY_USED`: 招待トークンが既に使用済み
-
-**409 Conflict - リソース競合エラー**
-```json
-{
-  "error": "Resource already exists",
-  "code": "ROLE_ALREADY_EXISTS",
-  "message": "A role with this name already exists"
-}
-```
-
-#### システムエラー（5xx）
-
-**503 Service Unavailable - インフラストラクチャエラー**
-```json
-{
-  "error": "Database connection error",
-  "code": "DATABASE_UNAVAILABLE",
-  "message": "Unable to connect to the database. Please try again later."
-}
-```
-
-**エラーコード:**
-- `DATABASE_UNAVAILABLE`: PostgreSQL接続エラー → Sentryに送信、リトライ推奨
-- `REDIS_UNAVAILABLE`: Redis接続エラー → 権限キャッシュの一時的なフォールバック
-
-**500 Internal Server Error - 予期しないエラー**
-```json
-{
-  "error": "Internal server error",
-  "code": "INTERNAL_SERVER_ERROR",
-  "message": "An unexpected error occurred",
-  "stack": "Error: ... (development only)"
-}
-```
-
-#### ビジネスロジックエラー（422）
-
-**422 Unprocessable Entity - ビジネスルール違反**
-```json
-{
-  "error": "Business rule violation",
-  "code": "ROLE_IN_USE",
-  "message": "Cannot delete role because it is assigned to users",
-  "details": {
-    "affectedUsers": 5
+export class BadRequestError extends ApiError {
+  constructor(message = 'Bad Request') {
+    super(400, message, 'BAD_REQUEST');
   }
 }
 ```
 
-**エラーコード:**
-- `ACCOUNT_LOCKED`: 5回連続ログイン失敗後の15分間ロック
-- `LAST_ADMIN_PROTECTED`: 最後のシステム管理者のロール変更を防止
-- `ROLE_IN_USE`: ロールがユーザーに割り当てられているため削除不可
-- `SYSTEM_ROLE_PROTECTED`: システムロールの削除を防止
+### エラーハンドリングミドルウェア
 
-### フロントエンドエラーハンドリング
-
-**HTTPインターセプターでのエラー処理:**
 ```typescript
-async function handleApiError(error: ApiError): Promise<void> {
-  switch (error.code) {
-    case 'TOKEN_EXPIRED':
-      // 自動リフレッシュ（HTTPインターセプター内で処理）
-      return refreshAndRetry();
+// backend/src/middleware/errorHandler.ts
 
-    case 'TOKEN_INVALID':
-    case 'TOKEN_MISSING':
-      // ログイン画面へリダイレクト
-      redirectToLogin(window.location.pathname);
-      break;
-
-    case 'INSUFFICIENT_PERMISSIONS':
-      // 403エラーページ表示
-      showErrorPage(`この操作を実行する権限がありません。必要な権限: ${error.required}`);
-      break;
-
-    case 'ACCOUNT_LOCKED':
-      // ロック解除時刻を表示
-      showErrorMessage(`アカウントがロックされています。${error.details.remainingMinutes}分後に再試行してください。`);
-      break;
-
-    case 'VALIDATION_ERROR':
-      // フォームフィールドにエラー表示
-      showFieldErrors(error.details);
-      break;
-
-    case 'ROLE_IN_USE':
-      // ビジネスロジックエラー
-      showErrorMessage(`このロールは${error.details.affectedUsers}人のユーザーに割り当てられているため削除できません。`);
-      break;
-
-    case 'DATABASE_UNAVAILABLE':
-    case 'REDIS_UNAVAILABLE':
-      // リトライボタン付きエラーメッセージ
-      showRetryableError('サービスが一時的に利用できません。しばらくしてから再試行してください。');
-      break;
-
-    default:
-      // 一般的なエラーメッセージ
-      showErrorMessage('予期しないエラーが発生しました。');
-      // Sentryに送信（クライアントサイド）
-      captureException(error);
+const errorHandler = (err: Error, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof ApiError) {
+    return res.status(err.statusCode).json({
+      error: err.message,
+      code: err.code
+    });
   }
-}
-```
 
-### モニタリング
-
-**エラー追跡:**
-- **Sentry統合**: 全ての5xxエラーと予期しないエラーをSentryに送信（既存統合を活用）
-- **ログレベル**:
-  - `error`: 5xxエラー、データベース接続エラー
-  - `warn`: 4xxエラー、認証失敗、権限チェック失敗、バリデーションエラー
-  - `info`: ログイン成功、ユーザー登録、ロール作成、権限割り当て
-
-**ログ出力例（Pino形式）:**
-```json
-{
-  "level": "warn",
-  "time": "2025-11-07T08:00:00.000Z",
-  "msg": "Permission check failed",
-  "userId": "user-uuid",
-  "email": "user@example.com",
-  "required": "adr:update",
-  "available": ["adr:read", "project:read"],
-  "code": "INSUFFICIENT_PERMISSIONS",
-  "ip": "192.168.1.100",
-  "userAgent": "Mozilla/5.0..."
-}
-```
-
-**ヘルスチェック統合:**
-- `/health`エンドポイントに認証・認可サービスのステータスを追加
-```json
-{
-  "status": "ok",
-  "services": {
-    "database": "connected",
-    "redis": "connected",
-    "auth": "healthy",
-    "authorization": "healthy"
-  }
-}
+  // 予期しないエラー
+  console.error('Unexpected error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    code: 'INTERNAL_ERROR'
+  });
+};
 ```
 
 ## テスト戦略
 
-### 単体テスト（Vitest）
+### 単体テスト（Jest）
 
-**Backend単体テスト:**
+**対象:** サービス層、ミドルウェア、ユーティリティ関数
 
-1. **Authorization Service**
-   - `hasPermission()`: ワイルドカード権限マッチング、マルチロール権限統合、キャッシュ動作
-   - `getUserPermissions()`: 全ロールからの権限収集、OR演算
-   - `invalidateUserPermissionCache()`: キャッシュ無効化
+```typescript
+// backend/src/services/__tests__/AuthenticationService.test.ts
 
-2. **Role Service**
-   - `createRole()`: ロール作成、重複チェック、監査ログ記録
-   - `assignPermissions()`: バルク権限割り当て、トランザクション処理
-   - `assignRolesToUser()`: マルチロール割り当て、最後のシステム管理者保護
+describe('AuthenticationService', () => {
+  let authService: AuthenticationService;
+  let mockPrisma: jest.Mocked<PrismaClient>;
+  let mockTokenService: jest.Mocked<TokenService>;
 
-3. **Permission Service**
-   - `matchPermission()`: ワイルドカード評価（`*:*`, `adr:*`, `*:read`）、優先順位ルール
-   - `initializePredefinedPermissions()`: 事前定義権限の初期化
+  beforeEach(() => {
+    mockPrisma = createMockPrismaClient();
+    mockTokenService = createMockTokenService();
+    authService = new AuthenticationService(mockPrisma, mockTokenService, /* ... */);
+  });
 
-4. **Audit Log Service**
-   - `logAction()`: 監査ログ記録、変更前後の値保存
-   - `getAuditLogs()`: フィルタリング、ページネーション
-   - `sendSecurityAlert()`: センシティブ操作のアラート通知
+  describe('login', () => {
+    it('should return tokens for valid credentials', async () => {
+      const user = {
+        id: 'user-123',
+        email: 'test@example.com',
+        passwordHash: await bcrypt.hash('password123', 12),
+        userRoles: [{ roleId: 'role-1' }]
+      };
 
-5. **Auth Service（既存テストを更新）**
-   - `signup()`: デフォルトロール割り当て、マルチロール対応
-   - `login()`: JWTペイロードにroleIds配列を含める
+      mockPrisma.user.findUnique.mockResolvedValue(user);
+      mockTokenService.generateTokenPair.mockResolvedValue({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token'
+      });
 
-6. **Token Service（既存テストを更新）**
-   - `generateTokenPair()`: roleIdsをJWTペイロードに含める
-   - `verifyAccessToken()`: roleIds抽出
+      const result = await authService.login({
+        email: 'test@example.com',
+        password: 'password123'
+      }, '127.0.0.1');
 
-7. **Middleware**
-   - `requirePermission()`: 権限チェック、403エラーレスポンス
-   - `requireResourceOwnership()`: 所有者フィルタリング
+      expect(result).toHaveProperty('accessToken');
+      expect(result).toHaveProperty('refreshToken');
+    });
 
-8. **Workflow Service**
-   - `startWorkflow()`: ワークフロー開始、金額閾値によるルート選択、ステップ初期化
-   - `getPendingWorkflows()`: 承認者IDによるフィルタリング、複数ロール対応
-   - `moveToNextStep()`: 次ステップへの遷移、ステータス更新
-   - `completeWorkflow()`: ワークフロー完了、ADRステータス更新
-   - `createWorkflowRoute()`: カスタムルート作成、金額閾値バリデーション
+    it('should throw UnauthorizedError for invalid password', async () => {
+      const user = {
+        id: 'user-123',
+        email: 'test@example.com',
+        passwordHash: await bcrypt.hash('password123', 12),
+        userRoles: []
+      };
 
-9. **Approval Service**
-   - `approveStep()`: 承認処理、次ステップへの自動遷移、通知送信
-   - `rejectStep()`: 差し戻し処理、理由バリデーション、申請者への通知
-   - `delegateApproval()`: 委譲処理、権限チェック、履歴記録
+      mockPrisma.user.findUnique.mockResolvedValue(user);
 
-10. **Notification Service**
-    - `sendApprovalRequest()`: 承認依頼通知、メール送信、プッシュ通知
-    - `sendApprovalResult()`: 承認結果通知、申請者への通知
-    - `sendReminderNotification()`: リマインダー通知、24時間経過時
+      await expect(
+        authService.login({ email: 'test@example.com', password: 'wrong' }, '127.0.0.1')
+      ).rejects.toThrow(UnauthorizedError);
+    });
+  });
 
-**Frontend単体テスト:**
+  describe('validatePassword', () => {
+    it('should accept valid password', () => {
+      expect(() => authService['validatePassword']('StrongPass1!')).not.toThrow();
+    });
 
-1. **Auth Context（既存テストを更新）**
-   - `login()`: ユーザープロフィールに複数ロールを含める
-   - `hasPermission()`: クライアントサイドの権限チェック
+    it('should reject password shorter than 8 characters', () => {
+      expect(() => authService['validatePassword']('Short1!')).toThrow(BadRequestError);
+    });
 
-2. **HTTP Interceptor（既存テストを維持）**
-   - `interceptResponse()`: 401エラー検知、リフレッシュトークン送信、リクエスト再試行
+    it('should reject password with insufficient complexity', () => {
+      expect(() => authService['validatePassword']('alllowercase')).toThrow(BadRequestError);
+    });
+  });
+});
+```
 
-3. **Auth Guards（既存テストを維持）**
-   - `ProtectedRoute`: 未認証ユーザーのリダイレクト
-   - `RoleProtectedRoute`: ロールベースのアクセス制御
+### 統合テスト（Supertest）
 
-**カバレッジ目標: 80%以上（既存プロジェクト標準）**
+**対象:** APIエンドポイント、認証・認可フロー
 
-### 統合テスト（Vitest + Supertest + Docker Compose）
+```typescript
+// backend/src/routes/__tests__/auth.integration.test.ts
 
-1. **RBAC完全フローテスト**
-   - システム管理者ログイン → ロール作成 → 権限割り当て → ユーザーへのロール割り当て → 権限チェック成功
+describe('POST /auth/login', () => {
+  let app: Express;
+  let testUser: User;
 
-2. **マルチロール権限統合テスト**
-   - ユーザーに複数ロール割り当て（積算担当 + 現場担当）→ 統合された権限セット確認 → 両方のロールの権限で操作成功
+  beforeAll(async () => {
+    app = createTestApp();
+    await seedTestDatabase();
+    testUser = await createTestUser({
+      email: 'test@example.com',
+      password: 'Test1234!'
+    });
+  });
 
-3. **権限チェック失敗とログ記録テスト**
-   - 経理担当がADR編集を試みる → 403エラー → 監査ログに記録
+  afterAll(async () => {
+    await cleanupTestDatabase();
+  });
 
-4. **ロール削除保護テスト**
-   - 最後のシステム管理者からロール削除を試みる → 422エラー
-   - ユーザーに割り当てられたロールを削除を試みる → 422エラー
+  it('should return tokens for valid credentials', async () => {
+    const response = await request(app)
+      .post('/auth/login')
+      .send({
+        email: 'test@example.com',
+        password: 'Test1234!'
+      })
+      .expect(200);
 
-5. **権限キャッシュテスト**
-   - 権限チェック実行 → Redisにキャッシュ → 2回目のチェックはキャッシュから取得
-   - ロール変更 → キャッシュ無効化 → 3回目のチェックはDBから再取得
+    expect(response.body).toHaveProperty('accessToken');
+    expect(response.body).toHaveProperty('refreshToken');
+  });
 
-6. **ワークフロー完全フローテスト**
-   - 営業がADR作成（金額: 1,200万円）→ 見積もりワークフロー開始 → 4ステップルート自動選択 → 積算担当に承認依頼通知
-   - 積算担当がワークフロー承認 → 購買担当へ遷移 → 購買担当が承認 → 経営へ遷移 → 経営が承認 → ワークフロー完了 → ADRステータス更新
+  it('should return 401 for invalid credentials', async () => {
+    const response = await request(app)
+      .post('/auth/login')
+      .send({
+        email: 'test@example.com',
+        password: 'WrongPassword'
+      })
+      .expect(401);
 
-7. **ワークフロー差し戻しテスト**
-   - 積算担当がワークフロー差し戻し（理由必須）→ ステータスREJECTED → 申請者への通知 → 監査ログ記録
+    expect(response.body.error).toBe('Invalid credentials');
+  });
 
-8. **ワークフロー委譲テスト**
-   - 積算担当が別の積算担当に委譲 → 権限チェック成功 → 承認履歴に委譲記録 → 新承認者への通知
+  it('should enforce rate limiting', async () => {
+    // 10回ログイン試行
+    for (let i = 0; i < 10; i++) {
+      await request(app).post('/auth/login').send({
+        email: 'test@example.com',
+        password: 'wrong'
+      });
+    }
 
-9. **金額閾値ルート選択テスト**
-   - 見積もり金額: 300万円 → 2ステップルート（営業 → 積算担当）
-   - 見積もり金額: 800万円 → 3ステップルート（営業 → 積算担当 → 購買担当）
-   - 見積もり金額: 1,500万円 → 4ステップルート（営業 → 積算担当 → 購買担当 → 経営）
+    // 11回目はレート制限に引っかかる
+    const response = await request(app)
+      .post('/auth/login')
+      .send({
+        email: 'test@example.com',
+        password: 'Test1234!'
+      })
+      .expect(429);
+
+    expect(response.body.error).toContain('Too many');
+  });
+});
+```
 
 ### E2Eテスト（Playwright）
 
-1. **システム管理者によるロール管理フロー**
-   - ログイン → ロール管理画面 → 新規ロール作成 → 権限割り当て → ユーザーへのロール割り当て → ログアウト
+**対象:** ユーザーフロー全体
 
-2. **権限に基づくUI表示制御**
-   - 経理担当でログイン → ADR一覧表示 → 「編集」ボタンが非表示 → 「閲覧」ボタンのみ表示
-   - 積算担当でログイン → ADR一覧表示 → 「編集」ボタン表示 → 編集成功
+```typescript
+// e2e/auth.spec.ts
 
-3. **マルチロール対応のユーザー体験**
-   - 積算担当兼現場担当でログイン → ADRページ → 積算関連と現場関連の両方の操作が可能
+test.describe('Authentication Flow', () => {
+  test('should complete full signup and login flow', async ({ page }) => {
+    // 1. 招待URLにアクセス
+    await page.goto('/signup/test-invitation-token');
 
-4. **監査ログ閲覧フロー**
-   - システム管理者でログイン → 監査ログ画面 → ロール作成履歴を確認 → 日付範囲フィルタリング → JSONエクスポート
+    // 2. サインアップフォーム入力
+    await page.fill('input[name="name"]', 'Test User');
+    await page.fill('input[name="password"]', 'Test1234!');
+    await page.fill('input[name="confirmPassword"]', 'Test1234!');
+    await page.click('button[type="submit"]');
 
-5. **UI/UXテスト（既存テストを拡張）**
-   - レスポンシブデザイン（モバイル・タブレット・デスクトップ）
-   - アクセシビリティ（キーボードナビゲーション、スクリーンリーダー）
-   - ロール選択ドロップダウン、権限チェックボックスのインタラクション
+    // 3. ログイン画面へリダイレクト確認
+    await expect(page).toHaveURL('/login');
 
-6. **ワークフロー承認ダッシュボードフロー**
-   - 積算担当でログイン → 承認待ちダッシュボード表示 → 3件の承認待ち確認 → 緊急ワークフロー（🔴）を優先表示
-   - フィルタ適用（種類: 見積もり、金額範囲: 1,000万円以上）→ フィルタ結果反映 → ワークフロー詳細画面へ遷移
+    // 4. ログイン
+    await page.fill('input[type="email"]', 'test@example.com');
+    await page.fill('input[type="password"]', 'Test1234!');
+    await page.click('button[type="submit"]');
 
-7. **ワークフロー承認・差し戻しフロー**
-   - ワークフロー詳細画面で承認ボタンクリック → 承認アクションモーダル表示 → コメント入力 → 承認実行 → 次のステップへ遷移確認 → トースト通知表示
-   - 別のワークフロー詳細画面で差し戻しボタンクリック → 差し戻し理由選択（必須）→ コメント入力 → 差し戻し実行 → ステータスREJECTED確認 → 申請者への通知確認
+    // 5. ダッシュボードへリダイレクト確認
+    await expect(page).toHaveURL('/dashboard');
+  });
 
-8. **ワークフロー委譲フロー**
-   - ワークフロー詳細画面で委譲ボタンクリック → 委譲先承認者選択ドロップダウン表示（同じロールのユーザーのみ）→ 委譲先選択 → コメント入力 → 委譲実行 → 承認履歴に委譲記録確認
+  test('should refresh token on 401', async ({ page, context }) => {
+    // 1. ログイン
+    await loginAs(page, 'test@example.com', 'Test1234!');
 
-9. **ワークフロー通知・リアルタイム更新**
-   - 営業ユーザーがADR作成（金額: 1,200万円）→ ワークフロー開始 → 積算担当ユーザーのブラウザで🔔アイコンにバッジ表示（リアルタイム）
-   - 積算担当がダッシュボード更新 → 新規ワークフロー表示確認 → 詳細画面で金額・ルート確認
+    // 2. アクセストークンを期限切れに変更（開発者ツール経由）
+    await context.addCookies([{
+      name: 'accessToken',
+      value: 'expired-token',
+      domain: 'localhost',
+      path: '/'
+    }]);
 
-10. **ワークフローStorybookビジュアル回帰テスト**
-    - 承認待ちダッシュボードの全ストーリー（7種類）をスナップショット比較 → ビジュアル差分なし確認
-    - ワークフロー詳細画面の全ストーリー（9種類）をスナップショット比較 → ビジュアル差分なし確認
-    - 承認アクションモーダルの全ストーリー（8種類）をスナップショット比較 → ビジュアル差分なし確認
+    // 3. 保護されたページにアクセス
+    await page.goto('/dashboard');
 
-### パフォーマンステスト（Autocannon）
+    // 4. 自動リフレッシュ後、ページが正常に表示される
+    await expect(page.locator('h1')).toContainText('ダッシュボード');
+  });
+});
+```
 
-1. **権限チェックエンドポイント負荷テスト**
-   - 目標: 1000req/s、p95 < 30ms
-   - Redisキャッシュヒット率 > 95%
+### テストカバレッジ目標
 
-2. **ロール作成エンドポイント負荷テスト**
-   - 目標: 100req/s、p95 < 100ms
-   - PostgreSQLトランザクション処理のボトルネック確認
-
-3. **マルチロール権限統合のパフォーマンステスト**
-   - 10ロール割り当て時の権限チェック速度確認
-   - 権限統合のN+1クエリ問題の検証
+| レイヤー | カバレッジ目標 |
+|---------|--------------|
+| サービス層 | 90%以上 |
+| ミドルウェア | 85%以上 |
+| APIルート | 80%以上 |
+| フロントエンド | 70%以上 |
 
 ## セキュリティ考慮事項
 
-この機能は、OWASP Top 10、NIST RBAC標準、RFC 6750（Bearer Token）に準拠したセキュアな実装を提供します。
+### OWASP Top 10対策
 
-### 脅威モデリング
+| 脅威 | 対策 |
+|------|------|
+| **A01: アクセス制御の不備** | - RBAC実装<br>- 全APIエンドポイントに認証・認可チェック<br>- 監査ログによる追跡 |
+| **A02: 暗号化の失敗** | - bcryptでパスワードハッシュ化（cost=12）<br>- JWTトークンの署名検証<br>- HTTPS強制 |
+| **A03: インジェクション** | - Prisma ORMによるSQLインジェクション対策<br>- 入力値検証 |
+| **A05: セキュリティ設定ミス** | - セキュアなHTTPヘッダー設定<br>- CORS設定<br>- レート制限 |
+| **A07: 認証とセッション管理の不備** | - トークンローテーション<br>- リフレッシュトークンの短命化<br>- セッション有効期限管理 |
 
-**攻撃ベクトル:**
-1. **ブルートフォース攻撃**: ログインエンドポイントへの総当たり攻撃
-2. **XSS（Cross-Site Scripting）**: フロントエンドでのトークン窃取
-3. **CSRF（Cross-Site Request Forgery）**: 認証済みユーザーの権限濫用
-4. **セッションハイジャック**: トークンの傍受・再利用
-5. **トークンリプレイ攻撃**: 盗んだトークンの再利用
-6. **SQL/NoSQLインジェクション**: データベースクエリの不正操作
-7. **権限昇格攻撃**: 不正なロール割り当て、ワイルドカード権限の濫用
-8. **監査ログの改ざん**: 権限変更履歴の削除・変更
+### セキュリティベストプラクティス
 
-### セキュリティコントロール
+1. **トークン管理**
+   - アクセストークンは短命（15分）
+   - リフレッシュトークンは使用時にローテーション
+   - ローカルストレージではなくHttpOnly Cookieを検討
 
-#### 認証とアクセス制御
+2. **パスワード管理**
+   - bcrypt cost factor: 12
+   - パスワードポリシー強制
+   - 禁止リストによる弱いパスワードブロック
 
-1. **パスワードハッシュ化**
-   - アルゴリズム: bcrypt（saltラウンド10以上）
-   - OWASP推奨、レインボーテーブル攻撃耐性
+3. **レート制限**
+   - ログイン: 10回/5分/IP
+   - 招待: 100回/日/ユーザー
+   - API: 1000回/時/ユーザー
 
-2. **JWT署名とアルゴリズム**
-   - アルゴリズム: HS256（HMAC SHA-256）
-   - シークレットキー: 環境変数`JWT_SECRET`（32バイト以上）
-   - 有効期限: アクセストークン15分、リフレッシュトークン7日
-
-3. **ブルートフォース保護**
-   - 連続5回ログイン失敗後、15分間アカウントロック
-   - Redisカウンター: `login_attempts:{email}`、TTL 15分
-   - IPベースレート制限: 既存のrate-limit middleware統合
-
-4. **リフレッシュトークンの安全な保管**
-   - HttpOnly Cookie（XSS攻撃対策）
-   - Secure Flag（HTTPS必須）
-   - SameSite=Strict（CSRF攻撃対策）
-   - Redisホワイトリスト（トークン失効管理）
-
-5. **RBAC（ロールベースアクセス制御）**
-   - 権限チェックミドルウェアに`requirePermission('resource:action')`を適用
-   - 最後のシステム管理者ロールの削除/変更を防止
-   - システムロール（isSystemRole=true）の削除を防止
-
-6. **最小権限の原則**
-   - デフォルトで最小限の権限のみ付与（一般ユーザーロール）
-   - 必要な権限のみをロールに割り当て
-   - ワイルドカード権限（`*:*`）はシステム管理者のみ
-
-#### データ保護
-
-1. **HTTPS強制**
-   - 既存のhttpsRedirectミドルウェアを活用
-   - HSTS（HTTP Strict Transport Security）ヘッダー設定済み
-
-2. **CORS設定**
-   - 既存のCORS設定を維持: `origin: env.FRONTEND_URL`
-   - `credentials: true`でCookieを許可
-
-3. **入力バリデーション**
-   - Zodスキーマによる型安全なバリデーション
-   - SQLインジェクション対策: Prisma ORMのパラメータ化クエリ
-
-4. **センシティブ情報のログ抑制**
-   - パスワード、トークン、個人情報はログに記録しない
-   - Pinoロガーのredact機能を使用
-
-5. **監査ログの保護**
-   - 監査ログは追記のみ（削除・更新不可）
-   - 監査ログの保存失敗時は操作全体をロールバック
-   - センシティブな操作（システム管理者ロール変更）はアラート通知
-
-#### セッション管理
-
-1. **トークン有効期限管理**
-   - アクセストークン: 15分（短期、攻撃ウィンドウ最小化）
-   - リフレッシュトークン: 7日（Redisで自動失効）
-
-2. **プロアクティブトークンリフレッシュ**
-   - 有効期限5分前に自動更新（ユーザー体験向上）
-   - バックグラウンドでの透過的なリフレッシュ
-
-3. **トークン失効機能**
-   - パスワード変更時に全リフレッシュトークンを無効化
-   - ロール変更時に権限キャッシュを無効化
-   - ログアウト時に該当デバイスのトークンを削除
-
-#### コンプライアンス
-
-1. **RFC 6750準拠（Bearer Token）**
-   - WWW-Authenticateヘッダー: `Bearer realm="ArchiTrack", error="invalid_token"`
-   - Authorizationヘッダー: `Bearer {accessToken}`
-
-2. **OWASP Authentication Cheat Sheet準拠**
-   - 汎用的な認証エラーメッセージ（アカウント列挙攻撃対策）
-   - ログイン失敗時に「メールアドレスまたはパスワードが正しくありません」
-   - パスワード強度要件（8文字以上、英数字・特殊文字）
-
-3. **NIST RBAC標準準拠**
-   - Core RBAC: Role、Permission、User-Role、Role-Permissionの4エンティティ
-   - Hierarchical RBAC: 将来的なロール階層と権限継承をサポート
-
-4. **GDPR/個人情報保護**
-   - ユーザーデータの暗号化保存
-   - 監査ログによる全操作の追跡
-   - アカウント削除機能（将来的な拡張）
+4. **監査ログ**
+   - 全ての権限変更を記録
+   - ログイン成功・失敗を記録
+   - IPアドレス・User-Agentを記録
 
 ## パフォーマンスとスケーラビリティ
 
-### 目標メトリクス
+### パフォーマンス最適化
 
-**レスポンスタイム:**
-- ログイン: p95 < 200ms、p99 < 500ms
-- トークンリフレッシュ: p95 < 50ms、p99 < 100ms
-- 権限チェック（キャッシュヒット）: p95 < 10ms、p99 < 30ms
-- 権限チェック（キャッシュミス）: p95 < 50ms、p99 < 100ms
-- JWT検証: < 10ms（メモリ操作のみ）
+1. **権限キャッシュ**
+   - Redis TTL: 5分
+   - ロール・権限変更時にキャッシュ無効化
+   - ワイルドカード権限のマッチング最適化
 
-**スループット:**
-- ログイン: 100 req/s（bcryptボトルネック考慮）
-- トークンリフレッシュ: 500 req/s（Redisスループット依存）
-- 権限チェック: 1000 req/s（Redisキャッシュ活用）
+2. **データベースインデックス**
+   ```prisma
+   @@index([userId])
+   @@index([email])
+   @@index([token])
+   @@index([createdAt])
+   ```
 
-### スケーリングアプローチ
+3. **N+1クエリ対策**
+   - Prismaの`include`で必要なリレーションを一括取得
+   - DataLoaderパターン（将来的な拡張）
 
-#### 水平スケーリング
+### スケーラビリティ
 
-1. **ステートレスな認証・認可設計**
-   - JWT: サーバー側セッション不要、任意のインスタンスで検証可能
-   - Redis: 集中型セッション・権限キャッシュストア、全インスタンスから参照
+1. **水平スケーリング**
+   - JWTステートレス認証により複数サーバー対応
+   - Redisクラスターによるセッション共有
+   - PostgreSQL読み取りレプリカ（将来的な拡張）
 
-2. **Redisクラスタリング**
-   - Redis Cluster（将来的な拡張）: 自動シャーディング、高可用性
-   - Redis Sentinel: マスター/スレーブ構成、自動フェイルオーバー
+2. **キャパシティプランニング**
+   - 想定ユーザー数: 1,000人
+   - 同時接続数: 100人
+   - リクエスト数: 10,000 req/min
 
-3. **データベース読み取りレプリカ**
-   - ユーザー情報・ロール・権限取得クエリを読み取りレプリカに分散
-   - Prisma Read Replicasサポート（将来的な拡張）
+## マイグレーション戦略
 
-#### 垂直スケーリング
+### データベースマイグレーション
 
-1. **bcryptハッシュ化のCPU最適化**
-   - saltラウンド調整: 10（バランス型）、12（高セキュリティ）
-   - Worker Threads（将来的な拡張）: ハッシュ化を専用スレッドで実行
-
-2. **データベース接続プーリング**
-   - Prismaコネクションプール: デフォルト10接続、最大100接続
-   - 環境変数: `DATABASE_URL?connection_limit=10`
-
-### キャッシング戦略
-
-1. **Redisキャッシング（新規追加）**
-   - **ユーザー権限キャッシュ**: TTL 5分、権限チェック時のDB負荷削減
-   - **ロール権限キャッシュ**: TTL 10分、ロール・権限紐付け取得の高速化
-   - **ユーザープロフィール**: TTL 5分、頻繁にアクセスされるデータをキャッシュ
-
-2. **JWT内でのクレーム埋め込み**
-   - ユーザーロールID配列をJWTペイロードに含める
-   - 権限チェック時にDBクエリを削減
-
-3. **既存のキャッシュユーティリティ活用**
-   - `backend/src/utils/cache.ts`: 汎用キャッシュラッパー
-   - `cacheAsync(key, ttl, fetchFn)`: 非同期データフェッチのキャッシング
-
-### 最適化技術
-
-1. **Lazy Initialization（既存パターン）**
-   - Prisma Client: 初回アクセス時に接続確立
-   - Redis Client: 初回アクセス時に接続確立
-
-2. **バッチ処理**
-   - 権限割り当て: 複数権限を一括でトランザクション内で処理
-   - ロール割り当て: 複数ロールを一括でトランザクション内で処理
-
-3. **インデックス戦略**
-   - Prismaスキーマの`@@index`ディレクティブ
-   - 頻繁にクエリされるカラムにインデックス作成（name、userId、roleId、permissionId、action、createdAt）
-
-4. **N+1クエリ対策**
-   - ユーザーのロール取得時にPermissionをeager loadingで取得
-   - Prismaの`include`を使用してJOINクエリを実行
-
-## UI/UX Design
-
-### デザイン原則
-
-本認証システムのUI/UXは、以下のベストプラクティスに準拠します：
-
-- **Material Design 3**: Googleのマテリアルデザインガイドラインに準拠したコンポーネント設計
-- **WCAG 2.1 AA準拠**: アクセシビリティ基準を満たすコントラスト比4.5:1以上、キーボード操作サポート
-- **モバイルファースト**: 320px幅から1920px幅まで対応するレスポンシブデザイン
-- **Progressive Enhancement**: 基本機能を優先し、高度な機能を段階的に追加
-- **Error Prevention**: リアルタイムバリデーション、明確なフィードバック、元に戻せる操作
-
-### 1. ログイン画面
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     ArchiTrack                          │
-│              アーキテクチャ決定記録管理                   │
-└─────────────────────────────────────────────────────────┘
-
-              ┌───────────────────────────┐
-              │    ログイン               │
-              └───────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ メールアドレス                               │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ user@example.com                       │ │
-    │ └─────────────────────────────────────────┘ │
-    │ [i] 登録時に使用したメールアドレスを入力    │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ パスワード                                   │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ ••••••••••                        [👁]  │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │              [ ログイン ]                    │
-    └─────────────────────────────────────────────┘
-
-              パスワードを忘れた場合はこちら
-
-┌─────────────────────────────────────────────────────────┐
-│ ℹ️ まだアカウントをお持ちでない場合は、               │
-│   管理者からの招待メールをご確認ください。             │
-└─────────────────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **自動フォーカス**: ページ読み込み時にメールアドレスフィールドに自動フォーカス（要件11.11）
-- **パスワード表示切り替え**: 👁アイコンでパスワードの表示/非表示を切り替え（要件11.2）
-- **リアルタイムバリデーション**: メールアドレス形式エラーを即座に表示（要件11.4）
-- **ローディング状態**: ログインボタンクリック時にスピナーとボタン無効化（要件11.6）
-- **汎用エラーメッセージ**: 「メールアドレスまたはパスワードが正しくありません」（要件11.7）
-- **アカウントロック表示**: ロック解除までの残り時間を表示（要件11.8）
-
-### 2. ユーザー登録画面（招待リンク経由）
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                   ArchiTrack                            │
-│            アカウント作成                                │
-└─────────────────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ ✅ 招待が確認されました                      │
-    │ admin@example.com から招待されています       │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ メールアドレス（読み取り専用）               │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ newuser@example.com         [🔒]       │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ 表示名                                       │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ 山田 太郎                               │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ パスワード                                   │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ ••••••••••                        [👁]  │ │
-    │ └─────────────────────────────────────────┘ │
-    │                                             │
-    │ パスワード強度: ████████░░ 強い              │
-    │                                             │
-    │ ✅ 8文字以上                                │
-    │ ✅ 英数字を含む                             │
-    │ ✅ 特殊文字を含む                           │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ パスワード（確認）                           │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ ••••••••••                        [👁]  │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ ☐ 利用規約とプライバシーポリシーに同意する    │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │            [ アカウント作成 ]                 │
-    └─────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **招待トークン自動検証**: URLパラメータから招待トークンを自動検証し、結果を表示（要件12.1）
-- **メールアドレス固定**: 招待メールアドレスを読み取り専用で表示（要件12.3）
-- **パスワード強度インジケーター**: リアルタイムで弱い/普通/強いを視覚化（要件12.4）
-- **パスワード要件チェックリスト**: 8文字以上、英数字、特殊文字の達成状況を表示（要件12.5）
-- **パスワード一致確認**: リアルタイムバリデーションで不一致を即座に通知（要件12.6）
-- **利用規約同意**: 登録ボタンクリック時に同意確認を要求（要件12.7）
-
-### 3. 管理者ユーザー招待画面
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        ユーザー招待管理                                  │
-└─────────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  新規ユーザーを招待                                                 │
-  │                                                                     │
-  │  ┌────────────────────────────────────────┐  ┌─────────────────┐   │
-  │  │ newuser@example.com                    │  │  [ 招待する ]   │   │
-  │  └────────────────────────────────────────┘  └─────────────────┘   │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  招待一覧                                       [ 🔄 更新 ] [ 🔍 検索 ] │
-  ├─────────────────────────────────────────────────────────────────────┤
-  │ メールアドレス        │ 招待日時      │ ステータス │ 有効期限  │ アクション │
-  ├─────────────────────────────────────────────────────────────────────┤
-  │ user1@example.com   │ 2025-11-01  │ 🟢 未使用  │ 7日後    │ [取消] [再送] │
-  │ user2@example.com   │ 2025-10-30  │ ✅ 使用済み│    -      │       -        │
-  │ user3@example.com   │ 2025-10-15  │ 🔴 期限切れ│    -      │     [再送]     │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌───────────────────────────────────────┐
-  │  ページ: [<] 1 2 3 [>]  合計: 42件   │
-  └───────────────────────────────────────┘
-```
-
-**招待成功モーダル:**
-```
-  ┌──────────────────────────────────────────────────┐
-  │  ✅ 招待メールを送信しました                      │
-  │                                                  │
-  │  招待URL:                                        │
-  │  ┌────────────────────────────────────────────┐  │
-  │  │ https://architrack.app/signup?token=abc... │  │
-  │  └────────────────────────────────────────────┘  │
-  │                                                  │
-  │  ┌────────────────┐  ┌────────────────────┐     │
-  │  │ [ URLコピー ]  │  │    [ 閉じる ]      │     │
-  │  └────────────────┘  └────────────────────┘     │
-  └──────────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **招待フォームと一覧の統合**: 1画面で招待送信と管理が可能（要件13.1）
-- **ステータス視覚化**: 未使用（緑）、使用済み（チェックマーク）、期限切れ（赤）で色分け（要件13.10）
-- **招待URLコピー**: ワンクリックでクリップボードにコピーし、トーストメッセージ表示（要件13.5）
-- **条件付きアクション**: ステータスに応じて取り消し/再送信ボタンを有効化（要件13.6-7）
-- **ページネーション**: 10件以上の招待に対応（要件13.9）
-- **モバイル対応**: 768px未満ではテーブルをカード形式に変換（要件13.11）
-
-### 4. プロフィール画面
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    プロフィール設定                      │
-└─────────────────────────────────────────────────────────┘
-
-  ┌───────────────────────────────────────────────────────┐
-  │  基本情報                                             │
-  ├───────────────────────────────────────────────────────┤
-  │                                                       │
-  │  メールアドレス（変更不可）                           │
-  │  ┌─────────────────────────────────────────────────┐  │
-  │  │ admin@example.com                     [🔒]     │  │
-  │  └─────────────────────────────────────────────────┘  │
-  │                                                       │
-  │  表示名                                               │
-  │  ┌─────────────────────────────────────────────────┐  │
-  │  │ 山田 太郎                                       │  │
-  │  └─────────────────────────────────────────────────┘  │
-  │                                                       │
-  │  ロール                                               │
-  │  ┌─────────────────────────────────────────────────┐  │
-  │  │ システム管理者                         [🔒]     │  │
-  │  └─────────────────────────────────────────────────┘  │
-  │                                                       │
-  │  アカウント作成日: 2025-01-15 10:30                   │
-  │                                                       │
-  │  ┌────────────────────────────────────┐               │
-  │  │         [ 変更を保存 ]              │               │
-  │  └────────────────────────────────────┘               │
-  └───────────────────────────────────────────────────────┘
-
-  ┌───────────────────────────────────────────────────────┐
-  │  パスワード変更                                       │
-  ├───────────────────────────────────────────────────────┤
-  │                                                       │
-  │  現在のパスワード                                     │
-  │  ┌─────────────────────────────────────────────────┐  │
-  │  │ ••••••••••                                [👁] │  │
-  │  └─────────────────────────────────────────────────┘  │
-  │                                                       │
-  │  新しいパスワード                                     │
-  │  ┌─────────────────────────────────────────────────┐  │
-  │  │ ••••••••••                                [👁] │  │
-  │  └─────────────────────────────────────────────────┘  │
-  │  パスワード強度: ████████░░ 強い                      │
-  │                                                       │
-  │  新しいパスワード（確認）                             │
-  │  ┌─────────────────────────────────────────────────┐  │
-  │  │ ••••••••••                                [👁] │  │
-  │  └─────────────────────────────────────────────────┘  │
-  │                                                       │
-  │  ⚠️ パスワードを変更すると、全デバイスから            │
-  │     ログアウトされます。                              │
-  │                                                       │
-  │  ┌────────────────────────────────────┐               │
-  │  │      [ パスワードを変更 ]           │               │
-  │  └────────────────────────────────────┘               │
-  └───────────────────────────────────────────────────────┘
-
-  ┌───────────────────────────────────────────────────────┐
-  │  管理機能へのアクセス                                 │
-  ├───────────────────────────────────────────────────────┤
-  │  ┌─────────────────────┐  ┌─────────────────────────┐ │
-  │  │  👥 ユーザー管理    │  │  🔐 ロール・権限管理    │ │
-  │  └─────────────────────┘  └─────────────────────────┘ │
-  └───────────────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **3セクション構成**: 基本情報、パスワード変更、管理機能へのアクセス（要件14.1）
-- **読み取り専用フィールド**: メールアドレスとロールは変更不可（要件14.2）
-- **変更検知**: 表示名が変更された場合のみ保存ボタンを有効化（要件14.3）
-- **パスワード強度表示**: 新しいパスワード入力時にインジケーター表示（要件14.6）
-- **警告メッセージ**: パスワード変更時の全デバイスログアウトを明示（要件14.7）
-- **管理者専用リンク**: システム管理者ロールの場合のみ表示（要件14.9）
-
-### 5. ロール管理画面（RBAC拡張）
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          ロール管理                                      │
-└─────────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  新規ロール作成                                   [ + ロールを追加 ]  │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  ロール一覧                                       [ 🔄 更新 ] [ 🔍 検索 ] │
-  ├─────────────────────────────────────────────────────────────────────┤
-  │ ロール名              │ 説明             │ ユーザー数 │ 権限数 │ アクション │
-  ├─────────────────────────────────────────────────────────────────────┤
-  │ 🔒 システム管理者     │ 全権限          │    3     │   1   │  [編集]    │
-  │ 📊 積算担当          │ ADR作成・編集    │   12     │   5   │ [編集][削除]│
-  │ 🏗️ 現場担当          │ 現場ADR管理     │    8     │   4   │ [編集][削除]│
-  │ 🛒 購買担当          │ 購買ADR管理     │    5     │   3   │ [編集][削除]│
-  │ 💰 経理担当          │ ADR閲覧のみ     │    4     │   2   │ [編集][削除]│
-  │ 👤 一般ユーザー       │ 自分のADRのみ    │   45     │   2   │ [編集][削除]│
-  └─────────────────────────────────────────────────────────────────────┘
-```
-
-**ロール編集モーダル:**
-```
-  ┌──────────────────────────────────────────────────────────────┐
-  │  ロール編集: 積算担当                               [ ✕ ]   │
-  ├──────────────────────────────────────────────────────────────┤
-  │                                                              │
-  │  ロール名                                                    │
-  │  ┌────────────────────────────────────────────────────────┐  │
-  │  │ 積算担当                                               │  │
-  │  └────────────────────────────────────────────────────────┘  │
-  │                                                              │
-  │  説明                                                        │
-  │  ┌────────────────────────────────────────────────────────┐  │
-  │  │ ADRの作成・編集・閲覧、見積もり関連機能へのアクセス   │  │
-  │  └────────────────────────────────────────────────────────┘  │
-  │                                                              │
-  │  優先順位（数値が高いほど高優先度）                          │
-  │  ┌────────────────────────────────────────────────────────┐  │
-  │  │ 200                                                    │  │
-  │  └────────────────────────────────────────────────────────┘  │
-  │                                                              │
-  │  割り当てられた権限                       [ + 権限を追加 ]   │
-  │  ┌────────────────────────────────────────────────────────┐  │
-  │  │ ✅ adr:create   - ADR作成                     [ 削除 ]  │  │
-  │  │ ✅ adr:read     - ADR閲覧                     [ 削除 ]  │  │
-  │  │ ✅ adr:update   - ADR更新                     [ 削除 ]  │  │
-  │  │ ✅ project:read - プロジェクト閲覧            [ 削除 ]  │  │
-  │  │ ✅ report:export - レポートエクスポート        [ 削除 ]  │  │
-  │  └────────────────────────────────────────────────────────┘  │
-  │                                                              │
-  │  ┌──────────────────┐  ┌──────────────────────────────┐     │
-  │  │  [ 保存する ]    │  │        [ キャンセル ]         │     │
-  │  └──────────────────┘  └──────────────────────────────┘     │
-  └──────────────────────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **視覚的なロール区別**: アイコンと色でロールを識別（システムロールは🔒で保護表示）
-- **ユーザー数・権限数表示**: 各ロールの使用状況を可視化（要件18.4）
-- **事前定義ロール保護**: システム管理者ロールは削除不可（要件18.6）
-- **権限リスト管理**: ロールに割り当てられた権限をリスト表示、追加/削除可能（要件20.1-3）
-- **優先順位設定**: ロールの優先順位を整数値で設定（要件18.8）
-
-### 6. パスワードリセット画面
-
-**パスワードリセット要求画面:**
-```
-┌─────────────────────────────────────────────────────────┐
-│                  パスワードリセット                      │
-└─────────────────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ 登録したメールアドレスにパスワードリセット  │
-    │ 用のリンクを送信します。                    │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ メールアドレス                               │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ user@example.com                       │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │         [ リセットリンクを送信 ]             │
-    └─────────────────────────────────────────────┘
-
-              ← ログイン画面に戻る
-```
-
-**パスワードリセット実行画面:**
-```
-┌─────────────────────────────────────────────────────────┐
-│               新しいパスワードの設定                     │
-└─────────────────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ 新しいパスワード                             │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ ••••••••••                        [👁]  │ │
-    │ └─────────────────────────────────────────┘ │
-    │                                             │
-    │ パスワード強度: ████████░░ 強い              │
-    │                                             │
-    │ ✅ 8文字以上                                │
-    │ ✅ 英数字を含む                             │
-    │ ✅ 特殊文字を含む                           │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ 新しいパスワード（確認）                     │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ ••••••••••                        [👁]  │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │         [ パスワードをリセット ]             │
-    └─────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **2段階フロー**: メールアドレス入力 → リセットトークン送信 → 新パスワード設定（要件7.1-2）
-- **トークン有効期限**: 30分間のみ有効（要件7.3）
-- **パスワード要件表示**: 登録画面と同様のチェックリストを表示
-- **成功後のリダイレクト**: パスワードリセット成功後、ログイン画面へ自動遷移
-
-### 7. セッション有効期限切れメッセージ
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     ArchiTrack                          │
-│              アーキテクチャ決定記録管理                   │
-└─────────────────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ ⏰ セッションの有効期限が切れました          │
-    │    再度ログインしてください。                │
-    └─────────────────────────────────────────────┘
-
-              ┌───────────────────────────┐
-              │    ログイン               │
-              └───────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ メールアドレス                               │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ user@example.com                       │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │ パスワード                                   │
-    │ ┌─────────────────────────────────────────┐ │
-    │ │ ••••••••••                        [👁]  │ │
-    │ └─────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────┐
-    │              [ ログイン ]                    │
-    └─────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **明確なメッセージ**: セッション有効期限切れを明示的に通知（要件17.8）
-- **元のページへの復帰**: ログイン成功後、redirectUrlパラメータで元のページに自動リダイレクト（要件17.9）
-- **アクセシビリティ**: aria-live="polite"属性でスクリーンリーダーに通知（要件17.14）
-- **自動トークンリフレッシュ**: バックグラウンドで5分前にトークンを自動更新し、UX向上（要件17.15）
-
-### 8. 承認待ちダッシュボード
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        承認待ちワークフロー                              │
-│  [🔔 3件の承認待ち]                           [👤 山田太郎 ▼] [ログアウト] │
-└─────────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  フィルター: [全て ▼] [種類: 全て ▼] [金額範囲: 指定なし ▼]          │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  🔴 緊急  見積もりワークフロー #WF-2025-1107-001                      │
-  │  ─────────────────────────────────────────────────────────────────  │
-  │  金額: ¥12,500,000  |  開始: 2025-11-07 09:30  |  経過: 2時間        │
-  │  申請者: 鈴木花子 (営業)  →  現在のステップ: 積算担当                 │
-  │                                                                     │
-  │  ルート: 営業 → 積算担当 → 購買担当 → 経営                          │
-  │         ✅      ⏳ あなた     ⏸️         ⏸️                         │
-  │                                                                     │
-  │  関連ADR: ADR-2025-1107-001 「新オフィスビル建設プロジェクト」       │
-  │                                             [詳細を見る] [承認/差し戻し] │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  🟡 通常  購買ワークフロー #WF-2025-1106-042                         │
-  │  ─────────────────────────────────────────────────────────────────  │
-  │  金額: ¥3,200,000  |  開始: 2025-11-06 14:20  |  経過: 18時間        │
-  │  申請者: 佐藤次郎 (購買)  →  現在のステップ: 購買担当                 │
-  │                                                                     │
-  │  ルート: 購買 → 購買担当                                             │
-  │         ✅      ⏳ あなた                                           │
-  │                                                                     │
-  │  関連ADR: ADR-2025-1106-015 「建材一括発注」                         │
-  │                                             [詳細を見る] [承認/差し戻し] │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  🟢 低優先  支払いワークフロー #WF-2025-1105-128                     │
-  │  ─────────────────────────────────────────────────────────────────  │
-  │  金額: ¥450,000  |  開始: 2025-11-05 10:15  |  経過: 2日間           │
-  │  申請者: 田中一郎 (経理)  →  現在のステップ: 経理担当                 │
-  │                                                                     │
-  │  ルート: 経理 → 経理担当                                             │
-  │         ✅      ⏳ あなた                                           │
-  │                                                                     │
-  │  関連ADR: ADR-2025-1105-033 「設計ソフトウェアライセンス更新」       │
-  │                                             [詳細を見る] [承認/差し戻し] │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌───────────────────────────────────────┐
-  │  ページ: [<] 1 2 3 [>]  合計: 23件   │
-  └───────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **優先度表示**: 金額と経過時間に基づいて緊急度を色分け表示（要件24.5）
-  - 🔴 緊急: 1,000万円以上または24時間以上経過
-  - 🟡 通常: 300万円以上または12時間以上経過
-  - 🟢 低優先: その他
-- **ワークフロー進行状況**: ルート全体を視覚化し、現在地を明示（要件24.3）
-- **リアルタイム通知**: 新規承認依頼時に🔔アイコンにバッジ表示（要件25.4）
-- **フィルタリング**: 種類、金額範囲、優先度でフィルタ可能（要件24.6）
-- **レスポンシブ対応**: モバイルではカード形式に変換し、スワイプで承認/差し戻し（要件13.11）
-- **アクセシビリティ**: ステータスアイコンにaria-label付与（要件15.4）
-
-### 9. ワークフロー詳細画面
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ← 戻る          ワークフロー詳細 #WF-2025-1107-001                      │
-└─────────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  基本情報                                                            │
-  │  ─────────────────────────────────────────────────────────────────  │
-  │  種類:           見積もりワークフロー                                │
-  │  金額:           ¥12,500,000                                        │
-  │  申請者:         鈴木花子 (営業部)                                   │
-  │  申請日時:       2025-11-07 09:30:15                                │
-  │  現在のステータス: ⏳ 承認待ち（積算担当）                            │
-  │  関連ADR:        ADR-2025-1107-001 「新オフィスビル建設プロジェクト」 │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  承認ルート                                                          │
-  │  ─────────────────────────────────────────────────────────────────  │
-  │                                                                     │
-  │   Step 1: 営業                                                      │
-  │   ✅ 承認済み                                                       │
-  │   鈴木花子 (suzuki.hanako@example.com)                              │
-  │   承認日時: 2025-11-07 09:30:15                                     │
-  │   コメント: 「大型案件のため、慎重な見積もりをお願いします」          │
-  │                                                                     │
-  │   ↓                                                                │
-  │                                                                     │
-  │   Step 2: 積算担当  ⏳ 現在のステップ                               │
-  │   承認者: 山田太郎 (yamada.taro@example.com) - あなた               │
-  │   待機時間: 2時間15分                                               │
-  │                                                                     │
-  │   ↓                                                                │
-  │                                                                     │
-  │   Step 3: 購買担当                                                  │
-  │   ⏸️ 待機中                                                        │
-  │   承認者: 佐藤次郎 (sato.jiro@example.com)                          │
-  │                                                                     │
-  │   ↓                                                                │
-  │                                                                     │
-  │   Step 4: 経営                                                      │
-  │   ⏸️ 待機中                                                        │
-  │   承認者: 田中社長 (tanaka.ceo@example.com)                         │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  メタデータ                                                          │
-  │  ─────────────────────────────────────────────────────────────────  │
-  │  プロジェクト名: 新オフィスビル建設                                  │
-  │  顧客:          株式会社サンプル                                     │
-  │  納期:          2025-12-31                                          │
-  │  備考:          初期見積もり、詳細な積算が必要                       │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  関連ADR内容                                                         │
-  │  ─────────────────────────────────────────────────────────────────  │
-  │  タイトル: 新オフィスビル建設プロジェクト                            │
-  │  ステータス: Draft                                                   │
-  │  作成者: 鈴木花子                                                    │
-  │  作成日: 2025-11-07                                                  │
-  │                                                                     │
-  │  [ADRの詳細を見る]                                                  │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌───────────────────────────────────────┐
-  │      [承認する]  [差し戻す]           │
-  └───────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **タイムライン表示**: 承認ルート全体を縦型タイムラインで視覚化（要件24.3）
-- **ステータスアイコン**: ✅承認済み、⏳現在、⏸️待機中を明示（要件24.4）
-- **待機時間表示**: 各ステップの経過時間をリアルタイム更新（要件24.5）
-- **コメント履歴**: 各承認者のコメントを時系列で表示（要件25.2）
-- **関連ADRプレビュー**: ワークフロー対象のADR情報を埋め込み表示（要件24.7）
-- **パンくずナビゲーション**: ダッシュボードへの戻りリンク（要件13.9）
-- **キーボード操作**: Tab + Enterで承認/差し戻しアクションが可能（要件15.3）
-
-### 10. 承認・差し戻し画面（モーダル）
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ワークフロー詳細 #WF-2025-1107-001                    [背景: 半透明暗転] │
-└─────────────────────────────────────────────────────────────────────────┘
-
-    ┌───────────────────────────────────────────────────────┐
-    │  承認アクション選択                              [✕]  │
-    │  ───────────────────────────────────────────────────  │
-    │                                                       │
-    │  ワークフロー: 見積もりワークフロー #WF-2025-1107-001  │
-    │  金額: ¥12,500,000                                    │
-    │  申請者: 鈴木花子 (営業)                              │
-    │                                                       │
-    │  ───────────────────────────────────────────────────  │
-    │                                                       │
-    │  ○ 承認する                                           │
-    │     次のステップ（購買担当）に進みます                 │
-    │                                                       │
-    │  ○ 差し戻す                                           │
-    │     申請者に再提出を依頼します                         │
-    │                                                       │
-    │  ○ 別の承認者に委譲する                               │
-    │     権限を持つ他の承認者を指定します                   │
-    │                                                       │
-    │  ───────────────────────────────────────────────────  │
-    │                                                       │
-    │  コメント（任意）:                                     │
-    │  ┌─────────────────────────────────────────────────┐ │
-    │  │ 積算内容を確認しました。購買担当に進めてください  │ │
-    │  │                                                  │ │
-    │  │                                                  │ │
-    │  └─────────────────────────────────────────────────┘ │
-    │  残り 500文字                                          │
-    │                                                       │
-    │  [ 委譲先選択時のみ表示 ]                              │
-    │  委譲先承認者:                                         │
-    │  ┌─────────────────────────────────────────────────┐ │
-    │  │ 佐藤次郎 (積算担当) ▼                             │ │
-    │  └─────────────────────────────────────────────────┘ │
-    │                                                       │
-    │  差し戻し理由（差し戻し選択時は必須）:                 │
-    │  ┌─────────────────────────────────────────────────┐ │
-    │  │ ☐ 見積もり金額が不明確                            │ │
-    │  │ ☐ 必要な添付書類が不足                            │ │
-    │  │ ☐ 納期が現実的でない                              │ │
-    │  │ ☑ その他（詳細をコメントに記載）                  │ │
-    │  └─────────────────────────────────────────────────┘ │
-    │                                                       │
-    │  ┌─────────────────────────────────────────────────┐ │
-    │  │          [ キャンセル ]    [ 実行する ]          │ │
-    │  └─────────────────────────────────────────────────┘ │
-    └───────────────────────────────────────────────────────┘
-```
-
-**UI/UX特徴:**
-- **3つのアクション**: 承認/差し戻し/委譲を明確に分離（要件25.1, 25.3）
-- **条件付きフィールド**: 選択したアクションに応じて必要なフィールドを動的表示（要件25.2）
-- **差し戻し理由チェックリスト**: 一般的な理由を選択肢として提示（要件25.2）
-- **コメント文字数制限**: 500文字まで、残り文字数をリアルタイム表示（要件25.2）
-- **委譲先権限チェック**: 委譲先は同じロールまたは上位ロールのみ選択可能（要件25.3）
-- **確認ダイアログ**: 実行ボタンクリック時に最終確認ダイアログを表示（要件25.5）
-- **モーダルフォーカストラップ**: Escキーで閉じる、Tabキーでモーダル内を循環（要件15.11）
-- **ローディング状態**: 実行中はボタンを無効化しスピナー表示（要件11.6）
-- **エラーハンドリング**: API失敗時は具体的なエラーメッセージを表示（要件25.6）
-
-### レスポンシブデザイン
-
-**ブレークポイント:**
-- **モバイル**: 320px - 767px（1カラムレイアウト、タッチ操作最適化）
-- **タブレット**: 768px - 1023px（2カラムレイアウト）
-- **デスクトップ**: 1024px以上（3カラムレイアウト、サイドナビゲーション）
-
-**モバイル最適化:**
-- フォントサイズ: 最小16px（ズーム防止）
-- ボタンサイズ: 最小44x44px（タップターゲット）
-- テーブル: カード形式に変換（要件13.11）
-- モーダル: フルスクリーン表示
-
-### アクセシビリティ
-
-- **キーボード操作**: Tab、Enter、Spaceキーで全ての操作が可能（要件15.3）
-- **ARIA属性**: aria-label、aria-describedby、roleを適切に設定（要件15.4）
-- **コントラスト比**: 4.5:1以上を維持（要件15.7）
-- **フォーカス管理**: モーダル開閉時のフォーカストラップ（要件15.11）
-- **エラー通知**: aria-liveリージョンでスクリーンリーダーに通知（要件15.6）
-
-### デザイントークン（Material Design 3準拠）
-
-**カラーパレット:**
-```
-Primary:   #1976D2 (Blue 700)
-Secondary: #424242 (Grey 800)
-Success:   #4CAF50 (Green 500)
-Warning:   #FF9800 (Orange 500)
-Error:     #F44336 (Red 500)
-Info:      #2196F3 (Blue 500)
-
-Background: #FAFAFA (Grey 50)
-Surface:    #FFFFFF (White)
-Text:       #212121 (Grey 900)
-TextSecondary: #757575 (Grey 600)
-```
-
-**タイポグラフィ:**
-```
-Font Family: 'Noto Sans JP', 'Roboto', sans-serif
-Heading 1: 32px / 700 (Bold)
-Heading 2: 24px / 700 (Bold)
-Heading 3: 20px / 600 (Semi-bold)
-Body:      16px / 400 (Regular)
-Caption:   14px / 400 (Regular)
-```
-
-**スペーシング:**
-```
-xs:  4px
-sm:  8px
-md:  16px
-lg:  24px
-xl:  32px
-xxl: 48px
-```
-
-**シャドウ（Elevation）:**
-```
-Level 1: 0 1px 3px rgba(0,0,0,0.12)
-Level 2: 0 2px 6px rgba(0,0,0,0.16)
-Level 3: 0 4px 12px rgba(0,0,0,0.20)
-```
-
-### Storybookストーリー構成
-
-各画面コンポーネントのストーリーは、要件16で定義された状態バリアントを全て含みます：
-
-**LoginForm.stories.tsx:**
-- Default（デフォルト）
-- Filled（入力済み）
-- ValidationError（バリデーションエラー）
-- Loading（ローディング中）
-- AuthenticationError（認証エラー）
-- AccountLocked（アカウントロック）
-
-**SignupForm.stories.tsx:**
-- ValidatingToken（トークン検証中）
-- ValidToken（有効なトークン）
-- InvalidToken（無効なトークン）
-- ExpiredToken（期限切れトークン）
-- WeakPassword（弱いパスワード）
-- StrongPassword（強いパスワード）
-- ValidationError（バリデーションエラー）
-- Submitting（送信中）
-- Success（登録成功）
-
-**InvitationManager.stories.tsx:**
-- EmptyList（招待なし）
-- WithInvitations（招待あり）
-- PendingInvitations（未使用の招待）
-- UsedInvitations（使用済みの招待）
-- ExpiredInvitations（期限切れの招待）
-- SuccessModal（招待成功モーダル）
-- CancelDialog（取り消し確認ダイアログ）
-
-**ProfilePage.stories.tsx:**
-- UserProfile（一般ユーザー）
-- AdminProfile（管理者）
-- EditMode（編集モード）
-- PasswordChangeMode（パスワード変更モード）
-- Updating（更新中）
-
-**RoleManager.stories.tsx:**
-- RoleList（ロール一覧）
-- CreateRole（ロール作成）
-- EditRole（ロール編集）
-- AssignPermissions（権限割り当て）
-- DeleteConfirmation（削除確認）
-
-**ApprovalDashboard.stories.tsx:**
-- EmptyState（承認待ちなし）
-- WithPendingApprovals（承認待ちあり）
-- UrgentWorkflows（緊急ワークフローのみ）
-- FilteredByType（種類別フィルタ適用）
-- FilteredByAmount（金額範囲フィルタ適用）
-- Loading（ローディング中）
-- Error（エラー状態）
-
-**WorkflowDetail.stories.tsx:**
-- QuotationWorkflow（見積もりワークフロー）
-- ProcurementWorkflow（購買ワークフロー）
-- PaymentWorkflow（支払いワークフロー）
-- SiteChangeWorkflow（現場変更ワークフロー）
-- ApprovedWorkflow（承認済みワークフロー）
-- RejectedWorkflow（差し戻しワークフロー）
-- CompletedWorkflow（完了ワークフロー）
-- WithComments（コメント履歴あり）
-- Loading（ローディング中）
-
-**ApprovalActionModal.stories.tsx:**
-- Default（デフォルト）
-- ApproveSelected（承認選択）
-- RejectSelected（差し戻し選択）
-- DelegateSelected（委譲選択）
-- WithComment（コメント入力済み）
-- ValidationError（バリデーションエラー）
-- Submitting（送信中）
-- Success（承認成功）
-
-## 移行戦略
-
-この機能は、既存の認証なしシステムから招待制の認証・拡張RBAC システムへの段階的な移行を必要とします。
-
-### フェーズ1: データベースマイグレーションとRBACテーブル作成
-
-```mermaid
-flowchart LR
-    A[既存Userモデル] --> B[新しいカラム追加<br/>password, failedLoginCount, lockedUntil]
-    B --> C[新しいテーブル作成<br/>Role, Permission, UserRole, RolePermission<br/>Invitation, RefreshToken, AuditLog]
-    C --> D[事前定義ロール・権限<br/>シーディング]
-    D --> E[初期管理者アカウント<br/>シーディング]
-    E --> F[マイグレーション完了]
-```
-
-**実行手順:**
 ```bash
-# 1. Prismaマイグレーション作成
-npx prisma migrate dev --name add-rbac-authentication
+# 1. Prismaマイグレーション生成
+npx prisma migrate dev --name add_auth_tables
 
-# 2. 事前定義ロール・権限シーディング
+# 2. デフォルトロール・権限のシード
 npx prisma db seed
-
-# 3. 初期管理者アカウントシーディング
-# （シーディングスクリプト内で実行）
 ```
 
-**ロールバックトリガー:**
-- マイグレーション失敗（外部キー制約違反、型エラー）
-- シーディング失敗（事前定義ロール・権限作成エラー、初期管理者作成エラー）
+### デプロイ手順
 
-**検証チェックポイント:**
-- Prismaスキーマ生成確認: `npx prisma generate`
-- データベーステーブル確認: `SELECT * FROM roles, permissions, user_roles, role_permissions;`
-- 事前定義ロール確認: `SELECT * FROM roles WHERE isSystemRole = true;`
-- 初期管理者存在確認: `SELECT * FROM users u JOIN user_roles ur ON u.id = ur.userId JOIN roles r ON ur.roleId = r.id WHERE r.name = 'システム管理者';`
+1. **開発環境**
+   ```bash
+   # 1. 依存パッケージインストール
+   npm install jsonwebtoken bcrypt express-rate-limit
 
-### フェーズ2: バックエンドAPI実装
+   # 2. 環境変数設定
+   cp .env.example .env
+   # JWT_SECRET, DATABASE_URL, REDIS_URL 等を設定
 
-1. Authorization Service、Role Service、Permission Service、Audit Log Service実装
-2. Auth Service、Token Service をマルチロール対応に更新
-3. Authorization Middleware（requirePermission、requireResourceOwnership）実装
-4. RBACルート（/rbac/*）追加
-5. 既存のAPIエンドポイントに権限チェックミドルウェア適用
-6. 単体テスト・統合テスト実行
+   # 3. マイグレーション実行
+   npx prisma migrate dev
 
-**ロールバックトリガー:**
-- テストカバレッジ80%未満
-- 統合テスト失敗（RBAC完全フロー、権限チェック、監査ログ記録）
+   # 4. シード実行
+   npx prisma db seed
 
-**検証チェックポイント:**
-- 全テストパス: `npm run test`
-- カバレッジレポート: `npm run test:coverage`
-- 型チェック: `npm run type-check`
+   # 5. 開発サーバー起動
+   npm run dev
+   ```
 
-### フェーズ3: フロントエンド実装
+2. **本番環境**
+   ```bash
+   # 1. マイグレーション実行（ダウンタイムなし）
+   npx prisma migrate deploy
 
-1. Auth Context をマルチロール対応に更新
-2. HTTP Interceptor（既存設計を維持）
-3. Auth Guards（既存設計を維持）
-4. ロール管理・権限管理・監査ログ閲覧のUI実装
-5. Storybookストーリー作成（デザインシステム統合）
-6. E2Eテスト実行
+   # 2. シード実行
+   NODE_ENV=production npx prisma db seed
 
-**ロールバックトリガー:**
-- E2Eテスト失敗（ロール管理フロー、権限チェック、UI表示制御）
-- UIコンポーネントのアクセシビリティ検証失敗
+   # 3. アプリケーション再起動
+   pm2 restart architracker-backend
+   ```
 
-**検証チェックポイント:**
-- Storybookビルド成功: `npm run build-storybook`
-- E2Eテスト成功: `npm run test:e2e`
-- Lighthouse Accessibility Score > 90
+### ロールバック計画
 
-### フェーズ4: 本番環境デプロイ
+1. **データベースロールバック**
+   ```bash
+   # 前のマイグレーションに戻す
+   npx prisma migrate resolve --rolled-back <migration-name>
+   ```
 
-1. Railway環境変数設定（JWT_SECRET、初期管理者情報）
-2. Prismaマイグレーション自動適用（`npm run prisma:migrate:deploy`）
-3. 事前定義ロール・権限シーディング
-4. ヘルスチェック確認（/health）
-5. システム管理者ログイン検証
-6. ロール・権限管理機能の動作確認
-7. 監査ログ記録確認
-8. モニタリングダッシュボード確認（Sentry、ログ）
+2. **アプリケーションロールバック**
+   ```bash
+   # 前のバージョンにデプロイ
+   git checkout <previous-version>
+   npm run deploy
+   ```
 
-**ロールバックトリガー:**
-- ヘルスチェック失敗（データベース接続エラー、Redis接続エラー）
-- 初回管理者ログイン失敗
-- ロール・権限管理機能のエラー
-- 5xxエラー率 > 1%
+## 実装フェーズ
 
-**検証チェックポイント:**
-- Railway デプロイ成功
-- /healthエンドポイント: 200 OK
-- 初回システム管理者ログイン成功
-- ロール作成・権限割り当て成功
-- 監査ログ記録確認
-- Sentryエラー率 < 0.1%
+### フェーズ1: 基盤構築（1週間）
 
----
+- [ ] Prismaスキーマ更新（User、Role、Permission等）
+- [ ] マイグレーション・シード作成
+- [ ] 環境変数設定（JWT_SECRET等）
+- [ ] カスタムエラークラス実装
 
-## 次のステップ
+### フェーズ2: 認証機能（2週間）
 
-この技術設計書をレビューし、以下の点を確認してください：
+- [ ] TokenService実装
+- [ ] SessionService実装
+- [ ] AuthenticationService実装
+- [ ] 認証APIルート実装（login, signup, refresh, logout）
+- [ ] 認証ミドルウェア実装
+- [ ] 単体テスト・統合テスト実装
 
-1. **アーキテクチャの妥当性**: 既存システムへの統合アプローチ、拡張RBAC設計は適切か？
-2. **NIST RBAC標準への準拠**: Core RBAC + Hierarchical RBACの実装は十分か？
-3. **セキュリティ**: OWASP Top 10、RFC 6750への準拠、監査ログの保護は十分か？
-4. **パフォーマンス**: 権限キャッシュ戦略、目標メトリクスは実現可能か？
-5. **実装可能性**: データモデル、コンポーネント設計は実装に十分な詳細があるか？
+### フェーズ3: 認可機能（2週間）
 
-レビュー後、以下のコマンドで実装タスクの生成に進みます：
+- [ ] AuthorizationService実装
+- [ ] RoleService実装
+- [ ] PermissionService実装
+- [ ] 認可ミドルウェア実装
+- [ ] RBAC APIルート実装
+- [ ] 権限キャッシュ実装
+- [ ] 単体テスト・統合テスト実装
 
-```bash
-/kiro:spec-tasks user-authentication -y
-```
+### フェーズ4: 招待・監査（1週間）
+
+- [ ] InvitationService実装
+- [ ] AuditService実装
+- [ ] 招待APIルート実装
+- [ ] メール送信機能統合
+- [ ] 単体テスト・統合テスト実装
+
+### フェーズ5: フロントエンド（2週間）
+
+- [ ] AuthContext実装
+- [ ] APIクライアント（インターセプター）実装
+- [ ] ログインフォーム実装
+- [ ] サインアップフォーム実装
+- [ ] 初回セットアップ画面実装
+- [ ] ロール・権限管理画面実装
+- [ ] E2Eテスト実装
+
+### フェーズ6: 統合・テスト（1週間）
+
+- [ ] セキュリティ監査
+- [ ] パフォーマンステスト
+- [ ] E2Eテスト完全実施
+- [ ] ドキュメント整備
+- [ ] デプロイ準備
+
+## 要件トレーサビリティマトリックス
+
+| 要件ID | 要件概要 | 設計コンポーネント | 実装ファイル | テスト |
+|--------|---------|-------------------|--------------|--------|
+| REQ-1 | ユーザー招待 | InvitationService | `services/InvitationService.ts` | `auth.integration.test.ts` |
+| REQ-2 | アカウント作成 | AuthenticationService.signup | `services/AuthenticationService.ts` | `AuthenticationService.test.ts` |
+| REQ-3 | 初回管理者セットアップ | POST /auth/setup | `routes/auth.ts` | `auth.integration.test.ts` |
+| REQ-4 | ログイン | AuthenticationService.login | `services/AuthenticationService.ts` | `AuthenticationService.test.ts` |
+| REQ-5 | トークン管理 | TokenService | `services/TokenService.ts` | `TokenService.test.ts` |
+| REQ-6 | RBAC | AuthorizationService | `services/AuthorizationService.ts` | `AuthorizationService.test.ts` |
+| REQ-7 | パスワード管理 | AuthenticationService.validatePassword | `services/AuthenticationService.ts` | `AuthenticationService.test.ts` |
+| REQ-8 | セッション管理 | SessionService | `services/SessionService.ts` | `SessionService.test.ts` |
+| REQ-9 | ユーザー情報取得 | GET /users/me | `routes/users.ts` | `users.integration.test.ts` |
+| REQ-10 | セキュリティ | AuditService、レート制限 | `services/AuditService.ts`, `middleware/rateLimiter.ts` | `security.test.ts` |
+| REQ-11-17 | UI/UX | LoginForm、SignupForm等 | `components/LoginForm.tsx` | `auth.spec.ts` (E2E) |
+| REQ-18-23 | RBAC詳細 | RoleService、PermissionService | `services/RoleService.ts` | `rbac.integration.test.ts` |
+
+## 依存関係
+
+### 外部仕様への依存
+
+- `approval-workflow`: 承認ワークフローで使用するロール・権限は本仕様で定義
+
+### 外部パッケージ
+
+| パッケージ | バージョン | 用途 |
+|-----------|----------|------|
+| jsonwebtoken | ^9.0.2 | JWT生成・検証 |
+| bcrypt | ^5.1.1 | パスワードハッシュ化 |
+| express-rate-limit | ^7.1.5 | レート制限 |
+| @prisma/client | ^5.8.0 | ORM |
+| redis | ^4.6.12 | セッション・キャッシュ |
+
+## 未解決事項
+
+1. **メール送信サービス**: SendGrid、AWS SES等の選定が必要
+2. **HttpOnly Cookie vs localStorage**: トークン保存方法の最終決定
+3. **監査ログ保管期間**: コンプライアンス要件に応じた保管期間の決定
+4. **ロール階層の継承機能**: 将来的な拡張として検討（Hierarchical RBACの基盤は実装済み）
+
+## 参考資料
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [RFC 6750: Bearer Token Usage](https://datatracker.ietf.org/doc/html/rfc6750)
+- [RFC 7519: JSON Web Token](https://datatracker.ietf.org/doc/html/rfc7519)
+- [NIST RBAC Standard](https://csrc.nist.gov/projects/role-based-access-control)
+- [Prisma Best Practices](https://www.prisma.io/docs/guides/performance-and-optimization)
