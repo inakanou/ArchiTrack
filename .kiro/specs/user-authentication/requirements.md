@@ -14,13 +14,43 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 ## 用語集
 
 - **招待トークン**: 管理者が新規ユーザーを招待する際に生成される一意の文字列（有効期限: 7日間）
-- **アクセストークン**: 短期間有効な認証トークン（JWT形式、有効期限: 15分）
-- **リフレッシュトークン**: 長期間有効な認証トークン（JWT形式、有効期限: 7日間）
+- **アクセストークン**: 短期間有効な認証トークン（JWT形式、EdDSA署名、デフォルト有効期限: 15分）
+- **リフレッシュトークン**: 長期間有効な認証トークン（JWT形式、EdDSA署名、デフォルト有効期限: 7日間）
 - **リセットトークン**: パスワードリセット時に生成される一意の文字列（有効期限: 24時間）
 - **RBAC**: Role-Based Access Control（ロールベースアクセス制御）
 - **EARS**: Easy Approach to Requirements Syntax（要件記述形式）
 - **システム管理者ロール**: 全ての権限を持つ最高権限ロール（削除不可）
 - **一般ユーザーロール**: 自分が作成したリソースのみアクセス可能な基本ロール（削除不可）
+- **Argon2id**: OWASP推奨のパスワードハッシュアルゴリズム（メモリハード関数、GPU攻撃耐性）
+- **EdDSA**: Edwards-curve Digital Signature Algorithm（Ed25519曲線使用、NIST FIPS 186-5推奨）
+- **HIBP**: Have I Been Pwned（漏洩パスワードデータベース、7億件以上）
+- **Bloom Filter**: 確率的データ構造（HIBP Pwned Passwordsの効率的チェック用）
+- **Race Condition**: 複数スレッドまたはリクエストの同時実行による予期しない動作（トークンリフレッシュ時の重複処理など）
+- **Broadcast Channel API**: ブラウザタブ間通信API（マルチタブでのトークン更新同期用）
+
+## 環境変数
+
+本仕様で使用される環境変数の一覧です。
+
+### Backend Service
+
+| 変数名 | 説明 | デフォルト値 | 必須/任意 | 形式・制約 |
+|--------|------|--------------|-----------|-----------|
+| `ACCESS_TOKEN_EXPIRY` | アクセストークンの有効期限 | `15m` | 任意 | 時間文字列（例: 15m, 1h） |
+| `REFRESH_TOKEN_EXPIRY` | リフレッシュトークンの有効期限 | `7d` | 任意 | 時間文字列（例: 7d, 30d） |
+| `TWO_FACTOR_ENCRYPTION_KEY` | 2FA秘密鍵暗号化用のAES-256-GCM鍵 | なし | 必須（2FA有効時） | 256ビット16進数文字列（64文字） |
+| `INITIAL_ADMIN_EMAIL` | 初期管理者のメールアドレス | なし | 任意 | 有効なメールアドレス形式 |
+| `INITIAL_ADMIN_PASSWORD` | 初期管理者のパスワード | なし | 任意 | 12文字以上、複雑性要件を満たす |
+| `INITIAL_ADMIN_DISPLAY_NAME` | 初期管理者の表示名 | `System Administrator` | 任意 | 任意の文字列 |
+| `DATABASE_CONNECTION_TIMEOUT` | データベース接続タイムアウト | `5000ms` | 任意 | ミリ秒単位の数値 |
+| `DATABASE_RETRY_COUNT` | データベース接続リトライ回数 | `3` | 任意 | 整数値（0-10） |
+
+### Frontend Service
+
+| 変数名 | 説明 | デフォルト値 | 必須/任意 | 形式・制約 |
+|--------|------|--------------|-----------|-----------|
+| `VITE_API_BASE_URL` | Backend API のベースURL | `http://localhost:3000` | 必須 | 有効なURL形式 |
+| `VITE_TOKEN_REFRESH_THRESHOLD` | トークン自動リフレッシュの閾値（有効期限前） | `5m` | 任意 | 時間文字列（例: 5m, 10m） |
 
 ## 要件
 
@@ -49,12 +79,14 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 2. IF 招待トークンが無効または存在しない THEN Authentication Serviceはエラーメッセージを返さなければならない
 3. IF 招待トークンが期限切れである THEN Authentication Serviceはエラーメッセージを返さなければならない
 4. IF 招待トークンが既に使用済みである THEN Authentication Serviceはエラーメッセージを返さなければならない
-5. IF パスワードが最小文字数要件を満たさない THEN Authentication Serviceは登録を拒否しなければならない
-6. IF パスワードが複雑性要件（英数字と特殊文字の組み合わせ）を満たさない THEN Authentication Serviceは登録を拒否しなければならない
-7. WHEN ユーザー登録が成功する THEN Authentication Serviceはパスワードを業界標準の暗号学的ハッシュアルゴリズムで保存しなければならない
-8. WHEN ユーザー登録が成功する THEN Authentication Serviceは招待トークンを使用済みとしてマークしなければならない
-9. WHEN ユーザー登録が成功する THEN Authentication Serviceはアクセストークンとリフレッシュトークンを発行しなければならない
-10. WHEN ユーザー登録が成功する THEN Authentication Serviceはユーザーロール（user）を割り当てなければならない
+5. IF パスワードが12文字未満である THEN Authentication Serviceは登録を拒否しなければならない
+6. IF パスワードが複雑性要件（大文字、小文字、数字、特殊文字のうち3種類以上含む）を満たさない THEN Authentication Serviceは登録を拒否しなければならない
+7. IF パスワードが禁止パスワードリスト（HIBP Pwned Passwords、Bloom Filter実装、偽陽性率0.001）に含まれる THEN Authentication Serviceは「このパスワードは過去のデータ漏洩で使用されています」というエラーメッセージを返さなければならない
+8. IF パスワードにユーザーのメールアドレスまたは表示名が含まれる THEN Authentication Serviceは登録を拒否しなければならない
+9. WHEN ユーザー登録が成功する THEN Authentication ServiceはパスワードをArgon2idアルゴリズム（メモリコスト: 64MB、時間コスト: 3、並列度: 4）でハッシュ化しなければならない
+10. WHEN ユーザー登録が成功する THEN Authentication Serviceは招待トークンを使用済みとしてマークしなければならない
+11. WHEN ユーザー登録が成功する THEN Authentication Serviceはアクセストークンとリフレッシュトークンを発行しなければならない
+12. WHEN ユーザー登録が成功する THEN Authentication Serviceはユーザーロール（user）を割り当てなければならない
 
 ### 要件3: 初期管理者アカウントのセットアップ
 
@@ -62,7 +94,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN システムが初回起動される AND 環境変数に初期管理者情報が設定されている THEN Authentication Serviceは管理者アカウントを自動作成しなければならない
+1. WHEN Backend Serviceが初回起動される AND 環境変数に初期管理者情報が設定されている THEN Authentication Serviceは管理者アカウントを自動作成しなければならない
 2. WHEN データベースシーディングコマンドが実行される THEN Authentication Serviceは管理者アカウントを作成しなければならない
 3. WHEN 初期管理者を作成する THEN Authentication Serviceは管理者ロール（admin）を割り当てなければならない
 4. IF 初期管理者のメールアドレスが既に登録済みである THEN Authentication Serviceはスキップしなければならない
@@ -77,8 +109,8 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 1. WHEN ユーザーが有効なメールアドレスとパスワードを提供する THEN Authentication Serviceはアクセストークンとリフレッシュトークンを発行しなければならない
 2. IF メールアドレスが登録されていない THEN Authentication Serviceは認証エラーを返さなければならない
 3. IF パスワードが正しくない THEN Authentication Serviceは認証エラーを返さなければならない
-4. WHEN ログインが成功する THEN Authentication Serviceは15分の有効期限を持つアクセストークンを発行しなければならない
-5. WHEN ログインが成功する THEN Authentication Serviceは7日間の有効期限を持つリフレッシュトークンを発行しなければならない
+4. WHEN ログインが成功する THEN Authentication Serviceは環境変数ACCESS_TOKEN_EXPIRY（デフォルト: 15分）で設定された有効期限を持つアクセストークンを発行しなければならない
+5. WHEN ログインが成功する THEN Authentication Serviceは環境変数REFRESH_TOKEN_EXPIRY（デフォルト: 7日間）で設定された有効期限を持つリフレッシュトークンを発行しなければならない
 6. WHEN 連続して5回ログインに失敗する THEN Authentication Serviceはアカウントを15分間ロックしなければならない
 7. WHEN トークンを発行する THEN Authentication Serviceはユーザーロール情報をトークンペイロードに含めなければならない
 
@@ -94,6 +126,10 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 4. WHEN 保護されたAPIエンドポイントにアクセスする THEN Authentication Serviceは有効なアクセストークンを検証しなければならない
 5. IF アクセストークンが改ざんされている THEN Authentication Serviceはリクエストを拒否しなければならない
 6. WHEN トークンにユーザー情報を含める THEN Authentication ServiceはユーザーID、メールアドレス、ロール情報を含めなければならない
+7. WHEN トークンを生成する THEN Authentication ServiceはEdDSA（Ed25519）署名アルゴリズムを使用しなければならない
+8. WHEN JWTトークンをヘッダーに含める THEN Authentication Serviceは"alg": "EdDSA"フィールドを設定しなければならない
+9. WHEN アクセストークンを発行する THEN Authentication Serviceは環境変数ACCESS_TOKEN_EXPIRY（デフォルト: 15分）で設定された有効期限を適用しなければならない
+10. WHEN リフレッシュトークンを発行する THEN Authentication Serviceは環境変数REFRESH_TOKEN_EXPIRY（デフォルト: 7日間）で設定された有効期限を適用しなければならない
 
 ### 要件6: 拡張可能なロールベースアクセス制御（RBAC）
 
@@ -123,6 +159,8 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 3. IF リセットトークンが24時間の有効期限を超過している THEN Authentication Serviceはトークンを無効として扱わなければならない
 4. WHEN ユーザーがパスワードを変更する THEN Authentication Serviceは現在のパスワードの確認を要求しなければならない
 5. WHEN パスワードが更新される THEN Authentication Serviceは全ての既存リフレッシュトークンを無効化しなければならない
+6. WHEN ユーザーがパスワードを変更する THEN Authentication Serviceは過去3回のパスワード履歴を保持しなければならない
+7. IF 新しいパスワードが過去3回のパスワード（Argon2idハッシュ比較）と一致する THEN Authentication Serviceは「過去に使用したパスワードは使用できません」というエラーメッセージを返さなければならない
 
 ### 要件8: セッション管理
 
@@ -155,8 +193,8 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 #### 受入基準
 
 1. WHEN 認証エラーが発生する THEN Authentication Serviceは詳細なエラー情報（メールアドレスの存在有無など）を返してはならない
-2. WHEN パスワードを保存する THEN Authentication Serviceは業界標準の暗号学的ハッシュアルゴリズムを使用しなければならない
-3. WHEN トークンを生成する THEN Authentication Serviceは業界標準の署名アルゴリズムを使用しなければならない
+2. WHEN パスワードを保存する THEN Authentication ServiceはArgon2idアルゴリズム（メモリコスト: 64MB、時間コスト: 3、並列度: 4）を使用しなければならない
+3. WHEN トークンを生成する THEN Authentication ServiceはEdDSA（Ed25519）署名アルゴリズムを使用しなければならない
 4. IF データベース接続エラーが発生する THEN Authentication Serviceは適切なエラーメッセージとHTTPステータス500を返さなければならない
 5. WHEN APIリクエストのバリデーションが失敗する THEN Authentication Serviceは詳細なバリデーションエラーメッセージを返さなければならない
 6. WHEN センシティブな操作（パスワード変更、ロール変更、ユーザー招待）を実行する THEN Authentication Serviceはログに記録しなければならない
@@ -170,17 +208,17 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN ログイン画面が表示される THEN UIはメールアドレス入力フィールド、パスワード入力フィールド、ログインボタンを表示しなければならない
-2. WHEN パスワード入力フィールドが表示される THEN UIはパスワードの表示/非表示切り替えボタンを提供しなければならない
-3. WHEN ユーザーが入力フィールドにフォーカスする THEN UIは視覚的なフィードバック（アウトライン表示）を提供しなければならない
-4. IF メールアドレス形式が無効である THEN UIはリアルタイムバリデーションエラーを表示しなければならない
-5. WHEN ログインボタンがクリックされる AND フォームが未入力である THEN UIは必須フィールドエラーを表示しなければならない
-6. WHILE ログイン処理が進行中である THE UIはローディングスピナーとボタンの無効化を表示しなければならない
-7. IF ログインに失敗する THEN UIは汎用的なエラーメッセージ（「メールアドレスまたはパスワードが正しくありません」）を表示しなければならない
-8. WHEN アカウントがロックされている THEN UIはロック解除までの残り時間を表示しなければならない
-9. WHEN ログイン画面が表示される THEN UIは「パスワードを忘れた場合」リンクを提供しなければならない
-10. WHEN デバイス画面幅が768px未満である THEN UIはモバイル最適化されたレイアウトを表示しなければならない
-11. WHEN ログイン画面が読み込まれる THEN UIはメールアドレスフィールドに自動フォーカスしなければならない
+1. WHEN ログイン画面が表示される THEN Frontend UIはメールアドレス入力フィールド、パスワード入力フィールド、ログインボタンを表示しなければならない
+2. WHEN パスワード入力フィールドが表示される THEN Frontend UIはパスワードの表示/非表示切り替えボタンを提供しなければならない
+3. WHEN ユーザーが入力フィールドにフォーカスする THEN Frontend UIは視覚的なフィードバック（アウトライン表示）を提供しなければならない
+4. IF メールアドレス形式が無効である THEN Frontend UIはリアルタイムバリデーションエラーを表示しなければならない
+5. WHEN ログインボタンがクリックされる AND フォームが未入力である THEN Frontend UIは必須フィールドエラーを表示しなければならない
+6. WHILE ログイン処理が進行中である THE Frontend UIはローディングスピナーとボタンの無効化を表示しなければならない
+7. IF ログインに失敗する THEN Frontend UIは汎用的なエラーメッセージ（「メールアドレスまたはパスワードが正しくありません」）を表示しなければならない
+8. WHEN アカウントがロックされている THEN Frontend UIはロック解除までの残り時間を表示しなければならない
+9. WHEN ログイン画面が表示される THEN Frontend UIは「パスワードを忘れた場合」リンクを提供しなければならない
+10. WHEN デバイス画面幅が768px未満である THEN Frontend UIはモバイル最適化されたレイアウトを表示しなければならない
+11. WHEN ログイン画面が読み込まれる THEN Frontend UIはメールアドレスフィールドに自動フォーカスしなければならない
 
 ### 要件12: ユーザー登録画面のUI/UX（招待リンク経由）
 
@@ -188,16 +226,16 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN 招待URLにアクセスする THEN UIは招待トークンを自動的に検証し、結果を表示しなければならない
-2. IF 招待トークンが無効または期限切れである THEN UIはエラーメッセージと管理者への連絡手段を表示しなければならない
-3. WHEN 有効な招待トークンが確認される THEN UIは招待者のメールアドレス（読み取り専用）、表示名入力フィールド、パスワード入力フィールド、パスワード確認フィールド、登録ボタンを表示しなければならない
-4. WHEN パスワード入力フィールドに入力される THEN UIはパスワード強度インジケーター（弱い/普通/強い）を表示しなければならない
-5. WHEN パスワードが入力される THEN UIはパスワード要件の達成状況をチェックリストで表示しなければならない
-6. IF パスワードとパスワード確認が一致しない THEN UIはリアルタイムバリデーションエラーを表示しなければならない
-7. WHEN 登録ボタンがクリックされる THEN UIは利用規約とプライバシーポリシーへの同意確認を要求しなければならない
-8. WHILE 登録処理が進行中である THE UIはローディングスピナーとボタンの無効化を表示しなければならない
-9. WHEN 登録が成功する THEN UIは成功メッセージを表示し、自動的にダッシュボードへリダイレクトしなければならない
-10. WHEN デバイス画面幅が768px未満である THEN UIはモバイル最適化されたレイアウトを表示しなければならない
+1. WHEN 招待URLにアクセスする THEN Frontend UIは招待トークンを自動的に検証し、結果を表示しなければならない
+2. IF 招待トークンが無効または期限切れである THEN Frontend UIはエラーメッセージと管理者への連絡手段を表示しなければならない
+3. WHEN 有効な招待トークンが確認される THEN Frontend UIは招待者のメールアドレス（読み取り専用）、表示名入力フィールド、パスワード入力フィールド、パスワード確認フィールド、登録ボタンを表示しなければならない
+4. WHEN パスワード入力フィールドに入力される THEN Frontend UIはパスワード強度インジケーター（弱い/普通/強い）を表示しなければならない
+5. WHEN パスワードが入力される THEN Frontend UIはパスワード要件の達成状況をチェックリストで表示しなければならない
+6. IF パスワードとパスワード確認が一致しない THEN Frontend UIはリアルタイムバリデーションエラーを表示しなければならない
+7. WHEN 登録ボタンがクリックされる THEN Frontend UIは利用規約とプライバシーポリシーへの同意確認を要求しなければならない
+8. WHILE 登録処理が進行中である THE Frontend UIはローディングスピナーとボタンの無効化を表示しなければならない
+9. WHEN 登録が成功する THEN Frontend UIは成功メッセージを表示し、自動的にダッシュボードへリダイレクトしなければならない
+10. WHEN デバイス画面幅が768px未満である THEN Frontend UIはモバイル最適化されたレイアウトを表示しなければならない
 
 ### 要件13: 管理者ユーザー招待画面のUI/UX
 
@@ -205,17 +243,17 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN 招待画面が表示される THEN UIは招待フォーム（メールアドレス入力、招待ボタン）と招待一覧テーブルを表示しなければならない
-2. WHEN 招待一覧テーブルが表示される THEN UIは招待メールアドレス、招待日時、ステータス（未使用/使用済み/期限切れ）、有効期限、アクションボタン（取り消し/再送信）を表示しなければならない
-3. WHEN 招待ボタンがクリックされる AND メールアドレスが有効である THEN UIは招待成功メッセージと招待URLのコピーボタンを表示しなければならない
-4. IF 招待メールアドレスが既に登録済みである THEN UIはエラーメッセージ（「このメールアドレスは既に登録されています」）を表示しなければならない
-5. WHEN 招待URLコピーボタンがクリックされる THEN UIはクリップボードにURLをコピーし、「コピーしました」というトーストメッセージを表示しなければならない
-6. WHEN 招待ステータスが「未使用」である THEN UIは「取り消し」ボタンを有効化しなければならない
-7. WHEN 招待ステータスが「期限切れ」である THEN UIは「再送信」ボタンを有効化しなければならない
-8. WHEN 取り消しボタンがクリックされる THEN UIは確認ダイアログを表示しなければならない
-9. WHEN 招待一覧が10件以上ある THEN UIはページネーションまたは無限スクロールを提供しなければならない
-10. WHEN 招待一覧が読み込まれる THEN UIは招待ステータスに応じた視覚的な区別（色、アイコン）を提供しなければならない
-11. WHEN デバイス画面幅が768px未満である THEN UIはテーブルをカード形式のレイアウトに変換しなければならない
+1. WHEN 招待画面が表示される THEN Frontend UIは招待フォーム（メールアドレス入力、招待ボタン）と招待一覧テーブルを表示しなければならない
+2. WHEN 招待一覧テーブルが表示される THEN Frontend UIは招待メールアドレス、招待日時、ステータス（未使用/使用済み/期限切れ）、有効期限、アクションボタン（取り消し/再送信）を表示しなければならない
+3. WHEN 招待ボタンがクリックされる AND メールアドレスが有効である THEN Frontend UIは招待成功メッセージと招待URLのコピーボタンを表示しなければならない
+4. IF 招待メールアドレスが既に登録済みである THEN Frontend UIはエラーメッセージ（「このメールアドレスは既に登録されています」）を表示しなければならない
+5. WHEN 招待URLコピーボタンがクリックされる THEN Frontend UIはクリップボードにURLをコピーし、「コピーしました」というトーストメッセージを表示しなければならない
+6. WHEN 招待ステータスが「未使用」である THEN Frontend UIは「取り消し」ボタンを有効化しなければならない
+7. WHEN 招待ステータスが「期限切れ」である THEN Frontend UIは「再送信」ボタンを有効化しなければならない
+8. WHEN 取り消しボタンがクリックされる THEN Frontend UIは確認ダイアログを表示しなければならない
+9. WHEN 招待一覧が10件以上ある THEN Frontend UIはページネーションまたは無限スクロールを提供しなければならない
+10. WHEN 招待一覧が読み込まれる THEN Frontend UIは招待ステータスに応じた視覚的な区別（色、アイコン）を提供しなければならない
+11. WHEN デバイス画面幅が768px未満である THEN Frontend UIはテーブルをカード形式のレイアウトに変換しなければならない
 
 ### 要件14: プロフィール画面のUI/UX
 
@@ -223,16 +261,16 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN プロフィール画面が表示される THEN UIはユーザー情報セクション（メールアドレス、表示名、ロール、作成日時）とパスワード変更セクションを表示しなければならない
-2. WHEN ユーザー情報セクションが表示される THEN UIはメールアドレス（読み取り専用）、表示名（編集可能）、保存ボタンを表示しなければならない
-3. WHEN 表示名が変更される THEN UIは保存ボタンを有効化しなければならない
-4. WHEN 保存ボタンがクリックされる THEN UIは更新成功のトーストメッセージを表示しなければならない
-5. WHEN パスワード変更セクションが表示される THEN UIは現在のパスワード、新しいパスワード、パスワード確認の入力フィールドを表示しなければならない
-6. WHEN 新しいパスワードが入力される THEN UIはパスワード強度インジケーターとパスワード要件チェックリストを表示しなければならない
-7. WHEN パスワード変更ボタンがクリックされる THEN UIは確認ダイアログ（「全デバイスからログアウトされます」）を表示しなければならない
-8. IF パスワード変更が成功する THEN UIは成功メッセージを表示し、自動的にログイン画面へリダイレクトしなければならない
-9. WHEN 管理者ユーザーがプロフィール画面にアクセスする THEN UIは「ユーザー管理」リンクを表示しなければならない
-10. WHEN デバイス画面幅が768px未満である THEN UIはモバイル最適化されたレイアウトを表示しなければならない
+1. WHEN プロフィール画面が表示される THEN Frontend UIはユーザー情報セクション（メールアドレス、表示名、ロール、作成日時）とパスワード変更セクションを表示しなければならない
+2. WHEN ユーザー情報セクションが表示される THEN Frontend UIはメールアドレス（読み取り専用）、表示名（編集可能）、保存ボタンを表示しなければならない
+3. WHEN 表示名が変更される THEN Frontend UIは保存ボタンを有効化しなければならない
+4. WHEN 保存ボタンがクリックされる THEN Frontend UIは更新成功のトーストメッセージを表示しなければならない
+5. WHEN パスワード変更セクションが表示される THEN Frontend UIは現在のパスワード、新しいパスワード、パスワード確認の入力フィールドを表示しなければならない
+6. WHEN 新しいパスワードが入力される THEN Frontend UIはパスワード強度インジケーターとパスワード要件チェックリストを表示しなければならない
+7. WHEN パスワード変更ボタンがクリックされる THEN Frontend UIは確認ダイアログ（「全デバイスからログアウトされます」）を表示しなければならない
+8. IF パスワード変更が成功する THEN Frontend UIは成功メッセージを表示し、自動的にログイン画面へリダイレクトしなければならない
+9. WHEN 管理者ユーザーがプロフィール画面にアクセスする THEN Frontend UIは「ユーザー管理」リンクを表示しなければならない
+10. WHEN デバイス画面幅が768px未満である THEN Frontend UIはモバイル最適化されたレイアウトを表示しなければならない
 
 ### 要件15: 共通UI/UXガイドライン
 
@@ -240,19 +278,19 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN 全ての画面が表示される THEN UIはレスポンシブデザイン（モバイル: 320px-767px、タブレット: 768px-1023px、デスクトップ: 1024px以上）を実装しなければならない
-2. WHEN フォーム送信エラーが発生する THEN UIは最初のエラーフィールドにスクロールし、フォーカスしなければならない
-3. WHEN 全てのボタンとリンクが表示される THEN UIはキーボード操作（Tab、Enter、Space）をサポートしなければならない
-4. WHEN ページが読み込まれる THEN UIは適切なaria-label、aria-describedby、role属性を提供しなければならない
-5. WHEN カラー情報を使用する THEN UIは色だけに依存せず、テキストやアイコンで補完しなければならない
-6. WHEN フォームバリデーションエラーが発生する THEN UIはエラーメッセージをaria-liveリージョンで通知しなければならない
-7. WHEN 全ての画面が表示される THEN UIは最低コントラスト比4.5:1（WCAG 2.1 AA準拠）を維持しなければならない
-8. WHEN 処理が長時間かかる THEN UIはプログレスバーまたは進捗メッセージを表示しなければならない
-9. IF 処理がネットワークエラーで失敗する THEN UIは「ネットワーク接続を確認してください」というエラーメッセージとリトライボタンを表示しなければならない
-10. WHEN トーストメッセージが表示される THEN UIは自動的に非表示にしなければならない
-11. WHEN モーダルダイアログが開かれる THEN UIはフォーカストラップを実装し、Escキーで閉じられるようにしなければならない
-12. WHEN 全ての入力フィールドが表示される THEN UIは適切なautocomplete属性（email、current-password、new-password）を設定しなければならない
-13. WHEN セッションが期限切れになる THEN UIは自動的にログイン画面へリダイレクトし、「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない
+1. WHEN 全ての画面が表示される THEN Frontend UIはレスポンシブデザイン（モバイル: 320px-767px、タブレット: 768px-1023px、デスクトップ: 1024px以上）を実装しなければならない
+2. WHEN フォーム送信エラーが発生する THEN Frontend UIは最初のエラーフィールドにスクロールし、フォーカスしなければならない
+3. WHEN 全てのボタンとリンクが表示される THEN Frontend UIはキーボード操作（Tab、Enter、Space）をサポートしなければならない
+4. WHEN ページが読み込まれる THEN Frontend UIは適切なaria-label、aria-describedby、role属性を提供しなければならない
+5. WHEN カラー情報を使用する THEN Frontend UIは色だけに依存せず、テキストやアイコンで補完しなければならない
+6. WHEN フォームバリデーションエラーが発生する THEN Frontend UIはエラーメッセージをaria-liveリージョンで通知しなければならない
+7. WHEN 全ての画面が表示される THEN Frontend UIは最低コントラスト比4.5:1（WCAG 2.1 AA準拠）を維持しなければならない
+8. WHEN 処理が長時間かかる THEN Frontend UIはプログレスバーまたは進捗メッセージを表示しなければならない
+9. IF 処理がネットワークエラーで失敗する THEN Frontend UIは「ネットワーク接続を確認してください」というエラーメッセージとリトライボタンを表示しなければならない
+10. WHEN トーストメッセージが表示される THEN Frontend UIは自動的に非表示にしなければならない
+11. WHEN モーダルダイアログが開かれる THEN Frontend UIはフォーカストラップを実装し、Escキーで閉じられるようにしなければならない
+12. WHEN 全ての入力フィールドが表示される THEN Frontend UIは適切なautocomplete属性（email、current-password、new-password）を設定しなければならない
+13. WHEN セッションが期限切れになる THEN Frontend UIは自動的にログイン画面へリダイレクトし、「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない
 
 ### 要件16: セッション有効期限切れ時の自動リダイレクト
 
@@ -269,17 +307,18 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 7. WHEN ログイン画面へリダイレクトされる THEN Frontend Serviceは現在のページURLをクエリパラメータ（redirectUrl）として保存しなければならない
 8. WHEN ログイン画面が表示される AND redirectUrlが存在する THEN UIは「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示しなければならない
 9. WHEN ユーザーが再ログインに成功する AND redirectUrlが存在する THEN Frontend Serviceは保存されたURLへユーザーを自動的にリダイレクトしなければならない
-10. WHEN 401エラーを処理する THEN Frontend Serviceは複数の同時401エラーに対してリフレッシュ処理を1回のみ実行しなければならない
-11. WHILE トークンリフレッシュ処理が進行中である THE Frontend Serviceは他のリクエストをキューに保持しなければならない
-12. WHEN トークンリフレッシュが完了する THEN Frontend Serviceはキューに保持された全てのリクエストを新しいトークンで再実行しなければならない
-13. IF ユーザーが明示的にログアウトする THEN Frontend ServiceはredirectUrlパラメータを設定せずにログイン画面へリダイレクトしなければならない
-14. WHEN セッション有効期限切れメッセージが表示される THEN メッセージはアクセシビリティ（aria-live="polite"）をサポートしなければならない
-15. WHEN アクセストークンが有効期限切れに近づく THEN Frontend Serviceはバックグラウンドで自動的にトークンをリフレッシュしなければならない
-16. IF バックグラウンドリフレッシュが失敗する THEN Frontend Serviceは次のリクエスト時に401エラーハンドリングフローを実行しなければならない
-17. WHEN Authentication Serviceが401レスポンスを返す THEN レスポンスヘッダーにWWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token"を含めなければならない
-18. WHEN 401エラーを検知する THEN Frontend Serviceはローカルストレージまたはクッキーから認証トークンを削除しなければならない
-19. IF ログイン画面以外の公開ページで401エラーが発生する THEN Frontend Serviceはエラーをサイレントに処理し、ユーザーをリダイレクトしてはならない
-20. WHEN 開発環境である THEN Frontend Serviceはトークン有効期限切れをコンソールにログ出力しなければならない
+10. WHEN 複数のAPIリクエストが同時に401エラーを受信する THEN Frontend Serviceは単一のトークンリフレッシュPromiseを共有し、全てのリクエストを同期しなければならない
+11. WHEN マルチタブ環境でトークンリフレッシュが実行される THEN Frontend ServiceはBroadcast Channel APIを使用してタブ間でトークン更新を通知しなければならない
+12. WHILE トークンリフレッシュ処理が進行中である THE Frontend Serviceは他のリクエストをキューに保持しなければならない
+13. WHEN トークンリフレッシュが完了する THEN Frontend Serviceはキューに保持された全てのリクエストを新しいトークンで再実行しなければならない
+14. IF ユーザーが明示的にログアウトする THEN Frontend ServiceはredirectUrlパラメータを設定せずにログイン画面へリダイレクトしなければならない
+15. WHEN セッション有効期限切れメッセージが表示される THEN メッセージはアクセシビリティ（aria-live="polite"）をサポートしなければならない
+16. WHEN アクセストークンが有効期限切れに近づく THEN Frontend Serviceはバックグラウンドで自動的にトークンをリフレッシュしなければならない
+17. IF バックグラウンドリフレッシュが失敗する THEN Frontend Serviceは次のリクエスト時に401エラーハンドリングフローを実行しなければならない
+18. WHEN Authentication Serviceが401レスポンスを返す THEN レスポンスヘッダーにWWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token"を含めなければならない
+19. WHEN 401エラーを検知する THEN Frontend Serviceはローカルストレージまたはクッキーから認証トークンを削除しなければならない
+20. IF ログイン画面以外の公開ページで401エラーが発生する THEN Frontend Serviceはエラーをサイレントに処理し、ユーザーをリダイレクトしてはならない
+21. WHEN 開発環境である THEN Frontend Serviceはトークン有効期限切れをコンソールにログ出力しなければならない
 
 ### 要件17: 動的ロール管理
 
@@ -420,6 +459,9 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
     - 対象リソース情報（タイプ、ID、名前）
     - 変更前後の値
     - メタデータ（IPアドレス、ユーザーエージェント、リクエストID）
+12. WHEN 監査ログテーブルを設計する THEN Authentication Serviceは以下のデータベースインデックスを作成しなければならない
+    - 単体インデックス: targetId、actorId、createdAt
+    - 複合インデックス: (targetType, targetId)、(actorId, createdAt)
 
 ### 要件23: 非機能要件（パフォーマンス・スケーラビリティ）
 
@@ -444,10 +486,10 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 1. IF データベース接続がタイムアウト以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない
 2. IF キャッシュ接続が失敗する THEN Authentication Serviceはデータベースから直接権限情報を取得しなければならない
-3. WHEN 外部メールサービスが応答しない THEN Authentication Serviceはメール送信をキューに保存し、適切な間隔でリトライしなければならない
+3. WHEN 外部メールサービスが応答しない THEN Authentication Serviceはメール送信をキューに保存し、最大5回までリトライ（1分、5分、15分、1時間、6時間後）を実行しなければならない
 4. WHEN トークンリフレッシュ中に複数のAPIリクエストが発生する THEN Frontend Serviceはリフレッシュ処理を1回のみ実行し、他のリクエストはその完了を待機しなければならない
 5. IF トークンリフレッシュが連続で失敗する THEN Frontend Serviceはユーザーをログイン画面へリダイレクトしなければならない
-6. WHEN データベース接続がタイムアウトする THEN Authentication Serviceはリトライ（適切な回数、エクスポネンシャルバックオフ）を実行しなければならない
+6. WHEN データベース接続がタイムアウトする THEN Authentication Serviceは最大3回までリトライ（1回目: 1秒後、2回目: 2秒後、3回目: 4秒後のエクスポネンシャルバックオフ）を実行しなければならない
 7. IF キャッシュ障害時にフォールバック処理が実行される THEN Authentication Serviceは警告ログを記録しなければならない
 8. WHEN 外部サービス（メール送信）が利用不可である THEN Authentication Serviceはユーザー登録・招待処理を非同期キューで処理しなければならない
 9. WHEN サービスが部分的な障害から復旧する THEN Authentication Serviceはヘルスチェックエンドポイントで障害状態を報告しなければならない
@@ -486,13 +528,11 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 11. WHEN 機密情報（パスワード、トークン）をログに記録する THEN Authentication Serviceはマスキング処理を適用しなければならない
 12. WHEN APIレート制限を実装する THEN Authentication Serviceはユーザーごとに適切なレート制限を設定しなければならない
 
-### 要件27: 二要素認証（2FA）の実装
+### 要件27: 二要素認証（2FA）設定機能
 
-**目的:** ユーザーとして、二要素認証（TOTP）を有効化することで、アカウントのセキュリティを強化したい。そうすることで、パスワード漏洩時でも不正アクセスを防止できるようになる。
+**目的:** ユーザーとして、二要素認証（TOTP）を設定することで、アカウントのセキュリティを強化したい。そうすることで、パスワード漏洩時でも不正アクセスを防止できるようになる。
 
 #### 受入基準
-
-**2FA設定機能**:
 1. WHEN ユーザーが2FAを有効化する THEN Authentication ServiceはRFC 6238準拠のTOTP秘密鍵を生成しなければならない
 2. WHEN TOTP秘密鍵を生成する THEN Authentication Serviceは32バイト（256ビット）の暗号学的に安全な乱数を使用しなければならない
 3. WHEN TOTP秘密鍵をデータベースに保存する THEN Authentication ServiceはAES-256-GCM暗号化を適用しなければならない
@@ -504,45 +544,70 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 9. IF ユーザーがQRコード画面から次に進む THEN Authentication ServiceはTOTPコード検証を要求しなければならない
 10. WHEN ユーザーが6桁のTOTPコードを入力する THEN Authentication Serviceはコードを検証し、正しい場合のみ2FAを有効化しなければならない
 
-**2FAログイン機能**:
-11. WHEN 2FA有効ユーザーがログインする THEN Authentication Serviceはメールアドレス・パスワード検証後に2FA検証画面を表示しなければならない
-12. WHEN 2FA検証画面を表示する THEN Frontend Serviceは6桁のTOTPコード入力フィールドを提供しなければならない
-13. WHEN TOTPコード検証を実行する THEN Authentication Serviceは30秒ウィンドウ、±1ステップ許容（合計90秒）で検証しなければならない
-14. IF TOTPコード検証が5回連続で失敗する THEN Authentication Serviceはアカウントを一時的にロック（5分間）しなければならない
-15. WHEN ユーザーが「バックアップコードを使用する」を選択する THEN Frontend Serviceはバックアップコード入力フィールドを表示しなければならない
-16. WHEN バックアップコードを検証する THEN Authentication Serviceは未使用のバックアップコードとbcryptで比較し、一致する場合のみログインを許可しなければならない
-17. IF バックアップコードが使用される THEN Authentication Serviceはそのコードを使用済みとしてマーク（usedAtフィールド更新）しなければならない
-18. WHEN 2FA検証に成功する THEN Authentication ServiceはJWTアクセストークンとリフレッシュトークンを発行しなければならない
+### 要件27A: 二要素認証（2FA）ログイン機能
 
-**2FA管理機能**:
-19. WHEN ユーザーがプロフィール画面でバックアップコードを表示する THEN Frontend Serviceは使用済みコードをグレーアウト・取り消し線で表示しなければならない
-20. WHEN 残りバックアップコードが3個以下になる THEN Frontend Serviceは警告メッセージと再生成リンクを表示しなければならない
-21. WHEN ユーザーがバックアップコードを再生成する THEN Authentication Serviceは既存のバックアップコードを削除し、新しい10個のコードを生成しなければならない
-22. WHEN ユーザーが2FAを無効化する THEN Frontend Serviceはパスワード入力確認ダイアログを表示しなければならない
-23. WHEN 2FA無効化を実行する THEN Authentication Serviceはパスワード検証後、トランザクション内で秘密鍵とバックアップコードを削除しなければならない
-24. WHEN 2FA無効化が完了する THEN Authentication Serviceは全デバイスからユーザーをログアウトさせなければならない
+**目的:** 2FA有効ユーザーとして、ログイン時に二要素認証を使用したい。そうすることで、より安全にシステムへアクセスできるようになる。
 
-**セキュリティ要件**:
-25. WHEN TOTP設定を実装する THEN Authentication ServiceはSHA-1アルゴリズム（Google Authenticator互換性）を使用しなければならない
-26. WHEN QRコードを生成する THEN Frontend Serviceはqrcodeライブラリ（^1.5.3）を使用しなければならない
-27. WHEN TOTP検証を実装する THEN Authentication Serviceはotplibライブラリ（^12.0.1）を使用しなければならない
-28. WHEN 2FA関連の環境変数を設定する THEN Authentication ServiceはTWO_FACTOR_ENCRYPTION_KEY（256ビット、16進数形式）を要求しなければならない
-29. IF 暗号化鍵が設定されていない THEN Authentication Serviceは起動時にエラーをスローしなければならない
-30. WHEN 2FA有効化・無効化イベントが発生する THEN Authentication Serviceは監査ログに記録しなければならない
+#### 受入基準
 
-**UI/UX要件**:
-31. WHEN 2FA設定画面を表示する THEN Frontend Serviceは3ステップのプログレスバーを表示しなければならない
-32. WHEN TOTPコード入力フィールドを表示する THEN Frontend Serviceは6桁の個別入力フィールドを提供し、自動タブ移動を実装しなければならない
-33. WHEN 2FA検証画面を表示する THEN Frontend Serviceは30秒カウントダウンタイマーと視覚的プログレスバーを表示しなければならない
-34. WHEN バックアップコードを表示する THEN Frontend Serviceはダウンロード（.txt形式）、印刷、クリップボードコピー機能を提供しなければならない
-35. WHEN バックアップコード保存確認チェックボックスがオフである THEN Frontend Serviceは「完了」ボタンを無効化しなければならない
-36. WHEN 2FA設定が完了する THEN Frontend Serviceはトーストメッセージ「二要素認証を有効化しました」を表示しなければならない
+1. WHEN 2FA有効ユーザーがログインする THEN Authentication Serviceはメールアドレス・パスワード検証後に2FA検証画面を表示しなければならない
+2. WHEN 2FA検証画面を表示する THEN Frontend Serviceは6桁のTOTPコード入力フィールドを提供しなければならない
+3. WHEN TOTPコード検証を実行する THEN Authentication Serviceは30秒ウィンドウ、±1ステップ許容（合計90秒）で検証しなければならない
+4. IF TOTPコード検証が5回連続で失敗する THEN Authentication Serviceはアカウントを一時的にロック（5分間）しなければならない
+5. WHEN ユーザーが「バックアップコードを使用する」を選択する THEN Frontend Serviceはバックアップコード入力フィールドを表示しなければならない
+6. WHEN バックアップコードを検証する THEN Authentication Serviceは未使用のバックアップコードとbcryptで比較し、一致する場合のみログインを許可しなければならない
+7. IF バックアップコードが使用される THEN Authentication Serviceはそのコードを使用済みとしてマーク（usedAtフィールド更新）しなければならない
+8. WHEN 2FA検証に成功する THEN Authentication ServiceはJWTアクセストークンとリフレッシュトークンを発行しなければならない
 
-**アクセシビリティ要件**:
-37. WHEN QRコードを表示する THEN Frontend Serviceはalt属性「二要素認証用QRコード」を設定しなければならない
-38. WHEN TOTPコード入力フィールドを表示する THEN Frontend Serviceはaria-label属性とrole="group"を設定しなければならない
-39. WHEN 使用済みバックアップコードを表示する THEN Frontend Serviceはaria-label="使用済み"を設定しなければならない
-40. WHEN 2FA検証エラーが発生する THEN Frontend Serviceはaria-live="polite"でスクリーンリーダーに通知しなければならない
+### 要件27B: 二要素認証（2FA）管理機能
+
+**目的:** ユーザーとして、二要素認証の状態を管理したい。そうすることで、バックアップコードの確認や2FAの無効化ができるようになる。
+
+#### 受入基準
+
+1. WHEN ユーザーがプロフィール画面でバックアップコードを表示する THEN Frontend Serviceは使用済みコードをグレーアウト・取り消し線で表示しなければならない
+2. WHEN 残りバックアップコードが3個以下になる THEN Frontend Serviceは警告メッセージと再生成リンクを表示しなければならない
+3. WHEN ユーザーがバックアップコードを再生成する THEN Authentication Serviceは既存のバックアップコードを削除し、新しい10個のコードを生成しなければならない
+4. WHEN ユーザーが2FAを無効化する THEN Frontend Serviceはパスワード入力確認ダイアログを表示しなければならない
+5. WHEN 2FA無効化を実行する THEN Authentication Serviceはパスワード検証後、トランザクション内で秘密鍵とバックアップコードを削除しなければならない
+6. WHEN 2FA無効化が完了する THEN Authentication Serviceは全デバイスからユーザーをログアウトさせなければならない
+
+### 要件27C: 二要素認証（2FA）セキュリティ要件
+
+**目的:** システムとして、二要素認証を安全に実装したい。そうすることで、業界標準に準拠したセキュアな2FAシステムを提供できるようになる。
+
+#### 受入基準
+
+1. WHEN TOTP設定を実装する THEN Authentication ServiceはSHA-1アルゴリズム（Google Authenticator互換性）を使用しなければならない
+2. WHEN QRコードを生成する THEN Frontend Serviceはqrcodeライブラリ（^1.5.3）を使用しなければならない
+3. WHEN TOTP検証を実装する THEN Authentication Serviceはotplibライブラリ（^12.0.1）を使用しなければならない
+4. WHEN 2FA関連の環境変数を設定する THEN Authentication ServiceはTWO_FACTOR_ENCRYPTION_KEY（256ビット、16進数形式）を要求しなければならない
+5. IF 暗号化鍵が設定されていない THEN Authentication Serviceは起動時にエラーをスローしなければならない
+6. WHEN 2FA有効化・無効化イベントが発生する THEN Authentication Serviceは監査ログに記録しなければならない
+
+### 要件27D: 二要素認証（2FA）UI/UX要件
+
+**目的:** ユーザーとして、わかりやすい2FA設定画面を利用したい。そうすることで、スムーズに二要素認証を設定できるようになる。
+
+#### 受入基準
+
+1. WHEN 2FA設定画面を表示する THEN Frontend Serviceは3ステップのプログレスバーを表示しなければならない
+2. WHEN TOTPコード入力フィールドを表示する THEN Frontend Serviceは6桁の個別入力フィールドを提供し、自動タブ移動を実装しなければならない
+3. WHEN 2FA検証画面を表示する THEN Frontend Serviceは30秒カウントダウンタイマーと視覚的プログレスバーを表示しなければならない
+4. WHEN バックアップコードを表示する THEN Frontend Serviceはダウンロード（.txt形式）、印刷、クリップボードコピー機能を提供しなければならない
+5. WHEN バックアップコード保存確認チェックボックスがオフである THEN Frontend Serviceは「完了」ボタンを無効化しなければならない
+6. WHEN 2FA設定が完了する THEN Frontend Serviceはトーストメッセージ「二要素認証を有効化しました」を表示しなければならない
+
+### 要件27E: 二要素認証（2FA）アクセシビリティ要件
+
+**目的:** すべてのユーザーとして、アクセシブルな2FA画面を利用したい。そうすることで、障害の有無に関わらず二要素認証を設定できるようになる。
+
+#### 受入基準
+
+1. WHEN QRコードを表示する THEN Frontend Serviceはalt属性「二要素認証用QRコード」を設定しなければならない
+2. WHEN TOTPコード入力フィールドを表示する THEN Frontend Serviceはaria-label属性とrole="group"を設定しなければならない
+3. WHEN 使用済みバックアップコードを表示する THEN Frontend Serviceはaria-label="使用済み"を設定しなければならない
+4. WHEN 2FA検証エラーが発生する THEN Frontend Serviceはaria-live="polite"でスクリーンリーダーに通知しなければならない
 
 ## 依存仕様
 
