@@ -161,6 +161,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 5. WHEN パスワードが更新される THEN Authentication Serviceは全ての既存リフレッシュトークンを無効化しなければならない
 6. WHEN ユーザーがパスワードを変更する THEN Authentication Serviceは過去3回のパスワード履歴を保持しなければならない
 7. IF 新しいパスワードが過去3回のパスワード（Argon2idハッシュ比較）と一致する THEN Authentication Serviceは「過去に使用したパスワードは使用できません」というエラーメッセージを返さなければならない
+8. WHEN パスワード履歴を保持する THEN Authentication Serviceは最新3件のみ保持し、古いパスワード履歴を自動削除しなければならない
 
 ### 要件8: セッション管理
 
@@ -316,7 +317,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 16. WHEN アクセストークンが有効期限切れに近づく THEN Frontend Serviceはバックグラウンドで自動的にトークンをリフレッシュしなければならない
 17. IF バックグラウンドリフレッシュが失敗する THEN Frontend Serviceは次のリクエスト時に401エラーハンドリングフローを実行しなければならない
 18. WHEN Authentication Serviceが401レスポンスを返す THEN レスポンスヘッダーにWWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token"を含めなければならない
-19. WHEN 401エラーを検知する THEN Frontend Serviceはローカルストレージまたはクッキーから認証トークンを削除しなければならない
+19. WHEN 401エラーを検知する THEN Frontend Serviceはローカルストレージからアクセストークンを削除し、HttpOnly Cookieからリフレッシュトークンを削除しなければならない
 20. IF ログイン画面以外の公開ページで401エラーが発生する THEN Frontend Serviceはエラーをサイレントに処理し、ユーザーをリダイレクトしてはならない
 21. WHEN 開発環境である THEN Frontend Serviceはトークン有効期限切れをコンソールにログ出力しなければならない
 
@@ -570,7 +571,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 3. WHEN ユーザーがバックアップコードを再生成する THEN Authentication Serviceは既存のバックアップコードを削除し、新しい10個のコードを生成しなければならない
 4. WHEN ユーザーが2FAを無効化する THEN Frontend Serviceはパスワード入力確認ダイアログを表示しなければならない
 5. WHEN 2FA無効化を実行する THEN Authentication Serviceはパスワード検証後、トランザクション内で秘密鍵とバックアップコードを削除しなければならない
-6. WHEN 2FA無効化が完了する THEN Authentication Serviceは全デバイスからユーザーをログアウトさせなければならない
+6. WHEN 2FA無効化が完了する THEN Authentication Serviceは全ての既存リフレッシュトークンを無効化し、全デバイスからユーザーをログアウトさせなければならない
 
 ### 要件27C: 二要素認証（2FA）セキュリティ要件
 
@@ -595,7 +596,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 2. WHEN TOTPコード入力フィールドを表示する THEN Frontend Serviceは6桁の個別入力フィールドを提供し、自動タブ移動を実装しなければならない
 3. WHEN 2FA検証画面を表示する THEN Frontend Serviceは30秒カウントダウンタイマーと視覚的プログレスバーを表示しなければならない
 4. WHEN バックアップコードを表示する THEN Frontend Serviceはダウンロード（.txt形式）、印刷、クリップボードコピー機能を提供しなければならない
-5. WHEN バックアップコード保存確認チェックボックスがオフである THEN Frontend Serviceは「完了」ボタンを無効化しなければならない
+5. WHEN バックアップコード保存確認チェックボックスがオフである THEN Frontend UIは「完了」ボタンを無効化しなければならない
 6. WHEN 2FA設定が完了する THEN Frontend Serviceはトーストメッセージ「二要素認証を有効化しました」を表示しなければならない
 
 ### 要件27E: 二要素認証（2FA）アクセシビリティ要件
