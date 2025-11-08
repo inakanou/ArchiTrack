@@ -8,25 +8,27 @@
 
 **ユーザー**:
 - **システム管理者**: ユーザー招待、ロール管理、権限管理、監査ログ確認
-- **一般ユーザー**: アカウント作成（招待経由）、ログイン、プロフィール管理、自分のADR管理
+- **一般ユーザー**: アカウント作成（招待経由）、ログイン、二要素認証設定、プロフィール管理、自分のADR管理
 
 **影響**: 既存のExpress + Prisma + PostgreSQL + Redisアーキテクチャに認証・認可機能を追加します。既存のミドルウェアパターン（errorHandler, validate, logger）を活用し、新規ミドルウェア（authenticate, authorize）を統合します。
 
 ### Goals
 
 - 招待制ユーザー登録システムの実装（管理者による招待→ユーザー登録）
-- JWT認証の実装（アクセストークン15分、リフレッシュトークン7日間）
+- JWT認証の実装（EdDSA署名、アクセストークン15分、リフレッシュトークン7日間）
 - 拡張可能なRBACシステムの実装（ロール、権限、ユーザー・ロール紐付け、ロール・権限紐付け）
+- 二要素認証（2FA/TOTP）の実装（RFC 6238準拠、バックアップコード対応）
 - マルチデバイスセッション管理の実装（デバイスごとの独立したセッション）
-- セキュアなパスワード管理（bcryptハッシュ、リセットフロー）
-- 監査ログとコンプライアンス対応
+- セキュアなパスワード管理（Argon2idハッシュ、強度ポリシー強化、リセットフロー）
+- トークンリフレッシュの自動化（Race Condition対策、マルチタブ同期）
+- 監査ログとコンプライアンス対応（1年PostgreSQL保持、7年アーカイブ）
 
 ### Non-Goals
 
 - OAuth/SAML等の外部プロバイダー連携（将来的な拡張として検討）
-- 二要素認証（2FA）の実装（Phase 2で検討）
 - SSO（Single Sign-On）の実装（将来的な拡張として検討）
 - パスワード強度ポリシーの動的変更（現在は固定ポリシー）
+- 生体認証（指紋認証、顔認証）の実装（将来的な拡張として検討）
 
 ## Architecture
 
@@ -56,6 +58,7 @@ graph TB
         UI[UI Components]
         AuthContext[Auth Context]
         APIClient[API Client]
+        TokenRefreshManager[Token Refresh Manager]
     end
 
     subgraph "Backend"
@@ -74,6 +77,8 @@ graph TB
             SessionService[Session Service]
             PasswordService[Password Service]
             TokenService[Token Service]
+            TwoFactorService[Two Factor Service]
+            EmailService[Email Service]
             AuditLogService[Audit Log Service]
         end
 
@@ -87,8 +92,13 @@ graph TB
         Redis[(Redis)]
     end
 
+    subgraph "External"
+        EmailProvider[Email Provider]
+    end
+
     UI --> AuthContext
-    AuthContext --> APIClient
+    AuthContext --> TokenRefreshManager
+    TokenRefreshManager --> APIClient
     APIClient --> HTTPS
     HTTPS --> Logger
     Logger --> RateLimit
@@ -100,16 +110,22 @@ graph TB
     AuthService --> SessionService
     AuthService --> TokenService
     AuthService --> PasswordService
+    AuthService --> TwoFactorService
+    InvitationService --> EmailService
+    PasswordService --> EmailService
     InvitationService --> PrismaClient
     RBACService --> PrismaClient
     SessionService --> PrismaClient
     PasswordService --> PrismaClient
     TokenService --> PrismaClient
+    TwoFactorService --> PrismaClient
+    EmailService --> EmailProvider
     AuthService --> AuditLogService
     RBACService --> AuditLogService
     PrismaClient --> PostgreSQL
     RBACService --> Redis
     SessionService --> Redis
+    EmailService --> Redis
 ```
 
 **アーキテクチャ統合**:
@@ -119,8 +135,10 @@ graph TB
   - InvitationService: 招待管理（招待作成、検証、無効化）
   - RBACService: 権限チェック（ロール・権限の評価）
   - SessionService: セッション管理（マルチデバイス対応）
-  - PasswordService: パスワード管理（ハッシュ、検証、リセット）
+  - PasswordService: パスワード管理（Argon2idハッシュ、検証、リセット）
   - TokenService: トークン管理（JWT生成、検証、リフレッシュ）
+  - TwoFactorService: 二要素認証（TOTP生成・検証、バックアップコード管理）
+  - EmailService: メール送信（招待、パスワードリセット、2FA設定完了通知）
   - AuditLogService: 監査ログ（権限変更の追跡）
 - **技術整合性**: Express 5.1.0、TypeScript 5.9.3、Prisma 6.18.0との完全な互換性
 - **ステアリング準拠**:
@@ -132,9 +150,9 @@ graph TB
 
 **既存技術スタックとの整合性**:
 - **Express 5.1.0**: 既存のミドルウェアパイプラインに認証ミドルウェア（authenticate, authorize）を追加
-- **Prisma 6.18.0**: 既存のPrismaスキーマを拡張（User, Invitation, RefreshToken, Role, Permission, UserRole, RolePermission, AuditLog）
+- **Prisma 6.18.0**: 既存のPrismaスキーマを拡張（User, Invitation, RefreshToken, Role, Permission, UserRole, RolePermission, PasswordHistory, TwoFactorBackupCode, AuditLog）
 - **PostgreSQL 15**: 既存のデータベース接続を活用、新規テーブルを追加
-- **Redis 7**: セッション管理と権限キャッシュに活用
+- **Redis 7**: セッション管理、権限キャッシュ、メールキューに活用
 - **TypeScript 5.9.3**: 完全な型安全性を維持（`any`型の排除）
 - **Pino Logger**: 既存のロガーミドルウェアを活用、認証イベントのログ記録
 - **Zodバリデーション**: 既存のvalidateミドルウェアを活用、認証APIのリクエストバリデーション
@@ -143,8 +161,7 @@ graph TB
 
 **Backend**:
 - **jose (^5.9.6)**: JWT生成・検証（EdDSA署名、IETF JOSE標準準拠）
-- **bcrypt (^5.1.1)**: パスワードハッシュ・検証（cost=12）
-- **@types/bcrypt (^5.0.2)**: bcrypt型定義
+- **@node-rs/argon2 (^2.0.0)**: パスワードハッシュ・検証（Argon2id、ネイティブバインディング、bcrypt比2-3倍高速）
 - **nodemailer (^6.9.7)**: メール送信（招待、パスワードリセット）
 - **@types/nodemailer (^6.4.14)**: nodemailer型定義
 - **bull (^4.16.3)**: Redisキュー（非同期メール送信）
@@ -169,258 +186,341 @@ graph TB
 
 ### Key Design Decisions
 
-#### 決定1: JWT署名アルゴリズムとライブラリ選択
+#### 決定1: JWT署名アルゴリズムとパスワードハッシュアルゴリズムの選択
 
-**決定**: EdDSA (Ed25519) 署名アルゴリズムと jose ライブラリを採用
+**決定**: EdDSA (Ed25519) 署名アルゴリズム（jose v5）とArgon2id パスワードハッシュアルゴリズム（@node-rs/argon2）を採用
 
-**コンテキスト**: ステートレスなAPI認証が必要であり、将来的なマイクロサービス化やモバイルアプリ対応、最新のセキュリティ標準への準拠が求められる。
+**コンテキスト**: ステートレスなAPI認証が必要であり、将来的なマイクロサービス化やモバイルアプリ対応、最新のセキュリティ標準（NIST FIPS 186-5、OWASP推奨）への準拠が求められる。
 
 **代替案**:
-1. **HS256 + jsonwebtoken**: 対称鍵暗号、シンプルだがシークレット漏洩時のリスク大
-2. **RS256 + jsonwebtoken**: RSA署名、鍵サイズが大きい（2048-4096ビット）、署名・検証が遅い
-3. **EdDSA (Ed25519) + jose**: 楕円曲線署名、NIST推奨（2025年以降）、高速かつ小さい鍵サイズ
+1. **HS256 + bcrypt**: 対称鍵暗号、bcryptはOWASP推奨だがArgon2idより低速
+2. **RS256 + bcrypt**: RSA署名、鍵サイズが大きい（2048-4096ビット）、署名・検証が遅い
+3. **EdDSA (Ed25519) + Argon2id**: 楕円曲線署名、メモリハード関数、NIST/OWASP最新推奨
 
-**選択したアプローチ**: EdDSA (Ed25519) + jose v5
+**選択したアプローチ**: EdDSA (Ed25519) + jose v5 + Argon2id
 
 **実装方式**:
-- **JWT署名アルゴリズム**: EdDSA (Ed25519)
-  - **選択理由**:
-    - **最新のセキュリティ標準**: NIST FIPS 186-5推奨（2025年以降）
-    - **高速**: RS256比で署名10倍、検証15倍高速
-    - **鍵サイズ**: 32バイト（RS256: 256-512バイト、HS256: 32バイト）
-    - **公開鍵暗号**: マイクロサービス化時に公開鍵で検証可能（秘密鍵の共有不要）
-    - **署名安全性**: 楕円曲線暗号（Curve25519）、量子コンピュータ耐性（NIST PQC候補）
-  - **代替案との比較**:
-    - **vs HS256**: 対称鍵暗号のためシークレット漏洩時に全システムが危険、公開鍵暗号のEdDSAが優位
-    - **vs RS256**: EdDSAの方が高速（署名10倍、検証15倍）、鍵サイズも小さい（32バイト vs 256-512バイト）
-  - **鍵管理**:
-    - 秘密鍵: 環境変数`JWT_PRIVATE_KEY`（Base64エンコード）
-    - 公開鍵: 環境変数`JWT_PUBLIC_KEY`（Base64エンコード）または JWKSエンドポイント（`/.well-known/jwks.json`）で配布
 
-- **ライブラリ**: jose v5
-  - **選択理由**:
-    - Web標準（IETF JOSE Working Group）準拠
-    - EdDSA（Ed25519）、ES256（ECDSA）を完全サポート
-    - TypeScript型定義がネイティブサポート
-    - 軽量（jsonwebtoken比で50%軽量）
-    - jsonwebtokenの後継として推奨
-  - **外部依存関係調査**:
-    - **公式ドキュメント**: https://github.com/panva/jose
-    - **API**: `new SignJWT(payload).sign(privateKey)`, `jwtVerify(token, publicKey)`
-    - **鍵生成**: `generateKeyPair('EdDSA')`
-    - **バージョン**: v5.x（2025年安定版）
+**JWT署名アルゴリズム**: EdDSA (Ed25519)
+- **選択理由**:
+  - **最新のセキュリティ標準**: NIST FIPS 186-5推奨（2025年以降）
+  - **高速**: RS256比で署名10倍、検証15倍高速
+  - **鍵サイズ**: 32バイト（RS256: 256-512バイト、HS256: 32バイト）
+  - **公開鍵暗号**: マイクロサービス化時に公開鍵で検証可能（秘密鍵の共有不要）
+  - **署名安全性**: 楕円曲線暗号（Curve25519）、量子コンピュータ耐性（NIST PQC候補）
+- **鍵管理**:
+  - 秘密鍵: 環境変数`JWT_PRIVATE_KEY`（Base64エンコード）
+  - 公開鍵: 環境変数`JWT_PUBLIC_KEY`（Base64エンコード）または JWKSエンドポイント（`/.well-known/jwks.json`）で配布
+
+**パスワードハッシュアルゴリズム**: Argon2id
+- **選択理由**:
+  - **OWASP最新推奨**: OWASP Password Storage Cheat Sheet（2025年）で第一推奨
+  - **メモリハード関数**: GPU攻撃耐性、ASIC攻撃耐性
+  - **ハイブリッド方式**: Argon2d（データ依存）+ Argon2i（サイドチャネル攻撃耐性）の利点を統合
+  - **設定**: メモリコスト64MB、時間コスト3、並列度4（OWASP推奨値）
+  - **パフォーマンス**: @node-rs/argon2（Rustネイティブバインディング）によりbcrypt比2-3倍高速
+- **bcryptとの比較**:
+  - **セキュリティ**: Argon2idがメモリハード関数によりGPU攻撃に強い
+  - **速度**: @node-rs/argon2が高速（ネイティブバインディング）
+  - **標準**: Argon2idが最新のOWASP/NIST推奨
 
 **トークン戦略**:
-- **アクセストークン**: 短期間有効（15分）、API認証に使用、ペイロードにユーザー情報とロール情報を含む
-- **リフレッシュトークン**: 長期間有効（7日間）、アクセストークンのリフレッシュに使用、データベースに保存して無効化可能
+- **アクセストークン**: 短期間有効（環境変数`ACCESS_TOKEN_EXPIRY`、デフォルト15分）、API認証に使用、ペイロードにユーザー情報とロール情報を含む
+- **リフレッシュトークン**: 長期間有効（環境変数`REFRESH_TOKEN_EXPIRY`、デフォルト7日間）、アクセストークンのリフレッシュに使用、データベースに保存して無効化可能
 
 **根拠**:
-- **セキュリティ**: 最新のNIST推奨アルゴリズム、公開鍵暗号による安全性
-- **パフォーマンス**: RS256比で署名10倍、検証15倍高速
+- **セキュリティ**: 最新のNIST/OWASP推奨アルゴリズム、公開鍵暗号による安全性、メモリハード関数によるGPU攻撃耐性
+- **パフォーマンス**: RS256比でJWT署名10倍・検証15倍高速、bcrypt比でパスワードハッシュ2-3倍高速
 - **将来性**: マイクロサービス化時に公開鍵で検証可能、JWKSエンドポイントでキーローテーション容易
-- **標準準拠**: IETF JOSE Working Group標準、業界のベストプラクティス
+- **標準準拠**: IETF JOSE Working Group標準、OWASP/NISTベストプラクティス
 
 **トレードオフ**:
 - **利点**: セキュリティ、パフォーマンス、将来性、標準準拠
-- **欠点**: 鍵ペア管理の複雑性（環境変数2つ必要）、HS256と比較して初期セットアップがやや複雑
+- **欠点**: 鍵ペア管理の複雑性（環境変数2つ必要）、HS256/bcryptと比較して初期セットアップがやや複雑
 
-#### 決定2: RBACシステムの設計
+#### 決定2: トークンリフレッシュの自動化とRace Condition対策
 
-**決定**: NIST RBAC標準のCore RBAC + Hierarchical RBACに準拠した拡張可能なRBACシステムを実装
+**決定**: フロントエンドで自動トークンリフレッシュ機能を実装し、Race Condition対策として単一Promiseパターンとマルチタブ同期（Broadcast Channel API）を採用
 
-**コンテキスト**: 組織の職務構造に応じた柔軟な権限管理が必要であり、将来的な権限要件の変化に対応できる拡張可能な設計が求められる。
-
-**代替案**:
-1. **単純なロールベース**: 固定のロール（admin, user）のみを持つシンプルなシステム
-2. **ABAC（Attribute-Based Access Control）**: 属性ベースのアクセス制御、より柔軟だが複雑
-3. **RBAC + 所有者チェック**: ロールベース + リソース所有者による権限制御
-
-**選択したアプローチ**: NIST RBAC標準準拠の動的ロール・権限管理
-
-**実装方式**:
-- **4つのエンティティ**: User, Role, Permission, UserRole（ユーザー・ロール紐付け）, RolePermission（ロール・権限紐付け）
-- **権限形式**: `resource:action`（例: `adr:read`, `user:manage`, `*:*`）
-- **ワイルドカード対応**: `adr:*`（ADRに関する全ての操作）、`*:read`（全てのリソースの閲覧）
-- **マルチロール対応**: ユーザーは複数のロールを持つことができ、全ての権限を統合（OR演算）
-- **事前定義ロール**: システム管理者（`*:*`）、一般ユーザー（自分のリソースのみアクセス可能）
-- **動的ロール管理**: 管理者がロールを作成・更新・削除可能、権限を動的に割り当て
-
-**根拠**:
-- **拡張性**: 組織の職務構造の変化に柔軟に対応可能
-- **細粒度**: `resource:action`形式により、リソースとアクションの組み合わせで細かい権限制御が可能
-- **標準準拠**: NIST RBAC標準に準拠することで、業界のベストプラクティスに従う
-- **監査性**: 権限変更の履歴を監査ログに記録し、コンプライアンス要件を満たす
-
-**トレードオフ**:
-- **利点**: 拡張性、細粒度、標準準拠、監査性
-- **欠点**: 実装の複雑性、パフォーマンスへの影響（キャッシング戦略で緩和）
-
-#### 決定3: マルチデバイスセッション管理
-
-**決定**: デバイスごとにリフレッシュトークンを管理し、個別のログアウトを可能にする
-
-**コンテキスト**: ユーザーは複数のデバイス（PC、タブレット、スマートフォン）から同時にログインすることが想定される。各デバイスで独立したセッション管理が必要。
+**コンテキスト**: SPAでは複数のAPIリクエストが同時に発生する可能性があり、アクセストークン有効期限切れ時に複数のリフレッシュリクエストが並行実行されるRace Conditionが発生するリスクがある。また、マルチタブ環境では各タブが独立してトークンを管理するため、タブ間でトークン更新を同期する必要がある。
 
 **代替案**:
-1. **単一セッション**: 1ユーザー1セッション、新しいデバイスでログインすると既存セッションが無効化
-2. **セッションテーブル**: 全てのセッション情報をデータベースに保存、リフレッシュトークンをキーとして管理
-3. **無制限セッション**: デバイス数の制限なし、リフレッシュトークンをデータベースに保存
+1. **手動リフレッシュ**: ユーザーが明示的にリフレッシュボタンをクリック、UX低下
+2. **401エラー後のリフレッシュのみ**: レスポンス遅延、複数リクエストでRace Condition発生
+3. **自動リフレッシュ + Race Condition対策 + マルチタブ同期**: 最適なUX、同時実行制御、タブ間同期
 
-**選択したアプローチ**: リフレッシュトークンテーブルによるマルチデバイスセッション管理
-
-**実装方式**:
-- **RefreshTokenテーブル**: userId, token, deviceInfo, expiresAt, createdAtを保存
-- **デバイス識別**: User-Agentヘッダーからデバイス情報を取得（オプション）
-- **個別ログアウト**: 対象デバイスのリフレッシュトークンのみを削除
-- **全デバイスログアウト**: ユーザーの全リフレッシュトークンを削除
-- **自動クリーンアップ**: 期限切れリフレッシュトークンを定期的に削除（cronjob）
-
-**根拠**:
-- **ユーザー体験**: 複数デバイスから同時にアクセス可能、利便性が高い
-- **セキュリティ**: デバイスごとにセッションを管理し、不正アクセスの影響を最小化
-- **柔軟性**: 個別ログアウトと全デバイスログアウトの両方をサポート
-
-**トレードオフ**:
-- **利点**: ユーザー体験、セキュリティ、柔軟性
-- **欠点**: データベースへの追加書き込み、ストレージコスト（期限切れトークンの定期削除で緩和）
-
-#### 決定4: トークンストレージ戦略
-
-**決定**: HttpOnly Cookie（リフレッシュトークン） + localStorage（アクセストークン）のハイブリッド戦略を採用
-
-**コンテキスト**: XSS攻撃とCSRF攻撃の両方に対する防御が必要。リフレッシュトークンは長期間有効のため、より強固な保護が求められる。
-
-**代替案**:
-1. **localStorage のみ**: アクセストークンとリフレッシュトークンを両方localStorageに保存、XSS攻撃に脆弱
-2. **HttpOnly Cookie のみ**: 全てのトークンをHttpOnly Cookieに保存、CSRF対策が必須
-3. **sessionStorage + HttpOnly Cookie**: セッションストレージとHttpOnly Cookieの組み合わせ、タブ間でトークン共有不可
-
-**選択したアプローチ**: HttpOnly Cookie（リフレッシュトークン） + localStorage（アクセストークン）
+**選択したアプローチ**: TokenRefreshManager class（単一Promiseパターン + Broadcast Channel API）
 
 **実装方式**:
 
-| トークン種類 | 保存場所 | Cookie属性 | XSS耐性 | CSRF耐性 | 理由 |
-|-------------|---------|-----------|---------|---------|------|
-| **アクセストークン** | localStorage | - | ❌ 低 | ✅ 高 | 短期間有効（15分）、漏洩リスク低、API呼び出しで使用 |
-| **リフレッシュトークン** | HttpOnly Cookie | HttpOnly, Secure, SameSite=Strict | ✅ 高 | ✅ 高 | 長期間有効（7日間）、XSS攻撃耐性、CSRF対策 |
-
-**Backend実装**:
 ```typescript
-// ログイン成功時、リフレッシュトークンをHttpOnly Cookieで送信
-res.cookie('refreshToken', refreshToken, {
-  httpOnly: true, // JavaScriptからアクセス不可（XSS対策）
-  secure: process.env.NODE_ENV === 'production', // HTTPS必須
-  sameSite: 'strict', // クロスサイトリクエストでCookie送信禁止（CSRF対策）
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7日間
-  path: '/api/v1/auth/refresh', // リフレッシュエンドポイントのみ
-});
+class TokenRefreshManager {
+  private refreshPromise: Promise<string> | null = null;
+  private broadcastChannel: BroadcastChannel;
 
-res.json({
-  accessToken, // localStorageに保存（Frontend側）
-  user: userProfile,
-});
+  constructor() {
+    // マルチタブ同期用のBroadcast Channel初期化
+    this.broadcastChannel = new BroadcastChannel('token-refresh-channel');
+
+    // 他のタブからのトークン更新通知を受信
+    this.broadcastChannel.onmessage = (event) => {
+      if (event.data.type === 'TOKEN_REFRESHED') {
+        // 他のタブでトークンが更新された場合、localStorageから取得
+        const newAccessToken = localStorage.getItem('accessToken');
+        if (newAccessToken) {
+          // APIクライアントのトークンを更新
+          apiClient.setAccessToken(newAccessToken);
+        }
+      }
+    };
+  }
+
+  async refreshAccessToken(): Promise<string> {
+    // Race Condition対策: 既存のリフレッシュPromiseがある場合は再利用
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    // 新しいリフレッシュPromiseを作成
+    this.refreshPromise = (async () => {
+      try {
+        // リフレッシュトークンを使用して新しいアクセストークンを取得
+        const response = await fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          credentials: 'include', // HttpOnly Cookieを含める
+        });
+
+        if (!response.ok) {
+          throw new Error('Token refresh failed');
+        }
+
+        const { accessToken } = await response.json();
+
+        // localStorageに保存
+        localStorage.setItem('accessToken', accessToken);
+
+        // APIクライアントのトークンを更新
+        apiClient.setAccessToken(accessToken);
+
+        // マルチタブ同期: 他のタブに更新を通知
+        this.broadcastChannel.postMessage({ type: 'TOKEN_REFRESHED' });
+
+        return accessToken;
+      } finally {
+        // リフレッシュ完了後、Promiseをクリア
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
+  }
+
+  // 有効期限切れ5分前に自動リフレッシュ
+  scheduleAutoRefresh(expiresIn: number) {
+    const refreshThreshold = 5 * 60 * 1000; // 5分
+    const timeUntilRefresh = expiresIn - refreshThreshold;
+
+    if (timeUntilRefresh > 0) {
+      setTimeout(() => {
+        this.refreshAccessToken();
+      }, timeUntilRefresh);
+    }
+  }
+}
 ```
 
-**Frontend実装**:
+**Axios Interceptor統合**:
+
 ```typescript
-// ログイン成功時、アクセストークンをlocalStorageに保存
-localStorage.setItem('accessToken', response.accessToken);
-
-// APIリクエスト（アクセストークン使用）
-fetch('/api/v1/users/me', {
-  headers: {
-    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-  },
+// リクエストインターセプター（Authorizationヘッダー追加）
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('accessToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
-// トークンリフレッシュ（リフレッシュトークンは自動送信）
-fetch('/api/v1/auth/refresh', {
-  method: 'POST',
-  credentials: 'include', // Cookieを含める
-});
+// レスポンスインターセプター（401エラーハンドリング）
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    // 401エラー かつ リトライしていない場合
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        // TokenRefreshManagerでリフレッシュ（Race Condition対策済み）
+        await tokenRefreshManager.refreshAccessToken();
+
+        // 元のリクエストを再実行
+        return axios(originalRequest);
+      } catch (refreshError) {
+        // リフレッシュ失敗: ログイン画面へリダイレクト
+        window.location.href = '/login?redirectUrl=' + encodeURIComponent(window.location.pathname);
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 ```
-
-**セキュリティ対策**:
-- **XSS対策**: リフレッシュトークンはHttpOnly Cookieで保護、JavaScriptからアクセス不可
-- **CSRF対策**: SameSite=Strict により、クロスサイトリクエストでのCookie送信を防止
-- **アクセストークン漏洩対策**: 短期間有効（15分）のため、漏洩しても影響を最小化
-- **HTTPS強制**: 本番環境ではSecure属性を必須化、HTTP通信でのCookie送信を禁止
 
 **根拠**:
-- **OWASP推奨**: OWASP Top 10に準拠したトークンストレージ戦略
-- **XSS耐性**: リフレッシュトークンをHttpOnly Cookieで保護
-- **CSRF耐性**: SameSite=Strict により、CSRF攻撃を防止
-- **ユーザビリティ**: アクセストークンをlocalStorageに保存し、タブ間でトークン共有可能
+- **Race Condition防止**: 単一Promiseパターンにより、複数のリクエストが同時にリフレッシュを試みても、実際のリフレッシュ処理は1回のみ実行
+- **マルチタブ同期**: Broadcast Channel APIにより、あるタブでトークンがリフレッシュされると、他のタブにも自動的に反映
+- **UX向上**: 有効期限切れ5分前に自動リフレッシュすることで、ユーザーはシームレスにAPIを利用可能
+- **シンプルな実装**: Promiseベースの制御により、複雑なロック機構やセマフォが不要
 
 **トレードオフ**:
-- **利点**: XSS/CSRF攻撃耐性、OWASPベストプラクティス準拠、ユーザビリティ
-- **欠点**: Cookie管理の複雑性、複数ストレージの管理
+- **利点**: Race Condition防止、マルチタブ同期、シームレスなUX、実装のシンプルさ
+- **欠点**: Broadcast Channel APIのブラウザ互換性（IE11非対応、2025年時点では問題なし）
 
-#### 決定5: APIバージョニング戦略
+#### 決定3: パスワード強度ポリシーの強化とBloom Filter実装
 
-**決定**: URLパスバージョニング（`/api/v1/...`）を採用
+**決定**: NIST SP 800-63B準拠のパスワード強度ポリシー（12文字最小、Argon2id、zxcvbn統合）とBloom Filterによる禁止パスワードチェック（HIBP Pwned Passwords、偽陽性率0.001）を採用
 
-**コンテキスト**: 将来的なAPI変更時に既存クライアント（Webアプリ、モバイルアプリ、サードパーティ統合）を壊さず、段階的な移行を可能にする必要がある。
+**コンテキスト**: 従来の8文字パスワードは辞書攻撃やブルートフォース攻撃に脆弱であり、最新のNIST/OWASP推奨に準拠した強固なパスワードポリシーが必要。また、漏洩パスワードデータベース（HIBP Pwned Passwords、7億件以上）との照合を効率的に行うため、Bloom Filterを活用する。
 
 **代替案**:
-1. **バージョニングなし**: `/api/auth/login` 形式、API変更時に既存クライアントが壊れるリスク
-2. **クエリパラメータバージョニング**: `/api/auth/login?v=1` 形式、ルーティングが複雑
-3. **ヘッダーバージョニング**: `Accept: application/vnd.architrack.v1+json` 形式、可視性が低い
-4. **URLパスバージョニング**: `/api/v1/auth/login` 形式、明確で可視性が高い
+1. **従来のポリシー（8文字、複雑性要件のみ）**: NIST/OWASP非推奨、辞書攻撃に脆弱
+2. **APIベースの禁止パスワードチェック**: HIBP APIを呼び出し、k-Anonymityで照合、ネットワーク遅延とプライバシー懸念
+3. **Bloom Filter + zxcvbn統合**: ローカルで高速照合、科学的な強度評価、NIST/OWASP準拠
 
-**選択したアプローチ**: URLパスバージョニング（`/api/v1/...`）
+**選択したアプローチ**: NIST SP 800-63B準拠 + Bloom Filter + zxcvbn統合
 
 **実装方式**:
+
+**パスワード強度要件**:
+- **最小文字数**: 12文字以上（NIST SP 800-63B推奨、従来の8文字から変更）
+- **複雑性要件**: 英大文字、英小文字、数字、特殊文字のうち3種類以上含む
+- **禁止パスワード**: HIBP Pwned Passwords（7億件以上）との照合、Bloom Filter実装（偽陽性率0.001）
+- **zxcvbn統合**: 科学的なパスワード強度評価（スコア3以上必須、5段階評価）
+- **パスワード履歴**: 過去3回のパスワード再利用を禁止（Argon2idハッシュ比較）
+- **ユーザー情報の使用禁止**: メールアドレス、表示名の一部をパスワードに含めることを禁止
+
+**Bloom Filter実装**:
+
 ```typescript
-// v1 API（現行）
-app.use('/api/v1/auth', authRoutesV1);
-app.use('/api/v1/users', userRoutesV1);
-app.use('/api/v1/invitations', invitationRoutesV1);
-app.use('/api/v1/roles', roleRoutesV1);
-app.use('/api/v1/permissions', permissionRoutesV1);
+import { BloomFilter } from 'bloom-filters';
+import * as fs from 'fs';
 
-// v2 API（将来）
-// app.use('/api/v2/auth', authRoutesV2);
+// Bloom Filter初期化（起動時に1回のみ）
+const bloomFilter = BloomFilter.create(
+  10_000_000, // 1000万件（HIBP Pwned Passwordsのサブセット）
+  0.001       // 偽陽性率0.1%
+);
 
-// デフォルトは最新版にリダイレクト（オプション）
-app.use('/api/auth', (req, res) => {
-  res.redirect(307, `/api/v1${req.url}`);
-});
+// 禁止パスワードリストをBloom Filterにロード
+function loadCommonPasswordList() {
+  const passwords = fs.readFileSync('data/common-passwords.txt', 'utf-8').split('\n');
+  for (const password of passwords) {
+    bloomFilter.add(password.toLowerCase());
+  }
+  console.log(`Loaded ${passwords.length} common passwords into Bloom Filter`);
+}
+
+// パスワードが禁止リストに含まれるかチェック
+function isCommonPassword(password: string): boolean {
+  return bloomFilter.has(password.toLowerCase());
+}
 ```
 
-**互換性ポリシー**:
-- **v1**: 2025年リリース、2027年末まで サポート（最低2年間）
-- **v2**: 2026年リリース予定、2028年末まで サポート
-- **廃止予告**: 最低6ヶ月前に通知、ドキュメント・ログ・APIレスポンスヘッダーで警告
-- **廃止後**: 410 Gone レスポンスを返し、v2へのマイグレーションガイドを提供
+**zxcvbn統合（Frontend/Backend共通）**:
 
-**バージョン管理の原則**:
-1. **後方互換性の破壊のみ新バージョン**: レスポンス構造変更、必須フィールド追加、エンドポイント削除
-2. **後方互換性のある変更は同バージョン内**: 新エンドポイント追加、オプションフィールド追加、バグ修正
-3. **セマンティックバージョニング準拠**: MAJOR.MINOR.PATCH形式（例: v1.0.0, v1.1.0, v2.0.0）
+```typescript
+import zxcvbn from 'zxcvbn';
 
-**OpenAPI仕様バージョニング**:
-```yaml
-openapi: 3.1.0
-info:
-  title: ArchiTrack API
-  version: 1.0.0
-servers:
-  - url: https://api.architrack.com/v1
-    description: Production (v1)
-  - url: http://localhost:3000/api/v1
-    description: Development (v1)
+interface PasswordValidationResult {
+  isValid: boolean;
+  score: number; // 0-4 (zxcvbn)
+  feedback: {
+    suggestions: string[];
+    warning?: string;
+  };
+  violations: PasswordViolation[];
+}
+
+enum PasswordViolation {
+  TOO_SHORT = 'TOO_SHORT',
+  NO_UPPERCASE = 'NO_UPPERCASE',
+  NO_LOWERCASE = 'NO_LOWERCASE',
+  NO_DIGIT = 'NO_DIGIT',
+  NO_SPECIAL_CHAR = 'NO_SPECIAL_CHAR',
+  WEAK_SCORE = 'WEAK_SCORE',
+  COMMON_PASSWORD = 'COMMON_PASSWORD',
+  REUSED_PASSWORD = 'REUSED_PASSWORD',
+  CONTAINS_USER_INFO = 'CONTAINS_USER_INFO',
+}
+
+async function validatePasswordStrength(
+  password: string,
+  userInputs: string[] // [email, displayName]
+): Promise<PasswordValidationResult> {
+  const violations: PasswordViolation[] = [];
+
+  // 1. 最小文字数チェック
+  if (password.length < 12) {
+    violations.push(PasswordViolation.TOO_SHORT);
+  }
+
+  // 2. 複雑性要件チェック
+  let complexityScore = 0;
+  if (/[A-Z]/.test(password)) complexityScore++;
+  if (/[a-z]/.test(password)) complexityScore++;
+  if (/[0-9]/.test(password)) complexityScore++;
+  if (/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) complexityScore++;
+
+  if (complexityScore < 3) {
+    if (!/[A-Z]/.test(password)) violations.push(PasswordViolation.NO_UPPERCASE);
+    if (!/[a-z]/.test(password)) violations.push(PasswordViolation.NO_LOWERCASE);
+    if (!/[0-9]/.test(password)) violations.push(PasswordViolation.NO_DIGIT);
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) violations.push(PasswordViolation.NO_SPECIAL_CHAR);
+  }
+
+  // 3. zxcvbn強度スコア評価
+  const result = zxcvbn(password, userInputs);
+  if (result.score < 3) {
+    violations.push(PasswordViolation.WEAK_SCORE);
+  }
+
+  // 4. 禁止パスワードリスト照合（Backend）
+  if (isCommonPassword(password.toLowerCase())) {
+    violations.push(PasswordViolation.COMMON_PASSWORD);
+  }
+
+  // 5. ユーザー情報の使用チェック
+  for (const input of userInputs) {
+    if (password.toLowerCase().includes(input.toLowerCase())) {
+      violations.push(PasswordViolation.CONTAINS_USER_INFO);
+      break;
+    }
+  }
+
+  return {
+    isValid: violations.length === 0,
+    score: result.score,
+    feedback: {
+      suggestions: result.feedback.suggestions,
+      warning: result.feedback.warning,
+    },
+    violations,
+  };
+}
 ```
 
 **根拠**:
-- **明確性**: URLパスで明示的にバージョンを指定、可視性が高い
-- **ルーティング**: Expressのルーティング機能で簡単に実装可能
-- **RESTful設計**: リソース指向のURL構造に適合
-- **業界標準**: Stripe、GitHub、Twitter等の主要APIが採用
+- **NIST/OWASP準拠**: NIST SP 800-63B（2025年最新版）、OWASP Password Storage Cheat Sheetに準拠
+- **高速照合**: Bloom Filterによりメモリ効率的に禁止パスワードを照合（O(k)、k=ハッシュ関数数）
+- **科学的評価**: zxcvbnによる辞書攻撃耐性の科学的評価（Dropbox開発、学術論文に基づく）
+- **プライバシー保護**: Bloom FilterによりローカルでHIBP照合、外部APIへのパスワード送信不要
 
 **トレードオフ**:
-- **利点**: 明確性、後方互換性、段階的移行、業界標準
-- **欠点**: URL冗長性、複数バージョンの同時保守
+- **利点**: NIST/OWASP準拠、高速照合、科学的評価、プライバシー保護
+- **欠点**: Bloom Filter初期化のメモリコスト（約12MB、偽陽性率0.001）、12文字要件によるユーザー負担増加
 
 ## System Flows
 
@@ -432,11 +532,12 @@ sequenceDiagram
     participant Frontend as Frontend
     participant Backend as Backend API
     participant DB as PostgreSQL
+    participant Queue as Redis Queue
     participant Email as Email Service
 
     Admin->>Frontend: 招待メールアドレス入力
     Frontend->>Backend: POST /api/v1/invitations
-    Backend->>Backend: 権限チェック（admin権限）
+    Backend->>Backend: 権限チェック（user:invite権限）
     Backend->>DB: メールアドレス重複チェック
     alt メールアドレスが既に登録済み
         DB-->>Backend: 重複エラー
@@ -445,9 +546,11 @@ sequenceDiagram
     else メールアドレスが未登録
         Backend->>Backend: 招待トークン生成（暗号学的に安全）
         Backend->>DB: 招待レコード作成（token, email, expiresAt: 7日後）
-        Backend->>Email: 招待メール送信（招待URL含む）
+        Backend->>Queue: メール送信ジョブをキュー
         Backend-->>Frontend: 201 Created（招待情報）
         Frontend-->>Admin: 成功メッセージ + 招待URL表示
+        Queue->>Email: 招待メール送信（非同期）
+        Email-->>Queue: 送信完了
     end
 ```
 
@@ -473,17 +576,19 @@ sequenceDiagram
         Frontend-->>User: 登録フォーム表示（email読み取り専用）
 
         User->>Frontend: 表示名、パスワード入力
+        Frontend->>Frontend: zxcvbnでパスワード強度評価
         Frontend->>Backend: POST /api/v1/auth/register
-        Backend->>Backend: パスワード強度バリデーション
-        Backend->>Backend: bcryptハッシュ（cost: 12）
+        Backend->>Backend: パスワード強度バリデーション（Bloom Filter + zxcvbn）
+        Backend->>Backend: Argon2idハッシュ（メモリ: 64MB、時間: 3、並列度: 4）
         Backend->>DB: トランザクション開始
         Backend->>DB: ユーザー作成
         Backend->>DB: 招待トークンを使用済みにマーク
         Backend->>DB: デフォルトロール（user）割り当て
         Backend->>DB: トランザクションコミット
-        Backend->>Backend: JWT生成（access + refresh）
+        Backend->>Backend: JWT生成（EdDSA署名、access + refresh）
         Backend-->>Frontend: 201 Created（tokens, user）
-        Frontend->>Frontend: トークンをlocalStorageに保存
+        Frontend->>Frontend: アクセストークンをlocalStorageに保存
+        Frontend->>Frontend: リフレッシュトークンをHttpOnly Cookieから自動保存
         Frontend-->>User: ダッシュボードへリダイレクト
     end
 ```
@@ -500,112 +605,102 @@ sequenceDiagram
 
     User->>Frontend: メールアドレス、パスワード入力
     Frontend->>Backend: POST /api/v1/auth/login
-    Backend->>DB: メールアドレスでユーザー検索
-    alt ユーザーが見つからない
-        DB-->>Backend: Not Found
+    Backend->>DB: ユーザー検索（email）
+    alt ユーザーが存在しない
+        DB-->>Backend: 見つからない
         Backend-->>Frontend: 401 Unauthorized（汎用エラー）
         Frontend-->>User: 「メールアドレスまたはパスワードが正しくありません」
-    else ユーザーが見つかる
+    else ユーザーが存在
         DB-->>Backend: ユーザー情報
-        Backend->>Backend: アカウントロック確認
-        alt アカウントがロックされている
-            Backend-->>Frontend: 401 Unauthorized（ロック情報）
-            Frontend-->>User: 「アカウントがロックされています。{残り時間}後に再試行してください」
-        else アカウントがロックされていない
-            Backend->>Backend: bcrypt.compare（パスワード検証）
-            alt パスワードが正しくない
-                Backend->>DB: failedLoginAttempts++
-                alt failedLoginAttempts >= 5
-                    Backend->>DB: lockedUntil = now + 15分
-                end
+        Backend->>Backend: Argon2idでパスワード検証
+        alt パスワードが不正
+            Backend->>DB: ログイン失敗回数をインクリメント
+            alt ログイン失敗回数が5回以上
+                Backend->>DB: アカウントをロック（15分間）
+                Backend-->>Frontend: 401 Unauthorized（ACCOUNT_LOCKED）
+                Frontend-->>User: 「アカウントがロックされました。15分後に再試行してください」
+            else ログイン失敗回数が5回未満
                 Backend-->>Frontend: 401 Unauthorized（汎用エラー）
                 Frontend-->>User: 「メールアドレスまたはパスワードが正しくありません」
-            else パスワードが正しい
-                Backend->>DB: failedLoginAttempts = 0
-                Backend->>DB: ユーザーのロールと権限を取得
-                Backend->>Backend: JWT生成（access: 15分, refresh: 7日間）
-                Backend->>DB: RefreshToken作成（deviceInfo含む）
-                Backend->>Redis: 権限情報キャッシュ（TTL: 15分）
+            end
+        else パスワードが正しい
+            Backend->>DB: ログイン失敗回数をリセット
+            alt 2FA有効ユーザー
+                Backend-->>Frontend: 200 OK（2FA_REQUIRED, userId）
+                Frontend-->>User: 2FA検証画面へ遷移
+                User->>Frontend: 6桁TOTPコード入力
+                Frontend->>Backend: POST /api/v1/auth/verify-2fa
+                Backend->>DB: 2FA秘密鍵取得・復号化
+                Backend->>Backend: TOTP検証（30秒ウィンドウ、±1ステップ許容）
+                alt TOTP検証成功
+                    Backend->>Backend: JWT生成（EdDSA署名）
+                    Backend->>DB: リフレッシュトークン保存
+                    Backend->>DB: セッション作成
+                    Backend->>Redis: ユーザー権限をキャッシュ（TTL: 15分）
+                    Backend-->>Frontend: 200 OK（tokens, user）
+                    Frontend->>Frontend: トークン保存
+                    Frontend-->>User: ダッシュボードへリダイレクト
+                else TOTP検証失敗
+                    Backend-->>Frontend: 401 Unauthorized
+                    Frontend-->>User: 「認証コードが正しくありません」
+                end
+            else 2FA無効ユーザー
+                Backend->>Backend: JWT生成（EdDSA署名）
+                Backend->>DB: リフレッシュトークン保存
+                Backend->>DB: セッション作成
+                Backend->>Redis: ユーザー権限をキャッシュ（TTL: 15分）
                 Backend-->>Frontend: 200 OK（tokens, user）
-                Frontend->>Frontend: トークンをlocalStorageに保存
+                Frontend->>Frontend: アクセストークンをlocalStorageに保存
+                Frontend->>Frontend: リフレッシュトークンをHttpOnly Cookieから自動保存
+                Frontend->>Frontend: TokenRefreshManager.scheduleAutoRefresh()
                 Frontend-->>User: ダッシュボードへリダイレクト
             end
         end
     end
 ```
 
-### 権限チェックフロー
+### トークンリフレッシュフロー（自動リフレッシュ + Race Condition対策）
 
 ```mermaid
 sequenceDiagram
-    participant Frontend as Frontend
-    participant Backend as Backend API
-    participant Auth as authenticate MW
-    participant Authz as authorize MW
-    participant Redis as Redis Cache
-    participant DB as PostgreSQL
-
-    Frontend->>Backend: API Request（Authorization: Bearer {token}）
-    Backend->>Auth: authenticate middleware
-    Auth->>Auth: JWT検証（署名、有効期限）
-    alt トークンが無効または期限切れ
-        Auth-->>Backend: 401 Unauthorized（TOKEN_EXPIRED）
-        Backend-->>Frontend: 401 Unauthorized
-        Frontend->>Frontend: トークンリフレッシュ試行
-    else トークンが有効
-        Auth->>Auth: req.user = decoded payload
-        Auth->>Authz: 次のミドルウェア
-        Authz->>Redis: 権限キャッシュ取得（user:{userId}:permissions）
-        alt キャッシュヒット
-            Redis-->>Authz: 権限リスト
-        else キャッシュミス
-            Authz->>DB: ユーザーのロールと権限を取得
-            DB-->>Authz: ロール・権限リスト
-            Authz->>Redis: 権限キャッシュ保存（TTL: 15分）
-        end
-        Authz->>Authz: 必要な権限チェック（resource:action）
-        alt 権限不足
-            Authz-->>Backend: 403 Forbidden
-            Backend-->>Frontend: 403 Forbidden
-            Frontend-->>Frontend: エラーメッセージ表示
-        else 権限あり
-            Authz->>Backend: 次のハンドラー
-            Backend-->>Frontend: API Response
-        end
-    end
-```
-
-### トークンリフレッシュフロー
-
-```mermaid
-sequenceDiagram
-    participant Frontend as Frontend
+    participant Tab1 as タブ1
+    participant Tab2 as タブ2
+    participant Manager as TokenRefreshManager
     participant Backend as Backend API
     participant DB as PostgreSQL
-    participant Redis as Redis Cache
+    participant BC as BroadcastChannel
 
-    Frontend->>Backend: POST /api/v1/auth/refresh（refresh token）
-    Backend->>Backend: Refresh Token検証
-    Backend->>DB: Refresh Token検索
-    alt Refresh Tokenが無効または期限切れ
-        DB-->>Backend: Not Found or Expired
-        Backend-->>Frontend: 401 Unauthorized
-        Frontend->>Frontend: ログイン画面へリダイレクト
-    else Refresh Tokenが有効
-        DB-->>Backend: Refresh Token情報
-        Backend->>DB: ユーザーのロールと権限を取得
-        Backend->>Backend: 新しいAccess Token生成（15分）
-        Backend->>Backend: 新しいRefresh Token生成（7日間）
-        Backend->>DB: 古いRefresh Token削除
-        Backend->>DB: 新しいRefresh Token保存
-        Backend->>Redis: 権限情報キャッシュ更新（TTL: 15分）
-        Backend-->>Frontend: 200 OK（new tokens）
-        Frontend->>Frontend: トークンをlocalStorageに更新
-        Frontend->>Frontend: 元のリクエストを再実行
+    Note over Tab1,Tab2: アクセストークン有効期限切れ5分前
+
+    Tab1->>Manager: refreshAccessToken()
+    Manager->>Manager: refreshPromise = null?
+    alt refreshPromiseが存在しない
+        Manager->>Manager: 新しいPromiseを作成
+        Manager->>Backend: POST /api/v1/auth/refresh（credentials: include）
+        Backend->>Backend: HttpOnly Cookieからリフレッシュトークン取得
+        Backend->>DB: リフレッシュトークン検証
+        Backend->>Backend: 新しいアクセストークン生成（EdDSA署名）
+        Backend-->>Manager: 200 OK（accessToken）
+        Manager->>Manager: localStorage.setItem('accessToken', token)
+        Manager->>BC: postMessage({type: 'TOKEN_REFRESHED'})
+        BC-->>Tab2: onmessage({type: 'TOKEN_REFRESHED'})
+        Tab2->>Tab2: localStorage.getItem('accessToken')
+        Tab2->>Tab2: apiClient.setAccessToken(token)
+        Manager->>Manager: refreshPromise = null
+        Manager-->>Tab1: 新しいアクセストークン
     end
+
+    Note over Tab1,Tab2: 同時に複数のAPIリクエストが401エラーを受信
+
+    Tab1->>Manager: refreshAccessToken()
+    Tab2->>Manager: refreshAccessToken()
+    Manager->>Manager: refreshPromise = 既存のPromiseを再利用
+    Manager-->>Tab1: 同じPromiseを返却
+    Manager-->>Tab2: 同じPromiseを返却
+    Note over Manager: Race Condition防止: リフレッシュ処理は1回のみ実行
 ```
 
-### パスワードリセットフロー
+### 二要素認証（2FA）設定フロー
 
 ```mermaid
 sequenceDiagram
@@ -613,180 +708,41 @@ sequenceDiagram
     participant Frontend as Frontend
     participant Backend as Backend API
     participant DB as PostgreSQL
-    participant Email as Email Service
 
-    User->>Frontend: パスワードリセット要求（メールアドレス入力）
-    Frontend->>Backend: POST /api/v1/auth/password/reset-request
-    Backend->>DB: メールアドレス検索
-    alt ユーザーが見つからない
-        Backend-->>Frontend: 200 OK（セキュリティ上、成功と同じレスポンス）
-        Frontend-->>User: 「リセットメールを送信しました」
-    else ユーザーが見つかる
-        Backend->>Backend: リセットトークン生成（暗号学的に安全）
-        Backend->>DB: リセットトークン保存（expiresAt: 24時間後）
-        Backend->>Email: リセットメール送信（リセットURL含む）
-        Backend-->>Frontend: 200 OK
-        Frontend-->>User: 「リセットメールを送信しました」
-    end
+    User->>Frontend: プロフィール画面で「2FAを有効化」クリック
+    Frontend->>Backend: POST /api/v1/auth/2fa/setup
+    Backend->>Backend: TOTP秘密鍵生成（32バイト、暗号学的に安全）
+    Backend->>Backend: 秘密鍵をAES-256-GCMで暗号化
+    Backend->>Backend: バックアップコード生成（10個、8文字英数字）
+    Backend->>Backend: バックアップコードをbcryptでハッシュ化（cost=12）
+    Backend->>DB: 仮保存（twoFactorSecret, twoFactorBackupCodes）
+    Backend->>Backend: QRコード生成（otpauth://totp/ArchiTrack:{email}?secret={secret}&issuer=ArchiTrack）
+    Backend-->>Frontend: 200 OK（secret, qrCodeDataUrl, backupCodes）
 
-    User->>Frontend: リセットURL アクセス
-    Frontend->>Backend: GET /api/v1/auth/password/verify-reset?token={token}
-    Backend->>DB: リセットトークン検証
-    alt トークンが無効または期限切れ
-        DB-->>Backend: エラー
-        Backend-->>Frontend: 400 Bad Request
-        Frontend-->>User: エラーメッセージ表示
-    else トークンが有効
-        Backend-->>Frontend: 200 OK
-        Frontend-->>User: 新しいパスワード入力フォーム表示
+    Frontend-->>User: 2FA設定画面表示（3ステップ）
+    Note over User,Frontend: ステップ1: QRコードをスキャン
+    User->>User: Google Authenticatorでスキャン
 
-        User->>Frontend: 新しいパスワード入力
-        Frontend->>Backend: POST /api/v1/auth/password/reset
-        Backend->>Backend: パスワード強度バリデーション
-        Backend->>Backend: bcryptハッシュ（cost: 12）
-        Backend->>DB: トランザクション開始
-        Backend->>DB: パスワード更新
-        Backend->>DB: リセットトークン削除
-        Backend->>DB: 全RefreshToken削除（全デバイスログアウト）
-        Backend->>DB: トランザクションコミット
+    Note over User,Frontend: ステップ2: TOTPコード検証
+    User->>Frontend: 6桁TOTPコード入力
+    Frontend->>Backend: POST /api/v1/auth/2fa/enable
+    Backend->>DB: 秘密鍵取得・復号化
+    Backend->>Backend: TOTP検証（30秒ウィンドウ、±1ステップ許容）
+    alt TOTP検証成功
+        Backend->>DB: twoFactorEnabled = true
+        Backend->>DB: 監査ログ記録（TWO_FACTOR_ENABLED）
         Backend-->>Frontend: 200 OK
-        Frontend-->>User: 「パスワードを更新しました。ログインしてください」
-        Frontend->>Frontend: ログイン画面へリダイレクト
+
+        Note over User,Frontend: ステップ3: バックアップコード保存
+        Frontend-->>User: バックアップコード表示（ダウンロード・印刷・コピー機能）
+        User->>Frontend: 「バックアップコードを保存しました」チェック
+        Frontend-->>User: トーストメッセージ「二要素認証を有効化しました」
+        Frontend-->>User: プロフィール画面へ戻る
+    else TOTP検証失敗
+        Backend-->>Frontend: 401 Unauthorized
+        Frontend-->>User: 「認証コードが正しくありません」
     end
 ```
-
-## Screen Flows
-
-### 認証フロー全体の画面遷移
-
-```mermaid
-stateDiagram-v2
-    [*] --> ログイン画面
-
-    ログイン画面 --> ダッシュボード: ログイン成功
-    ログイン画面 --> ログイン画面: 認証エラー
-    ログイン画面 --> アカウントロック画面: ログイン失敗5回
-    ログイン画面 --> パスワードリセット要求画面: パスワードを忘れた
-
-    アカウントロック画面 --> ログイン画面: ロック解除（15分後）
-
-    パスワードリセット要求画面 --> メール送信完了画面: メール送信
-    メール送信完了画面 --> パスワードリセット画面: メール内リンククリック
-    パスワードリセット画面 --> リセット完了画面: パスワード更新成功
-    パスワードリセット画面 --> トークン無効画面: トークン期限切れ/無効
-    リセット完了画面 --> ログイン画面: ログインへ
-    トークン無効画面 --> パスワードリセット要求画面: 再試行
-
-    招待URL --> 招待登録画面: 有効なトークン
-    招待URL --> トークン無効画面: トークン期限切れ/無効
-    招待登録画面 --> ダッシュボード: 登録成功
-    招待登録画面 --> 招待登録画面: バリデーションエラー
-
-    ダッシュボード --> プロフィール設定画面: プロフィール編集
-    ダッシュボード --> ADR管理画面: ADR作成/閲覧
-    ダッシュボード --> ユーザー管理画面: 管理者のみ
-    ダッシュボード --> ログイン画面: ログアウト
-
-    プロフィール設定画面 --> ダッシュボード: 保存成功
-    ADR管理画面 --> ダッシュボード: 戻る
-    ユーザー管理画面 --> ダッシュボード: 戻る
-
-    ダッシュボード --> アクセス拒否画面: 権限不足
-    ADR管理画面 --> アクセス拒否画面: 権限不足
-    ユーザー管理画面 --> アクセス拒否画面: 権限不足
-
-    アクセス拒否画面 --> ダッシュボード: 戻る
-
-    note right of ログイン画面
-        未認証ユーザーの
-        エントリーポイント
-    end note
-
-    note right of ダッシュボード
-        認証済みユーザーの
-        ホーム画面
-    end note
-
-    note right of アクセス拒否画面
-        権限不足時に表示
-        (403 Forbidden)
-    end note
-```
-
-### 主要画面の一覧と役割
-
-#### 認証関連画面
-
-| 画面名 | URL | 役割 | アクセス条件 |
-|--------|-----|------|------------|
-| **ログイン画面** | `/login` | メールアドレスとパスワードでログイン | 未認証ユーザー |
-| **招待登録画面** | `/register?token={token}` | 招待トークンを使用してアカウント作成 | 有効な招待トークン |
-| **パスワードリセット要求画面** | `/password/reset-request` | メールアドレス入力でリセットメール送信 | 未認証ユーザー |
-| **メール送信完了画面** | `/password/email-sent` | リセットメール送信完了メッセージ表示 | パスワードリセット要求後 |
-| **パスワードリセット画面** | `/password/reset?token={token}` | 新しいパスワード入力 | 有効なリセットトークン |
-| **リセット完了画面** | `/password/reset-complete` | パスワード更新完了メッセージ表示 | パスワードリセット成功後 |
-| **アカウントロック画面** | `/login?locked=true` | ログイン失敗5回でアカウントロック通知 | ログイン失敗5回 |
-| **トークン無効画面** | `/error/invalid-token` | 招待/リセットトークンが無効または期限切れ | 無効なトークンアクセス |
-
-#### メインアプリケーション画面
-
-| 画面名 | URL | 役割 | アクセス条件 |
-|--------|-----|------|------------|
-| **ダッシュボード** | `/dashboard` | 認証済みユーザーのホーム画面 | 認証済み |
-| **プロフィール設定画面** | `/profile` | ユーザー情報の表示・編集 | 認証済み |
-| **ADR管理画面** | `/adrs` | ADRの作成・閲覧・編集・削除 | 認証済み + `adr:*`権限 |
-| **ユーザー管理画面** | `/admin/users` | ユーザー招待・ロール管理 | 認証済み + `user:manage`権限 |
-| **アクセス拒否画面** | `/error/403` | 権限不足時のエラーメッセージ表示 | 権限不足（403 Forbidden） |
-
-### 画面遷移の条件と動作
-
-#### 認証状態による自動リダイレクト
-
-- **未認証ユーザーが保護されたページにアクセス**: `/login?redirect={元のURL}`にリダイレクト
-- **認証済みユーザーがログイン画面にアクセス**: `/dashboard`にリダイレクト
-- **トークン期限切れ（401エラー）**: 自動的にトークンリフレッシュ試行 → 失敗時は`/login`にリダイレクト
-
-#### エラーハンドリングと画面遷移
-
-- **バリデーションエラー**: 同じ画面にエラーメッセージを表示（リダイレクトなし）
-- **認証エラー（401）**: ログイン画面にリダイレクト、元のURLをクエリパラメータに保存
-- **権限エラー（403）**: アクセス拒否画面にリダイレクト、または現在画面にエラーメッセージ表示
-- **トークン無効エラー（招待/リセット）**: トークン無効画面にリダイレクト
-
-#### ロール別の画面アクセス制御
-
-| ロール | アクセス可能な画面 |
-|--------|------------------|
-| **システム管理者** | 全ての画面（`*:*`権限） |
-| **一般ユーザー** | ダッシュボード、プロフィール設定、ADR管理（自分のADRのみ） |
-
-**注**: ダッシュボードとADR管理画面は、認証機能とは独立した別仕様として管理されます。本仕様では、認証後の遷移先として仮画面のみを実装し、詳細な機能設計は別仕様（`dashboard` / `adr-management`）で行います。
-
-## Requirements Traceability
-
-| 要件ID | 要件概要 | 実現するコンポーネント | インターフェース | フロー |
-|--------|----------|----------------------|----------------|--------|
-| 1 | 管理者によるユーザー招待 | InvitationService, EmailService | POST /api/v1/invitations | ユーザー招待フロー |
-| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, InvitationService | POST /api/v1/auth/register | ユーザー登録フロー |
-| 3 | 初期管理者アカウントのセットアップ | Prisma Seed Script | npm run prisma:seed | - |
-| 4 | ログイン | AuthService, TokenService | POST /api/v1/auth/login | ログインフロー |
-| 5 | トークン管理 | TokenService, SessionService | POST /api/v1/auth/refresh | トークンリフレッシュフロー |
-| 6 | 拡張可能なRBAC | RBACService, authorize middleware | authorize(permission) | 権限チェックフロー |
-| 7 | パスワード管理 | PasswordService, EmailService | POST /api/v1/auth/password/reset-request | パスワードリセットフロー |
-| 8 | セッション管理 | SessionService, RefreshToken model | POST /api/v1/auth/logout | - |
-| 9 | ユーザー情報取得・管理 | UserService, authenticate middleware | GET /api/v1/users/me | - |
-| 10 | セキュリティとエラーハンドリング | errorHandler middleware, ApiError | - | 全フロー |
-| 11-16 | UI/UX要件 | React Components, Auth Context | - | Frontend Flows |
-| 17 | 動的ロール管理 | RBACService, Role model | POST /api/v1/roles | - |
-| 18 | 権限管理 | RBACService, Permission model | GET /api/v1/permissions | - |
-| 19 | ロールへの権限割り当て | RBACService, RolePermission model | POST /api/v1/roles/{id}/permissions | - |
-| 20 | ユーザーへのロール割り当て | RBACService, UserRole model | POST /api/v1/users/{id}/roles | - |
-| 21 | 権限チェック機能 | authorize middleware, RBACService | authorize(permission) | 権限チェックフロー |
-| 22 | 監査ログとコンプライアンス | AuditLogService, AuditLog model | GET /api/v1/audit-logs | - |
-| 23 | 非機能要件（パフォーマンス） | Redis Cache, Database Indexing | - | 全フロー |
-| 24 | フォールトトレランス | Error Handler, Retry Logic | - | 全フロー |
-| 25 | データ整合性とトランザクション管理 | Prisma Transactions | - | 全フロー |
-| 26 | セキュリティ対策 | helmet, cors, rateLimit middleware | - | 全フロー |
 
 ## Components and Interfaces
 
@@ -795,15 +751,15 @@ stateDiagram-v2
 #### AuthService
 
 **責任と境界**:
-- **主要責任**: ユーザー認証（ログイン、登録、トークン発行）
+- **主要責任**: 認証フロー（登録、ログイン、ログアウト）の統合
 - **ドメイン境界**: 認証ドメイン
-- **データ所有権**: なし（他サービスに委譲）
+- **データ所有権**: なし（他のサービスを統合）
 - **トランザクション境界**: ユーザー登録時のトランザクション管理
 
 **依存関係**:
-- **インバウンド**: AuthController（API Layer）
-- **アウトバウンド**: TokenService, PasswordService, SessionService, InvitationService, RBACService, AuditLogService
-- **外部**: jsonwebtoken, bcrypt
+- **インバウンド**: AuthController
+- **アウトバウンド**: InvitationService, PasswordService, TokenService, SessionService, RBACService, TwoFactorService, AuditLogService
+- **外部**: なし
 
 **契約定義**:
 
@@ -813,16 +769,16 @@ interface AuthService {
   register(invitationToken: string, data: RegisterData): Promise<Result<AuthResponse, AuthError>>;
 
   // ログイン
-  login(email: string, password: string, deviceInfo?: string): Promise<Result<AuthResponse, AuthError>>;
+  login(email: string, password: string): Promise<Result<LoginResponse, AuthError>>;
+
+  // 2FA検証（ログイン時）
+  verify2FA(userId: string, totpCode: string): Promise<Result<AuthResponse, AuthError>>;
 
   // ログアウト
   logout(userId: string, refreshToken: string): Promise<Result<void, AuthError>>;
 
   // 全デバイスログアウト
   logoutAll(userId: string): Promise<Result<void, AuthError>>;
-
-  // トークンリフレッシュ
-  refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>>;
 
   // 現在のユーザー情報取得
   getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>>;
@@ -835,102 +791,26 @@ interface RegisterData {
 
 interface AuthResponse {
   accessToken: string;
-  refreshToken: string;
   user: UserProfile;
 }
 
-interface UserProfile {
-  id: string;
-  email: string;
-  displayName: string;
-  roles: string[];
-  createdAt: Date;
+interface LoginResponse {
+  type: 'SUCCESS' | '2FA_REQUIRED';
+  accessToken?: string;
+  userId?: string;
+  user?: UserProfile;
 }
 
 type AuthError =
-  | { type: 'INVALID_CREDENTIALS' }
-  | { type: 'ACCOUNT_LOCKED'; unlocksAt: Date }
   | { type: 'INVITATION_INVALID' }
   | { type: 'INVITATION_EXPIRED' }
-  | { type: 'TOKEN_EXPIRED' }
-  | { type: 'WEAK_PASSWORD'; details: string[] };
-```
-
-**事前条件・事後条件**:
-- **register**: 招待トークンが有効であること、パスワードが強度要件を満たすこと
-- **login**: メールアドレスが登録済みであること、アカウントがロックされていないこと
-- **logout**: リフレッシュトークンが有効であること
-
-**状態管理**:
-- ステートレス（トークンベース）
-- リフレッシュトークンはデータベースに永続化
-
-#### InvitationService
-
-**責任と境界**:
-- **主要責任**: 招待管理（招待作成、検証、無効化）
-- **ドメイン境界**: 招待ドメイン
-- **データ所有権**: Invitationテーブル
-- **トランザクション境界**: 招待作成時のトランザクション
-
-**依存関係**:
-- **インバウンド**: AuthService, InvitationController
-- **アウトバウンド**: EmailService, AuditLogService
-- **外部**: crypto（トークン生成）
-
-**契約定義**:
-
-```typescript
-interface InvitationService {
-  // 招待作成
-  createInvitation(inviterUserId: string, email: string): Promise<Result<Invitation, InvitationError>>;
-
-  // 招待検証
-  verifyInvitation(token: string): Promise<Result<InvitationInfo, InvitationError>>;
-
-  // 招待無効化（取り消し）
-  revokeInvitation(invitationId: string, userId: string): Promise<Result<void, InvitationError>>;
-
-  // 招待一覧取得
-  listInvitations(userId: string, filter?: InvitationFilter): Promise<Result<Invitation[], InvitationError>>;
-
-  // 招待再送信
-  resendInvitation(invitationId: string, userId: string): Promise<Result<Invitation, InvitationError>>;
-}
-
-interface Invitation {
-  id: string;
-  email: string;
-  token: string;
-  status: InvitationStatus;
-  expiresAt: Date;
-  createdAt: Date;
-  inviter: { id: string; email: string; displayName: string };
-}
-
-enum InvitationStatus {
-  PENDING = 'PENDING',
-  USED = 'USED',
-  EXPIRED = 'EXPIRED',
-  REVOKED = 'REVOKED',
-}
-
-interface InvitationInfo {
-  email: string;
-  expiresAt: Date;
-}
-
-interface InvitationFilter {
-  status?: InvitationStatus;
-  email?: string;
-}
-
-type InvitationError =
-  | { type: 'EMAIL_ALREADY_REGISTERED' }
-  | { type: 'INVITATION_NOT_FOUND' }
-  | { type: 'INVITATION_EXPIRED' }
   | { type: 'INVITATION_ALREADY_USED' }
-  | { type: 'INVITATION_REVOKED' };
+  | { type: 'WEAK_PASSWORD'; violations: PasswordViolation[] }
+  | { type: 'INVALID_CREDENTIALS' }
+  | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
+  | { type: '2FA_REQUIRED'; userId: string }
+  | { type: 'INVALID_2FA_CODE' }
+  | { type: 'USER_NOT_FOUND' };
 ```
 
 #### RBACService
@@ -938,22 +818,22 @@ type InvitationError =
 **責任と境界**:
 - **主要責任**: 権限チェック、ロール管理、権限管理
 - **ドメイン境界**: 認可ドメイン
-- **データ所有権**: Role, Permission, UserRole, RolePermissionテーブル
-- **トランザクション境界**: ロール・権限変更時のトランザクション
+- **データ所有権**: Role, Permission, UserRole, RolePermission
+- **トランザクション境界**: ロール・権限変更時のトランザクション管理
 
 **依存関係**:
-- **インバウンド**: authorize middleware, RoleController, PermissionController
-- **アウトバウンド**: AuditLogService, Redis Client
-- **外部**: なし
+- **インバウンド**: authorize middleware, AuthService
+- **アウトバウンド**: AuditLogService
+- **外部**: Prisma Client, Redis Client
 
 **契約定義**:
 
 ```typescript
 interface RBACService {
   // 権限チェック
-  hasPermission(userId: string, resource: string, action: string): Promise<boolean>;
+  hasPermission(userId: string, permission: string): Promise<boolean>;
 
-  // ユーザーの権限取得
+  // ユーザーの全権限取得
   getUserPermissions(userId: string): Promise<Permission[]>;
 
   // ロール作成
@@ -965,34 +845,20 @@ interface RBACService {
   // ロール削除
   deleteRole(roleId: string): Promise<Result<void, RBACError>>;
 
+  // ロール一覧取得
+  listRoles(): Promise<Role[]>;
+
   // ロールに権限追加
-  addPermissionsToRole(roleId: string, permissionIds: string[]): Promise<Result<void, RBACError>>;
+  assignPermissions(roleId: string, permissionIds: string[]): Promise<Result<void, RBACError>>;
 
   // ロールから権限削除
-  removePermissionsFromRole(roleId: string, permissionIds: string[]): Promise<Result<void, RBACError>>;
+  revokePermission(roleId: string, permissionId: string): Promise<Result<void, RBACError>>;
 
   // ユーザーにロール追加
-  assignRolesToUser(userId: string, roleIds: string[]): Promise<Result<void, RBACError>>;
+  assignRoles(userId: string, roleIds: string[]): Promise<Result<void, RBACError>>;
 
   // ユーザーからロール削除
-  removeRolesFromUser(userId: string, roleIds: string[]): Promise<Result<void, RBACError>>;
-}
-
-interface Role {
-  id: string;
-  name: string;
-  description: string;
-  priority: number;
-  isDeletable: boolean;
-  permissions: Permission[];
-}
-
-interface Permission {
-  id: string;
-  name: string; // resource:action format
-  resource: string;
-  action: string;
-  description: string;
+  revokeRole(userId: string, roleId: string): Promise<Result<void, RBACError>>;
 }
 
 interface CreateRoleData {
@@ -1019,7 +885,7 @@ type RBACError =
 
 **パフォーマンス最適化**:
 
-**1. Redisキャッシング戦略（Cache-Asideパターン）**:
+**1. Redisキャッシング戦略（Cache-Asideパターン + Graceful Degradation）**:
 
 ```typescript
 async function getUserPermissions(userId: string): Promise<Permission[]> {
@@ -1077,21 +943,8 @@ async function invalidateAllPermissionsCache(): Promise<void> {
 
 **2. N+1問題対策（Prisma includeによるJOINクエリ）**:
 
-**❌ N+1問題の例**:
 ```typescript
-// N+1問題: ユーザーごとに複数のクエリが発行される
-const user = await prisma.user.findUnique({ where: { id: userId } });
-const userRoles = await prisma.userRole.findMany({ where: { userId } }); // +1クエリ
-
-for (const userRole of userRoles) {
-  const role = await prisma.role.findUnique({ where: { id: userRole.roleId } }); // +N クエリ
-  const rolePermissions = await prisma.rolePermission.findMany({ where: { roleId: role.id } }); // +N クエリ
-}
-```
-
-**✅ 解決策: Prisma include**:
-```typescript
-// 1クエリで全データ取得（JOINクエリ）
+// ✅ 解決策: Prisma include（1クエリで全データ取得）
 const user = await prisma.user.findUnique({
   where: { id: userId },
   include: {
@@ -1119,8 +972,6 @@ const permissions = user.userRoles.flatMap((ur) =>
 
 **3. DataLoaderパターン（バッチング + キャッシング）**:
 
-複数のユーザーの権限を一度に取得する場合、DataLoaderを使用してバッチング + キャッシングを実現：
-
 ```typescript
 import DataLoader from 'dataloader';
 
@@ -1139,25 +990,11 @@ const roleLoader = new DataLoader(async (roleIds: readonly string[]) => {
   return roleIds.map((id) => roles.find((r) => r.id === id) || null);
 });
 
-// 権限取得のDataLoader
-const permissionLoader = new DataLoader(async (permissionIds: readonly string[]) => {
-  const permissions = await prisma.permission.findMany({
-    where: { id: { in: [...permissionIds] } },
-  });
-
-  return permissionIds.map((id) => permissions.find((p) => p.id === id) || null);
-});
-
 // 使用例（バッチング + キャッシング）
 const role1 = await roleLoader.load('role-1'); // バッチング
 const role2 = await roleLoader.load('role-2'); // 同じバッチ
 const role3 = await roleLoader.load('role-1'); // キャッシュヒット
 ```
-
-**DataLoaderの利点**:
-- **バッチング**: 複数のロード要求を1つのクエリにまとめる
-- **キャッシング**: リクエスト内で同じIDのロードをキャッシュ
-- **デッドロック防止**: 循環参照を自動検出
 
 **4. Redisクラスタ構成**:
 
@@ -1165,21 +1002,6 @@ const role3 = await roleLoader.load('role-1'); // キャッシュヒット
 |------|------|------|
 | **開発環境** | 単一ノード | Docker Composeで起動、シンプル |
 | **本番環境** | Redis Sentinel | 自動フェイルオーバー、高可用性、3ノード構成（1マスター + 2スレーブ） |
-
-**Redis Sentinel設定例**:
-```typescript
-import Redis from 'ioredis';
-
-const redis = new Redis({
-  sentinels: [
-    { host: 'sentinel-1', port: 26379 },
-    { host: 'sentinel-2', port: 26379 },
-    { host: 'sentinel-3', port: 26379 },
-  ],
-  name: 'mymaster', // マスターノード名
-  password: process.env.REDIS_PASSWORD,
-});
-```
 
 #### TokenService
 
@@ -1199,8 +1021,6 @@ const redis = new Redis({
 - **バージョン**: v5.9.6（2025年安定版）
 - **主要機能**:
   - EdDSA (Ed25519) 完全サポート
-  - ES256 (ECDSA P-256) サポート
-  - RS256 (RSA) サポート
   - TypeScript型定義ネイティブサポート
   - 軽量（jsonwebtoken比で50%軽量）
   - Web標準（IETF JOSE Working Group）準拠
@@ -1208,12 +1028,7 @@ const redis = new Redis({
   - 鍵生成: `generateKeyPair('EdDSA')`
   - トークン署名: `new SignJWT(payload).setProtectedHeader({ alg: 'EdDSA' }).setExpirationTime('15m').sign(privateKey)`
   - トークン検証: `jwtVerify(token, publicKey)`
-  - JWKSエクスポート: `exportJWK(publicKey)`, `exportJWK(privateKey)`
-- **鍵管理**:
-  - 秘密鍵: 環境変数`JWT_PRIVATE_KEY`（Base64エンコード）
-  - 公開鍵: 環境変数`JWT_PUBLIC_KEY`（Base64エンコード）
-  - JWKSエンドポイント: `/.well-known/jwks.json` で公開鍵を配布（マイクロサービス化時）
-- **有効期限**: アクセストークン15分、リフレッシュトークン7日間
+  - JWKSエクスポート: `exportJWK(publicKey)`
 
 **契約定義**:
 
@@ -1248,99 +1063,6 @@ type TokenError =
   | { type: 'TOKEN_EXPIRED' }
   | { type: 'TOKEN_INVALID' }
   | { type: 'TOKEN_MALFORMED' };
-```
-
-**実装例**:
-
-```typescript
-import * as jose from 'jose';
-
-class TokenServiceImpl implements TokenService {
-  private privateKey: jose.KeyLike;
-  private publicKey: jose.KeyLike;
-
-  constructor() {
-    // 環境変数から鍵をロード（Base64デコード）
-    const privateKeyPem = Buffer.from(process.env.JWT_PRIVATE_KEY!, 'base64').toString('utf-8');
-    const publicKeyPem = Buffer.from(process.env.JWT_PUBLIC_KEY!, 'base64').toString('utf-8');
-
-    this.privateKey = await jose.importSPKI(privateKeyPem, 'EdDSA');
-    this.publicKey = await jose.importSPKI(publicKeyPem, 'EdDSA');
-  }
-
-  async generateAccessToken(payload: TokenPayload): Promise<string> {
-    const jwt = await new jose.SignJWT({
-      userId: payload.userId,
-      email: payload.email,
-      roles: payload.roles,
-      permissions: payload.permissions,
-    })
-      .setProtectedHeader({ alg: 'EdDSA' })
-      .setIssuedAt()
-      .setIssuer('ArchiTrack')
-      .setAudience('ArchiTrack-API')
-      .setExpirationTime('15m') // 15分
-      .sign(this.privateKey);
-
-    return jwt;
-  }
-
-  async generateRefreshToken(payload: TokenPayload): Promise<string> {
-    const jwt = await new jose.SignJWT({
-      userId: payload.userId,
-      email: payload.email,
-      roles: payload.roles,
-    })
-      .setProtectedHeader({ alg: 'EdDSA' })
-      .setIssuedAt()
-      .setIssuer('ArchiTrack')
-      .setAudience('ArchiTrack-API')
-      .setExpirationTime('7d') // 7日間
-      .sign(this.privateKey);
-
-    return jwt;
-  }
-
-  async verifyToken(token: string, type: 'access' | 'refresh'): Promise<Result<TokenPayload, TokenError>> {
-    try {
-      const { payload } = await jose.jwtVerify(token, this.publicKey, {
-        issuer: 'ArchiTrack',
-        audience: 'ArchiTrack-API',
-      });
-
-      return ok({
-        userId: payload.userId as string,
-        email: payload.email as string,
-        roles: payload.roles as string[],
-        permissions: payload.permissions as string[] | undefined,
-      });
-    } catch (error) {
-      if (error instanceof jose.errors.JWTExpired) {
-        return err({ type: 'TOKEN_EXPIRED' });
-      }
-      if (error instanceof jose.errors.JWTInvalid) {
-        return err({ type: 'TOKEN_INVALID' });
-      }
-      return err({ type: 'TOKEN_MALFORMED' });
-    }
-  }
-
-  decodeToken(token: string): TokenPayload | null {
-    const decoded = jose.decodeJwt(token);
-    if (!decoded) return null;
-
-    return {
-      userId: decoded.userId as string,
-      email: decoded.email as string,
-      roles: decoded.roles as string[],
-      permissions: decoded.permissions as string[] | undefined,
-    };
-  }
-
-  async exportPublicJWKS(): Promise<jose.JWK> {
-    return await jose.exportJWK(this.publicKey);
-  }
-}
 ```
 
 **鍵生成スクリプト（初回セットアップ用）**:
@@ -1379,7 +1101,7 @@ generateKeys();
 #### PasswordService
 
 **責任と境界**:
-- **主要責任**: パスワードハッシュ、検証、リセット
+- **主要責任**: パスワードハッシュ、検証、リセット、強度評価
 - **ドメイン境界**: パスワードドメイン
 - **データ所有権**: なし（Userテーブルのパスワードフィールド）
 - **トランザクション境界**: なし
@@ -1387,525 +1109,127 @@ generateKeys();
 **依存関係**:
 - **インバウンド**: AuthService
 - **アウトバウンド**: EmailService
-- **外部**: bcrypt
+- **外部**: @node-rs/argon2, bloom-filters, zxcvbn
 
-**外部依存関係調査（bcrypt）**:
-- **公式ドキュメント**: https://www.npmjs.com/package/bcrypt
-- **API**: `bcrypt.hash(password, saltRounds)`, `bcrypt.compare(password, hash)`
-- **推奨コスト係数**: 12-14（2025年推奨）
-- **パフォーマンス**: rounds=12で2-3ハッシュ/秒
-- **セキュリティ**: 自動ソルト生成、レインボーテーブル攻撃耐性
+**外部依存関係調査**:
+
+**@node-rs/argon2**:
+- **公式ドキュメント**: https://www.npmjs.com/package/@node-rs/argon2
+- **API**: `argon2.hash(password, { memoryCost: 65536, timeCost: 3, parallelism: 4 })`, `argon2.verify(hash, password)`
+- **推奨設定**: メモリコスト64MB（65536 KiB）、時間コスト3、並列度4（OWASP推奨）
+- **パフォーマンス**: Rustネイティブバインディングによりbcrypt比2-3倍高速
+- **セキュリティ**: Argon2id（Argon2d + Argon2i）、メモリハード関数、GPU攻撃耐性
+
+**bloom-filters**:
+- **公式ドキュメント**: https://www.npmjs.com/package/bloom-filters
+- **API**: `BloomFilter.create(size, falsePositiveRate)`, `bloomFilter.add(item)`, `bloomFilter.has(item)`
+- **設定**: サイズ1000万件、偽陽性率0.001（0.1%）
+- **用途**: HIBP Pwned Passwordsの効率的な照合
+
+**zxcvbn**:
+- **公式ドキュメント**: https://www.npmjs.com/package/zxcvbn
+- **API**: `zxcvbn(password, userInputs)` → `{ score: 0-4, feedback: { suggestions, warning } }`
+- **用途**: 科学的なパスワード強度評価、辞書攻撃耐性
 
 **契約定義**:
 
 ```typescript
 interface PasswordService {
-  // パスワードハッシュ化
+  // パスワードハッシュ化（Argon2id）
   hashPassword(password: string): Promise<string>;
 
-  // パスワード検証
+  // パスワード検証（Argon2id）
   verifyPassword(password: string, hash: string): Promise<boolean>;
 
-  // パスワード強度検証
-  validatePasswordStrength(password: string): Result<void, PasswordError>;
+  // パスワード強度検証（Bloom Filter + zxcvbn）
+  validatePasswordStrength(password: string, userInputs: string[]): Promise<Result<void, PasswordError>>;
 
   // パスワードリセット要求
   requestPasswordReset(email: string): Promise<Result<void, PasswordError>>;
 
   // パスワードリセット実行
   resetPassword(resetToken: string, newPassword: string): Promise<Result<void, PasswordError>>;
+
+  // パスワード履歴チェック
+  checkPasswordHistory(userId: string, newPassword: string): Promise<boolean>;
 }
 
 type PasswordError =
-  | { type: 'WEAK_PASSWORD'; reasons: string[] }
+  | { type: 'WEAK_PASSWORD'; violations: PasswordViolation[] }
   | { type: 'RESET_TOKEN_INVALID' }
-  | { type: 'RESET_TOKEN_EXPIRED' };
-```
-
-**パスワード強度要件（NIST SP 800-63B準拠）**:
-- **最小文字数**: 12文字以上（NIST推奨、従来の8文字から変更）
-- **複雑性要件**:
-  - 英大文字（A-Z）: 1文字以上
-  - 英小文字（a-z）: 1文字以上
-  - 数字（0-9）: 1文字以上
-  - 特殊文字（!@#$%^&*()_+-=[]{}|;:,.<>?）: 1文字以上
-- **辞書攻撃対策**: zxcvbnライブラリによる科学的なパスワード強度評価（スコア3以上必須、5段階評価）
-- **禁止パスワード**: よくあるパスワードリスト（SecLists top 10,000）との照合、一致した場合は登録拒否
-- **パスワード履歴**: 過去3回のパスワード再利用を禁止（bcrypt比較）
-- **ユーザー情報の使用禁止**: メールアドレス、表示名の一部をパスワードに含めることを禁止
-
-**実装詳細**:
-
-```typescript
-interface PasswordValidationResult {
-  isValid: boolean;
-  score: number; // 0-4 (zxcvbn)
-  feedback: {
-    suggestions: string[];
-    warning?: string;
-  };
-  violations: PasswordViolation[];
-}
+  | { type: 'RESET_TOKEN_EXPIRED' }
+  | { type: 'PASSWORD_REUSED' };
 
 enum PasswordViolation {
-  TOO_SHORT = 'TOO_SHORT', // 12文字未満
-  NO_UPPERCASE = 'NO_UPPERCASE', // 英大文字なし
-  NO_LOWERCASE = 'NO_LOWERCASE', // 英小文字なし
-  NO_DIGIT = 'NO_DIGIT', // 数字なし
-  NO_SPECIAL_CHAR = 'NO_SPECIAL_CHAR', // 特殊文字なし
-  WEAK_SCORE = 'WEAK_SCORE', // zxcvbnスコア3未満
-  COMMON_PASSWORD = 'COMMON_PASSWORD', // よくあるパスワード
-  REUSED_PASSWORD = 'REUSED_PASSWORD', // 過去3回以内に使用
-  CONTAINS_USER_INFO = 'CONTAINS_USER_INFO', // ユーザー情報を含む
-}
-
-// zxcvbn統合（Frontend/Backend両方で使用）
-import zxcvbn from 'zxcvbn';
-
-async function validatePasswordStrength(
-  password: string,
-  userInputs: string[] // [email, displayName]
-): Promise<PasswordValidationResult> {
-  const violations: PasswordViolation[] = [];
-
-  // 1. 最小文字数チェック
-  if (password.length < 12) {
-    violations.push(PasswordViolation.TOO_SHORT);
-  }
-
-  // 2. 複雑性要件チェック
-  if (!/[A-Z]/.test(password)) {
-    violations.push(PasswordViolation.NO_UPPERCASE);
-  }
-  if (!/[a-z]/.test(password)) {
-    violations.push(PasswordViolation.NO_LOWERCASE);
-  }
-  if (!/[0-9]/.test(password)) {
-    violations.push(PasswordViolation.NO_DIGIT);
-  }
-  if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) {
-    violations.push(PasswordViolation.NO_SPECIAL_CHAR);
-  }
-
-  // 3. zxcvbn強度スコア評価
-  const result = zxcvbn(password, userInputs);
-  if (result.score < 3) {
-    violations.push(PasswordViolation.WEAK_SCORE);
-  }
-
-  // 4. 禁止パスワードリスト照合（Backend）
-  const isCommonPassword = await checkCommonPasswordList(password.toLowerCase());
-  if (isCommonPassword) {
-    violations.push(PasswordViolation.COMMON_PASSWORD);
-  }
-
-  // 5. パスワード履歴チェック（Backend）
-  const isReused = await checkPasswordHistory(userId, password);
-  if (isReused) {
-    violations.push(PasswordViolation.REUSED_PASSWORD);
-  }
-
-  // 6. ユーザー情報含有チェック
-  const lowerPassword = password.toLowerCase();
-  const containsUserInfo = userInputs.some(input =>
-    input && lowerPassword.includes(input.toLowerCase())
-  );
-  if (containsUserInfo) {
-    violations.push(PasswordViolation.CONTAINS_USER_INFO);
-  }
-
-  return {
-    isValid: violations.length === 0,
-    score: result.score,
-    feedback: result.feedback,
-    violations,
-  };
+  TOO_SHORT = 'TOO_SHORT',
+  NO_UPPERCASE = 'NO_UPPERCASE',
+  NO_LOWERCASE = 'NO_LOWERCASE',
+  NO_DIGIT = 'NO_DIGIT',
+  NO_SPECIAL_CHAR = 'NO_SPECIAL_CHAR',
+  WEAK_SCORE = 'WEAK_SCORE',
+  COMMON_PASSWORD = 'COMMON_PASSWORD',
+  REUSED_PASSWORD = 'REUSED_PASSWORD',
+  CONTAINS_USER_INFO = 'CONTAINS_USER_INFO',
 }
 ```
-
-**禁止パスワードリストの管理**:
-
-```typescript
-// backend/src/data/common-passwords.ts
-// SecLists top 10,000パスワードをBloom Filterで効率的に照合
-import { BloomFilter } from 'bloom-filters';
-
-class CommonPasswordChecker {
-  private bloomFilter: BloomFilter;
-
-  constructor() {
-    // 10,000エントリ、偽陽性率0.001
-    this.bloomFilter = BloomFilter.create(10000, 0.001);
-
-    // 初期化時にパスワードリストをロード
-    this.loadCommonPasswords();
-  }
-
-  private async loadCommonPasswords() {
-    const passwords = await readCommonPasswordsFile(); // top-10000.txt
-    passwords.forEach(pwd => this.bloomFilter.add(pwd.toLowerCase()));
-  }
-
-  check(password: string): boolean {
-    return this.bloomFilter.has(password.toLowerCase());
-  }
-}
-```
-
-**パスワード履歴の管理**:
-
-```prisma
-// Prismaスキーマ拡張
-model PasswordHistory {
-  id        String   @id @default(uuid())
-  userId    String
-  hash      String   // bcryptハッシュ
-  createdAt DateTime @default(now())
-
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([createdAt])
-  @@map("password_histories")
-}
-
-model User {
-  // ... 既存フィールド
-  passwordHistories PasswordHistory[]
-}
-```
-
-```typescript
-// パスワード変更時、履歴を保存し、古い履歴を削除
-async function updatePasswordWithHistory(userId: string, newPassword: string) {
-  const newHash = await bcrypt.hash(newPassword, 12);
-
-  await prisma.$transaction(async (tx) => {
-    // 1. 新しいパスワード履歴を追加
-    await tx.passwordHistory.create({
-      data: {
-        userId,
-        hash: newHash,
-      },
-    });
-
-    // 2. 最新3件以外の履歴を削除
-    const histories = await tx.passwordHistory.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (histories.length > 3) {
-      const toDelete = histories.slice(3).map(h => h.id);
-      await tx.passwordHistory.deleteMany({
-        where: { id: { in: toDelete } },
-      });
-    }
-
-    // 3. ユーザーのパスワードハッシュを更新
-    await tx.user.update({
-      where: { id: userId },
-      data: { passwordHash: newHash },
-    });
-  });
-}
-
-// パスワード履歴チェック（過去3回以内に使用済みか）
-async function checkPasswordHistory(userId: string, password: string): Promise<boolean> {
-  const histories = await prisma.passwordHistory.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'desc' },
-    take: 3,
-  });
-
-  for (const history of histories) {
-    const isMatch = await bcrypt.compare(password, history.hash);
-    if (isMatch) {
-      return true; // 再利用検出
-    }
-  }
-
-  return false;
-}
-```
-
-#### SessionService
-
-**責任と境界**:
-- **主要責任**: セッション管理（リフレッシュトークンの永続化）
-- **ドメイン境界**: セッションドメイン
-- **データ所有権**: RefreshTokenテーブル
-- **トランザクション境界**: セッション作成・削除時のトランザクション
-
-**依存関係**:
-- **インバウンド**: AuthService, TokenService
-- **アウトバウンド**: Redis Client（オプション、セッション情報キャッシュ）
-- **外部**: なし
-
-**契約定義**:
-
-```typescript
-interface SessionService {
-  // セッション作成
-  createSession(userId: string, refreshToken: string, deviceInfo?: string): Promise<RefreshToken>;
-
-  // セッション削除
-  deleteSession(refreshToken: string): Promise<void>;
-
-  // ユーザーの全セッション削除
-  deleteAllSessions(userId: string): Promise<void>;
-
-  // セッション検証
-  validateSession(refreshToken: string): Promise<Result<RefreshToken, SessionError>>;
-
-  // ユーザーのセッション一覧取得
-  getUserSessions(userId: string): Promise<RefreshToken[]>;
-}
-
-interface RefreshToken {
-  id: string;
-  userId: string;
-  token: string;
-  deviceInfo?: string;
-  expiresAt: Date;
-  createdAt: Date;
-}
-
-type SessionError =
-  | { type: 'SESSION_NOT_FOUND' }
-  | { type: 'SESSION_EXPIRED' };
-```
-
-#### EmailService
-
-**責任と境界**:
-- **主要責任**: メール送信（招待メール、パスワードリセットメール）
-- **ドメイン境界**: 通知ドメイン
-- **データ所有権**: なし（メール送信のみ）
-- **トランザクション境界**: 非同期処理（Redisキュー経由）
-
-**依存関係**:
-- **インバウンド**: InvitationService, PasswordService
-- **アウトバウンド**: Redisキュー（Bull）
-- **外部**: nodemailer, SMTPサーバー（SendGrid/Gmail/AWS SES）
-
-**外部依存関係調査（nodemailer）**:
-- **公式ドキュメント**: https://nodemailer.com/
-- **バージョン**: ^6.9.7
-- **主要機能**:
-  - SMTP、SendGrid、AWS SES、Gmail対応
-  - OAuth2、APIキー、ユーザー名/パスワード認証
-  - TLS 1.2以上、STARTTLS対応
-  - HTMLメール、添付ファイル、テンプレートエンジン統合
-- **ベストプラクティス**:
-  - 非同期メール送信: Redisキュー（Bull）で送信処理をバックグラウンド化
-  - エラーハンドリング: リトライ戦略（最大3回、エクスポネンシャルバックオフ）
-  - レート制限: SMTPプロバイダーの制限に準拠
-    - SendGrid: 100通/日（無料プラン）、100,000通/日（有料プラン）
-    - Gmail: 500通/日（個人アカウント）、2,000通/日（Google Workspace）
-    - AWS SES: 200通/日（無料枠）、リクエストベースで拡張可能
-  - テンプレート: Handlebars（handlebars）でHTML/テキストメール生成
-  - セキュリティ: 環境変数でSMTP認証情報を管理、TLS接続必須
-
-**契約定義**:
-
-```typescript
-interface EmailService {
-  // 招待メール送信
-  sendInvitationEmail(invitation: InvitationEmailData): Promise<Result<void, EmailError>>;
-
-  // パスワードリセットメール送信
-  sendPasswordResetEmail(resetData: PasswordResetEmailData): Promise<Result<void, EmailError>>;
-
-  // メール送信（汎用）
-  sendEmail(email: EmailData): Promise<Result<void, EmailError>>;
-}
-
-interface InvitationEmailData {
-  to: string;
-  inviterName: string;
-  invitationUrl: string;
-  expiresAt: Date;
-}
-
-interface PasswordResetEmailData {
-  to: string;
-  resetUrl: string;
-  expiresAt: Date;
-}
-
-interface EmailData {
-  to: string;
-  subject: string;
-  html: string;
-  text?: string;
-}
-
-type EmailError =
-  | { type: 'SMTP_CONNECTION_FAILED' }
-  | { type: 'SMTP_AUTH_FAILED' }
-  | { type: 'SEND_FAILED'; details: string }
-  | { type: 'RATE_LIMIT_EXCEEDED' };
-```
-
-**実装例（Redisキュー統合）**:
-
-```typescript
-import nodemailer from 'nodemailer';
-import Queue from 'bull';
-import handlebars from 'handlebars';
-
-// SMTPトランスポーター作成
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: 587,
-  secure: false, // STARTTLS
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
-
-// Redisキュー作成
-const emailQueue = new Queue('email', {
-  redis: {
-    host: process.env.REDIS_HOST,
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-  },
-});
-
-// キュー処理（バックグラウンドワーカー）
-emailQueue.process(async (job) => {
-  const { to, subject, html, text } = job.data;
-
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM,
-    to,
-    subject,
-    html,
-    text,
-  });
-});
-
-// EmailService実装
-class EmailServiceImpl implements EmailService {
-  async sendInvitationEmail(data: InvitationEmailData): Promise<Result<void, EmailError>> {
-    try {
-      const template = handlebars.compile(invitationTemplate);
-      const html = template({
-        inviterName: data.inviterName,
-        invitationUrl: data.invitationUrl,
-        expiresAt: data.expiresAt.toLocaleDateString('ja-JP'),
-      });
-
-      // Redisキューに追加（非同期処理）
-      await emailQueue.add({
-        to: data.to,
-        subject: 'ArchiTrackへの招待',
-        html,
-      }, {
-        attempts: 3, // 最大3回リトライ
-        backoff: {
-          type: 'exponential',
-          delay: 2000, // 初回リトライ: 2秒、2回目: 4秒、3回目: 8秒
-        },
-      });
-
-      return ok(undefined);
-    } catch (error) {
-      logger.error('Failed to queue invitation email', error);
-      return err({ type: 'SEND_FAILED', details: error.message });
-    }
-  }
-}
-```
-
-**メールテンプレート例**:
-
-```html
-<!-- invitationTemplate.hbs -->
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { font-family: sans-serif; }
-    .button { background-color: #1976d2; color: white; padding: 12px 24px; text-decoration: none; }
-  </style>
-</head>
-<body>
-  <h1>ArchiTrackへの招待</h1>
-  <p>{{inviterName}}さんがあなたをArchiTrackに招待しました。</p>
-  <p>以下のリンクからアカウントを作成してください。</p>
-  <a href="{{invitationUrl}}" class="button">アカウントを作成</a>
-  <p>この招待は{{expiresAt}}まで有効です。</p>
-</body>
-</html>
-```
-
-**フォールトトレランス**:
-- SMTP接続失敗時: Redisキューでリトライ（エクスポネンシャルバックオフ）
-- レート制限超過時: キューに保持し、一定間隔で再試行
-- メール送信失敗: 監査ログに記録、管理者に通知
 
 #### TwoFactorService
 
 **責任と境界**:
-- **主要責任**: 二要素認証（TOTP）の生成・検証、バックアップコードの管理
-- **ドメイン境界**: 認証ドメイン
-- **データ所有権**: User（twoFactorEnabled, twoFactorSecret）、TwoFactorBackupCode
-- **トランザクション境界**: 2FA有効化・無効化はトランザクション内で実行
+- **主要責任**: TOTP生成・検証、バックアップコード管理、QRコード生成
+- **ドメイン境界**: 二要素認証ドメイン
+- **データ所有権**: User.twoFactorSecret, TwoFactorBackupCode
+- **トランザクション境界**: 2FA有効化・無効化時のトランザクション管理
 
 **依存関係**:
-- **インバウンド**: AuthService, UserService
-- **アウトバウンド**: Prisma（User, TwoFactorBackupCode）
-- **外部**: otplib（TOTP生成・検証）、qrcode（QRコード生成）、crypto（秘密鍵暗号化）
+- **インバウンド**: AuthService
+- **アウトバウンド**: AuditLogService
+- **外部**: otplib, qrcode, crypto (AES-256-GCM暗号化)
 
-**外部依存関係調査（otplib）**:
-- **公式ドキュメント**: https://github.com/yeojz/otplib
-- **バージョン**: ^12.0.1
-- **主要機能**:
-  - TOTP生成・検証（RFC 6238準拠）
-  - 30秒ウィンドウ、SHA-1/SHA-256/SHA-512対応
-  - タイムステップ調整（±1ウィンドウ許容）
-  - Base32エンコード/デコード
-- **ベストプラクティス**:
-  - **アルゴリズム**: SHA-1（Google Authenticator互換性のため）
-  - **ウィンドウ**: ±1ステップ（30秒 × 3 = 90秒の許容範囲）
-  - **秘密鍵長**: 32バイト（256ビット）
-  - **バックアップコード**: 10個、8文字の英数字、bcrypt（cost=12）でハッシュ化
-  - **QRコード**: otpauth://totp/ArchiTrack:{email}?secret={secret}&issuer=ArchiTrack
+**外部依存関係調査**:
+
+**otplib**:
+- **公式ドキュメント**: https://www.npmjs.com/package/otplib
+- **API**: `authenticator.generateSecret()`, `authenticator.generate(secret)`, `authenticator.verify({ token, secret })`
+- **設定**: SHA-1アルゴリズム（Google Authenticator互換）、6桁、30秒ウィンドウ、±1ステップ許容（90秒）
+- **準拠**: RFC 6238（TOTP）
+
+**qrcode**:
+- **公式ドキュメント**: https://www.npmjs.com/package/qrcode
+- **API**: `qrcode.toDataURL(text)` → Base64 Data URL
+- **形式**: `otpauth://totp/ArchiTrack:{email}?secret={secret}&issuer=ArchiTrack`
 
 **契約定義**:
 
 ```typescript
 interface TwoFactorService {
-  // 2FA有効化準備（秘密鍵生成・QRコード生成）
+  // 2FA設定開始（秘密鍵生成、QRコード生成、バックアップコード生成）
   setupTwoFactor(userId: string): Promise<Result<TwoFactorSetupData, TwoFactorError>>;
 
-  // 2FA有効化（TOTPコード検証後）
+  // 2FA有効化（TOTP検証後）
   enableTwoFactor(userId: string, totpCode: string): Promise<Result<TwoFactorEnabledData, TwoFactorError>>;
-
-  // 2FA無効化（パスワード確認後）
-  disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>>;
 
   // TOTP検証
   verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>>;
 
-  // バックアップコード検証・消費
+  // バックアップコード検証
   verifyBackupCode(userId: string, backupCode: string): Promise<Result<boolean, TwoFactorError>>;
 
   // バックアップコード再生成
   regenerateBackupCodes(userId: string): Promise<Result<string[], TwoFactorError>>;
+
+  // 2FA無効化（パスワード確認後）
+  disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>>;
 }
 
 interface TwoFactorSetupData {
-  secret: string;        // Base32エンコード済みTOTP秘密鍵（ユーザー表示用）
-  qrCodeDataUrl: string; // QRコードのData URL（PNG形式）
-  backupCodes: string[]; // 10個のバックアップコード（平文、1回のみ表示）
+  secret: string; // Base32エンコード済み（平文、ユーザー表示用）
+  qrCodeDataUrl: string; // QRコード（Data URL形式）
+  backupCodes: string[]; // 平文バックアップコード（10個、1回のみ表示）
 }
 
 interface TwoFactorEnabledData {
-  backupCodes: string[]; // 10個のバックアップコード（再表示）
+  backupCodes: string[]; // 平文バックアップコード（最後の表示機会）
 }
 
 type TwoFactorError =
@@ -1914,259 +1238,18 @@ type TwoFactorError =
   | { type: 'TWO_FACTOR_NOT_ENABLED' }
   | { type: 'INVALID_TOTP_CODE' }
   | { type: 'INVALID_BACKUP_CODE' }
-  | { type: 'BACKUP_CODE_ALREADY_USED' }
   | { type: 'INVALID_PASSWORD' }
   | { type: 'ENCRYPTION_FAILED' }
   | { type: 'DECRYPTION_FAILED' };
 ```
 
-**実装例（TOTP生成・検証）**:
-
-```typescript
-import { authenticator } from 'otplib';
-import QRCode from 'qrcode';
-import crypto from 'crypto';
-import bcrypt from 'bcrypt';
-
-// TOTP設定
-authenticator.options = {
-  algorithm: 'sha1',     // Google Authenticator互換
-  digits: 6,             // 6桁コード
-  step: 30,              // 30秒ウィンドウ
-  window: 1,             // ±1ステップ許容（90秒）
-};
-
-class TwoFactorServiceImpl implements TwoFactorService {
-  // AES-256-GCM暗号化（TOTP秘密鍵）
-  private encryptSecret(secret: string): string {
-    const key = Buffer.from(process.env.TWO_FACTOR_ENCRYPTION_KEY!, 'hex'); // 32バイト（256ビット）
-    const iv = crypto.randomBytes(12); // GCM推奨IV長
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-
-    let encrypted = cipher.update(secret, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    const authTag = cipher.getAuthTag().toString('hex');
-
-    // iv + authTag + encrypted を結合
-    return `${iv.toString('hex')}:${authTag}:${encrypted}`;
-  }
-
-  // AES-256-GCM復号化
-  private decryptSecret(encryptedData: string): string {
-    const key = Buffer.from(process.env.TWO_FACTOR_ENCRYPTION_KEY!, 'hex');
-    const [ivHex, authTagHex, encryptedHex] = encryptedData.split(':');
-
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(authTag);
-
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  }
-
-  // バックアップコード生成（10個、8文字英数字）
-  private generateBackupCodes(): string[] {
-    const codes: string[] = [];
-    for (let i = 0; i < 10; i++) {
-      const code = crypto.randomBytes(4).toString('hex').toUpperCase(); // 8文字
-      codes.push(code);
-    }
-    return codes;
-  }
-
-  async setupTwoFactor(userId: string): Promise<Result<TwoFactorSetupData, TwoFactorError>> {
-    try {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      if (!user) {
-        return err({ type: 'USER_NOT_FOUND' });
-      }
-
-      if (user.twoFactorEnabled) {
-        return err({ type: 'TWO_FACTOR_ALREADY_ENABLED' });
-      }
-
-      // TOTP秘密鍵生成（32バイト = 256ビット）
-      const secret = authenticator.generateSecret(32);
-
-      // QRコード生成
-      const otpauth = authenticator.keyuri(user.email, 'ArchiTrack', secret);
-      const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
-
-      // バックアップコード生成
-      const backupCodes = this.generateBackupCodes();
-
-      // 秘密鍵を暗号化してDBに保存（仮保存、enableTwoFactor()で確定）
-      const encryptedSecret = this.encryptSecret(secret);
-      await prisma.user.update({
-        where: { id: userId },
-        data: { twoFactorSecret: encryptedSecret },
-      });
-
-      // バックアップコードをハッシュ化して保存
-      const backupCodePromises = backupCodes.map(async (code) => {
-        const codeHash = await bcrypt.hash(code, 12);
-        return prisma.twoFactorBackupCode.create({
-          data: { userId, codeHash },
-        });
-      });
-      await Promise.all(backupCodePromises);
-
-      return ok({
-        secret, // Base32エンコード済み（平文、ユーザー表示用）
-        qrCodeDataUrl,
-        backupCodes, // 平文（1回のみ表示）
-      });
-    } catch (error) {
-      logger.error('Failed to setup two-factor authentication', error);
-      return err({ type: 'ENCRYPTION_FAILED' });
-    }
-  }
-
-  async enableTwoFactor(userId: string, totpCode: string): Promise<Result<TwoFactorEnabledData, TwoFactorError>> {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { twoFactorBackupCodes: true },
-      });
-
-      if (!user) {
-        return err({ type: 'USER_NOT_FOUND' });
-      }
-
-      if (user.twoFactorEnabled) {
-        return err({ type: 'TWO_FACTOR_ALREADY_ENABLED' });
-      }
-
-      if (!user.twoFactorSecret) {
-        return err({ type: 'TWO_FACTOR_NOT_ENABLED' });
-      }
-
-      // TOTP検証
-      const secret = this.decryptSecret(user.twoFactorSecret);
-      const isValid = authenticator.verify({ token: totpCode, secret });
-
-      if (!isValid) {
-        return err({ type: 'INVALID_TOTP_CODE' });
-      }
-
-      // 2FA有効化
-      await prisma.user.update({
-        where: { id: userId },
-        data: { twoFactorEnabled: true },
-      });
-
-      // バックアップコードを平文で返却（最後の表示機会）
-      const backupCodes = user.twoFactorBackupCodes.map((bc) => bc.codeHash);
-
-      return ok({ backupCodes });
-    } catch (error) {
-      logger.error('Failed to enable two-factor authentication', error);
-      return err({ type: 'DECRYPTION_FAILED' });
-    }
-  }
-
-  async verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>> {
-    try {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-
-      if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
-        return err({ type: 'TWO_FACTOR_NOT_ENABLED' });
-      }
-
-      const secret = this.decryptSecret(user.twoFactorSecret);
-      const isValid = authenticator.verify({ token: totpCode, secret });
-
-      return ok(isValid);
-    } catch (error) {
-      logger.error('Failed to verify TOTP', error);
-      return err({ type: 'DECRYPTION_FAILED' });
-    }
-  }
-
-  async verifyBackupCode(userId: string, backupCode: string): Promise<Result<boolean, TwoFactorError>> {
-    try {
-      const backupCodes = await prisma.twoFactorBackupCode.findMany({
-        where: { userId, usedAt: null },
-      });
-
-      for (const bc of backupCodes) {
-        const isMatch = await bcrypt.compare(backupCode, bc.codeHash);
-        if (isMatch) {
-          // 使用済みマーク
-          await prisma.twoFactorBackupCode.update({
-            where: { id: bc.id },
-            data: { usedAt: new Date() },
-          });
-          return ok(true);
-        }
-      }
-
-      return err({ type: 'INVALID_BACKUP_CODE' });
-    } catch (error) {
-      logger.error('Failed to verify backup code', error);
-      return err({ type: 'INVALID_BACKUP_CODE' });
-    }
-  }
-
-  async disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>> {
-    try {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-
-      if (!user) {
-        return err({ type: 'USER_NOT_FOUND' });
-      }
-
-      // パスワード検証
-      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-      if (!isValidPassword) {
-        return err({ type: 'INVALID_PASSWORD' });
-      }
-
-      // 2FA無効化（トランザクション）
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: userId },
-          data: {
-            twoFactorEnabled: false,
-            twoFactorSecret: null,
-          },
-        }),
-        prisma.twoFactorBackupCode.deleteMany({ where: { userId } }),
-      ]);
-
-      return ok(undefined);
-    } catch (error) {
-      logger.error('Failed to disable two-factor authentication', error);
-      return err({ type: 'DECRYPTION_FAILED' });
-    }
-  }
-}
-```
-
 **セキュリティ考慮事項**:
 - **秘密鍵暗号化**: AES-256-GCM（環境変数`TWO_FACTOR_ENCRYPTION_KEY`、256ビット鍵）
-- **バックアップコードハッシュ化**: bcrypt（cost=12）
+- **バックアップコードハッシュ化**: Argon2id（メモリコスト: 64MB、時間コスト: 3、並列度: 4）
 - **TOTP設定**: SHA-1（Google Authenticator互換）、6桁、30秒ウィンドウ、±1ステップ許容
 - **バックアップコード**: 10個、8文字英数字、1回限り使用
 - **無効化時のパスワード確認**: アカウント乗っ取り防止
-- **トランザクション**: 2FA無効化時に秘密鍵とバックアップコードを同時削除
-
-**テスト戦略**:
-- **単体テスト（50+テスト）**:
-  - TOTP生成・検証（正常系、タイムウィンドウ境界値）
-  - バックアップコード生成・検証・消費（重複使用防止）
-  - 秘密鍵暗号化・復号化（正常系、不正な暗号化データ）
-  - QRコード生成（otpauth URIフォーマット検証）
-  - エラーハンドリング（USER_NOT_FOUND, INVALID_TOTP_CODE等）
-- **統合テスト（10+テスト）**:
-  - 2FA有効化フロー（setupTwoFactor → enableTwoFactor）
-  - ログインフロー（TOTP検証、バックアップコード使用）
-  - 2FA無効化フロー（パスワード検証）
-- **E2Eテスト（5+テスト）**:
-  - 2FA設定画面（QRコード表示、バックアップコード保存）
-  - 2FAログイン（TOTPコード入力、バックアップコード使用）
+- **トランザクション**: 2FA無効化時に秘密鍵とバックアップコードを同時削除、全リフレッシュトークン無効化
 
 ### Backend / Middleware Layer
 
@@ -2181,7 +1264,7 @@ class TwoFactorServiceImpl implements TwoFactorService {
 **依存関係**:
 - **インバウンド**: Protected API Routes
 - **アウトバウンド**: TokenService
-- **外部**: jsonwebtoken
+- **外部**: jose
 
 **契約定義**:
 
@@ -2232,9 +1315,9 @@ declare global {
 function authorize(permission: string): (req: Request, res: Response, next: NextFunction) => Promise<void>;
 
 // 使用例
-app.get('/api/users', authenticate, authorize('user:read'), listUsers);
-app.post('/api/roles', authenticate, authorize('role:create'), createRole);
-app.delete('/api/users/:id', authenticate, authorize('user:delete'), deleteUser);
+app.get('/api/v1/users', authenticate, authorize('user:read'), listUsers);
+app.post('/api/v1/roles', authenticate, authorize('role:create'), createRole);
+app.delete('/api/v1/users/:id', authenticate, authorize('user:delete'), deleteUser);
 ```
 
 **実装フロー**:
@@ -2243,22 +1326,24 @@ app.delete('/api/users/:id', authenticate, authorize('user:delete'), deleteUser)
 3. 権限あり: 次のミドルウェアへ
 4. 権限なし: `ForbiddenError` をスロー
 
-**エラーハンドリング**:
-- `INSUFFICIENT_PERMISSIONS`: 権限不足（403）
+### Backend / API Endpoints
 
-### Backend / Controller Layer
-
-**API Contract（OpenAPI 3.0形式）**:
+**API Contract（OpenAPI 3.0形式、APIバージョニング `/api/v1/...` 採用）**:
 
 | Method | Endpoint | Description | Request | Response | Middleware |
 |--------|----------|-------------|---------|----------|------------|
 | POST | /api/v1/auth/register | ユーザー登録（招待経由） | RegisterRequest | AuthResponse | validate |
-| POST | /api/v1/auth/login | ログイン | LoginRequest | AuthResponse | validate |
+| POST | /api/v1/auth/login | ログイン | LoginRequest | LoginResponse | validate |
+| POST | /api/v1/auth/verify-2fa | 2FA検証（ログイン時） | Verify2FARequest | AuthResponse | validate |
 | POST | /api/v1/auth/logout | ログアウト | - | void | authenticate |
 | POST | /api/v1/auth/logout-all | 全デバイスログアウト | - | void | authenticate |
 | POST | /api/v1/auth/refresh | トークンリフレッシュ | RefreshRequest | AuthResponse | validate |
 | GET | /api/v1/users/me | 現在のユーザー情報取得 | - | UserProfile | authenticate |
 | PATCH | /api/v1/users/me | ユーザー情報更新 | UpdateProfileRequest | UserProfile | authenticate, validate |
+| POST | /api/v1/auth/2fa/setup | 2FA設定開始 | - | TwoFactorSetupData | authenticate |
+| POST | /api/v1/auth/2fa/enable | 2FA有効化 | EnableTwoFactorRequest | TwoFactorEnabledData | authenticate, validate |
+| POST | /api/v1/auth/2fa/disable | 2FA無効化 | DisableTwoFactorRequest | void | authenticate, validate |
+| POST | /api/v1/auth/2fa/backup-codes/regenerate | バックアップコード再生成 | - | BackupCodesData | authenticate |
 | POST | /api/v1/invitations | 招待作成 | CreateInvitationRequest | Invitation | authenticate, authorize('user:invite') |
 | GET | /api/v1/invitations | 招待一覧取得 | InvitationFilter | Invitation[] | authenticate, authorize('user:invite') |
 | POST | /api/v1/invitations/:id/revoke | 招待取り消し | - | void | authenticate, authorize('user:invite') |
@@ -2281,34 +1366,6 @@ app.delete('/api/users/:id', authenticate, authorize('user:delete'), deleteUser)
 
 ### Frontend / Component Architecture
 
-#### 認証コンポーネント階層
-
-```
-App
-├── ErrorBoundary
-├── AuthProvider (Context)
-│   ├── PrivateRoute (Protected Routes)
-│   │   ├── DashboardLayout
-│   │   │   ├── Header
-│   │   │   │   ├── UserMenu
-│   │   │   │   └── NotificationBell
-│   │   │   ├── Sidebar
-│   │   │   └── MainContent
-│   │   └── AdminLayout (Admin Only)
-│   │       ├── AdminHeader
-│   │       ├── AdminSidebar
-│   │       └── AdminMainContent
-│   └── PublicRoute (Public Routes)
-│       ├── LoginPage
-│       │   └── LoginForm
-│       ├── RegisterPage
-│       │   └── RegisterForm
-│       ├── PasswordResetRequestPage
-│       │   └── PasswordResetRequestForm
-│       └── PasswordResetPage
-│           └── PasswordResetForm
-```
-
 #### AuthContext
 
 **責任と境界**:
@@ -2319,7 +1376,7 @@ App
 
 **依存関係**:
 - **インバウンド**: App, PrivateRoute, PublicRoute
-- **アウトバウンド**: apiClient
+- **アウトバウンド**: TokenRefreshManager, apiClient
 - **外部**: React Context API
 
 **契約定義**:
@@ -2329,10 +1386,16 @@ interface AuthContextValue {
   user: UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  verify2FA: (userId: string, totpCode: string) => Promise<void>;
   register: (invitationToken: string, data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
+}
+
+interface LoginResult {
+  type: 'SUCCESS' | '2FA_REQUIRED';
+  userId?: string;
 }
 
 interface RegisterData {
@@ -2344,523 +1407,96 @@ function useAuth(): AuthContextValue;
 ```
 
 **実装詳細**:
-- **自動トークンリフレッシュ**: アクセストークン期限切れ5分前に自動リフレッシュ
-- **401エラーハンドリング**: apiClientインターセプターで自動リフレッシュ試行
+- **自動トークンリフレッシュ**: TokenRefreshManager.scheduleAutoRefresh()により有効期限切れ5分前に自動リフレッシュ
+- **401エラーハンドリング**: apiClientインターセプターで自動リフレッシュ試行（TokenRefreshManager使用）
 - **リフレッシュ失敗時**: ログイン画面へリダイレクト、`redirectUrl` クエリパラメータ設定
 
-#### APIクライアント拡張
+#### TokenRefreshManager
 
-**既存のAPIクライアントに以下の機能を追加**:
+**責任と境界**:
+- **主要責任**: トークンリフレッシュの自動化、Race Condition対策、マルチタブ同期
+- **ドメイン境界**: トークンドメイン
+- **データ所有権**: refreshPromise（単一Promise）
+- **状態管理**: Class instance
 
-```typescript
-class ApiClient {
-  private accessToken: string | null = null;
-  private refreshPromise: Promise<void> | null = null;
+**依存関係**:
+- **インバウンド**: AuthContext, apiClient
+- **アウトバウンド**: apiClient
+- **外部**: Broadcast Channel API
 
-  // トークン設定
-  setAccessToken(token: string): void;
-
-  // トークンクリア
-  clearTokens(): void;
-
-  // リクエストインターセプター（Authorizationヘッダー追加）
-  private addAuthHeader(headers: Record<string, string>): Record<string, string>;
-
-  // レスポンスインターセプター（401エラーハンドリング）
-  private handle401Error<T>(error: ApiError, retryRequest: () => Promise<T>): Promise<T>;
-
-  // トークンリフレッシュ（同時実行防止）
-  private refreshAccessToken(): Promise<void>;
-}
-```
-
-**401エラーハンドリングフロー**:
-1. API リクエストが401エラーを返す
-2. `handle401Error` がエラーをキャッチ
-3. `refreshAccessToken` でリフレッシュトークンを使用して新しいアクセストークンを取得
-4. 新しいトークンで元のリクエストを再実行
-5. リフレッシュ失敗時: AuthContextの `logout()` を呼び出し、ログイン画面へリダイレクト
-
-## UI/UX Design
-
-### 画面一覧
-
-| 画面名 | パス | アクセス権限 | 主要コンポーネント |
-|--------|------|--------------|-------------------|
-| ログイン画面 | /login | 公開 | LoginForm |
-| ユーザー登録画面 | /register?token={token} | 公開（招待経由） | RegisterForm |
-| パスワードリセット要求画面 | /password/reset-request | 公開 | PasswordResetRequestForm |
-| パスワードリセット画面 | /password/reset?token={token} | 公開 | PasswordResetForm |
-| ダッシュボード | /dashboard | 認証必須 | DashboardLayout |
-| プロフィール画面 | /profile | 認証必須 | ProfilePage |
-| 招待管理画面 | /admin/invitations | 管理者 | InvitationManagementPage |
-| ロール管理画面 | /admin/roles | 管理者 | RoleManagementPage |
-| 権限管理画面 | /admin/permissions | 管理者 | PermissionManagementPage |
-| 監査ログ画面 | /admin/audit-logs | 管理者 | AuditLogPage |
-
-### ログイン画面（LoginPage）
-
-**目的**: ユーザーがメールアドレスとパスワードでログインする
-
-**コンポーネント構成**:
-```
-LoginPage
-├── LoginForm
-│   ├── FormField (email)
-│   ├── FormField (password)
-│   │   └── PasswordVisibilityToggle
-│   ├── Button (login)
-│   └── Link (forgot password)
-└── ErrorMessage
-```
-
-**画面要素**:
-- **メールアドレス入力**: type="email", autocomplete="email", required
-- **パスワード入力**: type="password", autocomplete="current-password", required
-- **パスワード表示/非表示切り替え**: アイコンボタン
-- **ログインボタン**: ローディングスピナー対応
-- **パスワードを忘れた場合リンク**: `/password/reset-request` へ遷移
-- **エラーメッセージ**: 汎用的なメッセージ（「メールアドレスまたはパスワードが正しくありません」）
-
-**バリデーション**:
-- メールアドレス形式チェック（リアルタイム）
-- 必須フィールドチェック（送信時）
-
-**アクセシビリティ**:
-- 自動フォーカス（メールアドレスフィールド）
-- aria-label, aria-describedby
-- エラーメッセージのaria-live="polite"
-
-**レスポンシブデザイン**:
-- モバイル（320px-767px）: 縦積みレイアウト
-- タブレット/デスクトップ（768px以上）: 中央配置、max-width: 400px
-
-### ユーザー登録画面（RegisterPage）
-
-**目的**: 招待リンク経由でユーザーがアカウントを作成する
-
-**コンポーネント構成**:
-```
-RegisterPage
-├── InvitationVerificationLoader
-├── RegisterForm
-│   ├── FormField (email, readonly)
-│   ├── FormField (displayName)
-│   ├── FormField (password)
-│   │   ├── PasswordVisibilityToggle
-│   │   └── PasswordStrengthIndicator
-│   ├── FormField (confirmPassword)
-│   ├── PasswordRequirementsChecklist
-│   ├── Checkbox (terms and privacy)
-│   └── Button (register)
-└── ErrorMessage
-```
-
-**画面要素**:
-- **招待トークン検証**: ページ読み込み時に自動検証
-- **メールアドレス表示**: 読み取り専用（招待時のメールアドレス）
-- **表示名入力**: required, max: 100文字
-- **パスワード入力**: type="password", autocomplete="new-password", required
-- **パスワード確認入力**: type="password", autocomplete="new-password", required
-- **パスワード強度インジケーター**: 弱い/普通/強い（色と文字で表現）
-- **パスワード要件チェックリスト**:
-  - ✓ 8文字以上
-  - ✓ 英大文字を含む
-  - ✓ 英小文字を含む
-  - ✓ 数字を含む
-  - ✓ 特殊文字を含む
-- **利用規約とプライバシーポリシー同意チェックボックス**: required
-- **登録ボタン**: ローディングスピナー対応
-
-**バリデーション**:
-- パスワード強度チェック（リアルタイム）
-- パスワードと確認パスワードの一致チェック（リアルタイム）
-- 全フィールド必須チェック（送信時）
-
-**エラーハンドリング**:
-- 招待トークンが無効または期限切れ: エラーメッセージ + 管理者への連絡手段表示
-- 登録失敗: フィールドレベルのエラーメッセージ
-
-**成功時の挙動**:
-- 成功メッセージ表示（2秒）
-- ダッシュボードへ自動リダイレクト
-
-### 招待管理画面（InvitationManagementPage）
-
-**目的**: 管理者が新規ユーザーを招待し、招待状況を管理する
-
-**コンポーネント構成**:
-```
-InvitationManagementPage
-├── InvitationForm
-│   ├── FormField (email)
-│   └── Button (invite)
-├── InvitationList
-│   ├── InvitationTable (Desktop)
-│   │   ├── TableHeader
-│   │   └── TableRow[]
-│   │       ├── Email
-│   │       ├── Status (Badge)
-│   │       ├── ExpiresAt
-│   │       ├── CreatedAt
-│   │       └── Actions (Dropdown)
-│   └── InvitationCardList (Mobile)
-│       └── InvitationCard[]
-├── CopyInvitationURLModal
-└── Pagination
-```
-
-**画面要素**:
-- **招待フォーム**:
-  - メールアドレス入力: type="email", required
-  - 招待ボタン: ローディングスピナー対応
-- **招待一覧テーブル（デスクトップ）**:
-  - 列: メールアドレス、ステータス、有効期限、招待日時、アクション
-  - ステータスバッジ: 未使用（青）、使用済み（緑）、期限切れ（グレー）、取り消し済み（赤）
-  - アクション: 取り消し、再送信、URLコピー（ドロップダウンメニュー）
-- **招待カードリスト（モバイル）**:
-  - カード形式で表示
-  - ステータス、有効期限、アクションボタンを含む
-- **招待URL コピーモーダル**:
-  - 招待URL表示
-  - コピーボタン（クリップボードへコピー）
-  - 閉じるボタン
-- **ページネーション**: 1ページあたり10件
-
-**機能**:
-- **招待作成**: メールアドレス入力 → 招待ボタン → 成功メッセージ + URLコピーモーダル表示
-- **招待取り消し**: 確認ダイアログ → 取り消し実行 → 一覧更新
-- **招待再送信**: 確認ダイアログ → メール再送信 → 成功メッセージ
-- **URLコピー**: クリップボードにコピー → トーストメッセージ「コピーしました」
-
-**フィルタリング**:
-- ステータスフィルター: 全て、未使用、使用済み、期限切れ、取り消し済み
-- メールアドレス検索
-
-### プロフィール画面（ProfilePage）
-
-**目的**: ユーザーが自分のプロフィール情報を確認・編集する
-
-**コンポーネント構成**:
-```
-ProfilePage
-├── ProfileSection
-│   ├── FormField (email, readonly)
-│   ├── FormField (displayName)
-│   ├── RoleBadgeList (readonly)
-│   ├── FormField (createdAt, readonly)
-│   └── Button (save)
-├── PasswordChangeSection
-│   ├── FormField (currentPassword)
-│   ├── FormField (newPassword)
-│   │   ├── PasswordVisibilityToggle
-│   │   └── PasswordStrengthIndicator
-│   ├── FormField (confirmNewPassword)
-│   ├── PasswordRequirementsChecklist
-│   └── Button (change password)
-└── AdminLinkSection (Admin Only)
-    └── Link (user management)
-```
-
-**画面要素**:
-- **プロフィール情報セクション**:
-  - メールアドレス: 読み取り専用
-  - 表示名: 編集可能
-  - ロール: バッジ表示（読み取り専用）
-  - 作成日時: 読み取り専用
-  - 保存ボタン: 変更がある場合のみ有効
-- **パスワード変更セクション**:
-  - 現在のパスワード: type="password", autocomplete="current-password", required
-  - 新しいパスワード: type="password", autocomplete="new-password", required
-  - パスワード確認: type="password", autocomplete="new-password", required
-  - パスワード強度インジケーター
-  - パスワード要件チェックリスト
-  - パスワード変更ボタン
-- **管理者リンクセクション（管理者のみ表示）**:
-  - ユーザー管理リンク: `/admin/users` へ遷移
-
-**機能**:
-- **プロフィール更新**: 表示名変更 → 保存ボタン → 成功トーストメッセージ
-- **パスワード変更**: 確認ダイアログ（「全デバイスからログアウトされます」）→ パスワード変更実行 → 成功メッセージ → ログイン画面へリダイレクト
-
-### 共通UI/UXガイドライン
-
-**レスポンシブデザイン**:
-- モバイル: 320px-767px
-- タブレット: 768px-1023px
-- デスクトップ: 1024px以上
-
-**カラーパレット**:
-- Primary: #1976d2（青）
-- Secondary: #424242（グレー）
-- Success: #4caf50（緑）
-- Warning: #ff9800（オレンジ）
-- Error: #d32f2f（赤）
-- Info: #2196f3（水色）
-
-**タイポグラフィ**:
-- フォントファミリー: system-ui, -apple-system, 'Segoe UI', sans-serif
-- 見出し: 24px-32px
-- 本文: 16px
-- キャプション: 14px
-
-**アクセシビリティ**:
-- 最低コントラスト比: 4.5:1（WCAG 2.1 AA準拠）
-- キーボード操作: Tab、Enter、Spaceキー対応
-- スクリーンリーダー: aria-label, aria-describedby, role属性
-- エラーメッセージ: aria-live="polite"
-- フォーカスインジケーター: 明確なアウトライン表示
-
-**ローディング状態**:
-- ボタン: スピナー + 無効化
-- ページ: スケルトンスクリーン or ローディングスピナー
-- 長時間処理: プログレスバー + 進捗メッセージ
-
-**エラーハンドリング**:
-- フィールドレベルエラー: 入力フィールド下に赤色テキスト
-- ページレベルエラー: 最初のエラーフィールドにスクロール + フォーカス
-- ネットワークエラー: エラーメッセージ + リトライボタン
-
-**トーストメッセージ**:
-- 表示位置: 画面右上
-- 自動非表示: 3秒後
-- 種類: Success、Warning、Error、Info
-
-**モーダルダイアログ**:
-- フォーカストラップ: モーダル内にフォーカス閉じ込め
-- Escキー: モーダルを閉じる
-- 背景クリック: モーダルを閉じる（オプション）
-
-### パスワード強度インジケーター（実装詳細）
-
-**推奨ライブラリ**: zxcvbn
-
-**理由**:
-- Dropboxが開発した業界標準のパスワード強度評価ライブラリ
-- 辞書攻撃、パターンマッチング、頻出パスワードチェック
-- スコア0-4の5段階評価
-- ユーザーフレンドリーなフィードバックメッセージ
-
-**実装**:
+**契約定義**:
 
 ```typescript
-import zxcvbn from 'zxcvbn';
+class TokenRefreshManager {
+  private refreshPromise: Promise<string> | null;
+  private broadcastChannel: BroadcastChannel;
 
-interface PasswordStrength {
-  score: number; // 0-4
-  label: 'very-weak' | 'weak' | 'medium' | 'strong' | 'very-strong';
-  color: string;
-  feedback: string[];
-}
+  constructor();
 
-function calculatePasswordStrength(password: string): PasswordStrength {
-  const result = zxcvbn(password);
+  // トークンリフレッシュ（Race Condition対策済み）
+  refreshAccessToken(): Promise<string>;
 
-  const labels = ['very-weak', 'weak', 'medium', 'strong', 'very-strong'] as const;
-  const colors = ['#d32f2f', '#ff9800', '#ff9800', '#4caf50', '#1976d2'];
+  // 自動リフレッシュスケジュール
+  scheduleAutoRefresh(expiresIn: number): void;
 
-  return {
-    score: result.score,
-    label: labels[result.score],
-    color: colors[result.score],
-    feedback: result.feedback.suggestions,
-  };
+  // Broadcast Channel クリーンアップ
+  destroy(): void;
 }
 ```
 
-**UI表示**:
-- スコア0: 赤色（非常に弱い）「このパスワードは非常に弱いです」
-- スコア1: 赤色（弱い）「このパスワードは弱いです」
-- スコア2: オレンジ色（普通）「このパスワードは普通です」
-- スコア3: 緑色（強い）「このパスワードは強いです」
-- スコア4: 青色（非常に強い）「このパスワードは非常に強いです」
-
-**フィードバック例**:
-- 「大文字、小文字、数字、記号を組み合わせてください」
-- 「よくあるパスワードパターンは避けてください」
-- 「キーボードの連続したキー（qwerty）は避けてください」
-- 「日付や名前は避けてください」
-
-**コンポーネント実装例**:
-
-```tsx
-import React from 'react';
-import zxcvbn from 'zxcvbn';
-
-const PasswordStrengthIndicator: React.FC<{ password: string }> = ({ password }) => {
-  const strength = calculatePasswordStrength(password);
-
-  return (
-    <div className="password-strength">
-      <div
-        className="strength-bar"
-        style={{
-          width: `${(strength.score + 1) * 20}%`,
-          backgroundColor: strength.color
-        }}
-      />
-      <p style={{ color: strength.color }}>
-        {strength.label === 'very-weak' && '非常に弱い'}
-        {strength.label === 'weak' && '弱い'}
-        {strength.label === 'medium' && '普通'}
-        {strength.label === 'strong' && '強い'}
-        {strength.label === 'very-strong' && '非常に強い'}
-      </p>
-      {strength.feedback.length > 0 && (
-        <ul className="feedback">
-          {strength.feedback.map((msg, i) => (
-            <li key={i}>{msg}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-};
-```
-
-## Type Definitions
-
-### Result型（型安全なエラーハンドリング）
-
-**目的**: 成功（Ok）または失敗（Err）を型安全に表現し、明示的なエラーハンドリングを強制する。
-
-**実装場所**: `backend/src/types/result.ts`
-
-```typescript
-/**
- * Result型: 成功（Ok）または失敗（Err）を表現する型安全な結果型
- */
-export type Result<T, E> = Ok<T> | Err<E>;
-
-export interface Ok<T> {
-  success: true;
-  value: T;
-}
-
-export interface Err<E> {
-  success: false;
-  error: E;
-}
-
-// ヘルパー関数
-export const ok = <T>(value: T): Ok<T> => ({ success: true, value });
-export const err = <E>(error: E): Err<E> => ({ success: false, error });
-
-// パターンマッチングヘルパー
-export function match<T, E, R>(
-  result: Result<T, E>,
-  handlers: {
-    ok: (value: T) => R;
-    err: (error: E) => R;
-  }
-): R {
-  if (result.success) {
-    return handlers.ok(result.value);
-  } else {
-    return handlers.err(result.error);
-  }
-}
-```
-
-**使用例（サービス層）**:
-
-```typescript
-// AuthService.tsでの使用例
-async register(
-  invitationToken: string,
-  data: RegisterData
-): Promise<Result<AuthResponse, AuthError>> {
-  try {
-    // 招待トークン検証
-    const invitation = await this.invitationService.verifyInvitation(invitationToken);
-    if (!invitation.success) {
-      return err({ type: 'INVITATION_INVALID' });
-    }
-
-    // パスワード強度検証
-    const passwordCheck = this.passwordService.validatePasswordStrength(data.password);
-    if (!passwordCheck.success) {
-      return err({ type: 'WEAK_PASSWORD', details: passwordCheck.error.reasons });
-    }
-
-    // ユーザー作成（トランザクション内）
-    const user = await this.createUser(invitation.value, data);
-
-    // トークン発行
-    const tokens = await this.tokenService.generateTokens(user);
-
-    return ok({ ...tokens, user: this.toUserProfile(user) });
-  } catch (error) {
-    logger.error('Registration failed', error);
-    return err({ type: 'INTERNAL_ERROR' });
-  }
-}
-```
-
-**使用例（コントローラー層）**:
-
-```typescript
-// auth.controller.tsでの使用例
-async function registerHandler(req: Request, res: Response) {
-  const result = await authService.register(req.body.invitationToken, req.body);
-
-  if (result.success) {
-    res.status(201).json(result.value);
-  } else {
-    // エラータイプに応じたHTTPステータス
-    const statusCode = getStatusCodeForAuthError(result.error);
-    res.status(statusCode).json({ error: result.error });
-  }
-}
-```
-
-**利点**:
-- **型安全性**: `any`型の排除、明示的なエラー型定義
-- **可読性**: 成功/失敗が型レベルで明確
-- **エラーハンドリングの強制**: TypeScriptコンパイラがエラーケースの処理を要求
-- **関数型プログラミング**: RustのResult型、HaskellのEitherモナドに類似
+**実装詳細**:
+- **単一Promiseパターン**: 複数のリクエストが同時にリフレッシュを試みても、実際のリフレッシュ処理は1回のみ実行
+- **Broadcast Channel API**: マルチタブ環境でトークン更新を他のタブに通知
+- **自動リフレッシュ**: 有効期限切れ5分前（環境変数`VITE_TOKEN_REFRESH_THRESHOLD`、デフォルト5分）に自動リフレッシュ
 
 ## Data Models
 
-### Prismaスキーマ拡張
+### Physical Data Model（PostgreSQL）
+
+**Prismaスキーマ定義**:
 
 ```prisma
-// ユーザーモデル
 model User {
-  id                   String        @id @default(uuid())
-  email                String        @unique
-  displayName          String
-  passwordHash         String
-  failedLoginAttempts  Int           @default(0)
-  lockedUntil          DateTime?
-  twoFactorEnabled     Boolean       @default(false)
-  twoFactorSecret      String?       // TOTP秘密鍵（AES-256-GCM暗号化、base32エンコード）
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  id                String    @id @default(uuid())
+  email             String    @unique
+  displayName       String
+  passwordHash      String
+  twoFactorEnabled  Boolean   @default(false)
+  twoFactorSecret   String?   // AES-256-GCM暗号化済み（Base32エンコードされたTOTP秘密鍵）
+  isLocked          Boolean   @default(false)
+  lockedUntil       DateTime?
+  loginFailures     Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  refreshTokens        RefreshToken[]
-  userRoles            UserRole[]
-  invitationsSent      Invitation[]   @relation("InviterRelation")
-  auditLogsAsActor     AuditLog[]
-  passwordHistories    PasswordHistory[]
-  twoFactorBackupCodes TwoFactorBackupCode[]
+  userRoles              UserRole[]
+  refreshTokens          RefreshToken[]
+  invitationsSent        Invitation[]        @relation("InviterToInvitations")
+  invitation             Invitation?         @relation("InvitationToUser")
+  passwordResetRequests  PasswordResetToken[]
+  passwordHistories      PasswordHistory[]
+  twoFactorBackupCodes   TwoFactorBackupCode[]
+  auditLogsAsActor       AuditLog[]          @relation("ActorAuditLogs")
+  auditLogsAsTarget      AuditLog[]          @relation("TargetAuditLogs")
 
   @@index([email])
-  @@index([createdAt])
+  @@index([isLocked])
   @@map("users")
 }
 
-// 招待モデル
 model Invitation {
-  id         String            @id @default(uuid())
+  id         String    @id @default(uuid())
   email      String
-  token      String            @unique
-  status     InvitationStatus  @default(PENDING)
-  expiresAt  DateTime
-  createdAt  DateTime          @default(now())
+  token      String    @unique
   inviterId  String
+  status     String    @default("pending") // pending, used, expired, revoked
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  usedAt     DateTime?
+  userId     String?   @unique
 
-  inviter    User              @relation("InviterRelation", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviter    User      @relation("InviterToInvitations", fields: [inviterId], references: [id])
+  user       User?     @relation("InvitationToUser", fields: [userId], references: [id])
 
   @@index([token])
   @@index([email])
@@ -2869,64 +1505,56 @@ model Invitation {
   @@map("invitations")
 }
 
-enum InvitationStatus {
-  PENDING
-  USED
-  EXPIRED
-  REVOKED
-}
-
-// リフレッシュトークンモデル
 model RefreshToken {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  token      String   @unique
-  deviceInfo String?
+  token      String    @unique
+  deviceInfo String?   // User-Agent情報（オプション）
   expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@index([token])
+  @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
 }
 
-// ロールモデル
 model Role {
-  id          String         @id @default(uuid())
-  name        String         @unique
+  id          String   @id @default(uuid())
+  name        String   @unique
   description String
-  priority    Int            @default(0)
-  isDeletable Boolean        @default(true)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  priority    Int      @default(0) // 高い値が高優先度
+  isSystem    Boolean  @default(false) // システムロール（削除不可）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   userRoles        UserRole[]
   rolePermissions  RolePermission[]
 
   @@index([name])
+  @@index([priority])
   @@map("roles")
 }
 
-// 権限モデル
 model Permission {
-  id          String         @id @default(uuid())
-  resource    String
-  action      String
-  name        String         @unique
+  id          String   @id @default(uuid())
+  resource    String   // adr, user, role, permission, project, report, settings
+  action      String   // create, read, update, delete, manage, approve, reject, delegate, export
   description String
+  createdAt   DateTime @default(now())
 
-  rolePermissions RolePermission[]
+  rolePermissions  RolePermission[]
 
-  @@index([name])
+  @@unique([resource, action])
   @@index([resource])
+  @@index([action])
   @@map("permissions")
 }
 
-// ユーザー・ロール紐付けモデル
 model UserRole {
+  id         String   @id @default(uuid())
   userId     String
   roleId     String
   assignedAt DateTime @default(now())
@@ -2934,14 +1562,14 @@ model UserRole {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
-  @@id([userId, roleId])
+  @@unique([userId, roleId])
   @@index([userId])
   @@index([roleId])
   @@map("user_roles")
 }
 
-// ロール・権限紐付けモデル
 model RolePermission {
+  id           String   @id @default(uuid())
   roleId       String
   permissionId String
   assignedAt   DateTime @default(now())
@@ -2949,57 +1577,45 @@ model RolePermission {
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
-  @@id([roleId, permissionId])
+  @@unique([roleId, permissionId])
   @@index([roleId])
   @@index([permissionId])
   @@map("role_permissions")
 }
 
-// 監査ログモデル
-model AuditLog {
-  id          String   @id @default(uuid())
-  action      String
-  actorId     String
-  actorEmail  String
-  actorRoles  String[]
-  targetType  String
-  targetId    String?
-  targetName  String?
-  before      Json?
-  after       Json?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
 
-  actor       User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([actorId])
-  @@index([action])
-  @@index([targetType])
-  @@index([targetId])
-  @@index([createdAt])
-  @@index([targetType, targetId]) // 複合インデックス: 特定リソースの監査ログ検索高速化
-  @@map("audit_logs")
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
-// パスワード履歴モデル
 model PasswordHistory {
-  id        String   @id @default(uuid())
-  userId    String
-  hash      String   // bcryptハッシュ
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  userId       String
+  passwordHash String   // Argon2idハッシュ
+  createdAt    DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
   @@map("password_histories")
 }
 
-// 二要素認証バックアップコードモデル
 model TwoFactorBackupCode {
   id        String    @id @default(uuid())
   userId    String
-  codeHash  String    // bcryptハッシュ（cost=12、8文字の英数字コード）
+  codeHash  String    // Argon2idハッシュ（8文字の英数字コード）
   usedAt    DateTime? // 使用済み追跡（1回限り使用）
   createdAt DateTime  @default(now())
 
@@ -3009,7 +1625,33 @@ model TwoFactorBackupCode {
   @@index([usedAt])
   @@map("two_factor_backup_codes")
 }
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String   // ROLE_CREATED, ROLE_UPDATED, ROLE_DELETED, PERMISSION_ASSIGNED, PERMISSION_REVOKED, USER_ROLE_ASSIGNED, USER_ROLE_REVOKED, PERMISSION_CHECK_FAILED, TWO_FACTOR_ENABLED, TWO_FACTOR_DISABLED
+  actorId     String
+  targetType  String   // User, Role, Permission, UserRole, RolePermission
+  targetId    String
+  metadata    Json?    // 変更前後の値、IPアドレス、ユーザーエージェント、リクエストID
+  createdAt   DateTime @default(now())
+
+  actor       User     @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
+  target      User?    @relation("TargetAuditLogs", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([actorId])
+  @@index([targetId])
+  @@index([targetType, targetId])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
 ```
+
+**データベースインデックス戦略**:
+- **users.email**: ログイン時の高速検索
+- **invitations.token**: 招待検証時の高速検索
+- **refresh_tokens.token**: トークンリフレッシュ時の高速検索
+- **audit_logs**: 単体インデックス（targetId, actorId, createdAt）、複合インデックス（targetType+targetId, actorId+createdAt）
 
 ### 監査ログの保持期間・ローテーション戦略
 
@@ -3021,96 +1663,6 @@ model TwoFactorBackupCode {
 - **月次バッチジョブ**: 13ヶ月以上前のログをアーカイブ
 - **アーカイブ形式**: JSON Lines（.jsonl.gz）、圧縮して保存
 - **削除ポリシー**: 8年以上前のアーカイブを自動削除
-
-**実装（cronjob）**:
-
-```typescript
-// backend/src/jobs/archive-audit-logs.ts
-import { PrismaClient } from '@prisma/client';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { createGzip } from 'zlib';
-import { format } from 'date-fns';
-
-const prisma = new PrismaClient();
-const s3 = new S3Client({ region: process.env.AWS_REGION });
-
-async function archiveOldAuditLogs() {
-  const thirteenMonthsAgo = new Date();
-  thirteenMonthsAgo.setMonth(thirteenMonthsAgo.getMonth() - 13);
-
-  // 13ヶ月以上前のログを取得
-  const oldLogs = await prisma.auditLog.findMany({
-    where: { createdAt: { lt: thirteenMonthsAgo } },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  if (oldLogs.length === 0) {
-    logger.info('No audit logs to archive');
-    return;
-  }
-
-  // JSON Lines形式に変換
-  const jsonLines = oldLogs.map(log => JSON.stringify(log)).join('\n');
-
-  // gzip圧縮
-  const gzip = createGzip();
-  const chunks: Buffer[] = [];
-  gzip.on('data', chunk => chunks.push(chunk));
-  gzip.end(jsonLines);
-  await new Promise((resolve) => gzip.on('end', resolve));
-  const compressedData = Buffer.concat(chunks);
-
-  // S3へアップロード
-  const key = `audit-logs/archive-${format(thirteenMonthsAgo, 'yyyy-MM')}.jsonl.gz`;
-  await s3.send(new PutObjectCommand({
-    Bucket: process.env.S3_AUDIT_LOGS_BUCKET || 'architrack-audit-logs',
-    Key: key,
-    Body: compressedData,
-    ContentType: 'application/gzip',
-    ServerSideEncryption: 'AES256',
-  }));
-
-  // PostgreSQLから削除
-  await prisma.auditLog.deleteMany({
-    where: { createdAt: { lt: thirteenMonthsAgo } },
-  });
-
-  logger.info(`Archived ${oldLogs.length} audit logs to S3: ${key}`);
-}
-
-// Cronjobスケジュール（月初1日の深夜2時）
-// crontab: 0 2 1 * * node backend/dist/jobs/archive-audit-logs.js
-```
-
-**リストア手順（監査ログの復元）**:
-
-```typescript
-// アーカイブからログを復元
-async function restoreAuditLogs(archiveKey: string) {
-  // S3からダウンロード
-  const response = await s3.send(new GetObjectCommand({
-    Bucket: process.env.S3_AUDIT_LOGS_BUCKET,
-    Key: archiveKey,
-  }));
-
-  // gzip解凍
-  const gunzip = createGunzip();
-  const chunks: Buffer[] = [];
-  gunzip.on('data', chunk => chunks.push(chunk));
-
-  response.Body.pipe(gunzip);
-  await new Promise((resolve) => gunzip.on('end', resolve));
-  const jsonLines = Buffer.concat(chunks).toString('utf-8');
-
-  // JSON Lines をパース
-  const logs = jsonLines.split('\n').map(line => JSON.parse(line));
-
-  // PostgreSQLへ挿入
-  await prisma.auditLog.createMany({ data: logs });
-
-  logger.info(`Restored ${logs.length} audit logs from ${archiveKey}`);
-}
-```
 
 **コンプライアンス**:
 - **GDPR**: 個人データの保持期間（7年間）に準拠
@@ -3131,6 +1683,7 @@ async function restoreAuditLogs(archiveKey: string) {
 - `INVITATION_INVALID`: 招待トークンが無効
 - `INVITATION_EXPIRED`: 招待トークンが期限切れ
 - `INVITATION_ALREADY_USED`: 招待トークンが既に使用済み
+- `INVALID_2FA_CODE`: 二要素認証コードが正しくない
 
 **認可エラー (403)**:
 - `INSUFFICIENT_PERMISSIONS`: 権限不足
@@ -3143,6 +1696,7 @@ async function restoreAuditLogs(archiveKey: string) {
 - `WEAK_PASSWORD`: パスワード強度不足
 - `PASSWORD_MISMATCH`: パスワード不一致
 - `INVITATION_EMAIL_ALREADY_REGISTERED`: 招待メールアドレスが既に登録済み
+- `PASSWORD_REUSED`: パスワード履歴との重複
 
 ## Testing Strategy
 
@@ -3150,7 +1704,7 @@ async function restoreAuditLogs(archiveKey: string) {
 
 **目的**: UIコンポーネントの視覚的なバリアント定義、インタラクションテスト、アクセシビリティテスト
 
-**テスト対象コンポーネント（20+ stories）**:
+**テスト対象コンポーネント（25+ stories）**:
 
 1. **LoginForm** (5 stories)
    - Default: デフォルト状態
@@ -3166,16 +1720,18 @@ async function restoreAuditLogs(archiveKey: string) {
    - Password Mismatch: パスワード不一致
    - Loading: 登録処理中
 
-3. **InvitationForm** (3 stories)
-   - Default: デフォルト状態
-   - With Email: メールアドレス入力済み
-   - Loading: 招待送信中
+3. **TwoFactorSetupForm** (5 stories)
+   - QR Code Step: QRコード表示
+   - TOTP Verification Step: TOTP検証中
+   - Backup Codes Step: バックアップコード保存
+   - Error State: TOTP検証エラー
+   - Loading: 処理中
 
-4. **InvitationTable** (4 stories)
-   - Empty: 招待なし
-   - With Pending Invitations: 未使用招待あり
-   - With Mixed Status: 混在状態
-   - Mobile View: モバイル表示（カード形式）
+4. **TwoFactorVerificationForm** (4 stories)
+   - Default: デフォルト状態
+   - With Countdown Timer: カウントダウンタイマー表示
+   - Backup Code Mode: バックアップコード入力
+   - Error State: 検証エラー
 
 5. **PasswordStrengthIndicator** (4 stories)
    - Weak: 弱いパスワード
@@ -3183,12 +1739,7 @@ async function restoreAuditLogs(archiveKey: string) {
    - Strong: 強いパスワード
    - Very Strong: 非常に強いパスワード
 
-6. **RoleBadge** (3 stories)
-   - System Admin: システム管理者バッジ
-   - General User: 一般ユーザーバッジ
-   - Custom Role: カスタムロールバッジ
-
-7. **PasswordRequirementsChecklist** (3 stories)
+6. **PasswordRequirementsChecklist** (3 stories)
    - All Failed: 全要件未達成
    - Partially Met: 一部要件達成
    - All Met: 全要件達成
@@ -3198,64 +1749,46 @@ async function restoreAuditLogs(archiveKey: string) {
 - **@storybook/addon-interactions**: インタラクションテスト（play function）
 - **@storybook/addon-viewport**: レスポンシブデザインテスト
 
-**インタラクションテスト例（play function）**:
-
-```typescript
-// LoginForm.stories.tsx
-export const FilledForm: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    // メールアドレス入力
-    await userEvent.type(canvas.getByLabelText(/email/i), 'user@example.com');
-
-    // パスワード入力
-    await userEvent.type(canvas.getByLabelText(/password/i), 'password123');
-
-    // ログインボタンクリック
-    await userEvent.click(canvas.getByRole('button', { name: /login/i }));
-
-    // ローディング状態を確認
-    expect(canvas.getByRole('button', { name: /login/i })).toBeDisabled();
-  },
-};
-```
-
 ### 単体テスト（Vitest）
 
-**Backend（目標: 200+ tests, カバレッジ80%以上）**:
+**Backend（目標: 250+ tests, カバレッジ80%以上）**:
 
 **Service Layer Tests**:
 - **AuthService** (30 tests): 登録、ログイン、ログアウト、トークンリフレッシュ
 - **InvitationService** (20 tests): 招待作成、検証、無効化、再送信
 - **RBACService** (30 tests): 権限チェック、ロール管理、権限管理
 - **TokenService** (15 tests): JWT生成、検証、デコード
-- **PasswordService** (15 tests): ハッシュ、検証、強度チェック、リセット
+- **PasswordService** (20 tests): Argon2idハッシュ、検証、強度チェック（Bloom Filter + zxcvbn）、リセット
 - **SessionService** (15 tests): セッション作成、削除、検証
+- **TwoFactorService** (50 tests): TOTP生成・検証、バックアップコード管理、QRコード生成
+- **EmailService** (10 tests): メール送信、キュー管理
 - **AuditLogService** (10 tests): 監査ログ記録、取得
 
 **Middleware Tests**:
 - **authenticate** (15 tests): トークン検証、エラーハンドリング
 - **authorize** (15 tests): 権限チェック、ワイルドカード対応
 
-**Frontend（目標: 50+ tests）**:
+**Frontend（目標: 65+ tests）**:
 
 **Context Tests**:
-- **AuthContext** (20 tests): ログイン、ログアウト、トークンリフレッシュ、自動リフレッシュ
+- **AuthContext** (20 tests): ログイン、2FA検証、ログアウト、トークンリフレッシュ、自動リフレッシュ
 
 **Component Tests**:
 - **LoginForm** (10 tests): バリデーション、送信、エラーハンドリング
 - **RegisterForm** (10 tests): バリデーション、パスワード強度、送信
+- **TwoFactorSetupForm** (10 tests): QRコード表示、TOTP検証、バックアップコード保存
+- **TwoFactorVerificationForm** (5 tests): TOTP検証、バックアップコード検証
 - **PasswordStrengthIndicator** (5 tests): 強度計算、表示
 - **PasswordRequirementsChecklist** (5 tests): 要件チェック、表示
 
 ### 統合テスト（Vitest + supertest）
 
-**Backend統合テスト（目標: 40 tests）**:
+**Backend統合テスト（目標: 50 tests）**:
 
-**認証フロー** (15 tests):
+**認証フロー** (20 tests):
 - ユーザー登録フロー（招待経由）
 - ログインフロー（成功、失敗、アカウントロック）
+- 2FAログインフロー（TOTP検証、バックアップコード使用）
 - ログアウトフロー
 - トークンリフレッシュフロー
 - パスワードリセットフロー
@@ -3277,17 +1810,21 @@ export const FilledForm: Story = {
 - ロール変更 → 監査ログ記録
 - 権限変更 → 監査ログ記録
 - ユーザー・ロール変更 → 監査ログ記録
+- 2FA有効化・無効化 → 監査ログ記録
 
 ### E2Eテスト（Playwright）
 
-**E2Eテストシナリオ（目標: 25 tests）**:
+**E2Eテストシナリオ（目標: 30 tests）**:
 
-**認証フロー** (10 tests):
+**認証フロー** (15 tests):
 - ユーザー招待 → 登録 → ログイン → ダッシュボード
 - ログイン → ログアウト
+- 2FA設定 → ログアウト → ログイン（TOTP検証）
+- 2FAログイン（バックアップコード使用）
 - パスワードリセット要求 → メール受信 → パスワード変更
 - アカウントロック（5回ログイン失敗）
 - セッション有効期限切れ → 自動リダイレクト
+- マルチタブトークン同期
 
 **権限チェックフロー** (8 tests):
 - 管理者: 全画面アクセス可能
@@ -3329,16 +1866,16 @@ export const FilledForm: Story = {
 ### 脅威モデル（STRIDE分析）
 
 **Spoofing（なりすまし）**:
-- 対策: JWT署名検証、HTTPS通信、HttpOnly Cookie
+- 対策: EdDSA JWT署名検証、HTTPS通信、HttpOnly Cookie、Argon2idパスワードハッシュ
 
 **Tampering（改ざん）**:
-- 対策: JWT署名検証、リフレッシュトークンのDB保存、CSRFトークン
+- 対策: EdDSA JWT署名検証、リフレッシュトークンのDB保存、CSRFトークン
 
 **Repudiation（否認）**:
-- 対策: 不変の監査ログ、タイムスタンプ付きログ
+- 対策: 不変の監査ログ、タイムスタンプ付きログ、1年PostgreSQL保持 + 7年アーカイブ
 
 **Information Disclosure（情報漏洩）**:
-- 対策: HTTPS通信、bcryptハッシュ、トークンのローテーション、エラーメッセージの汎用化
+- 対策: HTTPS通信、Argon2idハッシュ、2FA秘密鍵のAES-256-GCM暗号化、トークンのローテーション、エラーメッセージの汎用化
 
 **Denial of Service（サービス拒否）**:
 - 対策: レート制限、アカウントロック、タイムアウト設定
@@ -3354,10 +1891,8 @@ export const FilledForm: Story = {
 - **理由**: SPAでのAPI呼び出しに必要、JavaScriptからアクセス可能
 - **セキュリティリスク**: XSS攻撃によるトークン窃取の可能性
 - **リスク軽減策**:
-  - 短期間有効（15分）でリスクを最小化
+  - 短期間有効（環境変数`ACCESS_TOKEN_EXPIRY`、デフォルト15分）でリスクを最小化
   - Content-Security-Policy (CSP) ヘッダーで厳格なXSS防止
-  - `script-src 'self'`: 自ドメインのスクリプトのみ実行許可
-  - `object-src 'none'`: Flashなどのプラグイン実行を禁止
   - トークンの自動リフレッシュ（有効期限5分前）
 
 **リフレッシュトークン**: HttpOnly Cookie + SameSite=Strict
@@ -3365,47 +1900,36 @@ export const FilledForm: Story = {
 - **セキュリティ利点**:
   - HttpOnly属性: document.cookieでアクセス不可、XSS攻撃による窃取を防止
   - Secure属性: HTTPS通信のみで送信
-  - SameSite=Strict: CSRF攻撃を防止、クロスサイトリクエストでCookieを送信しない
-- **長期間有効（7日間）**: HttpOnly保護により安全に長期保存可能
-
-**選択理由**:
-- **ベストプラクティス準拠**: OWASP推奨（長期トークンはHttpOnly Cookie）
-- **セキュリティ**: XSS攻撃によるリフレッシュトークン窃取を防止
-- **ユーザビリティ**: アクセストークンはlocalStorageで柔軟なAPI呼び出しが可能
-- **バランス**: セキュリティとユーザー体験の最適なバランス
-
-**代替案（検討したが不採用）**:
-- **両方をHttpOnly Cookie**: SPAでのAPI呼び出しが複雑化（カスタムヘッダー不可）
-- **両方をlocalStorage**: リフレッシュトークンのXSSリスクが高い
-- **メモリストレージ**: ページリロード時にログアウトされるためUX低下
-
-**実装例**:
-
-```typescript
-// フロントエンド: アクセストークンの保存
-localStorage.setItem('accessToken', accessToken);
-
-// バックエンド: リフレッシュトークンをHttpOnly Cookieで送信
-res.cookie('refreshToken', refreshToken, {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7日間
-});
-```
+  - SameSite=Strict: CSRF攻撃を防止、クロスサイトリクエストでのCookie送信を防止
+- **長期間有効（環境変数`REFRESH_TOKEN_EXPIRY`、デフォルト7日間）**: HttpOnly保護により安全に長期保存可能
 
 ### セキュリティ対策
 
-**JWT署名**:
+**EdDSA JWT署名**:
 - アルゴリズム: EdDSA (Ed25519)
-- 鍵管理: 秘密鍵（環境変数JWT_PRIVATE_KEY）、公開鍵（環境変数JWT_PUBLIC_KEY、JWKSエンドポイント `/.well-known/jwks.json`）
+- 鍵管理: 秘密鍵（環境変数`JWT_PRIVATE_KEY`）、公開鍵（環境変数`JWT_PUBLIC_KEY`、JWKSエンドポイント `/.well-known/jwks.json`）
 - トークンローテーション: リフレッシュ時に新しいトークン発行
 - セキュリティ: NIST FIPS 186-5推奨、RS256比で署名10倍・検証15倍高速、公開鍵暗号（マイクロサービス化対応）
 
-**bcryptハッシュ**:
-- コスト係数: 12（2025年推奨）
-- 自動ソルト生成
-- レインボーテーブル攻撃耐性
+**Argon2idパスワードハッシュ**:
+- アルゴリズム: Argon2id（Argon2d + Argon2i）
+- 設定: メモリコスト64MB、時間コスト3、並列度4（OWASP推奨）
+- ライブラリ: @node-rs/argon2（Rustネイティブバインディング、bcrypt比2-3倍高速）
+- セキュリティ: メモリハード関数、GPU攻撃耐性、ASIC攻撃耐性
+
+**パスワード強度ポリシー（NIST SP 800-63B準拠）**:
+- 最小文字数: 12文字
+- 複雑性要件: 英大文字、英小文字、数字、特殊文字のうち3種類以上
+- 禁止パスワード: Bloom Filter（HIBP Pwned Passwords、偽陽性率0.001）
+- zxcvbn統合: 科学的な強度評価（スコア3以上必須）
+- パスワード履歴: 過去3回のパスワード再利用を禁止
+
+**二要素認証（2FA/TOTP）**:
+- 準拠: RFC 6238（TOTP）
+- アルゴリズム: SHA-1（Google Authenticator互換）
+- 設定: 6桁、30秒ウィンドウ、±1ステップ許容（90秒）
+- 秘密鍵暗号化: AES-256-GCM（環境変数`TWO_FACTOR_ENCRYPTION_KEY`）
+- バックアップコード: 10個、8文字英数字、Argon2idハッシュ、1回限り使用
 
 **HTTPS強制**:
 - 本番環境でHTTPSへの強制リダイレクト
@@ -3447,3102 +1971,93 @@ res.cookie('refreshToken', refreshToken, {
 - キーパターン: `user:{userId}:permissions`、`user:{userId}:roles`
 - TTL: 15分（アクセストークンの有効期限と同期）
 - キャッシュ無効化: ロール・権限の変更時、ユーザー・ロール変更時
+- Graceful Degradation: Redis障害時にDB fallback
 
 **データベースインデックス**:
 - `users.email`: ログイン時の高速検索
 - `invitations.token`: 招待検証時の高速検索
 - `refresh_tokens.token`: トークンリフレッシュ時の高速検索
-- `audit_logs.actorId`, `audit_logs.createdAt`: 監査ログ取得時の高速検索
+- `audit_logs.actorId`, `audit_logs.createdAt`, `audit_logs.(targetType, targetId)`: 監査ログ取得時の高速検索
 
 ### スケーリング戦略
 
 **水平スケーリング**:
 - ステートレス設計: アクセストークンによる認証
 - リフレッシュトークンの共有: PostgreSQL
-- Redisキャッシュの共有: Redis Cluster
+- Redisキャッシュの共有: Redis Sentinel Cluster（本番環境、3ノード構成）
 
 **データベース最適化**:
 - 接続プール: 10-50接続
-- クエリ最適化: N+1問題の解消（詳細は下記）
+- クエリ最適化: N+1問題の解消（Prisma include + DataLoader）
 - マイグレーション: Prismaマイグレーション
 
 **非同期処理**:
 - メール送信: キュー（Redis Bull）
 - 監査ログ記録: バックグラウンドジョブ
 
-### N+1問題の解決策
-
-**問題**:
-ユーザーの権限チェック時、ユーザー→ロール→権限の多対多リレーションでN+1クエリが発生する可能性がある。
-
-**解決策1: Prisma `include` オプション活用**
-
-```typescript
-// ❌ N+1問題あり（非推奨）
-const users = await prisma.user.findMany();
-for (const user of users) {
-  const roles = await prisma.userRole.findMany({ where: { userId: user.id } });
-  for (const userRole of roles) {
-    const permissions = await prisma.rolePermission.findMany({ where: { roleId: userRole.roleId } });
-  }
-}
-
-// ✅ N+1問題解決（推奨）
-const users = await prisma.user.findMany({
-  include: {
-    userRoles: {
-      include: {
-        role: {
-          include: {
-            rolePermissions: {
-              include: { permission: true },
-            },
-          },
-        },
-      },
-    },
-  },
-});
-
-// ユーザーの全権限を取得（1クエリ）
-const user = await prisma.user.findUnique({
-  where: { id: userId },
-  include: {
-    userRoles: {
-      include: {
-        role: {
-          include: {
-            rolePermissions: {
-              include: { permission: true },
-            },
-          },
-        },
-      },
-    },
-  },
-});
-
-// 権限を平坦化
-const permissions = user.userRoles.flatMap(ur =>
-  ur.role.rolePermissions.map(rp => rp.permission)
-);
-```
-
-**解決策2: DataLoaderパターン（複雑なクエリ）**
-
-```typescript
-import DataLoader from 'dataloader';
-
-// ユーザーIDから権限を一括取得するDataLoader
-const permissionLoader = new DataLoader(async (userIds: readonly string[]) => {
-  const userRoles = await prisma.userRole.findMany({
-    where: { userId: { in: [...userIds] } },
-    include: {
-      role: {
-        include: {
-          rolePermissions: { include: { permission: true } },
-        },
-      },
-    },
-  });
-
-  // userIdsの順序でグループ化
-  const permissionsByUserId = new Map<string, Permission[]>();
-  for (const userId of userIds) {
-    permissionsByUserId.set(userId, []);
-  }
-
-  for (const userRole of userRoles) {
-    const permissions = userRole.role.rolePermissions.map(rp => rp.permission);
-    const existing = permissionsByUserId.get(userRole.userId) || [];
-    permissionsByUserId.set(userRole.userId, [...existing, ...permissions]);
-  }
-
-  return userIds.map(userId => permissionsByUserId.get(userId) || []);
-});
-
-// 使用例（複数ユーザーの権限を一括取得）
-const user1Permissions = await permissionLoader.load(user1Id);
-const user2Permissions = await permissionLoader.load(user2Id);
-// 内部で1つのSQLクエリにバッチング
-```
-
-**パフォーマンス改善結果**:
-- クエリ数: O(n) → O(1)（nはユーザー数）
-- レスポンスタイム: 500ms → 50ms（10倍高速化）
-
-### Redisクラスタ構成
-
-**開発環境**:
-- 単一インスタンス（docker-compose.yml）
-- ポート: 6379
-- 永続化: なし（開発用）
-
-**本番環境（Railway）**:
-- **マネージドRedis**: Railway提供のRedisサービス
-- **自動フェイルオーバー**: プライマリ障害時に自動切り替え
-- **バックアップ**: 日次スナップショット（Railway管理）
-- **接続方式**: TLS接続（REDIS_TLS_URL環境変数）
-
-**接続設定（ioredis）**:
-
-```typescript
-import Redis from 'ioredis';
-
-const redis = new Redis({
-  host: process.env.REDIS_HOST,
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-  tls: process.env.NODE_ENV === 'production' ? {} : undefined,
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
-  },
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  lazyConnect: true, // 初回アクセス時に接続
-});
-
-redis.on('error', (err) => {
-  logger.error('Redis connection error', err);
-});
-
-redis.on('ready', () => {
-  logger.info('Redis connection established');
-});
-```
-
-**フェイルオーバー戦略**:
-- Redis接続失敗時: データベースから直接権限情報を取得（フォールバック）
-- 警告ログ記録: Sentryにアラート送信
-- 自動復旧: ioredisのretryStrategy機能
-
-**キャッシュ無効化戦略**:
-- ロール・権限変更時: 該当ロールを持つ全ユーザーのキャッシュを削除
-- ユーザー・ロール変更時: 該当ユーザーのキャッシュを削除
-- パターンマッチング削除:
-  ```typescript
-  // ロールID=123の全ユーザーキャッシュを削除
-  const userIds = await prisma.userRole.findMany({
-    where: { roleId: '123' },
-    select: { userId: true },
-  });
-  await Promise.all(
-    userIds.map(({ userId }) => redis.del(`user:${userId}:permissions`))
-  );
-  ```
-
-### APIバージョニング戦略
-
-**推奨アプローチ**: URLパスバージョニング
-
-**実装**:
-- **バージョン1（現在）**: `/api/v1/auth/login`、`/api/v1/users/me`
-- **将来のバージョン**: `/api/v2/auth/login`（破壊的変更時）
-
-**選択理由**:
-- **明示的**: URLで一目瞭然
-- **キャッシング**: CDN/プロキシでバージョン別キャッシュ可能
-- **ドキュメント**: Swagger UIでバージョン別ドキュメント生成が容易
-- **テスト**: バージョンごとに独立したE2Eテスト可能
-
-**非推奨アプローチ**:
-- ヘッダーバージョニング（`Accept: application/vnd.architrack.v1+json`）: 複雑性が高い、デバッグが困難
-- クエリパラメータバージョニング（`/api/auth/login?version=1`）: キャッシングが困難、URLが汚染される
-
-**互換性ポリシー**:
-- **メジャーバージョン（v1 → v2）**: 破壊的変更（リクエスト/レスポンス形式の変更）
-- **マイナーバージョン**: 後方互換性あり（新規フィールド追加のみ）
-- **サポート期間**: 旧バージョンは最低6ヶ月サポート、廃止前に3ヶ月の猶予期間
-
-**実装例**:
-
-```typescript
-// Express ルーター設定
-const v1Router = express.Router();
-v1Router.post('/auth/login', loginHandler);
-v1Router.get('/users/me', authenticate, getUserHandler);
-
-app.use('/api/v1', v1Router);
-
-// 将来のv2（破壊的変更例）
-const v2Router = express.Router();
-v2Router.post('/auth/login', loginHandlerV2); // レスポンス形式変更
-app.use('/api/v2', v2Router);
-```
-
-**OpenAPI仕様のバージョン管理**:
-- `backend/docs/api-spec-v1.json`
-- `backend/docs/api-spec-v2.json`（将来）
-- Swagger UI: `/docs/v1`、`/docs/v2`
-
 ## Migration Strategy
 
-本機能は新規機能のため、マイグレーション戦略は以下の通りです：
+本機能は既存のExpress + Prismaアーキテクチャへの拡張であり、段階的な実装とデプロイを行います。
 
-### Phase 1: データベースマイグレーション
-
-1. Prismaマイグレーション実行（User, Invitation, RefreshToken, Role, Permission, UserRole, RolePermission, AuditLog）
-2. 初期データシーディング（事前定義ロール、権限）
-
-### Phase 2: Backend実装
-
-1. Service Layer実装
-2. Middleware実装
-3. Controller実装
-4. 単体テスト・統合テスト実装
-
-### Phase 3: Frontend実装
-
-1. AuthContext実装
-2. UI Components実装
-3. Storybook実装
-4. 単体テスト実装
-
-### Phase 4: E2Eテスト・パフォーマンステスト
-
-1. E2Eテスト実装
-2. パフォーマンステスト実装
-3. セキュリティテスト実施
-
-### Phase 5: 本番環境デプロイ
-
-1. Railway環境へのデプロイ
-2. 初期管理者アカウント作成
-3. ヘルスチェック確認
-
-## ロールバック計画
-
-### データベースマイグレーションのロールバック
-
-**開発環境**:
-```bash
-# 全てのマイグレーションをロールバック
-npx prisma migrate reset
-
-# 特定のマイグレーションまでロールバック（手動）
-npx prisma migrate resolve --rolled-back {migration_name}
-```
-
-**本番環境（Railway）**:
-```bash
-# 段階的ロールバック（特定マイグレーションまで戻す）
-npx prisma migrate resolve --rolled-back 20250108000000_add_user_authentication
-
-# データベースのバックアップからリストア
-# Railway Console → PostgreSQL → Backups → Restore
-```
-
-**マイグレーションのバージョン管理**:
-- マイグレーションファイルはGit管理
-- デプロイ前にステージング環境でテスト
-- ロールバック用のダウンマイグレーションスクリプトを準備
-
-### デプロイ失敗時の対応
-
-**即時対応（自動）**:
-1. **ヘルスチェック失敗を検知**: Railway環境のヘルスチェックが3回連続失敗
-2. **自動ロールバック**: Railway環境で前回の正常デプロイメントに自動切り替え
-3. **アラート送信**: Sentryにデプロイ失敗のアラート送信
-
-**手動対応**:
-
-**Backendサービス**:
-```bash
-# Railway CLI でロールバック
-railway rollback
-
-# または、前回のDockerイメージにロールバック
-railway up --service backend --image {previous_image_tag}
-```
-
-**データベース**:
-```bash
-# Prismaマイグレーションを1つ前に戻す
-npx prisma migrate resolve --rolled-back {latest_migration}
-
-# データ整合性チェック
-npx prisma db pull
-npx prisma validate
-```
-
-**Redis**:
-```bash
-# 権限キャッシュをクリア（影響を受けたユーザーのキャッシュを削除）
-redis-cli FLUSHALL
-
-# または、パターンマッチング削除
-redis-cli --scan --pattern "user:*:permissions" | xargs redis-cli DEL
-```
-
-### ロールバック検証
-
-**ヘルスチェック**:
-```bash
-# バックエンドAPIのヘルスチェック
-curl https://architrack-backend.railway.app/health
-
-# 期待されるレスポンス
-{
-  "status": "ok",
-  "timestamp": "2025-01-08T00:00:00.000Z",
-  "database": "connected",
-  "redis": "connected"
-}
-```
-
-**機能テスト**:
-1. ログイン機能の動作確認
-2. トークンリフレッシュの動作確認
-3. 権限チェックの動作確認
-
-**データ整合性チェック**:
-```sql
--- ユーザー数の確認
-SELECT COUNT(*) FROM users;
-
--- ロールと権限の整合性チェック
-SELECT r.name, COUNT(rp.permission_id) as permission_count
-FROM roles r
-LEFT JOIN role_permissions rp ON r.id = rp.role_id
-GROUP BY r.id, r.name;
-```
-
-### ロールバック失敗時の緊急対応
-
-**データベースが破損した場合**:
-1. Railway Console → PostgreSQL → Backups から最新のバックアップをリストア
-2. マイグレーションを再実行
-3. データ整合性を再チェック
-
-**完全なシステム障害の場合**:
-1. メンテナンスモードに切り替え（ユーザーに通知）
-2. バックアップからの完全リストア
-3. ステージング環境で動作確認
-4. 本番環境へ再デプロイ
-
-**テスト（ステージング環境）**:
-- 全マイグレーションとロールバックをステージング環境でテスト
-- ロールバックスクリプトの自動テスト
-- データ整合性チェックの自動化
-
-## Frontend Architecture
-
-本セクションでは、ユーザー認証機能のフロントエンドUI設計をベストプラクティスに基づいて定義します。
-
-### コンポーネント設計原則
-
-**Atomic Design原則**を採用し、再利用可能で保守性の高いコンポーネント階層を構築します：
-
-- **Atoms（原子）**: 最小単位のUIコンポーネント（Button、Input、Label、Icon等）
-- **Molecules（分子）**: 複数のAtomsを組み合わせた機能単位（FormField、PasswordInput、ValidationMessage等）
-- **Organisms（有機体）**: 独立した機能を持つコンポーネント群（LoginForm、RegistrationForm、InvitationTable等）
-- **Templates（テンプレート）**: ページレイアウトの骨組み（AuthLayout、DashboardLayout等）
-- **Pages（ページ）**: 具体的なコンテンツを持つ完成ページ（LoginPage、RegisterPage等）
-
-### 状態管理戦略
-
-**React Context API + Custom Hooks**を採用し、グローバル認証状態を管理します：
-
-```typescript
-interface AuthState {
-  user: User | null;
-  accessToken: string | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-}
-
-interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  register: (token: string, data: RegisterData) => Promise<void>;
-  refreshToken: () => Promise<void>;
-}
-```
-
-**カスタムフック**:
-- `useAuth()`: 認証状態とアクション関数へのアクセス
-- `usePermission(permission: string)`: 権限チェック
-- `useProtectedRoute()`: 保護ルートのアクセス制御
-
-### トークンリフレッシュの自動化（レース条件対策・マルチタブ対応）
-
-**実装アプローチ**: バックグラウンド自動リフレッシュ + レース条件対策 + マルチタブ同期
-
-**TokenRefreshManager**:
-
-```typescript
-// frontend/src/utils/TokenRefreshManager.ts
-import { jwtDecode } from 'jwt-decode';
-
-interface JWTPayload {
-  userId: string;
-  email: string;
-  roles: string[];
-  exp: number;
-}
-
-class TokenRefreshManager {
-  private refreshPromise: Promise<string> | null = null;
-  private refreshTimer: NodeJS.Timeout | null = null;
-  private readonly REFRESH_BEFORE_EXPIRY = 5 * 60 * 1000; // 5分前
-
-  /**
-   * トークンの有効期限5分前に自動リフレッシュをスケジュール
-   */
-  scheduleAutoRefresh(accessToken: string): void {
-    this.clearAutoRefresh();
-
-    try {
-      const payload = jwtDecode<JWTPayload>(accessToken);
-      const expiresAt = payload.exp * 1000;
-      const refreshAt = expiresAt - this.REFRESH_BEFORE_EXPIRY;
-      const delay = refreshAt - Date.now();
-
-      if (delay > 0) {
-        this.refreshTimer = setTimeout(() => {
-          this.refreshAccessToken().catch((err) => {
-            console.error('Auto refresh failed:', err);
-          });
-        }, delay);
-
-        console.log(`[TokenRefreshManager] Auto refresh scheduled in ${Math.round(delay / 1000)}s`);
-      } else {
-        // 既に期限切れ間近、即座にリフレッシュ
-        this.refreshAccessToken().catch((err) => {
-          console.error('Immediate refresh failed:', err);
-        });
-      }
-    } catch (err) {
-      console.error('Failed to decode token:', err);
-    }
-  }
-
-  /**
-   * レース条件対策: 同時リフレッシュリクエストを1つにまとめる
-   */
-  async refreshAccessToken(): Promise<string> {
-    // 既にリフレッシュ中の場合、既存のPromiseを返す
-    if (this.refreshPromise) {
-      console.log('[TokenRefreshManager] Reusing existing refresh promise');
-      return this.refreshPromise;
-    }
-
-    console.log('[TokenRefreshManager] Starting token refresh');
-
-    this.refreshPromise = (async () => {
-      try {
-        const response = await fetch('/api/v1/auth/refresh', {
-          method: 'POST',
-          credentials: 'include', // HttpOnly Cookie送信
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            // リフレッシュトークンが無効、ログイン画面へリダイレクト
-            localStorage.removeItem('accessToken');
-            window.location.href = '/login?reason=session_expired';
-            throw new Error('Refresh token expired');
-          }
-          throw new Error(`Token refresh failed: ${response.status}`);
-        }
-
-        const { accessToken } = await response.json();
-        localStorage.setItem('accessToken', accessToken);
-
-        // 次回の自動リフレッシュをスケジュール
-        this.scheduleAutoRefresh(accessToken);
-
-        console.log('[TokenRefreshManager] Token refreshed successfully');
-        return accessToken;
-      } finally {
-        this.refreshPromise = null; // Promise解放
-      }
-    })();
-
-    return this.refreshPromise;
-  }
-
-  /**
-   * 401エラー時のリフレッシュ処理（Axios/Fetchインターセプター用）
-   */
-  async handleUnauthorized(): Promise<string> {
-    return this.refreshAccessToken();
-  }
-
-  /**
-   * 自動リフレッシュをキャンセル（ログアウト時）
-   */
-  clearAutoRefresh(): void {
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-      console.log('[TokenRefreshManager] Auto refresh cleared');
-    }
-  }
-}
-
-export const tokenRefreshManager = new TokenRefreshManager();
-```
-
-**AuthContextでの統合**:
-
-```typescript
-// frontend/src/contexts/AuthContext.tsx
-import { tokenRefreshManager } from '../utils/TokenRefreshManager';
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [state, setState] = useState<AuthState>({
-    user: null,
-    accessToken: null,
-    isAuthenticated: false,
-    isLoading: true,
-  });
-
-  // 初回ロード時、既存のトークンがあれば自動リフレッシュをスケジュール
-  useEffect(() => {
-    const accessToken = localStorage.getItem('accessToken');
-    if (accessToken) {
-      tokenRefreshManager.scheduleAutoRefresh(accessToken);
-      // ユーザー情報を取得
-      fetchCurrentUser(accessToken);
-    } else {
-      setState(prev => ({ ...prev, isLoading: false }));
-    }
-  }, []);
-
-  const login = async (email: string, password: string) => {
-    const response = await fetch('/api/v1/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-      credentials: 'include', // リフレッシュトークンのCookie受信
-    });
-
-    if (!response.ok) {
-      throw new Error('Login failed');
-    }
-
-    const { accessToken, user } = await response.json();
-    localStorage.setItem('accessToken', accessToken);
-
-    setState({
-      user,
-      accessToken,
-      isAuthenticated: true,
-      isLoading: false,
-    });
-
-    // 自動リフレッシュをスケジュール
-    tokenRefreshManager.scheduleAutoRefresh(accessToken);
-  };
-
-  const logout = async () => {
-    try {
-      await fetch('/api/v1/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } finally {
-      localStorage.removeItem('accessToken');
-      tokenRefreshManager.clearAutoRefresh();
-      setState({
-        user: null,
-        accessToken: null,
-        isAuthenticated: false,
-        isLoading: false,
-      });
-    }
-  };
-
-  return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
-```
-
-**Axiosインターセプター統合**:
-
-```typescript
-// frontend/src/api/client.ts
-import axios from 'axios';
-import { tokenRefreshManager } from '../utils/TokenRefreshManager';
-
-const apiClient = axios.create({
-  baseURL: '/api/v1',
-  withCredentials: true, // Cookie送信
-});
-
-// リクエストインターセプター: アクセストークンを自動付与
-apiClient.interceptors.request.use((config) => {
-  const accessToken = localStorage.getItem('accessToken');
-  if (accessToken) {
-    config.headers.Authorization = `Bearer ${accessToken}`;
-  }
-  return config;
-});
-
-// レスポンスインターセプター: 401エラー時に自動リフレッシュ
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-
-    // 401エラー && リトライ未実施 && リフレッシュエンドポイント以外
-    if (
-      error.response?.status === 401 &&
-      !originalRequest._retry &&
-      !originalRequest.url?.includes('/auth/refresh')
-    ) {
-      originalRequest._retry = true;
-
-      try {
-        // トークンリフレッシュ（レース条件対策済み）
-        const newAccessToken = await tokenRefreshManager.handleUnauthorized();
-
-        // 元のリクエストを新しいトークンで再実行
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-        return apiClient(originalRequest);
-      } catch (refreshError) {
-        // リフレッシュ失敗、ログイン画面へリダイレクト
-        window.location.href = '/login?reason=session_expired';
-        return Promise.reject(refreshError);
-      }
-    }
-
-    return Promise.reject(error);
-  }
-);
-
-export default apiClient;
-```
-
-**マルチタブ同期（Broadcast Channel API）**:
-
-```typescript
-// frontend/src/utils/TokenSyncManager.ts
-class TokenSyncManager {
-  private channel: BroadcastChannel;
-
-  constructor() {
-    this.channel = new BroadcastChannel('auth_channel');
-
-    // 他のタブからのトークン更新を受信
-    this.channel.onmessage = (event) => {
-      if (event.data.type === 'TOKEN_REFRESHED') {
-        console.log('[TokenSyncManager] Token updated from another tab');
-        localStorage.setItem('accessToken', event.data.accessToken);
-        tokenRefreshManager.scheduleAutoRefresh(event.data.accessToken);
-      } else if (event.data.type === 'LOGOUT') {
-        console.log('[TokenSyncManager] Logout from another tab');
-        localStorage.removeItem('accessToken');
-        tokenRefreshManager.clearAutoRefresh();
-        window.location.href = '/login';
-      }
-    };
-  }
-
-  /**
-   * トークン更新を他のタブに通知
-   */
-  notifyTokenRefreshed(accessToken: string): void {
-    this.channel.postMessage({ type: 'TOKEN_REFRESHED', accessToken });
-  }
-
-  /**
-   * ログアウトを他のタブに通知
-   */
-  notifyLogout(): void {
-    this.channel.postMessage({ type: 'LOGOUT' });
-  }
-}
-
-export const tokenSyncManager = new TokenSyncManager();
-```
-
-**統合例（TokenRefreshManager内で使用）**:
-
-```typescript
-// TokenRefreshManager.refreshAccessToken()内に追加
-const { accessToken } = await response.json();
-localStorage.setItem('accessToken', accessToken);
-
-// 他のタブに通知
-tokenSyncManager.notifyTokenRefreshed(accessToken);
-
-// 次回の自動リフレッシュをスケジュール
-this.scheduleAutoRefresh(accessToken);
-```
-
-### ルーティング設計
-
-**React Router v6**を使用したクライアントサイドルーティング：
-
-```
-/login                    - ログイン画面（公開）
-/register/:token          - ユーザー登録画面（公開、招待トークン必須）
-/forgot-password          - パスワードリセット依頼画面（公開）
-/reset-password/:token    - パスワードリセット画面（公開、リセットトークン必須）
-/dashboard                - ダッシュボード（要認証）
-/profile                  - プロフィール画面（要認証）
-/admin/invitations        - 招待管理画面（要管理者権限）
-/admin/users              - ユーザー管理画面（要管理者権限）
-/admin/roles              - ロール管理画面（要管理者権限）
-```
-
-**ルートガード**:
-- `PublicRoute`: 認証済みユーザーはダッシュボードへリダイレクト
-- `ProtectedRoute`: 未認証ユーザーはログイン画面へリダイレクト
-- `AdminRoute`: 管理者権限がない場合は403エラーページへリダイレクト
-
-## Authentication UI Components
-
-### LoginForm（ログインフォーム）
-
-**責任**: ユーザー認証情報の入力とバリデーション、ログイン処理
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Input`, `Label`, `Icon`, `Link`
-- **Molecules**: `EmailField`, `PasswordField`, `LoadingSpinner`
-- **Organism**: `LoginForm`
-
-**主要機能**:
-1. メールアドレス・パスワード入力フィールド
-2. パスワード表示/非表示トグル
-3. リアルタイムバリデーション（メール形式、必須フィールド）
-4. ログイン処理中のローディング状態表示
-5. エラーメッセージ表示（汎用的な認証エラー）
-6. アカウントロック時の残り時間表示
-7. 「パスワードを忘れた場合」リンク
-
-**インターフェース設計**:
-```typescript
-interface LoginFormProps {
-  onSubmit: (credentials: LoginCredentials) => Promise<void>;
-  redirectUrl?: string;  // ログイン後のリダイレクト先
-  initialMessage?: string;  // セッション期限切れメッセージ等
-}
-
-interface LoginCredentials {
-  email: string;
-  password: string;
-}
-```
-
-**UXベストプラクティス**:
-- **自動フォーカス**: ページ読み込み時にメールアドレスフィールドに自動フォーカス
-- **エンターキー対応**: パスワードフィールドでEnterキーを押すとログイン実行
-- **視覚的フィードバック**: フィールドフォーカス時のアウトライン表示（Material Design準拠）
-- **エラー通知**: aria-live="polite"でスクリーンリーダーに通知
-- **ボタン無効化**: ローディング中はボタンをdisabledにして二重送信を防止
-
-**バリデーションルール**:
-- メールアドレス: RFC 5322準拠、リアルタイム検証
-- パスワード: 必須、エラー時も詳細な情報は返さない（セキュリティ）
-
-### RegistrationForm（ユーザー登録フォーム）
-
-**責任**: 招待トークンベースの新規ユーザー登録
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Input`, `Label`, `Icon`, `Checkbox`
-- **Molecules**: `EmailField`, `PasswordField`, `PasswordStrengthIndicator`, `PasswordRequirementsChecklist`
-- **Organism**: `RegistrationForm`
-
-**主要機能**:
-1. 招待トークン自動検証と結果表示
-2. 招待メールアドレス表示（読み取り専用）
-3. 表示名入力フィールド
-4. パスワード・パスワード確認フィールド
-5. パスワード強度インジケーター（弱い/普通/強い）
-6. パスワード要件チェックリスト（リアルタイム更新）
-7. 利用規約・プライバシーポリシー同意チェックボックス
-8. 登録成功時の自動ダッシュボードリダイレクト
-
-**インターフェース設計**:
-```typescript
-interface RegistrationFormProps {
-  invitationToken: string;
-  onSubmit: (data: RegisterData) => Promise<void>;
-}
-
-interface RegisterData {
-  invitationToken: string;
-  displayName: string;
-  password: string;
-  passwordConfirmation: string;
-  agreeToTerms: boolean;
-}
-```
-
-**パスワード強度インジケーター**:
-```typescript
-enum PasswordStrength {
-  WEAK = 'weak',      // 8文字未満、または英数字のみ
-  MEDIUM = 'medium',  // 8文字以上、英数字+特殊文字
-  STRONG = 'strong'   // 12文字以上、英数字+特殊文字+大小文字
-}
-```
-
-**パスワード要件チェックリスト**（リアルタイム表示）:
-- ✅/❌ 8文字以上
-- ✅/❌ 英字（大文字・小文字）を含む
-- ✅/❌ 数字を含む
-- ✅/❌ 特殊文字（!@#$%^&*等）を含む
-
-**UXベストプラクティス**:
-- **招待トークン検証**: ページ読み込み時に自動検証、無効時はエラーメッセージと管理者への連絡手段を表示
-- **パスワード一致チェック**: リアルタイムバリデーション、一致しない場合は即座にエラー表示
-- **視覚的フィードバック**: 各要件の達成状況を緑/赤のチェックマークで表示
-- **アクセシビリティ**: パスワード要件チェックリストにaria-live="polite"を設定
-
-### InvitationManagement（招待管理コンポーネント）
-
-**責任**: 管理者による新規ユーザー招待と招待状況の管理
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Input`, `Icon`, `Badge`, `Tooltip`
-- **Molecules**: `EmailField`, `InvitationStatusBadge`, `ActionButtons`, `ToastNotification`
-- **Organisms**: `InvitationForm`, `InvitationTable`, `InvitationManagement`
-
-**主要機能**:
-1. 招待フォーム（メールアドレス入力、招待ボタン）
-2. 招待一覧テーブル（メールアドレス、招待日時、ステータス、有効期限、アクションボタン）
-3. 招待URL自動生成とクリップボードコピー
-4. 招待ステータス管理（未使用/使用済み/期限切れ）
-5. 招待の取り消し・再送信機能
-6. ページネーションまたは無限スクロール（10件以上の場合）
-
-**インターフェース設計**:
-```typescript
-interface InvitationTableProps {
-  invitations: Invitation[];
-  onRevoke: (invitationId: string) => Promise<void>;
-  onResend: (invitationId: string) => Promise<void>;
-  onCopyUrl: (invitationUrl: string) => void;
-}
-
-interface Invitation {
-  id: string;
-  email: string;
-  status: 'pending' | 'used' | 'expired';
-  invitedAt: string;
-  expiresAt: string;
-  invitationUrl: string;
-}
-```
-
-**招待ステータス視覚化**:
-- **未使用（pending）**: 🟡 黄色バッジ、「取り消し」ボタン有効
-- **使用済み（used）**: 🟢 緑色バッジ、アクションボタン無効
-- **期限切れ（expired）**: 🔴 赤色バッジ、「再送信」ボタン有効
-
-**UXベストプラクティス**:
-- **即時フィードバック**: 招待成功時にトーストメッセージ「招待を送信しました」を表示
-- **クリップボードコピー**: コピーボタンクリック時に「コピーしました」トースト表示
-- **確認ダイアログ**: 取り消し時に「この招待を取り消しますか?」と確認
-- **レスポンシブデザイン**: モバイル画面ではテーブルをカード形式に変換
-
-### ProfileManagement（プロフィール管理コンポーネント）
-
-**責任**: ユーザープロフィール情報の表示・編集
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Input`, `Label`, `Icon`, `Badge`
-- **Molecules**: `TextField`, `PasswordField`, `PasswordStrengthIndicator`, `RoleBadge`
-- **Organisms**: `ProfileInfoSection`, `PasswordChangeSection`, `ProfileManagement`
-
-**主要機能**:
-1. ユーザー情報セクション（メールアドレス、表示名、ロール、作成日時）
-2. 表示名編集機能
-3. パスワード変更セクション（現在のパスワード、新しいパスワード、確認）
-4. パスワード変更時の全デバイスログアウト警告
-5. 管理者ユーザー向け「ユーザー管理」リンク
-
-**インターフェース設計**:
-```typescript
-interface ProfileManagementProps {
-  user: User;
-  onUpdateProfile: (data: UpdateProfileData) => Promise<void>;
-  onChangePassword: (data: ChangePasswordData) => Promise<void>;
-}
-
-interface UpdateProfileData {
-  displayName: string;
-}
-
-interface ChangePasswordData {
-  currentPassword: string;
-  newPassword: string;
-  newPasswordConfirmation: string;
-}
-```
-
-**UXベストプラクティス**:
-- **保存ボタン制御**: 表示名が変更されたときのみ保存ボタンを有効化
-- **成功フィードバック**: 更新成功時にトーストメッセージ「プロフィールを更新しました」
-- **確認ダイアログ**: パスワード変更前に「全デバイスからログアウトされます。よろしいですか?」と確認
-- **自動リダイレクト**: パスワード変更成功後、3秒後にログイン画面へリダイレクト
-
-### TwoFactorSetupForm（二要素認証設定フォーム）
-
-**責任**: 二要素認証（TOTP）の初期設定とバックアップコードの表示
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Icon`, `Badge`, `Checkbox`
-- **Molecules**: `QRCodeDisplay`, `BackupCodeList`, `TOTPInputField`, `CopyButton`
-- **Organisms**: `TwoFactorSetupForm`, `SetupStepIndicator`
-
-**主要機能**:
-1. 3ステップのセットアッププロセス（QRコード表示 → TOTP検証 → バックアップコード保存）
-2. QRコード表示（Google Authenticator / Authy / 1Password等での読み取り）
-3. 手動入力用の秘密鍵表示（base32エンコード）
-4. TOTP検証フィールド（6桁コード入力）
-5. バックアップコード表示（10個、8文字英数字）
-6. バックアップコードのダウンロード・印刷機能
-7. セットアップ完了確認チェックボックス
-
-**インターフェース設計**:
-```typescript
-interface TwoFactorSetupFormProps {
-  onComplete: (totpCode: string) => Promise<void>;
-  onCancel: () => void;
-}
-
-interface TwoFactorSetupData {
-  secret: string;        // Base32エンコード済み秘密鍵
-  qrCodeDataUrl: string; // QRコードのData URL
-  backupCodes: string[]; // 10個のバックアップコード
-}
-
-enum SetupStep {
-  QR_CODE_DISPLAY = 1,
-  TOTP_VERIFICATION = 2,
-  BACKUP_CODES = 3,
-}
-```
-
-**ステップバイステップUI**:
-
-**Step 1: QRコード表示**:
-```
-┌─────────────────────────────────────────┐
-│ 二要素認証を設定                         │
-│                                         │
-│ ステップ 1/3: アプリでQRコードをスキャン │
-│                                         │
-│  ┌─────────┐                            │
-│  │         │                            │
-│  │ QRコード│                            │
-│  │         │                            │
-│  └─────────┘                            │
-│                                         │
-│ 手動で入力する場合:                      │
-│ JBSWY3DPEHPK3PXP                        │
-│ [コピー]                                │
-│                                         │
-│ 推奨アプリ:                              │
-│ • Google Authenticator                 │
-│ • Authy                                │
-│ • 1Password                            │
-│                                         │
-│ [キャンセル]         [次へ] →           │
-└─────────────────────────────────────────┘
-```
-
-**Step 2: TOTP検証**:
-```
-┌─────────────────────────────────────────┐
-│ 二要素認証を設定                         │
-│                                         │
-│ ステップ 2/3: 6桁のコードを入力          │
-│                                         │
-│ 認証アプリに表示されている6桁のコードを  │
-│ 入力してください。                       │
-│                                         │
-│  ┌───┬───┬───┬───┬───┬───┐            │
-│  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │            │
-│  └───┴───┴───┴───┴───┴───┘            │
-│                                         │
-│ ⚠️ コードは30秒ごとに変わります           │
-│                                         │
-│ [← 戻る]             [検証する] →       │
-└─────────────────────────────────────────┘
-```
-
-**Step 3: バックアップコード**:
-```
-┌─────────────────────────────────────────┐
-│ 二要素認証を設定                         │
-│                                         │
-│ ステップ 3/3: バックアップコードを保存    │
-│                                         │
-│ ⚠️ 重要: これらのコードを安全な場所に保存 │
-│   してください。認証アプリにアクセスでき  │
-│   ない場合に使用できます（各コード1回限り）│
-│                                         │
-│  1. A3F2B8D4   6. C9E1F7A2             │
-│  2. E5D3C1A9   7. B4D6E8F1             │
-│  3. F7A9B2C5   8. A1C3E5D7             │
-│  4. D1E3F5A7   9. F2A4C6E8             │
-│  5. C8A2B4D6  10. E3D5F7A9             │
-│                                         │
-│ [ダウンロード] [印刷] [コピー]           │
-│                                         │
-│ □ バックアップコードを保存しました       │
-│                                         │
-│ [← 戻る]             [完了] ✓           │
-└─────────────────────────────────────────┘
-```
-
-**UXベストプラクティス**:
-- **進捗表示**: 3ステップのプログレスバーまたはステップインジケーター
-- **自動フォーカス**: TOTP入力フィールドに自動フォーカス、数字のみ入力可能
-- **ワンタイムパスコード入力**: 6桁の個別入力フィールド、自動タブ移動
-- **コピー機能**: バックアップコード全体、または個別コードのクリップボードコピー
-- **印刷最適化**: バックアップコード印刷時のスタイルシート（@media print）
-- **確認チェックボックス**: バックアップコード保存確認後に「完了」ボタン有効化
-- **アクセシビリティ**: QRコードのalt属性、ARIA属性、キーボードナビゲーション
-
-**バリデーションルール**:
-- TOTPコード: 6桁の数字のみ、リアルタイム検証
-- バックアップコード保存確認: チェックボックス必須
-
-### TwoFactorVerificationForm（二要素認証検証フォーム）
-
-**責任**: ログイン時の二要素認証コード検証
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Icon`, `Link`
-- **Molecules**: `TOTPInputField`, `CountdownTimer`
-- **Organisms**: `TwoFactorVerificationForm`
-
-**主要機能**:
-1. 6桁のTOTPコード入力フィールド
-2. コード検証処理
-3. 「バックアップコードを使用する」リンク
-4. 30秒カウントダウンタイマー（視覚的フィードバック）
-5. 検証エラー時のフィードバック
-6. 「このデバイスを信頼する」チェックボックス（将来の拡張）
-
-**インターフェース設計**:
-```typescript
-interface TwoFactorVerificationFormProps {
-  email: string;  // ログイン中のユーザーのメールアドレス
-  onVerify: (code: string, trustDevice: boolean) => Promise<void>;
-  onUseBackupCode: () => void;
-}
-
-interface TwoFactorVerificationData {
-  totpCode: string;
-  trustDevice: boolean;
-}
-```
-
-**UI レイアウト**:
-```
-┌─────────────────────────────────────────┐
-│            ArchiTrack                   │
-│        アーキテクチャ決定記録             │
-├─────────────────────────────────────────┤
-│                                         │
-│      二要素認証                          │
-│                                         │
-│ user@example.com でログインしています    │
-│                                         │
-│ 認証アプリに表示されている6桁のコードを  │
-│ 入力してください。                       │
-│                                         │
-│  ┌───┬───┬───┬───┬───┬───┐            │
-│  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │            │
-│  └───┴───┴───┴───┴───┴───┘            │
-│                                         │
-│  ⏱️ コードは23秒後に変わります            │
-│  ████████████░░░░░░░░                   │
-│                                         │
-│  ┌────────────────┐                     │
-│  │    検証する    │                     │
-│  └────────────────┘                     │
-│                                         │
-│  認証アプリにアクセスできない場合         │
-│  バックアップコードを使用する →          │
-│                                         │
-│  [← ログインに戻る]                      │
-└─────────────────────────────────────────┘
-```
-
-**バックアップコード入力UI**:
-```
-┌─────────────────────────────────────────┐
-│            ArchiTrack                   │
-│        アーキテクチャ決定記録             │
-├─────────────────────────────────────────┤
-│                                         │
-│      バックアップコードを使用            │
-│                                         │
-│ user@example.com でログインしています    │
-│                                         │
-│ バックアップコードを入力してください。    │
-│ （コードは1回限り使用可能です）          │
-│                                         │
-│  ┌────────────────────────┐             │
-│  │ A3F2B8D4               │             │
-│  └────────────────────────┘             │
-│                                         │
-│  ┌────────────────┐                     │
-│  │    検証する    │                     │
-│  └────────────────┘                     │
-│                                         │
-│  認証コードに戻る ←                      │
-│                                         │
-│  [← ログインに戻る]                      │
-└─────────────────────────────────────────┘
-```
-
-**UXベストプラクティス**:
-- **自動フォーカス**: ページ読み込み時に最初の入力フィールドに自動フォーカス
-- **自動タブ移動**: 数字入力時に自動的に次のフィールドへ移動
-- **ペースト対応**: クリップボードから6桁コードをペースト可能
-- **カウントダウンタイマー**: 視覚的プログレスバーで残り時間を表示
-- **エラーフィードバック**: 無効なコード入力時に入力フィールドをクリアし、エラーメッセージ表示
-- **リトライ制限**: 5回失敗後に一時的にロック（5分間）
-- **アクセシビリティ**: aria-label、role="status"、キーボードナビゲーション
-
-**バリデーションルール**:
-- TOTPコード: 6桁の数字のみ
-- バックアップコード: 8文字の英数字（大文字）
-
-### BackupCodesDisplay（バックアップコード表示コンポーネント）
-
-**責任**: バックアップコードの視覚的表示とダウンロード・印刷機能
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Icon`, `Badge`
-- **Molecules**: `BackupCodeItem`, `ActionButtons`
-- **Organisms**: `BackupCodesDisplay`
-
-**主要機能**:
-1. 10個のバックアップコードをグリッド形式で表示
-2. 使用済みコードの視覚的識別（グレーアウト、取り消し線）
-3. 個別コードのクリップボードコピー
-4. 全コードのクリップボードコピー
-5. バックアップコードのダウンロード（.txt形式）
-6. バックアップコードの印刷
-7. 残りコード数の表示
-
-**インターフェース設計**:
-```typescript
-interface BackupCodesDisplayProps {
-  backupCodes: BackupCode[];
-  onDownload: () => void;
-  onPrint: () => void;
-  onCopy: (code: string) => void;
-}
-
-interface BackupCode {
-  code: string;
-  used: boolean;
-  usedAt?: Date;
-}
-```
-
-**UI レイアウト**:
-```
-┌─────────────────────────────────────────┐
-│ バックアップコード                       │
-│                                         │
-│ ⚠️ 重要: 安全な場所に保管してください      │
-│ 認証アプリにアクセスできない場合に使用    │
-│ できます（各コード1回限り）               │
-│                                         │
-│ 残り: 7/10                              │
-│                                         │
-│  1. A3F2B8D4 [📋]   6. C9E1F7A2 [📋]   │
-│  2. E5D3C1A9 [📋]   7. B4D6E8F1 [📋]   │
-│  3. F7A9B2C5 [📋]   8. A1C3E5D7 [📋]   │
-│  4. D1E3F5A7 [📋]   9. F2A4C6E8 [📋]   │
-│  5. C8A2B4D6 [📋]  10. E3D5F7A9 [📋]   │
-│     （使用済み）                         │
-│                                         │
-│ [すべてコピー] [ダウンロード] [印刷]     │
-│                                         │
-│ ⚠️ 残りコードが少なくなっています         │
-│    バックアップコードを再生成する →       │
-└─────────────────────────────────────────┘
-```
-
-**UXベストプラクティス**:
-- **使用済みコード**: グレーアウト、取り消し線、「使用済み」バッジ
-- **警告表示**: 残りコードが3個以下の場合に警告メッセージと再生成リンク
-- **ダウンロード形式**: プレーンテキスト（backup-codes-YYYYMMDD.txt）
-- **印刷スタイル**: @media printで印刷最適化（ヘッダー、フッター、QRコード非表示）
-- **コピーフィードバック**: コピー成功時にトーストメッセージ「コピーしました」
-- **アクセシビリティ**: 使用済みコードにaria-label="使用済み"を設定
-
-### TwoFactorManagement（二要素認証管理コンポーネント）
-
-**責任**: プロフィール画面での二要素認証の有効化・無効化管理
-
-**コンポーネント構成（Atomic Design）**:
-- **Atoms**: `Button`, `Icon`, `Badge`, `Switch`
-- **Molecules**: `StatusBadge`, `ConfirmDialog`
-- **Organisms**: `TwoFactorManagement`
-
-**主要機能**:
-1. 2FA有効化ステータス表示（有効/無効バッジ）
-2. 2FA有効化ボタン（モーダル起動）
-3. 2FA無効化ボタン（パスワード確認ダイアログ）
-4. バックアップコード表示・再生成機能
-5. 最終有効化日時の表示
-
-**インターフェース設計**:
-```typescript
-interface TwoFactorManagementProps {
-  twoFactorEnabled: boolean;
-  enabledAt?: Date;
-  backupCodes?: BackupCode[];
-  onEnable: () => void;
-  onDisable: (password: string) => Promise<void>;
-  onRegenerateBackupCodes: () => Promise<string[]>;
-}
-```
-
-**UI レイアウト（2FA無効時）**:
-```
-┌─────────────────────────────────────────┐
-│ セキュリティ設定                         │
-├─────────────────────────────────────────┤
-│                                         │
-│ 二要素認証 🔒                            │
-│                                         │
-│ ステータス: 🔴 無効                      │
-│                                         │
-│ 二要素認証を有効にすると、ログイン時に   │
-│ メールアドレス・パスワードに加えて、     │
-│ 認証アプリのコードが必要になります。     │
-│                                         │
-│ ┌────────────────────┐                  │
-│ │  二要素認証を有効化 │                  │
-│ └────────────────────┘                  │
-│                                         │
-└─────────────────────────────────────────┘
-```
-
-**UI レイアウト（2FA有効時）**:
-```
-┌─────────────────────────────────────────┐
-│ セキュリティ設定                         │
-├─────────────────────────────────────────┤
-│                                         │
-│ 二要素認証 🔒                            │
-│                                         │
-│ ステータス: 🟢 有効                      │
-│ 有効化日時: 2025-11-08 10:30            │
-│                                         │
-│ 二要素認証が有効です。ログイン時に認証   │
-│ アプリのコードが必要です。               │
-│                                         │
-│ バックアップコード（残り: 7/10）         │
-│ [バックアップコードを表示] ▼             │
-│                                         │
-│ ┌──────────────────┐ ┌──────────────┐  │
-│ │ バックアップコード│ │ 二要素認証を │  │
-│ │ を再生成         │ │ 無効化       │  │
-│ └──────────────────┘ └──────────────┘  │
-│                                         │
-└─────────────────────────────────────────┘
-```
-
-**無効化確認ダイアログ**:
-```
-┌─────────────────────────────────────────┐
-│ 二要素認証を無効化                       │
-├─────────────────────────────────────────┤
-│                                         │
-│ ⚠️ 警告: 二要素認証を無効化すると、       │
-│ アカウントのセキュリティレベルが低下     │
-│ します。                                 │
-│                                         │
-│ 続行するには、パスワードを入力して       │
-│ ください。                               │
-│                                         │
-│  ┌────────────────────────┐             │
-│  │ パスワード          👁  │             │
-│  │ ••••••••••••           │             │
-│  └────────────────────────┘             │
-│                                         │
-│ [キャンセル]         [無効化する]        │
-└─────────────────────────────────────────┘
-```
-
-**UXベストプラクティス**:
-- **ステータスバッジ**: 視覚的に有効/無効を明確化（🟢有効 / 🔴無効）
-- **確認ダイアログ**: 無効化時に警告メッセージとパスワード確認
-- **再生成確認**: バックアップコード再生成時に「既存のコードは無効化されます」と警告
-- **成功フィードバック**: 有効化/無効化成功時にトーストメッセージ
-- **アクセシビリティ**: role="alert"、aria-live="polite"、キーボードナビゲーション
-
-**セキュリティ考慮事項**:
-- **パスワード確認**: 無効化時に必ずパスワード入力を要求
-- **セッション再認証**: 無効化後に全デバイスからログアウト
-- **監査ログ**: 2FA有効化・無効化イベントを記録
-
-### 共通UIコンポーネント（Atoms/Molecules）
-
-#### PasswordField（パスワード入力フィールド）
-
-**機能**:
-- パスワード表示/非表示トグルボタン（目アイコン）
-- aria-label: 「パスワードを表示」「パスワードを非表示」
-- autocomplete属性の適切な設定（current-password、new-password）
-
-#### ValidationMessage（バリデーションエラーメッセージ）
-
-**機能**:
-- エラーアイコンと赤色テキスト
-- aria-live="polite"でスクリーンリーダーに通知
-- フィールドとの関連付け（aria-describedby）
-
-#### LoadingSpinner（ローディングスピナー）
-
-**機能**:
-- 処理中の視覚的フィードバック
-- aria-label: 「読み込み中」
-- role="status"でスクリーンリーダーに通知
-
-## UI Mockups（画面レイアウト）
-
-本セクションでは、主要な認証画面のレイアウトをアスキーアートで視覚化します。これにより、開発者が実装時に視覚的な参照を持ち、Design Systemとの整合性を確認できます。
-
-### ログイン画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │      ログイン         │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ メールアドレス    │ │                      │
-│              │ │ email@example.com│ │                      │
-│              │ └──────────────────┘ │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ パスワード    👁  │ │                      │
-│              │ │ ••••••••••••     │ │                      │
-│              │ └──────────────────┘ │                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │   ログイン     │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              │  パスワードを忘れた   │                      │
-│              │  場合はこちら         │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│   ログイン        │
-│                  │
-│ ┌──────────────┐ │
-│ │メールアドレス │ │
-│ │email@ex...   │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │パスワード 👁 │ │
-│ │••••••••     │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │  ログイン    │ │
-│ └──────────────┘ │
-│                  │
-│  パスワードを     │
-│  忘れた場合       │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **ヘッダー**: ロゴとサブタイトル、中央寄せ
-- **フォームコンテナ**: 中央寄せ、最大400px幅、カード形式（軽い影）
-- **タイトル**: H1、32px / Bold、中央寄せ
-- **メールアドレスフィールド**:
-  - 高さ48px、ボーダー半径8px
-  - placeholder: "email@example.com"
-  - autocomplete="email"
-  - 自動フォーカス
-- **パスワードフィールド**:
-  - 高さ48px、ボーダー半径8px
-  - パスワード表示/非表示トグルボタン（目アイコン）を右端に配置
-  - autocomplete="current-password"
-- **ログインボタン**:
-  - Primary色（#1976D2）、高さ48px、ボーダー半径8px
-  - ホバー時: Primary-600（#1565C0）
-  - 全幅、ボタンテキスト14px / Medium
-- **パスワードリセットリンク**:
-  - 14px / Regular、Primary色
-  - 中央寄せ、下部余白32px
-- **スペーシング**: フィールド間16px、セクション間32px
-
-### ユーザー登録画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │    ユーザー登録       │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ 招待メールアドレス│ │                      │
-│              │ │ user@example.com │ │  （読み取り専用）    │
-│              │ └──────────────────┘ │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ 表示名           │ │                      │
-│              │ │ 山田 太郎        │ │                      │
-│              │ └──────────────────┘ │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ パスワード    👁  │ │                      │
-│              │ │ ••••••••••••     │ │                      │
-│              │ └──────────────────┘ │                      │
-│              │ パスワード強度: 強い  │  🟢🟢🟢              │
-│              │                      │                      │
-│              │ パスワード要件:       │                      │
-│              │  ✅ 8文字以上        │                      │
-│              │  ✅ 英字（大小）     │                      │
-│              │  ✅ 数字             │                      │
-│              │  ✅ 特殊文字         │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ パスワード確認 👁 │ │                      │
-│              │ │ ••••••••••••     │ │                      │
-│              │ └──────────────────┘ │                      │
-│              │                      │                      │
-│              │ ☑ 利用規約とプライバ │                      │
-│              │   シーポリシーに同意  │                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │   登録         │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│  ユーザー登録     │
-│                  │
-│ ┌──────────────┐ │
-│ │招待メール    │ │
-│ │user@ex...    │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │表示名        │ │
-│ │山田 太郎     │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │パスワード 👁 │ │
-│ │••••••••     │ │
-│ └──────────────┘ │
-│ 強度: 強い 🟢🟢🟢 │
-│                  │
-│ パスワード要件:   │
-│  ✅ 8文字以上    │
-│  ✅ 英字（大小） │
-│  ✅ 数字         │
-│  ✅ 特殊文字     │
-│                  │
-│ ┌──────────────┐ │
-│ │確認      👁  │ │
-│ │••••••••     │ │
-│ └──────────────┘ │
-│                  │
-│ ☑ 利用規約に同意 │
-│                  │
-│ ┌──────────────┐ │
-│ │  登録        │ │
-│ └──────────────┘ │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **招待メールアドレス**: 読み取り専用、Neutral-100背景、カーソル not-allowed
-- **表示名フィールド**: 高さ48px、maxlength="100"
-- **パスワードフィールド**:
-  - パスワード表示/非表示トグル
-  - autocomplete="new-password"
-- **パスワード強度インジケーター**:
-  - 弱い（🔴1個）、普通（🟡2個）、強い（🟢3個）
-  - リアルタイム更新
-  - 色: Error-500（弱い）、Warning-500（普通）、Success-500（強い）
-- **パスワード要件チェックリスト**:
-  - リアルタイム検証
-  - ✅（Success-500）/ ❌（Error-500）
-  - aria-live="polite"でスクリーンリーダー対応
-- **パスワード確認フィールド**:
-  - リアルタイム一致確認
-  - 不一致時はError-500でエラーメッセージ表示
-- **利用規約同意チェックボックス**:
-  - 24×24px、親要素48×48px（タッチフレンドリー）
-  - リンクでモーダル表示
-- **登録ボタン**:
-  - Primary色、高さ48px
-  - 全フィールド有効 + 同意チェック時のみ有効化
-
-### 管理者招待画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│  ArchiTrack                                      👤 管理者       ⚙ 設定  ログアウト│
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│  ユーザー招待                                                                   │
-│                                                                                │
-│  ┌────────────────────────────────────────────────────────────┐                │
-│  │  新規招待                                                   │                │
-│  │  ┌─────────────────────────────┐  ┌──────────┐            │                │
-│  │  │ メールアドレス                │  │  招待    │            │                │
-│  │  │ user@example.com              │  └──────────┘            │                │
-│  │  └─────────────────────────────┘                            │                │
-│  └────────────────────────────────────────────────────────────┘                │
-│                                                                                │
-│  招待一覧                                                                       │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │ メールアドレス        │ 招待日時       │ ステータス  │ 有効期限   │ 操作  │  │
-│  ├──────────────────────────────────────────────────────────────────────────┤  │
-│  │ user1@example.com    │ 2025-11-01     │ 🟡 未使用   │ 7日後      │[取消]│  │
-│  │ user2@example.com    │ 2025-10-30     │ 🟢 使用済み │ -          │  -   │  │
-│  │ user3@example.com    │ 2025-10-20     │ 🔴 期限切れ │ -          │[再送]│  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                │
-│  ページネーション: ◀ 1 2 3 ▶                                                   │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│ ArchiTrack  ☰   │
-│ 管理者           │
-├──────────────────┤
-│                  │
-│  ユーザー招待     │
-│                  │
-│ ┌──────────────┐ │
-│ │新規招待      │ │
-│ │┌───────────┐ │ │
-│ ││メール      │ │ │
-│ ││user@ex...  │ │ │
-│ │└───────────┘ │ │
-│ │┌───────────┐ │ │
-│ ││ 招待      │ │ │
-│ │└───────────┘ │ │
-│ └──────────────┘ │
-│                  │
-│  招待一覧         │
-│  ┌────────────┐  │
-│  │user1@ex... │  │
-│  │2025-11-01  │  │
-│  │🟡 未使用   │  │
-│  │7日後       │  │
-│  │[取消][URL] │  │
-│  └────────────┘  │
-│  ┌────────────┐  │
-│  │user2@ex... │  │
-│  │2025-10-30  │  │
-│  │🟢 使用済み │  │
-│  │-           │  │
-│  └────────────┘  │
-│  ┌────────────┐  │
-│  │user3@ex... │  │
-│  │2025-10-20  │  │
-│  │🔴 期限切れ │  │
-│  │[再送][URL] │  │
-│  └────────────┘  │
-│                  │
-│  ⬇ さらに読み込む │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **ヘッダー**: ロゴ、ユーザー情報、設定、ログアウト
-- **新規招待フォーム**:
-  - カード形式、軽い影
-  - メールアドレス入力フィールド（高さ48px）
-  - 招待ボタン（Primary色、高さ48px）
-- **招待一覧テーブル**（デスクトップ）:
-  - ヘッダー行: Neutral-100背景
-  - ステータスバッジ:
-    - 未使用: Warning-500背景（#F57C00）、黄色
-    - 使用済み: Success-500背景（#2E7D32）、緑色
-    - 期限切れ: Error-500背景（#D32F2F）、赤色
-  - アクションボタン:
-    - 取り消し: Neutral-700、高さ36px
-    - 再送信: Primary-500、高さ36px
-    - URLコピー: アイコンボタン、トーストでフィードバック
-  - ホバー時: 行全体をNeutral-50背景で強調
-- **招待一覧カード**（モバイル）:
-  - 各招待を独立したカードとして表示
-  - ステータスバッジを上部に配置
-  - アクションボタンを下部に配置
-  - 無限スクロール対応
-- **ページネーション**（デスクトップ）:
-  - 現在ページ: Primary色
-  - 他ページ: Neutral-700
-  - 矢印: 無効時はNeutral-300
-
-### プロフィール画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│  ArchiTrack                                      👤 山田太郎     ⚙ 設定  ログアウト│
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│  プロフィール設定                                                               │
-│                                                                                │
-│  ┌────────────────────────────────────────────────────────────┐                │
-│  │  ユーザー情報                                               │                │
-│  │                                                            │                │
-│  │  メールアドレス                                             │                │
-│  │  ┌─────────────────────────────┐                           │                │
-│  │  │ user@example.com             │  （読み取り専用）         │                │
-│  │  └─────────────────────────────┘                           │                │
-│  │                                                            │                │
-│  │  表示名                                                     │                │
-│  │  ┌─────────────────────────────┐                           │                │
-│  │  │ 山田 太郎                    │                           │                │
-│  │  └─────────────────────────────┘                           │                │
-│  │                                                            │                │
-│  │  ロール                                                     │                │
-│  │  🎫 システム管理者                                          │                │
-│  │                                                            │                │
-│  │  作成日時                                                   │                │
-│  │  2025-11-01 10:30:00                                       │                │
-│  │                                                            │                │
-│  │  ┌──────────┐                                              │                │
-│  │  │  保存    │  （表示名変更時のみ有効化）                   │                │
-│  │  └──────────┘                                              │                │
-│  └────────────────────────────────────────────────────────────┘                │
-│                                                                                │
-│  ┌────────────────────────────────────────────────────────────┐                │
-│  │  パスワード変更                                             │                │
-│  │                                                            │                │
-│  │  現在のパスワード                                           │                │
-│  │  ┌─────────────────────────────┐                           │                │
-│  │  │ ••••••••••••              👁 │                           │                │
-│  │  └─────────────────────────────┘                           │                │
-│  │                                                            │                │
-│  │  新しいパスワード                                           │                │
-│  │  ┌─────────────────────────────┐                           │                │
-│  │  │ ••••••••••••              👁 │                           │                │
-│  │  └─────────────────────────────┘                           │                │
-│  │  パスワード強度: 強い  🟢🟢🟢                               │                │
-│  │                                                            │                │
-│  │  パスワード確認                                             │                │
-│  │  ┌─────────────────────────────┐                           │                │
-│  │  │ ••••••••••••              👁 │                           │                │
-│  │  └─────────────────────────────┘                           │                │
-│  │                                                            │                │
-│  │  ⚠ パスワード変更後、全デバイスからログアウトされます      │                │
-│  │                                                            │                │
-│  │  ┌──────────────────┐                                      │                │
-│  │  │  パスワード変更  │                                      │                │
-│  │  └──────────────────┘                                      │                │
-│  └────────────────────────────────────────────────────────────┘                │
-│                                                                                │
-│  🔑 管理者機能: ユーザー管理 | ロール管理                                       │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│ ArchiTrack  ☰   │
-│ 山田太郎         │
-├──────────────────┤
-│                  │
-│  プロフィール     │
-│                  │
-│ ┌──────────────┐ │
-│ │ユーザー情報  │ │
-│ │              │ │
-│ │メールアドレス│ │
-│ │user@ex...    │ │
-│ │              │ │
-│ │表示名        │ │
-│ │┌───────────┐ │ │
-│ ││山田 太郎   │ │ │
-│ │└───────────┘ │ │
-│ │              │ │
-│ │ロール        │ │
-│ │🎫 管理者     │ │
-│ │              │ │
-│ │作成日時      │ │
-│ │2025-11-01    │ │
-│ │              │ │
-│ │┌───────────┐ │ │
-│ ││ 保存      │ │ │
-│ │└───────────┘ │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │パスワード変更│ │
-│ │              │ │
-│ │現在の        │ │
-│ │┌───────────┐ │ │
-│ ││•••••••• 👁│ │ │
-│ │└───────────┘ │ │
-│ │              │ │
-│ │新しい        │ │
-│ │┌───────────┐ │ │
-│ ││•••••••• 👁│ │ │
-│ │└───────────┘ │ │
-│ │強い 🟢🟢🟢   │ │
-│ │              │ │
-│ │確認          │ │
-│ │┌───────────┐ │ │
-│ ││•••••••• 👁│ │ │
-│ │└───────────┘ │ │
-│ │              │ │
-│ │⚠ 全デバイスで│ │
-│ │ログアウト    │ │
-│ │              │ │
-│ │┌───────────┐ │ │
-│ ││変更       │ │ │
-│ │└───────────┘ │ │
-│ └──────────────┘ │
-│                  │
-│ 🔑 管理者機能     │
-│  • ユーザー管理   │
-│  • ロール管理     │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **ヘッダー**: ロゴ、ユーザー名、設定、ログアウト
-- **ユーザー情報セクション**:
-  - カード形式、軽い影
-  - メールアドレス: 読み取り専用、Neutral-100背景
-  - 表示名: 編集可能、高さ48px
-  - ロールバッジ: Success-500背景（システム管理者）、Neutral-500背景（一般ユーザー）
-  - 作成日時: 読み取り専用、14px / Regular
-  - 保存ボタン:
-    - 表示名変更時のみ有効化
-    - 未変更時: Neutral-300背景、disabled
-    - 変更時: Primary色、有効化
-- **パスワード変更セクション**:
-  - カード形式、軽い影
-  - パスワードフィールド: 高さ48px、パスワード表示/非表示トグル
-  - パスワード強度インジケーター: リアルタイム更新
-  - 警告メッセージ:
-    - Warning-100背景、Warning-500テキスト
-    - アイコン付き（⚠）
-    - 「全デバイスからログアウトされます」
-  - パスワード変更ボタン:
-    - 全フィールド有効時のみ有効化
-    - クリック時に確認ダイアログ表示
-- **管理者機能リンク**:
-  - 管理者ロールのみ表示
-  - Primary色、14px / Medium
-  - アイコン付き（🔑）
-
-### ユーザー管理画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│ ArchiTrack        🔍検索            田中太郎 ⚙️ ログアウト │
-├────────────────────────────────────────────────────────────┤
-│                                                            │
-│  ← ダッシュボード    ユーザー管理                           │
-│                                                            │
-│  ┌────────────────┐  📧 ユーザー招待                        │
-│  │ 🔍 検索...     │                                        │
-│  └────────────────┘                                        │
-│                                                            │
-│  ☑ すべて  ☐ システム管理者  ☐ 一般ユーザー                │
-│                                                            │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ メールアドレス          │ 表示名    │ ロール │ 作成日 │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ admin@example.com       │ 田中太郎  │ 🔑管理者│ 01/10│  │
-│  │                         │           │        │ ✏️🗑️ │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ user1@example.com       │ 山田花子  │ 👤一般 │ 01/12│  │
-│  │                         │           │        │ ✏️🗑️ │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ user2@example.com       │ 佐藤次郎  │ 👤一般 │ 01/14│  │
-│  │                         │           │        │ ✏️🗑️ │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ pending@example.com     │ (招待中)  │ 👤一般 │ 01/15│  │
-│  │                         │           │ ⏳     │ 🗑️   │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                            │
-│  ← 前へ    1 / 3    次へ →                                 │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│ ArchiTrack  ≡    │
-├──────────────────┤
-│                  │
-│  ← ユーザー管理   │
-│                  │
-│ ┌──────────────┐ │
-│ │ 🔍 検索...   │ │
-│ └──────────────┘ │
-│                  │
-│  📧 ユーザー招待  │
-│                  │
-│  フィルター ▾    │
-│                  │
-│ ┌──────────────┐ │
-│ │田中太郎      │ │
-│ │admin@ex...   │ │
-│ │              │ │
-│ │🔑 管理者     │ │
-│ │2025-01-10    │ │
-│ │              │ │
-│ │✏️ 🗑️         │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │山田花子      │ │
-│ │user1@ex...   │ │
-│ │              │ │
-│ │👤 一般       │ │
-│ │2025-01-12    │ │
-│ │              │ │
-│ │✏️ 🗑️         │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │(招待中)      │ │
-│ │pending@ex... │ │
-│ │              │ │
-│ │👤 一般 ⏳    │ │
-│ │2025-01-15    │ │
-│ │              │ │
-│ │🗑️            │ │
-│ └──────────────┘ │
-│                  │
-│  1 / 3  次へ →   │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **ヘッダー**:
-  - ダッシュボードリンク（左寄せ、← アイコン付き）
-  - タイトル: 24px / Bold
-- **検索バー**:
-  - 高さ48px、ボーダー半径8px
-  - placeholder: "ユーザーを検索..."
-  - リアルタイム検索（300msデバウンス）
-- **ユーザー招待ボタン**:
-  - Primary色（#1976D2）、高さ48px、ボーダー半径8px
-  - アイコン付き（📧）、16px / Medium
-  - クリック時にモーダル表示（招待フォーム）
-- **フィルタータブ**:
-  - タブ形式、ボーダー下部
-  - アクティブタブ: Primary色、下部ボーダー2px
-  - 非アクティブタブ: Neutral-600色
-- **ユーザーテーブル**:
-  - ヘッダー行: 16px / Bold、Neutral-50背景
-  - データ行: 高さ80px（デスクトップ）、ボーダー下部
-  - メールアドレス: 14px / Regular
-  - 表示名: 16px / Medium
-  - ロールバッジ:
-    - システム管理者: Success-500背景、12px / Medium、白文字、🔑アイコン
-    - 一般ユーザー: Neutral-500背景、12px / Medium、白文字、👤アイコン
-    - 招待中: Warning-500背景、12px / Medium、白文字、⏳アイコン
-  - 作成日: 14px / Regular、Neutral-600色
-  - アクション: 編集・削除ボタン、32pxアイコンボタン
-    - 招待中ステータスの場合: 削除のみ表示（招待キャンセル）
-- **モバイルカード**:
-  - 各カード: 最小高さ120px、カード形式、軽い影
-  - 表示名: 16px / Bold
-  - メールアドレス: 14px / Regular、Neutral-600色
-  - ロールバッジ: デスクトップと同様
-  - 作成日: 14px / Regular、Neutral-500色
-  - アクション: 編集・削除ボタン、32pxアイコンボタン
-- **ページネーション**:
-  - 中央寄せ、前へ/次へボタン、ページ番号表示
-  - ボタン: Neutral-500色、無効時はNeutral-300色
-
-**招待モーダル**:
-- **モーダルサイズ**: 最大400px幅、中央配置
-- **フォームフィールド**:
-  - メールアドレス: 高さ48px、バリデーション（email形式）
-  - ロール選択: ドロップダウン（システム管理者/一般ユーザー）
-- **ボタン**:
-  - 送信ボタン: Primary色、高さ48px
-  - キャンセルボタン: Neutral-500色、高さ48px
-- **バリデーション**:
-  - 重複チェック: 既存ユーザーまたは未使用招待との重複を検証
-  - エラー表示: フィールド下部にError-500色で表示
-
-### パスワードリセット要求画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │  パスワードリセット    │                      │
-│              │                      │                      │
-│              │ メールアドレスを入力   │                      │
-│              │ してください。リセット │                      │
-│              │ 用のリンクを送信します│                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ メールアドレス    │ │                      │
-│              │ │ email@example.com│ │                      │
-│              │ └──────────────────┘ │                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │  送信          │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              │  ← ログインに戻る    │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│  パスワード       │
-│  リセット         │
-│                  │
-│  メールアドレスを │
-│  入力してくださ   │
-│  い。リセット用   │
-│  のリンクを送信   │
-│  します。         │
-│                  │
-│ ┌──────────────┐ │
-│ │メールアドレス │ │
-│ │email@ex...   │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │  送信        │ │
-│ └──────────────┘ │
-│                  │
-│  ← ログインに戻る│
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **タイトル**: H1、32px / Bold、中央寄せ
-- **説明文**: 14px / Regular、Neutral-600色、中央寄せ、下部余白16px
-- **メールアドレスフィールド**:
-  - 高さ48px、ボーダー半径8px
-  - placeholder: "email@example.com"
-  - autocomplete="email"
-  - 自動フォーカス
-- **送信ボタン**:
-  - Primary色（#1976D2）、高さ48px、ボーダー半径8px
-  - 全幅、ボタンテキスト14px / Medium
-- **ログインに戻るリンク**:
-  - 14px / Regular、Primary色
-  - 左寄せ、アイコン付き（←）
-- **スペーシング**: フィールド間16px、セクション間32px
-
-### メール送信完了画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │        ✉️            │                      │
-│              │                      │                      │
-│              │  メールを送信しました  │                      │
-│              │                      │                      │
-│              │ user@example.com     │                      │
-│              │ 宛にパスワードリセット│                      │
-│              │ 用のリンクを送信しま  │                      │
-│              │ した。                │                      │
-│              │                      │                      │
-│              │ メールが届かない場合は│                      │
-│              │ 迷惑メールフォルダを  │                      │
-│              │ 確認してください。    │                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │  再送信        │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              │  ← ログインに戻る    │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│        ✉️        │
-│                  │
-│  メールを送信     │
-│  しました         │
-│                  │
-│  user@ex...      │
-│  宛にパスワード   │
-│  リセット用の     │
-│  リンクを送信     │
-│  しました。       │
-│                  │
-│  メールが届かな   │
-│  い場合は迷惑     │
-│  メールフォルダ   │
-│  を確認してくだ   │
-│  さい。           │
-│                  │
-│ ┌──────────────┐ │
-│ │  再送信      │ │
-│ └──────────────┘ │
-│                  │
-│  ← ログインに戻る│
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **アイコン**: ✉️、64px、中央寄せ、上部余白32px
-- **タイトル**: H1、32px / Bold、中央寄せ
-- **メールアドレス表示**: 16px / Medium、Primary色、中央寄せ
-- **説明文**: 14px / Regular、Neutral-600色、中央寄せ、下部余白16px
-- **注意書き**: 14px / Regular、Neutral-500色、中央寄せ、Info-100背景、8pxパディング
-- **再送信ボタン**:
-  - Neutral-500色（セカンダリ）、高さ48px、ボーダー半径8px
-  - 全幅、ボタンテキスト14px / Medium
-  - クリック後60秒間無効化（再送信制限）
-- **ログインに戻るリンク**:
-  - 14px / Regular、Primary色
-  - 左寄せ、アイコン付き（←）
-
-### パスワードリセット画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │  新しいパスワード設定  │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ 新しいパスワード 👁│ │                      │
-│              │ │ ••••••••••••     │ │                      │
-│              │ └──────────────────┘ │                      │
-│              │ パスワード強度: 強い  │  🟢🟢🟢              │
-│              │                      │                      │
-│              │ パスワード要件:       │                      │
-│              │  ✅ 8文字以上        │                      │
-│              │  ✅ 英字（大小）     │                      │
-│              │  ✅ 数字             │                      │
-│              │  ✅ 特殊文字         │                      │
-│              │                      │                      │
-│              │ ┌──────────────────┐ │                      │
-│              │ │ パスワード確認 👁 │ │                      │
-│              │ │ ••••••••••••     │ │                      │
-│              │ └──────────────────┘ │                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │  パスワード更新 │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│  新しいパスワード │
-│  設定             │
-│                  │
-│ ┌──────────────┐ │
-│ │新パスワード👁 │ │
-│ │••••••••     │ │
-│ └──────────────┘ │
-│ 強度: 強い 🟢🟢🟢 │
-│                  │
-│ パスワード要件:   │
-│  ✅ 8文字以上    │
-│  ✅ 英字（大小） │
-│  ✅ 数字         │
-│  ✅ 特殊文字     │
-│                  │
-│ ┌──────────────┐ │
-│ │確認      👁  │ │
-│ │••••••••     │ │
-│ └──────────────┘ │
-│                  │
-│ ┌──────────────┐ │
-│ │パスワード更新 │ │
-│ └──────────────┘ │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **タイトル**: H1、32px / Bold、中央寄せ
-- **新しいパスワードフィールド**:
-  - 高さ48px、ボーダー半径8px
-  - パスワード表示/非表示トグル
-  - autocomplete="new-password"
-- **パスワード強度インジケーター**:
-  - 弱い（🔴1個）、普通（🟡2個）、強い（🟢3個）
-  - リアルタイム更新
-- **パスワード要件チェックリスト**:
-  - リアルタイム検証
-  - ✅（Success-500）/ ❌（Error-500）
-- **パスワード確認フィールド**:
-  - 高さ48px、ボーダー半径8px
-  - パスワード表示/非表示トグル
-  - autocomplete="new-password"
-  - 不一致時: Error-500ボーダー、「パスワードが一致しません」エラー表示
-- **パスワード更新ボタン**:
-  - Primary色（#1976D2）、高さ48px、ボーダー半径8px
-  - 全幅、ボタンテキスト14px / Medium
-  - 全条件満たすまで無効化
-
-### リセット完了画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │        ✅            │                      │
-│              │                      │                      │
-│              │  パスワードを更新     │                      │
-│              │  しました             │                      │
-│              │                      │                      │
-│              │ セキュリティのため、  │                      │
-│              │ 全てのデバイスから   │                      │
-│              │ ログアウトされました。│                      │
-│              │                      │                      │
-│              │ 新しいパスワードで   │                      │
-│              │ ログインしてください。│                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │  ログイン      │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│        ✅        │
-│                  │
-│  パスワードを     │
-│  更新しました     │
-│                  │
-│  セキュリティの   │
-│  ため、全ての     │
-│  デバイスから     │
-│  ログアウトされ   │
-│  ました。         │
-│                  │
-│  新しいパスワー   │
-│  ドでログインし   │
-│  てください。     │
-│                  │
-│ ┌──────────────┐ │
-│ │  ログイン    │ │
-│ └──────────────┘ │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **アイコン**: ✅、64px、中央寄せ、上部余白32px
-- **タイトル**: H1、32px / Bold、中央寄せ、Success-500色
-- **説明文**: 14px / Regular、Neutral-600色、中央寄せ、下部余白16px
-- **注意書き**: 14px / Regular、Neutral-500色、中央寄せ、Info-100背景、8pxパディング
-- **ログインボタン**:
-  - Primary色（#1976D2）、高さ48px、ボーダー半径8px
-  - 全幅、ボタンテキスト14px / Medium
-- **自動リダイレクト**: 5秒後にログイン画面へ自動遷移
-
-### アカウントロック画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │        🔒            │                      │
-│              │                      │                      │
-│              │  アカウントがロック   │                      │
-│              │  されています         │                      │
-│              │                      │                      │
-│              │ ログイン試行が5回失敗│                      │
-│              │ したため、一時的に   │                      │
-│              │ アカウントがロックさ  │                      │
-│              │ れました。            │                      │
-│              │                      │                      │
-│              │ 残り時間: 14分32秒   │                      │
-│              │                      │                      │
-│              │ 時間経過後に再度     │                      │
-│              │ ログインできます。   │                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │  ログインに戻る │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              │  パスワードをお忘れ   │                      │
-│              │  の場合はこちら       │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│        🔒        │
-│                  │
-│  アカウントが     │
-│  ロックされてい   │
-│  ます             │
-│                  │
-│  ログイン試行が   │
-│  5回失敗したた   │
-│  め、一時的に     │
-│  アカウントが     │
-│  ロックされまし   │
-│  た。             │
-│                  │
-│  残り時間:        │
-│  14分32秒        │
-│                  │
-│  時間経過後に     │
-│  再度ログイン     │
-│  できます。       │
-│                  │
-│ ┌──────────────┐ │
-│ │ログインに戻る │ │
-│ └──────────────┘ │
-│                  │
-│  パスワードを     │
-│  お忘れの場合     │
-│  はこちら         │
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **アイコン**: 🔒、64px、中央寄せ、上部余白32px
-- **タイトル**: H1、32px / Bold、中央寄せ、Error-500色
-- **説明文**: 14px / Regular、Neutral-600色、中央寄せ、下部余白16px
-- **残り時間表示**:
-  - 24px / Bold、Error-500色、中央寄せ
-  - リアルタイムカウントダウン（1秒ごとに更新）
-  - Error-100背景、16pxパディング、8pxボーダー半径
-- **ログインに戻るボタン**:
-  - Neutral-500色（セカンダリ）、高さ48px、ボーダー半径8px
-  - 全幅、ボタンテキスト14px / Medium
-- **パスワードリセットリンク**:
-  - 14px / Regular、Primary色
-  - 中央寄せ
-- **自動リフレッシュ**: ロック解除時刻に達したら自動的にログイン画面へリダイレクト
-
-### トークン無効画面
-
-**デスクトップレイアウト（≥768px）**:
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│                      ArchiTrack                            │
-│                   アーキテクチャ決定記録                     │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │        ⚠️            │                      │
-│              │                      │                      │
-│              │  リンクが無効です     │                      │
-│              │                      │                      │
-│              │ このリンクは期限切れ  │                      │
-│              │ または無効です。      │                      │
-│              │                      │                      │
-│              │ 招待リンクの有効期限  │                      │
-│              │ は7日間です。         │                      │
-│              │                      │                      │
-│              │ パスワードリセット   │                      │
-│              │ リンクの有効期限は   │                      │
-│              │ 24時間です。          │                      │
-│              │                      │                      │
-│              │  ┌────────────────┐  │                      │
-│              │  │  再試行        │  │                      │
-│              │  └────────────────┘  │                      │
-│              │                      │                      │
-│              │  ← ログインに戻る    │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**モバイルレイアウト（<768px）**:
-```
-┌──────────────────┐
-│   ArchiTrack     │
-│   ADR管理        │
-├──────────────────┤
-│                  │
-│        ⚠️        │
-│                  │
-│  リンクが無効     │
-│  です             │
-│                  │
-│  このリンクは     │
-│  期限切れまたは   │
-│  無効です。       │
-│                  │
-│  招待リンクの     │
-│  有効期限は7日   │
-│  間です。         │
-│                  │
-│  パスワードリセ   │
-│  ットリンクの     │
-│  有効期限は24時  │
-│  間です。         │
-│                  │
-│ ┌──────────────┐ │
-│ │  再試行      │ │
-│ └──────────────┘ │
-│                  │
-│  ← ログインに戻る│
-│                  │
-└──────────────────┘
-```
-
-**要素の配置と仕様**:
-- **アイコン**: ⚠️、64px、中央寄せ、上部余白32px
-- **タイトル**: H1、32px / Bold、中央寄せ、Warning-500色
-- **説明文**: 14px / Regular、Neutral-600色、中央寄せ、下部余白16px
-- **有効期限情報**:
-  - 14px / Regular、Neutral-500色、中央寄せ
-  - Warning-100背景、16pxパディング、8pxボーダー半径
-- **再試行ボタン**:
-  - Primary色（#1976D2）、高さ48px、ボーダー半径8px
-  - 全幅、ボタンテキスト14px / Medium
-  - クリック時にトークンタイプ（招待/リセット）に応じて適切な画面へ遷移
-- **ログインに戻るリンク**:
-  - 14px / Regular、Primary色
-  - 左寄せ、アイコン付き（←）
-
-### ダッシュボード（仮画面）
-
-**注**: ダッシュボードの詳細な機能設計は別仕様（`dashboard`）で実装予定です。本仕様では、認証後の遷移先として最小限の仮画面のみを実装します。
-
-**デスクトップ/モバイル共通レイアウト**:
-```
-┌────────────────────────────────────────────────────────────┐
-│ ArchiTrack                      田中太郎 ⚙️ ログアウト      │
-├────────────────────────────────────────────────────────────┤
-│                                                            │
-│                                                            │
-│                                                            │
-│                  ようこそ、田中太郎さん                     │
-│                                                            │
-│              ダッシュボード機能は準備中です                 │
-│                                                            │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │  👥 ユーザー管理     │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-│              ┌──────────────────────┐                      │
-│              │                      │                      │
-│              │  👤 プロフィール設定  │                      │
-│              │                      │                      │
-│              └──────────────────────┘                      │
-│                                                            │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-**要素の配置と仕様**:
-- **ヘッダー**:
-  - ロゴ（左寄せ）、ユーザー名・設定・ログアウト（右寄せ）
-  - 高さ64px、Neutral-50背景、下部にシャドウ
-- **ウェルカムメッセージ**:
-  - 32px / Bold、中央寄せ
-  - 上部余白64px
-- **準備中メッセージ**:
-  - 16px / Regular、Neutral-600色、中央寄せ
-  - 下部余白32px
-- **ナビゲーションカード**:
-  - 2つのカード（ユーザー管理、プロフィール設定）
-  - 最大400px幅、中央寄せ、カード形式、軽い影
-  - 各カード: 高さ80px、16px / Medium
-  - アイコン: 24px、左寄せ
-  - ホバー時: Primary-50背景、カーソルpointer
-  - 管理者ロールのみユーザー管理カードを表示
-- **実装方針**: 別仕様で詳細なダッシュボード機能（ADR一覧、統計情報等）を実装予定
-
-### ADR管理画面（別仕様で実装予定）
-
-**注**: ADR管理画面の詳細な機能設計は別仕様（`adr-management`）で実装予定です。本仕様では、ADR管理機能への言及は行いますが、画面レイアウトは含めません。
-
-### Design System適用例
-
-上記のUI Mockupsでは、以下のDesign System要素を適用しています：
-
-**カラーパレット**:
-- Primary-500（#1976D2）: ボタン、リンク
-- Success-500（#2E7D32）: ステータスバッジ（使用済み）、パスワード強度（強い）
-- Warning-500（#F57C00）: ステータスバッジ（未使用）、警告メッセージ
-- Error-500（#D32F2F）: ステータスバッジ（期限切れ）、エラーメッセージ
-- Neutral-900（#212121）: 見出し、本文
-- Neutral-100（#F5F5F5）: 読み取り専用フィールド背景
-
-**タイポグラフィ**:
-- H1（32px / Bold）: ページタイトル
-- H2（24px / Bold）: セクションタイトル
-- ラベル（14px / Medium）: フォームラベル
-- ボタン（14px / Medium）: ボタンテキスト
-
-**スペーシング**:
-- フィールド間: 16px（md）
-- セクション間: 32px（xl）
-- ページ余白: 32px（xl）
-
-**コンポーネント**:
-- 入力フィールド高さ: 48px
-- ボタン高さ: 48px
-- ボーダー半径: 8px（sm）
-- ボックスシャドウ: `0 1px 3px rgba(0, 0, 0, 0.12)`
-
-## UI Flow Diagrams
-
-### 認証フロー（ログイン → ダッシュボード）
+### 移行フェーズ
 
 ```mermaid
 graph TB
-    Start[ユーザーがログインページにアクセス] --> CheckAuth{認証状態を確認}
-    CheckAuth -->|認証済み| RedirectDashboard[ダッシュボードへリダイレクト]
-    CheckAuth -->|未認証| ShowLogin[ログインフォーム表示]
+    Phase1[Phase 1: 基盤整備]
+    Phase2[Phase 2: 認証機能]
+    Phase3[Phase 3: 認可機能]
+    Phase4[Phase 4: 二要素認証]
+    Phase5[Phase 5: 監査ログ]
 
-    ShowLogin --> InputCreds[メール・パスワード入力]
-    InputCreds --> Validate{クライアント側バリデーション}
-    Validate -->|エラー| ShowError1[エラーメッセージ表示]
-    Validate -->|成功| SendLogin[ログインAPIリクエスト送信]
+    Phase1 --> Phase2
+    Phase2 --> Phase3
+    Phase3 --> Phase4
+    Phase4 --> Phase5
 
-    SendLogin --> Loading[ローディングスピナー表示]
-    Loading --> ServerValidate{サーバー側認証}
-
-    ServerValidate -->|認証失敗| ShowError2[汎用エラー表示<br/>メールまたはパスワードが正しくありません]
-    ServerValidate -->|アカウントロック| ShowLock[ロック解除時間を表示]
-    ServerValidate -->|認証成功| StoreTokens[トークンをローカルストレージ/Cookieに保存]
-
-    StoreTokens --> UpdateAuthState[認証状態を更新]
-    UpdateAuthState --> CheckRedirect{redirectUrlパラメータ存在?}
-    CheckRedirect -->|あり| RedirectOriginal[元のページへリダイレクト]
-    CheckRedirect -->|なし| RedirectDashboard
+    Phase1 -.-> DB1[Prismaスキーマ拡張<br/>EdDSA鍵生成<br/>依存関係インストール]
+    Phase2 -.-> DB2[JWT認証<br/>招待制登録<br/>パスワード管理]
+    Phase3 -.-> DB3[RBAC実装<br/>権限チェック<br/>ロール管理]
+    Phase4 -.-> DB4[TOTP実装<br/>バックアップコード<br/>QRコード生成]
+    Phase5 -.-> DB5[監査ログ<br/>アーカイブ<br/>レポート]
 ```
 
-### ユーザー登録フロー（招待リンク → ダッシュボード）
-
-```mermaid
-graph TB
-    Start[招待URLにアクセス] --> ExtractToken[URLから招待トークンを抽出]
-    ExtractToken --> ValidateToken[招待トークン検証APIリクエスト]
-
-    ValidateToken --> TokenCheck{トークン有効性}
-    TokenCheck -->|無効/期限切れ| ShowTokenError[エラーメッセージ表示<br/>管理者への連絡手段を提示]
-    TokenCheck -->|有効| ShowForm[登録フォーム表示<br/>招待メールアドレス読み取り専用]
-
-    ShowForm --> InputData[表示名・パスワード入力]
-    InputData --> RealtimeValidation{リアルタイムバリデーション}
-    RealtimeValidation -->|パスワード入力中| ShowStrength[パスワード強度インジケーター<br/>要件チェックリスト更新]
-    RealtimeValidation -->|パスワード確認入力中| CheckMatch{パスワード一致確認}
-    CheckMatch -->|不一致| ShowMismatch[不一致エラー表示]
-    CheckMatch -->|一致| EnableSubmit[送信ボタン有効化]
-
-    EnableSubmit --> ClickSubmit[登録ボタンクリック]
-    ClickSubmit --> CheckTerms{利用規約同意確認}
-    CheckTerms -->|未同意| ShowTermsError[同意が必要です]
-    CheckTerms -->|同意済み| SendRegister[登録APIリクエスト送信]
-
-    SendRegister --> Loading[ローディングスピナー表示]
-    Loading --> ServerRegister{サーバー側処理}
-
-    ServerRegister -->|失敗| ShowError[エラーメッセージ表示]
-    ServerRegister -->|成功| StoreTokens[トークンをローカルストレージ/Cookieに保存]
-
-    StoreTokens --> ShowSuccess[成功メッセージ表示]
-    ShowSuccess --> AutoRedirect[3秒後に自動リダイレクト<br/>ダッシュボードへ]
-```
-
-### セッション有効期限切れフロー（自動トークンリフレッシュ）
-
-```mermaid
-graph TB
-    Start[保護されたリソースにアクセス] --> SendRequest[APIリクエスト送信<br/>アクセストークン付き]
-    SendRequest --> ServerCheck{サーバー側トークン検証}
-
-    ServerCheck -->|トークン有効| ReturnData[データ返却]
-    ServerCheck -->|トークン期限切れ| Return401[401 Unauthorized<br/>TOKEN_EXPIRED]
-
-    Return401 --> Intercept[レスポンスインターセプターが検知]
-    Intercept --> CheckRefresh{リフレッシュトークン存在?}
-
-    CheckRefresh -->|なし| RedirectLogin1[ログイン画面へリダイレクト<br/>セッション期限切れメッセージ]
-    CheckRefresh -->|あり| CheckOngoing{リフレッシュ処理実行中?}
-
-    CheckOngoing -->|実行中| QueueRequest[リクエストをキューに追加<br/>リフレッシュ完了を待機]
-    CheckOngoing -->|未実行| StartRefresh[リフレッシュAPIリクエスト送信]
-
-    StartRefresh --> RefreshCheck{リフレッシュ成功?}
-    RefreshCheck -->|失敗| ClearTokens[トークンをクリア]
-    ClearTokens --> RedirectLogin2[ログイン画面へリダイレクト<br/>redirectUrlパラメータ付き]
-
-    RefreshCheck -->|成功| UpdateTokens[新しいアクセストークン保存]
-    UpdateTokens --> RetryOriginal[元のリクエストを再実行]
-    RetryOriginal --> ProcessQueued[キューに保持されたリクエストも再実行]
-    ProcessQueued --> ReturnData
-
-    RedirectLogin2 --> LoginSuccess{ログイン成功}
-    LoginSuccess -->|成功| RedirectOriginal[redirectUrlで指定されたページへ<br/>自動リダイレクト]
-```
-
-### 管理者招待フロー（招待 → メール送信 → ステータス管理）
-
-```mermaid
-graph TB
-    Start[管理者が招待画面にアクセス] --> ShowPage[招待フォーム + 招待一覧テーブル表示]
-
-    ShowPage --> InputEmail[メールアドレス入力]
-    InputEmail --> ClickInvite[招待ボタンクリック]
-    ClickInvite --> ValidateEmail{メール形式検証}
-
-    ValidateEmail -->|無効| ShowEmailError[メール形式エラー表示]
-    ValidateEmail -->|有効| SendInvite[招待APIリクエスト送信]
-
-    SendInvite --> ServerInvite{サーバー側処理}
-    ServerInvite -->|既に登録済み| ShowDuplicateError[このメールアドレスは<br/>既に登録されています]
-    ServerInvite -->|成功| ShowSuccess[成功メッセージ<br/>招待URLコピーボタン表示]
-
-    ShowSuccess --> CopyUrl{URLコピーボタンクリック?}
-    CopyUrl -->|クリック| CopyToClipboard[クリップボードにコピー<br/>コピーしましたトースト表示]
-    CopyUrl -->|スキップ| UpdateTable[招待一覧テーブルを更新]
-
-    CopyToClipboard --> UpdateTable
-    UpdateTable --> ShowStatusBadge[ステータスバッジ表示<br/>未使用: 黄色<br/>使用済み: 緑色<br/>期限切れ: 赤色]
-
-    ShowStatusBadge --> ActionButtons{アクションボタン}
-    ActionButtons -->|取り消しクリック| ConfirmRevoke[確認ダイアログ表示]
-    ActionButtons -->|再送信クリック| ResendInvite[招待再送信APIリクエスト]
-
-    ConfirmRevoke --> RevokeCheck{確認}
-    RevokeCheck -->|キャンセル| UpdateTable
-    RevokeCheck -->|OK| RevokeInvite[招待取り消しAPIリクエスト]
-    RevokeInvite --> UpdateTable
-```
-
-## Design System Integration
-
-### カラーパレット
-
-**Primary（プライマリカラー）**:
-- **Primary-500**: `#1976D2` - メインアクション、ブランドカラー
-- **Primary-600**: `#1565C0` - ボタンホバー状態
-- **Primary-700**: `#0D47A1` - ボタンアクティブ状態
-- **使用箇所**: ログインボタン、登録ボタン、招待ボタン、リンク
-
-**Success（成功）**:
-- **Success-500**: `#2E7D32` - 成功メッセージ、チェックマーク
-- **Success-100**: `#C8E6C9` - 成功メッセージ背景
-- **使用箇所**: 招待ステータス「使用済み」、パスワード要件達成、成功トースト
-
-**Warning（警告）**:
-- **Warning-500**: `#F57C00` - 警告メッセージ、注意喚起
-- **Warning-100**: `#FFE0B2` - 警告メッセージ背景
-- **使用箇所**: 招待ステータス「未使用」、パスワード変更警告
-
-**Error（エラー）**:
-- **Error-500**: `#D32F2F` - エラーメッセージ、バリデーションエラー
-- **Error-100**: `#FFCDD2` - エラーメッセージ背景
-- **使用箇所**: バリデーションエラー、認証失敗、招待ステータス「期限切れ」
-
-**Neutral（ニュートラル）**:
-- **Neutral-900**: `#212121` - 見出しテキスト
-- **Neutral-700**: `#616161` - 本文テキスト
-- **Neutral-500**: `#9E9E9E` - プレースホルダー、無効状態
-- **Neutral-300**: `#E0E0E0` - 枠線、区切り線
-- **Neutral-100**: `#F5F5F5` - 背景、フォーム背景
-- **Neutral-50**: `#FAFAFA` - ページ背景
-
-### タイポグラフィ
-
-**フォントファミリー**:
-```css
-font-family: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont,
-             'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-```
-
-**フォントサイズとウェイト**:
-- **見出し（H1）**: 32px / Bold (700) - ページタイトル
-- **見出し（H2）**: 24px / Bold (700) - セクションタイトル
-- **見出し（H3）**: 18px / SemiBold (600) - サブセクション
-- **本文**: 16px / Regular (400) - 通常テキスト
-- **ラベル**: 14px / Medium (500) - フォームラベル
-- **補足**: 12px / Regular (400) - ヘルプテキスト、エラーメッセージ
-- **ボタン**: 14px / Medium (500) - ボタンテキスト
-
-### スペーシング・レイアウト
-
-**スペーシングスケール（8pxグリッド）**:
-- `xs`: 4px - 最小余白
-- `sm`: 8px - コンパクト余白
-- `md`: 16px - 標準余白（フォーム要素間）
-- `lg`: 24px - セクション間余白
-- `xl`: 32px - ページ余白
-- `2xl`: 48px - 大きなセクション区切り
-
-**フォーム要素**:
-- **入力フィールド高さ**: 48px（タッチフレンドリー）
-- **ボタン高さ**: 48px
-- **ボタン内部余白**: 12px vertical / 24px horizontal
-- **フィールド間余白**: 16px（md）
-- **セクション間余白**: 32px（xl）
-
-**コンテナ幅**:
-- **ログイン・登録フォーム**: 最大400px（中央寄せ）
-- **ダッシュボード**: 最大1200px
-- **モバイル**: 100%（左右16pxパディング）
-
-### ボーダー・シャドウ
-
-**ボーダー半径**:
-- `xs`: 4px - 小さいボタン、バッジ
-- `sm`: 8px - ボタン、入力フィールド
-- `md`: 12px - カード、モーダル
-
-**ボックスシャドウ**:
-- **軽い影**: `box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);` - カード
-- **中程度の影**: `box-shadow: 0 4px 6px rgba(0, 0, 0, 0.16);` - ホバー状態
-- **濃い影**: `box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);` - モーダル
-
-## Accessibility Requirements
-
-### WCAG 2.1 AA準拠
-
-**コントラスト比**:
-- 通常テキスト（16px以上）: **4.5:1以上**
-- 大きなテキスト（24px以上または18px Bold）: **3:1以上**
-- UIコンポーネント（ボタン、入力フィールド枠線）: **3:1以上**
-
-**検証済みコントラスト**:
-- `#212121`（Neutral-900）on `#FFFFFF`（White）: **16.1:1** ✅
-- `#1976D2`（Primary-500）on `#FFFFFF`（White）: **4.64:1** ✅
-- `#D32F2F`（Error-500）on `#FFFFFF`（White）: **5.14:1** ✅
-
-### キーボードナビゲーション
-
-**対応キー**:
-- **Tab**: 次のフォーカス可能要素へ移動
-- **Shift + Tab**: 前のフォーカス可能要素へ移動
-- **Enter**: ボタン・リンクの実行
-- **Space**: チェックボックス・ボタンの実行
-- **Escape**: モーダル・ドロップダウンを閉じる
-
-**フォーカスインジケーター**:
-```css
-:focus-visible {
-  outline: 2px solid #1976D2;
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-```
-
-**フォーカストラップ**:
-- モーダルダイアログ内でフォーカスを制限
-- 最後の要素からTabキーで最初の要素へループ
-
-### ARIA属性
-
-**フォーム要素**:
-```html
-<label for="email">メールアドレス</label>
-<input
-  id="email"
-  type="email"
-  aria-required="true"
-  aria-invalid="false"
-  aria-describedby="email-error"
-  autocomplete="email"
-/>
-<span id="email-error" role="alert" aria-live="polite">
-  メールアドレスの形式が正しくありません
-</span>
-```
-
-**ボタン**:
-```html
-<button
-  type="submit"
-  aria-label="ログイン"
-  aria-busy="false"
-  disabled={isLoading}
->
-  {isLoading ? 'ログイン中...' : 'ログイン'}
-</button>
-```
-
-**パスワード表示トグル**:
-```html
-<button
-  type="button"
-  aria-label={showPassword ? 'パスワードを非表示' : 'パスワードを表示'}
-  onClick={togglePassword}
->
-  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-</button>
-```
-
-**ローディングスピナー**:
-```html
-<div role="status" aria-live="polite" aria-label="読み込み中">
-  <LoadingSpinner />
-</div>
-```
-
-**トーストメッセージ**:
-```html
-<div
-  role="alert"
-  aria-live="polite"
-  aria-atomic="true"
->
-  招待を送信しました
-</div>
-```
-
-### スクリーンリーダー対応
-
-**見出し階層**:
-- `<h1>`: ページタイトル（1ページに1つ）
-- `<h2>`: メインセクション
-- `<h3>`: サブセクション
-- ランドマークロール: `<main>`, `<nav>`, `<aside>`, `<footer>`
-
-**フォームバリデーションエラー通知**:
-- エラー発生時に`aria-live="polite"`でスクリーンリーダーに通知
-- エラーメッセージは`aria-describedby`でフィールドと関連付け
-
-**画像・アイコンの代替テキスト**:
-- 装飾的アイコン: `aria-hidden="true"`
-- 機能的アイコン: `aria-label`で説明
-
-## Responsive Design Strategy
-
-### モバイルファースト設計
-
-**ブレークポイント**:
-```css
-/* モバイル（デフォルト） */
-@media (min-width: 320px) { /* ... */ }
-
-/* タブレット */
-@media (min-width: 768px) { /* ... */ }
-
-/* デスクトップ */
-@media (min-width: 1024px) { /* ... */ }
-
-/* 大画面デスクトップ */
-@media (min-width: 1280px) { /* ... */ }
-```
-
-### レイアウトパターン
-
-#### ログイン・登録画面（全画面幅で対応）
-
-**モバイル（< 768px）**:
-- 単一カラムレイアウト
-- フォームコンテナ: 100%幅（左右16pxパディング）
-- フィールド高さ: 48px（タッチフレンドリー）
-- フォントサイズ: 最低16px（iOSズーム防止）
-
-**タブレット・デスクトップ（≥ 768px）**:
-- 中央寄せレイアウト
-- フォームコンテナ: 最大400px幅
-- 背景にブランドイメージまたはグラデーション
-
-#### 招待管理画面（テーブル → カード変換）
-
-**モバイル（< 768px）**:
-- テーブルをカード形式に変換
-- 各招待を独立したカードとして表示
-- ステータスバッジを上部に配置
-- アクションボタンを下部に配置
-- 無限スクロール対応
-
-**タブレット・デスクトップ（≥ 768px）**:
-- テーブル形式で表示
-- ページネーション対応
-- ホバー時に行を強調表示
-
-### タッチフレンドリー設計
-
-**最小タップターゲットサイズ**: **48×48px**（Apple HIG、Material Design推奨）
-
-**適用箇所**:
-- ボタン: 48px高さ
-- 入力フィールド: 48px高さ
-- チェックボックス: 24×24px（親要素を48×48pxに拡張）
-- アイコンボタン: 48×48px（アイコン自体は24×24px）
-
-### パフォーマンス最適化
-
-**画像最適化**:
-- SVGアイコン使用（スケーラブル、軽量）
-- 必要に応じてWebP形式の画像を使用
-
-**フォント読み込み**:
-```css
-@font-face {
-  font-family: 'Inter';
-  src: url('/fonts/inter.woff2') format('woff2');
-  font-display: swap; /* FOUT防止 */
-}
-```
-
-**コード分割**:
-- ルートベースの遅延読み込み（React.lazy + Suspense）
-- 認証関連コンポーネントは初期バンドルに含める
-- 管理者専用コンポーネントは遅延読み込み
-
-## セキュリティ関連のUI/UX
-
-### パスワード入力のベストプラクティス
-
-**パスワードマスキング**:
-- デフォルトで非表示（type="password"）
-- 表示/非表示トグルボタン提供（目アイコン）
-- パスワードマネージャー対応（autocomplete属性）
-
-**パスワードペースト許可**:
-- パスワードフィールドでペーストを禁止しない（セキュリティ標準）
-- パスワードマネージャーの使用を推奨
-
-### 認証エラーの汎用化
-
-**セキュリティ理由**:
-- メールアドレスの存在有無を推測されないようにする
-- アカウント列挙攻撃を防ぐ
-
-**エラーメッセージ例**:
-- ❌ 「このメールアドレスは登録されていません」
-- ✅ 「メールアドレスまたはパスワードが正しくありません」
-
-### HTTPS強制
-
-**本番環境**:
-- 全ての通信をHTTPS経由で実行
-- Strict-Transport-Security（HSTS）ヘッダー設定
-- セキュアCookie（Secure属性、HttpOnly属性）
-
-### CSRFトークン
-
-**状態変更リクエスト**:
-- ログイン、登録、招待、パスワード変更等にCSRFトークンを含める
-- トークンは各セッションで一意に生成
-- ダブルサブミットCookieパターンまたはSynchronizer Tokenパターン
-
-## テスト戦略（フロントエンド）
-
-### 単体テスト（React Testing Library + Vitest）
-
-**対象コンポーネント**:
-1. **LoginForm**: ユーザー入力、バリデーション、ログイン処理
-2. **RegistrationForm**: パスワード強度チェック、リアルタイムバリデーション
-3. **InvitationManagement**: 招待作成、ステータス管理、URLコピー
-4. **ProfileManagement**: プロフィール編集、パスワード変更
-
-**テストケース例（LoginForm）**:
-```typescript
-describe('LoginForm', () => {
-  it('メールアドレスフィールドに自動フォーカスする', () => {
-    render(<LoginForm />);
-    expect(screen.getByLabelText('メールアドレス')).toHaveFocus();
-  });
-
-  it('無効なメールアドレス形式でエラーを表示する', async () => {
-    render(<LoginForm />);
-    const emailInput = screen.getByLabelText('メールアドレス');
-    await userEvent.type(emailInput, 'invalid-email');
-    await userEvent.tab();
-    expect(screen.getByText('メールアドレスの形式が正しくありません')).toBeInTheDocument();
-  });
-
-  it('パスワード表示トグルボタンが機能する', async () => {
-    render(<LoginForm />);
-    const passwordInput = screen.getByLabelText('パスワード');
-    const toggleButton = screen.getByLabelText('パスワードを表示');
-
-    expect(passwordInput).toHaveAttribute('type', 'password');
-    await userEvent.click(toggleButton);
-    expect(passwordInput).toHaveAttribute('type', 'text');
-  });
-});
-```
-
-### E2Eテスト（Playwright）
-
-**主要シナリオ**:
-1. **ログインフロー**: 正常系、エラー系、アカウントロック
-2. **ユーザー登録フロー**: 招待トークン検証、パスワード要件、登録成功
-3. **セッション有効期限切れ**: 自動トークンリフレッシュ、ログイン画面リダイレクト
-4. **管理者招待フロー**: 招待作成、URLコピー、ステータス管理
-
-**E2Eテスト例（ログインフロー）**:
-```typescript
-test('ログイン成功でダッシュボードへリダイレクト', async ({ page }) => {
-  await page.goto('/login');
-
-  // フォーム入力
-  await page.fill('input[name="email"]', 'user@example.com');
-  await page.fill('input[name="password"]', 'SecurePass123!');
-  await page.click('button[type="submit"]');
-
-  // ダッシュボードへリダイレクト確認
-  await expect(page).toHaveURL('/dashboard');
-  await expect(page.locator('h1')).toContainText('ダッシュボード');
-});
-
-test('無効な認証情報でエラーメッセージ表示', async ({ page }) => {
-  await page.goto('/login');
-
-  await page.fill('input[name="email"]', 'user@example.com');
-  await page.fill('input[name="password"]', 'wrongpassword');
-  await page.click('button[type="submit"]');
-
-  // エラーメッセージ確認
-  await expect(page.locator('[role="alert"]')).toContainText(
-    'メールアドレスまたはパスワードが正しくありません'
-  );
-});
-```
-
-### アクセシビリティテスト（axe-core）
-
-**テスト項目**:
-- WCAG 2.1 AA準拠チェック
-- コントラスト比検証
-- キーボードナビゲーション
-- ARIA属性の正確性
-
-**テストツール**:
-- `@axe-core/react`: 開発時の自動チェック
-- `axe-playwright`: E2Eテスト時のアクセシビリティ検証
-
-```typescript
-test('ログイン画面がアクセシビリティ基準を満たす', async ({ page }) => {
-  await page.goto('/login');
-
-  const results = await injectAxe(page);
-  expect(results.violations).toHaveLength(0);
-});
-```
+**Phase 1: 基盤整備（1-2日）**:
+- Prismaスキーマ拡張（User, Invitation, RefreshToken等）
+- EdDSA鍵ペア生成スクリプト実装
+- 新規依存関係インストール（jose, @node-rs/argon2, bloom-filters, otplib, qrcode等）
+- 環境変数設定
+
+**Phase 2: 認証機能（3-5日）**:
+- TokenService実装（EdDSA JWT生成・検証）
+- PasswordService実装（Argon2idハッシュ、Bloom Filter、zxcvbn）
+- AuthService実装（登録、ログイン、ログアウト）
+- InvitationService実装（招待作成、検証）
+- EmailService実装（nodemailer、Redis Bull）
+- authenticate middleware実装
+
+**Phase 3: 認可機能（3-4日）**:
+- RBACService実装（権限チェック、ロール管理）
+- authorize middleware実装
+- 事前定義ロール・権限のシーディング
+- Redis キャッシング戦略実装
+
+**Phase 4: 二要素認証（2-3日）**:
+- TwoFactorService実装（TOTP、バックアップコード、QRコード）
+- 2FA UI実装（設定画面、ログイン画面）
+- AES-256-GCM暗号化実装
+
+**Phase 5: 監査ログ（1-2日）**:
+- AuditLogService実装
+- 監査ログアーカイブバッチジョブ実装
+
+**ロールバック計画**:
+- **Prismaマイグレーション**: `npx prisma migrate resolve --rolled-back {migration_name}` でロールバック
+- **Railway環境**: 前バージョンへの切り戻し（Canary deployment 5%→25%→100%）
+- **緊急対応フロー**: アプリケーションレベルの機能フラグで新機能を無効化
+
+**検証チェックポイント**:
+- Phase 1完了: Prismaマイグレーション成功、EdDSA鍵生成成功
+- Phase 2完了: 単体テスト（AuthService、PasswordService）合格、E2Eテスト（ログイン）合格
+- Phase 3完了: 単体テスト（RBACService）合格、E2Eテスト（権限チェック）合格
+- Phase 4完了: 単体テスト（TwoFactorService）合格、E2Eテスト（2FAログイン）合格
+- Phase 5完了: 監査ログ記録確認、アーカイブバッチジョブ実行確認
