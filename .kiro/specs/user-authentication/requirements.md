@@ -486,6 +486,64 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 11. WHEN 機密情報（パスワード、トークン）をログに記録する THEN Authentication Serviceはマスキング処理を適用しなければならない
 12. WHEN APIレート制限を実装する THEN Authentication Serviceはユーザーごとに適切なレート制限を設定しなければならない
 
+### 要件27: 二要素認証（2FA）の実装
+
+**目的:** ユーザーとして、二要素認証（TOTP）を有効化することで、アカウントのセキュリティを強化したい。そうすることで、パスワード漏洩時でも不正アクセスを防止できるようになる。
+
+#### 受入基準
+
+**2FA設定機能**:
+1. WHEN ユーザーが2FAを有効化する THEN Authentication ServiceはRFC 6238準拠のTOTP秘密鍵を生成しなければならない
+2. WHEN TOTP秘密鍵を生成する THEN Authentication Serviceは32バイト（256ビット）の暗号学的に安全な乱数を使用しなければならない
+3. WHEN TOTP秘密鍵をデータベースに保存する THEN Authentication ServiceはAES-256-GCM暗号化を適用しなければならない
+4. WHEN 2FA設定画面を表示する THEN Frontend ServiceはQRコード（otpauth://totp/ArchiTrack:{email}?secret={secret}&issuer=ArchiTrack形式）を生成して表示しなければならない
+5. WHEN 2FA設定画面を表示する THEN Frontend Serviceは手動入力用のBase32エンコード済み秘密鍵を提供しなければならない
+6. WHEN ユーザーが2FAを有効化する THEN Authentication Serviceは10個のバックアップコード（8文字英数字）を生成しなければならない
+7. WHEN バックアップコードをデータベースに保存する THEN Authentication Serviceはbcrypt（cost=12）でハッシュ化しなければならない
+8. WHEN ユーザーが2FAを有効化する THEN Authentication Serviceはユーザーに対してバックアップコードを1回のみ表示しなければならない
+9. IF ユーザーがQRコード画面から次に進む THEN Authentication ServiceはTOTPコード検証を要求しなければならない
+10. WHEN ユーザーが6桁のTOTPコードを入力する THEN Authentication Serviceはコードを検証し、正しい場合のみ2FAを有効化しなければならない
+
+**2FAログイン機能**:
+11. WHEN 2FA有効ユーザーがログインする THEN Authentication Serviceはメールアドレス・パスワード検証後に2FA検証画面を表示しなければならない
+12. WHEN 2FA検証画面を表示する THEN Frontend Serviceは6桁のTOTPコード入力フィールドを提供しなければならない
+13. WHEN TOTPコード検証を実行する THEN Authentication Serviceは30秒ウィンドウ、±1ステップ許容（合計90秒）で検証しなければならない
+14. IF TOTPコード検証が5回連続で失敗する THEN Authentication Serviceはアカウントを一時的にロック（5分間）しなければならない
+15. WHEN ユーザーが「バックアップコードを使用する」を選択する THEN Frontend Serviceはバックアップコード入力フィールドを表示しなければならない
+16. WHEN バックアップコードを検証する THEN Authentication Serviceは未使用のバックアップコードとbcryptで比較し、一致する場合のみログインを許可しなければならない
+17. IF バックアップコードが使用される THEN Authentication Serviceはそのコードを使用済みとしてマーク（usedAtフィールド更新）しなければならない
+18. WHEN 2FA検証に成功する THEN Authentication ServiceはJWTアクセストークンとリフレッシュトークンを発行しなければならない
+
+**2FA管理機能**:
+19. WHEN ユーザーがプロフィール画面でバックアップコードを表示する THEN Frontend Serviceは使用済みコードをグレーアウト・取り消し線で表示しなければならない
+20. WHEN 残りバックアップコードが3個以下になる THEN Frontend Serviceは警告メッセージと再生成リンクを表示しなければならない
+21. WHEN ユーザーがバックアップコードを再生成する THEN Authentication Serviceは既存のバックアップコードを削除し、新しい10個のコードを生成しなければならない
+22. WHEN ユーザーが2FAを無効化する THEN Frontend Serviceはパスワード入力確認ダイアログを表示しなければならない
+23. WHEN 2FA無効化を実行する THEN Authentication Serviceはパスワード検証後、トランザクション内で秘密鍵とバックアップコードを削除しなければならない
+24. WHEN 2FA無効化が完了する THEN Authentication Serviceは全デバイスからユーザーをログアウトさせなければならない
+
+**セキュリティ要件**:
+25. WHEN TOTP設定を実装する THEN Authentication ServiceはSHA-1アルゴリズム（Google Authenticator互換性）を使用しなければならない
+26. WHEN QRコードを生成する THEN Frontend Serviceはqrcodeライブラリ（^1.5.3）を使用しなければならない
+27. WHEN TOTP検証を実装する THEN Authentication Serviceはotplibライブラリ（^12.0.1）を使用しなければならない
+28. WHEN 2FA関連の環境変数を設定する THEN Authentication ServiceはTWO_FACTOR_ENCRYPTION_KEY（256ビット、16進数形式）を要求しなければならない
+29. IF 暗号化鍵が設定されていない THEN Authentication Serviceは起動時にエラーをスローしなければならない
+30. WHEN 2FA有効化・無効化イベントが発生する THEN Authentication Serviceは監査ログに記録しなければならない
+
+**UI/UX要件**:
+31. WHEN 2FA設定画面を表示する THEN Frontend Serviceは3ステップのプログレスバーを表示しなければならない
+32. WHEN TOTPコード入力フィールドを表示する THEN Frontend Serviceは6桁の個別入力フィールドを提供し、自動タブ移動を実装しなければならない
+33. WHEN 2FA検証画面を表示する THEN Frontend Serviceは30秒カウントダウンタイマーと視覚的プログレスバーを表示しなければならない
+34. WHEN バックアップコードを表示する THEN Frontend Serviceはダウンロード（.txt形式）、印刷、クリップボードコピー機能を提供しなければならない
+35. WHEN バックアップコード保存確認チェックボックスがオフである THEN Frontend Serviceは「完了」ボタンを無効化しなければならない
+36. WHEN 2FA設定が完了する THEN Frontend Serviceはトーストメッセージ「二要素認証を有効化しました」を表示しなければならない
+
+**アクセシビリティ要件**:
+37. WHEN QRコードを表示する THEN Frontend Serviceはalt属性「二要素認証用QRコード」を設定しなければならない
+38. WHEN TOTPコード入力フィールドを表示する THEN Frontend Serviceはaria-label属性とrole="group"を設定しなければならない
+39. WHEN 使用済みバックアップコードを表示する THEN Frontend Serviceはaria-label="使用済み"を設定しなければならない
+40. WHEN 2FA検証エラーが発生する THEN Frontend Serviceはaria-live="polite"でスクリーンリーダーに通知しなければならない
+
 ## 依存仕様
 
 本仕様で定義された認証・認可機能は、以下の仕様の基盤として機能します：

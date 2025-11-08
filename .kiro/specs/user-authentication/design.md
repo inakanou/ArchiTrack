@@ -152,6 +152,10 @@ graph TB
 - **handlebars (^4.7.8)**: メールテンプレート（HTML/テキスト生成）
 - **@types/handlebars (^4.1.0)**: handlebars型定義
 - **dataloader (^2.2.3)**: バッチング + キャッシング（N+1問題対策）
+- **bloom-filters (^3.0.2)**: Bloom Filter（禁止パスワードリストの効率的な照合、偽陽性率0.001）
+- **otplib (^12.0.1)**: TOTP生成・検証（RFC 6238準拠、二要素認証用）
+- **qrcode (^1.5.3)**: QRコード生成（TOTP秘密鍵のモバイルアプリ登録用）
+- **@types/qrcode (^1.5.5)**: qrcode型定義
 
 **Frontend**:
 - **zxcvbn (^4.4.2)**: パスワード強度評価（科学的な強度スコア、辞書攻撃耐性）
@@ -1021,20 +1025,34 @@ type RBACError =
 async function getUserPermissions(userId: string): Promise<Permission[]> {
   const cacheKey = `user:${userId}:permissions`;
 
-  // 1. キャッシュ確認
-  const cached = await redis.get(cacheKey);
-  if (cached) {
-    logger.debug('Cache hit', { userId, cacheKey });
-    return JSON.parse(cached);
+  // 1. キャッシュ確認（Graceful Degradation）
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      logger.debug('Cache hit', { userId, cacheKey });
+      return JSON.parse(cached);
+    }
+  } catch (err) {
+    // Redisエラーをログに記録し、処理継続（フォールバック）
+    logger.warn('Redis cache read failed, falling back to DB', {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   // 2. DB から取得（N+1問題対策済み）
   const permissions = await fetchPermissionsFromDB(userId);
 
   // 3. キャッシュに保存（非同期、失敗しても処理継続）
-  redis.set(cacheKey, JSON.stringify(permissions), 'EX', 900).catch((err) => {
-    logger.warn('Failed to cache permissions', { userId, error: err });
-  });
+  try {
+    await redis.set(cacheKey, JSON.stringify(permissions), 'EX', 900);
+    logger.debug('Permissions cached successfully', { userId, cacheKey });
+  } catch (err) {
+    logger.warn('Redis cache write failed', {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   return permissions;
 }
@@ -1404,9 +1422,212 @@ type PasswordError =
   | { type: 'RESET_TOKEN_EXPIRED' };
 ```
 
-**パスワード強度要件**:
-- 最小文字数: 8文字
-- 英大文字、英小文字、数字、特殊文字のうち3種類以上を含む
+**パスワード強度要件（NIST SP 800-63B準拠）**:
+- **最小文字数**: 12文字以上（NIST推奨、従来の8文字から変更）
+- **複雑性要件**:
+  - 英大文字（A-Z）: 1文字以上
+  - 英小文字（a-z）: 1文字以上
+  - 数字（0-9）: 1文字以上
+  - 特殊文字（!@#$%^&*()_+-=[]{}|;:,.<>?）: 1文字以上
+- **辞書攻撃対策**: zxcvbnライブラリによる科学的なパスワード強度評価（スコア3以上必須、5段階評価）
+- **禁止パスワード**: よくあるパスワードリスト（SecLists top 10,000）との照合、一致した場合は登録拒否
+- **パスワード履歴**: 過去3回のパスワード再利用を禁止（bcrypt比較）
+- **ユーザー情報の使用禁止**: メールアドレス、表示名の一部をパスワードに含めることを禁止
+
+**実装詳細**:
+
+```typescript
+interface PasswordValidationResult {
+  isValid: boolean;
+  score: number; // 0-4 (zxcvbn)
+  feedback: {
+    suggestions: string[];
+    warning?: string;
+  };
+  violations: PasswordViolation[];
+}
+
+enum PasswordViolation {
+  TOO_SHORT = 'TOO_SHORT', // 12文字未満
+  NO_UPPERCASE = 'NO_UPPERCASE', // 英大文字なし
+  NO_LOWERCASE = 'NO_LOWERCASE', // 英小文字なし
+  NO_DIGIT = 'NO_DIGIT', // 数字なし
+  NO_SPECIAL_CHAR = 'NO_SPECIAL_CHAR', // 特殊文字なし
+  WEAK_SCORE = 'WEAK_SCORE', // zxcvbnスコア3未満
+  COMMON_PASSWORD = 'COMMON_PASSWORD', // よくあるパスワード
+  REUSED_PASSWORD = 'REUSED_PASSWORD', // 過去3回以内に使用
+  CONTAINS_USER_INFO = 'CONTAINS_USER_INFO', // ユーザー情報を含む
+}
+
+// zxcvbn統合（Frontend/Backend両方で使用）
+import zxcvbn from 'zxcvbn';
+
+async function validatePasswordStrength(
+  password: string,
+  userInputs: string[] // [email, displayName]
+): Promise<PasswordValidationResult> {
+  const violations: PasswordViolation[] = [];
+
+  // 1. 最小文字数チェック
+  if (password.length < 12) {
+    violations.push(PasswordViolation.TOO_SHORT);
+  }
+
+  // 2. 複雑性要件チェック
+  if (!/[A-Z]/.test(password)) {
+    violations.push(PasswordViolation.NO_UPPERCASE);
+  }
+  if (!/[a-z]/.test(password)) {
+    violations.push(PasswordViolation.NO_LOWERCASE);
+  }
+  if (!/[0-9]/.test(password)) {
+    violations.push(PasswordViolation.NO_DIGIT);
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) {
+    violations.push(PasswordViolation.NO_SPECIAL_CHAR);
+  }
+
+  // 3. zxcvbn強度スコア評価
+  const result = zxcvbn(password, userInputs);
+  if (result.score < 3) {
+    violations.push(PasswordViolation.WEAK_SCORE);
+  }
+
+  // 4. 禁止パスワードリスト照合（Backend）
+  const isCommonPassword = await checkCommonPasswordList(password.toLowerCase());
+  if (isCommonPassword) {
+    violations.push(PasswordViolation.COMMON_PASSWORD);
+  }
+
+  // 5. パスワード履歴チェック（Backend）
+  const isReused = await checkPasswordHistory(userId, password);
+  if (isReused) {
+    violations.push(PasswordViolation.REUSED_PASSWORD);
+  }
+
+  // 6. ユーザー情報含有チェック
+  const lowerPassword = password.toLowerCase();
+  const containsUserInfo = userInputs.some(input =>
+    input && lowerPassword.includes(input.toLowerCase())
+  );
+  if (containsUserInfo) {
+    violations.push(PasswordViolation.CONTAINS_USER_INFO);
+  }
+
+  return {
+    isValid: violations.length === 0,
+    score: result.score,
+    feedback: result.feedback,
+    violations,
+  };
+}
+```
+
+**禁止パスワードリストの管理**:
+
+```typescript
+// backend/src/data/common-passwords.ts
+// SecLists top 10,000パスワードをBloom Filterで効率的に照合
+import { BloomFilter } from 'bloom-filters';
+
+class CommonPasswordChecker {
+  private bloomFilter: BloomFilter;
+
+  constructor() {
+    // 10,000エントリ、偽陽性率0.001
+    this.bloomFilter = BloomFilter.create(10000, 0.001);
+
+    // 初期化時にパスワードリストをロード
+    this.loadCommonPasswords();
+  }
+
+  private async loadCommonPasswords() {
+    const passwords = await readCommonPasswordsFile(); // top-10000.txt
+    passwords.forEach(pwd => this.bloomFilter.add(pwd.toLowerCase()));
+  }
+
+  check(password: string): boolean {
+    return this.bloomFilter.has(password.toLowerCase());
+  }
+}
+```
+
+**パスワード履歴の管理**:
+
+```prisma
+// Prismaスキーマ拡張
+model PasswordHistory {
+  id        String   @id @default(uuid())
+  userId    String
+  hash      String   // bcryptハッシュ
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("password_histories")
+}
+
+model User {
+  // ... 既存フィールド
+  passwordHistories PasswordHistory[]
+}
+```
+
+```typescript
+// パスワード変更時、履歴を保存し、古い履歴を削除
+async function updatePasswordWithHistory(userId: string, newPassword: string) {
+  const newHash = await bcrypt.hash(newPassword, 12);
+
+  await prisma.$transaction(async (tx) => {
+    // 1. 新しいパスワード履歴を追加
+    await tx.passwordHistory.create({
+      data: {
+        userId,
+        hash: newHash,
+      },
+    });
+
+    // 2. 最新3件以外の履歴を削除
+    const histories = await tx.passwordHistory.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (histories.length > 3) {
+      const toDelete = histories.slice(3).map(h => h.id);
+      await tx.passwordHistory.deleteMany({
+        where: { id: { in: toDelete } },
+      });
+    }
+
+    // 3. ユーザーのパスワードハッシュを更新
+    await tx.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
+    });
+  });
+}
+
+// パスワード履歴チェック（過去3回以内に使用済みか）
+async function checkPasswordHistory(userId: string, password: string): Promise<boolean> {
+  const histories = await prisma.passwordHistory.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: 3,
+  });
+
+  for (const history of histories) {
+    const isMatch = await bcrypt.compare(password, history.hash);
+    if (isMatch) {
+      return true; // 再利用検出
+    }
+  }
+
+  return false;
+}
+```
 
 #### SessionService
 
@@ -1625,6 +1846,327 @@ class EmailServiceImpl implements EmailService {
 - SMTP接続失敗時: Redisキューでリトライ（エクスポネンシャルバックオフ）
 - レート制限超過時: キューに保持し、一定間隔で再試行
 - メール送信失敗: 監査ログに記録、管理者に通知
+
+#### TwoFactorService
+
+**責任と境界**:
+- **主要責任**: 二要素認証（TOTP）の生成・検証、バックアップコードの管理
+- **ドメイン境界**: 認証ドメイン
+- **データ所有権**: User（twoFactorEnabled, twoFactorSecret）、TwoFactorBackupCode
+- **トランザクション境界**: 2FA有効化・無効化はトランザクション内で実行
+
+**依存関係**:
+- **インバウンド**: AuthService, UserService
+- **アウトバウンド**: Prisma（User, TwoFactorBackupCode）
+- **外部**: otplib（TOTP生成・検証）、qrcode（QRコード生成）、crypto（秘密鍵暗号化）
+
+**外部依存関係調査（otplib）**:
+- **公式ドキュメント**: https://github.com/yeojz/otplib
+- **バージョン**: ^12.0.1
+- **主要機能**:
+  - TOTP生成・検証（RFC 6238準拠）
+  - 30秒ウィンドウ、SHA-1/SHA-256/SHA-512対応
+  - タイムステップ調整（±1ウィンドウ許容）
+  - Base32エンコード/デコード
+- **ベストプラクティス**:
+  - **アルゴリズム**: SHA-1（Google Authenticator互換性のため）
+  - **ウィンドウ**: ±1ステップ（30秒 × 3 = 90秒の許容範囲）
+  - **秘密鍵長**: 32バイト（256ビット）
+  - **バックアップコード**: 10個、8文字の英数字、bcrypt（cost=12）でハッシュ化
+  - **QRコード**: otpauth://totp/ArchiTrack:{email}?secret={secret}&issuer=ArchiTrack
+
+**契約定義**:
+
+```typescript
+interface TwoFactorService {
+  // 2FA有効化準備（秘密鍵生成・QRコード生成）
+  setupTwoFactor(userId: string): Promise<Result<TwoFactorSetupData, TwoFactorError>>;
+
+  // 2FA有効化（TOTPコード検証後）
+  enableTwoFactor(userId: string, totpCode: string): Promise<Result<TwoFactorEnabledData, TwoFactorError>>;
+
+  // 2FA無効化（パスワード確認後）
+  disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>>;
+
+  // TOTP検証
+  verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>>;
+
+  // バックアップコード検証・消費
+  verifyBackupCode(userId: string, backupCode: string): Promise<Result<boolean, TwoFactorError>>;
+
+  // バックアップコード再生成
+  regenerateBackupCodes(userId: string): Promise<Result<string[], TwoFactorError>>;
+}
+
+interface TwoFactorSetupData {
+  secret: string;        // Base32エンコード済みTOTP秘密鍵（ユーザー表示用）
+  qrCodeDataUrl: string; // QRコードのData URL（PNG形式）
+  backupCodes: string[]; // 10個のバックアップコード（平文、1回のみ表示）
+}
+
+interface TwoFactorEnabledData {
+  backupCodes: string[]; // 10個のバックアップコード（再表示）
+}
+
+type TwoFactorError =
+  | { type: 'USER_NOT_FOUND' }
+  | { type: 'TWO_FACTOR_ALREADY_ENABLED' }
+  | { type: 'TWO_FACTOR_NOT_ENABLED' }
+  | { type: 'INVALID_TOTP_CODE' }
+  | { type: 'INVALID_BACKUP_CODE' }
+  | { type: 'BACKUP_CODE_ALREADY_USED' }
+  | { type: 'INVALID_PASSWORD' }
+  | { type: 'ENCRYPTION_FAILED' }
+  | { type: 'DECRYPTION_FAILED' };
+```
+
+**実装例（TOTP生成・検証）**:
+
+```typescript
+import { authenticator } from 'otplib';
+import QRCode from 'qrcode';
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
+
+// TOTP設定
+authenticator.options = {
+  algorithm: 'sha1',     // Google Authenticator互換
+  digits: 6,             // 6桁コード
+  step: 30,              // 30秒ウィンドウ
+  window: 1,             // ±1ステップ許容（90秒）
+};
+
+class TwoFactorServiceImpl implements TwoFactorService {
+  // AES-256-GCM暗号化（TOTP秘密鍵）
+  private encryptSecret(secret: string): string {
+    const key = Buffer.from(process.env.TWO_FACTOR_ENCRYPTION_KEY!, 'hex'); // 32バイト（256ビット）
+    const iv = crypto.randomBytes(12); // GCM推奨IV長
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+
+    let encrypted = cipher.update(secret, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+
+    // iv + authTag + encrypted を結合
+    return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  }
+
+  // AES-256-GCM復号化
+  private decryptSecret(encryptedData: string): string {
+    const key = Buffer.from(process.env.TWO_FACTOR_ENCRYPTION_KEY!, 'hex');
+    const [ivHex, authTagHex, encryptedHex] = encryptedData.split(':');
+
+    const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  }
+
+  // バックアップコード生成（10個、8文字英数字）
+  private generateBackupCodes(): string[] {
+    const codes: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const code = crypto.randomBytes(4).toString('hex').toUpperCase(); // 8文字
+      codes.push(code);
+    }
+    return codes;
+  }
+
+  async setupTwoFactor(userId: string): Promise<Result<TwoFactorSetupData, TwoFactorError>> {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        return err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (user.twoFactorEnabled) {
+        return err({ type: 'TWO_FACTOR_ALREADY_ENABLED' });
+      }
+
+      // TOTP秘密鍵生成（32バイト = 256ビット）
+      const secret = authenticator.generateSecret(32);
+
+      // QRコード生成
+      const otpauth = authenticator.keyuri(user.email, 'ArchiTrack', secret);
+      const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
+
+      // バックアップコード生成
+      const backupCodes = this.generateBackupCodes();
+
+      // 秘密鍵を暗号化してDBに保存（仮保存、enableTwoFactor()で確定）
+      const encryptedSecret = this.encryptSecret(secret);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { twoFactorSecret: encryptedSecret },
+      });
+
+      // バックアップコードをハッシュ化して保存
+      const backupCodePromises = backupCodes.map(async (code) => {
+        const codeHash = await bcrypt.hash(code, 12);
+        return prisma.twoFactorBackupCode.create({
+          data: { userId, codeHash },
+        });
+      });
+      await Promise.all(backupCodePromises);
+
+      return ok({
+        secret, // Base32エンコード済み（平文、ユーザー表示用）
+        qrCodeDataUrl,
+        backupCodes, // 平文（1回のみ表示）
+      });
+    } catch (error) {
+      logger.error('Failed to setup two-factor authentication', error);
+      return err({ type: 'ENCRYPTION_FAILED' });
+    }
+  }
+
+  async enableTwoFactor(userId: string, totpCode: string): Promise<Result<TwoFactorEnabledData, TwoFactorError>> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { twoFactorBackupCodes: true },
+      });
+
+      if (!user) {
+        return err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (user.twoFactorEnabled) {
+        return err({ type: 'TWO_FACTOR_ALREADY_ENABLED' });
+      }
+
+      if (!user.twoFactorSecret) {
+        return err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      // TOTP検証
+      const secret = this.decryptSecret(user.twoFactorSecret);
+      const isValid = authenticator.verify({ token: totpCode, secret });
+
+      if (!isValid) {
+        return err({ type: 'INVALID_TOTP_CODE' });
+      }
+
+      // 2FA有効化
+      await prisma.user.update({
+        where: { id: userId },
+        data: { twoFactorEnabled: true },
+      });
+
+      // バックアップコードを平文で返却（最後の表示機会）
+      const backupCodes = user.twoFactorBackupCodes.map((bc) => bc.codeHash);
+
+      return ok({ backupCodes });
+    } catch (error) {
+      logger.error('Failed to enable two-factor authentication', error);
+      return err({ type: 'DECRYPTION_FAILED' });
+    }
+  }
+
+  async verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>> {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+        return err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      const secret = this.decryptSecret(user.twoFactorSecret);
+      const isValid = authenticator.verify({ token: totpCode, secret });
+
+      return ok(isValid);
+    } catch (error) {
+      logger.error('Failed to verify TOTP', error);
+      return err({ type: 'DECRYPTION_FAILED' });
+    }
+  }
+
+  async verifyBackupCode(userId: string, backupCode: string): Promise<Result<boolean, TwoFactorError>> {
+    try {
+      const backupCodes = await prisma.twoFactorBackupCode.findMany({
+        where: { userId, usedAt: null },
+      });
+
+      for (const bc of backupCodes) {
+        const isMatch = await bcrypt.compare(backupCode, bc.codeHash);
+        if (isMatch) {
+          // 使用済みマーク
+          await prisma.twoFactorBackupCode.update({
+            where: { id: bc.id },
+            data: { usedAt: new Date() },
+          });
+          return ok(true);
+        }
+      }
+
+      return err({ type: 'INVALID_BACKUP_CODE' });
+    } catch (error) {
+      logger.error('Failed to verify backup code', error);
+      return err({ type: 'INVALID_BACKUP_CODE' });
+    }
+  }
+
+  async disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>> {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if (!user) {
+        return err({ type: 'USER_NOT_FOUND' });
+      }
+
+      // パスワード検証
+      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+      if (!isValidPassword) {
+        return err({ type: 'INVALID_PASSWORD' });
+      }
+
+      // 2FA無効化（トランザクション）
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: userId },
+          data: {
+            twoFactorEnabled: false,
+            twoFactorSecret: null,
+          },
+        }),
+        prisma.twoFactorBackupCode.deleteMany({ where: { userId } }),
+      ]);
+
+      return ok(undefined);
+    } catch (error) {
+      logger.error('Failed to disable two-factor authentication', error);
+      return err({ type: 'DECRYPTION_FAILED' });
+    }
+  }
+}
+```
+
+**セキュリティ考慮事項**:
+- **秘密鍵暗号化**: AES-256-GCM（環境変数`TWO_FACTOR_ENCRYPTION_KEY`、256ビット鍵）
+- **バックアップコードハッシュ化**: bcrypt（cost=12）
+- **TOTP設定**: SHA-1（Google Authenticator互換）、6桁、30秒ウィンドウ、±1ステップ許容
+- **バックアップコード**: 10個、8文字英数字、1回限り使用
+- **無効化時のパスワード確認**: アカウント乗っ取り防止
+- **トランザクション**: 2FA無効化時に秘密鍵とバックアップコードを同時削除
+
+**テスト戦略**:
+- **単体テスト（50+テスト）**:
+  - TOTP生成・検証（正常系、タイムウィンドウ境界値）
+  - バックアップコード生成・検証・消費（重複使用防止）
+  - 秘密鍵暗号化・復号化（正常系、不正な暗号化データ）
+  - QRコード生成（otpauth URIフォーマット検証）
+  - エラーハンドリング（USER_NOT_FOUND, INVALID_TOTP_CODE等）
+- **統合テスト（10+テスト）**:
+  - 2FA有効化フロー（setupTwoFactor → enableTwoFactor）
+  - ログインフロー（TOTP検証、バックアップコード使用）
+  - 2FA無効化フロー（パスワード検証）
+- **E2Eテスト（5+テスト）**:
+  - 2FA設定画面（QRコード表示、バックアップコード保存）
+  - 2FAログイン（TOTPコード入力、バックアップコード使用）
 
 ### Backend / Middleware Layer
 
@@ -2291,6 +2833,8 @@ model User {
   passwordHash         String
   failedLoginAttempts  Int           @default(0)
   lockedUntil          DateTime?
+  twoFactorEnabled     Boolean       @default(false)
+  twoFactorSecret      String?       // TOTP秘密鍵（AES-256-GCM暗号化、base32エンコード）
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -2298,6 +2842,8 @@ model User {
   userRoles            UserRole[]
   invitationsSent      Invitation[]   @relation("InviterRelation")
   auditLogsAsActor     AuditLog[]
+  passwordHistories    PasswordHistory[]
+  twoFactorBackupCodes TwoFactorBackupCode[]
 
   @@index([email])
   @@index([createdAt])
@@ -2429,8 +2975,39 @@ model AuditLog {
   @@index([actorId])
   @@index([action])
   @@index([targetType])
+  @@index([targetId])
   @@index([createdAt])
+  @@index([targetType, targetId]) // 複合インデックス: 特定リソースの監査ログ検索高速化
   @@map("audit_logs")
+}
+
+// パスワード履歴モデル
+model PasswordHistory {
+  id        String   @id @default(uuid())
+  userId    String
+  hash      String   // bcryptハッシュ
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("password_histories")
+}
+
+// 二要素認証バックアップコードモデル
+model TwoFactorBackupCode {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String    // bcryptハッシュ（cost=12、8文字の英数字コード）
+  usedAt    DateTime? // 使用済み追跡（1回限り使用）
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([usedAt])
+  @@map("two_factor_backup_codes")
 }
 ```
 
@@ -2820,9 +3397,10 @@ res.cookie('refreshToken', refreshToken, {
 ### セキュリティ対策
 
 **JWT署名**:
-- アルゴリズム: HS256（HMAC SHA256）
-- シークレット: 256ビット以上（環境変数で管理）
+- アルゴリズム: EdDSA (Ed25519)
+- 鍵管理: 秘密鍵（環境変数JWT_PRIVATE_KEY）、公開鍵（環境変数JWT_PUBLIC_KEY、JWKSエンドポイント `/.well-known/jwks.json`）
 - トークンローテーション: リフレッシュ時に新しいトークン発行
+- セキュリティ: NIST FIPS 186-5推奨、RS256比で署名10倍・検証15倍高速、公開鍵暗号（マイクロサービス化対応）
 
 **bcryptハッシュ**:
 - コスト係数: 12（2025年推奨）
@@ -3287,6 +3865,317 @@ interface AuthContextValue extends AuthState {
 - `usePermission(permission: string)`: 権限チェック
 - `useProtectedRoute()`: 保護ルートのアクセス制御
 
+### トークンリフレッシュの自動化（レース条件対策・マルチタブ対応）
+
+**実装アプローチ**: バックグラウンド自動リフレッシュ + レース条件対策 + マルチタブ同期
+
+**TokenRefreshManager**:
+
+```typescript
+// frontend/src/utils/TokenRefreshManager.ts
+import { jwtDecode } from 'jwt-decode';
+
+interface JWTPayload {
+  userId: string;
+  email: string;
+  roles: string[];
+  exp: number;
+}
+
+class TokenRefreshManager {
+  private refreshPromise: Promise<string> | null = null;
+  private refreshTimer: NodeJS.Timeout | null = null;
+  private readonly REFRESH_BEFORE_EXPIRY = 5 * 60 * 1000; // 5分前
+
+  /**
+   * トークンの有効期限5分前に自動リフレッシュをスケジュール
+   */
+  scheduleAutoRefresh(accessToken: string): void {
+    this.clearAutoRefresh();
+
+    try {
+      const payload = jwtDecode<JWTPayload>(accessToken);
+      const expiresAt = payload.exp * 1000;
+      const refreshAt = expiresAt - this.REFRESH_BEFORE_EXPIRY;
+      const delay = refreshAt - Date.now();
+
+      if (delay > 0) {
+        this.refreshTimer = setTimeout(() => {
+          this.refreshAccessToken().catch((err) => {
+            console.error('Auto refresh failed:', err);
+          });
+        }, delay);
+
+        console.log(`[TokenRefreshManager] Auto refresh scheduled in ${Math.round(delay / 1000)}s`);
+      } else {
+        // 既に期限切れ間近、即座にリフレッシュ
+        this.refreshAccessToken().catch((err) => {
+          console.error('Immediate refresh failed:', err);
+        });
+      }
+    } catch (err) {
+      console.error('Failed to decode token:', err);
+    }
+  }
+
+  /**
+   * レース条件対策: 同時リフレッシュリクエストを1つにまとめる
+   */
+  async refreshAccessToken(): Promise<string> {
+    // 既にリフレッシュ中の場合、既存のPromiseを返す
+    if (this.refreshPromise) {
+      console.log('[TokenRefreshManager] Reusing existing refresh promise');
+      return this.refreshPromise;
+    }
+
+    console.log('[TokenRefreshManager] Starting token refresh');
+
+    this.refreshPromise = (async () => {
+      try {
+        const response = await fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          credentials: 'include', // HttpOnly Cookie送信
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            // リフレッシュトークンが無効、ログイン画面へリダイレクト
+            localStorage.removeItem('accessToken');
+            window.location.href = '/login?reason=session_expired';
+            throw new Error('Refresh token expired');
+          }
+          throw new Error(`Token refresh failed: ${response.status}`);
+        }
+
+        const { accessToken } = await response.json();
+        localStorage.setItem('accessToken', accessToken);
+
+        // 次回の自動リフレッシュをスケジュール
+        this.scheduleAutoRefresh(accessToken);
+
+        console.log('[TokenRefreshManager] Token refreshed successfully');
+        return accessToken;
+      } finally {
+        this.refreshPromise = null; // Promise解放
+      }
+    })();
+
+    return this.refreshPromise;
+  }
+
+  /**
+   * 401エラー時のリフレッシュ処理（Axios/Fetchインターセプター用）
+   */
+  async handleUnauthorized(): Promise<string> {
+    return this.refreshAccessToken();
+  }
+
+  /**
+   * 自動リフレッシュをキャンセル（ログアウト時）
+   */
+  clearAutoRefresh(): void {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+      console.log('[TokenRefreshManager] Auto refresh cleared');
+    }
+  }
+}
+
+export const tokenRefreshManager = new TokenRefreshManager();
+```
+
+**AuthContextでの統合**:
+
+```typescript
+// frontend/src/contexts/AuthContext.tsx
+import { tokenRefreshManager } from '../utils/TokenRefreshManager';
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    accessToken: null,
+    isAuthenticated: false,
+    isLoading: true,
+  });
+
+  // 初回ロード時、既存のトークンがあれば自動リフレッシュをスケジュール
+  useEffect(() => {
+    const accessToken = localStorage.getItem('accessToken');
+    if (accessToken) {
+      tokenRefreshManager.scheduleAutoRefresh(accessToken);
+      // ユーザー情報を取得
+      fetchCurrentUser(accessToken);
+    } else {
+      setState(prev => ({ ...prev, isLoading: false }));
+    }
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const response = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include', // リフレッシュトークンのCookie受信
+    });
+
+    if (!response.ok) {
+      throw new Error('Login failed');
+    }
+
+    const { accessToken, user } = await response.json();
+    localStorage.setItem('accessToken', accessToken);
+
+    setState({
+      user,
+      accessToken,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+
+    // 自動リフレッシュをスケジュール
+    tokenRefreshManager.scheduleAutoRefresh(accessToken);
+  };
+
+  const logout = async () => {
+    try {
+      await fetch('/api/v1/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } finally {
+      localStorage.removeItem('accessToken');
+      tokenRefreshManager.clearAutoRefresh();
+      setState({
+        user: null,
+        accessToken: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+    }
+  };
+
+  return (
+    <AuthContext.Provider value={{ ...state, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+```
+
+**Axiosインターセプター統合**:
+
+```typescript
+// frontend/src/api/client.ts
+import axios from 'axios';
+import { tokenRefreshManager } from '../utils/TokenRefreshManager';
+
+const apiClient = axios.create({
+  baseURL: '/api/v1',
+  withCredentials: true, // Cookie送信
+});
+
+// リクエストインターセプター: アクセストークンを自動付与
+apiClient.interceptors.request.use((config) => {
+  const accessToken = localStorage.getItem('accessToken');
+  if (accessToken) {
+    config.headers.Authorization = `Bearer ${accessToken}`;
+  }
+  return config;
+});
+
+// レスポンスインターセプター: 401エラー時に自動リフレッシュ
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    // 401エラー && リトライ未実施 && リフレッシュエンドポイント以外
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes('/auth/refresh')
+    ) {
+      originalRequest._retry = true;
+
+      try {
+        // トークンリフレッシュ（レース条件対策済み）
+        const newAccessToken = await tokenRefreshManager.handleUnauthorized();
+
+        // 元のリクエストを新しいトークンで再実行
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        // リフレッシュ失敗、ログイン画面へリダイレクト
+        window.location.href = '/login?reason=session_expired';
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+export default apiClient;
+```
+
+**マルチタブ同期（Broadcast Channel API）**:
+
+```typescript
+// frontend/src/utils/TokenSyncManager.ts
+class TokenSyncManager {
+  private channel: BroadcastChannel;
+
+  constructor() {
+    this.channel = new BroadcastChannel('auth_channel');
+
+    // 他のタブからのトークン更新を受信
+    this.channel.onmessage = (event) => {
+      if (event.data.type === 'TOKEN_REFRESHED') {
+        console.log('[TokenSyncManager] Token updated from another tab');
+        localStorage.setItem('accessToken', event.data.accessToken);
+        tokenRefreshManager.scheduleAutoRefresh(event.data.accessToken);
+      } else if (event.data.type === 'LOGOUT') {
+        console.log('[TokenSyncManager] Logout from another tab');
+        localStorage.removeItem('accessToken');
+        tokenRefreshManager.clearAutoRefresh();
+        window.location.href = '/login';
+      }
+    };
+  }
+
+  /**
+   * トークン更新を他のタブに通知
+   */
+  notifyTokenRefreshed(accessToken: string): void {
+    this.channel.postMessage({ type: 'TOKEN_REFRESHED', accessToken });
+  }
+
+  /**
+   * ログアウトを他のタブに通知
+   */
+  notifyLogout(): void {
+    this.channel.postMessage({ type: 'LOGOUT' });
+  }
+}
+
+export const tokenSyncManager = new TokenSyncManager();
+```
+
+**統合例（TokenRefreshManager内で使用）**:
+
+```typescript
+// TokenRefreshManager.refreshAccessToken()内に追加
+const { accessToken } = await response.json();
+localStorage.setItem('accessToken', accessToken);
+
+// 他のタブに通知
+tokenSyncManager.notifyTokenRefreshed(accessToken);
+
+// 次回の自動リフレッシュをスケジュール
+this.scheduleAutoRefresh(accessToken);
+```
+
 ### ルーティング設計
 
 **React Router v6**を使用したクライアントサイドルーティング：
@@ -3496,6 +4385,409 @@ interface ChangePasswordData {
 - **成功フィードバック**: 更新成功時にトーストメッセージ「プロフィールを更新しました」
 - **確認ダイアログ**: パスワード変更前に「全デバイスからログアウトされます。よろしいですか?」と確認
 - **自動リダイレクト**: パスワード変更成功後、3秒後にログイン画面へリダイレクト
+
+### TwoFactorSetupForm（二要素認証設定フォーム）
+
+**責任**: 二要素認証（TOTP）の初期設定とバックアップコードの表示
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Icon`, `Badge`, `Checkbox`
+- **Molecules**: `QRCodeDisplay`, `BackupCodeList`, `TOTPInputField`, `CopyButton`
+- **Organisms**: `TwoFactorSetupForm`, `SetupStepIndicator`
+
+**主要機能**:
+1. 3ステップのセットアッププロセス（QRコード表示 → TOTP検証 → バックアップコード保存）
+2. QRコード表示（Google Authenticator / Authy / 1Password等での読み取り）
+3. 手動入力用の秘密鍵表示（base32エンコード）
+4. TOTP検証フィールド（6桁コード入力）
+5. バックアップコード表示（10個、8文字英数字）
+6. バックアップコードのダウンロード・印刷機能
+7. セットアップ完了確認チェックボックス
+
+**インターフェース設計**:
+```typescript
+interface TwoFactorSetupFormProps {
+  onComplete: (totpCode: string) => Promise<void>;
+  onCancel: () => void;
+}
+
+interface TwoFactorSetupData {
+  secret: string;        // Base32エンコード済み秘密鍵
+  qrCodeDataUrl: string; // QRコードのData URL
+  backupCodes: string[]; // 10個のバックアップコード
+}
+
+enum SetupStep {
+  QR_CODE_DISPLAY = 1,
+  TOTP_VERIFICATION = 2,
+  BACKUP_CODES = 3,
+}
+```
+
+**ステップバイステップUI**:
+
+**Step 1: QRコード表示**:
+```
+┌─────────────────────────────────────────┐
+│ 二要素認証を設定                         │
+│                                         │
+│ ステップ 1/3: アプリでQRコードをスキャン │
+│                                         │
+│  ┌─────────┐                            │
+│  │         │                            │
+│  │ QRコード│                            │
+│  │         │                            │
+│  └─────────┘                            │
+│                                         │
+│ 手動で入力する場合:                      │
+│ JBSWY3DPEHPK3PXP                        │
+│ [コピー]                                │
+│                                         │
+│ 推奨アプリ:                              │
+│ • Google Authenticator                 │
+│ • Authy                                │
+│ • 1Password                            │
+│                                         │
+│ [キャンセル]         [次へ] →           │
+└─────────────────────────────────────────┘
+```
+
+**Step 2: TOTP検証**:
+```
+┌─────────────────────────────────────────┐
+│ 二要素認証を設定                         │
+│                                         │
+│ ステップ 2/3: 6桁のコードを入力          │
+│                                         │
+│ 認証アプリに表示されている6桁のコードを  │
+│ 入力してください。                       │
+│                                         │
+│  ┌───┬───┬───┬───┬───┬───┐            │
+│  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │            │
+│  └───┴───┴───┴───┴───┴───┘            │
+│                                         │
+│ ⚠️ コードは30秒ごとに変わります           │
+│                                         │
+│ [← 戻る]             [検証する] →       │
+└─────────────────────────────────────────┘
+```
+
+**Step 3: バックアップコード**:
+```
+┌─────────────────────────────────────────┐
+│ 二要素認証を設定                         │
+│                                         │
+│ ステップ 3/3: バックアップコードを保存    │
+│                                         │
+│ ⚠️ 重要: これらのコードを安全な場所に保存 │
+│   してください。認証アプリにアクセスでき  │
+│   ない場合に使用できます（各コード1回限り）│
+│                                         │
+│  1. A3F2B8D4   6. C9E1F7A2             │
+│  2. E5D3C1A9   7. B4D6E8F1             │
+│  3. F7A9B2C5   8. A1C3E5D7             │
+│  4. D1E3F5A7   9. F2A4C6E8             │
+│  5. C8A2B4D6  10. E3D5F7A9             │
+│                                         │
+│ [ダウンロード] [印刷] [コピー]           │
+│                                         │
+│ □ バックアップコードを保存しました       │
+│                                         │
+│ [← 戻る]             [完了] ✓           │
+└─────────────────────────────────────────┘
+```
+
+**UXベストプラクティス**:
+- **進捗表示**: 3ステップのプログレスバーまたはステップインジケーター
+- **自動フォーカス**: TOTP入力フィールドに自動フォーカス、数字のみ入力可能
+- **ワンタイムパスコード入力**: 6桁の個別入力フィールド、自動タブ移動
+- **コピー機能**: バックアップコード全体、または個別コードのクリップボードコピー
+- **印刷最適化**: バックアップコード印刷時のスタイルシート（@media print）
+- **確認チェックボックス**: バックアップコード保存確認後に「完了」ボタン有効化
+- **アクセシビリティ**: QRコードのalt属性、ARIA属性、キーボードナビゲーション
+
+**バリデーションルール**:
+- TOTPコード: 6桁の数字のみ、リアルタイム検証
+- バックアップコード保存確認: チェックボックス必須
+
+### TwoFactorVerificationForm（二要素認証検証フォーム）
+
+**責任**: ログイン時の二要素認証コード検証
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Icon`, `Link`
+- **Molecules**: `TOTPInputField`, `CountdownTimer`
+- **Organisms**: `TwoFactorVerificationForm`
+
+**主要機能**:
+1. 6桁のTOTPコード入力フィールド
+2. コード検証処理
+3. 「バックアップコードを使用する」リンク
+4. 30秒カウントダウンタイマー（視覚的フィードバック）
+5. 検証エラー時のフィードバック
+6. 「このデバイスを信頼する」チェックボックス（将来の拡張）
+
+**インターフェース設計**:
+```typescript
+interface TwoFactorVerificationFormProps {
+  email: string;  // ログイン中のユーザーのメールアドレス
+  onVerify: (code: string, trustDevice: boolean) => Promise<void>;
+  onUseBackupCode: () => void;
+}
+
+interface TwoFactorVerificationData {
+  totpCode: string;
+  trustDevice: boolean;
+}
+```
+
+**UI レイアウト**:
+```
+┌─────────────────────────────────────────┐
+│            ArchiTrack                   │
+│        アーキテクチャ決定記録             │
+├─────────────────────────────────────────┤
+│                                         │
+│      二要素認証                          │
+│                                         │
+│ user@example.com でログインしています    │
+│                                         │
+│ 認証アプリに表示されている6桁のコードを  │
+│ 入力してください。                       │
+│                                         │
+│  ┌───┬───┬───┬───┬───┬───┐            │
+│  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │            │
+│  └───┴───┴───┴───┴───┴───┘            │
+│                                         │
+│  ⏱️ コードは23秒後に変わります            │
+│  ████████████░░░░░░░░                   │
+│                                         │
+│  ┌────────────────┐                     │
+│  │    検証する    │                     │
+│  └────────────────┘                     │
+│                                         │
+│  認証アプリにアクセスできない場合         │
+│  バックアップコードを使用する →          │
+│                                         │
+│  [← ログインに戻る]                      │
+└─────────────────────────────────────────┘
+```
+
+**バックアップコード入力UI**:
+```
+┌─────────────────────────────────────────┐
+│            ArchiTrack                   │
+│        アーキテクチャ決定記録             │
+├─────────────────────────────────────────┤
+│                                         │
+│      バックアップコードを使用            │
+│                                         │
+│ user@example.com でログインしています    │
+│                                         │
+│ バックアップコードを入力してください。    │
+│ （コードは1回限り使用可能です）          │
+│                                         │
+│  ┌────────────────────────┐             │
+│  │ A3F2B8D4               │             │
+│  └────────────────────────┘             │
+│                                         │
+│  ┌────────────────┐                     │
+│  │    検証する    │                     │
+│  └────────────────┘                     │
+│                                         │
+│  認証コードに戻る ←                      │
+│                                         │
+│  [← ログインに戻る]                      │
+└─────────────────────────────────────────┘
+```
+
+**UXベストプラクティス**:
+- **自動フォーカス**: ページ読み込み時に最初の入力フィールドに自動フォーカス
+- **自動タブ移動**: 数字入力時に自動的に次のフィールドへ移動
+- **ペースト対応**: クリップボードから6桁コードをペースト可能
+- **カウントダウンタイマー**: 視覚的プログレスバーで残り時間を表示
+- **エラーフィードバック**: 無効なコード入力時に入力フィールドをクリアし、エラーメッセージ表示
+- **リトライ制限**: 5回失敗後に一時的にロック（5分間）
+- **アクセシビリティ**: aria-label、role="status"、キーボードナビゲーション
+
+**バリデーションルール**:
+- TOTPコード: 6桁の数字のみ
+- バックアップコード: 8文字の英数字（大文字）
+
+### BackupCodesDisplay（バックアップコード表示コンポーネント）
+
+**責任**: バックアップコードの視覚的表示とダウンロード・印刷機能
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Icon`, `Badge`
+- **Molecules**: `BackupCodeItem`, `ActionButtons`
+- **Organisms**: `BackupCodesDisplay`
+
+**主要機能**:
+1. 10個のバックアップコードをグリッド形式で表示
+2. 使用済みコードの視覚的識別（グレーアウト、取り消し線）
+3. 個別コードのクリップボードコピー
+4. 全コードのクリップボードコピー
+5. バックアップコードのダウンロード（.txt形式）
+6. バックアップコードの印刷
+7. 残りコード数の表示
+
+**インターフェース設計**:
+```typescript
+interface BackupCodesDisplayProps {
+  backupCodes: BackupCode[];
+  onDownload: () => void;
+  onPrint: () => void;
+  onCopy: (code: string) => void;
+}
+
+interface BackupCode {
+  code: string;
+  used: boolean;
+  usedAt?: Date;
+}
+```
+
+**UI レイアウト**:
+```
+┌─────────────────────────────────────────┐
+│ バックアップコード                       │
+│                                         │
+│ ⚠️ 重要: 安全な場所に保管してください      │
+│ 認証アプリにアクセスできない場合に使用    │
+│ できます（各コード1回限り）               │
+│                                         │
+│ 残り: 7/10                              │
+│                                         │
+│  1. A3F2B8D4 [📋]   6. C9E1F7A2 [📋]   │
+│  2. E5D3C1A9 [📋]   7. B4D6E8F1 [📋]   │
+│  3. F7A9B2C5 [📋]   8. A1C3E5D7 [📋]   │
+│  4. D1E3F5A7 [📋]   9. F2A4C6E8 [📋]   │
+│  5. C8A2B4D6 [📋]  10. E3D5F7A9 [📋]   │
+│     （使用済み）                         │
+│                                         │
+│ [すべてコピー] [ダウンロード] [印刷]     │
+│                                         │
+│ ⚠️ 残りコードが少なくなっています         │
+│    バックアップコードを再生成する →       │
+└─────────────────────────────────────────┘
+```
+
+**UXベストプラクティス**:
+- **使用済みコード**: グレーアウト、取り消し線、「使用済み」バッジ
+- **警告表示**: 残りコードが3個以下の場合に警告メッセージと再生成リンク
+- **ダウンロード形式**: プレーンテキスト（backup-codes-YYYYMMDD.txt）
+- **印刷スタイル**: @media printで印刷最適化（ヘッダー、フッター、QRコード非表示）
+- **コピーフィードバック**: コピー成功時にトーストメッセージ「コピーしました」
+- **アクセシビリティ**: 使用済みコードにaria-label="使用済み"を設定
+
+### TwoFactorManagement（二要素認証管理コンポーネント）
+
+**責任**: プロフィール画面での二要素認証の有効化・無効化管理
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Icon`, `Badge`, `Switch`
+- **Molecules**: `StatusBadge`, `ConfirmDialog`
+- **Organisms**: `TwoFactorManagement`
+
+**主要機能**:
+1. 2FA有効化ステータス表示（有効/無効バッジ）
+2. 2FA有効化ボタン（モーダル起動）
+3. 2FA無効化ボタン（パスワード確認ダイアログ）
+4. バックアップコード表示・再生成機能
+5. 最終有効化日時の表示
+
+**インターフェース設計**:
+```typescript
+interface TwoFactorManagementProps {
+  twoFactorEnabled: boolean;
+  enabledAt?: Date;
+  backupCodes?: BackupCode[];
+  onEnable: () => void;
+  onDisable: (password: string) => Promise<void>;
+  onRegenerateBackupCodes: () => Promise<string[]>;
+}
+```
+
+**UI レイアウト（2FA無効時）**:
+```
+┌─────────────────────────────────────────┐
+│ セキュリティ設定                         │
+├─────────────────────────────────────────┤
+│                                         │
+│ 二要素認証 🔒                            │
+│                                         │
+│ ステータス: 🔴 無効                      │
+│                                         │
+│ 二要素認証を有効にすると、ログイン時に   │
+│ メールアドレス・パスワードに加えて、     │
+│ 認証アプリのコードが必要になります。     │
+│                                         │
+│ ┌────────────────────┐                  │
+│ │  二要素認証を有効化 │                  │
+│ └────────────────────┘                  │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**UI レイアウト（2FA有効時）**:
+```
+┌─────────────────────────────────────────┐
+│ セキュリティ設定                         │
+├─────────────────────────────────────────┤
+│                                         │
+│ 二要素認証 🔒                            │
+│                                         │
+│ ステータス: 🟢 有効                      │
+│ 有効化日時: 2025-11-08 10:30            │
+│                                         │
+│ 二要素認証が有効です。ログイン時に認証   │
+│ アプリのコードが必要です。               │
+│                                         │
+│ バックアップコード（残り: 7/10）         │
+│ [バックアップコードを表示] ▼             │
+│                                         │
+│ ┌──────────────────┐ ┌──────────────┐  │
+│ │ バックアップコード│ │ 二要素認証を │  │
+│ │ を再生成         │ │ 無効化       │  │
+│ └──────────────────┘ └──────────────┘  │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**無効化確認ダイアログ**:
+```
+┌─────────────────────────────────────────┐
+│ 二要素認証を無効化                       │
+├─────────────────────────────────────────┤
+│                                         │
+│ ⚠️ 警告: 二要素認証を無効化すると、       │
+│ アカウントのセキュリティレベルが低下     │
+│ します。                                 │
+│                                         │
+│ 続行するには、パスワードを入力して       │
+│ ください。                               │
+│                                         │
+│  ┌────────────────────────┐             │
+│  │ パスワード          👁  │             │
+│  │ ••••••••••••           │             │
+│  └────────────────────────┘             │
+│                                         │
+│ [キャンセル]         [無効化する]        │
+└─────────────────────────────────────────┘
+```
+
+**UXベストプラクティス**:
+- **ステータスバッジ**: 視覚的に有効/無効を明確化（🟢有効 / 🔴無効）
+- **確認ダイアログ**: 無効化時に警告メッセージとパスワード確認
+- **再生成確認**: バックアップコード再生成時に「既存のコードは無効化されます」と警告
+- **成功フィードバック**: 有効化/無効化成功時にトーストメッセージ
+- **アクセシビリティ**: role="alert"、aria-live="polite"、キーボードナビゲーション
+
+**セキュリティ考慮事項**:
+- **パスワード確認**: 無効化時に必ずパスワード入力を要求
+- **セッション再認証**: 無効化後に全デバイスからログアウト
+- **監査ログ**: 2FA有効化・無効化イベントを記録
 
 ### 共通UIコンポーネント（Atoms/Molecules）
 
