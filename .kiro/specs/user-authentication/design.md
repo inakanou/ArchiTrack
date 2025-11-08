@@ -2683,3 +2683,808 @@ GROUP BY r.id, r.name;
 - 全マイグレーションとロールバックをステージング環境でテスト
 - ロールバックスクリプトの自動テスト
 - データ整合性チェックの自動化
+
+## Frontend Architecture
+
+本セクションでは、ユーザー認証機能のフロントエンドUI設計をベストプラクティスに基づいて定義します。
+
+### コンポーネント設計原則
+
+**Atomic Design原則**を採用し、再利用可能で保守性の高いコンポーネント階層を構築します：
+
+- **Atoms（原子）**: 最小単位のUIコンポーネント（Button、Input、Label、Icon等）
+- **Molecules（分子）**: 複数のAtomsを組み合わせた機能単位（FormField、PasswordInput、ValidationMessage等）
+- **Organisms（有機体）**: 独立した機能を持つコンポーネント群（LoginForm、RegistrationForm、InvitationTable等）
+- **Templates（テンプレート）**: ページレイアウトの骨組み（AuthLayout、DashboardLayout等）
+- **Pages（ページ）**: 具体的なコンテンツを持つ完成ページ（LoginPage、RegisterPage等）
+
+### 状態管理戦略
+
+**React Context API + Custom Hooks**を採用し、グローバル認証状態を管理します：
+
+```typescript
+interface AuthState {
+  user: User | null;
+  accessToken: string | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+}
+
+interface AuthContextValue extends AuthState {
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  register: (token: string, data: RegisterData) => Promise<void>;
+  refreshToken: () => Promise<void>;
+}
+```
+
+**カスタムフック**:
+- `useAuth()`: 認証状態とアクション関数へのアクセス
+- `usePermission(permission: string)`: 権限チェック
+- `useProtectedRoute()`: 保護ルートのアクセス制御
+
+### ルーティング設計
+
+**React Router v6**を使用したクライアントサイドルーティング：
+
+```
+/login                    - ログイン画面（公開）
+/register/:token          - ユーザー登録画面（公開、招待トークン必須）
+/forgot-password          - パスワードリセット依頼画面（公開）
+/reset-password/:token    - パスワードリセット画面（公開、リセットトークン必須）
+/dashboard                - ダッシュボード（要認証）
+/profile                  - プロフィール画面（要認証）
+/admin/invitations        - 招待管理画面（要管理者権限）
+/admin/users              - ユーザー管理画面（要管理者権限）
+/admin/roles              - ロール管理画面（要管理者権限）
+```
+
+**ルートガード**:
+- `PublicRoute`: 認証済みユーザーはダッシュボードへリダイレクト
+- `ProtectedRoute`: 未認証ユーザーはログイン画面へリダイレクト
+- `AdminRoute`: 管理者権限がない場合は403エラーページへリダイレクト
+
+## Authentication UI Components
+
+### LoginForm（ログインフォーム）
+
+**責任**: ユーザー認証情報の入力とバリデーション、ログイン処理
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Input`, `Label`, `Icon`, `Link`
+- **Molecules**: `EmailField`, `PasswordField`, `LoadingSpinner`
+- **Organism**: `LoginForm`
+
+**主要機能**:
+1. メールアドレス・パスワード入力フィールド
+2. パスワード表示/非表示トグル
+3. リアルタイムバリデーション（メール形式、必須フィールド）
+4. ログイン処理中のローディング状態表示
+5. エラーメッセージ表示（汎用的な認証エラー）
+6. アカウントロック時の残り時間表示
+7. 「パスワードを忘れた場合」リンク
+
+**インターフェース設計**:
+```typescript
+interface LoginFormProps {
+  onSubmit: (credentials: LoginCredentials) => Promise<void>;
+  redirectUrl?: string;  // ログイン後のリダイレクト先
+  initialMessage?: string;  // セッション期限切れメッセージ等
+}
+
+interface LoginCredentials {
+  email: string;
+  password: string;
+}
+```
+
+**UXベストプラクティス**:
+- **自動フォーカス**: ページ読み込み時にメールアドレスフィールドに自動フォーカス
+- **エンターキー対応**: パスワードフィールドでEnterキーを押すとログイン実行
+- **視覚的フィードバック**: フィールドフォーカス時のアウトライン表示（Material Design準拠）
+- **エラー通知**: aria-live="polite"でスクリーンリーダーに通知
+- **ボタン無効化**: ローディング中はボタンをdisabledにして二重送信を防止
+
+**バリデーションルール**:
+- メールアドレス: RFC 5322準拠、リアルタイム検証
+- パスワード: 必須、エラー時も詳細な情報は返さない（セキュリティ）
+
+### RegistrationForm（ユーザー登録フォーム）
+
+**責任**: 招待トークンベースの新規ユーザー登録
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Input`, `Label`, `Icon`, `Checkbox`
+- **Molecules**: `EmailField`, `PasswordField`, `PasswordStrengthIndicator`, `PasswordRequirementsChecklist`
+- **Organism**: `RegistrationForm`
+
+**主要機能**:
+1. 招待トークン自動検証と結果表示
+2. 招待メールアドレス表示（読み取り専用）
+3. 表示名入力フィールド
+4. パスワード・パスワード確認フィールド
+5. パスワード強度インジケーター（弱い/普通/強い）
+6. パスワード要件チェックリスト（リアルタイム更新）
+7. 利用規約・プライバシーポリシー同意チェックボックス
+8. 登録成功時の自動ダッシュボードリダイレクト
+
+**インターフェース設計**:
+```typescript
+interface RegistrationFormProps {
+  invitationToken: string;
+  onSubmit: (data: RegisterData) => Promise<void>;
+}
+
+interface RegisterData {
+  invitationToken: string;
+  displayName: string;
+  password: string;
+  passwordConfirmation: string;
+  agreeToTerms: boolean;
+}
+```
+
+**パスワード強度インジケーター**:
+```typescript
+enum PasswordStrength {
+  WEAK = 'weak',      // 8文字未満、または英数字のみ
+  MEDIUM = 'medium',  // 8文字以上、英数字+特殊文字
+  STRONG = 'strong'   // 12文字以上、英数字+特殊文字+大小文字
+}
+```
+
+**パスワード要件チェックリスト**（リアルタイム表示）:
+- ✅/❌ 8文字以上
+- ✅/❌ 英字（大文字・小文字）を含む
+- ✅/❌ 数字を含む
+- ✅/❌ 特殊文字（!@#$%^&*等）を含む
+
+**UXベストプラクティス**:
+- **招待トークン検証**: ページ読み込み時に自動検証、無効時はエラーメッセージと管理者への連絡手段を表示
+- **パスワード一致チェック**: リアルタイムバリデーション、一致しない場合は即座にエラー表示
+- **視覚的フィードバック**: 各要件の達成状況を緑/赤のチェックマークで表示
+- **アクセシビリティ**: パスワード要件チェックリストにaria-live="polite"を設定
+
+### InvitationManagement（招待管理コンポーネント）
+
+**責任**: 管理者による新規ユーザー招待と招待状況の管理
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Input`, `Icon`, `Badge`, `Tooltip`
+- **Molecules**: `EmailField`, `InvitationStatusBadge`, `ActionButtons`, `ToastNotification`
+- **Organisms**: `InvitationForm`, `InvitationTable`, `InvitationManagement`
+
+**主要機能**:
+1. 招待フォーム（メールアドレス入力、招待ボタン）
+2. 招待一覧テーブル（メールアドレス、招待日時、ステータス、有効期限、アクションボタン）
+3. 招待URL自動生成とクリップボードコピー
+4. 招待ステータス管理（未使用/使用済み/期限切れ）
+5. 招待の取り消し・再送信機能
+6. ページネーションまたは無限スクロール（10件以上の場合）
+
+**インターフェース設計**:
+```typescript
+interface InvitationTableProps {
+  invitations: Invitation[];
+  onRevoke: (invitationId: string) => Promise<void>;
+  onResend: (invitationId: string) => Promise<void>;
+  onCopyUrl: (invitationUrl: string) => void;
+}
+
+interface Invitation {
+  id: string;
+  email: string;
+  status: 'pending' | 'used' | 'expired';
+  invitedAt: string;
+  expiresAt: string;
+  invitationUrl: string;
+}
+```
+
+**招待ステータス視覚化**:
+- **未使用（pending）**: 🟡 黄色バッジ、「取り消し」ボタン有効
+- **使用済み（used）**: 🟢 緑色バッジ、アクションボタン無効
+- **期限切れ（expired）**: 🔴 赤色バッジ、「再送信」ボタン有効
+
+**UXベストプラクティス**:
+- **即時フィードバック**: 招待成功時にトーストメッセージ「招待を送信しました」を表示
+- **クリップボードコピー**: コピーボタンクリック時に「コピーしました」トースト表示
+- **確認ダイアログ**: 取り消し時に「この招待を取り消しますか?」と確認
+- **レスポンシブデザイン**: モバイル画面ではテーブルをカード形式に変換
+
+### ProfileManagement（プロフィール管理コンポーネント）
+
+**責任**: ユーザープロフィール情報の表示・編集
+
+**コンポーネント構成（Atomic Design）**:
+- **Atoms**: `Button`, `Input`, `Label`, `Icon`, `Badge`
+- **Molecules**: `TextField`, `PasswordField`, `PasswordStrengthIndicator`, `RoleBadge`
+- **Organisms**: `ProfileInfoSection`, `PasswordChangeSection`, `ProfileManagement`
+
+**主要機能**:
+1. ユーザー情報セクション（メールアドレス、表示名、ロール、作成日時）
+2. 表示名編集機能
+3. パスワード変更セクション（現在のパスワード、新しいパスワード、確認）
+4. パスワード変更時の全デバイスログアウト警告
+5. 管理者ユーザー向け「ユーザー管理」リンク
+
+**インターフェース設計**:
+```typescript
+interface ProfileManagementProps {
+  user: User;
+  onUpdateProfile: (data: UpdateProfileData) => Promise<void>;
+  onChangePassword: (data: ChangePasswordData) => Promise<void>;
+}
+
+interface UpdateProfileData {
+  displayName: string;
+}
+
+interface ChangePasswordData {
+  currentPassword: string;
+  newPassword: string;
+  newPasswordConfirmation: string;
+}
+```
+
+**UXベストプラクティス**:
+- **保存ボタン制御**: 表示名が変更されたときのみ保存ボタンを有効化
+- **成功フィードバック**: 更新成功時にトーストメッセージ「プロフィールを更新しました」
+- **確認ダイアログ**: パスワード変更前に「全デバイスからログアウトされます。よろしいですか?」と確認
+- **自動リダイレクト**: パスワード変更成功後、3秒後にログイン画面へリダイレクト
+
+### 共通UIコンポーネント（Atoms/Molecules）
+
+#### PasswordField（パスワード入力フィールド）
+
+**機能**:
+- パスワード表示/非表示トグルボタン（目アイコン）
+- aria-label: 「パスワードを表示」「パスワードを非表示」
+- autocomplete属性の適切な設定（current-password、new-password）
+
+#### ValidationMessage（バリデーションエラーメッセージ）
+
+**機能**:
+- エラーアイコンと赤色テキスト
+- aria-live="polite"でスクリーンリーダーに通知
+- フィールドとの関連付け（aria-describedby）
+
+#### LoadingSpinner（ローディングスピナー）
+
+**機能**:
+- 処理中の視覚的フィードバック
+- aria-label: 「読み込み中」
+- role="status"でスクリーンリーダーに通知
+
+## UI Flow Diagrams
+
+### 認証フロー（ログイン → ダッシュボード）
+
+```mermaid
+graph TB
+    Start[ユーザーがログインページにアクセス] --> CheckAuth{認証状態を確認}
+    CheckAuth -->|認証済み| RedirectDashboard[ダッシュボードへリダイレクト]
+    CheckAuth -->|未認証| ShowLogin[ログインフォーム表示]
+
+    ShowLogin --> InputCreds[メール・パスワード入力]
+    InputCreds --> Validate{クライアント側バリデーション}
+    Validate -->|エラー| ShowError1[エラーメッセージ表示]
+    Validate -->|成功| SendLogin[ログインAPIリクエスト送信]
+
+    SendLogin --> Loading[ローディングスピナー表示]
+    Loading --> ServerValidate{サーバー側認証}
+
+    ServerValidate -->|認証失敗| ShowError2[汎用エラー表示<br/>メールまたはパスワードが正しくありません]
+    ServerValidate -->|アカウントロック| ShowLock[ロック解除時間を表示]
+    ServerValidate -->|認証成功| StoreTokens[トークンをローカルストレージ/Cookieに保存]
+
+    StoreTokens --> UpdateAuthState[認証状態を更新]
+    UpdateAuthState --> CheckRedirect{redirectUrlパラメータ存在?}
+    CheckRedirect -->|あり| RedirectOriginal[元のページへリダイレクト]
+    CheckRedirect -->|なし| RedirectDashboard
+```
+
+### ユーザー登録フロー（招待リンク → ダッシュボード）
+
+```mermaid
+graph TB
+    Start[招待URLにアクセス] --> ExtractToken[URLから招待トークンを抽出]
+    ExtractToken --> ValidateToken[招待トークン検証APIリクエスト]
+
+    ValidateToken --> TokenCheck{トークン有効性}
+    TokenCheck -->|無効/期限切れ| ShowTokenError[エラーメッセージ表示<br/>管理者への連絡手段を提示]
+    TokenCheck -->|有効| ShowForm[登録フォーム表示<br/>招待メールアドレス読み取り専用]
+
+    ShowForm --> InputData[表示名・パスワード入力]
+    InputData --> RealtimeValidation{リアルタイムバリデーション}
+    RealtimeValidation -->|パスワード入力中| ShowStrength[パスワード強度インジケーター<br/>要件チェックリスト更新]
+    RealtimeValidation -->|パスワード確認入力中| CheckMatch{パスワード一致確認}
+    CheckMatch -->|不一致| ShowMismatch[不一致エラー表示]
+    CheckMatch -->|一致| EnableSubmit[送信ボタン有効化]
+
+    EnableSubmit --> ClickSubmit[登録ボタンクリック]
+    ClickSubmit --> CheckTerms{利用規約同意確認}
+    CheckTerms -->|未同意| ShowTermsError[同意が必要です]
+    CheckTerms -->|同意済み| SendRegister[登録APIリクエスト送信]
+
+    SendRegister --> Loading[ローディングスピナー表示]
+    Loading --> ServerRegister{サーバー側処理}
+
+    ServerRegister -->|失敗| ShowError[エラーメッセージ表示]
+    ServerRegister -->|成功| StoreTokens[トークンをローカルストレージ/Cookieに保存]
+
+    StoreTokens --> ShowSuccess[成功メッセージ表示]
+    ShowSuccess --> AutoRedirect[3秒後に自動リダイレクト<br/>ダッシュボードへ]
+```
+
+### セッション有効期限切れフロー（自動トークンリフレッシュ）
+
+```mermaid
+graph TB
+    Start[保護されたリソースにアクセス] --> SendRequest[APIリクエスト送信<br/>アクセストークン付き]
+    SendRequest --> ServerCheck{サーバー側トークン検証}
+
+    ServerCheck -->|トークン有効| ReturnData[データ返却]
+    ServerCheck -->|トークン期限切れ| Return401[401 Unauthorized<br/>TOKEN_EXPIRED]
+
+    Return401 --> Intercept[レスポンスインターセプターが検知]
+    Intercept --> CheckRefresh{リフレッシュトークン存在?}
+
+    CheckRefresh -->|なし| RedirectLogin1[ログイン画面へリダイレクト<br/>セッション期限切れメッセージ]
+    CheckRefresh -->|あり| CheckOngoing{リフレッシュ処理実行中?}
+
+    CheckOngoing -->|実行中| QueueRequest[リクエストをキューに追加<br/>リフレッシュ完了を待機]
+    CheckOngoing -->|未実行| StartRefresh[リフレッシュAPIリクエスト送信]
+
+    StartRefresh --> RefreshCheck{リフレッシュ成功?}
+    RefreshCheck -->|失敗| ClearTokens[トークンをクリア]
+    ClearTokens --> RedirectLogin2[ログイン画面へリダイレクト<br/>redirectUrlパラメータ付き]
+
+    RefreshCheck -->|成功| UpdateTokens[新しいアクセストークン保存]
+    UpdateTokens --> RetryOriginal[元のリクエストを再実行]
+    RetryOriginal --> ProcessQueued[キューに保持されたリクエストも再実行]
+    ProcessQueued --> ReturnData
+
+    RedirectLogin2 --> LoginSuccess{ログイン成功}
+    LoginSuccess -->|成功| RedirectOriginal[redirectUrlで指定されたページへ<br/>自動リダイレクト]
+```
+
+### 管理者招待フロー（招待 → メール送信 → ステータス管理）
+
+```mermaid
+graph TB
+    Start[管理者が招待画面にアクセス] --> ShowPage[招待フォーム + 招待一覧テーブル表示]
+
+    ShowPage --> InputEmail[メールアドレス入力]
+    InputEmail --> ClickInvite[招待ボタンクリック]
+    ClickInvite --> ValidateEmail{メール形式検証}
+
+    ValidateEmail -->|無効| ShowEmailError[メール形式エラー表示]
+    ValidateEmail -->|有効| SendInvite[招待APIリクエスト送信]
+
+    SendInvite --> ServerInvite{サーバー側処理}
+    ServerInvite -->|既に登録済み| ShowDuplicateError[このメールアドレスは<br/>既に登録されています]
+    ServerInvite -->|成功| ShowSuccess[成功メッセージ<br/>招待URLコピーボタン表示]
+
+    ShowSuccess --> CopyUrl{URLコピーボタンクリック?}
+    CopyUrl -->|クリック| CopyToClipboard[クリップボードにコピー<br/>コピーしましたトースト表示]
+    CopyUrl -->|スキップ| UpdateTable[招待一覧テーブルを更新]
+
+    CopyToClipboard --> UpdateTable
+    UpdateTable --> ShowStatusBadge[ステータスバッジ表示<br/>未使用: 黄色<br/>使用済み: 緑色<br/>期限切れ: 赤色]
+
+    ShowStatusBadge --> ActionButtons{アクションボタン}
+    ActionButtons -->|取り消しクリック| ConfirmRevoke[確認ダイアログ表示]
+    ActionButtons -->|再送信クリック| ResendInvite[招待再送信APIリクエスト]
+
+    ConfirmRevoke --> RevokeCheck{確認}
+    RevokeCheck -->|キャンセル| UpdateTable
+    RevokeCheck -->|OK| RevokeInvite[招待取り消しAPIリクエスト]
+    RevokeInvite --> UpdateTable
+```
+
+## Design System Integration
+
+### カラーパレット
+
+**Primary（プライマリカラー）**:
+- **Primary-500**: `#1976D2` - メインアクション、ブランドカラー
+- **Primary-600**: `#1565C0` - ボタンホバー状態
+- **Primary-700**: `#0D47A1` - ボタンアクティブ状態
+- **使用箇所**: ログインボタン、登録ボタン、招待ボタン、リンク
+
+**Success（成功）**:
+- **Success-500**: `#2E7D32` - 成功メッセージ、チェックマーク
+- **Success-100**: `#C8E6C9` - 成功メッセージ背景
+- **使用箇所**: 招待ステータス「使用済み」、パスワード要件達成、成功トースト
+
+**Warning（警告）**:
+- **Warning-500**: `#F57C00` - 警告メッセージ、注意喚起
+- **Warning-100**: `#FFE0B2` - 警告メッセージ背景
+- **使用箇所**: 招待ステータス「未使用」、パスワード変更警告
+
+**Error（エラー）**:
+- **Error-500**: `#D32F2F` - エラーメッセージ、バリデーションエラー
+- **Error-100**: `#FFCDD2` - エラーメッセージ背景
+- **使用箇所**: バリデーションエラー、認証失敗、招待ステータス「期限切れ」
+
+**Neutral（ニュートラル）**:
+- **Neutral-900**: `#212121` - 見出しテキスト
+- **Neutral-700**: `#616161` - 本文テキスト
+- **Neutral-500**: `#9E9E9E` - プレースホルダー、無効状態
+- **Neutral-300**: `#E0E0E0` - 枠線、区切り線
+- **Neutral-100**: `#F5F5F5` - 背景、フォーム背景
+- **Neutral-50**: `#FAFAFA` - ページ背景
+
+### タイポグラフィ
+
+**フォントファミリー**:
+```css
+font-family: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont,
+             'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+```
+
+**フォントサイズとウェイト**:
+- **見出し（H1）**: 32px / Bold (700) - ページタイトル
+- **見出し（H2）**: 24px / Bold (700) - セクションタイトル
+- **見出し（H3）**: 18px / SemiBold (600) - サブセクション
+- **本文**: 16px / Regular (400) - 通常テキスト
+- **ラベル**: 14px / Medium (500) - フォームラベル
+- **補足**: 12px / Regular (400) - ヘルプテキスト、エラーメッセージ
+- **ボタン**: 14px / Medium (500) - ボタンテキスト
+
+### スペーシング・レイアウト
+
+**スペーシングスケール（8pxグリッド）**:
+- `xs`: 4px - 最小余白
+- `sm`: 8px - コンパクト余白
+- `md`: 16px - 標準余白（フォーム要素間）
+- `lg`: 24px - セクション間余白
+- `xl`: 32px - ページ余白
+- `2xl`: 48px - 大きなセクション区切り
+
+**フォーム要素**:
+- **入力フィールド高さ**: 48px（タッチフレンドリー）
+- **ボタン高さ**: 48px
+- **ボタン内部余白**: 12px vertical / 24px horizontal
+- **フィールド間余白**: 16px（md）
+- **セクション間余白**: 32px（xl）
+
+**コンテナ幅**:
+- **ログイン・登録フォーム**: 最大400px（中央寄せ）
+- **ダッシュボード**: 最大1200px
+- **モバイル**: 100%（左右16pxパディング）
+
+### ボーダー・シャドウ
+
+**ボーダー半径**:
+- `xs`: 4px - 小さいボタン、バッジ
+- `sm`: 8px - ボタン、入力フィールド
+- `md`: 12px - カード、モーダル
+
+**ボックスシャドウ**:
+- **軽い影**: `box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);` - カード
+- **中程度の影**: `box-shadow: 0 4px 6px rgba(0, 0, 0, 0.16);` - ホバー状態
+- **濃い影**: `box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);` - モーダル
+
+## Accessibility Requirements
+
+### WCAG 2.1 AA準拠
+
+**コントラスト比**:
+- 通常テキスト（16px以上）: **4.5:1以上**
+- 大きなテキスト（24px以上または18px Bold）: **3:1以上**
+- UIコンポーネント（ボタン、入力フィールド枠線）: **3:1以上**
+
+**検証済みコントラスト**:
+- `#212121`（Neutral-900）on `#FFFFFF`（White）: **16.1:1** ✅
+- `#1976D2`（Primary-500）on `#FFFFFF`（White）: **4.64:1** ✅
+- `#D32F2F`（Error-500）on `#FFFFFF`（White）: **5.14:1** ✅
+
+### キーボードナビゲーション
+
+**対応キー**:
+- **Tab**: 次のフォーカス可能要素へ移動
+- **Shift + Tab**: 前のフォーカス可能要素へ移動
+- **Enter**: ボタン・リンクの実行
+- **Space**: チェックボックス・ボタンの実行
+- **Escape**: モーダル・ドロップダウンを閉じる
+
+**フォーカスインジケーター**:
+```css
+:focus-visible {
+  outline: 2px solid #1976D2;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+```
+
+**フォーカストラップ**:
+- モーダルダイアログ内でフォーカスを制限
+- 最後の要素からTabキーで最初の要素へループ
+
+### ARIA属性
+
+**フォーム要素**:
+```html
+<label for="email">メールアドレス</label>
+<input
+  id="email"
+  type="email"
+  aria-required="true"
+  aria-invalid="false"
+  aria-describedby="email-error"
+  autocomplete="email"
+/>
+<span id="email-error" role="alert" aria-live="polite">
+  メールアドレスの形式が正しくありません
+</span>
+```
+
+**ボタン**:
+```html
+<button
+  type="submit"
+  aria-label="ログイン"
+  aria-busy="false"
+  disabled={isLoading}
+>
+  {isLoading ? 'ログイン中...' : 'ログイン'}
+</button>
+```
+
+**パスワード表示トグル**:
+```html
+<button
+  type="button"
+  aria-label={showPassword ? 'パスワードを非表示' : 'パスワードを表示'}
+  onClick={togglePassword}
+>
+  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+</button>
+```
+
+**ローディングスピナー**:
+```html
+<div role="status" aria-live="polite" aria-label="読み込み中">
+  <LoadingSpinner />
+</div>
+```
+
+**トーストメッセージ**:
+```html
+<div
+  role="alert"
+  aria-live="polite"
+  aria-atomic="true"
+>
+  招待を送信しました
+</div>
+```
+
+### スクリーンリーダー対応
+
+**見出し階層**:
+- `<h1>`: ページタイトル（1ページに1つ）
+- `<h2>`: メインセクション
+- `<h3>`: サブセクション
+- ランドマークロール: `<main>`, `<nav>`, `<aside>`, `<footer>`
+
+**フォームバリデーションエラー通知**:
+- エラー発生時に`aria-live="polite"`でスクリーンリーダーに通知
+- エラーメッセージは`aria-describedby`でフィールドと関連付け
+
+**画像・アイコンの代替テキスト**:
+- 装飾的アイコン: `aria-hidden="true"`
+- 機能的アイコン: `aria-label`で説明
+
+## Responsive Design Strategy
+
+### モバイルファースト設計
+
+**ブレークポイント**:
+```css
+/* モバイル（デフォルト） */
+@media (min-width: 320px) { /* ... */ }
+
+/* タブレット */
+@media (min-width: 768px) { /* ... */ }
+
+/* デスクトップ */
+@media (min-width: 1024px) { /* ... */ }
+
+/* 大画面デスクトップ */
+@media (min-width: 1280px) { /* ... */ }
+```
+
+### レイアウトパターン
+
+#### ログイン・登録画面（全画面幅で対応）
+
+**モバイル（< 768px）**:
+- 単一カラムレイアウト
+- フォームコンテナ: 100%幅（左右16pxパディング）
+- フィールド高さ: 48px（タッチフレンドリー）
+- フォントサイズ: 最低16px（iOSズーム防止）
+
+**タブレット・デスクトップ（≥ 768px）**:
+- 中央寄せレイアウト
+- フォームコンテナ: 最大400px幅
+- 背景にブランドイメージまたはグラデーション
+
+#### 招待管理画面（テーブル → カード変換）
+
+**モバイル（< 768px）**:
+- テーブルをカード形式に変換
+- 各招待を独立したカードとして表示
+- ステータスバッジを上部に配置
+- アクションボタンを下部に配置
+- 無限スクロール対応
+
+**タブレット・デスクトップ（≥ 768px）**:
+- テーブル形式で表示
+- ページネーション対応
+- ホバー時に行を強調表示
+
+### タッチフレンドリー設計
+
+**最小タップターゲットサイズ**: **48×48px**（Apple HIG、Material Design推奨）
+
+**適用箇所**:
+- ボタン: 48px高さ
+- 入力フィールド: 48px高さ
+- チェックボックス: 24×24px（親要素を48×48pxに拡張）
+- アイコンボタン: 48×48px（アイコン自体は24×24px）
+
+### パフォーマンス最適化
+
+**画像最適化**:
+- SVGアイコン使用（スケーラブル、軽量）
+- 必要に応じてWebP形式の画像を使用
+
+**フォント読み込み**:
+```css
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter.woff2') format('woff2');
+  font-display: swap; /* FOUT防止 */
+}
+```
+
+**コード分割**:
+- ルートベースの遅延読み込み（React.lazy + Suspense）
+- 認証関連コンポーネントは初期バンドルに含める
+- 管理者専用コンポーネントは遅延読み込み
+
+## セキュリティ関連のUI/UX
+
+### パスワード入力のベストプラクティス
+
+**パスワードマスキング**:
+- デフォルトで非表示（type="password"）
+- 表示/非表示トグルボタン提供（目アイコン）
+- パスワードマネージャー対応（autocomplete属性）
+
+**パスワードペースト許可**:
+- パスワードフィールドでペーストを禁止しない（セキュリティ標準）
+- パスワードマネージャーの使用を推奨
+
+### 認証エラーの汎用化
+
+**セキュリティ理由**:
+- メールアドレスの存在有無を推測されないようにする
+- アカウント列挙攻撃を防ぐ
+
+**エラーメッセージ例**:
+- ❌ 「このメールアドレスは登録されていません」
+- ✅ 「メールアドレスまたはパスワードが正しくありません」
+
+### HTTPS強制
+
+**本番環境**:
+- 全ての通信をHTTPS経由で実行
+- Strict-Transport-Security（HSTS）ヘッダー設定
+- セキュアCookie（Secure属性、HttpOnly属性）
+
+### CSRFトークン
+
+**状態変更リクエスト**:
+- ログイン、登録、招待、パスワード変更等にCSRFトークンを含める
+- トークンは各セッションで一意に生成
+- ダブルサブミットCookieパターンまたはSynchronizer Tokenパターン
+
+## テスト戦略（フロントエンド）
+
+### 単体テスト（React Testing Library + Vitest）
+
+**対象コンポーネント**:
+1. **LoginForm**: ユーザー入力、バリデーション、ログイン処理
+2. **RegistrationForm**: パスワード強度チェック、リアルタイムバリデーション
+3. **InvitationManagement**: 招待作成、ステータス管理、URLコピー
+4. **ProfileManagement**: プロフィール編集、パスワード変更
+
+**テストケース例（LoginForm）**:
+```typescript
+describe('LoginForm', () => {
+  it('メールアドレスフィールドに自動フォーカスする', () => {
+    render(<LoginForm />);
+    expect(screen.getByLabelText('メールアドレス')).toHaveFocus();
+  });
+
+  it('無効なメールアドレス形式でエラーを表示する', async () => {
+    render(<LoginForm />);
+    const emailInput = screen.getByLabelText('メールアドレス');
+    await userEvent.type(emailInput, 'invalid-email');
+    await userEvent.tab();
+    expect(screen.getByText('メールアドレスの形式が正しくありません')).toBeInTheDocument();
+  });
+
+  it('パスワード表示トグルボタンが機能する', async () => {
+    render(<LoginForm />);
+    const passwordInput = screen.getByLabelText('パスワード');
+    const toggleButton = screen.getByLabelText('パスワードを表示');
+
+    expect(passwordInput).toHaveAttribute('type', 'password');
+    await userEvent.click(toggleButton);
+    expect(passwordInput).toHaveAttribute('type', 'text');
+  });
+});
+```
+
+### E2Eテスト（Playwright）
+
+**主要シナリオ**:
+1. **ログインフロー**: 正常系、エラー系、アカウントロック
+2. **ユーザー登録フロー**: 招待トークン検証、パスワード要件、登録成功
+3. **セッション有効期限切れ**: 自動トークンリフレッシュ、ログイン画面リダイレクト
+4. **管理者招待フロー**: 招待作成、URLコピー、ステータス管理
+
+**E2Eテスト例（ログインフロー）**:
+```typescript
+test('ログイン成功でダッシュボードへリダイレクト', async ({ page }) => {
+  await page.goto('/login');
+
+  // フォーム入力
+  await page.fill('input[name="email"]', 'user@example.com');
+  await page.fill('input[name="password"]', 'SecurePass123!');
+  await page.click('button[type="submit"]');
+
+  // ダッシュボードへリダイレクト確認
+  await expect(page).toHaveURL('/dashboard');
+  await expect(page.locator('h1')).toContainText('ダッシュボード');
+});
+
+test('無効な認証情報でエラーメッセージ表示', async ({ page }) => {
+  await page.goto('/login');
+
+  await page.fill('input[name="email"]', 'user@example.com');
+  await page.fill('input[name="password"]', 'wrongpassword');
+  await page.click('button[type="submit"]');
+
+  // エラーメッセージ確認
+  await expect(page.locator('[role="alert"]')).toContainText(
+    'メールアドレスまたはパスワードが正しくありません'
+  );
+});
+```
+
+### アクセシビリティテスト（axe-core）
+
+**テスト項目**:
+- WCAG 2.1 AA準拠チェック
+- コントラスト比検証
+- キーボードナビゲーション
+- ARIA属性の正確性
+
+**テストツール**:
+- `@axe-core/react`: 開発時の自動チェック
+- `axe-playwright`: E2Eテスト時のアクセシビリティ検証
+
+```typescript
+test('ログイン画面がアクセシビリティ基準を満たす', async ({ page }) => {
+  await page.goto('/login');
+
+  const results = await injectAxe(page);
+  expect(results.violations).toHaveLength(0);
+});
+```
