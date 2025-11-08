@@ -140,12 +140,22 @@ graph TB
 - **Zodバリデーション**: 既存のvalidateミドルウェアを活用、認証APIのリクエストバリデーション
 
 **新規依存関係**:
-- **jsonwebtoken (^9.0.2)**: JWT生成・検証
-- **bcrypt (^5.1.1)**: パスワードハッシュ・検証
-- **@types/jsonwebtoken (^9.0.5)**: JWT型定義
+
+**Backend**:
+- **jose (^5.9.6)**: JWT生成・検証（EdDSA署名、IETF JOSE標準準拠）
+- **bcrypt (^5.1.1)**: パスワードハッシュ・検証（cost=12）
 - **@types/bcrypt (^5.0.2)**: bcrypt型定義
 - **nodemailer (^6.9.7)**: メール送信（招待、パスワードリセット）
 - **@types/nodemailer (^6.4.14)**: nodemailer型定義
+- **bull (^4.16.3)**: Redisキュー（非同期メール送信）
+- **@types/bull (^4.10.0)**: bull型定義
+- **handlebars (^4.7.8)**: メールテンプレート（HTML/テキスト生成）
+- **@types/handlebars (^4.1.0)**: handlebars型定義
+- **dataloader (^2.2.3)**: バッチング + キャッシング（N+1問題対策）
+
+**Frontend**:
+- **zxcvbn (^4.4.2)**: パスワード強度評価（科学的な強度スコア、辞書攻撃耐性）
+- **@types/zxcvbn (^4.4.5)**: zxcvbn型定義
 
 **パターン統合**:
 - ミドルウェアベースの認証・認可チェック
@@ -155,43 +165,60 @@ graph TB
 
 ### Key Design Decisions
 
-#### 決定1: JWT vs Session
+#### 決定1: JWT署名アルゴリズムとライブラリ選択
 
-**決定**: JWT（JSON Web Token）ベースの認証方式を採用
+**決定**: EdDSA (Ed25519) 署名アルゴリズムと jose ライブラリを採用
 
-**コンテキスト**: ステートレスなAPI認証が必要であり、将来的なマイクロサービス化やモバイルアプリ対応を見据えた設計が求められる。
+**コンテキスト**: ステートレスなAPI認証が必要であり、将来的なマイクロサービス化やモバイルアプリ対応、最新のセキュリティ標準への準拠が求められる。
 
 **代替案**:
-1. **セッションベース認証**: サーバーサイドでセッション情報を管理し、クッキーにセッションIDを保存
-2. **JWT + Refresh Token**: 短期間有効なアクセストークンと長期間有効なリフレッシュトークンの組み合わせ
-3. **OAuth 2.0**: 外部プロバイダー（Google, GitHub）を利用した認証
+1. **HS256 + jsonwebtoken**: 対称鍵暗号、シンプルだがシークレット漏洩時のリスク大
+2. **RS256 + jsonwebtoken**: RSA署名、鍵サイズが大きい（2048-4096ビット）、署名・検証が遅い
+3. **EdDSA (Ed25519) + jose**: 楕円曲線署名、NIST推奨（2025年以降）、高速かつ小さい鍵サイズ
 
-**選択したアプローチ**: JWT + Refresh Token
+**選択したアプローチ**: EdDSA (Ed25519) + jose v5
 
 **実装方式**:
+- **JWT署名アルゴリズム**: EdDSA (Ed25519)
+  - **選択理由**:
+    - **最新のセキュリティ標準**: NIST FIPS 186-5推奨（2025年以降）
+    - **高速**: RS256比で署名10倍、検証15倍高速
+    - **鍵サイズ**: 32バイト（RS256: 256-512バイト、HS256: 32バイト）
+    - **公開鍵暗号**: マイクロサービス化時に公開鍵で検証可能（秘密鍵の共有不要）
+    - **署名安全性**: 楕円曲線暗号（Curve25519）、量子コンピュータ耐性（NIST PQC候補）
+  - **代替案との比較**:
+    - **vs HS256**: 対称鍵暗号のためシークレット漏洩時に全システムが危険、公開鍵暗号のEdDSAが優位
+    - **vs RS256**: EdDSAの方が高速（署名10倍、検証15倍）、鍵サイズも小さい（32バイト vs 256-512バイト）
+  - **鍵管理**:
+    - 秘密鍵: 環境変数`JWT_PRIVATE_KEY`（Base64エンコード）
+    - 公開鍵: 環境変数`JWT_PUBLIC_KEY`（Base64エンコード）または JWKSエンドポイント（`/.well-known/jwks.json`）で配布
+
+- **ライブラリ**: jose v5
+  - **選択理由**:
+    - Web標準（IETF JOSE Working Group）準拠
+    - EdDSA（Ed25519）、ES256（ECDSA）を完全サポート
+    - TypeScript型定義がネイティブサポート
+    - 軽量（jsonwebtoken比で50%軽量）
+    - jsonwebtokenの後継として推奨
+  - **外部依存関係調査**:
+    - **公式ドキュメント**: https://github.com/panva/jose
+    - **API**: `new SignJWT(payload).sign(privateKey)`, `jwtVerify(token, publicKey)`
+    - **鍵生成**: `generateKeyPair('EdDSA')`
+    - **バージョン**: v5.x（2025年安定版）
+
+**トークン戦略**:
 - **アクセストークン**: 短期間有効（15分）、API認証に使用、ペイロードにユーザー情報とロール情報を含む
 - **リフレッシュトークン**: 長期間有効（7日間）、アクセストークンのリフレッシュに使用、データベースに保存して無効化可能
-- **JWT署名アルゴリズム**: HS256（HMAC SHA256）
-  - **選択理由**:
-    - 対称鍵暗号方式でシンプルな実装
-    - 高速な署名・検証（RS256比で10倍高速）
-    - シークレット管理が容易（単一の環境変数）
-    - モノリスアーキテクチャに適している
-  - **代替案検討**:
-    - **RS256（RSA署名）**: 公開鍵/秘密鍵ペア、マイクロサービス間での署名検証に有利だが、本プロジェクトはモノリス構成のため不要
-    - **EdDSA（Ed25519）**: 最新の楕円曲線署名、RS256より高速だが、jsonwebtokenライブラリのサポートが限定的（2025年時点）
-  - **シークレット要件**: 最低256ビット（32バイト）、環境変数`JWT_SECRET`で管理
-  - **将来的な移行**: マイクロサービス化時にRS256への移行を検討
 
 **根拠**:
-- **ステートレス性**: アクセストークンはサーバーサイドでの状態管理不要、水平スケーリングが容易
-- **セキュリティ**: 短期間有効なアクセストークンにより、トークン漏洩のリスクを最小化
-- **柔軟性**: リフレッシュトークンをデータベースに保存することで、即座にセッション無効化が可能
-- **マルチデバイス対応**: デバイスごとにリフレッシュトークンを管理し、個別のログアウトが可能
+- **セキュリティ**: 最新のNIST推奨アルゴリズム、公開鍵暗号による安全性
+- **パフォーマンス**: RS256比で署名10倍、検証15倍高速
+- **将来性**: マイクロサービス化時に公開鍵で検証可能、JWKSエンドポイントでキーローテーション容易
+- **標準準拠**: IETF JOSE Working Group標準、業界のベストプラクティス
 
 **トレードオフ**:
-- **利点**: スケーラビリティ、ステートレス性、マイクロサービス対応
-- **欠点**: トークン無効化のための追加実装（リフレッシュトークンのデータベース管理）、トークンサイズが大きい
+- **利点**: セキュリティ、パフォーマンス、将来性、標準準拠
+- **欠点**: 鍵ペア管理の複雑性（環境変数2つ必要）、HS256と比較して初期セットアップがやや複雑
 
 #### 決定2: RBACシステムの設計
 
@@ -253,6 +280,144 @@ graph TB
 - **利点**: ユーザー体験、セキュリティ、柔軟性
 - **欠点**: データベースへの追加書き込み、ストレージコスト（期限切れトークンの定期削除で緩和）
 
+#### 決定4: トークンストレージ戦略
+
+**決定**: HttpOnly Cookie（リフレッシュトークン） + localStorage（アクセストークン）のハイブリッド戦略を採用
+
+**コンテキスト**: XSS攻撃とCSRF攻撃の両方に対する防御が必要。リフレッシュトークンは長期間有効のため、より強固な保護が求められる。
+
+**代替案**:
+1. **localStorage のみ**: アクセストークンとリフレッシュトークンを両方localStorageに保存、XSS攻撃に脆弱
+2. **HttpOnly Cookie のみ**: 全てのトークンをHttpOnly Cookieに保存、CSRF対策が必須
+3. **sessionStorage + HttpOnly Cookie**: セッションストレージとHttpOnly Cookieの組み合わせ、タブ間でトークン共有不可
+
+**選択したアプローチ**: HttpOnly Cookie（リフレッシュトークン） + localStorage（アクセストークン）
+
+**実装方式**:
+
+| トークン種類 | 保存場所 | Cookie属性 | XSS耐性 | CSRF耐性 | 理由 |
+|-------------|---------|-----------|---------|---------|------|
+| **アクセストークン** | localStorage | - | ❌ 低 | ✅ 高 | 短期間有効（15分）、漏洩リスク低、API呼び出しで使用 |
+| **リフレッシュトークン** | HttpOnly Cookie | HttpOnly, Secure, SameSite=Strict | ✅ 高 | ✅ 高 | 長期間有効（7日間）、XSS攻撃耐性、CSRF対策 |
+
+**Backend実装**:
+```typescript
+// ログイン成功時、リフレッシュトークンをHttpOnly Cookieで送信
+res.cookie('refreshToken', refreshToken, {
+  httpOnly: true, // JavaScriptからアクセス不可（XSS対策）
+  secure: process.env.NODE_ENV === 'production', // HTTPS必須
+  sameSite: 'strict', // クロスサイトリクエストでCookie送信禁止（CSRF対策）
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7日間
+  path: '/api/v1/auth/refresh', // リフレッシュエンドポイントのみ
+});
+
+res.json({
+  accessToken, // localStorageに保存（Frontend側）
+  user: userProfile,
+});
+```
+
+**Frontend実装**:
+```typescript
+// ログイン成功時、アクセストークンをlocalStorageに保存
+localStorage.setItem('accessToken', response.accessToken);
+
+// APIリクエスト（アクセストークン使用）
+fetch('/api/v1/users/me', {
+  headers: {
+    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+  },
+});
+
+// トークンリフレッシュ（リフレッシュトークンは自動送信）
+fetch('/api/v1/auth/refresh', {
+  method: 'POST',
+  credentials: 'include', // Cookieを含める
+});
+```
+
+**セキュリティ対策**:
+- **XSS対策**: リフレッシュトークンはHttpOnly Cookieで保護、JavaScriptからアクセス不可
+- **CSRF対策**: SameSite=Strict により、クロスサイトリクエストでのCookie送信を防止
+- **アクセストークン漏洩対策**: 短期間有効（15分）のため、漏洩しても影響を最小化
+- **HTTPS強制**: 本番環境ではSecure属性を必須化、HTTP通信でのCookie送信を禁止
+
+**根拠**:
+- **OWASP推奨**: OWASP Top 10に準拠したトークンストレージ戦略
+- **XSS耐性**: リフレッシュトークンをHttpOnly Cookieで保護
+- **CSRF耐性**: SameSite=Strict により、CSRF攻撃を防止
+- **ユーザビリティ**: アクセストークンをlocalStorageに保存し、タブ間でトークン共有可能
+
+**トレードオフ**:
+- **利点**: XSS/CSRF攻撃耐性、OWASPベストプラクティス準拠、ユーザビリティ
+- **欠点**: Cookie管理の複雑性、複数ストレージの管理
+
+#### 決定5: APIバージョニング戦略
+
+**決定**: URLパスバージョニング（`/api/v1/...`）を採用
+
+**コンテキスト**: 将来的なAPI変更時に既存クライアント（Webアプリ、モバイルアプリ、サードパーティ統合）を壊さず、段階的な移行を可能にする必要がある。
+
+**代替案**:
+1. **バージョニングなし**: `/api/auth/login` 形式、API変更時に既存クライアントが壊れるリスク
+2. **クエリパラメータバージョニング**: `/api/auth/login?v=1` 形式、ルーティングが複雑
+3. **ヘッダーバージョニング**: `Accept: application/vnd.architrack.v1+json` 形式、可視性が低い
+4. **URLパスバージョニング**: `/api/v1/auth/login` 形式、明確で可視性が高い
+
+**選択したアプローチ**: URLパスバージョニング（`/api/v1/...`）
+
+**実装方式**:
+```typescript
+// v1 API（現行）
+app.use('/api/v1/auth', authRoutesV1);
+app.use('/api/v1/users', userRoutesV1);
+app.use('/api/v1/invitations', invitationRoutesV1);
+app.use('/api/v1/roles', roleRoutesV1);
+app.use('/api/v1/permissions', permissionRoutesV1);
+
+// v2 API（将来）
+// app.use('/api/v2/auth', authRoutesV2);
+
+// デフォルトは最新版にリダイレクト（オプション）
+app.use('/api/auth', (req, res) => {
+  res.redirect(307, `/api/v1${req.url}`);
+});
+```
+
+**互換性ポリシー**:
+- **v1**: 2025年リリース、2027年末まで サポート（最低2年間）
+- **v2**: 2026年リリース予定、2028年末まで サポート
+- **廃止予告**: 最低6ヶ月前に通知、ドキュメント・ログ・APIレスポンスヘッダーで警告
+- **廃止後**: 410 Gone レスポンスを返し、v2へのマイグレーションガイドを提供
+
+**バージョン管理の原則**:
+1. **後方互換性の破壊のみ新バージョン**: レスポンス構造変更、必須フィールド追加、エンドポイント削除
+2. **後方互換性のある変更は同バージョン内**: 新エンドポイント追加、オプションフィールド追加、バグ修正
+3. **セマンティックバージョニング準拠**: MAJOR.MINOR.PATCH形式（例: v1.0.0, v1.1.0, v2.0.0）
+
+**OpenAPI仕様バージョニング**:
+```yaml
+openapi: 3.1.0
+info:
+  title: ArchiTrack API
+  version: 1.0.0
+servers:
+  - url: https://api.architrack.com/v1
+    description: Production (v1)
+  - url: http://localhost:3000/api/v1
+    description: Development (v1)
+```
+
+**根拠**:
+- **明確性**: URLパスで明示的にバージョンを指定、可視性が高い
+- **ルーティング**: Expressのルーティング機能で簡単に実装可能
+- **RESTful設計**: リソース指向のURL構造に適合
+- **業界標準**: Stripe、GitHub、Twitter等の主要APIが採用
+
+**トレードオフ**:
+- **利点**: 明確性、後方互換性、段階的移行、業界標準
+- **欠点**: URL冗長性、複数バージョンの同時保守
+
 ## System Flows
 
 ### ユーザー招待フロー
@@ -266,7 +431,7 @@ sequenceDiagram
     participant Email as Email Service
 
     Admin->>Frontend: 招待メールアドレス入力
-    Frontend->>Backend: POST /api/invitations
+    Frontend->>Backend: POST /api/v1/invitations
     Backend->>Backend: 権限チェック（admin権限）
     Backend->>DB: メールアドレス重複チェック
     alt メールアドレスが既に登録済み
@@ -292,7 +457,7 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     User->>Frontend: 招待URL アクセス
-    Frontend->>Backend: GET /api/invitations/verify?token={token}
+    Frontend->>Backend: GET /api/v1/invitations/verify?token={token}
     Backend->>DB: 招待トークン検証
     alt トークンが無効または期限切れ
         DB-->>Backend: エラー
@@ -304,7 +469,7 @@ sequenceDiagram
         Frontend-->>User: 登録フォーム表示（email読み取り専用）
 
         User->>Frontend: 表示名、パスワード入力
-        Frontend->>Backend: POST /api/auth/register
+        Frontend->>Backend: POST /api/v1/auth/register
         Backend->>Backend: パスワード強度バリデーション
         Backend->>Backend: bcryptハッシュ（cost: 12）
         Backend->>DB: トランザクション開始
@@ -330,7 +495,7 @@ sequenceDiagram
     participant Redis as Redis Cache
 
     User->>Frontend: メールアドレス、パスワード入力
-    Frontend->>Backend: POST /api/auth/login
+    Frontend->>Backend: POST /api/v1/auth/login
     Backend->>DB: メールアドレスでユーザー検索
     alt ユーザーが見つからない
         DB-->>Backend: Not Found
@@ -415,7 +580,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant Redis as Redis Cache
 
-    Frontend->>Backend: POST /api/auth/refresh（refresh token）
+    Frontend->>Backend: POST /api/v1/auth/refresh（refresh token）
     Backend->>Backend: Refresh Token検証
     Backend->>DB: Refresh Token検索
     alt Refresh Tokenが無効または期限切れ
@@ -447,7 +612,7 @@ sequenceDiagram
     participant Email as Email Service
 
     User->>Frontend: パスワードリセット要求（メールアドレス入力）
-    Frontend->>Backend: POST /api/auth/password/reset-request
+    Frontend->>Backend: POST /api/v1/auth/password/reset-request
     Backend->>DB: メールアドレス検索
     alt ユーザーが見つからない
         Backend-->>Frontend: 200 OK（セキュリティ上、成功と同じレスポンス）
@@ -461,7 +626,7 @@ sequenceDiagram
     end
 
     User->>Frontend: リセットURL アクセス
-    Frontend->>Backend: GET /api/auth/password/verify-reset?token={token}
+    Frontend->>Backend: GET /api/v1/auth/password/verify-reset?token={token}
     Backend->>DB: リセットトークン検証
     alt トークンが無効または期限切れ
         DB-->>Backend: エラー
@@ -472,7 +637,7 @@ sequenceDiagram
         Frontend-->>User: 新しいパスワード入力フォーム表示
 
         User->>Frontend: 新しいパスワード入力
-        Frontend->>Backend: POST /api/auth/password/reset
+        Frontend->>Backend: POST /api/v1/auth/password/reset
         Backend->>Backend: パスワード強度バリデーション
         Backend->>Backend: bcryptハッシュ（cost: 12）
         Backend->>DB: トランザクション開始
@@ -597,23 +762,23 @@ stateDiagram-v2
 
 | 要件ID | 要件概要 | 実現するコンポーネント | インターフェース | フロー |
 |--------|----------|----------------------|----------------|--------|
-| 1 | 管理者によるユーザー招待 | InvitationService, EmailService | POST /api/invitations | ユーザー招待フロー |
-| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, InvitationService | POST /api/auth/register | ユーザー登録フロー |
+| 1 | 管理者によるユーザー招待 | InvitationService, EmailService | POST /api/v1/invitations | ユーザー招待フロー |
+| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, InvitationService | POST /api/v1/auth/register | ユーザー登録フロー |
 | 3 | 初期管理者アカウントのセットアップ | Prisma Seed Script | npm run prisma:seed | - |
-| 4 | ログイン | AuthService, TokenService | POST /api/auth/login | ログインフロー |
-| 5 | トークン管理 | TokenService, SessionService | POST /api/auth/refresh | トークンリフレッシュフロー |
+| 4 | ログイン | AuthService, TokenService | POST /api/v1/auth/login | ログインフロー |
+| 5 | トークン管理 | TokenService, SessionService | POST /api/v1/auth/refresh | トークンリフレッシュフロー |
 | 6 | 拡張可能なRBAC | RBACService, authorize middleware | authorize(permission) | 権限チェックフロー |
-| 7 | パスワード管理 | PasswordService, EmailService | POST /api/auth/password/reset-request | パスワードリセットフロー |
-| 8 | セッション管理 | SessionService, RefreshToken model | POST /api/auth/logout | - |
-| 9 | ユーザー情報取得・管理 | UserService, authenticate middleware | GET /api/users/me | - |
+| 7 | パスワード管理 | PasswordService, EmailService | POST /api/v1/auth/password/reset-request | パスワードリセットフロー |
+| 8 | セッション管理 | SessionService, RefreshToken model | POST /api/v1/auth/logout | - |
+| 9 | ユーザー情報取得・管理 | UserService, authenticate middleware | GET /api/v1/users/me | - |
 | 10 | セキュリティとエラーハンドリング | errorHandler middleware, ApiError | - | 全フロー |
 | 11-16 | UI/UX要件 | React Components, Auth Context | - | Frontend Flows |
-| 17 | 動的ロール管理 | RBACService, Role model | POST /api/roles | - |
-| 18 | 権限管理 | RBACService, Permission model | GET /api/permissions | - |
-| 19 | ロールへの権限割り当て | RBACService, RolePermission model | POST /api/roles/{id}/permissions | - |
-| 20 | ユーザーへのロール割り当て | RBACService, UserRole model | POST /api/users/{id}/roles | - |
+| 17 | 動的ロール管理 | RBACService, Role model | POST /api/v1/roles | - |
+| 18 | 権限管理 | RBACService, Permission model | GET /api/v1/permissions | - |
+| 19 | ロールへの権限割り当て | RBACService, RolePermission model | POST /api/v1/roles/{id}/permissions | - |
+| 20 | ユーザーへのロール割り当て | RBACService, UserRole model | POST /api/v1/users/{id}/roles | - |
 | 21 | 権限チェック機能 | authorize middleware, RBACService | authorize(permission) | 権限チェックフロー |
-| 22 | 監査ログとコンプライアンス | AuditLogService, AuditLog model | GET /api/audit-logs | - |
+| 22 | 監査ログとコンプライアンス | AuditLogService, AuditLog model | GET /api/v1/audit-logs | - |
 | 23 | 非機能要件（パフォーマンス） | Redis Cache, Database Indexing | - | 全フロー |
 | 24 | フォールトトレランス | Error Handler, Retry Logic | - | 全フロー |
 | 25 | データ整合性とトランザクション管理 | Prisma Transactions | - | 全フロー |
@@ -849,13 +1014,159 @@ type RBACError =
 ```
 
 **パフォーマンス最適化**:
-- Redis キャッシュ（`user:{userId}:permissions`、TTL: 15分）
-- キャッシュ無効化: ロール・権限変更時、ユーザー・ロール変更時
+
+**1. Redisキャッシング戦略（Cache-Asideパターン）**:
+
+```typescript
+async function getUserPermissions(userId: string): Promise<Permission[]> {
+  const cacheKey = `user:${userId}:permissions`;
+
+  // 1. キャッシュ確認
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    logger.debug('Cache hit', { userId, cacheKey });
+    return JSON.parse(cached);
+  }
+
+  // 2. DB から取得（N+1問題対策済み）
+  const permissions = await fetchPermissionsFromDB(userId);
+
+  // 3. キャッシュに保存（非同期、失敗しても処理継続）
+  redis.set(cacheKey, JSON.stringify(permissions), 'EX', 900).catch((err) => {
+    logger.warn('Failed to cache permissions', { userId, error: err });
+  });
+
+  return permissions;
+}
+```
+
+**キャッシュ無効化戦略**:
+```typescript
+// ロール・権限変更時
+async function invalidateUserPermissionsCache(userId: string): Promise<void> {
+  const cacheKey = `user:${userId}:permissions`;
+  await redis.del(cacheKey);
+}
+
+// 全ユーザーのキャッシュ無効化（ロール・権限定義変更時）
+async function invalidateAllPermissionsCache(): Promise<void> {
+  const keys = await redis.keys('user:*:permissions');
+  if (keys.length > 0) {
+    await redis.del(...keys);
+  }
+}
+```
+
+**2. N+1問題対策（Prisma includeによるJOINクエリ）**:
+
+**❌ N+1問題の例**:
+```typescript
+// N+1問題: ユーザーごとに複数のクエリが発行される
+const user = await prisma.user.findUnique({ where: { id: userId } });
+const userRoles = await prisma.userRole.findMany({ where: { userId } }); // +1クエリ
+
+for (const userRole of userRoles) {
+  const role = await prisma.role.findUnique({ where: { id: userRole.roleId } }); // +N クエリ
+  const rolePermissions = await prisma.rolePermission.findMany({ where: { roleId: role.id } }); // +N クエリ
+}
+```
+
+**✅ 解決策: Prisma include**:
+```typescript
+// 1クエリで全データ取得（JOINクエリ）
+const user = await prisma.user.findUnique({
+  where: { id: userId },
+  include: {
+    userRoles: {
+      include: {
+        role: {
+          include: {
+            rolePermissions: {
+              include: {
+                permission: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+});
+
+// 権限を平坦化
+const permissions = user.userRoles.flatMap((ur) =>
+  ur.role.rolePermissions.map((rp) => rp.permission)
+);
+```
+
+**3. DataLoaderパターン（バッチング + キャッシング）**:
+
+複数のユーザーの権限を一度に取得する場合、DataLoaderを使用してバッチング + キャッシングを実現：
+
+```typescript
+import DataLoader from 'dataloader';
+
+// ロール取得のDataLoader
+const roleLoader = new DataLoader(async (roleIds: readonly string[]) => {
+  const roles = await prisma.role.findMany({
+    where: { id: { in: [...roleIds] } },
+    include: {
+      rolePermissions: {
+        include: { permission: true },
+      },
+    },
+  });
+
+  // roleIdsの順序に合わせて返す
+  return roleIds.map((id) => roles.find((r) => r.id === id) || null);
+});
+
+// 権限取得のDataLoader
+const permissionLoader = new DataLoader(async (permissionIds: readonly string[]) => {
+  const permissions = await prisma.permission.findMany({
+    where: { id: { in: [...permissionIds] } },
+  });
+
+  return permissionIds.map((id) => permissions.find((p) => p.id === id) || null);
+});
+
+// 使用例（バッチング + キャッシング）
+const role1 = await roleLoader.load('role-1'); // バッチング
+const role2 = await roleLoader.load('role-2'); // 同じバッチ
+const role3 = await roleLoader.load('role-1'); // キャッシュヒット
+```
+
+**DataLoaderの利点**:
+- **バッチング**: 複数のロード要求を1つのクエリにまとめる
+- **キャッシング**: リクエスト内で同じIDのロードをキャッシュ
+- **デッドロック防止**: 循環参照を自動検出
+
+**4. Redisクラスタ構成**:
+
+| 環境 | 構成 | 特徴 |
+|------|------|------|
+| **開発環境** | 単一ノード | Docker Composeで起動、シンプル |
+| **本番環境** | Redis Sentinel | 自動フェイルオーバー、高可用性、3ノード構成（1マスター + 2スレーブ） |
+
+**Redis Sentinel設定例**:
+```typescript
+import Redis from 'ioredis';
+
+const redis = new Redis({
+  sentinels: [
+    { host: 'sentinel-1', port: 26379 },
+    { host: 'sentinel-2', port: 26379 },
+    { host: 'sentinel-3', port: 26379 },
+  ],
+  name: 'mymaster', // マスターノード名
+  password: process.env.REDIS_PASSWORD,
+});
+```
 
 #### TokenService
 
 **責任と境界**:
-- **主要責任**: JWT生成、検証、リフレッシュ
+- **主要責任**: JWT生成、検証、リフレッシュ（EdDSA署名）
 - **ドメイン境界**: トークンドメイン
 - **データ所有権**: なし
 - **トランザクション境界**: なし（ステートレス）
@@ -863,30 +1174,49 @@ type RBACError =
 **依存関係**:
 - **インバウンド**: AuthService, authenticate middleware
 - **アウトバウンド**: SessionService
-- **外部**: jsonwebtoken
+- **外部**: jose v5
 
-**外部依存関係調査（jsonwebtoken）**:
-- **公式ドキュメント**: https://github.com/auth0/node-jsonwebtoken
-- **API**: `jwt.sign(payload, secret, options)`, `jwt.verify(token, secret, options)`
-- **推奨アルゴリズム**: HS256（HMAC SHA256）、RS256（RSA署名）、EdDSA（2025年推奨）
-- **セキュリティ**: シークレット長は最低256ビット（32バイト）、環境変数で管理
+**外部依存関係調査（jose v5）**:
+- **公式ドキュメント**: https://github.com/panva/jose
+- **バージョン**: v5.9.6（2025年安定版）
+- **主要機能**:
+  - EdDSA (Ed25519) 完全サポート
+  - ES256 (ECDSA P-256) サポート
+  - RS256 (RSA) サポート
+  - TypeScript型定義ネイティブサポート
+  - 軽量（jsonwebtoken比で50%軽量）
+  - Web標準（IETF JOSE Working Group）準拠
+- **API**:
+  - 鍵生成: `generateKeyPair('EdDSA')`
+  - トークン署名: `new SignJWT(payload).setProtectedHeader({ alg: 'EdDSA' }).setExpirationTime('15m').sign(privateKey)`
+  - トークン検証: `jwtVerify(token, publicKey)`
+  - JWKSエクスポート: `exportJWK(publicKey)`, `exportJWK(privateKey)`
+- **鍵管理**:
+  - 秘密鍵: 環境変数`JWT_PRIVATE_KEY`（Base64エンコード）
+  - 公開鍵: 環境変数`JWT_PUBLIC_KEY`（Base64エンコード）
+  - JWKSエンドポイント: `/.well-known/jwks.json` で公開鍵を配布（マイクロサービス化時）
 - **有効期限**: アクセストークン15分、リフレッシュトークン7日間
 
 **契約定義**:
 
 ```typescript
+import * as jose from 'jose';
+
 interface TokenService {
-  // アクセストークン生成
-  generateAccessToken(payload: TokenPayload): string;
+  // アクセストークン生成（EdDSA署名）
+  generateAccessToken(payload: TokenPayload): Promise<string>;
 
-  // リフレッシュトークン生成
-  generateRefreshToken(payload: TokenPayload): string;
+  // リフレッシュトークン生成（EdDSA署名）
+  generateRefreshToken(payload: TokenPayload): Promise<string>;
 
-  // トークン検証
-  verifyToken(token: string, type: 'access' | 'refresh'): Result<TokenPayload, TokenError>;
+  // トークン検証（EdDSA検証）
+  verifyToken(token: string, type: 'access' | 'refresh'): Promise<Result<TokenPayload, TokenError>>;
 
   // トークンデコード（検証なし）
   decodeToken(token: string): TokenPayload | null;
+
+  // JWKSエクスポート（公開鍵配布用）
+  exportPublicJWKS(): Promise<jose.JWK>;
 }
 
 interface TokenPayload {
@@ -900,6 +1230,132 @@ type TokenError =
   | { type: 'TOKEN_EXPIRED' }
   | { type: 'TOKEN_INVALID' }
   | { type: 'TOKEN_MALFORMED' };
+```
+
+**実装例**:
+
+```typescript
+import * as jose from 'jose';
+
+class TokenServiceImpl implements TokenService {
+  private privateKey: jose.KeyLike;
+  private publicKey: jose.KeyLike;
+
+  constructor() {
+    // 環境変数から鍵をロード（Base64デコード）
+    const privateKeyPem = Buffer.from(process.env.JWT_PRIVATE_KEY!, 'base64').toString('utf-8');
+    const publicKeyPem = Buffer.from(process.env.JWT_PUBLIC_KEY!, 'base64').toString('utf-8');
+
+    this.privateKey = await jose.importSPKI(privateKeyPem, 'EdDSA');
+    this.publicKey = await jose.importSPKI(publicKeyPem, 'EdDSA');
+  }
+
+  async generateAccessToken(payload: TokenPayload): Promise<string> {
+    const jwt = await new jose.SignJWT({
+      userId: payload.userId,
+      email: payload.email,
+      roles: payload.roles,
+      permissions: payload.permissions,
+    })
+      .setProtectedHeader({ alg: 'EdDSA' })
+      .setIssuedAt()
+      .setIssuer('ArchiTrack')
+      .setAudience('ArchiTrack-API')
+      .setExpirationTime('15m') // 15分
+      .sign(this.privateKey);
+
+    return jwt;
+  }
+
+  async generateRefreshToken(payload: TokenPayload): Promise<string> {
+    const jwt = await new jose.SignJWT({
+      userId: payload.userId,
+      email: payload.email,
+      roles: payload.roles,
+    })
+      .setProtectedHeader({ alg: 'EdDSA' })
+      .setIssuedAt()
+      .setIssuer('ArchiTrack')
+      .setAudience('ArchiTrack-API')
+      .setExpirationTime('7d') // 7日間
+      .sign(this.privateKey);
+
+    return jwt;
+  }
+
+  async verifyToken(token: string, type: 'access' | 'refresh'): Promise<Result<TokenPayload, TokenError>> {
+    try {
+      const { payload } = await jose.jwtVerify(token, this.publicKey, {
+        issuer: 'ArchiTrack',
+        audience: 'ArchiTrack-API',
+      });
+
+      return ok({
+        userId: payload.userId as string,
+        email: payload.email as string,
+        roles: payload.roles as string[],
+        permissions: payload.permissions as string[] | undefined,
+      });
+    } catch (error) {
+      if (error instanceof jose.errors.JWTExpired) {
+        return err({ type: 'TOKEN_EXPIRED' });
+      }
+      if (error instanceof jose.errors.JWTInvalid) {
+        return err({ type: 'TOKEN_INVALID' });
+      }
+      return err({ type: 'TOKEN_MALFORMED' });
+    }
+  }
+
+  decodeToken(token: string): TokenPayload | null {
+    const decoded = jose.decodeJwt(token);
+    if (!decoded) return null;
+
+    return {
+      userId: decoded.userId as string,
+      email: decoded.email as string,
+      roles: decoded.roles as string[],
+      permissions: decoded.permissions as string[] | undefined,
+    };
+  }
+
+  async exportPublicJWKS(): Promise<jose.JWK> {
+    return await jose.exportJWK(this.publicKey);
+  }
+}
+```
+
+**鍵生成スクリプト（初回セットアップ用）**:
+
+```typescript
+// scripts/generate-jwt-keys.ts
+import * as jose from 'jose';
+import { writeFileSync } from 'fs';
+
+async function generateKeys() {
+  // EdDSA鍵ペア生成
+  const { publicKey, privateKey } = await jose.generateKeyPair('EdDSA');
+
+  // PEM形式でエクスポート
+  const publicKeyPem = await jose.exportSPKI(publicKey);
+  const privateKeyPem = await jose.exportPKCS8(privateKey);
+
+  // Base64エンコード（環境変数用）
+  const publicKeyBase64 = Buffer.from(publicKeyPem).toString('base64');
+  const privateKeyBase64 = Buffer.from(privateKeyPem).toString('base64');
+
+  // .envファイルに出力
+  const envContent = `
+# JWT Keys (EdDSA)
+JWT_PRIVATE_KEY=${privateKeyBase64}
+JWT_PUBLIC_KEY=${publicKeyBase64}
+`;
+
+  writeFileSync('.env.keys', envContent);
+  console.log('✅ JWT keys generated successfully! Copy to .env file.');
+}
+
+generateKeys();
 ```
 
 #### PasswordService
@@ -1254,31 +1710,32 @@ app.delete('/api/users/:id', authenticate, authorize('user:delete'), deleteUser)
 
 | Method | Endpoint | Description | Request | Response | Middleware |
 |--------|----------|-------------|---------|----------|------------|
-| POST | /api/auth/register | ユーザー登録（招待経由） | RegisterRequest | AuthResponse | validate |
-| POST | /api/auth/login | ログイン | LoginRequest | AuthResponse | validate |
-| POST | /api/auth/logout | ログアウト | - | void | authenticate |
-| POST | /api/auth/logout-all | 全デバイスログアウト | - | void | authenticate |
-| POST | /api/auth/refresh | トークンリフレッシュ | RefreshRequest | AuthResponse | validate |
-| GET | /api/users/me | 現在のユーザー情報取得 | - | UserProfile | authenticate |
-| PATCH | /api/users/me | ユーザー情報更新 | UpdateProfileRequest | UserProfile | authenticate, validate |
-| POST | /api/invitations | 招待作成 | CreateInvitationRequest | Invitation | authenticate, authorize('user:invite') |
-| GET | /api/invitations | 招待一覧取得 | InvitationFilter | Invitation[] | authenticate, authorize('user:invite') |
-| POST | /api/invitations/:id/revoke | 招待取り消し | - | void | authenticate, authorize('user:invite') |
-| POST | /api/invitations/:id/resend | 招待再送信 | - | Invitation | authenticate, authorize('user:invite') |
-| GET | /api/invitations/verify | 招待検証 | ?token={token} | InvitationInfo | - |
-| POST | /api/auth/password/reset-request | パスワードリセット要求 | PasswordResetRequest | void | validate |
-| GET | /api/auth/password/verify-reset | リセットトークン検証 | ?token={token} | void | - |
-| POST | /api/auth/password/reset | パスワードリセット実行 | ResetPasswordRequest | void | validate |
-| GET | /api/roles | ロール一覧取得 | - | Role[] | authenticate, authorize('role:read') |
-| POST | /api/roles | ロール作成 | CreateRoleRequest | Role | authenticate, authorize('role:create') |
-| PATCH | /api/roles/:id | ロール更新 | UpdateRoleRequest | Role | authenticate, authorize('role:update') |
-| DELETE | /api/roles/:id | ロール削除 | - | void | authenticate, authorize('role:delete') |
-| POST | /api/roles/:id/permissions | ロールに権限追加 | AssignPermissionsRequest | void | authenticate, authorize('role:update') |
-| DELETE | /api/roles/:id/permissions/:permissionId | ロールから権限削除 | - | void | authenticate, authorize('role:update') |
-| GET | /api/permissions | 権限一覧取得 | - | Permission[] | authenticate, authorize('permission:read') |
-| POST | /api/users/:id/roles | ユーザーにロール追加 | AssignRolesRequest | void | authenticate, authorize('user:update') |
-| DELETE | /api/users/:id/roles/:roleId | ユーザーからロール削除 | - | void | authenticate, authorize('user:update') |
-| GET | /api/audit-logs | 監査ログ取得 | AuditLogFilter | AuditLog[] | authenticate, authorize('audit:read') |
+| POST | /api/v1/auth/register | ユーザー登録（招待経由） | RegisterRequest | AuthResponse | validate |
+| POST | /api/v1/auth/login | ログイン | LoginRequest | AuthResponse | validate |
+| POST | /api/v1/auth/logout | ログアウト | - | void | authenticate |
+| POST | /api/v1/auth/logout-all | 全デバイスログアウト | - | void | authenticate |
+| POST | /api/v1/auth/refresh | トークンリフレッシュ | RefreshRequest | AuthResponse | validate |
+| GET | /api/v1/users/me | 現在のユーザー情報取得 | - | UserProfile | authenticate |
+| PATCH | /api/v1/users/me | ユーザー情報更新 | UpdateProfileRequest | UserProfile | authenticate, validate |
+| POST | /api/v1/invitations | 招待作成 | CreateInvitationRequest | Invitation | authenticate, authorize('user:invite') |
+| GET | /api/v1/invitations | 招待一覧取得 | InvitationFilter | Invitation[] | authenticate, authorize('user:invite') |
+| POST | /api/v1/invitations/:id/revoke | 招待取り消し | - | void | authenticate, authorize('user:invite') |
+| POST | /api/v1/invitations/:id/resend | 招待再送信 | - | Invitation | authenticate, authorize('user:invite') |
+| GET | /api/v1/invitations/verify | 招待検証 | ?token={token} | InvitationInfo | - |
+| POST | /api/v1/auth/password/reset-request | パスワードリセット要求 | PasswordResetRequest | void | validate |
+| GET | /api/v1/auth/password/verify-reset | リセットトークン検証 | ?token={token} | void | - |
+| POST | /api/v1/auth/password/reset | パスワードリセット実行 | ResetPasswordRequest | void | validate |
+| GET | /api/v1/roles | ロール一覧取得 | - | Role[] | authenticate, authorize('role:read') |
+| POST | /api/v1/roles | ロール作成 | CreateRoleRequest | Role | authenticate, authorize('role:create') |
+| PATCH | /api/v1/roles/:id | ロール更新 | UpdateRoleRequest | Role | authenticate, authorize('role:update') |
+| DELETE | /api/v1/roles/:id | ロール削除 | - | void | authenticate, authorize('role:delete') |
+| POST | /api/v1/roles/:id/permissions | ロールに権限追加 | AssignPermissionsRequest | void | authenticate, authorize('role:update') |
+| DELETE | /api/v1/roles/:id/permissions/:permissionId | ロールから権限削除 | - | void | authenticate, authorize('role:update') |
+| GET | /api/v1/permissions | 権限一覧取得 | - | Permission[] | authenticate, authorize('permission:read') |
+| POST | /api/v1/users/:id/roles | ユーザーにロール追加 | AssignRolesRequest | void | authenticate, authorize('user:update') |
+| DELETE | /api/v1/users/:id/roles/:roleId | ユーザーからロール削除 | - | void | authenticate, authorize('user:update') |
+| GET | /api/v1/audit-logs | 監査ログ取得 | AuditLogFilter | AuditLog[] | authenticate, authorize('audit:read') |
+| GET | /.well-known/jwks.json | JWKS公開鍵エンドポイント | - | JWKS | - |
 
 ### Frontend / Component Architecture
 
