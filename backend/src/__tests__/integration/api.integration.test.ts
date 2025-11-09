@@ -215,7 +215,8 @@ describe('API Integration Tests', () => {
       const user = await prisma.user.create({
         data: {
           email: 'test-api-integration-db@example.com',
-          name: 'API Test User',
+          displayName: 'API Test User',
+          passwordHash: 'test-hash',
         },
       });
 
