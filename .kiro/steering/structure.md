@@ -2,14 +2,14 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-08（user-authentication仕様の進捗状況を反映）_
+_最終更新: 2025-11-09（user-authentication設計品質バリデーション完了を反映）_
 
 ## ルートディレクトリ構成
 
 ```
 ArchiTrack/
 ├── .claude/                 # Claude Codeカスタマイズ
-│   ├── CLAUDE.md           # プロジェクト固有AI運用ルール（AI運用6原則）
+│   ├── CLAUDE.md           # プロジェクト固有AI運用ルール（AI運用7原則）
 │   ├── commands/           # カスタムスラッシュコマンド
 │   │   └── kiro/           # Kiro開発コマンド群
 │   └── hooks/              # Claude Code フック
@@ -185,7 +185,7 @@ git config core.hooksPath .husky
 **現在のアクティブ仕様:**
 
 - `.kiro/specs/user-authentication/` - ユーザー認証機能
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、実装🚧
+  - 状態: 要件定義✅、技術設計✅（品質バリデーション完了✅）、タスク分解✅、実装🚧
   - 内容: 招待制ユーザー登録、ロールベースアクセス制御（RBAC）、JWT認証フロー
 
 ### `e2e/`
