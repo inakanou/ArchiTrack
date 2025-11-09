@@ -148,6 +148,8 @@ graph TB
 
 ### Technology Alignment
 
+本機能は既存のArchiTrack技術スタックを基盤として構築されます。
+
 **既存技術スタックとの整合性**:
 - **Express 5.1.0**: 既存のミドルウェアパイプラインに認証ミドルウェア（authenticate, authorize）を追加
 - **Prisma 6.18.0**: 既存のPrismaスキーマを拡張（User, Invitation, RefreshToken, Role, Permission, UserRole, RolePermission, PasswordHistory, TwoFactorBackupCode, AuditLog）
@@ -219,10 +221,6 @@ graph TB
   - **ハイブリッド方式**: Argon2d（データ依存）+ Argon2i（サイドチャネル攻撃耐性）の利点を統合
   - **設定**: メモリコスト64MB、時間コスト3、並列度4（OWASP推奨値）
   - **パフォーマンス**: @node-rs/argon2（Rustネイティブバインディング）によりbcrypt比2-3倍高速
-- **bcryptとの比較**:
-  - **セキュリティ**: Argon2idがメモリハード関数によりGPU攻撃に強い
-  - **速度**: @node-rs/argon2が高速（ネイティブバインディング）
-  - **標準**: Argon2idが最新のOWASP/NIST推奨
 
 **トークン戦略**:
 - **アクセストークン**: 短期間有効（環境変数`ACCESS_TOKEN_EXPIRY`、デフォルト15分）、API認証に使用、ペイロードにユーザー情報とロール情報を含む
@@ -329,46 +327,6 @@ class TokenRefreshManager {
 }
 ```
 
-**Axios Interceptor統合**:
-
-```typescript
-// リクエストインターセプター（Authorizationヘッダー追加）
-axios.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// レスポンスインターセプター（401エラーハンドリング）
-axios.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-
-    // 401エラー かつ リトライしていない場合
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-
-      try {
-        // TokenRefreshManagerでリフレッシュ（Race Condition対策済み）
-        await tokenRefreshManager.refreshAccessToken();
-
-        // 元のリクエストを再実行
-        return axios(originalRequest);
-      } catch (refreshError) {
-        // リフレッシュ失敗: ログイン画面へリダイレクト
-        window.location.href = '/login?redirectUrl=' + encodeURIComponent(window.location.pathname);
-        return Promise.reject(refreshError);
-      }
-    }
-
-    return Promise.reject(error);
-  }
-);
-```
-
 **根拠**:
 - **Race Condition防止**: 単一Promiseパターンにより、複数のリクエストが同時にリフレッシュを試みても、実際のリフレッシュ処理は1回のみ実行
 - **マルチタブ同期**: Broadcast Channel APIにより、あるタブでトークンがリフレッシュされると、他のタブにも自動的に反映
@@ -426,89 +384,6 @@ function loadCommonPasswordList() {
 // パスワードが禁止リストに含まれるかチェック
 function isCommonPassword(password: string): boolean {
   return bloomFilter.has(password.toLowerCase());
-}
-```
-
-**zxcvbn統合（Frontend/Backend共通）**:
-
-```typescript
-import zxcvbn from 'zxcvbn';
-
-interface PasswordValidationResult {
-  isValid: boolean;
-  score: number; // 0-4 (zxcvbn)
-  feedback: {
-    suggestions: string[];
-    warning?: string;
-  };
-  violations: PasswordViolation[];
-}
-
-enum PasswordViolation {
-  TOO_SHORT = 'TOO_SHORT',
-  NO_UPPERCASE = 'NO_UPPERCASE',
-  NO_LOWERCASE = 'NO_LOWERCASE',
-  NO_DIGIT = 'NO_DIGIT',
-  NO_SPECIAL_CHAR = 'NO_SPECIAL_CHAR',
-  WEAK_SCORE = 'WEAK_SCORE',
-  COMMON_PASSWORD = 'COMMON_PASSWORD',
-  REUSED_PASSWORD = 'REUSED_PASSWORD',
-  CONTAINS_USER_INFO = 'CONTAINS_USER_INFO',
-}
-
-async function validatePasswordStrength(
-  password: string,
-  userInputs: string[] // [email, displayName]
-): Promise<PasswordValidationResult> {
-  const violations: PasswordViolation[] = [];
-
-  // 1. 最小文字数チェック
-  if (password.length < 12) {
-    violations.push(PasswordViolation.TOO_SHORT);
-  }
-
-  // 2. 複雑性要件チェック
-  let complexityScore = 0;
-  if (/[A-Z]/.test(password)) complexityScore++;
-  if (/[a-z]/.test(password)) complexityScore++;
-  if (/[0-9]/.test(password)) complexityScore++;
-  if (/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) complexityScore++;
-
-  if (complexityScore < 3) {
-    if (!/[A-Z]/.test(password)) violations.push(PasswordViolation.NO_UPPERCASE);
-    if (!/[a-z]/.test(password)) violations.push(PasswordViolation.NO_LOWERCASE);
-    if (!/[0-9]/.test(password)) violations.push(PasswordViolation.NO_DIGIT);
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) violations.push(PasswordViolation.NO_SPECIAL_CHAR);
-  }
-
-  // 3. zxcvbn強度スコア評価
-  const result = zxcvbn(password, userInputs);
-  if (result.score < 3) {
-    violations.push(PasswordViolation.WEAK_SCORE);
-  }
-
-  // 4. 禁止パスワードリスト照合（Backend）
-  if (isCommonPassword(password.toLowerCase())) {
-    violations.push(PasswordViolation.COMMON_PASSWORD);
-  }
-
-  // 5. ユーザー情報の使用チェック
-  for (const input of userInputs) {
-    if (password.toLowerCase().includes(input.toLowerCase())) {
-      violations.push(PasswordViolation.CONTAINS_USER_INFO);
-      break;
-    }
-  }
-
-  return {
-    isValid: violations.length === 0,
-    score: result.score,
-    feedback: {
-      suggestions: result.feedback.suggestions,
-      warning: result.feedback.warning,
-    },
-    violations,
-  };
 }
 ```
 
@@ -714,7 +589,7 @@ sequenceDiagram
     Backend->>Backend: TOTP秘密鍵生成（32バイト、暗号学的に安全）
     Backend->>Backend: 秘密鍵をAES-256-GCMで暗号化
     Backend->>Backend: バックアップコード生成（10個、8文字英数字）
-    Backend->>Backend: バックアップコードをbcryptでハッシュ化（cost=12）
+    Backend->>Backend: バックアップコードをArgon2idでハッシュ化
     Backend->>DB: 仮保存（twoFactorSecret, twoFactorBackupCodes）
     Backend->>Backend: QRコード生成（otpauth://totp/ArchiTrack:{email}?secret={secret}&issuer=ArchiTrack）
     Backend-->>Frontend: 200 OK（secret, qrCodeDataUrl, backupCodes）
@@ -744,9 +619,31 @@ sequenceDiagram
     end
 ```
 
+## Requirements Traceability
+
+本セクションでは、requirements.mdで定義された各要件が、どのコンポーネント、インターフェース、フローで実現されるかをマッピングします。
+
+| 要件 | 要件概要 | コンポーネント | インターフェース | フロー |
+|------|---------|--------------|----------------|--------|
+| 1 | 管理者によるユーザー招待 | InvitationService, EmailService | POST /api/v1/invitations | ユーザー招待フロー |
+| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, PasswordService | POST /api/v1/auth/register, GET /api/v1/invitations/verify | ユーザー登録フロー |
+| 3 | 初期管理者アカウントのセットアップ | AuthService | データベースシーディング | - |
+| 4 | ログイン | AuthService, PasswordService, SessionService | POST /api/v1/auth/login | ログインフロー |
+| 5 | トークン管理 | TokenService, SessionService | POST /api/v1/auth/refresh, authenticate middleware | トークンリフレッシュフロー |
+| 6 | 拡張可能なRBAC | RBACService | authorize middleware, POST /api/v1/roles, POST /api/v1/roles/:id/permissions | - |
+| 7 | パスワード管理 | PasswordService, EmailService | POST /api/v1/auth/password/reset-request, POST /api/v1/auth/password/reset | - |
+| 8 | セッション管理 | SessionService | POST /api/v1/auth/logout, POST /api/v1/auth/logout-all | - |
+| 9 | ユーザー情報取得・管理 | AuthService | GET /api/v1/users/me, PATCH /api/v1/users/me | - |
+| 10 | セキュリティとエラーハンドリング | errorHandler middleware, ApiError | 全APIエンドポイント | - |
+| 11-15 | UI/UX要件（ログイン、登録、招待、プロフィール、共通ガイドライン） | LoginForm, RegisterForm, InvitationManagementPage, ProfilePage | AuthContext, apiClient | ログイン・登録フロー |
+| 16 | セッション有効期限切れ時の自動リダイレクト | TokenRefreshManager, AuthContext | apiClient interceptor | トークンリフレッシュフロー |
+| 17-22 | 動的ロール管理、権限管理、ユーザー・ロール割り当て、権限チェック、監査ログ | RBACService, AuditLogService | POST /api/v1/roles, POST /api/v1/permissions, POST /api/v1/users/:id/roles, GET /api/v1/audit-logs | - |
+| 23-26 | 非機能要件（パフォーマンス、フォールトトレランス、データ整合性、セキュリティ） | Redis Cache, Prisma Transaction, ApiError | 全コンポーネント | - |
+| 27系列 | 二要素認証（2FA）設定・ログイン・管理・セキュリティ・UI/UX・アクセシビリティ | TwoFactorService | POST /api/v1/auth/2fa/setup, POST /api/v1/auth/2fa/enable, POST /api/v1/auth/verify-2fa | 2FA設定フロー、ログインフロー |
+
 ## Components and Interfaces
 
-### Backend / Service Layer
+### Backend Services
 
 #### AuthService
 
@@ -811,6 +708,57 @@ type AuthError =
   | { type: '2FA_REQUIRED'; userId: string }
   | { type: 'INVALID_2FA_CODE' }
   | { type: 'USER_NOT_FOUND' };
+```
+
+#### InvitationService
+
+**責任と境界**:
+- **主要責任**: 招待管理（作成、検証、取り消し、再送信）
+- **ドメイン境界**: 招待ドメイン
+- **データ所有権**: Invitation
+- **トランザクション境界**: 招待作成時のトランザクション管理
+
+**依存関係**:
+- **インバウンド**: AuthService, InvitationController
+- **アウトバウンド**: EmailService
+- **外部**: Prisma Client
+
+**契約定義**:
+
+```typescript
+interface InvitationService {
+  // 招待作成
+  createInvitation(inviterId: string, email: string): Promise<Result<Invitation, InvitationError>>;
+
+  // 招待検証
+  verifyInvitation(token: string): Promise<Result<InvitationInfo, InvitationError>>;
+
+  // 招待取り消し
+  revokeInvitation(invitationId: string, actorId: string): Promise<Result<void, InvitationError>>;
+
+  // 招待再送信
+  resendInvitation(invitationId: string, actorId: string): Promise<Result<Invitation, InvitationError>>;
+
+  // 招待一覧取得
+  listInvitations(filter: InvitationFilter): Promise<Invitation[]>;
+}
+
+interface InvitationInfo {
+  email: string;
+  inviterId: string;
+}
+
+interface InvitationFilter {
+  status?: 'pending' | 'used' | 'expired' | 'revoked';
+  email?: string;
+}
+
+type InvitationError =
+  | { type: 'INVITATION_NOT_FOUND' }
+  | { type: 'INVITATION_INVALID' }
+  | { type: 'INVITATION_EXPIRED' }
+  | { type: 'INVITATION_ALREADY_USED' }
+  | { type: 'EMAIL_ALREADY_REGISTERED' };
 ```
 
 #### RBACService
@@ -885,7 +833,7 @@ type RBACError =
 
 **パフォーマンス最適化**:
 
-**1. Redisキャッシング戦略（Cache-Asideパターン + Graceful Degradation）**:
+**Redisキャッシング戦略（Cache-Asideパターン + Graceful Degradation）**:
 
 ```typescript
 async function getUserPermissions(userId: string): Promise<Permission[]> {
@@ -924,24 +872,7 @@ async function getUserPermissions(userId: string): Promise<Permission[]> {
 }
 ```
 
-**キャッシュ無効化戦略**:
-```typescript
-// ロール・権限変更時
-async function invalidateUserPermissionsCache(userId: string): Promise<void> {
-  const cacheKey = `user:${userId}:permissions`;
-  await redis.del(cacheKey);
-}
-
-// 全ユーザーのキャッシュ無効化（ロール・権限定義変更時）
-async function invalidateAllPermissionsCache(): Promise<void> {
-  const keys = await redis.keys('user:*:permissions');
-  if (keys.length > 0) {
-    await redis.del(...keys);
-  }
-}
-```
-
-**2. N+1問題対策（Prisma includeによるJOINクエリ）**:
+**N+1問題対策（Prisma includeによるJOINクエリ）**:
 
 ```typescript
 // ✅ 解決策: Prisma include（1クエリで全データ取得）
@@ -969,39 +900,6 @@ const permissions = user.userRoles.flatMap((ur) =>
   ur.role.rolePermissions.map((rp) => rp.permission)
 );
 ```
-
-**3. DataLoaderパターン（バッチング + キャッシング）**:
-
-```typescript
-import DataLoader from 'dataloader';
-
-// ロール取得のDataLoader
-const roleLoader = new DataLoader(async (roleIds: readonly string[]) => {
-  const roles = await prisma.role.findMany({
-    where: { id: { in: [...roleIds] } },
-    include: {
-      rolePermissions: {
-        include: { permission: true },
-      },
-    },
-  });
-
-  // roleIdsの順序に合わせて返す
-  return roleIds.map((id) => roles.find((r) => r.id === id) || null);
-});
-
-// 使用例（バッチング + キャッシング）
-const role1 = await roleLoader.load('role-1'); // バッチング
-const role2 = await roleLoader.load('role-2'); // 同じバッチ
-const role3 = await roleLoader.load('role-1'); // キャッシュヒット
-```
-
-**4. Redisクラスタ構成**:
-
-| 環境 | 構成 | 特徴 |
-|------|------|------|
-| **開発環境** | 単一ノード | Docker Composeで起動、シンプル |
-| **本番環境** | Redis Sentinel | 自動フェイルオーバー、高可用性、3ノード構成（1マスター + 2スレーブ） |
 
 #### TokenService
 
@@ -1063,39 +961,6 @@ type TokenError =
   | { type: 'TOKEN_EXPIRED' }
   | { type: 'TOKEN_INVALID' }
   | { type: 'TOKEN_MALFORMED' };
-```
-
-**鍵生成スクリプト（初回セットアップ用）**:
-
-```typescript
-// scripts/generate-jwt-keys.ts
-import * as jose from 'jose';
-import { writeFileSync } from 'fs';
-
-async function generateKeys() {
-  // EdDSA鍵ペア生成
-  const { publicKey, privateKey } = await jose.generateKeyPair('EdDSA');
-
-  // PEM形式でエクスポート
-  const publicKeyPem = await jose.exportSPKI(publicKey);
-  const privateKeyPem = await jose.exportPKCS8(privateKey);
-
-  // Base64エンコード（環境変数用）
-  const publicKeyBase64 = Buffer.from(publicKeyPem).toString('base64');
-  const privateKeyBase64 = Buffer.from(privateKeyPem).toString('base64');
-
-  // .envファイルに出力
-  const envContent = `
-# JWT Keys (EdDSA)
-JWT_PRIVATE_KEY=${privateKeyBase64}
-JWT_PUBLIC_KEY=${publicKeyBase64}
-`;
-
-  writeFileSync('.env.keys', envContent);
-  console.log('✅ JWT keys generated successfully! Copy to .env file.');
-}
-
-generateKeys();
 ```
 
 #### PasswordService
@@ -1251,7 +1116,121 @@ type TwoFactorError =
 - **無効化時のパスワード確認**: アカウント乗っ取り防止
 - **トランザクション**: 2FA無効化時に秘密鍵とバックアップコードを同時削除、全リフレッシュトークン無効化
 
-### Backend / Middleware Layer
+#### SessionService
+
+**責任と境界**:
+- **主要責任**: セッション管理（作成、削除、検証）
+- **ドメイン境界**: セッションドメイン
+- **データ所有権**: RefreshToken
+- **トランザクション境界**: なし
+
+**依存関係**:
+- **インバウンド**: AuthService
+- **アウトバウンド**: なし
+- **外部**: Prisma Client, Redis Client
+
+**契約定義**:
+
+```typescript
+interface SessionService {
+  // セッション作成
+  createSession(userId: string, refreshToken: string, deviceInfo?: string): Promise<void>;
+
+  // セッション削除（単一デバイス）
+  deleteSession(refreshToken: string): Promise<void>;
+
+  // 全セッション削除（全デバイス）
+  deleteAllSessions(userId: string): Promise<void>;
+
+  // セッション検証
+  verifySession(refreshToken: string): Promise<Result<SessionInfo, SessionError>>;
+}
+
+interface SessionInfo {
+  userId: string;
+  expiresAt: Date;
+  deviceInfo?: string;
+}
+
+type SessionError =
+  | { type: 'SESSION_NOT_FOUND' }
+  | { type: 'SESSION_EXPIRED' };
+```
+
+#### EmailService
+
+**責任と境界**:
+- **主要責任**: メール送信（招待、パスワードリセット、2FA設定完了通知）
+- **ドメイン境界**: メールドメイン
+- **データ所有権**: なし
+- **トランザクション境界**: なし
+
+**依存関係**:
+- **インバウンド**: InvitationService, PasswordService, TwoFactorService
+- **アウトバウンド**: なし
+- **外部**: nodemailer, bull, handlebars
+
+**契約定義**:
+
+```typescript
+interface EmailService {
+  // 招待メール送信
+  sendInvitationEmail(to: string, invitationToken: string): Promise<void>;
+
+  // パスワードリセットメール送信
+  sendPasswordResetEmail(to: string, resetToken: string): Promise<void>;
+
+  // 2FA設定完了メール送信
+  send2FAEnabledEmail(to: string): Promise<void>;
+}
+```
+
+#### AuditLogService
+
+**責任と境界**:
+- **主要責任**: 監査ログ記録、取得、エクスポート
+- **ドメイン境界**: 監査ドメイン
+- **データ所有権**: AuditLog
+- **トランザクション境界**: なし
+
+**依存関係**:
+- **インバウンド**: AuthService, RBACService, TwoFactorService
+- **アウトバウンド**: なし
+- **外部**: Prisma Client
+
+**契約定義**:
+
+```typescript
+interface AuditLogService {
+  // 監査ログ記録
+  logAction(data: AuditLogData): Promise<void>;
+
+  // 監査ログ取得
+  getAuditLogs(filter: AuditLogFilter): Promise<AuditLog[]>;
+
+  // 監査ログエクスポート
+  exportAuditLogs(filter: AuditLogFilter): Promise<string>;
+}
+
+interface AuditLogData {
+  action: string;
+  actorId: string;
+  targetType: string;
+  targetId: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface AuditLogFilter {
+  actorId?: string;
+  targetType?: string;
+  targetId?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
+  action?: string;
+}
+```
+
+### Backend Middlewares
 
 #### authenticate
 
@@ -1326,7 +1305,7 @@ app.delete('/api/v1/users/:id', authenticate, authorize('user:delete'), deleteUs
 3. 権限あり: 次のミドルウェアへ
 4. 権限なし: `ForbiddenError` をスロー
 
-### Backend / API Endpoints
+### Backend API Endpoints
 
 **API Contract（OpenAPI 3.0形式、APIバージョニング `/api/v1/...` 採用）**:
 
@@ -1364,7 +1343,7 @@ app.delete('/api/v1/users/:id', authenticate, authorize('user:delete'), deleteUs
 | GET | /api/v1/audit-logs | 監査ログ取得 | AuditLogFilter | AuditLog[] | authenticate, authorize('audit:read') |
 | GET | /.well-known/jwks.json | JWKS公開鍵エンドポイント | - | JWKS | - |
 
-### Frontend / Component Architecture
+### Frontend Components
 
 #### AuthContext
 
@@ -1706,43 +1685,12 @@ model AuditLog {
 
 **テスト対象コンポーネント（25+ stories）**:
 
-1. **LoginForm** (5 stories)
-   - Default: デフォルト状態
-   - With Email: メールアドレス入力済み
-   - With Error: 認証エラー表示
-   - Loading: ログイン処理中
-   - Account Locked: アカウントロック状態
-
-2. **RegisterForm** (5 stories)
-   - Default: デフォルト状態
-   - With Weak Password: 弱いパスワード入力中
-   - With Strong Password: 強いパスワード入力中
-   - Password Mismatch: パスワード不一致
-   - Loading: 登録処理中
-
-3. **TwoFactorSetupForm** (5 stories)
-   - QR Code Step: QRコード表示
-   - TOTP Verification Step: TOTP検証中
-   - Backup Codes Step: バックアップコード保存
-   - Error State: TOTP検証エラー
-   - Loading: 処理中
-
-4. **TwoFactorVerificationForm** (4 stories)
-   - Default: デフォルト状態
-   - With Countdown Timer: カウントダウンタイマー表示
-   - Backup Code Mode: バックアップコード入力
-   - Error State: 検証エラー
-
-5. **PasswordStrengthIndicator** (4 stories)
-   - Weak: 弱いパスワード
-   - Medium: 普通のパスワード
-   - Strong: 強いパスワード
-   - Very Strong: 非常に強いパスワード
-
-6. **PasswordRequirementsChecklist** (3 stories)
-   - All Failed: 全要件未達成
-   - Partially Met: 一部要件達成
-   - All Met: 全要件達成
+1. **LoginForm** (5 stories): Default, With Email, With Error, Loading, Account Locked
+2. **RegisterForm** (5 stories): Default, With Weak Password, With Strong Password, Password Mismatch, Loading
+3. **TwoFactorSetupForm** (5 stories): QR Code Step, TOTP Verification Step, Backup Codes Step, Error State, Loading
+4. **TwoFactorVerificationForm** (4 stories): Default, With Countdown Timer, Backup Code Mode, Error State
+5. **PasswordStrengthIndicator** (4 stories): Weak, Medium, Strong, Very Strong
+6. **PasswordRequirementsChecklist** (3 stories): All Failed, Partially Met, All Met
 
 **Storybook Addons**:
 - **@storybook/addon-a11y**: アクセシビリティチェック（WCAG 2.1 AA準拠）
