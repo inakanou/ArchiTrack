@@ -236,6 +236,228 @@ graph TB
 - **利点**: セキュリティ、パフォーマンス、将来性、標準準拠
 - **欠点**: 鍵ペア管理の複雑性（環境変数2つ必要）、HS256/bcryptと比較して初期セットアップがやや複雑
 
+**EdDSA鍵ペア管理と運用戦略**:
+
+**鍵生成スクリプト実装**:
+
+```typescript
+// scripts/generate-eddsa-keys.ts
+import * as jose from 'jose';
+import * as fs from 'fs';
+
+async function generateEdDSAKeys() {
+  console.log('Generating EdDSA (Ed25519) key pair...');
+
+  // EdDSA鍵ペア生成
+  const { publicKey, privateKey } = await jose.generateKeyPair('EdDSA');
+
+  // JWK形式でエクスポート
+  const publicJWK = await jose.exportJWK(publicKey);
+  const privateJWK = await jose.exportJWK(privateKey);
+
+  // Key ID (kid) 生成（タイムスタンプベース）
+  const kid = `eddsa-${Date.now()}`;
+  publicJWK.kid = kid;
+  privateJWK.kid = kid;
+
+  // Base64エンコード（環境変数用）
+  const publicKeyBase64 = Buffer.from(JSON.stringify(publicJWK)).toString('base64');
+  const privateKeyBase64 = Buffer.from(JSON.stringify(privateJWK)).toString('base64');
+
+  // .envファイル生成
+  const envContent = `
+# EdDSA (Ed25519) Key Pair
+# Generated: ${new Date().toISOString()}
+# Key ID: ${kid}
+JWT_PUBLIC_KEY=${publicKeyBase64}
+JWT_PRIVATE_KEY=${privateKeyBase64}
+`;
+
+  fs.writeFileSync('.env.keys', envContent);
+
+  console.log('✅ EdDSA key pair generated successfully!');
+  console.log('📝 Keys saved to .env.keys');
+  console.log('🔑 Key ID:', kid);
+  console.log('\n⚠️  IMPORTANT: Add these to your environment variables and keep JWT_PRIVATE_KEY secure!');
+  console.log('\nFor Railway deployment:');
+  console.log('1. Go to Railway dashboard > Variables');
+  console.log('2. Add JWT_PUBLIC_KEY and JWT_PRIVATE_KEY');
+  console.log('3. Redeploy the service\n');
+}
+
+generateEdDSAKeys().catch(console.error);
+```
+
+**実行方法**:
+
+```bash
+# 鍵生成スクリプト実行
+npx tsx scripts/generate-eddsa-keys.ts
+
+# .env.keysの内容を.envにコピー（開発環境）
+cat .env.keys >> .env
+
+# Railway環境へデプロイ（本番環境）
+# Railway Dashboard > Variables > Add JWT_PUBLIC_KEY, JWT_PRIVATE_KEY
+```
+
+**鍵ローテーション戦略（90日周期）**:
+
+**ローテーション周期**: 90日ごと（NIST推奨）
+
+**鍵ローテーションフロー**:
+
+1. **新しい鍵ペア生成**（T日目）:
+   ```bash
+   npx tsx scripts/generate-eddsa-keys.ts
+   ```
+
+2. **猶予期間開始**（T日目 - T+30日目）:
+   - 新旧両方の公開鍵を並行運用
+   - 新しい秘密鍵で署名開始
+   - 古い公開鍵でも検証可能（既存トークンの有効期限が切れるまで）
+
+3. **旧鍵削除**（T+30日目）:
+   - 猶予期間終了、旧公開鍵を削除
+
+**JWKS（JSON Web Key Set）エンドポイント実装**:
+
+複数の公開鍵を配布し、鍵ローテーション時の猶予期間をサポートします。
+
+```typescript
+// backend/src/routes/jwks.routes.ts
+import { Router } from 'express';
+import * as jose from 'jose';
+
+const router = Router();
+
+/**
+ * JWKS (JSON Web Key Set) エンドポイント
+ * 公開鍵をJWKS形式で配布（RFC 7517準拠）
+ */
+router.get('/.well-known/jwks.json', async (req, res) => {
+  try {
+    const keys: jose.JWK[] = [];
+
+    // 現在の公開鍵（環境変数から取得）
+    const currentPublicKeyBase64 = process.env.JWT_PUBLIC_KEY;
+    if (currentPublicKeyBase64) {
+      const currentJWK = JSON.parse(
+        Buffer.from(currentPublicKeyBase64, 'base64').toString('utf-8')
+      );
+      keys.push(currentJWK);
+    }
+
+    // 旧公開鍵（猶予期間中のみ、環境変数JWT_PUBLIC_KEY_OLDから取得）
+    const oldPublicKeyBase64 = process.env.JWT_PUBLIC_KEY_OLD;
+    if (oldPublicKeyBase64) {
+      const oldJWK = JSON.parse(
+        Buffer.from(oldPublicKeyBase64, 'base64').toString('utf-8')
+      );
+      keys.push(oldJWK);
+    }
+
+    // JWKS形式でレスポンス
+    res.json({ keys });
+  } catch (error) {
+    logger.error('JWKS endpoint error', { error });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;
+```
+
+**トークン検証時の複数鍵サポート**:
+
+```typescript
+// backend/src/services/token.service.ts
+import * as jose from 'jose';
+
+async function verifyToken(token: string): Promise<Result<TokenPayload, TokenError>> {
+  try {
+    // JWTヘッダーからkidを取得
+    const { kid } = jose.decodeProtectedHeader(token);
+
+    // kidに対応する公開鍵を選択
+    let publicKeyBase64: string | undefined;
+
+    const currentPublicKey = JSON.parse(
+      Buffer.from(process.env.JWT_PUBLIC_KEY!, 'base64').toString('utf-8')
+    );
+
+    if (currentPublicKey.kid === kid) {
+      publicKeyBase64 = process.env.JWT_PUBLIC_KEY;
+    } else if (process.env.JWT_PUBLIC_KEY_OLD) {
+      const oldPublicKey = JSON.parse(
+        Buffer.from(process.env.JWT_PUBLIC_KEY_OLD, 'base64').toString('utf-8')
+      );
+      if (oldPublicKey.kid === kid) {
+        publicKeyBase64 = process.env.JWT_PUBLIC_KEY_OLD;
+      }
+    }
+
+    if (!publicKeyBase64) {
+      return Err({ type: 'TOKEN_INVALID' });
+    }
+
+    // 公開鍵で検証
+    const publicJWK = JSON.parse(
+      Buffer.from(publicKeyBase64, 'base64').toString('utf-8')
+    );
+    const publicKey = await jose.importJWK(publicJWK, 'EdDSA');
+    const { payload } = await jose.jwtVerify(token, publicKey);
+
+    return Ok(payload as TokenPayload);
+  } catch (error) {
+    if (error instanceof jose.errors.JWTExpired) {
+      return Err({ type: 'TOKEN_EXPIRED' });
+    }
+    return Err({ type: 'TOKEN_INVALID' });
+  }
+}
+```
+
+**Railway環境でのシークレット管理**:
+
+1. **Railway Dashboard > Variables**に移動
+2. 以下の環境変数を追加:
+   - `JWT_PUBLIC_KEY`: 現在の公開鍵（Base64エンコード）
+   - `JWT_PRIVATE_KEY`: 現在の秘密鍵（Base64エンコード）
+   - `JWT_PUBLIC_KEY_OLD`: 旧公開鍵（猶予期間のみ、Base64エンコード）
+3. サービスを再デプロイ
+
+**鍵ローテーション時の手順**:
+
+```bash
+# 1. 新しい鍵ペア生成
+npx tsx scripts/generate-eddsa-keys.ts
+
+# 2. Railway Dashboardで環境変数更新
+# - JWT_PUBLIC_KEY_OLD = 現在のJWT_PUBLIC_KEY
+# - JWT_PUBLIC_KEY = 新しい公開鍵
+# - JWT_PRIVATE_KEY = 新しい秘密鍵
+
+# 3. サービス再デプロイ（猶予期間開始）
+
+# 4. 30日後、JWT_PUBLIC_KEY_OLDを削除
+# - Railway Dashboard > Variables > JWT_PUBLIC_KEY_OLD を削除
+# - サービス再デプロイ
+```
+
+**水平スケーリング時の鍵共有**:
+
+- **Railway環境**: 環境変数として鍵を共有、全インスタンスで同じ鍵を使用
+- **複数インスタンス**: 環境変数の一貫性が自動的に保証される
+- **鍵の同期**: Railwayの環境変数は全インスタンスに即座に反映
+
+**セキュリティ考慮事項**:
+
+- **秘密鍵の保護**: `JWT_PRIVATE_KEY`は絶対にコミットしない（.gitignoreに追加）
+- **鍵の定期ローテーション**: 90日ごとに実施（セキュリティベストプラクティス）
+- **猶予期間の設定**: 30日間（既存トークンの有効期限[15分アクセス + 7日リフレッシュ]を考慮）
+- **kid管理**: タイムスタンプベースのKey IDで鍵バージョンを追跡
+
 #### 決定2: トークンリフレッシュの自動化とRace Condition対策
 
 **決定**: フロントエンドで自動トークンリフレッシュ機能を実装し、Race Condition対策として単一Promiseパターンとマルチタブ同期（Broadcast Channel API）を採用
@@ -640,6 +862,184 @@ sequenceDiagram
 | 17-22 | 動的ロール管理、権限管理、ユーザー・ロール割り当て、権限チェック、監査ログ | RBACService, AuditLogService | POST /api/v1/roles, POST /api/v1/permissions, POST /api/v1/users/:id/roles, GET /api/v1/audit-logs | - |
 | 23-26 | 非機能要件（パフォーマンス、フォールトトレランス、データ整合性、セキュリティ） | Redis Cache, Prisma Transaction, ApiError | 全コンポーネント | - |
 | 27系列 | 二要素認証（2FA）設定・ログイン・管理・セキュリティ・UI/UX・アクセシビリティ | TwoFactorService | POST /api/v1/auth/2fa/setup, POST /api/v1/auth/2fa/enable, POST /api/v1/auth/verify-2fa | 2FA設定フロー、ログインフロー |
+
+## Type Definitions
+
+### Result型（型安全なエラーハンドリング）
+
+本プロジェクトでは、サービス層のエラーハンドリングにResult型パターンを採用します。これにより、成功・失敗を型安全に扱い、既存のApiErrorクラスとシームレスに統合します。
+
+**Result型の定義**:
+
+```typescript
+/**
+ * Result型: 成功（Ok）または失敗（Err）を表現
+ * @template T 成功時の値の型
+ * @template E 失敗時のエラーの型
+ */
+type Result<T, E> =
+  | { ok: true; value: T }
+  | { ok: false; error: E };
+
+/**
+ * 成功結果を生成
+ */
+function Ok<T>(value: T): Result<T, never> {
+  return { ok: true, value };
+}
+
+/**
+ * 失敗結果を生成
+ */
+function Err<E>(error: E): Result<never, E> {
+  return { ok: false, error };
+}
+```
+
+**使用例（サービス層）**:
+
+```typescript
+// AuthService: Result型を返す
+async login(email: string, password: string): Promise<Result<LoginResponse, AuthError>> {
+  // ユーザー検索
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    return Err({ type: 'INVALID_CREDENTIALS' });
+  }
+
+  // パスワード検証
+  const isValid = await this.passwordService.verifyPassword(password, user.passwordHash);
+  if (!isValid) {
+    return Err({ type: 'INVALID_CREDENTIALS' });
+  }
+
+  // アカウントロックチェック
+  if (user.isLocked && user.lockedUntil && user.lockedUntil > new Date()) {
+    return Err({ type: 'ACCOUNT_LOCKED', unlockAt: user.lockedUntil });
+  }
+
+  // 2FA有効ユーザー
+  if (user.twoFactorEnabled) {
+    return Ok({ type: '2FA_REQUIRED', userId: user.id });
+  }
+
+  // トークン生成
+  const accessToken = await this.tokenService.generateAccessToken({
+    userId: user.id,
+    email: user.email,
+    roles: user.userRoles.map(ur => ur.role.name),
+  });
+
+  return Ok({ type: 'SUCCESS', accessToken, user });
+}
+```
+
+**エラーマッピング戦略（Result → ApiError → HTTPレスポンス）**:
+
+サービス層のResult型エラーを、コントローラー層で既存のApiErrorクラスに変換します。
+
+**エラーマッピング表**:
+
+| AuthError.type | ApiError Class | HTTP Status | Response Message |
+|----------------|----------------|-------------|------------------|
+| INVALID_CREDENTIALS | UnauthorizedError | 401 | "Invalid credentials" |
+| ACCOUNT_LOCKED | UnauthorizedError | 401 | "Account locked until {unlockAt}" |
+| INVITATION_INVALID | BadRequestError | 400 | "Invalid invitation token" |
+| INVITATION_EXPIRED | BadRequestError | 400 | "Invitation token expired" |
+| WEAK_PASSWORD | BadRequestError | 400 | "Password does not meet requirements" |
+| USER_NOT_FOUND | NotFoundError | 404 | "User not found" |
+| INSUFFICIENT_PERMISSIONS | ForbiddenError | 403 | "Insufficient permissions" |
+
+**コントローラー層での使用例**:
+
+```typescript
+// AuthController: Result → HTTPレスポンス変換
+async loginHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { email, password } = req.body;
+
+    // サービス呼び出し（Result型を返す）
+    const result = await authService.login(email, password);
+
+    // エラーハンドリング（Result → ApiError変換）
+    if (!result.ok) {
+      switch (result.error.type) {
+        case 'INVALID_CREDENTIALS':
+          throw new UnauthorizedError('Invalid credentials');
+        case 'ACCOUNT_LOCKED':
+          throw new UnauthorizedError(
+            `Account locked until ${result.error.unlockAt.toISOString()}`
+          );
+        case 'WEAK_PASSWORD':
+          throw new BadRequestError('Password does not meet requirements', {
+            violations: result.error.violations,
+          });
+        default:
+          throw new InternalServerError('Login failed');
+      }
+    }
+
+    // 成功レスポンス
+    const { type, accessToken, userId, user } = result.value;
+
+    if (type === '2FA_REQUIRED') {
+      return res.status(200).json({ type: '2FA_REQUIRED', userId });
+    }
+
+    return res.status(200).json({ accessToken, user });
+  } catch (error) {
+    next(error); // 既存のerrorHandlerミドルウェアで処理
+  }
+}
+```
+
+**既存ApiErrorクラスとの統合**:
+
+既存のApiErrorクラス（`backend/src/errors/ApiError.ts`）を活用し、エラーハンドリングの一貫性を保ちます。
+
+```typescript
+// 既存のApiErrorクラス
+export class ApiError extends Error {
+  constructor(
+    public statusCode: number,
+    public message: string,
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = this.constructor.name;
+  }
+}
+
+export class UnauthorizedError extends ApiError {
+  constructor(message = 'Unauthorized', details?: unknown) {
+    super(401, message, details);
+  }
+}
+
+export class ForbiddenError extends ApiError {
+  constructor(message = 'Forbidden', details?: unknown) {
+    super(403, message, details);
+  }
+}
+
+export class BadRequestError extends ApiError {
+  constructor(message = 'Bad Request', details?: unknown) {
+    super(400, message, details);
+  }
+}
+
+export class NotFoundError extends ApiError {
+  constructor(message = 'Not Found', details?: unknown) {
+    super(404, message, details);
+  }
+}
+```
+
+**Result型のメリット**:
+- **型安全性**: 成功・失敗のケースを型レベルで強制、エラーハンドリング漏れを防止
+- **明示的なエラー伝播**: サービス層のエラーがコントローラー層で明確に処理される
+- **既存パターンとの統合**: ApiErrorクラスと併用し、既存のerrorHandlerミドルウェアを活用
+- **テスト容易性**: Result型により、エラーケースのテストが簡潔に記述可能
 
 ## Components and Interfaces
 
@@ -1427,6 +1827,276 @@ class TokenRefreshManager {
 - **単一Promiseパターン**: 複数のリクエストが同時にリフレッシュを試みても、実際のリフレッシュ処理は1回のみ実行
 - **Broadcast Channel API**: マルチタブ環境でトークン更新を他のタブに通知
 - **自動リフレッシュ**: 有効期限切れ5分前（環境変数`VITE_TOKEN_REFRESH_THRESHOLD`、デフォルト5分）に自動リフレッシュ
+
+## Performance Optimization: N+1 Problem Mitigation
+
+N+1問題は、ORMを使用する際に発生する一般的なパフォーマンス問題です。1つのクエリで親レコードを取得し、その後、各親レコードに対して子レコードを個別に取得することで、N+1回のクエリが発生します。
+
+本設計では、以下の3つのアプローチを組み合わせてN+1問題を解決します。
+
+### N+1問題対策の基本方針
+
+**使い分けガイドライン**:
+
+| シナリオ | 推奨アプローチ | 理由 |
+|---------|--------------|------|
+| 単一リソース取得（例: GET /users/me） | Prisma include | 最もシンプル、1クエリで解決 |
+| バッチリソース取得（例: GET /audit-logs） | Prisma include | 複雑なネストでも1クエリで解決 |
+| 動的な関連データ取得 | DataLoader | 複雑な取得ロジック、キャッシング活用 |
+| 権限情報の頻繁な取得 | Redis Cache-Aside | 高速キャッシュ、90%以上のヒット率 |
+
+### アプローチ1: Prisma includeによるJOINクエリ
+
+**原則**: 可能な限りPrisma includeを使用し、1クエリで全データを取得する。
+
+#### RBACService: ユーザー権限取得
+
+```typescript
+// ❌ N+1問題が発生する実装（N+1回クエリ）
+async function getUserPermissions(userId: string): Promise<Permission[]> {
+  // 1. ユーザー取得（1クエリ）
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  // 2. ユーザーのロール取得（Nクエリ）
+  const userRoles = await prisma.userRole.findMany({ where: { userId } });
+
+  // 3. 各ロールの権限取得（N×Mクエリ）
+  const permissions: Permission[] = [];
+  for (const userRole of userRoles) {
+    const rolePermissions = await prisma.rolePermission.findMany({
+      where: { roleId: userRole.roleId },
+    });
+    for (const rp of rolePermissions) {
+      const permission = await prisma.permission.findUnique({
+        where: { id: rp.permissionId },
+      });
+      permissions.push(permission);
+    }
+  }
+
+  return permissions;
+}
+
+// ✅ Prisma includeで解決（1クエリ）
+async function getUserPermissions(userId: string): Promise<Permission[]> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      userRoles: {
+        include: {
+          role: {
+            include: {
+              rolePermissions: {
+                include: {
+                  permission: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!user) {
+    return [];
+  }
+
+  // 権限を平坦化（ユニーク化）
+  const permissionMap = new Map<string, Permission>();
+  for (const userRole of user.userRoles) {
+    for (const rolePermission of userRole.role.rolePermissions) {
+      permissionMap.set(rolePermission.permission.id, rolePermission.permission);
+    }
+  }
+
+  return Array.from(permissionMap.values());
+}
+```
+
+**パフォーマンス改善**:
+- Before: 1 + N + N×M クエリ（例: 1ユーザー、3ロール、各ロール5権限 = 1 + 3 + 15 = 19クエリ）
+- After: **1クエリ**
+- **改善率**: 95% クエリ削減
+
+#### AuditLogService: 監査ログ取得
+
+```typescript
+// ❌ N+1問題が発生する実装
+async function getAuditLogs(filter: AuditLogFilter): Promise<AuditLog[]> {
+  // 1. 監査ログ取得（1クエリ）
+  const auditLogs = await prisma.auditLog.findMany({ where: filter });
+
+  // 2. 各ログの実行者・対象ユーザー取得（2×Nクエリ）
+  for (const log of auditLogs) {
+    log.actor = await prisma.user.findUnique({ where: { id: log.actorId } });
+    if (log.targetId) {
+      log.target = await prisma.user.findUnique({ where: { id: log.targetId } });
+    }
+  }
+
+  return auditLogs;
+}
+
+// ✅ Prisma includeで解決（1クエリ）
+async function getAuditLogs(filter: AuditLogFilter): Promise<AuditLog[]> {
+  const auditLogs = await prisma.auditLog.findMany({
+    where: filter,
+    include: {
+      actor: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+        },
+      },
+      target: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  return auditLogs;
+}
+```
+
+**パフォーマンス改善**:
+- Before: 1 + 2×N クエリ（例: 100ログ = 1 + 200 = 201クエリ）
+- After: **1クエリ**
+- **改善率**: 99.5% クエリ削減
+
+#### InvitationService: 招待一覧取得
+
+```typescript
+// ❌ N+1問題が発生する実装
+async function listInvitations(filter: InvitationFilter): Promise<Invitation[]> {
+  // 1. 招待取得（1クエリ）
+  const invitations = await prisma.invitation.findMany({ where: filter });
+
+  // 2. 各招待の招待者取得（Nクエリ）
+  for (const invitation of invitations) {
+    invitation.inviter = await prisma.user.findUnique({
+      where: { id: invitation.inviterId },
+    });
+  }
+
+  return invitations;
+}
+
+// ✅ Prisma includeで解決（1クエリ）
+async function listInvitations(filter: InvitationFilter): Promise<Invitation[]> {
+  const invitations = await prisma.invitation.findMany({
+    where: filter,
+    include: {
+      inviter: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  return invitations;
+}
+```
+
+**パフォーマンス改善**:
+- Before: 1 + N クエリ（例: 50招待 = 1 + 50 = 51クエリ）
+- After: **1クエリ**
+- **改善率**: 98% クエリ削減
+
+### アプローチ2: DataLoader（将来的な拡張）
+
+複雑な取得ロジックや動的な関連データ取得が必要な場合、DataLoaderを導入します。
+
+**DataLoader導入基準**:
+- Prisma includeでは表現できない複雑な取得ロジック
+- 複数のリクエスト間でバッチングが必要
+- キャッシングによる追加のパフォーマンス改善が必要
+
+**実装例（将来的な拡張）**:
+
+```typescript
+import DataLoader from 'dataloader';
+
+// ユーザーDataLoader
+const userLoader = new DataLoader<string, User>(async (userIds) => {
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...userIds] } },
+  });
+
+  // userIdsと同じ順序で返す
+  return userIds.map((id) => users.find((user) => user.id === id) || null);
+});
+
+// 使用例
+const user = await userLoader.load(userId);
+```
+
+**初期実装方針**:
+- **Phase 1-3**: Prisma includeのみで対応（シンプルで十分）
+- **Phase 4以降**: パフォーマンス問題が発生した場合にDataLoaderを導入
+
+### アプローチ3: Redis Cache-Aside Pattern
+
+頻繁にアクセスされる権限情報は、Redisキャッシュで高速化します。
+
+RBACServiceで既に実装済み（設計書の「RBACService」セクション参照）。
+
+**Graceful Degradation**:
+- Redis障害時にDB fallbackを実装
+- キャッシュ読み取り/書き込み失敗時も処理継続
+- 警告ログを記録
+
+### N+1問題が発生しやすいAPIエンドポイント一覧
+
+以下のAPIエンドポイントでN+1問題対策を適用します：
+
+| APIエンドポイント | 対策アプローチ | 推定クエリ削減 |
+|----------------|--------------|---------------|
+| GET /api/v1/users/me | Prisma include（userRoles.role） | 1 + N → 1 |
+| GET /api/v1/audit-logs | Prisma include（actor, target） | 1 + 2N → 1 |
+| GET /api/v1/invitations | Prisma include（inviter, user） | 1 + N → 1 |
+| GET /api/v1/roles | Prisma include（rolePermissions.permission） | 1 + N×M → 1 |
+| GET /api/v1/users/:id | Prisma include（userRoles.role.rolePermissions.permission） | 1 + N + N×M → 1 |
+
+### パフォーマンステスト検証
+
+Autocannonパフォーマンステストで以下を検証します：
+
+1. **権限チェックAPI**: 99パーセンタイルで100ms以内（目標）
+   - N+1問題対策前: 500-1000ms（予測）
+   - N+1問題対策後: 50-100ms（目標）
+   - **改善率**: 80-90%
+
+2. **監査ログ取得API**: 95パーセンタイルで500ms以内（目標）
+   - N+1問題対策前: 2000-3000ms（100ログ取得時、予測）
+   - N+1問題対策後: 200-500ms（目標）
+   - **改善率**: 75-90%
+
+3. **招待一覧API**: 95パーセンタイルで300ms以内（目標）
+   - N+1問題対策前: 1000-1500ms（50招待取得時、予測）
+   - N+1問題対策後: 100-300ms（目標）
+   - **改善率**: 67-90%
 
 ## Data Models
 
