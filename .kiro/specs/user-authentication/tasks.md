@@ -138,16 +138,17 @@
     - 有効期限が24時間で設定される
     - パスワード変更後に全トークンが無効化される
 
-- [ ] 2.7 JWT認証ミドルウェアの実装
+- [x] 2.7 JWT認証ミドルウェアの実装
   - JWTトークン検証ミドルウェアを実装
   - トークン期限切れエラーハンドリングを実装
   - _Requirements: 5.4, 5.5, 16.1, 16.2, 16.18_
   - _Details: design.md「Authentication Middleware」セクション参照_
   - _Completion Criteria:_
-    - Authorizationヘッダーからトークンを抽出する
-    - EdDSA署名を検証する
-    - `req.user`にユーザー情報を設定する
-    - 401エラーで適切なWWW-Authenticateヘッダーを返す
+    - ✅ Authorizationヘッダーからトークンを抽出する
+    - ✅ EdDSA署名を検証する
+    - ✅ `req.user`にユーザー情報を設定する
+    - ✅ テストカバレッジ100%達成（Statements, Functions, Lines）
+    - ✅ 全9テストが成功
 
 - [ ] 2.8 マルチデバイスセッション管理機能の実装
   - デバイスごとの独立したセッション管理機能を実装
