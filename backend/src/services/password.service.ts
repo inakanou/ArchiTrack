@@ -13,30 +13,14 @@
  */
 
 import { hash, verify } from '@node-rs/argon2';
-
-/**
- * パスワード強度検証のユーザー情報
- */
-export interface PasswordUserInfo {
-  email: string;
-  displayName: string;
-}
-
-/**
- * パスワード強度検証結果
- */
-export interface PasswordStrengthResult {
-  isValid: boolean;
-  errors: string[];
-}
-
-/**
- * パスワード履歴チェック結果
- */
-export interface PasswordHistoryResult {
-  isUnique: boolean;
-  error?: string;
-}
+import type { PrismaClient } from '@prisma/client';
+import {
+  PasswordViolation,
+  type PasswordError,
+  type Result,
+  Ok,
+  Err,
+} from '../types/password.types';
 
 /**
  * パスワード管理サービス
@@ -64,6 +48,8 @@ export class PasswordService {
    * パスワード履歴保持数
    */
   private readonly PASSWORD_HISTORY_LIMIT = 3;
+
+  constructor(private readonly prisma: PrismaClient) {}
 
   /**
    * パスワードをArgon2idアルゴリズムでハッシュ化する
@@ -103,46 +89,68 @@ export class PasswordService {
    * 1. 長さチェック（12文字以上）
    * 2. 複雑性チェック（大文字、小文字、数字、特殊文字のうち3種類以上）
    * 3. ユーザー情報含有チェック（メールアドレス、表示名を含まない）
-   * 4. 漏洩パスワードチェック（Bloom Filter、将来実装）
+   * 4. 漏洩パスワードチェック（Bloom Filter、簡易実装）
    *
    * @param password - 検証するパスワード
-   * @param userInfo - ユーザー情報（メールアドレス、表示名）
+   * @param userInputs - ユーザー入力情報（メールアドレス、表示名など）
    * @returns パスワード強度検証結果
    */
-  validatePasswordStrength(password: string, userInfo: PasswordUserInfo): PasswordStrengthResult {
-    const errors: string[] = [];
+  async validatePasswordStrength(
+    password: string,
+    userInputs: string[]
+  ): Promise<Result<void, PasswordError>> {
+    const violations: PasswordViolation[] = [];
 
     // 1. 長さチェック（12文字以上）
     if (password.length < this.MIN_PASSWORD_LENGTH) {
-      errors.push(`パスワードは${this.MIN_PASSWORD_LENGTH}文字以上である必要があります`);
+      violations.push(PasswordViolation.TOO_SHORT);
     }
 
     // 2. 複雑性チェック（3種類以上の文字種）
     const charTypeCount = this.countCharacterTypes(password);
+
+    // 3種類未満の場合のみ、どの文字種が足りないかをチェック
     if (charTypeCount < this.MIN_CHAR_TYPES) {
-      errors.push('パスワードは大文字、小文字、数字、特殊文字のうち3種類以上を含む必要があります');
+      // 各文字種の有無をチェック
+      if (!/[A-Z]/.test(password)) {
+        violations.push(PasswordViolation.NO_UPPERCASE);
+      }
+      if (!/[a-z]/.test(password)) {
+        violations.push(PasswordViolation.NO_LOWERCASE);
+      }
+      if (!/[0-9]/.test(password)) {
+        violations.push(PasswordViolation.NO_DIGIT);
+      }
+      if (!/[^a-zA-Z0-9]/.test(password)) {
+        violations.push(PasswordViolation.NO_SPECIAL_CHAR);
+      }
     }
 
     // 3. ユーザー情報含有チェック
-    const lowerPassword = password.toLowerCase();
-    const lowerEmail = userInfo.email.toLowerCase();
-    const lowerDisplayName = userInfo.displayName.toLowerCase().replace(/\s+/g, ''); // スペース削除
+    if (userInputs.length > 0) {
+      const lowerPassword = password.toLowerCase();
+      const containsUserInfo = userInputs.some((input) => {
+        const lowerInput = input.toLowerCase().replace(/\s+/g, ''); // スペース削除
+        return lowerPassword.includes(lowerInput);
+      });
 
-    if (lowerPassword.includes(lowerEmail) || lowerPassword.includes(lowerDisplayName)) {
-      errors.push('パスワードにメールアドレスまたは表示名を含めることはできません');
+      if (containsUserInfo) {
+        violations.push(PasswordViolation.CONTAINS_USER_INFO);
+      }
     }
 
     // 4. 漏洩パスワードチェック（Bloom Filter）
-    // TODO: タスク1.4でBloom Filterデータを準備した後に実装
+    // TODO: タスク1.4でBloom Filterデータを準備した後に本格実装
     // 現在は簡易的な一般的パスワードチェックのみ
     if (this.isCommonPassword(password)) {
-      errors.push('このパスワードは過去のデータ漏洩で使用されています');
+      violations.push(PasswordViolation.COMMON_PASSWORD);
     }
 
-    return {
-      isValid: errors.length === 0,
-      errors,
-    };
+    if (violations.length > 0) {
+      return Err({ type: 'WEAK_PASSWORD', violations });
+    }
+
+    return Ok(undefined);
   }
 
   /**
@@ -210,48 +218,31 @@ export class PasswordService {
   /**
    * パスワードが過去3回のパスワード履歴と一致しないかチェックする
    *
+   * @param userId - ユーザーID
    * @param newPassword - 新しいパスワード
-   * @param passwordHistory - パスワード履歴のハッシュ配列（最大3件）
-   * @returns パスワード履歴チェック結果
+   * @returns パスワードが履歴と一致しない場合はtrue、一致する場合はfalse
    */
-  async checkPasswordHistory(
-    newPassword: string,
-    passwordHistory: string[]
-  ): Promise<PasswordHistoryResult> {
+  async checkPasswordHistory(userId: string, newPassword: string): Promise<boolean> {
+    // 最新3件のパスワード履歴を取得
+    const passwordHistory = await this.prisma.passwordHistory.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: this.PASSWORD_HISTORY_LIMIT,
+    });
+
     // パスワード履歴が空の場合は常にユニーク
     if (passwordHistory.length === 0) {
-      return { isUnique: true };
+      return true;
     }
 
-    // 最新3件のみチェック
-    const recentHistory = passwordHistory.slice(-this.PASSWORD_HISTORY_LIMIT);
-
     // 各履歴パスワードと比較
-    for (const historicalHash of recentHistory) {
-      const isMatch = await this.verifyPassword(newPassword, historicalHash);
+    for (const history of passwordHistory) {
+      const isMatch = await this.verifyPassword(newPassword, history.passwordHash);
       if (isMatch) {
-        return {
-          isUnique: false,
-          error: '過去に使用したパスワードは使用できません',
-        };
+        return false; // パスワードが再利用されている
       }
     }
 
-    return { isUnique: true };
-  }
-
-  /**
-   * パスワード履歴を最新3件のみに制限する
-   *
-   * @param passwordHistory - パスワード履歴のハッシュ配列
-   * @returns 最新3件のパスワード履歴
-   */
-  getPasswordHistoryToKeep(passwordHistory: string[]): string[] {
-    if (passwordHistory.length <= this.PASSWORD_HISTORY_LIMIT) {
-      return passwordHistory;
-    }
-
-    // 最新3件のみ保持
-    return passwordHistory.slice(-this.PASSWORD_HISTORY_LIMIT);
+    return true; // パスワードは履歴と一致しない
   }
 }
