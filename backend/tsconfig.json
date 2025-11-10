@@ -34,6 +34,6 @@
     "incremental": true,
     "tsBuildInfoFile": ".tsbuildinfo"
   },
-  "include": ["src/**/*", "vitest.setup.ts", "performance/**/*", "scripts/**/*"],
+  "include": ["src/**/*", "vitest.setup.ts", "performance/**/*", "scripts/**/*", "prisma/**/*"],
   "exclude": ["node_modules", "dist"]
 }

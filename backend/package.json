@@ -29,7 +29,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "prisma:format": "prisma format"
+    "prisma:format": "prisma format",
+    "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
@@ -105,5 +106,8 @@
   },
   "engines": {
     "node": ">=22.0.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

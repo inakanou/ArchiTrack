@@ -193,7 +193,7 @@
 - [ ] 3. 認可システムの実装
   - _Dependencies: タスク2完了（認証サービス、トークン管理）_
 
-- [ ] 3.1 ロールと権限の初期データ作成
+- [x] 3.1 ロールと権限の初期データ作成
   - 事前定義ロールを作成するシーディングスクリプトを実装
   - 事前定義権限を作成するシーディングスクリプトを実装
   - ロールと権限の紐付けを設定
@@ -201,10 +201,22 @@
   - _Requirements: 3.1, 3.2, 3.3, 6.3, 17（事前定義ロール）, 18（権限定義）_
   - _Details: design.md「RBAC Setup」セクション参照_
   - _Completion Criteria:_
-    - シーディングスクリプトが冪等性を持つ
-    - システム管理者ロールが全権限を持つ
-    - 一般ユーザーロールが基本権限を持つ
-    - 初期管理者アカウントが作成される
+    - ✅ シーディングスクリプトが冪等性を持つ
+    - ✅ システム管理者ロールが全権限を持つ
+    - ✅ 一般ユーザーロールが基本権限を持つ
+    - ✅ 初期管理者アカウントが作成される
+  - _Implemented:_
+    - Seed Helpersユーティリティ実装 (`backend/src/utils/seed-helpers.ts`)
+      - seedRoles(): 事前定義ロール作成（admin, user）
+      - seedPermissions(): 事前定義権限作成（*:*, adr:*, user:*, role:*, permission:*, settings:*）
+      - seedRolePermissions(): ロール・権限紐付け（adminに*:*、userに基本権限）
+      - seedAdminUser(): 初期管理者作成（環境変数: INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_PASSWORD, INITIAL_ADMIN_DISPLAY_NAME）
+    - Prisma Seedスクリプト実装 (`backend/prisma/seed.ts`)
+      - 冪等性あり（upsert使用）
+      - `npm run prisma:seed`コマンドで実行可能
+    - package.json更新: "prisma:seed", "prisma" seedフィールド追加
+    - 統合テスト6ケース作成 (`backend/src/__tests__/integration/seed.test.ts`)
+    - 全253テストパス、型チェック成功
 
 - [ ] 3.2 ロールベースの権限チェック機能実装
   - ユーザーの権限チェック機能を実装（ワイルドカード対応）
