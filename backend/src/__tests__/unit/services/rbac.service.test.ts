@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, User } from '@prisma/client';
+import type Redis from 'ioredis';
 import { RBACService } from '../../../services/rbac.service';
 
 // モックデータ
@@ -366,6 +367,135 @@ describe('RBACService', () => {
       // Assert
       expect(invalidFormat1).toBe(false);
       expect(invalidFormat2).toBe(false);
+    });
+  });
+
+  describe('invalidateUserPermissionsCache()', () => {
+    let redisMock: Redis;
+    let rbacServiceWithRedis: RBACService;
+
+    beforeEach(() => {
+      // Redisモックの作成
+      redisMock = {
+        del: vi.fn(),
+      } as unknown as Redis;
+
+      rbacServiceWithRedis = new RBACService(prismaMock, redisMock);
+    });
+
+    it('Redisが利用可能な場合、指定されたユーザーのキャッシュを削除する', async () => {
+      // Arrange
+      vi.mocked(redisMock.del).mockResolvedValue(1);
+
+      // Act
+      await rbacServiceWithRedis.invalidateUserPermissionsCache(mockUserId);
+
+      // Assert
+      expect(redisMock.del).toHaveBeenCalledWith(`rbac:permissions:${mockUserId}`);
+    });
+
+    it('Redisが利用できない場合、エラーをログに記録して続行する', async () => {
+      // Arrange
+      vi.mocked(redisMock.del).mockRejectedValue(new Error('Redis connection failed'));
+
+      // Act & Assert - エラーをスローしないこと
+      await expect(
+        rbacServiceWithRedis.invalidateUserPermissionsCache(mockUserId)
+      ).resolves.toBeUndefined();
+    });
+
+    it('Redisが注入されていない場合、何も実行しない', async () => {
+      // Arrange
+      const rbacServiceWithoutRedis = new RBACService(prismaMock);
+
+      // Act & Assert - エラーをスローしないこと
+      await expect(
+        rbacServiceWithoutRedis.invalidateUserPermissionsCache(mockUserId)
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('invalidateUserPermissionsCacheForRole()', () => {
+    let redisMock: Redis;
+    let rbacServiceWithRedis: RBACService;
+
+    beforeEach(() => {
+      // Redisモックの作成
+      redisMock = {
+        del: vi.fn(),
+      } as unknown as Redis;
+
+      // Prismaモックを再作成（userRoleを含む）
+      prismaMock = {
+        user: {
+          findUnique: vi.fn(),
+        },
+        userRole: {
+          findMany: vi.fn(),
+        },
+      } as unknown as PrismaClient;
+
+      rbacServiceWithRedis = new RBACService(prismaMock, redisMock);
+    });
+
+    it('ロールを持つ全ユーザーのキャッシュを無効化する', async () => {
+      // Arrange
+      const roleId = 'role-123';
+      const mockUserRoles = [{ userId: 'user-1' }, { userId: 'user-2' }, { userId: 'user-3' }];
+
+      vi.mocked(prismaMock.userRole.findMany).mockResolvedValue(mockUserRoles as unknown as never);
+      vi.mocked(redisMock.del).mockResolvedValue(3);
+
+      // Act
+      await rbacServiceWithRedis.invalidateUserPermissionsCacheForRole(roleId);
+
+      // Assert
+      expect(prismaMock.userRole.findMany).toHaveBeenCalledWith({
+        where: { roleId },
+        select: { userId: true },
+      });
+      expect(redisMock.del).toHaveBeenCalledWith(
+        'rbac:permissions:user-1',
+        'rbac:permissions:user-2',
+        'rbac:permissions:user-3'
+      );
+    });
+
+    it('ロールを持つユーザーが存在しない場合、Redis削除を実行しない', async () => {
+      // Arrange
+      const roleId = 'role-empty';
+      vi.mocked(prismaMock.userRole.findMany).mockResolvedValue([] as unknown as never);
+
+      // Act
+      await rbacServiceWithRedis.invalidateUserPermissionsCacheForRole(roleId);
+
+      // Assert
+      expect(prismaMock.userRole.findMany).toHaveBeenCalled();
+      expect(redisMock.del).not.toHaveBeenCalled();
+    });
+
+    it('Redisが利用できない場合、エラーをログに記録して続行する', async () => {
+      // Arrange
+      const roleId = 'role-123';
+      const mockUserRoles = [{ userId: 'user-1' }];
+      vi.mocked(prismaMock.userRole.findMany).mockResolvedValue(mockUserRoles as unknown as never);
+      vi.mocked(redisMock.del).mockRejectedValue(new Error('Redis connection failed'));
+
+      // Act & Assert - エラーをスローしないこと
+      await expect(
+        rbacServiceWithRedis.invalidateUserPermissionsCacheForRole(roleId)
+      ).resolves.toBeUndefined();
+    });
+
+    it('Redisが注入されていない場合、何も実行しない', async () => {
+      // Arrange
+      const rbacServiceWithoutRedis = new RBACService(prismaMock);
+      const roleId = 'role-123';
+
+      // Act & Assert - エラーをスローしないこと
+      await expect(
+        rbacServiceWithoutRedis.invalidateUserPermissionsCacheForRole(roleId)
+      ).resolves.toBeUndefined();
     });
   });
 });

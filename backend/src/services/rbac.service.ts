@@ -212,4 +212,71 @@ export class RBACService implements IRBACService {
     // マッチしない
     return false;
   }
+
+  /**
+   * 指定されたユーザーの権限キャッシュを無効化
+   *
+   * ロールや権限が変更された場合に呼び出して、古いキャッシュを削除します。
+   * Redisが利用できない場合は、エラーをログに記録してGraceful Degradation。
+   *
+   * @param userId - ユーザーID
+   */
+  async invalidateUserPermissionsCache(userId: string): Promise<void> {
+    if (!this.redis) {
+      // Redisが注入されていない場合は何もしない
+      return;
+    }
+
+    const cacheKey = `rbac:permissions:${userId}`;
+
+    try {
+      await this.redis.del(cacheKey);
+      logger.debug({ userId }, 'Permission cache invalidated');
+    } catch (error) {
+      // Graceful Degradation: キャッシュ無効化失敗してもエラーにしない
+      logger.warn({ error, userId }, 'Failed to invalidate permission cache');
+    }
+  }
+
+  /**
+   * 指定されたロールを持つ全ユーザーの権限キャッシュを無効化
+   *
+   * ロールに権限が追加・削除された場合に呼び出して、そのロールを持つ
+   * 全ユーザーのキャッシュを無効化します。
+   *
+   * @param roleId - ロールID
+   */
+  async invalidateUserPermissionsCacheForRole(roleId: string): Promise<void> {
+    if (!this.redis) {
+      // Redisが注入されていない場合は何もしない
+      return;
+    }
+
+    try {
+      // ロールを持つ全ユーザーを取得
+      const userRoles = await this.prisma.userRole.findMany({
+        where: { roleId },
+        select: { userId: true },
+      });
+
+      if (userRoles.length === 0) {
+        // ロールを持つユーザーがいない場合は何もしない
+        return;
+      }
+
+      // 全ユーザーのキャッシュキーを生成
+      const cacheKeys = userRoles.map((ur) => `rbac:permissions:${ur.userId}`);
+
+      // 一括削除
+      await this.redis.del(...cacheKeys);
+
+      logger.debug(
+        { roleId, userCount: userRoles.length },
+        'Permission cache invalidated for role'
+      );
+    } catch (error) {
+      // Graceful Degradation: キャッシュ無効化失敗してもエラーにしない
+      logger.warn({ error, roleId }, 'Failed to invalidate permission cache for role');
+    }
+  }
 }

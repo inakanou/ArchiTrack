@@ -11,6 +11,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types';
+import type { IRBACService } from '../types/rbac.types';
 import { Ok, Err, type Result } from '../types/result';
 import logger from '../utils/logger';
 
@@ -18,7 +19,10 @@ import logger from '../utils/logger';
  * ユーザー・ロール紐付け管理サービスの実装
  */
 export class UserRoleService implements IUserRoleService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly rbacService?: IRBACService
+  ) {}
 
   /**
    * ユーザーにロールを追加
@@ -79,6 +83,11 @@ export class UserRoleService implements IUserRoleService {
         { userId, roleId, userEmail: user.email, roleName: role.name },
         'Role added to user successfully'
       );
+
+      // ユーザーの権限キャッシュを無効化
+      if (this.rbacService) {
+        await this.rbacService.invalidateUserPermissionsCache(userId);
+      }
 
       return Ok(undefined);
     } catch (error) {
@@ -161,6 +170,11 @@ export class UserRoleService implements IUserRoleService {
         { userId, roleId, userEmail: user.email, roleName: role.name },
         'Role removed from user successfully'
       );
+
+      // ユーザーの権限キャッシュを無効化
+      if (this.rbacService) {
+        await this.rbacService.invalidateUserPermissionsCache(userId);
+      }
 
       return Ok(undefined);
     } catch (error) {

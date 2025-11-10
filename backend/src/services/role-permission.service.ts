@@ -15,6 +15,7 @@ import type {
   RolePermissionInfo,
   RolePermissionError,
 } from '../types/role-permission.types';
+import type { IRBACService } from '../types/rbac.types';
 import { Ok, Err, type Result } from '../types/result';
 import logger from '../utils/logger';
 
@@ -22,7 +23,10 @@ import logger from '../utils/logger';
  * ロール・権限紐付け管理サービスの実装
  */
 export class RolePermissionService implements IRolePermissionService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly rbacService?: IRBACService
+  ) {}
 
   /**
    * ロールに権限を追加
@@ -91,6 +95,11 @@ export class RolePermissionService implements IRolePermissionService {
         },
         'Permission added to role successfully'
       );
+
+      // ロールを持つ全ユーザーのキャッシュを無効化
+      if (this.rbacService) {
+        await this.rbacService.invalidateUserPermissionsCacheForRole(roleId);
+      }
 
       return Ok(undefined);
     } catch (error) {
@@ -175,6 +184,11 @@ export class RolePermissionService implements IRolePermissionService {
         },
         'Permission removed from role successfully'
       );
+
+      // ロールを持つ全ユーザーのキャッシュを無効化
+      if (this.rbacService) {
+        await this.rbacService.invalidateUserPermissionsCacheForRole(roleId);
+      }
 
       return Ok(undefined);
     } catch (error) {

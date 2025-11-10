@@ -26,6 +26,20 @@ export interface IRBACService {
    * @returns ユーザーが持つ権限情報の配列
    */
   getUserPermissions(userId: string): Promise<PermissionInfo[]>;
+
+  /**
+   * 指定されたユーザーの権限キャッシュを無効化
+   *
+   * @param userId - ユーザーID
+   */
+  invalidateUserPermissionsCache(userId: string): Promise<void>;
+
+  /**
+   * 指定されたロールを持つ全ユーザーの権限キャッシュを無効化
+   *
+   * @param roleId - ロールID
+   */
+  invalidateUserPermissionsCacheForRole(roleId: string): Promise<void>;
 }
 
 /**

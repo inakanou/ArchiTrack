@@ -359,16 +359,34 @@
       - メタデータ記録: IP・User-Agent（1テスト）
     - 全334テストパス、型チェック成功
 
-- [ ] 3.7 権限情報のキャッシング戦略実装
+- [x] 3.7 権限情報のキャッシング戦略実装
   - ユーザー権限のRedisキャッシング機能を実装（Cache-Asideパターン）
   - キャッシュ無効化機能を実装（ロール・権限変更時、ユーザー・ロール変更時）
   - Redis障害時のフォールバック機能を実装（Graceful Degradation）
   - _Requirements: 23.4, 24.2, 24.7_
   - _Details: design.md「Caching Strategy」セクション参照_
   - _Completion Criteria:_
-    - 権限情報がRedisにキャッシュされる（TTL: 15分）
-    - ロール・権限変更時にキャッシュが無効化される
-    - Redis障害時にDBフォールバックが動作する
+    - ✅ 権限情報がRedisにキャッシュされる（TTL: 15分）
+    - ✅ ロール・権限変更時にキャッシュが無効化される
+    - ✅ Redis障害時にDBフォールバックが動作する
+  - _Implemented:_
+    - RBACServiceキャッシュ無効化メソッド実装 (`backend/src/services/rbac.service.ts`)
+      - invalidateUserPermissionsCache(userId): ユーザー単位のキャッシュ削除（ユーザー・ロール変更時に使用）
+      - invalidateUserPermissionsCacheForRole(roleId): ロール保持者全員のキャッシュ削除（ロール・権限変更時に使用）
+      - Cache-Aside Pattern: Redis get → DB fallback → Redis setex（既存のgetUserPermissions実装を活用）
+      - Graceful Degradation: Redis障害時のDBフォールバック、キャッシュ失敗許容
+    - RolePermissionServiceキャッシュ統合 (`backend/src/services/role-permission.service.ts`)
+      - addPermissionToRole/removePermissionFromRole: ロール保持者全員のキャッシュ無効化呼び出し
+      - IRBACService依存性注入（オプショナル）
+    - UserRoleServiceキャッシュ統合 (`backend/src/services/user-role.service.ts`)
+      - addRoleToUser/removeRoleFromUser: ユーザー単位のキャッシュ無効化呼び出し
+      - IRBACService依存性注入（オプショナル）
+    - IRBACServiceインターフェース拡張 (`backend/src/types/rbac.types.ts`)
+      - invalidateUserPermissionsCache(), invalidateUserPermissionsCacheForRole()メソッド追加
+    - 単体テスト7ケース追加 (`backend/src/__tests__/unit/services/rbac.service.test.ts`)
+      - invalidateUserPermissionsCache(): Redis利用可能、Redis障害、Redis未注入（3テスト）
+      - invalidateUserPermissionsCacheForRole(): Redis利用可能、Redis障害、ユーザーなし、Redis未注入（4テスト）
+    - 全341テストパス、型チェック成功
 
 - [ ] 4. 二要素認証（2FA）の実装
   - _Dependencies: タスク2完了（認証サービス）_
