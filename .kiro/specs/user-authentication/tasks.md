@@ -329,7 +329,7 @@
       - `backend/src/__tests__/unit/services/user-role.service.test.ts`: 14テスト
     - 全323テストパス、型チェック成功
 
-- [ ] 3.6 権限チェックミドルウェアの実装
+- [x] 3.6 権限チェックミドルウェアの実装
   - 権限チェックミドルウェアを実装（RBAC統合、必要な権限の検証）
   - 権限不足時のエラーハンドリングを実装（403 Forbidden、監査ログ記録）
   - _Requirements: 6.1, 6.2, 21.1, 21.2, 21.7_
@@ -338,6 +338,26 @@
     - 必要な権限を指定してミドルウェアを適用できる
     - 権限不足時に403エラーを返す
     - 監査ログに権限チェック失敗を記録する
+  - _Implementation:_
+    - requirePermission()ミドルウェアファクトリー実装 (`backend/src/middleware/authorize.middleware.ts`)
+      - Higher-Order Function: 権限指定で設定済みミドルウェアを生成
+      - Dependency Injection: RBACService, PrismaClient（テスト用）
+      - 認証チェック: req.user不在時に401 Unauthorized
+      - 権限チェック: RBACService.hasPermission()呼び出し
+      - 失敗時ハンドリング: 403 Forbidden + 監査ログ記録（PERMISSION_CHECK_FAILED）
+      - エラーハンドリング: 500 Internal Error（RBACService例外）
+      - Graceful Degradation: 監査ログ失敗時もレスポンス返却
+    - recordPermissionCheckFailure()ヘルパー関数実装
+      - 監査ログ作成（action: PERMISSION_CHECK_FAILED）
+      - メタデータ記録（required, ip, userAgent）
+      - エラーハンドリング（失敗時ログ出力、非スロー）
+    - 単体テスト11ケース追加 (`backend/src/__tests__/unit/middleware/authorize.middleware.test.ts`)
+      - 権限チェック成功: 基本権限、*:*、*:read パターン（3テスト）
+      - 権限チェック失敗: 403エラー、監査ログ記録、未認証401（3テスト）
+      - エラーハンドリング: RBACService例外、監査ログ失敗（2テスト）
+      - 権限パターン: adr:create, user:update（2テスト）
+      - メタデータ記録: IP・User-Agent（1テスト）
+    - 全334テストパス、型チェック成功
 
 - [ ] 3.7 権限情報のキャッシング戦略実装
   - ユーザー権限のRedisキャッシング機能を実装（Cache-Asideパターン）
