@@ -245,7 +245,7 @@
       - hasPermission(): 完全一致、権限なし、*:*ワイルドカード、*:readワイルドカード、adr:*ワイルドカード、存在しないユーザー、不正形式
     - 全264テストパス、型チェック成功
 
-- [ ] 3.3 動的ロール管理機能の実装
+- [x] 3.3 動的ロール管理機能の実装
   - ロール作成機能を実装（名前、説明、優先順位設定）
   - ロール更新機能を実装（監査ログ記録、変更履歴追跡）
   - ロール削除機能を実装（使用中チェック、システムロール保護）
@@ -253,9 +253,29 @@
   - _Requirements: 17.1-17.9_
   - _Details: design.md「Role Management」セクション参照_
   - _Completion Criteria:_
-    - 動的にロールを作成・更新・削除できる
-    - システム管理者ロールは削除できない
-    - 使用中のロールは削除できない
+    - ✅ 動的にロールを作成・更新・削除できる
+    - ✅ システム管理者ロールは削除できない（SYSTEM_ROLE_PROTECTED）
+    - ✅ 使用中のロールは削除できない（ROLE_IN_USE）
+  - _Implemented:_
+    - 型定義ファイル実装 (`backend/src/types/role.types.ts`)
+      - IRoleService: createRole(), updateRole(), deleteRole(), listRoles(), getRoleById()
+      - CreateRoleInput, UpdateRoleInput: ロール作成・更新入力型
+      - RoleInfo: ロール情報型
+      - RoleWithStats: 統計情報付きロール型（userCount, permissionCount）
+      - RoleError: ROLE_NOT_FOUND, ROLE_NAME_CONFLICT, ROLE_IN_USE, SYSTEM_ROLE_PROTECTED, DATABASE_ERROR
+    - RoleService完全実装 (`backend/src/services/role.service.ts`)
+      - createRole(): 名前重複チェック、優先順位デフォルト値0、isSystem=false
+      - updateRole(): 存在チェック、名前重複チェック（変更時）、部分更新対応
+      - deleteRole(): 存在チェック、システムロール保護（isSystem=true）、使用中チェック（UserRoleカウント）
+      - listRoles(): 統計情報付き一覧取得（_count使用）、優先順位降順・名前昇順ソート
+      - getRoleById(): ロールIDで取得
+    - 単体テスト18ケース追加 (`backend/src/__tests__/unit/services/role.service.test.ts`)
+      - createRole(): 6テスト（正常系、名前重複、優先順位デフォルト/カスタム、isSystem=false、空権限セット）
+      - updateRole(): 4テスト（名前/説明/優先順位更新、存在しないロールエラー）
+      - deleteRole(): 4テスト（正常系、システムロール保護、使用中エラー、存在しないロールエラー）
+      - listRoles(): 2テスト（統計情報付き一覧、空リスト）
+      - getRoleById(): 2テスト（正常系、存在しないロールエラー）
+    - 全282テストパス、型チェック成功
 
 - [ ] 3.4 権限の管理機能実装
   - 権限一覧取得機能を実装（リソースタイプ、アクション、説明）
