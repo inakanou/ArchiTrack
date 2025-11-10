@@ -277,15 +277,25 @@
       - getRoleById(): 2テスト（正常系、存在しないロールエラー）
     - 全282テストパス、型チェック成功
 
-- [ ] 3.4 権限の管理機能実装
+- [x] 3.4 権限の管理機能実装
   - 権限一覧取得機能を実装（リソースタイプ、アクション、説明）
   - カスタム権限作成機能を実装（`resource:action`形式の検証）
   - ワイルドカード権限評価機能を実装
   - _Requirements: 18.1-18.7_
   - _Details: design.md「Permission Management」セクション参照_
   - _Completion Criteria:_
-    - 権限が`resource:action`形式で管理される
-    - ワイルドカード権限が正しく評価される
+    - ✅ 権限が`resource:action`形式で管理される
+    - ✅ ワイルドカード権限が正しく評価される
+  - _Implemented:_
+    - PermissionService完全実装 (`backend/src/services/permission.service.ts`)
+    - listPermissions(): リソース・アクション順でソート
+    - createPermission(): resource+action形式検証、重複チェック、ワイルドカード対応（`*:*`, `*:action`, `resource:*`）
+    - getPermissionById(): 権限ID検索
+    - deletePermission(): 存在チェック、使用中チェック（RolePermissionカウント）
+    - validatePermissionFormat(): 空文字列検証（private）
+    - 型定義追加 (`backend/src/types/permission.types.ts`): IPermissionService, CreatePermissionInput, PermissionInfo, PermissionError
+    - 単体テスト13ケース追加 (`backend/src/__tests__/unit/services/permission.service.test.ts`)
+    - 全295テストパス、型チェック成功
 
 - [ ] 3.5 ロールと権限の紐付け管理機能実装
   - ロールへの権限追加機能を実装（重複チェック、トランザクション管理）
