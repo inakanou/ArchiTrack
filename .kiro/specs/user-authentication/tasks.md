@@ -136,7 +136,7 @@
     - 単体テスト4ケース追加 (`backend/src/__tests__/unit/services/auth.service.test.ts`)
     - 全227テストパス、型チェック成功
 
-- [ ] 2.6 パスワードリセット機能の実装
+- [x] 2.6 パスワードリセット機能の実装
   - パスワードリセット要求機能を実装（リセットトークン生成、メール送信）
   - リセットトークン検証機能を実装（24時間有効期限チェック）
   - パスワードリセット実行機能を実装（新パスワード設定、全トークン無効化）
@@ -144,9 +144,17 @@
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8_
   - _Details: design.md「Password Reset」セクション参照_
   - _Completion Criteria:_
-    - リセットトークンが暗号学的に安全に生成される
-    - 有効期限が24時間で設定される
-    - パスワード変更後に全トークンが無効化される
+    - ✅ リセットトークンが暗号学的に安全に生成される
+    - ✅ 有効期限が24時間で設定される
+    - ✅ パスワード変更後に全トークンが無効化される
+  - _Implemented:_
+    - PasswordService拡張 (`backend/src/services/password.service.ts`)
+    - requestPasswordReset(): リセットトークン生成（crypto.randomBytes(32)）、24時間有効期限、メール送信
+    - resetPassword(): トークン検証（存在、有効期限、未使用）、パスワード強度チェック、履歴チェック、トランザクション管理
+    - changePassword(): 現在のパスワード検証、パスワード強度チェック、履歴チェック、トランザクション管理
+    - updatePasswordInTransaction(): パスワード更新、履歴追加（最新3件のみ保持）、全RefreshToken無効化の共通処理
+    - 単体テスト13ケース追加 (`backend/src/__tests__/unit/services/password.service.test.ts`)
+    - 全240テストパス、型チェック成功
 
 - [x] 2.7 JWT認証ミドルウェアの実装
   - JWTトークン検証ミドルウェアを実装

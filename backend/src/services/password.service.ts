@@ -21,6 +21,8 @@ import {
   Ok,
   Err,
 } from '../types/password.types';
+import { EmailService } from './email.service';
+import { randomBytes } from 'crypto';
 
 /**
  * パスワード管理サービス
@@ -49,7 +51,19 @@ export class PasswordService {
    */
   private readonly PASSWORD_HISTORY_LIMIT = 3;
 
-  constructor(private readonly prisma: PrismaClient) {}
+  /**
+   * リセットトークン有効期限（24時間）
+   */
+  private readonly RESET_TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24時間（ミリ秒）
+
+  private readonly emailService: EmailService;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    emailService?: EmailService
+  ) {
+    this.emailService = emailService || new EmailService();
+  }
 
   /**
    * パスワードをArgon2idアルゴリズムでハッシュ化する
@@ -244,5 +258,255 @@ export class PasswordService {
     }
 
     return true; // パスワードは履歴と一致しない
+  }
+
+  /**
+   * パスワードリセット要求
+   *
+   * 処理フロー:
+   * 1. メールアドレスでユーザーを検索
+   * 2. ユーザーが存在する場合:
+   *    - 暗号学的に安全なリセットトークンを生成（32バイト）
+   *    - PasswordResetTokenテーブルに保存（24時間有効期限）
+   *    - EmailService経由でパスワードリセットメールを送信
+   * 3. セキュリティのため、ユーザー不在でも常に成功レスポンスを返す
+   *
+   * @param email - メールアドレス
+   * @returns 常に成功レスポンス（セキュリティのため）
+   */
+  async requestPasswordReset(email: string): Promise<Result<void, PasswordError>> {
+    try {
+      // 1. ユーザー検索
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+      });
+
+      // 2. ユーザーが存在しない場合でも成功を返す（セキュリティのため）
+      if (!user) {
+        return Ok(undefined);
+      }
+
+      // 3. 暗号学的に安全なリセットトークンを生成（32バイト = 256ビット）
+      const resetToken = randomBytes(32).toString('hex');
+
+      // 4. リセットトークンをデータベースに保存（24時間有効期限）
+      await this.prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          token: resetToken,
+          expiresAt: new Date(Date.now() + this.RESET_TOKEN_EXPIRY),
+        },
+      });
+
+      // 5. パスワードリセットメール送信
+      await this.emailService.sendPasswordResetEmail(email, resetToken);
+
+      return Ok(undefined);
+    } catch {
+      // データベースエラーなどの場合
+      return Err({ type: 'RESET_TOKEN_INVALID' });
+    }
+  }
+
+  /**
+   * パスワード更新の共通処理（トランザクション内）
+   *
+   * 以下を実行:
+   * 1. パスワード更新
+   * 2. PasswordHistory追加（最新3件のみ保持、古い履歴を削除）
+   * 3. 全RefreshToken無効化
+   *
+   * @param tx - Prismaトランザクション
+   * @param userId - ユーザーID
+   * @param passwordHash - 新しいパスワードハッシュ
+   */
+  private async updatePasswordInTransaction(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+    userId: string,
+    passwordHash: string
+  ): Promise<void> {
+    // パスワード更新
+    await tx.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+
+    // パスワード履歴追加
+    await tx.passwordHistory.create({
+      data: {
+        userId,
+        passwordHash,
+      },
+    });
+
+    // 古いパスワード履歴を削除（最新3件のみ保持）
+    const allHistories = await tx.passwordHistory.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (allHistories.length > this.PASSWORD_HISTORY_LIMIT) {
+      const historiesToDelete = allHistories.slice(this.PASSWORD_HISTORY_LIMIT);
+      await tx.passwordHistory.deleteMany({
+        where: {
+          id: {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            in: historiesToDelete.map((h: any) => h.id),
+          },
+        },
+      });
+    }
+
+    // 全リフレッシュトークンを無効化（セキュリティのため）
+    await tx.refreshToken.deleteMany({
+      where: { userId },
+    });
+  }
+
+  /**
+   * パスワードリセット実行
+   *
+   * 処理フロー:
+   * 1. リセットトークン検証（存在、有効期限、未使用）
+   * 2. パスワード強度検証
+   * 3. パスワード履歴チェック（過去3回と一致しない）
+   * 4. トランザクション内で:
+   *    - パスワード更新
+   *    - PasswordHistory追加（最新3件のみ保持、古い履歴を削除）
+   *    - 全RefreshToken無効化
+   *    - PasswordResetToken使用済みマーク
+   *
+   * @param resetToken - リセットトークン
+   * @param newPassword - 新しいパスワード
+   * @returns 成功またはエラー
+   */
+  async resetPassword(
+    resetToken: string,
+    newPassword: string
+  ): Promise<Result<void, PasswordError>> {
+    try {
+      // 1. リセットトークン検証
+      const passwordResetToken = await this.prisma.passwordResetToken.findUnique({
+        where: { token: resetToken },
+      });
+
+      // トークンが存在しない
+      if (!passwordResetToken) {
+        return Err({ type: 'RESET_TOKEN_INVALID' });
+      }
+
+      // トークンが既に使用済み
+      if (passwordResetToken.usedAt) {
+        return Err({ type: 'RESET_TOKEN_INVALID' });
+      }
+
+      // トークンの有効期限切れ
+      if (passwordResetToken.expiresAt < new Date()) {
+        return Err({ type: 'RESET_TOKEN_EXPIRED' });
+      }
+
+      // 2. パスワード強度検証
+      const passwordValidationResult = await this.validatePasswordStrength(newPassword, []);
+      if (!passwordValidationResult.ok) {
+        return passwordValidationResult;
+      }
+
+      // 3. パスワード履歴チェック
+      const isPasswordUnique = await this.checkPasswordHistory(
+        passwordResetToken.userId,
+        newPassword
+      );
+      if (!isPasswordUnique) {
+        return Err({ type: 'PASSWORD_REUSED' });
+      }
+
+      // 4. パスワードハッシュ化
+      const passwordHash = await this.hashPassword(newPassword);
+
+      // 5. トランザクション内でパスワード更新、履歴追加、トークン無効化、セッション削除
+      await this.prisma.$transaction(async (tx) => {
+        // 共通のパスワード更新処理
+        await this.updatePasswordInTransaction(tx, passwordResetToken.userId, passwordHash);
+
+        // リセットトークンを使用済みにマーク
+        await tx.passwordResetToken.update({
+          where: { id: passwordResetToken.id },
+          data: {
+            usedAt: new Date(),
+          },
+        });
+      });
+
+      return Ok(undefined);
+    } catch {
+      return Err({ type: 'RESET_TOKEN_INVALID' });
+    }
+  }
+
+  /**
+   * パスワード変更
+   *
+   * 処理フロー:
+   * 1. ユーザー検索
+   * 2. 現在のパスワード検証
+   * 3. パスワード強度検証
+   * 4. パスワード履歴チェック（過去3回と一致しない）
+   * 5. トランザクション内で:
+   *    - パスワード更新
+   *    - PasswordHistory追加（最新3件のみ保持、古い履歴を削除）
+   *    - 全RefreshToken無効化
+   *
+   * @param userId - ユーザーID
+   * @param currentPassword - 現在のパスワード
+   * @param newPassword - 新しいパスワード
+   * @returns 成功またはエラー
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<Result<void, PasswordError>> {
+    try {
+      // 1. ユーザー検索
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        return Err({ type: 'RESET_TOKEN_INVALID' }); // USER_NOT_FOUND相当
+      }
+
+      // 2. 現在のパスワード検証
+      const isCurrentPasswordValid = await this.verifyPassword(currentPassword, user.passwordHash);
+      if (!isCurrentPasswordValid) {
+        return Err({ type: 'RESET_TOKEN_INVALID' }); // INVALID_PASSWORD相当
+      }
+
+      // 3. パスワード強度検証
+      const passwordValidationResult = await this.validatePasswordStrength(newPassword, []);
+      if (!passwordValidationResult.ok) {
+        return passwordValidationResult;
+      }
+
+      // 4. パスワード履歴チェック
+      const isPasswordUnique = await this.checkPasswordHistory(userId, newPassword);
+      if (!isPasswordUnique) {
+        return Err({ type: 'PASSWORD_REUSED' });
+      }
+
+      // 5. パスワードハッシュ化
+      const passwordHash = await this.hashPassword(newPassword);
+
+      // 6. トランザクション内でパスワード更新、履歴追加、セッション削除
+      await this.prisma.$transaction(async (tx) => {
+        // 共通のパスワード更新処理
+        await this.updatePasswordInTransaction(tx, userId, passwordHash);
+      });
+
+      return Ok(undefined);
+    } catch {
+      return Err({ type: 'RESET_TOKEN_INVALID' });
+    }
   }
 }
