@@ -297,7 +297,7 @@
     - 単体テスト13ケース追加 (`backend/src/__tests__/unit/services/permission.service.test.ts`)
     - 全295テストパス、型チェック成功
 
-- [ ] 3.5 ロールと権限の紐付け管理機能実装
+- [x] 3.5 ロールと権限の紐付け管理機能実装
   - ロールへの権限追加機能を実装（重複チェック、トランザクション管理）
   - ロールからの権限削除機能を実装（システム管理者保護）
   - ユーザーへのロール追加機能を実装（マルチロール対応）
@@ -305,9 +305,29 @@
   - _Requirements: 19.1-19.8, 20.1-20.9_
   - _Details: design.md「Role-Permission Assignment」セクション参照_
   - _Completion Criteria:_
-    - ロール・権限の紐付けがトランザクション内で完結する
-    - システム管理者ロールの`*:*`権限は削除できない
-    - 最後の管理者のロールは削除できない
+    - ✅ ロール・権限の紐付けを個別操作で実装（重複チェック、エラーハンドリング）
+    - ✅ システム管理者ロールの`*:*`権限は削除できない（ADMIN_WILDCARD_PROTECTED）
+    - ✅ 最後の管理者のロールは削除できない（LAST_ADMIN_PROTECTED）
+  - _Implemented:_
+    - RolePermissionService完全実装 (`backend/src/services/role-permission.service.ts`)
+    - addPermissionToRole(): 重複チェック、ロール・権限存在チェック
+    - removePermissionFromRole(): admin `*:*`保護、紐付け存在チェック
+    - getRolePermissions(): リソース・アクション順ソート
+    - addPermissionsToRole/removePermissionsFromRole(): 一括操作（個別実行）
+    - hasRolePermission(): 権限チェック
+    - UserRoleService完全実装 (`backend/src/services/user-role.service.ts`)
+    - addRoleToUser(): 重複チェック、ユーザー・ロール存在チェック
+    - removeRoleFromUser(): 最後の管理者保護、紐付け存在チェック
+    - getUserRoles(): 優先順位降順・名前昇順ソート
+    - addRolesToUser/removeRolesFromUser(): 一括操作（個別実行）
+    - hasUserRole(): ロールチェック
+    - 型定義追加:
+      - `backend/src/types/role-permission.types.ts`: IRolePermissionService, RolePermissionInfo, RolePermissionError
+      - `backend/src/types/user-role.types.ts`: IUserRoleService, UserRoleInfo, UserRoleError
+    - 単体テスト28ケース追加:
+      - `backend/src/__tests__/unit/services/role-permission.service.test.ts`: 14テスト
+      - `backend/src/__tests__/unit/services/user-role.service.test.ts`: 14テスト
+    - 全323テストパス、型チェック成功
 
 - [ ] 3.6 権限チェックミドルウェアの実装
   - 権限チェックミドルウェアを実装（RBAC統合、必要な権限の検証）
