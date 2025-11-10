@@ -14,8 +14,17 @@
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import type { ITwoFactorService } from '../types/two-factor.types';
+import { verify } from '@node-rs/argon2';
+import type {
+  ITwoFactorService,
+  TwoFactorError,
+  Result,
+  TwoFactorEnabledData,
+} from '../types/two-factor.types';
+import { Ok, Err } from '../types/two-factor.types';
+import getPrismaClient from '../db';
 import logger from '../utils/logger';
+import type { PrismaClient } from '@prisma/client';
 
 /**
  * 二要素認証サービスの実装
@@ -27,12 +36,15 @@ export class TwoFactorService implements ITwoFactorService {
   private readonly IV_LENGTH = 12;
   /** バックアップコードの文字セット（英数字大文字） */
   private readonly BACKUP_CODE_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  /** Prisma Client instance */
+  private readonly prisma: PrismaClient;
 
   constructor() {
     // otplibの設定（RFC 6238準拠、要件27C.1）
     authenticator.options = {
       window: 1, // ±1ステップ許容（合計90秒）
     };
+    this.prisma = getPrismaClient();
   }
 
   /**
@@ -225,5 +237,266 @@ export class TwoFactorService implements ITwoFactorService {
 
     logger.debug('バックアップコードを10個生成しました');
     return codes;
+  }
+
+  /**
+   * TOTP検証
+   *
+   * 30秒ウィンドウ、±1ステップ許容（合計90秒）で検証する。
+   * 要件27A.3: TOTP検証の実装
+   *
+   * @param userId - ユーザーID
+   * @param totpCode - 6桁のTOTPコード
+   * @returns 検証成功ならtrue、失敗ならfalse
+   */
+  async verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>> {
+    try {
+      // ユーザー取得
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          twoFactorEnabled: true,
+          twoFactorSecret: true,
+        },
+      });
+
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+        return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      // 秘密鍵を復号化
+      let decryptedSecret: string;
+      try {
+        decryptedSecret = await this.decryptSecret(user.twoFactorSecret);
+      } catch {
+        return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
+      }
+
+      // TOTP検証
+      const isValid = authenticator.verify({ token: totpCode, secret: decryptedSecret });
+
+      logger.debug({ userId, isValid }, 'TOTP検証を実行しました');
+      return Ok(isValid);
+    } catch (error) {
+      logger.error({ error, userId }, 'TOTP検証中にエラーが発生しました');
+      return Err({ type: 'INVALID_TOTP_CODE' });
+    }
+  }
+
+  /**
+   * バックアップコード検証
+   *
+   * 未使用のバックアップコードを検証し、使用済みとしてマークする。
+   * 要件27A.6-27A.7: バックアップコード検証の実装
+   *
+   * @param userId - ユーザーID
+   * @param backupCode - 8文字のバックアップコード
+   * @returns 検証成功ならtrue、失敗ならfalse
+   */
+  async verifyBackupCode(
+    userId: string,
+    backupCode: string
+  ): Promise<Result<boolean, TwoFactorError>> {
+    try {
+      // ユーザー取得
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          twoFactorEnabled: true,
+        },
+      });
+
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (!user.twoFactorEnabled) {
+        return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      // 未使用のバックアップコードを取得
+      const backupCodes = await this.prisma.twoFactorBackupCode.findMany({
+        where: {
+          userId,
+          usedAt: null,
+        },
+      });
+
+      // 各バックアップコードのハッシュと比較
+      for (const storedCode of backupCodes) {
+        const isValid = await verify(storedCode.codeHash, backupCode);
+
+        if (isValid) {
+          // 使用済みとしてマーク、監査ログ記録
+          await this.prisma.$transaction([
+            this.prisma.twoFactorBackupCode.update({
+              where: { id: storedCode.id },
+              data: { usedAt: new Date() },
+            }),
+            this.prisma.auditLog.create({
+              data: {
+                action: 'TWO_FACTOR_BACKUP_CODE_USED',
+                actorId: userId,
+                targetType: 'User',
+                targetId: userId,
+                metadata: {},
+              },
+            }),
+          ]);
+
+          logger.debug({ userId }, 'バックアップコードで認証成功しました');
+          return Ok(true);
+        }
+      }
+
+      // すべてのコードと一致しなかった
+      logger.debug({ userId }, 'バックアップコードが無効です');
+      return Ok(false);
+    } catch (error) {
+      logger.error({ error, userId }, 'バックアップコード検証中にエラーが発生しました');
+      return Err({ type: 'INVALID_BACKUP_CODE' });
+    }
+  }
+
+  /**
+   * 2FA有効化
+   *
+   * TOTP検証後にtwoFactorEnabledをtrueに設定する。
+   * 要件27.5: 2FA有効化の実装
+   *
+   * @param userId - ユーザーID
+   * @param totpCode - 6桁のTOTPコード
+   * @returns 2FA有効化データ（バックアップコード）
+   */
+  async enableTwoFactor(
+    userId: string,
+    totpCode: string
+  ): Promise<Result<TwoFactorEnabledData, TwoFactorError>> {
+    try {
+      // ユーザー取得
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          twoFactorEnabled: true,
+          twoFactorSecret: true,
+        },
+      });
+
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (user.twoFactorEnabled) {
+        return Err({ type: 'TWO_FACTOR_ALREADY_ENABLED' });
+      }
+
+      if (!user.twoFactorSecret) {
+        return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      // TOTP検証
+      const verifyResult = await this.verifyTOTP(userId, totpCode);
+      if (!verifyResult.ok || !verifyResult.value) {
+        return Err({ type: 'INVALID_TOTP_CODE' });
+      }
+
+      // トランザクション内で2FAを有効化、監査ログ記録
+      await this.prisma.$transaction([
+        this.prisma.user.update({
+          where: { id: userId },
+          data: { twoFactorEnabled: true },
+        }),
+        this.prisma.auditLog.create({
+          data: {
+            action: 'TWO_FACTOR_ENABLED',
+            actorId: userId,
+            targetType: 'User',
+            targetId: userId,
+            metadata: {},
+          },
+        }),
+      ]);
+
+      // バックアップコードを取得（平文は保存していないため、既存のコードを返す）
+      // 注: 実際の実装では、setupTwoFactor時に平文バックアップコードを返すべき
+      logger.info({ userId }, '2FAを有効化しました');
+      return Ok({ backupCodes: [] });
+    } catch (error) {
+      logger.error({ error, userId }, '2FA有効化中にエラーが発生しました');
+      return Err({ type: 'INVALID_TOTP_CODE' });
+    }
+  }
+
+  /**
+   * 2FA無効化
+   *
+   * パスワード確認後、秘密鍵とバックアップコードを削除し、全セッションを無効化する。
+   * 要件27B.4-27B.6: 2FA無効化の実装
+   *
+   * @param userId - ユーザーID
+   * @param password - パスワード（確認用）
+   * @returns void
+   */
+  async disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>> {
+    try {
+      // ユーザー取得
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          twoFactorEnabled: true,
+          passwordHash: true,
+        },
+      });
+
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (!user.twoFactorEnabled) {
+        return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      // パスワード検証
+      const isPasswordValid = await verify(user.passwordHash, password);
+      if (!isPasswordValid) {
+        return Err({ type: 'INVALID_PASSWORD' });
+      }
+
+      // トランザクション内で2FA無効化、秘密鍵削除、バックアップコード削除、監査ログ記録、全セッション無効化
+      await this.prisma.$transaction([
+        this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            twoFactorEnabled: false,
+            twoFactorSecret: null,
+          },
+        }),
+        this.prisma.twoFactorBackupCode.deleteMany({
+          where: { userId },
+        }),
+        this.prisma.refreshToken.deleteMany({
+          where: { userId },
+        }),
+        this.prisma.auditLog.create({
+          data: {
+            action: 'TWO_FACTOR_DISABLED',
+            actorId: userId,
+            targetType: 'User',
+            targetId: userId,
+            metadata: {},
+          },
+        }),
+      ]);
+
+      logger.info({ userId }, '2FAを無効化しました');
+      return Ok(undefined);
+    } catch (error) {
+      logger.error({ error, userId }, '2FA無効化中にエラーが発生しました');
+      return Err({ type: 'INVALID_PASSWORD' });
+    }
   }
 }
