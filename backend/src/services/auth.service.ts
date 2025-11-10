@@ -13,6 +13,7 @@ import type { PrismaClient } from '@prisma/client';
 import { InvitationService } from './invitation.service';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
+import { TwoFactorService } from './two-factor.service';
 import type {
   IAuthService,
   RegisterData,
@@ -41,16 +42,19 @@ export class AuthService implements IAuthService {
   private readonly invitationService: InvitationService;
   private readonly passwordService: PasswordService;
   private readonly tokenService: TokenService;
+  private readonly twoFactorService: TwoFactorService;
 
   constructor(
     private readonly prisma: PrismaClient,
     invitationService?: InvitationService,
     passwordService?: PasswordService,
-    tokenService?: TokenService
+    tokenService?: TokenService,
+    twoFactorService?: TwoFactorService
   ) {
     this.invitationService = invitationService || new InvitationService(prisma);
     this.passwordService = passwordService || new PasswordService(prisma);
     this.tokenService = tokenService || new TokenService();
+    this.twoFactorService = twoFactorService || new TwoFactorService();
   }
 
   /**
@@ -325,12 +329,126 @@ export class AuthService implements IAuthService {
   /**
    * 2FA検証（ログイン時）
    *
-   * Note: TwoFactorServiceは将来実装予定のため、現在はスタブ実装
+   * 処理フロー:
+   * 1. ユーザー検索（ロール情報も取得）
+   * 2. 2FAアカウントロック確認
+   * 3. ロック期限切れの場合はロック解除
+   * 4. TOTP検証
+   * 5. 検証成功時: JWT生成、失敗カウンターリセット
+   * 6. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック
    */
-  async verify2FA(_userId: string, _totpCode: string): Promise<Result<AuthResponse, AuthError>> {
-    // TODO: TwoFactorService実装後に完成させる
-    // 現在はエラーを返すスタブ実装
-    return Err({ type: 'INVALID_2FA_CODE' });
+  async verify2FA(userId: string, totpCode: string): Promise<Result<AuthResponse, AuthError>> {
+    try {
+      // 1. ユーザーを検索（ロール情報も取得）
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          userRoles: {
+            include: {
+              role: true,
+            },
+          },
+        },
+      });
+
+      // ユーザーが存在しない場合
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      // 2. 2FAアカウントロック確認
+      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil > new Date()) {
+        return Err({
+          type: 'ACCOUNT_LOCKED',
+          unlockAt: user.twoFactorLockedUntil,
+        });
+      }
+
+      // 3. ロック期限切れの場合はロック解除
+      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil <= new Date()) {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            twoFactorFailures: 0,
+            twoFactorLockedUntil: null,
+          },
+        });
+      }
+
+      // 4. TOTP検証
+      const verifyResult = await this.twoFactorService.verifyTOTP(userId, totpCode);
+
+      if (!verifyResult.ok) {
+        // TwoFactorServiceエラーをAuthErrorに変換
+        return Err({ type: 'INVALID_2FA_CODE' });
+      }
+
+      const isValid = verifyResult.value;
+
+      if (!isValid) {
+        // 検証失敗: 失敗カウンターをインクリメント
+        const newFailures = user.twoFactorFailures + 1;
+        const isLocked = newFailures >= 5;
+        const lockedUntil = isLocked ? new Date(Date.now() + 5 * 60 * 1000) : null; // 5分後
+
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            twoFactorFailures: newFailures,
+            ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
+          },
+        });
+
+        if (isLocked && lockedUntil) {
+          return Err({
+            type: 'ACCOUNT_LOCKED',
+            unlockAt: lockedUntil,
+          });
+        }
+
+        return Err({ type: 'INVALID_2FA_CODE' });
+      }
+
+      // 5. 検証成功: 失敗カウンターをリセット
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          twoFactorFailures: 0,
+          twoFactorLockedUntil: null,
+        },
+      });
+
+      // 6. JWT生成
+      const payload = {
+        userId: user.id,
+        email: user.email,
+        roles: user.userRoles.map((ur) => ur.role.name),
+      };
+
+      const accessToken = await this.tokenService.generateAccessToken(payload);
+      const refreshToken = await this.tokenService.generateRefreshToken(payload);
+
+      // UserProfile作成
+      const userProfile: UserProfile = {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        roles: user.userRoles.map((ur) => ur.role.name),
+        createdAt: user.createdAt,
+        twoFactorEnabled: user.twoFactorEnabled,
+      };
+
+      return Ok({
+        accessToken,
+        refreshToken,
+        user: userProfile,
+      });
+    } catch (error) {
+      return Err({
+        type: 'DATABASE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   }
 
   /**

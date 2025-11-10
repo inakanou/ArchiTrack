@@ -13,6 +13,7 @@ import { AuthService } from '../../../services/auth.service';
 import { InvitationService } from '../../../services/invitation.service';
 import { PasswordService } from '../../../services/password.service';
 import { TokenService } from '../../../services/token.service';
+import { TwoFactorService } from '../../../services/two-factor.service';
 import type { PrismaClient, User, Invitation } from '@prisma/client';
 import { Ok } from '../../../types/result';
 
@@ -52,6 +53,11 @@ const mockTokenService = {
   generateRefreshToken: vi.fn(),
 } as unknown as TokenService;
 
+const mockTwoFactorService = {
+  verifyTOTP: vi.fn(),
+  verifyBackupCode: vi.fn(),
+} as unknown as TwoFactorService;
+
 describe('AuthService', () => {
   let authService: AuthService;
 
@@ -61,7 +67,8 @@ describe('AuthService', () => {
       mockPrismaClient,
       mockInvitationService,
       mockPasswordService,
-      mockTokenService
+      mockTokenService,
+      mockTwoFactorService
     );
   });
 
@@ -96,6 +103,8 @@ describe('AuthService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         userRoles: [{ role: { name: 'user' } }],
@@ -168,6 +177,8 @@ describe('AuthService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         userRoles: [{ role: { name: 'user' } }],
@@ -227,6 +238,8 @@ describe('AuthService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         userRoles: [{ role: { name: 'user' } }],
@@ -255,6 +268,299 @@ describe('AuthService', () => {
 
       // Act: 存在しないユーザー
       const result = await authService.getCurrentUser('non-existent-id');
+
+      // Assert: エラー
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+  });
+
+  describe('verify2FA()', () => {
+    it('TOTP検証成功でJWTトークンを発行する', async () => {
+      // Arrange: モックの設定
+      const userId = 'user-123';
+      const totpCode = '123456';
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: userId,
+        email: 'user@example.com',
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: true,
+        twoFactorSecret: 'encrypted-totp-secret',
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      // Prisma.user.findUnique() のモック
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // TwoFactorService.verifyTOTP() のモック（成功）
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(true));
+
+      // Prisma.user.update() のモック（失敗カウンターリセット用）
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // TokenService.generateAccessToken() のモック
+      (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'access-token-123'
+      );
+
+      // TokenService.generateRefreshToken() のモック
+      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'refresh-token-456'
+      );
+
+      // Act: 2FA検証
+      const result = await authService.verify2FA(userId, totpCode);
+
+      // Assert: 認証成功
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.accessToken).toBe('access-token-123');
+        expect(result.value.refreshToken).toBe('refresh-token-456');
+        expect(result.value.user.email).toBe('user@example.com');
+      }
+
+      // モックが正しく呼ばれたか検証
+      expect(mockTwoFactorService.verifyTOTP).toHaveBeenCalledWith(userId, totpCode);
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: {
+          twoFactorFailures: 0,
+          twoFactorLockedUntil: null,
+        },
+      });
+    });
+
+    it('TOTP検証失敗でINVALID_2FA_CODEエラーを返す', async () => {
+      // Arrange: モックの設定
+      const userId = 'user-123';
+      const totpCode = '000000';
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: userId,
+        email: 'user@example.com',
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: true,
+        twoFactorSecret: 'encrypted-totp-secret',
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 2,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      // Prisma.user.findUnique() のモック
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // TwoFactorService.verifyTOTP() のモック（失敗）
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(false));
+
+      // Prisma.user.update() のモック（失敗カウンターインクリメント用）
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockUser,
+        twoFactorFailures: 3,
+      });
+
+      // Act: 2FA検証失敗
+      const result = await authService.verify2FA(userId, totpCode);
+
+      // Assert: エラー
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_2FA_CODE');
+      }
+
+      // 失敗カウンターが増加したことを確認
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: {
+          twoFactorFailures: 3,
+        },
+      });
+    });
+
+    it('5回連続失敗でアカウントロック（5分間）', async () => {
+      // Arrange: モックの設定
+      const userId = 'user-123';
+      const totpCode = '000000';
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: userId,
+        email: 'user@example.com',
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: true,
+        twoFactorSecret: 'encrypted-totp-secret',
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 4, // 次の失敗で5回目
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      const lockUntil = new Date(Date.now() + 5 * 60 * 1000); // 5分後
+
+      // Prisma.user.findUnique() のモック
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // TwoFactorService.verifyTOTP() のモック（失敗）
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(false));
+
+      // Prisma.user.update() のモック（アカウントロック用）
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockUser,
+        twoFactorFailures: 5,
+        twoFactorLockedUntil: lockUntil,
+      });
+
+      // Act: 5回目の失敗
+      const result = await authService.verify2FA(userId, totpCode);
+
+      // Assert: アカウントロック
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('ACCOUNT_LOCKED');
+        if (result.error.type === 'ACCOUNT_LOCKED') {
+          expect(result.error.unlockAt).toBeInstanceOf(Date);
+        }
+      }
+
+      // アカウントがロックされたことを確認
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: {
+          twoFactorFailures: 5,
+          twoFactorLockedUntil: expect.any(Date),
+        },
+      });
+    });
+
+    it('2FAアカウントロック中はACCOUNT_LOCKEDエラーを返す', async () => {
+      // Arrange: モックの設定
+      const userId = 'user-123';
+      const totpCode = '123456';
+      const lockUntil = new Date(Date.now() + 3 * 60 * 1000); // 3分後まで
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: userId,
+        email: 'user@example.com',
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: true,
+        twoFactorSecret: 'encrypted-totp-secret',
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 5,
+        twoFactorLockedUntil: lockUntil,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      // Prisma.user.findUnique() のモック
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // Act: ロック中のログイン試行
+      const result = await authService.verify2FA(userId, totpCode);
+
+      // Assert: アカウントロック
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('ACCOUNT_LOCKED');
+        if (result.error.type === 'ACCOUNT_LOCKED') {
+          expect(result.error.unlockAt).toEqual(lockUntil);
+        }
+      }
+    });
+
+    it('2FAロック期限切れの場合はロック解除してTOTP検証を実行', async () => {
+      // Arrange: モックの設定
+      const userId = 'user-123';
+      const totpCode = '123456';
+      const expiredLockUntil = new Date(Date.now() - 1000); // 1秒前（期限切れ）
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: userId,
+        email: 'user@example.com',
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: true,
+        twoFactorSecret: 'encrypted-totp-secret',
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 5,
+        twoFactorLockedUntil: expiredLockUntil,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      const unlockedUser = { ...mockUser, twoFactorFailures: 0, twoFactorLockedUntil: null };
+
+      // Prisma.user.findUnique() のモック
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // Prisma.user.update() のモック（ロック解除用）
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(unlockedUser);
+
+      // TwoFactorService.verifyTOTP() のモック（成功）
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(true));
+
+      // TokenService.generateAccessToken() のモック
+      (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'access-token-123'
+      );
+
+      // TokenService.generateRefreshToken() のモック
+      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'refresh-token-456'
+      );
+
+      // Act: ロック期限切れ後のログイン
+      const result = await authService.verify2FA(userId, totpCode);
+
+      // Assert: ロック解除されて認証成功
+      expect(result.ok).toBe(true);
+
+      // ロック解除が実行されたことを確認
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: {
+          twoFactorFailures: 0,
+          twoFactorLockedUntil: null,
+        },
+      });
+    });
+
+    it('ユーザーが存在しない場合はUSER_NOT_FOUNDエラーを返す', async () => {
+      // Arrange: モックの設定
+      const userId = 'non-existent-user';
+      const totpCode = '123456';
+
+      // Prisma.user.findUnique() のモック（ユーザーが存在しない）
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act: 存在しないユーザー
+      const result = await authService.verify2FA(userId, totpCode);
 
       // Assert: エラー
       expect(result.ok).toBe(false);

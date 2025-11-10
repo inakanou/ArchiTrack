@@ -13,27 +13,29 @@ datasource db {
 // ===== User Authentication Data Models =====
 
 model User {
-  id                String    @id @default(uuid())
-  email             String    @unique
-  displayName       String
-  passwordHash      String
-  twoFactorEnabled  Boolean   @default(false)
-  twoFactorSecret   String?   // AES-256-GCM暗号化済み（Base32エンコードされたTOTP秘密鍵）
-  isLocked          Boolean   @default(false)
-  lockedUntil       DateTime?
-  loginFailures     Int       @default(0)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  displayName          String
+  passwordHash         String
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecret      String? // AES-256-GCM暗号化済み（Base32エンコードされたTOTP秘密鍵）
+  isLocked             Boolean   @default(false)
+  lockedUntil          DateTime?
+  loginFailures        Int       @default(0)
+  twoFactorFailures    Int       @default(0)
+  twoFactorLockedUntil DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  userRoles              UserRole[]
-  refreshTokens          RefreshToken[]
-  invitationsSent        Invitation[]        @relation("InviterToInvitations")
-  invitation             Invitation?         @relation("InvitationToUser")
-  passwordResetRequests  PasswordResetToken[]
-  passwordHistories      PasswordHistory[]
-  twoFactorBackupCodes   TwoFactorBackupCode[]
-  auditLogsAsActor       AuditLog[]          @relation("ActorAuditLogs")
-  auditLogsAsTarget      AuditLog[]          @relation("TargetAuditLogs")
+  userRoles             UserRole[]
+  refreshTokens         RefreshToken[]
+  invitationsSent       Invitation[]          @relation("InviterToInvitations")
+  invitation            Invitation?           @relation("InvitationToUser")
+  passwordResetRequests PasswordResetToken[]
+  passwordHistories     PasswordHistory[]
+  twoFactorBackupCodes  TwoFactorBackupCode[]
+  auditLogsAsActor      AuditLog[]            @relation("ActorAuditLogs")
+  auditLogsAsTarget     AuditLog[]            @relation("TargetAuditLogs")
 
   @@index([email])
   @@index([isLocked])
@@ -41,18 +43,18 @@ model User {
 }
 
 model Invitation {
-  id         String    @id @default(uuid())
-  email      String
-  token      String    @unique
-  inviterId  String
-  status     String    @default("pending") // pending, used, expired, revoked
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
-  usedAt     DateTime?
-  userId     String?   @unique
+  id        String    @id @default(uuid())
+  email     String
+  token     String    @unique
+  inviterId String
+  status    String    @default("pending") // pending, used, expired, revoked
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+  userId    String?   @unique
 
-  inviter    User      @relation("InviterToInvitations", fields: [inviterId], references: [id])
-  user       User?     @relation("InvitationToUser", fields: [userId], references: [id])
+  inviter User  @relation("InviterToInvitations", fields: [inviterId], references: [id])
+  user    User? @relation("InvitationToUser", fields: [userId], references: [id])
 
   @@index([token])
   @@index([email])
@@ -62,14 +64,14 @@ model Invitation {
 }
 
 model RefreshToken {
-  id         String    @id @default(uuid())
+  id         String   @id @default(uuid())
   userId     String
-  token      String    @unique
-  deviceInfo String?   // User-Agent情報（オプション）
+  token      String   @unique
+  deviceInfo String? // User-Agent情報（オプション）
   expiresAt  DateTime
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime @default(now())
 
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([userId])
@@ -86,8 +88,8 @@ model Role {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  userRoles        UserRole[]
-  rolePermissions  RolePermission[]
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
 
   @@index([name])
   @@index([priority])
@@ -96,12 +98,12 @@ model Role {
 
 model Permission {
   id          String   @id @default(uuid())
-  resource    String   // adr, user, role, permission, project, report, settings
-  action      String   // create, read, update, delete, manage, approve, reject, delegate, export
+  resource    String // adr, user, role, permission, project, report, settings
+  action      String // create, read, update, delete, manage, approve, reject, delegate, export
   description String
   createdAt   DateTime @default(now())
 
-  rolePermissions  RolePermission[]
+  rolePermissions RolePermission[]
 
   @@unique([resource, action])
   @@index([resource])
@@ -115,8 +117,8 @@ model UserRole {
   roleId     String
   assignedAt DateTime @default(now())
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roleId])
   @@index([userId])
@@ -130,8 +132,8 @@ model RolePermission {
   permissionId String
   assignedAt   DateTime @default(now())
 
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, permissionId])
   @@index([roleId])
@@ -147,7 +149,7 @@ model PasswordResetToken {
   createdAt DateTime  @default(now())
   usedAt    DateTime?
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([userId])
@@ -158,10 +160,10 @@ model PasswordResetToken {
 model PasswordHistory {
   id           String   @id @default(uuid())
   userId       String
-  passwordHash String   // Argon2idハッシュ
+  passwordHash String // Argon2idハッシュ
   createdAt    DateTime @default(now())
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
@@ -171,11 +173,11 @@ model PasswordHistory {
 model TwoFactorBackupCode {
   id        String    @id @default(uuid())
   userId    String
-  codeHash  String    // Argon2idハッシュ（8文字の英数字コード）
+  codeHash  String // Argon2idハッシュ（8文字の英数字コード）
   usedAt    DateTime? // 使用済み追跡（1回限り使用）
   createdAt DateTime  @default(now())
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([usedAt])
@@ -183,16 +185,16 @@ model TwoFactorBackupCode {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  action      String   // ROLE_CREATED, ROLE_UPDATED, ROLE_DELETED, PERMISSION_ASSIGNED, PERMISSION_REVOKED, USER_ROLE_ASSIGNED, USER_ROLE_REVOKED, PERMISSION_CHECK_FAILED, TWO_FACTOR_ENABLED, TWO_FACTOR_DISABLED
-  actorId     String
-  targetType  String   // User, Role, Permission, UserRole, RolePermission
-  targetId    String
-  metadata    Json?    // 変更前後の値、IPアドレス、ユーザーエージェント、リクエストID
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  action     String // ROLE_CREATED, ROLE_UPDATED, ROLE_DELETED, PERMISSION_ASSIGNED, PERMISSION_REVOKED, USER_ROLE_ASSIGNED, USER_ROLE_REVOKED, PERMISSION_CHECK_FAILED, TWO_FACTOR_ENABLED, TWO_FACTOR_DISABLED
+  actorId    String
+  targetType String // User, Role, Permission, UserRole, RolePermission
+  targetId   String
+  metadata   Json? // 変更前後の値、IPアドレス、ユーザーエージェント、リクエストID
+  createdAt  DateTime @default(now())
 
-  actor       User     @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
-  target      User?    @relation("TargetAuditLogs", fields: [targetId], references: [id], onDelete: Cascade)
+  actor  User  @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
+  target User? @relation("TargetAuditLogs", fields: [targetId], references: [id], onDelete: Cascade)
 
   @@index([actorId])
   @@index([targetId])

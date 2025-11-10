@@ -280,6 +280,8 @@ describe('PasswordService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -347,6 +349,8 @@ describe('PasswordService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -568,6 +572,8 @@ describe('PasswordService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -600,6 +606,8 @@ describe('PasswordService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -636,6 +644,8 @@ describe('PasswordService', () => {
         isLocked: false,
         lockedUntil: null,
         loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
