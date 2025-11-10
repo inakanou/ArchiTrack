@@ -12,6 +12,8 @@
 import type { PrismaClient } from '@prisma/client';
 import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types';
 import type { IRBACService } from '../types/rbac.types';
+import type { IAuditLogService } from '../types/audit-log.types';
+import type { EmailService } from './email.service';
 import { Ok, Err, type Result } from '../types/result';
 import logger from '../utils/logger';
 
@@ -21,7 +23,9 @@ import logger from '../utils/logger';
 export class UserRoleService implements IUserRoleService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly rbacService?: IRBACService
+    private readonly rbacService?: IRBACService,
+    private readonly auditLogService?: IAuditLogService,
+    private readonly emailService?: EmailService
   ) {}
 
   /**
@@ -33,9 +37,16 @@ export class UserRoleService implements IUserRoleService {
    *
    * @param userId - ユーザーID
    * @param roleId - ロールID
+   * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
+   * @param performedBy - 実行者情報（アラート用、オプション）
    * @returns 成功またはエラー
    */
-  async addRoleToUser(userId: string, roleId: string): Promise<Result<void, UserRoleError>> {
+  async addRoleToUser(
+    userId: string,
+    roleId: string,
+    actorId?: string,
+    performedBy?: { email: string; displayName: string }
+  ): Promise<Result<void, UserRoleError>> {
     try {
       // ユーザーの存在チェック
       const user = await this.prisma.user.findUnique({
@@ -83,6 +94,54 @@ export class UserRoleService implements IUserRoleService {
         { userId, roleId, userEmail: user.email, roleName: role.name },
         'Role added to user successfully'
       );
+
+      // 監査ログ記録
+      if (this.auditLogService && actorId) {
+        await this.auditLogService.createLog({
+          action: 'USER_ROLE_ASSIGNED',
+          actorId,
+          targetType: 'user-role',
+          targetId: userId,
+          before: null,
+          after: {
+            userId,
+            userEmail: user.email,
+            roleId,
+            roleName: role.name,
+          },
+          metadata: null,
+        });
+      }
+
+      // システム管理者ロール追加時のアラート通知
+      if (this.emailService && performedBy && role.name === 'admin') {
+        // 全システム管理者のメールアドレスを取得
+        const adminUsers = await this.prisma.user.findMany({
+          where: {
+            userRoles: {
+              some: {
+                role: {
+                  name: 'admin',
+                },
+              },
+            },
+          },
+          select: {
+            email: true,
+            displayName: true,
+          },
+        });
+
+        const adminEmails = adminUsers.map((admin) => admin.email);
+
+        await this.emailService.sendAdminRoleChangedAlert(
+          adminEmails,
+          { email: user.email, displayName: user.displayName },
+          'assigned',
+          'System Administrator',
+          performedBy
+        );
+      }
 
       // ユーザーの権限キャッシュを無効化
       if (this.rbacService) {

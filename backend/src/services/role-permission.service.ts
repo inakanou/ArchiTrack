@@ -16,6 +16,7 @@ import type {
   RolePermissionError,
 } from '../types/role-permission.types';
 import type { IRBACService } from '../types/rbac.types';
+import type { IAuditLogService } from '../types/audit-log.types';
 import { Ok, Err, type Result } from '../types/result';
 import logger from '../utils/logger';
 
@@ -25,7 +26,8 @@ import logger from '../utils/logger';
 export class RolePermissionService implements IRolePermissionService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly rbacService?: IRBACService
+    private readonly rbacService?: IRBACService,
+    private readonly auditLogService?: IAuditLogService
   ) {}
 
   /**
@@ -37,11 +39,13 @@ export class RolePermissionService implements IRolePermissionService {
    *
    * @param roleId - ロールID
    * @param permissionId - 権限ID
+   * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @returns 成功またはエラー
    */
   async addPermissionToRole(
     roleId: string,
-    permissionId: string
+    permissionId: string,
+    actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
     try {
       // ロールの存在チェック
@@ -96,6 +100,24 @@ export class RolePermissionService implements IRolePermissionService {
         'Permission added to role successfully'
       );
 
+      // 監査ログ記録
+      if (this.auditLogService && actorId) {
+        await this.auditLogService.createLog({
+          action: 'PERMISSION_ASSIGNED',
+          actorId,
+          targetType: 'role-permission',
+          targetId: roleId,
+          before: null,
+          after: {
+            roleId,
+            roleName: role.name,
+            permissionId,
+            permission: `${permission.resource}:${permission.action}`,
+          },
+          metadata: null,
+        });
+      }
+
       // ロールを持つ全ユーザーのキャッシュを無効化
       if (this.rbacService) {
         await this.rbacService.invalidateUserPermissionsCacheForRole(roleId);
@@ -121,11 +143,13 @@ export class RolePermissionService implements IRolePermissionService {
    *
    * @param roleId - ロールID
    * @param permissionId - 権限ID
+   * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @returns 成功またはエラー
    */
   async removePermissionFromRole(
     roleId: string,
-    permissionId: string
+    permissionId: string,
+    actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
     try {
       // ロールの存在チェック
@@ -184,6 +208,24 @@ export class RolePermissionService implements IRolePermissionService {
         },
         'Permission removed from role successfully'
       );
+
+      // 監査ログ記録
+      if (this.auditLogService && actorId) {
+        await this.auditLogService.createLog({
+          action: 'PERMISSION_REVOKED',
+          actorId,
+          targetType: 'role-permission',
+          targetId: roleId,
+          before: {
+            roleId,
+            roleName: role.name,
+            permissionId,
+            permission: `${permission.resource}:${permission.action}`,
+          },
+          after: null,
+          metadata: null,
+        });
+      }
 
       // ロールを持つ全ユーザーのキャッシュを無効化
       if (this.rbacService) {

@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, Role, Permission, RolePermission } from '@prisma/client';
 import { RolePermissionService } from '../../../services/role-permission.service';
 import { Err, Ok } from '../../../types/result';
+import type { IAuditLogService } from '../../../types/audit-log.types';
 
 // モックデータ
 const mockRoleId = 'role-123';
@@ -62,6 +63,7 @@ const mockRolePermission: RolePermission = {
 describe('RolePermissionService', () => {
   let rolePermissionService: RolePermissionService;
   let prismaMock: PrismaClient;
+  let auditLogServiceMock: IAuditLogService;
 
   beforeEach(() => {
     // Prismaモックの作成
@@ -82,7 +84,24 @@ describe('RolePermissionService', () => {
       $transaction: vi.fn((callback) => callback(prismaMock)),
     } as unknown as PrismaClient;
 
-    rolePermissionService = new RolePermissionService(prismaMock);
+    // AuditLogServiceモックの作成
+    auditLogServiceMock = {
+      createLog: vi.fn().mockResolvedValue({
+        id: 'audit-log-123',
+        action: 'PERMISSION_ASSIGNED',
+        actorId: 'actor-123',
+        targetType: 'role-permission',
+        targetId: mockRoleId,
+        before: null,
+        after: null,
+        metadata: null,
+        createdAt: new Date(),
+      }),
+      getLogs: vi.fn(),
+      exportLogs: vi.fn(),
+    };
+
+    rolePermissionService = new RolePermissionService(prismaMock, undefined, auditLogServiceMock);
   });
 
   describe('addPermissionToRole()', () => {
@@ -94,7 +113,11 @@ describe('RolePermissionService', () => {
       vi.mocked(prismaMock.rolePermission.create).mockResolvedValue(mockRolePermission);
 
       // Act
-      const result = await rolePermissionService.addPermissionToRole(mockRoleId, mockPermissionId);
+      const result = await rolePermissionService.addPermissionToRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
 
       // Assert
       expect(result).toEqual(Ok(undefined));
@@ -106,6 +129,34 @@ describe('RolePermissionService', () => {
       });
     });
 
+    it('権限追加時に監査ログを記録する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.rolePermission.create).mockResolvedValue(mockRolePermission);
+
+      // Act
+      await rolePermissionService.addPermissionToRole(mockRoleId, mockPermissionId, actorId);
+
+      // Assert
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
+        action: 'PERMISSION_ASSIGNED',
+        actorId,
+        targetType: 'role-permission',
+        targetId: mockRoleId,
+        before: null,
+        after: {
+          roleId: mockRoleId,
+          roleName: mockRole.name,
+          permissionId: mockPermissionId,
+          permission: `${mockPermission.resource}:${mockPermission.action}`,
+        },
+        metadata: null,
+      });
+    });
+
     it('既に権限が割り当てられている場合はスキップする（重複を無視）', async () => {
       // Arrange
       vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
@@ -113,7 +164,11 @@ describe('RolePermissionService', () => {
       vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(mockRolePermission); // 既に存在
 
       // Act
-      const result = await rolePermissionService.addPermissionToRole(mockRoleId, mockPermissionId);
+      const result = await rolePermissionService.addPermissionToRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
 
       // Assert
       expect(result).toEqual(Ok(undefined)); // エラーにならずスキップ
@@ -125,7 +180,11 @@ describe('RolePermissionService', () => {
       vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
 
       // Act
-      const result = await rolePermissionService.addPermissionToRole(mockRoleId, mockPermissionId);
+      const result = await rolePermissionService.addPermissionToRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
 
       // Assert
       expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
@@ -138,7 +197,11 @@ describe('RolePermissionService', () => {
       vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(null);
 
       // Act
-      const result = await rolePermissionService.addPermissionToRole(mockRoleId, mockPermissionId);
+      const result = await rolePermissionService.addPermissionToRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
 
       // Assert
       expect(result).toEqual(Err({ type: 'PERMISSION_NOT_FOUND' }));
@@ -157,13 +220,42 @@ describe('RolePermissionService', () => {
       // Act
       const result = await rolePermissionService.removePermissionFromRole(
         mockRoleId,
-        mockPermissionId
+        mockPermissionId,
+        'actor-123'
       );
 
       // Assert
       expect(result).toEqual(Ok(undefined));
       expect(prismaMock.rolePermission.delete).toHaveBeenCalledWith({
         where: { id: mockRolePermission.id },
+      });
+    });
+
+    it('権限削除時に監査ログを記録する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(mockRolePermission);
+      vi.mocked(prismaMock.rolePermission.delete).mockResolvedValue(mockRolePermission);
+
+      // Act
+      await rolePermissionService.removePermissionFromRole(mockRoleId, mockPermissionId, actorId);
+
+      // Assert
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
+        action: 'PERMISSION_REVOKED',
+        actorId,
+        targetType: 'role-permission',
+        targetId: mockRoleId,
+        before: {
+          roleId: mockRoleId,
+          roleName: mockRole.name,
+          permissionId: mockPermissionId,
+          permission: `${mockPermission.resource}:${mockPermission.action}`,
+        },
+        after: null,
+        metadata: null,
       });
     });
 
@@ -175,7 +267,8 @@ describe('RolePermissionService', () => {
       // Act
       const result = await rolePermissionService.removePermissionFromRole(
         mockAdminRoleId,
-        mockWildcardPermissionId
+        mockWildcardPermissionId,
+        'actor-123'
       );
 
       // Assert
@@ -192,7 +285,8 @@ describe('RolePermissionService', () => {
       // Act
       const result = await rolePermissionService.removePermissionFromRole(
         mockRoleId,
-        mockPermissionId
+        mockPermissionId,
+        'actor-123'
       );
 
       // Assert

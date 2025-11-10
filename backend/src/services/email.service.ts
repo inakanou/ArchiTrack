@@ -55,6 +55,23 @@ interface TwoFactorEnabledEmailData {
 }
 
 /**
+ * メールジョブデータ（システム管理者ロール変更アラート）
+ */
+interface AdminRoleChangedAlertData {
+  adminEmails: string[];
+  targetUser: {
+    email: string;
+    displayName: string;
+  };
+  action: 'assigned' | 'revoked';
+  roleName: string;
+  performedBy: {
+    email: string;
+    displayName: string;
+  };
+}
+
+/**
  * メール送信サービス
  *
  * 非同期メール送信をBullキューで管理し、リトライ機能を提供します。
@@ -128,6 +145,14 @@ export class EmailService {
     this.emailQueue.process('2fa-enabled-email', async (job: Job<TwoFactorEnabledEmailData>) => {
       await this.process2FAEnabledEmail(job.data);
     });
+
+    // システム管理者ロール変更アラート処理
+    this.emailQueue.process(
+      'admin-role-changed-alert',
+      async (job: Job<AdminRoleChangedAlertData>) => {
+        await this.processAdminRoleChangedAlert(job.data);
+      }
+    );
   }
 
   /**
@@ -193,6 +218,37 @@ export class EmailService {
     );
 
     logger.info({ to }, '2FA enabled email queued');
+  }
+
+  /**
+   * システム管理者ロール変更アラートメールを送信（非同期キュー）
+   *
+   * @param adminEmails - 送信先管理者メールアドレスリスト
+   * @param targetUser - 対象ユーザー情報
+   * @param action - アクション種別（assigned | revoked）
+   * @param roleName - ロール名
+   * @param performedBy - 実行者情報
+   */
+  async sendAdminRoleChangedAlert(
+    adminEmails: string[],
+    targetUser: { email: string; displayName: string },
+    action: 'assigned' | 'revoked',
+    roleName: string,
+    performedBy: { email: string; displayName: string }
+  ): Promise<void> {
+    await this.emailQueue.add(
+      'admin-role-changed-alert',
+      { adminEmails, targetUser, action, roleName, performedBy },
+      {
+        attempts: 5,
+        backoff: {
+          type: 'exponential',
+          delay: this.RETRY_DELAYS[0],
+        },
+      }
+    );
+
+    logger.info({ adminEmails, targetUser, action }, 'Admin role changed alert queued');
   }
 
   /**
@@ -272,5 +328,43 @@ export class EmailService {
     });
 
     logger.info({ to }, '2FA enabled email sent successfully');
+  }
+
+  /**
+   * システム管理者ロール変更アラートメール処理（実際の送信）
+   */
+  private async processAdminRoleChangedAlert(data: AdminRoleChangedAlertData): Promise<void> {
+    const { adminEmails, targetUser, action, roleName, performedBy } = data;
+
+    // Handlebarsテンプレート読み込み
+    const templatePath = join(__dirname, '../templates/admin-role-changed-alert.hbs');
+    const templateSource = readFileSync(templatePath, 'utf-8');
+    const template = Handlebars.compile(templateSource);
+
+    const actionText = action === 'assigned' ? '付与' : '剥奪';
+
+    const html = template({
+      targetUser,
+      action,
+      actionText,
+      roleName,
+      performedBy,
+      frontendUrl: this.frontendUrl,
+    });
+
+    // 各管理者にメールを送信
+    for (const adminEmail of adminEmails) {
+      await this.transporter.sendMail({
+        from: process.env.SMTP_FROM || 'noreply@architrack.com',
+        to: adminEmail,
+        subject: `【重要】システム管理者ロール変更通知: ${targetUser.displayName}`,
+        html,
+      });
+
+      logger.info(
+        { to: adminEmail, targetUser, action },
+        'Admin role changed alert sent successfully'
+      );
+    }
   }
 }

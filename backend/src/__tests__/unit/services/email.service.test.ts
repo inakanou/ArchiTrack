@@ -145,6 +145,74 @@ describe('EmailService', () => {
     });
   });
 
+  describe('sendAdminRoleChangedAlert', () => {
+    it('システム管理者ロール変更アラートメールをキューに追加する', async () => {
+      const adminEmails = ['admin1@example.com', 'admin2@example.com'];
+      const targetUser = {
+        email: 'user@example.com',
+        displayName: 'Test User',
+      };
+      const action = 'assigned' as const;
+      const roleName = 'System Administrator';
+      const performedBy = {
+        email: 'superadmin@example.com',
+        displayName: 'Super Admin',
+      };
+
+      await emailService.sendAdminRoleChangedAlert(
+        adminEmails,
+        targetUser,
+        action,
+        roleName,
+        performedBy
+      );
+
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'admin-role-changed-alert',
+        {
+          adminEmails,
+          targetUser,
+          action,
+          roleName,
+          performedBy,
+        },
+        expect.objectContaining({
+          attempts: 5,
+          backoff: expect.objectContaining({
+            type: 'exponential',
+          }),
+        })
+      );
+    });
+
+    it('複数の管理者にアラートメールを送信する', async () => {
+      const adminEmails = ['admin1@example.com', 'admin2@example.com', 'admin3@example.com'];
+      const targetUser = {
+        email: 'user@example.com',
+        displayName: 'Test User',
+      };
+      const action = 'revoked' as const;
+      const roleName = 'System Administrator';
+      const performedBy = {
+        email: 'superadmin@example.com',
+        displayName: 'Super Admin',
+      };
+
+      await emailService.sendAdminRoleChangedAlert(
+        adminEmails,
+        targetUser,
+        action,
+        roleName,
+        performedBy
+      );
+
+      expect(mockQueue.add).toHaveBeenCalled();
+      const callArgs = (mockQueue.add as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(callArgs).toBeDefined();
+      expect(callArgs![1].adminEmails).toHaveLength(3);
+    });
+  });
+
   describe('リトライロジック', () => {
     it('メール送信失敗時に5回リトライする設定がある', async () => {
       const to = 'user@example.com';
@@ -186,9 +254,13 @@ describe('EmailService', () => {
       (mockTransporter.sendMail as ReturnType<typeof vi.fn>).mockRejectedValue(error);
 
       // キューのprocessコールバックをシミュレート
-      const processCallback = vi.fn();
-      (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((_name, callback) => {
-        processCallback.mockImplementation(callback);
+      let invitationCallback:
+        | ((job: { data: { to: string; invitationToken: string } }) => Promise<void>)
+        | null = null;
+      (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+        if (name === 'invitation-email') {
+          invitationCallback = callback;
+        }
       });
 
       emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
@@ -197,7 +269,8 @@ describe('EmailService', () => {
         data: { to: 'user@example.com', invitationToken: 'token' },
       };
 
-      await expect(processCallback(job)).rejects.toThrow('SMTP connection failed');
+      expect(invitationCallback).toBeDefined();
+      await expect(invitationCallback!(job)).rejects.toThrow('SMTP connection failed');
     });
   });
 });

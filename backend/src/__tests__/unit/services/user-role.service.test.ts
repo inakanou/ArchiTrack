@@ -9,6 +9,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, User, Role, UserRole } from '@prisma/client';
 import { UserRoleService } from '../../../services/user-role.service';
 import { Err, Ok } from '../../../types/result';
+import type { IAuditLogService } from '../../../types/audit-log.types';
+import type { EmailService } from '../../../services/email.service';
 
 // モックデータ
 const mockUserId = 'user-123';
@@ -61,12 +63,15 @@ const mockUserRole: UserRole = {
 describe('UserRoleService', () => {
   let userRoleService: UserRoleService;
   let prismaMock: PrismaClient;
+  let auditLogServiceMock: IAuditLogService;
+  let emailServiceMock: EmailService;
 
   beforeEach(() => {
     // Prismaモックの作成
     prismaMock = {
       user: {
         findUnique: vi.fn(),
+        findMany: vi.fn(),
       },
       role: {
         findUnique: vi.fn(),
@@ -82,7 +87,34 @@ describe('UserRoleService', () => {
       $transaction: vi.fn((callback) => callback(prismaMock)),
     } as unknown as PrismaClient;
 
-    userRoleService = new UserRoleService(prismaMock);
+    // AuditLogServiceモックの作成
+    auditLogServiceMock = {
+      createLog: vi.fn().mockResolvedValue({
+        id: 'audit-log-123',
+        action: 'USER_ROLE_ASSIGNED',
+        actorId: 'actor-123',
+        targetType: 'user-role',
+        targetId: mockUserId,
+        before: null,
+        after: null,
+        metadata: null,
+        createdAt: new Date(),
+      }),
+      getLogs: vi.fn(),
+      exportLogs: vi.fn(),
+    };
+
+    // EmailServiceモックの作成
+    emailServiceMock = {
+      sendAdminRoleChangedAlert: vi.fn().mockResolvedValue(undefined),
+    } as unknown as EmailService;
+
+    userRoleService = new UserRoleService(
+      prismaMock,
+      undefined,
+      auditLogServiceMock,
+      emailServiceMock
+    );
   });
 
   describe('addRoleToUser()', () => {
@@ -94,7 +126,7 @@ describe('UserRoleService', () => {
       vi.mocked(prismaMock.userRole.create).mockResolvedValue(mockUserRole);
 
       // Act
-      const result = await userRoleService.addRoleToUser(mockUserId, mockRoleId);
+      const result = await userRoleService.addRoleToUser(mockUserId, mockRoleId, 'actor-123');
 
       // Assert
       expect(result).toEqual(Ok(undefined));
@@ -138,11 +170,70 @@ describe('UserRoleService', () => {
       vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
 
       // Act
-      const result = await userRoleService.addRoleToUser(mockUserId, mockRoleId);
+      const result = await userRoleService.addRoleToUser(mockUserId, mockRoleId, 'actor-123');
 
       // Assert
       expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
       expect(prismaMock.userRole.create).not.toHaveBeenCalled();
+    });
+
+    it('ロール追加時に監査ログを記録する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.userRole.create).mockResolvedValue(mockUserRole);
+
+      // Act
+      await userRoleService.addRoleToUser(mockUserId, mockRoleId, actorId);
+
+      // Assert
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
+        action: 'USER_ROLE_ASSIGNED',
+        actorId,
+        targetType: 'user-role',
+        targetId: mockUserId,
+        before: null,
+        after: {
+          userId: mockUserId,
+          userEmail: mockUser.email,
+          roleId: mockRoleId,
+          roleName: mockRole.name,
+        },
+        metadata: null,
+      });
+    });
+
+    it('システム管理者ロール追加時にアラートメールを送信する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const mockAdminUsers = [
+        { ...mockUser, id: 'admin-1', email: 'admin1@example.com', displayName: 'Admin 1' },
+        { ...mockUser, id: 'admin-2', email: 'admin2@example.com', displayName: 'Admin 2' },
+      ];
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.userRole.create).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue(mockAdminUsers as User[]);
+
+      // Act
+      const performedBy = { email: 'performer@example.com', displayName: 'Performer' };
+      await userRoleService.addRoleToUser(mockUserId, mockAdminRoleId, actorId, performedBy);
+
+      // Assert
+      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledWith(
+        ['admin1@example.com', 'admin2@example.com'],
+        { email: mockUser.email, displayName: mockUser.displayName },
+        'assigned',
+        'System Administrator',
+        performedBy
+      );
     });
   });
 
