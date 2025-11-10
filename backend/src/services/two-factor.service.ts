@@ -14,7 +14,7 @@
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import { verify } from '@node-rs/argon2';
+import { hash, verify } from '@node-rs/argon2';
 import type {
   ITwoFactorService,
   TwoFactorError,
@@ -497,6 +497,63 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       logger.error({ error, userId }, '2FA無効化中にエラーが発生しました');
       return Err({ type: 'INVALID_PASSWORD' });
+    }
+  }
+
+  /**
+   * バックアップコード再生成
+   *
+   * 既存のバックアップコードを全て削除し、新しく10個のバックアップコードを生成する。
+   * 要件27B.1-27B.3: バックアップコード管理機能の実装
+   *
+   * @param userId - ユーザーID
+   * @returns 10個の平文バックアップコード配列（最後の表示機会）
+   */
+  async regenerateBackupCodes(userId: string): Promise<Result<string[], TwoFactorError>> {
+    try {
+      // ユーザー取得
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          twoFactorEnabled: true,
+        },
+      });
+
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (!user.twoFactorEnabled) {
+        return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      // 新しいバックアップコードを生成（平文）
+      const plainTextCodes = this.generateBackupCodes();
+
+      // トランザクション内で既存コード削除 + 新規コード追加
+      await this.prisma.$transaction(async (tx) => {
+        // 既存のバックアップコードを全て削除
+        await tx.twoFactorBackupCode.deleteMany({
+          where: { userId },
+        });
+
+        // 新しいバックアップコードをハッシュ化して保存
+        for (const code of plainTextCodes) {
+          const codeHash = await hash(code);
+          await tx.twoFactorBackupCode.create({
+            data: {
+              userId,
+              codeHash,
+            },
+          });
+        }
+      });
+
+      logger.info({ userId }, 'バックアップコードを再生成しました');
+      return Ok(plainTextCodes);
+    } catch (error) {
+      logger.error({ error, userId }, 'バックアップコード再生成中にエラーが発生しました');
+      return Err({ type: 'USER_NOT_FOUND' });
     }
   }
 }

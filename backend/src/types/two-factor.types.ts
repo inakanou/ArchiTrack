@@ -127,6 +127,16 @@ export interface ITwoFactorService {
    * @returns void
    */
   disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>>;
+
+  /**
+   * バックアップコード再生成
+   *
+   * 既存のバックアップコードを全て削除し、新しく10個のバックアップコードを生成する。
+   *
+   * @param userId - ユーザーID
+   * @returns 10個の平文バックアップコード配列（最後の表示機会）
+   */
+  regenerateBackupCodes(userId: string): Promise<Result<string[], TwoFactorError>>;
 }
 
 /**
