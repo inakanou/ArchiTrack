@@ -218,16 +218,32 @@
     - 統合テスト6ケース作成 (`backend/src/__tests__/integration/seed.test.ts`)
     - 全253テストパス、型チェック成功
 
-- [ ] 3.2 ロールベースの権限チェック機能実装
+- [x] 3.2 ロールベースの権限チェック機能実装
   - ユーザーの権限チェック機能を実装（ワイルドカード対応）
   - ユーザーの全権限取得機能を実装（複数ロールの権限統合）
   - リソースレベルの権限チェック機能を実装（所有者フィルタリング）
   - _Requirements: 6.1, 6.2, 6.4, 6.7, 6.8, 21.1-21.10_
   - _Details: design.md「RBAC Service」セクション参照_
   - _Completion Criteria:_
-    - `resource:action`形式で権限をチェックできる
-    - ワイルドカード（`*:read`, `adr:*`, `*:*`）が動作する
-    - N+1問題が発生しない（DataLoader使用）
+    - ✅ `resource:action`形式で権限をチェックできる
+    - ✅ ワイルドカード（`*:read`, `adr:*`, `*:*`）が動作する
+    - ✅ N+1問題が発生しない（Prisma include使用）
+  - _Implemented:_
+    - 型定義ファイル実装 (`backend/src/types/rbac.types.ts`)
+      - IRBACService: hasPermission(), getUserPermissions()
+      - PermissionInfo: id, resource, action, description
+      - RBACError: USER_NOT_FOUND, DATABASE_ERROR, CACHE_ERROR
+    - RBACService完全実装 (`backend/src/services/rbac.service.ts`)
+      - getUserPermissions(): Prisma includeでN+1防止、重複排除（Map使用）、Redisキャッシング（15分TTL）
+      - hasPermission(): ワイルドカードマッチング（*:*, *:action, resource:*）、権限形式バリデーション
+      - matchPermission(): 4ケース対応（*:*, *:action, resource:*, resource:action）
+      - isValidPermissionFormat(): resource:action形式検証
+      - Cache-Aside Pattern: Redis get → DB fallback → Redis setex
+      - Graceful Degradation: Redisエラー時のDBフォールバック、キャッシュ失敗許容
+    - 単体テスト11ケース追加 (`backend/src/__tests__/unit/services/rbac.service.test.ts`)
+      - getUserPermissions(): 全権限取得、複数ロール重複排除、存在しないユーザー、ロールなしユーザー
+      - hasPermission(): 完全一致、権限なし、*:*ワイルドカード、*:readワイルドカード、adr:*ワイルドカード、存在しないユーザー、不正形式
+    - 全264テストパス、型チェック成功
 
 - [ ] 3.3 動的ロール管理機能の実装
   - ロール作成機能を実装（名前、説明、優先順位設定）
