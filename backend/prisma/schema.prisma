@@ -190,7 +190,9 @@ model AuditLog {
   actorId    String
   targetType String // User, Role, Permission, UserRole, RolePermission
   targetId   String
-  metadata   Json? // 変更前後の値、IPアドレス、ユーザーエージェント、リクエストID
+  before     Json? // 変更前の値（JSON形式）
+  after      Json? // 変更後の値（JSON形式）
+  metadata   Json? // IPアドレス、ユーザーエージェント、リクエストID
   createdAt  DateTime @default(now())
 
   actor  User  @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)

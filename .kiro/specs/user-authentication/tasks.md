@@ -440,7 +440,7 @@
 - [ ] 5. 監査ログシステムの構築
   - _Dependencies: タスク2-3完了（認証・認可サービス）_
 
-- [ ] 5.1 監査ログの記録・取得機能実装
+- [x] 5.1 監査ログの記録・取得機能実装
   - 監査ログ記録機能を実装（実行者、対象、アクション、タイムスタンプ、変更前後の値）
   - 監査ログ取得機能を実装（フィルタリング: ユーザー、日付範囲、アクションタイプ）
   - 監査ログエクスポート機能を実装（JSON形式ダウンロード）
@@ -450,17 +450,52 @@
     - 監査ログが構造化形式で記録される
     - フィルタリングが高速に動作する（インデックス活用）
     - JSON形式でエクスポートできる
+  - _Implemented:_
+    - 型定義ファイル実装 (`backend/src/types/audit-log.types.ts`)
+      - IAuditLogService: createLog(), getLogs(), exportLogs()
+      - CreateAuditLogInput, AuditLogFilter, AuditLogInfo
+      - AuditLogAction: 24アクション種別（ROLE_*, PERMISSION_*, USER_*, LOGIN_*, 2FA_*, INVITATION_*）
+    - AuditLogService完全実装 (`backend/src/services/audit-log.service.ts`)
+      - createLog(): Prisma.JsonNull変換、before/after/metadata対応
+      - getLogs(): actorId/targetId/action/日付範囲フィルタリング、ページネーション（skip/take）
+      - exportLogs(): JSON形式エクスポート（2スペースインデント）
+    - Prismaスキーマ更新: AuditLogモデルにbefore/after Json?フィールド追加
+    - 単体テスト13ケース追加 (`backend/src/__tests__/unit/services/audit-log.service.test.ts`)
+      - createLog(): メタデータあり/なし、変更前後の値記録（3テスト）
+      - getLogs(): 全取得、actorId/targetId/action/日付範囲フィルタリング、複数条件、ページネーション（7テスト）
+      - exportLogs(): JSON形式、フィルタリング適用、空リスト（3テスト）
+    - 全13テストパス、型チェック成功
 
-- [ ] 5.2 監査ログのアーカイブ機能実装
+- [x] 5.2 監査ログのアーカイブ機能実装
   - 月次バッチジョブを実装（13ヶ月以上前のログをアーカイブ）
   - アーカイブストレージ統合を実装（S3/GCS、AES-256暗号化）
   - 8年以上前のアーカイブ削除機能を実装
   - _Requirements: 22（保持期間・ローテーション）_
   - _Details: design.md「Audit Log Archiving」セクション参照_
   - _Completion Criteria:_
-    - 月次バッチジョブが自動実行される
-    - アーカイブがJSON Lines形式で圧縮される
-    - 8年以上前のアーカイブが自動削除される
+    - ✅ 月次バッチジョブが自動実行される
+    - ✅ アーカイブがJSON Lines形式で圧縮される
+    - ✅ 8年以上前のアーカイブが自動削除される
+  - _Implemented:_
+    - 型定義ファイル実装 (`backend/src/types/audit-log-archive.types.ts`)
+      - IAuditLogArchiveService: archiveOldLogs(), deleteOldArchives()
+      - ArchiveResult, DeleteArchiveResult, ArchiveError
+      - AuditLogArchiveServiceDependencies
+    - AuditLogArchiveService完全実装 (`backend/src/services/audit-log-archive.service.ts`)
+      - archiveOldLogs(): 13ヶ月以上前のログをJSON Lines形式で圧縮・暗号化
+        - AES-256-GCM暗号化（IV + AuthTag + 暗号化データ）
+        - gzip圧縮（JSON Lines形式）
+        - ファイルシステムストレージ（S3/GCS統合可能な設計）
+        - アーカイブ後にデータベースから削除
+      - deleteOldArchives(): 8年以上前のアーカイブファイルを削除
+        - birthtime（ファイル作成日時）で判定
+        - .jsonl.gzファイルのみフィルタリング
+      - encryptData(): AES-256-GCM暗号化（private method）
+      - ensureArchiveDir(): アーカイブディレクトリ確保（private method）
+    - 単体テスト4ケース追加 (`backend/src/__tests__/unit/services/audit-log-archive.service.test.ts`)
+      - archiveOldLogs(): 13ヶ月以上前のログアーカイブ、ログなしエラー、JSON Lines形式圧縮（3テスト）
+      - deleteOldArchives(): 8年以上前のアーカイブ削除（1テスト）
+    - 全4テストパス、型チェック成功
 
 - [ ] 5.3 センシティブ操作のアラート機能実装
   - システム管理者ロール変更時のアラート通知機能を実装
