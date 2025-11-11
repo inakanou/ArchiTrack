@@ -508,7 +508,7 @@
     - 全ての権限変更が監査ログに記録される
     - 2FA有効化・無効化が監査ログに記録される
 
-- [ ] 6. Frontend認証UIの実装
+- [x] 6. Frontend認証UIの実装
   - _Dependencies: タスク7.1-7.7完了（認証・認可・2FA APIエンドポイント）_
 
 - [x] 6.1 認証コンテキストとトークン管理の実装
@@ -704,17 +704,49 @@
     - 全40テストパス（TwoFactorSetupForm 17、TwoFactorVerificationForm 14、TwoFactorManagement 9）
     - 型チェック成功、WCAG 2.1 AA準拠（aria-label、aria-live、role属性）
 
-- [ ] 6.6 共通UI/UXコンポーネントの実装
+- [x] 6.6 共通UI/UXコンポーネントの実装
   - レスポンシブデザインを実装（モバイル・タブレット・デスクトップ）
   - アクセシビリティ属性を実装（aria-label、role、aria-live）
   - エラーハンドリングを実装（フォーカス、スクロール、トーストメッセージ）
   - _Requirements: 15_
   - _Details: design.md「UI/UX Guidelines」セクション参照_
   - _Completion Criteria:_
-    - WCAG 2.1 AA準拠のコントラスト比（4.5:1以上）
-    - キーボード操作（Tab、Enter、Space）をサポート
-    - モーダルダイアログのフォーカストラップが動作する
-    - トーストメッセージが自動的に非表示になる
+    - ✅ WCAG 2.1 AA準拠のコントラスト比（4.5:1以上）
+    - ✅ キーボード操作（Tab、Enter、Space）をサポート
+    - ✅ モーダルダイアログのフォーカストラップが動作する
+    - ✅ トーストメッセージが自動的に非表示になる
+  - _Implemented:_
+    - ToastNotificationコンポーネント完全実装 (`frontend/src/components/ToastNotification.tsx`)
+      - 4種類のトースト（success/error/warning/info）、WCAG 2.1 AA準拠のカラースキーム
+      - 自動非表示機能（デフォルト5秒、カスタマイズ可能）
+      - 固定位置表示（top-right/top-left/bottom-right/bottom-left）
+      - スライドインアニメーション、手動閉じるボタン
+      - アクセシビリティ属性（role="alert", aria-live="polite", aria-label）
+      - 単体テスト16ケース作成 (`frontend/src/__tests__/components/ToastNotification.test.tsx`)
+    - FocusManagerコンポーネント完全実装 (`frontend/src/components/FocusManager.tsx`)
+      - モーダル表示時のフォーカストラップ（Tab/Shift+Tab循環制御）
+      - 初期フォーカス設定、閉じた後の元のフォーカス位置復帰
+      - Escapeキーでモーダルを閉じる機能（オプショナル）
+      - 外側クリックでモーダルを閉じる機能（オプショナル）
+      - アクセシビリティ属性（role="dialog", aria-modal="true"）
+      - 単体テスト15ケース作成 (`frontend/src/__tests__/components/FocusManager.test.tsx`)
+    - useMediaQueryカスタムフック完全実装 (`frontend/src/hooks/useMediaQuery.ts`)
+      - メディアクエリの状態監視（レスポンシブデザイン対応）
+      - window.matchMediaラッパー、changeイベント監視
+      - SSR対応（window未定義時のフォールバック）
+      - 単体テスト10ケース作成 (`frontend/src/__tests__/hooks/useMediaQuery.test.ts`)
+    - アクセシビリティユーティリティ完全実装 (`frontend/src/utils/accessibility.ts`)
+      - focusOnError(): エラー要素にフォーカスを当てる関数
+      - scrollToError(): エラー要素までスクロールする関数（オプション付き）
+      - announceError(): スクリーンリーダー用エラーアナウンス（aria-live領域）
+      - setAriaInvalid(): aria-invalid属性設定関数
+      - setAriaDescribedBy(): aria-describedby属性設定関数
+      - 単体テスト18ケース作成 (`frontend/src/__tests__/utils/accessibility.test.ts`)
+    - 型定義ファイル作成:
+      - `frontend/src/types/toast.types.ts`: トースト関連型定義
+      - `frontend/src/types/focus-manager.types.ts`: FocusManager関連型定義
+    - 全59テストパス（ToastNotification 16、FocusManager 15、useMediaQuery 10、accessibility 18）
+    - 型チェック成功、WCAG 2.1 AA準拠、TDD方式で実装
 
 - [ ] 7. Backend API実装
   - _Dependencies: タスク2-5完了（認証・認可・2FA・監査ログサービス）_

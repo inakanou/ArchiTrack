@@ -22,6 +22,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -36,6 +37,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -57,6 +59,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -78,6 +81,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -104,6 +108,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -147,6 +152,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -164,6 +170,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -181,6 +188,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -208,6 +216,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -232,6 +241,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -256,6 +266,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -277,6 +288,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 
@@ -303,6 +315,7 @@ describe('TwoFactorVerificationForm', () => {
           onVerifyTOTP={mockOnVerifyTOTP}
           onVerifyBackupCode={mockOnVerifyBackupCode}
           onCancel={mockOnCancel}
+          disableTimer={true}
         />
       );
 

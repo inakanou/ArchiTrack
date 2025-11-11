@@ -5,6 +5,7 @@ interface TwoFactorVerificationFormProps {
   onVerifyTOTP: (totpCode: string) => Promise<VerifyTOTPResult>;
   onVerifyBackupCode: (backupCode: string) => Promise<VerifyBackupCodeResult>;
   onCancel: () => void;
+  disableTimer?: boolean; // テスト用: タイマーを無効化
 }
 
 /**
@@ -16,6 +17,7 @@ function TwoFactorVerificationForm({
   onVerifyTOTP,
   onVerifyBackupCode,
   onCancel,
+  disableTimer = false,
 }: TwoFactorVerificationFormProps) {
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [totpCode, setTotpCode] = useState(['', '', '', '', '', '']);
@@ -29,6 +31,8 @@ function TwoFactorVerificationForm({
 
   // 30秒カウントダウンタイマー
   useEffect(() => {
+    if (disableTimer) return; // テスト時はタイマーを無効化
+
     const interval = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
@@ -39,7 +43,7 @@ function TwoFactorVerificationForm({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [disableTimer]);
 
   // モード切り替え時の初期化
   useEffect(() => {
