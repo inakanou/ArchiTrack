@@ -235,6 +235,27 @@ describe('UserRoleService', () => {
         performedBy
       );
     });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.userRole.create).mockRejectedValue(
+        new Error('Database connection lost')
+      );
+
+      // Act
+      const result = await userRoleService.addRoleToUser(mockUserId, mockRoleId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database connection lost',
+        })
+      );
+    });
   });
 
   describe('removeRoleFromUser()', () => {
@@ -286,6 +307,25 @@ describe('UserRoleService', () => {
       // Assert
       expect(result).toEqual(Err({ type: 'ASSIGNMENT_NOT_FOUND' }));
       expect(prismaMock.userRole.delete).not.toHaveBeenCalled();
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
+      vi.mocked(prismaMock.userRole.delete).mockRejectedValue(new Error('Database write failed'));
+
+      // Act
+      const result = await userRoleService.removeRoleFromUser(mockUserId, mockRoleId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database write failed',
+        })
+      );
     });
   });
 
@@ -343,6 +383,23 @@ describe('UserRoleService', () => {
       // Assert
       expect(result).toEqual(Ok([]));
     });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.userRole.findMany).mockRejectedValue(new Error('Database query failed'));
+
+      // Act
+      const result = await userRoleService.getUserRoles(mockUserId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database query failed',
+        })
+      );
+    });
   });
 
   describe('addRolesToUser()', () => {
@@ -359,6 +416,33 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toEqual(Ok(undefined));
+    });
+
+    it('途中でユーザーが見つからない場合は即座にエラーを返す', async () => {
+      // Arrange
+      const roleIds = [mockRoleId, 'role-456'];
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null); // ユーザーが存在しない
+
+      // Act
+      const result = await userRoleService.addRolesToUser(mockUserId, roleIds);
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'USER_NOT_FOUND' }));
+    });
+
+    it('途中でロールが見つからない場合は即座にエラーを返す', async () => {
+      // Arrange
+      const roleIds = [mockRoleId, 'role-456'];
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null); // ロールが存在しない
+
+      // Act
+      const result = await userRoleService.addRolesToUser(mockUserId, roleIds);
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
     });
   });
 
@@ -377,6 +461,34 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toEqual(Ok(undefined));
+    });
+
+    it('途中でユーザーが見つからない場合は即座にエラーを返す', async () => {
+      // Arrange
+      const roleIds = [mockRoleId, 'role-456'];
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null); // ユーザーが存在しない
+
+      // Act
+      const result = await userRoleService.removeRolesFromUser(mockUserId, roleIds);
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'USER_NOT_FOUND' }));
+    });
+
+    it('途中で紐付けが見つからない場合は即座にエラーを返す', async () => {
+      // Arrange
+      const roleIds = [mockRoleId, 'role-456'];
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null); // 紐付けが存在しない
+
+      // Act
+      const result = await userRoleService.removeRolesFromUser(mockUserId, roleIds);
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'ASSIGNMENT_NOT_FOUND' }));
     });
   });
 

@@ -126,6 +126,26 @@ describe('authenticate middleware', () => {
       });
       expect(mockNext).not.toHaveBeenCalled();
     });
+
+    it('スペースのみのトークンを拒否する', async () => {
+      mockRequest.headers = {
+        authorization: 'Bearer    ',
+      };
+
+      await authenticate(
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext,
+        mockTokenService
+      );
+
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        error: 'MISSING_TOKEN',
+        message: 'Authentication token is required',
+      });
+      expect(mockNext).not.toHaveBeenCalled();
+    });
   });
 
   describe('トークン検証', () => {

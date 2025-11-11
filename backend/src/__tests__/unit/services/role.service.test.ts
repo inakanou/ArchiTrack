@@ -201,6 +201,28 @@ describe('RoleService', () => {
       expect(result.ok).toBe(true);
       // 権限は別途割り当てるため、作成時は空
     });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const input = {
+        name: 'error-role',
+        description: 'エラーテスト用ロール',
+      };
+
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
+      vi.mocked(prismaMock.role.create).mockRejectedValue(new Error('Database connection failed'));
+
+      // Act
+      const result = await roleService.createRole(input);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database connection failed',
+        })
+      );
+    });
   });
 
   describe('updateRole()', () => {
@@ -268,6 +290,59 @@ describe('RoleService', () => {
       expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
       expect(prismaMock.role.update).not.toHaveBeenCalled();
     });
+
+    it('名前を変更しようとして重複する場合はROLE_NAME_CONFLICTエラーを返す', async () => {
+      // Arrange
+      const input = { name: 'admin' };
+      const duplicateRole = { ...mockAdminRole };
+
+      vi.mocked(prismaMock.role.findUnique)
+        .mockResolvedValueOnce(mockRole) // 存在チェック
+        .mockResolvedValueOnce(duplicateRole); // 名前重複チェック
+
+      // Act
+      const result = await roleService.updateRole(mockRoleId, input);
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'ROLE_NAME_CONFLICT', name: 'admin' }));
+      expect(prismaMock.role.update).not.toHaveBeenCalled();
+    });
+
+    it('同じ名前で更新する場合は重複チェックをスキップする', async () => {
+      // Arrange
+      const input = { name: 'developer', description: '新しい説明' };
+      const updatedRole = { ...mockRole, description: '新しい説明' };
+
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole); // 存在チェックのみ
+      vi.mocked(prismaMock.role.update).mockResolvedValue(updatedRole);
+
+      // Act
+      const result = await roleService.updateRole(mockRoleId, input);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      // findUniqueは1回だけ呼ばれる（重複チェックはスキップされる）
+      expect(prismaMock.role.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const input = { description: '更新されたロール説明' };
+
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.role.update).mockRejectedValue(new Error('Database write failed'));
+
+      // Act
+      const result = await roleService.updateRole(mockRoleId, input);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database write failed',
+        })
+      );
+    });
   });
 
   describe('deleteRole()', () => {
@@ -322,6 +397,24 @@ describe('RoleService', () => {
       // Assert
       expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
       expect(prismaMock.role.delete).not.toHaveBeenCalled();
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.role.delete).mockRejectedValue(new Error('Database delete failed'));
+
+      // Act
+      const result = await roleService.deleteRole(mockRoleId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database delete failed',
+        })
+      );
     });
   });
 
@@ -410,6 +503,22 @@ describe('RoleService', () => {
 
       // Assert
       expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockRejectedValue(new Error('Database query failed'));
+
+      // Act
+      const result = await roleService.getRoleById(mockRoleId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database query failed',
+        })
+      );
     });
   });
 });

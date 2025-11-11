@@ -94,6 +94,20 @@ describe('SessionService', () => {
         },
       });
     });
+
+    it('データベースエラー時にエラーをスローする', async () => {
+      // Arrange
+      const userId = 'user-error';
+      const refreshToken = 'refresh-token-error';
+      const dbError = new Error('Database connection lost');
+
+      (mockPrismaClient.refreshToken.create as ReturnType<typeof vi.fn>).mockRejectedValue(dbError);
+
+      // Act & Assert
+      await expect(sessionService.createSession(userId, refreshToken)).rejects.toThrow(
+        'Database connection lost'
+      );
+    });
   });
 
   describe('deleteSession()', () => {
@@ -141,6 +155,27 @@ describe('SessionService', () => {
         expect(result.error.type).toBe('SESSION_NOT_FOUND');
       }
     });
+
+    it('データベースエラーでDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const refreshToken = 'token-with-db-error';
+
+      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Database connection failed')
+      );
+
+      // Act
+      const result = await sessionService.deleteSession(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('Database connection failed');
+        }
+      }
+    });
   });
 
   describe('deleteAllSessions()', () => {
@@ -159,6 +194,21 @@ describe('SessionService', () => {
       expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalledWith({
         where: { userId },
       });
+    });
+
+    it('データベースエラー時にエラーをスローする', async () => {
+      // Arrange
+      const userId = 'user-delete-all-error';
+      const dbError = new Error('Database transaction failed');
+
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+        dbError
+      );
+
+      // Act & Assert
+      await expect(sessionService.deleteAllSessions(userId)).rejects.toThrow(
+        'Database transaction failed'
+      );
     });
   });
 
@@ -236,6 +286,27 @@ describe('SessionService', () => {
         expect(result.error.type).toBe('SESSION_EXPIRED');
       }
     });
+
+    it('データベースエラーでDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const refreshToken = 'token-verify-db-error';
+
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Database query timeout')
+      );
+
+      // Act
+      const result = await sessionService.verifySession(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('Database query timeout');
+        }
+      }
+    });
   });
 
   describe('listSessions()', () => {
@@ -298,6 +369,19 @@ describe('SessionService', () => {
 
       // Assert
       expect(sessions).toHaveLength(0);
+    });
+
+    it('データベースエラー時にエラーをスローする', async () => {
+      // Arrange
+      const userId = 'user-list-error';
+      const dbError = new Error('Database query failed');
+
+      (mockPrismaClient.refreshToken.findMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+        dbError
+      );
+
+      // Act & Assert
+      await expect(sessionService.listSessions(userId)).rejects.toThrow('Database query failed');
     });
   });
 
@@ -376,6 +460,38 @@ describe('SessionService', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.type).toBe('SESSION_EXPIRED');
+      }
+    });
+
+    it('データベースエラーでDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const refreshToken = 'token-extend-db-error';
+      const mockRefreshToken: RefreshToken = {
+        id: 'session-extend-db',
+        userId: 'user-extend-db',
+        token: refreshToken,
+        deviceInfo: null,
+        expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        createdAt: new Date(),
+      };
+
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockRefreshToken
+      );
+      (mockPrismaClient.refreshToken.update as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Database write failed')
+      );
+
+      // Act
+      const result = await sessionService.extendSession(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('Database write failed');
+        }
       }
     });
   });

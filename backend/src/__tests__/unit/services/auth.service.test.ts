@@ -34,6 +34,9 @@ const mockPrismaClient = {
   userRole: {
     create: vi.fn(),
   },
+  refreshToken: {
+    deleteMany: vi.fn(),
+  },
   $transaction: vi.fn(),
 } as unknown as PrismaClient;
 
@@ -159,6 +162,120 @@ describe('AuthService', () => {
       );
       expect(mockPasswordService.hashPassword).toHaveBeenCalledWith(registerData.password);
     });
+
+    it('無効な招待トークンでINVITATION_INVALIDエラーを返す', async () => {
+      // Arrange
+      const invitationToken = 'invalid-token';
+      const registerData = {
+        displayName: 'New User',
+        password: 'SecurePass123!@#',
+      };
+
+      const { Err: ErrImport } = await import('../../../types/result');
+      (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
+        ErrImport({ type: 'INVALID_TOKEN' })
+      );
+
+      // Act
+      const result = await authService.register(invitationToken, registerData);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVITATION_INVALID');
+      }
+    });
+
+    it('期限切れ招待トークンでINVITATION_EXPIREDエラーを返す', async () => {
+      // Arrange
+      const invitationToken = 'expired-token';
+      const registerData = {
+        displayName: 'New User',
+        password: 'SecurePass123!@#',
+      };
+
+      const { Err: ErrImport } = await import('../../../types/result');
+      (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
+        ErrImport({ type: 'EXPIRED_TOKEN' })
+      );
+
+      // Act
+      const result = await authService.register(invitationToken, registerData);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVITATION_EXPIRED');
+      }
+    });
+
+    it('使用済み招待トークンでINVITATION_ALREADY_USEDエラーを返す', async () => {
+      // Arrange
+      const invitationToken = 'used-token';
+      const registerData = {
+        displayName: 'New User',
+        password: 'SecurePass123!@#',
+      };
+
+      const { Err: ErrImport } = await import('../../../types/result');
+      (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
+        ErrImport({ type: 'USED_TOKEN' })
+      );
+
+      // Act
+      const result = await authService.register(invitationToken, registerData);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVITATION_ALREADY_USED');
+      }
+    });
+
+    it('弱いパスワードでWEAK_PASSWORDエラーを返す', async () => {
+      // Arrange
+      const invitationToken = 'valid-token';
+      const registerData = {
+        displayName: 'New User',
+        password: '123', // 弱いパスワード
+      };
+
+      const mockInvitation: Invitation = {
+        id: 'invitation-1',
+        email: 'newuser@example.com',
+        token: invitationToken,
+        inviterId: 'admin-user-id',
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        createdAt: new Date(),
+        usedAt: null,
+        userId: null,
+      };
+
+      (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok(mockInvitation)
+      );
+
+      const { Err: ErrImport } = await import('../../../types/result');
+      (mockPasswordService.validatePasswordStrength as ReturnType<typeof vi.fn>).mockResolvedValue(
+        ErrImport({
+          type: 'WEAK_PASSWORD',
+          violations: ['too short', 'no uppercase'],
+        })
+      );
+
+      // Act
+      const result = await authService.register(invitationToken, registerData);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('WEAK_PASSWORD');
+        if (result.error.type === 'WEAK_PASSWORD') {
+          expect(result.error.violations).toEqual(['too short', 'no uppercase']);
+        }
+      }
+    });
   });
 
   describe('login()', () => {
@@ -220,6 +337,200 @@ describe('AuthService', () => {
         password,
         mockUser.passwordHash
       );
+    });
+
+    it('ユーザーが存在しない場合はINVALID_CREDENTIALSエラーを返す', async () => {
+      // Arrange
+      const email = 'nonexistent@example.com';
+      const password = 'SecurePass123!@#';
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act
+      const result = await authService.login(email, password);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_CREDENTIALS');
+      }
+    });
+
+    it('アカウントがロックされている場合はACCOUNT_LOCKEDエラーを返す', async () => {
+      // Arrange
+      const email = 'locked@example.com';
+      const password = 'SecurePass123!@#';
+      const lockedUntil = new Date(Date.now() + 10 * 60 * 1000); // 10分後
+
+      const mockLockedUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: 'user-locked',
+        email,
+        displayName: 'Locked User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        isLocked: true,
+        lockedUntil,
+        loginFailures: 5,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockLockedUser
+      );
+
+      // Act
+      const result = await authService.login(email, password);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('ACCOUNT_LOCKED');
+        if (result.error.type === 'ACCOUNT_LOCKED') {
+          expect(result.error.unlockAt).toEqual(lockedUntil);
+        }
+      }
+    });
+
+    it('ロック期限切れの場合はロック解除してログイン処理を継続する', async () => {
+      // Arrange
+      const email = 'expired-lock@example.com';
+      const password = 'SecurePass123!@#';
+      const expiredLockUntil = new Date(Date.now() - 1000); // 1秒前（期限切れ）
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: 'user-expired-lock',
+        email,
+        displayName: 'Expired Lock User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        isLocked: true,
+        lockedUntil: expiredLockUntil,
+        loginFailures: 5,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockPasswordService.verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'access-token-123'
+      );
+      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'refresh-token-456'
+      );
+
+      // Act
+      const result = await authService.login(email, password);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      // ロック解除が実行されたことを確認
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-expired-lock' },
+        data: {
+          isLocked: false,
+          lockedUntil: null,
+          loginFailures: 0,
+        },
+      });
+    });
+
+    it('パスワード不正で5回連続失敗するとアカウントロックされる', async () => {
+      // Arrange
+      const email = 'user@example.com';
+      const password = 'WrongPassword123';
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: 'user-123',
+        email,
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 4, // 4回失敗済み（次で5回目）
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockPasswordService.verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // Act
+      const result = await authService.login(email, password);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('ACCOUNT_LOCKED');
+        if (result.error.type === 'ACCOUNT_LOCKED') {
+          expect(result.error.unlockAt).toBeInstanceOf(Date);
+        }
+      }
+
+      // アカウントロックが実行されたことを確認
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: {
+          loginFailures: 5,
+          isLocked: true,
+          lockedUntil: expect.any(Date),
+        },
+      });
+    });
+
+    it('2FA有効の場合は2FA_REQUIREDを返す', async () => {
+      // Arrange
+      const email = 'user-2fa@example.com';
+      const password = 'SecurePass123!@#';
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: 'user-2fa-123',
+        email,
+        displayName: 'User with 2FA',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: true,
+        twoFactorSecret: 'encrypted-totp-secret',
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockPasswordService.verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+
+      // Act
+      const result = await authService.login(email, password);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.type).toBe('2FA_REQUIRED');
+        expect(result.value.userId).toBe('user-2fa-123');
+        expect(result.value.accessToken).toBeUndefined();
+        expect(result.value.refreshToken).toBeUndefined();
+      }
     });
   });
 
@@ -339,6 +650,28 @@ describe('AuthService', () => {
           twoFactorLockedUntil: null,
         },
       });
+    });
+
+    it('verify2FAでデータベースエラーが発生した場合はDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const userId = 'user-123';
+      const totpCode = '123456';
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Database connection failed')
+      );
+
+      // Act
+      const result = await authService.verify2FA(userId, totpCode);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('Database connection failed');
+        }
+      }
     });
 
     it('TOTP検証失敗でINVALID_2FA_CODEエラーを返す', async () => {
@@ -566,6 +899,95 @@ describe('AuthService', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+  });
+
+  describe('logout()', () => {
+    it('リフレッシュトークンを削除してログアウトできる', async () => {
+      // Arrange
+      const userId = 'user-123';
+      const refreshToken = 'refresh-token-abc';
+
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+        count: 1,
+      });
+
+      // Act
+      const result = await authService.logout(userId, refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalledWith({
+        where: {
+          userId,
+          token: refreshToken,
+        },
+      });
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const userId = 'user-123';
+      const refreshToken = 'refresh-token-abc';
+
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Database error')
+      );
+
+      // Act
+      const result = await authService.logout(userId, refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('Database error');
+        }
+      }
+    });
+  });
+
+  describe('logoutAll()', () => {
+    it('ユーザーの全リフレッシュトークンを削除してログアウトできる', async () => {
+      // Arrange
+      const userId = 'user-456';
+
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+        count: 3,
+      });
+
+      // Act
+      const result = await authService.logoutAll(userId);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalledWith({
+        where: {
+          userId,
+        },
+      });
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const userId = 'user-456';
+
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Database connection failed')
+      );
+
+      // Act
+      const result = await authService.logoutAll(userId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('Database connection failed');
+        }
       }
     });
   });

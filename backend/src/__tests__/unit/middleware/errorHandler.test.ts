@@ -82,6 +82,12 @@ describe('errorHandler middleware', () => {
         error: vi.fn(),
         info: vi.fn(),
       } as unknown as Request['log'],
+      method: 'POST',
+      url: '/api/test',
+      ip: '127.0.0.1',
+      body: { test: 'data' },
+      query: { page: '1' },
+      params: { id: '123' },
     };
 
     mockResponse = {

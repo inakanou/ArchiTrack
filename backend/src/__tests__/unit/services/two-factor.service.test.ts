@@ -299,6 +299,193 @@ describe('TwoFactorService', () => {
     });
   });
 
+  describe('verifyTOTP()', () => {
+    const mockUserId = 'user-totp-123';
+
+    it('ユーザーが存在しない → USER_NOT_FOUND', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await twoFactorService.verifyTOTP(mockUserId, '123456');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+
+    it('2FAが無効 → TWO_FACTOR_NOT_ENABLED', async () => {
+      // Arrange
+      const userWithout2FA = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithout2FA);
+
+      // Act
+      const result = await twoFactorService.verifyTOTP(mockUserId, '123456');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('TWO_FACTOR_NOT_ENABLED');
+      }
+    });
+  });
+
+  describe('verifyBackupCode()', () => {
+    const mockUserId = 'user-backup-123';
+
+    it('ユーザーが存在しない → USER_NOT_FOUND', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await twoFactorService.verifyBackupCode(mockUserId, 'ABC12345');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+
+    it('2FAが無効 → TWO_FACTOR_NOT_ENABLED', async () => {
+      // Arrange
+      const userWithout2FA = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithout2FA);
+
+      // Act
+      const result = await twoFactorService.verifyBackupCode(mockUserId, 'ABC12345');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('TWO_FACTOR_NOT_ENABLED');
+      }
+    });
+  });
+
+  describe('enableTwoFactor()', () => {
+    const mockUserId = 'user-enable-123';
+
+    it('ユーザーが存在しない → USER_NOT_FOUND', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await twoFactorService.enableTwoFactor(mockUserId, '123456');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+
+    it('既に2FAが有効 → TWO_FACTOR_ALREADY_ENABLED', async () => {
+      // Arrange
+      const userWithEnabled2FA = {
+        id: mockUserId,
+        twoFactorEnabled: true,
+        twoFactorSecret: 'encrypted-secret',
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithEnabled2FA);
+
+      // Act
+      const result = await twoFactorService.enableTwoFactor(mockUserId, '123456');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('TWO_FACTOR_ALREADY_ENABLED');
+      }
+    });
+
+    it('秘密鍵が設定されていない → TWO_FACTOR_NOT_ENABLED', async () => {
+      // Arrange
+      const userWithoutSecret = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithoutSecret);
+
+      // Act
+      const result = await twoFactorService.enableTwoFactor(mockUserId, '123456');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('TWO_FACTOR_NOT_ENABLED');
+      }
+    });
+  });
+
+  describe('disableTwoFactor()', () => {
+    const mockUserId = 'user-disable-123';
+    const mockUserWith2FA = {
+      id: mockUserId,
+      twoFactorEnabled: true,
+      passwordHash: 'hashed-password',
+    };
+
+    it('ユーザーが存在しない → USER_NOT_FOUND', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await twoFactorService.disableTwoFactor(mockUserId, 'password123');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+
+    it('2FAが無効 → TWO_FACTOR_NOT_ENABLED', async () => {
+      // Arrange
+      const userWithout2FA = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+        passwordHash: 'hashed-password',
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithout2FA);
+
+      // Act
+      const result = await twoFactorService.disableTwoFactor(mockUserId, 'password123');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('TWO_FACTOR_NOT_ENABLED');
+      }
+    });
+
+    it('パスワードが間違っている → INVALID_PASSWORD', async () => {
+      // Arrange
+      const { verify } = await import('@node-rs/argon2');
+      vi.mocked(verify).mockResolvedValue(false);
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUserWith2FA);
+
+      // Act
+      const result = await twoFactorService.disableTwoFactor(mockUserId, 'wrong-password');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_PASSWORD');
+      }
+    });
+  });
+
   // Note: 詳細なテストは今後のタスクで実装予定
   // 現在は実装が完了し、型チェックがパスしていることを確認済み
 });

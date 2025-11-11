@@ -207,6 +207,70 @@ describe('RolePermissionService', () => {
       expect(result).toEqual(Err({ type: 'PERMISSION_NOT_FOUND' }));
       expect(prismaMock.rolePermission.create).not.toHaveBeenCalled();
     });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.rolePermission.create).mockRejectedValue(
+        new Error('Database connection failed')
+      );
+
+      // Act
+      const result = await rolePermissionService.addPermissionToRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database connection failed',
+        })
+      );
+    });
+
+    it('auditLogServiceがnullの場合でも権限を追加できる', async () => {
+      // Arrange
+      const serviceWithoutAudit = new RolePermissionService(prismaMock, undefined, undefined);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.rolePermission.create).mockResolvedValue(mockRolePermission);
+
+      // Act
+      const result = await serviceWithoutAudit.addPermissionToRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.rolePermission.create).toHaveBeenCalled();
+    });
+
+    it('actorIdがundefinedの場合でも権限を追加できる', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.rolePermission.create).mockResolvedValue(mockRolePermission);
+
+      // Act
+      const result = await rolePermissionService.addPermissionToRole(
+        mockRoleId,
+        mockPermissionId,
+        undefined
+      );
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.rolePermission.create).toHaveBeenCalled();
+    });
   });
 
   describe('removePermissionFromRole()', () => {
@@ -293,6 +357,70 @@ describe('RolePermissionService', () => {
       expect(result).toEqual(Err({ type: 'ASSIGNMENT_NOT_FOUND' }));
       expect(prismaMock.rolePermission.delete).not.toHaveBeenCalled();
     });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(mockRolePermission);
+      vi.mocked(prismaMock.rolePermission.delete).mockRejectedValue(
+        new Error('Database write failed')
+      );
+
+      // Act
+      const result = await rolePermissionService.removePermissionFromRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database write failed',
+        })
+      );
+    });
+
+    it('auditLogServiceがnullの場合でも権限を削除できる', async () => {
+      // Arrange
+      const serviceWithoutAudit = new RolePermissionService(prismaMock, undefined, undefined);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(mockRolePermission);
+      vi.mocked(prismaMock.rolePermission.delete).mockResolvedValue(mockRolePermission);
+
+      // Act
+      const result = await serviceWithoutAudit.removePermissionFromRole(
+        mockRoleId,
+        mockPermissionId,
+        'actor-123'
+      );
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.rolePermission.delete).toHaveBeenCalled();
+    });
+
+    it('actorIdがundefinedの場合でも権限を削除できる', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(mockRolePermission);
+      vi.mocked(prismaMock.rolePermission.delete).mockResolvedValue(mockRolePermission);
+
+      // Act
+      const result = await rolePermissionService.removePermissionFromRole(
+        mockRoleId,
+        mockPermissionId,
+        undefined
+      );
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.rolePermission.delete).toHaveBeenCalled();
+    });
   });
 
   describe('getRolePermissions()', () => {
@@ -347,6 +475,25 @@ describe('RolePermissionService', () => {
 
       // Assert
       expect(result).toEqual(Ok([]));
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.rolePermission.findMany).mockRejectedValue(
+        new Error('Database query failed')
+      );
+
+      // Act
+      const result = await rolePermissionService.getRolePermissions(mockRoleId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Database query failed',
+        })
+      );
     });
   });
 

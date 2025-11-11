@@ -70,5 +70,63 @@ describe('JWKS Endpoint', () => {
       const response = await request(app).get('/.well-known/jwks.json');
       expect(response.headers['content-type']).toMatch(/application\/json/);
     });
+
+    it('should include old public key when JWT_PUBLIC_KEY_OLD is set', async () => {
+      // 旧公開鍵を設定
+      const { publicKey: oldPublicKey } = await jose.generateKeyPair('EdDSA');
+      const oldPublicJWK = await jose.exportJWK(oldPublicKey);
+      oldPublicJWK.kid = 'old-eddsa-key';
+      oldPublicJWK.use = 'sig';
+      oldPublicJWK.alg = 'EdDSA';
+
+      const oldPublicKeyBase64 = Buffer.from(JSON.stringify(oldPublicJWK)).toString('base64');
+      process.env.JWT_PUBLIC_KEY_OLD = oldPublicKeyBase64;
+
+      const response = await request(app).get('/.well-known/jwks.json');
+      const { keys } = response.body;
+
+      // 現在の鍵と旧鍵の両方が含まれていることを確認
+      expect(keys.length).toBe(2);
+      expect(keys[0].kid).toBe('test-eddsa-key'); // 現在の鍵
+      expect(keys[1].kid).toBe('old-eddsa-key'); // 旧鍵
+
+      // クリーンアップ
+      delete process.env.JWT_PUBLIC_KEY_OLD;
+    });
+
+    it('should return 500 error when JWT_PUBLIC_KEY is invalid', async () => {
+      // 無効なBase64文字列を設定してエラーを発生させる
+      const originalKey = process.env.JWT_PUBLIC_KEY;
+      process.env.JWT_PUBLIC_KEY = 'invalid-base64-!!@@##';
+
+      // 新しいアプリケーションインスタンスを作成（エラーをトリガーするため）
+      const testApp = express();
+      testApp.use('/.well-known', jwksRouter);
+
+      const response = await request(testApp).get('/.well-known/jwks.json');
+      expect(response.status).toBe(500);
+      expect(response.body).toHaveProperty('error', 'Internal server error');
+
+      // 元の値に戻す
+      process.env.JWT_PUBLIC_KEY = originalKey;
+    });
+
+    it('should return empty keys array when JWT_PUBLIC_KEY is not set', async () => {
+      // JWT_PUBLIC_KEYを削除
+      const originalKey = process.env.JWT_PUBLIC_KEY;
+      delete process.env.JWT_PUBLIC_KEY;
+
+      // 新しいアプリケーションインスタンスを作成
+      const testApp = express();
+      testApp.use('/.well-known', jwksRouter);
+
+      const response = await request(testApp).get('/.well-known/jwks.json');
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('keys');
+      expect(response.body.keys).toEqual([]); // 空の配列
+
+      // 元の値に戻す
+      process.env.JWT_PUBLIC_KEY = originalKey;
+    });
   });
 });

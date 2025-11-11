@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as jose from 'jose';
-import { TokenService } from '../token.service';
-import type { TokenPayload } from '../token.service';
+import { TokenService } from '../../../services/token.service';
+import type { TokenPayload } from '../../../services/token.service';
 
 describe('TokenService', () => {
   let tokenService: TokenService;
@@ -219,15 +219,76 @@ describe('TokenService', () => {
         expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
+
+    it('permissionsを含むトークンを正しく検証できる', async () => {
+      // Arrange
+      const payload: TokenPayload = {
+        userId: 'user456',
+        email: 'admin@example.com',
+        roles: ['admin'],
+        permissions: ['user:read', 'user:write', 'adr:delete'],
+      };
+
+      // Act
+      const token = await tokenService.generateAccessToken(payload);
+      const result = await tokenService.verifyToken(token, 'access');
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.userId).toBe(payload.userId);
+        expect(result.value.email).toBe(payload.email);
+        expect(result.value.roles).toEqual(payload.roles);
+        expect(result.value.permissions).toEqual(payload.permissions);
+      }
+    });
+
+    it('完全に不正な形式のトークン（空文字列）に対してエラーを返す', async () => {
+      // Arrange
+      const emptyToken = '';
+
+      // Act
+      const result = await tokenService.verifyToken(emptyToken, 'access');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // 空文字列や完全に不正な形式はTOKEN_INVALID or TOKEN_MALFORMEDとして扱われる
+        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+      }
+    });
   });
 
   describe('decodeToken', () => {
-    it('トークンを検証なしでデコードできる', () => {
-      // joseを使って直接トークンを作成してデコードテスト
-      const decoded = tokenService.decodeToken('eyJ...');
+    it('有効なトークンを検証なしでデコードできる', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['user'],
+      };
 
-      // 不正な形式のトークンはnullを返す
-      expect(decoded).toBeNull();
+      const token = await tokenService.generateAccessToken(payload);
+      const decoded = tokenService.decodeToken(token);
+
+      expect(decoded).toBeTruthy();
+      expect(decoded?.userId).toBe(payload.userId);
+      expect(decoded?.email).toBe(payload.email);
+      expect(decoded?.roles).toEqual(payload.roles);
+    });
+
+    it('permissionsを含むトークンをデコードできる', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['admin'],
+        permissions: ['user:read', 'user:write'],
+      };
+
+      const token = await tokenService.generateAccessToken(payload);
+      const decoded = tokenService.decodeToken(token);
+
+      expect(decoded).toBeTruthy();
+      expect(decoded?.permissions).toEqual(payload.permissions);
     });
 
     it('不正な形式のトークンに対してnullを返す', () => {

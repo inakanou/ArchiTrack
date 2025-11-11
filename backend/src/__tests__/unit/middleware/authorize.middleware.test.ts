@@ -258,5 +258,53 @@ describe('requirePermission middleware', () => {
         },
       });
     });
+
+    it('IPアドレスが未定義の場合は"unknown"が記録される', async () => {
+      // Arrange
+      mockRequest = {
+        ...mockRequest,
+        ip: undefined,
+      };
+      vi.mocked(mockRBACService.hasPermission).mockResolvedValue(false);
+      const middleware = requirePermission('adr:delete', mockRBACService, mockPrisma);
+
+      // Act
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      // Assert
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            metadata: expect.objectContaining({
+              ip: 'unknown',
+            }),
+          }),
+        })
+      );
+    });
+
+    it('User-Agentが取得できない場合は"unknown"が記録される', async () => {
+      // Arrange
+      mockRequest = {
+        ...mockRequest,
+        get: vi.fn(() => undefined) as Request['get'],
+      };
+      vi.mocked(mockRBACService.hasPermission).mockResolvedValue(false);
+      const middleware = requirePermission('adr:delete', mockRBACService, mockPrisma);
+
+      // Act
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      // Assert
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            metadata: expect.objectContaining({
+              userAgent: 'unknown',
+            }),
+          }),
+        })
+      );
+    });
   });
 });

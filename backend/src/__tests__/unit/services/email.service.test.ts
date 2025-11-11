@@ -25,6 +25,18 @@ vi.mock('bull', () => ({
   default: vi.fn(),
 }));
 
+// fsのモック
+vi.mock('fs', () => ({
+  readFileSync: vi.fn(),
+}));
+
+// handlebarsのモック
+vi.mock('handlebars', () => ({
+  default: {
+    compile: vi.fn(),
+  },
+}));
+
 describe('EmailService', () => {
   let emailService: EmailService;
   let mockTransporter: Partial<Transporter>;
@@ -250,6 +262,14 @@ describe('EmailService', () => {
 
   describe('エラーハンドリング', () => {
     it('メール送信エラーをキャッチする', async () => {
+      // Arrange
+      const { readFileSync } = await import('fs');
+      const Handlebars = await import('handlebars');
+
+      const mockTemplate = vi.fn().mockReturnValue('<html>Email</html>');
+      (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+      (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>Template</html>');
+
       const error = new Error('SMTP connection failed');
       (mockTransporter.sendMail as ReturnType<typeof vi.fn>).mockRejectedValue(error);
 
@@ -269,8 +289,335 @@ describe('EmailService', () => {
         data: { to: 'user@example.com', invitationToken: 'token' },
       };
 
+      // Act & Assert
       expect(invitationCallback).toBeDefined();
       await expect(invitationCallback!(job)).rejects.toThrow('SMTP connection failed');
+    });
+  });
+
+  describe('processメソッド（実際のメール送信処理）', () => {
+    beforeEach(async () => {
+      const { readFileSync } = await import('fs');
+      const Handlebars = await import('handlebars');
+
+      // fsとHandlebarsのモック設定
+      (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{invitationUrl}}</html>');
+      (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(
+        vi.fn().mockReturnValue('<html>http://localhost:5173/register?token=test</html>')
+      );
+    });
+
+    describe('processInvitationEmail', () => {
+      it('招待メールを実際に送信する', async () => {
+        // Arrange
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>Invitation Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue(
+          '<html>{{invitationUrl}}</html>'
+        );
+
+        let invitationCallback:
+          | ((job: { data: { to: string; invitationToken: string } }) => Promise<void>)
+          | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'invitation-email') {
+            invitationCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        const job = {
+          data: { to: 'newuser@example.com', invitationToken: 'test-token-123' },
+        };
+
+        // Act
+        expect(invitationCallback).toBeDefined();
+        await invitationCallback!(job);
+
+        // Assert
+        expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'newuser@example.com',
+            subject: 'ArchiTrackへの招待',
+            html: expect.any(String),
+          })
+        );
+        expect(mockTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            invitationUrl: expect.stringContaining('test-token-123'),
+          })
+        );
+      });
+    });
+
+    describe('processPasswordResetEmail', () => {
+      it('パスワードリセットメールを実際に送信する', async () => {
+        // Arrange
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>Password Reset Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{resetUrl}}</html>');
+
+        let passwordResetCallback:
+          | ((job: { data: { to: string; resetToken: string } }) => Promise<void>)
+          | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'password-reset-email') {
+            passwordResetCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        const job = {
+          data: { to: 'user@example.com', resetToken: 'reset-token-456' },
+        };
+
+        // Act
+        expect(passwordResetCallback).toBeDefined();
+        await passwordResetCallback!(job);
+
+        // Assert
+        expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'user@example.com',
+            subject: 'パスワードリセットのご案内',
+            html: expect.any(String),
+          })
+        );
+        expect(mockTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            resetUrl: expect.stringContaining('reset-token-456'),
+          })
+        );
+      });
+    });
+
+    describe('process2FAEnabledEmail', () => {
+      it('2FA有効化メールを実際に送信する', async () => {
+        // Arrange
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>2FA Enabled Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{frontendUrl}}</html>');
+
+        let twoFactorCallback: ((job: { data: { to: string } }) => Promise<void>) | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === '2fa-enabled-email') {
+            twoFactorCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        const job = {
+          data: { to: 'user@example.com' },
+        };
+
+        // Act
+        expect(twoFactorCallback).toBeDefined();
+        await twoFactorCallback!(job);
+
+        // Assert
+        expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'user@example.com',
+            subject: '二要素認証が有効化されました',
+            html: expect.any(String),
+          })
+        );
+        expect(mockTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            frontendUrl: expect.any(String),
+          })
+        );
+      });
+    });
+
+    describe('processAdminRoleChangedAlert', () => {
+      it('システム管理者ロール付与アラートメールを送信する（action=assigned）', async () => {
+        // Arrange
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>Admin Alert Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>Alert</html>');
+
+        let adminAlertCallback:
+          | ((job: {
+              data: {
+                adminEmails: string[];
+                targetUser: { email: string; displayName: string };
+                action: 'assigned' | 'revoked';
+                roleName: string;
+                performedBy: { email: string; displayName: string };
+              };
+            }) => Promise<void>)
+          | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'admin-role-changed-alert') {
+            adminAlertCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        const job = {
+          data: {
+            adminEmails: ['admin1@example.com'],
+            targetUser: { email: 'user@example.com', displayName: 'Test User' },
+            action: 'assigned' as const,
+            roleName: 'System Administrator',
+            performedBy: { email: 'super@example.com', displayName: 'Super Admin' },
+          },
+        };
+
+        // Act
+        expect(adminAlertCallback).toBeDefined();
+        await adminAlertCallback!(job);
+
+        // Assert
+        expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'admin1@example.com',
+            subject: expect.stringContaining('Test User'),
+            html: expect.any(String),
+          })
+        );
+        expect(mockTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'assigned',
+            actionText: '付与',
+            roleName: 'System Administrator',
+          })
+        );
+      });
+
+      it('システム管理者ロール剥奪アラートメールを送信する（action=revoked）', async () => {
+        // Arrange
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>Admin Alert Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>Alert</html>');
+
+        let adminAlertCallback:
+          | ((job: {
+              data: {
+                adminEmails: string[];
+                targetUser: { email: string; displayName: string };
+                action: 'assigned' | 'revoked';
+                roleName: string;
+                performedBy: { email: string; displayName: string };
+              };
+            }) => Promise<void>)
+          | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'admin-role-changed-alert') {
+            adminAlertCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        const job = {
+          data: {
+            adminEmails: ['admin1@example.com'],
+            targetUser: { email: 'user@example.com', displayName: 'Test User' },
+            action: 'revoked' as const,
+            roleName: 'System Administrator',
+            performedBy: { email: 'super@example.com', displayName: 'Super Admin' },
+          },
+        };
+
+        // Act
+        expect(adminAlertCallback).toBeDefined();
+        await adminAlertCallback!(job);
+
+        // Assert
+        expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'admin1@example.com',
+            subject: expect.stringContaining('Test User'),
+            html: expect.any(String),
+          })
+        );
+        expect(mockTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'revoked',
+            actionText: '剥奪',
+            roleName: 'System Administrator',
+          })
+        );
+      });
+
+      it('複数の管理者に順次メールを送信する', async () => {
+        // Arrange
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>Admin Alert Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>Alert</html>');
+
+        let adminAlertCallback:
+          | ((job: {
+              data: {
+                adminEmails: string[];
+                targetUser: { email: string; displayName: string };
+                action: 'assigned' | 'revoked';
+                roleName: string;
+                performedBy: { email: string; displayName: string };
+              };
+            }) => Promise<void>)
+          | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'admin-role-changed-alert') {
+            adminAlertCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        const job = {
+          data: {
+            adminEmails: ['admin1@example.com', 'admin2@example.com', 'admin3@example.com'],
+            targetUser: { email: 'user@example.com', displayName: 'Test User' },
+            action: 'assigned' as const,
+            roleName: 'System Administrator',
+            performedBy: { email: 'super@example.com', displayName: 'Super Admin' },
+          },
+        };
+
+        // Act
+        expect(adminAlertCallback).toBeDefined();
+        await adminAlertCallback!(job);
+
+        // Assert
+        expect(mockTransporter.sendMail).toHaveBeenCalledTimes(3);
+        expect(mockTransporter.sendMail).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({ to: 'admin1@example.com' })
+        );
+        expect(mockTransporter.sendMail).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({ to: 'admin2@example.com' })
+        );
+        expect(mockTransporter.sendMail).toHaveBeenNthCalledWith(
+          3,
+          expect.objectContaining({ to: 'admin3@example.com' })
+        );
+      });
     });
   });
 });

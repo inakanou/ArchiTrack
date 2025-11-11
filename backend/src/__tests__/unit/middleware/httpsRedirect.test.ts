@@ -74,6 +74,22 @@ describe('httpsRedirect middleware', () => {
       process.env.NODE_ENV = 'production';
     });
 
+    describe('ヘルスチェックエンドポイント', () => {
+      it('/healthエンドポイントはリダイレクトしないこと', () => {
+        mockRequest = {
+          ...mockRequest,
+          path: '/health',
+          secure: false,
+        };
+        (mockRequest.header as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+
+        httpsRedirect(mockRequest as Request, mockResponse as Response, mockNext);
+
+        expect(redirectMock).not.toHaveBeenCalled();
+        expect(mockNext).toHaveBeenCalledWith();
+      });
+    });
+
     describe('x-forwarded-protoヘッダーがある場合（プロキシ経由）', () => {
       it('HTTPからHTTPSにリダイレクトすること', () => {
         (mockRequest.header as ReturnType<typeof vi.fn>).mockImplementation((name: string) => {
