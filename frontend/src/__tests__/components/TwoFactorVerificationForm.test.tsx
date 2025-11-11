@@ -131,6 +131,11 @@ describe('TwoFactorVerificationForm', () => {
 
       // 初期状態で30秒表示
       expect(screen.getByText(/30秒/i)).toBeInTheDocument();
+      // プログレスバーが表示されている
+      const progressBars = screen
+        .getByText(/30秒/i)
+        .parentElement?.querySelectorAll('div[style*="height: 4px"]');
+      expect(progressBars).toBeTruthy();
     });
   });
 
