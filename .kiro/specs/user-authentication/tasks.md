@@ -575,15 +575,47 @@
       - 自動フォーカス（メールアドレスフィールド）
     - 全148テストパス、型チェック成功
 
-- [ ] 6.3 プロフィール・セッション管理画面の実装
+- [x] 6.3 プロフィール・セッション管理画面の実装
   - プロフィール画面を実装（ユーザー情報表示・編集、パスワード変更）
   - セッション管理画面を実装（アクティブデバイス一覧、個別ログアウト、全デバイスログアウト）
   - _Requirements: 14, 8_
   - _Details: design.md「Profile & Session UI」セクション参照_
   - _Completion Criteria:_
-    - ユーザー情報が編集できる
-    - パスワード変更後に全デバイスからログアウトされる
-    - アクティブデバイス一覧が表示される
+    - ✅ ユーザー情報が編集できる
+    - ✅ パスワード変更後に全デバイスからログアウトされる確認ダイアログが表示される
+    - ✅ アクティブデバイス一覧が表示される
+    - ✅ 個別ログアウト・全デバイスログアウトが動作する
+  - _Implemented:_
+    - 型定義ファイル実装 (`frontend/src/types/profile.types.ts`, `frontend/src/types/session.types.ts`)
+      - UserProfile, UpdateProfileFormData, ChangePasswordFormData, UpdateProfileResult, ChangePasswordResult
+      - Session, SessionListResult, DeleteSessionResult, DeleteAllSessionsResult
+    - ProfileForm実装 (`frontend/src/components/ProfileForm.tsx`)
+      - ユーザー情報表示（メールアドレス[読み取り専用]、表示名[編集可能]、ロール、作成日時）
+      - 表示名変更時の保存ボタン有効化
+      - パスワード変更セクション（現在のパスワード、新しいパスワード、パスワード確認）
+      - パスワード確認不一致時のバリデーションエラー表示
+      - パスワード変更確認ダイアログ（全デバイスログアウト警告）
+      - プロフィール更新中のローディングスピナー表示
+      - プロフィール更新成功・エラーメッセージ表示
+      - 管理者ユーザーへの「ユーザー管理」リンク表示
+      - 2FA有効ユーザーへのバッジ表示
+      - アクセシビリティ属性（aria-label、aria-live、role）
+      - モバイル最適化レイアウト（maxWidth: 600px）
+    - SessionManager実装 (`frontend/src/components/SessionManager.tsx`)
+      - アクティブセッション一覧表示（デバイス情報、IP、作成日時、最終アクティビティ）
+      - 現在のセッションへのバッジ表示
+      - 個別ログアウトボタン（現在のセッション以外）
+      - 個別ログアウト確認ダイアログ
+      - 全デバイスログアウトボタン
+      - 全デバイスログアウト確認ダイアログ
+      - セッション一覧が空の場合のメッセージ表示
+      - ローディング中のスピナー表示
+      - エラー時のエラーメッセージ表示
+      - アクセシビリティ属性（aria-label、aria-live、role、aria-modal）
+    - 単体テスト32ケース作成:
+      - `frontend/src/__tests__/components/ProfileForm.test.tsx`: 16テスト
+      - `frontend/src/__tests__/components/SessionManager.test.tsx`: 16テスト
+    - 全32テストパス、型チェック成功
 
 - [ ] 6.4 管理者機能画面の実装
   - ユーザー招待画面を実装（招待フォーム、招待一覧、ステータス管理）
