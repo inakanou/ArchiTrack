@@ -394,4 +394,165 @@ describe('ApiClient', () => {
       expect(result.email).toBe('test@example.com');
     });
   });
+
+  describe('認証機能', () => {
+    describe('アクセストークンの自動設定', () => {
+      it('setAccessTokenでアクセストークンを設定できること', () => {
+        apiClient.setAccessToken('test-access-token');
+
+        expect(apiClient.getAccessToken()).toBe('test-access-token');
+      });
+
+      it('アクセストークンが設定されている場合、自動的にAuthorizationヘッダーを追加すること', async () => {
+        apiClient.setAccessToken('my-access-token');
+
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ success: true }),
+        });
+
+        await apiClient.get('/api/protected');
+
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              Authorization: 'Bearer my-access-token',
+            }),
+          })
+        );
+
+        // クリーンアップ
+        apiClient.setAccessToken(null);
+      });
+
+      it('アクセストークンがない場合、Authorizationヘッダーを追加しないこと', async () => {
+        apiClient.setAccessToken(null);
+
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ success: true }),
+        });
+
+        await apiClient.get('/api/public');
+
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            headers: expect.not.objectContaining({
+              Authorization: expect.anything(),
+            }),
+          })
+        );
+      });
+    });
+
+    describe('401エラーハンドリングとトークンリフレッシュ', () => {
+      it('401エラー時にトークンリフレッシュコールバックを呼び出すこと', async () => {
+        const mockRefreshCallback = vi.fn().mockResolvedValue('new-access-token');
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+
+        // 1回目のリクエストで401エラー
+        let callCount = 0;
+        globalThis.fetch = vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // 1回目: 401エラー
+            return Promise.resolve({
+              ok: false,
+              status: 401,
+              statusText: 'Unauthorized',
+              headers: new Headers({ 'content-type': 'application/json' }),
+              json: async () => ({ error: 'TOKEN_EXPIRED' }),
+            });
+          } else {
+            // 2回目: 成功（リフレッシュ後）
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              headers: new Headers({ 'content-type': 'application/json' }),
+              json: async () => ({ success: true }),
+            });
+          }
+        });
+
+        const result = await apiClient.get('/api/protected');
+
+        // リフレッシュコールバックが呼ばれた
+        expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+
+        // fetchが2回呼ばれた（1回目: 401、2回目: リトライ）
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+
+        // 2回目のリクエストは成功
+        expect(result).toEqual({ success: true });
+
+        // アクセストークンが更新された
+        expect(apiClient.getAccessToken()).toBe('new-access-token');
+
+        // クリーンアップ
+        apiClient.setTokenRefreshCallback(null);
+        apiClient.setAccessToken(null);
+      });
+
+      it('トークンリフレッシュが失敗した場合、401エラーをスローすること', async () => {
+        const mockRefreshCallback = vi.fn().mockRejectedValue(new Error('Refresh failed'));
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ error: 'TOKEN_EXPIRED' }),
+        });
+
+        await expect(apiClient.get('/api/protected')).rejects.toThrow(ApiError);
+
+        try {
+          await apiClient.get('/api/protected');
+        } catch (error) {
+          if (error instanceof ApiError) {
+            expect(error.statusCode).toBe(401);
+          }
+        }
+
+        // クリーンアップ
+        apiClient.setTokenRefreshCallback(null);
+        apiClient.setAccessToken(null);
+      });
+
+      it('トークンリフレッシュコールバックが設定されていない場合、401エラーをそのままスローすること', async () => {
+        apiClient.setTokenRefreshCallback(null);
+        apiClient.setAccessToken('test-token');
+
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ error: 'Unauthorized' }),
+        });
+
+        await expect(apiClient.get('/api/protected')).rejects.toThrow(ApiError);
+
+        try {
+          await apiClient.get('/api/protected');
+        } catch (error) {
+          if (error instanceof ApiError) {
+            expect(error.statusCode).toBe(401);
+          }
+        }
+
+        // クリーンアップ
+        apiClient.setAccessToken(null);
+      });
+    });
+  });
 });

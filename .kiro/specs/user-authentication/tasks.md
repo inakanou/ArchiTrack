@@ -511,7 +511,7 @@
 - [ ] 6. Frontend認証UIの実装
   - _Dependencies: タスク7.1-7.7完了（認証・認可・2FA APIエンドポイント）_
 
-- [ ] 6.1 認証コンテキストとトークン管理の実装
+- [x] 6.1 認証コンテキストとトークン管理の実装
   - React AuthContextを実装（認証状態管理、トークン管理）
   - TokenRefreshManagerクラスを実装（Race Condition対策、マルチタブ同期）
   - Axios Interceptorを実装（Authorizationヘッダー、401エラーハンドリング）
