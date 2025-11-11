@@ -113,3 +113,30 @@ export interface ApiErrorResponse {
   statusCode: number;
   details?: FormValidationError[];
 }
+
+/**
+ * プロフィール更新フォームデータ
+ */
+export interface UpdateProfileFormData {
+  displayName: string;
+}
+
+/**
+ * パスワード変更フォームデータ
+ */
+export interface ChangePasswordFormData {
+  currentPassword: string;
+  newPassword: string;
+  newPasswordConfirm: string;
+}
+
+/**
+ * セッション情報
+ */
+export interface SessionInfo {
+  id: string;
+  userId: string;
+  deviceInfo?: string;
+  expiresAt: string;
+  createdAt: string;
+}
