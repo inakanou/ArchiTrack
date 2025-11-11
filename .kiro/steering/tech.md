@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-09（AI運用7原則への更新を反映）_
+_最終更新: 2025-11-11（ユーザー認証機能実装完了、テストカバレッジ80%達成を反映）_
 
 ## アーキテクチャ
 
@@ -189,14 +189,14 @@ ArchiTrack/
 - `backend/vitest.config.ts` - Node.js環境設定、カバレッジ閾値設定
 - `backend/vitest.setup.ts` - グローバルセットアップ
 
-**カバレッジ閾値（2025-11-03更新）:**
+**カバレッジ閾値（2025-11-11更新）:**
 ```typescript
 coverage: {
   thresholds: {
-    statements: 80,  // 現在: 92.64%
-    branches: 80,    // 現在: 86.7%
-    functions: 80,   // 現在: 88.67%
-    lines: 80        // 現在: 92.83%
+    statements: 80,  // 現在: 89.46%
+    branches: 80,    // 現在: 80.00% ✅達成
+    functions: 80,   // 現在: 93.43%
+    lines: 80        // 現在: 89.42%
   }
 }
 ```
@@ -209,16 +209,35 @@ coverage: {
     - `errorHandler.test.ts` - エラーハンドリングミドルウェア（Zod、Prisma、一般エラー）
     - `httpsRedirect.test.ts` - HTTPS強制リダイレクトとHSTSヘッダー
     - `validate.test.ts` - Zodバリデーションミドルウェア（body/query/params）
+    - `authenticate.middleware.test.ts` - JWT認証ミドルウェア（10テスト）
+    - `authorize.middleware.test.ts` - 権限チェックミドルウェア（13テスト）
     - `RedisRateLimitStore.test.ts` - Redisレート制限ストア（14テスト、カバレッジ100%）
     - `rateLimit.test.ts` - レート制限ミドルウェア（3テスト）
     - `logger.test.ts` - HTTPロガーミドルウェア（17テスト）
   - `unit/routes/` - ルートテスト（23テスト）
     - `admin.routes.test.ts` - 管理者用ルート（ログレベル動的変更）
-  - `unit/utils/` - ユーティリティテスト（13テスト）
+    - `jwks.routes.test.ts` - JWKS公開鍵配信エンドポイント（8テスト、カバレッジ100%）
+  - `unit/services/` - サービステスト（324テスト）
+    - `auth.service.test.ts` - 認証統合サービス（24テスト）
+    - `token.service.test.ts` - JWTトークン管理（EdDSA署名、18テスト）
+    - `session.service.test.ts` - セッション管理（19テスト）
+    - `invitation.service.test.ts` - 招待制登録（16テスト）
+    - `password.service.test.ts` - パスワード管理（35テスト）
+    - `two-factor.service.test.ts` - 2FA管理（TOTP + バックアップコード）
+    - `role.service.test.ts` - ロール管理（23テスト）
+    - `permission.service.test.ts` - 権限管理（23テスト）
+    - `role-permission.service.test.ts` - ロール権限紐付け（24テスト）
+    - `user-role.service.test.ts` - ユーザーロール管理（27テスト）
+    - `rbac.service.test.ts` - RBAC統合サービス（21テスト）
+    - `audit-log.service.test.ts` - 監査ログ（35テスト）
+    - `archive.service.test.ts` - ログアーカイブ（6テスト）
+    - `email.service.test.ts` - メール送信（Bull非同期キュー、14テスト）
+  - `unit/utils/` - ユーティリティテスト（14テスト）
     - `sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
+    - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 149テスト
+**テスト合計:** 472テスト
 
 **実行方法:**
 ```bash
@@ -230,11 +249,9 @@ npm --prefix backend run test:unit   # ユニットテストのみ
 npm --prefix backend run test:unit:coverage  # ユニットテストカバレッジ
 ```
 
-**カバレッジ改善履歴（2025-11-03）:**
-- Statements: 79.6% → 92.64% (+13.04%)
-- Branches: 69.5% → 86.7% (+17.2%)
-- Functions: 76.59% → 88.67% (+12.08%)
-- Lines: 80.47% → 92.83% (+12.36%)
+**カバレッジ改善履歴:**
+- 2025-11-03: Statements 79.6%→92.64%, Branches 69.5%→86.7%, Functions 76.59%→88.67%, Lines 80.47%→92.83%
+- **2025-11-11: Branches 78.79%→80.00% ✅目標達成**（email.service、jwks.routes、auth.service、two-factor.service等のブランチテスト追加）
 
 **型安全性のベストプラクティス:**
 - Vitest MockとExpress型の互換性: `as unknown as Type` パターンを使用

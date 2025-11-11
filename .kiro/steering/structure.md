@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-09（user-authentication設計品質バリデーション完了を反映）_
+_最終更新: 2025-11-11（ユーザー認証機能実装完了、テストカバレッジ80%達成を反映）_
 
 ## ルートディレクトリ構成
 
@@ -182,11 +182,11 @@ git config core.hooksPath .husky
 └── implementation/        # 実装記録（オプション）
 ```
 
-**現在のアクティブ仕様:**
+**完了した仕様:**
 
-- `.kiro/specs/user-authentication/` - ユーザー認証機能
-  - 状態: 要件定義✅、技術設計✅（品質バリデーション完了✅）、タスク分解✅、実装🚧
-  - 内容: 招待制ユーザー登録、ロールベースアクセス制御（RBAC）、JWT認証フロー
+- `.kiro/specs/user-authentication/` - ユーザー認証機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全46タスク完了）
+  - 内容: 招待制ユーザー登録、ロールベースアクセス制御（RBAC）、JWT認証フロー、2FA、監査ログ
 
 ### `e2e/`
 
@@ -319,35 +319,79 @@ backend/
 ├── prisma/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
-│   ├── __tests__/         # 単体テスト（カバレッジ80%以上達成）
-│   │   └── unit/          # ユニットテスト
+│   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
+│   │   └── unit/          # ユニットテスト（472テスト）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
 │   │       │   ├── errorHandler.test.ts        # エラーハンドリング（Zod、Prisma、一般エラー）
 │   │       │   ├── httpsRedirect.test.ts       # HTTPS強制とHSTSヘッダー
 │   │       │   ├── validate.test.ts            # Zodバリデーション（body/query/params）
+│   │       │   ├── authenticate.middleware.test.ts # JWT認証ミドルウェア（10テスト）
+│   │       │   ├── authorize.middleware.test.ts    # 権限チェックミドルウェア（13テスト）
 │   │       │   ├── RedisRateLimitStore.test.ts # Redisレート制限ストア（14テスト）
 │   │       │   ├── rateLimit.test.ts           # レート制限ミドルウェア（3テスト）
 │   │       │   └── logger.test.ts              # HTTPロガーミドルウェア（17テスト）
 │   │       ├── routes/    # ルートテスト
-│   │       │   └── admin.routes.test.ts  # 管理者ルート（ログレベル動的変更）
+│   │       │   ├── admin.routes.test.ts  # 管理者ルート（ログレベル動的変更）
+│   │       │   └── jwks.routes.test.ts   # JWKS公開鍵配信（8テスト）
+│   │       ├── services/  # サービステスト（324テスト）
+│   │       │   ├── auth.service.test.ts  # 認証統合（24テスト）
+│   │       │   ├── token.service.test.ts # JWTトークン管理（EdDSA、18テスト）
+│   │       │   ├── session.service.test.ts # セッション管理（19テスト）
+│   │       │   ├── invitation.service.test.ts # 招待制登録（16テスト）
+│   │       │   ├── password.service.test.ts # パスワード管理（35テスト）
+│   │       │   ├── two-factor.service.test.ts # 2FA管理（TOTP + バックアップコード）
+│   │       │   ├── role.service.test.ts # ロール管理（23テスト）
+│   │       │   ├── permission.service.test.ts # 権限管理（23テスト）
+│   │       │   ├── role-permission.service.test.ts # ロール権限紐付け（24テスト）
+│   │       │   ├── user-role.service.test.ts # ユーザーロール管理（27テスト）
+│   │       │   ├── rbac.service.test.ts # RBAC統合（21テスト）
+│   │       │   ├── audit-log.service.test.ts # 監査ログ（35テスト）
+│   │       │   ├── archive.service.test.ts # ログアーカイブ（6テスト）
+│   │       │   └── email.service.test.ts # メール送信（Bull、14テスト）
 │   │       └── utils/     # ユーティリティテスト
-│   │           └── sentry.test.ts  # Sentryエラートラッキング（13テスト）
+│   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
+│   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
 │   ├── errors/            # カスタムエラー定義
 │   │   └── ApiError.ts    # カスタムAPIエラークラス
 │   ├── middleware/        # ミドルウェア
 │   │   ├── errorHandler.middleware.ts  # エラーハンドリング
-│   │   ├── httpsRedirect.middleware.ts  # HTTPS強制リダイレクト
-│   │   ├── logger.middleware.ts         # Pino HTTPロギング
-│   │   └── validate.middleware.ts       # Zodバリデーション
+│   │   ├── httpsRedirect.middleware.ts # HTTPS強制リダイレクト
+│   │   ├── logger.middleware.ts        # Pino HTTPロギング
+│   │   ├── validate.middleware.ts      # Zodバリデーション
+│   │   ├── authenticate.middleware.ts  # JWT認証
+│   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
 │   ├── routes/            # ルート定義
-│   │   └── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
+│   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
+│   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
+│   │   └── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
+│   ├── services/          # ビジネスロジック
+│   │   ├── auth.service.ts  # 認証統合サービス
+│   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
+│   │   ├── session.service.ts # セッション管理
+│   │   ├── invitation.service.ts # 招待制登録
+│   │   ├── password.service.ts # パスワード管理（bcrypt）
+│   │   ├── two-factor.service.ts # 2FA管理（TOTP + バックアップコード）
+│   │   ├── role.service.ts # ロール管理
+│   │   ├── permission.service.ts # 権限管理
+│   │   ├── role-permission.service.ts # ロール権限紐付け
+│   │   ├── user-role.service.ts # ユーザーロール管理
+│   │   ├── rbac.service.ts # RBAC統合サービス
+│   │   ├── audit-log.service.ts # 監査ログ
+│   │   ├── archive.service.ts # ログアーカイブ
+│   │   └── email.service.ts # メール送信（Bull非同期キュー）
 │   ├── types/             # カスタム型定義
-│   │   ├── express.d.ts   # Express Request拡張（pinoログ追加）
-│   │   └── env.d.ts       # 環境変数型定義（型安全なprocess.env）
+│   │   ├── express.d.ts   # Express Request拡張（pinoログ、user追加）
+│   │   ├── env.d.ts       # 環境変数型定義（型安全なprocess.env）
+│   │   ├── result.ts      # Result型（Ok/Err）
+│   │   ├── auth.types.ts  # 認証関連型定義
+│   │   ├── session.types.ts # セッション関連型定義
+│   │   └── password.types.ts # パスワード関連型定義
 │   ├── utils/             # ユーティリティ関数
-│   │   └── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
+│   │   ├── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
+│   │   ├── env-validator.ts # 環境変数バリデーション（Zod）
+│   │   └── sentry.ts      # Sentryエラートラッキング
 │   ├── app.ts             # Expressアプリケーション（テスト用に分離、Swagger UI統合）
 │   ├── index.ts           # Expressサーバーエントリーポイント（app.tsをimportして起動）
 │   ├── generate-swagger.ts  # Swagger/OpenAPI仕様生成スクリプト（JSDocから生成）
@@ -411,12 +455,33 @@ backend/src/
 
 **実装済みAPI:**
 
-- `GET /health`: ヘルスチェックエンドポイント。サービス状態とDB/Redis接続状態を返却
-- `GET /api`: API情報エンドポイント。バージョン情報を返却
+**基盤API:**
+- `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
+- `GET /api`: API情報エンドポイント（バージョン情報）
 - `GET /docs`: Swagger UIによるインタラクティブなAPIドキュメント（開発環境のみ）
-- `POST /admin/log-level`: ログレベル動的変更（本番環境でのデバッグ用）
-- `GET /admin/log-level`: 現在のログレベル取得
 - `GET /favicon.ico`: 404エラー防止用faviconハンドラー
+
+**管理API:**
+- `POST /admin/log-level`: ログレベル動的変更（本番環境デバッグ用）
+- `GET /admin/log-level`: 現在のログレベル取得
+
+**認証API:**
+- 招待登録、ログイン、ログアウト、トークンリフレッシュ、2FA検証、パスワードリセット、ユーザー情報取得
+
+**2FA管理API:**
+- 2FA初期設定、有効化、無効化、バックアップコード再生成
+
+**セッション管理API:**
+- セッション一覧取得、特定セッション削除、セッション有効期限延長
+
+**ロール・権限管理API:**
+- ロールCRUD、権限CRUD、ロール権限紐付け、ユーザーロール管理
+
+**監査ログAPI:**
+- 監査ログ一覧取得（フィルタリング、ページネーション）、ログアーカイブ
+
+**公開鍵配信API:**
+- `GET /.well-known/jwks.json`: JWT検証用公開鍵（JWKS形式、RFC 7517準拠）
 
 **実装済みミドルウェア:**
 
@@ -425,6 +490,8 @@ backend/src/
 - HSTSヘッダー: Strict-Transport-Securityヘッダー設定
 - リクエストバリデーション: Zodスキーマによる型安全なバリデーション
 - ロギング: Pino HTTPロギングミドルウェア
+- **JWT認証**: EdDSA署名検証、アクセス/リフレッシュトークン
+- **権限チェック**: RBACによる動的権限検証、キャッシング統合
 
 ## Docker構成
 
@@ -664,6 +731,13 @@ refactor: improve type safety by eliminating any types
 - **Fail-fast戦略**: 早期ステージでの失敗で即座に中断
 - **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
 - **Defense in Depth戦略**: 複数レイヤーでの品質保証
+
+**カバレッジ達成状況:**
+- **Branches: 80.00% ✅達成**（2025-11-11）
+- Statements: 89.46%
+- Functions: 93.43%
+- Lines: 89.42%
+- テスト合計: 472テスト
 
 ### .gitignore
 
