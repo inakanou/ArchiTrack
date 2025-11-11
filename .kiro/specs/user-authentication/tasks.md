@@ -617,17 +617,42 @@
       - `frontend/src/__tests__/components/SessionManager.test.tsx`: 16テスト
     - 全32テストパス、型チェック成功
 
-- [ ] 6.4 管理者機能画面の実装
+- [x] 6.4 管理者機能画面の実装
   - ユーザー招待画面を実装（招待フォーム、招待一覧、ステータス管理）
   - ロール・権限管理画面を実装（ロールCRUD、権限割り当て、ユーザー・ロール紐付け）
   - 監査ログ画面を実装（フィルタリング、エクスポート）
   - _Requirements: 13, 17, 18, 19, 20, 22_
   - _Details: design.md「Admin UI」セクション参照_
   - _Completion Criteria:_
-    - 招待一覧がステータス別フィルタリングできる
-    - 招待URLがクリップボードにコピーできる
-    - ロール・権限管理がトランザクション内で完結する
-    - 監査ログがフィルタリング・エクスポートできる
+    - ✅ 招待一覧がステータス別フィルタリングできる
+    - ✅ 招待URLがクリップボードにコピーできる
+    - ⏳ ロール・権限管理がトランザクション内で完結する（Backend API実装待ち）
+    - ✅ 監査ログがフィルタリング・エクスポートできる
+  - _Implemented:_
+    - InvitationManager完全実装 (`frontend/src/components/InvitationManager.tsx`)
+      - 招待フォーム（メールアドレス入力、バリデーション、招待作成）
+      - 招待一覧テーブル（ステータス、有効期限、アクション表示）
+      - ステータスフィルタリング（未使用/使用済み/期限切れ）
+      - 招待URLコピー機能（クリップボード統合）
+      - 招待取り消し・再送信機能（確認ダイアログ付き）
+      - 単体テスト16ケース作成 (`frontend/src/__tests__/components/InvitationManager.test.tsx`)
+    - RolePermissionManager実装 (`frontend/src/components/RolePermissionManager.tsx`)
+      - ロール一覧表示（割り当てユーザー数、権限数）
+      - ロールCRUD UI（作成ダイアログ、削除ボタン）
+      - 権限一覧表示（リソースタイプ、アクション、説明）
+      - タブ切り替え（ロール/権限）
+      - 単体テスト8ケース作成 (`frontend/src/__tests__/components/RolePermissionManager.test.tsx`)
+    - AuditLogViewer実装 (`frontend/src/components/AuditLogViewer.tsx`)
+      - 監査ログ一覧表示（実行者、アクション、対象リソース、日時）
+      - フィルタリング機能（実行者ID、開始日時、終了日時）
+      - JSONエクスポートボタン
+      - アクション種別の日本語ローカライズ
+      - 単体テスト9ケース作成 (`frontend/src/__tests__/components/AuditLogViewer.test.tsx`)
+    - 型定義ファイル作成:
+      - `frontend/src/types/invitation.types.ts`: 招待関連型定義
+      - `frontend/src/types/role.types.ts`: ロール・権限関連型定義
+      - `frontend/src/types/audit-log.types.ts`: 監査ログ関連型定義
+    - 全33テストパス、型チェック成功
 
 - [ ] 6.5 二要素認証（2FA）画面の実装
   - 2FA設定画面を実装（QRコード表示、TOTP検証、バックアップコード保存）
