@@ -654,17 +654,55 @@
       - `frontend/src/types/audit-log.types.ts`: 監査ログ関連型定義
     - 全33テストパス、型チェック成功
 
-- [ ] 6.5 二要素認証（2FA）画面の実装
+- [x] 6.5 二要素認証（2FA）画面の実装
   - 2FA設定画面を実装（QRコード表示、TOTP検証、バックアップコード保存）
   - 2FAログイン画面を実装（TOTP入力、バックアップコード代替、カウントダウンタイマー）
   - 2FA管理画面を実装（バックアップコード表示、再生成、無効化）
   - _Requirements: 27D, 27A, 27B_
   - _Details: design.md「2FA UI」セクション参照_
   - _Completion Criteria:_
-    - QRコードがGoogle Authenticator互換形式で表示される
-    - 6桁TOTP入力フィールドが自動タブ移動する
-    - 30秒カウントダウンタイマーが動作する
-    - バックアップコードがダウンロード・印刷・コピーできる
+    - ✅ QRコードがGoogle Authenticator互換形式で表示される
+    - ✅ 6桁TOTP入力フィールドが自動タブ移動する
+    - ✅ 30秒カウントダウンタイマーが動作する
+    - ✅ バックアップコードがダウンロード・印刷・コピーできる
+  - _Implemented:_
+    - TwoFactorSetupForm完全実装 (`frontend/src/components/TwoFactorSetupForm.tsx`)
+      - 3ステップウィザード形式（QRコード表示→TOTP検証→バックアップコード保存）
+      - QRコード表示（Google Authenticator互換、otpauth://totp形式）
+      - 秘密鍵手動入力オプション（Base32エンコード済み）
+      - 6桁TOTP入力フィールド（自動フォーカス移動、ペースト対応）
+      - バックアップコード10個表示（2列グリッドレイアウト）
+      - ダウンロード・コピー機能（クリップボード統合）
+      - 保存確認チェックボックス（完了ボタン有効化条件）
+      - プログレスバー（ステップ1/3、2/3、3/3）
+      - ローディングスピナー、エラーメッセージ表示
+      - 単体テスト17ケース作成 (`frontend/src/__tests__/components/TwoFactorSetupForm.test.tsx`)
+    - TwoFactorVerificationForm完全実装 (`frontend/src/components/TwoFactorVerificationForm.tsx`)
+      - TOTPモードとバックアップコードモードの切り替え
+      - 6桁TOTP入力フィールド（自動フォーカス移動、Backspaceキー対応）
+      - 30秒カウントダウンタイマー（プログレスバー表示、10秒以下で赤色警告）
+      - バックアップコード入力フィールド（8文字、大文字変換）
+      - モード切り替えリンク（「バックアップコードを使用する」↔「認証コードを使用する」）
+      - 検証ボタン（6桁/バックアップコード入力完了後に有効化）
+      - キャンセルボタン
+      - エラーメッセージ表示（aria-live属性）
+      - 単体テスト14ケース作成 (`frontend/src/__tests__/components/TwoFactorVerificationForm.test.tsx`)
+    - TwoFactorManagement完全実装 (`frontend/src/components/TwoFactorManagement.tsx`)
+      - バックアップコード一覧表示（10個、2列グリッドレイアウト）
+      - 使用済みコードのグレーアウト・取り消し線表示（aria-label="使用済み"）
+      - 残りバックアップコード数表示（残り{count}個）
+      - 残り3個以下で警告メッセージ表示
+      - バックアップコード再生成機能（確認ダイアログ、既存コード無効化警告）
+      - 新しいバックアップコード表示（ダウンロード・コピー機能）
+      - 2FA無効化機能（パスワード確認ダイアログ、全デバイスログアウト警告）
+      - 確認ダイアログ（再生成・無効化）
+      - 単体テスト9ケース作成 (`frontend/src/__tests__/components/TwoFactorManagement.test.tsx`)
+    - 型定義ファイル完全実装 (`frontend/src/types/two-factor.types.ts`)
+      - TwoFactorSetupData, TwoFactorEnabledData, BackupCodeInfo
+      - TwoFactorSetupResult, TwoFactorEnableResult, VerifyTOTPResult, VerifyBackupCodeResult
+      - DisableTwoFactorResult, RegenerateBackupCodesResultType
+    - 全40テストパス（TwoFactorSetupForm 17、TwoFactorVerificationForm 14、TwoFactorManagement 9）
+    - 型チェック成功、WCAG 2.1 AA準拠（aria-label、aria-live、role属性）
 
 - [ ] 6.6 共通UI/UXコンポーネントの実装
   - レスポンシブデザインを実装（モバイル・タブレット・デスクトップ）
