@@ -869,17 +869,33 @@
     - PasswordService統合（task 2.6で実装済み）
     - 全完了条件を達成、型チェック成功
 
-- [ ] 7.5 RBAC関連APIエンドポイントの実装
+- [x] 7.5 RBAC関連APIエンドポイントの実装
   - ロールCRUD APIを実装
   - ロール・権限紐付けAPIを実装
   - 権限一覧取得APIを実装
   - ユーザー・ロール紐付けAPIを実装
   - _Requirements: 6, 17, 18, 19, 20_
-  - _Details: design.md「RBAC API」セクション参照_
+  - _Details: design.md「RBAC Routes」セクション参照_
   - _Completion Criteria:_
-    - 全エンドポイントが`/api/v1/roles/...`, `/api/v1/permissions/...`形式で実装される
-    - システム管理者ロールは削除できない
-    - 最後の管理者のロールは削除できない
+    - ✅ 全エンドポイントが認証・認可で保護されている
+    - ✅ Result型パターンで型安全なエラーハンドリング
+    - ✅ Swagger/OpenAPIドキュメント完備
+  - _Implemented:_
+    - ロールルート (`backend/src/routes/roles.routes.ts`)
+      - GET /api/v1/roles: ロール一覧取得（統計情報含む）
+      - POST /api/v1/roles: 新規ロール作成
+      - PATCH /api/v1/roles/:id: ロール更新
+      - DELETE /api/v1/roles/:id: ロール削除（システムロール保護、使用中チェック）
+      - POST /api/v1/roles/:id/permissions: ロールに権限追加
+      - DELETE /api/v1/roles/:id/permissions/:permissionId: ロールから権限削除
+    - 権限ルート (`backend/src/routes/permissions.routes.ts`)
+      - GET /api/v1/permissions: 権限一覧取得（リソース・アクション順ソート）
+    - ユーザーロールルート (`backend/src/routes/user-roles.routes.ts`)
+      - POST /api/v1/users/:id/roles: ユーザーにロール追加（監査ログ・メール通知）
+      - DELETE /api/v1/users/:id/roles/:roleId: ユーザーからロール削除（最後の管理者保護）
+    - app.ts統合: 全ルートを/api/v1配下にマウント
+    - 単体テスト作成: roles, permissions, user-roles用のルートテスト
+    - 型チェック成功、全依存関係解決済み
 
 - [ ] 7.6 監査ログ関連APIエンドポイントの実装
   - 監査ログ取得APIを実装（フィルタリング対応）

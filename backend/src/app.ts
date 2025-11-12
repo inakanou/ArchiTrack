@@ -16,6 +16,9 @@ import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import adminRoutes from './routes/admin.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import { createInvitationRoutes } from './routes/invitation.routes.js';
+import rolesRoutes from './routes/roles.routes.js';
+import permissionsRoutes from './routes/permissions.routes.js';
+import userRolesRoutes from './routes/user-roles.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -228,6 +231,11 @@ app.use('/api/v1/auth', authRoutes);
 // Invitation routes
 const prisma = getPrismaClient();
 app.use('/api/v1/invitations', createInvitationRoutes(prisma));
+
+// RBAC routes
+app.use('/api/v1/roles', rolesRoutes);
+app.use('/api/v1/permissions', permissionsRoutes);
+app.use('/api/v1/users', userRolesRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
