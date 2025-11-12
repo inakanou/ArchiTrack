@@ -11,94 +11,97 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { TokenService } from '../services/token.service';
+import tokenServiceInstance from '../services/token.service';
 
 /**
- * JWT認証ミドルウェア
+ * JWT認証ミドルウェアファクトリー
  *
- * Authorizationヘッダーからトークンを抽出し、検証します。
- * 検証成功時、req.userにユーザー情報を設定します。
+ * TokenServiceを注入可能な認証ミドルウェアを生成します。
+ * テスト時にモックのTokenServiceを使用する場合に便利です。
  *
- * @param req - Expressリクエストオブジェクト
- * @param res - Expressレスポンスオブジェクト
- * @param next - 次のミドルウェアへの関数
- * @param tokenService - TokenServiceインスタンス（テスト用オプション）
+ * @param tokenService - TokenServiceインスタンス（オプション、デフォルトはシングルトン）
+ * @returns Express ミドルウェア関数
  */
-export async function authenticate(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-  tokenService?: TokenService
-): Promise<void> {
-  try {
-    // Authorizationヘッダーからトークンを抽出
-    const authHeader = req.headers.authorization;
+export function createAuthMiddleware(tokenService?: TokenService) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      // Authorizationヘッダーからトークンを抽出
+      const authHeader = req.headers.authorization;
 
-    if (!authHeader) {
-      res.status(401).json({
-        error: 'MISSING_TOKEN',
-        message: 'Authentication token is required',
-      });
-      return;
-    }
-
-    // "Bearer {token}" 形式のチェック
-    const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      res.status(401).json({
-        error: 'MISSING_TOKEN',
-        message: 'Authentication token is required',
-      });
-      return;
-    }
-
-    const token = parts[1];
-
-    // 空のトークンチェック
-    if (!token || token.trim() === '') {
-      res.status(401).json({
-        error: 'MISSING_TOKEN',
-        message: 'Authentication token is required',
-      });
-      return;
-    }
-
-    // TokenServiceインスタンスを取得（テスト時は注入されたものを使用）
-    const service = tokenService || new TokenService();
-
-    // トークンを検証
-    const result = await service.verifyToken(token, 'access');
-
-    // 検証結果をチェック
-    if (!result.ok) {
-      if (result.error.type === 'TOKEN_EXPIRED') {
+      if (!authHeader) {
         res.status(401).json({
-          error: 'TOKEN_EXPIRED',
-          message: 'Token has expired',
+          error: 'MISSING_TOKEN',
+          message: 'Authentication token is required',
         });
         return;
       }
 
+      // "Bearer {token}" 形式のチェック
+      const parts = authHeader.split(' ');
+      if (parts.length !== 2 || parts[0] !== 'Bearer') {
+        res.status(401).json({
+          error: 'MISSING_TOKEN',
+          message: 'Authentication token is required',
+        });
+        return;
+      }
+
+      const token = parts[1];
+
+      // 空のトークンチェック
+      if (!token || token.trim() === '') {
+        res.status(401).json({
+          error: 'MISSING_TOKEN',
+          message: 'Authentication token is required',
+        });
+        return;
+      }
+
+      // TokenServiceインスタンスを取得（テスト時は注入されたものを使用、デフォルトはシングルトン）
+      const service = tokenService || tokenServiceInstance;
+
+      // トークンを検証
+      const result = await service.verifyToken(token, 'access');
+
+      // 検証結果をチェック
+      if (!result.ok) {
+        if (result.error.type === 'TOKEN_EXPIRED') {
+          res.status(401).json({
+            error: 'TOKEN_EXPIRED',
+            message: 'Token has expired',
+          });
+          return;
+        }
+
+        res.status(401).json({
+          error: 'INVALID_TOKEN',
+          message: 'Invalid or expired token',
+        });
+        return;
+      }
+
+      // req.userにユーザー情報を設定
+      req.user = {
+        userId: result.value.userId,
+        email: result.value.email,
+        roles: result.value.roles,
+      };
+
+      // 次のミドルウェアへ
+      next();
+    } catch {
+      // 予期しないエラーをハンドリング
       res.status(401).json({
         error: 'INVALID_TOKEN',
         message: 'Invalid or expired token',
       });
-      return;
     }
-
-    // req.userにユーザー情報を設定
-    req.user = {
-      userId: result.value.userId,
-      email: result.value.email,
-      roles: result.value.roles,
-    };
-
-    // 次のミドルウェアへ
-    next();
-  } catch {
-    // 予期しないエラーをハンドリング
-    res.status(401).json({
-      error: 'INVALID_TOKEN',
-      message: 'Invalid or expired token',
-    });
-  }
+  };
 }
+
+/**
+ * デフォルトの認証ミドルウェア
+ *
+ * シングルトンのTokenServiceを使用する標準的な認証ミドルウェアです。
+ */
+export const authenticate = createAuthMiddleware();

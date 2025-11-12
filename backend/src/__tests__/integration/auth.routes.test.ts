@@ -187,7 +187,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app).post('/api/v1/auth/register').send({
         invitationToken: invitation.token,
         displayName: 'New User 1',
-        password: 'NewUserPassword123!',
+        password: 'xK9#mP2$vL7@qR5!wN8', // ランダムで強力なパスワード
       });
 
       expect(response.status).toBe(201);
@@ -202,7 +202,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app).post('/api/v1/auth/register').send({
         invitationToken: 'invalid-token',
         displayName: 'New User',
-        password: 'NewUserPassword123!',
+        password: 'xK9#mP2$vL7@qR5!wN8',
       });
 
       expect(response.status).toBe(400);
@@ -223,7 +223,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app).post('/api/v1/auth/register').send({
         invitationToken: invitation.token,
         displayName: 'New User 2',
-        password: 'NewUserPassword123!',
+        password: 'xK9#mP2$vL7@qR5!wN8',
       });
 
       expect(response.status).toBe(400);
@@ -253,6 +253,21 @@ describe('Authentication API Integration Tests', () => {
 
   describe('POST /api/v1/auth/login', () => {
     beforeEach(async () => {
+      // 既存のログインテストユーザーを削除
+      await prisma.userRole.deleteMany({
+        where: {
+          user: {
+            email: 'test-auth-login@example.com',
+          },
+        },
+      });
+
+      await prisma.user.deleteMany({
+        where: {
+          email: 'test-auth-login@example.com',
+        },
+      });
+
       // テストユーザーを作成
       const passwordHash = await hash('TestPassword123!', {
         memoryCost: 64 * 1024,

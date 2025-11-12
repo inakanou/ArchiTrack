@@ -42,13 +42,14 @@ export class TokenService {
   private privateKey!: jose.KeyLike;
   private accessTokenExpiry: string;
   private refreshTokenExpiry: string;
+  private keysInitialized: Promise<void>;
 
   constructor() {
     this.accessTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY || '15m';
     this.refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || '7d';
 
     // 鍵の初期化（非同期）
-    this.initializeKeys().catch((err) => {
+    this.keysInitialized = this.initializeKeys().catch((err) => {
       logger.error(
         {
           error: err instanceof Error ? err.message : String(err),
@@ -108,6 +109,9 @@ export class TokenService {
    * ```
    */
   async generateAccessToken(payload: TokenPayload): Promise<string> {
+    // キーの初期化を待つ
+    await this.keysInitialized;
+
     try {
       const token = await new jose.SignJWT({
         userId: payload.userId,
@@ -149,6 +153,9 @@ export class TokenService {
    * ```
    */
   async generateRefreshToken(payload: TokenPayload): Promise<string> {
+    // キーの初期化を待つ
+    await this.keysInitialized;
+
     try {
       const token = await new jose.SignJWT({
         userId: payload.userId,
@@ -198,6 +205,9 @@ export class TokenService {
     token: string,
     type: 'access' | 'refresh'
   ): Promise<Result<TokenPayload, TokenError>> {
+    // キーの初期化を待つ
+    await this.keysInitialized;
+
     try {
       const { payload } = await jose.jwtVerify(token, this.publicKey, {
         algorithms: ['EdDSA'],
@@ -318,3 +328,7 @@ export class TokenService {
     }
   }
 }
+
+// シングルトンインスタンスをエクスポート
+const tokenServiceInstance = new TokenService();
+export default tokenServiceInstance;

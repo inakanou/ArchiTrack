@@ -25,44 +25,32 @@ const authService = new AuthService(prisma);
 
 // Zodバリデーションスキーマ
 const registerSchema = z.object({
-  body: z.object({
-    invitationToken: z.string().min(1, 'Invitation token is required'),
-    displayName: z.string().min(1, 'Display name is required').max(100),
-    password: z.string().min(12, 'Password must be at least 12 characters'),
-  }),
+  invitationToken: z.string().min(1, 'Invitation token is required'),
+  displayName: z.string().min(1, 'Display name is required').max(100),
+  password: z.string().min(12, 'Password must be at least 12 characters'),
 });
 
 const loginSchema = z.object({
-  body: z.object({
-    email: z.string().email('Invalid email format'),
-    password: z.string().min(1, 'Password is required'),
-  }),
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(1, 'Password is required'),
 });
 
 const refreshSchema = z.object({
-  body: z.object({
-    refreshToken: z.string().min(1, 'Refresh token is required'),
-  }),
+  refreshToken: z.string().min(1, 'Refresh token is required'),
 });
 
 const updateProfileSchema = z.object({
-  body: z.object({
-    displayName: z.string().min(1, 'Display name is required').max(100).optional(),
-  }),
+  displayName: z.string().min(1, 'Display name is required').max(100).optional(),
 });
 
 const logoutSchema = z.object({
-  body: z.object({
-    refreshToken: z.string().min(1, 'Refresh token is required'),
-  }),
+  refreshToken: z.string().min(1, 'Refresh token is required'),
 });
 
 const verify2FASchema = z.object({
-  body: z.object({
-    token: z.string().length(6, 'TOTP token must be 6 digits'),
-    email: z.string().email('Invalid email format').optional(),
-    tempToken: z.string().optional(),
-  }),
+  token: z.string().length(6, 'TOTP token must be 6 digits'),
+  email: z.string().email('Invalid email format').optional(),
+  tempToken: z.string().optional(),
 });
 
 /**
@@ -311,16 +299,34 @@ router.post(
 router.post(
   '/refresh',
   validate(refreshSchema),
-  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // TODO: Implement token refresh logic
-      // const { refreshToken } = req.body;
-      // const result = await authService.refreshToken(refreshToken);
+      const { refreshToken } = req.body;
 
-      res.status(501).json({
-        error: 'Token refresh not implemented',
-        code: 'NOT_IMPLEMENTED',
-      });
+      const result = await authService.refreshToken(refreshToken);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'INVALID_REFRESH_TOKEN') {
+          res.status(401).json({ error: 'Invalid refresh token', code: error.type });
+          return;
+        } else if (error.type === 'REFRESH_TOKEN_EXPIRED') {
+          res.status(401).json({ error: 'Refresh token expired', code: error.type });
+          return;
+        }
+
+        res.status(500).json({ error: 'Token refresh failed', code: 'REFRESH_ERROR' });
+        return;
+      }
+
+      const authResponse = result.value;
+
+      logger.info(
+        { userId: authResponse.user.id, email: authResponse.user.email },
+        'Token refreshed successfully'
+      );
+
+      res.status(200).json(authResponse);
     } catch (error) {
       next(error);
     }
@@ -631,12 +637,56 @@ router.post(
 router.post(
   '/verify-2fa',
   validate(verify2FASchema),
-  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // TODO: Implement 2FA verification logic
-      // const { token, email, tempToken } = req.body;
-      // This is a placeholder implementation
-      res.status(501).json({ error: 'Not implemented', code: 'NOT_IMPLEMENTED' });
+      const { token, email, tempToken } = req.body;
+
+      // ログイン時の2FA検証の場合、emailまたはtempTokenからuserIdを取得
+      let userId: string;
+
+      if (tempToken) {
+        // tempTokenからuserIdを抽出（実装はシンプルにJWTデコードを想定）
+        const verifyResult = await authService['tokenService'].verifyToken(tempToken, 'access');
+        if (!verifyResult.ok) {
+          res.status(401).json({ error: 'Invalid temporary token', code: 'INVALID_TEMP_TOKEN' });
+          return;
+        }
+        userId = verifyResult.value.userId;
+      } else if (email) {
+        // emailからユーザーを検索
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user) {
+          res.status(401).json({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+          return;
+        }
+        userId = user.id;
+      } else {
+        res.status(400).json({ error: 'Email or tempToken is required', code: 'MISSING_PARAM' });
+        return;
+      }
+
+      // 2FA検証を実行
+      const result = await authService.verify2FA(userId, token);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'INVALID_2FA_CODE') {
+          res.status(401).json({ error: 'Invalid 2FA code', code: error.type });
+          return;
+        } else if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        }
+
+        res.status(500).json({ error: '2FA verification failed', code: '2FA_ERROR' });
+        return;
+      }
+
+      const authResponse = result.value;
+
+      logger.info({ userId: authResponse.user.id }, '2FA verification successful');
+
+      res.status(200).json(authResponse);
     } catch (error) {
       next(error);
     }

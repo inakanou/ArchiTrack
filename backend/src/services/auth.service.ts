@@ -12,8 +12,10 @@
 import type { PrismaClient } from '@prisma/client';
 import { InvitationService } from './invitation.service';
 import { PasswordService } from './password.service';
-import { TokenService } from './token.service';
+import { TokenService, type TokenPayload } from './token.service';
+import tokenServiceInstance from './token.service';
 import { TwoFactorService } from './two-factor.service';
+import { SessionService } from './session.service';
 import type {
   IAuthService,
   RegisterData,
@@ -43,18 +45,21 @@ export class AuthService implements IAuthService {
   private readonly passwordService: PasswordService;
   private readonly tokenService: TokenService;
   private readonly twoFactorService: TwoFactorService;
+  private readonly sessionService: SessionService;
 
   constructor(
     private readonly prisma: PrismaClient,
     invitationService?: InvitationService,
     passwordService?: PasswordService,
     tokenService?: TokenService,
-    twoFactorService?: TwoFactorService
+    twoFactorService?: TwoFactorService,
+    sessionService?: SessionService
   ) {
     this.invitationService = invitationService || new InvitationService(prisma);
     this.passwordService = passwordService || new PasswordService(prisma);
-    this.tokenService = tokenService || new TokenService();
+    this.tokenService = tokenService || tokenServiceInstance;
     this.twoFactorService = twoFactorService || new TwoFactorService();
+    this.sessionService = sessionService || new SessionService(prisma);
   }
 
   /**
@@ -172,7 +177,10 @@ export class AuthService implements IAuthService {
       const accessToken = await this.tokenService.generateAccessToken(payload);
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
-      // 6. AuthResponse返却
+      // 6. リフレッシュトークンをDBに保存
+      await this.sessionService.createSession(user.id, refreshToken);
+
+      // 7. AuthResponse返却
       const userProfile: UserProfile = {
         id: user.id,
         email: user.email,
@@ -302,6 +310,9 @@ export class AuthService implements IAuthService {
       const accessToken = await this.tokenService.generateAccessToken(payload);
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
+      // リフレッシュトークンをDBに保存
+      await this.sessionService.createSession(user.id, refreshToken);
+
       // UserProfile作成
       const userProfile: UserProfile = {
         id: user.id,
@@ -428,6 +439,9 @@ export class AuthService implements IAuthService {
       const accessToken = await this.tokenService.generateAccessToken(payload);
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
+      // リフレッシュトークンをDBに保存
+      await this.sessionService.createSession(user.id, refreshToken);
+
       // UserProfile作成
       const userProfile: UserProfile = {
         id: user.id,
@@ -533,6 +547,90 @@ export class AuthService implements IAuthService {
       };
 
       return Ok(userProfile);
+    } catch (error) {
+      return Err({
+        type: 'DATABASE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * トークンリフレッシュ
+   * 要件5.1: リフレッシュトークンを使用して新しいアクセストークンを発行
+   */
+  async refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>> {
+    try {
+      // 1. リフレッシュトークンを検証
+      const verifyResult = await this.tokenService.verifyToken(refreshToken, 'refresh');
+
+      if (!verifyResult.ok) {
+        return Err({ type: 'INVALID_REFRESH_TOKEN' });
+      }
+
+      // 2. データベースでリフレッシュトークンの存在と有効性を確認
+      const storedToken = await this.prisma.refreshToken.findUnique({
+        where: { token: refreshToken },
+        include: {
+          user: {
+            include: {
+              userRoles: {
+                include: {
+                  role: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // リフレッシュトークンが存在しない
+      if (!storedToken) {
+        return Err({ type: 'INVALID_REFRESH_TOKEN' });
+      }
+
+      // 有効期限が切れている
+      if (storedToken.expiresAt < new Date()) {
+        return Err({ type: 'REFRESH_TOKEN_EXPIRED' });
+      }
+
+      // 3. 新しいアクセストークンとリフレッシュトークンを発行
+      const tokenPayload: TokenPayload = {
+        userId: storedToken.user.id,
+        email: storedToken.user.email,
+        roles: storedToken.user.userRoles.map((ur) => ur.role.name),
+      };
+
+      const newAccessToken = await this.tokenService.generateAccessToken(tokenPayload);
+      const newRefreshToken = await this.tokenService.generateRefreshToken(tokenPayload);
+
+      // 4. 古いリフレッシュトークンを削除（トークンローテーション）
+      await this.prisma.refreshToken.delete({
+        where: { id: storedToken.id },
+      });
+
+      // 5. 新しいリフレッシュトークンをデータベースに保存
+      await this.sessionService.createSession(
+        storedToken.user.id,
+        newRefreshToken,
+        storedToken.deviceInfo || undefined
+      );
+
+      // 6. ユーザー情報を返却
+      const userProfile: UserProfile = {
+        id: storedToken.user.id,
+        email: storedToken.user.email,
+        displayName: storedToken.user.displayName,
+        roles: storedToken.user.userRoles.map((ur) => ur.role.name),
+        createdAt: storedToken.user.createdAt,
+        twoFactorEnabled: storedToken.user.twoFactorEnabled,
+      };
+
+      return Ok({
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+        user: userProfile,
+      });
     } catch (error) {
       return Err({
         type: 'DATABASE_ERROR',

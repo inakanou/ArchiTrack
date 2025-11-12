@@ -65,6 +65,8 @@ export type AuthError =
   | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
   | { type: '2FA_REQUIRED'; userId: string }
   | { type: 'INVALID_2FA_CODE' }
+  | { type: 'INVALID_REFRESH_TOKEN' }
+  | { type: 'REFRESH_TOKEN_EXPIRED' }
   | { type: 'USER_NOT_FOUND' }
   | { type: 'DATABASE_ERROR'; message: string };
 
@@ -125,4 +127,12 @@ export interface IAuthService {
    * @returns ユーザープロフィールまたはエラー
    */
   getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>>;
+
+  /**
+   * トークンリフレッシュ
+   *
+   * @param refreshToken リフレッシュトークン
+   * @returns 新しいトークンペアまたはエラー
+   */
+  refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>>;
 }
