@@ -15,6 +15,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.middlew
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import adminRoutes from './routes/admin.routes.js';
 import authRoutes from './routes/auth.routes.js';
+import { createInvitationRoutes } from './routes/invitation.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -223,6 +224,10 @@ app.use('/admin', adminRoutes);
 
 // Authentication routes
 app.use('/api/v1/auth', authRoutes);
+
+// Invitation routes
+const prisma = getPrismaClient();
+app.use('/api/v1/invitations', createInvitationRoutes(prisma));
 
 // 404 handler
 app.use(notFoundHandler);

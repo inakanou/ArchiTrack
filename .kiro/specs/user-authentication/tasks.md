@@ -819,7 +819,7 @@
     - Result型パターンによる型安全なエラーハンドリング
     - 全36テストパス、型チェック成功
 
-- [ ] 7.3 招待関連APIエンドポイントの実装
+- [x] 7.3 招待関連APIエンドポイントの実装
   - 招待作成APIを実装
   - 招待一覧取得APIを実装
   - 招待取り消しAPIを実装
@@ -828,9 +828,21 @@
   - _Requirements: 1_
   - _Details: design.md「Invitation API」セクション参照_
   - _Completion Criteria:_
-    - 全エンドポイントが`/api/v1/invitations/...`形式で実装される
-    - 招待作成が管理者権限でのみ実行される
-    - 招待一覧がステータス別フィルタリングできる
+    - ✅ 全エンドポイントが`/api/v1/invitations/...`形式で実装される
+    - ✅ 招待作成が管理者権限でのみ実行される
+    - ✅ 招待一覧がステータス別フィルタリングできる
+  - _Implemented:_
+    - 招待ルート実装 (`backend/src/routes/invitation.routes.ts`)
+      - POST /api/v1/invitations: 招待作成（user:invite権限必須）
+      - GET /api/v1/invitations: 招待一覧取得（ステータスフィルタリング対応）
+      - DELETE /api/v1/invitations/:id: 招待取り消し
+      - GET /api/v1/invitations/verify: 招待トークン検証（認証不要）
+    - app.ts統合: 招待ルートをマウント
+    - Zodバリデーションスキーマ（validateMultiple使用）
+    - InvitationService統合（task 2.3で実装済み）
+    - Result型パターンでエラーハンドリング
+    - ユニットテスト4ケース作成 (`backend/src/__tests__/unit/routes/invitation.routes.test.ts`)
+    - 全テストパス、型チェック成功
 
 - [ ] 7.4 パスワード関連APIエンドポイントの実装
   - パスワードリセット要求APIを実装
