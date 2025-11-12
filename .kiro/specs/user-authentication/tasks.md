@@ -910,13 +910,18 @@
     - ✅ app.tsに統合済み
     - ✅ 単体テスト9テスト成功（全テストケースカバー）
 
-- [ ] 7.7 JWKSエンドポイントの実装
+- [x] 7.7 JWKSエンドポイントの実装
   - JWKS公開鍵エンドポイントを実装
   - _Requirements: 5.7_
   - _Details: design.md「JWKS Endpoint」セクション参照_
   - _Completion Criteria:_
-    - `/.well-known/jwks.json`が正しいJWKS形式を返す
-    - EdDSA公開鍵が含まれる
+    - ✅ `/.well-known/jwks.json`が正しいJWKS形式を返す（RFC 7517準拠）
+    - ✅ EdDSA公開鍵が含まれる（Ed25519曲線）
+    - ✅ 複数鍵のサポート（現在の鍵 + 旧鍵）
+    - ✅ 秘密鍵が含まれないことを検証
+    - ✅ エラーハンドリング実装済み
+    - ✅ app.tsに統合済み（/.well-knownパス）
+    - ✅ 単体テスト8テスト成功（全テストケースカバー）
 
 - [ ] 8. テスト実装
   - _Dependencies: タスク2-7完了（全実装機能）_

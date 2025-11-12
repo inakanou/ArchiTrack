@@ -20,6 +20,7 @@ import rolesRoutes from './routes/roles.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
 import userRolesRoutes from './routes/user-roles.routes.js';
 import auditLogRoutes from './routes/audit-log.routes.js';
+import jwksRoutes from './routes/jwks.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -188,6 +189,9 @@ app.get('/health', healthCheckLimiter, async (req: Request, res: Response) => {
 app.get('/favicon.ico', (_req: Request, res: Response) => {
   res.status(204).end(); // No Content
 });
+
+// JWKS endpoint (RFC 7517) - JWT公開鍵配信
+app.use('/.well-known', jwksRoutes);
 
 /**
  * @swagger
