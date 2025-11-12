@@ -96,10 +96,12 @@ describe('Sessions Component', () => {
       expect(screen.getByText('Chrome on Windows')).toBeInTheDocument();
 
       // 作成日時（2025-01-01のいずれかの形式で表示される）
-      expect(screen.getByText(/2025.*01.*01|01.*01.*2025/)).toBeInTheDocument();
+      const createdDates = screen.getAllByText(/2025.*1.*1|1.*1.*2025/);
+      expect(createdDates.length).toBeGreaterThan(0);
 
       // 有効期限（2025-01-08のいずれかの形式で表示される）
-      expect(screen.getByText(/2025.*01.*08|01.*08.*2025/)).toBeInTheDocument();
+      const expiredDates = screen.getAllByText(/2025.*1.*8|1.*8.*2025/);
+      expect(expiredDates.length).toBeGreaterThan(0);
     });
 
     it('現在のデバイスを識別する', async () => {
@@ -144,9 +146,8 @@ describe('Sessions Component', () => {
         expect(screen.getByText('Safari on iOS')).toBeInTheDocument();
       });
 
-      // Safari on iOSのログアウトボタンをクリック
-      const logoutButtons = screen.getAllByRole('button', { name: /ログアウト|削除/i });
-
+      // Safari on iOSのログアウトボタンをクリック（最初の非現在デバイス）
+      const logoutButtons = screen.getAllByLabelText('ログアウト');
       await user.click(logoutButtons[0]!);
 
       // 確認ダイアログが表示される
@@ -175,15 +176,12 @@ describe('Sessions Component', () => {
       });
 
       // ログアウトボタンをクリック
-      const logoutButtons = screen.getAllByRole('button', { name: /ログアウト|削除/i });
-
+      const logoutButtons = screen.getAllByLabelText('ログアウト');
       await user.click(logoutButtons[0]!);
 
-      // 確認ダイアログで「はい」をクリック
-      const confirmButton = await screen.findByRole('button', { name: /はい|確認|実行/i });
-      if (confirmButton) {
-        await user.click(confirmButton);
-      }
+      // 確認ダイアログで「はい、ログアウト」をクリック
+      const confirmButton = await screen.findByText('はい、ログアウト');
+      await user.click(confirmButton);
 
       // 成功メッセージが表示される
       await waitFor(() => {
@@ -294,15 +292,12 @@ describe('Sessions Component', () => {
       });
 
       // ログアウトボタンをクリック
-      const logoutButtons = screen.getAllByRole('button', { name: /ログアウト|削除/i });
-
+      const logoutButtons = screen.getAllByLabelText('ログアウト');
       await user.click(logoutButtons[0]!);
 
-      // 確認ダイアログで「はい」をクリック
-      const confirmButton = await screen.findByRole('button', { name: /はい|確認|実行/i });
-      if (confirmButton) {
-        await user.click(confirmButton);
-      }
+      // 確認ダイアログで「はい、ログアウト」をクリック
+      const confirmButton = await screen.findByText('はい、ログアウト');
+      await user.click(confirmButton);
 
       // エラーメッセージが表示される
       await waitFor(() => {

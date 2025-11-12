@@ -200,9 +200,8 @@ describe('SessionManagement', () => {
         expect(screen.getByText('Windows PC')).toBeInTheDocument();
       });
 
-      const logoutButtons = screen.getAllByRole('button', { name: /ログアウト/ });
-      expect(logoutButtons.length).toBeGreaterThan(0);
-      await user.click(logoutButtons[0]!);
+      const logoutButton = screen.getByRole('button', { name: 'Windows PCのセッションを削除' });
+      await user.click(logoutButton);
 
       await waitFor(() => {
         expect(mockDeleteSession).toHaveBeenCalledWith('session-1');
@@ -227,14 +226,14 @@ describe('SessionManagement', () => {
         expect(screen.getByText('Windows PC')).toBeInTheDocument();
       });
 
-      const logoutButtons = screen.getAllByRole('button', { name: /ログアウト/ });
-      expect(logoutButtons.length).toBeGreaterThan(0);
-      await user.click(logoutButtons[0]!);
+      const logoutButton = screen.getByRole('button', { name: 'Windows PCのセッションを削除' });
+      await user.click(logoutButton);
 
       await waitFor(() => {
-        const deletingButton = screen.getByRole('button', { name: '削除中...' });
+        const deletingButton = screen.getByRole('button', { name: 'Windows PCのセッションを削除' });
         expect(deletingButton).toBeInTheDocument();
         expect(deletingButton).toBeDisabled();
+        expect(deletingButton).toHaveTextContent('削除中...');
       });
     });
 
@@ -255,9 +254,8 @@ describe('SessionManagement', () => {
         expect(screen.getByText('Windows PC')).toBeInTheDocument();
       });
 
-      const logoutButtons = screen.getAllByRole('button', { name: /ログアウト/ });
-      expect(logoutButtons.length).toBeGreaterThan(0);
-      await user.click(logoutButtons[0]!);
+      const logoutButton = screen.getByRole('button', { name: 'Windows PCのセッションを削除' });
+      await user.click(logoutButton);
 
       await waitFor(() => {
         expect(screen.getByText('削除に失敗しました')).toBeInTheDocument();

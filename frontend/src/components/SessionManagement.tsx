@@ -96,12 +96,13 @@ function SessionManagement({
     if (!deviceInfo) return '不明なデバイス';
 
     // User-Agentから簡易的にデバイス情報を抽出
-    if (deviceInfo.includes('Windows')) return 'Windows PC';
-    if (deviceInfo.includes('Mac')) return 'Mac';
-    if (deviceInfo.includes('Linux')) return 'Linux PC';
+    // Note: iPhone, iPad, Androidのチェックを先に行う（これらのUser-Agentには'Mac'や'Linux'が含まれる場合がある）
     if (deviceInfo.includes('iPhone')) return 'iPhone';
     if (deviceInfo.includes('iPad')) return 'iPad';
     if (deviceInfo.includes('Android')) return 'Android';
+    if (deviceInfo.includes('Windows')) return 'Windows PC';
+    if (deviceInfo.includes('Mac')) return 'Mac';
+    if (deviceInfo.includes('Linux')) return 'Linux PC';
 
     return deviceInfo.substring(0, 50) + (deviceInfo.length > 50 ? '...' : '');
   };

@@ -1,0 +1,81 @@
+import { test, expect } from '@playwright/test';
+
+/**
+ * セッション管理機能のE2Eテスト
+ *
+ * 要件8: セッション管理
+ */
+test.describe('セッション管理機能', () => {
+  test.beforeEach(async ({ page, context }) => {
+    // 認証済みユーザーとしてログイン
+    await context.addCookies([
+      {
+        name: 'auth_token',
+        value: 'test-auth-token',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+    await page.goto('/sessions');
+  });
+
+  test('セッション一覧が正しく表示される', async ({ page }) => {
+    // セッション一覧のヘッダー
+    await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible();
+
+    // 現在のデバイスが表示される
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible();
+
+    // デバイス情報が表示される
+    await expect(page.getByText(/Chrome on Windows|Safari on iOS|Firefox on Linux/)).toBeVisible();
+  });
+
+  test('個別デバイスログアウトボタンが表示される', async ({ page }) => {
+    // ログアウトボタンが表示される（現在のデバイス以外）
+    const logoutButtons = page.getByRole('button', { name: /ログアウト/i });
+    await expect(logoutButtons.first()).toBeVisible();
+  });
+
+  test('個別デバイスログアウトができる', async ({ page }) => {
+    // ログアウトボタンをクリック
+    await page
+      .getByRole('button', { name: /ログアウト/i })
+      .first()
+      .click();
+
+    // 確認ダイアログが表示される
+    await expect(page.getByText(/このデバイスをログアウトしますか/i)).toBeVisible();
+
+    // 確認ボタンをクリック
+    await page.getByRole('button', { name: /はい、ログアウト/i }).click();
+
+    // 成功メッセージが表示される
+    await expect(page.getByText(/ログアウトしました/i)).toBeVisible();
+  });
+
+  test('全デバイスログアウトボタンが表示される', async ({ page }) => {
+    await expect(page.getByRole('button', { name: /全デバイスからログアウト/i })).toBeVisible();
+  });
+
+  test('全デバイスログアウトができる', async ({ page }) => {
+    // 全デバイスログアウトボタンをクリック
+    await page.getByRole('button', { name: /全デバイスからログアウト/i }).click();
+
+    // 確認ダイアログが表示される
+    await expect(page.getByText(/全てのデバイスからログアウトします/i)).toBeVisible();
+
+    // 確認ボタンをクリック
+    await page.getByRole('button', { name: /はい、全デバイスからログアウト/i }).click();
+
+    // ログインページにリダイレクトされる
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('セッション作成日時と有効期限が表示される', async ({ page }) => {
+    // 作成日時が表示される
+    await expect(page.getByText(/作成日時:/)).toBeVisible();
+
+    // 有効期限が表示される
+    await expect(page.getByText(/有効期限:/)).toBeVisible();
+  });
+});

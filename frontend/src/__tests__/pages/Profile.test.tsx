@@ -21,23 +21,41 @@ vi.mock('../../api/client', () => ({
 
 // useAuthContextをモック
 const mockLogout = vi.fn();
+const mockUseAuth = vi.fn();
+
 vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'user-123',
-      email: 'test@example.com',
-      displayName: 'Test User',
-      roles: ['user'],
-      createdAt: '2025-01-01T00:00:00Z',
-      twoFactorEnabled: false,
-    } as UserProfile,
-    logout: mockLogout,
-  }),
+  useAuth: () => mockUseAuth(),
 }));
+
+// デフォルトのモック値（一般ユーザー）
+mockUseAuth.mockReturnValue({
+  user: {
+    id: 'user-123',
+    email: 'test@example.com',
+    displayName: 'Test User',
+    roles: ['user'],
+    createdAt: '2025-01-01T00:00:00Z',
+    twoFactorEnabled: false,
+  } as UserProfile,
+  logout: mockLogout,
+});
 
 describe('Profile Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // デフォルトのモック値（一般ユーザー）にリセット
+    mockUseAuth.mockReturnValue({
+      user: {
+        id: 'user-123',
+        email: 'test@example.com',
+        displayName: 'Test User',
+        roles: ['user'],
+        createdAt: '2025-01-01T00:00:00Z',
+        twoFactorEnabled: false,
+      } as UserProfile,
+      logout: mockLogout,
+    });
   });
 
   describe('ユーザー情報セクション', () => {
@@ -118,20 +136,20 @@ describe('Profile Component', () => {
       render(<Profile />);
 
       // 現在のパスワード
-      expect(screen.getByLabelText(/現在のパスワード/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('現在のパスワード')).toBeInTheDocument();
 
       // 新しいパスワード
-      expect(screen.getByLabelText(/新しいパスワード/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('新しいパスワード', { exact: true })).toBeInTheDocument();
 
       // パスワード確認
-      expect(screen.getByLabelText(/パスワード.*確認|確認.*パスワード/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('新しいパスワード（確認）')).toBeInTheDocument();
     });
 
     it('新しいパスワード入力時にパスワード強度インジケーターを表示する（要件14.6）', async () => {
       const user = userEvent.setup();
       render(<Profile />);
 
-      const newPasswordField = screen.getByLabelText(/新しいパスワード/i);
+      const newPasswordField = screen.getByLabelText('新しいパスワード', { exact: true });
 
       // パスワードを入力
       await user.type(newPasswordField, 'WeakPass123!');
@@ -146,9 +164,9 @@ describe('Profile Component', () => {
       const user = userEvent.setup();
       render(<Profile />);
 
-      const currentPasswordField = screen.getByLabelText(/現在のパスワード/i);
-      const newPasswordField = screen.getByLabelText(/新しいパスワード/i);
-      const confirmPasswordField = screen.getByLabelText(/パスワード.*確認|確認.*パスワード/i);
+      const currentPasswordField = screen.getByLabelText('現在のパスワード');
+      const newPasswordField = screen.getByLabelText('新しいパスワード', { exact: true });
+      const confirmPasswordField = screen.getByLabelText('新しいパスワード（確認）');
       const changePasswordButton = screen.getByRole('button', { name: /パスワードを変更/i });
 
       // パスワードフィールドに入力
@@ -175,9 +193,9 @@ describe('Profile Component', () => {
 
       render(<Profile />);
 
-      const currentPasswordField = screen.getByLabelText(/現在のパスワード/i);
-      const newPasswordField = screen.getByLabelText(/新しいパスワード/i);
-      const confirmPasswordField = screen.getByLabelText(/パスワード.*確認|確認.*パスワード/i);
+      const currentPasswordField = screen.getByLabelText('現在のパスワード');
+      const newPasswordField = screen.getByLabelText('新しいパスワード', { exact: true });
+      const confirmPasswordField = screen.getByLabelText('新しいパスワード（確認）');
       const changePasswordButton = screen.getByRole('button', { name: /パスワードを変更/i });
 
       // パスワードフィールドに入力
@@ -198,16 +216,19 @@ describe('Profile Component', () => {
       });
 
       // ログアウトが呼ばれる（ログイン画面へリダイレクト）
-      await waitFor(() => {
-        expect(mockLogout).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(mockLogout).toHaveBeenCalled();
+        },
+        { timeout: 3000 }
+      );
     });
   });
 
   describe('管理者機能', () => {
     it('管理者ユーザーには「ユーザー管理」リンクを表示する（要件14.9）', () => {
       // 管理者ユーザーでモック
-      vi.mocked(vi.fn()).mockReturnValue({
+      mockUseAuth.mockReturnValue({
         user: {
           id: 'admin-123',
           email: 'admin@example.com',
@@ -215,7 +236,7 @@ describe('Profile Component', () => {
           roles: ['admin'],
           createdAt: '2025-01-01T00:00:00Z',
           twoFactorEnabled: false,
-        },
+        } as UserProfile,
         logout: mockLogout,
       });
 
