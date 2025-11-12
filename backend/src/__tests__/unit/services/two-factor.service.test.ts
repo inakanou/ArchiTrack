@@ -486,6 +486,146 @@ describe('TwoFactorService', () => {
     });
   });
 
+  describe('setupTwoFactor()', () => {
+    const mockUserId = 'user-setup-123';
+    const mockUser = {
+      id: mockUserId,
+      email: 'test@example.com',
+      displayName: 'Test User',
+      passwordHash: 'hash',
+      isLocked: false,
+      lockedUntil: null,
+      loginFailures: 0,
+      twoFactorEnabled: false,
+      twoFactorSecret: null,
+      twoFactorFailures: 0,
+      twoFactorLockedUntil: null,
+      createdAt: new Date('2025-01-01T00:00:00Z'),
+      updatedAt: new Date('2025-01-01T00:00:00Z'),
+    };
+
+    it('2FA設定開始成功 → QRコード、秘密鍵、バックアップコード返却', async () => {
+      // Arrange
+      const { hash } = await import('@node-rs/argon2');
+      vi.mocked(hash).mockResolvedValue('hashed-code');
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(mockPrismaClient.user.update).mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: 'encrypted-secret',
+      });
+
+      // Act
+      const result = await twoFactorService.setupTwoFactor(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeDefined();
+        expect(result.value.secret).toBeDefined();
+        expect(typeof result.value.secret).toBe('string');
+        expect(result.value.secret.length).toBeGreaterThan(0);
+        // Base32形式であることを確認
+        expect(result.value.secret).toMatch(/^[A-Z2-7]+=*$/);
+
+        expect(result.value.qrCodeDataUrl).toBeDefined();
+        expect(typeof result.value.qrCodeDataUrl).toBe('string');
+        // Data URL形式であることを確認
+        expect(result.value.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
+
+        expect(result.value.backupCodes).toBeDefined();
+        expect(Array.isArray(result.value.backupCodes)).toBe(true);
+        expect(result.value.backupCodes.length).toBe(10);
+        // 各バックアップコードが8文字の英数字であることを確認
+        result.value.backupCodes.forEach((code) => {
+          expect(code).toMatch(/^[A-Z0-9]{8}$/);
+        });
+      }
+    });
+
+    it('データベースに秘密鍵とバックアップコードが保存される', async () => {
+      // Arrange
+      const { hash } = await import('@node-rs/argon2');
+      vi.mocked(hash).mockResolvedValue('hashed-code');
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(mockPrismaClient.user.update).mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: 'encrypted-secret',
+      });
+
+      // Act
+      await twoFactorService.setupTwoFactor(mockUserId);
+
+      // Assert
+      // ユーザーの秘密鍵が更新されたことを確認
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: mockUserId },
+        data: expect.objectContaining({
+          twoFactorSecret: expect.any(String),
+        }),
+      });
+
+      // バックアップコードが作成されたことを確認
+      expect(mockPrismaClient.twoFactorBackupCode.create).toHaveBeenCalledTimes(10);
+    });
+
+    it('監査ログが記録される', async () => {
+      // Arrange
+      const { hash } = await import('@node-rs/argon2');
+      vi.mocked(hash).mockResolvedValue('hashed-code');
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(mockPrismaClient.user.update).mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: 'encrypted-secret',
+      });
+
+      // Act
+      await twoFactorService.setupTwoFactor(mockUserId);
+
+      // Assert
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'TWO_FACTOR_SETUP_STARTED',
+          actorId: mockUserId,
+          targetType: 'User',
+          targetId: mockUserId,
+        }),
+      });
+    });
+
+    it('ユーザーが存在しない → USER_NOT_FOUND', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await twoFactorService.setupTwoFactor(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+
+    it('既に2FAが有効 → TWO_FACTOR_ALREADY_ENABLED', async () => {
+      // Arrange
+      const userWithEnabled2FA = {
+        ...mockUser,
+        twoFactorEnabled: true,
+        twoFactorSecret: 'existing-encrypted-secret',
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithEnabled2FA);
+
+      // Act
+      const result = await twoFactorService.setupTwoFactor(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('TWO_FACTOR_ALREADY_ENABLED');
+      }
+    });
+  });
+
   // Note: 詳細なテストは今後のタスクで実装予定
   // 現在は実装が完了し、型チェックがパスしていることを確認済み
 });

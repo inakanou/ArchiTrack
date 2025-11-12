@@ -12,6 +12,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { AuthService } from '../services/auth.service.js';
+import { TwoFactorService } from '../services/two-factor.service.js';
 // import { SessionService } from '../services/session.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -21,6 +22,7 @@ import logger from '../utils/logger.js';
 const router = Router();
 const prisma = getPrismaClient();
 const authService = new AuthService(prisma);
+const twoFactorService = new TwoFactorService();
 // const sessionService = new SessionService(prisma);
 
 // Zodバリデーションスキーマ
@@ -51,6 +53,14 @@ const verify2FASchema = z.object({
   token: z.string().length(6, 'TOTP token must be 6 digits'),
   email: z.string().email('Invalid email format').optional(),
   tempToken: z.string().optional(),
+});
+
+const enableTwoFactorSchema = z.object({
+  totpCode: z.string().length(6, 'TOTP code must be 6 digits'),
+});
+
+const disableTwoFactorSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
 });
 
 /**
@@ -687,6 +697,308 @@ router.post(
       logger.info({ userId: authResponse.user.id }, '2FA verification successful');
 
       res.status(200).json(authResponse);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/setup:
+ *   post:
+ *     summary: 2FA設定開始
+ *     description: TOTP秘密鍵、QRコード、バックアップコードを生成して返す
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: 2FA設定データ生成成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 secret:
+ *                   type: string
+ *                   description: Base32エンコード済みTOTP秘密鍵
+ *                 qrCodeDataUrl:
+ *                   type: string
+ *                   description: QRコード（Data URL形式）
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: 10個のバックアップコード
+ *       400:
+ *         description: 既に2FAが有効化されている
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/2fa/setup',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const result = await twoFactorService.setupTwoFactor(req.user.userId);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'TWO_FACTOR_ALREADY_ENABLED') {
+          res.status(400).json({ error: '2FA is already enabled', code: error.type });
+          return;
+        }
+
+        res.status(500).json({ error: '2FA setup failed', code: '2FA_SETUP_ERROR' });
+        return;
+      }
+
+      const setupData = result.value;
+
+      logger.info({ userId: req.user.userId }, '2FA setup started');
+
+      res.status(200).json(setupData);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/enable:
+ *   post:
+ *     summary: 2FA有効化
+ *     description: TOTPコードを検証して2FAを有効化する
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - totpCode
+ *             properties:
+ *               totpCode:
+ *                 type: string
+ *                 description: 6桁のTOTPコード
+ *                 example: "123456"
+ *     responses:
+ *       200:
+ *         description: 2FA有効化成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: バックアップコード（最後の表示機会）
+ *       400:
+ *         description: 無効なTOTPコード
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/2fa/enable',
+  authenticate,
+  validate(enableTwoFactorSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const { totpCode } = req.body;
+
+      const result = await twoFactorService.enableTwoFactor(req.user.userId, totpCode);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'TWO_FACTOR_ALREADY_ENABLED') {
+          res.status(400).json({ error: '2FA is already enabled', code: error.type });
+          return;
+        } else if (error.type === 'INVALID_TOTP_CODE') {
+          res.status(400).json({ error: 'Invalid TOTP code', code: error.type });
+          return;
+        }
+
+        res.status(500).json({ error: '2FA enable failed', code: '2FA_ENABLE_ERROR' });
+        return;
+      }
+
+      const enabledData = result.value;
+
+      logger.info({ userId: req.user.userId }, '2FA enabled successfully');
+
+      res.status(200).json(enabledData);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/disable:
+ *   post:
+ *     summary: 2FA無効化
+ *     description: パスワードを確認して2FAを無効化する
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - password
+ *             properties:
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 description: ユーザーの現在のパスワード
+ *     responses:
+ *       200:
+ *         description: 2FA無効化成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "2FA disabled successfully"
+ *       400:
+ *         description: 無効なパスワードまたは2FAが未有効化
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/2fa/disable',
+  authenticate,
+  validate(disableTwoFactorSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const { password } = req.body;
+
+      const result = await twoFactorService.disableTwoFactor(req.user.userId, password);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'TWO_FACTOR_NOT_ENABLED') {
+          res.status(400).json({ error: '2FA is not enabled', code: error.type });
+          return;
+        } else if (error.type === 'INVALID_PASSWORD') {
+          res.status(400).json({ error: 'Invalid password', code: error.type });
+          return;
+        }
+
+        res.status(500).json({ error: '2FA disable failed', code: '2FA_DISABLE_ERROR' });
+        return;
+      }
+
+      logger.info({ userId: req.user.userId }, '2FA disabled successfully');
+
+      res.status(200).json({ message: '2FA disabled successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/backup-codes/regenerate:
+ *   post:
+ *     summary: バックアップコード再生成
+ *     description: 既存のバックアップコードを削除して新しいコードを生成する
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: バックアップコード再生成成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: 10個の新しいバックアップコード
+ *       400:
+ *         description: 2FAが未有効化
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/2fa/backup-codes/regenerate',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const result = await twoFactorService.regenerateBackupCodes(req.user.userId);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'TWO_FACTOR_NOT_ENABLED') {
+          res.status(400).json({ error: '2FA is not enabled', code: error.type });
+          return;
+        }
+
+        res
+          .status(500)
+          .json({ error: 'Backup codes regeneration failed', code: 'BACKUP_CODES_ERROR' });
+        return;
+      }
+
+      const backupCodes = result.value;
+
+      logger.info({ userId: req.user.userId }, 'Backup codes regenerated successfully');
+
+      res.status(200).json({ backupCodes });
     } catch (error) {
       next(error);
     }

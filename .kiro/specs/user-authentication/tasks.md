@@ -789,7 +789,7 @@
     - **認証ミドルウェア統合:** authenticate middleware適用（GET/PATCH /me, POST /logout, POST /logout-all）
     - 全完了条件を達成、型チェック成功
 
-- [ ] 7.2 二要素認証（2FA）関連APIエンドポイントの実装
+- [x] 7.2 二要素認証（2FA）関連APIエンドポイントの実装
   - 2FA設定開始APIを実装
   - 2FA有効化APIを実装
   - 2FA無効化APIを実装
@@ -797,9 +797,27 @@
   - _Requirements: 27, 27A, 27B_
   - _Details: design.md「2FA API」セクション参照_
   - _Completion Criteria:_
-    - 全エンドポイントが`/api/v1/auth/2fa/...`形式で実装される
-    - 2FA有効化がTOTP検証後に実行される
-    - 2FA無効化がパスワード確認後に実行される
+    - ✅ 全エンドポイントが`/api/v1/auth/2fa/...`形式で実装される
+    - ✅ 2FA有効化がTOTP検証後に実行される
+    - ✅ 2FA無効化がパスワード確認後に実行される
+  - _Implemented:_
+    - setupTwoFactorメソッド実装 (`backend/src/services/two-factor.service.ts:61`)
+      - TOTP秘密鍵生成・暗号化（AES-256-GCM）
+      - QRコード生成（Google Authenticator互換）
+      - バックアップコード10個生成（Argon2idハッシュ化）
+      - トランザクション処理でDB保存
+      - 監査ログ記録（TWO_FACTOR_SETUP_STARTED）
+    - Zodバリデーションスキーマ追加 (`backend/src/routes/auth.routes.ts:56-62`)
+      - enableTwoFactorSchema: totpCode（6桁必須）
+      - disableTwoFactorSchema: password（必須）
+    - 4つの2FA APIエンドポイント実装 (`backend/src/routes/auth.routes.ts:740-1004`)
+      - POST /api/v1/auth/2fa/setup: 2FA設定開始、QRコード・秘密鍵・バックアップコード返却
+      - POST /api/v1/auth/2fa/enable: TOTP検証後に2FA有効化
+      - POST /api/v1/auth/2fa/disable: パスワード確認後に2FA無効化
+      - POST /api/v1/auth/2fa/backup-codes/regenerate: バックアップコード再生成
+    - 全エンドポイントに認証ミドルウェア適用（authenticate）
+    - Result型パターンによる型安全なエラーハンドリング
+    - 全36テストパス、型チェック成功
 
 - [ ] 7.3 招待関連APIエンドポイントの実装
   - 招待作成APIを実装

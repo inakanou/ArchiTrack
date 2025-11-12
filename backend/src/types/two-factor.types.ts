@@ -33,6 +33,17 @@ export function Err<E>(error: E): Result<never, E> {
  */
 export interface ITwoFactorService {
   /**
+   * 2FA設定開始
+   *
+   * TOTP秘密鍵を生成し、QRコードとバックアップコードを返す。
+   * データベースに秘密鍵とバックアップコードを保存する。
+   *
+   * @param userId - ユーザーID
+   * @returns 2FA設定データ（QRコード、秘密鍵、バックアップコード）
+   */
+  setupTwoFactor(userId: string): Promise<Result<TwoFactorSetupData, TwoFactorError>>;
+
+  /**
    * TOTP秘密鍵を生成
    *
    * RFC 6238準拠の32バイト暗号学的乱数を生成し、Base32エンコードして返す。
@@ -137,6 +148,15 @@ export interface ITwoFactorService {
    * @returns 10個の平文バックアップコード配列（最後の表示機会）
    */
   regenerateBackupCodes(userId: string): Promise<Result<string[], TwoFactorError>>;
+}
+
+/**
+ * 2FA設定開始時のレスポンスデータ
+ */
+export interface TwoFactorSetupData {
+  secret: string; // Base32エンコード済み秘密鍵（平文、ユーザー表示用）
+  qrCodeDataUrl: string; // QRコード（Data URL形式）
+  backupCodes: string[]; // 平文バックアップコード（10個、1回のみ表示）
 }
 
 /**

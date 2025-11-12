@@ -20,6 +20,7 @@ import type {
   TwoFactorError,
   Result,
   TwoFactorEnabledData,
+  TwoFactorSetupData,
 } from '../types/two-factor.types';
 import { Ok, Err } from '../types/two-factor.types';
 import getPrismaClient from '../db';
@@ -45,6 +46,97 @@ export class TwoFactorService implements ITwoFactorService {
       window: 1, // ±1ステップ許容（合計90秒）
     };
     this.prisma = getPrismaClient();
+  }
+
+  /**
+   * 2FA設定開始
+   *
+   * TOTP秘密鍵を生成し、QRコードとバックアップコードを返す。
+   * データベースに秘密鍵とバックアップコードを保存する。
+   * 要件27.1-27.8: 二要素認証設定機能
+   *
+   * @param userId - ユーザーID
+   * @returns 2FA設定データ（QRコード、秘密鍵、バックアップコード）
+   */
+  async setupTwoFactor(userId: string): Promise<Result<TwoFactorSetupData, TwoFactorError>> {
+    try {
+      // 1. ユーザー取得
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          twoFactorEnabled: true,
+          twoFactorSecret: true,
+        },
+      });
+
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      // 2. 既に2FAが有効かチェック
+      if (user.twoFactorEnabled) {
+        return Err({ type: 'TWO_FACTOR_ALREADY_ENABLED' });
+      }
+
+      // 3. TOTP秘密鍵を生成（平文）
+      const plainTextSecret = this.generateTOTPSecret();
+
+      // 4. 秘密鍵を暗号化
+      const encryptedSecret = await this.encryptSecret(plainTextSecret);
+
+      // 5. QRコードを生成
+      const qrCodeDataUrl = await this.generateQRCode(user.email, plainTextSecret);
+
+      // 6. バックアップコードを生成（平文）
+      const plainTextBackupCodes = this.generateBackupCodes();
+
+      // 7. トランザクション内でデータベースに保存
+      await this.prisma.$transaction(async (tx) => {
+        // ユーザーの秘密鍵を更新
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            twoFactorSecret: encryptedSecret,
+          },
+        });
+
+        // バックアップコードをハッシュ化して保存
+        for (const code of plainTextBackupCodes) {
+          const codeHash = await hash(code);
+          await tx.twoFactorBackupCode.create({
+            data: {
+              userId,
+              codeHash,
+            },
+          });
+        }
+
+        // 監査ログを記録
+        await tx.auditLog.create({
+          data: {
+            action: 'TWO_FACTOR_SETUP_STARTED',
+            actorId: userId,
+            targetType: 'User',
+            targetId: userId,
+            metadata: {},
+          },
+        });
+      });
+
+      logger.info({ userId }, '2FA設定を開始しました');
+
+      // 8. 平文の秘密鍵、QRコード、バックアップコードを返す
+      return Ok({
+        secret: plainTextSecret,
+        qrCodeDataUrl,
+        backupCodes: plainTextBackupCodes,
+      });
+    } catch (error) {
+      logger.error({ error, userId }, '2FA設定開始中にエラーが発生しました');
+      return Err({ type: 'USER_NOT_FOUND' });
+    }
   }
 
   /**
