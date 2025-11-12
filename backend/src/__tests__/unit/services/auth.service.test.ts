@@ -14,6 +14,7 @@ import { InvitationService } from '../../../services/invitation.service';
 import { PasswordService } from '../../../services/password.service';
 import { TokenService } from '../../../services/token.service';
 import { TwoFactorService } from '../../../services/two-factor.service';
+import { SessionService } from '../../../services/session.service';
 import type { PrismaClient, User, Invitation } from '@prisma/client';
 import { Ok } from '../../../types/result';
 
@@ -61,6 +62,15 @@ const mockTwoFactorService = {
   verifyBackupCode: vi.fn(),
 } as unknown as TwoFactorService;
 
+const mockSessionService = {
+  createSession: vi.fn(),
+  deleteSession: vi.fn(),
+  deleteAllSessions: vi.fn(),
+  verifySession: vi.fn(),
+  listSessions: vi.fn(),
+  extendSession: vi.fn(),
+} as unknown as SessionService;
+
 describe('AuthService', () => {
   let authService: AuthService;
 
@@ -71,7 +81,8 @@ describe('AuthService', () => {
       mockInvitationService,
       mockPasswordService,
       mockTokenService,
-      mockTwoFactorService
+      mockTwoFactorService,
+      mockSessionService
     );
   });
 
@@ -140,6 +151,9 @@ describe('AuthService', () => {
       (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'refresh-token-456'
       );
+
+      // SessionService.createSession() のモック
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
       // Act: ユーザー登録
       const result = await authService.register(invitationToken, registerData);
@@ -320,6 +334,9 @@ describe('AuthService', () => {
         'refresh-token-456'
       );
 
+      // SessionService.createSession() のモック
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
       // Act: ログイン
       const result = await authService.login(email, password);
 
@@ -428,6 +445,7 @@ describe('AuthService', () => {
       (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'refresh-token-456'
       );
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
       // Act
       const result = await authService.login(email, password);
@@ -629,6 +647,9 @@ describe('AuthService', () => {
       (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'refresh-token-456'
       );
+
+      // SessionService.createSession() のモック
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
       // Act: 2FA検証
       const result = await authService.verify2FA(userId, totpCode);
@@ -867,6 +888,9 @@ describe('AuthService', () => {
       (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'refresh-token-456'
       );
+
+      // SessionService.createSession() のモック
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
       // Act: ロック期限切れ後のログイン
       const result = await authService.verify2FA(userId, totpCode);

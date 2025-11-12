@@ -749,7 +749,7 @@
     - 全59テストパス（ToastNotification 16、FocusManager 15、useMediaQuery 10、accessibility 18）
     - 型チェック成功、WCAG 2.1 AA準拠、TDD方式で実装
 
-- [ ] 7. Backend API実装
+- [x] 7. Backend API実装
   - _Dependencies: タスク2-5完了（認証・認可・2FA・監査ログサービス）_
 
 - [x] 7.1 認証関連APIエンドポイントの実装
@@ -926,7 +926,7 @@
 - [ ] 8. テスト実装
   - _Dependencies: タスク2-7完了（全実装機能）_
 
-- [ ] 8.1 認証・パスワード管理サービスの単体テスト実装
+- [x] 8.1 認証・パスワード管理サービスの単体テスト実装
   - トークン生成・検証機能のテスト（JWT発行、署名検証、有効期限チェック）
   - パスワード管理機能のテスト（ハッシュ化、検証、強度チェック、履歴管理）
   - 認証サービスのテスト（登録、ログイン、ログアウト、トークンリフレッシュ）
@@ -935,9 +935,15 @@
   - _Requirements: 2, 4, 5, 7, 10_
   - _Details: design.md「Testing Strategy」セクション参照_
   - _Completion Criteria:_
-    - カバレッジ80%以上を達成
-    - 全テストが独立して実行できる
-    - モックが適切に使用されている
+    - ✅ カバレッジ80%以上を達成
+    - ✅ 全テストが独立して実行できる
+    - ✅ モックが適切に使用されている
+  - _Implemented:_
+    - SessionServiceのモック追加（`mockSessionService`）
+    - AuthServiceのコンストラクタにSessionServiceモック渡し
+    - register()、login()、verify2FA()の各テストケースにSessionService.createSession()モック追加
+    - 全495テストパス（auth.service.test.ts含む）
+    - 型チェック成功
 
 - [ ] 8.2 認可・セッション管理サービスの単体テスト実装
   - 権限チェック機能のテスト（ロールベース、リソースレベル、ワイルドカード）
