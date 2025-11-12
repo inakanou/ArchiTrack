@@ -23,10 +23,36 @@ vi.mock('../../config/env.js', () => ({
 
 // DB/Redisモジュールをモック
 vi.mock('../../db.js', () => ({
-  default: {
-    query: vi.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }),
-    end: vi.fn().mockResolvedValue(undefined),
-  },
+  default: vi.fn(() => ({
+    user: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      findMany: vi.fn(),
+    },
+    invitation: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      findMany: vi.fn(),
+    },
+    session: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      findMany: vi.fn(),
+    },
+    role: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+    },
+    permission: {
+      findMany: vi.fn(),
+    },
+    $queryRaw: vi.fn().mockResolvedValue([{ '?column?': 1 }]),
+    $disconnect: vi.fn().mockResolvedValue(undefined),
+  })),
 }));
 
 vi.mock('../../redis.js', () => {

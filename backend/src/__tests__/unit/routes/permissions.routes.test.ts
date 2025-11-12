@@ -11,11 +11,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { type Application, type Request, type Response, type NextFunction } from 'express';
 
-// モックサービス
-const mockPermissionService = {
+// モックサービスをvi.hoisted()で初期化
+const mockPermissionService = vi.hoisted(() => ({
   listPermissions: vi.fn(),
   createPermission: vi.fn(),
-};
+}));
 
 // モック: データベース
 vi.mock('../../../db', () => ({

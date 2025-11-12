@@ -12,12 +12,12 @@ import request from 'supertest';
 import express, { type Application, type Request, type Response, type NextFunction } from 'express';
 import { Ok, Err } from '../../../types/result';
 
-// モックサービス
-const mockUserRoleService = {
+// モックサービスをvi.hoisted()で初期化
+const mockUserRoleService = vi.hoisted(() => ({
   addRoleToUser: vi.fn(),
   removeRoleFromUser: vi.fn(),
   getUserRoles: vi.fn(),
-};
+}));
 
 // モック: データベースとRedis
 vi.mock('../../../db', () => ({
