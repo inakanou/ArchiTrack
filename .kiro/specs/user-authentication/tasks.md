@@ -686,7 +686,8 @@
       - 検証ボタン（6桁/バックアップコード入力完了後に有効化）
       - キャンセルボタン
       - エラーメッセージ表示（aria-live属性）
-      - 単体テスト14ケース作成 (`frontend/src/__tests__/components/TwoFactorVerificationForm.test.tsx`)
+      - 単体テスト20ケース作成 (`frontend/src/__tests__/components/TwoFactorVerificationForm.test.tsx`)
+      - カバレッジ80%以上達成（Statements: 83.11%, Branches: 81.53%, Functions: 82.35%, Lines: 84.93%）
     - TwoFactorManagement完全実装 (`frontend/src/components/TwoFactorManagement.tsx`)
       - バックアップコード一覧表示（10個、2列グリッドレイアウト）
       - 使用済みコードのグレーアウト・取り消し線表示（aria-label="使用済み"）
@@ -701,7 +702,7 @@
       - TwoFactorSetupData, TwoFactorEnabledData, BackupCodeInfo
       - TwoFactorSetupResult, TwoFactorEnableResult, VerifyTOTPResult, VerifyBackupCodeResult
       - DisableTwoFactorResult, RegenerateBackupCodesResultType
-    - 全40テストパス（TwoFactorSetupForm 17、TwoFactorVerificationForm 14、TwoFactorManagement 9）
+    - 全46テストパス（TwoFactorSetupForm 17、TwoFactorVerificationForm 20、TwoFactorManagement 9）
     - 型チェック成功、WCAG 2.1 AA準拠（aria-label、aria-live、role属性）
 
 - [x] 6.6 共通UI/UXコンポーネントの実装
