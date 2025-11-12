@@ -5,3 +5,7 @@ generated/
 .env
 *.db
 *.db-journal
+
+# Draft migrations (開発中のマイグレーション - 確定前)
+# 詳細: docs/DATABASE_MIGRATION_WORKFLOW.md を参照
+prisma/migrations/draft/

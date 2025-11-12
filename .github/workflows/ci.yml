@@ -244,6 +244,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Check environment variables
+        run: npm --prefix backend run check:env
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.STAGING_REDIS_URL }}
+          FRONTEND_URL: ${{ secrets.STAGING_FRONTEND_URL }}
+          JWT_PUBLIC_KEY: ${{ secrets.STAGING_JWT_PUBLIC_KEY }}
+          JWT_PRIVATE_KEY: ${{ secrets.STAGING_JWT_PRIVATE_KEY }}
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.STAGING_TWO_FACTOR_ENCRYPTION_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
       - name: Pre-deployment notification
         run: |
           echo "========================================="
@@ -392,6 +413,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Check environment variables
+        run: npm --prefix backend run check:env
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.PRODUCTION_REDIS_URL }}
+          FRONTEND_URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}
+          JWT_PUBLIC_KEY: ${{ secrets.PRODUCTION_JWT_PUBLIC_KEY }}
+          JWT_PRIVATE_KEY: ${{ secrets.PRODUCTION_JWT_PRIVATE_KEY }}
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       - name: Pre-deployment notification
         run: |

@@ -14,6 +14,7 @@ import { validateEnv } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import adminRoutes from './routes/admin.routes.js';
+import authRoutes from './routes/auth.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -219,6 +220,9 @@ app.get('/api', (_req: Request, res: Response) => {
 
 // Admin routes (TODO: 認証ミドルウェアを追加)
 app.use('/admin', adminRoutes);
+
+// Authentication routes
+app.use('/api/v1/auth', authRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

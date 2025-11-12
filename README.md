@@ -116,6 +116,10 @@ ArchiTrack/
 │   ├── prisma/
 │   │   ├── schema.prisma    # データベーススキーマ
 │   │   └── migrations/      # マイグレーションファイル
+│   │       ├── draft/       # 開発中のマイグレーション（.gitignore対象）
+│   │       └── YYYYMMDD_*/  # 確定版マイグレーション（Git追跡）
+│   ├── scripts/
+│   │   └── migration-draft.ts  # Draft管理スクリプト
 │   ├── Dockerfile.dev   # 開発用
 │   └── railway.toml     # Railway設定
 ├── e2e/                 # E2Eテスト（Playwright）
@@ -879,11 +883,28 @@ gh pr create --title "Spec: ユーザー認証機能" --body "## 概要
 
 **6-2. データベーススキーマの変更（必要な場合）**
 
-新機能でデータベースの変更が必要な場合は、以下の手順で進めます：
+新機能でデータベースの変更が必要な場合は、**Draft Migrationsワークフロー**を使用します。
 
-**6-2-1. Prismaスキーマの編集**
+#### 🔒 Draft Migrationsの特徴
 
-`backend/prisma/schema.prisma` を編集して、必要なモデルを追加・変更します：
+- **誤コミット防止**: 開発中のマイグレーションを `.gitignore` で自動除外
+- **安全機構**: Git pre-commit hookで万が一のステージングもブロック
+- **試行錯誤可能**: 何度でもやり直せる開発環境
+
+#### ディレクトリ構造
+
+```
+prisma/migrations/
+  ├── draft/              ← 開発中（.gitignore対象）
+  │   └── 20251112_test/  ← Git追跡されない
+  └── 20251110_auth/      ← 確定版（Git追跡）
+```
+
+#### ワークフロー
+
+**Step 1: Prismaスキーマの編集**
+
+`backend/prisma/schema.prisma` を編集：
 
 ```prisma
 // 例: ユーザーモデルにリフレッシュトークンフィールドを追加
@@ -892,7 +913,7 @@ model User {
   email        String   @unique
   name         String?
   passwordHash String
-  refreshToken String?
+  refreshToken String?  // ← 追加
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -900,39 +921,102 @@ model User {
 }
 ```
 
-**6-2-2. マイグレーションの作成・実行**
-
-スキーマ変更をデータベースに反映します：
+**Step 2: Draftマイグレーション作成**
 
 ```bash
-# マイグレーションファイルを生成・実行
-npm --prefix backend run prisma:migrate
+# Draftマイグレーションを作成（migrations/draft/に配置）
+npm --prefix backend run db:draft:create draft_add_refresh_token
 
-# マイグレーション名を入力（例: add_refresh_token_to_users）
-# Enter a name for the new migration: › add_refresh_token_to_users
+# ↑ 自動的にprisma/migrations/draft/に作成されます
 ```
 
-これにより以下が自動実行されます：
-- マイグレーションファイルが `backend/prisma/migrations/` に生成
-- データベースにマイグレーションが適用
-- Prisma Clientが自動再生成
-
-**6-2-3. マイグレーションの確認**
+**Step 3: SQLを確認**
 
 ```bash
-# Prisma Studioでデータベースを確認（オプション）
-npm --prefix backend run prisma:studio
-# ブラウザで http://localhost:5555 が開きます
+# Draft一覧表示（SQLプレビュー付き）
+npm --prefix backend run db:draft:list
+```
 
-# マイグレーションファイルをコミット対象に追加
-git add backend/prisma/migrations/
+**Step 4: 適用とテスト**
+
+```bash
+# Draftを適用
+npm --prefix backend run db:draft:apply
+
+# 動作確認
+npm --prefix backend test
+```
+
+**Step 5: やり直し（必要な場合）**
+
+```bash
+# Draftを削除
+npm --prefix backend run db:draft:clean
+
+# スキーマを修正して再度Step 2から
+npm --prefix backend run db:draft:create draft_add_refresh_token_v2
+```
+
+**Step 6: 確定（Git追跡対象に移行）**
+
+```bash
+# Draftを確定版に移行
+npm --prefix backend run db:draft:finalize
+
+# ↑ migrations/draft/ → migrations/ に移動
+# ↑ Git追跡対象になります
+```
+
+**Step 7: Gitコミット**
+
+```bash
+# 確定版のみがGit追跡されます
+git status
+# → prisma/migrations/20251112_add_refresh_token/ が表示
+
+git add backend/prisma/migrations/20251112_add_refresh_token/
 git add backend/prisma/schema.prisma
+git commit -m "feat(db): ユーザーモデルにリフレッシュトークンを追加"
 ```
 
-**重要な注意点:**
-- マイグレーションファイルは必ずGitにコミットしてください
-- 本番環境へのマイグレーション適用は `npm --prefix backend run prisma:migrate:deploy` を使用
-- スキーマ変更後は必ずPrisma Clientが再生成されているか確認
+#### 🔐 安全機構
+
+**1. .gitignore による自動除外**
+```gitignore
+# backend/.gitignore
+prisma/migrations/draft/
+```
+
+**2. Git pre-commit hook によるブロック**
+
+万が一draftをステージングしても、コミットが自動的にブロックされます：
+
+```bash
+# 誤操作の例
+git add backend/prisma/migrations/draft/
+
+# コミット試行
+git commit -m "test"
+# ❌ Error: Draft migrations detected in staged files!
+# → コミット中止
+```
+
+#### Draft管理コマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `npm run db:draft:create <name>` | Draft作成 |
+| `npm run db:draft:list` | Draft一覧表示 |
+| `npm run db:draft:apply [name]` | Draft適用 |
+| `npm run db:draft:finalize [name]` | Draft確定（Git追跡対象に移行） |
+| `npm run db:draft:clean [name]` | Draft削除 |
+
+#### 重要な注意点
+
+- ✅ **Draftは何度でも作り直せます** - 試行錯誤が安全にできます
+- ✅ **確定後は必ずGitコミット** - チーム全体で同じマイグレーション履歴を共有
+- ✅ **本番環境では `db:migrate:deploy`** - 開発用の `prisma:migrate` は使用禁止
+- ⚠️ **破壊的変更は慎重に** - カラム削除などは事前にバックアップ
 
 **6-3. Claude Codeで実装**
 
@@ -967,9 +1051,14 @@ curl http://localhost:3000/health
 git status
 git diff
 
-# ステージング（データベース変更がある場合はマイグレーションも含める）
+# ステージング
 git add .
-git add backend/prisma/migrations/  # マイグレーションがある場合
+
+# データベース変更がある場合は確定版マイグレーションを追加
+# ⚠️ Draft（migrations/draft/）は.gitignoreで除外されているため、
+#    db:draft:finalize で確定版に移行してからコミット
+git add backend/prisma/migrations/20251112_add_refresh_token/
+git add backend/prisma/schema.prisma
 
 # コミット（pre-commitフックが自動実行されます）
 git commit -m "feat: JWT認証ミドルウェアの実装"
@@ -987,11 +1076,12 @@ git commit -m "feat: JWT認証ミドルウェアの実装"
 
 **データベース変更を含むコミットの例:**
 ```bash
-# スキーマ変更とマイグレーションを含むコミット
-git commit -m "feat: ユーザー認証機能のデータベーススキーマを追加
+# スキーマ変更と確定版マイグレーションを含むコミット
+git commit -m "feat(db): ユーザー認証機能のデータベーススキーマを追加
 
-- UserモデルにpasswordHashとrefreshTokenフィールドを追加
-- マイグレーション: add_refresh_token_to_users"
+- Userモデルにpassword Hash とrefreshTokenフィールドを追加
+- マイグレーション: 20251112_add_refresh_token
+- Draft Migrationsワークフローで確定"
 ```
 
 ```bash
@@ -1015,7 +1105,8 @@ gh pr edit --body "## 概要
 
 ## データベース変更（該当する場合のみ）
 - Userモデルにpasswordハッシュとリフレッシュトークンを追加
-- マイグレーション: \`add_refresh_token_to_users\`
+- マイグレーション: \`20251112_add_refresh_token\`
+- Draft Migrationsワークフローで確定済み
 
 ## テスト
 - [x] ログイン動作確認

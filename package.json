@@ -41,5 +41,8 @@
       "prettier --write",
       "eslint --fix"
     ]
+  },
+  "dependencies": {
+    "@prisma/client": "^6.18.0"
   }
 }
