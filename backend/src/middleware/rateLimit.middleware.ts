@@ -46,21 +46,21 @@ export const apiLimiter = rateLimit({
 });
 
 /**
- * 認証エンドポイント用の厳格なレート制限
- * 15分間で5リクエストまで
+ * ログインエンドポイント用のレート制限
+ * 要件26.12: 1分間で10リクエストまで
  */
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15分
-  max: 5, // 最大5リクエスト
+export const loginLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1分
+  max: 10, // 最大10リクエスト
   message: {
-    error: 'Too many authentication attempts, please try again later.',
+    error: 'Too many login attempts, please try again later.',
   },
   standardHeaders: true,
   legacyHeaders: false,
   // OPTIONSリクエスト（CORS preflight）とテスト環境はスキップ
   skip: (req: Request) => req.method === 'OPTIONS' || process.env.NODE_ENV === 'test',
   // カスタムRedisストアを使用（遅延初期化）
-  store: new RedisRateLimitStore(() => redis.getClient(), 'rl:auth:'),
+  store: new RedisRateLimitStore(() => redis.getClient(), 'rl:login:'),
   keyGenerator: (req: Request): string => {
     const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
     const realIp = req.headers['x-real-ip'] as string | undefined;
@@ -76,10 +76,88 @@ export const authLimiter = rateLimit({
         ip: req.ip,
         path: req.path,
       },
-      'Auth rate limit exceeded'
+      'Login rate limit exceeded'
     );
     res.status(429).json({
-      error: 'Too many authentication attempts, please try again later.',
+      error: 'Too many login attempts, please try again later.',
+      retryAfter: res.getHeader('Retry-After'),
+    });
+  },
+});
+
+/**
+ * トークンリフレッシュエンドポイント用のレート制限
+ * 要件26.12: 1分間で20リクエストまで
+ */
+export const refreshLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1分
+  max: 20, // 最大20リクエスト
+  message: {
+    error: 'Too many token refresh attempts, please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // OPTIONSリクエスト（CORS preflight）とテスト環境はスキップ
+  skip: (req: Request) => req.method === 'OPTIONS' || process.env.NODE_ENV === 'test',
+  // カスタムRedisストアを使用（遅延初期化）
+  store: new RedisRateLimitStore(() => redis.getClient(), 'rl:refresh:'),
+  keyGenerator: (req: Request): string => {
+    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
+    const realIp = req.headers['x-real-ip'] as string | undefined;
+
+    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+
+    // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
+    return ipKeyGenerator(ip);
+  },
+  handler: (req: Request, res: Response) => {
+    req.log.warn(
+      {
+        ip: req.ip,
+        path: req.path,
+      },
+      'Token refresh rate limit exceeded'
+    );
+    res.status(429).json({
+      error: 'Too many token refresh attempts, please try again later.',
+      retryAfter: res.getHeader('Retry-After'),
+    });
+  },
+});
+
+/**
+ * 招待エンドポイント用のレート制限
+ * 要件26.12: 1分間で5リクエストまで（ユーザーIDベース）
+ */
+export const invitationLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1分
+  max: 5, // 最大5リクエスト
+  message: {
+    error: 'Too many invitation requests, please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // OPTIONSリクエスト（CORS preflight）とテスト環境はスキップ
+  skip: (req: Request) => req.method === 'OPTIONS' || process.env.NODE_ENV === 'test',
+  // カスタムRedisストアを使用（遅延初期化）
+  store: new RedisRateLimitStore(() => redis.getClient(), 'rl:invitation:'),
+  // ユーザーIDベースのレート制限
+  keyGenerator: (req: Request): string => {
+    // 認証済みユーザーのIDを使用
+    const userId = (req as Request & { user?: { id: string } }).user?.id;
+    return userId ? `user:${userId}` : `ip:${req.ip || 'unknown'}`;
+  },
+  handler: (req: Request, res: Response) => {
+    req.log.warn(
+      {
+        userId: (req as Request & { user?: { id: string } }).user?.id,
+        ip: req.ip,
+        path: req.path,
+      },
+      'Invitation rate limit exceeded'
+    );
+    res.status(429).json({
+      error: 'Too many invitation requests, please try again later.',
       retryAfter: res.getHeader('Retry-After'),
     });
   },

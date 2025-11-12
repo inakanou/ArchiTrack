@@ -19,6 +19,7 @@ import { InvitationStatus } from '../types/invitation.types';
 import { validateMultiple } from '../middleware/validate.middleware';
 import { authenticate } from '../middleware/authenticate.middleware';
 import { requirePermission } from '../middleware/authorize.middleware';
+import { invitationLimiter } from '../middleware/rateLimit.middleware';
 
 // Zodバリデーションスキーマ
 const createInvitationSchema = {
@@ -84,6 +85,7 @@ export function createInvitationRoutes(prisma: PrismaClient): Router {
   router.post(
     '/',
     authenticate,
+    invitationLimiter,
     requirePermission('user:invite'),
     validateMultiple(createInvitationSchema),
     async (req, res) => {

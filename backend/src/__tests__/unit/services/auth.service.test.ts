@@ -373,6 +373,96 @@ describe('AuthService', () => {
       }
     });
 
+    it('パスワードが正しくない場合もINVALID_CREDENTIALSエラーを返す（要件10.1: エラーメッセージの汎用化）', async () => {
+      // Arrange: メールアドレスの存在有無を知られないよう、同じエラーメッセージを返す
+      const email = 'existing@example.com';
+      const password = 'WrongPassword123';
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: 'user-123',
+        email,
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockPasswordService.verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockUser,
+        loginFailures: 1,
+      });
+
+      // Act
+      const result = await authService.login(email, password);
+
+      // Assert: ユーザー不在時と同じINVALID_CREDENTIALSエラーを返す
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_CREDENTIALS');
+      }
+
+      // ログイン失敗回数がインクリメントされたことを確認
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: {
+          loginFailures: 1,
+          isLocked: false,
+          lockedUntil: null,
+        },
+      });
+    });
+
+    it('ログイン失敗時にタイミング攻撃対策の遅延が挿入される（要件26.9）', async () => {
+      // Arrange
+      const email = 'user@example.com';
+      const password = 'WrongPassword123';
+
+      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+        id: 'user-123',
+        email,
+        displayName: 'Test User',
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$testSalt$testHash',
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      };
+
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockPasswordService.verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockUser,
+        loginFailures: 1,
+      });
+
+      // Act: ログイン実行時間を測定
+      const startTime = Date.now();
+      const result = await authService.login(email, password);
+      const endTime = Date.now();
+      const elapsedTime = endTime - startTime;
+
+      // Assert: 最低100ms以上の遅延が挿入されたことを確認
+      expect(result.ok).toBe(false);
+      expect(elapsedTime).toBeGreaterThanOrEqual(100);
+      expect(elapsedTime).toBeLessThan(500); // 最大500ms以内（テストの安定性のため）
+    });
+
     it('アカウントがロックされている場合はACCOUNT_LOCKEDエラーを返す', async () => {
       // Arrange
       const email = 'locked@example.com';

@@ -174,7 +174,7 @@ export class EmailService {
       }
     );
 
-    logger.info({ to, invitationToken }, 'Invitation email queued');
+    logger.info({ to }, 'Invitation email queued');
   }
 
   /**
@@ -196,7 +196,7 @@ export class EmailService {
       }
     );
 
-    logger.info({ to, resetToken }, 'Password reset email queued');
+    logger.info({ to }, 'Password reset email queued');
   }
 
   /**
@@ -275,7 +275,7 @@ export class EmailService {
       html,
     });
 
-    logger.info({ to, invitationToken }, 'Invitation email sent successfully');
+    logger.info({ to }, 'Invitation email sent successfully');
   }
 
   /**
@@ -302,7 +302,7 @@ export class EmailService {
       html,
     });
 
-    logger.info({ to, resetToken }, 'Password reset email sent successfully');
+    logger.info({ to }, 'Password reset email sent successfully');
   }
 
   /**

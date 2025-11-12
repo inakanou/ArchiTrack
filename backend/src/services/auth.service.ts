@@ -25,6 +25,7 @@ import type {
   AuthError,
 } from '../types/auth.types';
 import { Ok, Err, type Result } from '../types/result';
+import { addTimingAttackDelay } from '../utils/timing';
 
 /**
  * 認証サービス
@@ -229,7 +230,9 @@ export class AuthService implements IAuthService {
       });
 
       // ユーザーが存在しない場合
+      // 要件26.9: タイミング攻撃対策の遅延を挿入
       if (!user) {
+        await addTimingAttackDelay();
         return Err({ type: 'INVALID_CREDENTIALS' });
       }
 
@@ -278,6 +281,8 @@ export class AuthService implements IAuthService {
           });
         }
 
+        // 要件26.9: タイミング攻撃対策の遅延を挿入
+        await addTimingAttackDelay();
         return Err({ type: 'INVALID_CREDENTIALS' });
       }
 

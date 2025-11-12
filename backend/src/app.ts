@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import swaggerUi from 'swagger-ui-express';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -13,6 +14,7 @@ import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middlewar
 import { validateEnv } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
+import { generateCsrfToken } from './middleware/csrf.middleware.js';
 import adminRoutes from './routes/admin.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import { createInvitationRoutes } from './routes/invitation.routes.js';
@@ -82,6 +84,7 @@ app.use(
 );
 
 app.use(express.json());
+app.use(cookieParser());
 
 // Swagger UI setup (development環境のみ有効)
 if (env.NODE_ENV !== 'production') {
@@ -192,6 +195,42 @@ app.get('/favicon.ico', (_req: Request, res: Response) => {
 
 // JWKS endpoint (RFC 7517) - JWT公開鍵配信
 app.use('/.well-known', jwksRoutes);
+
+/**
+ * @swagger
+ * /csrf-token:
+ *   get:
+ *     summary: Get CSRF Token
+ *     description: Generate and return a CSRF token for subsequent state-changing requests
+ *     tags:
+ *       - Security
+ *     responses:
+ *       200:
+ *         description: CSRF token generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 csrfToken:
+ *                   type: string
+ *                   example: a1b2c3d4e5f6...
+ */
+// CSRF token endpoint
+app.get('/csrf-token', (_req: Request, res: Response) => {
+  const token = generateCsrfToken();
+
+  // Cookieとして送信（HttpOnly, Secure, SameSite=Strict）
+  res.cookie('csrf-token', token, {
+    httpOnly: false, // JavaScriptからアクセス可能（X-CSRF-Tokenヘッダーに設定するため）
+    secure: process.env.NODE_ENV === 'production', // 本番環境ではHTTPSのみ
+    sameSite: 'strict', // CSRF攻撃対策
+    maxAge: 24 * 60 * 60 * 1000, // 24時間
+  });
+
+  // レスポンスボディでも送信
+  res.json({ csrfToken: token });
+});
 
 /**
  * @swagger

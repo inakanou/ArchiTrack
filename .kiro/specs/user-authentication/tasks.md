@@ -923,7 +923,7 @@
     - ✅ app.tsに統合済み（/.well-knownパス）
     - ✅ 単体テスト8テスト成功（全テストケースカバー）
 
-- [ ] 8. テスト実装
+- [x] 8. テスト実装
   - _Dependencies: タスク2-7完了（全実装機能）_
 
 - [x] 8.1 認証・パスワード管理サービスの単体テスト実装
@@ -1034,21 +1034,37 @@
     - 全テスト合計: Frontend 378 + 統合66 + E2E 38 + パフォーマンス3 = 485テスト
     - TypeScript型チェック成功
 
-- [ ] 9. セキュリティ対策の実装
+- [x] 9. セキュリティ対策の実装
   - _Dependencies: タスク2-7完了（全実装機能）_
 
-- [ ] 9.1 セキュリティヘッダーの実装
+- [x] 9.1 セキュリティヘッダーの実装
   - セキュリティヘッダーミドルウェアを統合（CSP、X-Frame-Options、HSTS等）
   - HTTPS強制リダイレクトを実装（本番環境）
   - CSRFトークン検証を実装（状態変更API）
   - _Requirements: 26.3, 26.5, 26.6, 26.10_
   - _Details: design.md「Security Headers」セクション参照_
   - _Completion Criteria:_
-    - helmetミドルウェアが適用される
-    - HTTPS強制リダイレクトが本番環境で動作する
-    - CSRFトークンが状態変更APIで検証される
+    - ✅ helmetミドルウェアが適用される
+    - ✅ HTTPS強制リダイレクトが本番環境で動作する
+    - ✅ CSRFトークンが状態変更APIで検証される
+  - _Implemented:_
+    - helmet統合完了 (`backend/src/app.ts:45-61`)
+      - Content Security Policy (CSP)
+      - Cross-Origin-Resource-Policy
+      - X-Frame-Options（helmet default）
+      - X-Content-Type-Options（helmet default）
+    - HTTPS強制リダイレクト実装済み (`backend/src/middleware/httpsRedirect.middleware.ts`)
+      - 本番環境でHTTP→HTTPS自動リダイレクト
+      - HSTSヘッダー設定（max-age: 1年）
+    - CSRF protection実装 (`backend/src/middleware/csrf.middleware.ts`)
+      - Double Submit Cookie Pattern
+      - GET /csrf-tokenエンドポイント追加
+      - csrfProtectionミドルウェア実装（Cookie + X-CSRF-Tokenヘッダー検証）
+      - cookie-parser統合（`backend/src/app.ts:87`）
+      - 単体テスト9ケース作成（全て成功）
+    - 型チェック成功
 
-- [ ] 9.2 レート制限の実装
+- [x] 9.2 レート制限の実装
   - ログインAPIのレート制限を実装（10回/分/IP）
   - トークンリフレッシュAPIのレート制限を実装（20回/分/IP）
   - 招待APIのレート制限を実装（5回/分/ユーザー）
@@ -1056,31 +1072,87 @@
   - _Requirements: 26.4, 26.12_
   - _Details: design.md「Rate Limiting」セクション参照_
   - _Completion Criteria:_
-    - レート制限がRedisで管理される
-    - 制限超過時に429エラーを返す
-    - IPアドレスベースのブロックが動作する
+    - ✅ レート制限がRedisで管理される
+    - ✅ 制限超過時に429エラーを返す
+    - ✅ IPアドレスベースのブロックが動作する
+  - _Implemented:_
+    - 3つの新しいレート制限を実装 (`backend/src/middleware/rateLimit.middleware.ts`)
+      - loginLimiter: 1分間10リクエスト/IP（要件26.12準拠）
+      - refreshLimiter: 1分間20リクエスト/IP（要件26.12準拠）
+      - invitationLimiter: 1分間5リクエスト/ユーザー（要件26.12準拠、未認証時はIPベース）
+    - すべてのレート制限に以下の機能を実装:
+      - RedisRateLimitStore使用（遅延初期化、`rl:login:`, `rl:refresh:`, `rl:invitation:`プレフィックス）
+      - ipKeyGenerator使用（プロキシ環境対応、IPv6正規化）
+      - X-Forwarded-For / X-Real-IP ヘッダーサポート
+      - 429エラーレスポンス（Retry-Afterヘッダー付き）
+      - ログ記録（警告レベル、IP・パス情報付き）
+      - OPTIONSリクエスト・テスト環境スキップ
+    - ルートへの適用:
+      - POST /api/v1/auth/login にloginLimiter適用 (`backend/src/routes/auth.routes.ts:239`)
+      - POST /api/v1/auth/refresh にrefreshLimiter適用 (`backend/src/routes/auth.routes.ts:324`)
+      - POST /api/v1/invitations にinvitationLimiter適用（authenticate後）(`backend/src/routes/invitation.routes.ts:88`)
+    - 単体テスト更新 (`backend/src/__tests__/unit/middleware/rateLimit.test.ts`)
+      - 古いauthLimiterテストを削除
+      - loginLimiter, refreshLimiter, invitationLimiter のエクスポートテストを追加
+    - 型チェック成功✅
 
-- [ ] 9.3 入力検証とエスケープ処理の実装
+- [x] 9.3 入力検証とエスケープ処理の実装
   - Zodスキーマによるリクエストバリデーションを実装（全APIエンドポイント）
   - SQLインジェクション対策を実装（Prismaパラメータ化クエリ）
   - XSS対策を実装（Frontendでの自動エスケープ処理）
   - _Requirements: 10.5, 26.1, 26.2_
   - _Details: design.md「Input Validation」セクション参照_
   - _Completion Criteria:_
-    - 全APIエンドポイントでZodバリデーションが動作する
-    - Prismaパラメータ化クエリが使用される
-    - Reactの自動エスケープが適用される
+    - ✅ 全APIエンドポイントでZodバリデーションが動作する
+    - ✅ Prismaパラメータ化クエリが使用される
+    - ✅ Reactの自動エスケープが適用される
+  - _Verified:_
+    - Zodバリデーション実装状況:
+      - auth.routes.ts: 10エンドポイント（register, login, refresh, logout, 2FA系, password reset系）全てvalidate使用
+      - invitation.routes.ts: 3エンドポイント（create, list, verify）全てvalidateMultiple使用
+      - roles.routes.ts: 3エンドポイント（create, update, permissions）全てvalidate使用
+      - user-roles.routes.ts: 1エンドポイント（add role）validate使用
+      - admin.routes.ts: 手動バリデーション実装（log-level、validLevels配列検証）
+      - パスパラメータのみのDELETEエンドポイントはバリデーション不要（設計通り）
+    - SQLインジェクション対策:
+      - 全DB操作でPrismaタイプセーフAPI使用（prisma.user.findUnique, create, update, delete等）
+      - $queryRawはテンプレートリテラルでのみ使用（app.ts:165 ヘルスチェック `SELECT 1`）
+      - ユーザー入力の直接SQL埋め込みなし✅
+    - XSS対策:
+      - frontend全体でdangerouslySetInnerHTML使用なし
+      - React JSXの自動エスケープに依存✅
+      - ユーザー入力が自動的にHTMLエスケープされる
 
-- [ ] 9.4 機密情報保護の実装
+- [x] 9.4 機密情報保護の実装
   - ログマスキング処理を実装（パスワード、トークン、秘密鍵）
   - エラーメッセージの汎用化を実装（メールアドレス存在有無の隠蔽）
   - タイミング攻撃対策を実装（ログイン失敗時の一定時間遅延）
   - _Requirements: 10.1, 26.9, 26.11_
   - _Details: design.md「Sensitive Data Protection」セクション参照_
   - _Completion Criteria:_
-    - ログに機密情報が含まれない
-    - エラーメッセージが汎用的である
-    - タイミング攻撃対策が動作する
+    - ✅ ログに機密情報が含まれない
+    - ✅ エラーメッセージが汎用的である
+    - ✅ タイミング攻撃対策が動作する
+  - _Implemented:_
+    - Pinoロガーのredactオプション実装 (`backend/src/utils/logger.ts:36-71`)
+      - パスワード関連: password, passwordHash, currentPassword, newPassword
+      - トークン関連: token, accessToken, refreshToken, invitationToken, resetToken
+      - 秘密鍵・2FA関連: secret, twoFactorSecret, backupCodes
+      - HTTPヘッダー: Authorization, X-CSRF-Token, Set-Cookie
+      - ネストされたフィールドも対応（*.password等）
+      - censor値: `[REDACTED]`
+    - ログマスキング単体テスト作成 (`backend/src/__tests__/unit/utils/logger.test.ts`)
+      - 10テストケース作成（全て成功）
+    - エラーメッセージ汎用化検証 (`backend/src/services/auth.service.ts`)
+      - ユーザー不在時・パスワード不正時に同じINVALID_CREDENTIALSエラーを返す（233-236行目、284-286行目）
+      - パスワードリセットでもユーザー不在時に成功を返す（`backend/src/services/password.service.ts:285-287`）
+      - auth.service.testにエラーメッセージ汎用化テスト追加（376-423行目）
+    - タイミング攻撃対策実装 (`backend/src/utils/timing.ts`)
+      - addTimingAttackDelay関数作成（ランダム遅延100-200ms）
+      - auth.service.tsのloginメソッドに遅延挿入（ユーザー不在時・パスワード不正時）
+      - auth.service.testにタイミング攻撃対策テスト追加（425-464行目、経過時間測定）
+    - 型チェック成功✅
+    - 全テストパス（26テスト）✅
 
 - [ ] 10. デプロイ準備と最終検証
   - _Dependencies: タスク1-9完了（全実装・テスト・セキュリティ対策）_

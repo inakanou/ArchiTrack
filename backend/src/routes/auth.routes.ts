@@ -18,6 +18,7 @@ import { PasswordService } from '../services/password.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
+import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -235,6 +236,7 @@ router.post(
  */
 router.post(
   '/login',
+  loginLimiter,
   validate(loginSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -319,6 +321,7 @@ router.post(
  */
 router.post(
   '/refresh',
+  refreshLimiter,
   validate(refreshSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
