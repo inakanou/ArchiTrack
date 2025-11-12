@@ -12,8 +12,10 @@ export interface UserProfile {
   email: string;
   displayName: string;
   roles: string[];
-  createdAt: string;
+  emailVerified: boolean;
   twoFactorEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /**
@@ -139,4 +141,37 @@ export interface SessionInfo {
   deviceInfo?: string;
   expiresAt: string;
   createdAt: string;
+}
+
+/**
+ * ユーザー登録データ（API用）
+ */
+export interface RegisterData {
+  displayName: string;
+  password: string;
+}
+
+/**
+ * 認証レスポンス（登録、2FA検証、トークンリフレッシュ）
+ */
+export interface AuthResponse {
+  accessToken: string;
+  user: UserProfile;
+}
+
+/**
+ * プロフィール更新データ（API用）
+ */
+export interface UpdateProfileData {
+  displayName?: string;
+}
+
+/**
+ * ログインレスポンス
+ */
+export interface LoginResponse {
+  type: 'SUCCESS' | '2FA_REQUIRED';
+  accessToken?: string;
+  userId?: string;
+  user?: UserProfile;
 }
