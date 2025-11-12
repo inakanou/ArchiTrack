@@ -897,15 +897,18 @@
     - 単体テスト作成: roles, permissions, user-roles用のルートテスト
     - 型チェック成功、全依存関係解決済み
 
-- [ ] 7.6 監査ログ関連APIエンドポイントの実装
+- [x] 7.6 監査ログ関連APIエンドポイントの実装
   - 監査ログ取得APIを実装（フィルタリング対応）
   - 監査ログエクスポートAPIを実装
   - _Requirements: 22_
   - _Details: design.md「Audit Log API」セクション参照_
   - _Completion Criteria:_
-    - 全エンドポイントが`/api/v1/audit-logs/...`形式で実装される
-    - フィルタリングがクエリパラメータで指定できる
-    - JSON形式でエクスポートできる
+    - ✅ 全エンドポイントが`/api/v1/audit-logs/...`形式で実装される
+    - ✅ フィルタリングがクエリパラメータで指定できる（actorId, targetId, action, startDate, endDate, skip, take）
+    - ✅ JSON形式でエクスポートできる（タイムスタンプ付きファイル名）
+    - ✅ Swagger/OpenAPIドキュメント完備
+    - ✅ app.tsに統合済み
+    - ✅ 単体テスト9テスト成功（全テストケースカバー）
 
 - [ ] 7.7 JWKSエンドポイントの実装
   - JWKS公開鍵エンドポイントを実装
