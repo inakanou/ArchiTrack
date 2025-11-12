@@ -844,16 +844,30 @@
     - ユニットテスト4ケース作成 (`backend/src/__tests__/unit/routes/invitation.routes.test.ts`)
     - 全テストパス、型チェック成功
 
-- [ ] 7.4 パスワード関連APIエンドポイントの実装
+- [x] 7.4 パスワード関連APIエンドポイントの実装
   - パスワードリセット要求APIを実装
   - リセットトークン検証APIを実装
   - パスワードリセット実行APIを実装
   - _Requirements: 7_
   - _Details: design.md「Password Reset API」セクション参照_
   - _Completion Criteria:_
-    - 全エンドポイントが`/api/v1/auth/password/...`形式で実装される
-    - リセットトークンが24時間で期限切れになる
-    - パスワードリセット後に全トークンが無効化される
+    - ✅ 全エンドポイントが`/api/v1/auth/password/...`形式で実装される
+    - ✅ リセットトークンが24時間で期限切れになる
+    - ✅ パスワードリセット後に全トークンが無効化される
+  - _Implemented:_
+    - パスワードリセットルート実装 (`backend/src/routes/auth.routes.ts`)
+    - **実装済みエンドポイント（3個）:**
+      - POST /api/v1/auth/password/reset-request: パスワードリセット要求（メール送信）
+      - GET /api/v1/auth/password/verify-reset: リセットトークン検証（有効期限、使用済みチェック）
+      - POST /api/v1/auth/password/reset: パスワードリセット実行（新パスワード設定）
+    - **Zodバリデーションスキーマ（2個）:**
+      - passwordResetRequestSchema: email
+      - resetPasswordSchema: token, newPassword
+    - **Swagger/OpenAPIアノテーション:** 全エンドポイントにJSDocアノテーション付き
+    - **エラーハンドリング:** Result型パターンによる型安全なエラー処理
+    - **セキュリティ:** 存在しないメールアドレスでも成功レスポンス（タイミング攻撃対策）
+    - PasswordService統合（task 2.6で実装済み）
+    - 全完了条件を達成、型チェック成功
 
 - [ ] 7.5 RBAC関連APIエンドポイントの実装
   - ロールCRUD APIを実装

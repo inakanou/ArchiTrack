@@ -13,6 +13,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { AuthService } from '../services/auth.service.js';
 import { TwoFactorService } from '../services/two-factor.service.js';
+import { PasswordService } from '../services/password.service.js';
 // import { SessionService } from '../services/session.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -23,6 +24,7 @@ const router = Router();
 const prisma = getPrismaClient();
 const authService = new AuthService(prisma);
 const twoFactorService = new TwoFactorService();
+const passwordService = new PasswordService(prisma);
 // const sessionService = new SessionService(prisma);
 
 // Zodバリデーションスキーマ
@@ -61,6 +63,15 @@ const enableTwoFactorSchema = z.object({
 
 const disableTwoFactorSchema = z.object({
   password: z.string().min(1, 'Password is required'),
+});
+
+const passwordResetRequestSchema = z.object({
+  email: z.string().email('Invalid email format'),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+  newPassword: z.string().min(12, 'Password must be at least 12 characters'),
 });
 
 /**
@@ -999,6 +1010,221 @@ router.post(
       logger.info({ userId: req.user.userId }, 'Backup codes regenerated successfully');
 
       res.status(200).json({ backupCodes });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/password/reset-request:
+ *   post:
+ *     summary: Request password reset
+ *     description: Request a password reset email with a reset token
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: "user@example.com"
+ *     responses:
+ *       200:
+ *         description: Password reset email sent (always returns 200 for security)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "If an account exists, a password reset email has been sent"
+ *       400:
+ *         description: Validation error
+ */
+router.post(
+  '/password/reset-request',
+  validate(passwordResetRequestSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { email } = req.body;
+
+      const result = await passwordService.requestPasswordReset(email);
+
+      // セキュリティのため、成功/失敗に関わらず同じレスポンスを返す
+      if (!result.ok) {
+        logger.warn({ email, error: result.error.type }, 'Password reset request failed');
+      } else {
+        logger.info({ email }, 'Password reset request processed');
+      }
+
+      res.status(200).json({
+        message: 'If an account exists, a password reset email has been sent',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/password/verify-reset:
+ *   get:
+ *     summary: Verify password reset token
+ *     description: Verify if a password reset token is valid and not expired
+ *     tags:
+ *       - Authentication
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Password reset token
+ *     responses:
+ *       200:
+ *         description: Token is valid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 valid:
+ *                   type: boolean
+ *                   example: true
+ *       400:
+ *         description: Invalid or expired token
+ */
+router.get(
+  '/password/verify-reset',
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { token } = req.query;
+
+      if (!token || typeof token !== 'string') {
+        res.status(400).json({ error: 'Token is required', code: 'MISSING_TOKEN' });
+        return;
+      }
+
+      // トークンの存在と有効期限をチェック
+      const passwordResetToken = await prisma.passwordResetToken.findUnique({
+        where: { token },
+      });
+
+      if (!passwordResetToken) {
+        res.status(400).json({ error: 'Invalid reset token', code: 'INVALID_RESET_TOKEN' });
+        return;
+      }
+
+      if (passwordResetToken.usedAt !== null) {
+        res.status(400).json({ error: 'Reset token already used', code: 'TOKEN_USED' });
+        return;
+      }
+
+      if (passwordResetToken.expiresAt < new Date()) {
+        res.status(400).json({ error: 'Reset token expired', code: 'TOKEN_EXPIRED' });
+        return;
+      }
+
+      res.status(200).json({ valid: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/password/reset:
+ *   post:
+ *     summary: Reset password
+ *     description: Reset user password using a valid reset token
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - newPassword
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Password reset token
+ *                 example: "abc123def456"
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 description: New password (min 12 characters, complexity requirements)
+ *                 example: "NewSecurePassword123!"
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Password reset successfully"
+ *       400:
+ *         description: Invalid token or weak password
+ */
+router.post(
+  '/password/reset',
+  validate(resetPasswordSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { token, newPassword } = req.body;
+
+      const result = await passwordService.resetPassword(token, newPassword);
+
+      if (!result.ok) {
+        const error = result.error;
+
+        if (error.type === 'RESET_TOKEN_INVALID') {
+          res.status(400).json({ error: 'Invalid reset token', code: error.type });
+          return;
+        } else if (error.type === 'RESET_TOKEN_EXPIRED') {
+          res.status(400).json({ error: 'Reset token has expired', code: error.type });
+          return;
+        } else if (error.type === 'WEAK_PASSWORD') {
+          res.status(400).json({
+            error: 'Password does not meet requirements',
+            code: error.type,
+            violations: error.violations,
+          });
+          return;
+        } else if (error.type === 'PASSWORD_REUSED') {
+          res.status(400).json({
+            error: 'Password has been used recently. Please choose a different password',
+            code: error.type,
+          });
+          return;
+        }
+
+        res.status(500).json({ error: 'Password reset failed', code: 'PASSWORD_RESET_ERROR' });
+        return;
+      }
+
+      logger.info({ token: token.substring(0, 8) + '...' }, 'Password reset successfully');
+
+      res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {
       next(error);
     }
