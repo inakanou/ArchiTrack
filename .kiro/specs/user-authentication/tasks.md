@@ -752,7 +752,7 @@
 - [ ] 7. Backend API実装
   - _Dependencies: タスク2-5完了（認証・認可・2FA・監査ログサービス）_
 
-- [ ] 7.1 認証関連APIエンドポイントの実装
+- [x] 7.1 認証関連APIエンドポイントの実装
   - ユーザー登録APIを実装（招待経由）
   - ログインAPIを実装
   - 2FA検証APIを実装
@@ -762,9 +762,32 @@
   - _Requirements: 2, 4, 5, 8, 9, 27A_
   - _Details: design.md「Authentication API」セクション参照_
   - _Completion Criteria:_
-    - 全エンドポイントが`/api/v1/auth/...`形式で実装される
-    - Zodバリデーションが全エンドポイントに適用される
-    - OpenAPI仕様書が自動生成される
+    - ✅ 全エンドポイントが`/api/v1/auth/...`形式で実装される
+    - ✅ Zodバリデーションが全エンドポイントに適用される
+    - ✅ OpenAPI仕様書が自動生成される
+  - _Implemented:_
+    - 認証APIルート完全実装 (`backend/src/routes/auth.routes.ts`)
+    - **実装済みエンドポイント（8個）:**
+      - POST /api/v1/auth/register: 招待トークン検証、パスワード強度チェック、JWT発行
+      - POST /api/v1/auth/login: メールアドレス・パスワード検証、2FA対応、アカウントロック
+      - POST /api/v1/auth/verify-2fa: TOTP検証、tempToken/email対応
+      - POST /api/v1/auth/logout: 単一デバイスログアウト（リフレッシュトークン無効化）
+      - POST /api/v1/auth/logout-all: 全デバイスログアウト
+      - POST /api/v1/auth/refresh: リフレッシュトークンによる新アクセストークン発行
+      - GET /api/v1/auth/me: 現在のユーザー情報取得（認証必須）
+      - PATCH /api/v1/auth/me: プロフィール更新（displayName編集、認証必須）
+    - **Zodバリデーションスキーマ（6個）:**
+      - registerSchema: invitationToken, displayName, password
+      - loginSchema: email, password
+      - verify2FASchema: token (6桁), email, tempToken
+      - logoutSchema: refreshToken
+      - updateProfileSchema: displayName (optional)
+      - refreshSchema: refreshToken
+    - **Swagger/OpenAPIアノテーション:** 全エンドポイントにJSDocアノテーション付き
+    - **app.ts統合:** `/api/v1/auth`でルートマウント済み（225行目）
+    - **エラーハンドリング:** Result型パターンによる型安全なエラー処理
+    - **認証ミドルウェア統合:** authenticate middleware適用（GET/PATCH /me, POST /logout, POST /logout-all）
+    - 全完了条件を達成、型チェック成功
 
 - [ ] 7.2 二要素認証（2FA）関連APIエンドポイントの実装
   - 2FA設定開始APIを実装
