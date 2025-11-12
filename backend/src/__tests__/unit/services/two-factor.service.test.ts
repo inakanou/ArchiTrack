@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TwoFactorService } from '../../../services/two-factor.service';
+import { authenticator } from 'otplib';
 
 // Prismaのモック
 const mockPrismaClient = {
@@ -333,6 +334,166 @@ describe('TwoFactorService', () => {
       if (!result.ok) {
         expect(result.error.type).toBe('TWO_FACTOR_NOT_ENABLED');
       }
+    });
+
+    describe('TOTPタイムウィンドウ（RFC 6238準拠、±1ステップ = 90秒）', () => {
+      const testUserId = 'user-time-window-test';
+      const testSecret = 'JBSWY3DPEHPK3PXP'; // テスト用のBase32秘密鍵
+
+      it('現在のタイムスタンプで生成されたTOTPコードは検証成功する', async () => {
+        // Arrange
+        const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+        const userWith2FA = {
+          id: testUserId,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptedSecret,
+        };
+        vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+
+        // 現在時刻のTOTPコードを生成
+        const currentToken = authenticator.generate(testSecret);
+
+        // Act
+        const result = await twoFactorService.verifyTOTP(testUserId, currentToken);
+
+        // Assert
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toBe(true);
+        }
+      });
+
+      it('過去1ステップ（30秒前）で生成されたTOTPコードは検証成功する', async () => {
+        // Arrange
+        const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+        const userWith2FA = {
+          id: testUserId,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptedSecret,
+        };
+        vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+
+        // 時間をモック：60秒前に設定してトークン生成、その後30秒前に戻して検証
+        const baseTime = new Date('2025-01-01T00:00:00Z');
+        vi.useFakeTimers();
+        vi.setSystemTime(baseTime);
+
+        // 現在時刻（60秒前）でトークンを生成
+        const pastToken = authenticator.generate(testSecret);
+
+        // 30秒進めて検証（生成時から見て+30秒 = 検証時から見て-30秒）
+        vi.setSystemTime(new Date(baseTime.getTime() + 30000));
+
+        // Act
+        const result = await twoFactorService.verifyTOTP(testUserId, pastToken);
+
+        // Assert
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toBe(true);
+        }
+
+        vi.useRealTimers();
+      });
+
+      it('未来1ステップ（30秒後）で生成されたTOTPコードは検証成功する', async () => {
+        // Arrange
+        const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+        const userWith2FA = {
+          id: testUserId,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptedSecret,
+        };
+        vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+
+        // 時間をモック：30秒後の時刻でトークン生成、その後現在に戻して検証
+        const baseTime = new Date('2025-01-01T00:00:00Z');
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(baseTime.getTime() + 30000));
+
+        // 30秒後の時刻でトークンを生成
+        const futureToken = authenticator.generate(testSecret);
+
+        // 現在時刻に戻して検証
+        vi.setSystemTime(baseTime);
+
+        // Act
+        const result = await twoFactorService.verifyTOTP(testUserId, futureToken);
+
+        // Assert
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toBe(true);
+        }
+
+        vi.useRealTimers();
+      });
+
+      it('過去2ステップ（60秒前）で生成されたTOTPコードは検証失敗する', async () => {
+        // Arrange
+        const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+        const userWith2FA = {
+          id: testUserId,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptedSecret,
+        };
+        vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+
+        // 時間をモック：90秒前に設定してトークン生成、その後30秒前に戻して検証
+        const baseTime = new Date('2025-01-01T00:00:00Z');
+        vi.useFakeTimers();
+        vi.setSystemTime(baseTime);
+
+        // 現在時刻（90秒前）でトークンを生成
+        const oldToken = authenticator.generate(testSecret);
+
+        // 60秒進めて検証（生成時から見て+60秒 = 検証時から見て-60秒、つまり2ステップ前）
+        vi.setSystemTime(new Date(baseTime.getTime() + 60000));
+
+        // Act
+        const result = await twoFactorService.verifyTOTP(testUserId, oldToken);
+
+        // Assert
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toBe(false);
+        }
+
+        vi.useRealTimers();
+      });
+
+      it('未来2ステップ（60秒後）で生成されたTOTPコードは検証失敗する', async () => {
+        // Arrange
+        const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+        const userWith2FA = {
+          id: testUserId,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptedSecret,
+        };
+        vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+
+        // 時間をモック：60秒後の時刻でトークン生成、その後現在に戻して検証
+        const baseTime = new Date('2025-01-01T00:00:00Z');
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(baseTime.getTime() + 60000));
+
+        // 60秒後の時刻でトークンを生成
+        const futureToken = authenticator.generate(testSecret);
+
+        // 現在時刻に戻して検証（生成時から見て-60秒、つまり2ステップ前）
+        vi.setSystemTime(baseTime);
+
+        // Act
+        const result = await twoFactorService.verifyTOTP(testUserId, futureToken);
+
+        // Assert
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toBe(false);
+        }
+
+        vi.useRealTimers();
+      });
     });
   });
 
