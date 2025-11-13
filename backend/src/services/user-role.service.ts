@@ -115,8 +115,13 @@ export class UserRoleService implements IUserRoleService {
         });
       }
 
-      // システム管理者ロール追加時のアラート通知
-      if (this.emailService && performedBy && role.name === 'admin') {
+      // システム管理者ロール追加時のアラート通知（テスト環境では抑制）
+      if (
+        this.emailService &&
+        performedBy &&
+        role.name === 'admin' &&
+        process.env.NODE_ENV !== 'test'
+      ) {
         // 全システム管理者のメールアドレスを取得
         const adminUsers = await this.prisma.user.findMany({
           where: {
@@ -246,8 +251,13 @@ export class UserRoleService implements IUserRoleService {
         'Role removed from user successfully'
       );
 
-      // システム管理者ロール削除時のアラート通知
-      if (this.emailService && performedBy && role.name === 'admin') {
+      // システム管理者ロール削除時のアラート通知（テスト環境では抑制）
+      if (
+        this.emailService &&
+        performedBy &&
+        role.name === 'admin' &&
+        process.env.NODE_ENV !== 'test'
+      ) {
         // 全システム管理者のメールアドレスを取得
         const adminUsers = await this.prisma.user.findMany({
           where: {

@@ -240,6 +240,9 @@ describe('UserRoleService', () => {
 
     it('システム管理者ロール追加時にメールアラートとSentryアラートを送信する', async () => {
       // Arrange
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
       const actorId = 'actor-123';
       const mockAdminUsers = [
         { ...mockUser, id: 'admin-1', email: 'admin1@example.com', displayName: 'Admin 1' },
@@ -278,6 +281,43 @@ describe('UserRoleService', () => {
           performedBy: performedBy.email,
         })
       );
+
+      // Cleanup
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it('テスト環境（NODE_ENV=test）ではシステム管理者ロール追加時にアラートを送信しない', async () => {
+      // Arrange
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'test';
+
+      const actorId = 'actor-123';
+      const mockAdminUsers = [
+        { ...mockUser, id: 'admin-1', email: 'admin1@example.com', displayName: 'Admin 1' },
+      ];
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.userRole.create).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue(mockAdminUsers as User[]);
+
+      // モックのリセット
+      vi.clearAllMocks();
+
+      // Act
+      const performedBy = { email: 'performer@example.com', displayName: 'Performer' };
+      await userRoleService.addRoleToUser(mockUserId, mockAdminRoleId, actorId, performedBy);
+
+      // Assert
+      expect(emailServiceMock.sendAdminRoleChangedAlert).not.toHaveBeenCalled();
+      expect(Sentry.captureMessage).not.toHaveBeenCalled();
+
+      // Cleanup
+      process.env.NODE_ENV = originalNodeEnv;
     });
 
     it('データベースエラー時にDATABASE_ERRORを返す', async () => {
@@ -374,6 +414,9 @@ describe('UserRoleService', () => {
 
     it('システム管理者ロール削除時にメールアラートとSentryアラートを送信する', async () => {
       // Arrange
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
       const performedBy = { email: 'admin@example.com', displayName: 'Admin User' };
       const otherAdmin = { email: 'admin2@example.com', displayName: 'Admin 2' };
 
@@ -425,6 +468,9 @@ describe('UserRoleService', () => {
           performedBy: performedBy.email,
         })
       );
+
+      // Cleanup
+      process.env.NODE_ENV = originalNodeEnv;
     });
 
     it('通常のロール削除時にはアラート通知を送信しない', async () => {
@@ -446,6 +492,49 @@ describe('UserRoleService', () => {
       expect(result).toEqual(Ok(undefined));
       expect(sendAdminRoleChangedAlertMock).not.toHaveBeenCalled();
       expect(Sentry.captureMessage).not.toHaveBeenCalled();
+    });
+
+    it('テスト環境（NODE_ENV=test）ではシステム管理者ロール削除時にアラートを送信しない', async () => {
+      // Arrange
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'test';
+
+      const performedBy = { email: 'admin@example.com', displayName: 'Admin User' };
+      const otherAdmin = { ...mockUser, id: 'other-admin', email: 'other@example.com' };
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(2); // 他に1人管理者がいる
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue([
+        { ...mockUser, email: performedBy.email, displayName: performedBy.displayName },
+        { ...otherAdmin },
+      ] as User[]);
+
+      // モックのリセット
+      vi.clearAllMocks();
+
+      // Act
+      const result = await userRoleService.removeRoleFromUser(
+        mockUserId,
+        mockAdminRoleId,
+        performedBy
+      );
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(emailServiceMock.sendAdminRoleChangedAlert).not.toHaveBeenCalled();
+      expect(Sentry.captureMessage).not.toHaveBeenCalled();
+
+      // Cleanup
+      process.env.NODE_ENV = originalNodeEnv;
     });
   });
 
