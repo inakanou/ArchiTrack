@@ -23,6 +23,10 @@ export default defineConfig({
   // テストファイルのパス
   testDir: './e2e/specs',
 
+  // グローバルセットアップ（テスト実行前に一度だけ実行）
+  // マスターデータ（Role, Permission, RolePermission）を初期化
+  globalSetup: './e2e/global-setup.ts',
+
   // テスト結果の出力ディレクトリ（タイムスタンプ付き）
   outputDir: `test-results/${timestamp}`,
 

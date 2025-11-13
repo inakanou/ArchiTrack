@@ -5,8 +5,11 @@ import { takeScreenshot, takeScreenshotOnFailure } from '../../helpers/screensho
  * ホームページUIテスト
  */
 test.describe('Homepage', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, context }) => {
+    // テスト間の状態をクリア
+    await context.clearCookies();
     await page.goto('/');
+    await page.evaluate(() => localStorage.clear());
   });
 
   // 失敗時に自動的にスクリーンショットを撮影

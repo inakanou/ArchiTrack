@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "playwright install chromium",
+    "postinstall": "playwright install chromium && npx prisma generate",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -33,6 +33,7 @@
     "globals": "^15.15.0",
     "husky": "^9.1.7",
     "prettier": "^3.6.2",
+    "prisma": "^6.18.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.3"
   },
@@ -43,6 +44,7 @@
     ]
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
     "@prisma/client": "^6.18.0"
   }
 }

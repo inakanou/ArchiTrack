@@ -7,6 +7,9 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('プロフィール管理機能', () => {
   test.beforeEach(async ({ page, context }) => {
+    // テスト間の状態をクリア
+    await context.clearCookies();
+
     // 認証済みユーザーとしてログイン
     await context.addCookies([
       {
@@ -17,6 +20,7 @@ test.describe('プロフィール管理機能', () => {
       },
     ]);
     await page.goto('/profile');
+    await page.evaluate(() => localStorage.clear());
   });
 
   test('プロフィール画面が正しく表示される', async ({ page }) => {

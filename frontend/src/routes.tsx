@@ -2,6 +2,9 @@ import { RouteObject } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Profile } from './pages/Profile';
 import { Sessions } from './pages/Sessions';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { PasswordResetPage } from './pages/PasswordResetPage';
 
 /**
  * アプリケーションのルート設定
@@ -16,8 +19,8 @@ import { Sessions } from './pages/Sessions';
  * 3. 認証済みユーザーがログインページにアクセス → ダッシュボードへリダイレクト
  *
  * ## Note
- * - LoginForm, RegisterForm等の認証コンポーネントは後でコンテナページを作成予定
- * - 現在は基本的なルーティング統合のみ実装
+ * - LoginForm, RegisterForm等の認証コンポーネントはコンテナページに統合済み
+ * - LoginPage, RegisterPage, PasswordResetPageがAPIと統合
  */
 export const routes: RouteObject[] = [
   // ルートパス - ダッシュボードまたはステータスページ
@@ -36,15 +39,12 @@ export const routes: RouteObject[] = [
     ),
   },
 
-  // 認証関連の公開ルート（TODO: コンテナページを作成）
+  // 認証関連の公開ルート
   {
     path: '/login',
     element: (
       <ProtectedRoute requireAuth={false} redirectTo="/">
-        <div>
-          <h1>ログイン</h1>
-          <p>ログインページ（実装予定）</p>
-        </div>
+        <LoginPage />
       </ProtectedRoute>
     ),
   },
@@ -52,10 +52,7 @@ export const routes: RouteObject[] = [
     path: '/register',
     element: (
       <ProtectedRoute requireAuth={false} redirectTo="/">
-        <div>
-          <h1>ユーザー登録</h1>
-          <p>登録ページ（実装予定）</p>
-        </div>
+        <RegisterPage />
       </ProtectedRoute>
     ),
   },
@@ -63,10 +60,7 @@ export const routes: RouteObject[] = [
     path: '/password-reset',
     element: (
       <ProtectedRoute requireAuth={false} redirectTo="/">
-        <div>
-          <h1>パスワードリセット</h1>
-          <p>パスワードリセットページ（実装予定）</p>
-        </div>
+        <PasswordResetPage />
       </ProtectedRoute>
     ),
   },

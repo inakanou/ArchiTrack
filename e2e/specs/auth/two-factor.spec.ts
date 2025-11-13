@@ -6,7 +6,10 @@ import { test, expect } from '@playwright/test';
  * 要件6: 2FA（TOTP）セットアップと検証
  */
 test.describe('2要素認証機能', () => {
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ page, context }) => {
+    // テスト間の状態をクリア
+    await context.clearCookies();
+
     // 認証済みユーザーとしてログイン
     await context.addCookies([
       {
@@ -16,6 +19,10 @@ test.describe('2要素認証機能', () => {
         path: '/',
       },
     ]);
+
+    // localStorage をクリア（ページにアクセスする前に実行できないため、最初のテストで実行）
+    await page.goto('/');
+    await page.evaluate(() => localStorage.clear());
   });
 
   test('2FAセットアップページが正しく表示される', async ({ page }) => {

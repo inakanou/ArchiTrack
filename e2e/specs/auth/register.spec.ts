@@ -6,8 +6,11 @@ import { test, expect } from '@playwright/test';
  * ユーザー登録フローの検証
  */
 test.describe('新規登録機能', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, context }) => {
+    // テスト間の状態をクリア（認証状態の干渉を防ぐ）
+    await context.clearCookies();
     await page.goto('/register');
+    await page.evaluate(() => localStorage.clear());
   });
 
   test('登録フォームが正しく表示される', async ({ page }) => {
