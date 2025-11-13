@@ -1224,16 +1224,20 @@
     - 単体テスト追加（2テスト：テスト環境でのアラート抑制）
     - 全564テストが成功
 
-- [ ] 10.5 ドキュメント更新
+- [x] 10.5 ドキュメント更新
   - API仕様書を更新（OpenAPI 3.0、Swagger UI）
   - README.mdを更新（認証・認可機能の説明、環境変数リスト）
   - ステアリングドキュメントを更新（product.md、tech.md、structure.md）
   - _Requirements: 全要件のドキュメント_
   - _Details: design.md「Documentation」セクション参照_
   - _Completion Criteria:_
-    - API仕様書が最新である
-    - README.mdが更新されている
-    - ステアリングドキュメントが更新されている
+    - ✅ API仕様書が最新である（docs:generate実行済み、backend/docs/api-spec.json更新済み）
+    - ✅ README.mdが更新されている（認証・認可機能の説明、環境変数リンク含む）
+    - ✅ ステアリングドキュメントが更新されている（product.md、tech.md、structure.md、最終更新2025-11-11）
+  - _Verified:_
+    - API仕様書自動生成成功（`npm run docs:generate`）
+    - README.md確認（認証・認可機能セクション143-150行目、環境変数リンク88行目）
+    - ステアリングドキュメント確認（product.md、tech.md、structure.md、全て最新状態）
 
 - [ ] 10.6 全テストスイートの実行と検証
   - Backend単体テストを実行（250+ tests、カバレッジ80%以上確認）
