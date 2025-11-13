@@ -88,12 +88,9 @@ vi.mock('../../../middleware/authorize.middleware', () => ({
   requirePermission: () => (_req: Request, _res: Response, next: NextFunction) => next(),
 }));
 
-vi.mock('../../../middleware/validate.middleware', () => ({
-  validate: () => (_req: Request, _res: Response, next: NextFunction) => next(),
-}));
-
-// 実際のルートをインポート（モックの後にインポート）
+// 実際のルートとミドルウェアをインポート（モックの後にインポート）
 import rolesRouter from '../../../routes/roles.routes.js';
+import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
 
 describe('Role Routes', () => {
   let app: Application;
@@ -104,6 +101,7 @@ describe('Role Routes', () => {
     app = express();
     app.use(express.json());
     app.use('/api/v1/roles', rolesRouter);
+    app.use(errorHandler);
   });
 
   describe('GET /api/v1/roles', () => {
@@ -305,7 +303,7 @@ describe('Role Routes', () => {
       const roleId = 'role-1';
 
       (mockRoleService.deleteRole as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Err({ type: 'CANNOT_DELETE_SYSTEM_ROLE' })
+        Err({ type: 'SYSTEM_ROLE_PROTECTED' })
       );
 
       const response = await request(app).delete(`/api/v1/roles/${roleId}`);
@@ -411,14 +409,14 @@ describe('Role Routes', () => {
 
       (
         mockRolePermissionService.removePermissionFromRole as ReturnType<typeof vi.fn>
-      ).mockResolvedValue(Err({ type: 'CANNOT_REMOVE_SYSTEM_PERMISSION' }));
+      ).mockResolvedValue(Err({ type: 'ADMIN_WILDCARD_PROTECTED' }));
 
       const response = await request(app).delete(
         `/api/v1/roles/${roleId}/permissions/${permissionId}`
       );
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('system permission');
+      expect(response.body.error).toContain('admin wildcard permission');
     });
   });
 });

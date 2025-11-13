@@ -79,12 +79,9 @@ vi.mock('../../../middleware/authorize.middleware', () => ({
   requirePermission: () => (_req: Request, _res: Response, next: NextFunction) => next(),
 }));
 
-vi.mock('../../../middleware/validate.middleware', () => ({
-  validate: () => (_req: Request, _res: Response, next: NextFunction) => next(),
-}));
-
-// 実際のルートをインポート（モックの後にインポート）
+// 実際のルートとミドルウェアをインポート（モックの後にインポート）
 import userRolesRouter from '../../../routes/user-roles.routes.js';
+import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
 
 describe('User Role Routes', () => {
   let app: Application;
@@ -95,6 +92,7 @@ describe('User Role Routes', () => {
     app = express();
     app.use(express.json());
     app.use('/api/v1/users', userRolesRouter);
+    app.use(errorHandler);
   });
 
   describe('POST /api/v1/users/:id/roles', () => {
@@ -210,7 +208,7 @@ describe('User Role Routes', () => {
       const roleId = 'system-admin-role';
 
       (mockUserRoleService.removeRoleFromUser as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Err({ type: 'CANNOT_REMOVE_LAST_ADMIN' })
+        Err({ type: 'LAST_ADMIN_PROTECTED' })
       );
 
       const response = await request(app).delete(`/api/v1/users/${userId}/roles/${roleId}`);

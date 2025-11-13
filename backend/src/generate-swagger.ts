@@ -131,6 +131,38 @@ const options = {
         name: 'Admin',
         description: 'Administrative endpoints',
       },
+      {
+        name: 'Authentication',
+        description: 'User authentication endpoints (register, login, logout, token refresh)',
+      },
+      {
+        name: 'Two-Factor Authentication',
+        description: '2FA setup, verification, and backup code management',
+      },
+      {
+        name: 'Password Management',
+        description: 'Password reset and recovery endpoints',
+      },
+      {
+        name: 'Roles',
+        description: 'Role management endpoints (RBAC)',
+      },
+      {
+        name: 'Permissions',
+        description: 'Permission management endpoints (RBAC)',
+      },
+      {
+        name: 'Users',
+        description: 'User management endpoints',
+      },
+      {
+        name: 'Invitations',
+        description: 'User invitation and onboarding endpoints',
+      },
+      {
+        name: 'Audit Logs',
+        description: 'System audit log endpoints',
+      },
     ],
   },
   apis: ['./src/app.ts', './src/routes/**/*.ts'],

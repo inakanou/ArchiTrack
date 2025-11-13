@@ -3,6 +3,7 @@
  *
  * Requirements:
  * - 20.1-20.9: ユーザーへのロール割り当て（マルチロール対応）
+ * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -10,7 +11,20 @@ import type { PrismaClient, User, Role, UserRole } from '@prisma/client';
 import { UserRoleService } from '../../../services/user-role.service';
 import { Err, Ok } from '../../../types/result';
 import type { IAuditLogService } from '../../../types/audit-log.types';
+import type { IRBACService } from '../../../types/rbac.types';
 import type { EmailService } from '../../../services/email.service';
+import * as Sentry from '../../../utils/sentry.js';
+
+// Sentryモジュールをモック
+vi.mock('../../../utils/sentry.js', () => ({
+  captureMessage: vi.fn(),
+  captureException: vi.fn(),
+  initSentry: vi.fn(),
+  default: {
+    captureMessage: vi.fn(),
+    captureException: vi.fn(),
+  },
+}));
 
 // モックデータ
 const mockUserId = 'user-123';
@@ -65,6 +79,13 @@ describe('UserRoleService', () => {
   let prismaMock: PrismaClient;
   let auditLogServiceMock: IAuditLogService;
   let emailServiceMock: EmailService;
+  let rbacServiceMock: {
+    invalidateUserPermissionsCache: ReturnType<typeof vi.fn>;
+    invalidateUserPermissionsCacheForRole: ReturnType<typeof vi.fn>;
+    getUserPermissions: ReturnType<typeof vi.fn>;
+    checkPermission: ReturnType<typeof vi.fn>;
+    hasPermission: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     // Prismaモックの作成
@@ -109,9 +130,21 @@ describe('UserRoleService', () => {
       sendAdminRoleChangedAlert: vi.fn().mockResolvedValue(undefined),
     } as unknown as EmailService;
 
+    // Sentryモックのクリア
+    vi.clearAllMocks();
+
+    // RBACServiceモックの作成
+    rbacServiceMock = {
+      invalidateUserPermissionsCache: vi.fn().mockResolvedValue(undefined),
+      invalidateUserPermissionsCacheForRole: vi.fn().mockResolvedValue(undefined),
+      getUserPermissions: vi.fn(),
+      checkPermission: vi.fn(),
+      hasPermission: vi.fn(),
+    };
+
     userRoleService = new UserRoleService(
       prismaMock,
-      undefined,
+      rbacServiceMock as unknown as IRBACService,
       auditLogServiceMock,
       emailServiceMock
     );
@@ -205,7 +238,7 @@ describe('UserRoleService', () => {
       });
     });
 
-    it('システム管理者ロール追加時にアラートメールを送信する', async () => {
+    it('システム管理者ロール追加時にメールアラートとSentryアラートを送信する', async () => {
       // Arrange
       const actorId = 'actor-123';
       const mockAdminUsers = [
@@ -233,6 +266,17 @@ describe('UserRoleService', () => {
         'assigned',
         'System Administrator',
         performedBy
+      );
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Critical: System Administrator role assigned',
+        'warning',
+        expect.objectContaining({
+          userId: mockUserId,
+          userEmail: mockUser.email,
+          roleId: mockAdminRoleId,
+          roleName: 'admin',
+          performedBy: performedBy.email,
+        })
       );
     });
 
@@ -326,6 +370,82 @@ describe('UserRoleService', () => {
           message: 'Database write failed',
         })
       );
+    });
+
+    it('システム管理者ロール削除時にメールアラートとSentryアラートを送信する', async () => {
+      // Arrange
+      const performedBy = { email: 'admin@example.com', displayName: 'Admin User' };
+      const otherAdmin = { email: 'admin2@example.com', displayName: 'Admin 2' };
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(2); // 他にもadminユーザーが存在
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue([
+        { email: performedBy.email, displayName: performedBy.displayName } as User,
+        { email: otherAdmin.email, displayName: otherAdmin.displayName } as User,
+      ]);
+
+      const sendAdminRoleChangedAlertMock = vi
+        .fn()
+        .mockResolvedValue({ id: 'email-job-123', status: 'queued' });
+      emailServiceMock.sendAdminRoleChangedAlert = sendAdminRoleChangedAlertMock;
+
+      // Act
+      const result = await userRoleService.removeRoleFromUser(
+        mockUserId,
+        mockAdminRoleId,
+        performedBy
+      );
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(sendAdminRoleChangedAlertMock).toHaveBeenCalledWith(
+        [performedBy.email, otherAdmin.email],
+        { email: mockUser.email, displayName: mockUser.displayName },
+        'revoked',
+        'System Administrator',
+        performedBy
+      );
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Critical: System Administrator role removed',
+        'warning',
+        expect.objectContaining({
+          userId: mockUserId,
+          userEmail: mockUser.email,
+          roleId: mockAdminRoleId,
+          roleName: 'admin',
+          performedBy: performedBy.email,
+        })
+      );
+    });
+
+    it('通常のロール削除時にはアラート通知を送信しない', async () => {
+      // Arrange
+      const performedBy = { email: 'admin@example.com', displayName: 'Admin User' };
+
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole); // 通常のロール（admin以外）
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue(mockUserRole);
+
+      const sendAdminRoleChangedAlertMock = vi.fn();
+      emailServiceMock.sendAdminRoleChangedAlert = sendAdminRoleChangedAlertMock;
+
+      // Act
+      const result = await userRoleService.removeRoleFromUser(mockUserId, mockRoleId, performedBy);
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(sendAdminRoleChangedAlertMock).not.toHaveBeenCalled();
+      expect(Sentry.captureMessage).not.toHaveBeenCalled();
     });
   });
 

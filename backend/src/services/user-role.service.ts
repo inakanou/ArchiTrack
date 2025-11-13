@@ -3,6 +3,7 @@
  *
  * Requirements:
  * - 20.1-20.9: ユーザーへのロール割り当て（マルチロール対応）
+ * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
  *
  * Design Patterns:
  * - Transaction Management: 一括操作でのデータ整合性保証
@@ -15,7 +16,8 @@ import type { IRBACService } from '../types/rbac.types';
 import type { IAuditLogService } from '../types/audit-log.types';
 import type { EmailService } from './email.service';
 import { Ok, Err, type Result } from '../types/result';
-import logger from '../utils/logger';
+import logger from '../utils/logger.js';
+import { captureMessage } from '../utils/sentry.js';
 
 /**
  * ユーザー・ロール紐付け管理サービスの実装
@@ -141,6 +143,15 @@ export class UserRoleService implements IUserRoleService {
           'System Administrator',
           performedBy
         );
+
+        // Sentryにアラート通知を送信
+        captureMessage('Critical: System Administrator role assigned', 'warning', {
+          userId,
+          userEmail: user.email,
+          roleId,
+          roleName: role.name,
+          performedBy: performedBy.email,
+        });
       }
 
       // ユーザーの権限キャッシュを無効化
@@ -168,9 +179,14 @@ export class UserRoleService implements IUserRoleService {
    *
    * @param userId - ユーザーID
    * @param roleId - ロールID
+   * @param performedBy - 実行者情報（アラート用、オプション）
    * @returns 成功またはエラー
    */
-  async removeRoleFromUser(userId: string, roleId: string): Promise<Result<void, UserRoleError>> {
+  async removeRoleFromUser(
+    userId: string,
+    roleId: string,
+    performedBy?: { email: string; displayName: string }
+  ): Promise<Result<void, UserRoleError>> {
     try {
       // ユーザーの存在チェック
       const user = await this.prisma.user.findUnique({
@@ -229,6 +245,45 @@ export class UserRoleService implements IUserRoleService {
         { userId, roleId, userEmail: user.email, roleName: role.name },
         'Role removed from user successfully'
       );
+
+      // システム管理者ロール削除時のアラート通知
+      if (this.emailService && performedBy && role.name === 'admin') {
+        // 全システム管理者のメールアドレスを取得
+        const adminUsers = await this.prisma.user.findMany({
+          where: {
+            userRoles: {
+              some: {
+                role: {
+                  name: 'admin',
+                },
+              },
+            },
+          },
+          select: {
+            email: true,
+            displayName: true,
+          },
+        });
+
+        const adminEmails = adminUsers.map((admin) => admin.email);
+
+        await this.emailService.sendAdminRoleChangedAlert(
+          adminEmails,
+          { email: user.email, displayName: user.displayName },
+          'revoked',
+          'System Administrator',
+          performedBy
+        );
+
+        // Sentryにアラート通知を送信
+        captureMessage('Critical: System Administrator role removed', 'warning', {
+          userId,
+          userEmail: user.email,
+          roleId,
+          roleName: role.name,
+          performedBy: performedBy.email,
+        });
+      }
 
       // ユーザーの権限キャッシュを無効化
       if (this.rbacService) {

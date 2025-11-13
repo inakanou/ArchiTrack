@@ -145,7 +145,15 @@ export const invitationLimiter = rateLimit({
   keyGenerator: (req: Request): string => {
     // 認証済みユーザーのIDを使用
     const userId = (req as Request & { user?: { id: string } }).user?.id;
-    return userId ? `user:${userId}` : `ip:${req.ip || 'unknown'}`;
+    if (userId) {
+      return `user:${userId}`;
+    }
+
+    // IPアドレスを使用（IPv6対応）
+    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
+    const realIp = req.headers['x-real-ip'] as string | undefined;
+    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+    return `ip:${ipKeyGenerator(ip)}`;
   },
   handler: (req: Request, res: Response) => {
     req.log.warn(

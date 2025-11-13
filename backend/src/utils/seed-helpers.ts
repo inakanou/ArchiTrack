@@ -24,7 +24,11 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
   // システム管理者ロール
   await prisma.role.upsert({
     where: { name: 'admin' },
-    update: {},
+    update: {
+      description: 'システム全体を管理する最高権限ロール',
+      priority: 100,
+      isSystem: true,
+    },
     create: {
       name: 'admin',
       description: 'システム全体を管理する最高権限ロール',
@@ -36,7 +40,11 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
   // 一般ユーザーロール
   await prisma.role.upsert({
     where: { name: 'user' },
-    update: {},
+    update: {
+      description: '自分が作成したリソースのみアクセス可能な基本ロール',
+      priority: 0,
+      isSystem: true,
+    },
     create: {
       name: 'user',
       description: '自分が作成したリソースのみアクセス可能な基本ロール',

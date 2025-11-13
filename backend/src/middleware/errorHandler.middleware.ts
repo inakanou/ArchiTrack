@@ -3,15 +3,18 @@ import { ZodError } from 'zod';
 import { ApiError } from '../errors/ApiError.js';
 import { Prisma } from '@prisma/client';
 import { captureException } from '../utils/sentry.js';
+import logger from '../utils/logger.js';
 
 /**
  * グローバルエラーハンドラーミドルウェア
  * すべての未処理エラーをキャッチして適切なレスポンスを返す
  */
 export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction): void {
+  // テスト環境などでreq.logが存在しない場合はデフォルトのロガーを使用
+  const log = req.log || logger;
   // ApiErrorの場合
   if (err instanceof ApiError) {
-    req.log.warn({ err, statusCode: err.statusCode }, 'API error');
+    log.warn({ err, statusCode: err.statusCode }, 'API error');
 
     // 5xxエラーの場合はSentryに送信
     if (err.statusCode >= 500) {
@@ -29,7 +32,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 
   // Zodバリデーションエラー
   if (err instanceof ZodError) {
-    req.log.warn({ err }, 'Validation error');
+    log.warn({ err }, 'Validation error');
     res.status(400).json({
       error: 'Validation failed',
       code: 'VALIDATION_ERROR',
@@ -43,7 +46,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 
   // Prismaエラー
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    req.log.warn({ err, code: err.code }, 'Prisma error');
+    log.warn({ err, code: err.code }, 'Prisma error');
 
     // P2002: Unique constraint violation
     if (err.code === 'P2002') {
@@ -80,7 +83,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     err instanceof Prisma.PrismaClientInitializationError ||
     err instanceof Prisma.PrismaClientRustPanicError
   ) {
-    req.log.error({ err }, 'Prisma connection error');
+    log.error({ err }, 'Prisma connection error');
 
     // データベース接続エラーをSentryに送信
     captureException(err, {
@@ -97,7 +100,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   }
 
   // その他のエラー（予期しないエラー）
-  req.log.error({ err }, 'Internal server error');
+  log.error({ err }, 'Internal server error');
 
   // 予期しないエラーをSentryに送信
   captureException(err, {

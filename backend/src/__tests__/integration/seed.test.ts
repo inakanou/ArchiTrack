@@ -203,6 +203,10 @@ describe('Seed Script Integration Tests', () => {
   });
 
   it('初期管理者が既に存在する場合はスキップする', async () => {
+    // Arrange: 既存のテストデータをクリーンアップ
+    await prisma.userRole.deleteMany({});
+    await prisma.user.deleteMany({});
+
     // Arrange: 手動で管理者を作成
     const existingAdminPassword = await hash('ExistingAdmin123!@#', {
       memoryCost: 65536,
