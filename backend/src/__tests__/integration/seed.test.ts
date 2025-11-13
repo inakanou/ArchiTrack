@@ -24,6 +24,10 @@ describe('Seed Script Integration Tests', () => {
       ADMIN_PASSWORD: 'AdminTest123!@#',
       ADMIN_DISPLAY_NAME: 'Test Admin',
     };
+    // .envからのINITIAL_ADMIN_*を削除してテスト用の値が使われるようにする
+    delete process.env.INITIAL_ADMIN_EMAIL;
+    delete process.env.INITIAL_ADMIN_PASSWORD;
+    delete process.env.INITIAL_ADMIN_DISPLAY_NAME;
   });
 
   afterAll(async () => {

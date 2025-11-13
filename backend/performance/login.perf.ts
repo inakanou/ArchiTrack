@@ -9,7 +9,7 @@ import autocannon from 'autocannon';
  * - エラー率: < 1%
  *
  * 前提条件:
- * - テストユーザーが事前に作成されていること
+ * - 管理者ユーザーがシードされていること（npm run prisma:seed）
  * - バックエンドサーバーが起動していること（http://localhost:3000）
  * - データベース接続が確立されていること
  */
@@ -26,8 +26,8 @@ async function runLoginTest() {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      email: 'test@example.com',
-      password: 'TestPassword123!',
+      email: process.env.INITIAL_ADMIN_EMAIL || 'admin@example.com',
+      password: process.env.INITIAL_ADMIN_PASSWORD || 'AdminTest123!@#',
     }),
   });
 
