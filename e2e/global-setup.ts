@@ -6,7 +6,7 @@
  * 各テストで一貫したデータ環境を提供します。
  */
 
-import { seedRoles, seedPermissions, seedRolePermissions } from '../backend/src/utils/seed-helpers';
+import { seedRoles, seedPermissions, seedRolePermissions } from './fixtures/seed-helpers';
 import { getPrismaClient, cleanDatabase } from './fixtures/database';
 
 /**
@@ -40,15 +40,12 @@ export default async function globalSetup() {
 
     // 2. マスターデータを初期化
     console.log('  - Seeding roles...');
-    // @ts-expect-error - ルートとbackendで異なるPrisma Clientインスタンスだが実行時には互換性がある
     await seedRoles(prisma);
 
     console.log('  - Seeding permissions...');
-    // @ts-expect-error - ルートとbackendで異なるPrisma Clientインスタンスだが実行時には互換性がある
     await seedPermissions(prisma);
 
     console.log('  - Seeding role-permission assignments...');
-    // @ts-expect-error - ルートとbackendで異なるPrisma Clientインスタンスだが実行時には互換性がある
     await seedRolePermissions(prisma);
 
     console.log('✅ E2E Global Setup: Test database initialized successfully');
