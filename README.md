@@ -35,7 +35,7 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 ### 前提条件
 
-- [Node.js 20以上](docs/getting-started/prerequisites.md#nodejs-20以上)
+- [Node.js 22以上](docs/getting-started/prerequisites.md#nodejs-22以上)
 - [Docker & Docker Compose](docs/getting-started/prerequisites.md#docker--docker-compose)
 - [Claude Code](docs/getting-started/prerequisites.md#claude-code)（推奨）
 
@@ -117,8 +117,8 @@ docker-compose up -d
 
 | 分類 | 技術 |
 |------|------|
-| **Frontend** | React 18 + Vite 5 |
-| **Backend** | Node.js 20 + Express |
+| **Frontend** | React 18 + Vite 7 |
+| **Backend** | Node.js 22 + Express |
 | **Database** | PostgreSQL 15 + Redis 7 |
 | **Authentication** | JWT (EdDSA) + Argon2 + TOTP |
 | **Testing** | Vitest + Playwright + Storybook |

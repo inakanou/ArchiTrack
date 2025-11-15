@@ -6,17 +6,17 @@ ArchiTrackの開発には以下のツールが必要です。
 
 ## 必須ツール
 
-### Node.js 20以上
+### Node.js 22以上
 フロントエンド・バックエンドの実行環境
 
 **インストール方法:**
 ```bash
 # nvm経由（推奨）
-nvm install 20
-nvm use 20
+nvm install 22
+nvm use 22
 
 # 確認
-node --version  # v20.x.x
+node --version  # v22.x.x
 npm --version   # 10.x.x
 ```
 

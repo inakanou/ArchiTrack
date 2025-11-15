@@ -9,13 +9,13 @@
 | 分類 | 技術 | バージョン | 用途 |
 |------|------|-----------|------|
 | **Frontend** | React | 18 | UIライブラリ |
-| | Vite | 5 | ビルドツール・開発サーバー |
+| | Vite | 7 | ビルドツール・開発サーバー |
 | | React Router | 6 | クライアントサイドルーティング |
 | | Axios | 1.x | HTTPクライアント |
-| **Backend** | Node.js | 20 | サーバーランタイム |
-| | Express | 4.x | Webフレームワーク |
-| | Prisma | 5.x | ORM |
-| | Zod | 3.x | バリデーション |
+| **Backend** | Node.js | 22 | サーバーランタイム |
+| | Express | 5.x | Webフレームワーク |
+| | Prisma | 6.x | ORM |
+| | Zod | 4.x | バリデーション |
 | **Database** | PostgreSQL | 15 | リレーショナルデータベース |
 | | Redis | 7 | キャッシュ・セッション |
 | **Authentication** | JWT | - | トークンベース認証 |
@@ -27,7 +27,7 @@
 | **Development** | Docker | - | コンテナ化 |
 | | Docker Compose | - | ローカル開発環境 |
 | | TypeScript | 5.x | 型安全性 |
-| | ESLint | 8.x | Linter |
+| | ESLint | 9.x | Linter |
 | | Prettier | 3.x | フォーマッター |
 | **Deployment** | Railway | - | ホスティング |
 | | GitHub Actions | - | CI/CD |
