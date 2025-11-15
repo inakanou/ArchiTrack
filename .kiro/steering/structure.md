@@ -256,10 +256,33 @@ frontend/
 │   │       └── ErrorBoundary.test.tsx  # エラーバウンダリコンポーネントテスト
 │   ├── components/        # Reactコンポーネント
 │   │   ├── ErrorBoundary.tsx       # エラーバウンダリコンポーネント
-│   │   └── ErrorBoundary.stories.tsx  # Storybook ストーリー（5バリアント）
+│   │   ├── ErrorBoundary.stories.tsx  # Storybook ストーリー（5バリアント）
+│   │   ├── LoginForm.tsx           # ログインフォーム
+│   │   ├── LoginForm.stories.tsx   # Storybook ストーリー
+│   │   ├── RegisterForm.tsx        # 登録フォーム
+│   │   ├── RegisterForm.stories.tsx # Storybook ストーリー
+│   │   ├── PasswordResetForm.tsx   # パスワードリセットフォーム
+│   │   ├── PasswordResetForm.stories.tsx # Storybook ストーリー
+│   │   ├── PasswordStrengthIndicator.tsx # パスワード強度インジケーター
+│   │   ├── PasswordStrengthIndicator.stories.tsx # Storybook ストーリー
+│   │   ├── RolePermissionManager.tsx # ロール権限管理
+│   │   ├── RolePermissionManager.stories.tsx # Storybook ストーリー
+│   │   ├── ProtectedRoute.tsx      # 保護されたルート
+│   │   └── （その他認証関連コンポーネント）
+│   ├── contexts/          # Reactコンテキスト
+│   │   └── AuthContext.tsx # 認証コンテキスト
+│   ├── pages/             # ページコンポーネント
+│   │   ├── LoginPage.tsx   # ログインページ
+│   │   ├── RegisterPage.tsx # 登録ページ
+│   │   ├── PasswordResetPage.tsx # パスワードリセットページ
+│   │   ├── Profile.tsx     # プロフィールページ
+│   │   └── Sessions.tsx    # セッション管理ページ
+│   ├── routes/            # ルーティング設定
+│   │   └── routes.tsx      # React Router v6設定
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
-│   │   └── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
+│   │   ├── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
+│   │   └── accessibility.ts # アクセシビリティユーティリティ
 │   ├── App.tsx            # メインAppコンポーネント（TypeScript）
 │   ├── main.tsx           # Reactエントリーポイント（TypeScript）
 │   └── vite-env.d.ts      # Vite環境変数型定義
@@ -292,12 +315,20 @@ frontend/
 }
 ```
 
+**Storybookストーリーファイル（9ファイル）:**
+
+- `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
+- `LoginForm.stories.tsx` - ログインフォーム
+- `RegisterForm.stories.tsx` - 登録フォーム
+- `PasswordResetForm.stories.tsx` - パスワードリセットフォーム
+- `PasswordStrengthIndicator.stories.tsx` - パスワード強度インジケーター
+- `RolePermissionManager.stories.tsx` - ロール権限管理
+- その他認証関連ストーリー
+
 **想定される拡張:**
 
 ```
 frontend/src/
-├── components/        # UIコンポーネント（今後追加）
-├── pages/             # ページコンポーネント（今後追加）
 ├── services/          # APIクライアント（今後追加）
 ├── stores/            # 状態管理（今後追加）
 └── assets/            # 静的アセット（今後追加）
@@ -362,11 +393,16 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義
+│   ├── routes/            # ルート定義（8ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
-│   │   └── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
-│   ├── services/          # ビジネスロジック
+│   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
+│   │   ├── invitation.routes.ts # 招待管理ルート
+│   │   ├── audit-log.routes.ts # 監査ログルート
+│   │   ├── permissions.routes.ts # 権限管理ルート
+│   │   ├── roles.routes.ts  # ロール管理ルート
+│   │   └── user-roles.routes.ts # ユーザーロール管理ルート
+│   ├── services/          # ビジネスロジック（14サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -380,7 +416,9 @@ backend/
 │   │   ├── rbac.service.ts # RBAC統合サービス
 │   │   ├── audit-log.service.ts # 監査ログ
 │   │   ├── archive.service.ts # ログアーカイブ
-│   │   └── email.service.ts # メール送信（Bull非同期キュー）
+│   │   └── email.service.ts # メール送信（Bull非同期キュー、Handlebars）
+│   ├── templates/         # メールテンプレート
+│   │   └── （Handlebarsテンプレート）
 │   ├── types/             # カスタム型定義
 │   │   ├── express.d.ts   # Express Request拡張（pinoログ、user追加）
 │   │   ├── env.d.ts       # 環境変数型定義（型安全なprocess.env）
@@ -453,7 +491,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI:**
+**実装済みAPI（8ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -461,26 +499,35 @@ backend/src/
 - `GET /docs`: Swagger UIによるインタラクティブなAPIドキュメント（開発環境のみ）
 - `GET /favicon.ico`: 404エラー防止用faviconハンドラー
 
-**管理API:**
+**管理API（admin.routes.ts）:**
 - `POST /admin/log-level`: ログレベル動的変更（本番環境デバッグ用）
 - `GET /admin/log-level`: 現在のログレベル取得
 
-**認証API:**
+**認証API（auth.routes.ts）:**
 - 招待登録、ログイン、ログアウト、トークンリフレッシュ、2FA検証、パスワードリセット、ユーザー情報取得
 
-**2FA管理API:**
+**招待管理API（invitation.routes.ts）:**
+- 招待トークン生成、招待メール送信
+
+**2FA管理API（auth.routes.ts内）:**
 - 2FA初期設定、有効化、無効化、バックアップコード再生成
 
-**セッション管理API:**
+**セッション管理API（auth.routes.ts内）:**
 - セッション一覧取得、特定セッション削除、セッション有効期限延長
 
-**ロール・権限管理API:**
-- ロールCRUD、権限CRUD、ロール権限紐付け、ユーザーロール管理
+**ロール管理API（roles.routes.ts）:**
+- ロールCRUD、ロール一覧取得
 
-**監査ログAPI:**
+**権限管理API（permissions.routes.ts）:**
+- 権限CRUD、権限一覧取得、ロール権限紐付け
+
+**ユーザーロール管理API（user-roles.routes.ts）:**
+- ユーザーロール割り当て、解除、一覧取得
+
+**監査ログAPI（audit-log.routes.ts）:**
 - 監査ログ一覧取得（フィルタリング、ページネーション）、ログアーカイブ
 
-**公開鍵配信API:**
+**公開鍵配信API（jwks.routes.ts）:**
 - `GET /.well-known/jwks.json`: JWT検証用公開鍵（JWKS形式、RFC 7517準拠）
 
 **実装済みミドルウェア:**

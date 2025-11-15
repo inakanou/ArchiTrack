@@ -34,6 +34,7 @@ ArchiTrack/
 
 - `react` ^18.2.0 - UIライブラリ
 - `react-dom` ^18.2.0 - React DOM操作
+- `react-router-dom` ^6.30.1 - React Router v6（ルーティング）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/react` ^19.2.2 - React型定義
 - `@types/react-dom` ^19.2.2 - React DOM型定義
@@ -52,9 +53,13 @@ ArchiTrack/
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
 - `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
-- `storybook` ^10.0.5 - コンポーネントドキュメント・開発環境
-- `@storybook/react` ^10.0.5 - Storybook React統合
-- `@storybook/react-vite` ^10.0.5 - Storybook React + Vite統合
+- `zxcvbn` ^4.4.2 - パスワード強度評価
+- `axe-playwright` ^2.0.3 - アクセシビリティ自動テスト
+- `storybook` ^8.6.14 - コンポーネントドキュメント・開発環境
+- `@storybook/react` ^8.6.14 - Storybook React統合
+- `@storybook/react-vite` ^8.6.14 - Storybook React + Vite統合
+- `@storybook/addon-a11y` ^8.6.14 - Storybook アクセシビリティアドオン
+- `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
 ### 設定ファイル
 
@@ -82,12 +87,16 @@ ArchiTrack/
 ### 技術スタック
 
 - **言語**: TypeScript 5.9.3
-- **ランタイム**: Node.js 20
+- **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.1.0
 - **ORM**: Prisma 6.18.0（PostgreSQL用の型安全なデータアクセス）
 - **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.18.0
 - **キャッシュクライアント**: ioredis 5.3.2
+- **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、csurf 1.11.0
+- **メール送信**: nodemailer 6.10.1、handlebars 4.7.8
+- **ジョブキュー**: bull 4.16.5
+- **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）
 - **パッケージマネージャ**: npm
 - **設定管理**: dotenv (.envファイル)
 
@@ -95,9 +104,17 @@ ArchiTrack/
 
 - `express` ^5.1.0 - Webフレームワーク
 - `cors` ^2.8.5 - CORS ミドルウェア
+- `helmet` ^8.1.0 - セキュリティヘッダー設定
+- `compression` ^1.8.1 - レスポンス圧縮
+- `cookie-parser` ^1.4.7 - Cookieパース
+- `csurf` ^1.11.0 - CSRF保護
 - `@prisma/client` ^6.18.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
+- `bull` ^4.16.5 - ジョブキュー（非同期処理）
+- `nodemailer` ^6.10.1 - メール送信
+- `handlebars` ^4.7.8 - テンプレートエンジン
+- `dataloader` ^2.2.3 - データローダー（N+1問題対策）
 - `dotenv` ^16.4.1 - 環境変数管理
 - `pino` ^10.1.0 - ロガー
 - `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
