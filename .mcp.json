@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@1.50.0"
+      ],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "${HOME}/.cache/ms-playwright"
+      }
+    }
+  }
+}

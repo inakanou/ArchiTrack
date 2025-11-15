@@ -64,6 +64,28 @@ docker-compose up -d
 
 詳細は[インストール手順](docs/getting-started/installation.md)を参照してください。
 
+### Playwright MCPサーバーのセットアップ（オプション）
+
+Claude Codeでブラウザ操作を可能にするPlaywright MCPサーバーの設定：
+
+```bash
+# プロジェクト設定ファイル(.mcp.json)は既に含まれています
+# Claude Codeを起動すると自動的にPlaywright MCPサーバーが利用可能になります
+```
+
+**機能:**
+- Claude Codeによるブラウザ操作の自動化
+- E2Eテストの対話的実行・デバッグ
+- UI要素の検査とセレクター生成
+
+**設定ファイル:** `.mcp.json`（プロジェクトルート）
+
+**カスタマイズが必要な場合:**
+- `.mcp.local.json`を作成（`.gitignore`で除外済み）
+- 個人固有の設定（認証情報など）はローカルファイルに記述
+
+**注意:** Playwright MCPサーバーは初回起動時に自動でブラウザバイナリをダウンロードします（約300MB）。
+
 ---
 
 ## ドキュメント

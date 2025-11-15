@@ -31,6 +31,9 @@ storybook-static/
 .env.local
 .env.*.local
 
+# MCP (Model Context Protocol)
+.mcp.local.json
+
 # IDE
 .vscode/
 .idea/
