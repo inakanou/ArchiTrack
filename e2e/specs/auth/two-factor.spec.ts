@@ -73,7 +73,7 @@ test.describe('2要素認証機能', () => {
 
     // 2FA有効なユーザーでログイン
     await page.getByLabel(/メールアドレス/i).fill('2fa-user@example.com');
-    await page.getByLabel(/パスワード/i).fill('Password123!');
+    await page.locator('input#password').fill('Password123!');
     await page.getByRole('button', { name: /ログイン/i }).click();
 
     // TOTP検証画面が表示される
@@ -87,7 +87,7 @@ test.describe('2要素認証機能', () => {
 
     // 2FA有効なユーザーでログイン
     await page.getByLabel(/メールアドレス/i).fill('2fa-user@example.com');
-    await page.getByLabel(/パスワード/i).fill('Password123!');
+    await page.locator('input#password').fill('Password123!');
     await page.getByRole('button', { name: /ログイン/i }).click();
 
     // バックアップコードモードに切り替え

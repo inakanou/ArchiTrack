@@ -270,8 +270,10 @@ echo "🧪 Running E2E tests..."
 
 # E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
 # タイムアウト設定: 10分（600秒）でハングアップを防止
+# CI=true: HTML Reportサーバーを起動せず、レポートのみ生成（ベストプラクティス）
 echo "   Note: E2E tests will run synchronously to ensure quality before push."
-timeout 600 npm run test:e2e
+echo "   HTML report will be generated but server will not start."
+CI=true timeout 600 npm run test:e2e
 E2E_EXIT_CODE=$?
 
 if [ $E2E_EXIT_CODE -eq 124 ]; then

@@ -15,8 +15,8 @@ test.describe('新規登録機能', () => {
 
   test('登録フォームが正しく表示される', async ({ page }) => {
     await expect(page.getByLabel(/メールアドレス/i)).toBeVisible();
-    await expect(page.getByLabel('パスワード', { exact: true })).toBeVisible();
-    await expect(page.getByLabel(/パスワード.*確認/i)).toBeVisible();
+    await expect(page.locator('input#password')).toBeVisible();
+    await expect(page.locator('input#passwordConfirm')).toBeVisible();
     await expect(page.getByLabel(/表示名/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /登録/i })).toBeVisible();
   });
@@ -24,8 +24,8 @@ test.describe('新規登録機能', () => {
   test('有効な情報で新規登録できる', async ({ page }) => {
     const timestamp = Date.now();
     await page.getByLabel(/メールアドレス/i).fill(`user${timestamp}@example.com`);
-    await page.getByLabel('パスワード', { exact: true }).fill('StrongPass123!');
-    await page.getByLabel(/パスワード.*確認/i).fill('StrongPass123!');
+    await page.locator('input#password').fill('StrongPass123!');
+    await page.locator('input#passwordConfirm').fill('StrongPass123!');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('button', { name: /登録/i }).click();
 
@@ -35,7 +35,7 @@ test.describe('新規登録機能', () => {
   });
 
   test('パスワード入力時に強度インジケーターが表示される', async ({ page }) => {
-    await page.getByLabel('パスワード', { exact: true }).fill('weak');
+    await page.locator('input#password').fill('weak');
 
     // 強度インジケーターが表示される
     await expect(page.getByTestId('password-strength-indicator')).toBeVisible();
@@ -43,8 +43,8 @@ test.describe('新規登録機能', () => {
 
   test('パスワードが一致しない場合エラーが表示される', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page.getByLabel('パスワード', { exact: true }).fill('Password123!');
-    await page.getByLabel(/パスワード.*確認/i).fill('DifferentPass123!');
+    await page.locator('input#password').fill('Password123!');
+    await page.locator('input#passwordConfirm').fill('DifferentPass123!');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('button', { name: /登録/i }).click();
 
@@ -54,8 +54,8 @@ test.describe('新規登録機能', () => {
 
   test('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('existing@example.com');
-    await page.getByLabel('パスワード', { exact: true }).fill('Password123!');
-    await page.getByLabel(/パスワード.*確認/i).fill('Password123!');
+    await page.locator('input#password').fill('Password123!');
+    await page.locator('input#passwordConfirm').fill('Password123!');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('button', { name: /登録/i }).click();
 

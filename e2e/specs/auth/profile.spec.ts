@@ -44,16 +44,16 @@ test.describe('プロフィール管理機能', () => {
   });
 
   test('パスワード変更フォームが表示される', async ({ page }) => {
-    await expect(page.getByLabel(/現在のパスワード/i)).toBeVisible();
-    await expect(page.getByLabel('新しいパスワード', { exact: true })).toBeVisible();
-    await expect(page.getByLabel(/新しいパスワード.*確認/i)).toBeVisible();
+    await expect(page.locator('input#currentPassword')).toBeVisible();
+    await expect(page.locator('input#newPassword')).toBeVisible();
+    await expect(page.locator('input#confirmPassword')).toBeVisible();
   });
 
   test('パスワードを変更できる', async ({ page }) => {
     // パスワードフィールドに入力
-    await page.getByLabel(/現在のパスワード/i).fill('CurrentPassword123!');
-    await page.getByLabel('新しいパスワード', { exact: true }).fill('NewPassword123!@');
-    await page.getByLabel(/新しいパスワード.*確認/i).fill('NewPassword123!@');
+    await page.locator('input#currentPassword').fill('CurrentPassword123!');
+    await page.locator('input#newPassword').fill('NewPassword123!@');
+    await page.locator('input#confirmPassword').fill('NewPassword123!@');
 
     // パスワード変更ボタンをクリック
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
