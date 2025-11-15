@@ -288,37 +288,151 @@ JWT_PRIVATE_KEY=${privateKeyBase64}
 generateEdDSAKeys().catch(console.error);
 ```
 
-**実行方法**:
+**実行方法と初期セットアップフロー（Critical Issue 2対応）**:
+
+**開発環境セットアップ**:
 
 ```bash
-# 鍵生成スクリプト実行
+# Step 1: 鍵生成スクリプト実行
 npx tsx scripts/generate-eddsa-keys.ts
 
-# .env.keysの内容を.envにコピー（開発環境）
-cat .env.keys >> .env
+# Step 2: .env.keysの内容を確認
+cat .env.keys
 
-# Railway環境へデプロイ（本番環境）
-# Railway Dashboard > Variables > Add JWT_PUBLIC_KEY, JWT_PRIVATE_KEY
+# Step 3: .env.keysの内容を.envにコピー
+cat .env.keys >> backend/.env
+
+# Step 4: .env.keysを削除（セキュリティ上の理由）
+rm .env.keys
+
+# Step 5: 環境変数が正しく設定されたか確認
+grep JWT_ backend/.env
+
+# Step 6: Dockerコンテナを再起動（環境変数を読み込み）
+docker-compose restart backend
 ```
+
+**本番環境セットアップ（Railway）**:
+
+```bash
+# Step 1: 鍵生成スクリプトをローカルで実行
+npx tsx scripts/generate-eddsa-keys.ts
+
+# Step 2: .env.keysの内容をクリップボードにコピー
+cat .env.keys
+
+# Step 3: Railway Dashboardでプロジェクトを開く
+# https://railway.app/project/{project-id}
+
+# Step 4: Variables タブを開く
+
+# Step 5: 環境変数を追加
+# - Variable name: JWT_PUBLIC_KEY
+# - Value: （.env.keysのJWT_PUBLIC_KEYの値をペースト）
+# - Variable name: JWT_PRIVATE_KEY
+# - Value: （.env.keysのJWT_PRIVATE_KEYの値をペースト）
+
+# Step 6: Deploy ボタンをクリックしてサービスを再デプロイ
+
+# Step 7: .env.keysを削除（セキュリティ上の理由）
+rm .env.keys
+
+# Step 8: デプロイ成功を確認
+# https://your-backend.railway.app/.well-known/jwks.json
+```
+
+**セキュリティ注意事項**:
+- ⚠️ `.env.keys`ファイルは決してGitにコミットしないこと（`.gitignore`に追加済み）
+- ⚠️ `JWT_PRIVATE_KEY`は安全に保管し、第三者に共有しないこと
+- ⚠️ 本番環境では、Railway環境変数のみを使用し、ローカルファイルは削除すること
 
 **鍵ローテーション戦略（90日周期）**:
 
 **ローテーション周期**: 90日ごと（NIST推奨）
 
-**鍵ローテーションフロー**:
+**鍵ローテーション詳細運用手順（Critical Issue 2対応）**:
 
-1. **新しい鍵ペア生成**（T日目）:
-   ```bash
-   npx tsx scripts/generate-eddsa-keys.ts
-   ```
+**フェーズ1: 準備（T-7日目）**
 
-2. **猶予期間開始**（T日目 - T+30日目）:
-   - 新旧両方の公開鍵を並行運用
-   - 新しい秘密鍵で署名開始
-   - 古い公開鍵でも検証可能（既存トークンの有効期限が切れるまで）
+```bash
+# Step 1: 現在の鍵のKey IDを確認
+# Railway Dashboard > Variables > JWT_PUBLIC_KEY の値をデコード
+echo $JWT_PUBLIC_KEY | base64 -d | jq .kid
 
-3. **旧鍵削除**（T+30日目）:
-   - 猶予期間終了、旧公開鍵を削除
+# Step 2: カレンダーにリマインダーを設定
+# T日目（鍵ローテーション開始日）とT+30日目（旧鍵削除日）
+```
+
+**フェーズ2: 新しい鍵ペア生成（T日目）**
+
+```bash
+# Step 1: 新しい鍵ペア生成
+npx tsx scripts/generate-eddsa-keys.ts
+
+# Step 2: .env.keysの内容を確認（新しいKey IDをメモ）
+cat .env.keys | grep kid
+
+# Step 3: Railway Dashboardで環境変数を更新
+# - JWT_PUBLIC_KEY_OLD = 現在のJWT_PUBLIC_KEY の値（コピー）
+# - JWT_PUBLIC_KEY = .env.keysの新しいJWT_PUBLIC_KEY の値（上書き）
+# - JWT_PRIVATE_KEY = .env.keysの新しいJWT_PRIVATE_KEY の値（上書き）
+
+# Step 4: Deployボタンをクリックして再デプロイ
+
+# Step 5: .env.keysを削除
+rm .env.keys
+```
+
+**フェーズ3: 猶予期間開始（T日目 - T+30日目）**
+
+この期間中、以下の動作となります：
+
+```
+新規トークン発行: 新しいJWT_PRIVATE_KEYで署名（新しいkidを含む）
+既存トークン検証: JWT_PUBLIC_KEY（新）またはJWT_PUBLIC_KEY_OLD（旧）で検証
+JWKS エンドポイント: 両方の公開鍵を配信
+```
+
+**検証方法**:
+
+```bash
+# JWKS エンドポイントで両方の鍵が配信されているか確認
+curl https://your-backend.railway.app/.well-known/jwks.json | jq .
+
+# 期待される出力:
+# {
+#   "keys": [
+#     { "kid": "eddsa-1730000000000", ... }, // 新しい鍵
+#     { "kid": "eddsa-1720000000000", ... }  // 旧い鍵
+#   ]
+# }
+```
+
+**フェーズ4: 旧鍵削除（T+30日目）**
+
+猶予期間終了後、旧公開鍵を削除します：
+
+```bash
+# Step 1: Railway Dashboardで環境変数を削除
+# - JWT_PUBLIC_KEY_OLD を削除
+
+# Step 2: Deployボタンをクリックして再デプロイ
+
+# Step 3: JWKS エンドポイントで旧鍵が削除されたか確認
+curl https://your-backend.railway.app/.well-known/jwks.json | jq .keys[].kid
+
+# 期待される出力: 新しいKey IDのみ
+# "eddsa-1730000000000"
+```
+
+**ローテーション完了チェックリスト**:
+- ✅ T-7日目: カレンダーリマインダー設定
+- ✅ T日目: 新しい鍵ペア生成、Railway環境変数更新、再デプロイ
+- ✅ T日目: JWKS エンドポイントで両方の鍵が配信されていることを確認
+- ✅ T+1日目〜T+29日目: 特別な操作不要（自動的に新旧両方の鍵で検証）
+- ✅ T+30日目: `JWT_PUBLIC_KEY_OLD`削除、再デプロイ
+- ✅ T+30日目: JWKS エンドポイントで旧鍵が削除されたことを確認
+- ✅ T+90日目: 次回ローテーションのリマインダー設定
 
 **JWKS（JSON Web Key Set）エンドポイント実装**:
 
@@ -367,6 +481,97 @@ router.get('/.well-known/jwks.json', async (req, res) => {
 
 export default router;
 ```
+
+**水平スケーリング時の鍵共有戦略（Critical Issue 2対応）**:
+
+Railway環境では、複数のコンテナインスタンスが水平スケーリングにより起動される場合があります。EdDSA鍵ペアの共有戦略を以下のように実装します：
+
+**戦略: Railway環境変数による自動同期**
+
+Railway環境変数はすべてのコンテナインスタンスに自動的に同期されます。そのため、以下のアプローチで一貫性を保証します：
+
+```
+1. 鍵ペアはRailway環境変数に保存（JWT_PUBLIC_KEY, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY_OLD）
+2. すべてのコンテナインスタンスは起動時に環境変数から鍵をロード
+3. 鍵ローテーション時は、Railway Dashboardで環境変数を更新 → 再デプロイ
+4. 再デプロイにより、すべてのインスタンスが新しい鍵を使用
+```
+
+**実装パターン**:
+
+```typescript
+// backend/src/services/token.service.ts
+import * as jose from 'jose';
+
+class TokenService {
+  // 鍵をメモリにキャッシュ（起動時に1回だけロード）
+  private static currentPrivateKey: jose.KeyLike | null = null;
+  private static currentPublicKey: jose.KeyLike | null = null;
+  private static oldPublicKey: jose.KeyLike | null = null;
+
+  /**
+   * 環境変数から鍵をロード（lazy initialization）
+   */
+  private static async loadKeys() {
+    if (this.currentPrivateKey && this.currentPublicKey) {
+      return; // 既にロード済み
+    }
+
+    // JWT_PRIVATE_KEY をロード
+    const privateKeyJWK = JSON.parse(
+      Buffer.from(process.env.JWT_PRIVATE_KEY!, 'base64').toString('utf-8')
+    );
+    this.currentPrivateKey = await jose.importJWK(privateKeyJWK, 'EdDSA');
+
+    // JWT_PUBLIC_KEY をロード
+    const publicKeyJWK = JSON.parse(
+      Buffer.from(process.env.JWT_PUBLIC_KEY!, 'base64').toString('utf-8')
+    );
+    this.currentPublicKey = await jose.importJWK(publicKeyJWK, 'EdDSA');
+
+    // JWT_PUBLIC_KEY_OLD をロード（猶予期間中のみ存在）
+    if (process.env.JWT_PUBLIC_KEY_OLD) {
+      const oldPublicKeyJWK = JSON.parse(
+        Buffer.from(process.env.JWT_PUBLIC_KEY_OLD, 'base64').toString('utf-8')
+      );
+      this.oldPublicKey = await jose.importJWK(oldPublicKeyJWK, 'EdDSA');
+    }
+  }
+
+  async generateAccessToken(payload: TokenPayload): Promise<string> {
+    await TokenService.loadKeys();
+    // 新しい秘密鍵で署名
+    return await new jose.SignJWT(payload)
+      .setProtectedHeader({ alg: 'EdDSA' })
+      .setExpirationTime('15m')
+      .sign(TokenService.currentPrivateKey!);
+  }
+
+  async verifyToken(token: string): Promise<TokenPayload> {
+    await TokenService.loadKeys();
+    const { kid } = jose.decodeProtectedHeader(token);
+
+    // kidに応じて公開鍵を選択
+    let publicKey: jose.KeyLike;
+    if (kid === this.getCurrentKeyId()) {
+      publicKey = TokenService.currentPublicKey!;
+    } else if (TokenService.oldPublicKey && kid === this.getOldKeyId()) {
+      publicKey = TokenService.oldPublicKey;
+    } else {
+      throw new Error('Invalid key ID');
+    }
+
+    const { payload } = await jose.jwtVerify(token, publicKey);
+    return payload as TokenPayload;
+  }
+}
+```
+
+**一貫性の保証**:
+- ✅ すべてのインスタンスが同じRailway環境変数を参照
+- ✅ 起動時に環境変数から鍵をロード（メモリキャッシュ）
+- ✅ 鍵ローテーション時は再デプロイにより全インスタンスが新鍵を使用
+- ✅ ダウンタイムなし（Rolling Deploymentにより1インスタンスずつ更新）
 
 **トークン検証時の複数鍵サポート**:
 
@@ -1040,6 +1245,198 @@ export class NotFoundError extends ApiError {
 - **明示的なエラー伝播**: サービス層のエラーがコントローラー層で明確に処理される
 - **既存パターンとの統合**: ApiErrorクラスと併用し、既存のerrorHandlerミドルウェアを活用
 - **テスト容易性**: Result型により、エラーケースのテストが簡潔に記述可能
+
+### Result型統合パターンの実装詳細（Critical Issue 1対応）
+
+**ユーティリティ関数: `mapResultToApiError`**
+
+エラーマッピングロジックを一箇所に集約し、コントローラー層のコード重複を削減します。
+
+```typescript
+// backend/src/utils/result-mapper.ts
+import { Result } from '../types/result';
+import {
+  ApiError,
+  UnauthorizedError,
+  ForbiddenError,
+  BadRequestError,
+  NotFoundError,
+  InternalServerError,
+} from '../errors/ApiError';
+
+/**
+ * サービス層のエラー型定義
+ */
+export type AuthError =
+  | { type: 'INVALID_CREDENTIALS' }
+  | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
+  | { type: 'INVITATION_INVALID' }
+  | { type: 'INVITATION_EXPIRED' }
+  | { type: 'WEAK_PASSWORD'; violations: string[] }
+  | { type: 'USER_NOT_FOUND' }
+  | { type: 'INSUFFICIENT_PERMISSIONS'; required: string };
+
+export type InvitationError =
+  | { type: 'INVITATION_INVALID' }
+  | { type: 'INVITATION_EXPIRED' }
+  | { type: 'INVITATION_ALREADY_USED' }
+  | { type: 'EMAIL_ALREADY_EXISTS' };
+
+export type PasswordError =
+  | { type: 'WEAK_PASSWORD'; violations: string[] }
+  | { type: 'PASSWORD_REUSED'; count: number }
+  | { type: 'PWNED_PASSWORD'; pwnedCount: number };
+
+export type RBACError =
+  | { type: 'ROLE_NOT_FOUND'; roleId: string }
+  | { type: 'PERMISSION_NOT_FOUND'; permissionId: string }
+  | { type: 'INSUFFICIENT_PERMISSIONS'; required: string };
+
+/**
+ * Result型エラーをApiErrorに変換するユーティリティ
+ */
+export function mapResultToApiError(
+  error: AuthError | InvitationError | PasswordError | RBACError
+): ApiError {
+  // 型ガードでエラー種別を判定
+  if ('type' in error) {
+    switch (error.type) {
+      // 認証エラー
+      case 'INVALID_CREDENTIALS':
+        return new UnauthorizedError('Invalid credentials');
+      case 'ACCOUNT_LOCKED':
+        return new UnauthorizedError(
+          `Account locked until ${error.unlockAt.toISOString()}`
+        );
+      case 'USER_NOT_FOUND':
+        return new NotFoundError('User not found');
+
+      // 招待エラー
+      case 'INVITATION_INVALID':
+        return new BadRequestError('Invalid invitation token');
+      case 'INVITATION_EXPIRED':
+        return new BadRequestError('Invitation token expired');
+      case 'INVITATION_ALREADY_USED':
+        return new BadRequestError('Invitation already used');
+      case 'EMAIL_ALREADY_EXISTS':
+        return new BadRequestError('Email already exists');
+
+      // パスワードエラー
+      case 'WEAK_PASSWORD':
+        return new BadRequestError('Password does not meet requirements', {
+          violations: error.violations,
+        });
+      case 'PASSWORD_REUSED':
+        return new BadRequestError(
+          `Password was used in the last ${error.count} passwords`
+        );
+      case 'PWNED_PASSWORD':
+        return new BadRequestError(
+          `This password has been pwned ${error.pwnedCount} times`
+        );
+
+      // RBAC エラー
+      case 'ROLE_NOT_FOUND':
+        return new NotFoundError(`Role not found: ${error.roleId}`);
+      case 'PERMISSION_NOT_FOUND':
+        return new NotFoundError(`Permission not found: ${error.permissionId}`);
+      case 'INSUFFICIENT_PERMISSIONS':
+        return new ForbiddenError(`Insufficient permissions: ${error.required}`);
+
+      default:
+        return new InternalServerError('Unknown error');
+    }
+  }
+
+  return new InternalServerError('Unknown error');
+}
+```
+
+**ヘルパー関数: `handleServiceResult`**
+
+コントローラー層での標準的なResult型処理パターンを提供します。
+
+```typescript
+// backend/src/utils/controller-helpers.ts
+import { Request, Response, NextFunction } from 'express';
+import { Result } from '../types/result';
+import { mapResultToApiError } from './result-mapper';
+
+/**
+ * サービス層のResult型を処理し、HTTPレスポンスまたはエラーをスローする
+ */
+export async function handleServiceResult<T, E>(
+  result: Result<T, E>,
+  res: Response,
+  next: NextFunction,
+  options?: {
+    successStatus?: number;
+    transform?: (value: T) => unknown;
+  }
+): Promise<void> {
+  const { successStatus = 200, transform } = options || {};
+
+  if (!result.ok) {
+    // エラーをApiErrorに変換してスロー
+    const apiError = mapResultToApiError(result.error as any);
+    return next(apiError);
+  }
+
+  // 成功レスポンス
+  const responseData = transform ? transform(result.value) : result.value;
+  res.status(successStatus).json(responseData);
+}
+```
+
+**コントローラー層での使用例（改善版）**
+
+```typescript
+// backend/src/controllers/auth.controller.ts
+import { handleServiceResult } from '../utils/controller-helpers';
+
+async function loginHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { email, password } = req.body;
+    const result = await authService.login(email, password);
+
+    // ヘルパー関数でResult型を処理（エラーマッピングを自動化）
+    await handleServiceResult(result, res, next, {
+      successStatus: 200,
+      transform: (value) => {
+        if (value.type === '2FA_REQUIRED') {
+          return { type: '2FA_REQUIRED', userId: value.userId };
+        }
+        return { accessToken: value.accessToken, user: value.user };
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function registerHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { invitationToken, email, password, displayName } = req.body;
+    const result = await authService.register({
+      invitationToken,
+      email,
+      password,
+      displayName,
+    });
+
+    // シンプルな成功レスポンス
+    await handleServiceResult(result, res, next, { successStatus: 201 });
+  } catch (error) {
+    next(error);
+  }
+}
+```
+
+**実装のメリット**:
+- **コード重複削減**: `mapResultToApiError`により、エラーマッピングロジックが1箇所に集約
+- **保守性向上**: 新規エラー種別の追加時、`mapResultToApiError`のみ修正すればよい
+- **型安全性強化**: サービス層のエラー型（`AuthError`, `InvitationError`等）が統一的に定義される
+- **テスト容易性**: `mapResultToApiError`, `handleServiceResult`を単独でテスト可能
 
 ## Components and Interfaces
 
@@ -1845,6 +2242,51 @@ N+1問題は、ORMを使用する際に発生する一般的なパフォーマ�
 | 動的な関連データ取得 | DataLoader | 複雑な取得ロジック、キャッシング活用 |
 | 権限情報の頻繁な取得 | Redis Cache-Aside | 高速キャッシュ、90%以上のヒット率 |
 
+**関係性による判断基準**:
+
+| 関係性 | 推奨アプローチ | 具体例 |
+|-------|--------------|--------|
+| **1:N関係**（単純） | Prisma include | User → UserRoles（1ユーザー:Nロール） |
+| **N:N関係**（中間テーブル経由） | Prisma include | User → UserRole → Role → RolePermission → Permission |
+| **N:N関係**（複雑なクエリ） | DataLoader | 複数のリクエストで同じデータを繰り返し取得する場合 |
+| **頻繁なアクセス**（読み取り重視） | Redis Cache-Aside | 権限チェック（毎リクエスト実行） |
+
+**決定フローチャート**:
+
+```
+データ取得が必要
+    ↓
+[Q1] 同じデータを複数リクエストで繰り返し取得するか？
+    YES → Redis Cache-Asideパターンを検討
+    NO  → [Q2]へ
+    ↓
+[Q2] 取得するデータの関係性は？
+    1:N関係（単純）     → Prisma include（推奨）
+    N:N関係（中間テーブル） → [Q3]へ
+    ↓
+[Q3] Prisma includeで表現可能か？
+    YES（3階層以下のネスト） → Prisma include（推奨）
+    NO（4階層以上、動的条件） → DataLoader（推奨）
+    ↓
+[Q4] リクエスト内で同じエンティティを複数回取得するか？
+    YES → DataLoader（バッチング効果大）
+    NO  → Prisma include（シンプル）
+```
+
+**パフォーマンス特性比較**:
+
+| アプローチ | クエリ数 | キャッシング | 実装複雑度 | 適用シーン |
+|-----------|---------|------------|-----------|-----------|
+| Prisma include | 1クエリ（JOIN） | なし | 低 | 単一リクエストで完結する取得 |
+| DataLoader | N+1 → log(N)クエリ | リクエストスコープ | 中 | 複数エンティティのバッチ取得 |
+| Redis Cache-Aside | 1クエリ（初回のみ） | 永続的 | 中〜高 | 頻繁なアクセス（読み取り重視） |
+
+**実装優先順位**:
+
+1. **Phase 1（初期実装）**: Prisma includeのみ（シンプル、80%のケースをカバー）
+2. **Phase 2（最適化）**: Redis Cache-Asideパターン（権限チェックなど頻繁なアクセス）
+3. **Phase 3（拡張）**: DataLoader（パフォーマンス問題が発生した場合）
+
 ### アプローチ1: Prisma includeによるJOINクエリ
 
 **原則**: 可能な限りPrisma includeを使用し、1クエリで全データを取得する。
@@ -2035,6 +2477,8 @@ async function listInvitations(filter: InvitationFilter): Promise<Invitation[]> 
 
 **実装例（将来的な拡張）**:
 
+#### 基本的なDataLoader実装
+
 ```typescript
 import DataLoader from 'dataloader';
 
@@ -2044,7 +2488,7 @@ const userLoader = new DataLoader<string, User>(async (userIds) => {
     where: { id: { in: [...userIds] } },
   });
 
-  // userIdsと同じ順序で返す
+  // userIdsと同じ順序で返す（DataLoaderの要件）
   return userIds.map((id) => users.find((user) => user.id === id) || null);
 });
 
@@ -2052,9 +2496,190 @@ const userLoader = new DataLoader<string, User>(async (userIds) => {
 const user = await userLoader.load(userId);
 ```
 
+#### RBACService.getUserPermissions()のDataLoader実装
+
+**ユーザーID → ロール → 権限のバッチング実装**:
+
+```typescript
+// backend/src/loaders/rbac-loaders.ts
+import DataLoader from 'dataloader';
+import { prisma } from '../db/prisma';
+import type { User, Role, Permission, UserRole, RolePermission } from '@prisma/client';
+
+/**
+ * ユーザーのロール取得用DataLoader
+ * ユーザーID配列から各ユーザーのUserRole[]を取得
+ */
+export const createUserRolesLoader = () =>
+  new DataLoader<string, UserRole[]>(async (userIds) => {
+    const userRoles = await prisma.userRole.findMany({
+      where: { userId: { in: [...userIds] } },
+      include: {
+        role: true,
+      },
+    });
+
+    // ユーザーIDごとにグループ化
+    const userRolesMap = new Map<string, UserRole[]>();
+    for (const userRole of userRoles) {
+      const existing = userRolesMap.get(userRole.userId) || [];
+      existing.push(userRole);
+      userRolesMap.set(userRole.userId, existing);
+    }
+
+    // userIdsと同じ順序で返す
+    return userIds.map((userId) => userRolesMap.get(userId) || []);
+  });
+
+/**
+ * ロールの権限取得用DataLoader
+ * ロールID配列から各ロールのRolePermission[]を取得
+ */
+export const createRolePermissionsLoader = () =>
+  new DataLoader<string, RolePermission[]>(async (roleIds) => {
+    const rolePermissions = await prisma.rolePermission.findMany({
+      where: { roleId: { in: [...roleIds] } },
+      include: {
+        permission: true,
+      },
+    });
+
+    // ロールIDごとにグループ化
+    const rolePermissionsMap = new Map<string, RolePermission[]>();
+    for (const rolePermission of rolePermissions) {
+      const existing = rolePermissionsMap.get(rolePermission.roleId) || [];
+      existing.push(rolePermission);
+      rolePermissionsMap.set(rolePermission.roleId, existing);
+    }
+
+    // roleIdsと同じ順序で返す
+    return roleIds.map((roleId) => rolePermissionsMap.get(roleId) || []);
+  });
+
+/**
+ * DataLoaderコンテキスト（リクエストスコープで管理）
+ */
+export interface DataLoaderContext {
+  userRolesLoader: DataLoader<string, UserRole[]>;
+  rolePermissionsLoader: DataLoader<string, RolePermission[]>;
+}
+
+/**
+ * DataLoaderコンテキスト作成（リクエストごとに新規作成）
+ */
+export const createDataLoaderContext = (): DataLoaderContext => ({
+  userRolesLoader: createUserRolesLoader(),
+  rolePermissionsLoader: createRolePermissionsLoader(),
+});
+```
+
+**RBACServiceでのDataLoader使用**:
+
+```typescript
+// backend/src/services/rbac-service.ts
+import type { DataLoaderContext } from '../loaders/rbac-loaders';
+
+export class RBACService {
+  /**
+   * DataLoaderを使用したユーザー権限取得
+   * ユーザーID → ロール → 権限のバッチング
+   */
+  async getUserPermissionsWithDataLoader(
+    userId: string,
+    loaders: DataLoaderContext
+  ): Promise<Permission[]> {
+    // 1. ユーザーのロール取得（DataLoader: バッチング）
+    const userRoles = await loaders.userRolesLoader.load(userId);
+
+    if (userRoles.length === 0) {
+      return [];
+    }
+
+    // 2. 各ロールの権限取得（DataLoader: バッチング）
+    const roleIds = userRoles.map((ur) => ur.roleId);
+    const rolePermissionsArrays = await Promise.all(
+      roleIds.map((roleId) => loaders.rolePermissionsLoader.load(roleId))
+    );
+
+    // 3. 権限を平坦化（ユニーク化）
+    const permissionMap = new Map<string, Permission>();
+    for (const rolePermissions of rolePermissionsArrays) {
+      for (const rp of rolePermissions) {
+        permissionMap.set(rp.permission.id, rp.permission);
+      }
+    }
+
+    return Array.from(permissionMap.values());
+  }
+}
+```
+
+**Express middlewareでのDataLoader統合**:
+
+```typescript
+// backend/src/middlewares/dataloader-middleware.ts
+import type { Request, Response, NextFunction } from 'express';
+import { createDataLoaderContext } from '../loaders/rbac-loaders';
+
+/**
+ * リクエストスコープDataLoaderをExpressリクエストに注入
+ */
+export const dataLoaderMiddleware = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  // リクエストごとに新しいDataLoaderコンテキストを作成
+  req.loaders = createDataLoaderContext();
+  next();
+};
+
+// backend/src/types/express.d.ts
+import type { DataLoaderContext } from '../loaders/rbac-loaders';
+
+declare global {
+  namespace Express {
+    interface Request {
+      loaders?: DataLoaderContext;
+    }
+  }
+}
+```
+
+**使用例（Controller）**:
+
+```typescript
+// backend/src/controllers/auth-controller.ts
+export const getUserPermissions = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const userId = req.user!.id;
+
+  // DataLoaderを使用して権限取得（バッチング + キャッシング）
+  const permissions = await rbacService.getUserPermissionsWithDataLoader(
+    userId,
+    req.loaders!
+  );
+
+  res.json({ permissions });
+};
+```
+
+**パフォーマンス改善**:
+
+- **シナリオ**: 1リクエスト内で10ユーザーの権限を確認（例: 監査ログ表示時）
+- **Before（N+1問題）**: 1 + 10 + 10×3 = 41クエリ（10ユーザー、各3ロール）
+- **After（Prisma include）**: 10クエリ（各ユーザー1クエリ）
+- **After（DataLoader）**: 2クエリ（1. 全ユーザーのロール、2. 全ロールの権限）
+- **改善率**: 95% クエリ削減
+
 **初期実装方針**:
 - **Phase 1-3**: Prisma includeのみで対応（シンプルで十分）
 - **Phase 4以降**: パフォーマンス問題が発生した場合にDataLoaderを導入
+  - 特に、複数ユーザーの権限を同時に確認する場合に効果的
+  - 監査ログ、ユーザー一覧などのバッチ処理で有用
 
 ### アプローチ3: Redis Cache-Aside Pattern
 
@@ -2071,13 +2696,185 @@ RBACServiceで既に実装済み（設計書の「RBACService」セクション�
 
 以下のAPIエンドポイントでN+1問題対策を適用します：
 
-| APIエンドポイント | 対策アプローチ | 推定クエリ削減 |
-|----------------|--------------|---------------|
-| GET /api/v1/users/me | Prisma include（userRoles.role） | 1 + N → 1 |
-| GET /api/v1/audit-logs | Prisma include（actor, target） | 1 + 2N → 1 |
-| GET /api/v1/invitations | Prisma include（inviter, user） | 1 + N → 1 |
-| GET /api/v1/roles | Prisma include（rolePermissions.permission） | 1 + N×M → 1 |
-| GET /api/v1/users/:id | Prisma include（userRoles.role.rolePermissions.permission） | 1 + N + N×M → 1 |
+| APIエンドポイント | 対策アプローチ | 推定クエリ削減 | 実装詳細 |
+|----------------|--------------|---------------|---------|
+| GET /api/v1/users/me | Prisma include（userRoles.role） | 1 + N → 1 | ユーザー情報とロールを1クエリで取得 |
+| GET /api/v1/audit-logs | Prisma include（actor, target） | 1 + 2N → 1 | 監査ログと実行者・対象ユーザーを1クエリで取得 |
+| GET /api/v1/invitations | Prisma include（inviter, user） | 1 + N → 1 | 招待と招待者・招待されたユーザーを1クエリで取得 |
+| GET /api/v1/roles | Prisma include（rolePermissions.permission） | 1 + N×M → 1 | ロールと権限（中間テーブル経由）を1クエリで取得 |
+| GET /api/v1/users/:id | Prisma include（userRoles.role.rolePermissions.permission） | 1 + N + N×M → 1 | ユーザー → ロール → 権限を1クエリで取得（4階層ネスト） |
+| GET /api/v1/sessions | Prisma include（user） | 1 + N → 1 | セッション一覧とユーザー情報を1クエリで取得 |
+| PUT /api/v1/users/:id/roles | Prisma include（role） | 1 + N → 1 | ロール割り当て後、ユーザーロール + ロール情報を1クエリで取得 |
+| GET /api/v1/users | Prisma include（userRoles.role） | 1 + N×M → 1 | ユーザー一覧とロール情報を1クエリで取得（管理画面） |
+| GET /api/v1/audit-logs/export | Prisma include（actor, target） | 1 + 2N → 1 | エクスポート時も監査ログと関連ユーザーを1クエリで取得 |
+
+**各エンドポイントの実装詳細**:
+
+#### 1. GET /api/v1/users/me（現在のユーザー情報取得）
+
+```typescript
+const user = await prisma.user.findUnique({
+  where: { id: userId },
+  select: {
+    id: true,
+    email: true,
+    displayName: true,
+    twoFactorEnabled: true,
+    createdAt: true,
+    updatedAt: true,
+    userRoles: {
+      include: {
+        role: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            priority: true,
+          },
+        },
+      },
+    },
+  },
+});
+```
+
+**実装時の注意点**:
+- `select`句でパスワードハッシュなどセンシティブフィールドを除外
+- ロール情報は必要な最小限のフィールドのみ取得
+- `orderBy: { priority: 'desc' }`でロールを優先度順に並べる
+
+#### 2. GET /api/v1/audit-logs（監査ログ一覧取得）
+
+```typescript
+const auditLogs = await prisma.auditLog.findMany({
+  where: filter,
+  include: {
+    actor: {
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+      },
+    },
+    target: {
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+      },
+    },
+  },
+  orderBy: { createdAt: 'desc' },
+  take: 100, // ページネーション（デフォルト100件）
+  skip: offset,
+});
+```
+
+**実装時の注意点**:
+- `select`句でユーザー情報を最小限に（パスワードハッシュ除外）
+- `orderBy: { createdAt: 'desc' }`で最新ログから取得
+- ページネーション（`take`、`skip`）で大量データ対策
+- `target`はオプショナル（`target?`）なので`null`チェック必要
+
+#### 3. GET /api/v1/invitations（招待一覧取得）
+
+```typescript
+const invitations = await prisma.invitation.findMany({
+  where: filter,
+  include: {
+    inviter: {
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+      },
+    },
+    user: {
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+      },
+    },
+  },
+  orderBy: { createdAt: 'desc' },
+});
+```
+
+**実装時の注意点**:
+- `inviter`は必須、`user`はオプショナル（招待未使用時は`null`）
+- ステータスフィルタリング（`status: 'pending'`など）でパフォーマンス向上
+- `expiresAt`でソートする場合もあり（有効期限順）
+
+#### 4. GET /api/v1/roles（ロール一覧取得）
+
+```typescript
+const roles = await prisma.role.findMany({
+  include: {
+    rolePermissions: {
+      include: {
+        permission: {
+          select: {
+            id: true,
+            resource: true,
+            action: true,
+            description: true,
+          },
+        },
+      },
+    },
+  },
+  orderBy: { priority: 'desc' },
+});
+```
+
+**実装時の注意点**:
+- 中間テーブル（`rolePermissions`）経由で権限を取得
+- N:N関係でも1クエリで解決可能（Prisma includeの利点）
+- `orderBy: { priority: 'desc' }`で高優先度ロールから表示
+
+#### 5. GET /api/v1/users/:id（ユーザー詳細取得）
+
+```typescript
+const user = await prisma.user.findUnique({
+  where: { id: params.id },
+  select: {
+    id: true,
+    email: true,
+    displayName: true,
+    twoFactorEnabled: true,
+    isLocked: true,
+    createdAt: true,
+    updatedAt: true,
+    userRoles: {
+      include: {
+        role: {
+          include: {
+            rolePermissions: {
+              include: {
+                permission: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+});
+```
+
+**実装時の注意点**:
+- 4階層ネスト（User → UserRole → Role → RolePermission → Permission）
+- 管理画面など詳細情報が必要な場合のみ使用
+- 一般ユーザー向けには`GET /api/v1/users/me`を使用（軽量）
+
+**実装ガイドライン**:
+
+1. **select句の活用**: 必要最小限のフィールドのみ取得してネットワーク転送量削減
+2. **orderBy句の適用**: クライアント側でのソート処理を削減
+3. **ページネーション**: `take`と`skip`で大量データ対策
+4. **インデックス活用**: `where`句のフィールドにインデックス設定（Prismaスキーマの`@@index`）
+5. **null対策**: オプショナルリレーション（`actor?`、`target?`、`user?`）は`null`チェック必須
 
 ### パフォーマンステスト検証
 
