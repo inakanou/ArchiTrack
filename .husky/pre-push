@@ -1,3 +1,35 @@
+# ============================================================================
+# ログシステム設定（完全版: ログ保存 + ローテーション + 圧縮）
+# ============================================================================
+
+# ログディレクトリの作成
+mkdir -p .logs
+
+# タイムスタンプ付きログファイル名
+TIMESTAMP=$(date +"%Y-%m-%d-%H-%M-%S")
+LOG_FILE=".logs/pre-push-${TIMESTAMP}.log"
+LATEST_LOG=".logs/pre-push-latest.log"
+
+# ログローテーション: 30日以上前のログを削除
+find .logs -name "pre-push-*.log" -type f -mtime +30 -delete 2>/dev/null || true
+find .logs -name "pre-push-*.log.gz" -type f -mtime +30 -delete 2>/dev/null || true
+
+# ログ圧縮: 7日以上前の未圧縮ログをgzip圧縮
+find .logs -name "pre-push-*.log" -type f -mtime +7 ! -name "pre-push-latest.log" -exec gzip {} \; 2>/dev/null || true
+
+# ログファイルへの出力（teeで標準出力とファイルの両方に出力）
+# Note: exec > >(...) は bash 特有の構文で、サブシェルを使用してリダイレクト
+exec > >(tee -a "${LOG_FILE}") 2>&1
+
+# 最新ログへのシンボリックリンク作成
+ln -sf "pre-push-${TIMESTAMP}.log" "${LATEST_LOG}"
+
+echo "============================================================================"
+echo "📝 ログファイル: ${LOG_FILE}"
+echo "📝 最新ログ: ${LATEST_LOG}"
+echo "============================================================================"
+echo ""
+
 echo "🔍 Running format checks before push..."
 
 # Backend format check
