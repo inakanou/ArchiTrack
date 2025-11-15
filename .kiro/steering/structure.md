@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-11（ユーザー認証機能実装完了、テストカバレッジ80%達成を反映）_
+_最終更新: 2025-11-15（ステアリング同期、依存関係更新・認証関連コンポーネント追加を反映）_
 
 ## ルートディレクトリ構成
 
@@ -268,7 +268,17 @@ frontend/
 │   │   ├── RolePermissionManager.tsx # ロール権限管理
 │   │   ├── RolePermissionManager.stories.tsx # Storybook ストーリー
 │   │   ├── ProtectedRoute.tsx      # 保護されたルート
-│   │   └── （その他認証関連コンポーネント）
+│   │   ├── ProfileForm.tsx         # プロフィール編集フォーム
+│   │   ├── SessionManager.tsx      # セッション管理UI
+│   │   ├── SessionManagement.tsx   # セッション管理コンポーネント
+│   │   ├── AuditLogViewer.tsx      # 監査ログ閲覧UI
+│   │   ├── InvitationManager.tsx   # 招待管理UI
+│   │   ├── TwoFactorManagement.tsx # 2FA管理UI
+│   │   ├── TwoFactorSetupForm.tsx  # 2FA初期設定フォーム
+│   │   ├── TwoFactorVerificationForm.tsx # 2FA検証フォーム
+│   │   ├── OptimizedList.tsx       # 最適化されたリストコンポーネント
+│   │   ├── FocusManager.tsx        # フォーカス管理コンポーネント
+│   │   └── ToastNotification.tsx   # トースト通知コンポーネント
 │   ├── contexts/          # Reactコンテキスト
 │   │   └── AuthContext.tsx # 認証コンテキスト
 │   ├── pages/             # ページコンポーネント
