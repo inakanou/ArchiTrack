@@ -257,14 +257,14 @@ coverage: {
     - `user-role.service.test.ts` - ユーザーロール管理（27テスト）
     - `rbac.service.test.ts` - RBAC統合サービス（21テスト）
     - `audit-log.service.test.ts` - 監査ログ（35テスト）
-    - `archive.service.test.ts` - ログアーカイブ（6テスト）
+    - `audit-log-archive.service.test.ts` - ログアーカイブ（6テスト）
     - `email.service.test.ts` - メール送信（Bull非同期キュー、14テスト）
   - `unit/utils/` - ユーティリティテスト（14テスト）
     - `sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 472テスト
+**テスト合計:** 571テスト（単体 + 統合）
 
 **実行方法:**
 ```bash
@@ -318,8 +318,9 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 
 **テストカバレッジ:**
 - APIクライアントテスト（client.test.ts）
-- Reactコンポーネントテスト（ErrorBoundary.test.tsx）
-- 合計: 包括的なユニットテスト群
+- Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx等）
+- 認証フローテスト、フォームバリデーションテスト
+- 合計: 378テスト（包括的なユニットテスト群）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用

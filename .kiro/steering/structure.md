@@ -333,7 +333,9 @@ frontend/
 - `PasswordResetForm.stories.tsx` - パスワードリセットフォーム
 - `PasswordStrengthIndicator.stories.tsx` - パスワード強度インジケーター
 - `RolePermissionManager.stories.tsx` - ロール権限管理
-- その他認証関連ストーリー
+- `SessionManagement.stories.tsx` - セッション管理
+- `TwoFactorSetupForm.stories.tsx` - 2FA初期設定フォーム
+- `TwoFactorVerificationForm.stories.tsx` - 2FA検証フォーム
 
 **想定される拡張:**
 
@@ -425,7 +427,7 @@ backend/
 │   │   ├── user-role.service.ts # ユーザーロール管理
 │   │   ├── rbac.service.ts # RBAC統合サービス
 │   │   ├── audit-log.service.ts # 監査ログ
-│   │   ├── archive.service.ts # ログアーカイブ
+│   │   ├── audit-log-archive.service.ts # ログアーカイブ
 │   │   └── email.service.ts # メール送信（Bull非同期キュー、Handlebars）
 │   ├── templates/         # メールテンプレート
 │   │   └── （Handlebarsテンプレート）
@@ -773,8 +775,8 @@ refactor: improve type safety by eliminating any types
 2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
 3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
 4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認
-5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（149テスト、カバレッジ閾値80%）
-6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（13テスト、カバレッジ閾値80%）
+5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（571テスト、カバレッジ閾値80%）
+6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（378テスト、カバレッジ閾値80%）
 7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`（Docker環境必須）
 8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分、Docker環境必須）
    - **同期実行**: テスト完了を待ってからプッシュ実行
@@ -789,12 +791,13 @@ refactor: improve type safety by eliminating any types
 - **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
 - **Defense in Depth戦略**: 複数レイヤーでの品質保証
 
-**カバレッジ達成状況:**
+**カバレッジ達成状況（単体テスト）:**
 - **Branches: 80.00% ✅達成**（2025-11-11）
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- テスト合計: 472テスト
+- Backend: 571テスト（単体）+ 68テスト（統合）
+- Frontend: 378テスト（単体）
 
 ### .gitignore
 
