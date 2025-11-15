@@ -4,10 +4,13 @@
       "command": "npx",
       "args": [
         "-y",
-        "@playwright/mcp@1.50.0"
+        "@playwright/mcp@latest",
+        "--browser", "chromium",
+        "--config", "./playwright.config.ts"
       ],
       "env": {
-        "PLAYWRIGHT_BROWSERS_PATH": "${HOME}/.cache/ms-playwright"
+        "PLAYWRIGHT_BROWSERS_PATH": "${HOME}/.cache/ms-playwright",
+        "BASE_URL": "http://localhost:5173"
       }
     }
   }
