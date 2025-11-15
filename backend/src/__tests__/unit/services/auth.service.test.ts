@@ -16,7 +16,7 @@ import { TokenService } from '../../../services/token.service';
 import { TwoFactorService } from '../../../services/two-factor.service';
 import { SessionService } from '../../../services/session.service';
 import type { PrismaClient, User, Invitation } from '@prisma/client';
-import { Ok } from '../../../types/result';
+import { Ok, Err } from '../../../types/result';
 
 // Prisma Clientのモック
 const mockPrismaClient = {
@@ -37,6 +37,8 @@ const mockPrismaClient = {
   },
   refreshToken: {
     deleteMany: vi.fn(),
+    findUnique: vi.fn(),
+    delete: vi.fn(),
   },
   $transaction: vi.fn(),
 } as unknown as PrismaClient;
@@ -55,6 +57,7 @@ const mockPasswordService = {
 const mockTokenService = {
   generateAccessToken: vi.fn(),
   generateRefreshToken: vi.fn(),
+  verifyToken: vi.fn(),
 } as unknown as TokenService;
 
 const mockTwoFactorService = {
@@ -1094,6 +1097,187 @@ describe('AuthService', () => {
 
       // Act
       const result = await authService.logoutAll(userId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('Database connection failed');
+        }
+      }
+    });
+  });
+
+  describe('refreshToken', () => {
+    it('正常にリフレッシュトークンを使って新しいトークンを発行', async () => {
+      // Arrange
+      const refreshToken = 'refresh-token-valid';
+      const userId = 'user-123';
+      const email = 'test@example.com';
+      const displayName = 'Test User';
+      const createdAt = new Date();
+
+      // TokenService.verifyToken をモック（成功）
+      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ userId, email, roles: ['user'] })
+      );
+
+      // Prisma.refreshToken.findUnique をモック
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'token-id-123',
+        token: refreshToken,
+        userId,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
+        deviceInfo: 'Chrome/Windows',
+        createdAt,
+        user: {
+          id: userId,
+          email,
+          displayName,
+          passwordHash: 'hashed',
+          twoFactorEnabled: false,
+          createdAt,
+          updatedAt: createdAt,
+          userRoles: [
+            {
+              role: { name: 'user' },
+            },
+          ],
+        },
+      });
+
+      // TokenService.generateAccessToken と generateRefreshToken をモック
+      (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'new-access-token'
+      );
+      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'new-refresh-token'
+      );
+
+      // Prisma.refreshToken.delete をモック
+      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'token-id-123',
+      });
+
+      // SessionService.createSession をモック
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok(undefined)
+      );
+
+      // Act
+      const result = await authService.refreshToken(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.accessToken).toBe('new-access-token');
+        expect(result.value.refreshToken).toBe('new-refresh-token');
+        expect(result.value.user.id).toBe(userId);
+        expect(result.value.user.email).toBe(email);
+      }
+      expect(mockTokenService.verifyToken).toHaveBeenCalledWith(refreshToken, 'refresh');
+      expect(mockPrismaClient.refreshToken.findUnique).toHaveBeenCalled();
+      expect(mockPrismaClient.refreshToken.delete).toHaveBeenCalled();
+      expect(mockSessionService.createSession).toHaveBeenCalled();
+    });
+
+    it('無効なリフレッシュトークンの場合、INVALID_REFRESH_TOKENエラーを返す', async () => {
+      // Arrange
+      const refreshToken = 'invalid-refresh-token';
+
+      // TokenService.verifyToken をモック（失敗）
+      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'INVALID_TOKEN', message: 'Invalid token' })
+      );
+
+      // Act
+      const result = await authService.refreshToken(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_REFRESH_TOKEN');
+      }
+    });
+
+    it('リフレッシュトークンがデータベースに存在しない場合、INVALID_REFRESH_TOKENエラーを返す', async () => {
+      // Arrange
+      const refreshToken = 'nonexistent-refresh-token';
+
+      // TokenService.verifyToken をモック（成功）
+      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ userId: 'user-123', email: 'test@example.com', roles: ['user'] })
+      );
+
+      // Prisma.refreshToken.findUnique をモック（null を返す）
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        null
+      );
+
+      // Act
+      const result = await authService.refreshToken(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_REFRESH_TOKEN');
+      }
+    });
+
+    it('リフレッシュトークンが期限切れの場合、REFRESH_TOKEN_EXPIREDエラーを返す', async () => {
+      // Arrange
+      const refreshToken = 'expired-refresh-token';
+      const userId = 'user-123';
+
+      // TokenService.verifyToken をモック（成功）
+      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ userId, email: 'test@example.com', roles: ['user'] })
+      );
+
+      // Prisma.refreshToken.findUnique をモック（期限切れ）
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'token-id-123',
+        token: refreshToken,
+        userId,
+        expiresAt: new Date(Date.now() - 1000), // 過去の日時
+        deviceInfo: 'Chrome/Windows',
+        createdAt: new Date(),
+        user: {
+          id: userId,
+          email: 'test@example.com',
+          displayName: 'Test User',
+          createdAt: new Date(),
+          userRoles: [],
+        },
+      });
+
+      // Act
+      const result = await authService.refreshToken(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('REFRESH_TOKEN_EXPIRED');
+      }
+    });
+
+    it('データベースエラー時にDATABASE_ERRORを返す', async () => {
+      // Arrange
+      const refreshToken = 'refresh-token-abc';
+
+      // TokenService.verifyToken をモック（成功）
+      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ userId: 'user-123', email: 'test@example.com', roles: ['user'] })
+      );
+
+      // Prisma.refreshToken.findUnique をモック（データベースエラー）
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Database connection failed')
+      );
+
+      // Act
+      const result = await authService.refreshToken(refreshToken);
 
       // Assert
       expect(result.ok).toBe(false);

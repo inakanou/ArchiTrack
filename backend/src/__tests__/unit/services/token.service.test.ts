@@ -220,6 +220,26 @@ describe('TokenService', () => {
       }
     });
 
+    it('完全に不正な形式のトークンを拒否する（空文字列）', async () => {
+      const malformedToken = '';
+      const result = await tokenService.verifyToken(malformedToken, 'access');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+      }
+    });
+
+    it('完全に不正な形式のトークンを拒否する（ランダム文字列）', async () => {
+      const malformedToken = 'completely-random-string-not-a-jwt';
+      const result = await tokenService.verifyToken(malformedToken, 'access');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+      }
+    });
+
     it('permissionsを含むトークンを正しく検証できる', async () => {
       // Arrange
       const payload: TokenPayload = {
