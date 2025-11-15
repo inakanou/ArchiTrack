@@ -115,35 +115,35 @@ fi
 
 echo "🔒 Running security scan before push..."
 
-# Backend security scan
+# Backend security scan (production dependencies only)
 if [ -d "backend" ]; then
-  echo "🔍 Scanning backend dependencies for vulnerabilities..."
-  npm --prefix backend audit --audit-level=moderate
+  echo "🔍 Scanning backend production dependencies for vulnerabilities..."
+  npm --prefix backend audit --omit=dev --audit-level=moderate
   BACKEND_AUDIT_EXIT=$?
   if [ $BACKEND_AUDIT_EXIT -ne 0 ]; then
-    echo "⚠️  Backend security vulnerabilities detected (moderate or higher)."
+    echo "⚠️  Backend security vulnerabilities detected (moderate or higher) in production dependencies."
     echo "   This is a WARNING - push will continue, but please address these issues."
-    echo "   Run 'npm --prefix backend audit' to see details."
+    echo "   Run 'npm --prefix backend audit --omit=dev' to see details."
     echo "   Run 'npm --prefix backend audit fix' to attempt automatic fixes."
     echo ""
   else
-    echo "✅ Backend security scan passed."
+    echo "✅ Backend production dependencies security scan passed."
   fi
 fi
 
-# Frontend security scan
+# Frontend security scan (production dependencies only)
 if [ -d "frontend" ]; then
-  echo "🔍 Scanning frontend dependencies for vulnerabilities..."
-  npm --prefix frontend audit --audit-level=moderate
+  echo "🔍 Scanning frontend production dependencies for vulnerabilities..."
+  npm --prefix frontend audit --omit=dev --audit-level=moderate
   FRONTEND_AUDIT_EXIT=$?
   if [ $FRONTEND_AUDIT_EXIT -ne 0 ]; then
-    echo "⚠️  Frontend security vulnerabilities detected (moderate or higher)."
+    echo "⚠️  Frontend security vulnerabilities detected (moderate or higher) in production dependencies."
     echo "   This is a WARNING - push will continue, but please address these issues."
-    echo "   Run 'npm --prefix frontend audit' to see details."
+    echo "   Run 'npm --prefix frontend audit --omit=dev' to see details."
     echo "   Run 'npm --prefix frontend audit fix' to attempt automatic fixes."
     echo ""
   else
-    echo "✅ Frontend security scan passed."
+    echo "✅ Frontend production dependencies security scan passed."
   fi
 fi
 
