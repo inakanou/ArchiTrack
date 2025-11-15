@@ -1,22 +1,63 @@
 #!/bin/sh
 # ============================================================================
-# ログシステム設定（完全版: ログ保存 + ローテーション + 圧縮）
+# エラーハンドリング設定
+# ============================================================================
+# -o pipefail: パイプラインのいずれかのコマンドが失敗したら全体を失敗とする
+# これにより、teeコマンドでログ記録してもexit codeが正しく伝播する
+set -o pipefail
+
+# ============================================================================
+# クリーンアップシステム設定（ログ + テストアーティファクト）
+# ============================================================================
+# ベストプラクティス: テスト実行前に古いアーティファクトを削除してディスク容量を管理
+# 保持ポリシー: 30日間（一貫性のため全て同じ期間）
 # ============================================================================
 
-# ログディレクトリの作成
+echo "🧹 Cleaning up old test artifacts and logs..."
+
+# ディレクトリの作成
 mkdir -p .logs
+mkdir -p playwright-report
+mkdir -p test-results
+
+# ============================================================================
+# 1. ログファイルのクリーンアップとローテーション
+# ============================================================================
+
+# 30日以上前のログを削除
+find .logs -name "pre-push-*.log" -type f -mtime +30 -delete 2>/dev/null || true
+find .logs -name "pre-push-*.log.gz" -type f -mtime +30 -delete 2>/dev/null || true
+
+# 7日以上前の未圧縮ログをgzip圧縮（ディスク使用量削減）
+find .logs -name "pre-push-*.log" -type f -mtime +7 ! -name "pre-push-latest.log" -exec gzip {} \; 2>/dev/null || true
+
+# ============================================================================
+# 2. Playwright HTMLレポートのクリーンアップ
+# ============================================================================
+
+# 30日以上前のHTMLレポートディレクトリを削除
+# パターン: playwright-report/YYYY-MM-DD_HH-MM-SS-sssZ/
+find playwright-report -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} \; 2>/dev/null || true
+
+# ============================================================================
+# 3. テスト結果（スクリーンショット、ビデオ、トレース）のクリーンアップ
+# ============================================================================
+
+# 30日以上前のテスト結果ディレクトリを削除
+# パターン: test-results/YYYY-MM-DD_HH-MM-SS-sssZ/
+find test-results -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} \; 2>/dev/null || true
+
+echo "✅ Cleanup completed"
+echo ""
+
+# ============================================================================
+# ログファイルの設定
+# ============================================================================
 
 # タイムスタンプ付きログファイル名
 TIMESTAMP=$(date +"%Y-%m-%d-%H-%M-%S")
 LOG_FILE=".logs/pre-push-${TIMESTAMP}.log"
 LATEST_LOG=".logs/pre-push-latest.log"
-
-# ログローテーション: 30日以上前のログを削除
-find .logs -name "pre-push-*.log" -type f -mtime +30 -delete 2>/dev/null || true
-find .logs -name "pre-push-*.log.gz" -type f -mtime +30 -delete 2>/dev/null || true
-
-# ログ圧縮: 7日以上前の未圧縮ログをgzip圧縮
-find .logs -name "pre-push-*.log" -type f -mtime +7 ! -name "pre-push-latest.log" -exec gzip {} \; 2>/dev/null || true
 
 # 最新ログへのシンボリックリンク作成
 ln -sf "pre-push-${TIMESTAMP}.log" "${LATEST_LOG}"
@@ -270,17 +311,27 @@ echo "🧪 Running E2E tests..."
 
 # E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
 # タイムアウト設定: 10分（600秒）でハングアップを防止
+#   --kill-after=10: TERMシグナル送信後、10秒以内に終了しなければKILLシグナルを送信
+#   --foreground: プロセスグループ全体にシグナルを送信（子プロセスも確実に停止）
 # CI=true: HTML Reportサーバーを起動せず、レポートのみ生成（ベストプラクティス）
 echo "   Note: E2E tests will run synchronously to ensure quality before push."
 echo "   HTML report will be generated but server will not start."
-CI=true timeout 600 npm run test:e2e
+echo "   Timeout: 10 minutes (with forced kill after grace period)"
+
+# timeoutコマンドで確実にプロセスグループ全体を停止
+CI=true timeout --foreground --kill-after=10 600 npm run test:e2e
 E2E_EXIT_CODE=$?
 
 if [ $E2E_EXIT_CODE -eq 124 ]; then
   echo "❌ E2E tests timed out after 10 minutes. Push aborted."
+  echo "   This usually indicates a hanging test or infinite loop."
+  exit 1
+elif [ $E2E_EXIT_CODE -eq 137 ]; then
+  echo "❌ E2E tests were forcibly killed (SIGKILL). Push aborted."
+  echo "   Tests did not respond to termination signal within grace period."
   exit 1
 elif [ $E2E_EXIT_CODE -ne 0 ]; then
-  echo "❌ E2E tests failed. Push aborted."
+  echo "❌ E2E tests failed with exit code: $E2E_EXIT_CODE. Push aborted."
   exit 1
 fi
 
