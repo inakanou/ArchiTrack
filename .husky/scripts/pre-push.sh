@@ -311,20 +311,23 @@ fi
 echo "🧪 Running E2E tests..."
 
 # E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
-# タイムアウト設定: 10分（600秒）でハングアップを防止
+# タイムアウト設定: 30分（1800秒）でハングアップを防止
+#   ベストプラクティス: タイムアウト = 通常実行時間の2-3倍
+#   37テスト × retry=2 → 最大111回実行、通常15-20分完了見込み
 #   --kill-after=10: TERMシグナル送信後、10秒以内に終了しなければKILLシグナルを送信
 #   --foreground: プロセスグループ全体にシグナルを送信（子プロセスも確実に停止）
 # CI=true: HTML Reportサーバーを起動せず、レポートのみ生成（ベストプラクティス）
 echo "   Note: E2E tests will run synchronously to ensure quality before push."
 echo "   HTML report will be generated but server will not start."
-echo "   Timeout: 10 minutes (with forced kill after grace period)"
+echo "   Timeout: 30 minutes (with forced kill after grace period)"
+echo "   Progress: Playwright list reporter shows test execution in real-time"
 
 # timeoutコマンドで確実にプロセスグループ全体を停止
-CI=true timeout --foreground --kill-after=10 600 npm run test:e2e
+CI=true timeout --foreground --kill-after=10 1800 npm run test:e2e
 E2E_EXIT_CODE=$?
 
 if [ $E2E_EXIT_CODE -eq 124 ]; then
-  echo "❌ E2E tests timed out after 10 minutes. Push aborted."
+  echo "❌ E2E tests timed out after 30 minutes. Push aborted."
   echo "   This usually indicates a hanging test or infinite loop."
   exit 1
 elif [ $E2E_EXIT_CODE -eq 137 ]; then
