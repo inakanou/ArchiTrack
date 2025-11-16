@@ -190,7 +190,10 @@ describe('LoginForm', () => {
     it('ログイン失敗時、汎用エラーメッセージが表示されること', async () => {
       const user = userEvent.setup();
       mockOnLogin.mockRejectedValue(
-        new ApiError(401, 'Unauthorized', { error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' })
+        new ApiError(401, 'Unauthorized', {
+          error: 'Invalid credentials',
+          code: 'INVALID_CREDENTIALS',
+        })
       );
 
       render(<LoginForm onLogin={mockOnLogin} />);
@@ -251,7 +254,10 @@ describe('LoginForm', () => {
     it('エラーメッセージがaria-liveで通知されること', async () => {
       const user = userEvent.setup();
       mockOnLogin.mockRejectedValue(
-        new ApiError(401, 'Unauthorized', { error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' })
+        new ApiError(401, 'Unauthorized', {
+          error: 'Invalid credentials',
+          code: 'INVALID_CREDENTIALS',
+        })
       );
 
       render(<LoginForm onLogin={mockOnLogin} />);
