@@ -41,7 +41,7 @@ export default defineConfig({
 
   // レポーター設定
   reporter: [
-    ['html', { outputFolder: `playwright-report/${timestamp}` }],
+    ['html', { outputFolder: `playwright-report/${timestamp}`, open: 'never' }],
     ['list'],
     process.env.CI ? ['github'] : ['line'],
   ],

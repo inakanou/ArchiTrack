@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LoginForm from '../../components/LoginForm';
 import type { LoginResult } from '../../types/auth.types';
+import { ApiError } from '../../api/client';
 
 describe('LoginForm', () => {
   const mockOnLogin = vi.fn();
@@ -44,11 +45,11 @@ describe('LoginForm', () => {
       expect(toggleButton).toBeInTheDocument();
     });
 
-    it('「パスワードを忘れた場合」リンクが表示されること', () => {
+    it('「パスワードを忘れた」リンクが表示されること', () => {
       render(<LoginForm onLogin={mockOnLogin} onForgotPassword={mockOnForgotPassword} />);
 
       const forgotPasswordLink = screen.getByRole('link', {
-        name: /パスワードを忘れた場合/i,
+        name: /パスワードを忘れた/i,
       });
       expect(forgotPasswordLink).toBeInTheDocument();
     });
@@ -112,8 +113,8 @@ describe('LoginForm', () => {
 
       // エラーメッセージが表示される
       await waitFor(() => {
-        expect(screen.getByText(/メールアドレスは必須です/i)).toBeInTheDocument();
-        expect(screen.getByText(/パスワードは必須です/i)).toBeInTheDocument();
+        expect(screen.getByText(/メールアドレスは必須/i)).toBeInTheDocument();
+        expect(screen.getByText(/パスワードは必須/i)).toBeInTheDocument();
       });
 
       // onLoginが呼ばれない
@@ -188,7 +189,9 @@ describe('LoginForm', () => {
 
     it('ログイン失敗時、汎用エラーメッセージが表示されること', async () => {
       const user = userEvent.setup();
-      mockOnLogin.mockRejectedValue(new Error('Invalid credentials'));
+      mockOnLogin.mockRejectedValue(
+        new ApiError(401, 'Unauthorized', { error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' })
+      );
 
       render(<LoginForm onLogin={mockOnLogin} />);
 
@@ -209,10 +212,12 @@ describe('LoginForm', () => {
 
     it('アカウントロック時、ロック解除までの残り時間が表示されること', async () => {
       const user = userEvent.setup();
-      const lockedError = new Error('ACCOUNT_LOCKED');
-      (lockedError as Error & { lockUntil?: Date }).lockUntil = new Date(
-        Date.now() + 5 * 60 * 1000
-      ); // 5分後
+      const unlockAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5分後
+      const lockedError = new ApiError(403, 'Forbidden', {
+        error: 'Account is locked due to too many failed login attempts',
+        code: 'ACCOUNT_LOCKED',
+        unlockAt,
+      });
       mockOnLogin.mockRejectedValue(lockedError);
 
       render(<LoginForm onLogin={mockOnLogin} />);
@@ -245,7 +250,9 @@ describe('LoginForm', () => {
 
     it('エラーメッセージがaria-liveで通知されること', async () => {
       const user = userEvent.setup();
-      mockOnLogin.mockRejectedValue(new Error('Invalid credentials'));
+      mockOnLogin.mockRejectedValue(
+        new ApiError(401, 'Unauthorized', { error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' })
+      );
 
       render(<LoginForm onLogin={mockOnLogin} />);
 

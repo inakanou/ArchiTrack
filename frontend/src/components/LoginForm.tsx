@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, FormEvent } from 'react';
 import type { LoginFormData, LoginResult } from '../types/auth.types';
+import { ApiError } from '../api/client';
 
 interface LoginFormProps {
   onLogin: (data: LoginFormData) => Promise<LoginResult>;
@@ -41,7 +42,7 @@ function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
   // メールアドレスバリデーション
   const validateEmail = (value: string): string => {
     if (!value) {
-      return 'メールアドレスは必須です';
+      return 'メールアドレスは必須';
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(value)) {
@@ -53,7 +54,7 @@ function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
   // パスワードバリデーション
   const validatePassword = (value: string): string => {
     if (!value) {
-      return 'パスワードは必須です';
+      return 'パスワードは必須';
     }
     return '';
   };
@@ -88,10 +89,19 @@ function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
       await onLogin({ email, password });
     } catch (error) {
       // エラーハンドリング
-      if (error instanceof Error) {
-        if (error.message === 'ACCOUNT_LOCKED') {
-          const lockUntil = (error as Error & { lockUntil?: Date }).lockUntil;
-          if (lockUntil) {
+      // ApiErrorかどうかを判定（instanceofとname両方でチェック）
+      const isApiError = error instanceof ApiError ||
+                        (error as any)?.name === 'ApiError' ||
+                        (error as any)?.response !== undefined;
+
+      if (isApiError) {
+        // ApiErrorのresponseからエラーコードを取得
+        const errorResponse = (error as any).response as { code?: string; unlockAt?: string } | undefined;
+
+        if (errorResponse?.code === 'ACCOUNT_LOCKED') {
+          const unlockAtStr = errorResponse.unlockAt;
+          if (unlockAtStr) {
+            const lockUntil = new Date(unlockAtStr);
             const remainingSeconds = Math.floor((lockUntil.getTime() - Date.now()) / 1000);
             setLockTimeRemaining(remainingSeconds);
             setGeneralError(
@@ -101,7 +111,8 @@ function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
             setGeneralError('アカウントがロックされています。');
           }
         } else {
-          setGeneralError('メールアドレスまたはパスワードが正しくありません。');
+          // INVALID_CREDENTIALSまたはその他のエラー
+          setGeneralError('メールアドレスまたはパスワードが正しくありません');
         }
       } else {
         setGeneralError('ログインに失敗しました。もう一度お試しください。');
@@ -257,7 +268,7 @@ function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
               textDecoration: 'none',
             }}
           >
-            パスワードを忘れた場合
+            パスワードを忘れた
           </a>
         </div>
       )}
