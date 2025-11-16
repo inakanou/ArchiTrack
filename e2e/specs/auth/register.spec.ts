@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { cleanDatabase } from '../../fixtures/database';
+import { createTestUser, createInvitation } from '../../fixtures/auth.fixtures';
 
 /**
  * 新規登録機能のE2Eテスト
@@ -6,11 +8,28 @@ import { test, expect } from '@playwright/test';
  * ユーザー登録フローの検証
  */
 test.describe('新規登録機能', () => {
+  // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
+  test.describe.configure({ mode: 'serial' });
+
+  let invitationToken: string;
+
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア（認証状態の干渉を防ぐ）
     await context.clearCookies();
-    await page.goto('/register');
-    await page.evaluate(() => localStorage.clear());
+
+    // テストデータをクリーンアップして、招待者（管理者）を作成
+    await cleanDatabase();
+    const admin = await createTestUser('ADMIN_USER');
+
+    // 招待トークンを作成
+    const invitation = await createInvitation({
+      email: 'newuser@example.com',
+      inviterId: admin.id,
+    });
+    invitationToken = invitation.token;
+
+    // 招待URLにアクセス
+    await page.goto(`/register?token=${invitationToken}`);
   });
 
   test('登録フォームが正しく表示される', async ({ page }) => {
@@ -53,7 +72,11 @@ test.describe('新規登録機能', () => {
   });
 
   test('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
-    await page.getByLabel(/メールアドレス/i).fill('existing@example.com');
+    // 既存ユーザーを作成（招待されたメールアドレスと同じ）
+    await createTestUser('REGULAR_USER');
+
+    // 既存ユーザーのメールアドレスで登録を試みる
+    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
     await page.locator('input#password').fill('Password123!');
     await page.locator('input#passwordConfirm').fill('Password123!');
     await page.getByLabel(/表示名/i).fill('Test User');
