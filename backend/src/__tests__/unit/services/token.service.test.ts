@@ -188,18 +188,18 @@ describe('TokenService', () => {
     });
 
     it('期限切れトークンを拒否する', async () => {
-      // 既に期限切れのトークンを作成（過去の時刻で生成）
+      // 既に期限切れのトークンを作成（明示的に過去の時刻で生成）
+      // ベストプラクティス: タイミングに依存しない確実な期限切れトークンの生成
+      const oneHourAgo = Math.floor(Date.now() / 1000) - 3600;
       const expiredToken = await new jose.SignJWT({
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       })
         .setProtectedHeader({ alg: 'EdDSA' })
-        .setExpirationTime('0s') // 即座に期限切れ
+        .setIssuedAt(oneHourAgo - 60) // 発行時刻を過去に設定
+        .setExpirationTime(oneHourAgo) // 1時間前に期限切れ
         .sign(privateKey);
-
-      // 1秒待機して確実に期限切れにする
-      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const result = await tokenService.verifyToken(expiredToken, 'access');
 
