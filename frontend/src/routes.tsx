@@ -5,6 +5,7 @@ import { Sessions } from './pages/Sessions';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { PasswordResetPage } from './pages/PasswordResetPage';
+import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage';
 
 /**
  * アプリケーションのルート設定
@@ -79,6 +80,14 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <Sessions />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/profile/2fa-setup',
+    element: (
+      <ProtectedRoute>
+        <TwoFactorSetupPage />
       </ProtectedRoute>
     ),
   },

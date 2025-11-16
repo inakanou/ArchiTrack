@@ -67,8 +67,8 @@ describe('TwoFactorSetupForm', () => {
       // 秘密鍵が表示される
       expect(screen.getByText(mockSetupData.secret)).toBeInTheDocument();
 
-      // 次へボタンが表示される
-      expect(screen.getByRole('button', { name: /次へ/i })).toBeInTheDocument();
+      // 検証ボタンが表示される
+      expect(screen.getByRole('button', { name: /検証/i })).toBeInTheDocument();
     });
 
     it('プログレスバーが「1/3」を表示する', async () => {
@@ -144,8 +144,8 @@ describe('TwoFactorSetupForm', () => {
         expect(mockOnSetupStart).toHaveBeenCalled();
       });
 
-      // 次へボタンをクリック
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      // 検証ボタンをクリック
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       // 6桁入力フィールドが表示される
@@ -168,7 +168,7 @@ describe('TwoFactorSetupForm', () => {
         expect(mockOnSetupStart).toHaveBeenCalled();
       });
 
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -197,7 +197,7 @@ describe('TwoFactorSetupForm', () => {
         expect(mockOnSetupStart).toHaveBeenCalled();
       });
 
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -228,7 +228,7 @@ describe('TwoFactorSetupForm', () => {
       });
 
       // ステップ2へ進む
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -271,7 +271,7 @@ describe('TwoFactorSetupForm', () => {
         expect(mockOnSetupStart).toHaveBeenCalled();
       });
 
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -305,7 +305,7 @@ describe('TwoFactorSetupForm', () => {
       });
 
       // ステップ2へ
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -340,7 +340,7 @@ describe('TwoFactorSetupForm', () => {
       });
 
       // ステップ3へ進む
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -373,7 +373,7 @@ describe('TwoFactorSetupForm', () => {
       });
 
       // ステップ3へ進む
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -414,7 +414,7 @@ describe('TwoFactorSetupForm', () => {
       });
 
       // ステップ3へ進む
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -456,7 +456,7 @@ describe('TwoFactorSetupForm', () => {
       });
 
       // ステップ3へ進む
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -504,7 +504,7 @@ describe('TwoFactorSetupForm', () => {
       });
 
       // ステップ3へ進む
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
@@ -561,7 +561,7 @@ describe('TwoFactorSetupForm', () => {
         expect(mockOnSetupStart).toHaveBeenCalled();
       });
 
-      const nextButton = screen.getByRole('button', { name: /次へ/i });
+      const nextButton = screen.getByRole('button', { name: /検証/i });
       await user.click(nextButton);
 
       const inputs = screen.getAllByRole('textbox');

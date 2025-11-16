@@ -36,7 +36,7 @@ test.describe('2要素認証機能', () => {
       await expect(page.getByText(/秘密鍵/i)).toBeVisible();
 
       // TOTP入力フィールドが表示される
-      await expect(page.getByLabel(/認証コード/i)).toBeVisible();
+      await expect(page.getByRole('group', { name: /認証コード/i })).toBeVisible();
     });
 
     test('TOTPコード検証後にバックアップコードが表示される', async ({ page }) => {

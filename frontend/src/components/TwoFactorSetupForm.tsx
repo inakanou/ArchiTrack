@@ -60,16 +60,6 @@ function TwoFactorSetupForm({
     initSetup();
   }, [onSetupStart]);
 
-  // ステップ1→2へ進む
-  const handleNextToVerify = () => {
-    setCurrentStep('verify-totp');
-    setError('');
-    // 最初の入力フィールドにフォーカス
-    setTimeout(() => {
-      inputRefs.current[0]?.focus();
-    }, 0);
-  };
-
   // TOTP入力の変更処理
   const handleTotpChange = (index: number, value: string) => {
     // 数字のみ許可
@@ -233,9 +223,9 @@ function TwoFactorSetupForm({
         </div>
       )}
 
-      {/* Step 1: QRコード表示 */}
+      {/* Step 1: QRコード表示と検証 */}
       {currentStep === 'qr-code' && !isLoading && qrCodeDataUrl && (
-        <div>
+        <form onSubmit={handleVerifyTotp}>
           <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: 'bold' }}>
             認証アプリでQRコードをスキャン
           </h2>
@@ -252,7 +242,7 @@ function TwoFactorSetupForm({
           </div>
 
           <p style={{ marginBottom: '8px', fontSize: '14px', fontWeight: 'bold' }}>
-            または手動で入力：
+            秘密鍵（手動入力用）：
           </p>
           <div
             style={{
@@ -266,6 +256,53 @@ function TwoFactorSetupForm({
             }}
           >
             {secret}
+          </div>
+
+          {/* 認証コード入力エリア */}
+          <h3 style={{ marginBottom: '12px', fontSize: '16px', fontWeight: 'bold' }}>
+            認証コードを入力
+          </h3>
+          <p style={{ marginBottom: '12px', color: '#666', fontSize: '14px' }}>
+            認証アプリに表示されている6桁のコードを入力してください。
+          </p>
+
+          <div
+            role="group"
+            aria-label="認証コード入力"
+            style={{
+              display: 'flex',
+              gap: '8px',
+              justifyContent: 'center',
+              marginBottom: '20px',
+            }}
+          >
+            {totpCode.map((digit, index) => (
+              <input
+                key={index}
+                ref={(el) => {
+                  inputRefs.current[index] = el;
+                }}
+                type="text"
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  handleTotpChange(index, e.target.value)
+                }
+                onKeyDown={(e) => handleKeyDown(index, e)}
+                onPaste={index === 0 ? handlePaste : undefined}
+                aria-label={`認証コード ${index + 1}桁目`}
+                style={{
+                  width: '40px',
+                  height: '48px',
+                  textAlign: 'center',
+                  fontSize: '20px',
+                  border: '2px solid #ccc',
+                  borderRadius: '4px',
+                  outline: 'none',
+                }}
+              />
+            ))}
           </div>
 
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -285,8 +322,8 @@ function TwoFactorSetupForm({
               キャンセル
             </button>
             <button
-              type="button"
-              onClick={handleNextToVerify}
+              type="submit"
+              disabled={isLoading || totpCode.join('').length !== 6}
               style={{
                 padding: '10px 20px',
                 backgroundColor: '#007bff',
@@ -295,12 +332,13 @@ function TwoFactorSetupForm({
                 borderRadius: '4px',
                 cursor: 'pointer',
                 fontSize: '14px',
+                opacity: isLoading || totpCode.join('').length !== 6 ? 0.5 : 1,
               }}
             >
-              次へ
+              {isLoading ? '検証中...' : '検証'}
             </button>
           </div>
-        </div>
+        </form>
       )}
 
       {/* Step 2: TOTP検証 */}

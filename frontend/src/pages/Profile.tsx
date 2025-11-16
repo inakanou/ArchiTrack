@@ -370,12 +370,10 @@ export function Profile() {
 
             {/* パスワード強度インジケーター */}
             {passwordStrength && (
-              <div data-testid="password-strength-indicator">
-                <PasswordStrengthIndicator
-                  result={passwordStrength.result}
-                  requirements={passwordStrength.requirements}
-                />
-              </div>
+              <PasswordStrengthIndicator
+                result={passwordStrength.result}
+                requirements={passwordStrength.requirements}
+              />
             )}
           </div>
 

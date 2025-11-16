@@ -60,7 +60,7 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
   ];
 
   return (
-    <div style={{ marginTop: '1rem' }}>
+    <div data-testid="password-strength-indicator" style={{ marginTop: '1rem' }}>
       {/* パスワード強度表示 */}
       <div style={{ marginBottom: '0.75rem' }}>
         <div
