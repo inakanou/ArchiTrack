@@ -15,7 +15,6 @@ test.describe('プロフィール管理機能', () => {
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
-    await page.evaluate(() => localStorage.clear());
 
     // テストデータをクリーンアップして、テストユーザーを作成
     await cleanDatabase();
@@ -80,7 +79,6 @@ test.describe('プロフィール管理機能', () => {
   test('管理者ユーザーには「ユーザー管理」リンクが表示される', async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
-    await page.evaluate(() => localStorage.clear());
 
     // 管理者ユーザーを作成
     await cleanDatabase();

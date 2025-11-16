@@ -15,7 +15,6 @@ test.describe('セッション管理機能', () => {
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
-    await page.evaluate(() => localStorage.clear());
 
     // テストデータをクリーンアップして、テストユーザーを作成
     await cleanDatabase();

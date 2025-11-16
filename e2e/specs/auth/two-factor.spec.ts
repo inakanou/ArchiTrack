@@ -17,7 +17,6 @@ test.describe('2要素認証機能', () => {
     test.beforeEach(async ({ page, context }) => {
       // テスト間の状態をクリア
       await context.clearCookies();
-      await page.evaluate(() => localStorage.clear());
 
       // テストデータをクリーンアップして、テストユーザーを作成
       await cleanDatabase();
@@ -71,10 +70,9 @@ test.describe('2要素認証機能', () => {
 
   // 2FAログイン関連のテスト（認証不要、ゼロから開始）
   test.describe('2FAログイン', () => {
-    test.beforeEach(async ({ page, context }) => {
+    test.beforeEach(async ({ context }) => {
       // テスト間の状態をクリア
       await context.clearCookies();
-      await page.evaluate(() => localStorage.clear());
 
       // テストデータをクリーンアップして、2FA有効ユーザーを作成
       await cleanDatabase();
