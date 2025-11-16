@@ -31,13 +31,14 @@ export default defineConfig({
   outputDir: `test-results/${timestamp}`,
 
   // 並列実行の設定
-  fullyParallel: true,
+  // データベースクリーンアップの競合を防ぐため無効化
+  fullyParallel: false,
 
   // CI環境では2回、ローカルでは1回リトライ
   retries: process.env.CI ? 2 : 1,
 
-  // ワーカー数の設定
-  workers: process.env.CI ? 1 : undefined,
+  // ワーカー数の設定（シリアル実行のため1に固定）
+  workers: 1,
 
   // レポーター設定
   reporter: [
