@@ -90,13 +90,16 @@ function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
     } catch (error) {
       // エラーハンドリング
       // ApiErrorかどうかを判定（instanceofとname両方でチェック）
-      const isApiError = error instanceof ApiError ||
-                        (error as any)?.name === 'ApiError' ||
-                        (error as any)?.response !== undefined;
+      const isApiError =
+        error instanceof ApiError ||
+        (error as Error & { name?: string })?.name === 'ApiError' ||
+        (error as Error & { response?: unknown })?.response !== undefined;
 
       if (isApiError) {
         // ApiErrorのresponseからエラーコードを取得
-        const errorResponse = (error as any).response as { code?: string; unlockAt?: string } | undefined;
+        const errorResponse = (error as ApiError).response as
+          | { code?: string; unlockAt?: string }
+          | undefined;
 
         if (errorResponse?.code === 'ACCOUNT_LOCKED') {
           const unlockAtStr = errorResponse.unlockAt;
