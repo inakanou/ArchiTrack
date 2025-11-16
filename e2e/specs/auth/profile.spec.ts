@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { cleanDatabase } from '../../fixtures/database';
+import { createTestUser } from '../../fixtures/auth.fixtures';
+import { loginAsUser } from '../../helpers/auth-actions';
 
 /**
  * プロフィール管理機能のE2Eテスト
@@ -6,21 +9,23 @@ import { test, expect } from '@playwright/test';
  * 要件14: プロフィール画面のUI/UX
  */
 test.describe('プロフィール管理機能', () => {
+  // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+
+    // テストデータをクリーンアップして、テストユーザーを作成
+    await cleanDatabase();
+    await createTestUser('REGULAR_USER');
 
     // 認証済みユーザーとしてログイン
-    await context.addCookies([
-      {
-        name: 'auth_token',
-        value: 'test-auth-token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ]);
+    await loginAsUser(page, 'REGULAR_USER');
+
+    // プロフィールページに移動
     await page.goto('/profile');
-    await page.evaluate(() => localStorage.clear());
   });
 
   test('プロフィール画面が正しく表示される', async ({ page }) => {
@@ -73,16 +78,17 @@ test.describe('プロフィール管理機能', () => {
   });
 
   test('管理者ユーザーには「ユーザー管理」リンクが表示される', async ({ page, context }) => {
+    // テスト間の状態をクリア
+    await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+
+    // 管理者ユーザーを作成
+    await cleanDatabase();
+    await createTestUser('ADMIN_USER');
+
     // 管理者ユーザーでログイン
-    await context.addCookies([
-      {
-        name: 'auth_token',
-        value: 'admin-auth-token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ]);
-    await page.reload();
+    await loginAsUser(page, 'ADMIN_USER');
+    await page.goto('/profile');
 
     // ユーザー管理リンクが表示される
     await expect(page.getByRole('link', { name: /ユーザー管理/i })).toBeVisible();

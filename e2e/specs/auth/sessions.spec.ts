@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { cleanDatabase } from '../../fixtures/database';
+import { createTestUser } from '../../fixtures/auth.fixtures';
+import { loginAsUser } from '../../helpers/auth-actions';
 
 /**
  * セッション管理機能のE2Eテスト
@@ -6,21 +9,23 @@ import { test, expect } from '@playwright/test';
  * 要件8: セッション管理
  */
 test.describe('セッション管理機能', () => {
+  // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+
+    // テストデータをクリーンアップして、テストユーザーを作成
+    await cleanDatabase();
+    await createTestUser('REGULAR_USER');
 
     // 認証済みユーザーとしてログイン
-    await context.addCookies([
-      {
-        name: 'auth_token',
-        value: 'test-auth-token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ]);
+    await loginAsUser(page, 'REGULAR_USER');
+
+    // セッション管理ページに移動
     await page.goto('/sessions');
-    await page.evaluate(() => localStorage.clear());
   });
 
   test('セッション一覧が正しく表示される', async ({ page }) => {
