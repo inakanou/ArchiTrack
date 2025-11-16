@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   ReactNode,
   ReactElement,
 } from 'react';
@@ -217,14 +218,17 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 初回マウント時のみ実行（refreshToken は意図的に依存配列から除外）
 
-  const value: AuthContextValue = {
-    isAuthenticated: user !== null,
-    user,
-    isLoading,
-    login,
-    logout,
-    refreshToken,
-  };
+  const value: AuthContextValue = useMemo(
+    () => ({
+      isAuthenticated: user !== null,
+      user,
+      isLoading,
+      login,
+      logout,
+      refreshToken,
+    }),
+    [user, isLoading, login, logout, refreshToken]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

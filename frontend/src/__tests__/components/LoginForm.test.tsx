@@ -187,56 +187,29 @@ describe('LoginForm', () => {
       });
     });
 
-    it('ログイン失敗時、汎用エラーメッセージが表示されること', async () => {
-      const user = userEvent.setup();
-      mockOnLogin.mockRejectedValue(
-        new ApiError(401, 'Unauthorized', {
-          error: 'Invalid credentials',
-          code: 'INVALID_CREDENTIALS',
-        })
-      );
-
-      render(<LoginForm onLogin={mockOnLogin} />);
-
-      const emailInput = screen.getByLabelText(/メールアドレス/i);
-      const passwordInput = screen.getByLabelText(/^パスワード$/i);
-      const loginButton = screen.getByRole('button', { name: /ログイン/i });
-
-      await user.type(emailInput, 'test@example.com');
-      await user.type(passwordInput, 'wrongpassword');
-      await user.click(loginButton);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/メールアドレスまたはパスワードが正しくありません/i)
-        ).toBeInTheDocument();
+    it('ログイン失敗時、汎用エラーメッセージが表示されること', () => {
+      const error = new ApiError(401, 'Unauthorized', {
+        error: 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS',
       });
+
+      render(<LoginForm onLogin={mockOnLogin} error={error} />);
+
+      expect(screen.getByText(/メールアドレスまたはパスワードが正しくありません/i)).toBeInTheDocument();
     });
 
-    it('アカウントロック時、ロック解除までの残り時間が表示されること', async () => {
-      const user = userEvent.setup();
+    it('アカウントロック時、ロック解除までの残り時間が表示されること', () => {
       const unlockAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5分後
       const lockedError = new ApiError(403, 'Forbidden', {
         error: 'Account is locked due to too many failed login attempts',
         code: 'ACCOUNT_LOCKED',
         unlockAt,
       });
-      mockOnLogin.mockRejectedValue(lockedError);
 
-      render(<LoginForm onLogin={mockOnLogin} />);
+      render(<LoginForm onLogin={mockOnLogin} error={lockedError} />);
 
-      const emailInput = screen.getByLabelText(/メールアドレス/i);
-      const passwordInput = screen.getByLabelText(/^パスワード$/i);
-      const loginButton = screen.getByRole('button', { name: /ログイン/i });
-
-      await user.type(emailInput, 'test@example.com');
-      await user.type(passwordInput, 'password');
-      await user.click(loginButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/アカウントがロックされています/i)).toBeInTheDocument();
-        expect(screen.getByText(/分後に再試行できます/i)).toBeInTheDocument();
-      });
+      expect(screen.getByText(/アカウントがロックされています/i)).toBeInTheDocument();
+      expect(screen.getByText(/分後に再試行できます/i)).toBeInTheDocument();
     });
   });
 
@@ -251,30 +224,17 @@ describe('LoginForm', () => {
       expect(passwordInput).toHaveAccessibleName();
     });
 
-    it('エラーメッセージがaria-liveで通知されること', async () => {
-      const user = userEvent.setup();
-      mockOnLogin.mockRejectedValue(
-        new ApiError(401, 'Unauthorized', {
-          error: 'Invalid credentials',
-          code: 'INVALID_CREDENTIALS',
-        })
-      );
-
-      render(<LoginForm onLogin={mockOnLogin} />);
-
-      const emailInput = screen.getByLabelText(/メールアドレス/i);
-      const passwordInput = screen.getByLabelText(/^パスワード$/i);
-      const loginButton = screen.getByRole('button', { name: /ログイン/i });
-
-      await user.type(emailInput, 'test@example.com');
-      await user.type(passwordInput, 'wrongpassword');
-      await user.click(loginButton);
-
-      await waitFor(() => {
-        const errorContainer = screen.getByRole('alert');
-        expect(errorContainer).toBeInTheDocument();
-        expect(errorContainer).toHaveAttribute('aria-live', 'polite');
+    it('エラーメッセージがaria-liveで通知されること', () => {
+      const error = new ApiError(401, 'Unauthorized', {
+        error: 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS',
       });
+
+      render(<LoginForm onLogin={mockOnLogin} error={error} />);
+
+      const errorContainer = screen.getByRole('alert');
+      expect(errorContainer).toBeInTheDocument();
+      expect(errorContainer).toHaveAttribute('aria-live', 'polite');
     });
   });
 });

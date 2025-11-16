@@ -5,6 +5,7 @@ import { ApiError } from '../api/client';
 interface LoginFormProps {
   onLogin: (data: LoginFormData) => Promise<LoginResult>;
   onForgotPassword?: () => void;
+  error?: ApiError | null;
 }
 
 /**
@@ -12,16 +13,45 @@ interface LoginFormProps {
  *
  * ユーザーがメールアドレスとパスワードでログインするためのフォームです。
  */
-function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
+function LoginForm({ onLogin, onForgotPassword, error }: LoginFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
-  const [generalError, setGeneralError] = useState('');
   const [lockTimeRemaining, setLockTimeRemaining] = useState(0);
 
   const emailRef = useRef<HTMLInputElement>(null);
+
+  // error prop の変更を監視してロック時間を設定
+  const [generalError, setGeneralError] = useState('');
+  /* eslint-disable react-hooks/set-state-in-effect */
+  // Deriving state from error prop is a valid use case for setting state in useEffect
+  useEffect(() => {
+    if (error) {
+      const errorResponse = error.response as { code?: string; unlockAt?: string } | undefined;
+
+      if (errorResponse?.code === 'ACCOUNT_LOCKED') {
+        const unlockAtStr = errorResponse.unlockAt;
+        if (unlockAtStr) {
+          const lockUntil = new Date(unlockAtStr);
+          const remainingSeconds = Math.floor((lockUntil.getTime() - Date.now()) / 1000);
+          setLockTimeRemaining(remainingSeconds);
+          setGeneralError(
+            `アカウントがロックされています。${Math.ceil(remainingSeconds / 60)}分後に再試行できます。`
+          );
+        } else {
+          setGeneralError('アカウントがロックされています。');
+        }
+      } else {
+        setGeneralError('メールアドレスまたはパスワードが正しくありません');
+      }
+    } else {
+      setGeneralError('');
+      setLockTimeRemaining(0);
+    }
+  }, [error]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 自動フォーカス
   useEffect(() => {
@@ -82,47 +112,11 @@ function LoginForm({ onLogin, onForgotPassword }: LoginFormProps) {
     }
 
     setErrors({});
-    setGeneralError('');
     setIsLoading(true);
 
-    try {
-      await onLogin({ email, password });
-    } catch (error) {
-      // エラーハンドリング
-      // ApiErrorかどうかを判定（instanceofとname両方でチェック）
-      const isApiError =
-        error instanceof ApiError ||
-        (error as Error & { name?: string })?.name === 'ApiError' ||
-        (error as Error & { response?: unknown })?.response !== undefined;
+    await onLogin({ email, password });
 
-      if (isApiError) {
-        // ApiErrorのresponseからエラーコードを取得
-        const errorResponse = (error as ApiError).response as
-          | { code?: string; unlockAt?: string }
-          | undefined;
-
-        if (errorResponse?.code === 'ACCOUNT_LOCKED') {
-          const unlockAtStr = errorResponse.unlockAt;
-          if (unlockAtStr) {
-            const lockUntil = new Date(unlockAtStr);
-            const remainingSeconds = Math.floor((lockUntil.getTime() - Date.now()) / 1000);
-            setLockTimeRemaining(remainingSeconds);
-            setGeneralError(
-              `アカウントがロックされています。${Math.ceil(remainingSeconds / 60)}分後に再試行できます。`
-            );
-          } else {
-            setGeneralError('アカウントがロックされています。');
-          }
-        } else {
-          // INVALID_CREDENTIALSまたはその他のエラー
-          setGeneralError('メールアドレスまたはパスワードが正しくありません');
-        }
-      } else {
-        setGeneralError('ログインに失敗しました。もう一度お試しください。');
-      }
-    } finally {
-      setIsLoading(false);
-    }
+    setIsLoading(false);
   };
 
   const formattedLockTime = () => {

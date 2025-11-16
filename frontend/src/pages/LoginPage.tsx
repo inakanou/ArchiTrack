@@ -1,7 +1,9 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import LoginForm from '../components/LoginForm';
 import type { LoginFormData, LoginResult } from '../types/auth.types';
+import { ApiError } from '../api/client';
 
 /**
  * ログインページ
@@ -20,11 +22,15 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const [loginError, setLoginError] = useState<ApiError | null>(null);
 
   /**
    * ログイン処理
    */
   const handleLogin = async (data: LoginFormData): Promise<LoginResult> => {
+    // エラーをクリア
+    setLoginError(null);
+
     try {
       // AuthContextのlogin()を呼び出し
       await login(data.email, data.password);
@@ -38,8 +44,15 @@ export function LoginPage() {
         type: 'SUCCESS', // TODO: 2FA対応時に '2FA_REQUIRED' も処理
       };
     } catch (error) {
-      // エラーをLoginFormに伝播させる（LoginFormがエラーハンドリングを行う）
-      throw error;
+      // エラーを状態に保存（LoginForm は error prop で受け取る）
+      if (error instanceof ApiError) {
+        setLoginError(error);
+      }
+      // LoginResult error typeを返す（throwしない）
+      return {
+        type: 'ERROR',
+        error: error instanceof ApiError ? error : undefined,
+      };
     }
   };
 
@@ -91,7 +104,11 @@ export function LoginPage() {
           ArchiTrackへようこそ
         </p>
 
-        <LoginForm onLogin={handleLogin} onForgotPassword={handleForgotPassword} />
+        <LoginForm
+          onLogin={handleLogin}
+          onForgotPassword={handleForgotPassword}
+          error={loginError}
+        />
 
         <div
           style={{

@@ -30,10 +30,11 @@ export interface LoginFormData {
  * ログイン結果
  */
 export interface LoginResult {
-  type: 'SUCCESS' | '2FA_REQUIRED';
+  type: 'SUCCESS' | '2FA_REQUIRED' | 'ERROR';
   userId?: string;
   user?: UserProfile;
   accessToken?: string;
+  error?: unknown;
 }
 
 /**
