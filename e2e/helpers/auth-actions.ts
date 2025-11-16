@@ -44,6 +44,11 @@ export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS):
   // そのケースは個別に処理する
   if (!user.twoFactorEnabled) {
     await page.waitForURL('http://localhost:5173/');
+
+    // リフレッシュトークンがlocalStorageに保存されるまで待機
+    await page.waitForFunction(() => {
+      return localStorage.getItem('refreshToken') !== null;
+    });
   }
 }
 

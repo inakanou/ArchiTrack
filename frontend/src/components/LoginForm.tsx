@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import type { LoginFormData, LoginResult } from '../types/auth.types';
 import { ApiError } from '../api/client';
 
 interface LoginFormProps {
   onLogin: (data: LoginFormData) => Promise<LoginResult>;
-  onForgotPassword?: () => void;
   error?: ApiError | null;
 }
 
@@ -13,7 +13,7 @@ interface LoginFormProps {
  *
  * ユーザーがメールアドレスとパスワードでログインするためのフォームです。
  */
-function LoginForm({ onLogin, onForgotPassword, error }: LoginFormProps) {
+function LoginForm({ onLogin, error }: LoginFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -126,199 +126,196 @@ function LoginForm({ onLogin, onForgotPassword, error }: LoginFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ maxWidth: '400px', margin: '0 auto' }}>
-      {/* 汎用エラーメッセージ */}
-      {generalError && (
-        <div
-          role="alert"
-          aria-live="polite"
-          style={{
-            padding: '0.75rem',
-            marginBottom: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '0.375rem',
-            border: '1px solid #fecaca',
-            color: '#991b1b',
-          }}
-        >
-          {generalError}
-          {lockTimeRemaining > 0 && (
-            <div style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
-              残り時間: {formattedLockTime()}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* メールアドレスフィールド */}
-      <div style={{ marginBottom: '1rem' }}>
-        <label
-          htmlFor="email"
-          style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
-        >
-          メールアドレス
-        </label>
-        <input
-          ref={emailRef}
-          id="email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          onBlur={handleEmailBlur}
-          aria-invalid={!!errors.email}
-          aria-describedby={errors.email ? 'email-error' : undefined}
-          style={{
-            width: '100%',
-            padding: '0.5rem',
-            border: errors.email ? '2px solid #dc2626' : '1px solid #d1d5db',
-            borderRadius: '0.375rem',
-            fontSize: '1rem',
-            outline: 'none',
-          }}
-        />
-        {errors.email && (
-          <p
-            id="email-error"
+    <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+      <form onSubmit={handleSubmit}>
+        {/* 汎用エラーメッセージ */}
+        {generalError && (
+          <div
+            role="alert"
+            aria-live="polite"
             style={{
-              marginTop: '0.25rem',
-              fontSize: '0.875rem',
-              color: '#dc2626',
+              padding: '0.75rem',
+              marginBottom: '1rem',
+              backgroundColor: '#fee2e2',
+              borderRadius: '0.375rem',
+              border: '1px solid #fecaca',
+              color: '#991b1b',
             }}
           >
-            {errors.email}
-          </p>
+            {generalError}
+            {lockTimeRemaining > 0 && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                残り時間: {formattedLockTime()}
+              </div>
+            )}
+          </div>
         )}
-      </div>
 
-      {/* パスワードフィールド */}
-      <div style={{ marginBottom: '1rem' }}>
-        <label
-          htmlFor="password"
-          style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
-        >
-          パスワード
-        </label>
-        <div style={{ position: 'relative' }}>
+        {/* メールアドレスフィールド */}
+        <div style={{ marginBottom: '1rem' }}>
+          <label
+            htmlFor="email"
+            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+          >
+            メールアドレス
+          </label>
           <input
-            id="password"
-            type={showPassword ? 'text' : 'password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            aria-invalid={!!errors.password}
-            aria-describedby={errors.password ? 'password-error' : undefined}
+            ref={emailRef}
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onBlur={handleEmailBlur}
+            aria-invalid={!!errors.email}
+            aria-describedby={errors.email ? 'email-error' : undefined}
             style={{
               width: '100%',
               padding: '0.5rem',
-              paddingRight: '3rem',
-              border: errors.password ? '2px solid #dc2626' : '1px solid #d1d5db',
+              border: errors.email ? '2px solid #dc2626' : '1px solid #d1d5db',
               borderRadius: '0.375rem',
               fontSize: '1rem',
               outline: 'none',
             }}
           />
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            aria-label={showPassword ? 'パスワードを非表示' : 'パスワードを表示'}
-            style={{
-              position: 'absolute',
-              right: '0.5rem',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              padding: '0.25rem',
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-              fontSize: '0.875rem',
-              color: '#6b7280',
-            }}
-          >
-            {showPassword ? '👁️' : '👁️‍🗨️'}
-          </button>
+          {errors.email && (
+            <p
+              id="email-error"
+              style={{
+                marginTop: '0.25rem',
+                fontSize: '0.875rem',
+                color: '#dc2626',
+              }}
+            >
+              {errors.email}
+            </p>
+          )}
         </div>
-        {errors.password && (
-          <p
-            id="password-error"
-            style={{
-              marginTop: '0.25rem',
-              fontSize: '0.875rem',
-              color: '#dc2626',
-            }}
+
+        {/* パスワードフィールド */}
+        <div style={{ marginBottom: '1rem' }}>
+          <label
+            htmlFor="password"
+            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
           >
-            {errors.password}
-          </p>
-        )}
-      </div>
+            パスワード
+          </label>
+          <div style={{ position: 'relative' }}>
+            <input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? 'password-error' : undefined}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                paddingRight: '3rem',
+                border: errors.password ? '2px solid #dc2626' : '1px solid #d1d5db',
+                borderRadius: '0.375rem',
+                fontSize: '1rem',
+                outline: 'none',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              aria-label={showPassword ? 'パスワードを非表示' : 'パスワードを表示'}
+              style={{
+                position: 'absolute',
+                right: '0.5rem',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                padding: '0.25rem',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                color: '#6b7280',
+              }}
+            >
+              {showPassword ? '👁️' : '👁️‍🗨️'}
+            </button>
+          </div>
+          {errors.password && (
+            <p
+              id="password-error"
+              style={{
+                marginTop: '0.25rem',
+                fontSize: '0.875rem',
+                color: '#dc2626',
+              }}
+            >
+              {errors.password}
+            </p>
+          )}
+        </div>
+
+        {/* ログインボタン */}
+        <button
+          type="submit"
+          disabled={isLoading}
+          style={{
+            width: '100%',
+            padding: '0.75rem',
+            backgroundColor: isLoading ? '#9ca3af' : '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '0.375rem',
+            fontSize: '1rem',
+            fontWeight: 600,
+            cursor: isLoading ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          {isLoading && (
+            <span
+              role="status"
+              aria-label="ローディング中"
+              style={{
+                display: 'inline-block',
+                width: '1rem',
+                height: '1rem',
+                border: '2px solid white',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.6s linear infinite',
+              }}
+            />
+          )}
+          {isLoading ? 'ログイン中...' : 'ログイン'}
+        </button>
+
+        {/* アニメーション定義 */}
+        <style>
+          {`
+            @keyframes spin {
+              to {
+                transform: rotate(360deg);
+              }
+            }
+          `}
+        </style>
+      </form>
 
       {/* 「パスワードを忘れた場合」リンク */}
-      {onForgotPassword && (
-        <div style={{ marginBottom: '1rem', textAlign: 'right' }}>
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              onForgotPassword();
-            }}
-            style={{
-              fontSize: '0.875rem',
-              color: '#3b82f6',
-              textDecoration: 'none',
-            }}
-          >
-            パスワードを忘れた
-          </a>
-        </div>
-      )}
-
-      {/* ログインボタン */}
-      <button
-        type="submit"
-        disabled={isLoading}
-        style={{
-          width: '100%',
-          padding: '0.75rem',
-          backgroundColor: isLoading ? '#9ca3af' : '#3b82f6',
-          color: 'white',
-          border: 'none',
-          borderRadius: '0.375rem',
-          fontSize: '1rem',
-          fontWeight: 600,
-          cursor: isLoading ? 'not-allowed' : 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '0.5rem',
-        }}
-      >
-        {isLoading && (
-          <span
-            role="status"
-            aria-label="ローディング中"
-            style={{
-              display: 'inline-block',
-              width: '1rem',
-              height: '1rem',
-              border: '2px solid white',
-              borderTopColor: 'transparent',
-              borderRadius: '50%',
-              animation: 'spin 0.6s linear infinite',
-            }}
-          />
-        )}
-        {isLoading ? 'ログイン中...' : 'ログイン'}
-      </button>
-
-      {/* アニメーション定義 */}
-      <style>
-        {`
-          @keyframes spin {
-            to {
-              transform: rotate(360deg);
-            }
-          }
-        `}
-      </style>
-    </form>
+      <div style={{ marginTop: '1rem', textAlign: 'right' }}>
+        <Link
+          to="/password-reset"
+          style={{
+            fontSize: '0.875rem',
+            color: '#3b82f6',
+            textDecoration: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          パスワードを忘れた
+        </Link>
+      </div>
+    </div>
   );
 }
 

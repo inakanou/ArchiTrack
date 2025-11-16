@@ -18,6 +18,10 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
+  roles?: string[];
+  createdAt?: string;
+  emailVerified?: boolean;
+  twoFactorEnabled?: boolean;
 }
 
 /**
@@ -69,7 +73,12 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
     try {
       // ログインAPIを呼び出し
-      const response = await apiClient.post<{ user: User; tokens: Tokens }>('/api/v1/auth/login', {
+      const response = await apiClient.post<{
+        user: User;
+        accessToken: string;
+        refreshToken: string;
+        expiresIn?: number;
+      }>('/api/v1/auth/login', {
         email,
         password,
       });
@@ -78,10 +87,10 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       setUser(response.user);
 
       // アクセストークンをAPIクライアントに設定
-      apiClient.setAccessToken(response.tokens.accessToken);
+      apiClient.setAccessToken(response.accessToken);
 
       // リフレッシュトークンをlocalStorageに保存
-      localStorage.setItem('refreshToken', response.tokens.refreshToken);
+      localStorage.setItem('refreshToken', response.refreshToken);
 
       // TokenRefreshManagerを初期化
       // リフレッシュ関数をインラインで定義（循環参照を避けるため）
@@ -92,27 +101,32 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         }
 
         // リフレッシュAPIを呼び出し
-        const refreshResponse = await apiClient.post<{ tokens: Tokens }>('/api/v1/auth/refresh', {
+        const refreshResponse = await apiClient.post<{
+          accessToken: string;
+          refreshToken?: string;
+        }>('/api/v1/auth/refresh', {
           refreshToken: storedRefreshToken,
         });
 
         // アクセストークンを更新
-        apiClient.setAccessToken(refreshResponse.tokens.accessToken);
+        apiClient.setAccessToken(refreshResponse.accessToken);
 
         // リフレッシュトークンを更新（新しいリフレッシュトークンが発行される場合）
-        if (refreshResponse.tokens.refreshToken) {
-          localStorage.setItem('refreshToken', refreshResponse.tokens.refreshToken);
+        if (refreshResponse.refreshToken) {
+          localStorage.setItem('refreshToken', refreshResponse.refreshToken);
         }
 
-        return refreshResponse.tokens.accessToken;
+        return refreshResponse.accessToken;
       });
       setTokenRefreshManager(manager);
 
       // APIクライアントのトークンリフレッシュコールバックを設定
       apiClient.setTokenRefreshCallback(() => manager.refreshToken());
 
-      // 自動リフレッシュをスケジュール
-      manager.scheduleAutoRefresh(response.tokens.expiresIn);
+      // 自動リフレッシュをスケジュール（expiresInが提供されている場合）
+      if (response.expiresIn) {
+        manager.scheduleAutoRefresh(response.expiresIn);
+      }
 
       // 他のタブからのトークン更新を監視
       manager.onTokenRefreshed((newAccessToken) => {
@@ -179,19 +193,22 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     }
 
     // リフレッシュAPIを呼び出し
-    const response = await apiClient.post<{ tokens: Tokens }>('/api/v1/auth/refresh', {
+    const response = await apiClient.post<{
+      accessToken: string;
+      refreshToken?: string;
+    }>('/api/v1/auth/refresh', {
       refreshToken: storedRefreshToken,
     });
 
     // アクセストークンを更新
-    apiClient.setAccessToken(response.tokens.accessToken);
+    apiClient.setAccessToken(response.accessToken);
 
     // リフレッシュトークンを更新（新しいリフレッシュトークンが発行される場合）
-    if (response.tokens.refreshToken) {
-      localStorage.setItem('refreshToken', response.tokens.refreshToken);
+    if (response.refreshToken) {
+      localStorage.setItem('refreshToken', response.refreshToken);
     }
 
-    return response.tokens.accessToken;
+    return response.accessToken;
   }, [tokenRefreshManager]);
 
   /**
@@ -202,11 +219,24 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     const storedRefreshToken = localStorage.getItem('refreshToken');
 
     if (storedRefreshToken) {
+      // セッション復元中はローディング状態にする
+      setIsLoading(true);
+
       // トークンリフレッシュを実行してセッションを復元
-      refreshToken().catch(() => {
-        // リフレッシュ失敗時はlocalStorageをクリア
-        localStorage.removeItem('refreshToken');
-      });
+      refreshToken()
+        .then(async () => {
+          // リフレッシュ成功後、ユーザー情報を取得
+          const response = await apiClient.get<{ user: User }>('/api/v1/auth/me');
+          setUser(response.user);
+        })
+        .catch(() => {
+          // リフレッシュ失敗時はlocalStorageをクリア
+          localStorage.removeItem('refreshToken');
+        })
+        .finally(() => {
+          // ローディング状態を解除
+          setIsLoading(false);
+        });
     }
 
     // クリーンアップ関数

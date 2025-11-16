@@ -1,22 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import LoginForm from '../../components/LoginForm';
 import type { LoginResult } from '../../types/auth.types';
 import { ApiError } from '../../api/client';
 
+// Linkコンポーネント使用のためのラッパー
+const renderWithRouter = (ui: React.ReactElement) => {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+};
+
 describe('LoginForm', () => {
   const mockOnLogin = vi.fn();
-  const mockOnForgotPassword = vi.fn();
 
   beforeEach(() => {
     mockOnLogin.mockReset();
-    mockOnForgotPassword.mockReset();
   });
 
   describe('フォーム要素の表示', () => {
     it('メールアドレス入力フィールドが表示されること', () => {
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const emailInput = screen.getByLabelText(/メールアドレス/i);
       expect(emailInput).toBeInTheDocument();
@@ -24,7 +28,7 @@ describe('LoginForm', () => {
     });
 
     it('パスワード入力フィールドが表示されること', () => {
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const passwordInput = screen.getByLabelText(/^パスワード$/i);
       expect(passwordInput).toBeInTheDocument();
@@ -32,30 +36,31 @@ describe('LoginForm', () => {
     });
 
     it('ログインボタンが表示されること', () => {
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const loginButton = screen.getByRole('button', { name: /ログイン/i });
       expect(loginButton).toBeInTheDocument();
     });
 
     it('パスワード表示/非表示切り替えボタンが表示されること', () => {
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const toggleButton = screen.getByRole('button', { name: /パスワードを表示/i });
       expect(toggleButton).toBeInTheDocument();
     });
 
     it('「パスワードを忘れた」リンクが表示されること', () => {
-      render(<LoginForm onLogin={mockOnLogin} onForgotPassword={mockOnForgotPassword} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const forgotPasswordLink = screen.getByRole('link', {
         name: /パスワードを忘れた/i,
       });
       expect(forgotPasswordLink).toBeInTheDocument();
+      expect(forgotPasswordLink).toHaveAttribute('href', '/password-reset');
     });
 
     it('メールアドレスフィールドに自動フォーカスされること', () => {
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const emailInput = screen.getByLabelText(/メールアドレス/i);
       expect(emailInput).toHaveFocus();
@@ -65,7 +70,7 @@ describe('LoginForm', () => {
   describe('パスワード表示/非表示切り替え', () => {
     it('切り替えボタンをクリックするとパスワードが表示されること', async () => {
       const user = userEvent.setup();
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const passwordInput = screen.getByLabelText(/^パスワード$/i);
       const toggleButton = screen.getByRole('button', { name: /パスワードを表示/i });
@@ -88,7 +93,7 @@ describe('LoginForm', () => {
   describe('バリデーション', () => {
     it('メールアドレス形式が無効な場合、リアルタイムエラーが表示されること', async () => {
       const user = userEvent.setup();
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const emailInput = screen.getByLabelText(/メールアドレス/i);
 
@@ -104,7 +109,7 @@ describe('LoginForm', () => {
 
     it('フォームが未入力の場合、必須フィールドエラーが表示されること', async () => {
       const user = userEvent.setup();
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const loginButton = screen.getByRole('button', { name: /ログイン/i });
 
@@ -123,7 +128,7 @@ describe('LoginForm', () => {
 
     it('有効な入力の場合、バリデーションエラーが表示されないこと', async () => {
       const user = userEvent.setup();
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const emailInput = screen.getByLabelText(/メールアドレス/i);
       await user.type(emailInput, 'test@example.com');
@@ -139,7 +144,7 @@ describe('LoginForm', () => {
       const user = userEvent.setup();
       mockOnLogin.mockResolvedValue({ type: 'SUCCESS' } as LoginResult);
 
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const emailInput = screen.getByLabelText(/メールアドレス/i);
       const passwordInput = screen.getByLabelText(/^パスワード$/i);
@@ -165,7 +170,7 @@ describe('LoginForm', () => {
       });
       mockOnLogin.mockReturnValue(loginPromise);
 
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const emailInput = screen.getByLabelText(/メールアドレス/i);
       const passwordInput = screen.getByLabelText(/^パスワード$/i);
@@ -193,9 +198,11 @@ describe('LoginForm', () => {
         code: 'INVALID_CREDENTIALS',
       });
 
-      render(<LoginForm onLogin={mockOnLogin} error={error} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} error={error} />);
 
-      expect(screen.getByText(/メールアドレスまたはパスワードが正しくありません/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/メールアドレスまたはパスワードが正しくありません/i)
+      ).toBeInTheDocument();
     });
 
     it('アカウントロック時、ロック解除までの残り時間が表示されること', () => {
@@ -206,7 +213,7 @@ describe('LoginForm', () => {
         unlockAt,
       });
 
-      render(<LoginForm onLogin={mockOnLogin} error={lockedError} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} error={lockedError} />);
 
       expect(screen.getByText(/アカウントがロックされています/i)).toBeInTheDocument();
       expect(screen.getByText(/分後に再試行できます/i)).toBeInTheDocument();
@@ -215,7 +222,7 @@ describe('LoginForm', () => {
 
   describe('アクセシビリティ', () => {
     it('全ての入力フィールドにlabel要素が関連付けられていること', () => {
-      render(<LoginForm onLogin={mockOnLogin} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
 
       const emailInput = screen.getByLabelText(/メールアドレス/i);
       const passwordInput = screen.getByLabelText(/^パスワード$/i);
@@ -230,7 +237,7 @@ describe('LoginForm', () => {
         code: 'INVALID_CREDENTIALS',
       });
 
-      render(<LoginForm onLogin={mockOnLogin} error={error} />);
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} error={error} />);
 
       const errorContainer = screen.getByRole('alert');
       expect(errorContainer).toBeInTheDocument();

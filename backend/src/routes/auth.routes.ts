@@ -75,6 +75,12 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(12, 'Password must be at least 12 characters'),
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(12, 'Password must be at least 12 characters'),
+  newPasswordConfirm: z.string().min(1, 'Password confirmation is required'),
+});
+
 /**
  * @swagger
  * /api/v1/auth/register:
@@ -1228,6 +1234,118 @@ router.post(
       logger.info({ token: token.substring(0, 8) + '...' }, 'Password reset successfully');
 
       res.status(200).json({ message: 'Password reset successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/password/change:
+ *   post:
+ *     summary: Change password
+ *     description: Change the password for the authenticated user
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *               - newPasswordConfirm
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 description: Current password
+ *               newPassword:
+ *                 type: string
+ *                 description: New password (min 12 characters)
+ *               newPasswordConfirm:
+ *                 type: string
+ *                 description: New password confirmation
+ *     responses:
+ *       200:
+ *         description: Password changed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid request (weak password, password mismatch, etc.)
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/password/change',
+  authenticate,
+  validate(changePasswordSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const { currentPassword, newPassword, newPasswordConfirm } = req.body;
+
+      // パスワード確認チェック
+      if (newPassword !== newPasswordConfirm) {
+        res.status(400).json({
+          error: 'New password and confirmation do not match',
+          code: 'PASSWORD_MISMATCH',
+        });
+        return;
+      }
+
+      // パスワード変更サービス呼び出し
+      const result = await passwordService.changePassword(
+        req.user.userId,
+        currentPassword,
+        newPassword
+      );
+
+      if (!result.ok) {
+        const error = result.error;
+
+        if (error.type === 'RESET_TOKEN_INVALID') {
+          // changePasswordではUSER_NOT_FOUNDまたはINVALID_PASSWORDの意味
+          res.status(400).json({
+            error: 'Current password is incorrect',
+            code: 'INVALID_CURRENT_PASSWORD',
+          });
+          return;
+        } else if (error.type === 'WEAK_PASSWORD') {
+          res.status(400).json({
+            error: 'Password does not meet requirements',
+            code: error.type,
+            violations: error.violations,
+          });
+          return;
+        } else if (error.type === 'PASSWORD_REUSED') {
+          res.status(400).json({
+            error: 'Password has been used recently. Please choose a different password',
+            code: error.type,
+          });
+          return;
+        }
+
+        res.status(500).json({ error: 'Password change failed', code: 'PASSWORD_CHANGE_ERROR' });
+        return;
+      }
+
+      logger.info({ userId: req.user.userId }, 'Password changed successfully');
+
+      res.status(200).json({ message: 'Password changed successfully' });
     } catch (error) {
       next(error);
     }

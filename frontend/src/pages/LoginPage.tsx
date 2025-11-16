@@ -24,6 +24,9 @@ export function LoginPage() {
   const { login } = useAuth();
   const [loginError, setLoginError] = useState<ApiError | null>(null);
 
+  // location.stateから成功メッセージを取得（例：登録完了後のメッセージ）
+  const successMessage = (location.state as { message?: string })?.message;
+
   /**
    * ログイン処理
    */
@@ -54,13 +57,6 @@ export function LoginPage() {
         error: error instanceof ApiError ? error : undefined,
       };
     }
-  };
-
-  /**
-   * パスワード忘れた場合のハンドラー
-   */
-  const handleForgotPassword = () => {
-    navigate('/password-reset');
   };
 
   return (
@@ -104,11 +100,27 @@ export function LoginPage() {
           ArchiTrackへようこそ
         </p>
 
-        <LoginForm
-          onLogin={handleLogin}
-          onForgotPassword={handleForgotPassword}
-          error={loginError}
-        />
+        {/* 成功メッセージ（登録完了後など） */}
+        {successMessage && (
+          <div
+            role="alert"
+            aria-live="polite"
+            style={{
+              padding: '0.75rem',
+              marginBottom: '1.5rem',
+              backgroundColor: '#d1fae5',
+              borderRadius: '0.375rem',
+              border: '1px solid #a7f3d0',
+              color: '#065f46',
+              textAlign: 'center',
+              fontSize: '0.875rem',
+            }}
+          >
+            {successMessage}
+          </div>
+        )}
+
+        <LoginForm onLogin={handleLogin} error={loginError} />
 
         <div
           style={{

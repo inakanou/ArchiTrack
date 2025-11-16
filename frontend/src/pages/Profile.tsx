@@ -119,7 +119,7 @@ export function Profile() {
     setProfileMessage('');
 
     try {
-      await apiClient.patch<UserProfile>(`/api/v1/users/${user.id}`, {
+      await apiClient.patch<UserProfile>('/api/v1/auth/me', {
         displayName,
       } as UpdateProfileFormData);
 
@@ -170,7 +170,8 @@ export function Profile() {
       setTimeout(() => {
         logout();
       }, 2000);
-    } catch {
+    } catch (error) {
+      console.error('Password change error:', error);
       setPasswordMessage('パスワード変更に失敗しました');
     } finally {
       setPasswordLoading(false);
@@ -190,7 +191,7 @@ export function Profile() {
       <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '2rem' }}>プロフィール</h1>
 
       {/* 管理者向けリンク */}
-      {user?.roles.includes('admin') && (
+      {user?.roles?.includes('admin') && (
         <div style={{ marginBottom: '2rem' }}>
           <a
             href="/admin/users"
@@ -264,7 +265,9 @@ export function Profile() {
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
               ロール
             </label>
-            <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>{user?.roles.join(', ')}</div>
+            <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+              {user?.roles?.join(', ') || '-'}
+            </div>
           </div>
 
           {/* 作成日時表示 */}
@@ -379,14 +382,14 @@ export function Profile() {
           {/* パスワード確認 */}
           <div>
             <label
-              htmlFor="newPasswordConfirm"
+              htmlFor="confirmPassword"
               style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
             >
               新しいパスワード（確認）
             </label>
             <input
               type="password"
-              id="newPasswordConfirm"
+              id="confirmPassword"
               aria-label="パスワード確認"
               value={newPasswordConfirm}
               onChange={(e) => setNewPasswordConfirm(e.target.value)}
@@ -494,7 +497,7 @@ export function Profile() {
               </button>
               <button
                 onClick={handleConfirmPasswordChange}
-                aria-label="はい"
+                aria-label="はい、変更する"
                 style={{
                   padding: '0.5rem 1rem',
                   backgroundColor: '#dc2626',

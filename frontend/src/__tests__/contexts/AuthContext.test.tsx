@@ -179,7 +179,10 @@ describe('AuthContext', () => {
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ tokens: newMockTokens }),
+        json: async () => ({
+          accessToken: newMockTokens.accessToken,
+          refreshToken: newMockTokens.refreshToken,
+        }),
       });
 
       // 手動でリフレッシュを実行

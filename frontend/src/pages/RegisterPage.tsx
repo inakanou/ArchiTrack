@@ -29,13 +29,12 @@ export function RegisterPage() {
    */
   const handleVerifyInvitation = async (token: string): Promise<InvitationVerificationResult> => {
     try {
-      const response = await apiClient.post<{
-        valid: boolean;
-        email?: string;
-      }>('/api/v1/invitations/verify', { token });
+      const response = await apiClient.get<{
+        email: string;
+      }>(`/api/v1/invitations/verify?token=${token}`);
 
       return {
-        valid: response.valid,
+        valid: true,
         email: response.email,
       };
     } catch {
