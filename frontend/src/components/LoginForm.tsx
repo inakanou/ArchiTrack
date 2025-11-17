@@ -258,7 +258,7 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
           style={{
             width: '100%',
             padding: '0.75rem',
-            backgroundColor: isLoading ? '#9ca3af' : '#3b82f6',
+            backgroundColor: isLoading ? '#9ca3af' : '#1d4ed8',
             color: 'white',
             border: 'none',
             borderRadius: '0.375rem',
@@ -307,7 +307,7 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
           to="/password-reset"
           style={{
             fontSize: '0.875rem',
-            color: '#3b82f6',
+            color: '#1d4ed8',
             textDecoration: 'none',
             cursor: 'pointer',
           }}

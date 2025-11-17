@@ -17,10 +17,10 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
     { text: string; color: string }
   > = {
     weak: { text: '弱い', color: '#dc2626' }, // red-600
-    fair: { text: '普通', color: '#f59e0b' }, // amber-500
-    good: { text: '良い', color: '#3b82f6' }, // blue-500
-    strong: { text: '強い', color: '#10b981' }, // emerald-500
-    'very-strong': { text: '非常に強い', color: '#059669' }, // emerald-600
+    fair: { text: '普通', color: '#d97706' }, // amber-600 (WCAG AA準拠)
+    good: { text: '良い', color: '#1d4ed8' }, // blue-700 (WCAG AA準拠)
+    strong: { text: '強い', color: '#059669' }, // emerald-600 (WCAG AA準拠)
+    'very-strong': { text: '非常に強い', color: '#047857' }, // emerald-700 (WCAG AA準拠)
   };
 
   const strengthInfo = strengthLabels[result.strength];
@@ -129,7 +129,7 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
                 alignItems: 'center',
                 gap: '0.5rem',
                 fontSize: '0.875rem',
-                color: item.met ? '#10b981' : '#6b7280',
+                color: item.met ? '#047857' : '#4b5563',
               }}
             >
               <span

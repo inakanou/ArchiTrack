@@ -176,7 +176,7 @@ function TwoFactorVerificationForm({
                 style={{
                   fontSize: '24px',
                   fontWeight: 'bold',
-                  color: timeRemaining <= 10 ? '#dc3545' : '#007bff',
+                  color: timeRemaining <= 10 ? '#dc3545' : '#0056b3',
                   marginBottom: '8px',
                 }}
               >
@@ -195,7 +195,7 @@ function TwoFactorVerificationForm({
                   style={{
                     width: `${progressWidth}%`,
                     height: '100%',
-                    backgroundColor: timeRemaining <= 10 ? '#dc3545' : '#007bff',
+                    backgroundColor: timeRemaining <= 10 ? '#dc3545' : '#0056b3',
                     transition: 'width 1s linear',
                   }}
                 />
@@ -250,7 +250,7 @@ function TwoFactorVerificationForm({
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: '#007bff',
+                  color: '#0056b3',
                   textDecoration: 'underline',
                   cursor: 'pointer',
                   fontSize: '14px',
@@ -309,7 +309,7 @@ function TwoFactorVerificationForm({
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: '#007bff',
+                  color: '#0056b3',
                   textDecoration: 'underline',
                   cursor: 'pointer',
                   fontSize: '14px',
@@ -353,7 +353,7 @@ function TwoFactorVerificationForm({
                 !isLoading &&
                 ((!useBackupCode && totpCode.join('').length === 6) ||
                   (useBackupCode && backupCode))
-                  ? '#007bff'
+                  ? '#0056b3'
                   : '#ccc',
               color: '#fff',
               border: 'none',

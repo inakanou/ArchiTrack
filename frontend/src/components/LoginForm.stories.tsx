@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
+import { MemoryRouter } from 'react-router-dom';
 import LoginForm from './LoginForm';
 
 /**
@@ -11,6 +12,13 @@ import LoginForm from './LoginForm';
 const meta = {
   title: 'Components/LoginForm',
   component: LoginForm,
+  decorators: [
+    (Story) => (
+      <MemoryRouter>
+        <Story />
+      </MemoryRouter>
+    ),
+  ],
   parameters: {
     layout: 'centered',
   },

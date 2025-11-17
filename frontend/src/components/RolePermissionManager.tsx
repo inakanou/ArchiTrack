@@ -72,9 +72,9 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
           style={{
             padding: '12px 24px',
             border: 'none',
-            borderBottom: selectedTab === 'roles' ? '3px solid #1976d2' : 'none',
+            borderBottom: selectedTab === 'roles' ? '3px solid #0d47a1' : 'none',
             backgroundColor: 'transparent',
-            color: selectedTab === 'roles' ? '#1976d2' : '#666',
+            color: selectedTab === 'roles' ? '#0d47a1' : '#4b5563',
             fontWeight: selectedTab === 'roles' ? 'bold' : 'normal',
             fontSize: '16px',
             cursor: 'pointer',
@@ -87,9 +87,9 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
           style={{
             padding: '12px 24px',
             border: 'none',
-            borderBottom: selectedTab === 'permissions' ? '3px solid #1976d2' : 'none',
+            borderBottom: selectedTab === 'permissions' ? '3px solid #0d47a1' : 'none',
             backgroundColor: 'transparent',
-            color: selectedTab === 'permissions' ? '#1976d2' : '#666',
+            color: selectedTab === 'permissions' ? '#0d47a1' : '#4b5563',
             fontWeight: selectedTab === 'permissions' ? 'bold' : 'normal',
             fontSize: '16px',
             cursor: 'pointer',
@@ -106,7 +106,7 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
             <button
               onClick={() => setShowCreateRoleDialog(true)}
               style={{
-                backgroundColor: '#1976d2',
+                backgroundColor: '#0d47a1',
                 color: '#fff',
                 padding: '10px 24px',
                 border: 'none',
@@ -338,7 +338,7 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
                 <button
                   type="submit"
                   style={{
-                    backgroundColor: '#1976d2',
+                    backgroundColor: '#0d47a1',
                     color: '#fff',
                     padding: '10px 20px',
                     border: 'none',

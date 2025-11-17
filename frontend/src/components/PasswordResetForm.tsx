@@ -225,7 +225,7 @@ function PasswordResetForm({
           style={{
             width: '100%',
             padding: '0.75rem',
-            backgroundColor: isLoading ? '#9ca3af' : '#3b82f6',
+            backgroundColor: isLoading ? '#9ca3af' : '#1d4ed8',
             color: 'white',
             border: 'none',
             borderRadius: '0.375rem',
@@ -397,7 +397,7 @@ function PasswordResetForm({
         style={{
           width: '100%',
           padding: '0.75rem',
-          backgroundColor: isLoading ? '#9ca3af' : '#3b82f6',
+          backgroundColor: isLoading ? '#9ca3af' : '#1d4ed8',
           color: 'white',
           border: 'none',
           borderRadius: '0.375rem',
