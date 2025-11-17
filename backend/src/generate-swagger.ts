@@ -1,5 +1,5 @@
 import swaggerJsdoc from 'swagger-jsdoc';
-import { writeFileSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -170,5 +170,10 @@ const options = {
 
 const specs = swaggerJsdoc(options);
 const outputPath = `${__dirname}/../docs/api-spec.json`;
+const outputDir = dirname(outputPath);
+
+// Ensure the output directory exists
+mkdirSync(outputDir, { recursive: true });
+
 writeFileSync(outputPath, JSON.stringify(specs, null, 2));
 console.log(`Swagger spec generated at ${outputPath}`);
