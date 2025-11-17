@@ -5,13 +5,6 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.{test,spec}.ts'],
-    // Integration tests should run sequentially to avoid database conflicts
-    pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true, // Run all tests in a single process
-      },
-    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
