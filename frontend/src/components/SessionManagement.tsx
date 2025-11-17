@@ -34,7 +34,7 @@ function SessionManagement({
 
       try {
         const data = await onFetchSessions();
-        setSessions(data);
+        setSessions(data || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'セッション一覧の取得に失敗しました');
       } finally {
