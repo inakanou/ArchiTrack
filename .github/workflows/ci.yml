@@ -176,8 +176,15 @@ jobs:
           docker compose up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
+      - name: Setup test database
+        run: |
+          # テスト用データベースを作成
+          docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;" || true
+          # テストデータベースにマイグレーションを適用
+          docker exec -e DATABASE_URL="postgresql://postgres:dev@postgres:5432/architrack_test" architrack-backend npx prisma migrate deploy
+          echo "Test database setup completed"
       - name: Run integration tests
-        run: docker exec architrack-backend npm run test:integration
+        run: docker exec -e DATABASE_URL="postgresql://postgres:dev@postgres:5432/architrack_test" architrack-backend npm run test:integration
       - name: Run E2E tests
         run: npm run test:e2e
         env:
