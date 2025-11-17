@@ -54,11 +54,12 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
         <div
           role="alert"
           style={{
-            backgroundColor: '#ffebee',
-            color: '#d32f2f',
+            backgroundColor: '#fef2f2',
+            color: '#991b1b',
             padding: '12px 16px',
             borderRadius: '4px',
             marginBottom: '20px',
+            border: '1px solid #fecaca',
           }}
         >
           {error}

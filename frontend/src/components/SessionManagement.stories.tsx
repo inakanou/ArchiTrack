@@ -17,9 +17,9 @@ const meta = {
   },
   tags: ['autodocs'],
   args: {
-    onFetchSessions: fn(),
-    onDeleteSession: fn(),
-    onDeleteAllSessions: fn(),
+    onFetchSessions: fn().mockResolvedValue([]),
+    onDeleteSession: fn().mockResolvedValue(undefined),
+    onDeleteAllSessions: fn().mockResolvedValue(undefined),
   },
 } satisfies Meta<typeof SessionManagement>;
 
