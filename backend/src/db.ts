@@ -12,7 +12,12 @@ function getPrismaClient(): PrismaClient {
       log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     });
 
-    logger.info('Prisma Client initialized');
+    logger.info(
+      {
+        databaseUrl: process.env.DATABASE_URL?.replace(/:[^:@]+@/, ':***@'), // パスワードをマスク
+      },
+      'Prisma Client initialized'
+    );
   }
 
   if (!prisma) {

@@ -23,22 +23,34 @@ if (!process.env.JWT_PUBLIC_KEY || !process.env.JWT_PRIVATE_KEY) {
 }
 
 // 環境変数のデフォルト設定（テスト用）
-// 既に設定されている場合は上書きしない（GitHub Actions等での設定を尊重）
-// CI環境ではGitHub Actionsが環境変数を設定する
-// ローカル環境では.envファイルから読み込まれる
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
-if (!process.env.CI) {
-  // ローカル環境: テスト専用データベースを使用
-  // 開発用DBと分離してテストデータの汚染を防ぐ
-  process.env.DATABASE_URL =
-    process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_test';
-  process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/1';
-  process.env.PORT = process.env.PORT || '3001';
-} else {
-  // CI環境: GitHub Actionsが設定した環境変数を使用
-  process.env.PORT = process.env.PORT || '3001';
-  process.env.DATABASE_URL =
-    process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test_db';
-  process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/1';
+// テスト用データベースの設定
+// .envファイルが開発用DBを指定している場合があるため、
+// TEST_DATABASE_URL環境変数が設定されていない限り、
+// テスト専用DBを使用するように強制する
+const isDockerTest = process.env.DATABASE_URL?.includes('architrack_test');
+const isExplicitlySet = process.env.TEST_DATABASE_URL;
+
+if (!isDockerTest && !isExplicitlySet) {
+  // ローカル環境または.envで開発DBが設定されている場合
+  // テストDBに強制変更（データ汚染を防ぐため）
+  const originalDbUrl = process.env.DATABASE_URL;
+
+  // Docker環境を検出（DATABASE_URLのホスト名で判定）
+  const isInDocker = originalDbUrl?.includes('@postgres:');
+
+  // Docker内の場合はホスト名を'postgres'に、ローカルの場合は'localhost'に設定
+  const dbHost = isInDocker ? 'postgres' : 'localhost';
+  process.env.DATABASE_URL = `postgresql://postgres:dev@${dbHost}:5432/architrack_test`;
+
+  console.log(
+    '[VITEST] DATABASE_URL overridden for tests:',
+    originalDbUrl ? 'dev -> test' : 'not set -> test',
+    `(${isInDocker ? 'Docker' : 'Local'})`
+  );
 }
+
+// その他の環境変数のデフォルト設定
+process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/1';
+process.env.PORT = process.env.PORT || '3001';
