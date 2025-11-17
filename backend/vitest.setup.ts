@@ -52,5 +52,22 @@ if (!isDockerTest && !isExplicitlySet) {
 }
 
 // その他の環境変数のデフォルト設定
-process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/1';
+// Docker環境の場合は既存の値を保持、ローカル環境のみデフォルト値を設定
+if (!process.env.REDIS_URL) {
+  // Docker環境を検出（DATABASE_URLまたはREDIS_URLのホスト名で判定）
+  const isInDocker =
+    process.env.DATABASE_URL?.includes('@postgres:') ||
+    process.env.REDIS_URL?.includes('redis://redis:');
+
+  // Docker内の場合はredis、ローカルの場合はlocalhostに設定
+  const redisHost = isInDocker ? 'redis' : 'localhost';
+  process.env.REDIS_URL = `redis://${redisHost}:6379/1`;
+
+  console.log(
+    '[VITEST] REDIS_URL set for tests:',
+    `redis://${redisHost}:6379/1`,
+    `(${isInDocker ? 'Docker' : 'Local'})`
+  );
+}
+
 process.env.PORT = process.env.PORT || '3001';
