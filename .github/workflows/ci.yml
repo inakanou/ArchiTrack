@@ -173,7 +173,7 @@ jobs:
         run: npm ci
       - name: Start Docker Compose
         run: |
-          docker compose up -d
+          REDIS_URL="redis://redis:6379/1" docker compose up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
       - name: Setup test database
