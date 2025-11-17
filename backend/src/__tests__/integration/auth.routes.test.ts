@@ -83,6 +83,16 @@ describe('Authentication API Integration Tests', () => {
       password: 'AdminPassword123!',
     });
 
+    // ログインレスポンスをチェック
+    if (loginResponse.status !== 200) {
+      console.error('[AUTH.ROUTES.TEST] Login failed in beforeAll:', {
+        status: loginResponse.status,
+        body: loginResponse.body,
+        adminId: admin.id,
+      });
+      throw new Error(`Login failed with status ${loginResponse.status}`);
+    }
+
     adminUser = {
       id: admin.id,
       email: admin.email,
