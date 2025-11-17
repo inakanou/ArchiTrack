@@ -3,13 +3,18 @@
 import 'dotenv/config';
 import { generateKeyPair, exportJWK } from 'jose';
 
-// テスト用JWT鍵を生成して環境変数に設定
-const { publicKey, privateKey } = await generateKeyPair('EdDSA');
-const publicJWK = await exportJWK(publicKey);
-const privateJWK = await exportJWK(privateKey);
+// JWT鍵の設定
+// .envファイルに鍵が設定されている場合はそれを使用（一貫性のため）
+// 設定されていない場合は新しい鍵を生成
+if (!process.env.JWT_PUBLIC_KEY || !process.env.JWT_PRIVATE_KEY) {
+  // テスト用JWT鍵を生成して環境変数に設定
+  const { publicKey, privateKey } = await generateKeyPair('EdDSA');
+  const publicJWK = await exportJWK(publicKey);
+  const privateJWK = await exportJWK(privateKey);
 
-process.env.JWT_PUBLIC_KEY = Buffer.from(JSON.stringify(publicJWK)).toString('base64');
-process.env.JWT_PRIVATE_KEY = Buffer.from(JSON.stringify(privateJWK)).toString('base64');
+  process.env.JWT_PUBLIC_KEY = Buffer.from(JSON.stringify(publicJWK)).toString('base64');
+  process.env.JWT_PRIVATE_KEY = Buffer.from(JSON.stringify(privateJWK)).toString('base64');
+}
 
 // 環境変数のデフォルト設定（テスト用）
 // 既に設定されている場合は上書きしない（GitHub Actions等での設定を尊重）
