@@ -43,6 +43,9 @@ services:
       DATABASE_URL: postgresql://postgres:dev@postgres:5432/architrack_dev
       REDIS_URL: redis://redis:6379
       FRONTEND_URL: http://localhost:5173
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
     ports:
       - "3000:3000"
     volumes:

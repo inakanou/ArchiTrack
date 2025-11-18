@@ -275,6 +275,13 @@ jobs:
           JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
       - name: Start Docker Compose for E2E
         run: |
+          # Create .env file for Docker Compose with required secrets
+          cat > .env << EOF
+          JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}
+          JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}
+          TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
+          EOF
+
           docker compose up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
