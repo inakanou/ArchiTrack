@@ -192,6 +192,8 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+      - name: Install root dependencies
+        run: npm ci
       - name: Install backend dependencies
         run: npm --prefix backend ci
       - name: Generate Prisma Client
@@ -208,8 +210,6 @@ jobs:
           DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
           NODE_ENV: test
           REDIS_URL: redis://localhost:6379/1
-      - name: Install root dependencies for E2E
-        run: npm ci
       - name: Start Docker Compose for E2E
         run: |
           docker compose up -d
