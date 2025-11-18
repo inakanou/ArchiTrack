@@ -196,12 +196,12 @@ describe('Redis Integration Tests', () => {
 
       await client.setex(key, ttl, value);
 
-      // 2秒待つ
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // 3秒待つ（TTL切れを確実にするため余裕を持たせる）
+      await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const retrieved = await client.get(key);
       expect(retrieved).toBeNull();
-    }, 5000); // テストタイムアウトを5秒に設定
+    }, 6000); // テストタイムアウトを6秒に設定
   });
 
   describe('Hash Operations', () => {
