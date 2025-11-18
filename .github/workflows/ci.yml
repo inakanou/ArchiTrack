@@ -184,8 +184,9 @@ jobs:
           timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-redis"; do sleep 2; done'
       - name: Setup test database
         run: |
-          # PostgreSQLコンテナ内でテストデータベースを作成
-          docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;" || true
+          # テストデータベースが既に存在する場合は削除して再作成（クリーンな状態を保証）
+          docker exec architrack-postgres psql -U postgres -c "DROP DATABASE IF EXISTS architrack_test;"
+          docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;"
           # マイグレーションを適用（ランナー上で実行）
           npm --prefix backend run db:migrate:deploy
         env:

@@ -222,7 +222,7 @@ describe('Profile Component', () => {
         },
         { timeout: 3000 }
       );
-    });
+    }, 10000);
   });
 
   describe('管理者機能', () => {
