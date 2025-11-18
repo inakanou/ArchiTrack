@@ -162,29 +162,6 @@ jobs:
     name: Integration & E2E Tests
     runs-on: ubuntu-latest
     needs: [lint, typecheck, test-unit, build, test-storybook]
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: architrack_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: dev
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node.js
@@ -196,11 +173,18 @@ jobs:
         run: npm ci
       - name: Install backend dependencies
         run: npm --prefix backend ci
-      - name: Generate Prisma Client
-        run: npm --prefix backend run prisma:generate
+      - name: Start PostgreSQL and Redis with Docker Compose
+        run: |
+          # PostgreSQLとRedisのみを起動（backendとfrontendは起動しない）
+          docker compose up -d postgres redis
+          # サービスがhealthyになるまで待つ
+          timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-postgres"; do sleep 2; done'
+          timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-redis"; do sleep 2; done'
       - name: Setup test database
         run: |
-          # テストデータベースにマイグレーションを適用
+          # PostgreSQLコンテナ内でテストデータベースを作成
+          docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;" || true
+          # マイグレーションを適用（ランナー上で実行）
           npm --prefix backend run db:migrate:deploy
         env:
           DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
