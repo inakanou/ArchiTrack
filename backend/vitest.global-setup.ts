@@ -10,8 +10,8 @@ import { generateKeyPair, exportJWK } from 'jose';
 export async function setup() {
   // JWT鍵の設定
   // 優先順位:
-  // 1. 環境変数に既に設定されている場合: そのまま使用（docker-entrypoint.sh または .env から）
-  // 2. 設定されていない場合: 新しい鍵を生成（CI環境のユニットテスト用）
+  // 1. 環境変数に既に設定されている場合: そのまま使用（GitHub Secrets, docker-entrypoint.sh, .env）
+  // 2. 設定されていない場合: 新しい鍵を生成（ローカル環境用フォールバック）
   if (!process.env.JWT_PUBLIC_KEY || !process.env.JWT_PRIVATE_KEY) {
     // テスト用JWT鍵を生成
     const { publicKey, privateKey } = await generateKeyPair('EdDSA');
@@ -26,7 +26,10 @@ export async function setup() {
       console.log('[GLOBAL SETUP] Generated JWT keys for test environment');
     }
   } else {
-    console.log('[GLOBAL SETUP] Using existing JWT keys from environment variables');
+    console.log(
+      '[GLOBAL SETUP] Using existing JWT keys from environment variables',
+      process.env.CI ? '(CI Secrets)' : '(local)'
+    );
   }
 
   // 環境変数のデフォルト設定（テスト用）
