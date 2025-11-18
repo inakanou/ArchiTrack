@@ -31,12 +31,19 @@ describe('Seed Script Integration Tests', () => {
   });
 
   afterAll(async () => {
-    // クリーンアップ: テストデータを削除
-    await prisma.userRole.deleteMany({});
-    await prisma.rolePermission.deleteMany({});
-    await prisma.user.deleteMany({});
-    await prisma.permission.deleteMany({});
-    await prisma.role.deleteMany({});
+    // クリーンアップ: テスト用ユーザーのみ削除、ロールと権限は他のテストで使用するため残す
+    await prisma.userRole.deleteMany({
+      where: {
+        user: {
+          email: 'admin@test.example.com',
+        },
+      },
+    });
+    await prisma.user.deleteMany({
+      where: {
+        email: 'admin@test.example.com',
+      },
+    });
 
     process.env = originalEnv;
     await prisma.$disconnect();
@@ -177,6 +184,14 @@ describe('Seed Script Integration Tests', () => {
   });
 
   it('Seedスクリプトが冪等性を持つ（2回実行しても問題ない）', async () => {
+    // テスト独立性を保証するため、開始時に全データをクリーンアップ
+    // 完全にクリーンな状態からseedを実行して冪等性を検証
+    await prisma.userRole.deleteMany({});
+    await prisma.rolePermission.deleteMany({});
+    await prisma.user.deleteMany({});
+    await prisma.permission.deleteMany({});
+    await prisma.role.deleteMany({});
+
     // Arrange & Act: 1回目の実行
     const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
       '../../utils/seed-helpers'
