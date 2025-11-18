@@ -25,6 +25,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - name: Install dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
             npm ci
@@ -60,6 +62,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - name: Install dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
             npm ci
@@ -88,6 +92,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - name: Install dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix ${{ matrix.workspace }} ci
       - name: Run unit tests
         run: |
@@ -124,6 +130,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - name: Install dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix ${{ matrix.workspace }} ci
       - name: Build
         run: npm --prefix ${{ matrix.workspace }} run build
@@ -146,6 +154,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - name: Install frontend dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix frontend ci
       - name: Install Playwright browsers
         run: npx --prefix frontend playwright install chromium --with-deps
@@ -170,10 +180,16 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - name: Install root dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm ci
       - name: Install backend dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend ci
       - name: Generate Prisma Client
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend run prisma:generate
       - name: Start PostgreSQL and Redis with Docker Compose
         run: |
@@ -277,6 +293,8 @@ jobs:
           cache: 'npm'
 
       - name: Install backend dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend ci
 
       - name: Check environment variables
@@ -447,6 +465,8 @@ jobs:
           cache: 'npm'
 
       - name: Install backend dependencies
+        env:
+          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend ci
 
       - name: Check environment variables
