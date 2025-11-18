@@ -19,14 +19,24 @@ jobs:
         workspace: [backend, frontend, e2e]
     steps:
       - uses: actions/checkout@v5
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
             npm ci
@@ -56,14 +66,24 @@ jobs:
         workspace: [backend, frontend, e2e]
     steps:
       - uses: actions/checkout@v5
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
             npm ci
@@ -86,14 +106,24 @@ jobs:
         workspace: [backend, frontend]
     steps:
       - uses: actions/checkout@v5
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix ${{ matrix.workspace }} ci
       - name: Run unit tests
         run: |
@@ -124,14 +154,24 @@ jobs:
         workspace: [backend, frontend]
     steps:
       - uses: actions/checkout@v5
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix ${{ matrix.workspace }} ci
       - name: Build
         run: npm --prefix ${{ matrix.workspace }} run build
@@ -148,14 +188,24 @@ jobs:
     needs: [lint, typecheck, build]
     steps:
       - uses: actions/checkout@v5
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install frontend dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix frontend ci
       - name: Install Playwright browsers
         run: npx --prefix frontend playwright install chromium --with-deps
@@ -174,22 +224,30 @@ jobs:
     needs: [lint, typecheck, test-unit, build, test-storybook]
     steps:
       - uses: actions/checkout@v5
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install root dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm ci
+
       - name: Install backend dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend ci
+
       - name: Generate Prisma Client
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend run prisma:generate
       - name: Start PostgreSQL and Redis with Docker Compose
         run: |
@@ -292,9 +350,17 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install backend dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend ci
 
       - name: Check environment variables
@@ -464,9 +530,17 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install backend dependencies
-        env:
-          PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: 1
         run: npm --prefix backend ci
 
       - name: Check environment variables
