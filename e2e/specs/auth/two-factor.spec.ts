@@ -33,6 +33,9 @@ test.describe('2要素認証機能', () => {
     test('2FAセットアップページが正しく表示される', async ({ page }) => {
       await page.goto('/profile/2fa-setup');
 
+      // ネットワークリクエスト（APIコール）が完了するまで待機
+      await page.waitForLoadState('networkidle');
+
       // QRコードが表示される
       await expect(page.getByRole('img', { name: /QRコード/i })).toBeVisible();
 
