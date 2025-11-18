@@ -22,6 +22,15 @@ describe('Authentication API Integration Tests', () => {
   // let invitationToken: string;
 
   beforeAll(async () => {
+    // デバッグ: 環境変数の確認
+    console.log('[AUTH.ROUTES.TEST] Environment check:', {
+      JWT_PUBLIC_KEY: process.env.JWT_PUBLIC_KEY?.substring(0, 20) + '...',
+      JWT_PRIVATE_KEY: process.env.JWT_PRIVATE_KEY?.substring(0, 20) + '...',
+      DATABASE_URL: process.env.DATABASE_URL?.replace(/:[^:@]+@/, ':***@'),
+      NODE_ENV: process.env.NODE_ENV,
+      CI: process.env.CI,
+    });
+
     // Prismaクライアントの初期化
     prisma = getPrismaClient();
 
@@ -66,6 +75,11 @@ describe('Authentication API Integration Tests', () => {
       },
     });
 
+    console.log('[AUTH.ROUTES.TEST] Created admin user:', {
+      id: admin.id,
+      email: admin.email,
+    });
+
     // 管理者ロールを割り当て
     const adminRole = await prisma.role.findUnique({ where: { name: 'admin' } });
     if (adminRole) {
@@ -93,12 +107,42 @@ describe('Authentication API Integration Tests', () => {
       throw new Error(`Login failed with status ${loginResponse.status}`);
     }
 
+    console.log('[AUTH.ROUTES.TEST] Login successful:', {
+      status: loginResponse.status,
+      hasAccessToken: !!loginResponse.body.accessToken,
+      hasRefreshToken: !!loginResponse.body.refreshToken,
+      accessTokenLength: loginResponse.body.accessToken?.length,
+    });
+
+    // トークンのペイロードを確認（デバッグ用）
+    if (loginResponse.body.accessToken) {
+      try {
+        const tokenParts = loginResponse.body.accessToken.split('.');
+        if (tokenParts.length === 3) {
+          const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+          console.log('[AUTH.ROUTES.TEST] Access token payload:', {
+            userId: payload.userId,
+            email: payload.email,
+            roles: payload.roles,
+          });
+        }
+      } catch (err) {
+        console.error('[AUTH.ROUTES.TEST] Failed to decode access token:', err);
+      }
+    }
+
     adminUser = {
       id: admin.id,
       email: admin.email,
       accessToken: loginResponse.body.accessToken,
       refreshToken: loginResponse.body.refreshToken,
     };
+
+    console.log('[AUTH.ROUTES.TEST] adminUser object created:', {
+      id: adminUser.id,
+      email: adminUser.email,
+      hasTokens: !!adminUser.accessToken && !!adminUser.refreshToken,
+    });
   });
 
   afterAll(async () => {
@@ -341,8 +385,19 @@ describe('Authentication API Integration Tests', () => {
 
   describe('POST /api/v1/auth/refresh', () => {
     it('有効なリフレッシュトークンで新しいアクセストークンを取得できること', async () => {
+      console.log('[AUTH.ROUTES.TEST] Before refresh request:', {
+        hasRefreshToken: !!adminUser.refreshToken,
+        refreshTokenLength: adminUser.refreshToken?.length,
+        refreshTokenPreview: adminUser.refreshToken?.substring(0, 20) + '...',
+      });
+
       const response = await request(app).post('/api/v1/auth/refresh').send({
         refreshToken: adminUser.refreshToken,
+      });
+
+      console.log('[AUTH.ROUTES.TEST] Refresh response:', {
+        status: response.status,
+        body: response.body,
       });
 
       expect(response.status).toBe(200);
@@ -362,9 +417,21 @@ describe('Authentication API Integration Tests', () => {
 
   describe('GET /api/v1/auth/me', () => {
     it('認証済みユーザーが自分の情報を取得できること', async () => {
+      console.log('[AUTH.ROUTES.TEST] Before GET /me request:', {
+        hasAccessToken: !!adminUser.accessToken,
+        accessTokenLength: adminUser.accessToken?.length,
+        accessTokenPreview: adminUser.accessToken?.substring(0, 20) + '...',
+        adminUserId: adminUser.id,
+      });
+
       const response = await request(app)
         .get('/api/v1/auth/me')
         .set('Authorization', `Bearer ${adminUser.accessToken}`);
+
+      console.log('[AUTH.ROUTES.TEST] GET /me response:', {
+        status: response.status,
+        body: response.body,
+      });
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('id');
