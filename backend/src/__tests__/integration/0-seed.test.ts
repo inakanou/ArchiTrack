@@ -184,13 +184,22 @@ describe('Seed Script Integration Tests', () => {
   });
 
   it('Seedスクリプトが冪等性を持つ（2回実行しても問題ない）', async () => {
-    // テスト独立性を保証するため、開始時に全データをクリーンアップ
-    // 完全にクリーンな状態からseedを実行して冪等性を検証
-    await prisma.userRole.deleteMany({});
-    await prisma.rolePermission.deleteMany({});
-    await prisma.user.deleteMany({});
-    await prisma.permission.deleteMany({});
-    await prisma.role.deleteMany({});
+    // テスト独立性を保証するため、開始時にテスト用データのみをクリーンアップ
+    // 他のテストファイルが作成したデータを削除しないよう、admin@test.example.comのみを対象にする
+    await prisma.userRole.deleteMany({
+      where: {
+        user: {
+          email: 'admin@test.example.com',
+        },
+      },
+    });
+    await prisma.user.deleteMany({
+      where: {
+        email: 'admin@test.example.com',
+      },
+    });
+    // ロール、権限、ロール権限は他のテストと共有するため、完全削除はしない
+    // 代わりに、seed関数の冪等性（既存データがあっても重複作成しない）に依存する
 
     // Arrange & Act: 1回目の実行
     const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
@@ -222,9 +231,19 @@ describe('Seed Script Integration Tests', () => {
   });
 
   it('初期管理者が既に存在する場合はスキップする', async () => {
-    // Arrange: 既存のテストデータをクリーンアップ
-    await prisma.userRole.deleteMany({});
-    await prisma.user.deleteMany({});
+    // Arrange: 既存のテストデータをクリーンアップ（テスト用ユーザーのみ）
+    await prisma.userRole.deleteMany({
+      where: {
+        user: {
+          email: 'admin@test.example.com',
+        },
+      },
+    });
+    await prisma.user.deleteMany({
+      where: {
+        email: 'admin@test.example.com',
+      },
+    });
 
     // Arrange: 手動で管理者を作成
     const existingAdminPassword = await hash('ExistingAdmin123!@#', {
