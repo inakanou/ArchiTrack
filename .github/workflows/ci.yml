@@ -173,6 +173,8 @@ jobs:
         run: npm ci
       - name: Install backend dependencies
         run: npm --prefix backend ci
+      - name: Generate Prisma Client
+        run: npm --prefix backend run prisma:generate
       - name: Start PostgreSQL and Redis with Docker Compose
         run: |
           # PostgreSQLとRedisのみを起動（backendとfrontendは起動しない）
