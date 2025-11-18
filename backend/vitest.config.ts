@@ -5,6 +5,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.{test,spec}.ts'],
+    // Global setup: 全てのテストの前に一度だけ実行される
+    // JWT keys, 環境変数などの初期化を行う
+    globalSetup: ['./vitest.global-setup.ts'],
+    // Setup files: 各テストファイルの前に実行される
+    // 環境変数の検証などを行う
+    setupFiles: ['./vitest.setup.ts'],
     // Integration tests use shared database, run sequentially to avoid data conflicts
     pool: 'forks',
     poolOptions: {
@@ -38,6 +44,5 @@ export default defineConfig({
         lines: 80,
       },
     },
-    setupFiles: ['./vitest.setup.ts'],
   },
 });
