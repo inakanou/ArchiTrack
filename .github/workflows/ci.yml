@@ -273,6 +273,41 @@ jobs:
           REDIS_URL: redis://localhost:6379/1
           JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
+      - name: Validate environment variables for Docker Compose
+        run: |
+          echo "🔍 Validating required environment variables for E2E tests..."
+
+          missing_vars=()
+
+          if [ -z "${{ secrets.TEST_JWT_PUBLIC_KEY }}" ]; then
+            missing_vars+=("TEST_JWT_PUBLIC_KEY")
+          fi
+
+          if [ -z "${{ secrets.TEST_JWT_PRIVATE_KEY }}" ]; then
+            missing_vars+=("TEST_JWT_PRIVATE_KEY")
+          fi
+
+          if [ -z "${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" ]; then
+            missing_vars+=("TEST_TWO_FACTOR_ENCRYPTION_KEY")
+          fi
+
+          if [ ${#missing_vars[@]} -gt 0 ]; then
+            echo "❌ Missing required GitHub Secrets:"
+            for var in "${missing_vars[@]}"; do
+              echo "  - $var"
+            done
+            echo ""
+            echo "Please configure these secrets in:"
+            echo "  Settings > Secrets and variables > Actions > Repository secrets"
+            echo ""
+            echo "To generate these values:"
+            echo "  - JWT keys: npm run generate-keys (in backend directory)"
+            echo "  - 2FA key: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+            exit 1
+          fi
+
+          echo "✅ All required environment variables are configured"
+
       - name: Start Docker Compose for E2E
         run: |
           # Create .env file for Docker Compose with required secrets

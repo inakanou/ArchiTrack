@@ -39,6 +39,45 @@ const envSchema = z.object({
 
   // CI
   CI: z.string().optional(),
+
+  // Authentication (REQUIRED for application to function)
+  JWT_PUBLIC_KEY: z
+    .string()
+    .min(1, 'JWT_PUBLIC_KEY is required for authentication')
+    .refine(
+      (val) => {
+        try {
+          // Base64デコードしてJWK形式かチェック
+          const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
+          return jwk.kty === 'OKP' && jwk.crv === 'Ed25519';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'JWT_PUBLIC_KEY must be a valid Base64-encoded Ed25519 JWK' }
+    ),
+
+  JWT_PRIVATE_KEY: z
+    .string()
+    .min(1, 'JWT_PRIVATE_KEY is required for authentication')
+    .refine(
+      (val) => {
+        try {
+          // Base64デコードしてJWK形式かチェック
+          const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
+          return jwk.kty === 'OKP' && jwk.crv === 'Ed25519' && 'd' in jwk;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'JWT_PRIVATE_KEY must be a valid Base64-encoded Ed25519 JWK with private key' }
+    ),
+
+  // Two-Factor Authentication
+  TWO_FACTOR_ENCRYPTION_KEY: z
+    .string()
+    .min(1, 'TWO_FACTOR_ENCRYPTION_KEY is required for 2FA functionality')
+    .regex(/^[0-9a-f]{64}$/i, 'TWO_FACTOR_ENCRYPTION_KEY must be exactly 64 hex characters'),
 });
 
 /**

@@ -49,13 +49,17 @@ cd ArchiTrack
 # Git hooksを有効化
 git config core.hooksPath .husky
 
-# 環境変数ファイルをコピー
-cp backend/.env.example backend/.env
+# ローカル開発環境をセットアップ（環境変数、JWT鍵、2FA鍵を自動生成）
+./scripts/setup-local-env.sh
+
+# フロントエンド環境変数ファイルをコピー
 cp frontend/.env.example frontend/.env
 
 # Docker Composeで起動
 docker-compose up -d
 ```
+
+> **💡 ヒント**: `setup-local-env.sh`スクリプトは、`.env`ファイルの作成、JWT認証鍵の生成、2FA暗号化鍵の生成を自動で行います。手動でセットアップする場合は[環境変数設定ガイド](docs/deployment/environment-variables.md)を参照してください。
 
 **アクセス先:**
 - Frontend: http://localhost:5173

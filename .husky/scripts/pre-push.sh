@@ -75,6 +75,43 @@ echo "📝 最新ログ: ${LATEST_LOG}"
 echo "============================================================================"
 echo ""
 
+echo "🔍 Checking environment variable consistency..."
+echo ""
+
+# docker-compose.ymlで使用されている環境変数が.env.exampleに記載されているかチェック
+if [ -f "docker-compose.yml" ] && [ -f "backend/.env.example" ]; then
+  # docker-compose.ymlから環境変数を抽出
+  compose_vars=$(grep -oP '\$\{[A-Z_]+\}' docker-compose.yml 2>/dev/null | sed 's/\${\(.*\)}/\1/' | sort -u)
+
+  if [ -n "$compose_vars" ]; then
+    missing_in_example=()
+    for var in $compose_vars; do
+      # .env.exampleに記載されているかチェック
+      if ! grep -q "^#.*$var\|^$var=" backend/.env.example 2>/dev/null; then
+        missing_in_example+=("$var")
+      fi
+    done
+
+    if [ ${#missing_in_example[@]} -gt 0 ]; then
+      echo "⚠️  Warning: The following environment variables are used in docker-compose.yml"
+      echo "   but not documented in backend/.env.example:"
+      for var in "${missing_in_example[@]}"; do
+        echo "   - $var"
+      done
+      echo ""
+      echo "This is a WARNING, not an error. Push will continue."
+      echo "Consider updating backend/.env.example for better documentation."
+      echo ""
+    else
+      echo "✅ Environment variable consistency check passed"
+      echo ""
+    fi
+  fi
+else
+  echo "⏭️  Skipping environment variable check (docker-compose.yml or backend/.env.example not found)"
+  echo ""
+fi
+
 echo "🔍 Running format checks before push..."
 
 # Backend format check
