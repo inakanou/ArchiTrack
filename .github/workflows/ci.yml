@@ -194,6 +194,8 @@ jobs:
           cache: 'npm'
       - name: Install backend dependencies
         run: npm --prefix backend ci
+      - name: Generate Prisma Client
+        run: npm --prefix backend run prisma:generate
       - name: Setup test database
         run: |
           # テストデータベースにマイグレーションを適用
