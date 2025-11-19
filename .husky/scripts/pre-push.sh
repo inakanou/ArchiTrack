@@ -295,6 +295,53 @@ if [ -d "frontend" ] && git diff --cached --name-only | grep -q "^frontend/"; th
   fi
 fi
 
+# 環境変数検証（統合テスト用）
+echo "🔍 Validating required environment variables for integration tests..."
+
+# 統合テストで必要な環境変数のチェック
+missing_vars=()
+
+# .envファイルの存在確認
+if [ ! -f ".env" ]; then
+  echo "⚠️  Warning: .env file not found in project root."
+  echo "   Integration tests may fail without required environment variables."
+  echo ""
+fi
+
+# Docker Composeで使用される環境変数をチェック
+# これらは.envファイルまたは環境変数として設定される必要がある
+if [ -f ".env" ]; then
+  # .envファイルから環境変数を読み込む（exportはしない、チェックのみ）
+  if ! grep -q "^JWT_PUBLIC_KEY=" .env 2>/dev/null; then
+    missing_vars+=("JWT_PUBLIC_KEY")
+  fi
+
+  if ! grep -q "^JWT_PRIVATE_KEY=" .env 2>/dev/null; then
+    missing_vars+=("JWT_PRIVATE_KEY")
+  fi
+
+  if ! grep -q "^TWO_FACTOR_ENCRYPTION_KEY=" .env 2>/dev/null; then
+    missing_vars+=("TWO_FACTOR_ENCRYPTION_KEY")
+  fi
+
+  if [ ${#missing_vars[@]} -gt 0 ]; then
+    echo "❌ Missing required environment variables in .env file:"
+    for var in "${missing_vars[@]}"; do
+      echo "   - $var"
+    done
+    echo ""
+    echo "To generate these values:"
+    echo "  - JWT keys: npm --prefix backend run generate-keys"
+    echo "  - 2FA key: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+    echo ""
+    echo "Add these to your .env file in the project root."
+    exit 1
+  fi
+
+  echo "✅ All required environment variables are configured in .env"
+  echo ""
+fi
+
 # Docker環境の自動構築
 echo "🐳 Setting up Docker environment for integration tests..."
 

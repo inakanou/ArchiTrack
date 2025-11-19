@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 // scripts/check-env.ts
 // 環境変数の設定状況をチェックするスクリプト
+// src/config/env.ts の検証ロジックを使用
 
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
@@ -15,225 +16,108 @@ const backendDir = path.resolve(__dirname, '..');
 // backend/.env ファイルを明示的に読み込み
 // override: true で既存の環境変数も上書き（check-env専用の動作）
 const envPath = path.join(backendDir, '.env');
+
+// .env ファイルの存在チェック
+if (!fs.existsSync(envPath)) {
+  console.log('⚠️  .env file not found at:', envPath);
+  console.log('💡 Copy .env.example to .env and configure the variables:');
+  console.log('   cp .env.example .env');
+  console.log('   or run: npm run setup:env');
+  console.log('');
+  process.exit(1);
+}
+
 dotenv.config({ path: envPath, override: true });
 
-interface EnvCheck {
-  name: string;
-  required: boolean;
-  forProduction: boolean;
-  description: string;
-  validationFn?: (value: string) => boolean;
-}
-
-interface EnvCheckMode {
-  skipIfCI?: boolean; // CI環境でスキップ（vitestで動的生成されるため）
-}
-
-const ENV_CHECKS: (EnvCheck & EnvCheckMode)[] = [
-  {
-    name: 'NODE_ENV',
-    required: false,
-    forProduction: true,
-    description: 'Node environment (development | production | test)',
-  },
-  {
-    name: 'PORT',
-    required: false,
-    forProduction: false,
-    description: 'Server port number',
-  },
-  {
-    name: 'DATABASE_URL',
-    required: false,
-    forProduction: true,
-    description: 'PostgreSQL connection string',
-    validationFn: (val) => val.startsWith('postgres://') || val.startsWith('postgresql://'),
-  },
-  {
-    name: 'REDIS_URL',
-    required: false,
-    forProduction: false,
-    description: 'Redis connection string',
-    validationFn: (val) => val.startsWith('redis://') || val.startsWith('rediss://'),
-  },
-  {
-    name: 'FRONTEND_URL',
-    required: false,
-    forProduction: true,
-    description: 'Frontend URL for CORS',
-    validationFn: (val) => val.startsWith('http://') || val.startsWith('https://'),
-  },
-  {
-    name: 'JWT_PUBLIC_KEY',
-    required: true,
-    forProduction: true,
-    skipIfCI: true, // CI環境ではvitest.setup.tsで動的生成
-    description: 'EdDSA public key for JWT verification (Base64-encoded JWK)',
-    validationFn: (val) => {
-      try {
-        const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
-        return jwk.kty === 'OKP' && jwk.crv === 'Ed25519';
-      } catch {
-        return false;
-      }
-    },
-  },
-  {
-    name: 'JWT_PRIVATE_KEY',
-    required: true,
-    forProduction: true,
-    skipIfCI: true, // CI環境ではvitest.setup.tsで動的生成
-    description: 'EdDSA private key for JWT signing (Base64-encoded JWK)',
-    validationFn: (val) => {
-      try {
-        const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
-        return jwk.kty === 'OKP' && jwk.crv === 'Ed25519' && 'd' in jwk;
-      } catch {
-        return false;
-      }
-    },
-  },
-  {
-    name: 'TWO_FACTOR_ENCRYPTION_KEY',
-    required: true,
-    forProduction: true,
-    skipIfCI: true, // CI環境ではテストで動的生成される場合がある
-    description: 'AES-256-GCM encryption key for 2FA secrets (64 hex characters)',
-    validationFn: (val) => /^[0-9a-f]{64}$/i.test(val),
-  },
-  {
-    name: 'SENTRY_DSN',
-    required: false,
-    forProduction: true,
-    description: 'Sentry DSN for error tracking (highly recommended for production)',
-  },
-];
-
-function checkEnvironmentVariables(): void {
+async function checkEnvironmentVariables(): Promise<void> {
   console.log('🔍 Environment Variables Check\n');
-  console.log('Current environment:', process.env.NODE_ENV || 'development');
+  console.log('Environment file:', envPath);
+  console.log('Current NODE_ENV:', process.env.NODE_ENV || 'development');
 
   const isCI = process.env.CI === 'true' || process.env.CI === '1' || !!process.env.GITHUB_ACTIONS;
-  const isProduction = process.env.NODE_ENV === 'production';
 
   if (isCI) {
     console.log('Running in CI environment');
   }
   console.log('');
 
-  let hasErrors = false;
-  let hasWarnings = false;
+  try {
+    // src/config/env.ts の validateEnv() を使用
+    const { validateEnv } = await import('../src/config/env.js');
 
-  const results = {
-    configured: [] as string[],
-    missing: [] as string[],
-    invalid: [] as string[],
-    recommended: [] as string[],
-    skipped: [] as string[],
-  };
+    const validatedEnv = validateEnv();
 
-  ENV_CHECKS.forEach((check) => {
-    const value = process.env[check.name];
-    const isSet = value !== undefined && value !== '';
+    // 検証成功
+    console.log('━'.repeat(60));
+    console.log('\n✅ Environment Validation Successful!\n');
+    console.log('━'.repeat(60));
+    console.log('\n📊 Configured Variables:\n');
 
-    // CI環境でskipIfCIフラグが設定されている場合はスキップ
-    if (isCI && check.skipIfCI) {
-      results.skipped.push(check.name);
-      console.log(`⏭️  ${check.name}: SKIPPED (dynamically generated in CI)`);
-      console.log('');
-      return;
-    }
+    // 設定された環境変数を表示（認証情報は隠す）
+    const sensitiveKeys = [
+      'JWT_PUBLIC_KEY',
+      'JWT_PRIVATE_KEY',
+      'JWT_PUBLIC_KEY_OLD',
+      'TWO_FACTOR_ENCRYPTION_KEY',
+      'SENTRY_DSN',
+    ];
 
-    // Required check
-    if (check.required && !isSet) {
-      results.missing.push(check.name);
-      console.log(`❌ ${check.name}: MISSING (REQUIRED)`);
-      console.log(`   ${check.description}`);
-      console.log('');
-      hasErrors = true;
-      return;
-    }
+    Object.entries(validatedEnv).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') {
+        return; // 未設定の値はスキップ
+      }
 
-    // Production recommendation
-    if (!check.required && check.forProduction && isProduction && !isSet) {
-      results.recommended.push(check.name);
-      console.log(`⚠️  ${check.name}: NOT SET (Recommended for production)`);
-      console.log(`   ${check.description}`);
-      console.log('');
-      hasWarnings = true;
-      return;
-    }
+      if (sensitiveKeys.includes(key)) {
+        const strValue = String(value);
+        const displayValue = `${strValue.substring(0, 10)}...${strValue.substring(
+          strValue.length - 4
+        )} (${strValue.length} chars)`;
+        console.log(`  ✓ ${key}: ${displayValue}`);
+      } else {
+        console.log(`  ✓ ${key}: ${value}`);
+      }
+    });
 
-    // Validation check
-    if (isSet && check.validationFn && !check.validationFn(value)) {
-      results.invalid.push(check.name);
-      console.log(`❌ ${check.name}: INVALID FORMAT`);
-      console.log(`   ${check.description}`);
-      console.log(`   Current value length: ${value.length} characters`);
-      console.log('');
-      hasErrors = true;
-      return;
-    }
-
-    // Success
-    if (isSet) {
-      results.configured.push(check.name);
-      const displayValue =
-        check.name.includes('KEY') || check.name.includes('SECRET')
-          ? `${value.substring(0, 10)}...${value.substring(value.length - 4)} (${value.length} chars)`
-          : value;
-      console.log(`✅ ${check.name}: ${displayValue}`);
-      console.log('');
-    }
-  });
-
-  // Summary
-  console.log('━'.repeat(60));
-  console.log('\n📊 Summary:\n');
-  console.log(`✅ Configured: ${results.configured.length}`);
-  console.log(`❌ Missing (Required): ${results.missing.length}`);
-  console.log(`❌ Invalid Format: ${results.invalid.length}`);
-  console.log(`⚠️  Recommended (Production): ${results.recommended.length}`);
-  if (results.skipped.length > 0) {
-    console.log(`⏭️  Skipped (CI): ${results.skipped.length}`);
-  }
-  console.log('');
-
-  if (hasErrors) {
-    console.log('❌ Environment check FAILED');
-    console.log('\nTo fix:');
-    if (results.missing.length > 0) {
-      console.log('1. Generate missing keys:');
-      console.log('   npm run generate-keys  # For JWT keys');
-      console.log(
-        "   node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"  # For 2FA key"
-      );
-    }
-    if (results.invalid.length > 0) {
-      console.log('2. Fix invalid environment variables');
-      console.log('   Check .env.example for correct formats');
-    }
-    console.log('3. Update .env file with the generated values');
     console.log('');
+    console.log('━'.repeat(60));
+    console.log('\n💡 Tips:\n');
+    console.log('  - All required environment variables are properly configured');
+    console.log('  - JWT keys are valid Base64-encoded Ed25519 JWK format');
+    console.log('  - 2FA encryption key is valid 256-bit (64 hex characters)');
+    console.log('');
+
+    process.exit(0);
+  } catch (error) {
+    // 検証失敗
+    console.log('━'.repeat(60));
+    console.log('\n❌ Environment Validation Failed!\n');
+    console.log('━'.repeat(60));
+    console.log('');
+
+    if (error instanceof Error) {
+      console.log('Error:', error.message);
+      console.log('');
+    }
+
+    console.log('💡 How to fix:\n');
+    console.log('1. Generate missing keys:');
+    console.log('   npm run generate-keys  # For JWT keys');
+    console.log(
+      "   node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"  # For 2FA key"
+    );
+    console.log('');
+    console.log('2. Update .env file with the generated values');
+    console.log('');
+    console.log('3. Run this check again:');
+    console.log('   npm run check:env');
+    console.log('');
+    console.log('📖 For more details, see:');
+    console.log('   - .env.example');
+    console.log('   - docs/deployment/environment-variables.md');
+    console.log('');
+
     process.exit(1);
-  } else if (hasWarnings) {
-    console.log('⚠️  Environment check PASSED with warnings');
-    console.log('\nRecommendation: Set the recommended variables for production deployment');
-    console.log('');
-    process.exit(0);
-  } else {
-    console.log('✅ All environment variables are correctly configured!');
-    console.log('');
-    process.exit(0);
   }
-}
-
-// Check if .env file exists
-if (!fs.existsSync(envPath)) {
-  console.log('⚠️  .env file not found');
-  console.log('💡 Copy .env.example to .env and configure the variables:');
-  console.log('   cp .env.example .env');
-  console.log('');
 }
 
 checkEnvironmentVariables();

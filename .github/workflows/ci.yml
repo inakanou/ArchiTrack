@@ -256,27 +256,9 @@ jobs:
           # サービスがhealthyになるまで待つ
           timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-postgres"; do sleep 2; done'
           timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-redis"; do sleep 2; done'
-      - name: Setup test database
+      - name: Validate environment variables for integration tests
         run: |
-          # テストデータベースが既に存在する場合は削除して再作成（クリーンな状態を保証）
-          docker exec architrack-postgres psql -U postgres -c "DROP DATABASE IF EXISTS architrack_test;"
-          docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;"
-          # マイグレーションを適用（ランナー上で実行）
-          npm --prefix backend run db:migrate:deploy
-        env:
-          DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
-      - name: Run integration tests
-        run: npm --prefix backend run test:integration
-        env:
-          DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
-          NODE_ENV: test
-          REDIS_URL: redis://localhost:6379/1
-          JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
-          JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
-          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
-      - name: Validate environment variables for Docker Compose
-        run: |
-          echo "🔍 Validating required environment variables for E2E tests..."
+          echo "🔍 Validating required environment variables for integration tests..."
 
           missing_vars=()
 
@@ -308,6 +290,25 @@ jobs:
           fi
 
           echo "✅ All required environment variables are configured"
+
+      - name: Setup test database
+        run: |
+          # テストデータベースが既に存在する場合は削除して再作成（クリーンな状態を保証）
+          docker exec architrack-postgres psql -U postgres -c "DROP DATABASE IF EXISTS architrack_test;"
+          docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;"
+          # マイグレーションを適用（ランナー上で実行）
+          npm --prefix backend run db:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
+      - name: Run integration tests
+        run: npm --prefix backend run test:integration
+        env:
+          DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
+          NODE_ENV: test
+          REDIS_URL: redis://localhost:6379/1
+          JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
+          JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
 
       - name: Start Docker Compose for E2E
         run: |

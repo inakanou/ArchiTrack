@@ -2,83 +2,136 @@ import { z } from 'zod';
 import logger from '../utils/logger.js';
 
 /**
+ * 環境変数検証用の定数
+ */
+const JWT_KEY_TYPE = 'OKP' as const;
+const JWT_CURVE = 'Ed25519' as const;
+const TWO_FACTOR_KEY_LENGTH = 64 as const;
+const PORT_MIN = 1 as const;
+const PORT_MAX = 65535 as const;
+
+/**
  * 環境変数スキーマ定義
  * zodによる型安全なバリデーション
  */
-const envSchema = z.object({
-  // Server
-  PORT: z
-    .string()
-    .optional()
-    .default('3000')
-    .transform((val) => parseInt(val, 10))
-    .refine((val) => val > 0 && val < 65536, {
-      message: 'PORT must be between 1 and 65535',
-    }),
+const envSchema = z
+  .object({
+    // Server
+    PORT: z
+      .string()
+      .optional()
+      .default('3000')
+      .transform((val) => parseInt(val, 10))
+      .refine((val) => val >= PORT_MIN && val <= PORT_MAX, {
+        message: `PORT must be between ${PORT_MIN} and ${PORT_MAX}`,
+      }),
 
-  NODE_ENV: z.enum(['development', 'production', 'test']).optional().default('development'),
+    NODE_ENV: z.enum(['development', 'production', 'test']).optional().default('development'),
 
-  // Database
-  DATABASE_URL: z.string().url().optional(),
+    // Database
+    DATABASE_URL: z.string().url().optional(),
 
-  // Redis
-  REDIS_URL: z.string().url().optional(),
+    // Redis
+    REDIS_URL: z.string().url().optional(),
 
-  // Frontend
-  FRONTEND_URL: z.string().url().optional().default('http://localhost:5173'),
+    // Frontend
+    FRONTEND_URL: z.string().url().optional().default('http://localhost:5173'),
 
-  // Logging
-  LOG_LEVEL: z
-    .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
-    .optional()
-    .default('info'),
+    // Logging
+    LOG_LEVEL: z
+      .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+      .optional()
+      .default('info'),
 
-  // Railway
-  RAILWAY_ENVIRONMENT: z.string().optional(),
-  RAILWAY_SERVICE_NAME: z.string().optional(),
+    // Railway
+    RAILWAY_ENVIRONMENT: z.string().optional(),
+    RAILWAY_SERVICE_NAME: z.string().optional(),
 
-  // CI
-  CI: z.string().optional(),
+    // CI
+    CI: z.string().optional(),
 
-  // Authentication (REQUIRED for application to function)
-  JWT_PUBLIC_KEY: z
-    .string()
-    .min(1, 'JWT_PUBLIC_KEY is required for authentication')
-    .refine(
-      (val) => {
-        try {
-          // Base64デコードしてJWK形式かチェック
-          const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
-          return jwk.kty === 'OKP' && jwk.crv === 'Ed25519';
-        } catch {
+    // Authentication (REQUIRED for application to function)
+    JWT_PUBLIC_KEY: z
+      .string()
+      .min(1, 'JWT_PUBLIC_KEY is required for authentication')
+      .refine(
+        (val) => {
+          try {
+            // Base64デコードしてJWK形式かチェック
+            const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
+            return jwk.kty === JWT_KEY_TYPE && jwk.crv === JWT_CURVE;
+          } catch {
+            return false;
+          }
+        },
+        { message: `JWT_PUBLIC_KEY must be a valid Base64-encoded ${JWT_CURVE} JWK` }
+      ),
+
+    JWT_PRIVATE_KEY: z
+      .string()
+      .min(1, 'JWT_PRIVATE_KEY is required for authentication')
+      .refine(
+        (val) => {
+          try {
+            // Base64デコードしてJWK形式かチェック
+            const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
+            return jwk.kty === JWT_KEY_TYPE && jwk.crv === JWT_CURVE && 'd' in jwk;
+          } catch {
+            return false;
+          }
+        },
+        {
+          message: `JWT_PRIVATE_KEY must be a valid Base64-encoded ${JWT_CURVE} JWK with private key`,
+        }
+      ),
+
+    // JWT Key Rotation Support (OPTIONAL)
+    // 旧公開鍵：キーローテーション時に、古い鍵で署名されたトークンの検証に使用
+    JWT_PUBLIC_KEY_OLD: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (!val) return true; // オプショナルなので未定義はOK
+          try {
+            // Base64デコードしてJWK形式かチェック
+            const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
+            return jwk.kty === JWT_KEY_TYPE && jwk.crv === JWT_CURVE;
+          } catch {
+            return false;
+          }
+        },
+        { message: `JWT_PUBLIC_KEY_OLD must be a valid Base64-encoded ${JWT_CURVE} JWK` }
+      ),
+
+    // Two-Factor Authentication
+    TWO_FACTOR_ENCRYPTION_KEY: z
+      .string()
+      .min(1, 'TWO_FACTOR_ENCRYPTION_KEY is required for 2FA functionality')
+      .regex(
+        new RegExp(`^[0-9a-f]{${TWO_FACTOR_KEY_LENGTH}}$`, 'i'),
+        `TWO_FACTOR_ENCRYPTION_KEY must be exactly ${TWO_FACTOR_KEY_LENGTH} hex characters`
+      ),
+  })
+  .refine(
+    (data) => {
+      // production環境では DATABASE_URL と REDIS_URL が必須
+      if (data.NODE_ENV === 'production') {
+        if (!data.DATABASE_URL) {
           return false;
         }
-      },
-      { message: 'JWT_PUBLIC_KEY must be a valid Base64-encoded Ed25519 JWK' }
-    ),
-
-  JWT_PRIVATE_KEY: z
-    .string()
-    .min(1, 'JWT_PRIVATE_KEY is required for authentication')
-    .refine(
-      (val) => {
-        try {
-          // Base64デコードしてJWK形式かチェック
-          const jwk = JSON.parse(Buffer.from(val, 'base64').toString());
-          return jwk.kty === 'OKP' && jwk.crv === 'Ed25519' && 'd' in jwk;
-        } catch {
+        if (!data.REDIS_URL) {
           return false;
         }
-      },
-      { message: 'JWT_PRIVATE_KEY must be a valid Base64-encoded Ed25519 JWK with private key' }
-    ),
-
-  // Two-Factor Authentication
-  TWO_FACTOR_ENCRYPTION_KEY: z
-    .string()
-    .min(1, 'TWO_FACTOR_ENCRYPTION_KEY is required for 2FA functionality')
-    .regex(/^[0-9a-f]{64}$/i, 'TWO_FACTOR_ENCRYPTION_KEY must be exactly 64 hex characters'),
-});
+      }
+      return true;
+    },
+    {
+      message:
+        'DATABASE_URL and REDIS_URL are required in production environment. ' +
+        'In test/development environments, these are provided by Docker Compose.',
+    }
+  );
 
 /**
  * 環境変数の型（zodスキーマから推論）
@@ -101,15 +154,69 @@ export function validateEnv(): Env {
 
   try {
     validatedEnv = envSchema.parse(process.env);
-    logger.info({ env: validatedEnv.NODE_ENV }, 'Environment variables validated successfully');
+    logger.info(
+      {
+        env: validatedEnv.NODE_ENV,
+        port: validatedEnv.PORT,
+        hasDatabase: !!validatedEnv.DATABASE_URL,
+        hasRedis: !!validatedEnv.REDIS_URL,
+      },
+      'Environment variables validated successfully'
+    );
     return validatedEnv;
   } catch (error) {
     if (error instanceof z.ZodError) {
       logger.error({ errors: error.issues }, 'Environment validation failed');
-      console.error('Environment validation errors:');
+      console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('❌ Environment Validation Failed');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      console.error('The following environment variables have issues:\n');
+
       error.issues.forEach((err) => {
-        console.error(`  - ${err.path.join('.')}: ${err.message}`);
+        const path = err.path.join('.') || 'schema';
+        console.error(`  ❌ ${path}`);
+        console.error(`     Issue: ${err.message}`);
+
+        // 修正方法のヒントを提供
+        if (path === 'JWT_PUBLIC_KEY' || path === 'JWT_PRIVATE_KEY') {
+          console.error(
+            '     Fix: Run "npm run generate-keys" in the backend directory to generate new JWT keys'
+          );
+        } else if (path === 'TWO_FACTOR_ENCRYPTION_KEY') {
+          console.error(
+            "     Fix: Generate a 256-bit key: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+          );
+        } else if (path === 'DATABASE_URL' || path === 'REDIS_URL') {
+          console.error(
+            '     Fix: Ensure DATABASE_URL and REDIS_URL are set in production environment'
+          );
+          console.error(
+            '          In development/test, Docker Compose provides these automatically'
+          );
+        } else if (path === 'PORT') {
+          console.error('     Fix: Set PORT to a value between 1 and 65535 (default: 3000)');
+        } else if (path === 'NODE_ENV') {
+          console.error('     Fix: Set NODE_ENV to one of: development, production, test');
+        }
+        console.error('');
       });
+
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('💡 Quick Start Guide:');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      console.error('1. Copy the example environment file:');
+      console.error('   cp .env.example .env\n');
+      console.error('2. Generate required keys:');
+      console.error('   npm run generate-keys\n');
+      console.error(
+        '3. Generate 2FA encryption key and add to .env (TWO_FACTOR_ENCRYPTION_KEY):\n'
+      );
+      console.error(
+        "   node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"\n"
+      );
+      console.error('4. Verify your configuration:');
+      console.error('   npm run check:env\n');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     }
     throw new Error('Failed to validate environment variables');
   }

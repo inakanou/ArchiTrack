@@ -1,6 +1,9 @@
 /**
  * 環境変数バリデーションユーティリティ
  *
+ * @deprecated このクラスは非推奨です。代わりに src/config/env.ts の validateEnv() を使用してください。
+ *             後方互換性のため、このクラスは src/config/env.ts のラッパーとして機能します。
+ *
  * 要件トレーサビリティ:
  * - 要件2.7: パスワード複雑性要件、禁止パスワードリスト
  * - 要件3.1: 初期管理者アカウント情報
@@ -10,6 +13,8 @@
  * @module utils/env-validator
  */
 
+import { validateEnv as coreValidateEnv } from '../config/env.js';
+
 /**
  * バリデーション結果型
  */
@@ -17,30 +22,44 @@ export type ValidationResult = { valid: true } | { valid: false; errors: string[
 
 /**
  * 環境変数バリデータークラス
+ *
+ * @deprecated このクラスは非推奨です。代わりに src/config/env.ts の validateEnv() を使用してください。
  */
 export class EnvValidator {
   private errors: string[] = [];
 
   /**
    * 全ての認証関連環境変数を検証
+   *
+   * @deprecated 代わりに src/config/env.ts の validateEnv() を使用してください。
    */
   validateAuthEnvVars(): ValidationResult {
     this.errors = [];
 
-    // JWT鍵の検証
-    this.validateJwtKeys();
-
-    // トークン有効期限の検証
-    this.validateTokenExpiry();
-
-    // 2FA暗号化鍵の検証（オプション）
-    this.validateTwoFactorKeys();
-
-    return this.errors.length === 0 ? { valid: true } : { valid: false, errors: this.errors };
+    try {
+      // src/config/env.ts の validateEnv() を使用
+      coreValidateEnv();
+      return { valid: true };
+    } catch (error) {
+      // Zodエラーから errors を抽出
+      if (error instanceof Error) {
+        // エラーメッセージから詳細を抽出
+        const errorMessage = error.message;
+        if (errorMessage.includes('Failed to validate environment variables')) {
+          // 環境変数検証エラー
+          this.errors.push('Environment validation failed. Check your environment variables.');
+        } else {
+          this.errors.push(errorMessage);
+        }
+      }
+      return { valid: false, errors: this.errors };
+    }
   }
 
   /**
    * JWT鍵の検証
+   *
+   * @deprecated 代わりに src/config/env.ts の validateEnv() を使用してください。
    */
   validateJwtKeys(): ValidationResult {
     const jwtErrors: string[] = [];
@@ -52,7 +71,12 @@ export class EnvValidator {
       // Base64形式の検証
       try {
         const decoded = Buffer.from(process.env.JWT_PUBLIC_KEY, 'base64').toString('utf-8');
-        JSON.parse(decoded); // JWK形式の検証
+        const jwk = JSON.parse(decoded);
+
+        // Ed25519 JWK形式の検証
+        if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') {
+          jwtErrors.push('JWT_PUBLIC_KEY must be a valid Ed25519 JWK');
+        }
       } catch {
         jwtErrors.push('JWT_PUBLIC_KEY is not valid Base64');
       }
@@ -65,7 +89,12 @@ export class EnvValidator {
       // Base64形式の検証
       try {
         const decoded = Buffer.from(process.env.JWT_PRIVATE_KEY, 'base64').toString('utf-8');
-        JSON.parse(decoded); // JWK形式の検証
+        const jwk = JSON.parse(decoded);
+
+        // Ed25519 JWK形式の検証（秘密鍵には'd'フィールドが必要）
+        if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519' || !('d' in jwk)) {
+          jwtErrors.push('JWT_PRIVATE_KEY must be a valid Ed25519 JWK with private key');
+        }
       } catch {
         jwtErrors.push('JWT_PRIVATE_KEY is not valid Base64');
       }
@@ -78,6 +107,8 @@ export class EnvValidator {
 
   /**
    * 2FA暗号化鍵の検証
+   *
+   * @deprecated 代わりに src/config/env.ts の validateEnv() を使用してください。
    */
   validateTwoFactorKeys(): ValidationResult {
     const twoFactorErrors: string[] = [];
@@ -85,7 +116,7 @@ export class EnvValidator {
     const key = process.env.TWO_FACTOR_ENCRYPTION_KEY;
 
     if (!key) {
-      // 2FA暗号化鍵はオプション（2FA機能を使用する場合のみ必須）
+      // env.ts では必須だが、このメソッドでは互換性のためオプショナル扱い
       return { valid: true };
     }
 
@@ -109,6 +140,8 @@ export class EnvValidator {
 
   /**
    * トークン有効期限の検証
+   *
+   * @deprecated 代わりに src/config/env.ts の validateEnv() を使用してください。
    */
   validateTokenExpiry(): ValidationResult {
     const expiryErrors: string[] = [];
@@ -143,5 +176,7 @@ export class EnvValidator {
 
 /**
  * 環境変数バリデータインスタンスをエクスポート
+ *
+ * @deprecated 代わりに src/config/env.ts の validateEnv() を使用してください。
  */
 export const envValidator = new EnvValidator();
