@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-17（ステアリング同期、Storybook 10.0.7・依存関係更新を反映）_
+_最終更新: 2025-11-19（ステアリング同期、Prisma 6.18.0・依存関係更新を反映）_
 
 ## アーキテクチャ
 
@@ -90,8 +90,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.1.0
-- **ORM**: Prisma 6.19.0（PostgreSQL用の型安全なデータアクセス）
-- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.19.0
+- **ORM**: Prisma 6.18.0（PostgreSQL用の型安全なデータアクセス）
+- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.18.0
 - **キャッシュクライアント**: ioredis 5.3.2
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、csurf 1.2.2、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.10、handlebars 4.7.8
@@ -112,7 +112,7 @@ ArchiTrack/
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
 - `csurf` ^1.2.2 - CSRF保護
-- `@prisma/client` ^6.19.0 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/client` ^6.18.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
@@ -148,10 +148,10 @@ ArchiTrack/
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.6 - Vitest UIツール
 - `@vitest/coverage-v8` ^4.0.6 - Vitestカバレッジ（V8プロバイダー）
-- `supertest` ^7.2.0 - APIテストライブラリ
-- `@types/supertest` ^6.1.0 - supertest型定義
+- `supertest` ^7.1.4 - APIテストライブラリ
+- `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
-- `prisma` ^6.19.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `prisma` ^6.18.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
