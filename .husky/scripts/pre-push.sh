@@ -384,7 +384,8 @@ if [ -d "backend" ]; then
 
   # インテグレーションテストはDockerコンテナ内で実行
   # ローカル環境でのPrisma Query Engine問題を回避
-  docker exec architrack-backend npm run test:integration
+  # NODE_ENV=testを設定してレート制限をスキップ
+  docker exec -e NODE_ENV=test architrack-backend npm run test:integration
   if [ $? -ne 0 ]; then
     echo "❌ Backend integration tests failed. Push aborted."
     exit 1
