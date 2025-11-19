@@ -5,8 +5,7 @@
       "args": [
         "-y",
         "@playwright/mcp@latest",
-        "--browser", "chromium",
-        "--config", "./playwright.config.ts"
+        "--browser", "chromium"
       ],
       "env": {
         "PLAYWRIGHT_BROWSERS_PATH": "${HOME}/.cache/ms-playwright",
