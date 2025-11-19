@@ -49,6 +49,8 @@ describe('EnvValidator', () => {
       // 環境変数を設定
       process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
       process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY =
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
       process.env.ACCESS_TOKEN_EXPIRY = '15m';
       process.env.REFRESH_TOKEN_EXPIRY = '7d';
 

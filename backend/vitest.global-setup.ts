@@ -80,5 +80,8 @@ export async function setup() {
     );
   }
 
-  process.env.PORT = process.env.PORT || '3001';
+  // PORT未設定の場合はデフォルト値を設定（env.tsと統一）
+  if (!process.env.PORT) {
+    process.env.PORT = '3000';
+  }
 }
