@@ -297,7 +297,7 @@ jobs:
           docker exec architrack-postgres psql -U postgres -c "DROP DATABASE IF EXISTS architrack_test;"
           docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;"
           # マイグレーションを適用（ランナー上で実行）
-          npm --prefix backend run db:migrate:deploy
+          npm --prefix backend run prisma:migrate:deploy
         env:
           DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
       - name: Run integration tests
