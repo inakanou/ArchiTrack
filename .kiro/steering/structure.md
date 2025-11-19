@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-19（ステアリング同期、Prismaバージョン・Storybookファイル数修正を反映）_
+_最終更新: 2025-11-19（ステアリング同期、Vite 7.2.2・Prisma 6.19.0・Storybookファイル数修正を反映）_
 
 ## ルートディレクトリ構成
 
@@ -325,7 +325,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（7ファイル）:**
+**Storybookストーリーファイル（9ファイル）:**
 
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
 - `LoginForm.stories.tsx` - ログインフォーム
@@ -334,6 +334,8 @@ frontend/
 - `PasswordStrengthIndicator.stories.tsx` - パスワード強度インジケーター
 - `RolePermissionManager.stories.tsx` - ロール権限管理
 - `SessionManagement.stories.tsx` - セッション管理
+- `TwoFactorSetup.stories.tsx` - 2FA初期設定（追加）
+- `TwoFactorVerification.stories.tsx` - 2FA検証（追加）
 
 **想定される拡張:**
 

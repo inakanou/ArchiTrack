@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-19（ステアリング同期、Prisma 6.18.0・依存関係更新を反映）_
+_最終更新: 2025-11-19（ステアリング同期、React Router 7.9.6・Vite 7.2.2・Prisma 6.19.0・依存関係更新を反映）_
 
 ## アーキテクチャ
 
@@ -25,7 +25,7 @@ ArchiTrack/
 
 - **言語**: TypeScript 5.9.3
 - **フレームワーク**: React 18.2.0
-- **ビルドツール**: Vite 7.2.0
+- **ビルドツール**: Vite 7.2.2
 - **開発サーバー**: Vite Dev Server
 - **Webサーバー（本番）**: nginx
 - **パッケージマネージャ**: npm
@@ -34,11 +34,11 @@ ArchiTrack/
 
 - `react` ^18.2.0 - UIライブラリ
 - `react-dom` ^18.2.0 - React DOM操作
-- `react-router-dom` ^6.30.1 - React Router v6（ルーティング）
+- `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/react` ^19.2.2 - React型定義
 - `@types/react-dom` ^19.2.2 - React DOM型定義
-- `@vitejs/plugin-react` ^4.2.1 - Vite React プラグイン
+- `@vitejs/plugin-react` ^5.1.1 - Vite React プラグイン
 - `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
@@ -55,9 +55,9 @@ ArchiTrack/
 - `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
 - `zxcvbn` ^4.4.2 - パスワード強度評価
 - `axe-playwright` ^2.0.3 - アクセシビリティ自動テスト
-- `storybook` ^10.0.7 - コンポーネントドキュメント・開発環境
-- `@storybook/react` ^10.0.7 - Storybook React統合
-- `@storybook/react-vite` ^10.0.7 - Storybook React + Vite統合
+- `storybook` ^10.0.5-10.0.8 - コンポーネントドキュメント・開発環境
+- `@storybook/react` ^10.0.8 - Storybook React統合
+- `@storybook/react-vite` ^10.0.5 - Storybook React + Vite統合
 - `@storybook/addon-a11y` ^10.0.7 - Storybook アクセシビリティアドオン
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
