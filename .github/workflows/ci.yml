@@ -312,11 +312,33 @@ jobs:
 
       - name: Start Docker Compose for E2E
         run: |
-          # Create .env file for Docker Compose with required secrets
+          # Create .env file for Docker Compose with required environment variables
           cat > .env << EOF
+          # Server Configuration
+          NODE_ENV=test
+          PORT=3000
+          LOG_LEVEL=info
+
+          # Database Configuration (Docker Compose uses service name 'postgres')
+          DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev
+
+          # Redis Configuration (Docker Compose uses service name 'redis')
+          REDIS_URL=redis://redis:6379
+
+          # CORS Configuration
+          FRONTEND_URL=http://localhost:5173
+
+          # JWT Authentication
           JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}
+          ACCESS_TOKEN_EXPIRY=15m
+          REFRESH_TOKEN_EXPIRY=7d
+
+          # Two-Factor Authentication
           TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
+
+          # Frontend API URL
+          VITE_API_URL=http://localhost:3000
           EOF
 
           docker compose up -d
