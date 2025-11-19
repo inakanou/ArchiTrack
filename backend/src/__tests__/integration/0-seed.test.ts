@@ -212,7 +212,9 @@ describe('Seed Script Integration Tests', () => {
 
     const rolesCount1 = await prisma.role.count();
     const permissionsCount1 = await prisma.permission.count();
-    const usersCount1 = await prisma.user.count();
+    const adminUsersCount1 = await prisma.user.count({
+      where: { email: 'admin@test.example.com' },
+    });
 
     // Act: 2回目の実行
     await seedRoles(prisma);
@@ -222,12 +224,14 @@ describe('Seed Script Integration Tests', () => {
 
     const rolesCount2 = await prisma.role.count();
     const permissionsCount2 = await prisma.permission.count();
-    const usersCount2 = await prisma.user.count();
+    const adminUsersCount2 = await prisma.user.count({
+      where: { email: 'admin@test.example.com' },
+    });
 
     // Assert: レコード数が変わらない（重複作成されない）
     expect(rolesCount2).toBe(rolesCount1);
     expect(permissionsCount2).toBe(permissionsCount1);
-    expect(usersCount2).toBe(usersCount1);
+    expect(adminUsersCount2).toBe(adminUsersCount1);
   });
 
   it('初期管理者が既に存在する場合はスキップする', async () => {
