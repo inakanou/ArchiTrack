@@ -19,9 +19,9 @@ vi.mock('../../api/client', () => ({
   },
 }));
 
-// useAuthContextをモック
+// useAuthフックをモック
 const mockLogout = vi.fn();
-vi.mock('../../contexts/AuthContext', () => ({
+vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     user: {
       id: 'user-123',

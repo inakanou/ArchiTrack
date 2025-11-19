@@ -1,6 +1,5 @@
 import {
   createContext,
-  useContext,
   useState,
   useEffect,
   useCallback,
@@ -47,8 +46,15 @@ export interface AuthContextValue {
 
 /**
  * 認証コンテキスト
+ *
+ * useAuthフックを通じて使用することを推奨します。
+ * 直接useContextで使用する場合は、undefined チェックを忘れないでください。
+ *
+ * Note: AuthContextはuseAuthフック（src/hooks/useAuth.ts）で使用するためエクスポートしています。
+ * React Fast Refreshの警告は、このコンテキストエクスポートが必要なため抑制しています。
  */
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+// eslint-disable-next-line react-refresh/only-export-components
+export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 /**
  * 認証コンテキストプロバイダーのプロパティ
@@ -264,14 +270,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 }
 
 /**
- * 認証コンテキストを使用するカスタムフック
+ * useAuthフックは src/hooks/useAuth.ts に移動しました。
+ * React Fast Refreshの最適化のため、フックとコンポーネントを分離しています。
+ *
+ * 使用方法:
+ * import { useAuth } from '../hooks/useAuth';
  */
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext);
-
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-
-  return context;
-}

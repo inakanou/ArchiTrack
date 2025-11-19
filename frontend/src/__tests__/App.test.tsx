@@ -2,11 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import App from '../App';
 
-// AuthContext のモック
+// AuthProvider のモック
 vi.mock('../contexts/AuthContext', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="auth-provider">{children}</div>
   ),
+}));
+
+// useAuth フックのモック
+vi.mock('../hooks/useAuth', () => ({
   useAuth: () => ({
     user: null,
     isAuthenticated: false,

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { renderHook, act } from '@testing-library/react';
-import { AuthProvider, useAuth } from '../../contexts/AuthContext';
+import { AuthProvider } from '../../contexts/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 describe('AuthContext', () => {
   let originalFetch: typeof globalThis.fetch;
