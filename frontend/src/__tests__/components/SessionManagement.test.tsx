@@ -77,7 +77,6 @@ describe('SessionManagement', () => {
         />
       );
 
-      expect(screen.getByLabelText('読み込み中')).toBeInTheDocument();
       expect(screen.getByText('セッション一覧を読み込み中...')).toBeInTheDocument();
     });
 

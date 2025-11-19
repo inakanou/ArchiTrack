@@ -190,6 +190,7 @@ function SessionManagement({
           aria-live="polite"
         >
           <div
+            role="status"
             style={{
               display: 'inline-block',
               width: '40px',
@@ -199,7 +200,6 @@ function SessionManagement({
               borderRadius: '50%',
               animation: 'spin 1s linear infinite',
             }}
-            aria-label="読み込み中"
           />
           <p style={{ marginTop: '16px' }}>セッション一覧を読み込み中...</p>
         </div>
