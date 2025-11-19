@@ -310,20 +310,22 @@ jobs:
           JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
 
+      - name: Create .env file for E2E
+        run: |
+          echo "NODE_ENV=test" > .env
+          echo "PORT=3000" >> .env
+          echo "LOG_LEVEL=info" >> .env
+          echo "DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev" >> .env
+          echo "REDIS_URL=redis://redis:6379" >> .env
+          echo "FRONTEND_URL=http://localhost:5173" >> .env
+          echo "ACCESS_TOKEN_EXPIRY=15m" >> .env
+          echo "REFRESH_TOKEN_EXPIRY=7d" >> .env
+          echo "VITE_API_URL=http://localhost:3000" >> .env
+          echo "JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}" >> .env
+          echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
+          echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
+
       - name: Start Docker Compose for E2E
-        env:
-          NODE_ENV: test
-          PORT: 3000
-          LOG_LEVEL: info
-          DATABASE_URL: postgresql://postgres:dev@postgres:5432/architrack_dev
-          REDIS_URL: redis://redis:6379
-          FRONTEND_URL: http://localhost:5173
-          JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
-          JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
-          ACCESS_TOKEN_EXPIRY: 15m
-          REFRESH_TOKEN_EXPIRY: 7d
-          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
-          VITE_API_URL: http://localhost:3000
         run: |
           docker compose up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
