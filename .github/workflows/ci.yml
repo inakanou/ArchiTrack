@@ -330,6 +330,15 @@ jobs:
           docker compose up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
+
+      - name: Debug - Check backend container logs
+        if: always()
+        run: |
+          echo "=== Backend container logs ==="
+          docker logs architrack-backend --tail 100
+          echo "=== Backend container environment variables (filtered) ==="
+          docker exec architrack-backend printenv | grep -E "NODE_ENV|PORT|DATABASE_URL|REDIS_URL|JWT" | sed 's/=.*/=***/'
+
       - name: Run database migrations
         run: docker exec architrack-backend npx prisma migrate deploy
       - name: Run E2E tests
