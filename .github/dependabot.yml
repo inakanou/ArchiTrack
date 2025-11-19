@@ -3,6 +3,7 @@ updates:
   # Root package.json (E2E tests)
   - package-ecosystem: "npm"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -28,6 +29,7 @@ updates:
   # Backend package.json
   - package-ecosystem: "npm"
     directory: "/backend"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -53,6 +55,7 @@ updates:
   # Frontend package.json
   - package-ecosystem: "npm"
     directory: "/frontend"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
