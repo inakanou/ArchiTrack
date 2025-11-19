@@ -190,6 +190,7 @@ function SessionManagement({
           aria-live="polite"
         >
           <div
+            role="status"
             style={{
               display: 'inline-block',
               width: '40px',
