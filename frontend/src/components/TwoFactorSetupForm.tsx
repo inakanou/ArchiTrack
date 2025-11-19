@@ -208,7 +208,6 @@ function TwoFactorSetupForm({
       {isLoading && currentStep === 'qr-code' && (
         <div style={{ textAlign: 'center', padding: '40px' }}>
           <div
-            aria-label="読み込み中"
             style={{
               width: '40px',
               height: '40px',
