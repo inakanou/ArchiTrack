@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-19（ステアリング同期、React Router 7.9.6・Vite 7.2.2・Prisma 6.19.0・依存関係更新を反映）_
+_最終更新: 2025-11-20（ステアリング同期、React 19.2.0・Vitest 4.0.10・Sentry 10.22.0・axe-playwright 2.2.2・依存関係更新を反映）_
 
 ## アーキテクチャ
 
@@ -24,7 +24,7 @@ ArchiTrack/
 ### 技術スタック
 
 - **言語**: TypeScript 5.9.3
-- **フレームワーク**: React 18.2.0
+- **フレームワーク**: React 19.2.0
 - **ビルドツール**: Vite 7.2.2
 - **開発サーバー**: Vite Dev Server
 - **Webサーバー（本番）**: nginx
@@ -32,33 +32,32 @@ ArchiTrack/
 
 ### 主要な依存関係
 
-- `react` ^18.2.0 - UIライブラリ
-- `react-dom` ^18.2.0 - React DOM操作
+- `react` ^19.2.0 - UIライブラリ
+- `react-dom` ^19.2.0 - React DOM操作
 - `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
-- `@types/react` ^19.2.2 - React型定義
+- `@types/react` ^19.2.6 - React型定義
 - `@types/react-dom` ^19.2.2 - React DOM型定義
 - `@vitejs/plugin-react` ^5.1.1 - Vite React プラグイン
-- `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
+- `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.47.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.6.2 - コードフォーマッター
 - `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
-- `vitest` ^4.0.6 - 単体テストフレームワーク
-- `@vitest/ui` ^4.0.6 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.6 - Vitestカバレッジ（V8プロバイダー）
-- `@vitest/coverage-istanbul` ^4.0.6 - Vitestカバレッジ（Istanbulプロバイダー）
+- `vitest` ^4.0.10 - 単体テストフレームワーク
+- `@vitest/ui` ^4.0.10 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.0.10 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-istanbul` ^4.0.10 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
 - `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
-- `zxcvbn` ^4.4.2 - パスワード強度評価
-- `axe-playwright` ^2.0.3 - アクセシビリティ自動テスト
-- `storybook` ^10.0.5-10.0.8 - コンポーネントドキュメント・開発環境
+- `@sentry/react` ^10.22.0 - Sentryエラートラッキング（Frontend）
+- `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
+- `storybook` ^10.0.8 - コンポーネントドキュメント・開発環境
 - `@storybook/react` ^10.0.8 - Storybook React統合
-- `@storybook/react-vite` ^10.0.5 - Storybook React + Vite統合
-- `@storybook/addon-a11y` ^10.0.7 - Storybook アクセシビリティアドオン
+- `@storybook/react-vite` ^10.0.8 - Storybook React + Vite統合
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
 ### 設定ファイル
@@ -90,8 +89,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.1.0
-- **ORM**: Prisma 6.18.0（PostgreSQL用の型安全なデータアクセス）
-- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.18.0
+- **ORM**: Prisma 6.19.0（PostgreSQL用の型安全なデータアクセス）
+- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.19.0
 - **キャッシュクライアント**: ioredis 5.3.2
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、csurf 1.2.2、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.10、handlebars 4.7.8
@@ -112,7 +111,7 @@ ArchiTrack/
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
 - `csurf` ^1.2.2 - CSRF保護
-- `@prisma/client` ^6.18.0 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/client` ^6.19.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
@@ -125,7 +124,9 @@ ArchiTrack/
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化
 - `express-rate-limit` ^8.2.1 - レート制限
 - `zod` ^4.1.12 - スキーマバリデーション
-- `dotenv` ^16.4.1 - 環境変数管理
+- `dotenv` ^17.2.3 - 環境変数管理
+- `@sentry/node` ^10.22.0 - Sentryエラートラッキング（Backend）
+- `@sentry/profiling-node` ^10.25.0 - Sentryプロファイリング
 - `pino` ^10.1.0 - ロガー
 - `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
 - `pino-pretty` ^13.1.2 - ログの整形出力（開発環境）
@@ -135,23 +136,23 @@ ArchiTrack/
 - `tsx` ^4.20.6 - TypeScript実行環境
 - `@types/express` ^5.0.5 - Express型定義
 - `@types/cors` ^2.8.19 - CORS型定義
-- `@types/node` ^24.9.2 - Node.js型定義
+- `@types/node` ^24.10.1 - Node.js型定義
 - `@types/pg` ^8.15.6 - PostgreSQL型定義
 - `@types/swagger-jsdoc` ^6.0.4 - swagger-jsdoc型定義
 - `@types/swagger-ui-express` ^4.1.8 - swagger-ui-express型定義
 - `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
+- `@typescript-eslint/parser` ^8.47.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `prettier` ^3.6.2 - コードフォーマッター
 - `husky` ^9.0.11 - Git フックマネージャー
 - `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
-- `@vitest/ui` ^4.0.6 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.6 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/ui` ^4.0.8 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.0.10 - Vitestカバレッジ（V8プロバイダー）
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
-- `prisma` ^6.18.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `prisma` ^6.19.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
@@ -351,9 +352,11 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 
 - `@playwright/test` ^1.40.0 - E2Eテストフレームワーク
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
-- `@types/node` ^24.9.2 - Node.js型定義
-- `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.46.2 - TypeScript ESLintパーサー
+- `@types/node` ^24.10.1 - Node.js型定義
+- `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.46.4 - TypeScript ESLintパーサー
+- `@prisma/client` ^6.19.0 - Prisma Client（テストデータ生成）
+- `prisma` ^6.19.0 - Prisma CLI（スキーマ管理）
 - Chromium - Playwright経由で自動インストール
 
 ### 設定ファイル
