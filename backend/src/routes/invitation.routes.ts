@@ -15,11 +15,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { InvitationService } from '../services/invitation.service.js';
-import { InvitationStatus } from '../types/invitation.types';
-import { validateMultiple } from '../middleware/validate.middleware';
-import { authenticate } from '../middleware/authenticate.middleware';
-import { requirePermission } from '../middleware/authorize.middleware';
-import { invitationLimiter } from '../middleware/rateLimit.middleware';
+import { InvitationStatus } from '../types/invitation.types.js';
+import { validateMultiple } from '../middleware/validate.middleware.js';
+import { authenticate } from '../middleware/authenticate.middleware.js';
+import { requirePermission } from '../middleware/authorize.middleware.js';
+import { invitationLimiter } from '../middleware/rateLimit.middleware.js';
 
 // Zodバリデーションスキーマ
 const createInvitationSchema = {
