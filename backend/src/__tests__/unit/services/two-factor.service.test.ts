@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { TwoFactorService } from '../../../services/two-factor.service';
+import { TwoFactorService } from '../../../services/two-factor.service.js';
 import { authenticator } from 'otplib';
 
 // Prismaのモック

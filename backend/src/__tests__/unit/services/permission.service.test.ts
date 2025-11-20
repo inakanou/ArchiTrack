@@ -7,8 +7,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, Permission } from '@prisma/client';
-import { PermissionService } from '../../../services/permission.service';
-import { Err, Ok } from '../../../types/result';
+import { PermissionService } from '../../../services/permission.service.js';
+import { Err, Ok } from '../../../types/result.js';
 
 // モックデータ
 const mockPermissionId = 'perm-123';

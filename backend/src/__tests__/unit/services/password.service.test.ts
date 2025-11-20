@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PasswordService } from '../../../services/password.service';
-import { PasswordViolation } from '../../../types/password.types';
+import { PasswordService } from '../../../services/password.service.js';
+import { PasswordViolation } from '../../../types/password.types.js';
 import type { PrismaClient, User, PasswordResetToken, PasswordHistory } from '@prisma/client';
-import { EmailService } from '../../../services/email.service';
+import { EmailService } from '../../../services/email.service.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {

@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, User } from '@prisma/client';
 import type Redis from 'ioredis';
-import { RBACService } from '../../../services/rbac.service';
+import { RBACService } from '../../../services/rbac.service.js';
 
 // モックデータ
 const mockUserId = 'user-123';

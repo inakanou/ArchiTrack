@@ -21,7 +21,7 @@ import {
   Ok,
   Err,
 } from '../types/password.types';
-import { EmailService } from './email.service';
+import { EmailService } from './email.service.js';
 import { randomBytes } from 'crypto';
 
 /**

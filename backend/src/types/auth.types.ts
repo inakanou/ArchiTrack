@@ -9,8 +9,8 @@
  * - 9.1-9.5: ユーザー情報取得
  */
 
-import type { Result } from './result';
-import type { PasswordViolation } from './password.types';
+import type { Result } from './result.js';
+import type { PasswordViolation } from './password.types.js';
 
 /**
  * ユーザー登録時の入力データ

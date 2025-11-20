@@ -3,7 +3,7 @@ import request from 'supertest';
 import express from 'express';
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as jose from 'jose';
-import jwksRouter from '../../../routes/jwks.routes';
+import jwksRouter from '../../../routes/jwks.routes.js';
 
 describe('JWKS Endpoint', () => {
   let app: express.Application;

@@ -13,9 +13,9 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import type { PrismaClient } from '@prisma/client';
-import { RBACService } from '../services/rbac.service';
-import getPrismaClient from '../db';
-import logger from '../utils/logger';
+import { RBACService } from '../services/rbac.service.js';
+import getPrismaClient from '../db.js';
+import logger from '../utils/logger.js';
 
 /**
  * 権限チェックミドルウェアファクトリー

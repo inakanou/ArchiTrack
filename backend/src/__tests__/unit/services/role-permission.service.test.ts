@@ -7,9 +7,9 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, Role, Permission, RolePermission } from '@prisma/client';
-import { RolePermissionService } from '../../../services/role-permission.service';
-import { Err, Ok } from '../../../types/result';
-import type { IAuditLogService } from '../../../types/audit-log.types';
+import { RolePermissionService } from '../../../services/role-permission.service.js';
+import { Err, Ok } from '../../../types/result.js';
+import type { IAuditLogService } from '../../../types/audit-log.types.js';
 
 // モックデータ
 const mockRoleId = 'role-123';
