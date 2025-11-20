@@ -83,10 +83,13 @@ export function TwoFactorSetupPage() {
    * セットアップ完了
    */
   const handleComplete = () => {
-    // プロフィールページに戻る
-    navigate('/profile', {
-      replace: true,
-      state: { message: '2要素認証が有効化されました' },
+    // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+    queueMicrotask(() => {
+      // プロフィールページに戻る
+      navigate('/profile', {
+        replace: true,
+        state: { message: '2要素認証が有効化されました' },
+      });
     });
   };
 
@@ -94,7 +97,10 @@ export function TwoFactorSetupPage() {
    * キャンセル
    */
   const handleCancel = () => {
-    navigate('/profile');
+    // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+    queueMicrotask(() => {
+      navigate('/profile');
+    });
   };
 
   return (

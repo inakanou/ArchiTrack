@@ -38,10 +38,14 @@ export function LoginPage() {
       // AuthContextのlogin()を呼び出し
       await login(data.email, data.password);
 
-      // ログイン成功時、リダイレクトURLまたはダッシュボードへ遷移
-      // ProtectedRouteが保存したリダイレクトURL（location.state.from）を取得
+      // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+      // これにより、状態更新とナビゲーションの競合を避ける
       const from = (location.state as { from?: string })?.from || '/';
-      navigate(from, { replace: true });
+
+      // queueMicrotaskを使用してナビゲーションを遅延実行
+      queueMicrotask(() => {
+        navigate(from, { replace: true });
+      });
 
       return {
         type: 'SUCCESS', // TODO: 2FA対応時に '2FA_REQUIRED' も処理

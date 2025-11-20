@@ -51,11 +51,14 @@ export function PasswordResetPage() {
         newPassword: data.password,
       });
 
-      // リセット成功時、ログインページへ遷移
-      navigate('/login', {
-        state: {
-          message: 'パスワードがリセットされました。新しいパスワードでログインしてください。',
-        },
+      // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+      queueMicrotask(() => {
+        // リセット成功時、ログインページへ遷移
+        navigate('/login', {
+          state: {
+            message: 'パスワードがリセットされました。新しいパスワードでログインしてください。',
+          },
+        });
       });
     } catch (error) {
       // エラーをPasswordResetFormに伝播させる
@@ -124,7 +127,10 @@ export function PasswordResetPage() {
             href="/login"
             onClick={(e) => {
               e.preventDefault();
-              navigate('/login');
+              // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+              queueMicrotask(() => {
+                navigate('/login');
+              });
             }}
             style={{
               color: '#3b82f6',

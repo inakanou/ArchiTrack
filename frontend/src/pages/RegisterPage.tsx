@@ -58,11 +58,13 @@ export function RegisterPage() {
         password: data.password,
       });
 
-      // 登録成功時、ログインページへ遷移
-      navigate('/login', {
-        state: {
-          message: 'ユーザー登録が完了しました。ログインしてください。',
-        },
+      // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+      queueMicrotask(() => {
+        navigate('/login', {
+          state: {
+            message: 'ユーザー登録が完了しました。ログインしてください。',
+          },
+        });
       });
     } catch (error) {
       // エラーをRegisterFormに伝播させる（RegisterFormがエラーハンドリングを行う）
@@ -114,7 +116,12 @@ export function RegisterPage() {
             管理者から送信された招待メールのリンクをクリックしてください。
           </p>
           <button
-            onClick={() => navigate('/login')}
+            onClick={() => {
+              // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+              queueMicrotask(() => {
+                navigate('/login');
+              });
+            }}
             style={{
               width: '100%',
               padding: '0.75rem',
@@ -194,7 +201,10 @@ export function RegisterPage() {
             href="/login"
             onClick={(e) => {
               e.preventDefault();
-              navigate('/login');
+              // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
+              queueMicrotask(() => {
+                navigate('/login');
+              });
             }}
             style={{
               color: '#3b82f6',
