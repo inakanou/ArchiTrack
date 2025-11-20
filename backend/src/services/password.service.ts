@@ -20,7 +20,7 @@ import {
   type Result,
   Ok,
   Err,
-} from '../types/password.types';
+} from '../types/password.types.js';
 import { EmailService } from './email.service.js';
 import { randomBytes } from 'crypto';
 

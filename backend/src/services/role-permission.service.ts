@@ -14,11 +14,11 @@ import type {
   IRolePermissionService,
   RolePermissionInfo,
   RolePermissionError,
-} from '../types/role-permission.types';
-import type { IRBACService } from '../types/rbac.types';
-import type { IAuditLogService } from '../types/audit-log.types';
-import { Ok, Err, type Result } from '../types/result';
-import logger from '../utils/logger';
+} from '../types/role-permission.types.js';
+import type { IRBACService } from '../types/rbac.types.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import { Ok, Err, type Result } from '../types/result.js';
+import logger from '../utils/logger.js';
 
 /**
  * ロール・権限紐付け管理サービスの実装

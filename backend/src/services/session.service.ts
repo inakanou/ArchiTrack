@@ -17,9 +17,9 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
-import { Result, Ok, Err } from '../types/result';
-import type { ISessionService, SessionInfo, SessionError } from '../types/session.types';
-import logger from '../utils/logger';
+import { Result, Ok, Err } from '../types/result.js';
+import type { ISessionService, SessionInfo, SessionError } from '../types/session.types.js';
+import logger from '../utils/logger.js';
 
 export class SessionService implements ISessionService {
   // リフレッシュトークンの有効期限（デフォルト: 7日間）

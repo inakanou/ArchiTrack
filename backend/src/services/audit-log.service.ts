@@ -17,7 +17,7 @@ import {
   AuditLogInfo,
   AuditLogAction,
   AuditLogServiceDependencies,
-} from '../types/audit-log.types';
+} from '../types/audit-log.types.js';
 
 /**
  * 監査ログサービス実装

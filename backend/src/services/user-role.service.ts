@@ -11,11 +11,11 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
-import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types';
-import type { IRBACService } from '../types/rbac.types';
-import type { IAuditLogService } from '../types/audit-log.types';
+import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types.js';
+import type { IRBACService } from '../types/rbac.types.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
 import type { EmailService } from './email.service.js';
-import { Ok, Err, type Result } from '../types/result';
+import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { captureMessage } from '../utils/sentry.js';
 

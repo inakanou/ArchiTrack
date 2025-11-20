@@ -17,7 +17,7 @@ import {
   ArchiveResult,
   DeleteArchiveResult,
   AuditLogArchiveServiceDependencies,
-} from '../types/audit-log-archive.types';
+} from '../types/audit-log-archive.types.js';
 
 /**
  * 監査ログアーカイブサービス実装

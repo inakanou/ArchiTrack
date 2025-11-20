@@ -23,9 +23,9 @@ import type {
   LoginResponse,
   UserProfile,
   AuthError,
-} from '../types/auth.types';
-import { Ok, Err, type Result } from '../types/result';
-import { addTimingAttackDelay } from '../utils/timing';
+} from '../types/auth.types.js';
+import { Ok, Err, type Result } from '../types/result.js';
+import { addTimingAttackDelay } from '../utils/timing.js';
 
 /**
  * 認証サービス

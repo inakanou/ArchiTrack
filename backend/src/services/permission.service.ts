@@ -15,9 +15,9 @@ import type {
   CreatePermissionInput,
   PermissionInfo,
   PermissionError,
-} from '../types/permission.types';
-import { Ok, Err, type Result } from '../types/result';
-import logger from '../utils/logger';
+} from '../types/permission.types.js';
+import { Ok, Err, type Result } from '../types/result.js';
+import logger from '../utils/logger.js';
 
 /**
  * 権限管理サービスの実装

@@ -10,7 +10,7 @@ import { AuditLogService } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
-import type { AuditLogFilter } from '../types/audit-log.types';
+import type { AuditLogFilter } from '../types/audit-log.types.js';
 import logger from '../utils/logger.js';
 
 const router = Router();

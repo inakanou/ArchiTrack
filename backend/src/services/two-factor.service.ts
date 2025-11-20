@@ -21,10 +21,10 @@ import type {
   Result,
   TwoFactorEnabledData,
   TwoFactorSetupData,
-} from '../types/two-factor.types';
-import { Ok, Err } from '../types/two-factor.types';
-import getPrismaClient from '../db';
-import logger from '../utils/logger';
+} from '../types/two-factor.types.js';
+import { Ok, Err } from '../types/two-factor.types.js';
+import getPrismaClient from '../db.js';
+import logger from '../utils/logger.js';
 import type { PrismaClient } from '@prisma/client';
 
 /**
