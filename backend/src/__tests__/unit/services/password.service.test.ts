@@ -520,8 +520,9 @@ describe('PasswordService', () => {
         existingHistories
       );
       (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async (callback: any) => {
+        // トランザクションコールバック: Prismaの$transactionメソッドの型定義上、
+        // 厳密な型付けが困難なため、unknownを使用してテスト時に型安全性を確保
+        async (callback: (tx: unknown) => Promise<unknown>) => {
           // トランザクションコールバックを実行
           const txMock = {
             user: {
