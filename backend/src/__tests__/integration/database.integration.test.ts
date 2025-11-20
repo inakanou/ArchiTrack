@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
+import path from 'path';
 // テスト環境用の.env.testファイルを読み込む（validateEnv前に必須）
-config({ path: '.env.test' });
+config({ path: path.resolve(process.cwd(), 'backend/.env.test') });
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { validateEnv } from '../../config/env.js';
