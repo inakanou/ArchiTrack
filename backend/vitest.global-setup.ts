@@ -1,7 +1,10 @@
 // Vitest グローバルセットアップファイル
 // 全てのテスト実行前に一度だけ実行される
-import 'dotenv/config';
+import { config } from 'dotenv';
 import { generateKeyPair, exportJWK } from 'jose';
+
+// テスト環境用の.env.testファイルを読み込む
+config({ path: '.env.test' });
 
 /**
  * グローバルセットアップ
