@@ -25,8 +25,8 @@
   },
   "dependencies": {
     "@sentry/react": "^10.22.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6"
   },
   "devDependencies": {
@@ -38,10 +38,10 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
-    "@types/react": "^19.2.2",
+    "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.2",
-    "@typescript-eslint/eslint-plugin": "^8.46.2",
-    "@typescript-eslint/parser": "^8.46.2",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
     "@vitejs/plugin-react": "^5.1.1",
     "@vitest/coverage-istanbul": "^4.0.10",
     "@vitest/coverage-v8": "^4.0.10",
@@ -54,7 +54,7 @@
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.5",
-    "globals": "^15.15.0",
+    "globals": "^16.5.0",
     "http-server": "^14.1.1",
     "jsdom": "^27.1.0",
     "lint-staged": "^16.2.6",

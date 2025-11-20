@@ -35,7 +35,7 @@
     "prettier": "^3.6.2",
     "prisma": "^6.19.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.4"
+    "typescript-eslint": "^8.47.0"
   },
   "lint-staged": {
     "*.{js,ts}": [
