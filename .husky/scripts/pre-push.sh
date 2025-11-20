@@ -8,6 +8,54 @@
 set -o pipefail
 
 # ============================================================================
+# Git操作タイプの検出（ブランチ削除のスキップ）
+# ============================================================================
+# Git公式仕様: pre-pushフックは標準入力から以下の形式でref情報を受け取る
+# <local ref> <local sha1> <remote ref> <remote sha1>
+#
+# ブランチ削除の特徴:
+# - local_shaが40桁のゼロ (0000000000000000000000000000000000000000)
+#
+# ベストプラクティス:
+# - ブランチ削除はGitリファレンスの削除のみ（コード変更なし）
+# - 品質チェック（テスト、ビルド等）は不要
+# - 30分以上の不要な待機を回避し、開発者体験を向上
+#
+# 参考: https://git-scm.com/docs/githooks#_pre_push
+# ============================================================================
+
+echo "🔍 Detecting Git operation type..."
+
+# stdinからref情報を読み取る
+while read local_ref local_sha remote_ref remote_sha; do
+    # ブランチ/タグ削除の検出（local_shaが40桁のゼロ）
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        echo "🗑️  Detected deletion operation: $remote_ref"
+        echo "   Skipping pre-push quality checks (no code changes)"
+        echo ""
+        echo "✅ Branch deletion approved - no checks required"
+        exit 0
+    fi
+
+    # 新規ブランチ作成の検出（remote_shaが40桁のゼロ）
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        echo "🆕 Detected new branch creation: $local_ref → $remote_ref"
+        echo "   Running full quality checks..."
+        echo ""
+        break
+    fi
+
+    # 既存ブランチへの更新
+    echo "📝 Detected branch update: $local_ref → $remote_ref"
+    echo "   Running full quality checks..."
+    echo ""
+    break
+done
+
+# stdinが空の場合（force pushや特殊なケース）も通常のチェックを実行
+# この場合は安全側に倒してチェックを実行する
+
+# ============================================================================
 # クリーンアップシステム設定（ログ + テストアーティファクト）
 # ============================================================================
 # ベストプラクティス: テスト実行前に古いアーティファクトを削除してディスク容量を管理
