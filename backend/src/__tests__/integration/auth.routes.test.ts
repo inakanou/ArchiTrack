@@ -90,7 +90,7 @@ describe('Authentication API Integration Tests', () => {
       accessToken: loginResponse.body.accessToken,
       refreshToken: loginResponse.body.refreshToken,
     };
-  });
+  }, 20000); // タイムアウトを20秒に設定（DB初期化・パスワードハッシュ化・ログインを考慮）
 
   afterAll(async () => {
     // テストデータのクリーンアップ
@@ -294,7 +294,7 @@ describe('Authentication API Integration Tests', () => {
           },
         });
       }
-    });
+    }, 15000); // タイムアウトを15秒に設定（パスワードハッシュ化を考慮）
 
     it('有効な認証情報でログインが成功すること', async () => {
       const response = await request(app).post('/api/v1/auth/login').send({
