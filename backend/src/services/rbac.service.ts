@@ -13,8 +13,8 @@
 
 import type { PrismaClient } from '@prisma/client';
 import type Redis from 'ioredis';
-import type { IRBACService, PermissionInfo } from '../types/rbac.types';
-import logger from '../utils/logger';
+import type { IRBACService, PermissionInfo } from '../types/rbac.types.js';
+import logger from '../utils/logger.js';
 
 /**
  * RBACサービスの実装

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { EnvValidator } from '../../../utils/env-validator';
+import { EnvValidator } from '../../../utils/env-validator.js';
 
 /**
  * 環境変数バリデーション機能の単体テスト

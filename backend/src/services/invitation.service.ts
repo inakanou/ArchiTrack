@@ -20,7 +20,7 @@ import {
   type Result,
   Ok,
   Err,
-} from '../types/invitation.types';
+} from '../types/invitation.types.js';
 
 /**
  * 招待管理サービス

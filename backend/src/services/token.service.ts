@@ -1,6 +1,6 @@
 import * as jose from 'jose';
-import { Result, Ok, Err } from '../types/result';
-import logger from '../utils/logger';
+import { Result, Ok, Err } from '../types/result.js';
+import logger from '../utils/logger.js';
 
 /**
  * JWTトークンのペイロード情報

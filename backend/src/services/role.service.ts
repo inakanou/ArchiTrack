@@ -17,9 +17,9 @@ import type {
   RoleInfo,
   RoleWithStats,
   RoleError,
-} from '../types/role.types';
-import { Ok, Err, type Result } from '../types/result';
-import logger from '../utils/logger';
+} from '../types/role.types.js';
+import { Ok, Err, type Result } from '../types/result.js';
+import logger from '../utils/logger.js';
 
 /**
  * ロール管理サービスの実装
