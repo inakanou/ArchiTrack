@@ -14,7 +14,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { InvitationService } from '../services/invitation.service';
+import { InvitationService } from '../services/invitation.service.js';
 import { InvitationStatus } from '../types/invitation.types';
 import { validateMultiple } from '../middleware/validate.middleware';
 import { authenticate } from '../middleware/authenticate.middleware';
