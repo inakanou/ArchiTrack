@@ -67,9 +67,9 @@ export default defineConfig({
     // トレース設定
     trace: 'on-first-retry',
 
-    // タイムアウト設定（より長めに設定）
-    actionTimeout: 15000,
-    navigationTimeout: 45000,
+    // タイムアウト設定
+    actionTimeout: 15000, // 15秒
+    navigationTimeout: 45000, // 45秒
   },
 
   // テスト全体のタイムアウト設定
