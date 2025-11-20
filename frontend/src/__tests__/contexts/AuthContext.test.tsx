@@ -48,7 +48,13 @@ describe('AuthContext', () => {
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ user: mockUser, tokens: mockTokens }),
+        json: async () => ({
+          type: 'SUCCESS',
+          user: mockUser,
+          accessToken: mockTokens.accessToken,
+          refreshToken: mockTokens.refreshToken,
+          expiresIn: mockTokens.expiresIn,
+        }),
       });
 
       const { result } = renderHook(() => useAuth(), {
@@ -109,7 +115,13 @@ describe('AuthContext', () => {
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ user: mockUser, tokens: mockTokens }),
+        json: async () => ({
+          type: 'SUCCESS',
+          user: mockUser,
+          accessToken: mockTokens.accessToken,
+          refreshToken: mockTokens.refreshToken,
+          expiresIn: mockTokens.expiresIn,
+        }),
       });
 
       const { result } = renderHook(() => useAuth(), {
@@ -164,7 +176,13 @@ describe('AuthContext', () => {
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ user: mockUser, tokens: mockTokens }),
+        json: async () => ({
+          type: 'SUCCESS',
+          user: mockUser,
+          accessToken: mockTokens.accessToken,
+          refreshToken: mockTokens.refreshToken,
+          expiresIn: mockTokens.expiresIn,
+        }),
       });
 
       const { result } = renderHook(() => useAuth(), {
