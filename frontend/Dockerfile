@@ -1,13 +1,13 @@
 # Build stage
-FROM node:20.11.1-alpine AS build
+FROM node:22-alpine AS build
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (workaround for npm optional dependencies bug)
-RUN rm -rf node_modules package-lock.json && npm install
+# Install dependencies
+RUN npm ci
 
 # Copy source files
 COPY . .

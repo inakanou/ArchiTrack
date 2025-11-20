@@ -13,7 +13,7 @@
  */
 
 import { hash, verify } from '@node-rs/argon2';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 import {
   PasswordViolation,
   type PasswordError,
@@ -321,8 +321,7 @@ export class PasswordService {
    * @param passwordHash - 新しいパスワードハッシュ
    */
   private async updatePasswordInTransaction(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tx: any,
+    tx: Prisma.TransactionClient,
     userId: string,
     passwordHash: string
   ): Promise<void> {
@@ -351,8 +350,7 @@ export class PasswordService {
       await tx.passwordHistory.deleteMany({
         where: {
           id: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            in: historiesToDelete.map((h: any) => h.id),
+            in: historiesToDelete.map((h) => h.id),
           },
         },
       });
