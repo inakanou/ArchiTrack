@@ -3,6 +3,15 @@
 import { config } from 'dotenv';
 import { generateKeyPair, exportJWK } from 'jose';
 
+// Docker環境では空文字列として設定されている環境変数を削除
+// （dotenvは既存の環境変数を上書きしないため）
+const emptyEnvVars = ['TWO_FACTOR_ENCRYPTION_KEY'];
+emptyEnvVars.forEach((key) => {
+  if (process.env[key] === '') {
+    delete process.env[key];
+  }
+});
+
 // テスト環境用の.env.testファイルを読み込む
 // override: falseで既存の環境変数を優先（setup関数で環境に応じて設定するため）
 config({ path: '.env.test' });
