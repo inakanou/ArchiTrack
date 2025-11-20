@@ -1,7 +1,10 @@
 import { config } from 'dotenv';
-import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 // テスト環境用の.env.testファイルを読み込む（validateEnv前に必須）
-config({ path: path.resolve(process.cwd(), 'backend/.env.test') });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+config({ path: join(__dirname, '../../../.env.test') });
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
