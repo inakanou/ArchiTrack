@@ -17,7 +17,7 @@ Please ensure .env.test exists in the backend directory.
 `);
 }
 
-const result = config({ path: envPath });
+const result = config({ path: envPath, override: true });
 if (result.error) {
   throw new Error(`Failed to load .env.test: ${result.error.message}`);
 }

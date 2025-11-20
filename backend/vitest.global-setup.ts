@@ -4,7 +4,8 @@ import { config } from 'dotenv';
 import { generateKeyPair, exportJWK } from 'jose';
 
 // テスト環境用の.env.testファイルを読み込む
-config({ path: '.env.test' });
+// override: trueで既存の環境変数を上書きし、テスト環境の設定を確実に適用
+config({ path: '.env.test', override: true });
 
 /**
  * グローバルセットアップ
