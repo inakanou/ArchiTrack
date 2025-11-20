@@ -55,7 +55,8 @@ describe('env module', () => {
       expect(result).toBeDefined();
       // テスト環境ではNODE_ENVが'test'に設定される
       expect(result.NODE_ENV).toBe('test');
-      expect(result.PORT).toBe(3000);
+      // .env.testで3001が設定されている
+      expect(result.PORT).toBe(3001);
     });
 
     it('JWT_PUBLIC_KEYが未設定の場合、エラーを投げる', async () => {
