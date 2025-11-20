@@ -1,3 +1,7 @@
+import { config } from 'dotenv';
+// テスト環境用の.env.testファイルを読み込む（validateEnv前に必須）
+config({ path: '.env.test' });
+
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
