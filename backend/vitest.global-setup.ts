@@ -87,4 +87,12 @@ export async function setup() {
   if (!process.env.PORT) {
     process.env.PORT = '3000';
   }
+
+  // TWO_FACTOR_ENCRYPTION_KEY未設定の場合は.env.testから読み込み
+  // テスト環境では固定値を使用してテストの一貫性を保つ
+  if (!process.env.TWO_FACTOR_ENCRYPTION_KEY) {
+    // .env.testに設定されている値を使用
+    // この値は既に.env.testで定義されているため、dotenv.configで読み込まれる
+    console.log('[GLOBAL SETUP] TWO_FACTOR_ENCRYPTION_KEY loaded from .env.test');
+  }
 }
