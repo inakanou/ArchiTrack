@@ -5,7 +5,7 @@
  * - 18.1-18.7: 権限管理
  */
 
-import type { Result } from './result';
+import type { Result } from './result.js';
 
 /**
  * 権限サービスのインターフェース

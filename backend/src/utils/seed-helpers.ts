@@ -9,7 +9,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import { hash } from '@node-rs/argon2';
-import logger from './logger';
+import logger from './logger.js';
 
 /**
  * 事前定義ロールのシーディング

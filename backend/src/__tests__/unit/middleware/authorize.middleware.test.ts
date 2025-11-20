@@ -8,8 +8,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import type { PrismaClient } from '@prisma/client';
-import { requirePermission } from '../../../middleware/authorize.middleware';
-import { RBACService } from '../../../services/rbac.service';
+import { requirePermission } from '../../../middleware/authorize.middleware.js';
+import { RBACService } from '../../../services/rbac.service.js';
 
 describe('requirePermission middleware', () => {
   let mockRequest: Partial<Request>;

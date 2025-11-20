@@ -13,8 +13,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { InvitationService } from '../../../services/invitation.service';
-import { InvitationStatus } from '../../../types/invitation.types';
+import { InvitationService } from '../../../services/invitation.service.js';
+import { InvitationStatus } from '../../../types/invitation.types.js';
 import type { PrismaClient, Invitation } from '@prisma/client';
 
 // Prisma Clientのモック

@@ -4,8 +4,12 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { AuditLogService } from '../../../services/audit-log.service';
-import { CreateAuditLogInput, AuditLogFilter, AuditLogInfo } from '../../../types/audit-log.types';
+import { AuditLogService } from '../../../services/audit-log.service.js';
+import {
+  CreateAuditLogInput,
+  AuditLogFilter,
+  AuditLogInfo,
+} from '../../../types/audit-log.types.js';
 
 // PrismaClientのモック
 const mockPrisma = {

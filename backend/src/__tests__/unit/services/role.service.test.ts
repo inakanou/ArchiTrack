@@ -7,8 +7,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, Role } from '@prisma/client';
-import { RoleService } from '../../../services/role.service';
-import { Err, Ok } from '../../../types/result';
+import { RoleService } from '../../../services/role.service.js';
+import { Err, Ok } from '../../../types/result.js';
 
 // モックデータ
 const mockRoleId = 'role-123';

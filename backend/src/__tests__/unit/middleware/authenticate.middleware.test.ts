@@ -11,9 +11,9 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import { createAuthMiddleware } from '../../../middleware/authenticate.middleware';
-import { TokenService } from '../../../services/token.service';
-import { Ok, Err } from '../../../types/result';
+import { createAuthMiddleware } from '../../../middleware/authenticate.middleware.js';
+import { TokenService } from '../../../services/token.service.js';
+import { Ok, Err } from '../../../types/result.js';
 
 // TokenServiceのモック
 vi.mock('../../../services/token.service');

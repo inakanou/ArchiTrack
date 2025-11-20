@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SessionService } from '../../../services/session.service';
+import { SessionService } from '../../../services/session.service.js';
 import type { PrismaClient, RefreshToken } from '@prisma/client';
 
 // Prisma Clientのモック

@@ -14,7 +14,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types';
 import type { IRBACService } from '../types/rbac.types';
 import type { IAuditLogService } from '../types/audit-log.types';
-import type { EmailService } from './email.service';
+import type { EmailService } from './email.service.js';
 import { Ok, Err, type Result } from '../types/result';
 import logger from '../utils/logger.js';
 import { captureMessage } from '../utils/sentry.js';

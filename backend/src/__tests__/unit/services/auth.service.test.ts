@@ -9,14 +9,14 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AuthService } from '../../../services/auth.service';
-import { InvitationService } from '../../../services/invitation.service';
-import { PasswordService } from '../../../services/password.service';
-import { TokenService } from '../../../services/token.service';
-import { TwoFactorService } from '../../../services/two-factor.service';
-import { SessionService } from '../../../services/session.service';
+import { AuthService } from '../../../services/auth.service.js';
+import { InvitationService } from '../../../services/invitation.service.js';
+import { PasswordService } from '../../../services/password.service.js';
+import { TokenService } from '../../../services/token.service.js';
+import { TwoFactorService } from '../../../services/two-factor.service.js';
+import { SessionService } from '../../../services/session.service.js';
 import type { PrismaClient, User, Invitation } from '@prisma/client';
-import { Ok, Err } from '../../../types/result';
+import { Ok, Err } from '../../../types/result.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {

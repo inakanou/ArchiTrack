@@ -5,7 +5,7 @@
  * - 20.1-20.9: ユーザーへのロール割り当て（マルチロール対応）
  */
 
-import type { Result } from './result';
+import type { Result } from './result.js';
 
 /**
  * ユーザー・ロール紐付けサービスのインターフェース

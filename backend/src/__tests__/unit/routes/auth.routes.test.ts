@@ -7,8 +7,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express, { type Application } from 'express';
 import type { PrismaClient } from '@prisma/client';
-import { Ok, Err } from '../../../types/password.types';
-import { PasswordViolation } from '../../../types/password.types';
+import { Ok, Err } from '../../../types/password.types.js';
+import { PasswordViolation } from '../../../types/password.types.js';
 
 // PasswordServiceのモック
 const mockPasswordService = {

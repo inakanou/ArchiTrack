@@ -8,8 +8,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { type Application, type Request, type Response, type NextFunction } from 'express';
 import type { PrismaClient } from '@prisma/client';
-import { InvitationStatus } from '../../../types/invitation.types';
-import { createInvitationRoutes } from '../../../routes/invitation.routes';
+import { InvitationStatus } from '../../../types/invitation.types.js';
+import { createInvitationRoutes } from '../../../routes/invitation.routes.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {

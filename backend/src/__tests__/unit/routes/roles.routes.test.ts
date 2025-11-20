@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { type Application, type Request, type Response, type NextFunction } from 'express';
-import { Ok, Err } from '../../../types/result';
+import { Ok, Err } from '../../../types/result.js';
 
 // モックサービスをvi.hoisted()で初期化
 const mockRoleService = vi.hoisted(() => ({

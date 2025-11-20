@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as jose from 'jose';
-import { TokenService } from '../../../services/token.service';
-import type { TokenPayload } from '../../../services/token.service';
+import { TokenService } from '../../../services/token.service.js';
+import type { TokenPayload } from '../../../services/token.service.js';
 
 describe('TokenService', () => {
   let tokenService: TokenService;

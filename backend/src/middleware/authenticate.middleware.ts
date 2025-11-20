@@ -10,8 +10,8 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { TokenService } from '../services/token.service';
-import tokenServiceInstance from '../services/token.service';
+import { TokenService } from '../services/token.service.js';
+import tokenServiceInstance from '../services/token.service.js';
 
 /**
  * JWT認証ミドルウェアファクトリー

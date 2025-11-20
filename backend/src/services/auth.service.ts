@@ -10,12 +10,12 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
-import { InvitationService } from './invitation.service';
-import { PasswordService } from './password.service';
-import { TokenService, type TokenPayload } from './token.service';
-import tokenServiceInstance from './token.service';
-import { TwoFactorService } from './two-factor.service';
-import { SessionService } from './session.service';
+import { InvitationService } from './invitation.service.js';
+import { PasswordService } from './password.service.js';
+import { TokenService, type TokenPayload } from './token.service.js';
+import tokenServiceInstance from './token.service.js';
+import { TwoFactorService } from './two-factor.service.js';
+import { SessionService } from './session.service.js';
 import type {
   IAuthService,
   RegisterData,

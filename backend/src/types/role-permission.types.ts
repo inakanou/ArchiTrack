@@ -5,7 +5,7 @@
  * - 19.1-19.8: ロールへの権限割り当て
  */
 
-import type { Result } from './result';
+import type { Result } from './result.js';
 
 /**
  * ロール・権限紐付けサービスのインターフェース

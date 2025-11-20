@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { EmailService } from '../../../services/email.service';
+import { EmailService } from '../../../services/email.service.js';
 import type { Queue } from 'bull';
 import type { Transporter } from 'nodemailer';
 

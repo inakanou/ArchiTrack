@@ -8,11 +8,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, User, Role, UserRole } from '@prisma/client';
-import { UserRoleService } from '../../../services/user-role.service';
-import { Err, Ok } from '../../../types/result';
-import type { IAuditLogService } from '../../../types/audit-log.types';
-import type { IRBACService } from '../../../types/rbac.types';
-import type { EmailService } from '../../../services/email.service';
+import { UserRoleService } from '../../../services/user-role.service.js';
+import { Err, Ok } from '../../../types/result.js';
+import type { IAuditLogService } from '../../../types/audit-log.types.js';
+import type { IRBACService } from '../../../types/rbac.types.js';
+import type { EmailService } from '../../../services/email.service.js';
 import * as Sentry from '../../../utils/sentry.js';
 
 // Sentryモジュールをモック

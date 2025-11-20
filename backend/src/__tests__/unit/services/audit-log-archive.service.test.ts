@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { AuditLogArchiveService } from '../../../services/audit-log-archive.service';
+import { AuditLogArchiveService } from '../../../services/audit-log-archive.service.js';
 
 describe('AuditLogArchiveService', () => {
   let auditLogArchiveService: AuditLogArchiveService;

@@ -5,7 +5,7 @@
  * - 8.1-8.5: セッション管理（マルチデバイス対応、有効期限延長）
  */
 
-import type { Result } from './result';
+import type { Result } from './result.js';
 
 /**
  * セッション情報

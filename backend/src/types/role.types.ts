@@ -5,7 +5,7 @@
  * - 17.1-17.9: 動的ロール管理
  */
 
-import type { Result } from './result';
+import type { Result } from './result.js';
 
 /**
  * ロールサービスのインターフェース
