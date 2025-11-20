@@ -201,7 +201,7 @@ describe('Redis Integration Tests', () => {
 
       const retrieved = await client.get(key);
       expect(retrieved).toBeNull();
-    }, 6000); // テストタイムアウトを6秒に設定
+    }, 10000); // テストタイムアウトを10秒に設定（Docker/CI環境を考慮）
   });
 
   describe('Hash Operations', () => {
