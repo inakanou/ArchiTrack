@@ -1,8 +1,31 @@
 import { config } from 'dotenv';
-import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 // テスト環境用の.env.testファイルを読み込む（validateEnv前に必須）
-// プロジェクトルートからの絶対パスを使用
-config({ path: resolve(process.cwd(), 'backend/.env.test') });
+// テストファイルの場所から相対パスで.env.testを参照
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const envPath = join(__dirname, '../../../.env.test');
+
+// デバッグ: .env.testが存在するか確認
+if (!existsSync(envPath)) {
+  throw new Error(`
+.env.test not found at: ${envPath}
+__dirname: ${__dirname}
+Please ensure .env.test exists in the backend directory.
+`);
+}
+
+const result = config({ path: envPath });
+if (result.error) {
+  throw new Error(`Failed to load .env.test: ${result.error.message}`);
+}
+
+// デバッグ: 重要な環境変数が読み込まれているか確認
+if (!process.env.TWO_FACTOR_ENCRYPTION_KEY) {
+  throw new Error('TWO_FACTOR_ENCRYPTION_KEY not loaded from .env.test');
+}
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { validateEnv } from '../../config/env.js';
