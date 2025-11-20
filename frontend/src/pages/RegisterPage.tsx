@@ -1,7 +1,11 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import RegisterForm from '../components/RegisterForm';
-import type { RegisterFormData, InvitationVerificationResult } from '../types/auth.types';
+import type {
+  RegisterFormData,
+  InvitationVerificationResult,
+  AuthResponse,
+} from '../types/auth.types';
 
 /**
  * ユーザー登録ページ
@@ -52,19 +56,17 @@ export function RegisterPage() {
   const handleRegister = async (data: RegisterFormData): Promise<void> => {
     try {
       // ユーザー登録API呼び出し
-      await apiClient.post('/api/v1/auth/register', {
+      await apiClient.post<AuthResponse>('/api/v1/auth/register', {
         invitationToken: data.invitationToken,
         displayName: data.displayName,
         password: data.password,
       });
 
-      // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
-      queueMicrotask(() => {
-        navigate('/login', {
-          state: {
-            message: 'ユーザー登録が完了しました。ログインしてください。',
-          },
-        });
+      // 登録成功後、ログインページへ遷移
+      navigate('/login', {
+        state: {
+          message: 'ユーザー登録が完了しました。ログインしてください。',
+        },
       });
     } catch (error) {
       // エラーをRegisterFormに伝播させる（RegisterFormがエラーハンドリングを行う）
@@ -117,10 +119,7 @@ export function RegisterPage() {
           </p>
           <button
             onClick={() => {
-              // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
-              queueMicrotask(() => {
-                navigate('/login');
-              });
+              navigate('/login');
             }}
             style={{
               width: '100%',
@@ -201,10 +200,7 @@ export function RegisterPage() {
             href="/login"
             onClick={(e) => {
               e.preventDefault();
-              // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
-              queueMicrotask(() => {
-                navigate('/login');
-              });
+              navigate('/login');
             }}
             style={{
               color: '#3b82f6',

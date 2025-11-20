@@ -38,14 +38,9 @@ export function LoginPage() {
       // AuthContextのlogin()を呼び出し
       await login(data.email, data.password);
 
-      // React Router v7との互換性のため、ナビゲーションを次のマイクロタスクで実行
-      // これにより、状態更新とナビゲーションの競合を避ける
+      // ログイン成功時、リダイレクトURLまたはダッシュボードへ遷移
       const from = (location.state as { from?: string })?.from || '/';
-
-      // queueMicrotaskを使用してナビゲーションを遅延実行
-      queueMicrotask(() => {
-        navigate(from, { replace: true });
-      });
+      navigate(from, { replace: true });
 
       return {
         type: 'SUCCESS', // TODO: 2FA対応時に '2FA_REQUIRED' も処理

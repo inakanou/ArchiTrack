@@ -157,7 +157,9 @@ export interface RegisterData {
  */
 export interface AuthResponse {
   accessToken: string;
+  refreshToken: string;
   user: UserProfile;
+  expiresIn?: number;
 }
 
 /**
@@ -173,6 +175,8 @@ export interface UpdateProfileData {
 export interface LoginResponse {
   type: 'SUCCESS' | '2FA_REQUIRED';
   accessToken?: string;
+  refreshToken?: string;
   userId?: string;
   user?: UserProfile;
+  expiresIn?: number;
 }
