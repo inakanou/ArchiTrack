@@ -80,14 +80,27 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     try {
       // ログインAPIを呼び出し
       const response = await apiClient.post<{
-        user: User;
-        accessToken: string;
-        refreshToken: string;
+        type: 'SUCCESS' | '2FA_REQUIRED';
+        user?: User;
+        accessToken?: string;
+        refreshToken?: string;
+        userId?: string;
         expiresIn?: number;
       }>('/api/v1/auth/login', {
         email,
         password,
       });
+
+      // 2FA有効ユーザーの場合は2FA検証画面へ
+      if (response.type === '2FA_REQUIRED') {
+        // TODO: 2FA検証画面への遷移処理を実装
+        throw new Error('2FA is not yet implemented');
+      }
+
+      // 通常ログイン成功時の処理
+      if (!response.user || !response.accessToken || !response.refreshToken) {
+        throw new Error('Invalid login response format');
+      }
 
       // ユーザー情報を保存
       setUser(response.user);

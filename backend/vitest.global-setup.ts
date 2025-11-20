@@ -1,7 +1,20 @@
 // Vitest グローバルセットアップファイル
 // 全てのテスト実行前に一度だけ実行される
-import 'dotenv/config';
+import { config } from 'dotenv';
 import { generateKeyPair, exportJWK } from 'jose';
+
+// Docker環境では空文字列として設定されている環境変数を削除
+// （dotenvは既存の環境変数を上書きしないため）
+const emptyEnvVars = ['TWO_FACTOR_ENCRYPTION_KEY'];
+emptyEnvVars.forEach((key) => {
+  if (process.env[key] === '') {
+    delete process.env[key];
+  }
+});
+
+// テスト環境用の.env.testファイルを読み込む
+// override: falseで既存の環境変数を優先（setup関数で環境に応じて設定するため）
+config({ path: '.env.test' });
 
 /**
  * グローバルセットアップ
@@ -83,5 +96,13 @@ export async function setup() {
   // PORT未設定の場合はデフォルト値を設定（env.tsと統一）
   if (!process.env.PORT) {
     process.env.PORT = '3000';
+  }
+
+  // TWO_FACTOR_ENCRYPTION_KEY未設定の場合は.env.testから読み込み
+  // テスト環境では固定値を使用してテストの一貫性を保つ
+  if (!process.env.TWO_FACTOR_ENCRYPTION_KEY) {
+    // .env.testに設定されている値を使用
+    // この値は既に.env.testで定義されているため、dotenv.configで読み込まれる
+    console.log('[GLOBAL SETUP] TWO_FACTOR_ENCRYPTION_KEY loaded from .env.test');
   }
 }

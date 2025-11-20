@@ -312,18 +312,37 @@ jobs:
           JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
 
+      - name: Create .env file for E2E
+        run: |
+          echo "NODE_ENV=test" > .env
+          echo "PORT=3000" >> .env
+          echo "LOG_LEVEL=info" >> .env
+          echo "DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev" >> .env
+          echo "REDIS_URL=redis://redis:6379" >> .env
+          echo "FRONTEND_URL=http://localhost:5173" >> .env
+          echo "ACCESS_TOKEN_EXPIRY=15m" >> .env
+          echo "REFRESH_TOKEN_EXPIRY=7d" >> .env
+          echo "VITE_API_URL=http://localhost:3000" >> .env
+          echo "JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}" >> .env
+          echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
+          echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
+
       - name: Start Docker Compose for E2E
         run: |
-          # Create .env file for Docker Compose with required secrets
-          cat > .env << EOF
-          JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}
-          JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}
-          TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
-          EOF
-
           docker compose up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
+
+      - name: Debug - Check backend container logs
+        if: always()
+        run: |
+          echo "=== Backend container logs ==="
+          docker logs architrack-backend --tail 100
+          echo "=== Backend container environment variables (filtered) ==="
+          docker exec architrack-backend printenv | grep -E "NODE_ENV|PORT|DATABASE_URL|REDIS_URL|JWT" | sed 's/=.*/=***/'
+
+      - name: Run database migrations
+        run: docker exec architrack-backend npx prisma migrate deploy
       - name: Run E2E tests
         run: npm run test:e2e
         env:

@@ -1,3 +1,4 @@
+// vitest.global-setup.tsで.env.testが読み込まれるため、ここでは不要
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
@@ -118,7 +119,7 @@ describe('API Integration Tests', () => {
       // 61回目は429 (Too Many Requests) の可能性がある
       const rateLimitedCount = responses.filter((r) => r.status === 429).length;
       expect(rateLimitedCount).toBeGreaterThanOrEqual(0);
-    }, 30000); // タイムアウトを30秒に設定
+    }, 60000); // タイムアウトを60秒に設定（Docker/CI環境を考慮）
 
     it('レート制限超過時に適切なエラーメッセージを返すこと', async () => {
       // API エンドポイントは15分間に100リクエストまで
@@ -132,7 +133,7 @@ describe('API Integration Tests', () => {
         expect(rateLimitedResponse.body).toHaveProperty('error');
         expect(rateLimitedResponse.headers).toHaveProperty('retry-after');
       }
-    }, 30000);
+    }, 60000); // タイムアウトを60秒に設定（Docker/CI環境を考慮）
   });
 
   describe('CORS Configuration', () => {

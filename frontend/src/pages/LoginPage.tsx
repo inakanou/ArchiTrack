@@ -39,7 +39,6 @@ export function LoginPage() {
       await login(data.email, data.password);
 
       // ログイン成功時、リダイレクトURLまたはダッシュボードへ遷移
-      // ProtectedRouteが保存したリダイレクトURL（location.state.from）を取得
       const from = (location.state as { from?: string })?.from || '/';
       navigate(from, { replace: true });
 

@@ -46,6 +46,8 @@ describe('env module', () => {
       process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
       process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
       process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      // CI環境でもテストが通るよう、PORTが未設定の場合はデフォルト値を期待する
+      const expectedPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
       // モジュールを動的にインポート
       const { validateEnv } = await import('../../../config/env.js');
@@ -55,7 +57,8 @@ describe('env module', () => {
       expect(result).toBeDefined();
       // テスト環境ではNODE_ENVが'test'に設定される
       expect(result.NODE_ENV).toBe('test');
-      expect(result.PORT).toBe(3000);
+      // PORTは環境変数が設定されていればその値、なければデフォルト値（3000）
+      expect(result.PORT).toBe(expectedPort);
     });
 
     it('JWT_PUBLIC_KEYが未設定の場合、エラーを投げる', async () => {

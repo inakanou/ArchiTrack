@@ -18,12 +18,39 @@ ArchiTrackは **Claude Code** を活用した **Kiro-style Spec Driven Developme
 
 ## ブランチ戦略
 
+ArchiTrackでは**Git Flow**ベースのブランチ戦略を採用しています。
+
 ```
-main (本番)
-  └── develop (開発環境)
-      ├── feature/xxx
-      └── bugfix/yyy
+main (本番環境)
+  ↑
+  │ リリース時のみマージ
+  │
+develop (開発統合)  ← 常にmainより先に進む
+  ↑
+  │ 機能完成時マージ
+  │
+feature/* (機能開発)  ← developから分岐
+hotfix/* (緊急修正)   ← mainから分岐
 ```
+
+### ブランチの役割
+
+- **main**: 本番環境にデプロイされる安定版（直接プッシュ禁止、PR必須、全CI成功必須）
+- **develop**: 次のリリースに向けた開発統合ブランチ
+- **feature/***: 個別の機能開発（developから分岐、developへマージ）
+- **hotfix/***: 本番環境の緊急修正（mainから分岐、mainとdevelopへマージ）
+
+### Dependabot統合
+
+依存関係の自動更新PRは**developブランチ**に向けて作成されます：
+- 週次で依存関係をチェック
+- developで統合・テスト
+- リリース時にmainへマージ
+
+### 詳細
+
+- [Git ワークフローガイド](git-workflow.md) - Git Flowの詳細な運用手順
+- [ブランチ保護設定](../deployment/branch-protection.md) - GitHub ブランチ保護の設定方法
 
 ---
 

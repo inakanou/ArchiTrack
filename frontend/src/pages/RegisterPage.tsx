@@ -1,7 +1,11 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import RegisterForm from '../components/RegisterForm';
-import type { RegisterFormData, InvitationVerificationResult } from '../types/auth.types';
+import type {
+  RegisterFormData,
+  InvitationVerificationResult,
+  AuthResponse,
+} from '../types/auth.types';
 
 /**
  * ユーザー登録ページ
@@ -52,13 +56,13 @@ export function RegisterPage() {
   const handleRegister = async (data: RegisterFormData): Promise<void> => {
     try {
       // ユーザー登録API呼び出し
-      await apiClient.post('/api/v1/auth/register', {
+      await apiClient.post<AuthResponse>('/api/v1/auth/register', {
         invitationToken: data.invitationToken,
         displayName: data.displayName,
         password: data.password,
       });
 
-      // 登録成功時、ログインページへ遷移
+      // 登録成功後、ログインページへ遷移
       navigate('/login', {
         state: {
           message: 'ユーザー登録が完了しました。ログインしてください。',
@@ -114,7 +118,9 @@ export function RegisterPage() {
             管理者から送信された招待メールのリンクをクリックしてください。
           </p>
           <button
-            onClick={() => navigate('/login')}
+            onClick={() => {
+              navigate('/login');
+            }}
             style={{
               width: '100%',
               padding: '0.75rem',
