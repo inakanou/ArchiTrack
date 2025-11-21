@@ -51,7 +51,7 @@ describe('Seed Script Integration Tests', () => {
 
   it('事前定義ロールが正しく作成される', async () => {
     // Arrange & Act
-    const { seedRoles } = await import('../../utils/seed-helpers');
+    const { seedRoles } = await import('../../utils/seed-helpers.js');
     await seedRoles(prisma);
 
     // Assert: システム管理者ロール
@@ -75,7 +75,7 @@ describe('Seed Script Integration Tests', () => {
 
   it('事前定義権限が正しく作成される', async () => {
     // Arrange & Act
-    const { seedPermissions } = await import('../../utils/seed-helpers');
+    const { seedPermissions } = await import('../../utils/seed-helpers.js');
     await seedPermissions(prisma);
 
     // Assert: 全権限（*:*）
@@ -102,7 +102,7 @@ describe('Seed Script Integration Tests', () => {
   it('ロールと権限が正しく紐付けられる', async () => {
     // Arrange
     const { seedRoles, seedPermissions, seedRolePermissions } = await import(
-      '../../utils/seed-helpers'
+      '../../utils/seed-helpers.js'
     );
     await seedRoles(prisma);
     await seedPermissions(prisma);
@@ -150,7 +150,7 @@ describe('Seed Script Integration Tests', () => {
   it('初期管理者アカウントが正しく作成される', async () => {
     // Arrange
     const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
-      '../../utils/seed-helpers'
+      '../../utils/seed-helpers.js'
     );
     await seedRoles(prisma);
     await seedPermissions(prisma);
@@ -203,7 +203,7 @@ describe('Seed Script Integration Tests', () => {
 
     // Arrange & Act: 1回目の実行
     const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
-      '../../utils/seed-helpers'
+      '../../utils/seed-helpers.js'
     );
     await seedRoles(prisma);
     await seedPermissions(prisma);
@@ -265,7 +265,7 @@ describe('Seed Script Integration Tests', () => {
     });
 
     // Act: Seedスクリプト実行
-    const { seedAdminUser } = await import('../../utils/seed-helpers');
+    const { seedAdminUser } = await import('../../utils/seed-helpers.js');
     await seedAdminUser(prisma);
 
     // Assert: 既存の管理者が変更されていない
