@@ -47,4 +47,9 @@ elif [ "$NODE_ENV" = "production" ]; then
   echo "To enable automatic migrations, set MIGRATE_ON_DEPLOY=true"
 fi
 
+# データベースシーディング（ロール・権限・初期管理者アカウント）
+echo "Running database seed..."
+npx tsx prisma/seed.ts
+echo "Seed completed successfully"
+
 exec "$@"
