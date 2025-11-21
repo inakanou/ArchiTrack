@@ -12,12 +12,13 @@
 
 import { PrismaClient } from '@prisma/client';
 import { config } from 'dotenv';
+import logger from '../src/utils/logger.js';
 import {
   seedRoles,
   seedPermissions,
   seedRolePermissions,
   seedAdminUser,
-} from '../src/utils/seed-helpers';
+} from '../src/utils/seed-helpers.js';
 
 // 環境変数を読み込み
 config();
@@ -25,7 +26,8 @@ config();
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Starting seed...');
+  const startTime = Date.now();
+  logger.info('🌱 Starting database seed...');
 
   // 1. ロールのシーディング
   await seedRoles(prisma);
@@ -39,7 +41,8 @@ async function main() {
   // 4. 初期管理者アカウントの作成
   await seedAdminUser(prisma);
 
-  console.log('✅ Seed completed successfully');
+  const duration = Date.now() - startTime;
+  logger.info(`✅ Seed completed successfully (${duration}ms)`);
 }
 
 main()
@@ -47,7 +50,7 @@ main()
     await prisma.$disconnect();
   })
   .catch(async (error) => {
-    console.error('❌ Seed failed:', error);
+    logger.error({ err: error }, '❌ Seed failed');
     await prisma.$disconnect();
     process.exit(1);
   });

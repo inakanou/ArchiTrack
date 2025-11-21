@@ -32,10 +32,10 @@ else
 fi
 
 # マイグレーション自動実行
-# 開発環境: 常にマイグレーション実行
+# 開発・テスト環境: 常にマイグレーション実行
 # 本番環境: MIGRATE_ON_DEPLOY=true の場合のみ実行
-if [ "$NODE_ENV" = "development" ]; then
-  echo "Running database migrations (development)..."
+if [ "$NODE_ENV" = "development" ] || [ "$NODE_ENV" = "test" ]; then
+  echo "Running database migrations ($NODE_ENV)..."
   npm run prisma:migrate:deploy
   echo "Migrations completed successfully"
 elif [ "$MIGRATE_ON_DEPLOY" = "true" ] && [ "$NODE_ENV" = "production" ]; then
@@ -45,6 +45,24 @@ elif [ "$MIGRATE_ON_DEPLOY" = "true" ] && [ "$NODE_ENV" = "production" ]; then
 elif [ "$NODE_ENV" = "production" ]; then
   echo "Skipping migrations (MIGRATE_ON_DEPLOY is not set to true)"
   echo "To enable automatic migrations, set MIGRATE_ON_DEPLOY=true"
+fi
+
+# データベースシーディング（ロール・権限・初期管理者アカウント）
+# 開発・テスト環境: 常に実行
+# 本番環境: RUN_SEED=true で明示的にopt-in
+if [ "$NODE_ENV" = "development" ] || [ "$NODE_ENV" = "test" ]; then
+  echo "Running database seed..."
+  npx tsx prisma/seed.ts
+  echo "Seed completed successfully"
+elif [ "$NODE_ENV" = "production" ] && [ "$RUN_SEED" = "true" ]; then
+  echo "Running database seed (production - explicit opt-in)..."
+  # 本番環境ではseed失敗を許容（既にデータが存在する場合など）
+  if npx tsx prisma/seed.ts; then
+    echo "Seed completed successfully"
+  else
+    echo "⚠️  Seed failed in production, but continuing startup..."
+    echo "This is expected if roles/permissions/admin already exist."
+  fi
 fi
 
 exec "$@"
