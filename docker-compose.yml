@@ -31,7 +31,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Backend API
+  # Backend API (Development with tsx)
   backend:
     build:
       context: ./backend
@@ -67,6 +67,44 @@ services:
       retries: 5
       start_period: 30s
 
+  # Backend API (Production simulation with node - Phase 3)
+  backend-prod:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: architrack-backend-prod
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:dev@postgres:5432/architrack_dev}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ACCESS_TOKEN_EXPIRY: ${ACCESS_TOKEN_EXPIRY:-15m}
+      REFRESH_TOKEN_EXPIRY: ${REFRESH_TOKEN_EXPIRY:-7d}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - backend_prod_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "npm run build && node dist/src/index.js"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    profiles:
+      - prod-test
+
   # Frontend
   frontend:
     build:
@@ -91,4 +129,5 @@ volumes:
   postgres_data:
   redis_data:
   backend_node_modules:
+  backend_prod_node_modules:
   frontend_node_modules:
