@@ -2187,6 +2187,130 @@ function useAuth(): AuthContextValue;
 - **401エラーハンドリング**: apiClientインターセプターで自動リフレッシュ試行（TokenRefreshManager使用）
 - **リフレッシュ失敗時**: ログイン画面へリダイレクト、`redirectUrl` クエリパラメータ設定
 
+**セッション復元ローディング戦略**:
+
+認証状態の初期化時に「ログイン画面のチラつき」を防止するため、業界標準パターン（Auth0、Firebase、NextAuth.js）に準拠したローディング状態管理を実装します。
+
+**初期化シーケンス**:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant AuthProvider
+    participant localStorage
+    participant API
+    participant ProtectedRoute
+
+    User->>AuthProvider: ページロード
+    Note over AuthProvider: isLoading=true（初期値）
+    AuthProvider->>localStorage: リフレッシュトークン確認
+
+    alt リフレッシュトークンあり
+        localStorage-->>AuthProvider: refreshToken
+        AuthProvider->>API: POST /api/v1/auth/refresh
+        API-->>AuthProvider: { accessToken, user }
+        AuthProvider->>AuthProvider: user設定、isLoading=false
+        ProtectedRoute->>User: 対象画面を表示
+    else リフレッシュトークンなし
+        localStorage-->>AuthProvider: null
+        AuthProvider->>AuthProvider: isLoading=false
+        ProtectedRoute->>User: ログイン画面にリダイレクト
+    end
+```
+
+**状態遷移**:
+
+1. **初期状態** (`isLoading=true`): 認証状態が不明な期間
+   - ProtectedRoute はローディングインジケーターを表示
+   - リダイレクト判定を保留
+
+2. **セッション復元中** (`isLoading=true`): リフレッシュトークンで認証状態を確認
+   - `/api/v1/auth/refresh` と `/api/v1/auth/me` を順次実行
+   - ProtectedRoute は引き続きローディング表示
+
+3. **初期化完了** (`isLoading=false`): 認証状態が確定
+   - 認証済み: `user` が設定され、ProtectedRoute は対象画面を表示
+   - 未認証: `user=null`、ProtectedRoute はログイン画面にリダイレクト
+
+**チラつき防止の実装ポイント**:
+
+```typescript
+// AuthContext初期化
+const [isLoading, setIsLoading] = useState<boolean>(true); // ✅ 初期値はtrue
+
+useEffect(() => {
+  const storedRefreshToken = localStorage.getItem('refreshToken');
+
+  if (storedRefreshToken) {
+    // セッション復元処理（isLoading=trueを維持）
+    refreshToken()
+      .then(async () => {
+        const response = await apiClient.get('/api/v1/auth/me');
+        setUser(response.user);
+      })
+      .catch(() => {
+        localStorage.removeItem('refreshToken');
+      })
+      .finally(() => {
+        setIsLoading(false); // 復元完了後にfalse
+      });
+  } else {
+    setIsLoading(false); // トークンなしの場合も即座にfalse
+  }
+}, []);
+```
+
+**ProtectedRoute実装**:
+
+```typescript
+function ProtectedRoute({ children, requireAuth = true }) {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (requireAuth) {
+    // ローディング中は何も表示しない（チラつき防止）
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto" />
+            <p className="mt-4 text-gray-600">認証状態を確認中...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // isLoading=false後に認証判定
+    if (!isAuthenticated) {
+      return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+    }
+
+    return children;
+  }
+
+  // requireAuth=false の場合（ログインページなど）
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+}
+```
+
+**業界標準パターンとの整合性**:
+
+| ライブラリ | 初期値 | パターン |
+|-----------|-------|---------|
+| **Auth0** | `isLoading=true` | SDK初期化中は `true`、完了後に `false` |
+| **Firebase** | `loading=true` | `onAuthStateChanged` 完了後に `false` |
+| **NextAuth.js** | `status="loading"` | セッション確認後に `"authenticated"` または `"unauthenticated"` |
+| **ArchiTrack** | `isLoading=true` | セッション復元完了後に `false`（本設計で準拠） |
+
+**パフォーマンス考慮事項**:
+
+- セッション復元API (`/api/v1/auth/refresh` + `/api/v1/auth/me`): 平均応答時間 50-200ms
+- ローディングインジケーター表示時間: 200-500ms（一般的なユーザー体験として許容範囲）
+- 最小表示時間の設定（オプション）: 200ms未満で完了する場合、チラつき防止のため最小200ms表示してもよい
+
 #### TokenRefreshManager
 
 **責任と境界**:

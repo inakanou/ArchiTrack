@@ -321,6 +321,35 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 20. IF ログイン画面以外の公開ページで401エラーが発生する THEN Frontend Serviceはエラーをサイレントに処理し、ユーザーをリダイレクトしてはならない
 21. WHEN 開発環境である THEN Frontend Serviceはトークン有効期限切れをコンソールにログ出力しなければならない
 
+### 要件16A: 認証初期化時のローディング状態管理
+
+**目的:** ユーザーとして、認証状態の初期化中にチラつきのないスムーズなUI体験を得たい。そうすることで、ページ遷移時の視覚的な違和感を排除できるようになる。
+
+**背景:** 認証状態が不明な期間（ページロード直後、セッション復元中）にUIが不適切に判断してリダイレクトを実行すると、ログイン画面が一瞬表示される「チラつき」が発生します。これは業界標準パターン（Auth0、Firebase、NextAuth.js等）に反するUX問題です。
+
+#### 受入基準
+
+1. WHEN AuthContext が初期化される THEN Frontend Service は isLoading の初期値を true に設定しなければならない
+2. WHEN ページがロードされる AND localStorageにリフレッシュトークンが存在する THEN Frontend Serviceはセッション復元処理を開始しなければならない
+3. WHILE セッション復元処理が進行中である THE Frontend Serviceは isLoading を true に維持しなければならない
+4. WHEN セッション復元が完了する THEN Frontend Service は isLoading を false に設定し、ユーザー情報を Context に保存しなければならない
+5. IF リフレッシュトークンが存在しない THEN Frontend Service は即座に isLoading を false に設定しなければならない
+6. WHEN セッション復元が失敗する THEN Frontend Service はリフレッシュトークンを削除し、isLoading を false に設定しなければならない
+7. WHEN ProtectedRoute が isLoading=true を検知する THEN Frontend UI はローディングインジケーター（スピナー + メッセージ）を表示しなければならない
+8. WHILE isLoading が true である THE Frontend Service はログイン画面へのリダイレクトを実行してはならない
+9. WHEN isLoading が false に変更される THEN ProtectedRoute は認証状態（isAuthenticated）に基づいて適切な画面を表示しなければならない
+10. WHEN ローディングインジケーターが表示される THEN 「認証状態を確認中...」などの説明テキストを含めなければならない
+11. WHEN ローディングインジケーターが表示される THEN アクセシビリティ属性（aria-label、role="status"）を設定しなければならない
+12. WHEN セッション復元が200ms未満で完了する THEN ローディングインジケーターの最小表示時間を設けてチラつきを防止してもよい
+
+#### 業界標準パターンとの整合性
+
+本要件は以下の業界標準パターンに準拠します：
+
+- **Auth0**: `const { isLoading, isAuthenticated, user } = useAuth0();` で初期値 `isLoading=true`
+- **Firebase**: `const [loading, setLoading] = useState(true);` で認証状態確認後に `false`
+- **NextAuth.js**: `const { data: session, status } = useSession();` で初期値 `status="loading"`
+
 ### 要件17: 動的ロール管理
 
 **目的:** システム管理者として、組織の職務構造に合わせてロールを柔軟に作成・管理したい。そうすることで、現場の実態に即した権限管理を実現できるようになる。

@@ -68,7 +68,7 @@ export interface AuthProviderProps {
  */
 export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
 
   /**
@@ -238,9 +238,6 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     const storedRefreshToken = localStorage.getItem('refreshToken');
 
     if (storedRefreshToken) {
-      // セッション復元中はローディング状態にする
-      setIsLoading(true);
-
       // トークンリフレッシュを実行してセッションを復元
       refreshToken()
         .then(async () => {
@@ -256,6 +253,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           // ローディング状態を解除
           setIsLoading(false);
         });
+    } else {
+      // リフレッシュトークンが存在しない場合も初期化完了
+      setIsLoading(false);
     }
 
     // クリーンアップ関数

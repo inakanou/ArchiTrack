@@ -19,14 +19,69 @@ describe('AuthContext', () => {
   });
 
   describe('初期状態', () => {
-    it('初期状態では未認証であること', () => {
+    it('リフレッシュトークンがない場合、isLoadingがfalseになること', async () => {
+      // localStorageにトークンがない状態
+      localStorage.clear();
+
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
-      expect(result.current.isAuthenticated).toBe(false);
-      expect(result.current.user).toBeNull();
-      expect(result.current.isLoading).toBe(false);
+      // useEffectが実行され、リフレッシュトークンがないためisLoading=falseになる
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+        expect(result.current.isAuthenticated).toBe(false);
+        expect(result.current.user).toBeNull();
+      });
+    });
+
+    it('リフレッシュトークンがある場合、セッション復元後にisLoadingがfalseになること', async () => {
+      // localStorageにリフレッシュトークンを設定
+      localStorage.setItem('refreshToken', 'test-refresh-token');
+
+      const mockUser = {
+        id: '1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      };
+
+      // /api/v1/auth/refresh のモック
+      globalThis.fetch = vi.fn().mockImplementation((url) => {
+        if (url.toString().includes('/api/v1/auth/refresh')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({
+              accessToken: 'new-access-token',
+            }),
+          });
+        }
+        // /api/v1/auth/me のモック
+        if (url.toString().includes('/api/v1/auth/me')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ user: mockUser }),
+          });
+        }
+        return Promise.reject(new Error('Unexpected URL'));
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      // 初期状態ではisLoading=true
+      expect(result.current.isLoading).toBe(true);
+
+      // セッション復元完了後、isLoading=falseになる
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+        expect(result.current.isAuthenticated).toBe(true);
+        expect(result.current.user).toEqual(mockUser);
+      });
     });
   });
 

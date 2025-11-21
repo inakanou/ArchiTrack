@@ -62,9 +62,16 @@ export function ProtectedRoute({
 
   // requireAuth=true: 認証が必要なルート
   if (requireAuth) {
-    // 認証状態の読み込み中は何も表示しない（ちらつき防止）
+    // 認証状態の読み込み中はローディングインジケーターを表示（ちらつき防止）
     if (isLoading) {
-      return <div>Loading...</div>;
+      return (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center" role="status" aria-label="認証状態を確認中">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto" />
+            <p className="mt-4 text-gray-600">認証状態を確認中...</p>
+          </div>
+        </div>
+      );
     }
 
     if (!isAuthenticated) {
