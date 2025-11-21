@@ -48,16 +48,17 @@ elif [ "$NODE_ENV" = "production" ]; then
 fi
 
 # データベースシーディング（ロール・権限・初期管理者アカウント）
-# 開発・テスト環境: 常に実行
-# 本番環境: RUN_SEED=true で明示的にopt-in
+# 開発・テスト環境: 常に実行（TypeScriptソースから）
+# 本番環境: RUN_SEED=true で明示的にopt-in（ビルド済みJavaScriptから）
 if [ "$NODE_ENV" = "development" ] || [ "$NODE_ENV" = "test" ]; then
   echo "Running database seed..."
   npx tsx prisma/seed.ts
   echo "Seed completed successfully"
 elif [ "$NODE_ENV" = "production" ] && [ "$RUN_SEED" = "true" ]; then
   echo "Running database seed (production - explicit opt-in)..."
-  # 本番環境ではseed失敗を許容（既にデータが存在する場合など）
-  if npx tsx prisma/seed.ts; then
+  # 本番環境ではビルド済みのseed.jsを実行（dist/内のモジュール解決のため）
+  # seed失敗を許容（既にデータが存在する場合など）
+  if node dist/prisma/seed.js; then
     echo "Seed completed successfully"
   else
     echo "⚠️  Seed failed in production, but continuing startup..."
