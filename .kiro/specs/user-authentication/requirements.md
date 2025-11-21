@@ -321,7 +321,7 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 20. IF ログイン画面以外の公開ページで401エラーが発生する THEN Frontend Serviceはエラーをサイレントに処理し、ユーザーをリダイレクトしてはならない
 21. WHEN 開発環境である THEN Frontend Serviceはトークン有効期限切れをコンソールにログ出力しなければならない
 
-### 要件16A: 認証初期化時のローディング状態管理
+### 要件16A: 認証状態初期化時のUIチラつき防止
 
 **目的:** ユーザーとして、認証状態の初期化中にチラつきのないスムーズなUI体験を得たい。そうすることで、ページ遷移時の視覚的な違和感を排除できるようになる。
 
@@ -329,26 +329,25 @@ JWT（JSON Web Token）ベースの認証方式を採用し、招待制のユー
 
 #### 受入基準
 
-1. WHEN AuthContext が初期化される THEN Frontend Service は isLoading の初期値を true に設定しなければならない
-2. WHEN ページがロードされる AND localStorageにリフレッシュトークンが存在する THEN Frontend Serviceはセッション復元処理を開始しなければならない（タイムアウト: 5秒）
-3. WHILE セッション復元処理が進行中である THE Frontend Serviceは isLoading を true に維持しなければならない
-4. WHEN セッション復元が完了する THEN Frontend Service は isLoading を false に設定し、ユーザー情報を Context に保存しなければならない
-5. IF リフレッシュトークンが存在しない THEN Frontend Service は即座に isLoading を false に設定しなければならない
-6. WHEN セッション復元が失敗する THEN Frontend Service はリフレッシュトークンを削除し、isLoading を false に設定しなければならない
-7. WHEN isLoading が true である THEN Frontend UI はローディングインジケーター（スピナー + メッセージ）を表示しなければならない
-8. WHILE isLoading が true である THE Frontend Service はログイン画面へのリダイレクトを実行してはならない
-9. WHEN isLoading が false に変更される THEN ProtectedRoute は認証状態（isAuthenticated）に基づいて適切な画面を表示しなければならない
-10. WHEN ローディングインジケーターが表示される THEN 「認証状態を確認中...」などの説明テキストを含めなければならない
-11. WHEN ローディングインジケーターが表示される THEN アクセシビリティ属性（aria-label="認証状態を確認中"、role="status"、aria-live="polite"）を設定しなければならない
-12. WHEN セッション復元が200ms未満で完了する THEN ローディングインジケーターの最小表示時間（200ms以上）を設けてチラつきを防止してもよい
+1. WHEN システムがページをロードする THEN システムは認証状態を確認するまでローディング状態を維持しなければならない
+2. WHEN 保存された認証情報が存在する THEN システムはセッション復元処理を開始しなければならない（タイムアウト: 5秒）
+3. WHILE 認証状態確認が進行中である THE システムはローディング状態を維持しなければならない
+4. WHEN 認証状態確認が完了する THEN システムはローディング状態を終了しなければならない
+5. IF 保存された認証情報が存在しない THEN システムは即座にローディング状態を終了しなければならない
+6. WHEN 認証状態確認が失敗する THEN システムは認証情報を破棄し、ローディング状態を終了しなければならない
+7. WHEN ローディング状態が有効である THEN システムはローディングインジケーターを表示しなければならない
+8. WHILE ローディング状態が有効である THE システムは認証保護されたページへのリダイレクトを実行してはならない
+9. WHEN ローディング状態が終了する THEN システムは認証状態に基づいて適切な画面を表示しなければならない
+10. WHEN ローディングインジケーターが表示される THEN システムは説明テキスト（例: 「認証状態を確認中...」）を含めなければならない
+11. WHEN ローディングインジケーターが表示される THEN システムはアクセシビリティ属性（aria-label, role="status", aria-live="polite"）を設定しなければならない
 
 #### 業界標準パターンとの整合性
 
 本要件は以下の業界標準パターンに準拠します：
 
-- **Auth0**: `const { isLoading, isAuthenticated, user } = useAuth0();` で初期値 `isLoading=true`
-- **Firebase**: `const [loading, setLoading] = useState(true);` で認証状態確認後に `false`
-- **NextAuth.js**: `const { data: session, status } = useSession();` で初期値 `status="loading"`
+- **Auth0**: 初期ローディング状態から認証状態確認後に遷移
+- **Firebase**: 認証状態確認完了まで待機
+- **NextAuth.js**: セッション状態が"loading"から"authenticated"/"unauthenticated"へ遷移
 
 ### 要件17: 動的ロール管理
 
