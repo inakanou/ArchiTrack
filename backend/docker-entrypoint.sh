@@ -32,10 +32,10 @@ else
 fi
 
 # マイグレーション自動実行
-# 開発環境: 常にマイグレーション実行
+# 開発・テスト環境: 常にマイグレーション実行
 # 本番環境: MIGRATE_ON_DEPLOY=true の場合のみ実行
-if [ "$NODE_ENV" = "development" ]; then
-  echo "Running database migrations (development)..."
+if [ "$NODE_ENV" = "development" ] || [ "$NODE_ENV" = "test" ]; then
+  echo "Running database migrations ($NODE_ENV)..."
   npm run prisma:migrate:deploy
   echo "Migrations completed successfully"
 elif [ "$MIGRATE_ON_DEPLOY" = "true" ] && [ "$NODE_ENV" = "production" ]; then
@@ -48,8 +48,11 @@ elif [ "$NODE_ENV" = "production" ]; then
 fi
 
 # データベースシーディング（ロール・権限・初期管理者アカウント）
-echo "Running database seed..."
-npx tsx prisma/seed.ts
-echo "Seed completed successfully"
+# マイグレーションが実行された場合のみseedを実行
+if [ "$NODE_ENV" = "development" ] || [ "$NODE_ENV" = "test" ] || [ "$MIGRATE_ON_DEPLOY" = "true" ]; then
+  echo "Running database seed..."
+  npx tsx prisma/seed.ts
+  echo "Seed completed successfully"
+fi
 
 exec "$@"
