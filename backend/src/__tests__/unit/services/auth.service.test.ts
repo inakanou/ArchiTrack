@@ -188,7 +188,7 @@ describe('AuthService', () => {
         password: 'SecurePass123!@#',
       };
 
-      const { Err: ErrImport } = await import('../../../types/result');
+      const { Err: ErrImport } = await import('../../../types/result.js');
       (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
         ErrImport({ type: 'INVALID_TOKEN' })
       );
@@ -211,7 +211,7 @@ describe('AuthService', () => {
         password: 'SecurePass123!@#',
       };
 
-      const { Err: ErrImport } = await import('../../../types/result');
+      const { Err: ErrImport } = await import('../../../types/result.js');
       (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
         ErrImport({ type: 'EXPIRED_TOKEN' })
       );
@@ -234,7 +234,7 @@ describe('AuthService', () => {
         password: 'SecurePass123!@#',
       };
 
-      const { Err: ErrImport } = await import('../../../types/result');
+      const { Err: ErrImport } = await import('../../../types/result.js');
       (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
         ErrImport({ type: 'USED_TOKEN' })
       );
@@ -273,7 +273,7 @@ describe('AuthService', () => {
         Ok(mockInvitation)
       );
 
-      const { Err: ErrImport } = await import('../../../types/result');
+      const { Err: ErrImport } = await import('../../../types/result.js');
       (mockPasswordService.validatePasswordStrength as ReturnType<typeof vi.fn>).mockResolvedValue(
         ErrImport({
           type: 'WEAK_PASSWORD',

@@ -37,6 +37,21 @@ if echo "$STAGED_FILES" | grep -q '^backend/.*\.\(js\|ts\)$'; then
     echo "❌ Backend type check failed. Commit aborted."
     exit 1
   fi
+
+  # Phase 3: Validate ES Module imports with node (production environment simulation)
+  echo "🔍 Validating ES Module imports (production simulation)..."
+  npm --prefix backend run build > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+    node --check backend/dist/src/index.js
+    if [ $? -ne 0 ]; then
+      echo "❌ ES Module validation failed. Missing .js extensions in imports?"
+      echo "💡 Hint: Run 'npm --prefix backend run validate:esm' to see details"
+      exit 1
+    fi
+    echo "✅ ES Module imports are valid"
+  else
+    echo "⚠️  Build failed, skipping ES Module validation"
+  fi
 fi
 
 # Frontend: TypeScript/JavaScript/JSX/TSX files

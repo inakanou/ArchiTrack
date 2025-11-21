@@ -175,6 +175,28 @@ jobs:
         run: npm --prefix ${{ matrix.workspace }} ci
       - name: Build
         run: npm --prefix ${{ matrix.workspace }} run build
+
+      # Phase 1: Validate ES Module imports with node (backend only)
+      - name: Validate ES Module imports (backend)
+        if: matrix.workspace == 'backend'
+        run: |
+          echo "🔍 Validating ES Module imports with node..."
+
+          # Validate entry point
+          node --check ${{ matrix.workspace }}/dist/src/index.js
+
+          # Validate all built JavaScript files
+          find ${{ matrix.workspace }}/dist -name '*.js' -type f | while read file; do
+            echo "Checking: $file"
+            node --check "$file" || {
+              echo "❌ ES Module error in: $file"
+              echo "💡 Hint: Check for missing .js extensions in imports"
+              exit 1
+            }
+          done
+
+          echo "✅ All ES modules are valid (no import errors detected)"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v5
         with:

@@ -3,6 +3,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import prettierConfig from 'eslint-config-prettier';
 import prettierPlugin from 'eslint-plugin-prettier';
+import importPlugin from 'eslint-plugin-import';
 
 export default [
   // Ignore patterns
@@ -57,6 +58,7 @@ export default [
     plugins: {
       '@typescript-eslint': tseslint.plugin,
       prettier: prettierPlugin,
+      import: importPlugin,
     },
     rules: {
       ...prettierConfig.rules,
@@ -64,6 +66,15 @@ export default [
       'no-console': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'error',
+      // Phase 2: Enforce .js extensions for ES Module imports
+      'import/extensions': [
+        'error',
+        'ignorePackages',
+        {
+          ts: 'never', // Don't use .ts extension in TypeScript source
+          js: 'always', // Always use .js extension for relative imports (compiled output)
+        },
+      ],
     },
   },
 
