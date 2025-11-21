@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-20（ステアリング同期、React 19.2.0・Vitest 4.0.10・Sentry 10.22.0・axe-playwright 2.2.2・依存関係更新を反映）_
+_最終更新: 2025-11-21（Steering Sync: CSRF実装詳細修正、Database Seeding・ESM Validation追加）_
 
 ## アーキテクチャ
 
@@ -92,11 +92,11 @@ ArchiTrack/
 - **ORM**: Prisma 6.19.0（PostgreSQL用の型安全なデータアクセス）
 - **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.19.0
 - **キャッシュクライアント**: ioredis 5.3.2
-- **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、csurf 1.2.2、express-rate-limit 8.2.1
+- **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.10、handlebars 4.7.8
 - **JWT署名**: jose 5.10.0（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
-- **セキュリティ**: bloom-filters 3.0.4
+- **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **バリデーション**: zod 4.1.12
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）
@@ -110,7 +110,6 @@ ArchiTrack/
 - `helmet` ^8.1.0 - セキュリティヘッダー設定
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
-- `csurf` ^1.2.2 - CSRF保護
 - `@prisma/client` ^6.19.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
@@ -677,6 +676,13 @@ npm --prefix frontend run build
 
 ### Prisma開発
 
+#### Database Seeding
+
+- `backend/prisma/seed.ts` - 開発環境・本番環境用のシードデータ
+- Railway デプロイ時に自動実行（`docker-entrypoint.sh`経由）
+- シードパターン: デフォルト管理者ユーザー、初期ロール・権限
+- 本番環境では`dist/prisma/seed.js`（コンパイル済み）を使用
+
 ```bash
 # Prisma Clientを生成
 npm --prefix backend run prisma:generate
@@ -929,6 +935,21 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 ### コード品質管理
 
 ArchiTrackでは、3段階のGit hooksにより品質を自動保証しています。
+
+#### ES Module Validation
+
+- `validate:esm` - 包括的なES Moduleバリデーションスクリプト
+- 全importで`.js`拡張子の使用を検証（ES module要件）
+- ビルドプロセスの一部として実行
+- ランタイムモジュール解決エラーを事前に防止
+
+```bash
+# Backend ESM検証
+npm --prefix backend run validate:esm
+
+# Frontend ESM検証
+npm --prefix frontend run validate:esm
+```
 
 #### Pre-commitフック（`.husky/pre-commit`）
 
