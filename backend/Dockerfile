@@ -42,6 +42,17 @@ COPY --from=build /app/prisma/migrations ./prisma/migrations
 # Generate Prisma Client for production
 RUN npx prisma generate
 
+# Install tsx for running seed scripts in production
+# Note: Only needed for initial seeding when RUN_SEED=true
+RUN npm install tsx
+
+# Copy docker-entrypoint.sh for initialization
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy seed helpers and scripts (built files already in dist/)
+COPY scripts ./scripts
+
 # Railway uses PORT env variable
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -53,18 +64,8 @@ EXPOSE $PORT
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
 
-# Create startup script with error handling
-RUN echo '#!/bin/sh' > /app/start.sh && \
-    echo 'set -e' >> /app/start.sh && \
-    echo 'echo "Running Prisma migrations..."' >> /app/start.sh && \
-    echo 'if ! npx prisma migrate deploy; then' >> /app/start.sh && \
-    echo '  echo "ERROR: Migration failed. Aborting startup."' >> /app/start.sh && \
-    echo '  exit 1' >> /app/start.sh && \
-    echo 'fi' >> /app/start.sh && \
-    echo 'echo "Migrations completed successfully"' >> /app/start.sh && \
-    echo 'echo "Starting application..."' >> /app/start.sh && \
-    echo 'exec node dist/src/index.js' >> /app/start.sh && \
-    chmod +x /app/start.sh
+# Use docker-entrypoint.sh for initialization (migrations, seeding, etc.)
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
-# Start the application with migrations
-CMD ["/app/start.sh"]
+# Start the application
+CMD ["node", "dist/src/index.js"]
