@@ -2,6 +2,8 @@ import { RouteObject } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Profile } from './pages/Profile';
 import { Sessions } from './pages/Sessions';
+import { AuditLogs } from './pages/AuditLogs';
+import { UserManagement } from './pages/UserManagement';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { PasswordResetPage } from './pages/PasswordResetPage';
@@ -88,6 +90,24 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <TwoFactorSetupPage />
+      </ProtectedRoute>
+    ),
+  },
+
+  // Admin routes
+  {
+    path: '/admin/audit-logs',
+    element: (
+      <ProtectedRoute>
+        <AuditLogs />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/admin/users',
+    element: (
+      <ProtectedRoute>
+        <UserManagement />
       </ProtectedRoute>
     ),
   },

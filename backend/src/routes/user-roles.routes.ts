@@ -33,6 +33,71 @@ const addRoleSchema = z.object({
 
 /**
  * @swagger
+ * /api/v1/users:
+ *   get:
+ *     summary: ユーザー一覧取得
+ *     description: 全てのユーザーとそのロールを取得
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: ユーザー一覧
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ */
+router.get(
+  '/',
+  authenticate,
+  requirePermission('user:read'),
+  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const users = await prisma.user.findMany({
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+          userRoles: {
+            select: {
+              role: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  priority: true,
+                  isSystem: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      // フォーマット変換（userRolesをrolesに変換）
+      const formattedUsers = users.map((user) => ({
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        createdAt: user.createdAt,
+        roles: user.userRoles.map((ur) => ur.role),
+      }));
+
+      res.json(formattedUsers);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
  * /api/v1/users/{id}/roles:
  *   post:
  *     summary: ユーザーにロール追加

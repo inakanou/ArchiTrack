@@ -192,17 +192,46 @@ export function Profile() {
 
       {/* 管理者向けリンク */}
       {user?.roles?.includes('admin') && (
-        <div style={{ marginBottom: '2rem' }}>
-          <a
-            href="/admin/users"
+        <div
+          style={{
+            marginBottom: '2rem',
+            padding: '1rem',
+            backgroundColor: '#eff6ff',
+            borderRadius: '0.5rem',
+          }}
+        >
+          <h3
             style={{
-              color: '#3b82f6',
-              textDecoration: 'underline',
-              fontWeight: 500,
+              fontSize: '1rem',
+              fontWeight: 600,
+              marginBottom: '0.75rem',
+              color: '#1e40af',
             }}
           >
-            ユーザー管理
-          </a>
+            管理者メニュー
+          </h3>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <a
+              href="/admin/audit-logs"
+              style={{
+                color: '#3b82f6',
+                textDecoration: 'underline',
+                fontWeight: 500,
+              }}
+            >
+              監査ログ
+            </a>
+            <a
+              href="/admin/users"
+              style={{
+                color: '#3b82f6',
+                textDecoration: 'underline',
+                fontWeight: 500,
+              }}
+            >
+              ユーザー管理
+            </a>
+          </div>
         </div>
       )}
 

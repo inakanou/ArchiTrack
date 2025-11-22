@@ -509,10 +509,8 @@ test.describe('2要素認証機能', () => {
   test.describe('2FAセキュリティ', () => {
     /**
      * 要件27C.6: 2FA有効化・無効化イベントを監査ログに記録
-     * Note: この要件はバックエンドで検証されるが、E2Eテストでは
-     * 管理者が監査ログを確認できることを検証できる
      */
-    test.skip('2FA有効化・無効化が監査ログに記録される', async ({ page }) => {
+    test('2FA有効化・無効化が監査ログに記録される', async ({ page }) => {
       // 管理者でログイン
       await cleanDatabase();
       await createTestUser('ADMIN_USER');

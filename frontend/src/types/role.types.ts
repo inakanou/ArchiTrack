@@ -141,3 +141,29 @@ export interface DeleteRoleResult {
   /** エラーメッセージ */
   error?: string;
 }
+
+/**
+ * ユーザー情報（管理画面用）
+ */
+export interface UserWithRoles {
+  /** ユーザーID */
+  id: string;
+  /** メールアドレス */
+  email: string;
+  /** 表示名 */
+  displayName: string;
+  /** アカウント作成日時 */
+  createdAt: string;
+  /** ロール一覧 */
+  roles: Role[];
+}
+
+/**
+ * ユーザーロール割り当て入力
+ */
+export interface AssignRoleToUserInput {
+  /** ユーザーID */
+  userId: string;
+  /** ロールID */
+  roleId: string;
+}

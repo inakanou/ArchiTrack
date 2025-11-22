@@ -76,7 +76,7 @@ test.describe('プロフィール管理機能', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test.skip('管理者ユーザーには「ユーザー管理」リンクが表示される', async ({ page }) => {
+  test('管理者ユーザーには「ユーザー管理」リンクが表示される', async ({ page }) => {
     // 管理者ユーザーを作成
     await cleanDatabase();
     await createTestUser('ADMIN_USER');
