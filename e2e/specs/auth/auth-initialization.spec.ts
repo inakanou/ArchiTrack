@@ -27,9 +27,13 @@ async function isOnProtectedPage(page: Page): Promise<boolean> {
 }
 
 test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止', () => {
-  test.beforeEach(async ({ page }) => {
-    // 各テスト前にlocalStorageとCookieをクリア
-    await page.context().clearCookies();
+  test.beforeEach(async ({ page, context }) => {
+    // 各テスト前にCookieとストレージをクリア（Playwright APIを使用）
+    await context.clearCookies();
+    await context.clearPermissions();
+
+    // ページに一度アクセスしてからストレージをクリア（SecurityError回避）
+    await page.goto('http://localhost:5173');
     await page.evaluate(() => {
       localStorage.clear();
       sessionStorage.clear();
