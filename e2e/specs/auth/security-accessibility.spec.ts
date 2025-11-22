@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
-// import AxeBuilder from '@axe-core/playwright'; // TODO: Install @axe-core/playwright
+import AxeBuilder from '@axe-core/playwright';
 
 /**
  * セキュリティとアクセシビリティの統合テスト
@@ -212,18 +212,16 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
    * WHEN 全ての画面が表示される
    * THEN 最低コントラスト比4.5:1を維持し、アクセシビリティ基準を満たす
    */
-  test.skip('ログイン画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
+  test('ログイン画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
     await page.goto('/login');
 
-    // TODO: Install @axe-core/playwright and enable this test
-    // const accessibilityScanResults = await new AxeBuilder({ page })
-    //   .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    //   .analyze();
-    // expect(accessibilityScanResults.violations).toEqual([]);
-    expect(true).toBe(true); // Placeholder
+    const accessibilityScanResults = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(accessibilityScanResults.violations).toEqual([]);
   });
 
-  test.skip('新規登録画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
+  test('新規登録画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
     // 招待トークンを作成
     const { getPrismaClient } = await import('../../fixtures/database');
     const prisma = getPrismaClient();
@@ -240,35 +238,29 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
 
     await page.goto(`/register?token=${invitation.token}`);
 
-    // TODO: Install @axe-core/playwright and enable this test
-    // const accessibilityScanResults = await new AxeBuilder({ page })
-    //   .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    //   .analyze();
-    // expect(accessibilityScanResults.violations).toEqual([]);
-    expect(true).toBe(true); // Placeholder
+    const accessibilityScanResults = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(accessibilityScanResults.violations).toEqual([]);
   });
 
-  test.skip('プロフィール画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
+  test('プロフィール画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
     await page.goto('/profile');
 
-    // TODO: Install @axe-core/playwright and enable this test
-    // const accessibilityScanResults = await new AxeBuilder({ page })
-    //   .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    //   .analyze();
-    // expect(accessibilityScanResults.violations).toEqual([]);
-    expect(true).toBe(true); // Placeholder
+    const accessibilityScanResults = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(accessibilityScanResults.violations).toEqual([]);
   });
 
-  test.skip('パスワードリセット画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
+  test('パスワードリセット画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
     await page.goto('/password-reset');
 
-    // TODO: Install @axe-core/playwright and enable this test
-    // const accessibilityScanResults = await new AxeBuilder({ page })
-    //   .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    //   .analyze();
-    // expect(accessibilityScanResults.violations).toEqual([]);
-    expect(true).toBe(true); // Placeholder
+    const accessibilityScanResults = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(accessibilityScanResults.violations).toEqual([]);
   });
 
   /**
