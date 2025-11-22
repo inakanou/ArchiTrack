@@ -7,11 +7,8 @@ import { loginAsUser } from '../../helpers/auth-actions';
  * セッション管理機能のE2Eテスト
  *
  * 要件8: セッション管理
- *
- * Note: バックエンドAPIエンドポイント（/api/v1/auth/sessions等）が未実装のため、
- *       全テストをスキップしています。
  */
-test.describe.skip('セッション管理機能', () => {
+test.describe('セッション管理機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 

@@ -22,6 +22,7 @@ import rolesRoutes from './routes/roles.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
 import userRolesRoutes from './routes/user-roles.routes.js';
 import auditLogRoutes from './routes/audit-log.routes.js';
+import sessionRoutes from './routes/session.routes.js';
 import jwksRoutes from './routes/jwks.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -283,6 +284,9 @@ app.use('/api/v1/users', userRolesRoutes);
 
 // Audit log routes
 app.use('/api/v1/audit-logs', auditLogRoutes);
+
+// Session management routes
+app.use('/api/v1/auth/sessions', sessionRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

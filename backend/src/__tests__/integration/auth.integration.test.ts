@@ -270,9 +270,8 @@ describe('Authentication API Integration Tests', () => {
 
     /**
      * 要件4.6: 5回連続ログイン失敗でアカウントロック（15分間）
-     * Note: この要件はrate-limitingまたは専用のロックメカニズムで実装される
      */
-    it.skip('5回連続ログイン失敗でアカウントがロックされること', async () => {
+    it('5回連続ログイン失敗でアカウントがロックされること', async () => {
       // 前提: テストユーザーを作成
       const passwordHash = await (
         await import('@node-rs/argon2')

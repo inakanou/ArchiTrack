@@ -37,8 +37,8 @@ export function Sessions() {
     setError('');
 
     try {
-      const data = await apiClient.get<SessionInfo[]>('/api/v1/auth/sessions');
-      setSessions(data);
+      const data = await apiClient.get<{ sessions: SessionInfo[] }>('/api/v1/auth/sessions');
+      setSessions(data.sessions);
     } catch {
       setError('セッション情報を取得できませんでした');
     } finally {
