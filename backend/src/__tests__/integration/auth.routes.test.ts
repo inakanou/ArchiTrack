@@ -248,7 +248,10 @@ describe('Authentication API Integration Tests', () => {
       });
 
       expect(response.status).toBe(400);
-      expect(response.body).toHaveProperty('error');
+      // Problem Details形式またはWEAK_PASSWORDエラー形式
+      expect(
+        response.body.error || response.body.detail || response.body.title || response.body.type
+      ).toBeDefined();
     });
   });
 
