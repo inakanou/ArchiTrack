@@ -97,7 +97,15 @@ export class AuthService implements IAuthService {
 
       const invitation = invitationResult.value;
 
-      // 2. パスワード強度検証
+      // 2. メールアドレス重複チェック（防御的プログラミング）
+      const existingUser = await this.prisma.user.findUnique({
+        where: { email: invitation.email },
+      });
+      if (existingUser) {
+        return Err({ type: 'EMAIL_ALREADY_REGISTERED' });
+      }
+
+      // 3. パスワード強度検証
       const passwordValidationResult = await this.passwordService.validatePasswordStrength(
         data.password,
         [invitation.email, data.displayName]
@@ -114,10 +122,10 @@ export class AuthService implements IAuthService {
         return Err({ type: 'WEAK_PASSWORD', violations: [] });
       }
 
-      // 3. パスワードハッシュ化
+      // 4. パスワードハッシュ化
       const passwordHash = await this.passwordService.hashPassword(data.password);
 
-      // 4. トランザクション内でユーザー作成、招待使用済みマーク、ロール割り当て
+      // 5. トランザクション内でユーザー作成、招待使用済みマーク、ロール割り当て
       const user = await this.prisma.$transaction(async (tx) => {
         // ユーザー作成
         const newUser = await tx.user.create({
@@ -169,7 +177,7 @@ export class AuthService implements IAuthService {
         return Err({ type: 'DATABASE_ERROR', message: 'Failed to create user' });
       }
 
-      // 5. JWT生成
+      // 6. JWT生成
       const payload = {
         userId: user.id,
         email: user.email,
@@ -179,10 +187,10 @@ export class AuthService implements IAuthService {
       const accessToken = await this.tokenService.generateAccessToken(payload);
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
-      // 6. リフレッシュトークンをDBに保存
+      // 7. リフレッシュトークンをDBに保存
       await this.sessionService.createSession(user.id, refreshToken);
 
-      // 7. AuthResponse返却
+      // 8. AuthResponse返却
       const userProfile: UserProfile = {
         id: user.id,
         email: user.email,

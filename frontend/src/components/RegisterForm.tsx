@@ -172,10 +172,25 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
         passwordConfirm,
         agreedToTerms,
       });
-    } catch {
-      setErrors({
-        general: '登録に失敗しました。もう一度お試しください。',
-      });
+    } catch (err: unknown) {
+      // エラーレスポンスから詳細メッセージを取得
+      const error = err as { response?: { data?: { code?: string; message?: string } } };
+      const errorCode = error?.response?.data?.code;
+      const errorMessage = error?.response?.data?.message;
+
+      if (errorCode === 'EMAIL_ALREADY_REGISTERED') {
+        setErrors({
+          general: 'このメールアドレスは既に登録されています',
+        });
+      } else if (errorMessage) {
+        setErrors({
+          general: errorMessage,
+        });
+      } else {
+        setErrors({
+          general: '登録に失敗しました。もう一度お試しください。',
+        });
+      }
     } finally {
       setIsLoading(false);
     }

@@ -186,6 +186,12 @@ router.post(
         } else if (error.type === 'INVITATION_ALREADY_USED') {
           res.status(400).json({ error: 'Invitation token already used', code: error.type });
           return;
+        } else if (error.type === 'EMAIL_ALREADY_REGISTERED') {
+          res.status(400).json({
+            error: 'このメールアドレスは既に登録されています',
+            code: error.type,
+          });
+          return;
         } else if (error.type === 'WEAK_PASSWORD') {
           res.status(400).json({
             error: 'Password is too weak',

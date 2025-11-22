@@ -60,6 +60,7 @@ export type AuthError =
   | { type: 'INVITATION_INVALID' }
   | { type: 'INVITATION_EXPIRED' }
   | { type: 'INVITATION_ALREADY_USED' }
+  | { type: 'EMAIL_ALREADY_REGISTERED' }
   | { type: 'WEAK_PASSWORD'; violations: PasswordViolation[] }
   | { type: 'INVALID_CREDENTIALS' }
   | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }

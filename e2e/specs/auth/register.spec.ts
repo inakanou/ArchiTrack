@@ -81,12 +81,33 @@ test.describe('新規登録機能', () => {
 
   /**
    * 要件1.4: 招待メールアドレスが既に登録済みの場合はエラーメッセージを返す
-   *
-   * Note: この要件はバックエンドで実装済み（invitation.service.ts:49-56）
-   * 招待制の仕様上、メールアドレスは招待トークンから事前入力され無効化されているため、
-   * E2Eでのテストは不可能。バックエンド単体テストでカバー済み。
-   * (invitation.service.test.ts:110 - EMAIL_ALREADY_REGISTERED)
    */
+  test('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
+    // 既存ユーザーを作成（招待されたメールアドレスと同じ）
+    const prisma = (await import('../../fixtures/database')).getPrismaClient();
+    const passwordHash = await (
+      await import('../../helpers/test-users')
+    ).hashPassword('Password123!');
+    await prisma.user.create({
+      data: {
+        email: 'newuser@example.com',
+        displayName: 'Existing User',
+        passwordHash,
+      },
+    });
+
+    // メールアドレスは招待トークンから事前入力されている
+    await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('newuser@example.com');
+
+    await page.locator('input#password').fill('Password123!');
+    await page.locator('input#passwordConfirm').fill('Password123!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    // エラーメッセージが表示される
+    await expect(page.getByText(/このメールアドレスは既に登録されています/i)).toBeVisible();
+  });
 
   /**
    * 要件2.5: パスワード長の検証（8文字以上）
