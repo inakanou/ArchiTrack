@@ -67,7 +67,7 @@ describe('Sessions Component', () => {
   describe('セッション一覧表示', () => {
     it('アクティブデバイス一覧を表示する（要件8.3）', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -84,7 +84,7 @@ describe('Sessions Component', () => {
 
     it('セッション情報（デバイス情報、作成日時、有効期限）を表示する（要件8.1）', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -106,7 +106,7 @@ describe('Sessions Component', () => {
 
     it('現在のデバイスを識別する', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -122,7 +122,7 @@ describe('Sessions Component', () => {
   describe('個別デバイスログアウト', () => {
     it('個別デバイスのログアウトボタンを表示する（要件8.4）', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -138,7 +138,7 @@ describe('Sessions Component', () => {
     it('個別デバイスログアウトボタンクリック時に確認ダイアログを表示する', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -161,13 +161,15 @@ describe('Sessions Component', () => {
       const { apiClient } = await import('../../api/client');
 
       // 初回: 全セッション取得
-      vi.mocked(apiClient.get).mockResolvedValueOnce(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValueOnce({ sessions: mockSessions });
 
       // ログアウト成功
       vi.mocked(apiClient.delete).mockResolvedValueOnce({ message: 'ログアウトしました' });
 
       // 2回目: ログアウト後のセッション取得（1つ減る）
-      vi.mocked(apiClient.get).mockResolvedValueOnce([mockSessions[0], mockSessions[2]]);
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        sessions: [mockSessions[0], mockSessions[2]],
+      });
 
       render(<Sessions />);
 
@@ -198,7 +200,7 @@ describe('Sessions Component', () => {
   describe('全デバイスログアウト', () => {
     it('全デバイスログアウトボタンを表示する（要件8.5）', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -213,7 +215,7 @@ describe('Sessions Component', () => {
     it('全デバイスログアウトボタンクリック時に確認ダイアログを表示する', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -234,7 +236,7 @@ describe('Sessions Component', () => {
     it('全デバイスログアウトが成功する（要件8.5）', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
       vi.mocked(apiClient.post).mockResolvedValue({ message: '全デバイスからログアウトしました' });
 
       render(<Sessions />);
@@ -279,8 +281,8 @@ describe('Sessions Component', () => {
     it('ログアウト失敗時にエラーメッセージを表示する', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
-      vi.mocked(apiClient.delete).mockRejectedValue({
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
+      vi.mocked(apiClient.delete).mockRejectedValueOnce({
         statusCode: 500,
         message: 'ログアウト失敗',
       });
@@ -316,7 +318,7 @@ describe('Sessions Component', () => {
       });
 
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 
@@ -329,7 +331,7 @@ describe('Sessions Component', () => {
   describe('アクセシビリティ', () => {
     it('適切なaria属性が設定されている', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue(mockSessions);
+      vi.mocked(apiClient.get).mockResolvedValue({ sessions: mockSessions });
 
       render(<Sessions />);
 

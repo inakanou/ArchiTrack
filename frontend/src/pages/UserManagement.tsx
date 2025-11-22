@@ -286,6 +286,7 @@ export function UserManagement() {
     if (selectedRole) {
       fetchRolePermissions(selectedRole);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRole]);
 
   return (

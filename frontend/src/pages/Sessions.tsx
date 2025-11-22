@@ -27,7 +27,7 @@ export function Sessions() {
   const isMobile = window.innerWidth < 768;
 
   // 現在のセッションID（最初のセッションと仮定）
-  const currentSessionId = sessions.length > 0 ? sessions[0]?.id : null;
+  const currentSessionId = sessions?.length > 0 ? sessions[0]?.id : null;
 
   /**
    * セッション一覧を取得
@@ -73,9 +73,9 @@ export function Sessions() {
 
       // セッション一覧を再取得
       await fetchSessions();
+      setSelectedSessionId(null);
     } catch {
       setMessage('ログアウトに失敗しました');
-    } finally {
       setSelectedSessionId(null);
     }
   };
@@ -151,7 +151,7 @@ export function Sessions() {
       )}
 
       {/* 全デバイスログアウトボタン */}
-      {!loading && sessions.length > 0 && (
+      {!loading && sessions?.length > 0 && (
         <div style={{ marginBottom: '2rem' }}>
           <button
             onClick={handleLogoutAllClick}
@@ -177,7 +177,7 @@ export function Sessions() {
       )}
 
       {/* セッション一覧 */}
-      {!loading && sessions.length > 0 && (
+      {!loading && sessions?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {sessions.map((session) => {
             const isCurrentDevice = session.id === currentSessionId;
@@ -262,7 +262,7 @@ export function Sessions() {
       )}
 
       {/* セッションがない場合 */}
-      {!loading && sessions.length === 0 && (
+      {!loading && sessions?.length === 0 && (
         <div
           style={{
             textAlign: 'center',
