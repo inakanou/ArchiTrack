@@ -26,6 +26,7 @@ import type {
 } from '../types/auth.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import { addTimingAttackDelay } from '../utils/timing.js';
+import { SECURITY_CONFIG } from '../config/security.constants.js';
 
 /**
  * 認証サービス
@@ -217,13 +218,26 @@ export class AuthService implements IAuthService {
    */
   async login(email: string, password: string): Promise<Result<LoginResponse, AuthError>> {
     try {
-      // 1. ユーザーを検索（ロール情報も取得）
+      // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
         where: { email },
-        include: {
+        select: {
+          id: true,
+          email: true,
+          passwordHash: true,
+          displayName: true,
+          loginFailures: true,
+          isLocked: true,
+          lockedUntil: true,
+          twoFactorEnabled: true,
+          createdAt: true,
           userRoles: {
-            include: {
-              role: true,
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -262,8 +276,10 @@ export class AuthService implements IAuthService {
       if (!passwordValid) {
         // パスワード不正の場合、ログイン失敗回数をインクリメント
         const newFailures = user.loginFailures + 1;
-        const isLocked = newFailures >= 5;
-        const lockedUntil = isLocked ? new Date(Date.now() + 15 * 60 * 1000) : null; // 15分後
+        const isLocked = newFailures >= SECURITY_CONFIG.LOGIN.MAX_FAILURES;
+        const lockedUntil = isLocked
+          ? new Date(Date.now() + SECURITY_CONFIG.LOGIN.LOCK_DURATION_MS)
+          : null;
 
         await this.prisma.user.update({
           where: { id: user.id },
@@ -355,13 +371,24 @@ export class AuthService implements IAuthService {
    */
   async verify2FA(userId: string, totpCode: string): Promise<Result<AuthResponse, AuthError>> {
     try {
-      // 1. ユーザーを検索（ロール情報も取得）
+      // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+          twoFactorEnabled: true,
+          twoFactorFailures: true,
+          twoFactorLockedUntil: true,
           userRoles: {
-            include: {
-              role: true,
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -404,8 +431,10 @@ export class AuthService implements IAuthService {
       if (!isValid) {
         // 検証失敗: 失敗カウンターをインクリメント
         const newFailures = user.twoFactorFailures + 1;
-        const isLocked = newFailures >= 5;
-        const lockedUntil = isLocked ? new Date(Date.now() + 5 * 60 * 1000) : null; // 5分後
+        const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
+        const lockedUntil = isLocked
+          ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
+          : null;
 
         await this.prisma.user.update({
           where: { id: userId },
@@ -524,24 +553,33 @@ export class AuthService implements IAuthService {
    */
   async getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>> {
     try {
-      // ユーザーを検索（ロール情報も取得）
+      // Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+          twoFactorEnabled: true,
           userRoles: {
-            include: {
-              role: true,
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
       });
 
-      // ユーザーが存在しない場合
+      // User not found
       if (!user) {
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
-      // UserProfile形式に変換
+      // Convert to UserProfile format
       const userProfile: UserProfile = {
         id: user.id,
         email: user.email,

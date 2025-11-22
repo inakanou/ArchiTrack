@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { validate, validateMultiple } from '../../../middleware/validate.middleware.js';
-import { ValidationError } from '../../../errors/ApiError.js';
+import { ValidationError } from '../../../errors/apiError.js';
 
 describe('validate middleware', () => {
   let mockRequest: Partial<Request>;

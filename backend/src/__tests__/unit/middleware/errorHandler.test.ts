@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 import { ZodError, ZodIssue } from 'zod';
 import { errorHandler, notFoundHandler } from '../../../middleware/errorHandler.middleware.js';
-import { ApiError, BadRequestError, ValidationError } from '../../../errors/ApiError.js';
+import { ApiError, BadRequestError, ValidationError } from '../../../errors/apiError.js';
 
-// Prismaモジュールのモック（ホイスティングされるため、クラス定義をモック内に移動）
+// Mock Prisma module (class definitions moved inside mock due to hoisting)
 vi.mock('@prisma/client', async () => {
-  // Prismaエラークラスのモック
+  // Mock Prisma error classes
   class MockPrismaClientKnownRequestError extends Error {
     code: string;
     meta?: Record<string, unknown>;
@@ -60,7 +60,7 @@ vi.mock('@prisma/client', async () => {
   };
 });
 
-// モック後にPrismaをインポート
+// Import Prisma after mock
 const { Prisma } = await import('@prisma/client');
 
 describe('errorHandler middleware', () => {
@@ -71,11 +71,11 @@ describe('errorHandler middleware', () => {
   let jsonMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    // モックのリセット
+    // Reset mocks
     statusMock = vi.fn().mockReturnThis();
     jsonMock = vi.fn();
 
-    // Vitestのモック型とExpressの型の互換性のため、型アサーションが必要
+    // Type assertion needed for compatibility between Vitest mock types and Express types
     mockRequest = {
       log: {
         warn: vi.fn(),
@@ -95,12 +95,12 @@ describe('errorHandler middleware', () => {
       json: jsonMock as unknown as Response['json'],
     };
 
-    // Vitestのモック型とExpressの型の互換性のため、型アサーションが必要
+    // Type assertion needed for compatibility between Vitest mock types and Express types
     mockNext = vi.fn() as unknown as NextFunction;
   });
 
-  describe('ApiError処理', () => {
-    it('ApiErrorを適切に処理すること', () => {
+  describe('ApiError handling', () => {
+    it('should handle ApiError properly', () => {
       const error = new ApiError(400, 'Test error', 'TEST_CODE', { detail: 'test' });
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
@@ -111,25 +111,31 @@ describe('errorHandler middleware', () => {
       );
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Test error',
-        code: 'TEST_CODE',
+        type: 'https://api.architrack.com/errors/internal-server-error',
+        title: 'TEST_CODE',
+        status: 400,
+        detail: 'Test error',
+        instance: '/api/test',
         details: { detail: 'test' },
       });
     });
 
-    it('BadRequestErrorを適切に処理すること', () => {
+    it('should handle BadRequestError properly', () => {
       const error = new BadRequestError('Invalid input');
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Invalid input',
-        code: 'BAD_REQUEST',
+        type: 'https://api.architrack.com/errors/bad-request',
+        title: 'BAD_REQUEST',
+        status: 400,
+        detail: 'Invalid input',
+        instance: '/api/test',
       });
     });
 
-    it('ValidationErrorを適切に処理すること', () => {
+    it('should handle ValidationError properly', () => {
       const error = new ValidationError('Validation failed', [
         { path: 'email', message: 'Invalid email' },
       ]);
@@ -138,15 +144,18 @@ describe('errorHandler middleware', () => {
 
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Validation failed',
-        code: 'VALIDATION_ERROR',
+        type: 'https://api.architrack.com/errors/validation-error',
+        title: 'VALIDATION_ERROR',
+        status: 400,
+        detail: 'Validation failed',
+        instance: '/api/test',
         details: [{ path: 'email', message: 'Invalid email' }],
       });
     });
   });
 
-  describe('ZodError処理', () => {
-    it('ZodErrorを適切に処理すること', () => {
+  describe('ZodError handling', () => {
+    it('should handle ZodError properly', () => {
       const zodIssues: ZodIssue[] = [
         {
           code: 'invalid_type',
@@ -174,8 +183,11 @@ describe('errorHandler middleware', () => {
       expect(mockRequest.log?.warn).toHaveBeenCalledWith({ err: zodError }, 'Validation error');
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Validation failed',
-        code: 'VALIDATION_ERROR',
+        type: 'https://api.architrack.com/errors/validation-error',
+        title: 'VALIDATION_ERROR',
+        status: 400,
+        detail: 'Validation failed',
+        instance: '/api/test',
         details: [
           {
             path: 'email',
@@ -189,7 +201,7 @@ describe('errorHandler middleware', () => {
       });
     });
 
-    it('ネストされたパスを持つZodErrorを処理すること', () => {
+    it('should handle ZodError with nested paths', () => {
       const zodIssues: ZodIssue[] = [
         {
           code: 'invalid_type',
@@ -205,8 +217,11 @@ describe('errorHandler middleware', () => {
       errorHandler(zodError, mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Validation failed',
-        code: 'VALIDATION_ERROR',
+        type: 'https://api.architrack.com/errors/validation-error',
+        title: 'VALIDATION_ERROR',
+        status: 400,
+        detail: 'Validation failed',
+        instance: '/api/test',
         details: [
           {
             path: 'user.profile.name',
@@ -217,8 +232,8 @@ describe('errorHandler middleware', () => {
     });
   });
 
-  describe('Prismaエラー処理', () => {
-    it('P2002 (Unique constraint violation) を適切に処理すること', () => {
+  describe('Prisma error handling', () => {
+    it('should handle P2002 (Unique constraint violation) properly', () => {
       const prismaError = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
         code: 'P2002',
         clientVersion: '5.0.0',
@@ -235,15 +250,16 @@ describe('errorHandler middleware', () => {
       );
       expect(statusMock).toHaveBeenCalledWith(409);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Resource already exists',
-        code: 'DUPLICATE_RESOURCE',
-        details: {
-          fields: ['email'],
-        },
+        type: 'https://api.architrack.com/errors/conflict',
+        title: 'Duplicate Resource',
+        status: 409,
+        detail: 'Resource already exists',
+        instance: '/api/test',
+        fields: ['email'],
       });
     });
 
-    it('P2025 (Record not found) を適切に処理すること', () => {
+    it('should handle P2025 (Record not found) properly', () => {
       const prismaError = new Prisma.PrismaClientKnownRequestError('Record not found', {
         code: 'P2025',
         clientVersion: '5.0.0',
@@ -253,12 +269,15 @@ describe('errorHandler middleware', () => {
 
       expect(statusMock).toHaveBeenCalledWith(404);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Resource not found',
-        code: 'NOT_FOUND',
+        type: 'https://api.architrack.com/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+        detail: 'Resource not found',
+        instance: '/api/test',
       });
     });
 
-    it('その他のPrismaClientKnownRequestErrorを処理すること', () => {
+    it('should handle other PrismaClientKnownRequestError', () => {
       const prismaError = new Prisma.PrismaClientKnownRequestError('Some error', {
         code: 'P2003',
         clientVersion: '5.0.0',
@@ -268,12 +287,15 @@ describe('errorHandler middleware', () => {
 
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Database operation failed',
-        code: 'DATABASE_ERROR',
+        type: 'https://api.architrack.com/errors/bad-request',
+        title: 'Database Error',
+        status: 400,
+        detail: 'Database operation failed',
+        instance: '/api/test',
       });
     });
 
-    it('PrismaClientInitializationErrorを処理すること', () => {
+    it('should handle PrismaClientInitializationError', () => {
       const prismaError = new Prisma.PrismaClientInitializationError(
         'Cannot connect to database',
         '5.0.0'
@@ -287,12 +309,15 @@ describe('errorHandler middleware', () => {
       );
       expect(statusMock).toHaveBeenCalledWith(503);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Database connection error',
-        code: 'DATABASE_UNAVAILABLE',
+        type: 'https://api.architrack.com/errors/internal-server-error',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'Database connection error',
+        instance: '/api/test',
       });
     });
 
-    it('PrismaClientRustPanicErrorを処理すること', () => {
+    it('should handle PrismaClientRustPanicError', () => {
       const prismaError = new Prisma.PrismaClientRustPanicError('Panic occurred', '5.0.0');
 
       errorHandler(prismaError, mockRequest as Request, mockResponse as Response, mockNext);
@@ -303,14 +328,17 @@ describe('errorHandler middleware', () => {
       );
       expect(statusMock).toHaveBeenCalledWith(503);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Database connection error',
-        code: 'DATABASE_UNAVAILABLE',
+        type: 'https://api.architrack.com/errors/internal-server-error',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'Database connection error',
+        instance: '/api/test',
       });
     });
   });
 
-  describe('一般的なエラー処理', () => {
-    it('予期しないエラーを500として処理すること', () => {
+  describe('General error handling', () => {
+    it('should handle unexpected errors as 500', () => {
       const error = new Error('Unexpected error');
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
@@ -318,12 +346,15 @@ describe('errorHandler middleware', () => {
       expect(mockRequest.log?.error).toHaveBeenCalledWith({ err: error }, 'Internal server error');
       expect(statusMock).toHaveBeenCalledWith(500);
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Internal server error',
-        code: 'INTERNAL_SERVER_ERROR',
+        type: 'https://api.architrack.com/errors/internal-server-error',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'Internal server error',
+        instance: '/api/test',
       });
     });
 
-    it('開発環境でスタックトレースを含むこと', () => {
+    it('should include stack trace in development environment', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'development';
 
@@ -333,15 +364,18 @@ describe('errorHandler middleware', () => {
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Internal server error',
-        code: 'INTERNAL_SERVER_ERROR',
+        type: 'https://api.architrack.com/errors/internal-server-error',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'Internal server error',
+        instance: '/api/test',
         stack: error.stack,
       });
 
       process.env.NODE_ENV = originalEnv;
     });
 
-    it('本番環境でスタックトレースを隠すこと', () => {
+    it('should hide stack trace in production environment', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
 
@@ -351,8 +385,11 @@ describe('errorHandler middleware', () => {
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(jsonMock).toHaveBeenCalledWith({
-        error: 'Internal server error',
-        code: 'INTERNAL_SERVER_ERROR',
+        type: 'https://api.architrack.com/errors/internal-server-error',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'Internal server error',
+        instance: '/api/test',
       });
 
       const call = jsonMock.mock.calls[0]?.[0];
@@ -373,22 +410,27 @@ describe('notFoundHandler middleware', () => {
     statusMock = vi.fn().mockReturnThis();
     jsonMock = vi.fn();
 
-    mockRequest = {};
+    mockRequest = {
+      url: '/api/unknown',
+    };
 
-    // Vitestのモック型とExpressの型の互換性のため、型アサーションが必要
+    // Type assertion needed for compatibility between Vitest mock types and Express types
     mockResponse = {
       status: statusMock as unknown as Response['status'],
       json: jsonMock as unknown as Response['json'],
     };
   });
 
-  it('404レスポンスを返すこと', () => {
+  it('should return 404 response', () => {
     notFoundHandler(mockRequest as Request, mockResponse as Response);
 
     expect(statusMock).toHaveBeenCalledWith(404);
     expect(jsonMock).toHaveBeenCalledWith({
-      error: 'Not found',
-      code: 'NOT_FOUND',
+      type: 'https://api.architrack.com/errors/not-found',
+      title: 'Not Found',
+      status: 404,
+      detail: 'The requested resource was not found',
+      instance: '/api/unknown',
     });
   });
 });

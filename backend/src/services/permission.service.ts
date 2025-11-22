@@ -34,6 +34,13 @@ export class PermissionService implements IPermissionService {
    */
   async listPermissions(): Promise<PermissionInfo[]> {
     const permissions = await this.prisma.permission.findMany({
+      select: {
+        id: true,
+        resource: true,
+        action: true,
+        description: true,
+        createdAt: true,
+      },
       orderBy: [{ resource: 'asc' }, { action: 'asc' }],
     });
 
@@ -67,12 +74,13 @@ export class PermissionService implements IPermissionService {
         return Err({ type: 'INVALID_PERMISSION_FORMAT', message: validationError });
       }
 
-      // 重複チェック（resource + action）
+      // 重複チェック（resource + action）(optimized: only check existence)
       const existingPermission = await this.prisma.permission.findFirst({
         where: {
           resource: input.resource,
           action: input.action,
         },
+        select: { id: true },
       });
 
       if (existingPermission) {
@@ -127,6 +135,13 @@ export class PermissionService implements IPermissionService {
     try {
       const permission = await this.prisma.permission.findUnique({
         where: { id: permissionId },
+        select: {
+          id: true,
+          resource: true,
+          action: true,
+          description: true,
+          createdAt: true,
+        },
       });
 
       if (!permission) {
@@ -162,9 +177,10 @@ export class PermissionService implements IPermissionService {
    */
   async deletePermission(permissionId: string): Promise<Result<void, PermissionError>> {
     try {
-      // 権限の存在チェック
+      // 権限の存在チェック (optimized: only fetch necessary fields)
       const existingPermission = await this.prisma.permission.findUnique({
         where: { id: permissionId },
+        select: { id: true, resource: true, action: true },
       });
 
       if (!existingPermission) {

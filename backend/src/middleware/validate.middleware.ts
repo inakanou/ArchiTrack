@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodSchema, ZodError } from 'zod';
-import { ValidationError } from '../errors/ApiError.js';
+import { ValidationError } from '../errors/apiError.js';
 
 /**
- * Zodスキーマを使用したバリデーションミドルウェア（型安全版）
+ * Validation middleware using Zod schema (type-safe version)
  *
- * @param schema Zodスキーマ
- * @param source バリデーション対象（body | query | params）
- * @returns Express ミドルウェア
+ * @param schema Zod schema
+ * @param source Validation target (body | query | params)
+ * @returns Express middleware
  *
  * @example
  * const createUserSchema = z.object({
@@ -17,7 +17,7 @@ import { ValidationError } from '../errors/ApiError.js';
  *
  * app.post('/users', validate(createUserSchema), (req, res) => {
  *   const data = req.validatedBody as z.infer<typeof createUserSchema>;
- *   // data.email, data.name が型安全に利用可能
+ *   // data.email and data.name are type-safe
  * });
  */
 export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' = 'body') {
@@ -25,11 +25,11 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
     try {
       const data = req[source];
 
-      // Zodでバリデーション
+      // Validate with Zod
       const validated = await schema.parseAsync(data);
 
-      // バリデーション済みデータを専用プロパティに格納（型安全）
-      // validated*プロパティを使用することで、型安全なアクセスが可能
+      // Store validated data in dedicated properties (type-safe)
+      // Using validated* properties allows type-safe access
       if (source === 'body') {
         req.validatedBody = validated;
       } else if (source === 'query') {
@@ -41,7 +41,7 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
       next();
     } catch (error) {
       if (error instanceof ZodError) {
-        // Zodエラーを ValidationError に変換
+        // Convert Zod error to ValidationError
         const details = error.issues.map((issue) => ({
           path: issue.path.join('.'),
           message: issue.message,
@@ -57,7 +57,7 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
 }
 
 /**
- * 複数ソースのバリデーション（body + query + params）型安全版
+ * Validate multiple sources (body + query + params) - type-safe version
  *
  * @example
  * app.get('/users/:id', validateMultiple({
@@ -77,7 +77,7 @@ export function validateMultiple(schemas: {
     try {
       const errors: Array<{ source: string; issues: unknown[] }> = [];
 
-      // Body のバリデーション
+      // Validate body
       if (schemas.body) {
         try {
           const validated = await schemas.body.parseAsync(req.body);
@@ -86,13 +86,13 @@ export function validateMultiple(schemas: {
           if (error instanceof ZodError) {
             errors.push({ source: 'body', issues: error.issues });
           } else {
-            // ZodError以外の予期しないエラーはスロー
+            // Throw unexpected errors (non-ZodError)
             throw error;
           }
         }
       }
 
-      // Query のバリデーション
+      // Validate query
       if (schemas.query) {
         try {
           const validated = await schemas.query.parseAsync(req.query);
@@ -101,13 +101,13 @@ export function validateMultiple(schemas: {
           if (error instanceof ZodError) {
             errors.push({ source: 'query', issues: error.issues });
           } else {
-            // ZodError以外の予期しないエラーはスロー
+            // Throw unexpected errors (non-ZodError)
             throw error;
           }
         }
       }
 
-      // Params のバリデーション
+      // Validate params
       if (schemas.params) {
         try {
           const validated = await schemas.params.parseAsync(req.params);
@@ -116,13 +116,13 @@ export function validateMultiple(schemas: {
           if (error instanceof ZodError) {
             errors.push({ source: 'params', issues: error.issues });
           } else {
-            // ZodError以外の予期しないエラーはスロー
+            // Throw unexpected errors (non-ZodError)
             throw error;
           }
         }
       }
 
-      // エラーがあれば ValidationError をスロー
+      // Throw ValidationError if there are any errors
       if (errors.length > 0) {
         next(new ValidationError('Validation failed', errors));
       } else {

@@ -20,6 +20,7 @@ import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import logger from '../utils/logger.js';
+import { SECURITY_CONFIG } from '../config/security.constants.js';
 
 const router = Router();
 const prisma = getPrismaClient();
@@ -32,7 +33,12 @@ const passwordService = new PasswordService(prisma);
 const registerSchema = z.object({
   invitationToken: z.string().min(1, 'Invitation token is required'),
   displayName: z.string().min(1, 'Display name is required').max(100),
-  password: z.string().min(12, 'Password must be at least 12 characters'),
+  password: z
+    .string()
+    .min(
+      SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
+      `Password must be at least ${SECURITY_CONFIG.PASSWORD.MIN_LENGTH} characters`
+    ),
 });
 
 const loginSchema = z.object({
@@ -53,13 +59,23 @@ const logoutSchema = z.object({
 });
 
 const verify2FASchema = z.object({
-  token: z.string().length(6, 'TOTP token must be 6 digits'),
+  token: z
+    .string()
+    .length(
+      SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
+      `TOTP token must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+    ),
   email: z.string().email('Invalid email format').optional(),
   tempToken: z.string().optional(),
 });
 
 const enableTwoFactorSchema = z.object({
-  totpCode: z.string().length(6, 'TOTP code must be 6 digits'),
+  totpCode: z
+    .string()
+    .length(
+      SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
+      `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+    ),
 });
 
 const disableTwoFactorSchema = z.object({
@@ -72,12 +88,22 @@ const passwordResetRequestSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Token is required'),
-  newPassword: z.string().min(12, 'Password must be at least 12 characters'),
+  newPassword: z
+    .string()
+    .min(
+      SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
+      `Password must be at least ${SECURITY_CONFIG.PASSWORD.MIN_LENGTH} characters`
+    ),
 });
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
-  newPassword: z.string().min(12, 'Password must be at least 12 characters'),
+  newPassword: z
+    .string()
+    .min(
+      SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
+      `Password must be at least ${SECURITY_CONFIG.PASSWORD.MIN_LENGTH} characters`
+    ),
   newPasswordConfirm: z.string().min(1, 'Password confirmation is required'),
 });
 

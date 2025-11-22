@@ -152,6 +152,17 @@ describe('AuditLogService', () => {
 
       expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith({
         where: {},
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toEqual(mockLogs);
@@ -179,6 +190,17 @@ describe('AuditLogService', () => {
 
       expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith({
         where: { actorId: 'user-123' },
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toEqual(mockLogs);
@@ -206,6 +228,17 @@ describe('AuditLogService', () => {
 
       expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith({
         where: { targetId: 'role-123' },
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toEqual(mockLogs);
@@ -233,6 +266,17 @@ describe('AuditLogService', () => {
 
       expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith({
         where: { action: 'LOGIN_SUCCESS' },
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toEqual(mockLogs);
@@ -268,6 +312,17 @@ describe('AuditLogService', () => {
             lte: new Date('2025-11-11T00:00:00Z'),
           },
         },
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toEqual(mockLogs);
@@ -292,6 +347,17 @@ describe('AuditLogService', () => {
           createdAt: {
             gte: new Date('2025-11-10T00:00:00Z'),
           },
+        },
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -320,6 +386,17 @@ describe('AuditLogService', () => {
 
       expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith({
         where: {},
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
         skip: 10,
         take: 5,
@@ -386,6 +463,17 @@ describe('AuditLogService', () => {
         where: {
           actorId: 'user-123',
           action: 'LOGIN_SUCCESS',
+        },
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
       });

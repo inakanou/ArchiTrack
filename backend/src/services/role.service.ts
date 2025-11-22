@@ -41,9 +41,10 @@ export class RoleService implements IRoleService {
    */
   async createRole(input: CreateRoleInput): Promise<Result<RoleInfo, RoleError>> {
     try {
-      // ロール名の重複チェック
+      // Check role name duplication (optimized: only check existence)
       const existingRole = await this.prisma.role.findUnique({
         where: { name: input.name },
+        select: { id: true },
       });
 
       if (existingRole) {
@@ -94,9 +95,10 @@ export class RoleService implements IRoleService {
    */
   async updateRole(roleId: string, input: UpdateRoleInput): Promise<Result<RoleInfo, RoleError>> {
     try {
-      // ロールの存在チェック
+      // Check role existence (optimized: only fetch id and name)
       const existingRole = await this.prisma.role.findUnique({
         where: { id: roleId },
+        select: { id: true, name: true },
       });
 
       if (!existingRole) {
@@ -104,10 +106,11 @@ export class RoleService implements IRoleService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
-      // 名前を変更する場合、重複チェック
+      // Check name duplication when changing name (optimized: only check existence)
       if (input.name && input.name !== existingRole.name) {
         const duplicateRole = await this.prisma.role.findUnique({
           where: { name: input.name },
+          select: { id: true },
         });
 
         if (duplicateRole) {
@@ -159,9 +162,10 @@ export class RoleService implements IRoleService {
    */
   async deleteRole(roleId: string): Promise<Result<void, RoleError>> {
     try {
-      // ロールの存在チェック
+      // Check role existence (optimized: only fetch necessary fields)
       const existingRole = await this.prisma.role.findUnique({
         where: { id: roleId },
+        select: { id: true, name: true, isSystem: true },
       });
 
       if (!existingRole) {
@@ -169,7 +173,7 @@ export class RoleService implements IRoleService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
-      // システムロール保護
+      // Protect system roles
       if (existingRole.isSystem) {
         logger.warn({ roleId, name: existingRole.name }, 'Cannot delete system role');
         return Err({ type: 'SYSTEM_ROLE_PROTECTED' });

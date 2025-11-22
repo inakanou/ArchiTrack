@@ -115,7 +115,8 @@ describe('User Role Routes', () => {
       const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({});
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBeDefined();
+      expect(response.body.type).toBe('https://api.architrack.com/errors/validation-error');
+      expect(response.body.detail).toBeDefined();
     });
 
     it('should return 404 when user not found', async () => {
