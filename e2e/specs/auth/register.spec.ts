@@ -108,4 +108,219 @@ test.describe('新規登録機能', () => {
     // エラーメッセージが表示される
     await expect(page.getByText(/このメールアドレスは既に登録されています/i)).toBeVisible();
   });
+
+  /**
+   * 要件2.5: パスワード長の検証（8文字以上）
+   * WHEN 8文字未満のパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('8文字未満のパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Pass1!'); // 6文字
+    await page.locator('input#passwordConfirm').fill('Pass1!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    // バリデーションエラーが表示される
+    await expect(page.getByText(/パスワードは8文字以上である必要があります/i)).toBeVisible();
+  });
+
+  /**
+   * 要件2.6: パスワード複雑性の検証（大文字・小文字・数字・記号を各1文字以上）
+   * WHEN 必要な文字種を含まないパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('大文字を含まないパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('password123!'); // 大文字なし
+    await page.locator('input#passwordConfirm').fill('password123!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは大文字を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  test('小文字を含まないパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('PASSWORD123!'); // 小文字なし
+    await page.locator('input#passwordConfirm').fill('PASSWORD123!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは小文字を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  test('数字を含まないパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Password!!!'); // 数字なし
+    await page.locator('input#passwordConfirm').fill('Password!!!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは数字を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  test('記号を含まないパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Password123'); // 記号なし
+    await page.locator('input#passwordConfirm').fill('Password123');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは記号を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  /**
+   * 要件2.7: HIBP Pwned Passwordsチェック
+   * WHEN 漏洩が確認されているパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('漏洩パスワードではエラーが表示される', async ({ page }) => {
+    // 'password123'は有名な漏洩パスワード
+    await page.locator('input#password').fill('Password123!');
+    await page.locator('input#passwordConfirm').fill('Password123!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    // HIBP APIチェック結果のエラーメッセージ
+    await expect(
+      page.getByText(
+        /このパスワードは過去に漏洩が確認されています.*別のパスワードを選択してください/i
+      )
+    ).toBeVisible();
+  });
+
+  /**
+   * 要件2.8: 連続した同一文字の禁止（3文字以上）
+   * WHEN 3文字以上連続した同一文字を含むパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Passss123!'); // 'sss'が連続
+    await page.locator('input#passwordConfirm').fill('Passss123!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(
+      page.getByText(/パスワードに3文字以上の連続した同一文字を含めることはできません/i)
+    ).toBeVisible();
+  });
+
+  /**
+   * 要件14.6: パスワード強度インジケーター（詳細テスト）
+   * WHEN 異なる強度のパスワードを入力する
+   * THEN インジケーターが適切な強度レベルを表示する
+   */
+  test('弱いパスワードで「弱」インジケーターが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Pass123!'); // 8文字（最小）
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // 強度レベルが「弱」であることを確認
+    const strengthText = page.getByTestId('password-strength-text');
+    await expect(strengthText).toHaveText(/弱/i);
+
+    // 視覚的フィードバック（色やプログレスバー）
+    const progressBar = page.getByTestId('password-strength-bar');
+    await expect(progressBar).toHaveAttribute('data-strength', 'weak');
+  });
+
+  test('中程度のパスワードで「中」インジケーターが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Password123!'); // 12文字
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // 強度レベルが「中」であることを確認
+    const strengthText = page.getByTestId('password-strength-text');
+    await expect(strengthText).toHaveText(/中/i);
+
+    // 視覚的フィードバック
+    const progressBar = page.getByTestId('password-strength-bar');
+    await expect(progressBar).toHaveAttribute('data-strength', 'medium');
+  });
+
+  test('強いパスワードで「強」インジケーターが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('SuperSecure!Pass123@Word'); // 24文字、複雑
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // 強度レベルが「強」であることを確認
+    const strengthText = page.getByTestId('password-strength-text');
+    await expect(strengthText).toHaveText(/強/i);
+
+    // 視覚的フィードバック
+    const progressBar = page.getByTestId('password-strength-bar');
+    await expect(progressBar).toHaveAttribute('data-strength', 'strong');
+  });
+
+  /**
+   * 要件14.6: パスワード強度インジケーターのアクセシビリティ
+   * WHEN パスワード強度インジケーターが表示される
+   * THEN ARIA属性が適切に設定されている
+   */
+  test('パスワード強度インジケーターがアクセシビリティ要件を満たす', async ({ page }) => {
+    await page.locator('input#password').fill('Password123!');
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // ARIA属性の検証
+    await expect(indicator).toHaveAttribute('role', 'status');
+    await expect(indicator).toHaveAttribute('aria-live', 'polite');
+    await expect(indicator).toHaveAttribute('aria-atomic', 'true');
+
+    // スクリーンリーダー用のテキストが存在することを確認
+    const ariaLabel = await indicator.getAttribute('aria-label');
+    expect(ariaLabel).toMatch(/パスワード強度/i);
+  });
+
+  /**
+   * 要件11.11: 新規登録ページのオートフォーカス
+   * WHEN 新規登録ページが読み込まれる
+   * THEN 表示名フィールドに自動的にフォーカスされる（メールは事前入力済み）
+   */
+  test('ページロード時に表示名フィールドにオートフォーカスされる', async ({ page }) => {
+    // 表示名フィールドがフォーカスされていることを確認
+    // （メールアドレスは招待トークンから事前入力され無効化されているため）
+    const displayNameInput = page.getByLabel(/表示名/i);
+    await expect(displayNameInput).toBeFocused();
+  });
+
+  /**
+   * 要件11.11: Tab キーでフォーカス移動
+   * WHEN Tab キーを押す
+   * THEN 論理的な順序でフォーカスが移動する
+   */
+  test('Tab キーで論理的な順序でフォーカスが移動する', async ({ page }) => {
+    // 初期状態：表示名フィールドにフォーカス
+    const displayNameInput = page.getByLabel(/表示名/i);
+    await expect(displayNameInput).toBeFocused();
+
+    // Tab キーを押してメールアドレスフィールドに移動（無効化されているがフォーカス可能）
+    await page.keyboard.press('Tab');
+    const emailInput = page.getByLabel(/メールアドレス/i);
+    await expect(emailInput).toBeFocused();
+
+    // Tab キーを押してパスワードフィールドに移動
+    await page.keyboard.press('Tab');
+    const passwordInput = page.locator('input#password');
+    await expect(passwordInput).toBeFocused();
+
+    // Tab キーを押してパスワード表示ボタンに移動
+    await page.keyboard.press('Tab');
+    const passwordToggle = page.getByRole('button', {
+      name: /パスワードを表示|パスワードを非表示/i,
+    });
+    await expect(passwordToggle).toBeFocused();
+
+    // Tab キーを押してパスワード確認フィールドに移動
+    await page.keyboard.press('Tab');
+    const passwordConfirmInput = page.locator('input#passwordConfirm');
+    await expect(passwordConfirmInput).toBeFocused();
+  });
 });
