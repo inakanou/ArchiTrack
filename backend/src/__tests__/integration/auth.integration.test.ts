@@ -272,6 +272,13 @@ describe('Authentication API Integration Tests', () => {
      * 要件4.6: 5回連続ログイン失敗でアカウントロック（15分間）
      */
     it('5回連続ログイン失敗でアカウントがロックされること', async () => {
+      // 明示的なクリーンアップ：テストユーザーが存在しないことを確認
+      await prisma.user.deleteMany({
+        where: {
+          email: 'test-auth-integration-lock@example.com',
+        },
+      });
+
       // 前提: テストユーザーを作成
       const passwordHash = await (
         await import('@node-rs/argon2')
@@ -452,6 +459,7 @@ describe('Authentication API Integration Tests', () => {
           token: 'used-invitation-token',
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
+          status: 'used', // 使用済みステータス
           usedAt: new Date(), // 既に使用済み
         },
       });
@@ -567,7 +575,7 @@ describe('Authentication API Integration Tests', () => {
         .post('/api/v1/auth/register')
         .send({
           invitationToken: invitation.token,
-          password: 'TestPassword123!@#',
+          password: 'StrongHash123!@#',
           displayName: 'Hash Test User',
         })
         .expect(201);
@@ -581,11 +589,11 @@ describe('Authentication API Integration Tests', () => {
       expect(user?.passwordHash).toMatch(/^\$argon2id\$/);
 
       // パスワードが平文で保存されていないことを確認
-      expect(user?.passwordHash).not.toBe('TestPassword123!@#');
+      expect(user?.passwordHash).not.toBe('StrongHash123!@#');
 
       // ハッシュが検証可能であることを確認
       const { verify } = await import('@node-rs/argon2');
-      const isValid = await verify(user!.passwordHash, 'TestPassword123!@#');
+      const isValid = await verify(user!.passwordHash, 'StrongHash123!@#');
       expect(isValid).toBe(true);
     });
   });

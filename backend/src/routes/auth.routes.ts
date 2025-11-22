@@ -21,6 +21,7 @@ import { authenticate } from '../middleware/authenticate.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import logger from '../utils/logger.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
+import { PasswordViolation } from '../types/password.types.js';
 
 const router = Router();
 const prisma = getPrismaClient();
@@ -28,6 +29,53 @@ const authService = new AuthService(prisma);
 const twoFactorService = new TwoFactorService();
 const passwordService = new PasswordService(prisma);
 // const sessionService = new SessionService(prisma);
+
+// パスワードバリデーション違反を人間が読めるメッセージに変換
+function getPasswordViolationMessage(violations: PasswordViolation[]): string {
+  const messages: string[] = [];
+
+  if (violations.includes(PasswordViolation.TOO_SHORT)) {
+    messages.push(
+      'Password must be at least 12 characters (パスワードは12文字以上である必要があります)'
+    );
+  }
+  if (violations.includes(PasswordViolation.NO_UPPERCASE)) {
+    messages.push('uppercase letters');
+  }
+  if (violations.includes(PasswordViolation.NO_LOWERCASE)) {
+    messages.push('lowercase letters');
+  }
+  if (violations.includes(PasswordViolation.NO_DIGIT)) {
+    messages.push('digits');
+  }
+  if (violations.includes(PasswordViolation.NO_SPECIAL_CHAR)) {
+    messages.push('special characters');
+  }
+  if (violations.includes(PasswordViolation.COMMON_PASSWORD)) {
+    messages.push('Password is too common');
+  }
+  if (violations.includes(PasswordViolation.CONTAINS_USER_INFO)) {
+    messages.push('Password must not contain user information');
+  }
+
+  // 複雑性要件エラーの場合は特別なメッセージを作成
+  const complexityViolations = messages.filter(
+    (_, i) =>
+      i > 0 &&
+      (violations.includes(PasswordViolation.NO_UPPERCASE) ||
+        violations.includes(PasswordViolation.NO_LOWERCASE) ||
+        violations.includes(PasswordViolation.NO_DIGIT) ||
+        violations.includes(PasswordViolation.NO_SPECIAL_CHAR))
+  );
+
+  if (complexityViolations.length > 0 && !violations.includes(PasswordViolation.TOO_SHORT)) {
+    return `Password does not meet complexity requirements (複雑性要件を満たしていません): must contain ${messages.join(', ')}`;
+  }
+
+  return messages.length > 0
+    ? messages.join('; ')
+    : 'Password does not meet complexity requirements';
+}
 
 // Zodバリデーションスキーマ
 const registerSchema = z.object({
@@ -193,8 +241,10 @@ router.post(
           });
           return;
         } else if (error.type === 'WEAK_PASSWORD') {
+          const detailedMessage = getPasswordViolationMessage(error.violations);
           res.status(400).json({
-            error: 'Password is too weak',
+            error: detailedMessage,
+            detail: detailedMessage,
             code: error.type,
             violations: error.violations,
           });
@@ -288,8 +338,9 @@ router.post(
           res.status(401).json({ error: 'Invalid credentials', code: error.type });
           return;
         } else if (error.type === 'ACCOUNT_LOCKED') {
-          res.status(403).json({
+          res.status(429).json({
             error: 'Account is locked due to too many failed login attempts',
+            detail: 'アカウントがロックされています (Account locked)',
             code: error.type,
             unlockAt: error.unlockAt,
           });
@@ -298,6 +349,14 @@ router.post(
           res.status(200).json({
             requires2FA: true,
             userId: error.userId,
+          });
+          return;
+        } else if (error.type === 'DATABASE_ERROR') {
+          logger.error({ error: error.message }, 'Database error during login');
+          res.status(500).json({
+            error: 'Internal server error',
+            code: error.type,
+            detail: error.message,
           });
           return;
         }
@@ -370,10 +429,18 @@ router.post(
       if (!result.ok) {
         const error = result.error;
         if (error.type === 'INVALID_REFRESH_TOKEN') {
-          res.status(401).json({ error: 'Invalid refresh token', code: error.type });
+          res.status(401).json({
+            error: 'Invalid refresh token',
+            detail: '無効なトークンです (Invalid token)',
+            code: error.type,
+          });
           return;
         } else if (error.type === 'REFRESH_TOKEN_EXPIRED') {
-          res.status(401).json({ error: 'Refresh token expired', code: error.type });
+          res.status(401).json({
+            error: 'Refresh token expired',
+            detail: 'トークンの有効期限が切れています (Token expired)',
+            code: error.type,
+          });
           return;
         }
 

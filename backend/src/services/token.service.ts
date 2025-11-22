@@ -1,4 +1,5 @@
 import * as jose from 'jose';
+import { randomUUID } from 'crypto';
 import { Result, Ok, Err } from '../types/result.js';
 import logger from '../utils/logger.js';
 
@@ -120,6 +121,7 @@ export class TokenService {
         ...(payload.permissions && { permissions: payload.permissions }),
       })
         .setProtectedHeader({ alg: 'EdDSA' })
+        .setJti(randomUUID()) // 一意なトークンIDを設定
         .setIssuedAt()
         .setExpirationTime(this.accessTokenExpiry)
         .sign(this.privateKey);

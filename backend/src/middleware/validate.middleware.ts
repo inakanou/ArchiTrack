@@ -48,7 +48,10 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
           code: issue.code,
         }));
 
-        next(new ValidationError('Validation failed', details));
+        // Use the first error message as the main message for better UX
+        const mainMessage =
+          error.issues.length > 0 ? error.issues[0]!.message : 'Validation failed';
+        next(new ValidationError(mainMessage, details));
       } else {
         next(error);
       }
