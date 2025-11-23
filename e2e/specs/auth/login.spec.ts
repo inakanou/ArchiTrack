@@ -43,7 +43,7 @@ test.describe('ログイン機能', () => {
     await page.getByRole('button', { name: /ログイン/i }).click();
 
     // ホームページ（ダッシュボード）にリダイレクトされる
-    await expect(page).toHaveURL('http://localhost:5173/');
+    await expect(page).toHaveURL('http://localhost:5173/dashboard');
   });
 
   test('無効な認証情報でログインできない', async ({ page }) => {
