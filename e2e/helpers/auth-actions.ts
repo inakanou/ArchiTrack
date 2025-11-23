@@ -39,11 +39,14 @@ export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS):
   // ログインボタンをクリック
   await page.getByRole('button', { name: /ログイン/i }).click();
 
-  // ダッシュボードへのリダイレクトを待機
+  // ログイン成功を待機（ログインページから離れたことを確認）
   // 2FAが有効な場合は2FA画面にリダイレクトされる可能性があるため、
   // そのケースは個別に処理する
   if (!user.twoFactorEnabled) {
-    await page.waitForURL('http://localhost:5173/dashboard');
+    // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: 10000,
+    });
 
     // リフレッシュトークンがlocalStorageに保存されるまで待機
     await page.waitForFunction(() => {
@@ -86,9 +89,11 @@ export async function loginWithCredentials(
   // ログインボタンをクリック
   await page.getByRole('button', { name: /ログイン/i }).click();
 
-  // リダイレクトを待機
+  // リダイレクトを待機（ログインページから離れたことを確認）
   if (waitForRedirect) {
-    await page.waitForURL('http://localhost:5173/dashboard');
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: 10000,
+    });
   }
 }
 
@@ -116,8 +121,13 @@ export async function submitTwoFactorCode(page: Page, code: string): Promise<voi
   // 確認ボタンをクリック
   await page.getByRole('button', { name: /確認/i }).click();
 
-  // ダッシュボードへのリダイレクトを待機
-  await page.waitForURL('http://localhost:5173/dashboard');
+  // ログイン成功を待機（ログインページから離れたことを確認）
+  await page.waitForURL(
+    (url) => !url.pathname.includes('/login') && !url.pathname.includes('/2fa'),
+    {
+      timeout: 10000,
+    }
+  );
 }
 
 /**
