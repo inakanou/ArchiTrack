@@ -30,9 +30,11 @@ let prisma: PrismaClient | null = null;
 export function getPrismaClient(): PrismaClient {
   if (!prisma) {
     // E2Eテスト用のデータベース接続URL
-    // 環境変数が設定されていない場合は、ローカル開発環境のデフォルト値を使用
+    // 環境変数DATABASE_URLから取得し、未設定の場合はE2Eテスト用データベースを使用
+    // docker-compose.e2e.ymlと組み合わせて使用することで、バックエンドAPIと
+    // E2Eテストのフィクスチャが同じテストデータベースに接続する
     const databaseUrl =
-      process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_dev';
+      process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_test';
 
     prisma = new PrismaClient({
       datasources: {
