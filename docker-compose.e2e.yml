@@ -1,9 +1,0 @@
-# Docker Compose Override for E2E Testing
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.e2e.yml up
-
-services:
-  # Backend: E2Eテスト用にarchitrack_testデータベースに接続
-  backend:
-    environment:
-      DATABASE_URL: postgresql://postgres:dev@postgres:5432/architrack_test
-      NODE_ENV: test

@@ -96,11 +96,10 @@ export default defineConfig({
 
   // Webサーバーの設定（ローカルテスト用のみ）
   // CI環境ではワークフローで明示的にDocker Composeを管理
-  // E2Eテスト用にdocker-compose.e2e.ymlオーバーライドを使用
   webServer: process.env.CI
     ? undefined
     : {
-        command: 'docker compose -f docker-compose.yml -f docker-compose.e2e.yml up',
+        command: 'docker compose up',
         url: 'http://localhost:5173',
         timeout: 120000,
         reuseExistingServer: true,
