@@ -586,11 +586,13 @@ describe('AuthService', () => {
       const result = await authService.login(email, password);
 
       // Assert
-      // 5回目の失敗時はアカウントロックを設定するが、INVALID_CREDENTIALSを返す
-      // （次回のログイン試行時にACCOUNT_LOCKEDが返される）
+      // 5回目の失敗時にアカウントロックを設定し、即座にACCOUNT_LOCKEDを返す
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.type).toBe('INVALID_CREDENTIALS');
+        expect(result.error.type).toBe('ACCOUNT_LOCKED');
+        if (result.error.type === 'ACCOUNT_LOCKED') {
+          expect(result.error.unlockAt).toBeInstanceOf(Date);
+        }
       }
 
       // アカウントロックが実行されたことを確認
