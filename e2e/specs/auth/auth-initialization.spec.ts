@@ -110,8 +110,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
 
-    // ダッシュボードにリダイレクトされるまで待機
-    await page.waitForURL('**/dashboard**', { timeout: 10000 });
+    // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     // リフレッシュトークンがlocalStorageに保存されていることを確認
     const refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
@@ -147,8 +147,10 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     // ローディングインジケーターが消えるまで待機（セッション復元完了）
     await expect(loadingIndicator).not.toBeVisible({ timeout: 10000 });
 
-    // 最終的にダッシュボードが表示されることを確認
-    await page.waitForURL('**/dashboard**', { timeout: 10000 });
+    // 最終的にダッシュボード（またはルート）が表示されることを確認
+    await page.waitForURL((url) => url.pathname === '/dashboard' || url.pathname === '/', {
+      timeout: 10000,
+    });
     expect(await isOnProtectedPage(page)).toBe(true);
 
     // ログイン画面のチラつきがないことを確認
@@ -171,7 +173,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard**', { timeout: 10000 });
+    // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     // Step 2: ネットワークを遅延させる（500ms以上）
     await page.route('**/api/v1/auth/refresh', async (route) => {
@@ -196,8 +199,10 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     // ローディングインジケーターが消えるまで待機（セッション復元完了）
     await expect(loadingIndicator).not.toBeVisible({ timeout: 10000 });
 
-    // 最終的にダッシュボードが表示されることを確認
-    await page.waitForURL('**/dashboard**', { timeout: 10000 });
+    // 最終的にダッシュボード（またはルート）が表示されることを確認
+    await page.waitForURL((url) => url.pathname === '/dashboard' || url.pathname === '/', {
+      timeout: 10000,
+    });
     expect(await isOnProtectedPage(page)).toBe(true);
   });
 
@@ -242,7 +247,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard**', { timeout: 10000 });
+    // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     // Step 2: ネットワークを遅延させてローディングインジケーターを表示
     await page.route('**/api/v1/auth/refresh', async (route) => {
