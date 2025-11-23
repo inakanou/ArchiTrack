@@ -28,7 +28,7 @@ export function PasswordResetPage() {
   const handleRequestReset = async (data: PasswordResetRequestFormData): Promise<void> => {
     try {
       // パスワードリセット要求API呼び出し
-      await apiClient.post('/api/v1/auth/password-reset/request', {
+      await apiClient.post('/api/v1/auth/password/reset-request', {
         email: data.email,
       });
 
@@ -46,7 +46,7 @@ export function PasswordResetPage() {
   const handleResetPassword = async (data: PasswordResetFormData): Promise<void> => {
     try {
       // パスワードリセット実行API呼び出し
-      await apiClient.post('/api/v1/auth/password-reset/reset', {
+      await apiClient.post('/api/v1/auth/password/reset', {
         token: data.resetToken,
         newPassword: data.password,
       });
