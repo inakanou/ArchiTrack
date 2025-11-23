@@ -1,4 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
+import { createTestUser } from '../../fixtures/auth.fixtures';
+import { TEST_USERS } from '../../helpers/test-users';
+import { getPrismaClient } from '../../fixtures/database';
 
 /**
  * E2Eテスト: 要件16A - 認証状態初期化時のUIチラつき防止
@@ -9,10 +12,21 @@ import { test, expect, Page } from '@playwright/test';
 
 /**
  * ヘルパー関数: ログイン画面の存在をチェック
+ * 可視性もチェックすることで、一時的なDOM更新を除外
  */
 async function isOnLoginPage(page: Page): Promise<boolean> {
   const loginForm = page.locator('form:has(input[type="email"], input[type="password"])');
-  return (await loginForm.count()) > 0;
+  const count = await loginForm.count();
+  if (count === 0) return false;
+
+  // フォームが存在する場合、実際に表示されているかチェック
+  try {
+    await loginForm.first().waitFor({ state: 'visible', timeout: 100 });
+    return true;
+  } catch {
+    // タイムアウトした場合、フォームは表示されていない
+    return false;
+  }
 }
 
 /**
@@ -28,6 +42,10 @@ async function isOnProtectedPage(page: Page): Promise<boolean> {
 
 test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止', () => {
   test.beforeEach(async ({ page, context }) => {
+    // 各テスト前にテストユーザーデータをクリア（マスターデータは保持）
+    const prisma = getPrismaClient();
+    await prisma.user.deleteMany({});
+
     // 各テスト前にCookieとストレージをクリア（Playwright APIを使用）
     await context.clearCookies();
     await context.clearPermissions();
@@ -81,12 +99,15 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    * ログイン画面のチラつきがないこと
    */
   test('should restore session without login page flicker on page reload', async ({ page }) => {
+    // Step 0: 管理者ユーザーを作成
+    await createTestUser('ADMIN_USER');
+
     // Step 1: ログイン処理
     await page.goto('http://localhost:5173/login');
 
     // ログインフォームに入力
-    await page.fill('input[type="email"]', 'admin@example.com');
-    await page.fill('input[type="password"]', 'Admin123!@#');
+    await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
+    await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
 
     // ダッシュボードにリダイレクトされるまで待機
@@ -123,6 +144,9 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     const loadingIndicator = page.locator('[role="status"][aria-label="認証状態を確認中"]');
     await expect(loadingIndicator).toBeVisible({ timeout: 1000 });
 
+    // ローディングインジケーターが消えるまで待機（セッション復元完了）
+    await expect(loadingIndicator).not.toBeVisible({ timeout: 10000 });
+
     // 最終的にダッシュボードが表示されることを確認
     await page.waitForURL('**/dashboard**', { timeout: 10000 });
     expect(await isOnProtectedPage(page)).toBe(true);
@@ -139,10 +163,13 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    * THEN ローディングインジケーターが適切に表示されること
    */
   test('should display loading indicator when session restoration takes time', async ({ page }) => {
+    // Step 0: 管理者ユーザーを作成
+    await createTestUser('ADMIN_USER');
+
     // Step 1: ログイン処理
     await page.goto('http://localhost:5173/login');
-    await page.fill('input[type="email"]', 'admin@example.com');
-    await page.fill('input[type="password"]', 'Admin123!@#');
+    await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
+    await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
     await page.waitForURL('**/dashboard**', { timeout: 10000 });
 
@@ -165,6 +192,9 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     // ローディングインジケーターが表示されることを確認
     const loadingIndicator = page.locator('[role="status"][aria-label="認証状態を確認中"]');
     await expect(loadingIndicator).toBeVisible({ timeout: 1000 });
+
+    // ローディングインジケーターが消えるまで待機（セッション復元完了）
+    await expect(loadingIndicator).not.toBeVisible({ timeout: 10000 });
 
     // 最終的にダッシュボードが表示されることを確認
     await page.waitForURL('**/dashboard**', { timeout: 10000 });
@@ -204,10 +234,13 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    * THEN アクセシビリティ属性が適切に設定されていること
    */
   test('should have accessible loading indicator with proper ARIA attributes', async ({ page }) => {
+    // Step 0: 管理者ユーザーを作成
+    await createTestUser('ADMIN_USER');
+
     // Step 1: ログイン処理
     await page.goto('http://localhost:5173/login');
-    await page.fill('input[type="email"]', 'admin@example.com');
-    await page.fill('input[type="password"]', 'Admin123!@#');
+    await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
+    await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
     await page.waitForURL('**/dashboard**', { timeout: 10000 });
 

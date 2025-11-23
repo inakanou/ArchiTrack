@@ -97,9 +97,11 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
   };
 
   // 招待URLコピーハンドラー
-  const handleCopyUrl = async () => {
+  const handleCopyUrl = async (token?: string) => {
     try {
-      await navigator.clipboard.writeText(invitationUrl);
+      // トークンが指定された場合はそのURLを、指定されていない場合は最後に作成されたURLを使用
+      const urlToCopy = token ? `${window.location.origin}/register?token=${token}` : invitationUrl;
+      await navigator.clipboard.writeText(urlToCopy);
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 3000);
     } catch (err) {
@@ -321,7 +323,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                 }}
               />
               <button
-                onClick={handleCopyUrl}
+                onClick={() => handleCopyUrl()}
                 style={{
                   backgroundColor: '#388e3c',
                   color: '#fff',
@@ -396,78 +398,124 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
           >
             <div>読み込み中...</div>
           </div>
-        ) : filteredInvitations.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
-            招待がありません
-          </div>
         ) : (
-          <table role="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f5f5f5', borderBottom: '1px solid #ddd' }}>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
                   メールアドレス
                 </th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>招待日時</th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
+                  招待日時
+                </th>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
                   ステータス
                 </th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>有効期限</th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
+                  有効期限
+                </th>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
                   アクション
                 </th>
               </tr>
             </thead>
             <tbody>
-              {filteredInvitations.map((invitation) => (
-                <tr key={invitation.id} role="row" style={{ borderBottom: '1px solid #f0f0f0' }}>
-                  <td style={{ padding: '12px' }}>{invitation.email}</td>
-                  <td style={{ padding: '12px' }}>
-                    {new Date(invitation.createdAt).toLocaleDateString('ja-JP')}
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    <span data-testid="status-badge" style={getStatusBadgeStyle(invitation.status)}>
-                      {getStatusText(invitation.status)}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    {new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    {invitation.status === 'pending' && (
-                      <button
-                        onClick={() => handleOpenCancelDialog(invitation.id)}
-                        style={{
-                          backgroundColor: '#fff',
-                          color: '#d32f2f',
-                          padding: '6px 12px',
-                          border: '1px solid #d32f2f',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        取り消し
-                      </button>
-                    )}
-                    {invitation.status === 'expired' && (
-                      <button
-                        onClick={() => handleResendInvitation(invitation.id)}
-                        style={{
-                          backgroundColor: '#fff',
-                          color: '#1976d2',
-                          padding: '6px 12px',
-                          border: '1px solid #1976d2',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        再送信
-                      </button>
-                    )}
+              {filteredInvitations.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    style={{ padding: '40px', textAlign: 'center', color: '#757575' }}
+                  >
+                    招待がありません
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredInvitations.map((invitation) => (
+                  <tr key={invitation.id} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '12px' }}>{invitation.email}</td>
+                    <td style={{ padding: '12px' }}>
+                      {new Date(invitation.createdAt).toLocaleDateString('ja-JP')}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      <span
+                        data-testid="status-badge"
+                        style={getStatusBadgeStyle(invitation.status)}
+                      >
+                        {getStatusText(invitation.status)}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {invitation.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleOpenCancelDialog(invitation.id)}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#fff',
+                              border: '1px solid #d32f2f',
+                              borderRadius: '4px',
+                              color: '#d32f2f',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              marginRight: '8px',
+                            }}
+                          >
+                            取り消し
+                          </button>
+                          <button
+                            onClick={() => handleCopyUrl(invitation.token)}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#1976d2',
+                              border: 'none',
+                              borderRadius: '4px',
+                              color: '#fff',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                            }}
+                          >
+                            URLをコピー
+                          </button>
+                        </>
+                      )}
+                      {invitation.status === 'expired' && (
+                        <button
+                          onClick={() => handleResendInvitation(invitation.id)}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#1976d2',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                          }}
+                        >
+                          再送信
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         )}

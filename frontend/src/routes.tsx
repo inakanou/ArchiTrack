@@ -1,4 +1,4 @@
-import { RouteObject } from 'react-router-dom';
+import { RouteObject, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Profile } from './pages/Profile';
 import { Sessions } from './pages/Sessions';
@@ -30,17 +30,7 @@ export const routes: RouteObject[] = [
   // ルートパス - ダッシュボードへリダイレクト
   {
     path: '/',
-    element: (
-      <ProtectedRoute>
-        <div data-testid="dashboard">
-          <h1>ArchiTrack Dashboard</h1>
-          <p>アーキテクチャ決定記録管理システム</p>
-          <p>
-            <a href="/profile">プロフィール</a> | <a href="/sessions">セッション管理</a>
-          </p>
-        </div>
-      </ProtectedRoute>
-    ),
+    element: <Navigate to="/dashboard" replace />,
   },
 
   // ダッシュボード - ルートパスと同じ内容
@@ -63,7 +53,7 @@ export const routes: RouteObject[] = [
   {
     path: '/login',
     element: (
-      <ProtectedRoute requireAuth={false} redirectTo="/">
+      <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
         <LoginPage />
       </ProtectedRoute>
     ),
@@ -71,7 +61,7 @@ export const routes: RouteObject[] = [
   {
     path: '/register',
     element: (
-      <ProtectedRoute requireAuth={false} redirectTo="/">
+      <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
         <RegisterPage />
       </ProtectedRoute>
     ),
@@ -79,7 +69,7 @@ export const routes: RouteObject[] = [
   {
     path: '/password-reset',
     element: (
-      <ProtectedRoute requireAuth={false} redirectTo="/">
+      <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
         <PasswordResetPage />
       </ProtectedRoute>
     ),
