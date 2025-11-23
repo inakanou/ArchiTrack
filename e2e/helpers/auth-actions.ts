@@ -49,9 +49,12 @@ export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS):
     });
 
     // リフレッシュトークンがlocalStorageに保存されるまで待機
-    await page.waitForFunction(() => {
-      return localStorage.getItem('refreshToken') !== null;
-    });
+    await page.waitForFunction(
+      () => {
+        return localStorage.getItem('refreshToken') !== null;
+      },
+      { timeout: 10000 }
+    );
   }
 }
 
@@ -94,6 +97,14 @@ export async function loginWithCredentials(
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: 10000,
     });
+
+    // リフレッシュトークンがlocalStorageに保存されるまで待機
+    await page.waitForFunction(
+      () => {
+        return localStorage.getItem('refreshToken') !== null;
+      },
+      { timeout: 10000 }
+    );
   }
 }
 
