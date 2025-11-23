@@ -298,9 +298,13 @@ export class AuthService implements IAuthService {
           },
         });
 
-        // アカウントロック状態は次回のログイン試行時に検出される
-        // これにより、5回目の失敗時は INVALID_CREDENTIALS を返し、
-        // 6回目以降の試行時に ACCOUNT_LOCKED を返す
+        // アカウントがロックされた場合は即座にACCOUNT_LOCKEDを返す
+        if (isLocked && lockedUntil) {
+          return Err({
+            type: 'ACCOUNT_LOCKED',
+            unlockAt: lockedUntil,
+          });
+        }
 
         // 要件26.9: タイミング攻撃対策の遅延を挿入
         await addTimingAttackDelay();
