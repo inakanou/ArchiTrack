@@ -203,8 +203,8 @@ export function RegisterPage() {
               navigate('/login');
             }}
             style={{
-              color: '#3b82f6',
-              textDecoration: 'none',
+              color: '#2563eb',
+              textDecoration: 'underline',
             }}
           >
             ログイン
