@@ -43,7 +43,7 @@ export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS):
   // 2FAが有効な場合は2FA画面にリダイレクトされる可能性があるため、
   // そのケースは個別に処理する
   if (!user.twoFactorEnabled) {
-    await page.waitForURL('http://localhost:5173/');
+    await page.waitForURL('http://localhost:5173/dashboard');
 
     // リフレッシュトークンがlocalStorageに保存されるまで待機
     await page.waitForFunction(() => {
@@ -88,7 +88,7 @@ export async function loginWithCredentials(
 
   // リダイレクトを待機
   if (waitForRedirect) {
-    await page.waitForURL('http://localhost:5173/');
+    await page.waitForURL('http://localhost:5173/dashboard');
   }
 }
 
@@ -117,7 +117,7 @@ export async function submitTwoFactorCode(page: Page, code: string): Promise<voi
   await page.getByRole('button', { name: /確認/i }).click();
 
   // ダッシュボードへのリダイレクトを待機
-  await page.waitForURL('http://localhost:5173/');
+  await page.waitForURL('http://localhost:5173/dashboard');
 }
 
 /**
