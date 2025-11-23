@@ -9,7 +9,7 @@
  * - 招待取り消し・再送信機能
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type {
   Invitation,
   InvitationStatus,
@@ -152,6 +152,23 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
     return invitations.filter((inv) => inv.status === selectedFilter);
   }, [invitations, selectedFilter]);
 
+  // Escapeキーでダイアログを閉じる
+  useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && cancelDialogOpen) {
+        handleCloseCancelDialog();
+      }
+    };
+
+    if (cancelDialogOpen) {
+      document.addEventListener('keydown', handleEscapeKey);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [cancelDialogOpen]);
+
   // ステータスバッジのスタイル
   const getStatusBadgeStyle = (status: InvitationStatus): React.CSSProperties => {
     const baseStyle: React.CSSProperties = {
@@ -227,7 +244,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
         <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>
           新規ユーザー招待
         </h2>
-        <form onSubmit={handleCreateInvitation}>
+        <form role="form" onSubmit={handleCreateInvitation}>
           <div style={{ marginBottom: '16px' }}>
             <label
               htmlFor="invitation-email"
@@ -239,6 +256,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               id="invitation-email"
               type="email"
               aria-label="メールアドレス"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
@@ -271,7 +289,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               cursor: submitting ? 'not-allowed' : 'pointer',
             }}
           >
-            {submitting ? '送信中...' : '招待'}
+            {submitting ? '送信中...' : '招待を送信'}
           </button>
         </form>
 
@@ -407,7 +425,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                     {new Date(invitation.createdAt).toLocaleDateString('ja-JP')}
                   </td>
                   <td style={{ padding: '12px' }}>
-                    <span style={getStatusBadgeStyle(invitation.status)}>
+                    <span data-testid="status-badge" style={getStatusBadgeStyle(invitation.status)}>
                       {getStatusText(invitation.status)}
                     </span>
                   </td>

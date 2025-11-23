@@ -141,10 +141,6 @@ function PasswordResetForm({
   if (!resetToken) {
     return (
       <form onSubmit={handleRequestReset} style={{ maxWidth: '400px', margin: '0 auto' }}>
-        <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem', fontWeight: 600 }}>
-          パスワードリセット
-        </h2>
-
         {/* 成功メッセージ */}
         {successMessage && (
           <div
@@ -273,10 +269,6 @@ function PasswordResetForm({
   // リセット実行モード
   return (
     <form onSubmit={handleResetPassword} style={{ maxWidth: '400px', margin: '0 auto' }}>
-      <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem', fontWeight: 600 }}>
-        新しいパスワードを設定
-      </h2>
-
       {/* 成功メッセージ */}
       {successMessage && (
         <div

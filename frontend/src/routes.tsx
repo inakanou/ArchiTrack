@@ -4,6 +4,7 @@ import { Profile } from './pages/Profile';
 import { Sessions } from './pages/Sessions';
 import { AuditLogs } from './pages/AuditLogs';
 import { UserManagement } from './pages/UserManagement';
+import { InvitationsPage } from './pages/InvitationsPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { PasswordResetPage } from './pages/PasswordResetPage';
@@ -26,12 +27,28 @@ import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage';
  * - LoginPage, RegisterPage, PasswordResetPageがAPIと統合
  */
 export const routes: RouteObject[] = [
-  // ルートパス - ダッシュボードまたはステータスページ
+  // ルートパス - ダッシュボードへリダイレクト
   {
     path: '/',
     element: (
       <ProtectedRoute>
-        <div>
+        <div data-testid="dashboard">
+          <h1>ArchiTrack Dashboard</h1>
+          <p>アーキテクチャ決定記録管理システム</p>
+          <p>
+            <a href="/profile">プロフィール</a> | <a href="/sessions">セッション管理</a>
+          </p>
+        </div>
+      </ProtectedRoute>
+    ),
+  },
+
+  // ダッシュボード - ルートパスと同じ内容
+  {
+    path: '/dashboard',
+    element: (
+      <ProtectedRoute>
+        <div data-testid="dashboard">
           <h1>ArchiTrack Dashboard</h1>
           <p>アーキテクチャ決定記録管理システム</p>
           <p>
@@ -108,6 +125,14 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <UserManagement />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/admin/invitations',
+    element: (
+      <ProtectedRoute>
+        <InvitationsPage />
       </ProtectedRoute>
     ),
   },
