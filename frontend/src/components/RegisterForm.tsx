@@ -174,10 +174,67 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
       });
     } catch (err: unknown) {
       // エラーレスポンスから詳細メッセージを取得
-      const error = err as { response?: { data?: { code?: string; message?: string } } };
+      const error = err as {
+        response?: {
+          data?: {
+            code?: string;
+            message?: string;
+            errors?: string[];
+            validationErrors?: Array<{ field: string; code: string; message: string }>;
+          };
+        };
+      };
       const errorCode = error?.response?.data?.code;
       const errorMessage = error?.response?.data?.message;
+      const validationErrors = error?.response?.data?.validationErrors;
+      const errors = error?.response?.data?.errors;
 
+      // バリデーションエラーの処理
+      if (validationErrors && validationErrors.length > 0) {
+        const newErrors: Record<string, string> = {};
+        validationErrors.forEach((err) => {
+          if (err.field === 'password') {
+            newErrors.password = err.message;
+          } else if (err.field === 'email') {
+            newErrors.general = err.message;
+          } else {
+            newErrors.general = err.message;
+          }
+        });
+        setErrors(newErrors);
+        return;
+      }
+
+      // エラーコード配列の処理（簡易バリデーション）
+      if (errors && errors.length > 0) {
+        const errorMessages: Record<string, string> = {
+          PASSWORD_TOO_SHORT: 'パスワードは8文字以上である必要があります',
+          PASSWORD_MISSING_UPPERCASE: 'パスワードは大文字を1文字以上含む必要があります',
+          PASSWORD_MISSING_LOWERCASE: 'パスワードは小文字を1文字以上含む必要があります',
+          PASSWORD_MISSING_NUMBER: 'パスワードは数字を1文字以上含む必要があります',
+          PASSWORD_MISSING_SPECIAL: 'パスワードは記号を1文字以上含む必要があります',
+          PASSWORD_CONSECUTIVE_CHARS:
+            'パスワードに3文字以上の連続した同一文字を含めることはできません',
+          PASSWORD_PWNED:
+            'このパスワードは過去に漏洩が確認されています。別のパスワードを選択してください',
+          EMAIL_ALREADY_REGISTERED: 'このメールアドレスは既に登録されています',
+        };
+
+        // 最初のエラーをメッセージとして表示
+        const firstError = errors[0];
+        if (firstError && errorMessages[firstError]) {
+          setErrors({
+            password: errorMessages[firstError] || firstError,
+          });
+        } else {
+          setErrors({
+            general: '入力内容に誤りがあります',
+          });
+        }
+        return;
+      }
+
+      // 単一エラーコードの処理
       if (errorCode === 'EMAIL_ALREADY_REGISTERED') {
         setErrors({
           general: 'このメールアドレスは既に登録されています',

@@ -21,6 +21,11 @@ export interface ProtectedRouteProps {
    * falseの場合、認証済みユーザーのみをリダイレクト（例: ログインページ）
    */
   requireAuth?: boolean;
+
+  /**
+   * 必要なロール（指定した場合、そのロールを持つユーザーのみアクセス可能）
+   */
+  requiredRole?: 'admin' | 'user';
 }
 
 /**
@@ -56,14 +61,15 @@ export function ProtectedRoute({
   children,
   redirectTo = '/login',
   requireAuth = true,
+  requiredRole,
 }: ProtectedRouteProps): ReactElement {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isInitialized, user } = useAuth();
   const location = useLocation();
 
   // requireAuth=true: 認証が必要なルート
   if (requireAuth) {
-    // 認証状態の読み込み中はローディングインジケーターを表示（ちらつき防止）
-    if (isLoading) {
+    // 初期化が完了していない、またはローディング中はローディングインジケーターを表示（ちらつき防止）
+    if (!isInitialized || isLoading) {
       return (
         <div className="flex items-center justify-center min-h-screen">
           <div
@@ -86,6 +92,23 @@ export function ProtectedRoute({
         <Navigate to={redirectTo} state={{ from: location.pathname + location.search }} replace />
       );
     }
+
+    // ロールチェック
+    if (requiredRole && user && !user.roles?.includes(requiredRole)) {
+      // 必要なロールがない場合、アクセス権限エラーページを表示
+      return (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center max-w-md px-4">
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">アクセス権限がありません</h1>
+            <p className="text-gray-600 mb-6">このページにアクセスする権限がありません。</p>
+            <a href="/" className="text-blue-600 hover:text-blue-800 underline">
+              ホームに戻る
+            </a>
+          </div>
+        </div>
+      );
+    }
+
     // 認証済みの場合、保護されたコンテンツを表示
     return children;
   }

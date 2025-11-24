@@ -39,6 +39,7 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   user: User | null;
   isLoading: boolean;
+  isInitialized: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<string>;
@@ -69,6 +70,7 @@ export interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
   const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
 
   /**
@@ -234,29 +236,84 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
    * コンポーネントマウント時の初期化処理
    */
   useEffect(() => {
-    // ページロード時にlocalStorageからリフレッシュトークンを取得し、セッションを復元
-    const storedRefreshToken = localStorage.getItem('refreshToken');
+    const initializeAuth = async () => {
+      // ページロード時にlocalStorageからリフレッシュトークンを取得し、セッションを復元
+      const storedRefreshToken = localStorage.getItem('refreshToken');
 
-    if (storedRefreshToken) {
-      // トークンリフレッシュを実行してセッションを復元
-      refreshToken()
-        .then(async () => {
-          // リフレッシュ成功後、ユーザー情報を取得
-          const response = await apiClient.get<{ user: User }>('/api/v1/auth/me');
-          setUser(response.user);
-        })
-        .catch(() => {
-          // リフレッシュ失敗時はlocalStorageをクリア
-          localStorage.removeItem('refreshToken');
-        })
-        .finally(() => {
-          // ローディング状態を解除
-          setIsLoading(false);
+      if (!storedRefreshToken) {
+        // リフレッシュトークンが存在しない場合も初期化完了
+        setIsLoading(false);
+        setIsInitialized(true);
+        return;
+      }
+
+      try {
+        // リフレッシュAPIを呼び出し
+        const refreshResponse = await apiClient.post<{
+          accessToken: string;
+          refreshToken?: string;
+        }>('/api/v1/auth/refresh', {
+          refreshToken: storedRefreshToken,
         });
-    } else {
-      // リフレッシュトークンが存在しない場合も初期化完了
-      setIsLoading(false);
-    }
+
+        // アクセストークンを更新
+        apiClient.setAccessToken(refreshResponse.accessToken);
+
+        // リフレッシュトークンを更新（新しいリフレッシュトークンが発行される場合）
+        if (refreshResponse.refreshToken) {
+          localStorage.setItem('refreshToken', refreshResponse.refreshToken);
+        }
+
+        // ユーザー情報を取得
+        const userResponse = await apiClient.get<{ user: User }>('/api/v1/auth/me');
+        setUser(userResponse.user);
+
+        // TokenRefreshManagerを初期化
+        const manager = new TokenRefreshManager(async () => {
+          const currentRefreshToken = localStorage.getItem('refreshToken');
+          if (!currentRefreshToken) {
+            throw new Error('No refresh token available');
+          }
+
+          const response = await apiClient.post<{
+            accessToken: string;
+            refreshToken?: string;
+          }>('/api/v1/auth/refresh', {
+            refreshToken: currentRefreshToken,
+          });
+
+          apiClient.setAccessToken(response.accessToken);
+
+          if (response.refreshToken) {
+            localStorage.setItem('refreshToken', response.refreshToken);
+          }
+
+          return response.accessToken;
+        });
+        setTokenRefreshManager(manager);
+
+        // APIクライアントのトークンリフレッシュコールバックを設定
+        apiClient.setTokenRefreshCallback(() => manager.refreshToken());
+
+        // 他のタブからのトークン更新を監視
+        manager.onTokenRefreshed((newAccessToken) => {
+          apiClient.setAccessToken(newAccessToken);
+        });
+      } catch (error) {
+        // リフレッシュ失敗時はlocalStorageをクリア
+        console.error('Session restoration failed:', error);
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('accessToken');
+        apiClient.setAccessToken(null);
+        setUser(null);
+      } finally {
+        // 初期化完了
+        setIsLoading(false);
+        setIsInitialized(true);
+      }
+    };
+
+    initializeAuth();
 
     // クリーンアップ関数
     return () => {
@@ -265,18 +322,19 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 初回マウント時のみ実行（refreshToken は意図的に依存配列から除外）
+  }, []); // 初回マウント時のみ実行
 
   const value: AuthContextValue = useMemo(
     () => ({
       isAuthenticated: user !== null,
       user,
       isLoading,
+      isInitialized,
       login,
       logout,
       refreshToken,
     }),
-    [user, isLoading, login, logout, refreshToken]
+    [user, isLoading, isInitialized, login, logout, refreshToken]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

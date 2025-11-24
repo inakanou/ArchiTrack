@@ -105,7 +105,7 @@ export const routes: RouteObject[] = [
   {
     path: '/admin/audit-logs',
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute requiredRole="admin">
         <AuditLogs />
       </ProtectedRoute>
     ),
@@ -113,7 +113,7 @@ export const routes: RouteObject[] = [
   {
     path: '/admin/users',
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute requiredRole="admin">
         <UserManagement />
       </ProtectedRoute>
     ),
@@ -121,7 +121,7 @@ export const routes: RouteObject[] = [
   {
     path: '/admin/invitations',
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute requiredRole="admin">
         <InvitationsPage />
       </ProtectedRoute>
     ),
