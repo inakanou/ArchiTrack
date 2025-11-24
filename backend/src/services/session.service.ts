@@ -17,6 +17,7 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
+import { UAParser } from 'ua-parser-js';
 import { Result, Ok, Err } from '../types/result.js';
 import type { ISessionService, SessionInfo, SessionError } from '../types/session.types.js';
 import logger from '../utils/logger.js';
@@ -29,6 +30,28 @@ export class SessionService implements ISessionService {
     // 環境変数から有効期限を取得（日数で指定、デフォルト: 7日）
     const expiryDays = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || '7', 10);
     this.REFRESH_TOKEN_EXPIRY = expiryDays * 24 * 60 * 60 * 1000; // ミリ秒に変換
+  }
+
+  /**
+   * User-Agent文字列をパースして読みやすい形式に変換
+   *
+   * @param userAgent User-Agent文字列
+   * @returns パースされたデバイス情報 (例: "Chrome on Windows")
+   */
+  private parseUserAgent(userAgent: string): string {
+    try {
+      const parser = new UAParser(userAgent);
+      const browser = parser.getBrowser();
+      const os = parser.getOS();
+
+      const browserName = browser.name || 'Unknown Browser';
+      const osName = os.name || 'Unknown OS';
+
+      return `${browserName} on ${osName}`;
+    } catch (error) {
+      logger.warn({ error, userAgent }, 'Failed to parse User-Agent');
+      return userAgent; // パース失敗時は元の文字列を返す
+    }
   }
 
   /**
@@ -46,11 +69,14 @@ export class SessionService implements ISessionService {
     try {
       const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY);
 
+      // User-Agentをパースして読みやすい形式に変換
+      const parsedDeviceInfo = deviceInfo ? this.parseUserAgent(deviceInfo) : undefined;
+
       await this.prisma.refreshToken.create({
         data: {
           userId,
           token: refreshToken,
-          deviceInfo,
+          deviceInfo: parsedDeviceInfo,
           expiresAt,
         },
       });
@@ -58,7 +84,7 @@ export class SessionService implements ISessionService {
       logger.info(
         {
           userId,
-          deviceInfo,
+          deviceInfo: parsedDeviceInfo,
           expiresAt,
         },
         'Session created successfully'
