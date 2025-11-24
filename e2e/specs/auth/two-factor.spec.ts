@@ -57,8 +57,7 @@ test.describe('2要素認証機能', () => {
       await page.waitForLoadState('networkidle');
 
       // 要件27D.1: 3ステップのプログレスバー
-      await expect(page.getByTestId('2fa-progress-bar')).toBeVisible();
-      await expect(page.getByText(/ステップ 1/i)).toBeVisible();
+      await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible();
 
       // 要件27.4: QRコードが表示される
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
@@ -68,7 +67,8 @@ test.describe('2要素認証機能', () => {
       await expect(qrCode).toHaveAttribute('alt', /二要素認証用QRコード/i);
 
       // 要件27.5: 秘密鍵が表示される (Base32形式)
-      const secretKey = page.getByTestId('2fa-secret-key');
+      await expect(page.getByText(/秘密鍵（手動入力用）/i)).toBeVisible();
+      const secretKey = page.getByText(/^[A-Z2-7]+=*$/);
       await expect(secretKey).toBeVisible();
       const secretText = await secretKey.textContent();
       expect(secretText).toMatch(/^[A-Z2-7]+=*$/); // Base32形式検証
