@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 
 /**
  * ログイン機能のE2Eテスト
@@ -142,6 +144,11 @@ test.describe('ログイン機能', () => {
 
     // アカウントロックメッセージが再び表示される
     await expect(page.getByText(/アカウントがロックされています/i)).toBeVisible();
+
+    // テスト後のクリーンアップ（アカウントロックをリセットして後続テストへの影響を防ぐ）
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await createAllTestUsers(prisma);
   });
 
   /**

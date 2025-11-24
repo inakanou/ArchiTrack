@@ -66,10 +66,23 @@ export function InvitationsPage() {
 
       // エラーメッセージを抽出
       let errorMessage = '招待の作成に失敗しました';
-      if (err && typeof err === 'object' && 'message' in err) {
-        const message = (err as { message: string }).message;
-        if (message.includes('already registered') || message.includes('既に登録')) {
-          errorMessage = 'このメールアドレスは既に登録されています';
+      if (err && typeof err === 'object') {
+        // ApiError.response をチェック
+        if ('response' in err && err.response && typeof err.response === 'object') {
+          const response = err.response as Record<string, unknown>;
+          if ('error' in response && typeof response.error === 'string') {
+            const apiError = response.error;
+            if (apiError.includes('already registered') || apiError.includes('already exists')) {
+              errorMessage = 'このメールアドレスは既に登録されています';
+            }
+          }
+        }
+        // フォールバック: err.message もチェック
+        if (errorMessage === '招待の作成に失敗しました' && 'message' in err) {
+          const message = (err as { message: string }).message;
+          if (message.includes('already registered') || message.includes('既に登録')) {
+            errorMessage = 'このメールアドレスは既に登録されています';
+          }
         }
       }
 
