@@ -27,6 +27,11 @@ test.describe('新規登録機能', () => {
       throw new Error('Admin user not found from global setup');
     }
 
+    // テスト用ユーザーが既に存在する場合は削除（テスト間の干渉を防ぐ）
+    await prisma.user.deleteMany({
+      where: { email: 'newuser@example.com' },
+    });
+
     // 招待トークンを作成
     const invitation = await createInvitation({
       email: 'newuser@example.com',

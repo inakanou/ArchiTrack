@@ -14,6 +14,13 @@ test.describe('セッション管理機能', () => {
     // テスト間の状態をクリア
     await context.clearCookies();
 
+    // localStorageとsessionStorageもクリア
+    await page.goto('/');
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+
     // 認証済みユーザーとしてログイン（グローバルセットアップで作成済み）
     await loginAsUser(page, 'REGULAR_USER');
 
@@ -41,20 +48,20 @@ test.describe('セッション管理機能', () => {
   });
 
   test('個別デバイスログアウトができる', async ({ page }) => {
-    // ログアウトボタンをクリック
+    // 個別デバイスのログアウトボタンをクリック（現在のデバイス以外の最初のセッション）
     await page
-      .getByRole('button', { name: /ログアウト/i })
+      .getByRole('button', { name: /^ログアウト$/i })
       .first()
       .click();
 
     // 確認ダイアログが表示される
     await expect(page.getByText(/このデバイスをログアウトしますか/i)).toBeVisible();
 
-    // 確認ボタンをクリック
-    await page.getByRole('button', { name: /はい、ログアウト/i }).click();
+    // 確認ボタンをクリック（aria-label="はい"のボタン）
+    await page.getByRole('button', { name: /^はい$/i }).click();
 
     // 成功メッセージが表示される
-    await expect(page.getByText(/ログアウトしました/i)).toBeVisible();
+    await expect(page.getByText(/ログアウトしました|デバイスをログアウトしました/i)).toBeVisible();
   });
 
   test('全デバイスログアウトボタンが表示される', async ({ page }) => {
@@ -68,8 +75,8 @@ test.describe('セッション管理機能', () => {
     // 確認ダイアログが表示される
     await expect(page.getByText(/全てのデバイスからログアウトします/i)).toBeVisible();
 
-    // 確認ボタンをクリック
-    await page.getByRole('button', { name: /はい、全デバイスからログアウト/i }).click();
+    // 確認ボタンをクリック（aria-label="はい"のボタン）
+    await page.getByRole('button', { name: /^はい$/i }).click();
 
     // ログインページにリダイレクトされる
     await expect(page).toHaveURL(/\/login/);

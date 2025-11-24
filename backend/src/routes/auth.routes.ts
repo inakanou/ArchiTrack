@@ -238,6 +238,7 @@ router.post(
           res.status(400).json({
             error: 'このメールアドレスは既に登録されています',
             code: error.type,
+            errors: ['EMAIL_ALREADY_REGISTERED'],
           });
           return;
         } else if (error.type === 'WEAK_PASSWORD') {
