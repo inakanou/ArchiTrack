@@ -35,11 +35,25 @@ export class SessionService implements ISessionService {
   /**
    * User-Agent文字列をパースして読みやすい形式に変換
    *
+   * 既にパース済みの文字列（"Browser on OS"形式）の場合はそのまま返します。
+   *
    * @param userAgent User-Agent文字列
    * @returns パースされたデバイス情報 (例: "Chrome on Windows")
    */
   private parseUserAgent(userAgent: string): string {
     try {
+      // 既にパース済みの形式かチェック（"Browser on OS" または "Test Device"）
+      // パース済みの文字列は短く、"on" を含むか "Test" "Unknown" で始まる
+      if (
+        userAgent.length < 100 && // 生のUser-Agentは通常100文字以上
+        (userAgent.includes(' on ') ||
+          userAgent.startsWith('Test ') ||
+          userAgent.startsWith('Unknown '))
+      ) {
+        logger.debug({ userAgent }, 'deviceInfo appears to be already parsed, returning as-is');
+        return userAgent;
+      }
+
       const parser = new UAParser(userAgent);
       const browser = parser.getBrowser();
       const os = parser.getOS();

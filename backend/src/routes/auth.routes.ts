@@ -329,8 +329,9 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { email, password } = req.body;
+      const userAgent = req.headers['user-agent'];
 
-      const result = await authService.login(email, password);
+      const result = await authService.login(email, password, userAgent);
 
       if (!result.ok) {
         const error = result.error;
@@ -799,7 +800,8 @@ router.post(
       }
 
       // 2FA検証を実行
-      const result = await authService.verify2FA(userId, token);
+      const userAgent = req.headers['user-agent'];
+      const result = await authService.verify2FA(userId, token, userAgent);
 
       if (!result.ok) {
         const error = result.error;

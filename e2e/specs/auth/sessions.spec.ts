@@ -28,8 +28,10 @@ test.describe('セッション管理機能', () => {
     // 現在のデバイスが表示される
     await expect(page.getByText(/現在のデバイス/i)).toBeVisible();
 
-    // デバイス情報が表示される
-    await expect(page.getByText(/Chrome on Windows|Safari on iOS|Firefox on Linux/)).toBeVisible();
+    // デバイス情報が表示される（複数セッションがある場合は.first()を使用）
+    await expect(
+      page.getByText(/Chrome on Windows|Safari on iOS|Firefox on Linux/).first()
+    ).toBeVisible();
   });
 
   test('個別デバイスログアウトボタンが表示される', async ({ page }) => {

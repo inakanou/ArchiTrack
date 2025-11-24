@@ -188,7 +188,7 @@ export class AuthService implements IAuthService {
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
       // 7. リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken);
+      await this.sessionService.createSession(user.id, refreshToken, undefined);
 
       // 8. AuthResponse返却
       const userProfile: UserProfile = {
@@ -224,7 +224,11 @@ export class AuthService implements IAuthService {
    * 5. 2FA有効チェック
    * 6. トークン生成（2FA無効の場合のみ）
    */
-  async login(email: string, password: string): Promise<Result<LoginResponse, AuthError>> {
+  async login(
+    email: string,
+    password: string,
+    deviceInfo?: string
+  ): Promise<Result<LoginResponse, AuthError>> {
     try {
       // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
@@ -341,7 +345,7 @@ export class AuthService implements IAuthService {
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
       // リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken);
+      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
 
       // UserProfile作成
       const userProfile: UserProfile = {
@@ -378,7 +382,11 @@ export class AuthService implements IAuthService {
    * 5. 検証成功時: JWT生成、失敗カウンターリセット
    * 6. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック
    */
-  async verify2FA(userId: string, totpCode: string): Promise<Result<AuthResponse, AuthError>> {
+  async verify2FA(
+    userId: string,
+    totpCode: string,
+    deviceInfo?: string
+  ): Promise<Result<AuthResponse, AuthError>> {
     try {
       // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
@@ -483,7 +491,7 @@ export class AuthService implements IAuthService {
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
       // リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken);
+      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
 
       // UserProfile作成
       const userProfile: UserProfile = {

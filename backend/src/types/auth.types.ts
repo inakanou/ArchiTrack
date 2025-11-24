@@ -91,18 +91,28 @@ export interface IAuthService {
    *
    * @param email メールアドレス
    * @param password パスワード
+   * @param deviceInfo デバイス情報（User-Agent）
    * @returns ログインレスポンスまたはエラー
    */
-  login(email: string, password: string): Promise<Result<LoginResponse, AuthError>>;
+  login(
+    email: string,
+    password: string,
+    deviceInfo?: string
+  ): Promise<Result<LoginResponse, AuthError>>;
 
   /**
    * 2FA検証（ログイン時）
    *
    * @param userId ユーザーID
    * @param totpCode TOTPコード（6桁）
+   * @param deviceInfo デバイス情報（User-Agent）
    * @returns 認証レスポンスまたはエラー
    */
-  verify2FA(userId: string, totpCode: string): Promise<Result<AuthResponse, AuthError>>;
+  verify2FA(
+    userId: string,
+    totpCode: string,
+    deviceInfo?: string
+  ): Promise<Result<AuthResponse, AuthError>>;
 
   /**
    * ログアウト（単一デバイス）
