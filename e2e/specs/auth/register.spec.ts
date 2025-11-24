@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser, createInvitation } from '../../fixtures/auth.fixtures';
+import { getPrismaClient } from '../../fixtures/database';
+import { createInvitation } from '../../fixtures/auth.fixtures';
+import { TEST_USERS } from '../../helpers/test-users';
 
 /**
  * 新規登録機能のE2Eテスト
@@ -17,9 +18,14 @@ test.describe('新規登録機能', () => {
     // テスト間の状態をクリア（認証状態の干渉を防ぐ）
     await context.clearCookies();
 
-    // テストデータをクリーンアップして、招待者（管理者）を作成
-    await cleanDatabase();
-    const admin = await createTestUser('ADMIN_USER');
+    // グローバルセットアップで作成された管理者ユーザーを取得
+    const prisma = getPrismaClient();
+    const admin = await prisma.user.findUnique({
+      where: { email: TEST_USERS.ADMIN_USER.email },
+    });
+    if (!admin) {
+      throw new Error('Admin user not found from global setup');
+    }
 
     // 招待トークンを作成
     const invitation = await createInvitation({

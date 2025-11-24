@@ -348,6 +348,7 @@ jobs:
           echo "JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}" >> .env
           echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
           echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
+          echo "DISABLE_RATE_LIMIT=true" >> .env
 
       - name: Start Docker Compose for E2E
         run: |

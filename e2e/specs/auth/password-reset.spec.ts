@@ -1,6 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getPrismaClient } from '../../fixtures/database';
 
 /**
@@ -17,10 +15,6 @@ test.describe('パスワード管理機能', () => {
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
-
-    // テストデータをクリーンアップして、テストユーザーを作成
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
 
     // パスワードリセットページに移動
     await page.goto('/password-reset');

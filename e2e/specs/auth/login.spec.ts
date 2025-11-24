@@ -1,6 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
 
 /**
  * ログイン機能のE2Eテスト
@@ -14,10 +12,6 @@ test.describe('ログイン機能', () => {
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア（認証状態の干渉を防ぐ）
     await context.clearCookies();
-
-    // テストデータをクリーンアップして、テストユーザーを作成
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
 
     // ページに移動
     await page.goto('/login');

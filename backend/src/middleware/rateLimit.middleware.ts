@@ -15,8 +15,11 @@ export const apiLimiter = rateLimit({
   },
   standardHeaders: true, // RateLimit-* ヘッダーを返す
   legacyHeaders: false, // X-RateLimit-* ヘッダーを無効化
-  // OPTIONSリクエスト（CORS preflight）とテスト環境はスキップ
-  skip: (req: Request) => req.method === 'OPTIONS' || process.env.NODE_ENV === 'test',
+  // OPTIONSリクエスト（CORS preflight）、テスト環境、またはレート制限無効化フラグがある場合はスキップ
+  skip: (req: Request) =>
+    req.method === 'OPTIONS' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.DISABLE_RATE_LIMIT === 'true',
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:api:'),
   // カスタムキー生成（プロキシ環境対応、IPv6対応）
@@ -57,8 +60,11 @@ export const loginLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // OPTIONSリクエスト（CORS preflight）とテスト環境はスキップ
-  skip: (req: Request) => req.method === 'OPTIONS' || process.env.NODE_ENV === 'test',
+  // OPTIONSリクエスト（CORS preflight）、テスト環境、またはレート制限無効化フラグがある場合はスキップ
+  skip: (req: Request) =>
+    req.method === 'OPTIONS' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.DISABLE_RATE_LIMIT === 'true',
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:login:'),
   keyGenerator: (req: Request): string => {
@@ -97,8 +103,11 @@ export const refreshLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // OPTIONSリクエスト（CORS preflight）とテスト環境はスキップ
-  skip: (req: Request) => req.method === 'OPTIONS' || process.env.NODE_ENV === 'test',
+  // OPTIONSリクエスト（CORS preflight）、テスト環境、またはレート制限無効化フラグがある場合はスキップ
+  skip: (req: Request) =>
+    req.method === 'OPTIONS' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.DISABLE_RATE_LIMIT === 'true',
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:refresh:'),
   keyGenerator: (req: Request): string => {
@@ -137,8 +146,11 @@ export const invitationLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // OPTIONSリクエスト（CORS preflight）とテスト環境はスキップ
-  skip: (req: Request) => req.method === 'OPTIONS' || process.env.NODE_ENV === 'test',
+  // OPTIONSリクエスト（CORS preflight）、テスト環境、またはレート制限無効化フラグがある場合はスキップ
+  skip: (req: Request) =>
+    req.method === 'OPTIONS' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.DISABLE_RATE_LIMIT === 'true',
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:invitation:'),
   // ユーザーIDベースのレート制限

@@ -23,6 +23,7 @@
 | `FRONTEND_URL` | フロントエンドURL（CORS設定用） | 任意 | `http://localhost:5173` | 手動設定 |
 | `NODE_ENV` | 実行環境 | 任意 | `development` | `production` |
 | `LOG_LEVEL` | ログレベル | 任意 | `info` | `info`/`debug`/`error` |
+| `DISABLE_RATE_LIMIT` | レート制限無効化（開発・テスト用） | 任意 | `false` | `true`（ローカルのみ推奨） |
 | `SENTRY_DSN` | Sentryエラートラッキング | 推奨 | なし | Sentry Project設定 |
 
 ### Frontend Service
@@ -72,6 +73,9 @@ FRONTEND_URL="http://localhost:5173"
 # 環境
 NODE_ENV="development"
 LOG_LEVEL="debug"
+
+# レート制限（開発・テスト用）
+DISABLE_RATE_LIMIT="true"
 
 # 初期管理者アカウント（任意）
 INITIAL_ADMIN_EMAIL="admin@example.com"
@@ -124,6 +128,9 @@ FRONTEND_URL=https://your-frontend.railway.app
 # 環境
 NODE_ENV=production
 LOG_LEVEL=info
+
+# レート制限（本番環境では必ず有効化）
+# DISABLE_RATE_LIMIT=false  # デフォルトfalse、設定不要（ローカル開発のみtrue推奨）
 
 # 初期管理者アカウント
 INITIAL_ADMIN_EMAIL=admin@example.com

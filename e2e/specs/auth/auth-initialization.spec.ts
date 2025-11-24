@@ -1,7 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { createTestUser } from '../../fixtures/auth.fixtures';
 import { TEST_USERS } from '../../helpers/test-users';
-import { getPrismaClient } from '../../fixtures/database';
 
 /**
  * E2Eテスト: 要件16A - 認証状態初期化時のUIチラつき防止
@@ -42,10 +40,6 @@ async function isOnProtectedPage(page: Page): Promise<boolean> {
 
 test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止', () => {
   test.beforeEach(async ({ page, context }) => {
-    // 各テスト前にテストユーザーデータをクリア（マスターデータは保持）
-    const prisma = getPrismaClient();
-    await prisma.user.deleteMany({});
-
     // 各テスト前にCookieとストレージをクリア（Playwright APIを使用）
     await context.clearCookies();
     await context.clearPermissions();
@@ -99,9 +93,6 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    * ログイン画面のチラつきがないこと
    */
   test('should restore session without login page flicker on page reload', async ({ page }) => {
-    // Step 0: 管理者ユーザーを作成
-    await createTestUser('ADMIN_USER');
-
     // Step 1: ログイン処理
     await page.goto('http://localhost:5173/login');
 
@@ -165,9 +156,6 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    * THEN ローディングインジケーターが適切に表示されること
    */
   test('should display loading indicator when session restoration takes time', async ({ page }) => {
-    // Step 0: 管理者ユーザーを作成
-    await createTestUser('ADMIN_USER');
-
     // Step 1: ログイン処理
     await page.goto('http://localhost:5173/login');
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
@@ -239,9 +227,6 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    * THEN アクセシビリティ属性が適切に設定されていること
    */
   test('should have accessible loading indicator with proper ARIA attributes', async ({ page }) => {
-    // Step 0: 管理者ユーザーを作成
-    await createTestUser('ADMIN_USER');
-
     // Step 1: ログイン処理
     await page.goto('http://localhost:5173/login');
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);

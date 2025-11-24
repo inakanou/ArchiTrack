@@ -20,11 +20,7 @@ test.describe('管理者招待機能', () => {
     // テスト間の状態をクリア
     await context.clearCookies();
 
-    // テストデータをクリーンアップして、管理者ユーザーを作成
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
-
-    // 管理者でログイン
+    // 管理者でログイン（グローバルセットアップで作成済み）
     await loginAsUser(page, 'ADMIN_USER');
 
     // 招待画面に移動

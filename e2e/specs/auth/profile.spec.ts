@@ -16,11 +16,7 @@ test.describe('プロフィール管理機能', () => {
     // テスト間の状態をクリア
     await context.clearCookies();
 
-    // テストデータをクリーンアップして、テストユーザーを作成
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
-
-    // 認証済みユーザーとしてログイン
+    // 認証済みユーザーとしてログイン（グローバルセットアップで作成済み）
     await loginAsUser(page, 'REGULAR_USER');
 
     // プロフィールページに移動
