@@ -31,6 +31,19 @@ services:
       timeout: 5s
       retries: 5
 
+  # Mailhog (Mock SMTP server for E2E testing)
+  mailhog:
+    image: axllent/mailpit:latest
+    container_name: architrack-mailhog
+    ports:
+      - "1025:1025"  # SMTP port
+      - "8025:8025"  # Web UI port
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Backend API (Development with tsx)
   backend:
     build:
@@ -42,6 +55,8 @@ services:
       PORT: ${PORT:-3000}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:dev@postgres:5432/architrack_dev}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ACCESS_TOKEN_EXPIRY: ${ACCESS_TOKEN_EXPIRY:-15m}
@@ -50,6 +65,12 @@ services:
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
       TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
       DISABLE_RATE_LIMIT: ${DISABLE_RATE_LIMIT:-false}
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@architrack.com}
     ports:
       - "3000:3000"
     volumes:
@@ -59,6 +80,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mailhog:
         condition: service_healthy
     command: npm run dev
     healthcheck:
