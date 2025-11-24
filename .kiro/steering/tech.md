@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-21（Steering Sync: CSRF実装詳細修正、Database Seeding・ESM Validation追加）_
+_最終更新: 2025-11-24（Steering Sync: DISABLE_RATE_LIMIT環境変数追加、cross-env統合、E2E待機処理改善）_
 
 ## アーキテクチャ
 
@@ -356,6 +356,7 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - `@typescript-eslint/parser` ^8.46.4 - TypeScript ESLintパーサー
 - `@prisma/client` ^6.19.0 - Prisma Client（テストデータ生成）
 - `prisma` ^6.19.0 - Prisma CLI（スキーマ管理）
+- `cross-env` ^10.1.0 - クロスプラットフォーム環境変数設定
 - Chromium - Playwright経由で自動インストール
 
 ### 設定ファイル
@@ -385,6 +386,26 @@ test-results/
 └── YYYY-MM-DD_HH-MM-SS-MMMZ/
     ├── screenshots/  # 失敗時のスクリーンショット
     └── videos/       # 失敗時のビデオ
+```
+
+### 待機処理のベストプラクティス
+
+E2Eテストでは、非同期処理とリダイレクトの待機に以下のパターンを採用：
+
+- **`waitForFunction`にタイムアウト設定**: 明示的なタイムアウト（10秒推奨）で無限待機を防止
+- **複数のURLパターン対応**: リダイレクト先が動的な場合は正規表現やOR条件で柔軟に対応
+- **`waitForLoadState('networkidle')`**: ネットワーク通信完了を待機してから検証実行
+
+**例:**
+```typescript
+// リダイレクト待機（複数パターン対応、タイムアウト設定）
+await page.waitForFunction(
+  () => window.location.pathname === '/' || window.location.pathname === '/dashboard',
+  { timeout: 10000 }
+);
+
+// ネットワーク通信完了を待機
+await page.waitForLoadState('networkidle');
 ```
 
 ### Claude Code統合
@@ -581,8 +602,8 @@ npm --prefix backend run test && npm --prefix frontend run test
 npm install
 sudo npx playwright install-deps chromium  # WSL2/Linuxのみ
 
-# E2Eテスト実行
-npm run test:e2e
+# E2Eテスト実行（cross-envで環境変数設定）
+npm run test:e2e  # DISABLE_RATE_LIMIT=true を自動設定
 
 # UIモードで実行（対話的）
 npm run test:e2e:ui
@@ -770,6 +791,9 @@ REDIS_URL=redis://localhost:6379
 
 # CORS設定
 FRONTEND_URL=http://localhost:5173
+
+# レート制限（開発・テスト環境専用）
+DISABLE_RATE_LIMIT=true  # 本番環境では必ずfalseまたは未設定
 ```
 
 本番環境では各サービスのRailway内部URLまたは公開URLを指定します。
