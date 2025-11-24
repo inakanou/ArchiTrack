@@ -75,7 +75,8 @@ test.describe('パスワード管理機能', () => {
       where: { email: 'user@example.com' },
     });
 
-    const resetToken = 'test-reset-token-12345';
+    // ランダムな一意トークンを生成（ベストプラクティス: リトライ時の競合を防ぐ）
+    const resetToken = `test-reset-token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     await prisma.passwordResetToken.create({
       data: {
         token: resetToken,

@@ -581,20 +581,24 @@ router.patch(
 
       const { displayName } = req.body;
 
-      const updatedUser = await prisma.user.update({
+      // データベースを更新
+      await prisma.user.update({
         where: { id: req.user.userId },
         data: { displayName },
-        select: {
-          id: true,
-          email: true,
-          displayName: true,
-          createdAt: true,
-        },
       });
 
       logger.info({ userId: req.user.userId }, 'User profile updated');
 
-      res.status(200).json(updatedUser);
+      // ベストプラクティス: getCurrentUserを使用して一貫したレスポンス形式を返す
+      // これにより、rolesを含む完全なUserProfileが返される
+      const result = await authService.getCurrentUser(req.user.userId);
+
+      if (!result.ok) {
+        res.status(500).json({ error: 'Failed to get updated user', code: 'GET_USER_ERROR' });
+        return;
+      }
+
+      res.status(200).json(result.value);
     } catch (error) {
       next(error);
     }

@@ -119,6 +119,23 @@ export function Profile() {
     }
   }, [newPassword]);
 
+  // Escキーでダイアログを閉じる（WCAG 2.1 AA要件: キーボードアクセシビリティ）
+  useEffect(() => {
+    const handleEscKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && showPasswordDialog) {
+        setShowPasswordDialog(false);
+      }
+    };
+
+    if (showPasswordDialog) {
+      document.addEventListener('keydown', handleEscKey);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, [showPasswordDialog]);
+
   /**
    * プロフィール保存
    */
@@ -127,9 +144,15 @@ export function Profile() {
     setProfileMessage('');
 
     try {
-      await apiClient.patch<UserProfile>('/api/v1/auth/me', {
+      const response = await apiClient.patch<UserProfile>('/api/v1/auth/me', {
         displayName,
       } as UpdateProfileFormData);
+
+      // ベストプラクティス: レスポンスから最新のユーザー情報を取得してローカルstateを同期
+      // これにより、ページリロード時に正しく表示される
+      if (response && response.displayName) {
+        setDisplayName(response.displayName);
+      }
 
       setProfileMessage('プロフィールを更新しました');
       setIsProfileChanged(false);
