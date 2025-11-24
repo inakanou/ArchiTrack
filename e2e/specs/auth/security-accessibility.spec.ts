@@ -72,6 +72,9 @@ test.describe('セキュリティテスト', () => {
     // ページをリロード
     await page.reload();
 
+    // リロード後、displayNameフィールドの値が設定されるまで待機
+    await expect(displayNameInput).toHaveValue(xssPayload, { timeout: 10000 });
+
     // スクリプトが実行されず、エスケープされたテキストとして表示される
     const displayedValue = await displayNameInput.inputValue();
     expect(displayedValue).toBe(xssPayload);

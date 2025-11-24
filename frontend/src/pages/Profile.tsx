@@ -97,6 +97,14 @@ export function Profile() {
   // モバイル判定
   const isMobile = window.innerWidth < 768;
 
+  // ユーザー情報が更新されたときにdisplayNameを同期
+  // displayNameのみを監視して不要な再レンダリングを防止
+  useEffect(() => {
+    if (user?.displayName) {
+      setDisplayName(user.displayName);
+    }
+  }, [user?.displayName]);
+
   // 表示名変更検知
   useEffect(() => {
     setIsProfileChanged(displayName !== user?.displayName);

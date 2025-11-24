@@ -51,6 +51,7 @@ export function getPrismaClient(): PrismaClient {
  * データベースの全テストデータをクリーンアップ
  *
  * 外部キー制約の順序を考慮して、依存関係の逆順でテーブルをクリアします。
+ * トランザクションを使用してACID特性を保証し、並列実行時の競合を防止します。
  * マスターデータ（Role, Permission）は削除しません。
  *
  * 削除順序:
@@ -73,15 +74,18 @@ export function getPrismaClient(): PrismaClient {
 export async function cleanDatabase(): Promise<void> {
   const client = getPrismaClient();
 
-  // 外部キー制約の順序を考慮して削除
-  await client.auditLog.deleteMany();
-  await client.refreshToken.deleteMany();
-  await client.twoFactorBackupCode.deleteMany();
-  await client.passwordHistory.deleteMany();
-  await client.passwordResetToken.deleteMany();
-  await client.invitation.deleteMany();
-  await client.userRole.deleteMany();
-  await client.user.deleteMany();
+  // トランザクションで確実にクリーンアップ
+  // 外部キー制約の順序を考慮して削除（依存される側を先に削除）
+  await client.$transaction([
+    client.auditLog.deleteMany(),
+    client.refreshToken.deleteMany(),
+    client.twoFactorBackupCode.deleteMany(),
+    client.passwordHistory.deleteMany(),
+    client.passwordResetToken.deleteMany(),
+    client.invitation.deleteMany(),
+    client.userRole.deleteMany(), // UserとRoleに依存するため、User削除前に実行
+    client.user.deleteMany(),
+  ]);
 
   // Note: Role, Permissionテーブルはマスターデータなので削除しない
   // これらはglobal-setupで初期化され、テスト全体で共有されます
