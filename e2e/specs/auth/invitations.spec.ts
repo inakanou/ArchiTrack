@@ -147,6 +147,7 @@ test.describe('管理者招待機能', () => {
   test('一般ユーザーは招待画面にアクセスできない', async ({ page }) => {
     // 一般ユーザーを作成してログイン
     await cleanDatabase();
+    await createTestUser('ADMIN_USER'); // 後続テストのbeforeEach用に再作成
     await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
