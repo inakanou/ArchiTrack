@@ -57,13 +57,13 @@ describe('AuthContext', () => {
             }),
           });
         }
-        // /api/v1/auth/me のモック
+        // /api/v1/auth/me のモック（APIは直接ユーザーオブジェクトを返す）
         if (url.toString().includes('/api/v1/auth/me')) {
           return Promise.resolve({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: async () => ({ user: mockUser }),
+            json: async () => mockUser,
           });
         }
         return Promise.reject(new Error('Unexpected URL'));

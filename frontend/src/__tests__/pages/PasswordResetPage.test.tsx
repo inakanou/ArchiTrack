@@ -10,12 +10,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { PasswordResetPage } from '../../pages/PasswordResetPage';
 
-// API clientをモック
-vi.mock('../../api/client', () => ({
-  apiClient: {
-    post: vi.fn(),
-  },
-}));
+// API clientをモック（importOriginalを使用してApiErrorを保持）
+vi.mock('../../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/client')>();
+  return {
+    ...actual,
+    apiClient: {
+      get: vi.fn(),
+      post: vi.fn(),
+    },
+  };
+});
 
 import { apiClient } from '../../api/client';
 
@@ -91,6 +96,8 @@ const renderPasswordResetPage = (queryString: string = '') => {
 describe('PasswordResetPage Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // トークン検証のデフォルトモック（成功）
+    vi.mocked(apiClient.get).mockResolvedValue({});
   });
 
   describe('リセット要求モード（トークンなし）', () => {
@@ -124,10 +131,13 @@ describe('PasswordResetPage Component', () => {
       expect(screen.getByText(/新しいパスワードを入力してください/i)).toBeInTheDocument();
     });
 
-    it('リセット実行モードのフォームを表示する', () => {
+    it('リセット実行モードのフォームを表示する', async () => {
       renderPasswordResetPage('?token=reset-token-123');
 
-      expect(screen.getByTestId('mode')).toHaveTextContent('reset');
+      // トークン検証が完了するまで待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('mode')).toHaveTextContent('reset');
+      });
     });
   });
 
@@ -169,6 +179,11 @@ describe('PasswordResetPage Component', () => {
 
       renderPasswordResetPage('?token=reset-token-123');
 
+      // トークン検証が完了するまで待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('reset-button')).toBeInTheDocument();
+      });
+
       await user.click(screen.getByTestId('reset-button'));
 
       await waitFor(() => {
@@ -190,6 +205,11 @@ describe('PasswordResetPage Component', () => {
       vi.mocked(apiClient.post).mockRejectedValueOnce(error);
 
       renderPasswordResetPage('?token=reset-token-123');
+
+      // トークン検証が完了するまで待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('reset-button')).toBeInTheDocument();
+      });
 
       await user.click(screen.getByTestId('reset-button'));
 

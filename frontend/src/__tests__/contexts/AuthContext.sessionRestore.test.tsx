@@ -102,12 +102,11 @@ describe('AuthContext - セッション復元とUIチラつき防止', () => {
       refreshToken: 'new-refresh-token',
     });
 
+    // /api/v1/auth/me は直接ユーザーオブジェクトを返す
     vi.mocked(apiClient.get).mockResolvedValueOnce({
-      user: {
-        id: '123',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      },
+      id: '123',
+      email: 'test@example.com',
+      displayName: 'Test User',
     });
 
     render(
@@ -146,12 +145,11 @@ describe('AuthContext - セッション復元とUIチラつき防止', () => {
       refreshToken: 'new-refresh-token',
     });
 
+    // /api/v1/auth/me は直接ユーザーオブジェクトを返す
     vi.mocked(apiClient.get).mockResolvedValueOnce({
-      user: {
-        id: '123',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      },
+      id: '123',
+      email: 'test@example.com',
+      displayName: 'Test User',
     });
 
     render(
