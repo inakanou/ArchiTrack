@@ -142,9 +142,10 @@ test.describe('新規登録機能', () => {
    * THEN エラーメッセージが表示される
    */
   test('大文字を含まないパスワードではエラーが表示される', async ({ page }) => {
-    // ユニークなパスワード: 大文字なし、漏洩DBにない
-    await page.locator('input#password').fill('xyzuniqtest1!@');
-    await page.locator('input#passwordConfirm').fill('xyzuniqtest1!@');
+    // 2種類のみ（小文字+数字）: 大文字なし、記号なし
+    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    await page.locator('input#password').fill('xyzuniqtest12');
+    await page.locator('input#passwordConfirm').fill('xyzuniqtest12');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -153,9 +154,10 @@ test.describe('新規登録機能', () => {
   });
 
   test('小文字を含まないパスワードではエラーが表示される', async ({ page }) => {
-    // ユニークなパスワード: 小文字なし、漏洩DBにない
-    await page.locator('input#password').fill('XYZUNIQTEST1!@');
-    await page.locator('input#passwordConfirm').fill('XYZUNIQTEST1!@');
+    // 2種類のみ（大文字+数字）: 小文字なし、記号なし
+    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    await page.locator('input#password').fill('XYZUNIQTEST12');
+    await page.locator('input#passwordConfirm').fill('XYZUNIQTEST12');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -164,9 +166,10 @@ test.describe('新規登録機能', () => {
   });
 
   test('数字を含まないパスワードではエラーが表示される', async ({ page }) => {
-    // ユニークなパスワード: 数字なし、漏洩DBにない
-    await page.locator('input#password').fill('XyzUniqTest!!!');
-    await page.locator('input#passwordConfirm').fill('XyzUniqTest!!!');
+    // 2種類のみ（小文字+大文字）: 数字なし、記号なし
+    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    await page.locator('input#password').fill('XyzUniqTestAbc');
+    await page.locator('input#passwordConfirm').fill('XyzUniqTestAbc');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -175,9 +178,10 @@ test.describe('新規登録機能', () => {
   });
 
   test('記号を含まないパスワードではエラーが表示される', async ({ page }) => {
-    // ユニークなパスワード: 記号なし、漏洩DBにない
-    await page.locator('input#password').fill('XyzUniqTest123');
-    await page.locator('input#passwordConfirm').fill('XyzUniqTest123');
+    // 2種類のみ（小文字+数字）: 記号なし、大文字なし
+    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    await page.locator('input#password').fill('xyzuniqtest123');
+    await page.locator('input#passwordConfirm').fill('xyzuniqtest123');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
