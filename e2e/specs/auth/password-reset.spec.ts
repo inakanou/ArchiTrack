@@ -123,7 +123,8 @@ test.describe('パスワード管理機能', () => {
       where: { email: 'user@example.com' },
     });
 
-    const expiredToken = 'expired-reset-token-12345';
+    // ユニークなトークンを生成（リトライ時の重複を防ぐ）
+    const expiredToken = `expired-reset-token-${Date.now()}`;
     await prisma.passwordResetToken.create({
       data: {
         token: expiredToken,

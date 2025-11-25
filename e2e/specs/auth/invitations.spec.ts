@@ -63,8 +63,10 @@ test.describe('管理者招待機能', () => {
     // 成功メッセージが表示される
     await expect(page.getByText(/招待を送信しました/i)).toBeVisible();
 
-    // 招待一覧に新しい招待が表示される
-    const invitationRow = page.locator('tr', { has: page.locator(`text="${newUserEmail}"`) });
+    // 招待一覧に新しい招待が表示される（複数ある場合は最初の行を使用）
+    const invitationRow = page
+      .locator('tr', { has: page.locator(`text="${newUserEmail}"`) })
+      .first();
     await expect(invitationRow).toBeVisible();
 
     // ステータスが「未使用」であることを確認
