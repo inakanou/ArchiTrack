@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-25（Steering Sync: E2Eテストカテゴリ追加、Frontendディレクトリ構造更新）_
+_最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加、Frontend/Backend構造更新）_
 
 ## ルートディレクトリ構成
 
@@ -123,7 +123,9 @@ Claude Codeのカスタムフックスクリプト。
 **構成:**
 
 - `hook_pre_commands.sh` - コマンド実行前に実行されるフック
-- `rules/hook_pre_commands_rules.json` - フック実行ルール定義
+- `hook_stop_words.sh` - アシスタント応答のストップワード検出フック
+- `rules/hook_pre_commands_rules.json` - コマンド前フック実行ルール定義
+- `rules/hook_stop_words_rules.json` - ストップワード検出ルール定義
 
 ### `.husky/`
 
@@ -290,7 +292,11 @@ frontend/
 │   │   ├── RegisterPage.tsx # 登録ページ
 │   │   ├── PasswordResetPage.tsx # パスワードリセットページ
 │   │   ├── Profile.tsx     # プロフィールページ
-│   │   └── Sessions.tsx    # セッション管理ページ
+│   │   ├── Sessions.tsx    # セッション管理ページ
+│   │   ├── TwoFactorSetupPage.tsx # 2FA設定ページ
+│   │   ├── InvitationsPage.tsx # 招待管理ページ
+│   │   ├── UserManagement.tsx # ユーザー管理ページ
+│   │   └── AuditLogs.tsx   # 監査ログページ
 │   ├── routes/            # ルーティング設定
 │   │   └── routes.tsx      # React Router v6設定
 │   ├── utils/             # ユーティリティ関数

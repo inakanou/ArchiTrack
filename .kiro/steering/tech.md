@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-25（Steering Sync: Storybook 10.x、Vitest 4.0.10、E2E認証・パフォーマンステストカテゴリ追加確認）_
+_最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加、Husky 9.1.7、テスト構成更新）_
 
 ## アーキテクチャ
 
@@ -144,7 +144,7 @@ ArchiTrack/
 - `@typescript-eslint/parser` ^8.47.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `prettier` ^3.6.2 - コードフォーマッター
-- `husky` ^9.0.11 - Git フックマネージャー
+- `husky` ^9.1.7 - Git フックマネージャー
 - `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.8 - Vitest UIツール

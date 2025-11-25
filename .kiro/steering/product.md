@@ -6,7 +6,7 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 Claude Codeを活用したKiro-style Spec Driven Development（スペック駆動開発）で開発されており、スラッシュコマンド、フック、エージェント機能を統合した体系的な開発ワークフローを実現しています。
 
-_最終更新: 2025-11-25（Steering Sync: 整合性検証完了、E2E認証テストカテゴリ確認）_
+_最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加検証、テスト構成確認）_
 
 ## コア機能
 
