@@ -74,6 +74,7 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
         >
           <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>パスワード強度:</span>
           <span
+            data-testid="password-strength-text"
             style={{
               fontSize: '0.875rem',
               fontWeight: 600,
@@ -86,6 +87,8 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
 
         {/* 強度バー */}
         <div
+          data-testid="password-strength-bar"
+          data-strength={result.strength}
           style={{
             height: '0.5rem',
             backgroundColor: '#e5e7eb',
