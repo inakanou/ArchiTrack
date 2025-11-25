@@ -35,46 +35,28 @@ function getPasswordViolationMessage(violations: PasswordViolation[]): string {
   const messages: string[] = [];
 
   if (violations.includes(PasswordViolation.TOO_SHORT)) {
-    messages.push(
-      'Password must be at least 12 characters (パスワードは12文字以上である必要があります)'
-    );
+    messages.push(`パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`);
   }
   if (violations.includes(PasswordViolation.NO_UPPERCASE)) {
-    messages.push('uppercase letters');
+    messages.push('パスワードは大文字を1文字以上含む必要があります');
   }
   if (violations.includes(PasswordViolation.NO_LOWERCASE)) {
-    messages.push('lowercase letters');
+    messages.push('パスワードは小文字を1文字以上含む必要があります');
   }
   if (violations.includes(PasswordViolation.NO_DIGIT)) {
-    messages.push('digits');
+    messages.push('パスワードは数字を1文字以上含む必要があります');
   }
   if (violations.includes(PasswordViolation.NO_SPECIAL_CHAR)) {
-    messages.push('special characters');
+    messages.push('パスワードは記号を1文字以上含む必要があります');
   }
   if (violations.includes(PasswordViolation.COMMON_PASSWORD)) {
-    messages.push('Password is too common');
+    messages.push('このパスワードは過去に漏洩が確認されています。別のパスワードを選択してください');
   }
   if (violations.includes(PasswordViolation.CONTAINS_USER_INFO)) {
-    messages.push('Password must not contain user information');
+    messages.push('パスワードにユーザー情報を含めることはできません');
   }
 
-  // 複雑性要件エラーの場合は特別なメッセージを作成
-  const complexityViolations = messages.filter(
-    (_, i) =>
-      i > 0 &&
-      (violations.includes(PasswordViolation.NO_UPPERCASE) ||
-        violations.includes(PasswordViolation.NO_LOWERCASE) ||
-        violations.includes(PasswordViolation.NO_DIGIT) ||
-        violations.includes(PasswordViolation.NO_SPECIAL_CHAR))
-  );
-
-  if (complexityViolations.length > 0 && !violations.includes(PasswordViolation.TOO_SHORT)) {
-    return `Password does not meet complexity requirements (複雑性要件を満たしていません): must contain ${messages.join(', ')}`;
-  }
-
-  return messages.length > 0
-    ? messages.join('; ')
-    : 'Password does not meet complexity requirements';
+  return messages.length > 0 ? messages.join('; ') : 'パスワードが要件を満たしていません';
 }
 
 // Zodバリデーションスキーマ

@@ -299,8 +299,9 @@ test.describe('プロフィール管理機能', () => {
 
   test('大文字を含まない新パスワードではエラーが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('newpassword123!'); // 大文字なし
-    await page.locator('input#confirmPassword').fill('newpassword123!');
+    // ユニークなパスワード: 大文字なし、漏洩DBにない
+    await page.locator('input#newPassword').fill('xyzuniqtest1!@');
+    await page.locator('input#confirmPassword').fill('xyzuniqtest1!@');
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
     await expect(page.getByText(/パスワードは大文字を1文字以上含む必要があります/i)).toBeVisible();
@@ -308,8 +309,9 @@ test.describe('プロフィール管理機能', () => {
 
   test('連続した同一文字を含む新パスワードではエラーが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('Newww123!'); // 'www'が連続
-    await page.locator('input#confirmPassword').fill('Newww123!');
+    // ユニークなパスワード: 'www'が連続、12文字以上
+    await page.locator('input#newPassword').fill('XyzNewww12!@');
+    await page.locator('input#confirmPassword').fill('XyzNewww12!@');
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
     await expect(

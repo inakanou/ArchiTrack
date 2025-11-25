@@ -142,8 +142,9 @@ test.describe('新規登録機能', () => {
    * THEN エラーメッセージが表示される
    */
   test('大文字を含まないパスワードではエラーが表示される', async ({ page }) => {
-    await page.locator('input#password').fill('password123!'); // 大文字なし
-    await page.locator('input#passwordConfirm').fill('password123!');
+    // ユニークなパスワード: 大文字なし、漏洩DBにない
+    await page.locator('input#password').fill('xyzuniqtest1!@');
+    await page.locator('input#passwordConfirm').fill('xyzuniqtest1!@');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -152,8 +153,9 @@ test.describe('新規登録機能', () => {
   });
 
   test('小文字を含まないパスワードではエラーが表示される', async ({ page }) => {
-    await page.locator('input#password').fill('PASSWORD123!'); // 小文字なし
-    await page.locator('input#passwordConfirm').fill('PASSWORD123!');
+    // ユニークなパスワード: 小文字なし、漏洩DBにない
+    await page.locator('input#password').fill('XYZUNIQTEST1!@');
+    await page.locator('input#passwordConfirm').fill('XYZUNIQTEST1!@');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -162,8 +164,9 @@ test.describe('新規登録機能', () => {
   });
 
   test('数字を含まないパスワードではエラーが表示される', async ({ page }) => {
-    await page.locator('input#password').fill('Password!!!'); // 数字なし
-    await page.locator('input#passwordConfirm').fill('Password!!!');
+    // ユニークなパスワード: 数字なし、漏洩DBにない
+    await page.locator('input#password').fill('XyzUniqTest!!!');
+    await page.locator('input#passwordConfirm').fill('XyzUniqTest!!!');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -172,8 +175,9 @@ test.describe('新規登録機能', () => {
   });
 
   test('記号を含まないパスワードではエラーが表示される', async ({ page }) => {
-    await page.locator('input#password').fill('Password123'); // 記号なし
-    await page.locator('input#passwordConfirm').fill('Password123');
+    // ユニークなパスワード: 記号なし、漏洩DBにない
+    await page.locator('input#password').fill('XyzUniqTest123');
+    await page.locator('input#passwordConfirm').fill('XyzUniqTest123');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -187,9 +191,9 @@ test.describe('新規登録機能', () => {
    * THEN エラーメッセージが表示される
    */
   test('漏洩パスワードではエラーが表示される', async ({ page }) => {
-    // 'password123'は有名な漏洩パスワード
-    await page.locator('input#password').fill('Password123!');
-    await page.locator('input#passwordConfirm').fill('Password123!');
+    // 'password123!'は有名な漏洩パスワード (12文字に合わせる)
+    await page.locator('input#password').fill('password123!');
+    await page.locator('input#passwordConfirm').fill('password123!');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
@@ -208,8 +212,9 @@ test.describe('新規登録機能', () => {
    * THEN エラーメッセージが表示される
    */
   test('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {
-    await page.locator('input#password').fill('Passss123!'); // 'sss'が連続
-    await page.locator('input#passwordConfirm').fill('Passss123!');
+    // ユニークなパスワード: 'sss'が連続、12文字以上
+    await page.locator('input#password').fill('XyzPassss12!@');
+    await page.locator('input#passwordConfirm').fill('XyzPassss12!@');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
