@@ -37,7 +37,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:studio": "prisma studio",
-    "prisma:format": "prisma format"
+    "prisma:format": "prisma format",
+    "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
