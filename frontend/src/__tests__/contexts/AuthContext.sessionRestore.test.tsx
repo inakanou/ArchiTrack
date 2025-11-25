@@ -45,7 +45,7 @@ function TestComponent() {
   );
 }
 
-describe('AuthContext - Requirement 16A: UIチラつき防止', () => {
+describe('AuthContext - セッション復元とUIチラつき防止', () => {
   beforeEach(() => {
     // localStorageをクリア
     localStorage.clear();
