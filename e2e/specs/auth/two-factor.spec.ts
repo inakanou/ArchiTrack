@@ -107,7 +107,7 @@ test.describe('2要素認証機能', () => {
       await expect(page.getByText(/ステップ 3/i)).toBeVisible({ timeout: 15000 });
 
       // 要件27.6: バックアップコードが表示される（10個、8文字英数字）
-      await expect(page.getByText(/バックアップコード/i)).toBeVisible();
+      await expect(page.getByRole('heading', { name: /バックアップコード/i })).toBeVisible();
 
       const backupCodes = await page.getByTestId('backup-code-item').all();
       expect(backupCodes.length).toBe(10);
