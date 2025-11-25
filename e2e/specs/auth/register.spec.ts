@@ -121,19 +121,19 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * 要件2.5: パスワード長の検証（8文字以上）
-   * WHEN 8文字未満のパスワードを入力する
+   * 要件2.5: パスワード長の検証（12文字以上）
+   * WHEN 12文字未満のパスワードを入力する
    * THEN エラーメッセージが表示される
    */
-  test('8文字未満のパスワードではエラーが表示される', async ({ page }) => {
-    await page.locator('input#password').fill('Pass1!'); // 6文字
-    await page.locator('input#passwordConfirm').fill('Pass1!');
+  test('12文字未満のパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Pass123!'); // 8文字（12文字未満）
+    await page.locator('input#passwordConfirm').fill('Pass123!');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
 
     // バリデーションエラーが表示される
-    await expect(page.getByText(/パスワードは8文字以上である必要があります/i)).toBeVisible();
+    await expect(page.getByText(/パスワードは12文字以上である必要があります/i)).toBeVisible();
   });
 
   /**

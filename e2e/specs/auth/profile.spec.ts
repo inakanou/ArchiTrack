@@ -288,13 +288,13 @@ test.describe('プロフィール管理機能', () => {
    * WHEN 複雑性要件を満たさないパスワードを入力する
    * THEN エラーメッセージが表示される
    */
-  test('8文字未満の新パスワードではエラーが表示される', async ({ page }) => {
+  test('12文字未満の新パスワードではエラーが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('Short1!'); // 7文字
-    await page.locator('input#confirmPassword').fill('Short1!');
+    await page.locator('input#newPassword').fill('Short123!'); // 9文字（12文字未満）
+    await page.locator('input#confirmPassword').fill('Short123!');
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
-    await expect(page.getByText(/パスワードは8文字以上である必要があります/i)).toBeVisible();
+    await expect(page.getByText(/パスワードは12文字以上である必要があります/i)).toBeVisible();
   });
 
   test('大文字を含まない新パスワードではエラーが表示される', async ({ page }) => {

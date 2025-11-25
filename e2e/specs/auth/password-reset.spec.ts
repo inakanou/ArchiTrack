@@ -303,7 +303,7 @@ test.describe('パスワード管理機能', () => {
    * WHEN 複雑性要件を満たさないパスワードを入力する
    * THEN エラーメッセージが表示される
    */
-  test('8文字未満のパスワードではエラーが表示される', async ({ page }) => {
+  test('12文字未満のパスワードではエラーが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
     const user = await prisma.user.findUnique({
       where: { email: 'user@example.com' },
@@ -320,11 +320,11 @@ test.describe('パスワード管理機能', () => {
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
-    await page.locator('input#password').fill('Short1!'); // 7文字
-    await page.locator('input#passwordConfirm').fill('Short1!');
+    await page.locator('input#password').fill('Short123!'); // 9文字（12文字未満）
+    await page.locator('input#passwordConfirm').fill('Short123!');
     await page.getByRole('button', { name: /パスワードをリセット/i }).click();
 
-    await expect(page.getByText(/パスワードは8文字以上である必要があります/i)).toBeVisible();
+    await expect(page.getByText(/パスワードは12文字以上である必要があります/i)).toBeVisible();
   });
 
   test('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {

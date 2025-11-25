@@ -208,7 +208,7 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
       // エラーコード配列の処理（簡易バリデーション）
       if (errors && errors.length > 0) {
         const errorMessages: Record<string, string> = {
-          PASSWORD_TOO_SHORT: 'パスワードは8文字以上である必要があります',
+          PASSWORD_TOO_SHORT: 'パスワードは12文字以上である必要があります',
           PASSWORD_MISSING_UPPERCASE: 'パスワードは大文字を1文字以上含む必要があります',
           PASSWORD_MISSING_LOWERCASE: 'パスワードは小文字を1文字以上含む必要があります',
           PASSWORD_MISSING_NUMBER: 'パスワードは数字を1文字以上含む必要があります',
