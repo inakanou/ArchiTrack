@@ -174,20 +174,20 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
       });
     } catch (err: unknown) {
       // エラーレスポンスから詳細メッセージを取得
+      // ApiError は { statusCode, message, response } の構造を持つ
       const error = err as {
         response?: {
-          data?: {
-            code?: string;
-            message?: string;
-            errors?: string[];
-            validationErrors?: Array<{ field: string; code: string; message: string }>;
-          };
+          code?: string;
+          message?: string;
+          error?: string;
+          errors?: string[];
+          validationErrors?: Array<{ field: string; code: string; message: string }>;
         };
       };
-      const errorCode = error?.response?.data?.code;
-      const errorMessage = error?.response?.data?.message;
-      const validationErrors = error?.response?.data?.validationErrors;
-      const errors = error?.response?.data?.errors;
+      const errorCode = error?.response?.code;
+      const errorMessage = error?.response?.message || error?.response?.error;
+      const validationErrors = error?.response?.validationErrors;
+      const errors = error?.response?.errors;
 
       // バリデーションエラーの処理
       if (validationErrors && validationErrors.length > 0) {
@@ -223,9 +223,16 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
         // 最初のエラーをメッセージとして表示
         const firstError = errors[0];
         if (firstError && errorMessages[firstError]) {
-          setErrors({
-            password: errorMessages[firstError] || firstError,
-          });
+          // EMAIL_ALREADY_REGISTEREDは汎用エラーとして表示
+          if (firstError === 'EMAIL_ALREADY_REGISTERED') {
+            setErrors({
+              general: errorMessages[firstError],
+            });
+          } else {
+            setErrors({
+              password: errorMessages[firstError],
+            });
+          }
         } else {
           setErrors({
             general: '入力内容に誤りがあります',
@@ -496,7 +503,7 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
         style={{
           width: '100%',
           padding: '0.75rem',
-          backgroundColor: isLoading ? '#9ca3af' : '#3b82f6',
+          backgroundColor: isLoading ? '#9ca3af' : '#2563eb',
           color: 'white',
           border: 'none',
           borderRadius: '0.375rem',

@@ -293,6 +293,7 @@ function TwoFactorSetupForm({
                 onKeyDown={(e) => handleKeyDown(index, e)}
                 onPaste={index === 0 ? handlePaste : undefined}
                 aria-label={`認証コード ${index + 1}桁目`}
+                data-testid={`totp-digit-${index}`}
                 style={{
                   width: '40px',
                   height: '48px',
@@ -454,7 +455,7 @@ function TwoFactorSetupForm({
               }}
             >
               {backupCodes.map((code, index) => (
-                <div key={index} style={{ padding: '4px' }}>
+                <div key={index} data-testid="backup-code-item" style={{ padding: '4px' }}>
                   {code}
                 </div>
               ))}

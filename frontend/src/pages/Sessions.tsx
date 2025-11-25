@@ -212,7 +212,7 @@ export function Sessions() {
                         style={{
                           display: 'inline-block',
                           padding: '0.25rem 0.5rem',
-                          backgroundColor: '#3b82f6',
+                          backgroundColor: '#2563eb',
                           color: 'white',
                           borderRadius: '0.25rem',
                           fontSize: '0.75rem',

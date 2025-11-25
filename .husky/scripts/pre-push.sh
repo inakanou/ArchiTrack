@@ -455,11 +455,14 @@ if [ $? -ne 0 ]; then
 fi
 echo "   ✅ Migrations applied to test database"
 
-# バックエンドをテストDBで再起動（E2Eテスト用）
-echo "   Restarting backend with test database..."
+# バックエンドをテストモードで再起動（E2Eテスト用）
+# NODE_ENV=test: 2FAテストで固定TOTPコード "123456" を受け入れる
+# DATABASE_URL: テストDB（architrack_test）を使用
+echo "   Restarting backend with test database and test mode..."
 docker compose stop backend > /dev/null 2>&1
 # コンテナを削除して環境変数を確実に反映させる
 docker compose rm -f backend > /dev/null 2>&1
+export NODE_ENV=test
 export DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test
 docker compose up -d backend
 if [ $? -ne 0 ]; then

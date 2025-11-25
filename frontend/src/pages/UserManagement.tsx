@@ -528,7 +528,7 @@ export function UserManagement() {
               aria-label="新しいロールを作成"
               style={{
                 padding: '0.5rem 1rem',
-                backgroundColor: '#3b82f6',
+                backgroundColor: '#2563eb',
                 color: 'white',
                 borderRadius: '0.375rem',
                 border: 'none',
@@ -961,7 +961,7 @@ export function UserManagement() {
                 aria-label={editingRole ? 'ロールを更新' : 'ロールを作成'}
                 style={{
                   padding: '0.5rem 1rem',
-                  backgroundColor: '#3b82f6',
+                  backgroundColor: '#2563eb',
                   color: 'white',
                   borderRadius: '0.375rem',
                   border: 'none',

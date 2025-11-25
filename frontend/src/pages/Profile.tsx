@@ -136,6 +136,18 @@ export function Profile() {
     };
   }, [showPasswordDialog]);
 
+  // プロフィールメッセージの自動非表示（5秒後）
+  useEffect(() => {
+    if (profileMessage) {
+      const timer = setTimeout(() => {
+        setProfileMessage('');
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [profileMessage]);
+
   /**
    * プロフィール保存
    */
@@ -325,7 +337,7 @@ export function Profile() {
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
               ロール
             </label>
-            <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+            <div style={{ fontSize: '0.875rem', color: '#4b5563' }}>
               {user?.roles?.join(', ') || '-'}
             </div>
           </div>
@@ -335,7 +347,7 @@ export function Profile() {
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
               アカウント作成日時
             </label>
-            <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+            <div style={{ fontSize: '0.875rem', color: '#4b5563' }}>
               {user?.createdAt ? new Date(user.createdAt).toLocaleDateString('ja-JP') : ''}
             </div>
           </div>
@@ -347,7 +359,7 @@ export function Profile() {
             aria-label="保存"
             style={{
               padding: '0.5rem 1rem',
-              backgroundColor: isProfileChanged ? '#3b82f6' : '#d1d5db',
+              backgroundColor: isProfileChanged ? '#2563eb' : '#d1d5db',
               color: 'white',
               borderRadius: '0.375rem',
               border: 'none',
@@ -366,8 +378,8 @@ export function Profile() {
               style={{
                 padding: '0.75rem',
                 borderRadius: '0.375rem',
-                backgroundColor: profileMessage.includes('成功') ? '#d1fae5' : '#fee2e2',
-                color: profileMessage.includes('成功') ? '#065f46' : '#991b1b',
+                backgroundColor: profileMessage.includes('失敗') ? '#fee2e2' : '#d1fae5',
+                color: profileMessage.includes('失敗') ? '#991b1b' : '#065f46',
               }}
             >
               {profileMessage}
@@ -486,8 +498,8 @@ export function Profile() {
               style={{
                 padding: '0.75rem',
                 borderRadius: '0.375rem',
-                backgroundColor: passwordMessage.includes('成功') ? '#d1fae5' : '#fee2e2',
-                color: passwordMessage.includes('成功') ? '#065f46' : '#991b1b',
+                backgroundColor: passwordMessage.includes('失敗') ? '#fee2e2' : '#d1fae5',
+                color: passwordMessage.includes('失敗') ? '#991b1b' : '#065f46',
               }}
             >
               {passwordMessage}
@@ -534,7 +546,7 @@ export function Profile() {
             >
               パスワード変更の確認
             </h3>
-            <p style={{ marginBottom: '1.5rem', color: '#6b7280' }}>
+            <p style={{ marginBottom: '1.5rem', color: '#4b5563' }}>
               パスワードを変更すると、全デバイスからログアウトされます。続行しますか？
             </p>
 

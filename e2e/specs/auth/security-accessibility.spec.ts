@@ -69,8 +69,13 @@ test.describe('セキュリティテスト', () => {
     // 成功メッセージを待つ
     await expect(page.getByText(/更新しました/i)).toBeVisible();
 
-    // ページをリロード
-    await page.reload();
+    // ページをリロード（ネットワーク完了まで待機）
+    await page.reload({ waitUntil: 'networkidle' });
+
+    // プロフィールページのロード完了を待機
+    await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+      timeout: 10000,
+    });
 
     // リロード後、displayNameフィールドの値が設定されるまで待機
     await expect(displayNameInput).toHaveValue(xssPayload, { timeout: 10000 });

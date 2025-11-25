@@ -11,8 +11,15 @@ import { TEST_USERS } from '../../helpers/test-users';
 /**
  * ヘルパー関数: ログイン画面の存在をチェック
  * 可視性もチェックすることで、一時的なDOM更新を除外
+ * URLも確認することでより正確に判定
  */
 async function isOnLoginPage(page: Page): Promise<boolean> {
+  // まずURLをチェック（最も信頼性が高い）
+  const url = page.url();
+  if (!url.includes('/login')) {
+    return false;
+  }
+
   const loginForm = page.locator('form:has(input[type="email"], input[type="password"])');
   const count = await loginForm.count();
   if (count === 0) return false;

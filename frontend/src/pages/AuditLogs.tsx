@@ -271,7 +271,7 @@ export function AuditLogs() {
             aria-label="JSONエクスポート"
             style={{
               padding: '0.5rem 1rem',
-              backgroundColor: '#3b82f6',
+              backgroundColor: '#2563eb',
               color: 'white',
               borderRadius: '0.375rem',
               border: 'none',
@@ -359,7 +359,7 @@ export function AuditLogs() {
               disabled={page === 0}
               style={{
                 padding: '0.5rem 1rem',
-                backgroundColor: page === 0 ? '#e5e7eb' : '#3b82f6',
+                backgroundColor: page === 0 ? '#e5e7eb' : '#2563eb',
                 color: page === 0 ? '#9ca3af' : 'white',
                 borderRadius: '0.375rem',
                 border: 'none',
@@ -377,7 +377,7 @@ export function AuditLogs() {
               disabled={logs.length < pageSize}
               style={{
                 padding: '0.5rem 1rem',
-                backgroundColor: logs.length < pageSize ? '#e5e7eb' : '#3b82f6',
+                backgroundColor: logs.length < pageSize ? '#e5e7eb' : '#2563eb',
                 color: logs.length < pageSize ? '#9ca3af' : 'white',
                 borderRadius: '0.375rem',
                 border: 'none',

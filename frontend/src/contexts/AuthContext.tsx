@@ -81,8 +81,10 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
     try {
       // ログインAPIを呼び出し
+      // バックエンドは成功時: { user, accessToken, refreshToken }
+      // 2FA要求時: { requires2FA: true, userId }
       const response = await apiClient.post<{
-        type: 'SUCCESS' | '2FA_REQUIRED';
+        requires2FA?: boolean;
         user?: User;
         accessToken?: string;
         refreshToken?: string;
@@ -94,7 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       });
 
       // 2FA有効ユーザーの場合は2FA検証画面へ
-      if (response.type === '2FA_REQUIRED') {
+      if (response.requires2FA) {
         // TODO: 2FA検証画面への遷移処理を実装
         throw new Error('2FA is not yet implemented');
       }
@@ -264,9 +266,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           localStorage.setItem('refreshToken', refreshResponse.refreshToken);
         }
 
-        // ユーザー情報を取得
-        const userResponse = await apiClient.get<{ user: User }>('/api/v1/auth/me');
-        setUser(userResponse.user);
+        // ユーザー情報を取得（APIは直接ユーザーオブジェクトを返す）
+        const userResponse = await apiClient.get<User>('/api/v1/auth/me');
+        setUser(userResponse);
 
         // TokenRefreshManagerを初期化
         const manager = new TokenRefreshManager(async () => {

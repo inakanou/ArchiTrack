@@ -34,28 +34,42 @@ test.describe('トークンリフレッシュ機能', () => {
     await page.goto('/dashboard');
     await expect(page).toHaveURL(/\/dashboard|\/$/);
 
-    // 現在のアクセストークンを取得
-    const initialAccessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
-    expect(initialAccessToken).toBeTruthy();
+    // リフレッシュトークンが保存されていることを確認
+    const initialRefreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
+    expect(initialRefreshToken).toBeTruthy();
 
-    // アクセストークンの有効期限を強制的に切らす（localStorageを直接操作）
-    // Note: 本来は時間経過を待つが、テスト時間短縮のためモック
-    await page.evaluate(() => {
-      // 期限切れのトークンをセット（expクレームを過去に設定）
-      const expiredToken = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDk0NTkyMDB9.invalid';
-      localStorage.setItem('accessToken', expiredToken);
+    // リフレッシュAPIの呼び出しを監視
+    let refreshCalled = false;
+    await page.route('**/api/v1/auth/refresh', async (route) => {
+      refreshCalled = true;
+      await route.continue();
     });
 
-    // 保護されたAPIを呼び出す（401エラーが発生してリフレッシュが走る）
+    // 保護されたAPIを強制的に401エラーにする（アクセストークンを無効化）
+    // Note: apiClientの内部状態を変更することでリフレッシュをトリガー
+    await page.route('**/api/v1/auth/me', async (route, _request) => {
+      // 最初のリクエストのみ401を返す
+      if (!refreshCalled) {
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Token expired', code: 'INVALID_ACCESS_TOKEN' }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    // プロフィールページに移動（401エラーが発生してリフレッシュが走る）
     await page.goto('/profile');
 
-    // リフレッシュが成功し、新しいトークンが発行される
-    const newAccessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
-    expect(newAccessToken).toBeTruthy();
-    expect(newAccessToken).not.toBe(initialAccessToken);
-
     // プロフィールページが正常に表示される（リフレッシュ成功の証）
-    await expect(page.getByText(/プロフィール/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+      timeout: 10000,
+    });
+
+    // リフレッシュが呼ばれたことを確認
+    expect(refreshCalled).toBe(true);
   });
 
   /**

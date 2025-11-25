@@ -108,6 +108,10 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
         email: emailError,
         password: passwordError,
       });
+      // 最初のエラーフィールドにフォーカス（WCAG 2.1 AA要件）
+      if (emailError) {
+        emailRef.current?.focus();
+      }
       return;
     }
 
@@ -127,7 +131,7 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
 
   return (
     <div style={{ maxWidth: '400px', margin: '0 auto' }}>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} role="form">
         {/* 汎用エラーメッセージ */}
         {generalError && (
           <div

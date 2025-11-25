@@ -128,10 +128,32 @@ function PasswordResetForm({
       setSuccessMessage('パスワードをリセットしました。新しいパスワードでログインできます。');
       setPassword('');
       setPasswordConfirm('');
-    } catch {
-      setErrors({
-        general: 'パスワードのリセットに失敗しました。もう一度お試しください。',
-      });
+    } catch (err: unknown) {
+      // エラーレスポンスから詳細メッセージを取得
+      const error = err as {
+        response?: {
+          data?: {
+            code?: string;
+            message?: string;
+          };
+        };
+      };
+      const errorCode = error?.response?.data?.code;
+
+      // エラーコードに基づいて適切なメッセージを表示
+      if (errorCode === 'TOKEN_EXPIRED') {
+        setErrors({
+          general: 'リセットリンクの有効期限が切れています。再度リセットを要求してください。',
+        });
+      } else if (errorCode === 'INVALID_TOKEN') {
+        setErrors({
+          general: 'リセットリンクが無効です。再度リセットを要求してください。',
+        });
+      } else {
+        setErrors({
+          general: 'パスワードのリセットに失敗しました。もう一度お試しください。',
+        });
+      }
     } finally {
       setIsLoading(false);
     }
