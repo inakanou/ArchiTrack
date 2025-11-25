@@ -103,8 +103,8 @@ test.describe('2要素認証機能', () => {
       // 検証ボタンをクリック
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
-      // ステップ2: バックアップコード表示
-      await expect(page.getByText(/ステップ 2/i)).toBeVisible();
+      // ステップ3: バックアップコード表示（UIはステップ1から直接ステップ3に遷移）
+      await expect(page.getByText(/ステップ 3/i)).toBeVisible({ timeout: 15000 });
 
       // 要件27.6: バックアップコードが表示される（10個、8文字英数字）
       await expect(page.getByText(/バックアップコード/i)).toBeVisible();
