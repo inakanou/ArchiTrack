@@ -97,7 +97,7 @@ test.describe('2要素認証機能', () => {
       // TOTPコードを6桁の個別フィールドに入力
       const digits = generateMockTOTPCode().split('');
       for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
+        await page.getByLabel(`認証コード ${i + 1}桁目`).fill(digits[i]!);
       }
 
       // 検証ボタンをクリック
