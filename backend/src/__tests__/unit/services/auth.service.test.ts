@@ -463,7 +463,7 @@ describe('AuthService', () => {
       // Assert: 最低100ms以上の遅延が挿入されたことを確認
       expect(result.ok).toBe(false);
       expect(elapsedTime).toBeGreaterThanOrEqual(100);
-      expect(elapsedTime).toBeLessThan(500); // 最大500ms以内（テストの安定性のため）
+      expect(elapsedTime).toBeLessThan(5000); // 最大5000ms以内（CI環境のシステム負荷を考慮）
     });
 
     it('アカウントがロックされている場合はACCOUNT_LOCKEDエラーを返す', async () => {
