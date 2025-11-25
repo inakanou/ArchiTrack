@@ -132,22 +132,44 @@ function PasswordResetForm({
       // エラーレスポンスから詳細メッセージを取得
       const error = err as {
         response?: {
-          data?: {
-            code?: string;
-            message?: string;
-          };
+          code?: string;
+          detail?: string;
+          details?: Array<{ path: string; message: string }>;
+          error?: string;
         };
       };
-      const errorCode = error?.response?.data?.code;
+      const errorCode = error?.response?.code;
+      const details = error?.response?.details;
 
-      // エラーコードに基づいて適切なメッセージを表示
-      if (errorCode === 'TOKEN_EXPIRED') {
+      // RFC 7807 Problem Details形式のエラー処理
+      if (details && details.length > 0) {
+        const passwordError = details.find(
+          (d) => d.path === 'newPassword' || d.path.includes('password')
+        );
+        if (passwordError) {
+          setErrors({
+            password: passwordError.message,
+          });
+        } else {
+          const firstError = details[0];
+          if (firstError) {
+            setErrors({
+              general: firstError.message,
+            });
+          }
+        }
+      } else if (errorCode === 'TOKEN_EXPIRED') {
+        // エラーコードに基づいて適切なメッセージを表示
         setErrors({
           general: 'リセットリンクの有効期限が切れています。再度リセットを要求してください。',
         });
       } else if (errorCode === 'INVALID_TOKEN') {
         setErrors({
           general: 'リセットリンクが無効です。再度リセットを要求してください。',
+        });
+      } else if (error?.response?.detail) {
+        setErrors({
+          general: error.response.detail,
         });
       } else {
         setErrors({

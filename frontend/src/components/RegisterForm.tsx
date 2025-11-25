@@ -181,13 +181,17 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
           message?: string;
           error?: string;
           errors?: string[];
+          detail?: string;
+          details?: Array<{ path: string; message: string }>;
           validationErrors?: Array<{ field: string; code: string; message: string }>;
         };
       };
       const errorCode = error?.response?.code;
-      const errorMessage = error?.response?.message || error?.response?.error;
+      const errorMessage =
+        error?.response?.message || error?.response?.error || error?.response?.detail;
       const validationErrors = error?.response?.validationErrors;
       const errors = error?.response?.errors;
+      const details = error?.response?.details;
 
       // バリデーションエラーの処理
       if (validationErrors && validationErrors.length > 0) {
@@ -196,6 +200,22 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
           if (err.field === 'password') {
             newErrors.password = err.message;
           } else if (err.field === 'email') {
+            newErrors.general = err.message;
+          } else {
+            newErrors.general = err.message;
+          }
+        });
+        setErrors(newErrors);
+        return;
+      }
+
+      // RFC 7807 Problem Details形式のエラー処理
+      if (details && details.length > 0) {
+        const newErrors: Record<string, string> = {};
+        details.forEach((err) => {
+          if (err.path === 'password' || err.path.includes('password')) {
+            newErrors.password = err.message;
+          } else if (err.path === 'email') {
             newErrors.general = err.message;
           } else {
             newErrors.general = err.message;

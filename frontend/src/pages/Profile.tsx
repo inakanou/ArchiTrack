@@ -215,7 +215,35 @@ export function Profile() {
       }, 2000);
     } catch (error) {
       console.error('Password change error:', error);
-      setPasswordMessage('パスワード変更に失敗しました');
+      // エラーレスポンスから詳細メッセージを取得
+      const err = error as {
+        response?: {
+          detail?: string;
+          details?: Array<{ path: string; message: string }>;
+          error?: string;
+        };
+      };
+
+      // RFC 7807 Problem Details形式のエラー処理
+      if (err?.response?.details && err.response.details.length > 0) {
+        const passwordError = err.response.details.find(
+          (d) => d.path === 'newPassword' || d.path.includes('password')
+        );
+        if (passwordError) {
+          setPasswordMessage(passwordError.message);
+        } else {
+          const firstError = err.response.details[0];
+          if (firstError) {
+            setPasswordMessage(firstError.message);
+          }
+        }
+      } else if (err?.response?.detail) {
+        setPasswordMessage(err.response.detail);
+      } else if (err?.response?.error) {
+        setPasswordMessage(err.response.error);
+      } else {
+        setPasswordMessage('パスワード変更に失敗しました');
+      }
     } finally {
       setPasswordLoading(false);
     }

@@ -85,7 +85,7 @@ const registerSchema = z.object({
     .string()
     .min(
       SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
-      `Password must be at least ${SECURITY_CONFIG.PASSWORD.MIN_LENGTH} characters`
+      `パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`
     ),
 });
 
@@ -140,7 +140,7 @@ const resetPasswordSchema = z.object({
     .string()
     .min(
       SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
-      `Password must be at least ${SECURITY_CONFIG.PASSWORD.MIN_LENGTH} characters`
+      `パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`
     ),
 });
 
@@ -150,7 +150,7 @@ const changePasswordSchema = z.object({
     .string()
     .min(
       SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
-      `Password must be at least ${SECURITY_CONFIG.PASSWORD.MIN_LENGTH} characters`
+      `パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`
     ),
   newPasswordConfirm: z.string().min(1, 'Password confirmation is required'),
 });
