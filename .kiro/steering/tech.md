@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-24（Steering Sync: DISABLE_RATE_LIMIT環境変数追加、cross-env統合、E2E待機処理改善）_
+_最終更新: 2025-11-25（Steering Sync: Storybook 10.x、Vitest 4.0.10、E2E認証・パフォーマンステストカテゴリ追加確認）_
 
 ## アーキテクチャ
 
@@ -55,9 +55,10 @@ ArchiTrack/
 - `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.22.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
-- `storybook` ^10.0.8 - コンポーネントドキュメント・開発環境
+- `storybook` ^10.0.8 - コンポーネントドキュメント・開発環境（Storybook 10.x）
 - `@storybook/react` ^10.0.8 - Storybook React統合
 - `@storybook/react-vite` ^10.0.8 - Storybook React + Vite統合
+- `@storybook/test-runner` ^0.24.1 - Storybookインタラクションテスト
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
 ### 設定ファイル
@@ -368,9 +369,11 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 
 ### テストカテゴリ
 
-- `e2e/specs/api/` - APIエンドポイントのテスト
+- `e2e/specs/api/` - APIエンドポイントのテスト（ヘルスチェック、JWKS）
 - `e2e/specs/ui/` - UIコンポーネントとページのテスト
 - `e2e/specs/integration/` - システム統合テスト
+- `e2e/specs/auth/` - 認証フローテスト（ログイン、登録、2FA、パスワードリセット、招待）
+- `e2e/specs/performance/` - パフォーマンステスト（ページロード時間）
 - `e2e/helpers/` - Claude Code統合ヘルパー（ブラウザ操作、スクリーンショット）
 
 ### タイムスタンプ機能

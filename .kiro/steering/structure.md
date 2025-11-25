@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-20（ステアリング同期確認、内容の整合性検証完了）_
+_最終更新: 2025-11-25（Steering Sync: E2Eテストカテゴリ追加、Frontendディレクトリ構造更新）_
 
 ## ルートディレクトリ構成
 
@@ -35,7 +35,9 @@ ArchiTrack/
 │   ├── specs/              # テスト仕様（カテゴリ分け）
 │   │   ├── api/            # APIエンドポイントテスト
 │   │   ├── ui/             # UIコンポーネントテスト
-│   │   └── integration/    # システム統合テスト
+│   │   ├── integration/    # システム統合テスト
+│   │   ├── auth/           # 認証フローテスト
+│   │   └── performance/    # パフォーマンステスト
 │   └── helpers/            # Claude Code統合ヘルパー
 │       └── browser.js      # ブラウザ操作・スクリーンショット
 ├── frontend/               # フロントエンドアプリケーション
@@ -209,9 +211,11 @@ e2e/
 
 **テストカテゴリ:**
 
-- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、データ取得等）
+- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
 - `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
 - `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
+- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待等）
+- `performance/` - パフォーマンステスト（ページロード時間等）
 
 **Claude Code統合:**
 
@@ -337,13 +341,22 @@ frontend/
 - `TwoFactorSetup.stories.tsx` - 2FA初期設定（追加）
 - `TwoFactorVerification.stories.tsx` - 2FA検証（追加）
 
-**想定される拡張:**
+**実装済み拡張ディレクトリ:**
 
 ```
 frontend/src/
-├── services/          # APIクライアント（今後追加）
-├── stores/            # 状態管理（今後追加）
-└── assets/            # 静的アセット（今後追加）
+├── api/               # APIクライアント（auth.ts、client.ts）
+├── hooks/             # カスタムフック（useMediaQuery.ts、useAuth.ts）
+├── services/          # サービス層（TokenRefreshManager.ts）
+├── types/             # 型定義（auth.types.ts、session.types.ts等）
+└── assets/            # 静的アセット（今後追加予定）
+```
+
+**想定される追加拡張:**
+
+```
+frontend/src/
+└── stores/            # 状態管理（今後追加予定）
 ```
 
 ### `backend/`
@@ -405,15 +418,19 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（8ファイル）
+│   ├── routes/            # ルート定義（9ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
 │   │   ├── invitation.routes.ts # 招待管理ルート
+│   │   ├── session.routes.ts # セッション管理ルート
 │   │   ├── audit-log.routes.ts # 監査ログルート
 │   │   ├── permissions.routes.ts # 権限管理ルート
 │   │   ├── roles.routes.ts  # ロール管理ルート
 │   │   └── user-roles.routes.ts # ユーザーロール管理ルート
+│   ├── config/            # 設定ファイル
+│   │   ├── env.ts          # 環境変数設定
+│   │   └── security.constants.ts # セキュリティ定数
 │   ├── services/          # ビジネスロジック（14サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
@@ -503,7 +520,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（8ルートファイル）:**
+**実装済みAPI（9ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -524,7 +541,7 @@ backend/src/
 **2FA管理API（auth.routes.ts内）:**
 - 2FA初期設定、有効化、無効化、バックアップコード再生成
 
-**セッション管理API（auth.routes.ts内）:**
+**セッション管理API（session.routes.ts）:**
 - セッション一覧取得、特定セッション削除、セッション有効期限延長
 
 **ロール管理API（roles.routes.ts）:**
