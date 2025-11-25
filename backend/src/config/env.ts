@@ -11,6 +11,51 @@ const PORT_MIN = 1 as const;
 const PORT_MAX = 65535 as const;
 
 /**
+ * 機密情報としてマスキングする環境変数のパターン
+ * セキュリティベストプラクティス: 機密情報をログに出力しない
+ */
+const SENSITIVE_ENV_PATTERNS = [
+  /^JWT_/i,
+  /^TWO_FACTOR_/i,
+  /PASSWORD/i,
+  /SECRET/i,
+  /TOKEN/i,
+  /KEY/i,
+  /CREDENTIAL/i,
+  /AUTH/i,
+  /DSN/i,
+  /DATABASE_URL/i,
+  /REDIS_URL/i,
+] as const;
+
+/**
+ * 環境変数の値をマスキング
+ * @param key 環境変数名
+ * @param value 環境変数の値
+ * @returns マスキングされた値または元の値
+ */
+function maskSensitiveValue(key: string, value: string | number | undefined): string {
+  if (value === undefined) {
+    return '[not set]';
+  }
+
+  const stringValue = String(value);
+
+  // 機密情報かどうかをパターンマッチでチェック
+  const isSensitive = SENSITIVE_ENV_PATTERNS.some((pattern) => pattern.test(key));
+
+  if (isSensitive) {
+    // 値の長さに応じたマスキング（存在確認のため先頭と末尾を一部表示）
+    if (stringValue.length <= 8) {
+      return '[REDACTED]';
+    }
+    return `${stringValue.substring(0, 3)}...[REDACTED]...${stringValue.substring(stringValue.length - 3)}`;
+  }
+
+  return stringValue;
+}
+
+/**
  * 環境変数スキーマ定義
  * zodによる型安全なバリデーション
  */
@@ -163,6 +208,13 @@ export function validateEnv(): Env {
       },
       'Environment variables validated successfully'
     );
+
+    // LOG_LEVELがdebugまたはtraceの場合、全環境変数をログ出力
+    // セキュリティ: 機密情報はマスキング、本番環境でも安全に使用可能
+    if (validatedEnv.LOG_LEVEL === 'debug' || validatedEnv.LOG_LEVEL === 'trace') {
+      logAllEnvironmentVariables(validatedEnv);
+    }
+
     return validatedEnv;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -230,4 +282,29 @@ export function getEnv(): Env {
     throw new Error('Environment not validated. Call validateEnv() first.');
   }
   return validatedEnv;
+}
+
+/**
+ * 全環境変数をログ出力（機密情報はマスキング）
+ * LOG_LEVELがdebugまたはtraceの場合にのみ呼び出される
+ *
+ * @param env 検証済み環境変数
+ */
+function logAllEnvironmentVariables(env: Env): void {
+  // 検証済み環境変数をマスキング付きでログ出力
+  const maskedEnv: Record<string, string> = {};
+
+  // Env型のキーを取得して処理
+  const envKeys = Object.keys(env) as Array<keyof Env>;
+  for (const key of envKeys) {
+    maskedEnv[key] = maskSensitiveValue(key, env[key]);
+  }
+
+  logger.debug(
+    {
+      environmentVariables: maskedEnv,
+      totalCount: envKeys.length,
+    },
+    'All validated environment variables (sensitive values masked)'
+  );
 }
