@@ -30,9 +30,13 @@ let prisma: PrismaClient | null = null;
 export function getPrismaClient(): PrismaClient {
   if (!prisma) {
     // E2Eテスト用のデータベース接続URL
-    // 環境変数が設定されていない場合は、ローカル開発環境のデフォルト値を使用
+    // テストDB（architrack_test）を使用して、開発データ（architrack_dev）を保護
+    //
+    // DB使い分け:
+    //   - architrack_dev:  開発者の手動打鍵用（データ保護）
+    //   - architrack_test: 全自動テスト用（統合テスト + E2Eテスト）
     const databaseUrl =
-      process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_dev';
+      process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_test';
 
     prisma = new PrismaClient({
       datasources: {
