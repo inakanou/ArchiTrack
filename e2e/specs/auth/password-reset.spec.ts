@@ -85,23 +85,26 @@ test.describe('パスワード管理機能', () => {
       },
     });
 
+    // ユニークなパスワードを生成（リトライ時のパスワード履歴重複を防ぐ）
+    const uniquePassword = `TestPass${Date.now()}!Aa`;
+
     // Step 2: リセットURLにアクセス
     await page.goto(`/password-reset?token=${resetToken}`);
 
     // Step 3: 新しいパスワードを入力
-    await page.locator('input#newPassword').fill('NewSecurePass123!');
-    await page.locator('input#confirmPassword').fill('NewSecurePass123!');
+    await page.locator('input#password').fill(uniquePassword);
+    await page.locator('input#passwordConfirm').fill(uniquePassword);
     await page.getByRole('button', { name: /パスワードをリセット/i }).click();
-
-    // 成功メッセージが表示される
-    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible();
 
     // ログインページにリダイレクトされる
     await expect(page).toHaveURL(/\/login/);
 
+    // 成功メッセージが表示される（リダイレクト後のログインページに表示）
+    await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
+
     // 新しいパスワードでログインできることを確認
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page.locator('input#password').fill('NewSecurePass123!');
+    await page.locator('input#password').fill(uniquePassword);
     await page.getByRole('button', { name: /ログイン/i }).click();
 
     // ログイン成功（ダッシュボードへリダイレクト）
@@ -138,8 +141,8 @@ test.describe('パスワード管理機能', () => {
     ).toBeVisible();
 
     // パスワード入力フィールドが無効化されている
-    await expect(page.locator('input#newPassword')).toBeDisabled();
-    await expect(page.locator('input#confirmPassword')).toBeDisabled();
+    await expect(page.locator('input#password')).toBeDisabled();
+    await expect(page.locator('input#passwordConfirm')).toBeDisabled();
   });
 
   /**
@@ -156,8 +159,8 @@ test.describe('パスワード管理機能', () => {
     ).toBeVisible();
 
     // パスワード入力フィールドが無効化されている
-    await expect(page.locator('input#newPassword')).toBeDisabled();
-    await expect(page.locator('input#confirmPassword')).toBeDisabled();
+    await expect(page.locator('input#password')).toBeDisabled();
+    await expect(page.locator('input#passwordConfirm')).toBeDisabled();
   });
 
   /**
@@ -199,7 +202,10 @@ test.describe('パスワード管理機能', () => {
       where: { email: 'user@example.com' },
     });
 
-    const resetToken = 'session-invalidation-test-token';
+    // ユニークなトークンとパスワードを生成（リトライ時の競合を防ぐ）
+    const resetToken = `session-test-token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    const uniquePassword = `SessionTest${Date.now()}!Aa`;
+
     await prisma.passwordResetToken.create({
       data: {
         token: resetToken,
@@ -213,12 +219,13 @@ test.describe('パスワード管理機能', () => {
     const page3 = await context3.newPage();
 
     await page3.goto(`http://localhost:5173/password-reset?token=${resetToken}`);
-    await page3.locator('input#newPassword').fill('NewPassword456!');
-    await page3.locator('input#confirmPassword').fill('NewPassword456!');
+    await page3.locator('input#password').fill(uniquePassword);
+    await page3.locator('input#passwordConfirm').fill(uniquePassword);
     await page3.getByRole('button', { name: /パスワードをリセット/i }).click();
 
-    // 成功メッセージを待つ
-    await expect(page3.getByText(/パスワードを変更しました/i)).toBeVisible();
+    // ログインページにリダイレクトされ、成功メッセージが表示される
+    await expect(page3).toHaveURL(/\/login/);
+    await expect(page3.getByText(/パスワードがリセットされました/i)).toBeVisible();
 
     // Step 4: 第1タブと第2タブで保護されたリソースにアクセス（セッション無効化を確認）
     await page.goto('/profile');
@@ -279,13 +286,13 @@ test.describe('パスワード管理機能', () => {
     await page.goto(`/password-reset?token=${resetToken}`);
 
     // パスワード入力フィールドが表示される
-    await expect(page.locator('input#newPassword')).toBeVisible();
-    await expect(page.locator('input#newPassword')).toBeEnabled();
-    await expect(page.locator('input#confirmPassword')).toBeVisible();
-    await expect(page.locator('input#confirmPassword')).toBeEnabled();
+    await expect(page.locator('input#password')).toBeVisible();
+    await expect(page.locator('input#password')).toBeEnabled();
+    await expect(page.locator('input#passwordConfirm')).toBeVisible();
+    await expect(page.locator('input#passwordConfirm')).toBeEnabled();
 
     // パスワード強度インジケーターが入力時に表示される
-    await page.locator('input#newPassword').fill('TestPass123!');
+    await page.locator('input#password').fill('TestPass123!');
     const indicator = page.getByTestId('password-strength-indicator');
     await expect(indicator).toBeVisible();
   });
@@ -312,8 +319,8 @@ test.describe('パスワード管理機能', () => {
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
-    await page.locator('input#newPassword').fill('Short1!'); // 7文字
-    await page.locator('input#confirmPassword').fill('Short1!');
+    await page.locator('input#password').fill('Short1!'); // 7文字
+    await page.locator('input#passwordConfirm').fill('Short1!');
     await page.getByRole('button', { name: /パスワードをリセット/i }).click();
 
     await expect(page.getByText(/パスワードは8文字以上である必要があります/i)).toBeVisible();
@@ -336,8 +343,8 @@ test.describe('パスワード管理機能', () => {
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
-    await page.locator('input#newPassword').fill('Passss123!'); // 'sss'が連続
-    await page.locator('input#confirmPassword').fill('Passss123!');
+    await page.locator('input#password').fill('Passss123!'); // 'sss'が連続
+    await page.locator('input#passwordConfirm').fill('Passss123!');
     await page.getByRole('button', { name: /パスワードをリセット/i }).click();
 
     await expect(
@@ -367,8 +374,8 @@ test.describe('パスワード管理機能', () => {
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
-    await page.locator('input#newPassword').fill('Password123!'); // 有名な漏洩パスワード
-    await page.locator('input#confirmPassword').fill('Password123!');
+    await page.locator('input#password').fill('Password123!'); // 有名な漏洩パスワード
+    await page.locator('input#passwordConfirm').fill('Password123!');
     await page.getByRole('button', { name: /パスワードをリセット/i }).click();
 
     await expect(
@@ -437,10 +444,10 @@ test.describe('パスワード管理機能', () => {
     await page.goto(`/password-reset?token=${resetToken}`);
 
     // autocomplete属性の検証
-    const newPasswordInput = page.locator('input#newPassword');
+    const newPasswordInput = page.locator('input#password');
     await expect(newPasswordInput).toHaveAttribute('autocomplete', 'new-password');
 
-    const confirmPasswordInput = page.locator('input#confirmPassword');
+    const confirmPasswordInput = page.locator('input#passwordConfirm');
     await expect(confirmPasswordInput).toHaveAttribute('autocomplete', 'new-password');
   });
 
