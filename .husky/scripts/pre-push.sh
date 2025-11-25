@@ -458,7 +458,10 @@ echo "   ✅ Migrations applied to test database"
 # バックエンドをテストDBで再起動（E2Eテスト用）
 echo "   Restarting backend with test database..."
 docker compose stop backend > /dev/null 2>&1
-DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test docker compose up -d backend
+# コンテナを削除して環境変数を確実に反映させる
+docker compose rm -f backend > /dev/null 2>&1
+export DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test
+docker compose up -d backend
 if [ $? -ne 0 ]; then
   echo "❌ Failed to start backend container. Push aborted."
   exit 1
