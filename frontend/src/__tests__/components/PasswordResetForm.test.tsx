@@ -235,6 +235,231 @@ describe('PasswordResetForm', () => {
     });
   });
 
+  describe('エラーハンドリング', () => {
+    it('リクエスト失敗時、汎用エラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRequestReset.mockRejectedValue(new Error('Network Error'));
+
+      render(<PasswordResetForm onRequestReset={mockOnRequestReset} />);
+
+      const emailInput = screen.getByLabelText(/メールアドレス/i);
+      const resetButton = screen.getByRole('button', {
+        name: /リセットリンクを送信/i,
+      });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/リセットリンクの送信に失敗しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('RFC 7807 details形式のパスワードエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnResetPassword.mockRejectedValue({
+        response: {
+          details: [{ path: 'newPassword', message: 'パスワードは12文字以上である必要があります' }],
+        },
+      });
+
+      render(<PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />);
+
+      const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.type(passwordInput, 'short');
+      await user.type(passwordConfirmInput, 'short');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードは12文字以上である必要があります/i)).toBeInTheDocument();
+      });
+    });
+
+    it('RFC 7807 details形式の汎用エラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnResetPassword.mockRejectedValue({
+        response: {
+          details: [{ path: 'other', message: 'その他のエラー' }],
+        },
+      });
+
+      render(<PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />);
+
+      const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/その他のエラー/i)).toBeInTheDocument();
+      });
+    });
+
+    it('TOKEN_EXPIREDエラーコードで期限切れメッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnResetPassword.mockRejectedValue({
+        response: {
+          code: 'TOKEN_EXPIRED',
+        },
+      });
+
+      render(
+        <PasswordResetForm resetToken="expired-token" onResetPassword={mockOnResetPassword} />
+      );
+
+      const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/リセットリンクの有効期限が切れています/i)).toBeInTheDocument();
+      });
+    });
+
+    it('INVALID_TOKENエラーコードで無効トークンメッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnResetPassword.mockRejectedValue({
+        response: {
+          code: 'INVALID_TOKEN',
+        },
+      });
+
+      render(
+        <PasswordResetForm resetToken="invalid-token" onResetPassword={mockOnResetPassword} />
+      );
+
+      const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/リセットリンクが無効です/i)).toBeInTheDocument();
+      });
+    });
+
+    it('detail付きエラーレスポンスでメッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnResetPassword.mockRejectedValue({
+        response: {
+          detail: 'カスタムエラーメッセージ',
+        },
+      });
+
+      render(<PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />);
+
+      const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/カスタムエラーメッセージ/i)).toBeInTheDocument();
+      });
+    });
+
+    it('エラーレスポンスがない場合、デフォルトエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnResetPassword.mockRejectedValue(new Error('Network Error'));
+
+      render(<PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />);
+
+      const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードのリセットに失敗しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('パスワード未入力時にバリデーションエラーが表示されること', async () => {
+      const user = userEvent.setup();
+
+      render(<PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />);
+
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードは必須です/i)).toBeInTheDocument();
+      });
+      expect(mockOnResetPassword).not.toHaveBeenCalled();
+    });
+
+    it('パスワード確認未入力時にバリデーションエラーが表示されること', async () => {
+      const user = userEvent.setup();
+
+      render(<PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />);
+
+      const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+      const resetButton = screen.getByRole('button', {
+        name: /パスワードをリセット/i,
+      });
+
+      await user.type(passwordInput, 'Password123!');
+      await user.click(resetButton);
+
+      // Note: 実装では空のパスワード確認も「パスワードが一致しません」として処理される
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードが一致しません/i)).toBeInTheDocument();
+      });
+      expect(mockOnResetPassword).not.toHaveBeenCalled();
+    });
+
+    it('メールアドレス未入力時にバリデーションエラーが表示されること', async () => {
+      const user = userEvent.setup();
+
+      render(<PasswordResetForm onRequestReset={mockOnRequestReset} />);
+
+      const resetButton = screen.getByRole('button', {
+        name: /リセットリンクを送信/i,
+      });
+
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/メールアドレスは必須です/i)).toBeInTheDocument();
+      });
+      expect(mockOnRequestReset).not.toHaveBeenCalled();
+    });
+  });
+
   describe('アクセシビリティ', () => {
     it('リセット要求モード: 全ての入力フィールドにlabel要素が関連付けられていること', () => {
       render(<PasswordResetForm onRequestReset={mockOnRequestReset} />);

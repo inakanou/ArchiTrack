@@ -385,6 +385,346 @@ describe('RegisterForm', () => {
     });
   });
 
+  describe('エラーハンドリング', () => {
+    beforeEach(() => {
+      mockOnVerifyInvitation.mockResolvedValue({
+        valid: true,
+        email: 'invited@example.com',
+      } as InvitationVerificationResult);
+    });
+
+    it('RFC 7807 details形式のパスワードエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          details: [{ path: 'password', message: 'パスワードは12文字以上である必要があります' }],
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'short');
+      await user.type(passwordConfirmInput, 'short');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードは12文字以上である必要があります/i)).toBeInTheDocument();
+      });
+    });
+
+    it('RFC 7807 details形式のメールエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          details: [{ path: 'email', message: 'メールアドレスが無効です' }],
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/メールアドレスが無効です/i)).toBeInTheDocument();
+      });
+    });
+
+    it('validationErrors形式のパスワードエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          validationErrors: [
+            { field: 'password', code: 'TOO_SHORT', message: 'パスワードが短すぎます' },
+          ],
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードが短すぎます/i)).toBeInTheDocument();
+      });
+    });
+
+    it('errors配列形式のPASSWORD_TOO_SHORTエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          errors: ['PASSWORD_TOO_SHORT'],
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードは12文字以上である必要があります/i)).toBeInTheDocument();
+      });
+    });
+
+    it('errors配列形式のEMAIL_ALREADY_REGISTEREDエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          errors: ['EMAIL_ALREADY_REGISTERED'],
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/このメールアドレスは既に登録されています/i)).toBeInTheDocument();
+      });
+    });
+
+    it('errors配列形式の未知のエラーコードが汎用エラーで表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          errors: ['UNKNOWN_ERROR_CODE'],
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/入力内容に誤りがあります/i)).toBeInTheDocument();
+      });
+    });
+
+    it('EMAIL_ALREADY_REGISTEREDエラーコードでエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          code: 'EMAIL_ALREADY_REGISTERED',
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/このメールアドレスは既に登録されています/i)).toBeInTheDocument();
+      });
+    });
+
+    it('汎用エラーメッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue({
+        response: {
+          message: 'サーバーエラーが発生しました',
+        },
+      });
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/サーバーエラーが発生しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('エラーレスポンスがない場合、デフォルトエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockOnRegister.mockRejectedValue(new Error('Network Error'));
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      const displayNameInput = screen.getByLabelText(/表示名/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+      const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+      const termsCheckbox = screen.getByRole('checkbox', { name: /利用規約/i });
+      const registerButton = screen.getByRole('button', { name: /登録/i });
+
+      await user.type(displayNameInput, 'Test User');
+      await user.type(passwordInput, 'Password123!');
+      await user.type(passwordConfirmInput, 'Password123!');
+      await user.click(termsCheckbox);
+      await user.click(registerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/登録に失敗しました/i)).toBeInTheDocument();
+      });
+    });
+  });
+
   describe('アクセシビリティ', () => {
     beforeEach(() => {
       mockOnVerifyInvitation.mockResolvedValue({
