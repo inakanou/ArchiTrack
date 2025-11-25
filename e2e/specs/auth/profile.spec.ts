@@ -67,8 +67,9 @@ test.describe('プロフィール管理機能', () => {
     // 成功メッセージが表示される
     await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible();
 
-    // ログインページにリダイレクトされる（2秒後）
-    await page.waitForTimeout(2500);
+    // Task 22.1: waitForURLでリダイレクト完了を待機（安定性向上）
+    // ログインページにリダイレクトされる（UIが自動でリダイレクト）
+    await page.waitForURL(/\/login/, { timeout: 10000 });
     await expect(page).toHaveURL(/\/login/);
   });
 

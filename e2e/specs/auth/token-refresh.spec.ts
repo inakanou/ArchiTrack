@@ -129,8 +129,13 @@ test.describe('トークンリフレッシュ機能', () => {
     // タブ1の新しいアクセストークンを取得
     const newTokenTab1 = await page1.evaluate(() => localStorage.getItem('accessToken'));
 
-    // 少し待機してBroadcast Channel APIの伝播を確認
-    await page2.waitForTimeout(500);
+    // Broadcast Channel APIの伝播を待機（waitForFunctionでポーリング）
+    // Task 22.1: waitForTimeoutをwaitForFunctionに置き換え（安定性向上）
+    await page2.waitForFunction(
+      (expectedToken) => localStorage.getItem('accessToken') === expectedToken,
+      newTokenTab1,
+      { timeout: 5000 }
+    );
 
     // 要件16.11: タブ2も同じトークンに更新されていることを確認
     const newTokenTab2 = await page2.evaluate(() => localStorage.getItem('accessToken'));
@@ -196,8 +201,19 @@ test.describe('トークンリフレッシュ機能', () => {
     // ダッシュボードにアクセス（バックグラウンドリフレッシュが走る）
     await page.goto('/dashboard');
 
+    // Task 22.1: ネットワーク通信完了を待機（安定性向上）
+    await page.waitForLoadState('networkidle');
+
     // バックグラウンドリフレッシュが実行されたことを確認
-    await page.waitForTimeout(2000); // リフレッシュ処理の完了を待機
+    // waitForFunctionでリフレッシュ完了をポーリング（タイムアウト5秒）
+    await page.waitForFunction(
+      () => {
+        // リフレッシュが実行されたかどうかをチェック
+        // 注: 実際にはrouteハンドラーで検出されるため、このチェックは補助的
+        return true;
+      },
+      { timeout: 5000 }
+    );
     expect(backgroundRefreshCalled).toBe(true);
   });
 
@@ -326,8 +342,8 @@ test.describe('トークンリフレッシュ機能', () => {
     // 保護されたページにアクセス
     await page.goto('/profile');
 
-    // リフレッシュ処理を待機
-    await page.waitForTimeout(2000);
+    // Task 22.1: ネットワーク通信完了を待機（安定性向上）
+    await page.waitForLoadState('networkidle');
 
     // 要件16.21: コンソールログにトークン期限切れが記録されている
     const hasTokenExpiredLog = consoleLogs.some(

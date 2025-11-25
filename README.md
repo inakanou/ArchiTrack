@@ -62,6 +62,7 @@ Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-
 - [デプロイ概要](docs/deployment/overview.md) - デプロイ方式とワークフロー
 - [環境変数設定](docs/deployment/environment-variables.md) - 必須環境変数一覧
 - [シークレット管理](docs/deployment/secrets-management.md) - JWT鍵・2FA鍵の生成
+- [鍵ローテーション手順](docs/deployment/key-rotation-procedure.md) - EdDSA鍵の定期更新手順
 - [Railway設定](docs/deployment/railway-setup.md) - Railway初回セットアップ
 - [CI/CD設定](docs/deployment/cicd-github-actions.md) - GitHub Actions設定
 - [トラブルシューティング](docs/deployment/troubleshooting.md) - よくある問題と解決方法

@@ -52,7 +52,7 @@
 
 #### 13. 【Critical】JWKS公開鍵エンドポイントの実装検証
 
-- [ ] 13.1 JWKSエンドポイント実装検証とテスト追加
+- [x] 13.1 JWKSエンドポイント実装検証とテスト追加
   - `backend/src/routes/jwks.routes.ts`が実装されているか確認
   - 現在の公開鍵（JWT_PUBLIC_KEY）と旧公開鍵（JWT_PUBLIC_KEY_OLD）を両方配信する実装を検証
   - 単体テスト（jwks.routes.test.ts）にて猶予期間中の複数鍵配信をテスト
@@ -67,7 +67,7 @@
 
 #### 14. 【High】Result型統合パターンの実装検証
 
-- [ ] 14.1 Result型ユーティリティ実装検証
+- [x] 14.1 Result型ユーティリティ実装検証
   - `backend/src/types/result.ts`にOk/Err関数が定義されているか確認
   - `backend/src/utils/result-mapper.ts`にmapResultToApiError関数が実装されているか確認
   - `backend/src/utils/controller-helpers.ts`にhandleServiceResult関数が実装されているか確認
@@ -86,7 +86,7 @@
 
 #### 15. 【High】N+1問題対策の実装検証
 
-- [ ] 15.1 Prisma includeによるJOINクエリ実装検証
+- [x] 15.1 Prisma includeによるJOINクエリ実装検証
   - RBACService.getUserPermissions()でPrisma includeが使用されているか確認
   - AuditLogService.getAuditLogs()でPrisma includeが使用されているか確認
   - InvitationService.listInvitations()でPrisma includeが使用されているか確認
@@ -102,7 +102,7 @@
 
 #### 16. 【High】鍵ローテーション戦略の実装検証
 
-- [ ] 16.1 鍵ローテーション手順書作成
+- [x] 16.1 鍵ローテーション手順書作成
   - design.md「鍵ローテーション戦略（90日周期）」のフェーズ1-4を基に、運用手順書を作成
   - フェーズ1: 準備（T-7日目）の手順を記載
   - フェーズ2: 新しい鍵ペア生成（T日目）の手順を記載
@@ -118,7 +118,7 @@
 
 #### 17. 【Medium】Redisフォールバック処理の実装検証
 
-- [ ] 17.1 Graceful Degradationパターン実装検証
+- [x] 17.1 Graceful Degradationパターン実装検証
   - RBACService.getUserPermissions()でRedisキャッシュ読み取り失敗時にDB fallbackが実装されているか確認
   - Redisキャッシュ書き込み失敗時に警告ログが記録されているか確認
   - 単体テストでRedis接続エラー時のフォールバック処理を検証
@@ -131,7 +131,7 @@
 
 #### 18. 【Medium】Bloom Filter禁止パスワードリストの準備
 
-- [ ] 18.1 禁止パスワードリストの準備とBloom Filter統合検証
+- [x] 18.1 禁止パスワードリストの準備とBloom Filter統合検証
   - `data/common-passwords.txt`が存在するか確認し、存在しない場合はHIBP Pwned Passwordsのサブセットを準備
   - PasswordServiceでBloom Filter初期化（サイズ1000万件、偽陽性率0.001）が実装されているか確認
   - 単体テストでBloom Filter照合機能を検証
@@ -146,7 +146,7 @@
 
 #### 19. 【Medium】2FA暗号化鍵の設定ガイド
 
-- [ ] 19.1 2FA暗号化鍵設定ガイド作成
+- [x] 19.1 2FA暗号化鍵設定ガイド作成
   - 環境変数`TWO_FACTOR_ENCRYPTION_KEY`（256ビット16進数文字列、64文字）のサンプル生成スクリプト作成
   - 開発環境セットアップ手順書への2FA暗号化鍵設定セクション追加
   - 本番環境セットアップ手順書（Railway）への2FA暗号化鍵設定セクション追加
@@ -161,7 +161,7 @@
 
 #### 20. 【Low】パスワード履歴自動削除の実装検証
 
-- [ ] 20.1 パスワード履歴自動削除実装検証
+- [x] 20.1 パスワード履歴自動削除実装検証
   - PasswordServiceでパスワード更新時に過去3件のパスワード履歴のみ保持する実装を確認
   - 古いパスワード履歴を自動削除する処理が実装されているか確認
   - 単体テストでパスワード履歴自動削除を検証
@@ -174,7 +174,7 @@
 
 #### 21. 【Low】マルチタブ同期のBroadcast Channel API実装検証
 
-- [ ] 21.1 Broadcast Channel API統合検証
+- [x] 21.1 Broadcast Channel API統合検証
   - TokenRefreshManagerでBroadcast Channel API初期化が実装されているか確認
   - トークン更新時に他のタブへ通知する処理が実装されているか確認
   - 他のタブからのトークン更新通知を受信する処理が実装されているか確認
@@ -193,7 +193,7 @@
 
 #### 22. E2Eテスト待機処理改善
 
-- [ ] 22.1 E2Eテスト待機処理改善
+- [x] 22.1 E2Eテスト待機処理改善
   - `waitForFunction`にタイムアウト設定（10秒推奨）を追加
   - 複数のURLパターン対応（リダイレクト先が動的な場合は正規表現やOR条件で柔軟に対応）
   - `waitForLoadState('networkidle')`を使用してネットワーク通信完了を待機
@@ -212,10 +212,10 @@
 
 ### 完了タスク数
 - **Phase 1-3 (Critical/High/Medium)**: 11メジャータスク、47サブタスク ✅完了
-- **Phase 4 (実装ギャップ対応)**: 10メジャータスク（未完了）
-- **Phase 5 (E2Eテスト修正)**: 1メジャータスク（未完了）
+- **Phase 4 (実装ギャップ対応)**: 10メジャータスク ✅完了
+- **Phase 5 (E2Eテスト修正)**: 1メジャータスク ✅完了
 
-**合計**: 22メジャータスク、58サブタスク（Phase 1-3完了✅、Phase 4-5未完了）
+**合計**: 22メジャータスク、58サブタスク ✅全完了
 
 ### 要件カバレッジ
 - ✅ 要件1: 管理者によるユーザー招待
@@ -255,9 +255,9 @@
 **カバレッジ**: 全32要件を完全にカバー ✅
 
 ### 次のアクション
-1. Phase 4（実装ギャップ対応）のタスク12-21を優先的に実装
-2. Phase 5（E2Eテスト修正）のタスク22を実装
-3. 全タスク完了後、総合E2Eテストを実行し、全要件が満たされていることを確認
+1. ✅ Phase 4（実装ギャップ対応）のタスク12-21を実装完了
+2. ✅ Phase 5（E2Eテスト修正）のタスク22を実装完了
+3. 総合E2Eテストを実行し、全要件が満たされていることを確認
 4. `/kiro:validate-impl user-authentication`を実行し、実装品質を検証
 
 ---
