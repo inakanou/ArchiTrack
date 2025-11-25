@@ -547,7 +547,7 @@ describe('Authentication API Integration Tests', () => {
         .expect(400);
 
       expect(response.body.detail || response.body.title || response.body.error).toMatch(
-        /複雑性要件|complexity requirements|weak|弱い/i
+        /複雑性要件|complexity requirements|weak|弱い|大文字を1文字以上含む|小文字を1文字以上含む|数字を1文字以上含む|記号を1文字以上含む/i
       );
     });
 
