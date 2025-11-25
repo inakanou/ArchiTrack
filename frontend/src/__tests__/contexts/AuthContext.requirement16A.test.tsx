@@ -14,14 +14,18 @@ vi.mock('../../api/client', () => ({
   },
 }));
 
-// TokenRefreshManagerをモック化
+// TokenRefreshManagerをモック化（Vitest 4.x対応: クラスとしてモック）
 vi.mock('../../services/TokenRefreshManager', () => ({
-  TokenRefreshManager: vi.fn().mockImplementation((refreshFn: () => Promise<string>) => ({
-    refreshToken: refreshFn,
-    scheduleAutoRefresh: vi.fn(),
-    onTokenRefreshed: vi.fn(),
-    cleanup: vi.fn(),
-  })),
+  TokenRefreshManager: class MockTokenRefreshManager {
+    refreshToken: () => Promise<string>;
+    scheduleAutoRefresh = vi.fn();
+    onTokenRefreshed = vi.fn();
+    cleanup = vi.fn();
+
+    constructor(refreshFn: () => Promise<string>) {
+      this.refreshToken = refreshFn;
+    }
+  },
 }));
 
 // テスト用コンポーネント: AuthContextの値を表示

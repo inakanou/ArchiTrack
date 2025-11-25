@@ -35,12 +35,14 @@ describe('SessionService', () => {
       const userId = 'user-123';
       const refreshToken = 'refresh-token-abc';
       const deviceInfo = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
+      // SessionServiceはUser-Agentをパースして"Browser on OS"形式に変換する
+      const parsedDeviceInfo = 'Unknown Browser on Windows';
 
       const mockRefreshToken: RefreshToken = {
         id: 'session-1',
         userId,
         token: refreshToken,
-        deviceInfo,
+        deviceInfo: parsedDeviceInfo,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
         createdAt: new Date(),
       };
@@ -57,7 +59,7 @@ describe('SessionService', () => {
         data: {
           userId,
           token: refreshToken,
-          deviceInfo,
+          deviceInfo: parsedDeviceInfo,
           expiresAt: expect.any(Date),
         },
       });
