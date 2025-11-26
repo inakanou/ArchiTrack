@@ -511,10 +511,11 @@ test.describe('管理者招待機能', () => {
       where: { email: 'admin@example.com' },
     });
 
+    const uniqueToken = `dialog-token-${Date.now()}`;
     await prisma.invitation.create({
       data: {
         email: 'dialog-test@example.com',
-        token: 'dialog-token',
+        token: uniqueToken,
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
@@ -529,7 +530,7 @@ test.describe('管理者招待機能', () => {
     await cancelButton.click();
 
     // 確認ダイアログが表示される
-    const dialog = page.getByRole('dialog', { name: /確認|招待の取り消し/i });
+    const dialog = page.getByRole('dialog', { name: /取り消しますか/i });
     await expect(dialog).toBeVisible();
 
     // Escキーを押してダイアログを閉じる
