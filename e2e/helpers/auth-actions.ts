@@ -29,15 +29,24 @@ import { TEST_USERS } from './test-users';
 export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS): Promise<void> {
   const user = TEST_USERS[userKey];
 
-  // ログインページに移動
-  await page.goto('/login');
+  // ログインページに移動し、ページ読み込み完了を待機
+  await page.goto('/login', { waitUntil: 'networkidle' });
+
+  // フォーム要素が操作可能になるまで待機
+  const emailInput = page.getByLabel(/メールアドレス/i);
+  const passwordInput = page.locator('input#password');
+  const loginButton = page.getByRole('button', { name: /ログイン/i });
+
+  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+  await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
+  await loginButton.waitFor({ state: 'visible', timeout: 10000 });
 
   // メールアドレスとパスワードを入力
-  await page.getByLabel(/メールアドレス/i).fill(user.email);
-  await page.locator('input#password').fill(user.password);
+  await emailInput.fill(user.email);
+  await passwordInput.fill(user.password);
 
   // ログインボタンをクリック
-  await page.getByRole('button', { name: /ログイン/i }).click();
+  await loginButton.click();
 
   // ログイン成功を待機（ログインページから離れたことを確認）
   // 2FAが有効な場合は2FA画面にリダイレクトされる可能性があるため、
@@ -82,15 +91,24 @@ export async function loginWithCredentials(
   password: string,
   waitForRedirect = true
 ): Promise<void> {
-  // ログインページに移動
-  await page.goto('/login');
+  // ログインページに移動し、ページ読み込み完了を待機
+  await page.goto('/login', { waitUntil: 'networkidle' });
+
+  // フォーム要素が操作可能になるまで待機
+  const emailInput = page.getByLabel(/メールアドレス/i);
+  const passwordInput = page.locator('input#password');
+  const loginButton = page.getByRole('button', { name: /ログイン/i });
+
+  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+  await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
+  await loginButton.waitFor({ state: 'visible', timeout: 10000 });
 
   // メールアドレスとパスワードを入力
-  await page.getByLabel(/メールアドレス/i).fill(email);
-  await page.locator('input#password').fill(password);
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
 
   // ログインボタンをクリック
-  await page.getByRole('button', { name: /ログイン/i }).click();
+  await loginButton.click();
 
   // リダイレクトを待機（ログインページから離れたことを確認）
   if (waitForRedirect) {

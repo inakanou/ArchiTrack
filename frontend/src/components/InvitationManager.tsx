@@ -34,6 +34,8 @@ interface InvitationManagerProps {
   error?: string;
 }
 
+const ITEMS_PER_PAGE = 10;
+
 const InvitationManager: React.FC<InvitationManagerProps> = ({
   invitations,
   onCreateInvitation,
@@ -52,6 +54,18 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
   const [selectedFilter, setSelectedFilter] = useState<InvitationStatus | 'all'>('all');
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [selectedInvitationId, setSelectedInvitationId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // モバイルビューポートの検出
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // メールアドレスのバリデーション
   const validateEmail = (value: string): boolean => {
@@ -153,6 +167,18 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
     }
     return invitations.filter((inv) => inv.status === selectedFilter);
   }, [invitations, selectedFilter]);
+
+  // ページネーション計算
+  const totalPages = Math.ceil(filteredInvitations.length / ITEMS_PER_PAGE);
+  const paginatedInvitations = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredInvitations.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredInvitations, currentPage]);
+
+  // フィルター変更時にページをリセット
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilter]);
 
   // Escapeキーでダイアログを閉じる
   useEffect(() => {
@@ -398,7 +424,116 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
           >
             <div>読み込み中...</div>
           </div>
+        ) : isMobile ? (
+          /* モバイル: カード形式レイアウト */
+          <div style={{ padding: '16px' }}>
+            {paginatedInvitations.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
+                招待がありません
+              </div>
+            ) : (
+              paginatedInvitations.map((invitation) => (
+                <div
+                  key={invitation.id}
+                  data-testid="invitation-card"
+                  className="invitation-card"
+                  style={{
+                    backgroundColor: '#fff',
+                    border: '1px solid #eee',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '12px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  }}
+                >
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                      メールアドレス
+                    </div>
+                    <div style={{ fontWeight: 'bold', wordBreak: 'break-all' }}>
+                      {invitation.email}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                        招待日時
+                      </div>
+                      <div>{new Date(invitation.createdAt).toLocaleDateString('ja-JP')}</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                        有効期限
+                      </div>
+                      <div>{new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}</div>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                      ステータス
+                    </div>
+                    <span data-testid="status-badge" style={getStatusBadgeStyle(invitation.status)}>
+                      {getStatusText(invitation.status)}
+                    </span>
+                  </div>
+                  {(invitation.status === 'pending' || invitation.status === 'expired') && (
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {invitation.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleOpenCancelDialog(invitation.id)}
+                            style={{
+                              padding: '8px 16px',
+                              backgroundColor: '#fff',
+                              border: '1px solid #d32f2f',
+                              borderRadius: '4px',
+                              color: '#d32f2f',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                            }}
+                          >
+                            取り消し
+                          </button>
+                          <button
+                            onClick={() => handleCopyUrl(invitation.token)}
+                            style={{
+                              padding: '8px 16px',
+                              backgroundColor: '#1976d2',
+                              border: 'none',
+                              borderRadius: '4px',
+                              color: '#fff',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                            }}
+                          >
+                            URLをコピー
+                          </button>
+                        </>
+                      )}
+                      {invitation.status === 'expired' && (
+                        <button
+                          onClick={() => handleResendInvitation(invitation.id)}
+                          style={{
+                            padding: '8px 16px',
+                            backgroundColor: '#1976d2',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                          }}
+                        >
+                          再送信
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         ) : (
+          /* デスクトップ: テーブル形式レイアウト */
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f5f5f5', borderBottom: '1px solid #ddd' }}>
@@ -435,7 +570,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               </tr>
             </thead>
             <tbody>
-              {filteredInvitations.length === 0 ? (
+              {paginatedInvitations.length === 0 ? (
                 <tr>
                   <td
                     colSpan={5}
@@ -445,7 +580,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredInvitations.map((invitation) => (
+                paginatedInvitations.map((invitation) => (
                   <tr key={invitation.id} style={{ borderBottom: '1px solid #eee' }}>
                     <td style={{ padding: '12px' }}>{invitation.email}</td>
                     <td style={{ padding: '12px' }}>
@@ -518,6 +653,68 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               )}
             </tbody>
           </table>
+        )}
+
+        {/* ページネーション */}
+        {totalPages > 1 && (
+          <nav
+            data-testid="pagination"
+            aria-label="ページネーション"
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '16px',
+              borderTop: '1px solid #eee',
+            }}
+          >
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              style={{
+                padding: '8px 16px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                backgroundColor: currentPage === 1 ? '#f5f5f5' : '#fff',
+                color: currentPage === 1 ? '#999' : '#333',
+                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              前へ
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                style={{
+                  padding: '8px 12px',
+                  border: currentPage === page ? '2px solid #1976d2' : '1px solid #ddd',
+                  borderRadius: '4px',
+                  backgroundColor: currentPage === page ? '#e3f2fd' : '#fff',
+                  color: currentPage === page ? '#1976d2' : '#333',
+                  fontWeight: currentPage === page ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                }}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              style={{
+                padding: '8px 16px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                backgroundColor: currentPage === totalPages ? '#f5f5f5' : '#fff',
+                color: currentPage === totalPages ? '#999' : '#333',
+                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+              }}
+            >
+              次へ
+            </button>
+          </nav>
         )}
       </div>
 
