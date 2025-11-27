@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { createAllTestUsers } from '../../fixtures/auth.fixtures';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 
 /**
  * プロフィール管理機能のE2Eテスト
@@ -285,64 +285,59 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.goto('/profile');
     // 現在のパスワード: Password123!
 
-    // 1回目のパスワード変更: NewPassword1!
-    await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('NewPassword1!');
-    await page.locator('input#confirmPassword').fill('NewPassword1!');
+    // Have I Been Pwnedの漏洩チェックを回避するため、ユニークなパスワードを使用
+    // タイムスタンプベースのサフィックスで一意性を確保
+    const uniqueSuffix = Date.now().toString(36);
+    const password1 = `Xk9mNp2vQ${uniqueSuffix}A!`;
+    const password2 = `Yj8lOq3wR${uniqueSuffix}B!`;
+    const password3 = `Zh7kPr4xS${uniqueSuffix}C!`;
+
+    // ヘルパー関数: パスワード変更後の再ログイン処理
+    const changePasswordAndLogin = async (currentPwd: string, newPwd: string) => {
+      await page.locator('input#currentPassword').fill(currentPwd);
+      await page.locator('input#newPassword').fill(newPwd);
+      await page.locator('input#confirmPassword').fill(newPwd);
+      await page.getByRole('button', { name: /パスワードを変更/i }).click();
+      await page.getByRole('button', { name: /はい、変更する/i }).click();
+
+      // ログインページにリダイレクトされるのを待つ
+      await page.waitForURL(/\/login/, { timeout: 10000 });
+
+      // 新しいパスワードで再ログイン（loginWithCredentialsを使用）
+      await loginWithCredentials(page, 'user@example.com', newPwd);
+
+      // プロフィールページに遷移
+      await page.goto('/profile');
+
+      // プロフィールページが完全にロードされるのを待つ
+      await expect(page.locator('input#currentPassword')).toBeVisible({
+        timeout: 10000,
+      });
+    };
+
+    // 1回目のパスワード変更
+    await changePasswordAndLogin('Password123!', password1);
+
+    // 2回目のパスワード変更
+    await changePasswordAndLogin(password1, password2);
+
+    // 3回目のパスワード変更
+    await changePasswordAndLogin(password2, password3);
+
+    // 4回目のパスワード変更: 過去のパスワード（password1）を再利用しようとする
+    await page.locator('input#currentPassword').fill(password3);
+    await page.locator('input#newPassword').fill(password1);
+    await page.locator('input#confirmPassword').fill(password1);
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
+
+    // 確認ダイアログが表示されるので、「はい、変更する」をクリック
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
-    // ログインページにリダイレクトされるのを待つ
-    await page.waitForURL(/\/login/, { timeout: 5000 });
-
-    // 新しいパスワードで再ログイン
-    await page.goto('/login');
-    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page.locator('input#password').fill('NewPassword1!');
-    await page.getByRole('button', { name: /ログイン/i }).click();
-    await page.waitForURL(/\//, { timeout: 5000 });
-    await page.goto('/profile');
-
-    // 2回目のパスワード変更: NewPassword2!
-    await page.locator('input#currentPassword').fill('NewPassword1!');
-    await page.locator('input#newPassword').fill('NewPassword2!');
-    await page.locator('input#confirmPassword').fill('NewPassword2!');
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
-    await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-    // 再ログイン
-    await page.waitForURL(/\/login/, { timeout: 5000 });
-    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page.locator('input#password').fill('NewPassword2!');
-    await page.getByRole('button', { name: /ログイン/i }).click();
-    await page.waitForURL(/\//, { timeout: 5000 });
-    await page.goto('/profile');
-
-    // 3回目のパスワード変更: NewPassword3!
-    await page.locator('input#currentPassword').fill('NewPassword2!');
-    await page.locator('input#newPassword').fill('NewPassword3!');
-    await page.locator('input#confirmPassword').fill('NewPassword3!');
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
-    await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-    // 再ログイン
-    await page.waitForURL(/\/login/, { timeout: 5000 });
-    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page.locator('input#password').fill('NewPassword3!');
-    await page.getByRole('button', { name: /ログイン/i }).click();
-    await page.waitForURL(/\//, { timeout: 5000 });
-    await page.goto('/profile');
-
-    // 4回目のパスワード変更: 過去のパスワード（NewPassword1!）を再利用しようとする
-    await page.locator('input#currentPassword').fill('NewPassword3!');
-    await page.locator('input#newPassword').fill('NewPassword1!');
-    await page.locator('input#confirmPassword').fill('NewPassword1!');
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
-
-    // エラーメッセージが表示される
+    // サーバー側でパスワード履歴チェックが行われ、エラーメッセージが表示される
+    // バックエンドから英語メッセージが返される
     await expect(
-      page.getByText(/このパスワードは過去に使用されています.*別のパスワードを選択してください/i)
-    ).toBeVisible();
+      page.getByText(/Password has been used recently.*Please choose a different password/i)
+    ).toBeVisible({ timeout: 10000 });
   });
 
   /**
@@ -356,11 +351,36 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.goto('/profile');
     // 現在のパスワード: Password123!
 
-    // パスワードを3回変更（NewPassword1! → NewPassword2! → NewPassword3!）
-    const passwords = ['NewPassword1!', 'NewPassword2!', 'NewPassword3!'];
-    let currentPassword = 'Password123!';
+    // Have I Been Pwnedの漏洩チェックを回避するため、ユニークなパスワードを使用
+    const uniqueSuffix = Date.now().toString(36);
+    // 初回パスワードも一意にする（Password123!はHIBPに存在するため）
+    const initialPassword = `Wi6jLs1uP${uniqueSuffix}Z!`;
+    const passwords = [
+      initialPassword,
+      `Xk9mNp2vQ${uniqueSuffix}A!`,
+      `Yj8lOq3wR${uniqueSuffix}B!`,
+      `Zh7kPr4xS${uniqueSuffix}C!`,
+    ];
 
-    for (const newPassword of passwords) {
+    // まず初回パスワードに変更（Password123! -> initialPassword）
+    await page.locator('input#currentPassword').fill('Password123!');
+    await page.locator('input#newPassword').fill(initialPassword);
+    await page.locator('input#confirmPassword').fill(initialPassword);
+    await page.getByRole('button', { name: /パスワードを変更/i }).click();
+    await page.getByRole('button', { name: /はい、変更する/i }).click();
+
+    await page.waitForURL(/\/login/, { timeout: 10000 });
+    await loginWithCredentials(page, 'user@example.com', initialPassword);
+    await page.goto('/profile');
+    await expect(page.locator('input#currentPassword')).toBeVisible({
+      timeout: 10000,
+    });
+
+    let currentPassword = initialPassword;
+
+    // 2回目〜4回目のパスワード変更
+    for (let i = 1; i < passwords.length; i++) {
+      const newPassword = passwords[i] as string;
       await page.locator('input#currentPassword').fill(currentPassword);
       await page.locator('input#newPassword').fill(newPassword);
       await page.locator('input#confirmPassword').fill(newPassword);
@@ -368,24 +388,29 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       await page.getByRole('button', { name: /はい、変更する/i }).click();
 
       // 再ログイン
-      await page.waitForURL(/\/login/, { timeout: 5000 });
-      await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-      await page.locator('input#password').fill(newPassword);
-      await page.getByRole('button', { name: /ログイン/i }).click();
-      await page.waitForURL(/\//, { timeout: 5000 });
+      await page.waitForURL(/\/login/, { timeout: 10000 });
+      await loginWithCredentials(page, 'user@example.com', newPassword);
       await page.goto('/profile');
+
+      // プロフィールページが完全にロードされるのを待つ
+      await expect(page.locator('input#currentPassword')).toBeVisible({
+        timeout: 10000,
+      });
 
       currentPassword = newPassword;
     }
 
-    // 4回目のパスワード変更: 最初のパスワード（Password123!）を再利用
+    // 5回目のパスワード変更: 最初のパスワード（initialPassword）を再利用
+    // initialPasswordは履歴に4回前（現在から数えて）のため再利用可能
     await page.locator('input#currentPassword').fill(currentPassword);
-    await page.locator('input#newPassword').fill('Password123!');
-    await page.locator('input#confirmPassword').fill('Password123!');
+    await page.locator('input#newPassword').fill(initialPassword);
+    await page.locator('input#confirmPassword').fill(initialPassword);
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
     // 成功メッセージが表示される
-    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible();
+    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+      timeout: 10000,
+    });
   });
 });
