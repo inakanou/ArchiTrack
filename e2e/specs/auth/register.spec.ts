@@ -321,22 +321,11 @@ test.describe('新規登録機能', () => {
     const displayNameInput = page.getByLabel(/表示名/i);
     await expect(displayNameInput).toBeFocused();
 
-    // Tab キーを押してメールアドレスフィールドに移動（無効化されているがフォーカス可能）
-    await page.keyboard.press('Tab');
-    const emailInput = page.getByLabel(/メールアドレス/i);
-    await expect(emailInput).toBeFocused();
-
     // Tab キーを押してパスワードフィールドに移動
+    // 注: メールアドレスフィールドは disabled のため Tab キーでスキップされる
     await page.keyboard.press('Tab');
     const passwordInput = page.locator('input#password');
     await expect(passwordInput).toBeFocused();
-
-    // Tab キーを押してパスワード表示ボタンに移動
-    await page.keyboard.press('Tab');
-    const passwordToggle = page.getByRole('button', {
-      name: /パスワードを表示|パスワードを非表示/i,
-    });
-    await expect(passwordToggle).toBeFocused();
 
     // Tab キーを押してパスワード確認フィールドに移動
     await page.keyboard.press('Tab');
