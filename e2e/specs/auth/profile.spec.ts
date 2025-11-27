@@ -178,9 +178,12 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    */
   test('漏洩パスワードには変更できない', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('Qwerty123!'); // 有名な漏洩パスワード
-    await page.locator('input#confirmPassword').fill('Qwerty123!');
+    await page.locator('input#newPassword').fill('Password1234!'); // 有名な漏洩パスワード (13文字)
+    await page.locator('input#confirmPassword').fill('Password1234!');
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
+
+    // 確認ダイアログが表示されるので「はい、変更する」をクリック
+    await page.getByRole('button', { name: /はい、変更する/i }).click();
 
     // エラーメッセージが表示される
     await expect(
