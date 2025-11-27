@@ -94,7 +94,7 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    */
   test('弱いパスワードで「弱」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('Weak123!'); // 8文字（最小）
+    await page.locator('input#newPassword').fill('weak'); // 4文字、小文字のみ（2種類以下）
 
     const indicator = page.getByTestId('password-strength-indicator');
     await expect(indicator).toBeVisible();
@@ -106,23 +106,23 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(progressBar).toHaveAttribute('data-strength', 'weak');
   });
 
-  test('中程度のパスワードで「中」インジケーターが表示される', async ({ page }) => {
+  test('普通のパスワードで「普通」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('MediumPass123!'); // 14文字
+    await page.locator('input#newPassword').fill('passwordpass'); // 12文字、小文字のみ（minLengthのみ達成）
 
     const indicator = page.getByTestId('password-strength-indicator');
     await expect(indicator).toBeVisible();
 
     const strengthText = page.getByTestId('password-strength-text');
-    await expect(strengthText).toHaveText(/中/i);
+    await expect(strengthText).toHaveText(/普通/i);
 
     const progressBar = page.getByTestId('password-strength-bar');
-    await expect(progressBar).toHaveAttribute('data-strength', 'medium');
+    await expect(progressBar).toHaveAttribute('data-strength', 'fair');
   });
 
   test('強いパスワードで「強」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('VeryStrong!Password123@XYZ'); // 25文字、複雑
+    await page.locator('input#newPassword').fill('VeryStrong!Password123@XYZ'); // 27文字、複雑
 
     const indicator = page.getByTestId('password-strength-indicator');
     await expect(indicator).toBeVisible();
@@ -130,8 +130,9 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     const strengthText = page.getByTestId('password-strength-text');
     await expect(strengthText).toHaveText(/強/i);
 
+    // very-strongは「非常に強い」で「強」を含むのでマッチする
     const progressBar = page.getByTestId('password-strength-bar');
-    await expect(progressBar).toHaveAttribute('data-strength', 'strong');
+    await expect(progressBar).toHaveAttribute('data-strength', /strong|very-strong/);
   });
 
   /**

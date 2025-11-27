@@ -251,19 +251,19 @@ test.describe('新規登録機能', () => {
     await expect(progressBar).toHaveAttribute('data-strength', 'weak');
   });
 
-  test('中程度のパスワードで「普通」インジケーターが表示される', async ({ page }) => {
-    await page.locator('input#password').fill('Password123!'); // 12文字
+  test('普通のパスワードで「普通」インジケーターが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('lowercaseonly'); // 13文字、小文字のみ（minLengthのみ達成）
 
     const indicator = page.getByTestId('password-strength-indicator');
     await expect(indicator).toBeVisible();
 
     // 強度レベルが「普通」であることを確認
     const strengthText = page.getByTestId('password-strength-text');
-    await expect(strengthText).toHaveText(/普通|良い/i);
+    await expect(strengthText).toHaveText(/普通/i);
 
     // 視覚的フィードバック
     const progressBar = page.getByTestId('password-strength-bar');
-    await expect(progressBar).toHaveAttribute('data-strength', /fair|good/);
+    await expect(progressBar).toHaveAttribute('data-strength', 'fair');
   });
 
   test('強いパスワードで「強」インジケーターが表示される', async ({ page }) => {
