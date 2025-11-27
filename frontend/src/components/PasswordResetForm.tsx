@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import type { PasswordResetRequestFormData, PasswordResetFormData } from '../types/auth.types';
 
 interface PasswordResetFormProps {
@@ -30,6 +30,17 @@ function PasswordResetForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // 成功メッセージを5秒後に自動非表示
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [successMessage]);
 
   // メールアドレスバリデーション
   const validateEmail = (value: string): string => {
