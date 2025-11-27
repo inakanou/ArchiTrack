@@ -1301,8 +1301,10 @@ router.post(
           res.status(400).json({ error: 'Reset token has expired', code: error.type });
           return;
         } else if (error.type === 'WEAK_PASSWORD') {
+          const detailedMessage = getPasswordViolationMessage(error.violations);
           res.status(400).json({
-            error: 'Password does not meet requirements',
+            error: detailedMessage,
+            detail: detailedMessage,
             code: error.type,
             violations: error.violations,
           });
@@ -1413,8 +1415,10 @@ router.post(
           });
           return;
         } else if (error.type === 'WEAK_PASSWORD') {
+          const detailedMessage = getPasswordViolationMessage(error.violations);
           res.status(400).json({
-            error: 'Password does not meet requirements',
+            error: detailedMessage,
+            detail: detailedMessage,
             code: error.type,
             violations: error.violations,
           });
