@@ -194,9 +194,9 @@ test.describe('新規登録機能', () => {
    * THEN エラーメッセージが表示される
    */
   test('漏洩パスワードではエラーが表示される', async ({ page }) => {
-    // 'password123!'は有名な漏洩パスワード (12文字に合わせる)
-    await page.locator('input#password').fill('password123!');
-    await page.locator('input#passwordConfirm').fill('password123!');
+    // 複雑性要件を満たしつつ漏洩DBに存在するパスワード（12文字以上、大文字・小文字・数字・記号）
+    await page.locator('input#password').fill('Password123!');
+    await page.locator('input#passwordConfirm').fill('Password123!');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
