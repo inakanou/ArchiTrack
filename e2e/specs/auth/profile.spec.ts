@@ -203,12 +203,8 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await page.getByLabel(/表示名/i).focus();
     await expect(page.getByLabel(/表示名/i)).toBeFocused();
 
-    // Tab キーを押して保存ボタンに移動
-    await page.keyboard.press('Tab');
-    const saveButton = page.getByRole('button', { name: /保存/i });
-    await expect(saveButton).toBeFocused();
-
     // Tab キーを押して現在のパスワードフィールドに移動
+    // 注: 保存ボタンはdisabled状態のためTabでスキップされる
     await page.keyboard.press('Tab');
     const currentPasswordInput = page.locator('input#currentPassword');
     await expect(currentPasswordInput).toBeFocused();
