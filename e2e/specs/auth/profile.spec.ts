@@ -73,8 +73,12 @@ test.describe('プロフィール管理機能', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('管理者ユーザーには「ユーザー管理」リンクが表示される', async ({ page }) => {
-    // 管理者ユーザーを作成
+  test('管理者ユーザーには「ユーザー管理」リンクが表示される', async ({ page, context }) => {
+    // 現在のセッションをクリア（beforeEachでログインしたREGULAR_USERのセッション）
+    await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+
+    // データベースをクリーンアップし、テストユーザーを再作成
     await cleanDatabase();
     await createTestUser('REGULAR_USER'); // 後続テストのbeforeEach用に再作成
     await createTestUser('ADMIN_USER');
