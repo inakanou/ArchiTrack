@@ -117,6 +117,37 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
   const passwordStrengthResult = evaluatePasswordStrength(password);
   const passwordRequirements = checkPasswordRequirements(password);
 
+  /**
+   * パスワードの複雑性要件をチェックし、エラーメッセージを返す
+   */
+  const validatePasswordComplexity = (pwd: string): string | null => {
+    // 12文字以上
+    if (pwd.length < 12) {
+      return 'パスワードは12文字以上である必要があります';
+    }
+    // 大文字を含む
+    if (!/[A-Z]/.test(pwd)) {
+      return 'パスワードは大文字を1文字以上含む必要があります';
+    }
+    // 小文字を含む
+    if (!/[a-z]/.test(pwd)) {
+      return 'パスワードは小文字を1文字以上含む必要があります';
+    }
+    // 数字を含む
+    if (!/[0-9]/.test(pwd)) {
+      return 'パスワードは数字を1文字以上含む必要があります';
+    }
+    // 記号を含む
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) {
+      return 'パスワードは記号を1文字以上含む必要があります';
+    }
+    // 連続した同一文字のチェック（3文字以上）
+    if (/(.)\1\1/.test(pwd)) {
+      return 'パスワードに3文字以上の連続した同一文字を含めることはできません';
+    }
+    return null;
+  };
+
   // パスワード確認のblurイベント
   const handlePasswordConfirmBlur = () => {
     if (passwordConfirm && password !== passwordConfirm) {
@@ -145,6 +176,12 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
     }
     if (!password) {
       newErrors.password = 'パスワードは必須です';
+    } else {
+      // パスワード複雑性のクライアントサイドバリデーション
+      const complexityError = validatePasswordComplexity(password);
+      if (complexityError) {
+        newErrors.password = complexityError;
+      }
     }
     if (!passwordConfirm) {
       newErrors.passwordConfirm = 'パスワード確認は必須です';

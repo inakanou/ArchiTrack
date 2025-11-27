@@ -214,10 +214,8 @@ test.describe('新規登録機能', () => {
    * 要件2.8: 連続した同一文字の禁止（3文字以上）
    * WHEN 3文字以上連続した同一文字を含むパスワードを入力する
    * THEN エラーメッセージが表示される
-   *
-   * TODO: バックエンドに連続同一文字チェック機能を実装後に有効化
    */
-  test.skip('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {
+  test('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {
     // ユニークなパスワード: 'sss'が連続、12文字以上
     await page.locator('input#password').fill('XyzPassss12!@');
     await page.locator('input#passwordConfirm').fill('XyzPassss12!@');
