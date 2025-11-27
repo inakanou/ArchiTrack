@@ -205,9 +205,7 @@ test.describe('パスワード管理機能', () => {
     await expect(page.getByRole('button', { name: /リセットリンクを送信/i })).toBeVisible();
 
     // ガイダンステキストが表示される
-    await expect(
-      page.getByText(/登録されたメールアドレスにパスワードリセットリンクを送信します/i)
-    ).toBeVisible();
+    await expect(page.getByText(/パスワードリセット用のリンクをメールで送信します/i)).toBeVisible();
 
     // ログインページへのリンクが表示される
     await expect(page.getByRole('link', { name: /ログインページに戻る/i })).toBeVisible();
