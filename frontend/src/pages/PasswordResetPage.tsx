@@ -115,6 +115,7 @@ export function PasswordResetPage() {
 
   return (
     <div
+      data-testid="password-reset-container"
       style={{
         minHeight: '100vh',
         display: 'flex',
