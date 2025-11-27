@@ -178,10 +178,9 @@ test.describe('新規登録機能', () => {
   });
 
   test('記号を含まないパスワードではエラーが表示される', async ({ page }) => {
-    // 2種類のみ（小文字+数字）: 記号なし、大文字なし
-    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
-    await page.locator('input#password').fill('xyzuniqtest123');
-    await page.locator('input#passwordConfirm').fill('xyzuniqtest123');
+    // 大文字・小文字・数字あり、記号なし（12文字以上）
+    await page.locator('input#password').fill('XyzUniqTest123');
+    await page.locator('input#passwordConfirm').fill('XyzUniqTest123');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
