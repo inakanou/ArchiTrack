@@ -360,6 +360,7 @@ function PasswordResetForm({
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
           aria-invalid={!!errors.password}
           aria-describedby={errors.password ? 'password-error' : undefined}
           style={{
@@ -399,6 +400,7 @@ function PasswordResetForm({
           value={passwordConfirm}
           onChange={(e) => setPasswordConfirm(e.target.value)}
           onBlur={handlePasswordConfirmBlur}
+          autoComplete="new-password"
           aria-invalid={!!errors.passwordConfirm}
           aria-describedby={errors.passwordConfirm ? 'passwordConfirm-error' : undefined}
           style={{
