@@ -407,6 +407,7 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
           type="text"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
+          autoFocus
           aria-invalid={!!errors.displayName}
           aria-describedby={errors.displayName ? 'displayName-error' : undefined}
           style={{
