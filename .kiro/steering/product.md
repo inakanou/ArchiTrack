@@ -6,7 +6,7 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 Claude Codeを活用したKiro-style Spec Driven Development（スペック駆動開発）で開発されており、スラッシュコマンド、フック、エージェント機能を統合した体系的な開発ワークフローを実現しています。
 
-_最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加検証、テスト構成確認）_
+_最終更新: 2025-11-27（Steering Sync: テスト数更新、パスワード複雑性バリデーション追加、Storybook 10.x移行）_
 
 ## コア機能
 
@@ -62,7 +62,7 @@ _最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加検証、�
 - **同期テスト実行**: すべてのテスト（単体・統合・E2E）を同期実行し、完了を待ってから次の処理へ進行（Shift-Left原則）
 - **タイムアウト保護**: E2Eテストに10分（Git hooks）/30分（CI/CD）のタイムアウト設定でハングアップを防止
 - **包括的なテスト環境**:
-  - **単体テスト**: Vitest + supertest/React Testing Library（**Backend 571テスト、ブランチカバレッジ80%達成✅**、Frontend 378テスト）
+  - **単体テスト**: Vitest + supertest/React Testing Library（**Backend 738テスト、ブランチカバレッジ80%達成✅**、Frontend 495テスト）
   - **統合テスト**: Backend 68テスト（API統合、データベース、認証フロー）
   - **E2Eテスト**: Playwright + TypeScriptによるブラウザ自動化テスト、タイムスタンプ付き結果管理
   - **負荷テスト**: Autocannon 8.0.0による高性能パフォーマンステスト、メトリクス記録機能
@@ -85,7 +85,7 @@ _最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加検証、�
 ### アクセシビリティ機能
 
 - **自動アクセシビリティテスト**: axe-playwright ^2.0.3による自動化されたa11yテスト
-- **Storybook a11yアドオン**: @storybook/addon-a11y ^10.0.7によるコンポーネント開発時のアクセシビリティチェック
+- **Storybook a11yアドオン**: Storybook 10.x統合によるコンポーネント開発時のアクセシビリティチェック
 - **アクセシビリティユーティリティ**: `frontend/src/utils/accessibility.ts`による共通アクセシビリティ機能
 
 ### CI/CD機能

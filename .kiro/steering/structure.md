@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加、Frontend/Backend構造更新）_
+_最終更新: 2025-11-27（Steering Sync: テスト数更新、パスワード複雑性バリデーション追加）_
 
 ## ルートディレクトリ構成
 
@@ -819,8 +819,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 571テスト（単体）+ 68テスト（統合）
-- Frontend: 378テスト（単体）
+- Backend: 738テスト（単体）+ 68テスト（統合）
+- Frontend: 495テスト（単体）
 
 ### .gitignore
 

@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-25（Steering Sync: Claude Codeフック追加、Husky 9.1.7、テスト構成更新）_
+_最終更新: 2025-11-27（Steering Sync: テスト数更新、Storybook 10.x移行、Node.js 22）_
 
 ## アーキテクチャ
 
@@ -55,9 +55,9 @@ ArchiTrack/
 - `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.22.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
-- `storybook` ^10.0.8 - コンポーネントドキュメント・開発環境（Storybook 10.x）
-- `@storybook/react` ^10.0.8 - Storybook React統合
-- `@storybook/react-vite` ^10.0.8 - Storybook React + Vite統合
+- `storybook` ^10.0.8 - コンポーネントドキュメント・開発環境（**Storybook 10.x**）
+- `@storybook/react` ^10.0.8 - Storybook React統合（**10.x系**）
+- `@storybook/react-vite` ^10.0.8 - Storybook React + Vite統合（**10.x系**）
 - `@storybook/test-runner` ^0.24.1 - Storybookインタラクションテスト
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
@@ -265,7 +265,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 571テスト（単体 + 統合）
+**テスト合計:** 738テスト（単体）+ 68テスト（統合）
 
 **実行方法:**
 ```bash
@@ -319,9 +319,9 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 
 **テストカバレッジ:**
 - APIクライアントテスト（client.test.ts）
-- Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx等）
-- 認証フローテスト、フォームバリデーションテスト
-- 合計: 378テスト（包括的なユニットテスト群）
+- Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
+- 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
+- 合計: 495テスト（包括的なユニットテスト群）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
@@ -482,7 +482,7 @@ volumes:
 
 ### 必須ツール
 
-- **Node.js 20以上**: フロントエンド・バックエンドの実行環境
+- **Node.js 22以上**: バックエンド実行環境（engines: >=22.0.0）、フロントエンドはNode.js 20.19.0+または22.12.0+
 - **Docker & Docker Compose**: コンテナ化開発環境（コンテナ環境では0.0.0.0でリスンして外部アクセスを許可）
 - **Git**: バージョン管理
 - **Claude Code**: AI支援開発環境
