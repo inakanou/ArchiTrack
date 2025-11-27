@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
+import { hashPassword, TEST_USERS } from '../../helpers/test-users';
+import { loginWithCredentials } from '../../helpers/auth-actions';
 
 /**
  * パスワード管理機能のE2Eテスト
@@ -15,6 +17,32 @@ test.describe('パスワード管理機能', () => {
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+
+    // テストユーザーのパスワードとアカウント状態を元の状態にリセット
+    // （前のテストでパスワードが変更されている可能性があるため）
+    const prisma = getPrismaClient();
+    const user1 = TEST_USERS.REGULAR_USER;
+    const user2 = TEST_USERS.REGULAR_USER_2;
+
+    await prisma.user.update({
+      where: { email: user1.email },
+      data: {
+        passwordHash: await hashPassword(user1.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+
+    await prisma.user.update({
+      where: { email: user2.email },
+      data: {
+        passwordHash: await hashPassword(user2.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
 
     // パスワードリセットページに移動
     await page.goto('/password-reset');
@@ -162,84 +190,6 @@ test.describe('パスワード管理機能', () => {
     // パスワード入力フィールドが無効化されている
     await expect(page.locator('input#password')).toBeDisabled();
     await expect(page.locator('input#passwordConfirm')).toBeDisabled();
-  });
-
-  /**
-   * 要件7.5: パスワード変更後の全セッション無効化
-   * WHEN パスワードが更新される
-   * THEN Authentication Serviceは全ての既存リフレッシュトークンを無効化する
-   */
-  test('パスワード変更後、全セッションが無効化される', async ({ page, browser }) => {
-    // Step 1: 第1タブで通常ログイン（セッション確立）
-    await page.goto('/login');
-    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page.locator('input#password').fill('Password123!');
-    await page.getByRole('button', { name: /ログイン/i }).click();
-
-    // ダッシュボードにリダイレクトされる
-    await expect(page).toHaveURL(/\//);
-
-    // リフレッシュトークンがlocalStorageに保存されていることを確認
-    const refreshToken1 = await page.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(refreshToken1).toBeTruthy();
-
-    // Step 2: 第2タブを開いて別セッションを確立
-    const context2 = await browser.newContext();
-    const page2 = await context2.newPage();
-
-    await page2.goto('http://localhost:5173/login');
-    await page2.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page2.locator('input#password').fill('Password123!');
-    await page2.getByRole('button', { name: /ログイン/i }).click();
-
-    await expect(page2).toHaveURL(/\//);
-
-    const refreshToken2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(refreshToken2).toBeTruthy();
-
-    // Step 3: リセットトークンを生成してパスワード変更
-    const prisma = getPrismaClient();
-    const user = await prisma.user.findUnique({
-      where: { email: 'user@example.com' },
-    });
-
-    // ユニークなトークンとパスワードを生成（リトライ時の競合を防ぐ）
-    const resetToken = `session-test-token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    const uniquePassword = `SessionTest${Date.now()}!Aa`;
-
-    await prisma.passwordResetToken.create({
-      data: {
-        token: resetToken,
-        userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
-    });
-
-    // 第3タブでパスワードリセット
-    const context3 = await browser.newContext();
-    const page3 = await context3.newPage();
-
-    await page3.goto(`http://localhost:5173/password-reset?token=${resetToken}`);
-    await page3.locator('input#password').fill(uniquePassword);
-    await page3.locator('input#passwordConfirm').fill(uniquePassword);
-    await page3.getByRole('button', { name: /パスワードをリセット/i }).click();
-
-    // ログインページにリダイレクトされ、成功メッセージが表示される
-    await expect(page3).toHaveURL(/\/login/);
-    await expect(page3.getByText(/パスワードがリセットされました/i)).toBeVisible();
-
-    // Step 4: 第1タブと第2タブで保護されたリソースにアクセス（セッション無効化を確認）
-    await page.goto('/profile');
-
-    // ログインページにリダイレクトされる（セッション無効化）
-    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
-
-    await page2.goto('http://localhost:5173/profile');
-    await expect(page2).toHaveURL(/\/login/, { timeout: 10000 });
-
-    // クリーンアップ
-    await context2.close();
-    await context3.close();
   });
 
   /**
@@ -508,5 +458,111 @@ test.describe('パスワード管理機能', () => {
     // モバイルレイアウトのクラスが適用されているか確認（実装依存）
     const container = page.locator('[data-testid="password-reset-container"]');
     await expect(container).toBeVisible();
+  });
+});
+
+/**
+ * パスワード変更後のセッション無効化テスト
+ *
+ * このテストは他のテストから独立して実行されます。
+ * シリアルモードの影響を受けないように別のdescribeブロックに配置しています。
+ */
+test.describe('パスワード変更後のセッション管理', () => {
+  // テスト専用のユーザー情報（他のテストと干渉しない）
+  const testEmail = 'user2@example.com';
+  const baseURL = 'http://localhost:5173';
+
+  /**
+   * 要件7.5: パスワード変更後の全セッション無効化
+   * WHEN パスワードが更新される
+   * THEN Authentication Serviceは全ての既存リフレッシュトークンを無効化する
+   */
+  test('パスワード変更後、全セッションが無効化される', async ({ page, browser }) => {
+    // テストごとに一意のパスワードを生成（キャッシュやパスワード履歴の問題を回避）
+    const testPassword = TEST_USERS.REGULAR_USER_2.password;
+
+    // テストの安定性確保: パスワード、アカウント状態、セッションを明示的にリセット
+    const prisma = getPrismaClient();
+    const newPasswordHash = await hashPassword(testPassword);
+
+    // トランザクションで確実にリセットを行う
+    await prisma.$transaction(async (tx) => {
+      const testUser = await tx.user.findUnique({ where: { email: testEmail } });
+      if (testUser) {
+        // パスワードを設定し、アカウントロック状態をリセット
+        await tx.user.update({
+          where: { email: testEmail },
+          data: {
+            passwordHash: newPasswordHash,
+            loginFailures: 0,
+            isLocked: false,
+            lockedUntil: null,
+          },
+        });
+        // 既存のセッションをすべて削除
+        await tx.refreshToken.deleteMany({ where: { userId: testUser.id } });
+        // パスワード履歴もクリア（パスワード再利用チェックを回避）
+        await tx.passwordHistory.deleteMany({ where: { userId: testUser.id } });
+      }
+    });
+
+    // Step 1: 第1タブで通常ログイン（セッション確立）
+    await loginWithCredentials(page, testEmail, testPassword);
+
+    // リフレッシュトークンがlocalStorageに保存されていることを確認
+    const refreshToken1 = await page.evaluate(() => localStorage.getItem('refreshToken'));
+    expect(refreshToken1).toBeTruthy();
+
+    // Step 2: 第2タブを開いて別セッションを確立（baseURLを明示的に設定）
+    const context2 = await browser.newContext({ baseURL });
+    const page2 = await context2.newPage();
+
+    await loginWithCredentials(page2, testEmail, testPassword);
+
+    const refreshToken2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
+    expect(refreshToken2).toBeTruthy();
+
+    // Step 3: リセットトークンを生成してパスワード変更
+    const user = await prisma.user.findUnique({
+      where: { email: testEmail },
+    });
+
+    // ユニークなトークンとパスワードを生成（リトライ時の競合を防ぐ）
+    const resetToken = `session-test-token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    const uniquePassword = `SessionTest${Date.now()}!Aa`;
+
+    await prisma.passwordResetToken.create({
+      data: {
+        token: resetToken,
+        userId: user!.id,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // 第3タブでパスワードリセット（baseURLを明示的に設定）
+    const context3 = await browser.newContext({ baseURL });
+    const page3 = await context3.newPage();
+
+    await page3.goto(`/password-reset?token=${resetToken}`);
+    await page3.locator('input#password').fill(uniquePassword);
+    await page3.locator('input#passwordConfirm').fill(uniquePassword);
+    await page3.getByRole('button', { name: /パスワードをリセット/i }).click();
+
+    // ログインページにリダイレクトされ、成功メッセージが表示される
+    await expect(page3).toHaveURL(/\/login/);
+    await expect(page3.getByText(/パスワードがリセットされました/i)).toBeVisible();
+
+    // Step 4: 第1タブと第2タブで保護されたリソースにアクセス（セッション無効化を確認）
+    await page.goto('/profile');
+
+    // ログインページにリダイレクトされる（セッション無効化）
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+
+    await page2.goto('/profile');
+    await expect(page2).toHaveURL(/\/login/, { timeout: 10000 });
+
+    // クリーンアップ
+    await context2.close();
+    await context3.close();
   });
 });
