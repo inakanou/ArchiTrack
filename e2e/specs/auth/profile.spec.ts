@@ -24,6 +24,12 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
 
     // プロフィールページに移動
     await page.goto('/profile');
+
+    // AuthContextの初期化が完了するまで待つ（ユーザー情報が表示される）
+    // これにより、アクセストークンが設定された状態でテストが実行される
+    await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+      timeout: 10000,
+    });
   });
 
   test('プロフィール画面が正しく表示される', async ({ page }) => {
