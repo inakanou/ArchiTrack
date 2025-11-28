@@ -66,6 +66,7 @@ export type AuthError =
   | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
   | { type: '2FA_REQUIRED'; userId: string }
   | { type: 'INVALID_2FA_CODE' }
+  | { type: 'INVALID_BACKUP_CODE' }
   | { type: 'INVALID_REFRESH_TOKEN' }
   | { type: 'REFRESH_TOKEN_EXPIRED' }
   | { type: 'USER_NOT_FOUND' }

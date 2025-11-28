@@ -347,14 +347,14 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       setIsLoading(true);
 
       try {
-        // バックアップコードもverify-2faエンドポイントで検証
+        // バックアップコード専用のエンドポイントで検証
         const response = await apiClient.post<{
           accessToken: string;
           refreshToken: string;
           user: User;
           expiresIn?: number;
-        }>('/api/v1/auth/verify-2fa', {
-          token: code,
+        }>('/api/v1/auth/verify-2fa/backup', {
+          backupCode: code,
           email: twoFactorState.email,
         });
 

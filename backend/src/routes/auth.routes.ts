@@ -866,6 +866,119 @@ router.post(
   }
 );
 
+// バックアップコード検証用のスキーマ
+const verifyBackupCodeSchema = z.object({
+  backupCode: z.string().min(1, 'Backup code is required'),
+  email: z.string().email('Invalid email format'),
+});
+
+/**
+ * @swagger
+ * /api/v1/auth/verify-2fa/backup:
+ *   post:
+ *     summary: Verify 2FA backup code
+ *     description: Verify a backup code for two-factor authentication
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - backupCode
+ *               - email
+ *             properties:
+ *               backupCode:
+ *                 type: string
+ *                 description: 8-character backup code
+ *                 example: "ABCD1234"
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: Email (for login flow)
+ *     responses:
+ *       200:
+ *         description: 2FA verification successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/verify-2fa/backup',
+  validate(verifyBackupCodeSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { backupCode, email } = req.body;
+
+      // emailからユーザーを検索
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        res.status(401).json({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+        return;
+      }
+
+      // バックアップコード検証を実行
+      const userAgent = req.headers['user-agent'];
+      const result = await authService.verify2FABackupCode(user.id, backupCode, userAgent);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'INVALID_BACKUP_CODE') {
+          res.status(401).json({
+            error: 'バックアップコードが正しくありません',
+            detail: 'Invalid backup code',
+            code: error.type,
+          });
+          return;
+        } else if (error.type === 'ACCOUNT_LOCKED') {
+          res.status(429).json({
+            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
+            detail: 'Account locked due to too many failed 2FA attempts',
+            code: error.type,
+            unlockAt: error.unlockAt,
+          });
+          return;
+        } else if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'DATABASE_ERROR') {
+          logger.error({ error }, 'Database error during backup code verification');
+          res.status(500).json({ error: 'Backup code verification failed', code: '2FA_ERROR' });
+          return;
+        }
+
+        // 未知のエラータイプの場合
+        logger.error({ errorType: error.type }, 'Unknown backup code verification error type');
+        res.status(500).json({ error: 'Backup code verification failed', code: '2FA_ERROR' });
+        return;
+      }
+
+      const authResponse = result.value;
+
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
+
+      logger.info({ userId: authResponse.user.id }, 'Backup code verification successful');
+
+      res.status(200).json(authResponse);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 /**
  * @swagger
  * /api/v1/auth/2fa/setup:

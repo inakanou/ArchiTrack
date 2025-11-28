@@ -356,14 +356,14 @@ test.describe('2要素認証機能', () => {
       await expect(page.getByText(/2要素認証|二要素認証/i)).toBeVisible();
 
       // 要件27A.5: バックアップコードモードに切り替え
-      await page.getByRole('link', { name: /バックアップコード|backup code/i }).click();
+      await page.getByRole('button', { name: /バックアップコード/i }).click();
 
       // バックアップコード入力フィールドが表示される
       const backupCodeInput = page.getByLabel(/バックアップコード/i);
       await expect(backupCodeInput).toBeVisible();
 
-      // 要件27A.6: バックアップコードを入力
-      await backupCodeInput.fill('ABCD-1234'); // テスト用のモックコード
+      // 要件27A.6: バックアップコードを入力（テスト用モックコード: ABCD1234）
+      await backupCodeInput.fill('ABCD1234');
       await page.getByRole('button', { name: /検証|ログイン/i }).click();
 
       // 要件27A.8: ログイン成功

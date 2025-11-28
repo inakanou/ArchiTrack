@@ -530,6 +530,169 @@ export class AuthService implements IAuthService {
   }
 
   /**
+   * バックアップコードで2FA検証
+   *
+   * Requirements:
+   * - 27A.5: 「バックアップコードを使用する」選択時にバックアップコード入力フィールドを表示
+   * - 27A.6: バックアップコード検証（未使用のコードとbcrypt比較）
+   * - 27A.7: バックアップコード使用後、usedAtフィールドを更新
+   * - 27A.8: ログイン成功後、ダッシュボードへリダイレクト
+   *
+   * 処理手順:
+   * 1. ユーザー存在確認
+   * 2. 2FAアカウントロック確認
+   * 3. ロック期限切れの場合はロック解除
+   * 4. バックアップコード検証
+   * 5. 検証成功時: JWT生成、失敗カウンターリセット
+   * 6. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック
+   */
+  async verify2FABackupCode(
+    userId: string,
+    backupCode: string,
+    deviceInfo?: string
+  ): Promise<Result<AuthResponse, AuthError>> {
+    try {
+      // 1. Fetch user with only necessary fields (optimized query)
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+          twoFactorEnabled: true,
+          twoFactorFailures: true,
+          twoFactorLockedUntil: true,
+          userRoles: {
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // ユーザーが存在しない場合
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      // 2. 2FAアカウントロック確認
+      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil > new Date()) {
+        return Err({
+          type: 'ACCOUNT_LOCKED',
+          unlockAt: user.twoFactorLockedUntil,
+        });
+      }
+
+      // 3. ロック期限切れの場合はロック解除
+      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil <= new Date()) {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            twoFactorFailures: 0,
+            twoFactorLockedUntil: null,
+          },
+        });
+      }
+
+      // 4. バックアップコード検証
+      const verifyResult = await this.twoFactorService.verifyBackupCode(userId, backupCode);
+
+      // 検証失敗（エラーまたは無効なコード）の場合、失敗カウンターをインクリメント
+      const isValid = verifyResult.ok && verifyResult.value;
+
+      if (!isValid) {
+        // 検証失敗: 失敗カウンターをインクリメント
+        const currentFailures = user.twoFactorFailures ?? 0;
+        const newFailures = currentFailures + 1;
+        const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
+        logger.info(
+          {
+            userId,
+            currentFailures,
+            newFailures,
+            isLocked,
+            maxFailures: SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES,
+          },
+          '2FAバックアップコード検証失敗: 失敗カウンターをインクリメント'
+        );
+        const lockedUntil = isLocked
+          ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
+          : null;
+
+        try {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              twoFactorFailures: newFailures,
+              ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
+            },
+          });
+        } catch (updateError) {
+          logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
+          // 更新に失敗しても検証失敗として処理を続行
+        }
+
+        if (isLocked && lockedUntil) {
+          return Err({
+            type: 'ACCOUNT_LOCKED',
+            unlockAt: lockedUntil,
+          });
+        }
+
+        return Err({ type: 'INVALID_BACKUP_CODE' });
+      }
+
+      // 5. 検証成功: 失敗カウンターをリセット
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          twoFactorFailures: 0,
+          twoFactorLockedUntil: null,
+        },
+      });
+
+      // 6. JWT生成
+      const payload = {
+        userId: user.id,
+        email: user.email,
+        roles: user.userRoles.map((ur) => ur.role.name),
+      };
+
+      const accessToken = await this.tokenService.generateAccessToken(payload);
+      const refreshToken = await this.tokenService.generateRefreshToken(payload);
+
+      // リフレッシュトークンをDBに保存
+      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
+
+      // UserProfile作成
+      const userProfile: UserProfile = {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        roles: user.userRoles.map((ur) => ur.role.name),
+        createdAt: user.createdAt,
+        twoFactorEnabled: user.twoFactorEnabled,
+      };
+
+      return Ok({
+        accessToken,
+        refreshToken,
+        user: userProfile,
+      });
+    } catch (error) {
+      return Err({
+        type: 'DATABASE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
    * ログアウト（単一デバイス）
    *
    * Note: SessionServiceは将来実装予定のため、現在は簡易実装
