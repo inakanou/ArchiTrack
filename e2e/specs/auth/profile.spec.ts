@@ -369,7 +369,11 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
-    await page.waitForURL(/\/login/, { timeout: 10000 });
+    // 成功メッセージを待ってから（2秒後に自動ログアウト）URLを待つ
+    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+      timeout: 10000,
+    });
+    await page.waitForURL(/\/login/, { timeout: 15000 });
     await loginWithCredentials(page, 'user@example.com', initialPassword);
     await page.goto('/profile');
     await expect(page.locator('input#currentPassword')).toBeVisible({
@@ -387,8 +391,11 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       await page.getByRole('button', { name: /パスワードを変更/i }).click();
       await page.getByRole('button', { name: /はい、変更する/i }).click();
 
-      // 再ログイン
-      await page.waitForURL(/\/login/, { timeout: 10000 });
+      // 成功メッセージを待ってから（2秒後に自動ログアウト）再ログイン
+      await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+        timeout: 10000,
+      });
+      await page.waitForURL(/\/login/, { timeout: 15000 });
       await loginWithCredentials(page, 'user@example.com', newPassword);
       await page.goto('/profile');
 
