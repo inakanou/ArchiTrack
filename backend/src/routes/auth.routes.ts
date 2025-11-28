@@ -1270,11 +1270,98 @@ router.post(
         return;
       }
 
-      const backupCodes = result.value;
+      const plainTextCodes = result.value;
+
+      // 再生成後のコードを BackupCodeInfo 形式で返す（全て未使用、マスクなし）
+      const backupCodes = plainTextCodes.map((code) => ({
+        code,
+        isUsed: false,
+      }));
 
       logger.info({ userId: req.user.userId }, 'Backup codes regenerated successfully');
 
-      res.status(200).json({ backupCodes });
+      res.status(200).json({ backupCodes, remainingCount: backupCodes.length });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/backup-codes:
+ *   get:
+ *     summary: バックアップコードステータス一覧取得
+ *     description: 現在のバックアップコードの使用状況を取得する
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: バックアップコードステータス取得成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       code:
+ *                         type: string
+ *                         description: マスク表示用のコード（****-0001形式）
+ *                       isUsed:
+ *                         type: boolean
+ *                         description: 使用済みフラグ
+ *                       usedAt:
+ *                         type: string
+ *                         nullable: true
+ *                         description: 使用日時（ISO 8601形式）
+ *                 remainingCount:
+ *                   type: number
+ *                   description: 未使用コード数
+ *       400:
+ *         description: 2FAが未有効化
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.get(
+  '/2fa/backup-codes',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const result = await twoFactorService.getBackupCodesStatus(req.user.userId);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'TWO_FACTOR_NOT_ENABLED') {
+          res.status(400).json({ error: '2FA is not enabled', code: error.type });
+          return;
+        }
+
+        res
+          .status(500)
+          .json({ error: 'Failed to get backup codes status', code: 'BACKUP_CODES_ERROR' });
+        return;
+      }
+
+      const backupCodes = result.value;
+      const remainingCount = backupCodes.filter((code) => !code.isUsed).length;
+
+      logger.debug({ userId: req.user.userId }, 'Backup codes status retrieved successfully');
+
+      res.status(200).json({ backupCodes, remainingCount });
     } catch (error) {
       next(error);
     }

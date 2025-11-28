@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createTestUser, createTwoFactorBackupCodes } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 
 /**
@@ -383,8 +383,42 @@ test.describe('2要素認証機能', () => {
 
       // 2FA有効ユーザーを作成してログイン
       await cleanDatabase();
-      await createTestUser('TWO_FA_USER');
+      const user = await createTestUser('TWO_FA_USER');
+      // バックアップコードを作成
+      const backupCodes = await createTwoFactorBackupCodes({ userId: user.id, count: 10 });
+      // 一部のバックアップコードを使用済みに設定（テスト用）
+      const prisma = getPrismaClient();
+      const firstBackupCode = backupCodes[0];
+      if (firstBackupCode) {
+        await prisma.twoFactorBackupCode.update({
+          where: { id: firstBackupCode.id },
+          data: { usedAt: new Date() },
+        });
+      }
       await loginAsUser(page, 'TWO_FA_USER');
+
+      // 2FA検証フォームが表示されるまで待機（見出し「二要素認証」で確認）
+      const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
+      await twoFactorHeading.waitFor({ state: 'visible', timeout: 10000 });
+
+      // 6桁のTOTPコードを入力（テストモードでは123456が有効）
+      // 各フィールドに1文字ずつ入力
+      const digits = '123456'.split('');
+      for (let i = 0; i < 6; i++) {
+        const digitInput = page.getByTestId(`totp-digit-${i}`);
+        const digit = digits[i];
+        if (digit) {
+          await digitInput.fill(digit);
+        }
+      }
+
+      // 検証ボタンをクリック
+      await page.getByRole('button', { name: /検証/i }).click();
+
+      // ログイン成功を待機（ダッシュボードへリダイレクト）
+      await page.waitForURL((url) => !url.pathname.includes('/login'), {
+        timeout: 10000,
+      });
     });
 
     /**
@@ -400,7 +434,11 @@ test.describe('2要素認証機能', () => {
       // バックアップコードを表示
       await page.getByRole('button', { name: /バックアップコードを表示/i }).click();
 
-      // バックアップコード一覧が表示される
+      // バックアップコード一覧が表示されるまで待機
+      await page
+        .getByTestId('backup-code-item')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10000 });
       const backupCodes = await page.getByTestId('backup-code-item').all();
       expect(backupCodes.length).toBeGreaterThan(0);
 
@@ -441,8 +479,8 @@ test.describe('2要素認証機能', () => {
       // バックアップコードを表示
       await page.getByRole('button', { name: /バックアップコードを表示/i }).click();
 
-      // 要件27B.2: 警告メッセージ
-      const warning = page.getByText(/残り.*個|バックアップコードが少なくなっています/i);
+      // 要件27B.2: 警告メッセージ（残り3個以下の場合のみ表示される）
+      const warning = page.getByText(/少なくなっています/i);
       if ((await warning.count()) > 0) {
         await expect(warning).toBeVisible();
 
@@ -470,17 +508,20 @@ test.describe('2要素認証機能', () => {
       await expect(
         page.getByText(/既存のバックアップコードは無効になります|本当に再生成しますか/i)
       ).toBeVisible();
-      await page.getByRole('button', { name: /はい|確認|再生成/i }).click();
+      await page.getByRole('button', { name: /はい、再生成|^はい$|確認$/i }).click();
+
+      // 成功メッセージを待機（APIコール完了の確認）
+      await expect(page.getByText(/バックアップコードを再生成しました/i)).toBeVisible({
+        timeout: 10000,
+      });
 
       // 要件27B.3: 新しい10個のバックアップコードが表示される
       const newCodes = await page.getByTestId('backup-code-item').allTextContents();
       expect(newCodes.length).toBe(10);
 
       // 新しいコードが古いコードと異なることを確認
+      // 再生成後は完全なコード（マスクなし）が表示される
       expect(newCodes).not.toEqual(oldCodes);
-
-      // 成功メッセージ
-      await expect(page.getByText(/バックアップコードを再生成しました/i)).toBeVisible();
     });
 
     /**

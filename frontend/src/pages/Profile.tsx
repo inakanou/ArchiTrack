@@ -2,9 +2,10 @@
  * プロフィール画面
  *
  * 要件14: プロフィール画面のUI/UX
+ * 要件27B: 二要素認証（2FA）管理機能
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { apiClient } from '../api/client';
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator';
@@ -15,6 +16,7 @@ import type {
   PasswordRequirements,
   UserProfile,
 } from '../types/auth.types';
+import type { BackupCodeInfo } from '../types/two-factor.types';
 
 /**
  * パスワード強度を評価する関数
@@ -97,6 +99,15 @@ export function Profile() {
   // モバイル判定
   const isMobile = window.innerWidth < 768;
 
+  // 2FA管理
+  const [showBackupCodes, setShowBackupCodes] = useState(false);
+  const [backupCodes, setBackupCodes] = useState<BackupCodeInfo[]>([]);
+  const [backupCodesLoading, setBackupCodesLoading] = useState(false);
+  const [remainingBackupCodesCount, setRemainingBackupCodesCount] = useState<number | null>(null);
+  const [showRegenerateDialog, setShowRegenerateDialog] = useState(false);
+  const [regenerateLoading, setRegenerateLoading] = useState(false);
+  const [regenerateMessage, setRegenerateMessage] = useState('');
+
   // ユーザー情報が更新されたときにdisplayNameを同期
   // displayNameのみを監視して不要な再レンダリングを防止
   useEffect(() => {
@@ -172,6 +183,57 @@ export function Profile() {
       setProfileMessage('プロフィールの更新に失敗しました');
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  /**
+   * バックアップコードを取得
+   */
+  const fetchBackupCodes = useCallback(async () => {
+    setBackupCodesLoading(true);
+    try {
+      const response = await apiClient.get<{
+        backupCodes: BackupCodeInfo[];
+        remainingCount: number;
+      }>('/api/v1/auth/2fa/backup-codes');
+      setBackupCodes(response.backupCodes);
+      setRemainingBackupCodesCount(response.remainingCount);
+    } catch {
+      console.error('Failed to fetch backup codes');
+    } finally {
+      setBackupCodesLoading(false);
+    }
+  }, []);
+
+  /**
+   * バックアップコードを表示
+   */
+  const handleShowBackupCodes = async () => {
+    if (!showBackupCodes && backupCodes.length === 0) {
+      await fetchBackupCodes();
+    }
+    setShowBackupCodes(!showBackupCodes);
+  };
+
+  /**
+   * バックアップコード再生成
+   */
+  const handleRegenerateBackupCodes = async () => {
+    setRegenerateLoading(true);
+    setRegenerateMessage('');
+    setShowRegenerateDialog(false);
+    try {
+      const response = await apiClient.post<{
+        backupCodes: BackupCodeInfo[];
+        remainingCount: number;
+      }>('/api/v1/auth/2fa/backup-codes/regenerate');
+      setBackupCodes(response.backupCodes);
+      setRemainingBackupCodesCount(response.remainingCount);
+      setRegenerateMessage('バックアップコードを再生成しました');
+    } catch {
+      setRegenerateMessage('バックアップコードの再生成に失敗しました');
+    } finally {
+      setRegenerateLoading(false);
     }
   };
 
@@ -573,6 +635,248 @@ export function Profile() {
           )}
         </div>
       </section>
+
+      {/* 二要素認証（2FA）管理セクション - 2FA有効時のみ表示 */}
+      {user?.twoFactorEnabled && (
+        <section style={{ marginTop: '2rem' }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>
+            二要素認証
+          </h2>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div
+              style={{
+                display: 'inline-block',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#d1fae5',
+                color: '#065f46',
+                borderRadius: '0.375rem',
+                fontSize: '0.875rem',
+                width: 'fit-content',
+              }}
+            >
+              2FAが有効です
+            </div>
+
+            {/* バックアップコード表示ボタン */}
+            <button
+              type="button"
+              onClick={handleShowBackupCodes}
+              disabled={backupCodesLoading}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                borderRadius: '0.375rem',
+                border: 'none',
+                cursor: backupCodesLoading ? 'wait' : 'pointer',
+                fontWeight: 500,
+                width: 'fit-content',
+              }}
+            >
+              {backupCodesLoading
+                ? '読み込み中...'
+                : showBackupCodes
+                  ? 'バックアップコードを隠す'
+                  : 'バックアップコードを表示'}
+            </button>
+
+            {/* バックアップコード一覧 */}
+            {showBackupCodes && backupCodes.length > 0 && (
+              <div
+                style={{
+                  padding: '1rem',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>
+                  バックアップコード（残り{remainingBackupCodesCount}個）
+                </h3>
+
+                {/* 残り3個以下の警告 */}
+                {remainingBackupCodesCount !== null && remainingBackupCodesCount <= 3 && (
+                  <div
+                    role="alert"
+                    style={{
+                      padding: '0.75rem',
+                      marginBottom: '1rem',
+                      backgroundColor: '#fef3c7',
+                      color: '#92400e',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem',
+                    }}
+                  >
+                    バックアップコードの残りが少なくなっています。
+                    <a
+                      href="#regenerate-backup-codes"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // TODO: 再生成機能の実装
+                      }}
+                      style={{
+                        marginLeft: '0.5rem',
+                        color: '#b45309',
+                        textDecoration: 'underline',
+                        fontWeight: 500,
+                      }}
+                    >
+                      再生成
+                    </a>
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '0.5rem',
+                    fontFamily: 'monospace',
+                    fontSize: '0.875rem',
+                  }}
+                >
+                  {backupCodes.map((code, index) => (
+                    <div
+                      key={index}
+                      data-testid="backup-code-item"
+                      className={code.isUsed ? 'used disabled' : ''}
+                      style={{
+                        padding: '0.5rem',
+                        backgroundColor: code.isUsed ? '#f3f4f6' : 'white',
+                        borderRadius: '0.25rem',
+                        textDecoration: code.isUsed ? 'line-through' : 'none',
+                        color: code.isUsed ? '#9ca3af' : '#374151',
+                        opacity: code.isUsed ? 0.5 : 1,
+                      }}
+                      aria-label={code.isUsed ? '使用済み' : undefined}
+                    >
+                      {code.code}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: '#6b7280' }}>
+                  ※ セキュリティのため、コードはマスク表示されています。
+                </div>
+
+                {/* 再生成ボタン */}
+                <button
+                  type="button"
+                  onClick={() => setShowRegenerateDialog(true)}
+                  disabled={regenerateLoading}
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.5rem 1rem',
+                    backgroundColor: '#f59e0b',
+                    color: 'white',
+                    borderRadius: '0.375rem',
+                    border: 'none',
+                    cursor: regenerateLoading ? 'wait' : 'pointer',
+                    fontWeight: 500,
+                  }}
+                >
+                  {regenerateLoading ? '再生成中...' : '再生成'}
+                </button>
+
+                {/* 再生成メッセージ */}
+                {regenerateMessage && (
+                  <div
+                    role="alert"
+                    aria-live="polite"
+                    style={{
+                      marginTop: '0.75rem',
+                      padding: '0.75rem',
+                      borderRadius: '0.375rem',
+                      backgroundColor: regenerateMessage.includes('失敗') ? '#fee2e2' : '#d1fae5',
+                      color: regenerateMessage.includes('失敗') ? '#991b1b' : '#065f46',
+                      fontSize: '0.875rem',
+                    }}
+                  >
+                    {regenerateMessage}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* バックアップコード再生成確認ダイアログ */}
+      {showRegenerateDialog && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            zIndex: 50,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="regenerate-dialog-title"
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '0.5rem',
+              padding: '2rem',
+              maxWidth: '500px',
+              width: '100%',
+            }}
+          >
+            <h3
+              id="regenerate-dialog-title"
+              style={{
+                fontSize: '1.25rem',
+                fontWeight: 'bold',
+                marginBottom: '1rem',
+              }}
+            >
+              バックアップコードの再生成
+            </h3>
+            <p style={{ marginBottom: '1.5rem', color: '#4b5563' }}>
+              既存のバックアップコードは無効になります。本当に再生成しますか？
+            </p>
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowRegenerateDialog(false)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#f3f4f6',
+                  color: '#374151',
+                  borderRadius: '0.375rem',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleRegenerateBackupCodes}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#f59e0b',
+                  color: 'white',
+                  borderRadius: '0.375rem',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                はい、再生成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* パスワード変更確認ダイアログ */}
       {showPasswordDialog && (
