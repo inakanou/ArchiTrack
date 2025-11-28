@@ -823,13 +823,31 @@ router.post(
       if (!result.ok) {
         const error = result.error;
         if (error.type === 'INVALID_2FA_CODE') {
-          res.status(401).json({ error: 'Invalid 2FA code', code: error.type });
+          res.status(401).json({
+            error: '認証コードが正しくありません',
+            detail: 'Invalid 2FA code',
+            code: error.type,
+          });
+          return;
+        } else if (error.type === 'ACCOUNT_LOCKED') {
+          res.status(429).json({
+            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
+            detail: 'Account locked due to too many failed 2FA attempts',
+            code: error.type,
+            unlockAt: error.unlockAt,
+          });
           return;
         } else if (error.type === 'USER_NOT_FOUND') {
           res.status(404).json({ error: 'User not found', code: error.type });
           return;
+        } else if (error.type === 'DATABASE_ERROR') {
+          logger.error({ error }, 'Database error during 2FA verification');
+          res.status(500).json({ error: '2FA verification failed', code: '2FA_ERROR' });
+          return;
         }
 
+        // 未知のエラータイプの場合
+        logger.error({ errorType: error.type }, 'Unknown 2FA error type');
         res.status(500).json({ error: '2FA verification failed', code: '2FA_ERROR' });
         return;
       }

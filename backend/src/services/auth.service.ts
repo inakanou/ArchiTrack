@@ -27,6 +27,7 @@ import type {
 import { Ok, Err, type Result } from '../types/result.js';
 import { addTimingAttackDelay } from '../utils/timing.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
+import logger from '../utils/logger.js';
 
 /**
  * 認証サービス
@@ -438,28 +439,40 @@ export class AuthService implements IAuthService {
       // 4. TOTP検証
       const verifyResult = await this.twoFactorService.verifyTOTP(userId, totpCode);
 
-      if (!verifyResult.ok) {
-        // TwoFactorServiceエラーをAuthErrorに変換
-        return Err({ type: 'INVALID_2FA_CODE' });
-      }
-
-      const isValid = verifyResult.value;
+      // 検証失敗（エラーまたは無効なコード）の場合、失敗カウンターをインクリメント
+      const isValid = verifyResult.ok && verifyResult.value;
 
       if (!isValid) {
         // 検証失敗: 失敗カウンターをインクリメント
-        const newFailures = user.twoFactorFailures + 1;
+        const currentFailures = user.twoFactorFailures ?? 0;
+        const newFailures = currentFailures + 1;
         const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
+        logger.info(
+          {
+            userId,
+            currentFailures,
+            newFailures,
+            isLocked,
+            maxFailures: SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES,
+          },
+          '2FA検証失敗: 失敗カウンターをインクリメント'
+        );
         const lockedUntil = isLocked
           ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
           : null;
 
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: {
-            twoFactorFailures: newFailures,
-            ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
-          },
-        });
+        try {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              twoFactorFailures: newFailures,
+              ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
+            },
+          });
+        } catch (updateError) {
+          logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
+          // 更新に失敗しても検証失敗として処理を続行
+        }
 
         if (isLocked && lockedUntil) {
           return Err({

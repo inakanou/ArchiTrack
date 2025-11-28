@@ -308,11 +308,22 @@ test.describe('2要素認証機能', () => {
 
       // 5回誤ったコードを入力
       for (let attempt = 0; attempt < 5; attempt++) {
+        // 各イテレーションの開始時に入力フィールドをクリア
+        for (let i = 0; i < 6; i++) {
+          await page.getByTestId(`totp-digit-${i}`).clear();
+        }
+
         const wrongDigits = '000000'.split('');
         for (let i = 0; i < wrongDigits.length; i++) {
           await page.getByTestId(`totp-digit-${i}`).fill(wrongDigits[i]!);
         }
+
+        // APIレスポンスを待機してクリック
+        const responsePromise = page.waitForResponse((response) =>
+          response.url().includes('/api/v1/auth/verify-2fa')
+        );
         await page.getByRole('button', { name: /検証|ログイン/i }).click();
+        await responsePromise;
 
         if (attempt < 4) {
           // エラーメッセージが表示される
