@@ -376,6 +376,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.waitForURL(/\/login/, { timeout: 15000 });
     await loginWithCredentials(page, 'user@example.com', initialPassword);
     await page.goto('/profile');
+    // AuthContextの初期化が完了するまで待機（ユーザー情報の表示を確認）
+    await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+      timeout: 10000,
+    });
     await expect(page.locator('input#currentPassword')).toBeVisible({
       timeout: 10000,
     });
@@ -399,7 +403,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       await loginWithCredentials(page, 'user@example.com', newPassword);
       await page.goto('/profile');
 
-      // プロフィールページが完全にロードされるのを待つ
+      // プロフィールページが完全にロードされるのを待つ（AuthContext初期化完了を確認）
+      await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+        timeout: 10000,
+      });
       await expect(page.locator('input#currentPassword')).toBeVisible({
         timeout: 10000,
       });
