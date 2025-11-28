@@ -40,9 +40,11 @@ export interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
   isInitialized: boolean;
+  sessionExpired: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<string>;
+  clearSessionExpired: () => void;
 }
 
 /**
@@ -71,6 +73,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
+  const [sessionExpired, setSessionExpired] = useState<boolean>(false);
   const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
 
   /**
@@ -78,6 +81,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
    */
   const login = useCallback(async (email: string, password: string): Promise<void> => {
     setIsLoading(true);
+    // ログイン試行時にセッション期限切れをクリア
+    setSessionExpired(false);
 
     try {
       // ログインAPIを呼び出し
@@ -235,6 +240,13 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   }, [tokenRefreshManager]);
 
   /**
+   * セッション期限切れフラグをクリア
+   */
+  const clearSessionExpired = useCallback(() => {
+    setSessionExpired(false);
+  }, []);
+
+  /**
    * コンポーネントマウント時の初期化処理
    */
   useEffect(() => {
@@ -308,6 +320,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         localStorage.removeItem('accessToken');
         apiClient.setAccessToken(null);
         setUser(null);
+        // セッション復元に失敗 = セッション期限切れとみなす（要件16.8）
+        setSessionExpired(true);
       } finally {
         // 初期化完了
         setIsLoading(false);
@@ -332,11 +346,22 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       user,
       isLoading,
       isInitialized,
+      sessionExpired,
       login,
       logout,
       refreshToken,
+      clearSessionExpired,
     }),
-    [user, isLoading, isInitialized, login, logout, refreshToken]
+    [
+      user,
+      isLoading,
+      isInitialized,
+      sessionExpired,
+      login,
+      logout,
+      refreshToken,
+      clearSessionExpired,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

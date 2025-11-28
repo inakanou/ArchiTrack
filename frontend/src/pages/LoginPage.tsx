@@ -26,6 +26,8 @@ export function LoginPage() {
 
   // location.stateから成功メッセージを取得（例：登録完了後のメッセージ）
   const successMessage = (location.state as { message?: string })?.message;
+  // location.stateからセッション期限切れフラグを取得（要件16.8）
+  const sessionExpired = (location.state as { sessionExpired?: boolean })?.sessionExpired;
 
   /**
    * ログイン処理
@@ -98,6 +100,26 @@ export function LoginPage() {
         >
           ArchiTrackへようこそ
         </p>
+
+        {/* セッション期限切れメッセージ（要件16.8、要件16.15） */}
+        {sessionExpired && (
+          <div
+            role="alert"
+            aria-live="polite"
+            style={{
+              padding: '0.75rem',
+              marginBottom: '1.5rem',
+              backgroundColor: '#fef3c7',
+              borderRadius: '0.375rem',
+              border: '1px solid #fcd34d',
+              color: '#92400e',
+              textAlign: 'center',
+              fontSize: '0.875rem',
+            }}
+          >
+            セッションの有効期限が切れました。再度ログインしてください。
+          </div>
+        )}
 
         {/* 成功メッセージ（登録完了後など） */}
         {successMessage && (

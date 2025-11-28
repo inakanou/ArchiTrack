@@ -63,7 +63,7 @@ export function ProtectedRoute({
   requireAuth = true,
   requiredRole,
 }: ProtectedRouteProps): ReactElement {
-  const { isAuthenticated, isLoading, isInitialized, user } = useAuth();
+  const { isAuthenticated, isLoading, isInitialized, user, sessionExpired } = useAuth();
   const location = useLocation();
 
   // requireAuth=true: 認証が必要なルート
@@ -88,8 +88,16 @@ export function ProtectedRoute({
     if (!isAuthenticated) {
       // 未認証の場合、現在のパスをstateに保存してリダイレクト
       // ログイン後にこのパスに戻れるようにする（Requirement 16）
+      // セッション期限切れの場合はsessionExpiredフラグも渡す（Requirement 16.8）
       return (
-        <Navigate to={redirectTo} state={{ from: location.pathname + location.search }} replace />
+        <Navigate
+          to={redirectTo}
+          state={{
+            from: location.pathname + location.search,
+            sessionExpired,
+          }}
+          replace
+        />
       );
     }
 
