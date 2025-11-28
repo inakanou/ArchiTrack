@@ -23,6 +23,20 @@ import logger from '../utils/logger.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
 
+/**
+ * リフレッシュトークンをHTTPOnly Cookieに設定する
+ * 要件26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
+ */
+function setRefreshTokenCookie(res: Response, refreshToken: string): void {
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/',
+  });
+}
+
 const router = Router();
 const prisma = getPrismaClient();
 const authService = new AuthService(prisma);
@@ -240,6 +254,9 @@ router.post(
 
       const authResponse = result.value;
 
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
+
       logger.info(
         { userId: authResponse.user.id, email: authResponse.user.email },
         'User registered successfully'
@@ -351,6 +368,11 @@ router.post(
 
       const loginResponse = result.value;
 
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      if (loginResponse.refreshToken) {
+        setRefreshTokenCookie(res, loginResponse.refreshToken);
+      }
+
       if (loginResponse.user) {
         logger.info(
           { userId: loginResponse.user.id, email: loginResponse.user.email },
@@ -433,6 +455,9 @@ router.post(
       }
 
       const authResponse = result.value;
+
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
 
       logger.info(
         { userId: authResponse.user.id, email: authResponse.user.email },
@@ -801,6 +826,9 @@ router.post(
       }
 
       const authResponse = result.value;
+
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
 
       logger.info({ userId: authResponse.user.id }, '2FA verification successful');
 

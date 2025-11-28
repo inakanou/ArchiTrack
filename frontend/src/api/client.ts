@@ -69,6 +69,7 @@ class ApiClient {
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
+        credentials: 'include', // 要件26.5: HTTPOnly Cookieを送受信するため
       });
 
       clearTimeout(timeoutId);
