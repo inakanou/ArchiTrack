@@ -41,7 +41,12 @@ test.describe('トークンリフレッシュ機能', () => {
       timeout: 10000,
     });
 
-    // リフレッシュトークンが保存されていることを確認
+    // リフレッシュトークンがlocalStorageに保存されていることを確認
+    // initializeAuthが完了するまで待機（networkidleとwaitForFunction）
+    await page.waitForLoadState('networkidle');
+    await page.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
+      timeout: 10000,
+    });
     const initialRefreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
     expect(initialRefreshToken).toBeTruthy();
 
