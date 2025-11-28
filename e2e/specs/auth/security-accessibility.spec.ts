@@ -105,12 +105,15 @@ test.describe('セキュリティテスト', () => {
     await page.getByRole('button', { name: /ログイン/i }).click();
 
     // ログインが失敗し、適切なエラーメッセージが表示される
+    // SQLインジェクションペイロードは不正なメールアドレス形式のため、バリデーションエラーとなる
     await expect(
-      page.getByText(/メールアドレスまたはパスワードが正しくありません|無効なメールアドレス/i)
+      page.getByText(
+        /メールアドレスまたはパスワードが正しくありません|無効なメールアドレス|有効なメールアドレスを入力してください/i
+      )
     ).toBeVisible();
 
-    // ダッシュボードにリダイレクトされていないことを確認
-    await expect(page).not.toHaveURL(/\//);
+    // ログインページに留まっていることを確認（ダッシュボードにリダイレクトされていない）
+    await expect(page).toHaveURL(/\/login/);
   });
 
   /**
