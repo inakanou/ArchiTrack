@@ -513,13 +513,35 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'INVALID_TOTP_CODE' });
       }
 
-      // トランザクション内で2FAを有効化、監査ログ記録
-      await this.prisma.$transaction([
-        this.prisma.user.update({
+      // バックアップコードを再生成（TOTP検証成功後に新しいコードを生成）
+      const plainTextBackupCodes = this.generateBackupCodes();
+
+      // トランザクション内で2FAを有効化、既存バックアップコード削除、新規コード保存、監査ログ記録
+      await this.prisma.$transaction(async (tx) => {
+        // 2FAを有効化
+        await tx.user.update({
           where: { id: userId },
           data: { twoFactorEnabled: true },
-        }),
-        this.prisma.auditLog.create({
+        });
+
+        // 既存のバックアップコードを削除（setupTwoFactor時に生成されたもの）
+        await tx.twoFactorBackupCode.deleteMany({
+          where: { userId },
+        });
+
+        // 新しいバックアップコードをハッシュ化して保存
+        for (const code of plainTextBackupCodes) {
+          const codeHash = await hash(code);
+          await tx.twoFactorBackupCode.create({
+            data: {
+              userId,
+              codeHash,
+            },
+          });
+        }
+
+        // 監査ログを記録
+        await tx.auditLog.create({
           data: {
             action: 'TWO_FACTOR_ENABLED',
             actorId: userId,
@@ -527,13 +549,16 @@ export class TwoFactorService implements ITwoFactorService {
             targetId: userId,
             metadata: {},
           },
-        }),
-      ]);
+        });
+      });
 
-      // バックアップコードを取得（平文は保存していないため、既存のコードを返す）
-      // 注: 実際の実装では、setupTwoFactor時に平文バックアップコードを返すべき
+      // バックアップコードをXXXX-XXXX形式にフォーマット
+      const formattedBackupCodes = plainTextBackupCodes.map(
+        (code) => `${code.slice(0, 4)}-${code.slice(4, 8)}`
+      );
+
       logger.info({ userId }, '2FAを有効化しました');
-      return Ok({ backupCodes: [] });
+      return Ok({ backupCodes: formattedBackupCodes });
     } catch (error) {
       logger.error({ error, userId }, '2FA有効化中にエラーが発生しました');
       return Err({ type: 'INVALID_TOTP_CODE' });

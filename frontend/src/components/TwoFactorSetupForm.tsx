@@ -142,6 +142,34 @@ function TwoFactorSetupForm({
     }
   };
 
+  // バックアップコード印刷
+  const handlePrintBackupCodes = () => {
+    const printContent = `
+      <html>
+        <head>
+          <title>ArchiTrack バックアップコード</title>
+          <style>
+            body { font-family: monospace; padding: 20px; }
+            h1 { font-size: 18px; margin-bottom: 20px; }
+            .code { padding: 8px 0; font-size: 16px; }
+            .warning { color: #666; font-size: 12px; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <h1>ArchiTrack バックアップコード</h1>
+          ${backupCodes.map((code) => `<div class="code">${code}</div>`).join('')}
+          <p class="warning">※ このコードは安全な場所に保管してください。</p>
+        </body>
+      </html>
+    `;
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
   // 完了処理
   const handleComplete = () => {
     onComplete();
@@ -455,7 +483,11 @@ function TwoFactorSetupForm({
               }}
             >
               {backupCodes.map((code, index) => (
-                <div key={index} data-testid="backup-code-item" style={{ padding: '4px' }}>
+                <div
+                  key={index}
+                  data-testid="backup-code-item"
+                  style={{ padding: '4px', fontFamily: 'monospace' }}
+                >
                   {code}
                 </div>
               ))}
@@ -478,6 +510,22 @@ function TwoFactorSetupForm({
               }}
             >
               ダウンロード
+            </button>
+            <button
+              type="button"
+              onClick={handlePrintBackupCodes}
+              style={{
+                flex: 1,
+                padding: '10px 20px',
+                backgroundColor: '#fff',
+                color: '#333',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              印刷
             </button>
             <button
               type="button"
