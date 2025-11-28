@@ -287,7 +287,7 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
     await page.locator('input#password').fill('Password123!');
 
     // ログインボタンにフォーカスを移動
-    await page.keyboard.press('Tab');
+    // パスワード入力 → パスワード表示ボタン → ログインボタン
     await page.keyboard.press('Tab');
     await page.keyboard.press('Tab');
 
