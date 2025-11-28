@@ -149,8 +149,11 @@ test.describe('セキュリティテスト', () => {
 
   /**
    * 要件5.5: トークン改ざんの検出
-   * WHEN アクセストークンが改ざんされている
-   * THEN システムはリクエストを拒否する
+   * WHEN リフレッシュトークンが改ざんされている
+   * THEN システムはセッション復元を拒否し、ログイン画面へリダイレクトする
+   *
+   * Note: アクセストークンはメモリ内で管理されるため、
+   * リフレッシュトークンを改ざんしてセッション復元をテストする
    */
   test('改ざんされたトークンでリクエストが拒否される', async ({ page }) => {
     // 正常にログイン
@@ -160,24 +163,19 @@ test.describe('セキュリティテスト', () => {
     // プロフィールページが表示されることを確認
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible();
 
-    // トークンを改ざん
+    // リフレッシュトークンを改ざん（セッション復元時に使用される）
     await page.evaluate(() => {
       const tamperedToken =
         'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.TAMPERED_PAYLOAD.TAMPERED_SIGNATURE';
-      localStorage.setItem('accessToken', tamperedToken);
+      localStorage.setItem('refreshToken', tamperedToken);
     });
 
-    // 保護されたリソースにアクセス
-    await page.goto('/profile');
+    // ページをリロードしてセッション復元を試みる
+    await page.reload();
 
-    // 401エラーまたはログイン画面へのリダイレクト
-    const isUnauthorized = await page
-      .getByText(/unauthorized|認証されていません/i)
-      .isVisible()
-      .catch(() => false);
-    const isLoginPage = page.url().includes('/login');
-
-    expect(isUnauthorized || isLoginPage).toBe(true);
+    // 改ざんされたトークンによりセッション復元が失敗し、ログイン画面へリダイレクトされる
+    await page.waitForURL(/\/login/, { timeout: 10000 });
+    expect(page.url()).toContain('/login');
   });
 
   /**
