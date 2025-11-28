@@ -184,6 +184,8 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
           {errors.email && (
             <p
               id="email-error"
+              role="alert"
+              aria-live="polite"
               style={{
                 marginTop: '0.25rem',
                 fontSize: '0.875rem',
@@ -244,6 +246,8 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
           {errors.password && (
             <p
               id="password-error"
+              role="alert"
+              aria-live="polite"
               style={{
                 marginTop: '0.25rem',
                 fontSize: '0.875rem',
