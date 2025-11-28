@@ -320,6 +320,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         localStorage.removeItem('accessToken');
         apiClient.setAccessToken(null);
         setUser(null);
+        // 要件16.19: Cookieからもリフレッシュトークンを削除
+        document.cookie = 'refreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
         // セッション復元に失敗 = セッション期限切れとみなす（要件16.8）
         setSessionExpired(true);
       } finally {
