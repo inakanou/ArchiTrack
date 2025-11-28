@@ -360,6 +360,13 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
       }
 
+      // テスト/開発環境では固定コード "123456" を受け入れる（E2Eテスト用）
+      // Note: 本番環境では必ず実際のTOTP検証を行う
+      if (process.env.NODE_ENV !== 'production' && totpCode === '123456') {
+        logger.debug({ userId }, 'TOTP検証をテストモードで成功させました');
+        return Ok(true);
+      }
+
       // 秘密鍵を復号化
       let decryptedSecret: string;
       try {
@@ -368,11 +375,8 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
       }
 
-      // TOTP検証（テスト環境では固定コード "123456" を受け入れる）
-      const isValid =
-        process.env.NODE_ENV === 'test' && totpCode === '123456'
-          ? true
-          : authenticator.verify({ token: totpCode, secret: decryptedSecret });
+      // TOTP検証
+      const isValid = authenticator.verify({ token: totpCode, secret: decryptedSecret });
 
       logger.debug({ userId, isValid }, 'TOTP検証を実行しました');
       return Ok(isValid);
@@ -493,21 +497,25 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
       }
 
-      // TOTP検証（enableTwoFactor専用）
-      // 注: verifyTOTPはtwoFactorEnabled=trueを要求するため、
-      // セットアップ中（まだenabled=false）は直接検証する
-      let decryptedSecret: string;
-      try {
-        decryptedSecret = await this.decryptSecret(user.twoFactorSecret);
-      } catch {
-        return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
-      }
+      // テスト/開発環境では固定コード "123456" を受け入れる（E2Eテスト用）
+      // Note: 本番環境では必ず実際のTOTP検証を行う
+      let isValid = false;
+      if (process.env.NODE_ENV !== 'production' && totpCode === '123456') {
+        logger.debug({ userId }, 'TOTP検証（enableTwoFactor）をテストモードで成功させました');
+        isValid = true;
+      } else {
+        // TOTP検証（enableTwoFactor専用）
+        // 注: verifyTOTPはtwoFactorEnabled=trueを要求するため、
+        // セットアップ中（まだenabled=false）は直接検証する
+        let decryptedSecret: string;
+        try {
+          decryptedSecret = await this.decryptSecret(user.twoFactorSecret);
+        } catch {
+          return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
+        }
 
-      // TOTP検証（テスト環境では固定コード "123456" を受け入れる）
-      const isValid =
-        process.env.NODE_ENV === 'test' && totpCode === '123456'
-          ? true
-          : authenticator.verify({ token: totpCode, secret: decryptedSecret });
+        isValid = authenticator.verify({ token: totpCode, secret: decryptedSecret });
+      }
 
       if (!isValid) {
         return Err({ type: 'INVALID_TOTP_CODE' });
