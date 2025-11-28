@@ -262,7 +262,7 @@ export function PasswordResetPage() {
               navigate('/login');
             }}
             style={{
-              color: '#3b82f6',
+              color: '#2563eb',
               textDecoration: 'none',
             }}
           >
