@@ -75,8 +75,8 @@ test.describe('セッション管理機能', () => {
     // 確認ダイアログが表示される
     await expect(page.getByText(/全てのデバイスからログアウトします/i)).toBeVisible();
 
-    // 確認ボタンをクリック（aria-label="はい"のボタン）
-    await page.getByRole('button', { name: /^はい$/i }).click();
+    // 確認ボタンをクリック（aria-label="はい、全デバイスからログアウト"のボタン）
+    await page.getByRole('button', { name: /はい、全デバイスからログアウト/i }).click();
 
     // ログインページにリダイレクトされる
     await expect(page).toHaveURL(/\/login/);
