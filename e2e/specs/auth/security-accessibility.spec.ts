@@ -335,8 +335,10 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
     const errorRegion = page.locator('[aria-live="polite"], [role="alert"]');
     await expect(errorRegion.first()).toBeVisible();
 
-    // エラーメッセージの内容を確認
-    await expect(page.getByText(/メールアドレスは必須|パスワードは必須|必須項目/i)).toBeVisible();
+    // エラーメッセージの内容を確認（複数のエラーメッセージが表示される可能性があるため.first()を使用）
+    await expect(
+      page.getByText(/メールアドレスは必須|パスワードは必須|必須項目/i).first()
+    ).toBeVisible();
   });
 
   /**
