@@ -149,7 +149,7 @@ test.describe('2要素認証機能', () => {
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
       // バックアップコード画面が表示されるまで待機
-      await expect(page.getByText(/ステップ 2/i)).toBeVisible();
+      await expect(page.getByText(/バックアップコードを保存/i)).toBeVisible();
 
       // ダウンロードボタンをクリック
       const downloadPromise = page.waitForEvent('download');
@@ -164,8 +164,11 @@ test.describe('2要素認証機能', () => {
       if (path) {
         const fs = await import('fs/promises');
         const content = await fs.readFile(path, 'utf-8');
-        expect(content).toContain('バックアップコード');
-        expect(content).toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/); // 少なくとも1つのコードが含まれる
+        // バックアップコードが含まれていることを確認（XXXX-XXXX形式）
+        expect(content).toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
+        // 10個のバックアップコードが含まれていることを確認
+        const codeLines = content.trim().split('\n');
+        expect(codeLines.length).toBe(10);
       }
     });
 
@@ -184,7 +187,7 @@ test.describe('2要素認証機能', () => {
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
       // バックアップコード保存確認
-      await expect(page.getByText(/ステップ 2/i)).toBeVisible();
+      await expect(page.getByText(/バックアップコードを保存/i)).toBeVisible();
       await page.getByRole('checkbox', { name: /保存しました|確認しました/i }).check();
 
       // 完了ボタンをクリック
