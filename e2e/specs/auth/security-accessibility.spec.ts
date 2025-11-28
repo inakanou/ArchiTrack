@@ -143,7 +143,7 @@ test.describe('セキュリティテスト', () => {
 
     // 5回目の失敗後、アカウントロックメッセージが表示される
     await expect(
-      page.getByText(/アカウントがロックされました.*15分後に再試行してください/i)
+      page.getByText(/アカウントがロックされています.*\d+分後に再試行できます/i)
     ).toBeVisible();
   });
 
