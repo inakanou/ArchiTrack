@@ -21,10 +21,14 @@ function createMockAuthContextValue(overrides: Partial<AuthContextValue> = {}): 
     isLoading: false,
     isInitialized: true,
     sessionExpired: false,
+    twoFactorState: null,
     login: vi.fn(),
     logout: vi.fn(),
     refreshToken: vi.fn(),
     clearSessionExpired: vi.fn(),
+    verify2FA: vi.fn(),
+    verifyBackupCode: vi.fn(),
+    cancel2FA: vi.fn(),
     ...overrides,
   };
 }

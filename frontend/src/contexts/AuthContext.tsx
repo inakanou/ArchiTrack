@@ -33,6 +33,14 @@ export interface Tokens {
 }
 
 /**
+ * 2FA認証の状態
+ */
+export interface TwoFactorState {
+  required: boolean;
+  email: string;
+}
+
+/**
  * 認証コンテキストの型定義
  */
 export interface AuthContextValue {
@@ -41,10 +49,14 @@ export interface AuthContextValue {
   isLoading: boolean;
   isInitialized: boolean;
   sessionExpired: boolean;
+  twoFactorState: TwoFactorState | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<string>;
   clearSessionExpired: () => void;
+  verify2FA: (code: string) => Promise<void>;
+  verifyBackupCode: (code: string) => Promise<void>;
+  cancel2FA: () => void;
 }
 
 /**
@@ -75,6 +87,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
   const [sessionExpired, setSessionExpired] = useState<boolean>(false);
   const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
+  const [twoFactorState, setTwoFactorState] = useState<TwoFactorState | null>(null);
 
   /**
    * ログイン関数
@@ -102,8 +115,12 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
       // 2FA有効ユーザーの場合は2FA検証画面へ
       if (response.requires2FA) {
-        // TODO: 2FA検証画面への遷移処理を実装
-        throw new Error('2FA is not yet implemented');
+        setTwoFactorState({
+          required: true,
+          email: email,
+        });
+        setIsLoading(false);
+        return;
       }
 
       // 通常ログイン成功時の処理
@@ -250,6 +267,152 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   }, []);
 
   /**
+   * 2FA TOTPコード検証
+   */
+  const verify2FA = useCallback(
+    async (code: string): Promise<void> => {
+      if (!twoFactorState) {
+        throw new Error('2FA state not available');
+      }
+
+      setIsLoading(true);
+
+      try {
+        const response = await apiClient.post<{
+          accessToken: string;
+          refreshToken: string;
+          user: User;
+          expiresIn?: number;
+        }>('/api/v1/auth/verify-2fa', {
+          token: code,
+          email: twoFactorState.email,
+        });
+
+        // 2FA成功: 状態をクリアしてログイン完了処理
+        setTwoFactorState(null);
+        setUser(response.user);
+        apiClient.setAccessToken(response.accessToken);
+        localStorage.setItem('refreshToken', response.refreshToken);
+
+        // TokenRefreshManagerを初期化
+        const manager = new TokenRefreshManager(async () => {
+          const storedRefreshToken = localStorage.getItem('refreshToken');
+          if (!storedRefreshToken) {
+            throw new Error('No refresh token available');
+          }
+
+          const refreshResponse = await apiClient.post<{
+            accessToken: string;
+            refreshToken?: string;
+          }>('/api/v1/auth/refresh', {
+            refreshToken: storedRefreshToken,
+          });
+
+          apiClient.setAccessToken(refreshResponse.accessToken);
+
+          if (refreshResponse.refreshToken) {
+            localStorage.setItem('refreshToken', refreshResponse.refreshToken);
+          }
+
+          return refreshResponse.accessToken;
+        });
+        setTokenRefreshManager(manager);
+        apiClient.setTokenRefreshCallback(() => manager.refreshToken());
+
+        if (response.expiresIn) {
+          manager.scheduleAutoRefresh(response.expiresIn);
+        }
+
+        manager.onTokenRefreshed((newAccessToken) => {
+          apiClient.setAccessToken(newAccessToken);
+        });
+      } catch (error) {
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [twoFactorState]
+  );
+
+  /**
+   * 2FAバックアップコード検証
+   */
+  const verifyBackupCode = useCallback(
+    async (code: string): Promise<void> => {
+      if (!twoFactorState) {
+        throw new Error('2FA state not available');
+      }
+
+      setIsLoading(true);
+
+      try {
+        // バックアップコードもverify-2faエンドポイントで検証
+        const response = await apiClient.post<{
+          accessToken: string;
+          refreshToken: string;
+          user: User;
+          expiresIn?: number;
+        }>('/api/v1/auth/verify-2fa', {
+          token: code,
+          email: twoFactorState.email,
+        });
+
+        // 2FA成功: 状態をクリアしてログイン完了処理
+        setTwoFactorState(null);
+        setUser(response.user);
+        apiClient.setAccessToken(response.accessToken);
+        localStorage.setItem('refreshToken', response.refreshToken);
+
+        // TokenRefreshManagerを初期化
+        const manager = new TokenRefreshManager(async () => {
+          const storedRefreshToken = localStorage.getItem('refreshToken');
+          if (!storedRefreshToken) {
+            throw new Error('No refresh token available');
+          }
+
+          const refreshResponse = await apiClient.post<{
+            accessToken: string;
+            refreshToken?: string;
+          }>('/api/v1/auth/refresh', {
+            refreshToken: storedRefreshToken,
+          });
+
+          apiClient.setAccessToken(refreshResponse.accessToken);
+
+          if (refreshResponse.refreshToken) {
+            localStorage.setItem('refreshToken', refreshResponse.refreshToken);
+          }
+
+          return refreshResponse.accessToken;
+        });
+        setTokenRefreshManager(manager);
+        apiClient.setTokenRefreshCallback(() => manager.refreshToken());
+
+        if (response.expiresIn) {
+          manager.scheduleAutoRefresh(response.expiresIn);
+        }
+
+        manager.onTokenRefreshed((newAccessToken) => {
+          apiClient.setAccessToken(newAccessToken);
+        });
+      } catch (error) {
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [twoFactorState]
+  );
+
+  /**
+   * 2FA認証をキャンセル
+   */
+  const cancel2FA = useCallback(() => {
+    setTwoFactorState(null);
+  }, []);
+
+  /**
    * コンポーネントマウント時の初期化処理
    */
   useEffect(() => {
@@ -357,20 +520,28 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       isLoading,
       isInitialized,
       sessionExpired,
+      twoFactorState,
       login,
       logout,
       refreshToken,
       clearSessionExpired,
+      verify2FA,
+      verifyBackupCode,
+      cancel2FA,
     }),
     [
       user,
       isLoading,
       isInitialized,
       sessionExpired,
+      twoFactorState,
       login,
       logout,
       refreshToken,
       clearSessionExpired,
+      verify2FA,
+      verifyBackupCode,
+      cancel2FA,
     ]
   );
 

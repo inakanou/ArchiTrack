@@ -368,6 +368,15 @@ router.post(
 
       const loginResponse = result.value;
 
+      // 2FA有効ユーザーの場合は2FA検証を要求
+      if (loginResponse.type === '2FA_REQUIRED') {
+        res.status(200).json({
+          requires2FA: true,
+          userId: loginResponse.userId,
+        });
+        return;
+      }
+
       // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
       if (loginResponse.refreshToken) {
         setRefreshTokenCookie(res, loginResponse.refreshToken);

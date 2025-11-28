@@ -173,6 +173,7 @@ function TwoFactorVerificationForm({
             {/* カウントダウンタイマー */}
             <div style={{ marginBottom: '20px', textAlign: 'center' }}>
               <div
+                data-testid="totp-countdown-timer"
                 style={{
                   fontSize: '24px',
                   fontWeight: 'bold',
@@ -183,6 +184,7 @@ function TwoFactorVerificationForm({
                 {timeRemaining}秒
               </div>
               <div
+                data-testid="totp-progress-bar"
                 style={{
                   width: '100%',
                   height: '4px',
@@ -229,6 +231,7 @@ function TwoFactorVerificationForm({
                   onKeyDown={(e) => handleKeyDown(index, e)}
                   onPaste={index === 0 ? handlePaste : undefined}
                   aria-label={`認証コード ${index + 1}桁目`}
+                  data-testid={`totp-digit-${index}`}
                   style={{
                     width: '48px',
                     height: '56px',

@@ -1,7 +1,8 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import LoginForm from '../components/LoginForm';
+import TwoFactorVerificationForm from '../components/TwoFactorVerificationForm';
 import type { LoginFormData, LoginResult } from '../types/auth.types';
 import { ApiError } from '../api/client';
 
@@ -12,22 +13,33 @@ import { ApiError } from '../api/client';
  *
  * ## 機能
  * - ログインフォーム表示
+ * - 2FA検証画面表示（2FA有効ユーザーの場合）
  * - ログイン成功時にリダイレクトURLまたはダッシュボードへ遷移
  * - パスワード忘れた場合のリンク（パスワードリセットページへ遷移）
  *
  * ## 要件
  * - Requirement 16: セッション有効期限切れ時のリダイレクトURL保存機能
+ * - Requirement 27A: 2FA検証
  */
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, twoFactorState, verify2FA, verifyBackupCode, cancel2FA, isAuthenticated } =
+    useAuth();
   const [loginError, setLoginError] = useState<ApiError | null>(null);
 
   // location.stateから成功メッセージを取得（例：登録完了後のメッセージ）
   const successMessage = (location.state as { message?: string })?.message;
   // location.stateからセッション期限切れフラグを取得（要件16.8）
   const sessionExpired = (location.state as { sessionExpired?: boolean })?.sessionExpired;
+
+  // 2FA認証成功後のリダイレクト
+  useEffect(() => {
+    if (isAuthenticated && !twoFactorState) {
+      const from = (location.state as { from?: string })?.from || '/';
+      navigate(from, { replace: true });
+    }
+  }, [isAuthenticated, twoFactorState, navigate, location.state]);
 
   /**
    * ログイン処理
@@ -40,12 +52,11 @@ export function LoginPage() {
       // AuthContextのlogin()を呼び出し
       await login(data.email, data.password);
 
-      // ログイン成功時、リダイレクトURLまたはダッシュボードへ遷移
-      const from = (location.state as { from?: string })?.from || '/';
-      navigate(from, { replace: true });
+      // 2FA要求時は画面遷移しない（AuthContextがtwoFactorStateを設定する）
+      // 通常ログイン成功時は useEffect でリダイレクト
 
       return {
-        type: 'SUCCESS', // TODO: 2FA対応時に '2FA_REQUIRED' も処理
+        type: 'SUCCESS',
       };
     } catch (error) {
       // エラーを状態に保存（LoginForm は error prop で受け取る）
@@ -59,6 +70,73 @@ export function LoginPage() {
       };
     }
   };
+
+  /**
+   * TOTP検証処理
+   */
+  const handleVerifyTOTP = async (code: string) => {
+    try {
+      await verify2FA(code);
+      return { success: true as const };
+    } catch (error) {
+      const errorMessage =
+        error instanceof ApiError ? error.message : '認証コードの検証に失敗しました';
+      return { success: false as const, error: errorMessage };
+    }
+  };
+
+  /**
+   * バックアップコード検証処理
+   */
+  const handleVerifyBackupCode = async (code: string) => {
+    try {
+      await verifyBackupCode(code);
+      return { success: true as const };
+    } catch (error) {
+      const errorMessage =
+        error instanceof ApiError ? error.message : 'バックアップコードの検証に失敗しました';
+      return { success: false as const, error: errorMessage };
+    }
+  };
+
+  /**
+   * 2FA認証キャンセル処理
+   */
+  const handleCancel2FA = () => {
+    cancel2FA();
+  };
+
+  // 2FA検証画面表示
+  if (twoFactorState?.required) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#f3f4f6',
+        }}
+      >
+        <div
+          style={{
+            width: '100%',
+            maxWidth: '28rem',
+            padding: '2rem',
+            backgroundColor: 'white',
+            borderRadius: '0.5rem',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          }}
+        >
+          <TwoFactorVerificationForm
+            onVerifyTOTP={handleVerifyTOTP}
+            onVerifyBackupCode={handleVerifyBackupCode}
+            onCancel={handleCancel2FA}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
