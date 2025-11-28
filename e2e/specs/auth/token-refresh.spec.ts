@@ -376,20 +376,27 @@ test.describe('トークンリフレッシュ機能', () => {
     await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
-    // セッション管理ページに移動
-    await page.goto('/sessions');
+    // セッション管理ページに移動（ネットワーク安定化を待つ）
+    await page.goto('/sessions', { waitUntil: 'networkidle' });
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
       timeout: 10000,
     });
 
+    // 全デバイスからログアウトボタンが表示されるまで待機（セッション一覧取得完了を待つ）
+    const logoutAllButton = page.getByRole('button', { name: /全デバイスからログアウト/i });
+    await expect(logoutAllButton).toBeVisible({ timeout: 10000 });
+
     // 全デバイスからログアウトボタンをクリック
-    await page.getByRole('button', { name: /全デバイスからログアウト/i }).click();
+    await logoutAllButton.click();
 
     // 確認ダイアログでログアウトを確定
     await page.getByRole('button', { name: /はい、全デバイスからログアウト/i }).click();
 
     // ログイン画面にリダイレクト
     await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+
+    // ページが完全にロードされるまで待機
+    await page.waitForLoadState('networkidle');
 
     // 要件16.14: セッション期限切れメッセージが表示されていない
     // （明示的なログアウトなのでsessionExpiredフラグはfalse）

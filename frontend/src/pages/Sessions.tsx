@@ -411,7 +411,7 @@ export function Sessions() {
               </button>
               <button
                 onClick={handleConfirmLogoutAll}
-                aria-label="はい"
+                aria-label="はい、全デバイスからログアウト"
                 style={{
                   padding: '0.5rem 1rem',
                   backgroundColor: '#dc2626',

@@ -199,6 +199,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       // APIクライアントのトークンリフレッシュコールバックをクリア
       apiClient.setTokenRefreshCallback(null);
 
+      // 要件16.14: 明示的なログアウトではsessionExpiredをfalseに設定
+      setSessionExpired(false);
+
       setIsLoading(false);
     }
   }, [tokenRefreshManager]);

@@ -32,6 +32,17 @@ export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS):
   // ログインページに移動し、ページ読み込み完了を待機
   await page.goto('/login', { waitUntil: 'networkidle' });
 
+  // 前のテストの認証状態をクリア（シリアル実行テスト対応）
+  // ページナビゲーション後に認証トークンをクリアし、必要に応じてページをリロード
+  const hasExistingToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
+  if (hasExistingToken) {
+    await page.evaluate(() => {
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('accessToken');
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+  }
+
   // フォーム要素が操作可能になるまで待機
   const emailInput = page.getByLabel(/メールアドレス/i);
   const passwordInput = page.locator('input#password');
