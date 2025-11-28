@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
+import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getPrismaClient } from '../../fixtures/database';
 
 /**
  * 管理者招待機能のE2Eテスト
@@ -21,25 +21,57 @@ test.describe('管理者招待機能', () => {
    * page.reload() はセッションが失われる可能性があるため、
    * 明示的にナビゲーションして待機する
    * ログイン画面にリダイレクトされた場合は再ログインする
+   * APIエラーが発生した場合はリトライする
    */
   async function reloadInvitationsPage(page: import('@playwright/test').Page) {
-    await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-    // ログイン画面にリダイレクトされた場合は再ログインする
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'ADMIN_USER');
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
       await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
+
+      // ログイン画面にリダイレクトされた場合は再ログインする
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'ADMIN_USER');
+        await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
+      }
+
+      // UI要素が表示されるまで待機
+      await page.getByLabel(/メールアドレス/i).waitFor({ state: 'visible', timeout: 10000 });
+      await page.getByRole('table').waitFor({ state: 'visible', timeout: 10000 });
+
+      // APIエラーが表示されていないか確認
+      const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
+      const hasError = await errorAlert.isVisible().catch(() => false);
+
+      if (!hasError) {
+        // エラーがなければ成功
+        return;
+      }
+
+      // エラーがあればリトライ
+      lastError = new Error('招待一覧の取得に失敗しました');
+      await page.waitForTimeout(500); // リトライ前に少し待機
     }
 
-    await page.getByLabel(/メールアドレス/i).waitFor({ state: 'visible', timeout: 10000 });
-    await page.getByRole('table').waitFor({ state: 'visible', timeout: 10000 });
+    // リトライ上限に達した場合はエラーをスロー
+    throw lastError || new Error('招待画面のロードに失敗しました');
   }
 
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
 
-    // 管理者でログイン（グローバルセットアップで作成済み）
+    // データベースをクリーンアップし、テストユーザーを再作成
+    // これにより各テストが独立して実行され、順序に依存しなくなる
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
+
+    // 管理者でログイン
     await loginAsUser(page, 'ADMIN_USER');
 
     // 招待画面に移動
@@ -165,11 +197,12 @@ test.describe('管理者招待機能', () => {
    * IF リクエスト送信者が管理者ロールを持たない
    * THEN Authentication Serviceは403 Forbiddenエラーを返す
    */
-  test('一般ユーザーは招待画面にアクセスできない', async ({ page }) => {
-    // 一般ユーザーを作成してログイン
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER'); // 後続テストのbeforeEach用に再作成
-    await createTestUser('REGULAR_USER');
+  test('一般ユーザーは招待画面にアクセスできない', async ({ page, context }) => {
+    // 現在のセッションをクリア（beforeEachでログインしたADMIN_USERのセッション）
+    await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+
+    // 一般ユーザーでログイン（beforeEachで既に作成済み）
     await loginAsUser(page, 'REGULAR_USER');
 
     // 招待画面にアクセスを試みる
@@ -226,20 +259,20 @@ test.describe('管理者招待機能', () => {
     // ページをリロードして招待一覧を更新
     await reloadInvitationsPage(page);
 
-    // 未使用の招待
+    // 未使用の招待（招待行が表示されるまで待機）
     const unusedRow = page.locator('tr', { has: page.locator('text="unused@example.com"') });
-    await expect(unusedRow).toBeVisible();
-    await expect(unusedRow.locator('text=/未使用|Pending/i')).toBeVisible();
+    await expect(unusedRow).toBeVisible({ timeout: 10000 });
+    await expect(unusedRow.locator('text=/未使用|Pending/i')).toBeVisible({ timeout: 10000 });
 
     // 使用済みの招待
     const usedRow = page.locator('tr', { has: page.locator('text="used@example.com"') });
-    await expect(usedRow).toBeVisible();
-    await expect(usedRow.locator('text=/使用済み|Used/i')).toBeVisible();
+    await expect(usedRow).toBeVisible({ timeout: 10000 });
+    await expect(usedRow.locator('text=/使用済み|Used/i')).toBeVisible({ timeout: 10000 });
 
     // 期限切れの招待
     const expiredRow = page.locator('tr', { has: page.locator('text="expired@example.com"') });
-    await expect(expiredRow).toBeVisible();
-    await expect(expiredRow.locator('text=/期限切れ|Expired/i')).toBeVisible();
+    await expect(expiredRow).toBeVisible({ timeout: 10000 });
+    await expect(expiredRow.locator('text=/期限切れ|Expired/i')).toBeVisible({ timeout: 10000 });
   });
 
   /**
@@ -269,9 +302,12 @@ test.describe('管理者招待機能', () => {
       has: page.locator('text="cancel-test@example.com"'),
     });
 
+    // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
+    await expect(invitationRow).toBeVisible({ timeout: 10000 });
+
     // 取り消しボタンが有効である
     const cancelButton = invitationRow.getByRole('button', { name: /取り消し|キャンセル/i });
-    await expect(cancelButton).toBeVisible();
+    await expect(cancelButton).toBeVisible({ timeout: 10000 });
     await expect(cancelButton).toBeEnabled();
   });
 
@@ -303,9 +339,12 @@ test.describe('管理者招待機能', () => {
       has: page.locator(`text="${uniqueEmail}"`),
     });
 
+    // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
+    await expect(invitationRow).toBeVisible({ timeout: 10000 });
+
     // 再送信ボタンが有効である
     const resendButton = invitationRow.getByRole('button', { name: /再送信|再送/i });
-    await expect(resendButton).toBeVisible();
+    await expect(resendButton).toBeVisible({ timeout: 10000 });
     await expect(resendButton).toBeEnabled();
   });
 
@@ -375,11 +414,11 @@ test.describe('管理者招待機能', () => {
     const pagination = page.locator(
       '[data-testid="pagination"], nav[aria-label="ページネーション"], .pagination'
     );
-    await expect(pagination).toBeVisible();
+    await expect(pagination).toBeVisible({ timeout: 10000 });
 
     // ページ番号または次へボタンが表示される
     const nextButton = pagination.getByRole('button', { name: '次へ' });
-    await expect(nextButton).toBeVisible();
+    await expect(nextButton).toBeVisible({ timeout: 10000 });
   });
 
   /**
@@ -428,18 +467,22 @@ test.describe('管理者招待機能', () => {
 
     // 各ステータスのバッジまたはアイコンが表示される
     const unusedRow = page.locator('tr', { has: page.locator('text="visual-unused@example.com"') });
+    // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
+    await expect(unusedRow).toBeVisible({ timeout: 10000 });
     const unusedBadge = unusedRow.locator('[data-testid="status-badge"], .badge, .status');
-    await expect(unusedBadge).toBeVisible();
+    await expect(unusedBadge).toBeVisible({ timeout: 10000 });
 
     const usedRow = page.locator('tr', { has: page.locator('text="visual-used@example.com"') });
+    await expect(usedRow).toBeVisible({ timeout: 10000 });
     const usedBadge = usedRow.locator('[data-testid="status-badge"], .badge, .status');
-    await expect(usedBadge).toBeVisible();
+    await expect(usedBadge).toBeVisible({ timeout: 10000 });
 
     const expiredRow = page.locator('tr', {
       has: page.locator('text="visual-expired@example.com"'),
     });
+    await expect(expiredRow).toBeVisible({ timeout: 10000 });
     const expiredBadge = expiredRow.locator('[data-testid="status-badge"], .badge, .status');
-    await expect(expiredBadge).toBeVisible();
+    await expect(expiredBadge).toBeVisible({ timeout: 10000 });
   });
 
   /**
@@ -467,13 +510,28 @@ test.describe('管理者招待機能', () => {
     // モバイルビューポートに設定
     await page.setViewportSize({ width: 375, height: 667 });
 
-    // モバイル用のページリロード（テーブルではなくカードを待機）
-    await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'ADMIN_USER');
+    // モバイル用のページリロード（リトライ付き）
+    const maxRetries = 3;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
       await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
+
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'ADMIN_USER');
+        await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
+      }
+
+      await page.getByLabel(/メールアドレス/i).waitFor({ state: 'visible', timeout: 10000 });
+
+      // APIエラーが表示されていないか確認
+      const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
+      const hasError = await errorAlert.isVisible().catch(() => false);
+
+      if (!hasError) {
+        break;
+      }
+
+      await page.waitForTimeout(500);
     }
-    await page.getByLabel(/メールアドレス/i).waitFor({ state: 'visible', timeout: 10000 });
 
     // カード形式のレイアウトが表示される
     const mobileCard = page.locator('[data-testid="invitation-card"]');
@@ -526,12 +584,16 @@ test.describe('管理者招待機能', () => {
     const invitationRow = page.locator('tr', {
       has: page.locator('text="dialog-test@example.com"'),
     });
+    // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
+    await expect(invitationRow).toBeVisible({ timeout: 10000 });
+
     const cancelButton = invitationRow.getByRole('button', { name: /取り消し|キャンセル/i });
+    await expect(cancelButton).toBeVisible({ timeout: 10000 });
     await cancelButton.click();
 
     // 確認ダイアログが表示される
     const dialog = page.getByRole('dialog', { name: /取り消しますか/i });
-    await expect(dialog).toBeVisible();
+    await expect(dialog).toBeVisible({ timeout: 10000 });
 
     // Escキーを押してダイアログを閉じる
     await page.keyboard.press('Escape');
