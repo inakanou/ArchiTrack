@@ -6,12 +6,22 @@
  * - 5.5: アクセストークンが改ざんされている場合、リクエストを拒否
  * - 16.1: Authorizationヘッダーからトークンを抽出
  * - 16.2: EdDSA署名を検証
- * - 16.18: req.userにユーザー情報を設定
+ * - 16.18: 401レスポンスにWWW-Authenticateヘッダーを含める, req.userにユーザー情報を設定
  */
 
 import type { Request, Response, NextFunction } from 'express';
 import { TokenService } from '../services/token.service.js';
 import tokenServiceInstance from '../services/token.service.js';
+
+/**
+ * WWW-Authenticateヘッダー値を生成
+ * 要件16.18: Bearer realm="ArchiTrack", error="..." 形式
+ */
+function getWwwAuthenticateHeader(
+  error: 'missing_token' | 'invalid_token' | 'expired_token'
+): string {
+  return `Bearer realm="ArchiTrack", error="${error}"`;
+}
 
 /**
  * JWT認証ミドルウェアファクトリー
@@ -29,6 +39,7 @@ export function createAuthMiddleware(tokenService?: TokenService) {
       const authHeader = req.headers.authorization;
 
       if (!authHeader) {
+        res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('missing_token'));
         res.status(401).json({
           error: 'MISSING_TOKEN',
           message: 'Authentication token is required',
@@ -39,6 +50,7 @@ export function createAuthMiddleware(tokenService?: TokenService) {
       // "Bearer {token}" 形式のチェック
       const parts = authHeader.split(' ');
       if (parts.length !== 2 || parts[0] !== 'Bearer') {
+        res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('invalid_token'));
         res.status(401).json({
           error: 'MISSING_TOKEN',
           message: 'Authentication token is required',
@@ -50,6 +62,7 @@ export function createAuthMiddleware(tokenService?: TokenService) {
 
       // 空のトークンチェック
       if (!token || token.trim() === '') {
+        res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('missing_token'));
         res.status(401).json({
           error: 'MISSING_TOKEN',
           message: 'Authentication token is required',
@@ -66,6 +79,7 @@ export function createAuthMiddleware(tokenService?: TokenService) {
       // 検証結果をチェック
       if (!result.ok) {
         if (result.error.type === 'TOKEN_EXPIRED') {
+          res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('expired_token'));
           res.status(401).json({
             error: 'TOKEN_EXPIRED',
             message: 'Token has expired',
@@ -73,6 +87,7 @@ export function createAuthMiddleware(tokenService?: TokenService) {
           return;
         }
 
+        res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('invalid_token'));
         res.status(401).json({
           error: 'INVALID_TOKEN',
           message: 'Invalid or expired token',
@@ -91,6 +106,7 @@ export function createAuthMiddleware(tokenService?: TokenService) {
       next();
     } catch {
       // 予期しないエラーをハンドリング
+      res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('invalid_token'));
       res.status(401).json({
         error: 'INVALID_TOKEN',
         message: 'Invalid or expired token',

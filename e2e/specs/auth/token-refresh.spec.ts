@@ -445,25 +445,34 @@ test.describe('トークンリフレッシュ機能', () => {
    * 要件16.18: Authentication Serviceが401レスポンスを返す際に、
    * WWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token"ヘッダーを含める
    */
-  test('401レスポンスに正しいWWW-Authenticateヘッダーが含まれる', async ({ page }) => {
+  test('401レスポンスに正しいWWW-Authenticateヘッダーが含まれる', async ({ playwright }) => {
     await createTestUser('REGULAR_USER');
 
-    // 無効なトークンでAPIリクエストを送信
-    const response = await page.request.get('/api/v1/auth/me', {
-      headers: {
-        Authorization: 'Bearer invalid.token',
-      },
-      failOnStatusCode: false,
+    // 新しいAPIコンテキストを作成（ブラウザのCookieを持たない）
+    const apiContext = await playwright.request.newContext({
+      baseURL: 'http://localhost:3000',
     });
 
-    expect(response.status()).toBe(401);
+    try {
+      // 無効なトークンでAPIリクエストを送信
+      const response = await apiContext.get('/api/v1/auth/me', {
+        headers: {
+          Authorization: 'Bearer invalid.token',
+        },
+        failOnStatusCode: false,
+      });
 
-    // 要件16.18: WWW-Authenticateヘッダーの検証
-    const wwwAuth = response.headers()['www-authenticate'];
-    expect(wwwAuth).toBeTruthy();
-    expect(wwwAuth).toContain('Bearer');
-    expect(wwwAuth).toContain('realm="ArchiTrack"');
-    expect(wwwAuth).toContain('error="invalid_token"');
+      expect(response.status()).toBe(401);
+
+      // 要件16.18: WWW-Authenticateヘッダーの検証
+      const wwwAuth = response.headers()['www-authenticate'];
+      expect(wwwAuth).toBeTruthy();
+      expect(wwwAuth).toContain('Bearer');
+      expect(wwwAuth).toContain('realm="ArchiTrack"');
+      expect(wwwAuth).toContain('error="invalid_token"');
+    } finally {
+      await apiContext.dispose();
+    }
   });
 
   /**
