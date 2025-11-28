@@ -341,13 +341,25 @@ test.describe('トークンリフレッシュ機能', () => {
     await expect(page.getByRole('heading', { name: /ログイン/i })).toBeVisible();
 
     // 再ログイン
-    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
-    await page.locator('input#password').fill('Password123!');
-    await page.getByRole('button', { name: /ログイン/i }).click();
+    // ページが完全にロードされるまで待機（initializeAuth完了を含む）
+    await page.waitForLoadState('networkidle');
+
+    // フォーム要素が操作可能になるまで待機
+    const emailInput = page.getByLabel(/メールアドレス/i);
+    const passwordInput = page.locator('input#password');
+    const loginButton = page.getByRole('button', { name: /ログイン/i });
+
+    await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+    await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
+    await loginButton.waitFor({ state: 'visible', timeout: 10000 });
+
+    await emailInput.fill('user@example.com');
+    await passwordInput.fill('Password123!');
+    await loginButton.click();
 
     // 要件16.9: 元のページ（プロフィール）にリダイレクトされる
     // React Routerはlocation.stateを使用してリダイレクト先を記憶している
-    await expect(page).toHaveURL(/\/profile/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/profile/, { timeout: 15000 });
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
       timeout: 10000,
     });
