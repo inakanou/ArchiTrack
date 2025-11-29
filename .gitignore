@@ -36,7 +36,11 @@ storybook-static/
 .mcp.local.json
 
 # IDE
-.vscode/
+# .vscode/ は選択的に共有（extensions.json, settings.json, launch.json, tasks.json）
+.vscode/*.code-workspace
+.vscode/history/
+.vscode/.browse.c_cpp.db*
+.vscode/ipch/
 .idea/
 *.swp
 *.swo

@@ -53,6 +53,7 @@ Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-
 - [開発ワークフロー](docs/development/workflow.md) - Kiro-style SDD、ブランチ戦略
 - [データベースマイグレーション](docs/development/database-migration.md) - Prisma、Draft機能
 - [テスト](docs/development/testing.md) - ユニット・統合・E2Eテスト
+- [デバッグ](docs/development/debugging.md) - VSCodeデバッグ設定、トラブルシューティング
 - [コーディング規約](docs/development/coding-standards.md) - TypeScript・React・Prisma規約
 - [Git設定](docs/development/git-configuration.md) - Git hooks設定
 - [MCP設定](docs/development/mcp-setup.md) - Playwright MCPサーバー（Claude Code用）
