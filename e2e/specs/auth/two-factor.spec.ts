@@ -611,8 +611,40 @@ test.describe('2要素認証機能', () => {
      * 要件27E.2: TOTPコード入力フィールドにaria-label属性とrole="group"を設定
      */
     test('TOTPコード入力フィールドに適切なARIA属性が設定されている', async ({ page }) => {
-      await page.goto('/profile/2fa-setup');
-      await page.waitForLoadState('networkidle');
+      const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
+
+      // APIが失敗したり認証が切れることがあるため、最大3回リトライ
+      let retries = 3;
+      while (retries > 0) {
+        await page.goto('/profile/2fa-setup');
+        await page.waitForLoadState('networkidle');
+
+        // ログインページにリダイレクトされた場合は再ログイン
+        if (page.url().includes('/login')) {
+          await loginAsUser(page, 'REGULAR_USER');
+          await page.goto('/profile/2fa-setup');
+          await page.waitForLoadState('networkidle');
+        }
+
+        // ローディングインジケーターが非表示になるか、存在しないことを確認
+        const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
+        const loadingExists = await loadingIndicator.count();
+        if (loadingExists > 0) {
+          await expect(loadingIndicator).toBeHidden({ timeout: 15000 });
+        }
+
+        // QRコードが表示されているか確認
+        const isQrVisible = await qrCode.isVisible().catch(() => false);
+        if (isQrVisible) {
+          break;
+        }
+
+        retries--;
+        if (retries === 0) {
+          // 最終試行でも失敗した場合は通常のアサートでエラーを表示
+          await expect(qrCode).toBeVisible({ timeout: 5000 });
+        }
+      }
 
       const totpGroup = page.getByRole('group', { name: /認証コード/i });
       await expect(totpGroup).toBeVisible();
