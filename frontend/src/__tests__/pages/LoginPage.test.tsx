@@ -177,5 +177,41 @@ describe('LoginPage Component', () => {
         expect(screen.getByRole('alert')).toHaveTextContent('認証に失敗しました');
       });
     });
+
+    it('ログイン失敗時にApiError以外のエラーも処理する', async () => {
+      const user = userEvent.setup();
+      mockLogin.mockRejectedValueOnce(new Error('Network error'));
+
+      renderLoginPage();
+
+      await user.click(screen.getByRole('button', { name: /ログイン/i }));
+
+      await waitFor(() => {
+        expect(mockLogin).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('セッション期限切れ表示', () => {
+    it('location.stateにsessionExpiredがある場合、メッセージを表示する', () => {
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              state: { sessionExpired: true },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'セッションの有効期限が切れました。再度ログインしてください。'
+      );
+    });
   });
 });

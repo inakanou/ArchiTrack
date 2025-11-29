@@ -297,4 +297,77 @@ describe('SessionManager', () => {
       expect(button).toHaveAttribute('aria-label');
     });
   });
+
+  it('Error以外のエラー時はデフォルトメッセージを表示する', async () => {
+    const user = userEvent.setup();
+    mockOnDeleteSession.mockRejectedValue('string error');
+
+    render(
+      <SessionManager
+        sessions={mockSessions}
+        onDeleteSession={mockOnDeleteSession}
+        onDeleteAllSessions={mockOnDeleteAllSessions}
+      />
+    );
+
+    const logoutButton = screen.getByLabelText(/Safari on macOSからログアウト/i);
+    await user.click(logoutButton);
+
+    const confirmButton = screen.getByRole('button', { name: /確認/i });
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/セッション削除に失敗しました/i)).toBeInTheDocument();
+    });
+  });
+
+  it('モーダル背景クリックでダイアログが閉じる', async () => {
+    const user = userEvent.setup();
+    render(
+      <SessionManager
+        sessions={mockSessions}
+        onDeleteSession={mockOnDeleteSession}
+        onDeleteAllSessions={mockOnDeleteAllSessions}
+      />
+    );
+
+    const logoutButton = screen.getByLabelText(/Safari on macOSからログアウト/i);
+    await user.click(logoutButton);
+
+    // ダイアログが表示されていることを確認
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    // 背景をクリック（モーダル背景のdivは最後の子要素）
+    const dialogBackground = document.querySelector('div[style*="rgba(0, 0, 0, 0.5)"]');
+    expect(dialogBackground).toBeInTheDocument();
+    await user.click(dialogBackground!);
+
+    // ダイアログが閉じたことを確認
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('IPアドレスがない場合は「不明」と表示する', () => {
+    const sessionsWithoutIP: Session[] = [
+      {
+        id: '3',
+        deviceInfo: 'Firefox on Linux',
+        ipAddress: '',
+        createdAt: '2025-01-01T00:00:00Z',
+        expiresAt: '2025-01-08T00:00:00Z',
+        isCurrent: false,
+      },
+    ];
+
+    render(
+      <SessionManager
+        sessions={sessionsWithoutIP}
+        onDeleteSession={mockOnDeleteSession}
+        onDeleteAllSessions={mockOnDeleteAllSessions}
+      />
+    );
+
+    expect(screen.getByText(/IP: 不明/)).toBeInTheDocument();
+  });
 });

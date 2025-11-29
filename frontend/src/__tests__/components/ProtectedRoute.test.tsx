@@ -303,4 +303,227 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByTestId('protected-content')).toBeInTheDocument();
   });
+
+  /**
+   * 要件16A: isInitialized=falseの間、ローディングインジケーターが表示されること
+   */
+  it('should display loading indicator when isInitialized=false', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isInitialized: false,
+      isLoading: false,
+      isAuthenticated: false,
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Routes>
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ローディングインジケーターが表示されていることを確認
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByText('認証状態を確認中...')).toBeInTheDocument();
+  });
+
+  /**
+   * ロールチェック: requiredRoleが指定されていて、ユーザーがそのロールを持っていない場合
+   */
+  it('should show access denied when user does not have required role', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: true,
+      isInitialized: true,
+      user: {
+        id: '123',
+        email: 'test@example.com',
+        displayName: 'Test User',
+        roles: ['user'],
+      },
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/admin']}>
+          <Routes>
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // アクセス権限エラーが表示されることを確認
+    expect(screen.getByText('アクセス権限がありません')).toBeInTheDocument();
+    expect(screen.getByText('ホームに戻る')).toBeInTheDocument();
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+  });
+
+  /**
+   * ロールチェック: requiredRoleが指定されていて、ユーザーがそのロールを持っている場合
+   */
+  it('should show protected content when user has required role', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: true,
+      isInitialized: true,
+      user: {
+        id: '123',
+        email: 'admin@example.com',
+        displayName: 'Admin User',
+        roles: ['admin', 'user'],
+      },
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/admin']}>
+          <Routes>
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // 保護されたコンテンツが表示されることを確認
+    expect(screen.getByTestId('protected-content')).toBeInTheDocument();
+  });
+});
+
+describe('ProtectedRoute - requireAuth=false', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * requireAuth=false: 認証済みユーザーはリダイレクトされること
+   */
+  it('should redirect authenticated user when requireAuth=false', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: true,
+      isInitialized: true,
+      user: {
+        id: '123',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      },
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/login']}>
+          <Routes>
+            <Route
+              path="/login"
+              element={
+                <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
+                  <LoginPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/dashboard" element={<ProtectedContent />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ダッシュボードにリダイレクトされることを確認
+    expect(screen.getByTestId('protected-content')).toBeInTheDocument();
+    expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+  });
+
+  /**
+   * requireAuth=false: 未認証ユーザーはログインページを表示すること
+   */
+  it('should show login page for unauthenticated user when requireAuth=false', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/login']}>
+          <Routes>
+            <Route
+              path="/login"
+              element={
+                <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
+                  <LoginPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/dashboard" element={<ProtectedContent />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ログインページが表示されることを確認
+    expect(screen.getByTestId('login-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+  });
+
+  /**
+   * requireAuth=false: stateにfromがある場合、そのパスにリダイレクトすること
+   */
+  it('should redirect to from path when state contains from', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: true,
+      isInitialized: true,
+      user: {
+        id: '123',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      },
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: '/profile' } }]}>
+          <Routes>
+            <Route
+              path="/login"
+              element={
+                <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
+                  <LoginPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/dashboard" element={<div>Dashboard</div>} />
+            <Route path="/profile" element={<div data-testid="profile-page">Profile</div>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // stateのfromパス（/profile）にリダイレクトされることを確認
+    expect(screen.getByTestId('profile-page')).toBeInTheDocument();
+  });
 });

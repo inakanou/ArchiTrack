@@ -570,4 +570,254 @@ describe('TwoFactorSetupForm', () => {
       });
     });
   });
+
+  describe('追加カバレッジテスト', () => {
+    it('6桁コードをペーストすると全フィールドに入力される', async () => {
+      const user = userEvent.setup();
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      // 最初の入力フィールドを取得
+      const firstInput = screen.getByTestId('totp-digit-0');
+
+      // ペーストイベントをシミュレート
+      await user.click(firstInput);
+      await user.paste('123456');
+
+      // 全フィールドに値が入力されていることを確認
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      expect(inputs[0]).toHaveValue('1');
+      expect(inputs[1]).toHaveValue('2');
+      expect(inputs[2]).toHaveValue('3');
+      expect(inputs[3]).toHaveValue('4');
+      expect(inputs[4]).toHaveValue('5');
+      expect(inputs[5]).toHaveValue('6');
+    });
+
+    it('Backspaceキーで前のフィールドにフォーカスが移動する', async () => {
+      const user = userEvent.setup();
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+
+      // 2番目のフィールドにフォーカス
+      const secondInput = inputs[1];
+      expect(secondInput).toBeDefined();
+      await user.click(secondInput!);
+
+      // Backspaceキーを押す
+      await user.keyboard('{Backspace}');
+
+      // 最初のフィールドにフォーカスが移動していることを確認
+      expect(inputs[0]).toHaveFocus();
+    });
+
+    it('印刷ボタンをクリックすると印刷ウィンドウが開く', async () => {
+      const user = userEvent.setup();
+      const mockPrintWindow = {
+        document: {
+          write: vi.fn(),
+          close: vi.fn(),
+        },
+        print: vi.fn(),
+      };
+      vi.spyOn(window, 'open').mockReturnValue(mockPrintWindow as unknown as Window);
+
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      // ステップ3へ進む
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      for (let i = 0; i < 6; i++) {
+        await user.type(inputs[i]!, String(i));
+      }
+
+      const verifyButton = screen.getByRole('button', { name: /検証/i });
+      await user.click(verifyButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /バックアップコードを保存/i })
+        ).toBeInTheDocument();
+      });
+
+      // 印刷ボタンをクリック
+      const printButton = screen.getByRole('button', { name: /印刷/i });
+      await user.click(printButton);
+
+      expect(window.open).toHaveBeenCalledWith('', '_blank');
+      expect(mockPrintWindow.document.write).toHaveBeenCalled();
+      expect(mockPrintWindow.print).toHaveBeenCalled();
+    });
+
+    it('クリップボードコピー失敗時にエラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      const writeTextMock = vi.fn().mockRejectedValue(new Error('Clipboard error'));
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: writeTextMock,
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      // ステップ3へ進む
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      for (let i = 0; i < 6; i++) {
+        await user.type(inputs[i]!, String(i));
+      }
+
+      const verifyButton = screen.getByRole('button', { name: /検証/i });
+      await user.click(verifyButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /バックアップコードを保存/i })
+        ).toBeInTheDocument();
+      });
+
+      // コピーボタンをクリック
+      const copyButton = screen.getByRole('button', { name: /コピー/i });
+      await user.click(copyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/クリップボードへのコピーに失敗しました/)).toBeInTheDocument();
+      });
+    });
+
+    it('セットアップ開始APIが例外をスローした場合にエラーメッセージを表示する', async () => {
+      mockOnSetupStart.mockRejectedValue(new Error('Network error'));
+
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('セットアップの初期化に失敗しました')).toBeInTheDocument();
+      });
+    });
+
+    it('TOTP検証APIが例外をスローした場合にエラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      mockOnEnable.mockRejectedValue(new Error('Network error'));
+
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      for (let i = 0; i < 6; i++) {
+        await user.type(inputs[i]!, String(i));
+      }
+
+      const verifyButton = screen.getByRole('button', { name: /検証/i });
+      await user.click(verifyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('検証に失敗しました')).toBeInTheDocument();
+      });
+    });
+
+    it('ダウンロードボタンをクリックするとダウンロードが実行される', async () => {
+      const user = userEvent.setup();
+
+      // URL APIのモック（renderの前に設定）
+      const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      const createObjectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      // ステップ3へ進む
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      for (let i = 0; i < 6; i++) {
+        await user.type(inputs[i]!, String(i));
+      }
+
+      const verifyButton = screen.getByRole('button', { name: /検証/i });
+      await user.click(verifyButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /バックアップコードを保存/i })
+        ).toBeInTheDocument();
+      });
+
+      // ダウンロードボタンをクリック
+      const downloadButton = screen.getByRole('button', { name: /ダウンロード/i });
+      await user.click(downloadButton);
+
+      // URL.createObjectURLとrevokeObjectURLが呼ばれることを確認
+      expect(createObjectURLSpy).toHaveBeenCalled();
+      expect(revokeObjectURLSpy).toHaveBeenCalled();
+    });
+  });
 });
