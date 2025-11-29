@@ -98,7 +98,7 @@ test.describe('監査ログとコンプライアンス', () => {
         Authorization: `Bearer ${accessToken}`,
       },
       data: {
-        roleIds: [newRole.id],
+        roleId: newRole.id,
       },
     });
 
@@ -152,9 +152,8 @@ test.describe('監査ログとコンプライアンス', () => {
     expect(logsResponse.ok()).toBeTruthy();
     const logsData = await logsResponse.json();
 
-    // レスポンス形式を確認
-    expect(logsData).toHaveProperty('logs');
-    expect(Array.isArray(logsData.logs)).toBe(true);
+    // レスポンス形式を確認（配列が返される）
+    expect(Array.isArray(logsData)).toBe(true);
   });
 
   /**

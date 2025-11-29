@@ -144,6 +144,22 @@ router.post(
         return;
       }
 
+      // 監査ログ記録
+      if (req.user?.userId) {
+        await auditLogService.createLog({
+          action: 'ROLE_CREATED',
+          actorId: req.user.userId,
+          targetType: 'role',
+          targetId: result.value.id,
+          before: null,
+          after: {
+            id: result.value.id,
+            name: result.value.name,
+            description: result.value.description,
+          },
+        });
+      }
+
       logger.info(
         { roleId: result.value.id, name: result.value.name, userId: req.user?.userId },
         'Role created successfully'

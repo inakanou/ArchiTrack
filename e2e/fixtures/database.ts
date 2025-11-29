@@ -89,9 +89,23 @@ export async function cleanDatabase(): Promise<void> {
     client.invitation.deleteMany(),
     client.userRole.deleteMany(), // UserとRoleに依存するため、User削除前に実行
     client.user.deleteMany(),
+    // テストで作成されたロールの関連権限を削除
+    client.rolePermission.deleteMany({
+      where: {
+        role: {
+          isSystem: false,
+        },
+      },
+    }),
+    // テストで作成されたロールを削除（isSystem=false）
+    client.role.deleteMany({
+      where: {
+        isSystem: false,
+      },
+    }),
   ]);
 
-  // Note: Role, Permissionテーブルはマスターデータなので削除しない
+  // Note: システムロール（isSystem=true）とPermissionテーブルはマスターデータなので削除しない
   // これらはglobal-setupで初期化され、テスト全体で共有されます
 }
 
