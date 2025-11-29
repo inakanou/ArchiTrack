@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-27（Steering Sync: テスト数更新、パスワード複雑性バリデーション追加）_
+_最終更新: 2025-11-29（Steering Sync: テスト数更新、2FA機能強化、HTTPOnly Cookie実装、要件カバレッジチェック追加）_
 
 ## ルートディレクトリ構成
 
@@ -798,8 +798,8 @@ refactor: improve type safety by eliminating any types
 2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
 3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
 4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認
-5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（571テスト、カバレッジ閾値80%）
-6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（378テスト、カバレッジ閾値80%）
+5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（1011+テストケース、カバレッジ閾値80%）
+6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（667+テストケース、カバレッジ閾値80%）
 7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`（Docker環境必須）
 8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分、Docker環境必須）
    - **同期実行**: テスト完了を待ってからプッシュ実行
@@ -819,8 +819,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 738テスト（単体）+ 68テスト（統合）
-- Frontend: 495テスト（単体）
+- Backend: 1011+テストケース（単体）+ 68テスト（統合）
+- Frontend: 667+テストケース（単体）
 
 ### .gitignore
 
