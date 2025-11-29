@@ -7,7 +7,8 @@ import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 /**
  * プロフィール管理機能のE2Eテスト
  *
- * 要件14: プロフィール画面のUI/UX
+ * @REQ-9 プロフィール管理
+ * @REQ-14 プロフィール画面のUI/UX
  */
 
 // ===== パスワードを変更しないテスト =====

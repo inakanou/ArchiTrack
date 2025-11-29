@@ -4,7 +4,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 /**
  * セッション管理機能のE2Eテスト
  *
- * 要件8: セッション管理
+ * @REQ-8 セッション管理
  */
 test.describe('セッション管理機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）

@@ -17,6 +17,9 @@
     "format": "prettier --write \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\"",
     "format:check": "prettier --check \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\"",
     "type-check": "tsc --noEmit",
+    "check:req-coverage": "npx tsx scripts/check-requirement-coverage.ts",
+    "check:req-coverage:verbose": "npx tsx scripts/check-requirement-coverage.ts --verbose",
+    "check:req-coverage:json": "npx tsx scripts/check-requirement-coverage.ts --json",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -36,6 +39,7 @@
     "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "prisma": "^6.19.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.47.0"
   },

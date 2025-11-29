@@ -6,7 +6,7 @@ import { loginWithCredentials } from '../../helpers/auth-actions';
 /**
  * パスワード管理機能のE2Eテスト
  *
- * 要件7: パスワード管理
+ * @REQ-7 パスワード管理
  *
  * このテストスイートは、パスワードリセット機能をEnd-to-Endで検証します。
  */

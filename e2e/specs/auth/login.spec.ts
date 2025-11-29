@@ -5,7 +5,8 @@ import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 /**
  * ログイン機能のE2Eテスト
  *
- * 要件13: ログイン画面のUI/UX
+ * @REQ-4 ログイン
+ * @REQ-11 ログイン画面のUI/UX
  */
 test.describe('ログイン機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）

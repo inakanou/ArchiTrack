@@ -563,6 +563,15 @@ elif [ $E2E_EXIT_CODE -ne 0 ]; then
   exit 1
 fi
 
+# Requirement coverage check
+echo "📋 Checking E2E requirement coverage..."
+npm run check:req-coverage -- --threshold=100
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement coverage check failed. Push aborted."
+  echo "   Run 'npm run check:req-coverage:verbose' to see details."
+  exit 1
+fi
+
 echo "✅ All checks passed!"
 
 } 2>&1 | tee "${LOG_FILE}"
