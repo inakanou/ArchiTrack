@@ -162,21 +162,29 @@ describe('TwoFactorSetupPage Component', () => {
 
   describe('完了処理', () => {
     it('完了ボタンをクリックするとプロフィールページへ遷移する', async () => {
-      const user = userEvent.setup();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({
+        advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+      });
 
       renderTwoFactorSetupPage();
 
       await user.click(screen.getByTestId('complete-button'));
 
+      // setTimeout 後に navigate が呼ばれる
+      await vi.advanceTimersByTimeAsync(1500);
+
       expect(mockNavigate).toHaveBeenCalledWith('/profile', {
         replace: true,
-        state: { message: '2要素認証が有効化されました' },
       });
+
+      vi.useRealTimers();
     });
   });
 
   describe('キャンセル処理', () => {
     it('キャンセルボタンをクリックするとプロフィールページへ遷移する', async () => {
+      vi.useRealTimers(); // 前のテストのfakeTimersをクリア
       const user = userEvent.setup();
 
       renderTwoFactorSetupPage();

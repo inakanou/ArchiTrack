@@ -17,6 +17,9 @@ vi.mock('../../api/client', () => ({
   },
 }));
 
+// document.createElementの元の参照を保存
+const _originalCreateElement = document.createElement.bind(document);
+
 describe('AuditLogs Component', () => {
   // 基本的なモックログ（3件）
   const basicMockLogs: AuditLog[] = [
@@ -79,7 +82,7 @@ describe('AuditLogs Component', () => {
   describe('監査ログ一覧表示', () => {
     it('初期ロード時に監査ログ一覧を表示する（要件22.1）', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -97,7 +100,7 @@ describe('AuditLogs Component', () => {
 
     it('ログ情報（日時、イベント種別、実行者、対象、詳細）を表示する（要件22.2）', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -127,7 +130,7 @@ describe('AuditLogs Component', () => {
 
     it('ログがない場合は空状態を表示する', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: [] });
+      vi.mocked(apiClient.get).mockResolvedValue([]);
 
       render(<AuditLogs />);
 
@@ -155,7 +158,7 @@ describe('AuditLogs Component', () => {
     it('イベント種別フィルターを変更するとログを再取得する（要件22.3）', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -178,7 +181,7 @@ describe('AuditLogs Component', () => {
     it('開始日時フィルターを変更するとログを再取得する（要件22.3）', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -199,7 +202,7 @@ describe('AuditLogs Component', () => {
     it('終了日時フィルターを変更するとログを再取得する（要件22.3）', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -220,7 +223,7 @@ describe('AuditLogs Component', () => {
     it('フィルター変更時にページ番号を0にリセットする', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -247,7 +250,7 @@ describe('AuditLogs Component', () => {
     it('次へボタンをクリックすると次のページを表示する（要件22.4）', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: paginationMockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(paginationMockLogs);
 
       render(<AuditLogs />);
 
@@ -271,7 +274,7 @@ describe('AuditLogs Component', () => {
     it('前へボタンをクリックすると前のページを表示する（要件22.4）', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: paginationMockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(paginationMockLogs);
 
       render(<AuditLogs />);
 
@@ -299,7 +302,7 @@ describe('AuditLogs Component', () => {
 
     it('最初のページで前へボタンが無効化される', async () => {
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -314,7 +317,7 @@ describe('AuditLogs Component', () => {
     it('ログ数がページサイズ未満の場合、次へボタンが無効化される', async () => {
       const { apiClient } = await import('../../api/client');
       // 3件（20件未満）のログを返す
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -331,7 +334,7 @@ describe('AuditLogs Component', () => {
     it('JSONエクスポートボタンをクリックするとダウンロードが開始される（要件22.5）', async () => {
       const user = userEvent.setup();
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       // Blob, URL.createObjectURL, URL.revokeObjectURL をモック
       globalThis.URL.createObjectURL = vi.fn(() => 'blob:http://localhost/test');
@@ -339,17 +342,18 @@ describe('AuditLogs Component', () => {
 
       // document.createElement('a').click() をモック
       const mockClick = vi.fn();
-      const originalCreateElement = document.createElement.bind(document);
-      const mockCreateElement = vi.spyOn(document, 'createElement');
-      mockCreateElement.mockImplementation((tagName: string) => {
+      const mockAnchor = {
+        href: '',
+        download: '',
+        click: mockClick,
+        style: {},
+      } as unknown as HTMLAnchorElement;
+
+      vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
         if (tagName === 'a') {
-          return {
-            href: '',
-            download: '',
-            click: mockClick,
-          } as unknown as HTMLAnchorElement;
+          return mockAnchor;
         }
-        return originalCreateElement(tagName);
+        return _originalCreateElement(tagName);
       });
 
       render(<AuditLogs />);
@@ -375,7 +379,7 @@ describe('AuditLogs Component', () => {
       });
 
       // クリーンアップ
-      mockCreateElement.mockRestore();
+      vi.mocked(document.createElement).mockRestore();
     });
 
     it('JSONエクスポート失敗時にエラーメッセージを表示する', async () => {
@@ -383,7 +387,7 @@ describe('AuditLogs Component', () => {
       const { apiClient } = await import('../../api/client');
 
       // 初回取得は成功
-      vi.mocked(apiClient.get).mockResolvedValueOnce({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockLogs);
 
       // エクスポートは失敗
       vi.mocked(apiClient.get).mockRejectedValueOnce({
@@ -412,23 +416,24 @@ describe('AuditLogs Component', () => {
       const { apiClient } = await import('../../api/client');
 
       // 初回取得は成功
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       globalThis.URL.createObjectURL = vi.fn(() => 'blob:http://localhost/test');
       globalThis.URL.revokeObjectURL = vi.fn();
 
       const mockClick = vi.fn();
-      const originalCreateElement = document.createElement.bind(document);
-      const mockCreateElement = vi.spyOn(document, 'createElement');
-      mockCreateElement.mockImplementation((tagName: string) => {
+      const mockAnchor = {
+        href: '',
+        download: '',
+        click: mockClick,
+        style: {},
+      } as unknown as HTMLAnchorElement;
+
+      vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
         if (tagName === 'a') {
-          return {
-            href: '',
-            download: '',
-            click: mockClick,
-          } as unknown as HTMLAnchorElement;
+          return mockAnchor;
         }
-        return originalCreateElement(tagName);
+        return _originalCreateElement(tagName);
       });
 
       render(<AuditLogs />);
@@ -456,7 +461,7 @@ describe('AuditLogs Component', () => {
         );
       });
 
-      mockCreateElement.mockRestore();
+      vi.mocked(document.createElement).mockRestore();
     });
   });
 
@@ -470,7 +475,7 @@ describe('AuditLogs Component', () => {
       });
 
       const { apiClient } = await import('../../api/client');
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       render(<AuditLogs />);
 
@@ -501,23 +506,24 @@ describe('AuditLogs Component', () => {
       const { apiClient } = await import('../../api/client');
 
       // 初回取得は成功
-      vi.mocked(apiClient.get).mockResolvedValue({ logs: mockLogs });
+      vi.mocked(apiClient.get).mockResolvedValue(mockLogs);
 
       globalThis.URL.createObjectURL = vi.fn(() => 'blob:http://localhost/test');
       globalThis.URL.revokeObjectURL = vi.fn();
 
       const mockClick = vi.fn();
-      const originalCreateElement = document.createElement.bind(document);
-      const mockCreateElement = vi.spyOn(document, 'createElement');
-      mockCreateElement.mockImplementation((tagName: string) => {
+      const mockAnchor = {
+        href: '',
+        download: '',
+        click: mockClick,
+        style: {},
+      } as unknown as HTMLAnchorElement;
+
+      vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
         if (tagName === 'a') {
-          return {
-            href: '',
-            download: '',
-            click: mockClick,
-          } as unknown as HTMLAnchorElement;
+          return mockAnchor;
         }
-        return originalCreateElement(tagName);
+        return _originalCreateElement(tagName);
       });
 
       render(<AuditLogs />);
@@ -537,7 +543,7 @@ describe('AuditLogs Component', () => {
         expect(successMessage).toHaveTextContent('エクスポートが完了しました');
       });
 
-      mockCreateElement.mockRestore();
+      vi.mocked(document.createElement).mockRestore();
     });
   });
 });
