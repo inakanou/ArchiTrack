@@ -34,6 +34,27 @@ test.describe('セッション管理機能', () => {
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
       timeout: 15000,
     });
+
+    // セッションデータのローディングが完了するまで待機
+    // ローディングテキストが非表示になるまで待機（存在する場合）
+    const loadingIndicator = page.getByText(/読み込み中/i);
+    await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {
+      // ローディングが既に完了している場合は無視
+    });
+
+    // セッションデータまたは空状態メッセージが表示されるまで待機
+    await Promise.race([
+      page.getByText(/現在のデバイス/i).waitFor({ state: 'visible', timeout: 20000 }),
+      page.getByText(/全デバイスからログアウト/i).waitFor({ state: 'visible', timeout: 20000 }),
+      page
+        .getByText(/アクティブなセッションがありません/i)
+        .waitFor({ state: 'visible', timeout: 20000 }),
+    ]).catch(() => {
+      // いずれかが表示されればOK、失敗は個別テストでキャッチ
+    });
+
+    // 追加の安定性のため、短い待機を追加
+    await page.waitForTimeout(500);
   });
 
   test('セッション一覧が正しく表示される', async ({ page }) => {
