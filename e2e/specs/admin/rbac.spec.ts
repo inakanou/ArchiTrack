@@ -31,18 +31,11 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     // ユーザー管理ページにアクセス試行
     await page.goto('/admin/users');
 
-    // 403エラーまたはリダイレクトを確認
-    // 実装によってはダッシュボードにリダイレクトされる場合もある
-    const url = page.url();
-    const hasAccessDenied =
-      url.includes('/dashboard') ||
-      url.includes('/403') ||
-      (await page
-        .getByText(/アクセス権限がありません|権限がありません/i)
-        .isVisible()
-        .catch(() => false));
-
-    expect(hasAccessDenied || !url.includes('/admin/users')).toBeTruthy();
+    // 認証状態の初期化が完了し、アクセス拒否メッセージが表示されるまで待機
+    // ProtectedRouteコンポーネントはh1タグで「アクセス権限がありません」を表示する
+    await expect(page.getByRole('heading', { name: /アクセス権限がありません/i })).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   /**
@@ -56,7 +49,8 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     await page.goto('/admin/users');
 
     // ページが正常に表示されることを確認
-    await expect(page.getByRole('heading', { name: /ユーザー管理/i })).toBeVisible({
+    // UserManagementページの見出しは「ユーザー・ロール管理」
+    await expect(page.getByRole('heading', { name: /ユーザー・ロール管理/i })).toBeVisible({
       timeout: 10000,
     });
   });
