@@ -49,10 +49,8 @@ export function AuditLogs() {
         params.append('endDate', new Date(endDate).toISOString());
       }
 
-      const data = await apiClient.get<{ logs: AuditLog[] }>(
-        `/api/v1/audit-logs?${params.toString()}`
-      );
-      setLogs(data.logs);
+      const data = await apiClient.get<AuditLog[]>(`/api/v1/audit-logs?${params.toString()}`);
+      setLogs(data || []);
     } catch {
       setError('監査ログを取得できませんでした');
     } finally {
