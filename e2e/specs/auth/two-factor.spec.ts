@@ -531,21 +531,23 @@ test.describe('2要素認証機能', () => {
     test('2FAを無効化できる', async ({ page }) => {
       await page.goto('/profile');
 
-      // 2FA管理セクション
-      await expect(page.getByText(/二要素認証|2要素認証/i)).toBeVisible();
+      // 2FA管理セクション（h2要素を指定して重複を回避）
+      await expect(page.getByRole('heading', { name: '二要素認証', level: 2 })).toBeVisible();
       await expect(page.getByText(/有効|オン/i)).toBeVisible();
 
-      // 無効化ボタンをクリック
-      await page.getByRole('button', { name: /無効化|オフにする/i }).click();
+      // 無効化ボタンをクリック（セクション内の最初の「無効化」ボタン）
+      await page.getByRole('button', { name: /^無効化$|オフにする/i }).click();
 
       // 要件27B.4: パスワード入力確認ダイアログ
-      await expect(page.getByText(/パスワードを入力してください/i)).toBeVisible();
-      await page.getByLabel(/パスワード|現在のパスワード/i).fill('Password123!');
-      await page.getByRole('button', { name: /確認|無効化/i }).click();
+      const disableDialog = page.getByRole('dialog').filter({ hasText: /二要素認証の無効化/ });
+      await expect(disableDialog.getByText(/パスワードを入力してください/i)).toBeVisible();
+      await disableDialog.getByLabel('パスワード').fill('Password123!');
+      await disableDialog.getByRole('button', { name: /^確認$/ }).click();
 
       // 要件27B.6: 全デバイスからログアウトの警告
-      await expect(page.getByText(/全デバイスからログアウトされます/i)).toBeVisible();
-      await page.getByRole('button', { name: /はい|確認|続行/i }).click();
+      const confirmDialog = page.getByRole('dialog').filter({ hasText: /二要素認証の無効化確認/ });
+      await expect(confirmDialog.getByText(/全デバイスからログアウトされます/i)).toBeVisible();
+      await confirmDialog.getByRole('button', { name: /はい.*無効化/ }).click();
 
       // 成功メッセージ
       await expect(page.getByText(/二要素認証を無効化しました/i)).toBeVisible();
