@@ -30,7 +30,7 @@ test.describe('動的ロール管理', () => {
 
     // ユーザー管理ページに移動
     await page.goto('/admin/users');
-    await expect(page.getByRole('heading', { name: /ユーザー管理/i })).toBeVisible({
+    await expect(page.getByRole('heading', { name: /ユーザー.*ロール管理/i })).toBeVisible({
       timeout: 10000,
     });
 
@@ -44,8 +44,8 @@ test.describe('動的ロール管理', () => {
     await page.getByLabel(/ロール名/i).fill('Project Manager');
     await page.getByLabel(/説明/i).fill('プロジェクトを管理するロール');
 
-    // 保存ボタンをクリック
-    await page.getByRole('button', { name: /保存|作成/i }).click();
+    // ダイアログ内の作成ボタンをクリック（aria-labelを使用）
+    await page.getByRole('button', { name: 'ロールを作成', exact: true }).click();
 
     // 成功メッセージを確認
     await expect(page.getByText(/作成.*しました|成功/i)).toBeVisible({ timeout: 5000 });
