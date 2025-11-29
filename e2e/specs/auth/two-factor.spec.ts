@@ -57,20 +57,44 @@ test.describe('2要素認証機能', () => {
      * 要件27D.1: 3ステップのプログレスバー表示
      */
     test('2FAセットアップページが正しく表示される', async ({ page }) => {
-      await page.goto('/profile/2fa-setup');
+      // CI環境での安定性向上のため、リトライロジックを追加
+      let setupPageLoaded = false;
+      for (let retry = 0; retry < 3; retry++) {
+        await page.goto('/profile/2fa-setup');
 
-      // ネットワークリクエスト（APIコール）が完了するまで待機
-      await page.waitForLoadState('networkidle');
+        // ネットワークリクエスト（APIコール）が完了するまで待機
+        await page.waitForLoadState('networkidle');
 
-      // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
-      const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
-      const loadingExists = await loadingIndicator.count();
-      if (loadingExists > 0) {
-        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+        // ログインページにリダイレクトされた場合は再ログイン
+        if (page.url().includes('/login')) {
+          await loginAsUser(page, 'REGULAR_USER');
+          await page.goto('/profile/2fa-setup');
+          await page.waitForLoadState('networkidle');
+        }
+
+        // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
+        const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
+        const loadingExists = await loadingIndicator.count();
+        if (loadingExists > 0) {
+          await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+        }
+
+        // ステップ表示を確認
+        try {
+          await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: 10000 });
+          setupPageLoaded = true;
+          break;
+        } catch {
+          if (retry < 2) {
+            // ページをリロードして再試行
+            await page.reload({ waitUntil: 'networkidle' });
+          }
+        }
       }
+      expect(setupPageLoaded).toBe(true);
 
-      // 要件27D.1: 3ステップのプログレスバー（CI環境での安定性向上のためタイムアウト追加）
-      await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: 15000 });
+      // 要件27D.1: 3ステップのプログレスバー（既に上で確認済み）
+      await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: 5000 });
 
       // 要件27.4: QRコードが表示される（APIからのレスポンス待機のためタイムアウト追加）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });

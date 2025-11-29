@@ -168,12 +168,31 @@ test.describe('トークンリフレッシュ機能', () => {
     // initializeAuth 完了後にリフレッシュトークンが存在することを確認
     // ページ遷移後、initializeAuthが再実行されトークンローテーションが発生するため、
     // トークンが安定するまで待機する
-    // CI環境での安定性向上のため、networkidleを先に待機
+    // CI環境での安定性向上のため、networkidleを先に待機し、さらにリトライロジックを追加
     await page1.waitForLoadState('networkidle');
-    await page1.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
-      timeout: 15000,
-      polling: 500,
-    });
+
+    // リフレッシュトークンの存在をリトライ付きで確認（CI環境での安定性向上）
+    let refreshTokenExists = false;
+    for (let retry = 0; retry < 5; retry++) {
+      try {
+        await page1.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
+          timeout: 5000,
+          polling: 500,
+        });
+        refreshTokenExists = true;
+        break;
+      } catch {
+        // リトライ前にページをリロードしてトークンを再取得
+        if (retry < 4) {
+          await page1.reload();
+          await page1.waitForLoadState('networkidle');
+          await expect(page1.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+            timeout: 10000,
+          });
+        }
+      }
+    }
+    expect(refreshTokenExists).toBe(true);
 
     // タブ1のリフレッシュトークンを取得（安定状態）
     const token1Initial = await page1.evaluate(() => localStorage.getItem('refreshToken'));

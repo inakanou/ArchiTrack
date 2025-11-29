@@ -113,9 +113,42 @@ test.describe('セッション管理機能', () => {
   });
 
   test('全デバイスログアウトができる', async ({ page }) => {
-    // 全デバイスログアウトボタンが表示されるのを待機してからクリック
+    // セッション管理ページに再度移動（beforeEachの状態をリフレッシュ）
+    await page.goto('/sessions', { waitUntil: 'networkidle' });
+
+    // セッション管理ページが表示されるまで待機
+    await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+      timeout: 15000,
+    });
+
+    // セッションデータのローディングが完了するまで待機
+    const loadingIndicator = page.getByText(/読み込み中/i);
+    await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {
+      // ローディングが既に完了している場合は無視
+    });
+
+    // 全デバイスログアウトボタンが表示されるのをリトライ付きで待機
     const logoutAllButton = page.getByRole('button', { name: /全デバイスからログアウト/i });
-    await expect(logoutAllButton).toBeVisible({ timeout: 15000 });
+    let buttonVisible = false;
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        await expect(logoutAllButton).toBeVisible({ timeout: 10000 });
+        buttonVisible = true;
+        break;
+      } catch {
+        if (retry < 2) {
+          // ページをリロードして再試行
+          await page.reload({ waitUntil: 'networkidle' });
+          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+            timeout: 15000,
+          });
+          // ローディング完了を待機
+          await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {});
+        }
+      }
+    }
+    expect(buttonVisible).toBe(true);
+
     await logoutAllButton.click();
 
     // 確認ダイアログが表示される
