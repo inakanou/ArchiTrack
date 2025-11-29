@@ -67,7 +67,9 @@ vi.mock('../../../services/rbac.service', () => ({
 vi.mock('../../../services/audit-log.service', () => ({
   AuditLogService: class {
     constructor() {
-      return {};
+      return {
+        createLog: vi.fn().mockResolvedValue(undefined),
+      };
     }
   },
 }));
