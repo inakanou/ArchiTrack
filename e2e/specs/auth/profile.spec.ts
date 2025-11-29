@@ -356,6 +356,13 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     // ログイン
     await loginAsUser(page, 'REGULAR_USER');
     await page.goto('/profile');
+    // AuthContextの初期化が完了するまで待機（ユーザー情報の表示を確認）
+    await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+      timeout: 10000,
+    });
+    await expect(page.locator('input#currentPassword')).toBeVisible({
+      timeout: 10000,
+    });
     // 現在のパスワード: Password123!
 
     // Have I Been Pwnedの漏洩チェックを回避するため、ユニークなパスワードを使用
