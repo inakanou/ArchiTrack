@@ -29,6 +29,11 @@ test.describe('セッション管理機能', () => {
 
     // CI環境での安定性向上のため、ページロード完了を待機
     await page.waitForLoadState('networkidle');
+
+    // セッション管理ページが表示されるまで明示的に待機
+    await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+      timeout: 15000,
+    });
   });
 
   test('セッション一覧が正しく表示される', async ({ page }) => {
@@ -53,20 +58,28 @@ test.describe('セッション管理機能', () => {
   });
 
   test('個別デバイスログアウトができる', async ({ page }) => {
+    // セッション情報がAPIから読み込まれるまで待機
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
+
+    // 個別デバイスのログアウトボタンが表示されるまで待機
+    const logoutButton = page.getByRole('button', { name: /^ログアウト$/i }).first();
+    await expect(logoutButton).toBeVisible({ timeout: 10000 });
+
     // 個別デバイスのログアウトボタンをクリック（現在のデバイス以外の最初のセッション）
-    await page
-      .getByRole('button', { name: /^ログアウト$/i })
-      .first()
-      .click();
+    await logoutButton.click();
 
     // 確認ダイアログが表示される
-    await expect(page.getByText(/このデバイスをログアウトしますか/i)).toBeVisible();
+    await expect(page.getByText(/このデバイスをログアウトしますか/i)).toBeVisible({
+      timeout: 10000,
+    });
 
     // 確認ボタンをクリック（aria-label="はい"のボタン）
     await page.getByRole('button', { name: /^はい$/i }).click();
 
     // 成功メッセージが表示される
-    await expect(page.getByText(/ログアウトしました|デバイスをログアウトしました/i)).toBeVisible();
+    await expect(page.getByText(/ログアウトしました|デバイスをログアウトしました/i)).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test('全デバイスログアウトボタンが表示される', async ({ page }) => {

@@ -97,13 +97,20 @@ test.describe('2要素認証機能', () => {
       await page.goto('/profile/2fa-setup');
       await page.waitForLoadState('networkidle');
 
+      // QRコードが表示されるまで待機（API応答待ち）
+      const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
+      await expect(qrCode).toBeVisible({ timeout: 15000 });
+
       // ステップ1: QRコード表示を確認
       await expect(page.getByText(/ステップ 1/i)).toBeVisible();
 
-      // TOTPコードを6桁の個別フィールドに入力
+      // TOTP入力フィールドが表示されるまで待機
+      await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: 10000 });
+
+      // TOTPコードを6桁の個別フィールドに入力（getByTestIdに統一）
       const digits = generateMockTOTPCode().split('');
       for (let i = 0; i < digits.length; i++) {
-        await page.getByLabel(`認証コード ${i + 1}桁目`).fill(digits[i]!);
+        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
       }
 
       // 検証ボタンをクリック
@@ -146,6 +153,13 @@ test.describe('2要素認証機能', () => {
     test('バックアップコードのダウンロードができる', async ({ page }) => {
       await page.goto('/profile/2fa-setup');
       await page.waitForLoadState('networkidle');
+
+      // QRコードが表示されるまで待機（API応答待ち）
+      const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
+      await expect(qrCode).toBeVisible({ timeout: 15000 });
+
+      // TOTP入力フィールドが表示されるまで待機
+      await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: 10000 });
 
       // TOTPコード検証を完了
       const digits = generateMockTOTPCode().split('');
@@ -213,19 +227,26 @@ test.describe('2要素認証機能', () => {
       await page.goto('/profile/2fa-setup');
       await page.waitForLoadState('networkidle');
 
-      // 1桁目にフォーカス
+      // QRコードが表示されるまで待機（API応答待ち）
+      const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
+      await expect(qrCode).toBeVisible({ timeout: 15000 });
+
+      // TOTP入力フィールドが表示されるまで待機
       const digit0 = page.getByTestId('totp-digit-0');
+      await expect(digit0).toBeVisible({ timeout: 10000 });
+
+      // 1桁目にフォーカス
       await digit0.focus();
 
       // 1桁入力すると次のフィールドに自動フォーカス
       await digit0.fill('1');
 
       const digit1 = page.getByTestId('totp-digit-1');
-      await expect(digit1).toBeFocused();
+      await expect(digit1).toBeFocused({ timeout: 5000 });
 
       // 残りの桁も同様に自動タブ移動
       await digit1.fill('2');
-      await expect(page.getByTestId('totp-digit-2')).toBeFocused();
+      await expect(page.getByTestId('totp-digit-2')).toBeFocused({ timeout: 5000 });
     });
   });
 

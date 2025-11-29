@@ -461,15 +461,22 @@ test.describe('モーダルとトーストメッセージテスト', () => {
     await loginAsUser(page, 'REGULAR_USER');
     await page.goto('/profile');
 
+    // プロフィールページが完全に読み込まれるまで待機
+    await expect(page.getByLabel(/メールアドレス/i)).toBeVisible({ timeout: 10000 });
+
     // 表示名を変更
     const displayNameInput = page.getByLabel(/表示名/i);
     await displayNameInput.clear();
     await displayNameInput.fill('Updated Name');
-    await page.getByRole('button', { name: /保存/i }).click();
+
+    // 保存ボタンが有効になるまで待機（フォーム変更検知のため）
+    const saveButton = page.getByRole('button', { name: /^保存$|^プロフィールを保存$/i });
+    await expect(saveButton).toBeEnabled({ timeout: 5000 });
+    await saveButton.click();
 
     // 成功トーストメッセージが表示される
     const toast = page.getByText(/更新しました|成功|保存しました/i);
-    await expect(toast).toBeVisible();
+    await expect(toast).toBeVisible({ timeout: 10000 });
 
     // 5秒後にトーストが非表示になる
     await page.waitForTimeout(5500);

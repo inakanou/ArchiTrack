@@ -46,11 +46,15 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await displayNameInput.clear();
     await displayNameInput.fill('Updated Name');
 
+    // 保存ボタンが有効になるまで待機（フォーム変更検知のため）
+    const saveButton = page.getByRole('button', { name: /^保存$|^プロフィールを保存$/i });
+    await expect(saveButton).toBeEnabled({ timeout: 5000 });
+
     // 保存ボタンをクリック
-    await page.getByRole('button', { name: /保存/i }).click();
+    await saveButton.click();
 
     // 成功メッセージが表示される
-    await expect(page.getByText(/更新しました/i)).toBeVisible();
+    await expect(page.getByText(/更新しました/i)).toBeVisible({ timeout: 10000 });
   });
 
   test('パスワード変更フォームが表示される', async ({ page }) => {
@@ -184,20 +188,30 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    * THEN エラーメッセージが表示される
    */
   test('漏洩パスワードには変更できない', async ({ page }) => {
+    // パスワードフィールドが表示されるまで待機
+    await expect(page.locator('input#currentPassword')).toBeVisible({ timeout: 10000 });
+
     await page.locator('input#currentPassword').fill('Password123!');
     await page.locator('input#newPassword').fill('Password1234!'); // 有名な漏洩パスワード (13文字)
     await page.locator('input#confirmPassword').fill('Password1234!');
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
+
+    // パスワード変更ボタンが有効になるまで待機
+    const changePasswordBtn = page.getByRole('button', { name: /パスワードを変更/i });
+    await expect(changePasswordBtn).toBeEnabled({ timeout: 5000 });
+    await changePasswordBtn.click();
 
     // 確認ダイアログが表示されるので「はい、変更する」をクリック
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
-    // エラーメッセージが表示される
+    // エラーメッセージが表示される（HIBP APIレスポンス待ちのためタイムアウト延長）
     await expect(
       page.getByText(
         /このパスワードは過去に漏洩が確認されています.*別のパスワードを選択してください/i
       )
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15000 });
   });
 
   /**
