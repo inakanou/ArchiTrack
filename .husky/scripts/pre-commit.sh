@@ -67,8 +67,8 @@ if echo "$STAGED_FILES" | grep -q '^frontend/.*\.\(js\|jsx\|ts\|tsx\)$'; then
   fi
 fi
 
-# E2E: TypeScript/JavaScript files
-if echo "$STAGED_FILES" | grep -q '^\(e2e/.*\|playwright\.config\)\.\(js\|ts\)$'; then
+# E2E and Root scripts: TypeScript/JavaScript files
+if echo "$STAGED_FILES" | grep -q '^\(e2e/.*\|playwright\.config\|scripts/.*\)\.\(js\|ts\)$'; then
   echo "🔍 Running lint-staged on E2E tests..."
   npx lint-staged
 
