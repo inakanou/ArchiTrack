@@ -357,7 +357,7 @@ jobs:
           echo "NODE_ENV=test" > .env
           echo "PORT=3000" >> .env
           echo "LOG_LEVEL=info" >> .env
-          echo "DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev" >> .env
+          echo "DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test" >> .env
           echo "REDIS_URL=redis://redis:6379" >> .env
           echo "FRONTEND_URL=http://localhost:5173" >> .env
           echo "ACCESS_TOKEN_EXPIRY=15m" >> .env
