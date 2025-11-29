@@ -651,6 +651,63 @@ export class TwoFactorService implements ITwoFactorService {
   }
 
   /**
+   * バックアップコードステータス一覧取得
+   *
+   * 現在のバックアップコードの使用状況を取得する。
+   * コードはハッシュ化されているため、マスク表示用のプレースホルダーを返す。
+   * 要件27B.1: プロフィール画面でバックアップコードを表示（使用済みコードをグレーアウト・取り消し線）
+   *
+   * @param userId - ユーザーID
+   * @returns バックアップコードステータス配列
+   */
+  async getBackupCodesStatus(
+    userId: string
+  ): Promise<
+    Result<Array<{ code: string; isUsed: boolean; usedAt: string | null }>, TwoFactorError>
+  > {
+    try {
+      // ユーザー取得
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          twoFactorEnabled: true,
+        },
+      });
+
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      if (!user.twoFactorEnabled) {
+        return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+      }
+
+      // バックアップコードを取得
+      const backupCodes = await this.prisma.twoFactorBackupCode.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          usedAt: true,
+          createdAt: true,
+        },
+      });
+
+      // コードはハッシュ化されているため、マスク表示用のプレースホルダーを生成
+      const result = backupCodes.map((code, index) => ({
+        code: `****-${String(index + 1).padStart(4, '0')}`, // ****-0001, ****-0002, ...
+        isUsed: code.usedAt !== null,
+        usedAt: code.usedAt ? code.usedAt.toISOString() : null,
+      }));
+
+      logger.debug({ userId, count: result.length }, 'バックアップコードステータスを取得しました');
+      return Ok(result);
+    } catch (error) {
+      logger.error({ error, userId }, 'バックアップコードステータス取得中にエラーが発生しました');
+      return Err({ type: 'USER_NOT_FOUND' });
+    }
+  }
+
+  /**
    * バックアップコード再生成
    *
    * 既存のバックアップコードを全て削除し、新しく10個のバックアップコードを生成する。
