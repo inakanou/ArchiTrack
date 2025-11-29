@@ -188,8 +188,12 @@ test.describe('トークンリフレッシュ機能', () => {
       timeout: 15000,
     });
 
-    // CI環境での安定性向上のため、networkidleを待機
+    // CI環境での安定性向上のため、networkidleを待機してからwaitForFunctionでトークン存在を確認
     await page2.waitForLoadState('networkidle');
+    await page2.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
+      timeout: 15000,
+      polling: 500,
+    });
 
     // タブ2がセッション復元後、リフレッシュトークンが存在することを確認
     const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));

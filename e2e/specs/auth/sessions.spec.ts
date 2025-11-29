@@ -73,9 +73,12 @@ test.describe('セッション管理機能', () => {
   });
 
   test('個別デバイスログアウトボタンが表示される', async ({ page }) => {
+    // セッション情報がAPIから読み込まれるまで待機
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
+
     // ログアウトボタンが表示される（現在のデバイス以外）
     const logoutButtons = page.getByRole('button', { name: /ログアウト/i });
-    await expect(logoutButtons.first()).toBeVisible();
+    await expect(logoutButtons.first()).toBeVisible({ timeout: 10000 });
   });
 
   test('個別デバイスログアウトができる', async ({ page }) => {
