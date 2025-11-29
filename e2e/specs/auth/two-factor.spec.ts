@@ -428,7 +428,7 @@ test.describe('2要素認証機能', () => {
       await page.goto('/profile');
 
       // 2FA管理セクション
-      await expect(page.getByText(/二要素認証|2要素認証/i)).toBeVisible();
+      await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible();
 
       // バックアップコードを表示
       await page.getByRole('button', { name: /バックアップコードを表示/i }).click();
