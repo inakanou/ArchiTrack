@@ -166,6 +166,7 @@ export class TokenService {
         ...(payload.permissions && { permissions: payload.permissions }),
       })
         .setProtectedHeader({ alg: 'EdDSA' })
+        .setJti(randomUUID()) // 一意なトークンIDを設定（重複防止）
         .setIssuedAt()
         .setExpirationTime(this.refreshTokenExpiry)
         .sign(this.privateKey);
