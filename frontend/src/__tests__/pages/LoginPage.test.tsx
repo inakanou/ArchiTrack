@@ -13,7 +13,12 @@ import { ApiError } from '../../api/client';
 
 // useAuthフックをモック
 const mockLogin = vi.fn();
+const mockVerify2FA = vi.fn();
+const mockVerifyBackupCode = vi.fn();
+const mockCancel2FA = vi.fn();
 let mockIsAuthenticated = false;
+let mockTwoFactorState: { required: boolean } | null = null;
+
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     login: async (...args: unknown[]) => {
@@ -21,10 +26,10 @@ vi.mock('../../hooks/useAuth', () => ({
       mockIsAuthenticated = true;
     },
     isAuthenticated: mockIsAuthenticated,
-    twoFactorState: null,
-    verify2FA: vi.fn(),
-    verifyBackupCode: vi.fn(),
-    cancel2FA: vi.fn(),
+    twoFactorState: mockTwoFactorState,
+    verify2FA: mockVerify2FA,
+    verifyBackupCode: mockVerifyBackupCode,
+    cancel2FA: mockCancel2FA,
   }),
 }));
 
@@ -80,6 +85,7 @@ describe('LoginPage Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAuthenticated = false;
+    mockTwoFactorState = null;
   });
 
   describe('初期表示', () => {
@@ -212,6 +218,115 @@ describe('LoginPage Component', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(
         'セッションの有効期限が切れました。再度ログインしてください。'
       );
+    });
+  });
+
+  describe('2FA認証フロー', () => {
+    // TwoFactorVerificationFormコンポーネントをモック
+    beforeEach(() => {
+      vi.mock('../../components/TwoFactorVerificationForm', () => ({
+        default: ({
+          onVerifyTOTP,
+          onVerifyBackupCode,
+          onCancel,
+        }: {
+          onVerifyTOTP: (code: string) => Promise<{ success: boolean; error?: string }>;
+          onVerifyBackupCode: (code: string) => Promise<{ success: boolean; error?: string }>;
+          onCancel: () => void;
+        }) => (
+          <div data-testid="two-factor-form">
+            <button
+              data-testid="verify-totp-btn"
+              onClick={async () => {
+                await onVerifyTOTP('123456');
+              }}
+            >
+              TOTP検証
+            </button>
+            <button
+              data-testid="verify-backup-btn"
+              onClick={async () => {
+                await onVerifyBackupCode('BACKUP123');
+              }}
+            >
+              バックアップコード検証
+            </button>
+            <button data-testid="cancel-2fa-btn" onClick={onCancel}>
+              キャンセル
+            </button>
+          </div>
+        ),
+      }));
+    });
+
+    it('2FA要求時にTwoFactorVerificationFormを表示する', async () => {
+      mockTwoFactorState = { required: true };
+
+      renderLoginPage();
+
+      // 2FAフォームが表示されることを確認
+      expect(screen.getByTestId('two-factor-form')).toBeInTheDocument();
+    });
+
+    it('TOTP検証成功時にverify2FAが呼び出される', async () => {
+      const user = userEvent.setup();
+      mockTwoFactorState = { required: true };
+      mockVerify2FA.mockResolvedValueOnce(undefined);
+
+      renderLoginPage();
+
+      await user.click(screen.getByTestId('verify-totp-btn'));
+
+      expect(mockVerify2FA).toHaveBeenCalledWith('123456');
+    });
+
+    it('TOTP検証失敗時にエラーを返す', async () => {
+      const user = userEvent.setup();
+      mockTwoFactorState = { required: true };
+      const apiError = new ApiError(401, '認証コードが無効です');
+      mockVerify2FA.mockRejectedValueOnce(apiError);
+
+      renderLoginPage();
+
+      await user.click(screen.getByTestId('verify-totp-btn'));
+
+      expect(mockVerify2FA).toHaveBeenCalledWith('123456');
+    });
+
+    it('バックアップコード検証成功時にverifyBackupCodeが呼び出される', async () => {
+      const user = userEvent.setup();
+      mockTwoFactorState = { required: true };
+      mockVerifyBackupCode.mockResolvedValueOnce(undefined);
+
+      renderLoginPage();
+
+      await user.click(screen.getByTestId('verify-backup-btn'));
+
+      expect(mockVerifyBackupCode).toHaveBeenCalledWith('BACKUP123');
+    });
+
+    it('バックアップコード検証失敗時にエラーを返す', async () => {
+      const user = userEvent.setup();
+      mockTwoFactorState = { required: true };
+      const apiError = new ApiError(401, 'バックアップコードが無効です');
+      mockVerifyBackupCode.mockRejectedValueOnce(apiError);
+
+      renderLoginPage();
+
+      await user.click(screen.getByTestId('verify-backup-btn'));
+
+      expect(mockVerifyBackupCode).toHaveBeenCalledWith('BACKUP123');
+    });
+
+    it('キャンセルボタンをクリックするとcancel2FAが呼び出される', async () => {
+      const user = userEvent.setup();
+      mockTwoFactorState = { required: true };
+
+      renderLoginPage();
+
+      await user.click(screen.getByTestId('cancel-2fa-btn'));
+
+      expect(mockCancel2FA).toHaveBeenCalled();
     });
   });
 });
