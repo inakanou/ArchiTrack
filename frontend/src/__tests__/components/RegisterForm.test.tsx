@@ -372,15 +372,15 @@ describe('RegisterForm', () => {
 
       // ローディング中
       await waitFor(() => {
-        expect(screen.getByRole('status')).toBeInTheDocument();
-        expect(registerButton).toBeDisabled();
+        expect(screen.getByLabelText('ローディング中')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /登録中/i })).toBeDisabled();
       });
 
       // 登録完了
       resolveRegister!();
       await waitFor(() => {
-        expect(screen.queryByRole('status')).not.toBeInTheDocument();
-        expect(registerButton).not.toBeDisabled();
+        expect(screen.queryByLabelText('ローディング中')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /登録/i })).not.toBeDisabled();
       });
     });
   });
