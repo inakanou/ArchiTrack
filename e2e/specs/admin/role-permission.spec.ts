@@ -68,7 +68,7 @@ test.describe('ロールへの権限割り当て', () => {
           Authorization: `Bearer ${accessToken}`,
         },
         data: {
-          permissionIds: [adrReadPermission!.id],
+          permissionId: adrReadPermission!.id,
         },
       }
     );
@@ -113,7 +113,7 @@ test.describe('ロールへの権限割り当て', () => {
         Authorization: `Bearer ${accessToken}`,
       },
       data: {
-        permissionIds: [permission!.id],
+        permissionId: permission!.id,
       },
     });
 
@@ -124,7 +124,7 @@ test.describe('ロールへの権限割り当て', () => {
           Authorization: `Bearer ${accessToken}`,
         },
         data: {
-          permissionIds: [permission!.id],
+          permissionId: permission!.id,
         },
       }
     );
@@ -170,7 +170,7 @@ test.describe('ロールへの権限割り当て', () => {
         Authorization: `Bearer ${accessToken}`,
       },
       data: {
-        permissionIds: [permission!.id],
+        permissionId: permission!.id,
       },
     });
 
@@ -279,11 +279,11 @@ test.describe('ロールへの権限割り当て', () => {
           Authorization: `Bearer ${accessToken}`,
         },
         data: {
-          permissionIds: ['non-existent-id'],
+          permissionId: 'non-existent-id',
         },
       }
     );
 
-    expect(assignResponse.status()).toBe(400);
+    expect(assignResponse.status()).toBe(404);
   });
 });

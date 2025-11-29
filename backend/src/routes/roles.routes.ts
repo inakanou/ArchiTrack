@@ -337,6 +337,60 @@ router.delete(
 /**
  * @swagger
  * /api/v1/roles/{id}/permissions:
+ *   get:
+ *     summary: ロールの権限一覧取得
+ *     description: 指定されたロールに割り当てられた権限の一覧を取得
+ *     tags:
+ *       - Roles
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ロールID
+ *     responses:
+ *       200:
+ *         description: 権限一覧
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: ロールが見つからない
+ */
+router.get(
+  '/:id/permissions',
+  authenticate,
+  requirePermission('role:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id: roleId } = req.params as { id: string };
+
+      const result = await rolePermissionService.getRolePermissions(roleId);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'ROLE_NOT_FOUND') {
+          res.status(404).json({ error: 'Role not found', code: 'ROLE_NOT_FOUND' });
+          return;
+        }
+        res.status(500).json({ error: 'Failed to get role permissions', details: error });
+        return;
+      }
+
+      res.json(result.value);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/roles/{id}/permissions:
  *   post:
  *     summary: ロールに権限追加
  *     description: 既存のロールに権限を追加
