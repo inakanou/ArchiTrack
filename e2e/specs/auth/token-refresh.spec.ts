@@ -39,9 +39,11 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // リフレッシュトークンがlocalStorageに保存されていることを確認
     // initializeAuthが完了するまで待機（networkidleとwaitForFunction）
+    // CI環境での安定性向上のため、タイムアウトとポーリング間隔を調整
     await page.waitForLoadState('networkidle');
     await page.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
-      timeout: 10000,
+      timeout: 15000,
+      polling: 500,
     });
     const initialRefreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
     expect(initialRefreshToken).toBeTruthy();
@@ -160,14 +162,17 @@ test.describe('トークンリフレッシュ機能', () => {
     // タブ1でプロフィールページに移動して安定した状態を確保
     await page1.goto('/profile');
     await expect(page1.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
 
     // initializeAuth 完了後にリフレッシュトークンが存在することを確認
     // ページ遷移後、initializeAuthが再実行されトークンローテーションが発生するため、
     // トークンが安定するまで待機する
+    // CI環境での安定性向上のため、networkidleを先に待機
+    await page1.waitForLoadState('networkidle');
     await page1.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
-      timeout: 10000,
+      timeout: 15000,
+      polling: 500,
     });
 
     // タブ1のリフレッシュトークンを取得（安定状態）
@@ -180,8 +185,11 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // タブ2の初期化完了を待機（initializeAuthによるセッション復元とトークンローテーション）
     await expect(page2.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
+
+    // CI環境での安定性向上のため、networkidleを待機
+    await page2.waitForLoadState('networkidle');
 
     // タブ2がセッション復元後、リフレッシュトークンが存在することを確認
     const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));

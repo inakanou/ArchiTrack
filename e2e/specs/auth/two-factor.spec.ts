@@ -36,6 +36,13 @@ test.describe('2要素認証機能', () => {
       // テスト間の状態をクリア
       await context.clearCookies();
 
+      // localStorageとsessionStorageもクリア
+      await page.goto('/');
+      await page.evaluate(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+      });
+
       // テストデータをクリーンアップして、テストユーザーを作成
       await cleanDatabase();
       await createTestUser('REGULAR_USER');
@@ -55,12 +62,12 @@ test.describe('2要素認証機能', () => {
       // ネットワークリクエスト（APIコール）が完了するまで待機
       await page.waitForLoadState('networkidle');
 
-      // 要件27D.1: 3ステップのプログレスバー
-      await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible();
+      // 要件27D.1: 3ステップのプログレスバー（CI環境での安定性向上のためタイムアウト追加）
+      await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: 15000 });
 
-      // 要件27.4: QRコードが表示される
+      // 要件27.4: QRコードが表示される（APIからのレスポンス待機のためタイムアウト追加）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible();
+      await expect(qrCode).toBeVisible({ timeout: 15000 });
 
       // 要件27E.1: QRコードにalt属性が設定されている
       await expect(qrCode).toHaveAttribute('alt', /二要素認証用QRコード/i);
@@ -226,9 +233,16 @@ test.describe('2要素認証機能', () => {
    * 要件27A: 二要素認証（2FA）ログイン機能
    */
   test.describe('2FAログイン', () => {
-    test.beforeEach(async ({ context }) => {
+    test.beforeEach(async ({ page, context }) => {
       // テスト間の状態をクリア
       await context.clearCookies();
+
+      // localStorageとsessionStorageもクリア
+      await page.goto('/');
+      await page.evaluate(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+      });
 
       // テストデータをクリーンアップして、2FA有効ユーザーを作成
       await cleanDatabase();
@@ -380,6 +394,13 @@ test.describe('2要素認証機能', () => {
       // テスト間の状態をクリア
       await context.clearCookies();
 
+      // localStorageとsessionStorageもクリア
+      await page.goto('/');
+      await page.evaluate(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+      });
+
       // 2FA有効ユーザーを作成してログイン
       await cleanDatabase();
       const user = await createTestUser('TWO_FA_USER');
@@ -500,14 +521,24 @@ test.describe('2要素認証機能', () => {
     test('バックアップコードを再生成できる', async ({ page }) => {
       await page.goto('/profile');
 
+      // CI環境での安定性向上のため、ページロード完了を待機
+      await page.waitForLoadState('networkidle');
+
       // バックアップコードを表示
-      await page.getByRole('button', { name: /バックアップコードを表示/i }).click();
+      const showBackupButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+      await expect(showBackupButton).toBeVisible({ timeout: 15000 });
+      await showBackupButton.click();
+
+      // バックアップコードが表示されるのを待機
+      await expect(page.getByTestId('backup-code-item').first()).toBeVisible({ timeout: 10000 });
 
       // 現在のバックアップコードを記録
       const oldCodes = await page.getByTestId('backup-code-item').allTextContents();
 
-      // 再生成ボタンをクリック
-      await page.getByRole('button', { name: /再生成|新しいコードを生成/i }).click();
+      // 再生成ボタンが表示されるのを待機してからクリック
+      const regenerateButton = page.getByRole('button', { name: /再生成|新しいコードを生成/i });
+      await expect(regenerateButton).toBeVisible({ timeout: 10000 });
+      await regenerateButton.click();
 
       // 確認ダイアログ
       await expect(
@@ -596,6 +627,14 @@ test.describe('2要素認証機能', () => {
   test.describe('2FAアクセシビリティ', () => {
     test.beforeEach(async ({ page, context }) => {
       await context.clearCookies();
+
+      // localStorageとsessionStorageもクリア
+      await page.goto('/');
+      await page.evaluate(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+      });
+
       await cleanDatabase();
       await createTestUser('REGULAR_USER');
       await loginAsUser(page, 'REGULAR_USER');

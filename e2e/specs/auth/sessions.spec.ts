@@ -26,14 +26,19 @@ test.describe('セッション管理機能', () => {
 
     // セッション管理ページに移動
     await page.goto('/sessions');
+
+    // CI環境での安定性向上のため、ページロード完了を待機
+    await page.waitForLoadState('networkidle');
   });
 
   test('セッション一覧が正しく表示される', async ({ page }) => {
-    // セッション一覧のヘッダー
-    await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible();
+    // セッション一覧のヘッダー（タイムアウト追加）
+    await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+      timeout: 15000,
+    });
 
-    // 現在のデバイスが表示される
-    await expect(page.getByText(/現在のデバイス/i)).toBeVisible();
+    // 現在のデバイスが表示される（APIレスポンス待機のためタイムアウト追加）
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
 
     // デバイス情報が表示される（複数セッションがある場合は.first()を使用）
     await expect(
@@ -65,12 +70,16 @@ test.describe('セッション管理機能', () => {
   });
 
   test('全デバイスログアウトボタンが表示される', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /全デバイスからログアウト/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /全デバイスからログアウト/i })).toBeVisible({
+      timeout: 15000,
+    });
   });
 
   test('全デバイスログアウトができる', async ({ page }) => {
-    // 全デバイスログアウトボタンをクリック
-    await page.getByRole('button', { name: /全デバイスからログアウト/i }).click();
+    // 全デバイスログアウトボタンが表示されるのを待機してからクリック
+    const logoutAllButton = page.getByRole('button', { name: /全デバイスからログアウト/i });
+    await expect(logoutAllButton).toBeVisible({ timeout: 15000 });
+    await logoutAllButton.click();
 
     // 確認ダイアログが表示される
     await expect(page.getByText(/全てのデバイスからログアウトします/i)).toBeVisible();

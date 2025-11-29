@@ -240,9 +240,16 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
   test.describe.configure({ mode: 'serial' });
 
   // 各テストの前にデータベースをリセットしてユーザーを再作成
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+
+    // localStorageとsessionStorageもクリア
+    await page.goto('/');
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
 
     // データベースをクリーンアップし、テストユーザーを再作成
     const prisma = getPrismaClient();
@@ -258,6 +265,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await loginAsUser(page, 'REGULAR_USER');
     await page.goto('/profile');
 
+    // CI環境での安定性向上のため、ページロード完了を待機
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('input#currentPassword')).toBeVisible({ timeout: 15000 });
+
     // パスワードフィールドに入力
     await page.locator('input#currentPassword').fill('Password123!');
     await page.locator('input#newPassword').fill('SecureTest123!@#');
@@ -266,18 +277,22 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     // パスワード変更ボタンをクリック
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
-    // 確認ダイアログが表示される
-    await expect(page.getByText(/全デバイスからログアウトされます/i)).toBeVisible();
+    // 確認ダイアログが表示される（タイムアウト追加）
+    await expect(page.getByText(/全デバイスからログアウトされます/i)).toBeVisible({
+      timeout: 10000,
+    });
 
     // 確認ボタンをクリック
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
-    // 成功メッセージが表示される
-    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible();
+    // 成功メッセージが表示される（タイムアウト追加）
+    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+      timeout: 15000,
+    });
 
     // Task 22.1: waitForURLでリダイレクト完了を待機（安定性向上）
     // ログインページにリダイレクトされる（UIが自動でリダイレクト）
-    await page.waitForURL(/\/login/, { timeout: 10000 });
+    await page.waitForURL(/\/login/, { timeout: 15000 });
     await expect(page).toHaveURL(/\/login/);
   });
 
