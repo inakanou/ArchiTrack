@@ -46,9 +46,10 @@ export class InvitationService {
     inviterId: string,
     email: string
   ): Promise<Result<Invitation, InvitationError>> {
-    // メールアドレスが既に登録済みかチェック
+    // メールアドレスが既に登録済みかチェック (optimized: only check existence)
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
+      select: { id: true },
     });
 
     if (existingUser) {
@@ -121,9 +122,10 @@ export class InvitationService {
     invitationId: string,
     userId: string
   ): Promise<Result<void, InvitationError>> {
-    // 招待を検索
+    // 招待を検索 (optimized: only fetch necessary fields)
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
+      select: { id: true, inviterId: true, status: true },
     });
 
     // 招待が存在しない場合

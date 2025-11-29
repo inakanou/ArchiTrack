@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-20（ステアリング同期確認、内容の整合性検証完了）_
+_最終更新: 2025-11-29（Steering Sync: テスト数更新、2FA機能強化、HTTPOnly Cookie実装、要件カバレッジチェック追加）_
 
 ## ルートディレクトリ構成
 
@@ -35,7 +35,9 @@ ArchiTrack/
 │   ├── specs/              # テスト仕様（カテゴリ分け）
 │   │   ├── api/            # APIエンドポイントテスト
 │   │   ├── ui/             # UIコンポーネントテスト
-│   │   └── integration/    # システム統合テスト
+│   │   ├── integration/    # システム統合テスト
+│   │   ├── auth/           # 認証フローテスト
+│   │   └── performance/    # パフォーマンステスト
 │   └── helpers/            # Claude Code統合ヘルパー
 │       └── browser.js      # ブラウザ操作・スクリーンショット
 ├── frontend/               # フロントエンドアプリケーション
@@ -121,7 +123,9 @@ Claude Codeのカスタムフックスクリプト。
 **構成:**
 
 - `hook_pre_commands.sh` - コマンド実行前に実行されるフック
-- `rules/hook_pre_commands_rules.json` - フック実行ルール定義
+- `hook_stop_words.sh` - アシスタント応答のストップワード検出フック
+- `rules/hook_pre_commands_rules.json` - コマンド前フック実行ルール定義
+- `rules/hook_stop_words_rules.json` - ストップワード検出ルール定義
 
 ### `.husky/`
 
@@ -209,9 +213,11 @@ e2e/
 
 **テストカテゴリ:**
 
-- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、データ取得等）
+- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
 - `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
 - `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
+- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待等）
+- `performance/` - パフォーマンステスト（ページロード時間等）
 
 **Claude Code統合:**
 
@@ -286,7 +292,11 @@ frontend/
 │   │   ├── RegisterPage.tsx # 登録ページ
 │   │   ├── PasswordResetPage.tsx # パスワードリセットページ
 │   │   ├── Profile.tsx     # プロフィールページ
-│   │   └── Sessions.tsx    # セッション管理ページ
+│   │   ├── Sessions.tsx    # セッション管理ページ
+│   │   ├── TwoFactorSetupPage.tsx # 2FA設定ページ
+│   │   ├── InvitationsPage.tsx # 招待管理ページ
+│   │   ├── UserManagement.tsx # ユーザー管理ページ
+│   │   └── AuditLogs.tsx   # 監査ログページ
 │   ├── routes/            # ルーティング設定
 │   │   └── routes.tsx      # React Router v6設定
 │   ├── utils/             # ユーティリティ関数
@@ -337,13 +347,22 @@ frontend/
 - `TwoFactorSetup.stories.tsx` - 2FA初期設定（追加）
 - `TwoFactorVerification.stories.tsx` - 2FA検証（追加）
 
-**想定される拡張:**
+**実装済み拡張ディレクトリ:**
 
 ```
 frontend/src/
-├── services/          # APIクライアント（今後追加）
-├── stores/            # 状態管理（今後追加）
-└── assets/            # 静的アセット（今後追加）
+├── api/               # APIクライアント（auth.ts、client.ts）
+├── hooks/             # カスタムフック（useMediaQuery.ts、useAuth.ts）
+├── services/          # サービス層（TokenRefreshManager.ts）
+├── types/             # 型定義（auth.types.ts、session.types.ts等）
+└── assets/            # 静的アセット（今後追加予定）
+```
+
+**想定される追加拡張:**
+
+```
+frontend/src/
+└── stores/            # 状態管理（今後追加予定）
 ```
 
 ### `backend/`
@@ -405,15 +424,19 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（8ファイル）
+│   ├── routes/            # ルート定義（9ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
 │   │   ├── invitation.routes.ts # 招待管理ルート
+│   │   ├── session.routes.ts # セッション管理ルート
 │   │   ├── audit-log.routes.ts # 監査ログルート
 │   │   ├── permissions.routes.ts # 権限管理ルート
 │   │   ├── roles.routes.ts  # ロール管理ルート
 │   │   └── user-roles.routes.ts # ユーザーロール管理ルート
+│   ├── config/            # 設定ファイル
+│   │   ├── env.ts          # 環境変数設定
+│   │   └── security.constants.ts # セキュリティ定数
 │   ├── services/          # ビジネスロジック（14サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
@@ -503,7 +526,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（8ルートファイル）:**
+**実装済みAPI（9ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -524,7 +547,7 @@ backend/src/
 **2FA管理API（auth.routes.ts内）:**
 - 2FA初期設定、有効化、無効化、バックアップコード再生成
 
-**セッション管理API（auth.routes.ts内）:**
+**セッション管理API（session.routes.ts）:**
 - セッション一覧取得、特定セッション削除、セッション有効期限延長
 
 **ロール管理API（roles.routes.ts）:**
@@ -775,8 +798,8 @@ refactor: improve type safety by eliminating any types
 2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
 3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
 4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認
-5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（571テスト、カバレッジ閾値80%）
-6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（378テスト、カバレッジ閾値80%）
+5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（1011+テストケース、カバレッジ閾値80%）
+6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（667+テストケース、カバレッジ閾値80%）
 7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`（Docker環境必須）
 8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分、Docker環境必須）
    - **同期実行**: テスト完了を待ってからプッシュ実行
@@ -796,8 +819,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 571テスト（単体）+ 68テスト（統合）
-- Frontend: 378テスト（単体）
+- Backend: 1011+テストケース（単体）+ 68テスト（統合）
+- Frontend: 667+テストケース（単体）
 
 ### .gitignore
 

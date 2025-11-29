@@ -67,7 +67,9 @@ vi.mock('../../../services/rbac.service', () => ({
 vi.mock('../../../services/audit-log.service', () => ({
   AuditLogService: class {
     constructor() {
-      return {};
+      return {
+        createLog: vi.fn().mockResolvedValue(undefined),
+      };
     }
   },
 }));
@@ -186,7 +188,8 @@ describe('Role Routes', () => {
       const response = await request(app).post('/api/v1/roles').send(invalidRole);
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBeDefined();
+      expect(response.body.type).toBe('https://api.architrack.com/errors/validation-error');
+      expect(response.body.detail).toBeDefined();
     });
 
     it('should return 409 when role name already exists', async () => {
@@ -335,7 +338,8 @@ describe('Role Routes', () => {
       const response = await request(app).post(`/api/v1/roles/${roleId}/permissions`).send({});
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBeDefined();
+      expect(response.body.type).toBe('https://api.architrack.com/errors/validation-error');
+      expect(response.body.detail).toBeDefined();
     });
 
     it('should return 404 when role not found', async () => {

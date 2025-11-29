@@ -69,6 +69,7 @@ class ApiClient {
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
+        credentials: 'include', // 要件26.5: HTTPOnly Cookieを送受信するため
       });
 
       clearTimeout(timeoutId);
@@ -85,6 +86,10 @@ class ApiClient {
 
       // 401エラーの場合、トークンリフレッシュを試みる
       if (response.status === 401 && this.tokenRefreshCallback) {
+        // 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
+        if (import.meta.env.DEV) {
+          console.log('[Auth] Access token expired or invalid, attempting refresh...');
+        }
         try {
           // トークンをリフレッシュ
           const newAccessToken = await this.tokenRefreshCallback();
@@ -103,13 +108,22 @@ class ApiClient {
           }
         } catch {
           // リフレッシュ失敗時は401エラーをそのままスロー
-          throw new ApiError(response.status, response.statusText, data);
+          const errorMessage =
+            (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+              ? data.error
+              : null) || response.statusText;
+          throw new ApiError(response.status, errorMessage, data);
         }
       }
 
       // エラーレスポンスの処理
       if (!response.ok) {
-        throw new ApiError(response.status, response.statusText, data);
+        // レスポンスボディのerrorフィールドを優先的に使用
+        const errorMessage =
+          (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+            ? data.error
+            : null) || response.statusText;
+        throw new ApiError(response.status, errorMessage, data);
       }
 
       return data as T;

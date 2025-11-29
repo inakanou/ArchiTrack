@@ -44,6 +44,17 @@ export class AuditLogService implements IAuditLogService {
 
     const log = await this.deps.prisma.auditLog.create({
       data,
+      select: {
+        id: true,
+        action: true,
+        actorId: true,
+        targetType: true,
+        targetId: true,
+        before: true,
+        after: true,
+        metadata: true,
+        createdAt: true,
+      },
     });
 
     return {
@@ -104,6 +115,17 @@ export class AuditLogService implements IAuditLogService {
 
     const logs = await this.deps.prisma.auditLog.findMany({
       where,
+      select: {
+        id: true,
+        action: true,
+        actorId: true,
+        targetType: true,
+        targetId: true,
+        before: true,
+        after: true,
+        metadata: true,
+        createdAt: true,
+      },
       orderBy: { createdAt: 'desc' },
       ...pagination,
     });

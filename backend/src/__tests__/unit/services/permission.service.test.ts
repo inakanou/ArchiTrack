@@ -79,6 +79,13 @@ describe('PermissionService', () => {
       // Assert
       expect(result).toHaveLength(3);
       expect(prismaMock.permission.findMany).toHaveBeenCalledWith({
+        select: {
+          id: true,
+          resource: true,
+          action: true,
+          description: true,
+          createdAt: true,
+        },
         orderBy: [{ resource: 'asc' }, { action: 'asc' }],
       });
     });

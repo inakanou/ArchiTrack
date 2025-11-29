@@ -1,7 +1,10 @@
-import { RouteObject } from 'react-router-dom';
+import { RouteObject, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Profile } from './pages/Profile';
 import { Sessions } from './pages/Sessions';
+import { AuditLogs } from './pages/AuditLogs';
+import { UserManagement } from './pages/UserManagement';
+import { InvitationsPage } from './pages/InvitationsPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { PasswordResetPage } from './pages/PasswordResetPage';
@@ -24,12 +27,18 @@ import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage';
  * - LoginPage, RegisterPage, PasswordResetPageがAPIと統合
  */
 export const routes: RouteObject[] = [
-  // ルートパス - ダッシュボードまたはステータスページ
+  // ルートパス - ダッシュボードへリダイレクト
   {
     path: '/',
+    element: <Navigate to="/dashboard" replace />,
+  },
+
+  // ダッシュボード - ルートパスと同じ内容
+  {
+    path: '/dashboard',
     element: (
       <ProtectedRoute>
-        <div>
+        <div data-testid="dashboard">
           <h1>ArchiTrack Dashboard</h1>
           <p>アーキテクチャ決定記録管理システム</p>
           <p>
@@ -44,7 +53,7 @@ export const routes: RouteObject[] = [
   {
     path: '/login',
     element: (
-      <ProtectedRoute requireAuth={false} redirectTo="/">
+      <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
         <LoginPage />
       </ProtectedRoute>
     ),
@@ -52,7 +61,7 @@ export const routes: RouteObject[] = [
   {
     path: '/register',
     element: (
-      <ProtectedRoute requireAuth={false} redirectTo="/">
+      <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
         <RegisterPage />
       </ProtectedRoute>
     ),
@@ -60,7 +69,7 @@ export const routes: RouteObject[] = [
   {
     path: '/password-reset',
     element: (
-      <ProtectedRoute requireAuth={false} redirectTo="/">
+      <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
         <PasswordResetPage />
       </ProtectedRoute>
     ),
@@ -88,6 +97,32 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <TwoFactorSetupPage />
+      </ProtectedRoute>
+    ),
+  },
+
+  // Admin routes
+  {
+    path: '/admin/audit-logs',
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <AuditLogs />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/admin/users',
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <UserManagement />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/admin/invitations',
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <InvitationsPage />
       </ProtectedRoute>
     ),
   },

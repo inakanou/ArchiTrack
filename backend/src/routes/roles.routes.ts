@@ -40,9 +40,14 @@ const updateRoleSchema = z.object({
   priority: z.number().int().optional(),
 });
 
-const addPermissionSchema = z.object({
-  permissionId: z.string().min(1, 'Permission ID is required'),
-});
+const addPermissionSchema = z
+  .object({
+    permissionId: z.string().min(1, 'Permission ID is required').optional(),
+    permissionIds: z.array(z.string().min(1)).min(1).optional(),
+  })
+  .refine((data) => data.permissionId || data.permissionIds, {
+    message: 'Either permissionId or permissionIds is required',
+  });
 
 /**
  * @swagger
@@ -142,6 +147,22 @@ router.post(
         }
         res.status(500).json({ error: 'Failed to create role', details: error });
         return;
+      }
+
+      // 監査ログ記録
+      if (req.user?.userId) {
+        await auditLogService.createLog({
+          action: 'ROLE_CREATED',
+          actorId: req.user.userId,
+          targetType: 'role',
+          targetId: result.value.id,
+          before: null,
+          after: {
+            id: result.value.id,
+            name: result.value.name,
+            description: result.value.description,
+          },
+        });
       }
 
       logger.info(
@@ -321,9 +342,63 @@ router.delete(
 /**
  * @swagger
  * /api/v1/roles/{id}/permissions:
+ *   get:
+ *     summary: ロールの権限一覧取得
+ *     description: 指定されたロールに割り当てられた権限の一覧を取得
+ *     tags:
+ *       - Roles
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ロールID
+ *     responses:
+ *       200:
+ *         description: 権限一覧
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: ロールが見つからない
+ */
+router.get(
+  '/:id/permissions',
+  authenticate,
+  requirePermission('role:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id: roleId } = req.params as { id: string };
+
+      const result = await rolePermissionService.getRolePermissions(roleId);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'ROLE_NOT_FOUND') {
+          res.status(404).json({ error: 'Role not found', code: 'ROLE_NOT_FOUND' });
+          return;
+        }
+        res.status(500).json({ error: 'Failed to get role permissions', details: error });
+        return;
+      }
+
+      res.json(result.value);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/roles/{id}/permissions:
  *   post:
  *     summary: ロールに権限追加
- *     description: 既存のロールに権限を追加
+ *     description: 既存のロールに権限を追加（単一または複数）
  *     tags:
  *       - Roles
  *     security:
@@ -341,12 +416,17 @@ router.delete(
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - permissionId
  *             properties:
  *               permissionId:
  *                 type: string
  *                 example: "permission-1"
+ *                 description: 単一の権限ID
+ *               permissionIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["permission-1", "permission-2"]
+ *                 description: 複数の権限ID（バッチ追加）
  *     responses:
  *       204:
  *         description: 権限追加成功
@@ -367,24 +447,29 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: roleId } = req.params as { id: string };
-      const { permissionId } = req.body;
+      const { permissionId, permissionIds } = req.body;
       const actorId = req.user!.userId;
 
-      const result = await rolePermissionService.addPermissionToRole(roleId, permissionId, actorId);
+      // Batch or single permission assignment
+      const idsToAdd: string[] = permissionIds || [permissionId];
 
-      if (!result.ok) {
-        const error = result.error;
-        if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
-          res.status(404).json({ error: 'Role or permission not found', code: error.type });
+      for (const pId of idsToAdd) {
+        const result = await rolePermissionService.addPermissionToRole(roleId, pId, actorId);
+
+        if (!result.ok) {
+          const error = result.error;
+          if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
+            res.status(404).json({ error: 'Role or permission not found', code: error.type });
+            return;
+          }
+          res.status(500).json({ error: 'Failed to add permission to role', details: error });
           return;
         }
-        res.status(500).json({ error: 'Failed to add permission to role', details: error });
-        return;
       }
 
       logger.info(
-        { roleId, permissionId, userId: actorId },
-        'Permission added to role successfully'
+        { roleId, permissionIds: idsToAdd, userId: actorId },
+        'Permission(s) added to role successfully'
       );
 
       res.status(204).send();

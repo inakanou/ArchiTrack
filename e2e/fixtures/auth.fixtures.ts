@@ -11,6 +11,13 @@ import { getPrismaClient } from './database';
 import { TEST_USERS, hashPassword, type TestUser } from '../helpers/test-users';
 
 /**
+ * E2Eテスト用のダミー2FA秘密鍵
+ * Note: 開発/テスト環境では固定コード "123456" でバイパスするため、
+ *       実際には使用されないダミー値です。
+ */
+const DUMMY_TWO_FACTOR_SECRET = 'dummy:secret:for-e2e-test';
+
+/**
  * テストユーザーをデータベースに作成
  *
  * TEST_USERSからユーザー情報を取得し、パスワードをハッシュ化してデータベースに保存します。
@@ -35,12 +42,14 @@ export async function createTestUser(userKey: keyof typeof TEST_USERS, prisma?: 
   const passwordHash = await hashPassword(userData.password);
 
   // ユーザー作成
+  // 2FA有効ユーザーにはダミー秘密鍵を設定（E2Eテストでは固定コードでバイパス）
   const user = await client.user.create({
     data: {
       email: userData.email,
       displayName: userData.displayName,
       passwordHash,
       twoFactorEnabled: userData.twoFactorEnabled || false,
+      twoFactorSecret: userData.twoFactorEnabled ? DUMMY_TWO_FACTOR_SECRET : null,
     },
   });
 

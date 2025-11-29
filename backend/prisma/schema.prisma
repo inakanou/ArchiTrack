@@ -35,7 +35,6 @@ model User {
   passwordHistories     PasswordHistory[]
   twoFactorBackupCodes  TwoFactorBackupCode[]
   auditLogsAsActor      AuditLog[]            @relation("ActorAuditLogs")
-  auditLogsAsTarget     AuditLog[]            @relation("TargetAuditLogs")
 
   @@index([email])
   @@index([isLocked])
@@ -195,8 +194,9 @@ model AuditLog {
   metadata   Json? // IPアドレス、ユーザーエージェント、リクエストID
   createdAt  DateTime @default(now())
 
-  actor  User  @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
-  target User? @relation("TargetAuditLogs", fields: [targetId], references: [id], onDelete: Cascade)
+  actor User @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
+  // Note: targetIdは多態的なフィールドで、targetTypeに応じてUser/Role/Permission等を参照
+  // 外部キー制約は設けず、アプリケーションレベルで整合性を管理
 
   @@index([actorId])
   @@index([targetId])

@@ -22,9 +22,11 @@
 
 ## JWT鍵の生成と設定
 
-ArchiTrackは、EdDSA（Ed25519）署名方式のJWTを使用します。
+ArchiTrackは、EdDSA（Ed25519）署名方式のJWTを使用します。jose v5ライブラリを使用して鍵ペアを生成します。
 
-### ステップ1: 鍵ペアの生成
+### 開発環境セットアップ（6ステップ）
+
+#### ステップ1: 鍵生成スクリプト実行
 
 ```bash
 # backendディレクトリで実行
@@ -33,9 +35,10 @@ npm --prefix backend run generate:jwt-keys
 
 **出力例:**
 ```
+Generating EdDSA (Ed25519) key pair...
 ✅ EdDSA key pair generated successfully!
 📝 Keys saved to .env.keys
-🔑 Key ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+🔑 Key ID: eddsa-1234567890123
 
 ⚠️  IMPORTANT: Add these to your environment variables and keep JWT_PRIVATE_KEY secure!
 
@@ -45,23 +48,98 @@ For Railway deployment:
 3. Redeploy the service
 ```
 
-### ステップ2: Railway環境変数設定
+#### ステップ2: 生成された鍵ファイルを確認
 
-1. **Railway Dashboard にアクセス:**
-   - プロジェクト選択 → Backend Service → Variables
+```bash
+# .env.keysの内容を確認
+cat backend/.env.keys
+```
 
-2. **環境変数を追加:**
-   - `JWT_PUBLIC_KEY`: `.env.keys`の`JWT_PUBLIC_KEY`の値をコピー&ペースト
-   - `JWT_PRIVATE_KEY`: `.env.keys`の`JWT_PRIVATE_KEY`の値をコピー&ペースト
+**出力例:**
+```
+# EdDSA (Ed25519) Key Pair
+# Generated: 2025-01-01T00:00:00.000Z
+# Key ID: eddsa-1234567890123
+JWT_PUBLIC_KEY=eyJrdH...（Base64エンコードされたJWK）
+JWT_PRIVATE_KEY=eyJrdH...（Base64エンコードされたJWK）
+```
 
-3. **サービスを再デプロイ:**
-   - Railway が自動的に再デプロイを実行
-
-### ステップ3: ローカル開発環境設定
+#### ステップ3: 環境変数ファイルにコピー
 
 ```bash
 # .env.keysの内容を backend/.env にコピー
 cat backend/.env.keys >> backend/.env
+```
+
+#### ステップ4: 鍵ファイルを削除（セキュリティ）
+
+```bash
+# セキュリティ上の理由で.env.keysを削除
+rm backend/.env.keys
+```
+
+#### ステップ5: 環境変数が正しく設定されたか確認
+
+```bash
+# 環境変数を確認
+grep JWT_ backend/.env
+```
+
+#### ステップ6: Dockerコンテナを再起動
+
+```bash
+# 環境変数を読み込むためにDockerコンテナを再起動
+docker-compose restart backend
+```
+
+### 本番環境セットアップ（Railway）（8ステップ）
+
+#### ステップ1: 鍵生成スクリプトをローカルで実行
+
+```bash
+npm --prefix backend run generate:jwt-keys
+```
+
+#### ステップ2: 生成された鍵をクリップボードにコピー
+
+```bash
+# .env.keysの内容を確認
+cat backend/.env.keys
+```
+
+#### ステップ3: Railway Dashboardでプロジェクトを開く
+
+ブラウザで https://railway.app/project/{project-id} にアクセス
+
+#### ステップ4: Variablesタブを開く
+
+Backend Service → Settings → Variables
+
+#### ステップ5: JWT_PUBLIC_KEY環境変数を追加
+
+- Variable name: `JWT_PUBLIC_KEY`
+- Value: .env.keysの`JWT_PUBLIC_KEY`の値をペースト
+
+#### ステップ6: JWT_PRIVATE_KEY環境変数を追加
+
+- Variable name: `JWT_PRIVATE_KEY`
+- Value: .env.keysの`JWT_PRIVATE_KEY`の値をペースト
+
+#### ステップ7: Deployボタンをクリックしてサービスを再デプロイ
+
+Railwayが自動的に再デプロイを実行します。
+
+#### ステップ8: 鍵ファイルを削除（セキュリティ）
+
+```bash
+# セキュリティ上の理由で.env.keysを削除
+rm backend/.env.keys
+```
+
+**デプロイ成功確認:**
+```bash
+# JWKSエンドポイントで公開鍵が配信されていることを確認
+curl https://your-backend.railway.app/.well-known/jwks.json
 ```
 
 ---
@@ -98,19 +176,30 @@ TWO_FACTOR_ENCRYPTION_KEY=a1b2c3d4e5f6789012345678901234567890abcdef1234567890ab
 
 ---
 
-## シークレットローテーション
+## シークレットローテーション (Secret Rotation)
 
-### JWT鍵のローテーション（推奨: 90日周期）
+### JWT鍵のローテーション / JWT Key Rotation（推奨: 90日周期）
 
-#### ステップ1: 新しい鍵ペアを生成
+> 📘 **詳細手順書**: [EdDSA鍵ローテーション運用手順書](key-rotation-procedure.md)にフェーズごとの詳細手順、チェックリスト、トラブルシューティングを記載しています。
+
+#### 概要
+
+| フェーズ | タイミング | 作業内容 |
+|---------|-----------|---------|
+| 準備 | T-7日目 | カレンダーリマインダー設定 |
+| 新鍵生成 | T日目 | 新しい鍵ペア生成、環境変数更新、再デプロイ |
+| 猶予期間 | T〜T+29日目 | 新旧両方の鍵で検証（自動） |
+| 旧鍵削除 | T+30日目 | JWT_PUBLIC_KEY_OLD削除、再デプロイ |
+
+#### クイックリファレンス
+
+**ステップ1: 新しい鍵ペアを生成**
 
 ```bash
 npm --prefix backend run generate:jwt-keys
 ```
 
-#### ステップ2: グレースピリオド設定（30日間）
-
-古いトークンを検証し続けるため、古い公開鍵を一時的に保持します。
+**ステップ2: グレースピリオド設定（30日間）**
 
 ```bash
 # Railway Dashboard > Variables
@@ -119,16 +208,17 @@ JWT_PUBLIC_KEY=<新しい公開鍵>
 JWT_PRIVATE_KEY=<新しい秘密鍵>
 ```
 
-**実装方法:**
-- バックエンドで`JWT_PUBLIC_KEY_OLD`が設定されている場合、両方の鍵で検証を試みる
-- 新しい鍵で署名したトークンを発行
-
-#### ステップ3: 30日後に古い鍵を削除
+**ステップ3: 30日後に古い鍵を削除**
 
 ```bash
 # Railway Dashboard > Variables
 JWT_PUBLIC_KEY_OLD を削除
 ```
+
+**実装の仕組み:**
+- バックエンドで`JWT_PUBLIC_KEY_OLD`が設定されている場合、両方の鍵で検証を試みる
+- 新しい鍵で署名したトークンを発行
+- JWKSエンドポイント(`/.well-known/jwks.json`)で両方の公開鍵を配信
 
 ---
 

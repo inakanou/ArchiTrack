@@ -454,4 +454,439 @@ describe('InvitationManager', () => {
     // テーブルのrole
     expect(screen.getByRole('table')).toBeInTheDocument();
   });
+
+  it('メールアドレスが空の場合にバリデーションエラーを表示する', async () => {
+    const user = userEvent.setup();
+    const mockOnCreateInvitation = vi.fn();
+
+    render(
+      <InvitationManager
+        invitations={[]}
+        onCreateInvitation={mockOnCreateInvitation}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const inviteButton = screen.getByRole('button', { name: /招待を送信/i });
+    await user.click(inviteButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/メールアドレスを入力してください/i)).toBeInTheDocument();
+    });
+    expect(mockOnCreateInvitation).not.toHaveBeenCalled();
+  });
+
+  it('無効なメールアドレス形式の場合にバリデーションエラーを表示する', async () => {
+    const user = userEvent.setup();
+    const mockOnCreateInvitation = vi.fn();
+
+    render(
+      <InvitationManager
+        invitations={[]}
+        onCreateInvitation={mockOnCreateInvitation}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const emailInput = screen.getByLabelText(/メールアドレス/i);
+    // ブラウザの native email validation はパスするが、カスタムバリデーションは失敗するメールアドレス
+    // (ドットがないのでカスタムregexは失敗)
+    await user.type(emailInput, 'invalid@email');
+
+    const inviteButton = screen.getByRole('button', { name: /招待を送信/i });
+    await user.click(inviteButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/有効なメールアドレスを入力してください/i)).toBeInTheDocument();
+    });
+    expect(mockOnCreateInvitation).not.toHaveBeenCalled();
+  });
+
+  it('招待作成で例外が発生した場合にデフォルトエラーメッセージを表示する', async () => {
+    const user = userEvent.setup();
+    const mockOnCreateInvitation = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    render(
+      <InvitationManager
+        invitations={[]}
+        onCreateInvitation={mockOnCreateInvitation}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const emailInput = screen.getByLabelText(/メールアドレス/i);
+    await user.type(emailInput, 'newuser@example.com');
+
+    const inviteButton = screen.getByRole('button', { name: /招待を送信/i });
+    await user.click(inviteButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/招待の作成に失敗しました/i)).toBeInTheDocument();
+    });
+  });
+
+  it('Escapeキーで取り消し確認ダイアログを閉じる', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <InvitationManager
+        invitations={mockInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    // ダイアログを開く
+    const invitationRows = screen.getAllByRole('row');
+    const pendingRow = invitationRows.find((row) => within(row).queryByText('user1@example.com'));
+
+    if (pendingRow) {
+      const cancelButton = within(pendingRow).getByRole('button', { name: /取り消し/i });
+      await user.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      // Escapeキーを押す
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    }
+  });
+
+  it('ダイアログのバックドロップをクリックすると閉じる', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <InvitationManager
+        invitations={mockInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    // ダイアログを開く
+    const invitationRows = screen.getAllByRole('row');
+    const pendingRow = invitationRows.find((row) => within(row).queryByText('user1@example.com'));
+
+    if (pendingRow) {
+      const cancelButton = within(pendingRow).getByRole('button', { name: /取り消し/i });
+      await user.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      // バックドロップをクリック
+      const dialog = screen.getByRole('dialog');
+      await user.click(dialog);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    }
+  });
+
+  it('クリップボードコピーが失敗した場合にエラーをログに出力する', async () => {
+    const user = userEvent.setup();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mockWriteText = vi.fn().mockRejectedValue(new Error('Clipboard error'));
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: mockWriteText,
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    const mockOnCreateInvitation = vi.fn().mockResolvedValue({
+      success: true,
+      invitation: mockInvitations[0],
+      invitationUrl: 'http://localhost:5173/register?token=token1',
+    });
+
+    render(
+      <InvitationManager
+        invitations={[]}
+        onCreateInvitation={mockOnCreateInvitation}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const emailInput = screen.getByLabelText(/メールアドレス/i);
+    await user.type(emailInput, 'newuser@example.com');
+    await user.click(screen.getByRole('button', { name: /招待を送信/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /URLをコピー/i })).toBeInTheDocument();
+    });
+
+    const copyButton = screen.getByRole('button', { name: /URLをコピー/i });
+    await user.click(copyButton);
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'クリップボードへのコピーに失敗しました',
+        expect.any(Error)
+      );
+    });
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('モバイルビューでカード形式レイアウトを表示する', () => {
+    // ウィンドウ幅をモバイルサイズに設定
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 500,
+    });
+    window.dispatchEvent(new Event('resize'));
+
+    render(
+      <InvitationManager
+        invitations={mockInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    // モバイルビューではテーブルではなくカードが表示される
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('invitation-card').length).toBeGreaterThan(0);
+
+    // 元に戻す
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 1024,
+    });
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  it('取り消し済みステータスを正しく表示する', () => {
+    const cancelledInvitation: Invitation = {
+      id: '4',
+      email: 'cancelled@example.com',
+      token: 'token4',
+      status: 'cancelled',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+      invitedBy: 'admin',
+      inviterEmail: 'admin@example.com',
+    };
+
+    render(
+      <InvitationManager
+        invitations={[cancelledInvitation]}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    expect(screen.getByText('取り消し済み')).toBeInTheDocument();
+  });
+
+  it('招待取り消しで例外が発生した場合にエラーをログに出力する', async () => {
+    const user = userEvent.setup();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mockOnCancelInvitation = vi.fn().mockRejectedValue(new Error('Cancel failed'));
+
+    render(
+      <InvitationManager
+        invitations={mockInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={mockOnCancelInvitation}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const invitationRows = screen.getAllByRole('row');
+    const pendingRow = invitationRows.find((row) => within(row).queryByText('user1@example.com'));
+
+    if (pendingRow) {
+      const cancelButton = within(pendingRow).getByRole('button', { name: /取り消し/i });
+      await user.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole('button', { name: /はい、取り消します/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          '招待の取り消しに失敗しました',
+          expect.any(Error)
+        );
+      });
+    }
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('招待再送信で例外が発生した場合にエラーをログに出力する', async () => {
+    const user = userEvent.setup();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mockOnResendInvitation = vi.fn().mockRejectedValue(new Error('Resend failed'));
+
+    render(
+      <InvitationManager
+        invitations={mockInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={mockOnResendInvitation}
+        loading={false}
+      />
+    );
+
+    const invitationRows = screen.getAllByRole('row');
+    const expiredRow = invitationRows.find((row) => within(row).queryByText('user3@example.com'));
+
+    if (expiredRow) {
+      const resendButton = within(expiredRow).getByRole('button', { name: /再送信/i });
+      await user.click(resendButton);
+
+      await waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          '招待の再送信に失敗しました',
+          expect.any(Error)
+        );
+      });
+    }
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('招待作成失敗時にデフォルトエラーメッセージを表示する（errorがない場合）', async () => {
+    const user = userEvent.setup();
+    const mockOnCreateInvitation = vi.fn().mockResolvedValue({
+      success: false,
+    });
+
+    render(
+      <InvitationManager
+        invitations={[]}
+        onCreateInvitation={mockOnCreateInvitation}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const emailInput = screen.getByLabelText(/メールアドレス/i);
+    await user.type(emailInput, 'newuser@example.com');
+
+    const inviteButton = screen.getByRole('button', { name: /招待を送信/i });
+    await user.click(inviteButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/招待の作成に失敗しました/i)).toBeInTheDocument();
+    });
+  });
+
+  it('ページネーションが正しく動作する', async () => {
+    const user = userEvent.setup();
+    // 11件のモック招待を作成（10件/ページなので2ページ必要）
+    const manyInvitations: Invitation[] = Array.from({ length: 11 }, (_, i) => ({
+      id: String(i + 1),
+      email: `user${i + 1}@example.com`,
+      token: `token${i + 1}`,
+      status: 'pending' as const,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+      invitedBy: 'admin',
+      inviterEmail: 'admin@example.com',
+    }));
+
+    render(
+      <InvitationManager
+        invitations={manyInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    // ページネーションが表示される
+    expect(screen.getByTestId('pagination')).toBeInTheDocument();
+
+    // 1ページ目では最初の10件が表示される
+    expect(screen.getByText('user1@example.com')).toBeInTheDocument();
+    expect(screen.getByText('user10@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('user11@example.com')).not.toBeInTheDocument();
+
+    // 「次へ」ボタンをクリック
+    const nextButton = screen.getByRole('button', { name: /次へ/i });
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('user11@example.com')).toBeInTheDocument();
+      expect(screen.queryByText('user1@example.com')).not.toBeInTheDocument();
+    });
+
+    // 「前へ」ボタンをクリック
+    const prevButton = screen.getByRole('button', { name: /前へ/i });
+    await user.click(prevButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('user1@example.com')).toBeInTheDocument();
+    });
+  });
+
+  it('一覧表示のURLコピーボタンをクリックするとトークンからURLをコピーする', async () => {
+    const user = userEvent.setup();
+    const mockWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: mockWriteText,
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    render(
+      <InvitationManager
+        invitations={mockInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const invitationRows = screen.getAllByRole('row');
+    const pendingRow = invitationRows.find((row) => within(row).queryByText('user1@example.com'));
+
+    if (pendingRow) {
+      const copyButton = within(pendingRow).getByRole('button', { name: /URLをコピー/i });
+      await user.click(copyButton);
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith(expect.stringContaining('token1'));
+      });
+    }
+  });
 });

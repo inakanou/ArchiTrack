@@ -145,8 +145,11 @@ describe('ArchiTrack Backend API', () => {
 
       expect(response.status).toBe(404);
       expect(response.body).toEqual({
-        error: 'Not found',
-        code: 'NOT_FOUND',
+        type: 'https://api.architrack.com/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+        detail: 'The requested resource was not found',
+        instance: '/non-existent-endpoint',
       });
     });
   });

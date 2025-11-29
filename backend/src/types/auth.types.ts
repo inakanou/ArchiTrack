@@ -60,11 +60,13 @@ export type AuthError =
   | { type: 'INVITATION_INVALID' }
   | { type: 'INVITATION_EXPIRED' }
   | { type: 'INVITATION_ALREADY_USED' }
+  | { type: 'EMAIL_ALREADY_REGISTERED' }
   | { type: 'WEAK_PASSWORD'; violations: PasswordViolation[] }
   | { type: 'INVALID_CREDENTIALS' }
   | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
   | { type: '2FA_REQUIRED'; userId: string }
   | { type: 'INVALID_2FA_CODE' }
+  | { type: 'INVALID_BACKUP_CODE' }
   | { type: 'INVALID_REFRESH_TOKEN' }
   | { type: 'REFRESH_TOKEN_EXPIRED' }
   | { type: 'USER_NOT_FOUND' }
@@ -90,18 +92,28 @@ export interface IAuthService {
    *
    * @param email メールアドレス
    * @param password パスワード
+   * @param deviceInfo デバイス情報（User-Agent）
    * @returns ログインレスポンスまたはエラー
    */
-  login(email: string, password: string): Promise<Result<LoginResponse, AuthError>>;
+  login(
+    email: string,
+    password: string,
+    deviceInfo?: string
+  ): Promise<Result<LoginResponse, AuthError>>;
 
   /**
    * 2FA検証（ログイン時）
    *
    * @param userId ユーザーID
    * @param totpCode TOTPコード（6桁）
+   * @param deviceInfo デバイス情報（User-Agent）
    * @returns 認証レスポンスまたはエラー
    */
-  verify2FA(userId: string, totpCode: string): Promise<Result<AuthResponse, AuthError>>;
+  verify2FA(
+    userId: string,
+    totpCode: string,
+    deviceInfo?: string
+  ): Promise<Result<AuthResponse, AuthError>>;
 
   /**
    * ログアウト（単一デバイス）

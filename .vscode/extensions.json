@@ -1,0 +1,24 @@
+{
+  "recommendations": [
+    // Playwright
+    "ms-playwright.playwright",
+
+    // TypeScript & JavaScript
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+
+    // Testing
+    "vitest.explorer",
+
+    // Git
+    "eamodio.gitlens",
+
+    // Docker
+    "ms-azuretools.vscode-docker",
+
+    // その他の便利な拡張機能
+    "usernamehw.errorlens",
+    "christian-kohler.path-intellisense",
+    "streetsidesoftware.code-spell-checker"
+  ]
+}

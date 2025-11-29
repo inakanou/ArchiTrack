@@ -106,15 +106,28 @@ export class EmailService {
     this.frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     // SMTP設定
-    this.transporter = nodemailer.createTransport({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const smtpConfig: any = {
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
-      auth: {
+      connectionTimeout: 5000, // 5秒タイムアウト
+      greetingTimeout: 5000, // 5秒タイムアウト
+    };
+
+    // 認証情報が設定されている場合のみauth を追加
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+      smtpConfig.auth = {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
-      },
-    });
+      };
+    }
+
+    logger.info(
+      { smtpHost: process.env.SMTP_HOST, smtpPort: process.env.SMTP_PORT },
+      'Initializing SMTP transporter'
+    );
+    this.transporter = nodemailer.createTransport(smtpConfig);
 
     // Bullキュー設定
     this.emailQueue = new Bull('email-queue', {
@@ -184,6 +197,10 @@ export class EmailService {
    * @param resetToken - リセットトークン
    */
   async sendPasswordResetEmail(to: string, resetToken: string): Promise<void> {
+    logger.debug(
+      { to, resetToken: resetToken.substring(0, 10) + '...' },
+      'Queueing password reset email'
+    );
     await this.emailQueue.add(
       'password-reset-email',
       { to, resetToken },
@@ -283,6 +300,8 @@ export class EmailService {
    */
   private async processPasswordResetEmail(data: PasswordResetEmailData): Promise<void> {
     const { to, resetToken } = data;
+    logger.debug({ to }, 'Processing password reset email');
+
     const resetUrl = `${this.frontendUrl}/reset-password?token=${resetToken}`;
 
     // Handlebarsテンプレート読み込み
@@ -295,6 +314,10 @@ export class EmailService {
       frontendUrl: this.frontendUrl,
     });
 
+    logger.debug(
+      { to, from: process.env.SMTP_FROM || 'noreply@architrack.com' },
+      'Sending email via SMTP'
+    );
     await this.transporter.sendMail({
       from: process.env.SMTP_FROM || 'noreply@architrack.com',
       to,

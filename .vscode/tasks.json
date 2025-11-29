@@ -1,0 +1,73 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Ensure Docker Ready for E2E",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/ensure-docker-ready.sh",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "detail": "E2Eテスト用のDockerコンテナを起動・準備します"
+    },
+    {
+      "label": "Docker Compose Up",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "up", "-d"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "全てのDockerコンテナをバックグラウンドで起動"
+    },
+    {
+      "label": "Docker Compose Down",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "down"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "全てのDockerコンテナを停止・削除"
+    },
+    {
+      "label": "Docker Compose Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "logs", "-f", "--tail=100"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "Dockerコンテナのログをフォロー"
+    },
+    {
+      "label": "Docker Backend Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": ["logs", "-f", "--tail=100", "architrack-backend"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "バックエンドコンテナのログをフォロー"
+    }
+  ]
+}

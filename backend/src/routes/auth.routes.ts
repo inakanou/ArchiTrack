@@ -20,6 +20,22 @@ import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import logger from '../utils/logger.js';
+import { SECURITY_CONFIG } from '../config/security.constants.js';
+import { PasswordViolation } from '../types/password.types.js';
+
+/**
+ * リフレッシュトークンをHTTPOnly Cookieに設定する
+ * 要件26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
+ */
+function setRefreshTokenCookie(res: Response, refreshToken: string): void {
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/',
+  });
+}
 
 const router = Router();
 const prisma = getPrismaClient();
@@ -28,11 +44,45 @@ const twoFactorService = new TwoFactorService();
 const passwordService = new PasswordService(prisma);
 // const sessionService = new SessionService(prisma);
 
+// パスワードバリデーション違反を人間が読めるメッセージに変換
+function getPasswordViolationMessage(violations: PasswordViolation[]): string {
+  const messages: string[] = [];
+
+  if (violations.includes(PasswordViolation.TOO_SHORT)) {
+    messages.push(`パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`);
+  }
+  if (violations.includes(PasswordViolation.NO_UPPERCASE)) {
+    messages.push('パスワードは大文字を1文字以上含む必要があります');
+  }
+  if (violations.includes(PasswordViolation.NO_LOWERCASE)) {
+    messages.push('パスワードは小文字を1文字以上含む必要があります');
+  }
+  if (violations.includes(PasswordViolation.NO_DIGIT)) {
+    messages.push('パスワードは数字を1文字以上含む必要があります');
+  }
+  if (violations.includes(PasswordViolation.NO_SPECIAL_CHAR)) {
+    messages.push('パスワードは記号を1文字以上含む必要があります');
+  }
+  if (violations.includes(PasswordViolation.COMMON_PASSWORD)) {
+    messages.push('このパスワードは過去に漏洩が確認されています。別のパスワードを選択してください');
+  }
+  if (violations.includes(PasswordViolation.CONTAINS_USER_INFO)) {
+    messages.push('パスワードにユーザー情報を含めることはできません');
+  }
+
+  return messages.length > 0 ? messages.join('; ') : 'パスワードが要件を満たしていません';
+}
+
 // Zodバリデーションスキーマ
 const registerSchema = z.object({
   invitationToken: z.string().min(1, 'Invitation token is required'),
   displayName: z.string().min(1, 'Display name is required').max(100),
-  password: z.string().min(12, 'Password must be at least 12 characters'),
+  password: z
+    .string()
+    .min(
+      SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
+      `パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`
+    ),
 });
 
 const loginSchema = z.object({
@@ -53,13 +103,23 @@ const logoutSchema = z.object({
 });
 
 const verify2FASchema = z.object({
-  token: z.string().length(6, 'TOTP token must be 6 digits'),
+  token: z
+    .string()
+    .length(
+      SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
+      `TOTP token must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+    ),
   email: z.string().email('Invalid email format').optional(),
   tempToken: z.string().optional(),
 });
 
 const enableTwoFactorSchema = z.object({
-  totpCode: z.string().length(6, 'TOTP code must be 6 digits'),
+  totpCode: z
+    .string()
+    .length(
+      SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
+      `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+    ),
 });
 
 const disableTwoFactorSchema = z.object({
@@ -72,12 +132,22 @@ const passwordResetRequestSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Token is required'),
-  newPassword: z.string().min(12, 'Password must be at least 12 characters'),
+  newPassword: z
+    .string()
+    .min(
+      SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
+      `パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`
+    ),
 });
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
-  newPassword: z.string().min(12, 'Password must be at least 12 characters'),
+  newPassword: z
+    .string()
+    .min(
+      SECURITY_CONFIG.PASSWORD.MIN_LENGTH,
+      `パスワードは${SECURITY_CONFIG.PASSWORD.MIN_LENGTH}文字以上である必要があります`
+    ),
   newPasswordConfirm: z.string().min(1, 'Password confirmation is required'),
 });
 
@@ -160,9 +230,18 @@ router.post(
         } else if (error.type === 'INVITATION_ALREADY_USED') {
           res.status(400).json({ error: 'Invitation token already used', code: error.type });
           return;
-        } else if (error.type === 'WEAK_PASSWORD') {
+        } else if (error.type === 'EMAIL_ALREADY_REGISTERED') {
           res.status(400).json({
-            error: 'Password is too weak',
+            error: 'このメールアドレスは既に登録されています',
+            code: error.type,
+            errors: ['EMAIL_ALREADY_REGISTERED'],
+          });
+          return;
+        } else if (error.type === 'WEAK_PASSWORD') {
+          const detailedMessage = getPasswordViolationMessage(error.violations);
+          res.status(400).json({
+            error: detailedMessage,
+            detail: detailedMessage,
             code: error.type,
             violations: error.violations,
           });
@@ -174,6 +253,9 @@ router.post(
       }
 
       const authResponse = result.value;
+
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
 
       logger.info(
         { userId: authResponse.user.id, email: authResponse.user.email },
@@ -247,8 +329,9 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { email, password } = req.body;
+      const userAgent = req.headers['user-agent'];
 
-      const result = await authService.login(email, password);
+      const result = await authService.login(email, password, userAgent);
 
       if (!result.ok) {
         const error = result.error;
@@ -256,8 +339,9 @@ router.post(
           res.status(401).json({ error: 'Invalid credentials', code: error.type });
           return;
         } else if (error.type === 'ACCOUNT_LOCKED') {
-          res.status(403).json({
+          res.status(429).json({
             error: 'Account is locked due to too many failed login attempts',
+            detail: 'アカウントがロックされています (Account locked)',
             code: error.type,
             unlockAt: error.unlockAt,
           });
@@ -268,6 +352,14 @@ router.post(
             userId: error.userId,
           });
           return;
+        } else if (error.type === 'DATABASE_ERROR') {
+          logger.error({ error: error.message }, 'Database error during login');
+          res.status(500).json({
+            error: 'Internal server error',
+            code: error.type,
+            detail: error.message,
+          });
+          return;
         }
 
         res.status(500).json({ error: 'Login failed', code: 'LOGIN_ERROR' });
@@ -275,6 +367,20 @@ router.post(
       }
 
       const loginResponse = result.value;
+
+      // 2FA有効ユーザーの場合は2FA検証を要求
+      if (loginResponse.type === '2FA_REQUIRED') {
+        res.status(200).json({
+          requires2FA: true,
+          userId: loginResponse.userId,
+        });
+        return;
+      }
+
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      if (loginResponse.refreshToken) {
+        setRefreshTokenCookie(res, loginResponse.refreshToken);
+      }
 
       if (loginResponse.user) {
         logger.info(
@@ -338,10 +444,18 @@ router.post(
       if (!result.ok) {
         const error = result.error;
         if (error.type === 'INVALID_REFRESH_TOKEN') {
-          res.status(401).json({ error: 'Invalid refresh token', code: error.type });
+          res.status(401).json({
+            error: 'Invalid refresh token',
+            detail: '無効なトークンです (Invalid token)',
+            code: error.type,
+          });
           return;
         } else if (error.type === 'REFRESH_TOKEN_EXPIRED') {
-          res.status(401).json({ error: 'Refresh token expired', code: error.type });
+          res.status(401).json({
+            error: 'Refresh token expired',
+            detail: 'トークンの有効期限が切れています (Token expired)',
+            code: error.type,
+          });
           return;
         }
 
@@ -350,6 +464,9 @@ router.post(
       }
 
       const authResponse = result.value;
+
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
 
       logger.info(
         { userId: authResponse.user.id, email: authResponse.user.email },
@@ -482,20 +599,24 @@ router.patch(
 
       const { displayName } = req.body;
 
-      const updatedUser = await prisma.user.update({
+      // データベースを更新
+      await prisma.user.update({
         where: { id: req.user.userId },
         data: { displayName },
-        select: {
-          id: true,
-          email: true,
-          displayName: true,
-          createdAt: true,
-        },
       });
 
       logger.info({ userId: req.user.userId }, 'User profile updated');
 
-      res.status(200).json(updatedUser);
+      // ベストプラクティス: getCurrentUserを使用して一貫したレスポンス形式を返す
+      // これにより、rolesを含む完全なUserProfileが返される
+      const result = await authService.getCurrentUser(req.user.userId);
+
+      if (!result.ok) {
+        res.status(500).json({ error: 'Failed to get updated user', code: 'GET_USER_ERROR' });
+        return;
+      }
+
+      res.status(200).json(result.value);
     } catch (error) {
       next(error);
     }
@@ -696,25 +817,160 @@ router.post(
       }
 
       // 2FA検証を実行
-      const result = await authService.verify2FA(userId, token);
+      const userAgent = req.headers['user-agent'];
+      const result = await authService.verify2FA(userId, token, userAgent);
 
       if (!result.ok) {
         const error = result.error;
         if (error.type === 'INVALID_2FA_CODE') {
-          res.status(401).json({ error: 'Invalid 2FA code', code: error.type });
+          res.status(401).json({
+            error: '認証コードが正しくありません',
+            detail: 'Invalid 2FA code',
+            code: error.type,
+          });
+          return;
+        } else if (error.type === 'ACCOUNT_LOCKED') {
+          res.status(429).json({
+            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
+            detail: 'Account locked due to too many failed 2FA attempts',
+            code: error.type,
+            unlockAt: error.unlockAt,
+          });
           return;
         } else if (error.type === 'USER_NOT_FOUND') {
           res.status(404).json({ error: 'User not found', code: error.type });
           return;
+        } else if (error.type === 'DATABASE_ERROR') {
+          logger.error({ error }, 'Database error during 2FA verification');
+          res.status(500).json({ error: '2FA verification failed', code: '2FA_ERROR' });
+          return;
         }
 
+        // 未知のエラータイプの場合
+        logger.error({ errorType: error.type }, 'Unknown 2FA error type');
         res.status(500).json({ error: '2FA verification failed', code: '2FA_ERROR' });
         return;
       }
 
       const authResponse = result.value;
 
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
+
       logger.info({ userId: authResponse.user.id }, '2FA verification successful');
+
+      res.status(200).json(authResponse);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// バックアップコード検証用のスキーマ
+const verifyBackupCodeSchema = z.object({
+  backupCode: z.string().min(1, 'Backup code is required'),
+  email: z.string().email('Invalid email format'),
+});
+
+/**
+ * @swagger
+ * /api/v1/auth/verify-2fa/backup:
+ *   post:
+ *     summary: Verify 2FA backup code
+ *     description: Verify a backup code for two-factor authentication
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - backupCode
+ *               - email
+ *             properties:
+ *               backupCode:
+ *                 type: string
+ *                 description: 8-character backup code
+ *                 example: "ABCD1234"
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: Email (for login flow)
+ *     responses:
+ *       200:
+ *         description: 2FA verification successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/verify-2fa/backup',
+  validate(verifyBackupCodeSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { backupCode, email } = req.body;
+
+      // emailからユーザーを検索
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        res.status(401).json({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+        return;
+      }
+
+      // バックアップコード検証を実行
+      const userAgent = req.headers['user-agent'];
+      const result = await authService.verify2FABackupCode(user.id, backupCode, userAgent);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'INVALID_BACKUP_CODE') {
+          res.status(401).json({
+            error: 'バックアップコードが正しくありません',
+            detail: 'Invalid backup code',
+            code: error.type,
+          });
+          return;
+        } else if (error.type === 'ACCOUNT_LOCKED') {
+          res.status(429).json({
+            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
+            detail: 'Account locked due to too many failed 2FA attempts',
+            code: error.type,
+            unlockAt: error.unlockAt,
+          });
+          return;
+        } else if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'DATABASE_ERROR') {
+          logger.error({ error }, 'Database error during backup code verification');
+          res.status(500).json({ error: 'Backup code verification failed', code: '2FA_ERROR' });
+          return;
+        }
+
+        // 未知のエラータイプの場合
+        logger.error({ errorType: error.type }, 'Unknown backup code verification error type');
+        res.status(500).json({ error: 'Backup code verification failed', code: '2FA_ERROR' });
+        return;
+      }
+
+      const authResponse = result.value;
+
+      // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
+      setRefreshTokenCookie(res, authResponse.refreshToken);
+
+      logger.info({ userId: authResponse.user.id }, 'Backup code verification successful');
 
       res.status(200).json(authResponse);
     } catch (error) {
@@ -1014,11 +1270,98 @@ router.post(
         return;
       }
 
-      const backupCodes = result.value;
+      const plainTextCodes = result.value;
+
+      // 再生成後のコードを BackupCodeInfo 形式で返す（全て未使用、マスクなし）
+      const backupCodes = plainTextCodes.map((code) => ({
+        code,
+        isUsed: false,
+      }));
 
       logger.info({ userId: req.user.userId }, 'Backup codes regenerated successfully');
 
-      res.status(200).json({ backupCodes });
+      res.status(200).json({ backupCodes, remainingCount: backupCodes.length });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/backup-codes:
+ *   get:
+ *     summary: バックアップコードステータス一覧取得
+ *     description: 現在のバックアップコードの使用状況を取得する
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: バックアップコードステータス取得成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       code:
+ *                         type: string
+ *                         description: マスク表示用のコード（****-0001形式）
+ *                       isUsed:
+ *                         type: boolean
+ *                         description: 使用済みフラグ
+ *                       usedAt:
+ *                         type: string
+ *                         nullable: true
+ *                         description: 使用日時（ISO 8601形式）
+ *                 remainingCount:
+ *                   type: number
+ *                   description: 未使用コード数
+ *       400:
+ *         description: 2FAが未有効化
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.get(
+  '/2fa/backup-codes',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const result = await twoFactorService.getBackupCodesStatus(req.user.userId);
+
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: error.type });
+          return;
+        } else if (error.type === 'TWO_FACTOR_NOT_ENABLED') {
+          res.status(400).json({ error: '2FA is not enabled', code: error.type });
+          return;
+        }
+
+        res
+          .status(500)
+          .json({ error: 'Failed to get backup codes status', code: 'BACKUP_CODES_ERROR' });
+        return;
+      }
+
+      const backupCodes = result.value;
+      const remainingCount = backupCodes.filter((code) => !code.isUsed).length;
+
+      logger.debug({ userId: req.user.userId }, 'Backup codes status retrieved successfully');
+
+      res.status(200).json({ backupCodes, remainingCount });
     } catch (error) {
       next(error);
     }
@@ -1213,8 +1556,10 @@ router.post(
           res.status(400).json({ error: 'Reset token has expired', code: error.type });
           return;
         } else if (error.type === 'WEAK_PASSWORD') {
+          const detailedMessage = getPasswordViolationMessage(error.violations);
           res.status(400).json({
-            error: 'Password does not meet requirements',
+            error: detailedMessage,
+            detail: detailedMessage,
             code: error.type,
             violations: error.violations,
           });
@@ -1325,8 +1670,10 @@ router.post(
           });
           return;
         } else if (error.type === 'WEAK_PASSWORD') {
+          const detailedMessage = getPasswordViolationMessage(error.violations);
           res.status(400).json({
-            error: 'Password does not meet requirements',
+            error: detailedMessage,
+            detail: detailedMessage,
             code: error.type,
             violations: error.violations,
           });

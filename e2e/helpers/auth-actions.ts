@@ -29,26 +29,52 @@ import { TEST_USERS } from './test-users';
 export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS): Promise<void> {
   const user = TEST_USERS[userKey];
 
-  // ログインページに移動
-  await page.goto('/login');
+  // ログインページに移動し、ページ読み込み完了を待機
+  await page.goto('/login', { waitUntil: 'networkidle' });
+
+  // 前のテストの認証状態をクリア（シリアル実行テスト対応）
+  // ページナビゲーション後に認証トークンをクリアし、必要に応じてページをリロード
+  const hasExistingToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
+  if (hasExistingToken) {
+    await page.evaluate(() => {
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('accessToken');
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+  }
+
+  // フォーム要素が操作可能になるまで待機
+  const emailInput = page.getByLabel(/メールアドレス/i);
+  const passwordInput = page.locator('input#password');
+  const loginButton = page.getByRole('button', { name: /ログイン/i });
+
+  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+  await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
+  await loginButton.waitFor({ state: 'visible', timeout: 10000 });
 
   // メールアドレスとパスワードを入力
-  await page.getByLabel(/メールアドレス/i).fill(user.email);
-  await page.locator('input#password').fill(user.password);
+  await emailInput.fill(user.email);
+  await passwordInput.fill(user.password);
 
   // ログインボタンをクリック
-  await page.getByRole('button', { name: /ログイン/i }).click();
+  await loginButton.click();
 
-  // ダッシュボードへのリダイレクトを待機
+  // ログイン成功を待機（ログインページから離れたことを確認）
   // 2FAが有効な場合は2FA画面にリダイレクトされる可能性があるため、
   // そのケースは個別に処理する
   if (!user.twoFactorEnabled) {
-    await page.waitForURL('http://localhost:5173/');
+    // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: 10000,
+    });
 
     // リフレッシュトークンがlocalStorageに保存されるまで待機
-    await page.waitForFunction(() => {
-      return localStorage.getItem('refreshToken') !== null;
-    });
+    await page.waitForFunction(
+      () => {
+        return localStorage.getItem('refreshToken') !== null;
+      },
+      { timeout: 10000 }
+    );
   }
 }
 
@@ -76,19 +102,38 @@ export async function loginWithCredentials(
   password: string,
   waitForRedirect = true
 ): Promise<void> {
-  // ログインページに移動
-  await page.goto('/login');
+  // ログインページに移動し、ページ読み込み完了を待機
+  await page.goto('/login', { waitUntil: 'networkidle' });
+
+  // フォーム要素が操作可能になるまで待機
+  const emailInput = page.getByLabel(/メールアドレス/i);
+  const passwordInput = page.locator('input#password');
+  const loginButton = page.getByRole('button', { name: /ログイン/i });
+
+  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+  await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
+  await loginButton.waitFor({ state: 'visible', timeout: 10000 });
 
   // メールアドレスとパスワードを入力
-  await page.getByLabel(/メールアドレス/i).fill(email);
-  await page.locator('input#password').fill(password);
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
 
   // ログインボタンをクリック
-  await page.getByRole('button', { name: /ログイン/i }).click();
+  await loginButton.click();
 
-  // リダイレクトを待機
+  // リダイレクトを待機（ログインページから離れたことを確認）
   if (waitForRedirect) {
-    await page.waitForURL('http://localhost:5173/');
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: 10000,
+    });
+
+    // リフレッシュトークンがlocalStorageに保存されるまで待機
+    await page.waitForFunction(
+      () => {
+        return localStorage.getItem('refreshToken') !== null;
+      },
+      { timeout: 10000 }
+    );
   }
 }
 
@@ -116,8 +161,13 @@ export async function submitTwoFactorCode(page: Page, code: string): Promise<voi
   // 確認ボタンをクリック
   await page.getByRole('button', { name: /確認/i }).click();
 
-  // ダッシュボードへのリダイレクトを待機
-  await page.waitForURL('http://localhost:5173/');
+  // ログイン成功を待機（ログインページから離れたことを確認）
+  await page.waitForURL(
+    (url) => !url.pathname.includes('/login') && !url.pathname.includes('/2fa'),
+    {
+      timeout: 10000,
+    }
+  );
 }
 
 /**

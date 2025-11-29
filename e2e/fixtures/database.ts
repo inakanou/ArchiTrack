@@ -30,7 +30,13 @@ let prisma: PrismaClient | null = null;
 export function getPrismaClient(): PrismaClient {
   if (!prisma) {
     // E2Eテスト用のデータベース接続URL
-    // 環境変数が設定されていない場合は、ローカル開発環境のデフォルト値を使用
+    // Docker Compose環境では architrack_dev を使用（バックエンドと同じDB）
+    //
+    // 重要: E2EテストはDocker Composeで起動したバックエンドと通信するため、
+    // バックエンドと同じデータベースを使用する必要があります。
+    // Docker Composeのデフォルトは architrack_dev です。
+    //
+    // 環境変数 DATABASE_URL で上書き可能です。
     const databaseUrl =
       process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_dev';
 
@@ -51,6 +57,7 @@ export function getPrismaClient(): PrismaClient {
  * データベースの全テストデータをクリーンアップ
  *
  * 外部キー制約の順序を考慮して、依存関係の逆順でテーブルをクリアします。
+ * トランザクションを使用してACID特性を保証し、並列実行時の競合を防止します。
  * マスターデータ（Role, Permission）は削除しません。
  *
  * 削除順序:
@@ -73,17 +80,34 @@ export function getPrismaClient(): PrismaClient {
 export async function cleanDatabase(): Promise<void> {
   const client = getPrismaClient();
 
-  // 外部キー制約の順序を考慮して削除
-  await client.auditLog.deleteMany();
-  await client.refreshToken.deleteMany();
-  await client.twoFactorBackupCode.deleteMany();
-  await client.passwordHistory.deleteMany();
-  await client.passwordResetToken.deleteMany();
-  await client.invitation.deleteMany();
-  await client.userRole.deleteMany();
-  await client.user.deleteMany();
+  // トランザクションで確実にクリーンアップ
+  // 外部キー制約の順序を考慮して削除（依存される側を先に削除）
+  await client.$transaction([
+    client.auditLog.deleteMany(),
+    client.refreshToken.deleteMany(),
+    client.twoFactorBackupCode.deleteMany(),
+    client.passwordHistory.deleteMany(),
+    client.passwordResetToken.deleteMany(),
+    client.invitation.deleteMany(),
+    client.userRole.deleteMany(), // UserとRoleに依存するため、User削除前に実行
+    client.user.deleteMany(),
+    // テストで作成されたロールの関連権限を削除
+    client.rolePermission.deleteMany({
+      where: {
+        role: {
+          isSystem: false,
+        },
+      },
+    }),
+    // テストで作成されたロールを削除（isSystem=false）
+    client.role.deleteMany({
+      where: {
+        isSystem: false,
+      },
+    }),
+  ]);
 
-  // Note: Role, Permissionテーブルはマスターデータなので削除しない
+  // Note: システムロール（isSystem=true）とPermissionテーブルはマスターデータなので削除しない
   // これらはglobal-setupで初期化され、テスト全体で共有されます
 }
 

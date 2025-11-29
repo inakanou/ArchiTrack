@@ -55,17 +55,25 @@ export class RBACService implements IRBACService {
       }
     }
 
-    // DBから取得（N+1防止のため includeで一度に全てを取得）
+    // DBから取得（N+1防止のため selectで一度に必要なデータのみ取得、optimized）
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: {
+      select: {
+        id: true,
         userRoles: {
-          include: {
+          select: {
             role: {
-              include: {
+              select: {
                 rolePermissions: {
-                  include: {
-                    permission: true,
+                  select: {
+                    permission: {
+                      select: {
+                        id: true,
+                        resource: true,
+                        action: true,
+                        description: true,
+                      },
+                    },
                   },
                 },
               },

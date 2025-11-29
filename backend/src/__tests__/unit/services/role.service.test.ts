@@ -85,6 +85,7 @@ describe('RoleService', () => {
       );
       expect(prismaMock.role.findUnique).toHaveBeenCalledWith({
         where: { name: 'developer' },
+        select: { id: true },
       });
       expect(prismaMock.role.create).toHaveBeenCalledWith({
         data: {

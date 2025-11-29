@@ -48,9 +48,10 @@ export class RolePermissionService implements IRolePermissionService {
     actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
     try {
-      // ロールの存在チェック
+      // ロールの存在チェック (optimized: only fetch necessary fields)
       const role = await this.prisma.role.findUnique({
         where: { id: roleId },
+        select: { id: true, name: true },
       });
 
       if (!role) {
@@ -58,9 +59,10 @@ export class RolePermissionService implements IRolePermissionService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
-      // 権限の存在チェック
+      // 権限の存在チェック (optimized: only fetch necessary fields)
       const permission = await this.prisma.permission.findUnique({
         where: { id: permissionId },
+        select: { id: true, resource: true, action: true },
       });
 
       if (!permission) {
@@ -68,12 +70,13 @@ export class RolePermissionService implements IRolePermissionService {
         return Err({ type: 'PERMISSION_NOT_FOUND' });
       }
 
-      // 重複チェック
+      // 重複チェック (optimized: only check existence)
       const existing = await this.prisma.rolePermission.findFirst({
         where: {
           roleId,
           permissionId,
         },
+        select: { id: true },
       });
 
       if (existing) {
@@ -152,9 +155,10 @@ export class RolePermissionService implements IRolePermissionService {
     actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
     try {
-      // ロールの存在チェック
+      // ロールの存在チェック (optimized: only fetch necessary fields)
       const role = await this.prisma.role.findUnique({
         where: { id: roleId },
+        select: { id: true, name: true },
       });
 
       if (!role) {
@@ -162,9 +166,10 @@ export class RolePermissionService implements IRolePermissionService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
-      // 権限の存在チェック
+      // 権限の存在チェック (optimized: only fetch necessary fields)
       const permission = await this.prisma.permission.findUnique({
         where: { id: permissionId },
+        select: { id: true, resource: true, action: true },
       });
 
       if (!permission) {
@@ -181,12 +186,13 @@ export class RolePermissionService implements IRolePermissionService {
         return Err({ type: 'ADMIN_WILDCARD_PROTECTED' });
       }
 
-      // 紐付けの存在チェック
+      // 紐付けの存在チェック (optimized: only fetch id for deletion)
       const rolePermission = await this.prisma.rolePermission.findFirst({
         where: {
           roleId,
           permissionId,
         },
+        select: { id: true },
       });
 
       if (!rolePermission) {
@@ -252,9 +258,10 @@ export class RolePermissionService implements IRolePermissionService {
     roleId: string
   ): Promise<Result<RolePermissionInfo[], RolePermissionError>> {
     try {
-      // ロールの存在チェック
+      // ロールの存在チェック (optimized: only check existence)
       const role = await this.prisma.role.findUnique({
         where: { id: roleId },
+        select: { id: true },
       });
 
       if (!role) {
@@ -262,10 +269,20 @@ export class RolePermissionService implements IRolePermissionService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
-      // 権限一覧を取得
+      // 権限一覧を取得 (optimized: use select instead of include)
       const rolePermissions = await this.prisma.rolePermission.findMany({
         where: { roleId },
-        include: { permission: true },
+        select: {
+          assignedAt: true,
+          permission: {
+            select: {
+              id: true,
+              resource: true,
+              action: true,
+              description: true,
+            },
+          },
+        },
         orderBy: [{ permission: { resource: 'asc' } }, { permission: { action: 'asc' } }],
       });
 
@@ -348,6 +365,7 @@ export class RolePermissionService implements IRolePermissionService {
         roleId,
         permissionId,
       },
+      select: { id: true },
     });
 
     return rolePermission !== null;
