@@ -27,8 +27,8 @@ const emailService = new EmailService();
 const userRoleService = new UserRoleService(prisma, rbacService, auditLogService, emailService);
 
 // Zodバリデーションスキーマ
-const addRoleSchema = z.object({
-  roleId: z.string().min(1, 'Role ID is required'),
+const addRolesSchema = z.object({
+  roleIds: z.array(z.string().min(1)).min(1, 'At least one role ID is required'),
 });
 
 /**
@@ -101,7 +101,7 @@ router.get(
  * /api/v1/users/{id}/roles:
  *   post:
  *     summary: ユーザーにロール追加
- *     description: 既存のユーザーにロールを追加
+ *     description: 既存のユーザーにロールを追加（複数ロールの一括割り当てに対応）
  *     tags:
  *       - User Roles
  *     security:
@@ -120,11 +120,13 @@ router.get(
  *           schema:
  *             type: object
  *             required:
- *               - roleId
+ *               - roleIds
  *             properties:
- *               roleId:
- *                 type: string
- *                 example: "role-1"
+ *               roleIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["role-1", "role-2"]
  *     responses:
  *       204:
  *         description: ロール追加成功
@@ -141,31 +143,99 @@ router.post(
   '/:id/roles',
   authenticate,
   requirePermission('user:update'),
-  validate(addRoleSchema, 'body'),
+  validate(addRolesSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: userId } = req.params as { id: string };
-      const { roleId } = req.body;
+      const { roleIds } = req.body;
       const actorId = req.user!.userId;
-      const performedBy = req.user
-        ? { email: req.user.email, displayName: req.user.email }
-        : undefined;
 
-      const result = await userRoleService.addRoleToUser(userId, roleId, actorId, performedBy);
+      // 各ロールを追加（監査ログとアラート対応）
+      for (const roleId of roleIds) {
+        const performedBy = req.user
+          ? { email: req.user.email, displayName: req.user.email }
+          : undefined;
+
+        const result = await userRoleService.addRoleToUser(userId, roleId, actorId, performedBy);
+
+        if (!result.ok) {
+          const error = result.error;
+          if (error.type === 'USER_NOT_FOUND' || error.type === 'ROLE_NOT_FOUND') {
+            res.status(404).json({ error: 'User or role not found', code: error.type });
+            return;
+          }
+          res.status(500).json({ error: 'Failed to add role to user', details: error });
+          return;
+        }
+      }
+
+      logger.info({ userId, roleIds, actorId }, 'Roles added to user successfully');
+
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/users/{id}/roles:
+ *   get:
+ *     summary: ユーザーのロール一覧取得
+ *     description: 特定ユーザーに割り当てられたロール一覧を取得
+ *     tags:
+ *       - User Roles
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ユーザーID
+ *     responses:
+ *       200:
+ *         description: ロール一覧
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: ユーザーが見つからない
+ */
+router.get(
+  '/:id/roles',
+  authenticate,
+  requirePermission('user:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id: userId } = req.params as { id: string };
+
+      const result = await userRoleService.getUserRoles(userId);
 
       if (!result.ok) {
         const error = result.error;
-        if (error.type === 'USER_NOT_FOUND' || error.type === 'ROLE_NOT_FOUND') {
-          res.status(404).json({ error: 'User or role not found', code: error.type });
+        if (error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({ error: 'User not found', code: 'USER_NOT_FOUND' });
           return;
         }
-        res.status(500).json({ error: 'Failed to add role to user', details: error });
+        res.status(500).json({ error: 'Failed to get user roles', details: error });
         return;
       }
 
-      logger.info({ userId, roleId, actorId }, 'Role added to user successfully');
+      // roleIdをidに変換してフロントエンド互換形式で返す
+      const roles = result.value.map((role) => ({
+        id: role.roleId,
+        name: role.name,
+        description: role.description,
+        priority: role.priority,
+        isSystem: role.isSystem,
+        assignedAt: role.assignedAt,
+      }));
 
-      res.status(204).send();
+      res.json(roles);
     } catch (error) {
       next(error);
     }

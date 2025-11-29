@@ -104,12 +104,14 @@ describe('User Role Routes', () => {
         Ok(undefined)
       );
 
-      const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({ roleId });
+      const response = await request(app)
+        .post(`/api/v1/users/${userId}/roles`)
+        .send({ roleIds: [roleId] });
 
       expect(response.status).toBe(204);
     });
 
-    it('should return 400 when roleId is missing', async () => {
+    it('should return 400 when roleIds is missing', async () => {
       const userId = 'user-1';
 
       const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({});
@@ -117,6 +119,16 @@ describe('User Role Routes', () => {
       expect(response.status).toBe(400);
       expect(response.body.type).toBe('https://api.architrack.com/errors/validation-error');
       expect(response.body.detail).toBeDefined();
+    });
+
+    it('should return 400 when roleIds is empty array', async () => {
+      const userId = 'user-1';
+
+      const response = await request(app)
+        .post(`/api/v1/users/${userId}/roles`)
+        .send({ roleIds: [] });
+
+      expect(response.status).toBe(400);
     });
 
     it('should return 404 when user not found', async () => {
@@ -127,7 +139,9 @@ describe('User Role Routes', () => {
         Err({ type: 'USER_NOT_FOUND' })
       );
 
-      const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({ roleId });
+      const response = await request(app)
+        .post(`/api/v1/users/${userId}/roles`)
+        .send({ roleIds: [roleId] });
 
       expect(response.status).toBe(404);
       expect(response.body.error).toContain('not found');
@@ -141,7 +155,9 @@ describe('User Role Routes', () => {
         Err({ type: 'ROLE_NOT_FOUND' })
       );
 
-      const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({ roleId });
+      const response = await request(app)
+        .post(`/api/v1/users/${userId}/roles`)
+        .send({ roleIds: [roleId] });
 
       expect(response.status).toBe(404);
       expect(response.body.error).toContain('not found');
@@ -156,9 +172,25 @@ describe('User Role Routes', () => {
         Ok(undefined)
       );
 
-      const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({ roleId });
+      const response = await request(app)
+        .post(`/api/v1/users/${userId}/roles`)
+        .send({ roleIds: [roleId] });
 
       expect(response.status).toBe(204);
+    });
+
+    it('should add multiple roles at once', async () => {
+      const userId = 'user-1';
+      const roleIds = ['role-1', 'role-2', 'role-3'];
+
+      (mockUserRoleService.addRoleToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok(undefined)
+      );
+
+      const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({ roleIds });
+
+      expect(response.status).toBe(204);
+      expect(mockUserRoleService.addRoleToUser).toHaveBeenCalledTimes(3);
     });
   });
 

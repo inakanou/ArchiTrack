@@ -98,7 +98,7 @@ test.describe('監査ログとコンプライアンス', () => {
         Authorization: `Bearer ${accessToken}`,
       },
       data: {
-        roleId: newRole.id,
+        roleIds: [newRole.id],
       },
     });
 
