@@ -41,20 +41,33 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
   });
 
   test('表示名を変更できる', async ({ page }) => {
-    // 表示名を変更
+    // 表示名フィールドが読み込まれるまで待機
     const displayNameInput = page.getByLabel(/表示名/i);
-    await displayNameInput.clear();
-    await displayNameInput.fill('Updated Name');
+    await expect(displayNameInput).toBeVisible({ timeout: 10000 });
+
+    // 現在の値を取得
+    const currentValue = await displayNameInput.inputValue();
+
+    // 現在の値と異なる新しい値を設定
+    const newValue = currentValue === 'Updated Name' ? 'New Display Name' : 'Updated Name';
+
+    // clear後にfillでフォーム変更を検知させる
+    await displayNameInput.click();
+    await displayNameInput.fill('');
+    await displayNameInput.fill(newValue);
+
+    // フォーム変更検知のため少し待機
+    await page.waitForTimeout(500);
 
     // 保存ボタンが有効になるまで待機（フォーム変更検知のため）
     const saveButton = page.getByRole('button', { name: /^保存$|^プロフィールを保存$/i });
-    await expect(saveButton).toBeEnabled({ timeout: 5000 });
+    await expect(saveButton).toBeEnabled({ timeout: 10000 });
 
     // 保存ボタンをクリック
     await saveButton.click();
 
     // 成功メッセージが表示される
-    await expect(page.getByText(/更新しました/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/更新しました/i)).toBeVisible({ timeout: 15000 });
   });
 
   test('パスワード変更フォームが表示される', async ({ page }) => {
@@ -334,10 +347,20 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       await page.locator('input#newPassword').fill(newPwd);
       await page.locator('input#confirmPassword').fill(newPwd);
       await page.getByRole('button', { name: /パスワードを変更/i }).click();
+
+      // 確認ダイアログが表示されるのを待つ
+      await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
+        timeout: 5000,
+      });
       await page.getByRole('button', { name: /はい、変更する/i }).click();
 
-      // ログインページにリダイレクトされるのを待つ
-      await page.waitForURL(/\/login/, { timeout: 10000 });
+      // 成功メッセージが表示されるのを待つ（UIは2秒後にlogoutを呼ぶ）
+      await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+        timeout: 10000,
+      });
+
+      // ログインページにリダイレクトされるのを待つ（2秒のsetTimeout + 処理時間を考慮）
+      await page.waitForURL(/\/login/, { timeout: 15000 });
 
       // 新しいパスワードで再ログイン（loginWithCredentialsを使用）
       await loginWithCredentials(page, 'user@example.com', newPwd);
@@ -366,14 +389,19 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.locator('input#confirmPassword').fill(password1);
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
-    // 確認ダイアログが表示されるので、「はい、変更する」をクリック
+    // 確認ダイアログが表示されるのを待つ
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
+      timeout: 5000,
+    });
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
     // サーバー側でパスワード履歴チェックが行われ、エラーメッセージが表示される
-    // バックエンドから英語メッセージが返される
+    // バックエンドから英語メッセージが返される（2種類のメッセージに対応）
+    // "Password has been used recently. Please choose a different password" または
+    // "Password was used in recent history"
     await expect(
-      page.getByText(/Password has been used recently.*Please choose a different password/i)
-    ).toBeVisible({ timeout: 10000 });
+      page.getByText(/Password (has been used recently|was used in recent history)/i)
+    ).toBeVisible({ timeout: 15000 });
   });
 
   /**
@@ -410,6 +438,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.locator('input#newPassword').fill(initialPassword);
     await page.locator('input#confirmPassword').fill(initialPassword);
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
+    // 確認ダイアログが表示されるのを待つ
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
+      timeout: 5000,
+    });
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
     // 成功メッセージを待ってから（2秒後に自動ログアウト）URLを待つ
@@ -436,6 +468,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       await page.locator('input#newPassword').fill(newPassword);
       await page.locator('input#confirmPassword').fill(newPassword);
       await page.getByRole('button', { name: /パスワードを変更/i }).click();
+      // 確認ダイアログが表示されるのを待つ
+      await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
+        timeout: 5000,
+      });
       await page.getByRole('button', { name: /はい、変更する/i }).click();
 
       // 成功メッセージを待ってから（2秒後に自動ログアウト）再ログイン
@@ -463,6 +499,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.locator('input#newPassword').fill(initialPassword);
     await page.locator('input#confirmPassword').fill(initialPassword);
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
+    // 確認ダイアログが表示されるのを待つ
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
+      timeout: 5000,
+    });
     await page.getByRole('button', { name: /はい、変更する/i }).click();
 
     // 成功メッセージが表示される

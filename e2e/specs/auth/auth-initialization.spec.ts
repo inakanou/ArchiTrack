@@ -91,8 +91,14 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     // 保護されたページにアクセス（未認証ユーザー）
     await page.goto('http://localhost:5173/dashboard');
 
-    // ログイン画面にリダイレクトされるまで待機
-    await page.waitForURL('**/login**', { timeout: 5000 });
+    // ログイン画面にリダイレクトされるまで待機（タイムアウト延長）
+    await page.waitForURL('**/login**', { timeout: 10000 });
+
+    // ログインフォームが表示されるまで待機（DOM更新完了を確認）
+    await page.waitForSelector('form:has(input[type="email"], input[type="password"])', {
+      state: 'visible',
+      timeout: 10000,
+    });
 
     // ログイン画面が表示されていることを確認
     expect(await isOnLoginPage(page)).toBe(true);

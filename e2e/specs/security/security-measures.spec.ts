@@ -157,16 +157,33 @@ test.describe('セキュリティ対策', () => {
     });
     const { accessToken } = await loginResponse.json();
 
-    // トークンを改ざん（最後の文字を変更）
-    const tamperedToken = accessToken.slice(0, -1) + 'X';
+    // JWTトークンはheader.payload.signatureの形式
+    // 署名部分を確実に改ざんする
+    const parts = accessToken.split('.');
+    if (parts.length === 3) {
+      // 署名部分を完全に異なる値に置き換える
+      const tamperedSignature = 'invalid_signature_that_will_definitely_fail_verification';
+      const tamperedToken = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
 
-    const response = await request.get('http://localhost:3000/api/v1/users', {
-      headers: {
-        Authorization: `Bearer ${tamperedToken}`,
-      },
-    });
+      const response = await request.get('http://localhost:3000/api/v1/users', {
+        headers: {
+          Authorization: `Bearer ${tamperedToken}`,
+        },
+      });
 
-    expect(response.status()).toBe(401);
+      expect(response.status()).toBe(401);
+    } else {
+      // トークン形式が想定外の場合、元の方法で試行
+      const tamperedToken = accessToken.slice(0, -10) + 'XXXXXXXXXX';
+
+      const response = await request.get('http://localhost:3000/api/v1/users', {
+        headers: {
+          Authorization: `Bearer ${tamperedToken}`,
+        },
+      });
+
+      expect(response.status()).toBe(401);
+    }
   });
 
   /**

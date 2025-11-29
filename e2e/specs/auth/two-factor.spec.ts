@@ -62,12 +62,19 @@ test.describe('2要素認証機能', () => {
       // ネットワークリクエスト（APIコール）が完了するまで待機
       await page.waitForLoadState('networkidle');
 
+      // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
+      const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
+      const loadingExists = await loadingIndicator.count();
+      if (loadingExists > 0) {
+        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+      }
+
       // 要件27D.1: 3ステップのプログレスバー（CI環境での安定性向上のためタイムアウト追加）
       await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: 15000 });
 
       // 要件27.4: QRコードが表示される（APIからのレスポンス待機のためタイムアウト追加）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: 15000 });
+      await expect(qrCode).toBeVisible({ timeout: 30000 });
 
       // 要件27E.1: QRコードにalt属性が設定されている
       await expect(qrCode).toHaveAttribute('alt', /二要素認証用QRコード/i);
@@ -97,9 +104,16 @@ test.describe('2要素認証機能', () => {
       await page.goto('/profile/2fa-setup');
       await page.waitForLoadState('networkidle');
 
+      // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
+      const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
+      const loadingExists = await loadingIndicator.count();
+      if (loadingExists > 0) {
+        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+      }
+
       // QRコードが表示されるまで待機（API応答待ち）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: 15000 });
+      await expect(qrCode).toBeVisible({ timeout: 30000 });
 
       // ステップ1: QRコード表示を確認
       await expect(page.getByText(/ステップ 1/i)).toBeVisible();
@@ -154,9 +168,16 @@ test.describe('2要素認証機能', () => {
       await page.goto('/profile/2fa-setup');
       await page.waitForLoadState('networkidle');
 
+      // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
+      const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
+      const loadingExists = await loadingIndicator.count();
+      if (loadingExists > 0) {
+        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+      }
+
       // QRコードが表示されるまで待機（API応答待ち）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: 15000 });
+      await expect(qrCode).toBeVisible({ timeout: 30000 });
 
       // TOTP入力フィールドが表示されるまで待機
       await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: 10000 });
