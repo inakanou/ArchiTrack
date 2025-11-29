@@ -163,6 +163,13 @@ test.describe('トークンリフレッシュ機能', () => {
       timeout: 10000,
     });
 
+    // initializeAuth 完了後にリフレッシュトークンが存在することを確認
+    // ページ遷移後、initializeAuthが再実行されトークンローテーションが発生するため、
+    // トークンが安定するまで待機する
+    await page1.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
+      timeout: 10000,
+    });
+
     // タブ1のリフレッシュトークンを取得（安定状態）
     const token1Initial = await page1.evaluate(() => localStorage.getItem('refreshToken'));
     expect(token1Initial).toBeTruthy();

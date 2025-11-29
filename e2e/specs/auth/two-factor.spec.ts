@@ -426,18 +426,24 @@ test.describe('2要素認証機能', () => {
      */
     test('バックアップコードの使用状況が視覚的に表示される', async ({ page }) => {
       await page.goto('/profile');
+      // ページの読み込みとAPI呼び出しが完了するまで待機
+      await page.waitForLoadState('networkidle');
 
       // 2FA管理セクション
-      await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible({
+        timeout: 10000,
+      });
 
-      // バックアップコードを表示
-      await page.getByRole('button', { name: /バックアップコードを表示/i }).click();
+      // バックアップコードを表示ボタンが操作可能になるまで待機
+      const showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+      await showBackupCodesButton.waitFor({ state: 'visible', timeout: 10000 });
+      await showBackupCodesButton.click();
 
-      // バックアップコード一覧が表示されるまで待機
+      // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）
       await page
         .getByTestId('backup-code-item')
         .first()
-        .waitFor({ state: 'visible', timeout: 10000 });
+        .waitFor({ state: 'visible', timeout: 15000 });
       const backupCodes = await page.getByTestId('backup-code-item').all();
       expect(backupCodes.length).toBeGreaterThan(0);
 
