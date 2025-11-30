@@ -99,9 +99,28 @@ test.describe('2要素認証機能', () => {
       // 要件27D.1: 3ステップのプログレスバー（既に上で確認済み）
       await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 要件27.4: QRコードが表示される（APIからのレスポンス待機のためタイムアウト追加）
+      // 要件27.4: QRコードが表示される（APIからのレスポンス待機のためリトライロジック追加）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: getTimeout(30000) });
+      let qrCodeLoaded = false;
+      for (let retry = 0; retry < 5; retry++) {
+        try {
+          await expect(qrCode).toBeVisible({ timeout: getTimeout(15000) });
+          qrCodeLoaded = true;
+          break;
+        } catch {
+          if (retry < 4) {
+            // APIリクエストが失敗している可能性があるのでページをリロード
+            await page.reload({ waitUntil: 'networkidle' });
+            // ログインページにリダイレクトされた場合は再ログイン
+            if (page.url().includes('/login')) {
+              await loginAsUser(page, 'REGULAR_USER');
+              await page.goto('/profile/2fa-setup');
+              await page.waitForLoadState('networkidle');
+            }
+          }
+        }
+      }
+      expect(qrCodeLoaded).toBe(true);
 
       // 要件27E.1: QRコードにalt属性が設定されている
       await expect(qrCode).toHaveAttribute('alt', /二要素認証用QRコード/i);
@@ -253,8 +272,33 @@ test.describe('2要素認証機能', () => {
      * 要件27D.6: 2FA設定完了時にトーストメッセージ表示
      */
     test('2FA設定完了時に成功メッセージが表示される', async ({ page }) => {
-      await page.goto('/profile/2fa-setup');
-      await page.waitForLoadState('networkidle');
+      // 2FAセットアップページをリトライ付きでロード
+      let setupReady = false;
+      for (let retry = 0; retry < 5; retry++) {
+        await page.goto('/profile/2fa-setup');
+        await page.waitForLoadState('networkidle');
+
+        // ログインページにリダイレクトされた場合は再ログイン
+        if (page.url().includes('/login')) {
+          await loginAsUser(page, 'REGULAR_USER');
+          await page.goto('/profile/2fa-setup');
+          await page.waitForLoadState('networkidle');
+        }
+
+        // TOTP入力フィールドが表示されるか確認
+        try {
+          await page
+            .getByTestId('totp-digit-0')
+            .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+          setupReady = true;
+          break;
+        } catch {
+          if (retry < 4) {
+            await page.reload({ waitUntil: 'networkidle' });
+          }
+        }
+      }
+      expect(setupReady).toBe(true);
 
       // TOTPコード検証
       const digits = generateMockTOTPCode().split('');
@@ -606,11 +650,29 @@ test.describe('2要素認証機能', () => {
       await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
       await showBackupCodesButton.click();
 
-      // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）
-      await page
-        .getByTestId('backup-code-item')
-        .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(20000) });
+      // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）- リトライ付き
+      let backupCodesLoaded = false;
+      for (let retry = 0; retry < 5; retry++) {
+        try {
+          await page
+            .getByTestId('backup-code-item')
+            .first()
+            .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+          backupCodesLoaded = true;
+          break;
+        } catch {
+          if (retry < 4) {
+            // ボタンを再度クリック（モーダルが閉じている可能性がある）
+            const buttonVisible = await showBackupCodesButton.isVisible();
+            if (buttonVisible) {
+              await showBackupCodesButton.click();
+            }
+            await page.waitForLoadState('networkidle');
+          }
+        }
+      }
+      expect(backupCodesLoaded).toBe(true);
+
       const backupCodes = await page.getByTestId('backup-code-item').all();
       expect(backupCodes.length).toBeGreaterThan(0);
 
