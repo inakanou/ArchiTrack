@@ -70,7 +70,7 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
       async () => {
         await saveButton.click();
       },
-      /\/api\/v1\/users\/me/,
+      /\/api\/v1\/auth\/me/,
       { timeout: getTimeout(15000) }
     );
 
