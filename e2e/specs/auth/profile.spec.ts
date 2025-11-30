@@ -3,7 +3,7 @@ import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
 /**
  * プロフィール管理機能のE2Eテスト
@@ -218,14 +218,23 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
       timeout: getTimeout(10000),
     });
-    await page.getByRole('button', { name: /はい、変更する/i }).click();
 
-    // エラーメッセージが表示される（HIBP APIレスポンス待ちのためタイムアウト延長）
+    // API応答を待機しながら確認ボタンをクリック（HIBP APIレスポンスが遅い場合を考慮）
+    await waitForApiResponse(
+      page,
+      async () => {
+        await page.getByRole('button', { name: /はい、変更する/i }).click();
+      },
+      /\/api\/v1\/auth\/password\/change/,
+      { timeout: getTimeout(45000) }
+    );
+
+    // エラーメッセージが表示される（HIBP APIレスポンス後のUI更新を待機）
     await expect(
       page.getByText(
         /このパスワードは過去に漏洩が確認されています.*別のパスワードを選択してください/i
       )
-    ).toBeVisible({ timeout: getTimeout(15000) });
+    ).toBeVisible({ timeout: getTimeout(20000) });
   });
 
   /**
@@ -344,24 +353,46 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
     // ヘルパー関数: パスワード変更後の再ログイン処理
     const changePasswordAndLogin = async (currentPwd: string, newPwd: string) => {
-      await page.locator('input#currentPassword').fill(currentPwd);
-      await page.locator('input#newPassword').fill(newPwd);
-      await page.locator('input#confirmPassword').fill(newPwd);
-      await page.getByRole('button', { name: /パスワードを変更/i }).click();
-
-      // 確認ダイアログが表示されるのを待つ
-      await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-      await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-      // 成功メッセージが表示されるのを待つ（UIは2秒後にlogoutを呼ぶ）
-      await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+      // フォームフィールドが表示されるまで待機
+      await expect(page.locator('input#currentPassword')).toBeVisible({
         timeout: getTimeout(10000),
       });
 
-      // ログインページにリダイレクトされるのを待つ（2秒のsetTimeout + 処理時間を考慮）
-      await page.waitForURL(/\/login/, { timeout: getTimeout(15000) });
+      await page.locator('input#currentPassword').fill(currentPwd);
+      await page.locator('input#newPassword').fill(newPwd);
+      await page.locator('input#confirmPassword').fill(newPwd);
+
+      // パスワード変更ボタンをクリック
+      const changePasswordBtn = page.getByRole('button', { name: /パスワードを変更/i });
+      await expect(changePasswordBtn).toBeEnabled({ timeout: getTimeout(5000) });
+      await changePasswordBtn.click();
+
+      // 確認ダイアログが表示されるのを待つ
+      await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // API応答を待機しながら確認ボタンをクリック
+      await waitForApiResponse(
+        page,
+        async () => {
+          await page.getByRole('button', { name: /はい、変更する/i }).click();
+        },
+        /\/api\/v1\/auth\/password\/change/,
+        { timeout: getTimeout(30000) }
+      );
+
+      // 成功メッセージまたはログインページへのリダイレクトのいずれかを待つ
+      // （成功メッセージは一瞬表示されて消える場合があるため）
+      await Promise.race([
+        expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+          timeout: getTimeout(20000),
+        }),
+        page.waitForURL(/\/login/, { timeout: getTimeout(20000) }),
+      ]);
+
+      // ログインページにリダイレクトされるのを待つ（まだリダイレクトされていない場合）
+      await page.waitForURL(/\/login/, { timeout: getTimeout(20000) });
 
       // 新しいパスワードで再ログイン（loginWithCredentialsを使用）
       await loginWithCredentials(page, 'user@example.com', newPwd);
@@ -369,7 +400,13 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       // プロフィールページに遷移
       await page.goto('/profile');
 
+      // AuthContextの初期化完了を待機
+      await page.waitForLoadState('networkidle');
+
       // プロフィールページが完全にロードされるのを待つ
+      await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+        timeout: getTimeout(15000),
+      });
       await expect(page.locator('input#currentPassword')).toBeVisible({
         timeout: getTimeout(10000),
       });
@@ -434,81 +471,102 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       `Zh7kPr4xS${uniqueSuffix}C!`,
     ];
 
-    // まず初回パスワードに変更（Password123! -> initialPassword）
-    await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill(initialPassword);
-    await page.locator('input#confirmPassword').fill(initialPassword);
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
-    // 確認ダイアログが表示されるのを待つ
-    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
-    await page.getByRole('button', { name: /はい、変更する/i }).click();
+    // ヘルパー関数: パスワード変更後の再ログイン処理（このテスト専用）
+    const changePasswordAndRelogin = async (currentPwd: string, newPwd: string) => {
+      await expect(page.locator('input#currentPassword')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await page.locator('input#currentPassword').fill(currentPwd);
+      await page.locator('input#newPassword').fill(newPwd);
+      await page.locator('input#confirmPassword').fill(newPwd);
 
-    // 成功メッセージを待ってから（2秒後に自動ログアウト）URLを待つ
-    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
-      timeout: getTimeout(10000),
-    });
-    await page.waitForURL(/\/login/, { timeout: getTimeout(15000) });
-    await loginWithCredentials(page, 'user@example.com', initialPassword);
-    await page.goto('/profile');
-    // AuthContextの初期化が完了するまで待機（ユーザー情報の表示を確認）
-    await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
-      timeout: getTimeout(10000),
-    });
-    await expect(page.locator('input#currentPassword')).toBeVisible({
-      timeout: getTimeout(10000),
-    });
+      const changePasswordBtn = page.getByRole('button', { name: /パスワードを変更/i });
+      await expect(changePasswordBtn).toBeEnabled({ timeout: getTimeout(5000) });
+      await changePasswordBtn.click();
 
-    let currentPassword = initialPassword;
-
-    // 2回目〜4回目のパスワード変更
-    for (let i = 1; i < passwords.length; i++) {
-      const newPassword = passwords[i] as string;
-      await page.locator('input#currentPassword').fill(currentPassword);
-      await page.locator('input#newPassword').fill(newPassword);
-      await page.locator('input#confirmPassword').fill(newPassword);
-      await page.getByRole('button', { name: /パスワードを変更/i }).click();
       // 確認ダイアログが表示されるのを待つ
       await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-      await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-      // 成功メッセージを待ってから（2秒後に自動ログアウト）再ログイン
-      await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
         timeout: getTimeout(10000),
       });
-      await page.waitForURL(/\/login/, { timeout: getTimeout(15000) });
-      await loginWithCredentials(page, 'user@example.com', newPassword);
+
+      // API応答を待機しながら確認ボタンをクリック
+      await waitForApiResponse(
+        page,
+        async () => {
+          await page.getByRole('button', { name: /はい、変更する/i }).click();
+        },
+        /\/api\/v1\/auth\/password\/change/,
+        { timeout: getTimeout(30000) }
+      );
+
+      // 成功メッセージまたはログインページへのリダイレクトのいずれかを待つ
+      await Promise.race([
+        expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+          timeout: getTimeout(20000),
+        }),
+        page.waitForURL(/\/login/, { timeout: getTimeout(20000) }),
+      ]);
+
+      // ログインページにリダイレクトされるのを待つ
+      await page.waitForURL(/\/login/, { timeout: getTimeout(20000) });
+      await loginWithCredentials(page, 'user@example.com', newPwd);
       await page.goto('/profile');
-
-      // プロフィールページが完全にロードされるのを待つ（AuthContext初期化完了を確認）
+      await page.waitForLoadState('networkidle');
+      // AuthContextの初期化が完了するまで待機（ユーザー情報の表示を確認）
       await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
-        timeout: getTimeout(10000),
+        timeout: getTimeout(15000),
       });
       await expect(page.locator('input#currentPassword')).toBeVisible({
         timeout: getTimeout(10000),
       });
+    };
 
+    // まず初回パスワードに変更（Password123! -> initialPassword）
+    await changePasswordAndRelogin('Password123!', initialPassword);
+
+    let currentPassword = initialPassword;
+
+    // 2回目〜4回目のパスワード変更（ヘルパー関数を使用）
+    for (let i = 1; i < passwords.length; i++) {
+      const newPassword = passwords[i] as string;
+      await changePasswordAndRelogin(currentPassword, newPassword);
       currentPassword = newPassword;
     }
 
     // 5回目のパスワード変更: 最初のパスワード（initialPassword）を再利用
     // initialPasswordは履歴に4回前（現在から数えて）のため再利用可能
+    await expect(page.locator('input#currentPassword')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
     await page.locator('input#currentPassword').fill(currentPassword);
     await page.locator('input#newPassword').fill(initialPassword);
     await page.locator('input#confirmPassword').fill(initialPassword);
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
+
+    const changePasswordBtn = page.getByRole('button', { name: /パスワードを変更/i });
+    await expect(changePasswordBtn).toBeEnabled({ timeout: getTimeout(5000) });
+    await changePasswordBtn.click();
+
     // 確認ダイアログが表示されるのを待つ
     await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
-    await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-    // 成功メッセージが表示される
-    await expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
       timeout: getTimeout(10000),
     });
+
+    // API応答を待機しながら確認ボタンをクリック
+    await waitForApiResponse(
+      page,
+      async () => {
+        await page.getByRole('button', { name: /はい、変更する/i }).click();
+      },
+      /\/api\/v1\/auth\/password\/change/,
+      { timeout: getTimeout(30000) }
+    );
+
+    // 成功メッセージまたはログインページへのリダイレクトのいずれかを待つ
+    await Promise.race([
+      expect(page.getByText(/パスワードを変更しました/i)).toBeVisible({
+        timeout: getTimeout(20000),
+      }),
+      page.waitForURL(/\/login/, { timeout: getTimeout(20000) }),
+    ]);
   });
 });

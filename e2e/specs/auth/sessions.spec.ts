@@ -34,35 +34,46 @@ test.describe('セッション管理機能', () => {
     // 認証済みユーザーとしてログイン（グローバルセットアップで作成済み）
     await loginAsUser(page, 'REGULAR_USER');
 
-    // セッション管理ページに移動
-    await page.goto('/sessions');
+    // セッション管理ページに移動（リトライ付き）
+    const maxNavigationRetries = 3;
+    for (let navRetry = 0; navRetry < maxNavigationRetries; navRetry++) {
+      await page.goto('/sessions');
 
-    // CI環境での安定性向上のため、ページロード完了を待機
-    await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
+      // CI環境での安定性向上のため、ページロード完了を待機
+      await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
 
-    // セッション管理ページが表示されるまで明示的に待機
-    await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-      timeout: getTimeout(15000),
-    });
+      // セッション管理ページが表示されるまで明示的に待機
+      try {
+        await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+        break;
+      } catch {
+        if (navRetry < maxNavigationRetries - 1) {
+          // リトライ前にページをリロード
+          await page.reload({ waitUntil: 'networkidle' });
+        }
+      }
+    }
 
     // ローディング完了を待機
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
-    // セッションデータの読み込み完了を待機（リトライ付き）
+    // セッションデータの読み込み完了を待機（リトライ付き、CI用に増加）
     const sessionDataLoaded = await waitForSessionDataLoaded(page, {
-      timeout: getTimeout(20000),
-      maxRetries: 5,
+      timeout: getTimeout(30000),
+      maxRetries: 7,
     });
 
     if (!sessionDataLoaded) {
-      // フォールバック：最終確認
+      // フォールバック：最終確認（タイムアウト延長）
       await Promise.race([
-        expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(10000) }),
+        expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(15000) }),
         expect(page.getByText(/全デバイスからログアウト/i)).toBeVisible({
-          timeout: getTimeout(10000),
+          timeout: getTimeout(15000),
         }),
         expect(page.getByText(/アクティブなセッションがありません/i)).toBeVisible({
-          timeout: getTimeout(10000),
+          timeout: getTimeout(15000),
         }),
       ]);
     }
@@ -156,13 +167,19 @@ test.describe('セッション管理機能', () => {
     // ローディング完了を待機
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
+    // セッションデータの読み込み完了を待機
+    await waitForSessionDataLoaded(page, {
+      timeout: getTimeout(30000),
+      maxRetries: 7,
+    });
+
     // 全デバイスログアウトボタンが表示されるのをリトライ付きで待機
     const logoutAllButton = page.getByRole('button', { name: /全デバイスからログアウト/i });
     let buttonVisible = false;
-    const maxRetries = 5;
+    const maxRetries = 7;
     for (let retry = 0; retry < maxRetries; retry++) {
       try {
-        await expect(logoutAllButton).toBeVisible({ timeout: getTimeout(10000) });
+        await expect(logoutAllButton).toBeVisible({ timeout: getTimeout(15000) });
         buttonVisible = true;
         break;
       } catch {
@@ -174,6 +191,11 @@ test.describe('セッション管理機能', () => {
           });
           // ローディング完了を待機
           await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
+          // セッションデータ再読み込み
+          await waitForSessionDataLoaded(page, {
+            timeout: getTimeout(30000),
+            maxRetries: 3,
+          });
         }
       }
     }

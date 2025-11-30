@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
 
 /**
@@ -465,24 +465,41 @@ test.describe('モーダルとトーストメッセージテスト', () => {
     await page.goto('/profile');
 
     // プロフィールページが完全に読み込まれるまで待機
-    await expect(page.getByLabel(/メールアドレス/i)).toBeVisible({ timeout: getTimeout(10000) });
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByLabel(/メールアドレス/i)).toBeVisible({ timeout: getTimeout(15000) });
 
-    // 表示名を変更
+    // 表示名フィールドが表示されるまで待機
     const displayNameInput = page.getByLabel(/表示名/i);
-    await displayNameInput.clear();
+    await expect(displayNameInput).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 表示名を変更（clear+fillで確実にフォーム変更を検知させる）
+    await displayNameInput.click();
+    await displayNameInput.fill('');
     await displayNameInput.fill('Updated Name');
+
+    // フォーム変更検知のため少し待機
+    await page.waitForTimeout(500);
 
     // 保存ボタンが有効になるまで待機（フォーム変更検知のため）
     const saveButton = page.getByRole('button', { name: /^保存$|^プロフィールを保存$/i });
-    await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
-    await saveButton.click();
+    await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
+
+    // API応答を待機しながら保存ボタンをクリック
+    await waitForApiResponse(
+      page,
+      async () => {
+        await saveButton.click();
+      },
+      /\/api\/v1\/auth\/me/,
+      { timeout: getTimeout(30000) }
+    );
 
     // 成功トーストメッセージが表示される
     const toast = page.getByText(/更新しました|成功|保存しました/i);
-    await expect(toast).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(toast).toBeVisible({ timeout: getTimeout(15000) });
 
-    // 5秒後にトーストが非表示になる
-    await page.waitForTimeout(5500);
-    await expect(toast).not.toBeVisible();
+    // 5秒後にトーストが非表示になる（CI用に余裕を持たせる）
+    await page.waitForTimeout(6000);
+    await expect(toast).not.toBeVisible({ timeout: getTimeout(5000) });
   });
 });

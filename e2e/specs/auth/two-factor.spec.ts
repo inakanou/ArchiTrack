@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser, createTwoFactorBackupCodes } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
 /**
  * 2要素認証機能のE2Eテスト
@@ -154,11 +154,20 @@ test.describe('2要素認証機能', () => {
         await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
       }
 
-      // 検証ボタンをクリック
-      await page.getByRole('button', { name: /検証|確認/i }).click();
+      // 検証ボタンをクリック（API応答を待機）
+      const verifyButton = page.getByRole('button', { name: /検証|確認/i });
+      await expect(verifyButton).toBeEnabled({ timeout: getTimeout(5000) });
+      await waitForApiResponse(
+        page,
+        async () => {
+          await verifyButton.click();
+        },
+        /\/api\/v1\/auth\/2fa\/enable/,
+        { timeout: getTimeout(30000) }
+      );
 
       // ステップ3: バックアップコード表示（UIはステップ1から直接ステップ3に遷移）
-      await expect(page.getByText(/ステップ 3/i)).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(page.getByText(/ステップ 3/i)).toBeVisible({ timeout: getTimeout(20000) });
 
       // 要件27.6: バックアップコードが表示される（10個、8文字英数字）
       await expect(page.getByRole('heading', { name: /バックアップコード/i })).toBeVisible();
