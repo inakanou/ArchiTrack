@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-29（Steering Sync: テスト数更新、2FA機能強化、HTTPOnly Cookie実装、要件カバレッジチェック追加）_
+_最終更新: 2025-11-30（Steering Sync: E2Eテスト構造更新 - helpers/、fixtures/ディレクトリ追加、テストカテゴリ（admin/、security/）追加）_
 
 ## ルートディレクトリ構成
 
@@ -38,8 +38,16 @@ ArchiTrack/
 │   │   ├── integration/    # システム統合テスト
 │   │   ├── auth/           # 認証フローテスト
 │   │   └── performance/    # パフォーマンステスト
-│   └── helpers/            # Claude Code統合ヘルパー
-│       └── browser.js      # ブラウザ操作・スクリーンショット
+│   ├── helpers/            # テストヘルパー・ユーティリティ
+│   │   ├── wait-helpers.ts # CI環境対応の待機ヘルパー
+│   │   ├── auth-actions.ts # 認証アクション（ログイン、ログアウト）
+│   │   ├── browser.ts      # Claude Code統合ブラウザ操作
+│   │   ├── test-users.ts   # テストユーザー定義
+│   │   └── screenshot.ts   # スクリーンショットヘルパー
+│   └── fixtures/           # テストフィクスチャ
+│       ├── auth.fixtures.ts    # 認証フィクスチャ
+│       ├── database.ts         # データベースフィクスチャ
+│       └── seed-helpers.ts     # シードデータヘルパー
 ├── frontend/               # フロントエンドアプリケーション
 │   ├── .storybook/         # Storybook設定（コンポーネントドキュメント）
 │   │   ├── main.ts         # Storybook設定ファイル
@@ -202,36 +210,62 @@ Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可�
 e2e/
 ├── specs/                 # テスト仕様（カテゴリ分け）
 │   ├── api/              # APIエンドポイントテスト
-│   │   └── *.spec.js
+│   │   └── *.spec.ts
 │   ├── ui/               # UIコンポーネント・ページテスト
-│   │   └── *.spec.js
-│   └── integration/      # システム統合テスト
-│       └── *.spec.js
-└── helpers/              # テストヘルパー・ユーティリティ
-    └── browser.js        # Claude Code統合ブラウザ操作
+│   │   └── *.spec.ts
+│   ├── auth/             # 認証フローテスト
+│   │   └── *.spec.ts
+│   ├── admin/            # 管理機能テスト
+│   │   └── *.spec.ts
+│   ├── integration/      # システム統合テスト
+│   │   └── *.spec.ts
+│   ├── performance/      # パフォーマンステスト
+│   │   └── *.spec.ts
+│   └── security/         # セキュリティテスト
+│       └── *.spec.ts
+├── helpers/              # テストヘルパー・ユーティリティ
+│   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
+│   ├── auth-actions.ts   # 認証アクション（ログイン、ログアウト）
+│   ├── browser.ts        # Claude Code統合ブラウザ操作
+│   ├── test-users.ts     # テストユーザー定義
+│   └── screenshot.ts     # スクリーンショットヘルパー
+├── fixtures/             # テストフィクスチャ
+│   ├── auth.fixtures.ts  # 認証フィクスチャ
+│   ├── database.ts       # データベースフィクスチャ
+│   └── seed-helpers.ts   # シードデータヘルパー
+└── global-setup.ts       # グローバルセットアップ（マスターデータ初期化）
 ```
 
 **テストカテゴリ:**
 
 - `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
 - `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
-- `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
 - `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待等）
+- `admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
+- `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
 - `performance/` - パフォーマンステスト（ページロード時間等）
+- `security/` - セキュリティテスト（CSRF、XSS対策等）
+
+**テストヘルパー:**
+
+- `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
+- `auth-actions.ts` - 認証アクション（`loginAsUser()`、`logout()`等）
+- `browser.ts` - Claude Code統合ブラウザ操作
+- `test-users.ts` - テストユーザー定義
 
 **Claude Code統合:**
 
-`e2e/helpers/browser.js` により、AIアシスタントから直接ブラウザ操作が可能：
+`e2e/helpers/browser.ts` により、AIアシスタントから直接ブラウザ操作が可能：
 
 ```bash
 # スクリーンショット撮影
-node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+npx ts-node e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
 
 # ページ情報取得
-node e2e/helpers/browser.js info http://localhost:5173
+npx ts-node e2e/helpers/browser.ts info http://localhost:5173
 
 # APIテスト
-node e2e/helpers/browser.js api http://localhost:3000/health
+npx ts-node e2e/helpers/browser.ts api http://localhost:3000/health
 ```
 
 **テスト実行結果:**

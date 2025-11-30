@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-29（Steering Sync: テスト数更新、2FA機能強化、HTTPOnly Cookie実装、要件カバレッジチェック追加）_
+_最終更新: 2025-11-30（Steering Sync: E2Eテスト安定性改善 - CI環境対応待機ヘルパー、getTimeout()パターン、auth-actions.tsリトライロジック追加）_
 
 ## アーキテクチャ
 
@@ -374,7 +374,12 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - `e2e/specs/integration/` - システム統合テスト
 - `e2e/specs/auth/` - 認証フローテスト（ログイン、登録、2FA、パスワードリセット、招待）
 - `e2e/specs/performance/` - パフォーマンステスト（ページロード時間）
-- `e2e/helpers/` - Claude Code統合ヘルパー（ブラウザ操作、スクリーンショット）
+- `e2e/helpers/` - テストヘルパー・ユーティリティ
+  - `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
+  - `auth-actions.ts` - 認証アクション（ログイン、ログアウト、2FA）
+  - `browser.ts` - Claude Code統合ブラウザ操作
+  - `test-users.ts` - テストユーザー定義
+  - `screenshot.ts` - スクリーンショットヘルパー
 
 ### タイムスタンプ機能
 
@@ -391,25 +396,39 @@ test-results/
     └── videos/       # 失敗時のビデオ
 ```
 
-### 待機処理のベストプラクティス
+### CI環境対応の待機パターン
 
-E2Eテストでは、非同期処理とリダイレクトの待機に以下のパターンを採用：
+E2Eテストでは、CI環境での安定性を確保するため、`e2e/helpers/wait-helpers.ts`の待機ヘルパーを使用します。
 
-- **`waitForFunction`にタイムアウト設定**: 明示的なタイムアウト（10秒推奨）で無限待機を防止
-- **複数のURLパターン対応**: リダイレクト先が動的な場合は正規表現やOR条件で柔軟に対応
-- **`waitForLoadState('networkidle')`**: ネットワーク通信完了を待機してから検証実行
+**主要パターン:**
+
+- **`getTimeout(baseMs)`**: CI環境では自動的にタイムアウトを2倍に延長
+- **`waitForPageStable(page)`**: ネットワークアイドルまで待機
+- **`waitForAuthState(page)`**: 認証状態確立をリトライ付きで待機
+- **`waitForElementWithRetry(page, locator)`**: 要素表示をリトライ付きで待機
+- **`waitForApiResponse(page, action, urlPattern)`**: APIレスポンス待機付きアクション実行
+
+**playwright.config.ts のCI対応:**
+- タイムアウト: CI環境では2倍に延長（120秒 / 60秒）
+- リトライ: CI環境では3回 / ローカルでは1回
+- actionTimeout: CI 30秒 / ローカル 15秒
+- expectタイムアウト: CI 20秒 / ローカル 10秒
 
 **例:**
 ```typescript
-// リダイレクト待機（複数パターン対応、タイムアウト設定）
-await page.waitForFunction(
-  () => window.location.pathname === '/' || window.location.pathname === '/dashboard',
-  { timeout: 10000 }
-);
+import { getTimeout, waitForAuthState } from '../helpers/wait-helpers';
+
+// CI環境対応のタイムアウト設定
+await page.waitForURL(/\/dashboard/, { timeout: getTimeout(15000) });
+
+// 認証状態の確立を待機（リトライ付き）
+const authEstablished = await waitForAuthState(page);
 
 // ネットワーク通信完了を待機
-await page.waitForLoadState('networkidle');
+await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 ```
+
+**注意:** `page.waitForTimeout()` の使用は避け、明示的な条件に基づく待機を使用してください。
 
 ### Claude Code統合
 
