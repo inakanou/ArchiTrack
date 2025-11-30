@@ -134,6 +134,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       // アクセストークンをAPIクライアントに設定
       apiClient.setAccessToken(response.accessToken);
 
+      // アクセストークンをlocalStorageにも保存（E2Eテストでの認証状態確認用）
+      localStorage.setItem('accessToken', response.accessToken);
+
       // リフレッシュトークンをlocalStorageに保存
       localStorage.setItem('refreshToken', response.refreshToken);
 
@@ -156,6 +159,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         // アクセストークンを更新
         apiClient.setAccessToken(refreshResponse.accessToken);
 
+        // アクセストークンをlocalStorageにも保存
+        localStorage.setItem('accessToken', refreshResponse.accessToken);
+
         // リフレッシュトークンを更新（新しいリフレッシュトークンが発行される場合）
         if (refreshResponse.refreshToken) {
           localStorage.setItem('refreshToken', refreshResponse.refreshToken);
@@ -176,6 +182,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       // 他のタブからのトークン更新を監視
       manager.onTokenRefreshed((newAccessToken) => {
         apiClient.setAccessToken(newAccessToken);
+        localStorage.setItem('accessToken', newAccessToken);
       });
     } catch (error) {
       // エラーをそのままスロー
@@ -204,8 +211,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       // アクセストークンをクリア
       apiClient.setAccessToken(null);
 
-      // リフレッシュトークンをクリア
+      // localStorageからトークンをクリア
       localStorage.removeItem('refreshToken');
+      localStorage.removeItem('accessToken');
 
       // TokenRefreshManagerをクリーンアップ
       if (tokenRefreshManager) {
@@ -250,6 +258,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
     // アクセストークンを更新
     apiClient.setAccessToken(response.accessToken);
+    // アクセストークンをlocalStorageにも保存
+    localStorage.setItem('accessToken', response.accessToken);
 
     // リフレッシュトークンを更新（新しいリフレッシュトークンが発行される場合）
     if (response.refreshToken) {
@@ -293,6 +303,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         setUser(response.user);
         apiClient.setAccessToken(response.accessToken);
         localStorage.setItem('refreshToken', response.refreshToken);
+        // アクセストークンをlocalStorageにも保存（E2Eテストでの認証状態確認用）
+        localStorage.setItem('accessToken', response.accessToken);
 
         // TokenRefreshManagerを初期化
         const manager = new TokenRefreshManager(async () => {
@@ -309,6 +321,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           });
 
           apiClient.setAccessToken(refreshResponse.accessToken);
+          // アクセストークンをlocalStorageにも保存
+          localStorage.setItem('accessToken', refreshResponse.accessToken);
 
           if (refreshResponse.refreshToken) {
             localStorage.setItem('refreshToken', refreshResponse.refreshToken);
@@ -325,6 +339,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
         manager.onTokenRefreshed((newAccessToken) => {
           apiClient.setAccessToken(newAccessToken);
+          localStorage.setItem('accessToken', newAccessToken);
         });
       } catch (error) {
         throw error;
@@ -363,6 +378,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         setUser(response.user);
         apiClient.setAccessToken(response.accessToken);
         localStorage.setItem('refreshToken', response.refreshToken);
+        // アクセストークンをlocalStorageにも保存（E2Eテストでの認証状態確認用）
+        localStorage.setItem('accessToken', response.accessToken);
 
         // TokenRefreshManagerを初期化
         const manager = new TokenRefreshManager(async () => {
@@ -379,6 +396,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           });
 
           apiClient.setAccessToken(refreshResponse.accessToken);
+          // アクセストークンをlocalStorageにも保存
+          localStorage.setItem('accessToken', refreshResponse.accessToken);
 
           if (refreshResponse.refreshToken) {
             localStorage.setItem('refreshToken', refreshResponse.refreshToken);
@@ -395,6 +414,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
         manager.onTokenRefreshed((newAccessToken) => {
           apiClient.setAccessToken(newAccessToken);
+          localStorage.setItem('accessToken', newAccessToken);
         });
       } catch (error) {
         throw error;
@@ -419,6 +439,12 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     const initializeAuth = async () => {
       // ページロード時にlocalStorageからリフレッシュトークンを取得し、セッションを復元
       const storedRefreshToken = localStorage.getItem('refreshToken');
+      const storedAccessToken = localStorage.getItem('accessToken');
+
+      // 既存のaccessTokenがあれば即座にApiClientに設定（リフレッシュ中の間も認証状態を維持）
+      if (storedAccessToken) {
+        apiClient.setAccessToken(storedAccessToken);
+      }
 
       if (!storedRefreshToken) {
         // リフレッシュトークンが存在しない場合も初期化完了
@@ -443,6 +469,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
         // アクセストークンを更新
         apiClient.setAccessToken(refreshResponse.accessToken);
+
+        // アクセストークンをlocalStorageにも保存
+        localStorage.setItem('accessToken', refreshResponse.accessToken);
 
         // リフレッシュトークンを更新（新しいリフレッシュトークンが発行される場合）
         if (refreshResponse.refreshToken) {
@@ -469,6 +498,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
           apiClient.setAccessToken(response.accessToken);
 
+          // アクセストークンをlocalStorageにも保存
+          localStorage.setItem('accessToken', response.accessToken);
+
           if (response.refreshToken) {
             localStorage.setItem('refreshToken', response.refreshToken);
           }
@@ -483,6 +515,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         // 他のタブからのトークン更新を監視
         manager.onTokenRefreshed((newAccessToken) => {
           apiClient.setAccessToken(newAccessToken);
+          localStorage.setItem('accessToken', newAccessToken);
         });
       } catch (error) {
         // リフレッシュ失敗時はlocalStorageをクリア

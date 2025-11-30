@@ -84,11 +84,16 @@ export async function waitForAuthState(
       // ネットワークアイドルを待機
       await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-      // リフレッシュトークンの存在を確認
-      await page.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
-        timeout,
-        polling: 500,
-      });
+      // リフレッシュトークンとアクセストークンの両方の存在を確認
+      await page.waitForFunction(
+        () =>
+          localStorage.getItem('refreshToken') !== null &&
+          localStorage.getItem('accessToken') !== null,
+        {
+          timeout,
+          polling: 500,
+        }
+      );
 
       return true;
     } catch (error) {

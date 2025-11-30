@@ -126,10 +126,13 @@ async function performLogin(
     // ネットワークアイドルを待機
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-    // リフレッシュトークンがlocalStorageに保存されるまで待機
+    // リフレッシュトークンとアクセストークンがlocalStorageに保存されるまで待機
     await page.waitForFunction(
       () => {
-        return localStorage.getItem('refreshToken') !== null;
+        return (
+          localStorage.getItem('refreshToken') !== null &&
+          localStorage.getItem('accessToken') !== null
+        );
       },
       { timeout: getTimeout(10000), polling: 500 }
     );
@@ -205,10 +208,13 @@ export async function loginWithCredentials(
     // ネットワークアイドルを待機
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-    // リフレッシュトークンがlocalStorageに保存されるまで待機
+    // リフレッシュトークンとアクセストークンがlocalStorageに保存されるまで待機
     await page.waitForFunction(
       () => {
-        return localStorage.getItem('refreshToken') !== null;
+        return (
+          localStorage.getItem('refreshToken') !== null &&
+          localStorage.getItem('accessToken') !== null
+        );
       },
       { timeout: getTimeout(10000), polling: 500 }
     );
