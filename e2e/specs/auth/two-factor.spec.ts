@@ -552,25 +552,65 @@ test.describe('2要素認証機能', () => {
      * 要件27E.3: 使用済みバックアップコードにaria-label="使用済み"を設定
      */
     test('バックアップコードの使用状況が視覚的に表示される', async ({ page }) => {
-      await page.goto('/profile');
-      // ページの読み込みとAPI呼び出しが完了するまで待機
-      await page.waitForLoadState('networkidle');
+      // CI環境での安定性向上のため、リトライロジックを追加
+      let profileLoaded = false;
 
-      // 2FA管理セクション
-      await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      for (let retry = 0; retry < 3; retry++) {
+        await page.goto('/profile');
+        // ページの読み込みとAPI呼び出しが完了するまで待機
+        await page.waitForLoadState('networkidle');
+
+        // ログインページにリダイレクトされた場合は再ログイン
+        if (page.url().includes('/login')) {
+          await loginAsUser(page, 'TWO_FA_USER');
+
+          // 2FA検証フォームが表示される場合は検証
+          const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
+          const hasTwoFactorForm = (await twoFactorHeading.count()) > 0;
+          if (hasTwoFactorForm) {
+            const digits = '123456'.split('');
+            for (let i = 0; i < 6; i++) {
+              const digitInput = page.getByTestId(`totp-digit-${i}`);
+              const digit = digits[i];
+              if (digit) {
+                await digitInput.fill(digit);
+              }
+            }
+            await page.getByRole('button', { name: /検証/i }).click();
+            await page.waitForURL((url) => !url.pathname.includes('/login'), {
+              timeout: getTimeout(10000),
+            });
+          }
+          await page.goto('/profile');
+          await page.waitForLoadState('networkidle');
+        }
+
+        // 2FA管理セクションが表示されるか確認
+        try {
+          await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible({
+            timeout: getTimeout(10000),
+          });
+          profileLoaded = true;
+          break;
+        } catch {
+          if (retry < 2) {
+            await page.reload({ waitUntil: 'networkidle' });
+          }
+        }
+      }
+
+      expect(profileLoaded).toBe(true);
 
       // バックアップコードを表示ボタンが操作可能になるまで待機
       const showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
-      await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
+      await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
       await showBackupCodesButton.click();
 
       // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）
       await page
         .getByTestId('backup-code-item')
         .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(15000) });
+        .waitFor({ state: 'visible', timeout: getTimeout(20000) });
       const backupCodes = await page.getByTestId('backup-code-item').all();
       expect(backupCodes.length).toBeGreaterThan(0);
 

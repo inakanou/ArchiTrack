@@ -76,6 +76,11 @@ export async function waitForAuthState(
 
   for (let retry = 0; retry < maxRetries; retry++) {
     try {
+      // ページが閉じられていないか確認
+      if (page.isClosed()) {
+        return false;
+      }
+
       // ネットワークアイドルを待機
       await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
@@ -86,10 +91,28 @@ export async function waitForAuthState(
       });
 
       return true;
-    } catch {
+    } catch (error) {
+      // ページが閉じられた場合は即座に終了
+      if (page.isClosed()) {
+        return false;
+      }
+
+      // ターゲットが閉じられたエラーの場合も終了
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Target page, context or browser has been closed')) {
+        return false;
+      }
+
       if (retry < maxRetries - 1) {
-        // ページをリロードして再試行
-        await page.reload({ waitUntil: 'networkidle' });
+        try {
+          // ページがまだ開いている場合のみリロード
+          if (!page.isClosed()) {
+            await page.reload({ waitUntil: 'networkidle' });
+          }
+        } catch {
+          // リロードに失敗した場合は終了
+          return false;
+        }
       }
     }
   }
@@ -125,15 +148,38 @@ export async function waitForElementWithRetry(
 
   for (let retry = 0; retry < maxRetries; retry++) {
     try {
+      // ページが閉じられていないか確認
+      if (page.isClosed()) {
+        return false;
+      }
+
       await expect(locator).toBeVisible({ timeout });
       return true;
-    } catch {
+    } catch (error) {
+      // ページが閉じられた場合は即座に終了
+      if (page.isClosed()) {
+        return false;
+      }
+
+      // ターゲットが閉じられたエラーの場合も終了
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Target page, context or browser has been closed')) {
+        return false;
+      }
+
       if (retry < maxRetries - 1) {
-        if (reloadOnRetry) {
-          await page.reload({ waitUntil: 'networkidle' });
+        try {
+          if (reloadOnRetry && !page.isClosed()) {
+            await page.reload({ waitUntil: 'networkidle' });
+          }
+          // 短い待機を挟む
+          if (!page.isClosed()) {
+            await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+          }
+        } catch {
+          // リロードに失敗した場合は終了
+          return false;
         }
-        // 短い待機を挟む
-        await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
       }
     }
   }
@@ -239,6 +285,11 @@ export async function waitForSessionDataLoaded(
 
   for (let retry = 0; retry < maxRetries; retry++) {
     try {
+      // ページが閉じられていないか確認
+      if (page.isClosed()) {
+        return false;
+      }
+
       // ネットワークアイドルを待機
       await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
@@ -253,15 +304,33 @@ export async function waitForSessionDataLoaded(
       ]);
 
       return true;
-    } catch {
-      if (retry < maxRetries - 1) {
-        // ページをリロードして再試行
-        await page.reload({ waitUntil: 'networkidle' });
+    } catch (error) {
+      // ページが閉じられた場合は即座に終了
+      if (page.isClosed()) {
+        return false;
+      }
 
-        // セッション管理ページのヘッダーが表示されるまで待機
-        await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-          timeout: getTimeout(15000),
-        });
+      // ターゲットが閉じられたエラーの場合も終了
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Target page, context or browser has been closed')) {
+        return false;
+      }
+
+      if (retry < maxRetries - 1) {
+        try {
+          // ページがまだ開いている場合のみリロード
+          if (!page.isClosed()) {
+            await page.reload({ waitUntil: 'networkidle' });
+
+            // セッション管理ページのヘッダーが表示されるまで待機
+            await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+              timeout: getTimeout(15000),
+            });
+          }
+        } catch {
+          // リロードに失敗した場合は終了
+          return false;
+        }
       }
     }
   }

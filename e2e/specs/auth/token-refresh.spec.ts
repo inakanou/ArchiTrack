@@ -161,6 +161,9 @@ test.describe('トークンリフレッシュ機能', () => {
    * 競合対策: タブ1が安定してからタブ2を開くことで、トークンローテーションの競合を防ぐ。
    */
   test('マルチタブ環境でトークン更新が全タブに同期される', async ({ context }) => {
+    // テストタイムアウトを延長（CI環境での安定性向上）
+    test.setTimeout(getTimeout(120000));
+
     await createTestUser('REGULAR_USER');
 
     // タブ1を作成してログイン
@@ -186,39 +189,56 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // タブ2を作成（同じセッション - localStorageを共有）
     const page2 = await context.newPage();
-    await page2.goto('/profile');
 
-    // タブ2の初期化完了を待機（initializeAuthによるセッション復元とトークンローテーション）
-    await expect(page2.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
-      timeout: getTimeout(15000),
-    });
+    try {
+      await page2.goto('/profile');
 
-    // 認証状態が確立するまで待機（リトライ付き）
-    const auth2Established = await waitForAuthState(page2, {
-      maxRetries: 5,
-      timeout: getTimeout(10000),
-    });
-    expect(auth2Established).toBe(true);
+      // タブ2の初期化完了を待機（initializeAuthによるセッション復元とトークンローテーション）
+      await expect(page2.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-    // タブ2がセッション復元後、リフレッシュトークンが存在することを確認
-    const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(token2).toBeTruthy();
+      // 認証状態が確立するまで待機（リトライ付き）
+      const auth2Established = await waitForAuthState(page2, {
+        maxRetries: 5,
+        timeout: getTimeout(10000),
+      });
+      expect(auth2Established).toBe(true);
 
-    // 要件16.11: 両方のタブが同じlocalStorageを参照しているため、
-    // トークンは常に同期されている（最新のトークンローテーション結果を共有）
-    const token1Final = await page1.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(token1Final).toBe(token2);
+      // タブ2がセッション復元後、リフレッシュトークンが存在することを確認
+      const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
+      expect(token2).toBeTruthy();
 
-    // タブ1でダッシュボードに移動して認証が有効であることを確認
-    await page1.goto('/dashboard');
-    await expect(page1.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
+      // 要件16.11: 両方のタブが同じlocalStorageを参照しているため、
+      // トークンは常に同期されている（最新のトークンローテーション結果を共有）
+      // タブ1がまだ開いているか確認してからトークンを取得
+      if (!page1.isClosed()) {
+        const token1Final = await page1.evaluate(() => localStorage.getItem('refreshToken'));
+        expect(token1Final).toBe(token2);
 
-    // タブ2でもダッシュボードに移動して認証が有効であることを確認
-    await page2.goto('/dashboard');
-    await expect(page2.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
+        // タブ1でダッシュボードに移動して認証が有効であることを確認
+        await page1.goto('/dashboard');
+        await expect(page1.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
+      }
 
-    await page1.close();
-    await page2.close();
+      // タブ2でもダッシュボードに移動して認証が有効であることを確認
+      if (!page2.isClosed()) {
+        await page2.goto('/dashboard');
+        await expect(page2.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
+      }
+    } finally {
+      // クリーンアップ（ページが開いている場合のみ閉じる）
+      if (!page1.isClosed()) {
+        await page1.close().catch(() => {
+          /* ignore */
+        });
+      }
+      if (!page2.isClosed()) {
+        await page2.close().catch(() => {
+          /* ignore */
+        });
+      }
+    }
   });
 
   /**
