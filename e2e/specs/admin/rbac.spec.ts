@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * ロールベースアクセス制御（RBAC）のE2Eテスト
@@ -34,7 +35,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     // 認証状態の初期化が完了し、アクセス拒否メッセージが表示されるまで待機
     // ProtectedRouteコンポーネントはh1タグで「アクセス権限がありません」を表示する
     await expect(page.getByRole('heading', { name: /アクセス権限がありません/i })).toBeVisible({
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
   });
 
@@ -51,7 +52,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     // ページが正常に表示されることを確認
     // UserManagementページの見出しは「ユーザー・ロール管理」
     await expect(page.getByRole('heading', { name: /ユーザー・ロール管理/i })).toBeVisible({
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
   });
 

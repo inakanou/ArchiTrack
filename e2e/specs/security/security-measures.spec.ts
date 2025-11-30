@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * セキュリティ対策（脅威モデリング）のE2Eテスト
@@ -251,7 +252,9 @@ test.describe('XSS対策', () => {
 
     // ページ内でスクリプトが実行されていないことを確認
     // （エラーダイアログが表示されないことで確認）
-    const dialogPromise = page.waitForEvent('dialog', { timeout: 1000 }).catch(() => null);
+    const dialogPromise = page
+      .waitForEvent('dialog', { timeout: getTimeout(1000) })
+      .catch(() => null);
     const dialog = await dialogPromise;
 
     expect(dialog).toBeNull();

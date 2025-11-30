@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * 動的ロール管理のE2Eテスト
@@ -31,7 +32,7 @@ test.describe('動的ロール管理', () => {
     // ユーザー管理ページに移動
     await page.goto('/admin/users');
     await expect(page.getByRole('heading', { name: /ユーザー.*ロール管理/i })).toBeVisible({
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
 
     // ロールタブに切り替え
@@ -48,7 +49,7 @@ test.describe('動的ロール管理', () => {
     await page.getByRole('button', { name: 'ロールを作成', exact: true }).click();
 
     // 成功メッセージを確認
-    await expect(page.getByText(/作成.*しました|成功/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/作成.*しました|成功/i)).toBeVisible({ timeout: getTimeout(5000) });
   });
 
   /**

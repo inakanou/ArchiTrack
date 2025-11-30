@@ -3,6 +3,7 @@ import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * 管理者招待機能のE2Eテスト
@@ -37,8 +38,10 @@ test.describe('管理者招待機能', () => {
       }
 
       // UI要素が表示されるまで待機
-      await page.getByLabel(/メールアドレス/i).waitFor({ state: 'visible', timeout: 10000 });
-      await page.getByRole('table').waitFor({ state: 'visible', timeout: 10000 });
+      await page
+        .getByLabel(/メールアドレス/i)
+        .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+      await page.getByRole('table').waitFor({ state: 'visible', timeout: getTimeout(10000) });
 
       // APIエラーが表示されていないか確認
       const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
@@ -261,18 +264,24 @@ test.describe('管理者招待機能', () => {
 
     // 未使用の招待（招待行が表示されるまで待機）
     const unusedRow = page.locator('tr', { has: page.locator('text="unused@example.com"') });
-    await expect(unusedRow).toBeVisible({ timeout: 10000 });
-    await expect(unusedRow.locator('text=/未使用|Pending/i')).toBeVisible({ timeout: 10000 });
+    await expect(unusedRow).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(unusedRow.locator('text=/未使用|Pending/i')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
     // 使用済みの招待
     const usedRow = page.locator('tr', { has: page.locator('text="used@example.com"') });
-    await expect(usedRow).toBeVisible({ timeout: 10000 });
-    await expect(usedRow.locator('text=/使用済み|Used/i')).toBeVisible({ timeout: 10000 });
+    await expect(usedRow).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(usedRow.locator('text=/使用済み|Used/i')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
     // 期限切れの招待
     const expiredRow = page.locator('tr', { has: page.locator('text="expired@example.com"') });
-    await expect(expiredRow).toBeVisible({ timeout: 10000 });
-    await expect(expiredRow.locator('text=/期限切れ|Expired/i')).toBeVisible({ timeout: 10000 });
+    await expect(expiredRow).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(expiredRow.locator('text=/期限切れ|Expired/i')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
   });
 
   /**
@@ -303,11 +312,11 @@ test.describe('管理者招待機能', () => {
     });
 
     // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
-    await expect(invitationRow).toBeVisible({ timeout: 10000 });
+    await expect(invitationRow).toBeVisible({ timeout: getTimeout(10000) });
 
     // 取り消しボタンが有効である
     const cancelButton = invitationRow.getByRole('button', { name: /取り消し|キャンセル/i });
-    await expect(cancelButton).toBeVisible({ timeout: 10000 });
+    await expect(cancelButton).toBeVisible({ timeout: getTimeout(10000) });
     await expect(cancelButton).toBeEnabled();
   });
 
@@ -340,11 +349,11 @@ test.describe('管理者招待機能', () => {
     });
 
     // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
-    await expect(invitationRow).toBeVisible({ timeout: 10000 });
+    await expect(invitationRow).toBeVisible({ timeout: getTimeout(10000) });
 
     // 再送信ボタンが有効である
     const resendButton = invitationRow.getByRole('button', { name: /再送信|再送/i });
-    await expect(resendButton).toBeVisible({ timeout: 10000 });
+    await expect(resendButton).toBeVisible({ timeout: getTimeout(10000) });
     await expect(resendButton).toBeEnabled();
   });
 
@@ -382,7 +391,7 @@ test.describe('管理者招待機能', () => {
         ? true
         : await invitationRow.locator('text=/revoked|取り消し済み|Cancelled/i').isVisible();
       expect(isDeleted || isCancelled).toBe(true);
-    }).toPass({ timeout: 10000 });
+    }).toPass({ timeout: getTimeout(10000) });
   });
 
   /**
@@ -414,11 +423,11 @@ test.describe('管理者招待機能', () => {
     const pagination = page.locator(
       '[data-testid="pagination"], nav[aria-label="ページネーション"], .pagination'
     );
-    await expect(pagination).toBeVisible({ timeout: 10000 });
+    await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
     // ページ番号または次へボタンが表示される
     const nextButton = pagination.getByRole('button', { name: '次へ' });
-    await expect(nextButton).toBeVisible({ timeout: 10000 });
+    await expect(nextButton).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   /**
@@ -468,21 +477,21 @@ test.describe('管理者招待機能', () => {
     // 各ステータスのバッジまたはアイコンが表示される
     const unusedRow = page.locator('tr', { has: page.locator('text="visual-unused@example.com"') });
     // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
-    await expect(unusedRow).toBeVisible({ timeout: 10000 });
+    await expect(unusedRow).toBeVisible({ timeout: getTimeout(10000) });
     const unusedBadge = unusedRow.locator('[data-testid="status-badge"], .badge, .status');
-    await expect(unusedBadge).toBeVisible({ timeout: 10000 });
+    await expect(unusedBadge).toBeVisible({ timeout: getTimeout(10000) });
 
     const usedRow = page.locator('tr', { has: page.locator('text="visual-used@example.com"') });
-    await expect(usedRow).toBeVisible({ timeout: 10000 });
+    await expect(usedRow).toBeVisible({ timeout: getTimeout(10000) });
     const usedBadge = usedRow.locator('[data-testid="status-badge"], .badge, .status');
-    await expect(usedBadge).toBeVisible({ timeout: 10000 });
+    await expect(usedBadge).toBeVisible({ timeout: getTimeout(10000) });
 
     const expiredRow = page.locator('tr', {
       has: page.locator('text="visual-expired@example.com"'),
     });
-    await expect(expiredRow).toBeVisible({ timeout: 10000 });
+    await expect(expiredRow).toBeVisible({ timeout: getTimeout(10000) });
     const expiredBadge = expiredRow.locator('[data-testid="status-badge"], .badge, .status');
-    await expect(expiredBadge).toBeVisible({ timeout: 10000 });
+    await expect(expiredBadge).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   /**
@@ -520,7 +529,9 @@ test.describe('管理者招待機能', () => {
         await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
       }
 
-      await page.getByLabel(/メールアドレス/i).waitFor({ state: 'visible', timeout: 10000 });
+      await page
+        .getByLabel(/メールアドレス/i)
+        .waitFor({ state: 'visible', timeout: getTimeout(10000) });
 
       // APIエラーが表示されていないか確認
       const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
@@ -535,7 +546,7 @@ test.describe('管理者招待機能', () => {
 
     // カード形式のレイアウトが表示される
     const mobileCard = page.locator('[data-testid="invitation-card"]');
-    await expect(mobileCard.first()).toBeVisible({ timeout: 10000 });
+    await expect(mobileCard.first()).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   /**
@@ -585,15 +596,15 @@ test.describe('管理者招待機能', () => {
       has: page.locator('text="dialog-test@example.com"'),
     });
     // 招待行が表示されるまで待機（APIからのデータ取得が完了するまで）
-    await expect(invitationRow).toBeVisible({ timeout: 10000 });
+    await expect(invitationRow).toBeVisible({ timeout: getTimeout(10000) });
 
     const cancelButton = invitationRow.getByRole('button', { name: /取り消し|キャンセル/i });
-    await expect(cancelButton).toBeVisible({ timeout: 10000 });
+    await expect(cancelButton).toBeVisible({ timeout: getTimeout(10000) });
     await cancelButton.click();
 
     // 確認ダイアログが表示される
     const dialog = page.getByRole('dialog', { name: /取り消しますか/i });
-    await expect(dialog).toBeVisible({ timeout: 10000 });
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
 
     // Escキーを押してダイアログを閉じる
     await page.keyboard.press('Escape');

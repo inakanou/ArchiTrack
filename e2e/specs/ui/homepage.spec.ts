@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { takeScreenshot, takeScreenshotOnFailure } from '../../helpers/screenshot.js';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * ホームページUIテスト
@@ -35,7 +36,7 @@ test.describe('Homepage', () => {
     await expect(root).toBeAttached();
 
     // Reactコンテンツがレンダリングされるまで待機
-    await expect(root.locator('*').first()).toBeVisible({ timeout: 10000 });
+    await expect(root.locator('*').first()).toBeVisible({ timeout: getTimeout(10000) });
 
     // スクリーンショット撮影（タイムスタンプ付きフォルダに保存）
     await takeScreenshot(page, testInfo, 'page-elements', { fullPage: true });

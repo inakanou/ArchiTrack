@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
 
 /**
@@ -74,18 +75,20 @@ test.describe('セキュリティテスト', () => {
 
     // プロフィールページのロード完了を待機
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
 
     // リロード後、displayNameフィールドの値が設定されるまで待機
-    await expect(displayNameInput).toHaveValue(xssPayload, { timeout: 10000 });
+    await expect(displayNameInput).toHaveValue(xssPayload, { timeout: getTimeout(10000) });
 
     // スクリプトが実行されず、エスケープされたテキストとして表示される
     const displayedValue = await displayNameInput.inputValue();
     expect(displayedValue).toBe(xssPayload);
 
     // ページにアラートダイアログが表示されていないことを確認
-    const dialogPromise = page.waitForEvent('dialog', { timeout: 1000 }).catch(() => null);
+    const dialogPromise = page
+      .waitForEvent('dialog', { timeout: getTimeout(1000) })
+      .catch(() => null);
     const dialog = await dialogPromise;
     expect(dialog).toBeNull();
   });
@@ -174,7 +177,7 @@ test.describe('セキュリティテスト', () => {
     await page.reload();
 
     // 改ざんされたトークンによりセッション復元が失敗し、ログイン画面へリダイレクトされる
-    await page.waitForURL(/\/login/, { timeout: 10000 });
+    await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
     expect(page.url()).toContain('/login');
   });
 
@@ -462,7 +465,7 @@ test.describe('モーダルとトーストメッセージテスト', () => {
     await page.goto('/profile');
 
     // プロフィールページが完全に読み込まれるまで待機
-    await expect(page.getByLabel(/メールアドレス/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByLabel(/メールアドレス/i)).toBeVisible({ timeout: getTimeout(10000) });
 
     // 表示名を変更
     const displayNameInput = page.getByLabel(/表示名/i);
@@ -471,12 +474,12 @@ test.describe('モーダルとトーストメッセージテスト', () => {
 
     // 保存ボタンが有効になるまで待機（フォーム変更検知のため）
     const saveButton = page.getByRole('button', { name: /^保存$|^プロフィールを保存$/i });
-    await expect(saveButton).toBeEnabled({ timeout: 5000 });
+    await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
     await saveButton.click();
 
     // 成功トーストメッセージが表示される
     const toast = page.getByText(/更新しました|成功|保存しました/i);
-    await expect(toast).toBeVisible({ timeout: 10000 });
+    await expect(toast).toBeVisible({ timeout: getTimeout(10000) });
 
     // 5秒後にトーストが非表示になる
     await page.waitForTimeout(5500);

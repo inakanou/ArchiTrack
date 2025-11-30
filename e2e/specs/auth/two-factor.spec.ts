@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser, createTwoFactorBackupCodes } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * 2要素認証機能のE2Eテスト
@@ -76,12 +77,14 @@ test.describe('2要素認証機能', () => {
         const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
         const loadingExists = await loadingIndicator.count();
         if (loadingExists > 0) {
-          await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
         }
 
         // ステップ表示を確認
         try {
-          await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: 10000 });
+          await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({
+            timeout: getTimeout(10000),
+          });
           setupPageLoaded = true;
           break;
         } catch {
@@ -94,11 +97,11 @@ test.describe('2要素認証機能', () => {
       expect(setupPageLoaded).toBe(true);
 
       // 要件27D.1: 3ステップのプログレスバー（既に上で確認済み）
-      await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText(/ステップ 1\/3/i)).toBeVisible({ timeout: getTimeout(5000) });
 
       // 要件27.4: QRコードが表示される（APIからのレスポンス待機のためタイムアウト追加）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: 30000 });
+      await expect(qrCode).toBeVisible({ timeout: getTimeout(30000) });
 
       // 要件27E.1: QRコードにalt属性が設定されている
       await expect(qrCode).toHaveAttribute('alt', /二要素認証用QRコード/i);
@@ -132,18 +135,18 @@ test.describe('2要素認証機能', () => {
       const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
       const loadingExists = await loadingIndicator.count();
       if (loadingExists > 0) {
-        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
       }
 
       // QRコードが表示されるまで待機（API応答待ち）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: 30000 });
+      await expect(qrCode).toBeVisible({ timeout: getTimeout(30000) });
 
       // ステップ1: QRコード表示を確認
       await expect(page.getByText(/ステップ 1/i)).toBeVisible();
 
       // TOTP入力フィールドが表示されるまで待機
-      await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: getTimeout(10000) });
 
       // TOTPコードを6桁の個別フィールドに入力（getByTestIdに統一）
       const digits = generateMockTOTPCode().split('');
@@ -155,7 +158,7 @@ test.describe('2要素認証機能', () => {
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
       // ステップ3: バックアップコード表示（UIはステップ1から直接ステップ3に遷移）
-      await expect(page.getByText(/ステップ 3/i)).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText(/ステップ 3/i)).toBeVisible({ timeout: getTimeout(15000) });
 
       // 要件27.6: バックアップコードが表示される（10個、8文字英数字）
       await expect(page.getByRole('heading', { name: /バックアップコード/i })).toBeVisible();
@@ -196,15 +199,15 @@ test.describe('2要素認証機能', () => {
       const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
       const loadingExists = await loadingIndicator.count();
       if (loadingExists > 0) {
-        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
       }
 
       // QRコードが表示されるまで待機（API応答待ち）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: 30000 });
+      await expect(qrCode).toBeVisible({ timeout: getTimeout(30000) });
 
       // TOTP入力フィールドが表示されるまで待機
-      await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: getTimeout(10000) });
 
       // TOTPコード検証を完了
       const digits = generateMockTOTPCode().split('');
@@ -288,12 +291,12 @@ test.describe('2要素認証機能', () => {
         const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
         const loadingExists = await loadingIndicator.count();
         if (loadingExists > 0) {
-          await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
         }
 
         // QRコードが表示されるまで待機（API応答待ち）
         try {
-          await expect(qrCode).toBeVisible({ timeout: 30000 });
+          await expect(qrCode).toBeVisible({ timeout: getTimeout(30000) });
           qrVisible = true;
           break;
         } catch {
@@ -306,7 +309,7 @@ test.describe('2要素認証機能', () => {
 
       // TOTP入力フィールドが表示されるまで待機
       const digit0 = page.getByTestId('totp-digit-0');
-      await expect(digit0).toBeVisible({ timeout: 10000 });
+      await expect(digit0).toBeVisible({ timeout: getTimeout(10000) });
 
       // 1桁目にフォーカス
       await digit0.focus();
@@ -315,11 +318,11 @@ test.describe('2要素認証機能', () => {
       await digit0.fill('1');
 
       const digit1 = page.getByTestId('totp-digit-1');
-      await expect(digit1).toBeFocused({ timeout: 5000 });
+      await expect(digit1).toBeFocused({ timeout: getTimeout(5000) });
 
       // 残りの桁も同様に自動タブ移動
       await digit1.fill('2');
-      await expect(page.getByTestId('totp-digit-2')).toBeFocused({ timeout: 5000 });
+      await expect(page.getByTestId('totp-digit-2')).toBeFocused({ timeout: getTimeout(5000) });
     });
   });
 
@@ -513,7 +516,7 @@ test.describe('2要素認証機能', () => {
 
       // 2FA検証フォームが表示されるまで待機（見出し「二要素認証」で確認）
       const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-      await twoFactorHeading.waitFor({ state: 'visible', timeout: 10000 });
+      await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(10000) });
 
       // 6桁のTOTPコードを入力（テストモードでは123456が有効）
       // 各フィールドに1文字ずつ入力
@@ -531,7 +534,7 @@ test.describe('2要素認証機能', () => {
 
       // ログイン成功を待機（ダッシュボードへリダイレクト）
       await page.waitForURL((url) => !url.pathname.includes('/login'), {
-        timeout: 10000,
+        timeout: getTimeout(10000),
       });
     });
 
@@ -546,19 +549,19 @@ test.describe('2要素認証機能', () => {
 
       // 2FA管理セクション
       await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible({
-        timeout: 10000,
+        timeout: getTimeout(10000),
       });
 
       // バックアップコードを表示ボタンが操作可能になるまで待機
       const showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
-      await showBackupCodesButton.waitFor({ state: 'visible', timeout: 10000 });
+      await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
       await showBackupCodesButton.click();
 
       // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）
       await page
         .getByTestId('backup-code-item')
         .first()
-        .waitFor({ state: 'visible', timeout: 15000 });
+        .waitFor({ state: 'visible', timeout: getTimeout(15000) });
       const backupCodes = await page.getByTestId('backup-code-item').all();
       expect(backupCodes.length).toBeGreaterThan(0);
 
@@ -620,18 +623,20 @@ test.describe('2要素認証機能', () => {
 
       // バックアップコードを表示
       const showBackupButton = page.getByRole('button', { name: /バックアップコードを表示/i });
-      await expect(showBackupButton).toBeVisible({ timeout: 15000 });
+      await expect(showBackupButton).toBeVisible({ timeout: getTimeout(15000) });
       await showBackupButton.click();
 
       // バックアップコードが表示されるのを待機
-      await expect(page.getByTestId('backup-code-item').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('backup-code-item').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // 現在のバックアップコードを記録
       const oldCodes = await page.getByTestId('backup-code-item').allTextContents();
 
       // 再生成ボタンが表示されるのを待機してからクリック
       const regenerateButton = page.getByRole('button', { name: /再生成|新しいコードを生成/i });
-      await expect(regenerateButton).toBeVisible({ timeout: 10000 });
+      await expect(regenerateButton).toBeVisible({ timeout: getTimeout(10000) });
       await regenerateButton.click();
 
       // 確認ダイアログ
@@ -642,7 +647,7 @@ test.describe('2要素認証機能', () => {
 
       // 成功メッセージを待機（APIコール完了の確認）
       await expect(page.getByText(/バックアップコードを再生成しました/i)).toBeVisible({
-        timeout: 10000,
+        timeout: getTimeout(10000),
       });
 
       // 要件27B.3: 新しい10個のバックアップコードが表示される
@@ -769,7 +774,7 @@ test.describe('2要素認証機能', () => {
         const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
         const loadingExists = await loadingIndicator.count();
         if (loadingExists > 0) {
-          await expect(loadingIndicator).toBeHidden({ timeout: 15000 });
+          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
         }
 
         // QRコードが表示されているか確認
@@ -781,7 +786,7 @@ test.describe('2要素認証機能', () => {
         retries--;
         if (retries === 0) {
           // 最終試行でも失敗した場合は通常のアサートでエラーを表示
-          await expect(qrCode).toBeVisible({ timeout: 5000 });
+          await expect(qrCode).toBeVisible({ timeout: getTimeout(5000) });
         }
       }
 

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { loginWithCredentials } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * パスワード管理機能のE2Eテスト
@@ -487,10 +488,10 @@ test.describe('パスワード変更後のセッション管理', () => {
     await page.goto('/profile');
 
     // ログインページにリダイレクトされる（セッション無効化）
-    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
 
     await page2.goto('/profile');
-    await expect(page2).toHaveURL(/\/login/, { timeout: 10000 });
+    await expect(page2).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
 
     // クリーンアップ
     await context2.close();

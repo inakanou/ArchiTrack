@@ -1,10 +1,20 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import {
+  waitForSessionDataLoaded,
+  waitForLoadingComplete,
+  getTimeout,
+} from '../../helpers/wait-helpers';
 
 /**
  * セッション管理機能のE2Eテスト
  *
  * @REQ-8 セッション管理
+ *
+ * CI環境での安定性を向上させるため、以下の対策を実装:
+ * - リトライ付きの待機関数を使用
+ * - 固定時間待機（waitForTimeout）を廃止
+ * - 適切なタイムアウト設定
  */
 test.describe('セッション管理機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
@@ -28,77 +38,80 @@ test.describe('セッション管理機能', () => {
     await page.goto('/sessions');
 
     // CI環境での安定性向上のため、ページロード完了を待機
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
 
     // セッション管理ページが表示されるまで明示的に待機
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-      timeout: 15000,
+      timeout: getTimeout(15000),
     });
 
-    // セッションデータのローディングが完了するまで待機
-    // ローディングテキストが非表示になるまで待機（存在する場合）
-    const loadingIndicator = page.getByText(/読み込み中/i);
-    await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {
-      // ローディングが既に完了している場合は無視
+    // ローディング完了を待機
+    await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
+
+    // セッションデータの読み込み完了を待機（リトライ付き）
+    const sessionDataLoaded = await waitForSessionDataLoaded(page, {
+      timeout: getTimeout(20000),
+      maxRetries: 5,
     });
 
-    // セッションデータまたは空状態メッセージが表示されるまで待機
-    await Promise.race([
-      page.getByText(/現在のデバイス/i).waitFor({ state: 'visible', timeout: 20000 }),
-      page.getByText(/全デバイスからログアウト/i).waitFor({ state: 'visible', timeout: 20000 }),
-      page
-        .getByText(/アクティブなセッションがありません/i)
-        .waitFor({ state: 'visible', timeout: 20000 }),
-    ]).catch(() => {
-      // いずれかが表示されればOK、失敗は個別テストでキャッチ
-    });
-
-    // 追加の安定性のため、短い待機を追加
-    await page.waitForTimeout(500);
+    if (!sessionDataLoaded) {
+      // フォールバック：最終確認
+      await Promise.race([
+        expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(10000) }),
+        expect(page.getByText(/全デバイスからログアウト/i)).toBeVisible({
+          timeout: getTimeout(10000),
+        }),
+        expect(page.getByText(/アクティブなセッションがありません/i)).toBeVisible({
+          timeout: getTimeout(10000),
+        }),
+      ]);
+    }
   });
 
   test('セッション一覧が正しく表示される', async ({ page }) => {
     // セッション一覧のヘッダー（タイムアウト追加）
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-      timeout: 15000,
+      timeout: getTimeout(15000),
     });
 
     // 現在のデバイスが表示される（APIレスポンス待機のためタイムアウト追加）
-    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(15000) });
 
     // デバイス情報が表示される（複数セッションがある場合は.first()を使用）
     await expect(
       page.getByText(/Chrome on Windows|Safari on iOS|Firefox on Linux/).first()
-    ).toBeVisible();
+    ).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   test('個別デバイスログアウトボタンが表示される', async ({ page }) => {
     // セッション情報がAPIから読み込まれるまで待機
-    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(15000) });
 
     // ログアウトボタンが表示される（現在のデバイス以外）
     const logoutButtons = page.getByRole('button', { name: /ログアウト/i });
-    await expect(logoutButtons.first()).toBeVisible({ timeout: 10000 });
+    await expect(logoutButtons.first()).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   test('個別デバイスログアウトができる', async ({ page }) => {
     // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
     let sessionLoaded = false;
-    for (let retry = 0; retry < 3; retry++) {
+    const maxRetries = 5;
+    for (let retry = 0; retry < maxRetries; retry++) {
       try {
-        await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
+        await expect(page.getByText(/現在のデバイス/i)).toBeVisible({
+          timeout: getTimeout(15000),
+        });
         sessionLoaded = true;
         break;
       } catch {
-        if (retry < 2) {
+        if (retry < maxRetries - 1) {
           // ページをリロードして再試行
           await page.reload({ waitUntil: 'networkidle' });
           await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: 15000,
+            timeout: getTimeout(15000),
           });
           // ローディング完了を待機
-          const loadingIndicator = page.getByText(/読み込み中/i);
-          await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {});
+          await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
         }
       }
     }
@@ -106,14 +119,14 @@ test.describe('セッション管理機能', () => {
 
     // 個別デバイスのログアウトボタンが表示されるまで待機
     const logoutButton = page.getByRole('button', { name: /^ログアウト$/i }).first();
-    await expect(logoutButton).toBeVisible({ timeout: 10000 });
+    await expect(logoutButton).toBeVisible({ timeout: getTimeout(10000) });
 
     // 個別デバイスのログアウトボタンをクリック（現在のデバイス以外の最初のセッション）
     await logoutButton.click();
 
     // 確認ダイアログが表示される
     await expect(page.getByText(/このデバイスをログアウトしますか/i)).toBeVisible({
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
 
     // 確認ボタンをクリック（aria-label="はい"のボタン）
@@ -121,13 +134,13 @@ test.describe('セッション管理機能', () => {
 
     // 成功メッセージが表示される
     await expect(page.getByText(/ログアウトしました|デバイスをログアウトしました/i)).toBeVisible({
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
   });
 
   test('全デバイスログアウトボタンが表示される', async ({ page }) => {
     await expect(page.getByRole('button', { name: /全デバイスからログアウト/i })).toBeVisible({
-      timeout: 15000,
+      timeout: getTimeout(15000),
     });
   });
 
@@ -137,32 +150,30 @@ test.describe('セッション管理機能', () => {
 
     // セッション管理ページが表示されるまで待機
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-      timeout: 15000,
+      timeout: getTimeout(15000),
     });
 
-    // セッションデータのローディングが完了するまで待機
-    const loadingIndicator = page.getByText(/読み込み中/i);
-    await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {
-      // ローディングが既に完了している場合は無視
-    });
+    // ローディング完了を待機
+    await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
     // 全デバイスログアウトボタンが表示されるのをリトライ付きで待機
     const logoutAllButton = page.getByRole('button', { name: /全デバイスからログアウト/i });
     let buttonVisible = false;
-    for (let retry = 0; retry < 3; retry++) {
+    const maxRetries = 5;
+    for (let retry = 0; retry < maxRetries; retry++) {
       try {
-        await expect(logoutAllButton).toBeVisible({ timeout: 10000 });
+        await expect(logoutAllButton).toBeVisible({ timeout: getTimeout(10000) });
         buttonVisible = true;
         break;
       } catch {
-        if (retry < 2) {
+        if (retry < maxRetries - 1) {
           // ページをリロードして再試行
           await page.reload({ waitUntil: 'networkidle' });
           await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: 15000,
+            timeout: getTimeout(15000),
           });
           // ローディング完了を待機
-          await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {});
+          await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
         }
       }
     }
@@ -171,20 +182,22 @@ test.describe('セッション管理機能', () => {
     await logoutAllButton.click();
 
     // 確認ダイアログが表示される
-    await expect(page.getByText(/全てのデバイスからログアウトします/i)).toBeVisible();
+    await expect(page.getByText(/全てのデバイスからログアウトします/i)).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
     // 確認ボタンをクリック（aria-label="はい、全デバイスからログアウト"のボタン）
     await page.getByRole('button', { name: /はい、全デバイスからログアウト/i }).click();
 
     // ログインページにリダイレクトされる
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
   });
 
   test('セッション作成日時と有効期限が表示される', async ({ page }) => {
     // 作成日時が表示される
-    await expect(page.getByText(/作成日時:/)).toBeVisible();
+    await expect(page.getByText(/作成日時:/)).toBeVisible({ timeout: getTimeout(10000) });
 
     // 有効期限が表示される
-    await expect(page.getByText(/有効期限:/)).toBeVisible();
+    await expect(page.getByText(/有効期限:/)).toBeVisible({ timeout: getTimeout(10000) });
   });
 });

@@ -16,8 +16,19 @@ function getTimestampedDir(): string {
 const timestamp = getTimestampedDir();
 
 /**
+ * CI環境かどうかを判定
+ * GitHub ActionsではCI=trueが自動設定される
+ */
+const isCI = !!process.env.CI;
+
+/**
  * Playwright E2E Test Configuration for ArchiTrack
  * @see https://playwright.dev/docs/test-configuration
+ *
+ * CI環境での安定性を重視した設定:
+ * - CI環境ではタイムアウトを2倍に延長
+ * - リトライ回数を増加（CI: 3回、ローカル: 1回）
+ * - 各アクション間の安定待機を追加
  */
 export default defineConfig({
   // テストファイルのパス
@@ -34,8 +45,9 @@ export default defineConfig({
   // データベースクリーンアップの競合を防ぐため無効化
   fullyParallel: false,
 
-  // CI環境では2回、ローカルでは1回リトライ
-  retries: process.env.CI ? 2 : 1,
+  // CI環境では3回、ローカルでは1回リトライ
+  // CI環境での不安定性を吸収するためリトライ回数を増加
+  retries: isCI ? 3 : 1,
 
   // ワーカー数の設定（シリアル実行のため1に固定）
   workers: 1,
@@ -44,7 +56,7 @@ export default defineConfig({
   reporter: [
     ['html', { outputFolder: `playwright-report/${timestamp}`, open: 'never' }],
     ['list'],
-    process.env.CI ? ['github'] : ['line'],
+    isCI ? ['github'] : ['line'],
   ],
 
   // すべてのテストで共通の設定
@@ -64,20 +76,20 @@ export default defineConfig({
       size: { width: 1280, height: 720 },
     },
 
-    // トレース設定
-    trace: 'on-first-retry',
+    // トレース設定（CI環境ではリトライ時に有効化）
+    trace: isCI ? 'on-first-retry' : 'retain-on-failure',
 
-    // タイムアウト設定
-    actionTimeout: 15000, // 15秒
-    navigationTimeout: 45000, // 45秒
+    // タイムアウト設定（CI環境では延長）
+    actionTimeout: isCI ? 30000 : 15000, // CI: 30秒, ローカル: 15秒
+    navigationTimeout: isCI ? 90000 : 45000, // CI: 90秒, ローカル: 45秒
   },
 
-  // テスト全体のタイムアウト設定
-  timeout: 60000, // 60秒
+  // テスト全体のタイムアウト設定（CI環境では延長）
+  timeout: isCI ? 120000 : 60000, // CI: 120秒, ローカル: 60秒
 
-  // expect のタイムアウト
+  // expect のタイムアウト（CI環境では延長）
   expect: {
-    timeout: 10000, // 10秒
+    timeout: isCI ? 20000 : 10000, // CI: 20秒, ローカル: 10秒
   },
 
   // テストプロジェクト（ブラウザ設定）

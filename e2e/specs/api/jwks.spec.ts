@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * RFC 7517 JSON Web Key (JWK) Set
@@ -45,7 +46,7 @@ test.describe('JWKS Endpoint E2E', () => {
     while (retries > 0) {
       try {
         const response = await request.get(`${API_BASE}/health`, {
-          timeout: 5000,
+          timeout: getTimeout(5000),
         });
         if (response.ok()) {
           return; // 成功したら抜ける

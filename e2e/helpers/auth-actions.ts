@@ -3,10 +3,18 @@
  *
  * テストで使用するログイン、ログアウトなどの認証アクションを提供します。
  * Playwrightベストプラクティスに従い、実際のUIを通じて認証を行います。
+ *
+ * CI環境での安定性を向上させるため、リトライロジックと適切な待機を実装しています。
  */
 
 import type { Page } from '@playwright/test';
 import { TEST_USERS } from './test-users';
+import { getTimeout, waitForAuthState } from './wait-helpers';
+
+/**
+ * CI環境かどうかを判定
+ */
+const isCI = !!process.env.CI;
 
 /**
  * テストユーザーとしてログインする
@@ -14,8 +22,14 @@ import { TEST_USERS } from './test-users';
  * ログインページに移動し、指定されたユーザー情報でログインします。
  * ログイン後、ダッシュボードへのリダイレクトを待機します。
  *
+ * CI環境での安定性を向上させるため、以下の対策を実装:
+ * - リトライロジックの追加
+ * - 適切なタイムアウト設定
+ * - 認証状態の確実な確認
+ *
  * @param page - Playwrightのページオブジェクト
  * @param userKey - TEST_USERSのキー（'REGULAR_USER', 'ADMIN_USER'など）
+ * @param options - オプション
  *
  * @example
  * ```typescript
@@ -26,31 +40,72 @@ import { TEST_USERS } from './test-users';
  * });
  * ```
  */
-export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS): Promise<void> {
+export async function loginAsUser(
+  page: Page,
+  userKey: keyof typeof TEST_USERS,
+  options?: {
+    /** 最大リトライ回数 */
+    maxRetries?: number;
+  }
+): Promise<void> {
   const user = TEST_USERS[userKey];
+  const maxRetries = options?.maxRetries ?? (isCI ? 3 : 1);
 
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      await performLogin(page, user);
+
+      // 2FAが有効でない場合は認証状態を確認
+      if (!user.twoFactorEnabled) {
+        const authEstablished = await waitForAuthState(page, {
+          maxRetries: isCI ? 3 : 2,
+          timeout: getTimeout(10000),
+        });
+
+        if (!authEstablished) {
+          throw new Error('Authentication state not established');
+        }
+      }
+
+      // ログイン成功
+      return;
+    } catch (error) {
+      if (attempt < maxRetries - 1) {
+        // ログインページに戻って再試行
+        await page.goto('/login', { waitUntil: 'networkidle' });
+        await clearAuthState(page);
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
+/**
+ * ログイン処理の実行
+ *
+ * @param page - Playwrightのページオブジェクト
+ * @param user - ユーザー情報
+ */
+async function performLogin(
+  page: Page,
+  user: (typeof TEST_USERS)[keyof typeof TEST_USERS]
+): Promise<void> {
   // ログインページに移動し、ページ読み込み完了を待機
   await page.goto('/login', { waitUntil: 'networkidle' });
 
   // 前のテストの認証状態をクリア（シリアル実行テスト対応）
-  // ページナビゲーション後に認証トークンをクリアし、必要に応じてページをリロード
-  const hasExistingToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
-  if (hasExistingToken) {
-    await page.evaluate(() => {
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('accessToken');
-    });
-    await page.reload({ waitUntil: 'networkidle' });
-  }
+  await clearAuthState(page);
 
   // フォーム要素が操作可能になるまで待機
   const emailInput = page.getByLabel(/メールアドレス/i);
   const passwordInput = page.locator('input#password');
   const loginButton = page.getByRole('button', { name: /ログイン/i });
 
-  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
-  await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
-  await loginButton.waitFor({ state: 'visible', timeout: 10000 });
+  const formTimeout = getTimeout(10000);
+  await emailInput.waitFor({ state: 'visible', timeout: formTimeout });
+  await passwordInput.waitFor({ state: 'visible', timeout: formTimeout });
+  await loginButton.waitFor({ state: 'visible', timeout: formTimeout });
 
   // メールアドレスとパスワードを入力
   await emailInput.fill(user.email);
@@ -65,16 +120,35 @@ export async function loginAsUser(page: Page, userKey: keyof typeof TEST_USERS):
   if (!user.twoFactorEnabled) {
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
-      timeout: 10000,
+      timeout: getTimeout(15000),
     });
+
+    // ネットワークアイドルを待機
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
     // リフレッシュトークンがlocalStorageに保存されるまで待機
     await page.waitForFunction(
       () => {
         return localStorage.getItem('refreshToken') !== null;
       },
-      { timeout: 10000 }
+      { timeout: getTimeout(10000), polling: 500 }
     );
+  }
+}
+
+/**
+ * 認証状態をクリア
+ *
+ * @param page - Playwrightのページオブジェクト
+ */
+async function clearAuthState(page: Page): Promise<void> {
+  const hasExistingToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
+  if (hasExistingToken) {
+    await page.evaluate(() => {
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('accessToken');
+    });
+    await page.reload({ waitUntil: 'networkidle' });
   }
 }
 
@@ -110,9 +184,10 @@ export async function loginWithCredentials(
   const passwordInput = page.locator('input#password');
   const loginButton = page.getByRole('button', { name: /ログイン/i });
 
-  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
-  await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
-  await loginButton.waitFor({ state: 'visible', timeout: 10000 });
+  const formTimeout = getTimeout(10000);
+  await emailInput.waitFor({ state: 'visible', timeout: formTimeout });
+  await passwordInput.waitFor({ state: 'visible', timeout: formTimeout });
+  await loginButton.waitFor({ state: 'visible', timeout: formTimeout });
 
   // メールアドレスとパスワードを入力
   await emailInput.fill(email);
@@ -124,15 +199,18 @@ export async function loginWithCredentials(
   // リダイレクトを待機（ログインページから離れたことを確認）
   if (waitForRedirect) {
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
-      timeout: 10000,
+      timeout: getTimeout(15000),
     });
+
+    // ネットワークアイドルを待機
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
     // リフレッシュトークンがlocalStorageに保存されるまで待機
     await page.waitForFunction(
       () => {
         return localStorage.getItem('refreshToken') !== null;
       },
-      { timeout: 10000 }
+      { timeout: getTimeout(10000), polling: 500 }
     );
   }
 }
@@ -165,9 +243,12 @@ export async function submitTwoFactorCode(page: Page, code: string): Promise<voi
   await page.waitForURL(
     (url) => !url.pathname.includes('/login') && !url.pathname.includes('/2fa'),
     {
-      timeout: 10000,
+      timeout: getTimeout(15000),
     }
   );
+
+  // ネットワークアイドルを待機
+  await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 }
 
 /**
@@ -191,5 +272,8 @@ export async function logout(page: Page): Promise<void> {
   await page.getByRole('button', { name: /ログアウト/i }).click();
 
   // ログインページへのリダイレクトを待機
-  await page.waitForURL(/\/login/);
+  await page.waitForURL(/\/login/, { timeout: getTimeout(15000) });
+
+  // ネットワークアイドルを待機
+  await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 }

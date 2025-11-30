@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { TEST_USERS } from '../../helpers/test-users';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * E2Eテスト: 認証状態初期化時のUIチラつき防止
@@ -28,7 +29,7 @@ async function isOnLoginPage(page: Page): Promise<boolean> {
 
   // フォームが存在する場合、実際に表示されているかチェック（タイムアウト緩和）
   try {
-    await loginForm.first().waitFor({ state: 'visible', timeout: 500 });
+    await loginForm.first().waitFor({ state: 'visible', timeout: getTimeout(500) });
     return true;
   } catch {
     // タイムアウトした場合、フォームは表示されていない
@@ -47,7 +48,7 @@ async function isOnProtectedPage(page: Page): Promise<boolean> {
   );
 
   try {
-    await protectedContent.first().waitFor({ state: 'visible', timeout: 500 });
+    await protectedContent.first().waitFor({ state: 'visible', timeout: getTimeout(500) });
     return true;
   } catch {
     return false;
@@ -92,12 +93,12 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.goto('http://localhost:5173/dashboard');
 
     // ログイン画面にリダイレクトされるまで待機（タイムアウト延長）
-    await page.waitForURL('**/login**', { timeout: 10000 });
+    await page.waitForURL('**/login**', { timeout: getTimeout(10000) });
 
     // ログインフォームが表示されるまで待機（DOM更新完了を確認）
     await page.waitForSelector('form:has(input[type="email"], input[type="password"])', {
       state: 'visible',
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
 
     // ログイン画面が表示されていることを確認
@@ -128,7 +129,9 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.click('button[type="submit"]');
 
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: getTimeout(10000),
+    });
 
     // リフレッシュトークンがlocalStorageに保存されていることを確認
     const refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
@@ -150,12 +153,12 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
 
     // 最終的にダッシュボード（またはルート）が表示されることを確認
     await page.waitForURL((url) => url.pathname === '/dashboard' || url.pathname === '/', {
-      timeout: 15000,
+      timeout: getTimeout(15000),
     });
 
     // ダッシュボードコンテンツが表示されるまで待機
     const dashboardContent = page.locator('[data-testid="dashboard"]');
-    await expect(dashboardContent).toBeVisible({ timeout: 10000 });
+    await expect(dashboardContent).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   /**
@@ -174,7 +177,9 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: getTimeout(10000),
+    });
 
     // Step 2: ネットワークを遅延させる（200ms以上の遅延でローディング表示）
     await page.route('**/api/v1/auth/refresh', async (route) => {
@@ -194,14 +199,14 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
 
     // ローディングインジケーターが表示されることを確認（タイムアウト緩和）
     const loadingIndicator = page.locator('[role="status"][aria-label="認証状態を確認中"]');
-    await expect(loadingIndicator).toBeVisible({ timeout: 3000 });
+    await expect(loadingIndicator).toBeVisible({ timeout: getTimeout(3000) });
 
     // ローディングインジケーターが消えるまで待機（セッション復元完了）
-    await expect(loadingIndicator).not.toBeVisible({ timeout: 15000 });
+    await expect(loadingIndicator).not.toBeVisible({ timeout: getTimeout(15000) });
 
     // 最終的にダッシュボード（またはルート）が表示されることを確認
     await page.waitForURL((url) => url.pathname === '/dashboard' || url.pathname === '/', {
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
     expect(await isOnProtectedPage(page)).toBe(true);
   });
@@ -225,7 +230,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.goto('http://localhost:5173/dashboard');
 
     // セッション復元が失敗し、ログイン画面にリダイレクトされることを確認
-    await page.waitForURL('**/login**', { timeout: 10000 });
+    await page.waitForURL('**/login**', { timeout: getTimeout(10000) });
     expect(await isOnLoginPage(page)).toBe(true);
 
     // リフレッシュトークンがlocalStorageから削除されていることを確認
@@ -247,7 +252,9 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: getTimeout(10000),
+    });
 
     // Step 2: ネットワークを遅延させてローディングインジケーターを表示
     await page.route('**/api/v1/auth/refresh', async (route) => {
@@ -264,7 +271,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
 
     // ローディングインジケーターのアクセシビリティ属性を検証（タイムアウト緩和）
     const loadingIndicator = page.locator('[role="status"]');
-    await expect(loadingIndicator).toBeVisible({ timeout: 3000 });
+    await expect(loadingIndicator).toBeVisible({ timeout: getTimeout(3000) });
 
     // ARIA属性の検証
     await expect(loadingIndicator).toHaveAttribute('role', 'status');
