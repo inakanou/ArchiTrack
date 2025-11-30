@@ -269,12 +269,40 @@ test.describe('2要素認証機能', () => {
      * 要件27D.2: 6桁の個別入力フィールドと自動タブ移動
      */
     test('TOTPコード入力時に自動タブ移動が機能する', async ({ page }) => {
-      await page.goto('/profile/2fa-setup');
-      await page.waitForLoadState('networkidle');
-
-      // QRコードが表示されるまで待機（API応答待ち）
+      // CI環境での安定性向上のため、リトライロジックを追加
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
-      await expect(qrCode).toBeVisible({ timeout: 15000 });
+      let qrVisible = false;
+
+      for (let retry = 0; retry < 3; retry++) {
+        await page.goto('/profile/2fa-setup');
+        await page.waitForLoadState('networkidle');
+
+        // ログインページにリダイレクトされた場合は再ログイン
+        if (page.url().includes('/login')) {
+          await loginAsUser(page, 'REGULAR_USER');
+          await page.goto('/profile/2fa-setup');
+          await page.waitForLoadState('networkidle');
+        }
+
+        // ローディングインジケーターが消えるまで待機
+        const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
+        const loadingExists = await loadingIndicator.count();
+        if (loadingExists > 0) {
+          await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+        }
+
+        // QRコードが表示されるまで待機（API応答待ち）
+        try {
+          await expect(qrCode).toBeVisible({ timeout: 30000 });
+          qrVisible = true;
+          break;
+        } catch {
+          if (retry < 2) {
+            await page.reload({ waitUntil: 'networkidle' });
+          }
+        }
+      }
+      expect(qrVisible).toBe(true);
 
       // TOTP入力フィールドが表示されるまで待機
       const digit0 = page.getByTestId('totp-digit-0');

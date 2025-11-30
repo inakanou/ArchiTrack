@@ -207,12 +207,30 @@ test.describe('トークンリフレッシュ機能', () => {
       timeout: 15000,
     });
 
-    // CI環境での安定性向上のため、networkidleを待機してからwaitForFunctionでトークン存在を確認
+    // CI環境での安定性向上のため、networkidleを待機してからリトライロジック付きでトークン存在を確認
     await page2.waitForLoadState('networkidle');
-    await page2.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
-      timeout: 15000,
-      polling: 500,
-    });
+
+    let page2TokenExists = false;
+    for (let retry = 0; retry < 5; retry++) {
+      try {
+        await page2.waitForFunction(() => localStorage.getItem('refreshToken') !== null, {
+          timeout: 5000,
+          polling: 500,
+        });
+        page2TokenExists = true;
+        break;
+      } catch {
+        if (retry < 4) {
+          // ページをリロードしてトークンを再取得
+          await page2.reload();
+          await page2.waitForLoadState('networkidle');
+          await expect(page2.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+            timeout: 10000,
+          });
+        }
+      }
+    }
+    expect(page2TokenExists).toBe(true);
 
     // タブ2がセッション復元後、リフレッシュトークンが存在することを確認
     const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));

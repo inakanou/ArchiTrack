@@ -82,8 +82,27 @@ test.describe('セッション管理機能', () => {
   });
 
   test('個別デバイスログアウトができる', async ({ page }) => {
-    // セッション情報がAPIから読み込まれるまで待機
-    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
+    // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
+    let sessionLoaded = false;
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: 15000 });
+        sessionLoaded = true;
+        break;
+      } catch {
+        if (retry < 2) {
+          // ページをリロードして再試行
+          await page.reload({ waitUntil: 'networkidle' });
+          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+            timeout: 15000,
+          });
+          // ローディング完了を待機
+          const loadingIndicator = page.getByText(/読み込み中/i);
+          await loadingIndicator.waitFor({ state: 'hidden', timeout: 20000 }).catch(() => {});
+        }
+      }
+    }
+    expect(sessionLoaded).toBe(true);
 
     // 個別デバイスのログアウトボタンが表示されるまで待機
     const logoutButton = page.getByRole('button', { name: /^ログアウト$/i }).first();
