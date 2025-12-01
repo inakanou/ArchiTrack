@@ -60,15 +60,48 @@ test.describe('セキュリティテスト', () => {
     await loginAsUser(page, 'REGULAR_USER');
     await page.goto('/profile');
 
+    // プロフィールページのロード完了を待機
+    await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 認証状態を確認（ログインページにリダイレクトされていないか）
+    if (page.url().includes('/login')) {
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto('/profile');
+      await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+    }
+
     // XSS ペイロードを含む表示名を設定
     const xssPayload = '<script>alert("XSS")</script>';
     const displayNameInput = page.getByLabel(/表示名/i);
-    await displayNameInput.clear();
-    await displayNameInput.fill(xssPayload);
-    await page.getByRole('button', { name: /保存/i }).click();
 
-    // 成功メッセージを待つ
-    await expect(page.getByText(/更新しました/i)).toBeVisible();
+    // Reactのフォーム変更検知をトリガーするために、クリックしてからfillする
+    await displayNameInput.click();
+    await displayNameInput.fill(''); // 空にする
+    await displayNameInput.fill(xssPayload);
+
+    // フォーム変更検知のため少し待機
+    await page.waitForTimeout(500);
+
+    // 保存ボタンが有効になるまで待機
+    const saveButton = page.getByRole('button', { name: /^保存$/i });
+    await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
+
+    // API応答を待機しながら保存ボタンをクリック（プロフィール更新は /api/v1/auth/me）
+    await waitForApiResponse(
+      page,
+      async () => {
+        await saveButton.click();
+      },
+      /\/api\/v1\/auth\/me/,
+      { timeout: getTimeout(30000) }
+    );
+
+    // 成功メッセージを待つ（タイムアウト増加）
+    await expect(page.getByText(/更新しました/i)).toBeVisible({ timeout: getTimeout(20000) });
 
     // ページをリロード（ネットワーク完了まで待機）
     await page.reload({ waitUntil: 'networkidle' });

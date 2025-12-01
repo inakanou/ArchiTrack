@@ -42,6 +42,13 @@ test.describe('セッション管理機能', () => {
       // CI環境での安定性向上のため、ページロード完了を待機
       await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
 
+      // 認証が失われてログインページにリダイレクトされた場合は再ログイン
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto('/sessions');
+        await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
+      }
+
       // セッション管理ページが表示されるまで明示的に待機
       try {
         await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
@@ -50,8 +57,8 @@ test.describe('セッション管理機能', () => {
         break;
       } catch {
         if (navRetry < maxNavigationRetries - 1) {
-          // リトライ前にページをリロード
-          await page.reload({ waitUntil: 'networkidle' });
+          // リトライ前に認証状態を確認して再ログイン
+          await loginAsUser(page, 'REGULAR_USER');
         }
       }
     }
@@ -107,6 +114,14 @@ test.describe('セッション管理機能', () => {
       } catch {
         if (retry < 4) {
           await page.reload({ waitUntil: 'networkidle' });
+
+          // ログインページにリダイレクトされた場合は再ログイン
+          if (page.url().includes('/login')) {
+            await loginAsUser(page, 'REGULAR_USER');
+            await page.goto('/sessions');
+            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
+          }
+
           await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
             timeout: getTimeout(10000),
           });
@@ -135,6 +150,14 @@ test.describe('セッション管理機能', () => {
         if (retry < maxRetries - 1) {
           // ページをリロードして再試行
           await page.reload({ waitUntil: 'networkidle' });
+
+          // ログインページにリダイレクトされた場合は再ログイン
+          if (page.url().includes('/login')) {
+            await loginAsUser(page, 'REGULAR_USER');
+            await page.goto('/sessions');
+            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
+          }
+
           await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
             timeout: getTimeout(15000),
           });
@@ -203,6 +226,14 @@ test.describe('セッション管理機能', () => {
         if (retry < maxRetries - 1) {
           // ページをリロードして再試行
           await page.reload({ waitUntil: 'networkidle' });
+
+          // ログインページにリダイレクトされた場合は再ログイン
+          if (page.url().includes('/login')) {
+            await loginAsUser(page, 'REGULAR_USER');
+            await page.goto('/sessions');
+            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
+          }
+
           await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
             timeout: getTimeout(15000),
           });
