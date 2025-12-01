@@ -841,7 +841,8 @@ export class AuthService implements IAuthService {
       const newRefreshToken = await this.tokenService.generateRefreshToken(tokenPayload);
 
       // 4. 古いリフレッシュトークンを削除（トークンローテーション）
-      await this.prisma.refreshToken.delete({
+      // Prisma 7: deleteMany を使用してレコードが存在しない場合でもエラーを回避
+      await this.prisma.refreshToken.deleteMany({
         where: { id: storedToken.id },
       });
 
