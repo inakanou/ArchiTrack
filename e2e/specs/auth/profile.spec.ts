@@ -492,8 +492,30 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
         await page.goto('/login');
       }
 
-      // 新しいパスワードで再ログイン（loginWithCredentialsを使用）
-      await loginWithCredentials(page, 'user2@example.com', newPwd);
+      // パスワード変更後はセッションが無効化されるが、ローカルストレージにトークンが残っている場合がある
+      // トークンをクリアして、ログインページにアクセスできるようにする
+      await page.evaluate(() => {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+      });
+
+      // ログインページに遷移（トークンクリア後）
+      await page.goto('/login', { waitUntil: 'networkidle' });
+
+      // ログインフォームが表示されるまで待機
+      await expect(page.getByLabel(/メールアドレス/i)).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 新しいパスワードで再ログイン
+      // loginWithCredentialsはpage.goto('/login')を呼ぶので、すでにログインページにいる場合は直接フィールドを操作
+      await page.getByLabel(/メールアドレス/i).fill('user2@example.com');
+      await page.locator('input#password').fill(newPwd);
+      await page.getByRole('button', { name: /ログイン/i }).click();
+
+      // ダッシュボードへのリダイレクトを待機
+      await page.waitForURL((url) => !url.pathname.includes('/login'), {
+        timeout: getTimeout(15000),
+      });
+      await page.waitForLoadState('networkidle');
 
       // プロフィールページに遷移
       await page.goto('/profile');
