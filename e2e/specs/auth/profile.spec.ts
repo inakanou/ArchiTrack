@@ -397,10 +397,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
    * THEN エラーメッセージが表示される
    */
   test('過去3回に使用したパスワードは再利用できない', async ({ page }) => {
-    // ログイン
-    await loginAsUser(page, 'REGULAR_USER');
+    // ログイン（REGULAR_USER_2を使用して他のテストに影響しないようにする）
+    await loginAsUser(page, 'REGULAR_USER_2');
     await page.goto('/profile');
-    // 現在のパスワード: Password123!
+    // 現在のパスワード: SecurePass456!
 
     // Have I Been Pwnedの漏洩チェックを回避するため、ユニークなパスワードを使用
     // タイムスタンプベースのサフィックスで一意性を確保
@@ -415,7 +415,11 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       const headingVisible = await page.getByRole('heading', { name: /プロフィール/i }).isVisible();
       if (!headingVisible || page.url().includes('/login')) {
         // 認証状態が失われている場合は再ログイン
-        await loginWithCredentials(page, 'user@example.com', currentPwd);
+        // ページ遷移が完了するまで待機
+        await page.waitForLoadState('domcontentloaded');
+        // 明示的にログインページに移動（状態をリセット）
+        await page.goto('/login', { waitUntil: 'networkidle' });
+        await loginWithCredentials(page, 'user2@example.com', currentPwd);
         await page.goto('/profile');
         await page.waitForLoadState('networkidle');
       }
@@ -489,7 +493,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       }
 
       // 新しいパスワードで再ログイン（loginWithCredentialsを使用）
-      await loginWithCredentials(page, 'user@example.com', newPwd);
+      await loginWithCredentials(page, 'user2@example.com', newPwd);
 
       // プロフィールページに遷移
       await page.goto('/profile');
@@ -499,13 +503,13 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
       // 認証が失われている場合は再試行
       if (page.url().includes('/login')) {
-        await loginWithCredentials(page, 'user@example.com', newPwd);
+        await loginWithCredentials(page, 'user2@example.com', newPwd);
         await page.goto('/profile');
         await page.waitForLoadState('networkidle');
       }
 
       // プロフィールページが完全にロードされるのを待つ
-      await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+      await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user2@example.com', {
         timeout: getTimeout(15000),
       });
       await expect(page.locator('input#currentPassword')).toBeVisible({
@@ -514,7 +518,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     };
 
     // 1回目のパスワード変更
-    await changePasswordAndLogin('Password123!', password1);
+    await changePasswordAndLogin('SecurePass456!', password1);
 
     // 2回目のパスワード変更
     await changePasswordAndLogin(password1, password2);

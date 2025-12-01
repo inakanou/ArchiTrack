@@ -264,10 +264,10 @@ test.describe('セッション管理機能', () => {
   });
 
   test('セッション作成日時と有効期限が表示される', async ({ page }) => {
-    // 作成日時が表示される
-    await expect(page.getByText(/作成日時:/)).toBeVisible({ timeout: getTimeout(10000) });
+    // 作成日時が表示される（複数セッションがある場合は最初の要素を確認）
+    await expect(page.getByText(/作成日時:/).first()).toBeVisible({ timeout: getTimeout(10000) });
 
-    // 有効期限が表示される
-    await expect(page.getByText(/有効期限:/)).toBeVisible({ timeout: getTimeout(10000) });
+    // 有効期限が表示される（複数セッションがある場合は最初の要素を確認）
+    await expect(page.getByText(/有効期限:/).first()).toBeVisible({ timeout: getTimeout(10000) });
   });
 });
