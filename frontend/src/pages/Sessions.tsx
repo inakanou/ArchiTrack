@@ -4,13 +4,13 @@
  * 要件8: セッション管理
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { apiClient } from '../api/client';
 import type { SessionInfo } from '../types/auth.types';
 
 export function Sessions() {
-  const { logout } = useAuth();
+  const { logout, isInitialized, isAuthenticated } = useAuth();
 
   // セッション一覧
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -32,7 +32,7 @@ export function Sessions() {
   /**
    * セッション一覧を取得
    */
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     setLoading(true);
     setError('');
 
@@ -44,11 +44,17 @@ export function Sessions() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchSessions();
-  }, []);
+    // 認証状態の初期化が完了し、認証されている場合のみセッション一覧を取得
+    if (isInitialized && isAuthenticated) {
+      fetchSessions();
+    } else if (isInitialized && !isAuthenticated) {
+      // 認証されていない場合はローディングを解除
+      setLoading(false);
+    }
+  }, [isInitialized, isAuthenticated, fetchSessions]);
 
   /**
    * 個別デバイスログアウトダイアログを表示

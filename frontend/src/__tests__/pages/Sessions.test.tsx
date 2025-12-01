@@ -32,6 +32,8 @@ vi.mock('../../hooks/useAuth', () => ({
       twoFactorEnabled: false,
     } as UserProfile,
     logout: mockLogout,
+    isInitialized: true,
+    isAuthenticated: true,
   }),
 }));
 
