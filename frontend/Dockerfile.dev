@@ -6,11 +6,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 非rootユーザーを作成（UID/GIDはdocker-compose.ymlで上書き可能）
-ARG UID=1000
-ARG GID=1000
-RUN groupadd -g ${GID} appgroup && \
-    useradd -u ${UID} -g appgroup -m appuser
+# 既存のnodeユーザー(UID/GID 1000)を使用
 
 WORKDIR /app
 
@@ -26,11 +22,11 @@ RUN npm install --legacy-peer-deps
 
 COPY . .
 
-# /appディレクトリの所有権を変更
-RUN chown -R appuser:appgroup /app
+# /appディレクトリの所有権を変更（既存のnodeユーザーを使用）
+RUN chown -R node:node /app
 
 # 非rootユーザーに切り替え
-USER appuser
+USER node
 
 EXPOSE 5173
 
