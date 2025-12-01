@@ -23,8 +23,9 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 - 🤖 **AI支援開発**: Claude Codeによる体系的な開発ワークフロー
 - 📝 **スペック駆動**: 要件定義 → 設計 → タスク分解 → 実装の明確なフェーズ管理
-- ⚡ **高速**: Vite + React 18によるモダンなフロントエンド
-- 🔒 **セキュア**: JWT認証、2FA、RBAC、Argon2ハッシュ化、HIBP漏洩チェック
+- ⚡ **高速**: Vite 7 + React 19によるモダンなフロントエンド
+- 🔒 **セキュア**: JWT認証（EdDSA）、2FA、RBAC、Argon2ハッシュ化、HIBP漏洩チェック
+- 🗄️ **モダンORM**: Prisma 7（Driver Adapter Pattern）による型安全なデータアクセス
 - 🐳 **コンテナ化**: Dockerによる一貫した開発・本番環境
 - 🧪 **高品質**: 80%以上のテストカバレッジ要件
 - 🚀 **自動デプロイ**: GitHub ActionsによるCI/CDパイプライン
@@ -95,11 +96,11 @@ Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-
 
 | 分類 | 技術 |
 |------|------|
-| **Frontend** | React 18 + Vite 7 |
-| **Backend** | Node.js 22 + Express |
+| **Frontend** | React 19 + Vite 7 + TypeScript 5.9 |
+| **Backend** | Node.js 22 + Express 5 + Prisma 7 |
 | **Database** | PostgreSQL 15 + Redis 7 |
 | **Authentication** | JWT (EdDSA) + Argon2 + TOTP |
-| **Testing** | Vitest + Playwright + Storybook |
+| **Testing** | Vitest 4 + Playwright + Storybook 10 |
 | **Deployment** | Railway + GitHub Actions |
 
 ---
@@ -114,8 +115,8 @@ Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-
 
 ## プロジェクト構成
 
-- **frontend/** - React 18 + Vite 7フロントエンド
-- **backend/** - Node.js 22 + Expressバックエンド
+- **frontend/** - React 19 + Vite 7 + TypeScript 5.9 フロントエンド
+- **backend/** - Node.js 22 + Express 5 + Prisma 7 バックエンド
 - **e2e/** - Playwright E2Eテスト
 - **docs/** - 包括的なドキュメント（対象読者ごとに整理）
 - **.kiro/** - Kiro-style Spec-Driven Development

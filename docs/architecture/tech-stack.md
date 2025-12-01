@@ -8,26 +8,26 @@
 
 | 分類 | 技術 | バージョン | 用途 |
 |------|------|-----------|------|
-| **Frontend** | React | 18 | UIライブラリ |
-| | Vite | 7 | ビルドツール・開発サーバー |
-| | React Router | 6 | クライアントサイドルーティング |
-| | Axios | 1.x | HTTPクライアント |
+| **Frontend** | React | 19.x | UIライブラリ |
+| | Vite | 7.x | ビルドツール・開発サーバー |
+| | React Router | 7.x | クライアントサイドルーティング |
+| | TypeScript | 5.9.x | 型安全性 |
 | **Backend** | Node.js | 22 | サーバーランタイム |
 | | Express | 5.x | Webフレームワーク |
-| | Prisma | 6.x | ORM |
+| | Prisma | 7.x | ORM（Driver Adapter Pattern） |
 | | Zod | 4.x | バリデーション |
 | **Database** | PostgreSQL | 15 | リレーショナルデータベース |
 | | Redis | 7 | キャッシュ・セッション |
-| **Authentication** | JWT | - | トークンベース認証 |
+| **Authentication** | JWT | - | トークンベース認証（EdDSA署名） |
 | | Argon2 | - | パスワードハッシュ |
 | | TOTP | - | 二段階認証 |
-| **Testing** | Vitest | - | ユニット・統合テスト |
-| | Playwright | - | E2Eテスト |
-| | Storybook | 8.x | UIコンポーネントテスト |
+| **Testing** | Vitest | 4.x | ユニット・統合テスト |
+| | Playwright | 1.40.x | E2Eテスト |
+| | Storybook | 10.x | UIコンポーネントテスト |
 | **Development** | Docker | - | コンテナ化 |
 | | Docker Compose | - | ローカル開発環境 |
-| | TypeScript | 5.x | 型安全性 |
-| | ESLint | 9.x | Linter |
+| | TypeScript | 5.9.x | 型安全性 |
+| | ESLint | 9.x | Linter（Flat Config） |
 | | Prettier | 3.x | フォーマッター |
 | **Deployment** | Railway | - | ホスティング |
 | | GitHub Actions | - | CI/CD |
@@ -37,10 +37,10 @@
 
 ## Frontend
 
-### React 18
+### React 19
 
 **選定理由:**
-- 最新の機能（Concurrent Features、自動バッチング）
+- 最新の機能（Concurrent Features、自動バッチング、Server Components対応）
 - 豊富なエコシステム
 - コミュニティのサポート
 - パフォーマンス最適化
@@ -49,8 +49,9 @@
 - 関数コンポーネント + Hooks
 - 仮想DOM
 - 宣言的UI
+- React Compiler対応準備
 
-### Vite 5
+### Vite 7
 
 **選定理由:**
 - 高速な開発サーバー（ESビルド）
@@ -62,54 +63,73 @@
 - ネイティブESモジュール
 - 高速なコールドスタート
 - プラグインエコシステム
+- Environment API対応
 
-### React Router 6
+### React Router 7
 
 **選定理由:**
 - React公式推奨ルーター
 - ネストルート対応
 - データローディング統合
+- Remix統合による強化されたAPI
 
-### Axios
-
-**選定理由:**
-- ブラウザ・Node.js両対応
-- インターセプター機能
-- 自動JSONパース
-- タイムアウト設定
+**特徴:**
+- 型安全なルーティング
+- 宣言的なルート定義
+- フレームワークモード対応
 
 ---
 
 ## Backend
 
-### Node.js 20
+### Node.js 22
 
 **選定理由:**
 - LTS（Long Term Support）
 - ESモジュール対応
 - パフォーマンス向上
 - 豊富なパッケージエコシステム
+- TypeScript 5.x との互換性
 
-### Express
+### Express 5
 
 **選定理由:**
 - 軽量・柔軟なWebフレームワーク
 - ミドルウェアエコシステム
 - RESTful API構築に最適
 - 広く採用されている
+- async/await ネイティブサポート
 
-### Prisma
+### Prisma 7（Driver Adapter Pattern）
 
 **選定理由:**
 - 型安全なORM（TypeScript統合）
 - マイグレーション管理
 - 自動スキーマ生成
 - パフォーマンス最適化（クエリ最適化）
+- Driver Adapter Patternによる柔軟な接続管理
 
 **特徴:**
 - Prisma Schema（スキーマ定義）
-- Prisma Client（型安全なクライアント）
+- Prisma Client（型安全なクライアント、カスタム出力先対応）
 - Prisma Migrate（マイグレーション）
+- `@prisma/adapter-pg` による PostgreSQL Driver Adapter
+
+**Driver Adapter Pattern:**
+```typescript
+// db.ts
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from './generated/prisma/client.js';
+
+const connectionString = process.env.DATABASE_URL;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
+```
+
+**利点:**
+- より細かい接続制御
+- コネクションプーリングのカスタマイズ
+- 外部のデータベースドライバーとの統合
 
 ### Zod
 
@@ -206,13 +226,19 @@
 - UIテスト
 - APIテスト
 
-### Storybook
+### Storybook 10
 
 **選定理由:**
 - UIコンポーネントの独立開発
 - ビジュアル回帰テスト
 - インタラクションテスト
 - アクセシビリティテスト（WCAG 2.1 AA準拠）
+
+**特徴:**
+- React-Vite統合
+- CSF 3.0（Component Story Format）
+- Test Runner統合
+- Portable Storiesサポート
 
 ---
 

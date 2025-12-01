@@ -18,7 +18,7 @@
   - エンドポイント: `http://localhost:3000/docs`
 
 - ✅ **PostgreSQLデータベース統合**
-  - Prisma ORMによる型安全なデータベースアクセス
+  - Prisma 7（Driver Adapter Pattern）による型安全なデータベースアクセス
   - マイグレーション管理とスキーマ定義
 
 - ✅ **Redisキャッシング準備**
