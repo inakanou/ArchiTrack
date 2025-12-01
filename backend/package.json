@@ -47,7 +47,7 @@
     "@sentry/profiling-node": "^10.25.0",
     "@types/bull": "^4.10.4",
     "@types/handlebars": "^4.1.0",
-    "@types/nodemailer": "^6.4.21",
+    "@types/nodemailer": "^7.0.4",
     "@types/qrcode": "^1.5.6",
     "bloom-filters": "^3.0.4",
     "bull": "^4.16.5",
