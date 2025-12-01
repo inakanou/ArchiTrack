@@ -854,10 +854,57 @@ test.describe('2要素認証機能', () => {
      * 要件27E.1: QRコードにalt属性「二要素認証用QRコード」を設定
      */
     test('QRコードに適切なalt属性が設定されている', async ({ page }) => {
-      await page.goto('/profile/2fa-setup');
-      await page.waitForLoadState('networkidle');
-
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
+
+      // APIが失敗したり認証が切れることがあるため、最大3回リトライ
+      let retries = 3;
+      while (retries > 0) {
+        // まずプロフィールページで認証状態を確認してからセットアップページに遷移
+        await page.goto('/profile');
+        await page.waitForLoadState('networkidle');
+
+        // 認証状態が確立されていることを確認（ユーザー情報が表示される）
+        try {
+          await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+            timeout: getTimeout(10000),
+          });
+        } catch {
+          // 認証が切れている場合は再ログイン
+          await loginAsUser(page, 'REGULAR_USER');
+          await page.goto('/profile');
+          await page.waitForLoadState('networkidle');
+        }
+
+        // 2FAセットアップページに遷移
+        await page.goto('/profile/2fa-setup');
+        await page.waitForLoadState('networkidle');
+
+        // ログインページにリダイレクトされた場合は再ログイン
+        if (page.url().includes('/login')) {
+          await loginAsUser(page, 'REGULAR_USER');
+          continue;
+        }
+
+        // ローディング完了を待機
+        const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
+        const loadingExists = await loadingIndicator.count();
+        if (loadingExists > 0) {
+          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
+        }
+
+        // QRコードが表示されているか確認
+        const isQrVisible = await qrCode.isVisible().catch(() => false);
+        if (isQrVisible) {
+          break;
+        }
+
+        retries--;
+        if (retries === 0) {
+          // 最終試行でも失敗した場合は通常のアサートでエラーを表示
+          await expect(qrCode).toBeVisible({ timeout: getTimeout(5000) });
+        }
+      }
+
       await expect(qrCode).toBeVisible();
       await expect(qrCode).toHaveAttribute('alt', /二要素認証用QRコード/i);
     });

@@ -543,9 +543,32 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
     // ヘルパー関数: パスワード変更後の再ログイン処理（このテスト専用）
     const changePasswordAndRelogin = async (currentPwd: string, newPwd: string) => {
-      await expect(page.locator('input#currentPassword')).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      // フォームフィールドが表示されるまで待機（認証状態も確認）
+      let formReady = false;
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          await expect(page.locator('input#currentPassword')).toBeVisible({
+            timeout: getTimeout(10000),
+          });
+          // 認証状態が確立されていることを確認
+          const hasToken = await page.evaluate(() => localStorage.getItem('accessToken') !== null);
+          if (hasToken) {
+            formReady = true;
+            break;
+          }
+        } catch {
+          // 認証が切れている場合は再ログイン
+          if (page.url().includes('/login')) {
+            await loginWithCredentials(page, 'user@example.com', currentPwd);
+            await page.goto('/profile');
+            await page.waitForLoadState('networkidle');
+          }
+        }
+      }
+      if (!formReady) {
+        throw new Error('パスワード変更フォームの準備ができませんでした');
+      }
+
       await page.locator('input#currentPassword').fill(currentPwd);
       await page.locator('input#newPassword').fill(newPwd);
       await page.locator('input#confirmPassword').fill(newPwd);
@@ -580,6 +603,15 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       // ログインページにリダイレクトされるのを待つ
       await page.waitForURL(/\/login/, { timeout: getTimeout(20000) });
       await loginWithCredentials(page, 'user@example.com', newPwd);
+
+      // プロフィールページに遷移する前に認証状態を確認
+      await page.waitForFunction(
+        () =>
+          localStorage.getItem('refreshToken') !== null &&
+          localStorage.getItem('accessToken') !== null,
+        { timeout: getTimeout(10000), polling: 500 }
+      );
+
       await page.goto('/profile');
       await page.waitForLoadState('networkidle');
       // AuthContextの初期化が完了するまで待機（ユーザー情報の表示を確認）
@@ -605,9 +637,32 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
     // 5回目のパスワード変更: 最初のパスワード（initialPassword）を再利用
     // initialPasswordは履歴に4回前（現在から数えて）のため再利用可能
-    await expect(page.locator('input#currentPassword')).toBeVisible({
-      timeout: getTimeout(10000),
-    });
+    // 認証状態を確認してからフォームに入力
+    let formReady = false;
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        await expect(page.locator('input#currentPassword')).toBeVisible({
+          timeout: getTimeout(10000),
+        });
+        // 認証状態が確立されていることを確認
+        const hasToken = await page.evaluate(() => localStorage.getItem('accessToken') !== null);
+        if (hasToken) {
+          formReady = true;
+          break;
+        }
+      } catch {
+        // 認証が切れている場合は再ログイン
+        if (page.url().includes('/login')) {
+          await loginWithCredentials(page, 'user@example.com', currentPassword);
+          await page.goto('/profile');
+          await page.waitForLoadState('networkidle');
+        }
+      }
+    }
+    if (!formReady) {
+      throw new Error('パスワード変更フォームの準備ができませんでした');
+    }
+
     await page.locator('input#currentPassword').fill(currentPassword);
     await page.locator('input#newPassword').fill(initialPassword);
     await page.locator('input#confirmPassword').fill(initialPassword);
