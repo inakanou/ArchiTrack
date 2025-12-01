@@ -91,17 +91,18 @@ test.describe('セキュリティテスト', () => {
     await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
 
     // API応答を待機しながら保存ボタンをクリック（プロフィール更新は /api/v1/auth/me）
+    // expectedStatus: 200 でAPIが成功したことを確認
     await waitForApiResponse(
       page,
       async () => {
         await saveButton.click();
       },
       /\/api\/v1\/auth\/me/,
-      { timeout: getTimeout(30000) }
+      { timeout: getTimeout(30000), expectedStatus: 200 }
     );
 
-    // 成功メッセージを待つ（タイムアウト増加）
-    await expect(page.getByText(/更新しました/i)).toBeVisible({ timeout: getTimeout(20000) });
+    // 保存成功後、保存ボタンが無効になることを確認（フォーム変更検知がリセットされる）
+    await expect(saveButton).toBeDisabled({ timeout: getTimeout(10000) });
 
     // ページをリロード（ネットワーク完了まで待機）
     await page.reload({ waitUntil: 'networkidle' });
