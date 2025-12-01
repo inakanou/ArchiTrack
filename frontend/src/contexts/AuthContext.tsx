@@ -518,7 +518,43 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           localStorage.setItem('accessToken', newAccessToken);
         });
       } catch (error) {
-        // リフレッシュ失敗時はlocalStorageをクリア
+        // エラーの種類を判定
+        // 401エラー（認証失敗）の場合はフォールバックしない（セキュリティ上の理由でセッションが無効化された可能性）
+        // ネットワークエラーやタイムアウトの場合のみフォールバックを試みる
+        const isAuthError =
+          error instanceof Error &&
+          (error.message.includes('401') ||
+            error.message.includes('Unauthorized') ||
+            error.message.includes('Invalid') ||
+            error.message.includes('expired'));
+
+        // リフレッシュ失敗時でも、既存のaccessTokenでユーザー情報取得を試みる
+        // ただし、認証エラー（401）の場合はフォールバックしない（セッション無効化を尊重）
+        // CI環境などでリフレッシュAPIが遅延・タイムアウトした場合のみフォールバック
+        if (storedAccessToken && !isAuthError) {
+          try {
+            if (import.meta.env.DEV) {
+              console.log(
+                '[Auth] Refresh failed (network error), trying with existing access token...'
+              );
+            }
+            apiClient.setAccessToken(storedAccessToken);
+            const userResponse = await apiClient.get<User>('/api/v1/auth/me');
+            setUser(userResponse);
+            // 既存トークンで成功した場合は認証状態を維持
+            if (import.meta.env.DEV) {
+              console.log('[Auth] Session restored with existing access token');
+            }
+            setIsLoading(false);
+            setIsInitialized(true);
+            return;
+          } catch (userError) {
+            // 既存トークンでも失敗した場合は本当にセッション切れ
+            console.error('Session restoration failed with existing token:', userError);
+          }
+        }
+
+        // 完全に失敗した場合のみlocalStorageをクリア
         console.error('Session restoration failed:', error);
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('accessToken');

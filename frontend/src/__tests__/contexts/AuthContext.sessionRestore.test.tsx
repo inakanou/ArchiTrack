@@ -204,11 +204,19 @@ describe('AuthContext - セッション復元とUIチラつき防止', () => {
    * THEN システムは認証情報を破棄し、ローディング状態を終了しなければならない
    */
   it('should clear auth info and set isLoading=false when session restoration fails', async () => {
-    // localStorageにリフレッシュトークンが存在する状態をモック
-    vi.mocked(Storage.prototype.getItem).mockReturnValue('invalid-refresh-token');
+    // localStorageにリフレッシュトークンとアクセストークンが存在する状態をモック
+    vi.mocked(Storage.prototype.getItem).mockImplementation((key: string) => {
+      if (key === 'refreshToken') return 'invalid-refresh-token';
+      if (key === 'accessToken') return 'invalid-access-token';
+      return null;
+    });
 
-    // APIクライアントのモック応答を設定（エラー）
+    // APIクライアントのモック応答を設定（認証エラーでリフレッシュ失敗）
+    // 「Invalid」を含むエラーは認証エラーとして扱われ、フォールバックは試行されない
     vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Invalid refresh token'));
+
+    // 注: 認証エラー（エラーメッセージに'Invalid'を含む）の場合、
+    // フォールバックは試行されないため、apiClient.getのモックは不要
 
     render(
       <AuthProvider>
@@ -228,8 +236,57 @@ describe('AuthContext - セッション復元とUIチラつき防止', () => {
     expect(screen.getByTestId('is-authenticated')).toHaveTextContent('not-authenticated');
     expect(screen.getByTestId('user')).toHaveTextContent('no-user');
 
-    // localStorageからrefreshTokenが削除されていることを確認
+    // localStorageからrefreshTokenとaccessTokenが削除されていることを確認
     expect(localStorage.removeItem).toHaveBeenCalledWith('refreshToken');
+    expect(localStorage.removeItem).toHaveBeenCalledWith('accessToken');
+  });
+
+  /**
+   * 要件16A.7: リフレッシュ失敗時でも既存トークンで認証を試みる（CI安定性向上）
+   *
+   * WHEN リフレッシュAPIが失敗する
+   * AND 既存のアクセストークンがlocalStorageに存在する
+   * AND 既存トークンでユーザー情報取得が成功する
+   * THEN システムは認証状態を維持しなければならない
+   */
+  it('should restore session with existing token when refresh fails but token is still valid', async () => {
+    // localStorageにリフレッシュトークンとアクセストークンが存在する状態をモック
+    vi.mocked(Storage.prototype.getItem).mockImplementation((key: string) => {
+      if (key === 'refreshToken') return 'valid-refresh-token';
+      if (key === 'accessToken') return 'still-valid-access-token';
+      return null;
+    });
+
+    // リフレッシュAPIは失敗（CI環境での遅延・タイムアウトをシミュレート）
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Refresh timeout'));
+
+    // 既存トークンでのユーザー情報取得は成功（トークンがまだ有効）
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: '456',
+      email: 'fallback@example.com',
+      displayName: 'Fallback User',
+    });
+
+    render(
+      <AuthProvider>
+        <TestComponent />
+      </AuthProvider>
+    );
+
+    // 初期状態でisLoading=trueを確認
+    expect(screen.getByTestId('is-loading')).toHaveTextContent('loading');
+
+    // セッション復元完了後、isLoading=falseになることを確認
+    await waitFor(() => {
+      expect(screen.getByTestId('is-loading')).toHaveTextContent('not-loading');
+    });
+
+    // 認証状態が維持されていることを確認
+    expect(screen.getByTestId('is-authenticated')).toHaveTextContent('authenticated');
+    expect(screen.getByTestId('user')).toHaveTextContent('fallback@example.com');
+
+    // 既存トークンでsetAccessTokenが呼ばれたことを確認
+    expect(apiClient.setAccessToken).toHaveBeenCalledWith('still-valid-access-token');
   });
 
   /**
