@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
+    "@prisma/adapter-pg": "^7.0.1",
     "@prisma/client": "^7.0.0",
     "@sentry/node": "^10.22.0",
     "@sentry/profiling-node": "^10.25.0",

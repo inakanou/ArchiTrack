@@ -7,7 +7,7 @@
  * - S3/GCS統合（オプション）
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../generated/prisma/client.js';
 
 /**
  * 監査ログアーカイブサービスインターフェース

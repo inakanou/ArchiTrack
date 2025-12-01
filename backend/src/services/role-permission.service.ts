@@ -9,7 +9,7 @@
  * - Business Rule Enforcement: システム管理者ロールの*:*権限保護
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import type {
   IRolePermissionService,
   RolePermissionInfo,

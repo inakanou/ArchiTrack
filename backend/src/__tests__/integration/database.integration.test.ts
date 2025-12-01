@@ -1,7 +1,7 @@
 // vitest.global-setup.tsで.env.testが読み込まれるため、ここでは不要
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { validateEnv } from '../../config/env.js';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../generated/prisma/client.js';
 
 // 環境変数を初期化（モジュールインポート前に実行）
 validateEnv();

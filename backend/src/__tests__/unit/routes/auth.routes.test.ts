@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express, { type Application } from 'express';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../../generated/prisma/client.js';
 import { Ok, Err } from '../../../types/password.types.js';
 import { PasswordViolation } from '../../../types/password.types.js';
 

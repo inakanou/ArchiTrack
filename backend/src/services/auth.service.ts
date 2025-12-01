@@ -9,7 +9,7 @@
  * - 9.1-9.5: ユーザー情報取得
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import { InvitationService } from './invitation.service.js';
 import { PasswordService } from './password.service.js';
 import { TokenService, type TokenPayload } from './token.service.js';

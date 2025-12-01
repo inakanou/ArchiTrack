@@ -5,6 +5,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.{test,spec}.ts'],
+    // Argon2ハッシュなど計算コストの高い処理に対応するため、タイムアウトを延長
+    testTimeout: 15000,
     // Global setup: 全てのテストの前に一度だけ実行される
     // JWT keys, 環境変数などの初期化を行う
     globalSetup: ['./vitest.global-setup.ts'],

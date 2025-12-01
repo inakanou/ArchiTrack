@@ -10,7 +10,7 @@
  * - Business Rule Enforcement: 最後の管理者保護
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types.js';
 import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';

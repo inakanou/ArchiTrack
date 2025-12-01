@@ -15,7 +15,7 @@ import { PasswordService } from '../../../services/password.service.js';
 import { TokenService } from '../../../services/token.service.js';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
 import { SessionService } from '../../../services/session.service.js';
-import type { PrismaClient, User, Invitation } from '@prisma/client';
+import type { PrismaClient, User, Invitation } from '../../../generated/prisma/client.js';
 import { Ok, Err } from '../../../types/result.js';
 
 // Prisma Clientのモック

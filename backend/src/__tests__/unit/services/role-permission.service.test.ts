@@ -6,7 +6,12 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { PrismaClient, Role, Permission, RolePermission } from '@prisma/client';
+import type {
+  PrismaClient,
+  Role,
+  Permission,
+  RolePermission,
+} from '../../../generated/prisma/client.js';
 import { RolePermissionService } from '../../../services/role-permission.service.js';
 import { Err, Ok } from '../../../types/result.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';

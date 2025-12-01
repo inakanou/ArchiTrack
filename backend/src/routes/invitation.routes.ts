@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../generated/prisma/client.js';
 import { InvitationService } from '../services/invitation.service.js';
 import { InvitationStatus } from '../types/invitation.types.js';
 import { validateMultiple } from '../middleware/validate.middleware.js';

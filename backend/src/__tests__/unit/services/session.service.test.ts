@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SessionService } from '../../../services/session.service.js';
-import type { PrismaClient, RefreshToken } from '@prisma/client';
+import type { PrismaClient, RefreshToken } from '../../../generated/prisma/client.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {

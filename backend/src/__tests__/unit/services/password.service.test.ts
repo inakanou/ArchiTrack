@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PasswordService } from '../../../services/password.service.js';
 import { PasswordViolation } from '../../../types/password.types.js';
-import type { PrismaClient, User, PasswordResetToken, PasswordHistory } from '@prisma/client';
+import type {
+  PrismaClient,
+  User,
+  PasswordResetToken,
+  PasswordHistory,
+} from '../../../generated/prisma/client.js';
 import { EmailService } from '../../../services/email.service.js';
 
 // Prisma Clientのモック

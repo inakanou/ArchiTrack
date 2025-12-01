@@ -25,7 +25,7 @@ import type {
 import { Ok, Err } from '../types/two-factor.types.js';
 import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 
 /**
  * 二要素認証サービスの実装

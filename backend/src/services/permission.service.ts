@@ -9,7 +9,7 @@
  * - Business Rule Enforcement: 重複チェック、使用中チェック
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import type {
   IPermissionService,
   CreatePermissionInput,

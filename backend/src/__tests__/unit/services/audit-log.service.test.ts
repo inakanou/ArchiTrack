@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../../../generated/prisma/client.js';
 import { AuditLogService } from '../../../services/audit-log.service.js';
 import {
   CreateAuditLogInput,
