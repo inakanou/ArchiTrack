@@ -18,8 +18,7 @@ jobs:
       matrix:
         workspace: [backend, frontend, e2e]
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@v6
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -62,7 +61,7 @@ jobs:
     name: Requirement Coverage Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -83,8 +82,7 @@ jobs:
       matrix:
         workspace: [backend, frontend, e2e]
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@v6
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -123,8 +121,7 @@ jobs:
       matrix:
         workspace: [backend, frontend]
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@v6
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -171,8 +168,7 @@ jobs:
       matrix:
         workspace: [backend, frontend]
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@v6
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -227,8 +223,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, typecheck, build]
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@v6
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -265,7 +260,7 @@ jobs:
     # Dependabot PRではシークレットにアクセスできないため、integration/e2eテストをスキップ
     if: github.actor != 'dependabot[bot]'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -412,7 +407,7 @@ jobs:
       matrix:
         workspace: [backend, frontend]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Run npm audit
         run: npm --prefix ${{ matrix.workspace }} audit --audit-level=moderate
 
@@ -462,7 +457,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -642,7 +637,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
