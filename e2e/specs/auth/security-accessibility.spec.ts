@@ -90,13 +90,20 @@ test.describe('セキュリティテスト', () => {
     const saveButton = page.getByRole('button', { name: /^保存$/i });
     await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
 
-    // 保存ボタンをクリック
-    // Note: waitForApiResponseはCI環境で不安定なため、ボタンの状態変化で完了を検知
+    // APIレスポンスを待機しながら保存ボタンをクリック
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/users/me') && response.request().method() === 'PUT',
+      { timeout: getTimeout(30000) }
+    );
     await saveButton.click();
 
-    // 保存成功後、保存ボタンが無効になることを確認（フォーム変更検知がリセットされる）
-    // これによりAPIリクエストの完了を検知
-    await expect(saveButton).toBeDisabled({ timeout: getTimeout(30000) });
+    // APIレスポンスの完了を待機
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+
+    // 保存完了後、少し待機してからリロード（状態の安定化）
+    await page.waitForTimeout(500);
 
     // ページをリロード（ネットワーク完了まで待機）
     await page.reload({ waitUntil: 'networkidle' });
