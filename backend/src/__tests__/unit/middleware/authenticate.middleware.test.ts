@@ -31,6 +31,7 @@ describe('authenticate middleware', () => {
     mockResponse = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
+      setHeader: vi.fn().mockReturnThis(),
     };
     mockNext = vi.fn() as unknown as NextFunction;
 

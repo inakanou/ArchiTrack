@@ -339,5 +339,6 @@ npx playwright install chromium
 
 ## 次のステップ
 
+- [デバッグガイド](debugging.md): VSCodeでのデバッグ方法
 - [コーディング規約](coding-standards.md): テストコードの書き方
 - [CI/CD設定](../deployment/cicd-github-actions.md): GitHub Actionsの設定

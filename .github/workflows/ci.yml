@@ -58,6 +58,24 @@ jobs:
             npm --prefix ${{ matrix.workspace }} run lint
           fi
 
+  requirement-coverage:
+    name: Requirement Coverage Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check requirement coverage
+        run: npm run check:req-coverage -- --threshold=100
+
   typecheck:
     name: TypeScript Type Check
     runs-on: ubuntu-latest
@@ -265,6 +283,11 @@ jobs:
           restore-keys: |
             prisma-binaries-${{ runner.os }}-
 
+      - name: Install Japanese fonts for Playwright screenshots
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
       - name: Install root dependencies
         run: npm ci
 
@@ -339,7 +362,7 @@ jobs:
           echo "NODE_ENV=test" > .env
           echo "PORT=3000" >> .env
           echo "LOG_LEVEL=info" >> .env
-          echo "DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev" >> .env
+          echo "DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test" >> .env
           echo "REDIS_URL=redis://redis:6379" >> .env
           echo "FRONTEND_URL=http://localhost:5173" >> .env
           echo "ACCESS_TOKEN_EXPIRY=15m" >> .env
@@ -348,6 +371,7 @@ jobs:
           echo "JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}" >> .env
           echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
           echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
+          echo "DISABLE_RATE_LIMIT=true" >> .env
 
       - name: Start Docker Compose for E2E
         run: |
@@ -395,7 +419,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage]
     if: always()
     steps:
       - name: Check status
@@ -413,7 +437,8 @@ jobs:
              [[ "${{ needs.build.result }}" != "success" ]] || \
              [[ "${{ needs.test-storybook.result }}" != "success" ]] || \
              [[ "$integration_ok" != "true" ]] || \
-             [[ "${{ needs.security.result }}" != "success" ]]; then
+             [[ "${{ needs.security.result }}" != "success" ]] || \
+             [[ "${{ needs.requirement-coverage.result }}" != "success" ]]; then
             echo "❌ CI check failed:"
             echo "   - Lint: ${{ needs.lint.result }}"
             echo "   - TypeCheck: ${{ needs.typecheck.result }}"
@@ -422,6 +447,7 @@ jobs:
             echo "   - Storybook Tests: ${{ needs.test-storybook.result }}"
             echo "   - Integration Tests: ${{ needs.test-integration.result }}"
             echo "   - Security: ${{ needs.security.result }}"
+            echo "   - Requirement Coverage: ${{ needs.requirement-coverage.result }}"
             exit 1
           fi
           echo "✅ All CI checks passed successfully"

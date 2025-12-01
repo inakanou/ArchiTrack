@@ -1063,7 +1063,7 @@ sequenceDiagram
 | 9 | ユーザー情報取得・管理 | AuthService | GET /api/v1/users/me, PATCH /api/v1/users/me | - |
 | 10 | セキュリティとエラーハンドリング | errorHandler middleware, ApiError | 全APIエンドポイント | - |
 | 11-15 | UI/UX要件（ログイン、登録、招待、プロフィール、共通ガイドライン） | LoginForm, RegisterForm, InvitationManagementPage, ProfilePage | AuthContext, apiClient | ログイン・登録フロー |
-| 16 | セッション有効期限切れ時の自動リダイレクト | TokenRefreshManager, AuthContext | apiClient interceptor | トークンリフレッシュフロー |
+| 16 | セッション有効期限切れ時の自動リダイレクト（16A: UIチラつき防止含む） | TokenRefreshManager, AuthContext, ProtectedRoute | apiClient interceptor, isLoading状態管理 | トークンリフレッシュフロー、Frontend Architecture |
 | 17-22 | 動的ロール管理、権限管理、ユーザー・ロール割り当て、権限チェック、監査ログ | RBACService, AuditLogService | POST /api/v1/roles, POST /api/v1/permissions, POST /api/v1/users/:id/roles, GET /api/v1/audit-logs | - |
 | 23-26 | 非機能要件（パフォーマンス、フォールトトレランス、データ整合性、セキュリティ） | Redis Cache, Prisma Transaction, ApiError | 全コンポーネント | - |
 | 27系列 | 二要素認証（2FA）設定・ログイン・管理・セキュリティ・UI/UX・アクセシビリティ | TwoFactorService | POST /api/v1/auth/2fa/setup, POST /api/v1/auth/2fa/enable, POST /api/v1/auth/verify-2fa | 2FA設定フロー、ログインフロー |
@@ -2140,6 +2140,239 @@ app.delete('/api/v1/users/:id', authenticate, authorize('user:delete'), deleteUs
 | GET | /api/v1/audit-logs | 監査ログ取得 | AuditLogFilter | AuditLog[] | authenticate, authorize('audit:read') |
 | GET | /.well-known/jwks.json | JWKS公開鍵エンドポイント | - | JWKS | - |
 
+### Frontend Architecture
+
+本セクションでは、フロントエンドの認証アーキテクチャと、要件16A（認証状態初期化時のUIチラつき防止）の実装詳細を定義します。
+
+#### 認証状態管理パターン
+
+**アーキテクチャパターン**: React Context API + Custom Hooks
+
+**主要コンポーネント**:
+- **AuthContext**: 認証状態の管理（ユーザー情報、isLoading、トークン管理）
+- **useAuth Hook**: AuthContextへのアクセスを提供
+- **TokenRefreshManager**: トークンリフレッシュの自動化、Race Condition対策、マルチタブ同期
+- **ProtectedRoute**: 認証保護されたルートコンポーネント
+- **apiClient**: HTTPクライアント（トークンリフレッシュインターセプター統合）
+
+#### 要件16A実装: 認証状態初期化時のUIチラつき防止
+
+**目的**: 業界標準パターン（Auth0、Firebase、NextAuth.js）に準拠し、認証状態確認中にログイン画面が一瞬表示される「チラつき」を防止します。
+
+**実装戦略**:
+
+1. **isLoading状態変数の管理**
+
+AuthContextで認証状態を管理し、初期値を`true`に設定します：
+
+```typescript
+// frontend/src/contexts/AuthContext.tsx
+export function AuthProvider({ children }: AuthProviderProps): ReactElement {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true); // ✅ 初期値: true（認証状態不明）
+  const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
+
+  // ... その他の実装
+}
+```
+
+**状態遷移**:
+- **初期状態** (`isLoading=true`): 認証状態が不明な期間、ProtectedRouteはローディングインジケーターを表示
+- **セッション復元中** (`isLoading=true`): リフレッシュトークンで認証状態を確認中
+- **初期化完了** (`isLoading=false`): 認証状態が確定、ProtectedRouteは適切な画面を表示
+
+2. **localStorageからのリフレッシュトークン取得**
+
+ページロード時にlocalStorageからリフレッシュトークンを取得し、セッション復元を試みます：
+
+```typescript
+// frontend/src/contexts/AuthContext.tsx
+useEffect(() => {
+  // ページロード時にlocalStorageからリフレッシュトークンを取得し、セッションを復元
+  const storedRefreshToken = localStorage.getItem('refreshToken');
+
+  if (storedRefreshToken) {
+    // トークンリフレッシュを実行してセッションを復元
+    refreshToken()
+      .then(async () => {
+        // リフレッシュ成功後、ユーザー情報を取得
+        const response = await apiClient.get<{ user: User }>('/api/v1/auth/me');
+        setUser(response.user);
+      })
+      .catch(() => {
+        // リフレッシュ失敗時はlocalStorageをクリア
+        localStorage.removeItem('refreshToken');
+      })
+      .finally(() => {
+        // ローディング状態を解除
+        setIsLoading(false);
+      });
+  } else {
+    // リフレッシュトークンが存在しない場合も初期化完了
+    setIsLoading(false);
+  }
+}, []); // 初回マウント時のみ実行
+```
+
+**セッション復元フロー**:
+```
+ページロード → isLoading=true → localStorageチェック
+  ├─ トークンあり → APIリフレッシュ → ユーザー情報取得 → isLoading=false → 画面表示
+  └─ トークンなし → isLoading=false → ログイン画面へ
+```
+
+3. **ProtectedRouteによる認証保護**
+
+ProtectedRouteコンポーネントで、isLoading中はローディングインジケーターを表示し、認証状態確定後に適切な画面へ遷移します：
+
+```typescript
+// frontend/src/components/ProtectedRoute.tsx
+export function ProtectedRoute({
+  children,
+  redirectTo = '/login',
+  requireAuth = true,
+}: ProtectedRouteProps): ReactElement {
+  const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (requireAuth) {
+    // ✅ 認証状態の読み込み中はローディングインジケーターを表示（チラつき防止）
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center min-h-screen">
+          <div
+            className="text-center"
+            role="status"
+            aria-label="認証状態を確認中"
+            aria-live="polite"
+          >
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto" />
+            <p className="mt-4 text-gray-600">認証状態を確認中...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // isLoading=false後に認証判定
+    if (!isAuthenticated) {
+      // 未認証の場合、現在のパスをstateに保存してリダイレクト
+      return (
+        <Navigate to={redirectTo} state={{ from: location.pathname + location.search }} replace />
+      );
+    }
+
+    // 認証済みの場合、保護されたコンテンツを表示
+    return children;
+  }
+
+  // requireAuth=false: 認証済みユーザーをリダイレクトするルート（例: ログインページ）
+  if (isAuthenticated) {
+    const from = (location.state as { from?: string })?.from || redirectTo;
+    return <Navigate to={from} replace />;
+  }
+
+  return children;
+}
+```
+
+**ローディングインジケーター表示時間**:
+- 平均表示時間: 200-500ms（セッション復元API呼び出し: `/api/v1/auth/refresh` + `/api/v1/auth/me`）
+- 最小表示時間の設定（オプション）: 200ms未満で完了する場合、チラつき防止のため最小200ms表示してもよい
+
+4. **200ms最小表示時間の実装判断**
+
+**実装するか？**: オプション（推奨: 実装しない）
+
+**理由**:
+- セッション復元API呼び出しは平均200-500msかかるため、人為的な遅延は不要
+- 高速ネットワーク環境（50-100ms）では、最小表示時間により体感速度が低下する可能性
+- シンプルな実装を優先し、パフォーマンス測定後に必要に応じて追加を検討
+
+**実装する場合の例**:
+```typescript
+useEffect(() => {
+  const startTime = Date.now();
+  const minDisplayTime = 200; // 200ms最小表示
+
+  const storedRefreshToken = localStorage.getItem('refreshToken');
+
+  if (storedRefreshToken) {
+    refreshToken()
+      .then(async () => {
+        const response = await apiClient.get('/api/v1/auth/me');
+        setUser(response.user);
+      })
+      .catch(() => {
+        localStorage.removeItem('refreshToken');
+      })
+      .finally(async () => {
+        // 最小表示時間を確保
+        const elapsed = Date.now() - startTime;
+        if (elapsed < minDisplayTime) {
+          await new Promise(resolve => setTimeout(resolve, minDisplayTime - elapsed));
+        }
+        setIsLoading(false);
+      });
+  } else {
+    setIsLoading(false);
+  }
+}, []);
+```
+
+#### 業界標準パターンとの整合性
+
+| ライブラリ | 初期値 | パターン |
+|-----------|-------|---------|
+| **Auth0** | `isLoading=true` | SDK初期化中は `true`、完了後に `false` |
+| **Firebase** | `loading=true` | `onAuthStateChanged` 完了後に `false` |
+| **NextAuth.js** | `status="loading"` | セッション確認後に `"authenticated"` または `"unauthenticated"` |
+| **ArchiTrack** | `isLoading=true` | セッション復元完了後に `false`（✅ 本設計で準拠） |
+
+#### マルチタブ同期（Broadcast Channel API）
+
+TokenRefreshManagerは、マルチタブ環境でトークン更新を他のタブに通知します：
+
+```typescript
+// frontend/src/services/TokenRefreshManager.ts
+class TokenRefreshManager {
+  private broadcastChannel: BroadcastChannel;
+
+  constructor(refreshCallback: () => Promise<string>) {
+    // マルチタブ同期用のBroadcast Channel初期化
+    this.broadcastChannel = new BroadcastChannel('token-refresh-channel');
+
+    // 他のタブからのトークン更新通知を受信
+    this.broadcastChannel.onmessage = (event) => {
+      if (event.data.type === 'TOKEN_REFRESHED') {
+        // 他のタブでトークンが更新された場合、localStorageから取得
+        const newAccessToken = localStorage.getItem('accessToken');
+        if (newAccessToken) {
+          apiClient.setAccessToken(newAccessToken);
+        }
+      }
+    };
+  }
+
+  async refreshToken(): Promise<string> {
+    // ... リフレッシュ処理 ...
+
+    // マルチタブ同期: 他のタブに更新を通知
+    this.broadcastChannel.postMessage({ type: 'TOKEN_REFRESHED' });
+
+    return accessToken;
+  }
+}
+```
+
+#### トークンストレージ戦略
+
+- **アクセストークン**: localStorage（クライアントサイドJavaScriptからアクセス可能）
+- **リフレッシュトークン**: localStorageまたはHttpOnly Cookie（CSRF対策必要）
+
+**セキュリティ考慮事項**:
+- XSS攻撃対策: Content-Security-Policy (CSP) ヘッダー設定
+- CSRF攻撃対策: リフレッシュトークンをHttpOnly Cookieに保存する場合、SameSite=Strict属性設定
+
 ### Frontend Components
 
 #### AuthContext
@@ -2186,6 +2419,7 @@ function useAuth(): AuthContextValue;
 - **自動トークンリフレッシュ**: TokenRefreshManager.scheduleAutoRefresh()により有効期限切れ5分前に自動リフレッシュ
 - **401エラーハンドリング**: apiClientインターセプターで自動リフレッシュ試行（TokenRefreshManager使用）
 - **リフレッシュ失敗時**: ログイン画面へリダイレクト、`redirectUrl` クエリパラメータ設定
+- **セッション復元ローディング戦略**: 詳細は「Frontend Architecture」セクション参照（要件16A実装）
 
 #### TokenRefreshManager
 

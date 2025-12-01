@@ -60,7 +60,14 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
   ];
 
   return (
-    <div data-testid="password-strength-indicator" style={{ marginTop: '1rem' }}>
+    <div
+      data-testid="password-strength-indicator"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={`パスワード強度: ${strengthInfo.text}`}
+      style={{ marginTop: '1rem' }}
+    >
       {/* パスワード強度表示 */}
       <div style={{ marginBottom: '0.75rem' }}>
         <div
@@ -74,6 +81,7 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
         >
           <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>パスワード強度:</span>
           <span
+            data-testid="password-strength-text"
             style={{
               fontSize: '0.875rem',
               fontWeight: 600,
@@ -86,6 +94,8 @@ function PasswordStrengthIndicator({ result, requirements }: PasswordStrengthInd
 
         {/* 強度バー */}
         <div
+          data-testid="password-strength-bar"
+          data-strength={result.strength}
           style={{
             height: '0.5rem',
             backgroundColor: '#e5e7eb',

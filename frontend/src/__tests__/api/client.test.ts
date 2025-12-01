@@ -217,7 +217,7 @@ describe('ApiClient', () => {
         expect(error).toBeInstanceOf(ApiError);
         if (error instanceof ApiError) {
           expect(error.statusCode).toBe(404);
-          expect(error.message).toBe('Not Found');
+          expect(error.message).toBe('Not found');
           expect(error.response).toEqual(errorResponse);
         }
       }

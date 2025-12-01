@@ -50,9 +50,10 @@ export class UserRoleService implements IUserRoleService {
     performedBy?: { email: string; displayName: string }
   ): Promise<Result<void, UserRoleError>> {
     try {
-      // ユーザーの存在チェック
+      // ユーザーの存在チェック (optimized: only fetch necessary fields)
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+        select: { id: true, email: true, displayName: true },
       });
 
       if (!user) {
@@ -60,9 +61,10 @@ export class UserRoleService implements IUserRoleService {
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
-      // ロールの存在チェック
+      // ロールの存在チェック (optimized: only fetch necessary fields)
       const role = await this.prisma.role.findUnique({
         where: { id: roleId },
+        select: { id: true, name: true },
       });
 
       if (!role) {
@@ -70,12 +72,13 @@ export class UserRoleService implements IUserRoleService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
-      // 重複チェック
+      // 重複チェック (optimized: only check existence)
       const existing = await this.prisma.userRole.findFirst({
         where: {
           userId,
           roleId,
         },
+        select: { id: true },
       });
 
       if (existing) {
@@ -193,9 +196,10 @@ export class UserRoleService implements IUserRoleService {
     performedBy?: { email: string; displayName: string }
   ): Promise<Result<void, UserRoleError>> {
     try {
-      // ユーザーの存在チェック
+      // ユーザーの存在チェック (optimized: only fetch necessary fields)
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+        select: { id: true, email: true, displayName: true },
       });
 
       if (!user) {
@@ -203,9 +207,10 @@ export class UserRoleService implements IUserRoleService {
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
-      // ロールの存在チェック
+      // ロールの存在チェック (optimized: only fetch necessary fields)
       const role = await this.prisma.role.findUnique({
         where: { id: roleId },
+        select: { id: true, name: true },
       });
 
       if (!role) {
@@ -213,12 +218,13 @@ export class UserRoleService implements IUserRoleService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
-      // 紐付けの存在チェック
+      // 紐付けの存在チェック (optimized: only fetch id for deletion)
       const userRole = await this.prisma.userRole.findFirst({
         where: {
           userId,
           roleId,
         },
+        select: { id: true },
       });
 
       if (!userRole) {
@@ -318,9 +324,10 @@ export class UserRoleService implements IUserRoleService {
    */
   async getUserRoles(userId: string): Promise<Result<UserRoleInfo[], UserRoleError>> {
     try {
-      // ユーザーの存在チェック
+      // ユーザーの存在チェック (optimized: only check existence)
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+        select: { id: true },
       });
 
       if (!user) {
@@ -328,10 +335,21 @@ export class UserRoleService implements IUserRoleService {
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
-      // ロール一覧を取得
+      // ロール一覧を取得 (optimized: use select instead of include)
       const userRoles = await this.prisma.userRole.findMany({
         where: { userId },
-        include: { role: true },
+        select: {
+          assignedAt: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              priority: true,
+              isSystem: true,
+            },
+          },
+        },
         orderBy: [{ role: { priority: 'desc' } }, { role: { name: 'asc' } }],
       });
 
@@ -412,6 +430,7 @@ export class UserRoleService implements IUserRoleService {
         userId,
         roleId,
       },
+      select: { id: true },
     });
 
     return userRole !== null;

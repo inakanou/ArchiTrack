@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser, createInvitation } from '../../fixtures/auth.fixtures';
+import { getPrismaClient } from '../../fixtures/database';
+import { createInvitation } from '../../fixtures/auth.fixtures';
+import { TEST_USERS } from '../../helpers/test-users';
 
 /**
  * 新規登録機能のE2Eテスト
  *
- * ユーザー登録フローの検証
+ * @REQ-2 招待を受けたユーザーのアカウント作成
+ * @REQ-12 ユーザー登録画面のUI/UX（招待リンク経由）
  */
 test.describe('新規登録機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
@@ -17,9 +19,19 @@ test.describe('新規登録機能', () => {
     // テスト間の状態をクリア（認証状態の干渉を防ぐ）
     await context.clearCookies();
 
-    // テストデータをクリーンアップして、招待者（管理者）を作成
-    await cleanDatabase();
-    const admin = await createTestUser('ADMIN_USER');
+    // グローバルセットアップで作成された管理者ユーザーを取得
+    const prisma = getPrismaClient();
+    const admin = await prisma.user.findUnique({
+      where: { email: TEST_USERS.ADMIN_USER.email },
+    });
+    if (!admin) {
+      throw new Error('Admin user not found from global setup');
+    }
+
+    // テスト用ユーザーが既に存在する場合は削除（テスト間の干渉を防ぐ）
+    await prisma.user.deleteMany({
+      where: { email: 'newuser@example.com' },
+    });
 
     // 招待トークンを作成
     const invitation = await createInvitation({
@@ -79,11 +91,10 @@ test.describe('新規登録機能', () => {
     await expect(page.getByText(/パスワードが一致しません/i)).toBeVisible();
   });
 
-  test.skip('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
-    // Note: 招待トークンからメールアドレスが事前入力され無効化されているため、
-    // このテストシナリオは現在の実装では適用できません。
-    // バックエンドでの重複チェックは別のユニットテストでカバーされるべきです。
-
+  /**
+   * 要件1.4: 招待メールアドレスが既に登録済みの場合はエラーメッセージを返す
+   */
+  test('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
     // 既存ユーザーを作成（招待されたメールアドレスと同じ）
     const prisma = (await import('../../fixtures/database')).getPrismaClient();
     const passwordHash = await (
@@ -103,9 +114,223 @@ test.describe('新規登録機能', () => {
     await page.locator('input#password').fill('Password123!');
     await page.locator('input#passwordConfirm').fill('Password123!');
     await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
 
     // エラーメッセージが表示される
     await expect(page.getByText(/このメールアドレスは既に登録されています/i)).toBeVisible();
+  });
+
+  /**
+   * 要件2.5: パスワード長の検証（12文字以上）
+   * WHEN 12文字未満のパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('12文字未満のパスワードではエラーが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('Pass123!'); // 8文字（12文字未満）
+    await page.locator('input#passwordConfirm').fill('Pass123!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    // バリデーションエラーが表示される
+    await expect(page.getByText(/パスワードは12文字以上である必要があります/i)).toBeVisible();
+  });
+
+  /**
+   * 要件2.6: パスワード複雑性の検証（大文字・小文字・数字・記号を各1文字以上）
+   * WHEN 必要な文字種を含まないパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('大文字を含まないパスワードではエラーが表示される', async ({ page }) => {
+    // 2種類のみ（小文字+数字）: 大文字なし、記号なし
+    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    await page.locator('input#password').fill('xyzuniqtest12');
+    await page.locator('input#passwordConfirm').fill('xyzuniqtest12');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは大文字を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  test('小文字を含まないパスワードではエラーが表示される', async ({ page }) => {
+    // 2種類のみ（大文字+数字）: 小文字なし、記号なし
+    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    await page.locator('input#password').fill('XYZUNIQTEST12');
+    await page.locator('input#passwordConfirm').fill('XYZUNIQTEST12');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは小文字を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  test('数字を含まないパスワードではエラーが表示される', async ({ page }) => {
+    // 2種類のみ（小文字+大文字）: 数字なし、記号なし
+    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    await page.locator('input#password').fill('XyzUniqTestAbc');
+    await page.locator('input#passwordConfirm').fill('XyzUniqTestAbc');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは数字を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  test('記号を含まないパスワードではエラーが表示される', async ({ page }) => {
+    // 大文字・小文字・数字あり、記号なし（12文字以上）
+    await page.locator('input#password').fill('XyzUniqTest123');
+    await page.locator('input#passwordConfirm').fill('XyzUniqTest123');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードは記号を1文字以上含む必要があります/i)).toBeVisible();
+  });
+
+  /**
+   * 要件2.7: HIBP Pwned Passwordsチェック
+   * WHEN 漏洩が確認されているパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('漏洩パスワードではエラーが表示される', async ({ page }) => {
+    // 複雑性要件を満たしつつ漏洩DBに存在するパスワード（12文字以上、大文字・小文字・数字・記号）
+    await page.locator('input#password').fill('Password123!');
+    await page.locator('input#passwordConfirm').fill('Password123!');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    // HIBP APIチェック結果のエラーメッセージ
+    await expect(
+      page.getByText(
+        /このパスワードは過去に漏洩が確認されています.*別のパスワードを選択してください/i
+      )
+    ).toBeVisible();
+  });
+
+  /**
+   * 要件2.8: 連続した同一文字の禁止（3文字以上）
+   * WHEN 3文字以上連続した同一文字を含むパスワードを入力する
+   * THEN エラーメッセージが表示される
+   */
+  test('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {
+    // ユニークなパスワード: 'sss'が連続、12文字以上
+    await page.locator('input#password').fill('XyzPassss12!@');
+    await page.locator('input#passwordConfirm').fill('XyzPassss12!@');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(
+      page.getByText(/パスワードに3文字以上の連続した同一文字を含めることはできません/i)
+    ).toBeVisible();
+  });
+
+  /**
+   * 要件14.6: パスワード強度インジケーター（詳細テスト）
+   * WHEN 異なる強度のパスワードを入力する
+   * THEN インジケーターが適切な強度レベルを表示する
+   */
+  test('弱いパスワードで「弱」インジケーターが表示される', async ({ page }) => {
+    // 2種類の文字種のみ（短く、文字種が少ない = 弱い）
+    await page.locator('input#password').fill('weak12'); // 6文字、2種類のみ
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // 強度レベルが「弱」であることを確認
+    const strengthText = page.getByTestId('password-strength-text');
+    await expect(strengthText).toHaveText(/弱/i);
+
+    // 視覚的フィードバック（色やプログレスバー）
+    const progressBar = page.getByTestId('password-strength-bar');
+    await expect(progressBar).toHaveAttribute('data-strength', 'weak');
+  });
+
+  test('普通のパスワードで「普通」インジケーターが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('lowercaseonly'); // 13文字、小文字のみ（minLengthのみ達成）
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // 強度レベルが「普通」であることを確認
+    const strengthText = page.getByTestId('password-strength-text');
+    await expect(strengthText).toHaveText(/普通/i);
+
+    // 視覚的フィードバック
+    const progressBar = page.getByTestId('password-strength-bar');
+    await expect(progressBar).toHaveAttribute('data-strength', 'fair');
+  });
+
+  test('強いパスワードで「強」インジケーターが表示される', async ({ page }) => {
+    await page.locator('input#password').fill('SuperSecure!Pass123@Word'); // 24文字、複雑
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // 強度レベルが「強」であることを確認
+    const strengthText = page.getByTestId('password-strength-text');
+    await expect(strengthText).toHaveText(/強/i);
+
+    // 視覚的フィードバック
+    const progressBar = page.getByTestId('password-strength-bar');
+    await expect(progressBar).toHaveAttribute('data-strength', /strong|very-strong/);
+  });
+
+  /**
+   * 要件14.6: パスワード強度インジケーターのアクセシビリティ
+   * WHEN パスワード強度インジケーターが表示される
+   * THEN ARIA属性が適切に設定されている
+   */
+  test('パスワード強度インジケーターがアクセシビリティ要件を満たす', async ({ page }) => {
+    await page.locator('input#password').fill('Password123!');
+
+    const indicator = page.getByTestId('password-strength-indicator');
+    await expect(indicator).toBeVisible();
+
+    // ARIA属性の検証
+    await expect(indicator).toHaveAttribute('role', 'status');
+    await expect(indicator).toHaveAttribute('aria-live', 'polite');
+    await expect(indicator).toHaveAttribute('aria-atomic', 'true');
+
+    // スクリーンリーダー用のテキストが存在することを確認
+    const ariaLabel = await indicator.getAttribute('aria-label');
+    expect(ariaLabel).toMatch(/パスワード強度/i);
+  });
+
+  /**
+   * 要件11.11: 新規登録ページのオートフォーカス
+   * WHEN 新規登録ページが読み込まれる
+   * THEN 表示名フィールドに自動的にフォーカスされる（メールは事前入力済み）
+   */
+  test('ページロード時に表示名フィールドにオートフォーカスされる', async ({ page }) => {
+    // 表示名フィールドがフォーカスされていることを確認
+    // （メールアドレスは招待トークンから事前入力され無効化されているため）
+    const displayNameInput = page.getByLabel(/表示名/i);
+    await expect(displayNameInput).toBeFocused();
+  });
+
+  /**
+   * 要件11.11: Tab キーでフォーカス移動
+   * WHEN Tab キーを押す
+   * THEN 論理的な順序でフォーカスが移動する
+   */
+  test('Tab キーで論理的な順序でフォーカスが移動する', async ({ page }) => {
+    // 初期状態：表示名フィールドにフォーカス
+    const displayNameInput = page.getByLabel(/表示名/i);
+    await expect(displayNameInput).toBeFocused();
+
+    // Tab キーを押してパスワードフィールドに移動
+    // 注: メールアドレスフィールドは disabled のため Tab キーでスキップされる
+    await page.keyboard.press('Tab');
+    const passwordInput = page.locator('input#password');
+    await expect(passwordInput).toBeFocused();
+
+    // Tab キーを押してパスワード確認フィールドに移動
+    await page.keyboard.press('Tab');
+    const passwordConfirmInput = page.locator('input#passwordConfirm');
+    await expect(passwordConfirmInput).toBeFocused();
   });
 });

@@ -26,6 +26,8 @@ import type {
 } from '../types/auth.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import { addTimingAttackDelay } from '../utils/timing.js';
+import { SECURITY_CONFIG } from '../config/security.constants.js';
+import logger from '../utils/logger.js';
 
 /**
  * 認証サービス
@@ -96,7 +98,15 @@ export class AuthService implements IAuthService {
 
       const invitation = invitationResult.value;
 
-      // 2. パスワード強度検証
+      // 2. メールアドレス重複チェック（防御的プログラミング）
+      const existingUser = await this.prisma.user.findUnique({
+        where: { email: invitation.email },
+      });
+      if (existingUser) {
+        return Err({ type: 'EMAIL_ALREADY_REGISTERED' });
+      }
+
+      // 3. パスワード強度検証
       const passwordValidationResult = await this.passwordService.validatePasswordStrength(
         data.password,
         [invitation.email, data.displayName]
@@ -113,10 +123,10 @@ export class AuthService implements IAuthService {
         return Err({ type: 'WEAK_PASSWORD', violations: [] });
       }
 
-      // 3. パスワードハッシュ化
+      // 4. パスワードハッシュ化
       const passwordHash = await this.passwordService.hashPassword(data.password);
 
-      // 4. トランザクション内でユーザー作成、招待使用済みマーク、ロール割り当て
+      // 5. トランザクション内でユーザー作成、招待使用済みマーク、ロール割り当て
       const user = await this.prisma.$transaction(async (tx) => {
         // ユーザー作成
         const newUser = await tx.user.create({
@@ -168,7 +178,7 @@ export class AuthService implements IAuthService {
         return Err({ type: 'DATABASE_ERROR', message: 'Failed to create user' });
       }
 
-      // 5. JWT生成
+      // 6. JWT生成
       const payload = {
         userId: user.id,
         email: user.email,
@@ -178,10 +188,10 @@ export class AuthService implements IAuthService {
       const accessToken = await this.tokenService.generateAccessToken(payload);
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
-      // 6. リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken);
+      // 7. リフレッシュトークンをDBに保存
+      await this.sessionService.createSession(user.id, refreshToken, undefined);
 
-      // 7. AuthResponse返却
+      // 8. AuthResponse返却
       const userProfile: UserProfile = {
         id: user.id,
         email: user.email,
@@ -215,15 +225,32 @@ export class AuthService implements IAuthService {
    * 5. 2FA有効チェック
    * 6. トークン生成（2FA無効の場合のみ）
    */
-  async login(email: string, password: string): Promise<Result<LoginResponse, AuthError>> {
+  async login(
+    email: string,
+    password: string,
+    deviceInfo?: string
+  ): Promise<Result<LoginResponse, AuthError>> {
     try {
-      // 1. ユーザーを検索（ロール情報も取得）
+      // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
         where: { email },
-        include: {
+        select: {
+          id: true,
+          email: true,
+          passwordHash: true,
+          displayName: true,
+          loginFailures: true,
+          isLocked: true,
+          lockedUntil: true,
+          twoFactorEnabled: true,
+          createdAt: true,
           userRoles: {
-            include: {
-              role: true,
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -262,8 +289,10 @@ export class AuthService implements IAuthService {
       if (!passwordValid) {
         // パスワード不正の場合、ログイン失敗回数をインクリメント
         const newFailures = user.loginFailures + 1;
-        const isLocked = newFailures >= 5;
-        const lockedUntil = isLocked ? new Date(Date.now() + 15 * 60 * 1000) : null; // 15分後
+        const isLocked = newFailures >= SECURITY_CONFIG.LOGIN.MAX_FAILURES;
+        const lockedUntil = isLocked
+          ? new Date(Date.now() + SECURITY_CONFIG.LOGIN.LOCK_DURATION_MS)
+          : null;
 
         await this.prisma.user.update({
           where: { id: user.id },
@@ -274,6 +303,7 @@ export class AuthService implements IAuthService {
           },
         });
 
+        // アカウントがロックされた場合は即座にACCOUNT_LOCKEDを返す
         if (isLocked && lockedUntil) {
           return Err({
             type: 'ACCOUNT_LOCKED',
@@ -316,7 +346,7 @@ export class AuthService implements IAuthService {
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
       // リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken);
+      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
 
       // UserProfile作成
       const userProfile: UserProfile = {
@@ -353,15 +383,30 @@ export class AuthService implements IAuthService {
    * 5. 検証成功時: JWT生成、失敗カウンターリセット
    * 6. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック
    */
-  async verify2FA(userId: string, totpCode: string): Promise<Result<AuthResponse, AuthError>> {
+  async verify2FA(
+    userId: string,
+    totpCode: string,
+    deviceInfo?: string
+  ): Promise<Result<AuthResponse, AuthError>> {
     try {
-      // 1. ユーザーを検索（ロール情報も取得）
+      // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+          twoFactorEnabled: true,
+          twoFactorFailures: true,
+          twoFactorLockedUntil: true,
           userRoles: {
-            include: {
-              role: true,
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -394,26 +439,40 @@ export class AuthService implements IAuthService {
       // 4. TOTP検証
       const verifyResult = await this.twoFactorService.verifyTOTP(userId, totpCode);
 
-      if (!verifyResult.ok) {
-        // TwoFactorServiceエラーをAuthErrorに変換
-        return Err({ type: 'INVALID_2FA_CODE' });
-      }
-
-      const isValid = verifyResult.value;
+      // 検証失敗（エラーまたは無効なコード）の場合、失敗カウンターをインクリメント
+      const isValid = verifyResult.ok && verifyResult.value;
 
       if (!isValid) {
         // 検証失敗: 失敗カウンターをインクリメント
-        const newFailures = user.twoFactorFailures + 1;
-        const isLocked = newFailures >= 5;
-        const lockedUntil = isLocked ? new Date(Date.now() + 5 * 60 * 1000) : null; // 5分後
-
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: {
-            twoFactorFailures: newFailures,
-            ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
+        const currentFailures = user.twoFactorFailures ?? 0;
+        const newFailures = currentFailures + 1;
+        const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
+        logger.info(
+          {
+            userId,
+            currentFailures,
+            newFailures,
+            isLocked,
+            maxFailures: SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES,
           },
-        });
+          '2FA検証失敗: 失敗カウンターをインクリメント'
+        );
+        const lockedUntil = isLocked
+          ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
+          : null;
+
+        try {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              twoFactorFailures: newFailures,
+              ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
+            },
+          });
+        } catch (updateError) {
+          logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
+          // 更新に失敗しても検証失敗として処理を続行
+        }
 
         if (isLocked && lockedUntil) {
           return Err({
@@ -445,7 +504,170 @@ export class AuthService implements IAuthService {
       const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
       // リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken);
+      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
+
+      // UserProfile作成
+      const userProfile: UserProfile = {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        roles: user.userRoles.map((ur) => ur.role.name),
+        createdAt: user.createdAt,
+        twoFactorEnabled: user.twoFactorEnabled,
+      };
+
+      return Ok({
+        accessToken,
+        refreshToken,
+        user: userProfile,
+      });
+    } catch (error) {
+      return Err({
+        type: 'DATABASE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * バックアップコードで2FA検証
+   *
+   * Requirements:
+   * - 27A.5: 「バックアップコードを使用する」選択時にバックアップコード入力フィールドを表示
+   * - 27A.6: バックアップコード検証（未使用のコードとbcrypt比較）
+   * - 27A.7: バックアップコード使用後、usedAtフィールドを更新
+   * - 27A.8: ログイン成功後、ダッシュボードへリダイレクト
+   *
+   * 処理手順:
+   * 1. ユーザー存在確認
+   * 2. 2FAアカウントロック確認
+   * 3. ロック期限切れの場合はロック解除
+   * 4. バックアップコード検証
+   * 5. 検証成功時: JWT生成、失敗カウンターリセット
+   * 6. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック
+   */
+  async verify2FABackupCode(
+    userId: string,
+    backupCode: string,
+    deviceInfo?: string
+  ): Promise<Result<AuthResponse, AuthError>> {
+    try {
+      // 1. Fetch user with only necessary fields (optimized query)
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+          twoFactorEnabled: true,
+          twoFactorFailures: true,
+          twoFactorLockedUntil: true,
+          userRoles: {
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // ユーザーが存在しない場合
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      // 2. 2FAアカウントロック確認
+      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil > new Date()) {
+        return Err({
+          type: 'ACCOUNT_LOCKED',
+          unlockAt: user.twoFactorLockedUntil,
+        });
+      }
+
+      // 3. ロック期限切れの場合はロック解除
+      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil <= new Date()) {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            twoFactorFailures: 0,
+            twoFactorLockedUntil: null,
+          },
+        });
+      }
+
+      // 4. バックアップコード検証
+      const verifyResult = await this.twoFactorService.verifyBackupCode(userId, backupCode);
+
+      // 検証失敗（エラーまたは無効なコード）の場合、失敗カウンターをインクリメント
+      const isValid = verifyResult.ok && verifyResult.value;
+
+      if (!isValid) {
+        // 検証失敗: 失敗カウンターをインクリメント
+        const currentFailures = user.twoFactorFailures ?? 0;
+        const newFailures = currentFailures + 1;
+        const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
+        logger.info(
+          {
+            userId,
+            currentFailures,
+            newFailures,
+            isLocked,
+            maxFailures: SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES,
+          },
+          '2FAバックアップコード検証失敗: 失敗カウンターをインクリメント'
+        );
+        const lockedUntil = isLocked
+          ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
+          : null;
+
+        try {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              twoFactorFailures: newFailures,
+              ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
+            },
+          });
+        } catch (updateError) {
+          logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
+          // 更新に失敗しても検証失敗として処理を続行
+        }
+
+        if (isLocked && lockedUntil) {
+          return Err({
+            type: 'ACCOUNT_LOCKED',
+            unlockAt: lockedUntil,
+          });
+        }
+
+        return Err({ type: 'INVALID_BACKUP_CODE' });
+      }
+
+      // 5. 検証成功: 失敗カウンターをリセット
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          twoFactorFailures: 0,
+          twoFactorLockedUntil: null,
+        },
+      });
+
+      // 6. JWT生成
+      const payload = {
+        userId: user.id,
+        email: user.email,
+        roles: user.userRoles.map((ur) => ur.role.name),
+      };
+
+      const accessToken = await this.tokenService.generateAccessToken(payload);
+      const refreshToken = await this.tokenService.generateRefreshToken(payload);
+
+      // リフレッシュトークンをDBに保存
+      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
 
       // UserProfile作成
       const userProfile: UserProfile = {
@@ -524,24 +746,33 @@ export class AuthService implements IAuthService {
    */
   async getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>> {
     try {
-      // ユーザーを検索（ロール情報も取得）
+      // Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+          twoFactorEnabled: true,
           userRoles: {
-            include: {
-              role: true,
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
       });
 
-      // ユーザーが存在しない場合
+      // User not found
       if (!user) {
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
-      // UserProfile形式に変換
+      // Convert to UserProfile format
       const userProfile: UserProfile = {
         id: user.id,
         email: user.email,

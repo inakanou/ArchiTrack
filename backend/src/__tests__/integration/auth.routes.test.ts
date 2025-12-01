@@ -52,6 +52,29 @@ describe('Authentication API Integration Tests', () => {
       },
     });
 
+    // 事前クリーンアップ：管理者ユーザーが存在しないことを確認
+    await prisma.userRole.deleteMany({
+      where: {
+        user: {
+          email: 'test-auth-admin@example.com',
+        },
+      },
+    });
+
+    await prisma.refreshToken.deleteMany({
+      where: {
+        user: {
+          email: 'test-auth-admin@example.com',
+        },
+      },
+    });
+
+    await prisma.user.deleteMany({
+      where: {
+        email: 'test-auth-admin@example.com',
+      },
+    });
+
     // テスト用管理者ユーザーを作成
     const passwordHash = await hash('AdminPassword123!', {
       memoryCost: 64 * 1024,
@@ -94,11 +117,12 @@ describe('Authentication API Integration Tests', () => {
 
   afterAll(async () => {
     // テストデータのクリーンアップ
+    // auth.routes.test.ts で作成されたユーザーのみを削除
     await prisma.userRole.deleteMany({
       where: {
         user: {
           email: {
-            contains: 'test-auth-',
+            in: ['test-auth-admin@example.com'],
           },
         },
       },
@@ -108,7 +132,7 @@ describe('Authentication API Integration Tests', () => {
       where: {
         user: {
           email: {
-            contains: 'test-auth-',
+            in: ['test-auth-admin@example.com'],
           },
         },
       },
@@ -117,16 +141,17 @@ describe('Authentication API Integration Tests', () => {
     await prisma.invitation.deleteMany({
       where: {
         email: {
-          contains: 'test-auth-',
+          contains: 'test-auth-newuser',
         },
       },
     });
 
     await prisma.user.deleteMany({
       where: {
-        email: {
-          contains: 'test-auth-',
-        },
+        OR: [
+          { email: 'test-auth-admin@example.com' },
+          { email: { contains: 'test-auth-newuser' } },
+        ],
       },
     });
 
@@ -248,7 +273,10 @@ describe('Authentication API Integration Tests', () => {
       });
 
       expect(response.status).toBe(400);
-      expect(response.body).toHaveProperty('error');
+      // Problem Details形式またはWEAK_PASSWORDエラー形式
+      expect(
+        response.body.error || response.body.detail || response.body.title || response.body.type
+      ).toBeDefined();
     });
   });
 

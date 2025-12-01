@@ -140,6 +140,25 @@ describe('TokenRefreshManager', () => {
 
       expect(mockOnTokenRefreshed).toHaveBeenCalledWith('token-from-other-tab');
     });
+
+    it('should ignore messages with unknown type', () => {
+      const mockOnTokenRefreshed = vi.fn();
+      manager.onTokenRefreshed(mockOnTokenRefreshed);
+
+      // 不明なタイプのメッセージをシミュレート
+      const event = new MessageEvent('message', {
+        data: {
+          type: 'UNKNOWN_TYPE',
+          accessToken: 'some-token',
+        },
+      });
+
+      // @ts-expect-error - テスト用にonmessageを直接呼び出し
+      manager['broadcastChannel'].onmessage(event);
+
+      // コールバックは呼ばれない
+      expect(mockOnTokenRefreshed).not.toHaveBeenCalled();
+    });
   });
 
   describe('cleanup', () => {

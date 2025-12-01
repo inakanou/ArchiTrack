@@ -4,13 +4,13 @@
  * 要件8: セッション管理
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { apiClient } from '../api/client';
 import type { SessionInfo } from '../types/auth.types';
 
 export function Sessions() {
-  const { logout } = useAuth();
+  const { logout, isInitialized, isAuthenticated } = useAuth();
 
   // セッション一覧
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -27,28 +27,34 @@ export function Sessions() {
   const isMobile = window.innerWidth < 768;
 
   // 現在のセッションID（最初のセッションと仮定）
-  const currentSessionId = sessions.length > 0 ? sessions[0]?.id : null;
+  const currentSessionId = sessions?.length > 0 ? sessions[0]?.id : null;
 
   /**
    * セッション一覧を取得
    */
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     setLoading(true);
     setError('');
 
     try {
-      const data = await apiClient.get<SessionInfo[]>('/api/v1/auth/sessions');
-      setSessions(data);
+      const data = await apiClient.get<{ sessions: SessionInfo[] }>('/api/v1/auth/sessions');
+      setSessions(data.sessions);
     } catch {
       setError('セッション情報を取得できませんでした');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchSessions();
-  }, []);
+    // 認証状態の初期化が完了し、認証されている場合のみセッション一覧を取得
+    if (isInitialized && isAuthenticated) {
+      fetchSessions();
+    } else if (isInitialized && !isAuthenticated) {
+      // 認証されていない場合はローディングを解除
+      setLoading(false);
+    }
+  }, [isInitialized, isAuthenticated, fetchSessions]);
 
   /**
    * 個別デバイスログアウトダイアログを表示
@@ -73,9 +79,9 @@ export function Sessions() {
 
       // セッション一覧を再取得
       await fetchSessions();
+      setSelectedSessionId(null);
     } catch {
       setMessage('ログアウトに失敗しました');
-    } finally {
       setSelectedSessionId(null);
     }
   };
@@ -151,7 +157,7 @@ export function Sessions() {
       )}
 
       {/* 全デバイスログアウトボタン */}
-      {!loading && sessions.length > 0 && (
+      {!loading && sessions?.length > 0 && (
         <div style={{ marginBottom: '2rem' }}>
           <button
             onClick={handleLogoutAllClick}
@@ -177,7 +183,7 @@ export function Sessions() {
       )}
 
       {/* セッション一覧 */}
-      {!loading && sessions.length > 0 && (
+      {!loading && sessions?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {sessions.map((session) => {
             const isCurrentDevice = session.id === currentSessionId;
@@ -212,7 +218,7 @@ export function Sessions() {
                         style={{
                           display: 'inline-block',
                           padding: '0.25rem 0.5rem',
-                          backgroundColor: '#3b82f6',
+                          backgroundColor: '#2563eb',
                           color: 'white',
                           borderRadius: '0.25rem',
                           fontSize: '0.75rem',
@@ -262,7 +268,7 @@ export function Sessions() {
       )}
 
       {/* セッションがない場合 */}
-      {!loading && sessions.length === 0 && (
+      {!loading && sessions?.length === 0 && (
         <div
           style={{
             textAlign: 'center',
@@ -411,7 +417,7 @@ export function Sessions() {
               </button>
               <button
                 onClick={handleConfirmLogoutAll}
-                aria-label="はい"
+                aria-label="はい、全デバイスからログアウト"
                 style={{
                   padding: '0.5rem 1rem',
                   backgroundColor: '#dc2626',

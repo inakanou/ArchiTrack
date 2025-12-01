@@ -175,7 +175,14 @@ describe('API Integration Tests', () => {
       const response = await request(app).get('/non-existent-endpoint');
 
       expect(response.status).toBe(404);
-      expect(response.body).toEqual({ error: 'Not found', code: 'NOT_FOUND' });
+      // Problem Details (RFC 7807) 形式
+      expect(response.body).toMatchObject({
+        type: expect.stringContaining('/errors/not-found'),
+        title: 'Not Found',
+        status: 404,
+        detail: expect.any(String),
+        instance: '/non-existent-endpoint',
+      });
     });
 
     it('faviconリクエストで204を返すこと', async () => {

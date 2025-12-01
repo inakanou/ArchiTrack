@@ -124,7 +124,7 @@ export function RegisterPage() {
             style={{
               width: '100%',
               padding: '0.75rem',
-              backgroundColor: '#3b82f6',
+              backgroundColor: '#2563eb',
               color: 'white',
               border: 'none',
               borderRadius: '0.375rem',
@@ -203,8 +203,8 @@ export function RegisterPage() {
               navigate('/login');
             }}
             style={{
-              color: '#3b82f6',
-              textDecoration: 'none',
+              color: '#2563eb',
+              textDecoration: 'underline',
             }}
           >
             ログイン

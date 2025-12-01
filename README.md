@@ -53,6 +53,7 @@ Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-
 - [開発ワークフロー](docs/development/workflow.md) - Kiro-style SDD、ブランチ戦略
 - [データベースマイグレーション](docs/development/database-migration.md) - Prisma、Draft機能
 - [テスト](docs/development/testing.md) - ユニット・統合・E2Eテスト
+- [デバッグ](docs/development/debugging.md) - VSCodeデバッグ設定、トラブルシューティング
 - [コーディング規約](docs/development/coding-standards.md) - TypeScript・React・Prisma規約
 - [Git設定](docs/development/git-configuration.md) - Git hooks設定
 - [MCP設定](docs/development/mcp-setup.md) - Playwright MCPサーバー（Claude Code用）
@@ -62,6 +63,7 @@ Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-
 - [デプロイ概要](docs/deployment/overview.md) - デプロイ方式とワークフロー
 - [環境変数設定](docs/deployment/environment-variables.md) - 必須環境変数一覧
 - [シークレット管理](docs/deployment/secrets-management.md) - JWT鍵・2FA鍵の生成
+- [鍵ローテーション手順](docs/deployment/key-rotation-procedure.md) - EdDSA鍵の定期更新手順
 - [Railway設定](docs/deployment/railway-setup.md) - Railway初回セットアップ
 - [CI/CD設定](docs/deployment/cicd-github-actions.md) - GitHub Actions設定
 - [トラブルシューティング](docs/deployment/troubleshooting.md) - よくある問題と解決方法

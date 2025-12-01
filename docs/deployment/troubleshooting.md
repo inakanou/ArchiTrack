@@ -349,6 +349,51 @@ curl: (7) Failed to connect to <backend-url> port 443: Connection refused
 
 ---
 
+## レート制限関連
+
+### E2Eテストでレート制限エラー
+
+**症状:**
+```
+Error: Rate limit exceeded
+Too many requests from this IP, please try again later.
+```
+
+**原因:**
+- E2Eテストで複数のリクエストを短時間に送信
+- `DISABLE_RATE_LIMIT`環境変数が設定されていない
+- Docker Composeで環境変数が正しく渡されていない
+
+**解決方法:**
+
+1. **環境変数を確認:**
+   ```bash
+   # .envファイルに設定
+   echo "DISABLE_RATE_LIMIT=true" >> .env
+   ```
+
+2. **Docker コンテナを再起動:**
+   ```bash
+   docker compose down
+   docker compose up -d
+   ```
+
+3. **環境変数が渡されているか確認:**
+   ```bash
+   docker exec architrack-backend printenv | grep DISABLE_RATE_LIMIT
+   # 出力: DISABLE_RATE_LIMIT=true
+   ```
+
+4. **GitHub Actions E2Eテストの場合:**
+   - `.github/workflows/ci.yml`の「Create .env file for E2E」ステップを確認
+   - `DISABLE_RATE_LIMIT=true`が含まれているか確認
+
+**注意事項:**
+- 本番環境（Railway）では`DISABLE_RATE_LIMIT`を`false`または未設定にする
+- セキュリティのため、ローカル開発・テスト環境のみで有効化
+
+---
+
 ## その他
 
 ### 環境変数が反映されない

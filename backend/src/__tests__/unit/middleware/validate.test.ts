@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { validate, validateMultiple } from '../../../middleware/validate.middleware.js';
-import { ValidationError } from '../../../errors/ApiError.js';
+import { ValidationError } from '../../../errors/apiError.js';
 
 describe('validate middleware', () => {
   let mockRequest: Partial<Request>;
@@ -76,7 +76,8 @@ describe('validate middleware', () => {
         // mockNextの型アサーション後、mockプロパティにアクセス
         const error = (mockNext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
         expect(error).toBeInstanceOf(ValidationError);
-        expect(error.message).toBe('Validation failed');
+        // 最初のエラーメッセージが使用される（バリデーション改善のため）
+        expect(error.message).toBe('Invalid email address');
         expect(error.details).toEqual(
           expect.arrayContaining([
             expect.objectContaining({

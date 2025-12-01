@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import type { PasswordResetRequestFormData, PasswordResetFormData } from '../types/auth.types';
 
 interface PasswordResetFormProps {
@@ -30,6 +30,17 @@ function PasswordResetForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // 成功メッセージを5秒後に自動非表示
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [successMessage]);
 
   // メールアドレスバリデーション
   const validateEmail = (value: string): string => {
@@ -128,10 +139,54 @@ function PasswordResetForm({
       setSuccessMessage('パスワードをリセットしました。新しいパスワードでログインできます。');
       setPassword('');
       setPasswordConfirm('');
-    } catch {
-      setErrors({
-        general: 'パスワードのリセットに失敗しました。もう一度お試しください。',
-      });
+    } catch (err: unknown) {
+      // エラーレスポンスから詳細メッセージを取得
+      const error = err as {
+        response?: {
+          code?: string;
+          detail?: string;
+          details?: Array<{ path: string; message: string }>;
+          error?: string;
+        };
+      };
+      const errorCode = error?.response?.code;
+      const details = error?.response?.details;
+
+      // RFC 7807 Problem Details形式のエラー処理
+      if (details && details.length > 0) {
+        const passwordError = details.find(
+          (d) => d.path === 'newPassword' || d.path.includes('password')
+        );
+        if (passwordError) {
+          setErrors({
+            password: passwordError.message,
+          });
+        } else {
+          const firstError = details[0];
+          if (firstError) {
+            setErrors({
+              general: firstError.message,
+            });
+          }
+        }
+      } else if (errorCode === 'TOKEN_EXPIRED') {
+        // エラーコードに基づいて適切なメッセージを表示
+        setErrors({
+          general: 'リセットリンクの有効期限が切れています。再度リセットを要求してください。',
+        });
+      } else if (errorCode === 'INVALID_TOKEN') {
+        setErrors({
+          general: 'リセットリンクが無効です。再度リセットを要求してください。',
+        });
+      } else if (error?.response?.detail) {
+        setErrors({
+          general: error.response.detail,
+        });
+      } else {
+        setErrors({
+          general: 'パスワードのリセットに失敗しました。もう一度お試しください。',
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -140,11 +195,11 @@ function PasswordResetForm({
   // リセット要求モード
   if (!resetToken) {
     return (
-      <form onSubmit={handleRequestReset} style={{ maxWidth: '400px', margin: '0 auto' }}>
-        <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem', fontWeight: 600 }}>
-          パスワードリセット
-        </h2>
-
+      <form
+        onSubmit={handleRequestReset}
+        role="form"
+        style={{ maxWidth: '400px', margin: '0 auto' }}
+      >
         {/* 成功メッセージ */}
         {successMessage && (
           <div
@@ -272,11 +327,11 @@ function PasswordResetForm({
 
   // リセット実行モード
   return (
-    <form onSubmit={handleResetPassword} style={{ maxWidth: '400px', margin: '0 auto' }}>
-      <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem', fontWeight: 600 }}>
-        新しいパスワードを設定
-      </h2>
-
+    <form
+      onSubmit={handleResetPassword}
+      role="form"
+      style={{ maxWidth: '400px', margin: '0 auto' }}
+    >
       {/* 成功メッセージ */}
       {successMessage && (
         <div
@@ -324,6 +379,7 @@ function PasswordResetForm({
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
           aria-invalid={!!errors.password}
           aria-describedby={errors.password ? 'password-error' : undefined}
           style={{
@@ -363,6 +419,7 @@ function PasswordResetForm({
           value={passwordConfirm}
           onChange={(e) => setPasswordConfirm(e.target.value)}
           onBlur={handlePasswordConfirmBlur}
+          autoComplete="new-password"
           aria-invalid={!!errors.passwordConfirm}
           aria-describedby={errors.passwordConfirm ? 'passwordConfirm-error' : undefined}
           style={{

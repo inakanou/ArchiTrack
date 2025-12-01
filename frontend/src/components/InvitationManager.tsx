@@ -9,7 +9,7 @@
  * - 招待取り消し・再送信機能
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type {
   Invitation,
   InvitationStatus,
@@ -34,6 +34,8 @@ interface InvitationManagerProps {
   error?: string;
 }
 
+const ITEMS_PER_PAGE = 10;
+
 const InvitationManager: React.FC<InvitationManagerProps> = ({
   invitations,
   onCreateInvitation,
@@ -52,6 +54,18 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
   const [selectedFilter, setSelectedFilter] = useState<InvitationStatus | 'all'>('all');
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [selectedInvitationId, setSelectedInvitationId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // モバイルビューポートの検出
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // メールアドレスのバリデーション
   const validateEmail = (value: string): boolean => {
@@ -97,9 +111,11 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
   };
 
   // 招待URLコピーハンドラー
-  const handleCopyUrl = async () => {
+  const handleCopyUrl = async (token?: string) => {
     try {
-      await navigator.clipboard.writeText(invitationUrl);
+      // トークンが指定された場合はそのURLを、指定されていない場合は最後に作成されたURLを使用
+      const urlToCopy = token ? `${window.location.origin}/register?token=${token}` : invitationUrl;
+      await navigator.clipboard.writeText(urlToCopy);
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 3000);
     } catch (err) {
@@ -151,6 +167,35 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
     }
     return invitations.filter((inv) => inv.status === selectedFilter);
   }, [invitations, selectedFilter]);
+
+  // ページネーション計算
+  const totalPages = Math.ceil(filteredInvitations.length / ITEMS_PER_PAGE);
+  const paginatedInvitations = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredInvitations.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredInvitations, currentPage]);
+
+  // フィルター変更時にページをリセット
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilter]);
+
+  // Escapeキーでダイアログを閉じる
+  useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && cancelDialogOpen) {
+        handleCloseCancelDialog();
+      }
+    };
+
+    if (cancelDialogOpen) {
+      document.addEventListener('keydown', handleEscapeKey);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [cancelDialogOpen]);
 
   // ステータスバッジのスタイル
   const getStatusBadgeStyle = (status: InvitationStatus): React.CSSProperties => {
@@ -227,7 +272,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
         <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>
           新規ユーザー招待
         </h2>
-        <form onSubmit={handleCreateInvitation}>
+        <form role="form" onSubmit={handleCreateInvitation}>
           <div style={{ marginBottom: '16px' }}>
             <label
               htmlFor="invitation-email"
@@ -239,6 +284,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               id="invitation-email"
               type="email"
               aria-label="メールアドレス"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
@@ -271,7 +317,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               cursor: submitting ? 'not-allowed' : 'pointer',
             }}
           >
-            {submitting ? '送信中...' : '招待'}
+            {submitting ? '送信中...' : '招待を送信'}
           </button>
         </form>
 
@@ -303,7 +349,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                 }}
               />
               <button
-                onClick={handleCopyUrl}
+                onClick={() => handleCopyUrl()}
                 style={{
                   backgroundColor: '#388e3c',
                   color: '#fff',
@@ -378,80 +424,297 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
           >
             <div>読み込み中...</div>
           </div>
-        ) : filteredInvitations.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
-            招待がありません
+        ) : isMobile ? (
+          /* モバイル: カード形式レイアウト */
+          <div style={{ padding: '16px' }}>
+            {paginatedInvitations.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
+                招待がありません
+              </div>
+            ) : (
+              paginatedInvitations.map((invitation) => (
+                <div
+                  key={invitation.id}
+                  data-testid="invitation-card"
+                  className="invitation-card"
+                  style={{
+                    backgroundColor: '#fff',
+                    border: '1px solid #eee',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '12px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  }}
+                >
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                      メールアドレス
+                    </div>
+                    <div style={{ fontWeight: 'bold', wordBreak: 'break-all' }}>
+                      {invitation.email}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                        招待日時
+                      </div>
+                      <div>{new Date(invitation.createdAt).toLocaleDateString('ja-JP')}</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                        有効期限
+                      </div>
+                      <div>{new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}</div>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                      ステータス
+                    </div>
+                    <span data-testid="status-badge" style={getStatusBadgeStyle(invitation.status)}>
+                      {getStatusText(invitation.status)}
+                    </span>
+                  </div>
+                  {(invitation.status === 'pending' || invitation.status === 'expired') && (
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {invitation.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleOpenCancelDialog(invitation.id)}
+                            style={{
+                              padding: '8px 16px',
+                              backgroundColor: '#fff',
+                              border: '1px solid #d32f2f',
+                              borderRadius: '4px',
+                              color: '#d32f2f',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                            }}
+                          >
+                            取り消し
+                          </button>
+                          <button
+                            onClick={() => handleCopyUrl(invitation.token)}
+                            style={{
+                              padding: '8px 16px',
+                              backgroundColor: '#1976d2',
+                              border: 'none',
+                              borderRadius: '4px',
+                              color: '#fff',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                            }}
+                          >
+                            URLをコピー
+                          </button>
+                        </>
+                      )}
+                      {invitation.status === 'expired' && (
+                        <button
+                          onClick={() => handleResendInvitation(invitation.id)}
+                          style={{
+                            padding: '8px 16px',
+                            backgroundColor: '#1976d2',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                          }}
+                        >
+                          再送信
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         ) : (
-          <table role="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          /* デスクトップ: テーブル形式レイアウト */
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f5f5f5', borderBottom: '1px solid #ddd' }}>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
                   メールアドレス
                 </th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>招待日時</th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
+                  招待日時
+                </th>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
                   ステータス
                 </th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>有効期限</th>
-                <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
+                  有効期限
+                </th>
+                <th
+                  role="columnheader"
+                  style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}
+                >
                   アクション
                 </th>
               </tr>
             </thead>
             <tbody>
-              {filteredInvitations.map((invitation) => (
-                <tr key={invitation.id} role="row" style={{ borderBottom: '1px solid #f0f0f0' }}>
-                  <td style={{ padding: '12px' }}>{invitation.email}</td>
-                  <td style={{ padding: '12px' }}>
-                    {new Date(invitation.createdAt).toLocaleDateString('ja-JP')}
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    <span style={getStatusBadgeStyle(invitation.status)}>
-                      {getStatusText(invitation.status)}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    {new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    {invitation.status === 'pending' && (
-                      <button
-                        onClick={() => handleOpenCancelDialog(invitation.id)}
-                        style={{
-                          backgroundColor: '#fff',
-                          color: '#d32f2f',
-                          padding: '6px 12px',
-                          border: '1px solid #d32f2f',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        取り消し
-                      </button>
-                    )}
-                    {invitation.status === 'expired' && (
-                      <button
-                        onClick={() => handleResendInvitation(invitation.id)}
-                        style={{
-                          backgroundColor: '#fff',
-                          color: '#1976d2',
-                          padding: '6px 12px',
-                          border: '1px solid #1976d2',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        再送信
-                      </button>
-                    )}
+              {paginatedInvitations.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    style={{ padding: '40px', textAlign: 'center', color: '#757575' }}
+                  >
+                    招待がありません
                   </td>
                 </tr>
-              ))}
+              ) : (
+                paginatedInvitations.map((invitation) => (
+                  <tr key={invitation.id} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '12px' }}>{invitation.email}</td>
+                    <td style={{ padding: '12px' }}>
+                      {new Date(invitation.createdAt).toLocaleDateString('ja-JP')}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      <span
+                        data-testid="status-badge"
+                        style={getStatusBadgeStyle(invitation.status)}
+                      >
+                        {getStatusText(invitation.status)}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {invitation.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleOpenCancelDialog(invitation.id)}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#fff',
+                              border: '1px solid #d32f2f',
+                              borderRadius: '4px',
+                              color: '#d32f2f',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              marginRight: '8px',
+                            }}
+                          >
+                            取り消し
+                          </button>
+                          <button
+                            onClick={() => handleCopyUrl(invitation.token)}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#1976d2',
+                              border: 'none',
+                              borderRadius: '4px',
+                              color: '#fff',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                            }}
+                          >
+                            URLをコピー
+                          </button>
+                        </>
+                      )}
+                      {invitation.status === 'expired' && (
+                        <button
+                          onClick={() => handleResendInvitation(invitation.id)}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#1976d2',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                          }}
+                        >
+                          再送信
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
+        )}
+
+        {/* ページネーション */}
+        {totalPages > 1 && (
+          <nav
+            data-testid="pagination"
+            aria-label="ページネーション"
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '16px',
+              borderTop: '1px solid #eee',
+            }}
+          >
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              style={{
+                padding: '8px 16px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                backgroundColor: currentPage === 1 ? '#f5f5f5' : '#fff',
+                color: currentPage === 1 ? '#999' : '#333',
+                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              前へ
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                style={{
+                  padding: '8px 12px',
+                  border: currentPage === page ? '2px solid #1976d2' : '1px solid #ddd',
+                  borderRadius: '4px',
+                  backgroundColor: currentPage === page ? '#e3f2fd' : '#fff',
+                  color: currentPage === page ? '#1976d2' : '#333',
+                  fontWeight: currentPage === page ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                }}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              style={{
+                padding: '8px 16px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                backgroundColor: currentPage === totalPages ? '#f5f5f5' : '#fff',
+                color: currentPage === totalPages ? '#999' : '#333',
+                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+              }}
+            >
+              次へ
+            </button>
+          </nav>
         )}
       </div>
 

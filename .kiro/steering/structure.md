@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-20（ステアリング同期確認、内容の整合性検証完了）_
+_最終更新: 2025-11-30（Steering Sync: E2Eテスト構造更新 - helpers/、fixtures/ディレクトリ追加、テストカテゴリ（admin/、security/）追加）_
 
 ## ルートディレクトリ構成
 
@@ -35,9 +35,19 @@ ArchiTrack/
 │   ├── specs/              # テスト仕様（カテゴリ分け）
 │   │   ├── api/            # APIエンドポイントテスト
 │   │   ├── ui/             # UIコンポーネントテスト
-│   │   └── integration/    # システム統合テスト
-│   └── helpers/            # Claude Code統合ヘルパー
-│       └── browser.js      # ブラウザ操作・スクリーンショット
+│   │   ├── integration/    # システム統合テスト
+│   │   ├── auth/           # 認証フローテスト
+│   │   └── performance/    # パフォーマンステスト
+│   ├── helpers/            # テストヘルパー・ユーティリティ
+│   │   ├── wait-helpers.ts # CI環境対応の待機ヘルパー
+│   │   ├── auth-actions.ts # 認証アクション（ログイン、ログアウト）
+│   │   ├── browser.ts      # Claude Code統合ブラウザ操作
+│   │   ├── test-users.ts   # テストユーザー定義
+│   │   └── screenshot.ts   # スクリーンショットヘルパー
+│   └── fixtures/           # テストフィクスチャ
+│       ├── auth.fixtures.ts    # 認証フィクスチャ
+│       ├── database.ts         # データベースフィクスチャ
+│       └── seed-helpers.ts     # シードデータヘルパー
 ├── frontend/               # フロントエンドアプリケーション
 │   ├── .storybook/         # Storybook設定（コンポーネントドキュメント）
 │   │   ├── main.ts         # Storybook設定ファイル
@@ -121,7 +131,9 @@ Claude Codeのカスタムフックスクリプト。
 **構成:**
 
 - `hook_pre_commands.sh` - コマンド実行前に実行されるフック
-- `rules/hook_pre_commands_rules.json` - フック実行ルール定義
+- `hook_stop_words.sh` - アシスタント応答のストップワード検出フック
+- `rules/hook_pre_commands_rules.json` - コマンド前フック実行ルール定義
+- `rules/hook_stop_words_rules.json` - ストップワード検出ルール定義
 
 ### `.husky/`
 
@@ -198,34 +210,62 @@ Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可�
 e2e/
 ├── specs/                 # テスト仕様（カテゴリ分け）
 │   ├── api/              # APIエンドポイントテスト
-│   │   └── *.spec.js
+│   │   └── *.spec.ts
 │   ├── ui/               # UIコンポーネント・ページテスト
-│   │   └── *.spec.js
-│   └── integration/      # システム統合テスト
-│       └── *.spec.js
-└── helpers/              # テストヘルパー・ユーティリティ
-    └── browser.js        # Claude Code統合ブラウザ操作
+│   │   └── *.spec.ts
+│   ├── auth/             # 認証フローテスト
+│   │   └── *.spec.ts
+│   ├── admin/            # 管理機能テスト
+│   │   └── *.spec.ts
+│   ├── integration/      # システム統合テスト
+│   │   └── *.spec.ts
+│   ├── performance/      # パフォーマンステスト
+│   │   └── *.spec.ts
+│   └── security/         # セキュリティテスト
+│       └── *.spec.ts
+├── helpers/              # テストヘルパー・ユーティリティ
+│   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
+│   ├── auth-actions.ts   # 認証アクション（ログイン、ログアウト）
+│   ├── browser.ts        # Claude Code統合ブラウザ操作
+│   ├── test-users.ts     # テストユーザー定義
+│   └── screenshot.ts     # スクリーンショットヘルパー
+├── fixtures/             # テストフィクスチャ
+│   ├── auth.fixtures.ts  # 認証フィクスチャ
+│   ├── database.ts       # データベースフィクスチャ
+│   └── seed-helpers.ts   # シードデータヘルパー
+└── global-setup.ts       # グローバルセットアップ（マスターデータ初期化）
 ```
 
 **テストカテゴリ:**
 
-- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、データ取得等）
+- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
 - `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
+- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待等）
+- `admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
 - `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
+- `performance/` - パフォーマンステスト（ページロード時間等）
+- `security/` - セキュリティテスト（CSRF、XSS対策等）
+
+**テストヘルパー:**
+
+- `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
+- `auth-actions.ts` - 認証アクション（`loginAsUser()`、`logout()`等）
+- `browser.ts` - Claude Code統合ブラウザ操作
+- `test-users.ts` - テストユーザー定義
 
 **Claude Code統合:**
 
-`e2e/helpers/browser.js` により、AIアシスタントから直接ブラウザ操作が可能：
+`e2e/helpers/browser.ts` により、AIアシスタントから直接ブラウザ操作が可能：
 
 ```bash
 # スクリーンショット撮影
-node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+npx ts-node e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
 
 # ページ情報取得
-node e2e/helpers/browser.js info http://localhost:5173
+npx ts-node e2e/helpers/browser.ts info http://localhost:5173
 
 # APIテスト
-node e2e/helpers/browser.js api http://localhost:3000/health
+npx ts-node e2e/helpers/browser.ts api http://localhost:3000/health
 ```
 
 **テスト実行結果:**
@@ -286,7 +326,11 @@ frontend/
 │   │   ├── RegisterPage.tsx # 登録ページ
 │   │   ├── PasswordResetPage.tsx # パスワードリセットページ
 │   │   ├── Profile.tsx     # プロフィールページ
-│   │   └── Sessions.tsx    # セッション管理ページ
+│   │   ├── Sessions.tsx    # セッション管理ページ
+│   │   ├── TwoFactorSetupPage.tsx # 2FA設定ページ
+│   │   ├── InvitationsPage.tsx # 招待管理ページ
+│   │   ├── UserManagement.tsx # ユーザー管理ページ
+│   │   └── AuditLogs.tsx   # 監査ログページ
 │   ├── routes/            # ルーティング設定
 │   │   └── routes.tsx      # React Router v6設定
 │   ├── utils/             # ユーティリティ関数
@@ -337,13 +381,22 @@ frontend/
 - `TwoFactorSetup.stories.tsx` - 2FA初期設定（追加）
 - `TwoFactorVerification.stories.tsx` - 2FA検証（追加）
 
-**想定される拡張:**
+**実装済み拡張ディレクトリ:**
 
 ```
 frontend/src/
-├── services/          # APIクライアント（今後追加）
-├── stores/            # 状態管理（今後追加）
-└── assets/            # 静的アセット（今後追加）
+├── api/               # APIクライアント（auth.ts、client.ts）
+├── hooks/             # カスタムフック（useMediaQuery.ts、useAuth.ts）
+├── services/          # サービス層（TokenRefreshManager.ts）
+├── types/             # 型定義（auth.types.ts、session.types.ts等）
+└── assets/            # 静的アセット（今後追加予定）
+```
+
+**想定される追加拡張:**
+
+```
+frontend/src/
+└── stores/            # 状態管理（今後追加予定）
 ```
 
 ### `backend/`
@@ -405,15 +458,19 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（8ファイル）
+│   ├── routes/            # ルート定義（9ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
 │   │   ├── invitation.routes.ts # 招待管理ルート
+│   │   ├── session.routes.ts # セッション管理ルート
 │   │   ├── audit-log.routes.ts # 監査ログルート
 │   │   ├── permissions.routes.ts # 権限管理ルート
 │   │   ├── roles.routes.ts  # ロール管理ルート
 │   │   └── user-roles.routes.ts # ユーザーロール管理ルート
+│   ├── config/            # 設定ファイル
+│   │   ├── env.ts          # 環境変数設定
+│   │   └── security.constants.ts # セキュリティ定数
 │   ├── services/          # ビジネスロジック（14サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
@@ -503,7 +560,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（8ルートファイル）:**
+**実装済みAPI（9ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -524,7 +581,7 @@ backend/src/
 **2FA管理API（auth.routes.ts内）:**
 - 2FA初期設定、有効化、無効化、バックアップコード再生成
 
-**セッション管理API（auth.routes.ts内）:**
+**セッション管理API（session.routes.ts）:**
 - セッション一覧取得、特定セッション削除、セッション有効期限延長
 
 **ロール管理API（roles.routes.ts）:**
@@ -775,8 +832,8 @@ refactor: improve type safety by eliminating any types
 2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
 3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
 4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認
-5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（571テスト、カバレッジ閾値80%）
-6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（378テスト、カバレッジ閾値80%）
+5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（1011+テストケース、カバレッジ閾値80%）
+6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（667+テストケース、カバレッジ閾値80%）
 7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`（Docker環境必須）
 8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分、Docker環境必須）
    - **同期実行**: テスト完了を待ってからプッシュ実行
@@ -796,8 +853,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 571テスト（単体）+ 68テスト（統合）
-- Frontend: 378テスト（単体）
+- Backend: 1011+テストケース（単体）+ 68テスト（統合）
+- Frontend: 667+テストケース（単体）
 
 ### .gitignore
 

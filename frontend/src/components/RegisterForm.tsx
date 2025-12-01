@@ -117,6 +117,37 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
   const passwordStrengthResult = evaluatePasswordStrength(password);
   const passwordRequirements = checkPasswordRequirements(password);
 
+  /**
+   * パスワードの複雑性要件をチェックし、エラーメッセージを返す
+   */
+  const validatePasswordComplexity = (pwd: string): string | null => {
+    // 12文字以上
+    if (pwd.length < 12) {
+      return 'パスワードは12文字以上である必要があります';
+    }
+    // 大文字を含む
+    if (!/[A-Z]/.test(pwd)) {
+      return 'パスワードは大文字を1文字以上含む必要があります';
+    }
+    // 小文字を含む
+    if (!/[a-z]/.test(pwd)) {
+      return 'パスワードは小文字を1文字以上含む必要があります';
+    }
+    // 数字を含む
+    if (!/[0-9]/.test(pwd)) {
+      return 'パスワードは数字を1文字以上含む必要があります';
+    }
+    // 記号を含む
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) {
+      return 'パスワードは記号を1文字以上含む必要があります';
+    }
+    // 連続した同一文字のチェック（3文字以上）
+    if (/(.)\1\1/.test(pwd)) {
+      return 'パスワードに3文字以上の連続した同一文字を含めることはできません';
+    }
+    return null;
+  };
+
   // パスワード確認のblurイベント
   const handlePasswordConfirmBlur = () => {
     if (passwordConfirm && password !== passwordConfirm) {
@@ -145,6 +176,12 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
     }
     if (!password) {
       newErrors.password = 'パスワードは必須です';
+    } else {
+      // パスワード複雑性のクライアントサイドバリデーション
+      const complexityError = validatePasswordComplexity(password);
+      if (complexityError) {
+        newErrors.password = complexityError;
+      }
     }
     if (!passwordConfirm) {
       newErrors.passwordConfirm = 'パスワード確認は必須です';
@@ -172,10 +209,109 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
         passwordConfirm,
         agreedToTerms,
       });
-    } catch {
-      setErrors({
-        general: '登録に失敗しました。もう一度お試しください。',
-      });
+    } catch (err: unknown) {
+      // エラーレスポンスから詳細メッセージを取得
+      // ApiError は { statusCode, message, response } の構造を持つ
+      const error = err as {
+        response?: {
+          code?: string;
+          message?: string;
+          error?: string;
+          errors?: string[];
+          detail?: string;
+          details?: Array<{ path: string; message: string }>;
+          validationErrors?: Array<{ field: string; code: string; message: string }>;
+        };
+      };
+      const errorCode = error?.response?.code;
+      const errorMessage =
+        error?.response?.message || error?.response?.error || error?.response?.detail;
+      const validationErrors = error?.response?.validationErrors;
+      const errors = error?.response?.errors;
+      const details = error?.response?.details;
+
+      // バリデーションエラーの処理
+      if (validationErrors && validationErrors.length > 0) {
+        const newErrors: Record<string, string> = {};
+        validationErrors.forEach((err) => {
+          if (err.field === 'password') {
+            newErrors.password = err.message;
+          } else if (err.field === 'email') {
+            newErrors.general = err.message;
+          } else {
+            newErrors.general = err.message;
+          }
+        });
+        setErrors(newErrors);
+        return;
+      }
+
+      // RFC 7807 Problem Details形式のエラー処理
+      if (details && details.length > 0) {
+        const newErrors: Record<string, string> = {};
+        details.forEach((err) => {
+          if (err.path === 'password' || err.path.includes('password')) {
+            newErrors.password = err.message;
+          } else if (err.path === 'email') {
+            newErrors.general = err.message;
+          } else {
+            newErrors.general = err.message;
+          }
+        });
+        setErrors(newErrors);
+        return;
+      }
+
+      // エラーコード配列の処理（簡易バリデーション）
+      if (errors && errors.length > 0) {
+        const errorMessages: Record<string, string> = {
+          PASSWORD_TOO_SHORT: 'パスワードは12文字以上である必要があります',
+          PASSWORD_MISSING_UPPERCASE: 'パスワードは大文字を1文字以上含む必要があります',
+          PASSWORD_MISSING_LOWERCASE: 'パスワードは小文字を1文字以上含む必要があります',
+          PASSWORD_MISSING_NUMBER: 'パスワードは数字を1文字以上含む必要があります',
+          PASSWORD_MISSING_SPECIAL: 'パスワードは記号を1文字以上含む必要があります',
+          PASSWORD_CONSECUTIVE_CHARS:
+            'パスワードに3文字以上の連続した同一文字を含めることはできません',
+          PASSWORD_PWNED:
+            'このパスワードは過去に漏洩が確認されています。別のパスワードを選択してください',
+          EMAIL_ALREADY_REGISTERED: 'このメールアドレスは既に登録されています',
+        };
+
+        // 最初のエラーをメッセージとして表示
+        const firstError = errors[0];
+        if (firstError && errorMessages[firstError]) {
+          // EMAIL_ALREADY_REGISTEREDは汎用エラーとして表示
+          if (firstError === 'EMAIL_ALREADY_REGISTERED') {
+            setErrors({
+              general: errorMessages[firstError],
+            });
+          } else {
+            setErrors({
+              password: errorMessages[firstError],
+            });
+          }
+        } else {
+          setErrors({
+            general: '入力内容に誤りがあります',
+          });
+        }
+        return;
+      }
+
+      // 単一エラーコードの処理
+      if (errorCode === 'EMAIL_ALREADY_REGISTERED') {
+        setErrors({
+          general: 'このメールアドレスは既に登録されています',
+        });
+      } else if (errorMessage) {
+        setErrors({
+          general: errorMessage,
+        });
+      } else {
+        setErrors({
+          general: '登録に失敗しました。もう一度お試しください。',
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -271,6 +407,7 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
           type="text"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
+          autoFocus
           aria-invalid={!!errors.displayName}
           aria-describedby={errors.displayName ? 'displayName-error' : undefined}
           style={{
@@ -424,7 +561,7 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
         style={{
           width: '100%',
           padding: '0.75rem',
-          backgroundColor: isLoading ? '#9ca3af' : '#3b82f6',
+          backgroundColor: isLoading ? '#9ca3af' : '#2563eb',
           color: 'white',
           border: 'none',
           borderRadius: '0.375rem',

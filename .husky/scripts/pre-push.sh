@@ -391,12 +391,17 @@ if [ -f ".env" ]; then
 fi
 
 # Docker環境の自動構築
-echo "🐳 Setting up Docker environment for integration tests..."
+echo "🐳 Setting up Docker environment for tests..."
+echo ""
+echo "   DB使い分け:"
+echo "     - architrack_dev:  開発者の手動打鍵用（データ保護）"
+echo "     - architrack_test: 全自動テスト用（統合 + E2E）"
+echo ""
 
 # Docker環境のチェックと起動
 if ! docker ps | grep -q architrack-postgres; then
   echo "   Docker containers not running. Starting Docker Compose..."
-  docker compose up -d
+  docker compose up -d postgres redis mailhog
   if [ $? -ne 0 ]; then
     echo "❌ Failed to start Docker containers. Push aborted."
     exit 1
@@ -410,7 +415,7 @@ if ! docker ps | grep -q architrack-postgres; then
   MAX_RETRIES=6
   RETRY_COUNT=0
   while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if docker exec architrack-postgres pg_isready -U architrack > /dev/null 2>&1; then
+    if docker exec architrack-postgres pg_isready -U postgres > /dev/null 2>&1; then
       echo "   ✅ Database is ready"
       break
     fi
@@ -426,14 +431,100 @@ else
   echo "   ✅ Docker containers already running"
 fi
 
+# テストデータベースの存在確認と作成
+echo "   Checking test database (architrack_test)..."
+DB_EXISTS=$(docker exec architrack-postgres psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='architrack_test'" 2>/dev/null || echo "")
+if [ "$DB_EXISTS" != "1" ]; then
+  echo "   Creating test database: architrack_test"
+  docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;" > /dev/null 2>&1
+  if [ $? -ne 0 ]; then
+    echo "❌ Failed to create test database. Push aborted."
+    exit 1
+  fi
+  echo "   ✅ Test database created"
+else
+  echo "   ✅ Test database already exists"
+fi
+
+# テストデータベースへのマイグレーション実行
+echo "   Running Prisma migrations on test database..."
+DATABASE_URL="postgresql://postgres:dev@localhost:5432/architrack_test" npx prisma migrate deploy --schema=backend/prisma/schema.prisma > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+  echo "❌ Failed to run migrations on test database. Push aborted."
+  exit 1
+fi
+echo "   ✅ Migrations applied to test database"
+
+# バックエンドをテストモードで再起動（E2Eテスト用）
+# NODE_ENV=test: 2FAテストで固定TOTPコード "123456" を受け入れる
+# DATABASE_URL: テストDB（architrack_test）を使用
+echo "   Restarting backend with test database and test mode..."
+docker compose stop backend > /dev/null 2>&1
+# コンテナを削除して環境変数を確実に反映させる
+docker compose rm -f backend > /dev/null 2>&1
+export NODE_ENV=test
+export DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test
+docker compose up -d backend
+if [ $? -ne 0 ]; then
+  echo "❌ Failed to start backend container. Push aborted."
+  exit 1
+fi
+
+# バックエンドが起動するまで待機
+echo "   Waiting for backend to be ready..."
+MAX_RETRIES=12
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s http://localhost:3000/health > /dev/null 2>&1; then
+    echo "   ✅ Backend is ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ Backend failed to start within timeout. Push aborted."
+    exit 1
+  fi
+  echo "   Waiting for backend... ($RETRY_COUNT/$MAX_RETRIES)"
+  sleep 5
+done
+
+# フロントエンドを起動（E2Eテスト用）
+echo "   Starting frontend..."
+docker compose up -d frontend
+if [ $? -ne 0 ]; then
+  echo "❌ Failed to start frontend container. Push aborted."
+  exit 1
+fi
+
+# フロントエンドが起動するまで待機
+echo "   Waiting for frontend to be ready..."
+MAX_RETRIES=18
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s http://localhost:5173 > /dev/null 2>&1; then
+    echo "   ✅ Frontend is ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ Frontend failed to start within timeout. Push aborted."
+    exit 1
+  fi
+  echo "   Waiting for frontend... ($RETRY_COUNT/$MAX_RETRIES)"
+  sleep 5
+done
+
+echo "   ✅ All Docker services are ready for testing"
+
 # Backend integration tests
 if [ -d "backend" ]; then
   echo "🔗 Running backend integration tests..."
 
   # インテグレーションテストはDockerコンテナ内で実行
   # ローカル環境でのPrisma Query Engine問題を回避
-  # NODE_ENV=testを設定してレート制限をスキップ
-  docker exec -e NODE_ENV=test architrack-backend npm run test:integration
+  # NODE_ENV=test を設定してレート制限をスキップ
+  # DATABASE_URL を architrack_test に設定（開発データ保護のため）
+  docker exec -e NODE_ENV=test -e DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test architrack-backend npm run test:integration
   if [ $? -ne 0 ]; then
     echo "❌ Backend integration tests failed. Push aborted."
     exit 1
@@ -469,6 +560,15 @@ elif [ $E2E_EXIT_CODE -eq 137 ]; then
   exit 1
 elif [ $E2E_EXIT_CODE -ne 0 ]; then
   echo "❌ E2E tests failed with exit code: $E2E_EXIT_CODE. Push aborted."
+  exit 1
+fi
+
+# Requirement coverage check
+echo "📋 Checking E2E requirement coverage..."
+npm run check:req-coverage -- --threshold=100
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement coverage check failed. Push aborted."
+  echo "   Run 'npm run check:req-coverage:verbose' to see details."
   exit 1
 fi
 
