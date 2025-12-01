@@ -1156,9 +1156,9 @@ describe('AuthService', () => {
         'new-refresh-token'
       );
 
-      // Prisma.refreshToken.delete をモック
-      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'token-id-123',
+      // Prisma.refreshToken.deleteMany をモック（Prisma 7対応）
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+        count: 1,
       });
 
       // SessionService.createSession をモック
@@ -1179,7 +1179,7 @@ describe('AuthService', () => {
       }
       expect(mockTokenService.verifyToken).toHaveBeenCalledWith(refreshToken, 'refresh');
       expect(mockPrismaClient.refreshToken.findUnique).toHaveBeenCalled();
-      expect(mockPrismaClient.refreshToken.delete).toHaveBeenCalled();
+      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalled();
       expect(mockSessionService.createSession).toHaveBeenCalled();
     });
 
