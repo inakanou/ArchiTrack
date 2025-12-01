@@ -8,7 +8,13 @@ import importPlugin from 'eslint-plugin-import';
 export default [
   // Ignore patterns
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.git/**'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
+      '**/.git/**',
+      '**/src/generated/**',
+    ],
   },
 
   // Base JavaScript configuration
