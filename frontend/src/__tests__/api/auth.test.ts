@@ -232,7 +232,7 @@ describe('認証API', () => {
 
       const result = await getCurrentUser();
 
-      expect(getSpy).toHaveBeenCalledWith('/api/v1/users/me');
+      expect(getSpy).toHaveBeenCalledWith('/api/v1/auth/me');
       expect(result).toEqual(mockUser);
     });
 
@@ -266,7 +266,7 @@ describe('認証API', () => {
 
       const result = await updateProfile(updateData);
 
-      expect(patchSpy).toHaveBeenCalledWith('/api/v1/users/me', updateData);
+      expect(patchSpy).toHaveBeenCalledWith('/api/v1/auth/me', updateData);
       expect(result).toEqual(mockResponse);
     });
 

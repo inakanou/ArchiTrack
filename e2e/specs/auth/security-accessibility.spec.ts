@@ -77,23 +77,26 @@ test.describe('セキュリティテスト', () => {
     // XSS ペイロードを含む表示名を設定
     const xssPayload = '<script>alert("XSS")</script>';
     const displayNameInput = page.getByLabel(/表示名/i);
+    const saveButton = page.getByRole('button', { name: /^保存$/i });
 
-    // Reactのフォーム変更検知をトリガーするために、クリックしてからfillする
+    // 表示名フィールドが表示されるまで待機
+    await expect(displayNameInput).toBeVisible({ timeout: getTimeout(10000) });
+
+    // XSSペイロードを入力（type を使用してReactのonChangeを確実にトリガー）
     await displayNameInput.click();
-    await displayNameInput.fill(''); // 空にする
-    await displayNameInput.fill(xssPayload);
+    await displayNameInput.fill('');
+    await displayNameInput.type(xssPayload, { delay: 10 });
 
     // フォーム変更検知のため少し待機
     await page.waitForTimeout(500);
 
     // 保存ボタンが有効になるまで待機
-    const saveButton = page.getByRole('button', { name: /^保存$/i });
     await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
 
     // APIレスポンスを待機しながら保存ボタンをクリック
     const responsePromise = page.waitForResponse(
       (response) =>
-        response.url().includes('/api/v1/users/me') && response.request().method() === 'PUT',
+        response.url().includes('/api/v1/auth/me') && response.request().method() === 'PATCH',
       { timeout: getTimeout(30000) }
     );
     await saveButton.click();
