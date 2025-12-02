@@ -45,7 +45,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "@vitest/coverage-istanbul": "^4.0.14",
     "@vitest/coverage-v8": "^4.0.14",
-    "@vitest/ui": "^4.0.10",
+    "@vitest/ui": "^4.0.14",
     "axe-playwright": "^2.2.2",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.1",
@@ -65,7 +65,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.3",
     "vite": "^7.2.6",
-    "vitest": "^4.0.10",
+    "vitest": "^4.0.14",
     "wait-on": "^9.0.3"
   },
   "lint-staged": {
