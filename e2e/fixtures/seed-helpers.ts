@@ -8,7 +8,11 @@
  * マスターデータ定義を変更する場合は、両方のファイルを更新してください。
  */
 
-import type { PrismaClient } from '../../backend/src/generated/prisma/client.js';
+// Prisma 7: Use root's generated client
+import { PrismaClient } from '../../src/generated/prisma/client.js';
+
+/** Type alias for PrismaClient instance */
+type PrismaClientInstance = InstanceType<typeof PrismaClient>;
 
 /**
  * 事前定義ロールのシーディング
@@ -17,7 +21,7 @@ import type { PrismaClient } from '../../backend/src/generated/prisma/client.js'
  * - システム管理者（admin）: 全ての権限を持つ最高権限ロール
  * - 一般ユーザー（user）: 自分が作成したリソースのみアクセス可能な基本ロール
  */
-export async function seedRoles(prisma: PrismaClient): Promise<void> {
+export async function seedRoles(prisma: PrismaClientInstance): Promise<void> {
   console.log('  - Seeding roles...');
 
   // システム管理者ロール
@@ -63,7 +67,7 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
  * - システム管理者用: *:* (全権限)
  * - 一般ユーザー用: adr:read, adr:create, adr:update, user:read, settings:read
  */
-export async function seedPermissions(prisma: PrismaClient): Promise<void> {
+export async function seedPermissions(prisma: PrismaClientInstance): Promise<void> {
   console.log('  - Seeding permissions...');
 
   const permissions = [
@@ -222,7 +226,7 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
  * - システム管理者ロール: *:* 権限
  * - 一般ユーザーロール: adr:read, adr:create, adr:update, user:read, settings:read
  */
-export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
+export async function seedRolePermissions(prisma: PrismaClientInstance): Promise<void> {
   console.log('  - Seeding role-permission assignments...');
 
   // システム管理者ロール取得

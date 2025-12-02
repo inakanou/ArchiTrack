@@ -5,13 +5,15 @@
  * トランザクション管理などのユーティリティを提供します。
  */
 
-import { PrismaClient } from '../../backend/src/generated/prisma/client.js';
+import { PrismaPg } from '@prisma/adapter-pg';
+// Prisma 7: Use root's generated client with driver adapter pattern
+import { PrismaClient } from '../../src/generated/prisma/client.js';
 
 /**
  * Prismaクライアントのシングルトンインスタンス
  * テスト実行中に複数回接続を作成しないようにキャッシュします。
  */
-let prisma: PrismaClient | null = null;
+let prisma: InstanceType<typeof PrismaClient> | null = null;
 
 /**
  * Prismaクライアントのインスタンスを取得
@@ -27,7 +29,7 @@ let prisma: PrismaClient | null = null;
  * const user = await prisma.user.findUnique({ where: { email: 'test@example.com' } });
  * ```
  */
-export function getPrismaClient(): PrismaClient {
+export function getPrismaClient(): InstanceType<typeof PrismaClient> {
   if (!prisma) {
     // E2Eテスト用のデータベース接続URL
     // Docker Compose環境では architrack_dev を使用（バックエンドと同じDB）
@@ -36,14 +38,13 @@ export function getPrismaClient(): PrismaClient {
     // バックエンドと同じデータベースを使用する必要があります。
     // Docker Composeのデフォルトは architrack_dev です。
     //
-    // 環境変数 DATABASE_URL で上書き可能です。
-    // Prisma 7ではprisma.config.tsでDATABASE_URLを設定します。
+    // Prisma 7: Driver adapter pattern required for instantiation
+    const connectionString = process.env.DATABASE_URL!;
+    const adapter = new PrismaPg({ connectionString });
 
-    // Prisma 7では型が厳格になったため、anyキャストを使用
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    prisma = new (PrismaClient as any)();
+    prisma = new PrismaClient({ adapter });
   }
-  return prisma!;
+  return prisma;
 }
 
 /**
