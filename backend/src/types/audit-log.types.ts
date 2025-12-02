@@ -2,7 +2,7 @@
  * 監査ログサービスのインターフェースと型定義
  */
 
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma } from '../generated/prisma/client.js';
 
 /**
  * 監査ログサービスインターフェース

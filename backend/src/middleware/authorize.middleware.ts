@@ -12,7 +12,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import { RBACService } from '../services/rbac.service.js';
 import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';

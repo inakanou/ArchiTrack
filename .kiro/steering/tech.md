@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-11-30（Steering Sync: E2Eテスト安定性改善 - CI環境対応待機ヘルパー、getTimeout()パターン、auth-actions.tsリトライロジック追加）_
+_最終更新: 2025-12-01（Steering Sync: Prisma 7アップグレード - Driver Adapter Pattern導入、@prisma/adapter-pg追加、Prisma Client出力先変更）_
 
 ## アーキテクチャ
 
@@ -90,8 +90,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.1.0
-- **ORM**: Prisma 6.19.0（PostgreSQL用の型安全なデータアクセス）
-- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 6.19.0
+- **ORM**: Prisma 7.0.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
+- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 7.0.0、@prisma/adapter-pg 7.0.1
 - **キャッシュクライアント**: ioredis 5.3.2
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.10、handlebars 4.7.8
@@ -111,7 +111,8 @@ ArchiTrack/
 - `helmet` ^8.1.0 - セキュリティヘッダー設定
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
-- `@prisma/client` ^6.19.0 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/client` ^7.0.0 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/adapter-pg` ^7.0.1 - Prisma Driver Adapter for PostgreSQL
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
@@ -152,7 +153,7 @@ ArchiTrack/
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
-- `prisma` ^6.19.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `prisma` ^7.0.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
@@ -355,8 +356,8 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - `@types/node` ^24.10.1 - Node.js型定義
 - `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.46.4 - TypeScript ESLintパーサー
-- `@prisma/client` ^6.19.0 - Prisma Client（テストデータ生成）
-- `prisma` ^6.19.0 - Prisma CLI（スキーマ管理）
+- `@prisma/client` ^6.19.0 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
+- `prisma` ^6.19.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
 - `cross-env` ^10.1.0 - クロスプラットフォーム環境変数設定
 - Chromium - Playwright経由で自動インストール
 
@@ -718,6 +719,37 @@ npm --prefix frontend run build
 ```
 
 ### Prisma開発
+
+#### Prisma 7 Driver Adapter Pattern
+
+Prisma 7では、Driver Adapter Patternを採用し、データベース接続を直接管理します:
+
+- **`@prisma/adapter-pg`**: PostgreSQL用のDriver Adapter
+- **Prisma Client出力先**: `backend/src/generated/prisma/`
+- **接続管理**: `PrismaPg`アダプター経由で`pg`クライアントを使用
+- **利点**: より細かい接続制御、コネクションプーリングのカスタマイズ
+
+**スキーマ設定（prisma/schema.prisma）:**
+```prisma
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+```
+
+**クライアント初期化（db.ts）:**
+```typescript
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from './generated/prisma/client.js';
+
+const connectionString = process.env.DATABASE_URL;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
+```
 
 #### Database Seeding
 

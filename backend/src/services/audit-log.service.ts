@@ -9,7 +9,7 @@
  * @module services/audit-log
  */
 
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../generated/prisma/client.js';
 import {
   IAuditLogService,
   CreateAuditLogInput,

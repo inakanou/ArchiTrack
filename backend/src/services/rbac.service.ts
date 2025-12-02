@@ -11,7 +11,7 @@
  * - N+1 Prevention: Prisma includeを使用した効率的なクエリ
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import type Redis from 'ioredis';
 import type { IRBACService, PermissionInfo } from '../types/rbac.types.js';
 import logger from '../utils/logger.js';

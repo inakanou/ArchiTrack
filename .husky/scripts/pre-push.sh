@@ -447,8 +447,9 @@ else
 fi
 
 # テストデータベースへのマイグレーション実行
+# Prisma 7: prisma.config.tsを使用するため、npm経由で実行
 echo "   Running Prisma migrations on test database..."
-DATABASE_URL="postgresql://postgres:dev@localhost:5432/architrack_test" npx prisma migrate deploy --schema=backend/prisma/schema.prisma > /dev/null 2>&1
+DATABASE_URL="postgresql://postgres:dev@localhost:5432/architrack_test" npm --prefix backend run prisma:migrate:deploy > /dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "❌ Failed to run migrations on test database. Push aborted."
   exit 1

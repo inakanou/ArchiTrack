@@ -64,3 +64,4 @@ lerna-debug.log*
 .railway/
 
 /generated/prisma
+/src/generated/

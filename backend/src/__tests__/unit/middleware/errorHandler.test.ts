@@ -5,7 +5,7 @@ import { errorHandler, notFoundHandler } from '../../../middleware/errorHandler.
 import { ApiError, BadRequestError, ValidationError } from '../../../errors/apiError.js';
 
 // Mock Prisma module (class definitions moved inside mock due to hoisting)
-vi.mock('@prisma/client', async () => {
+vi.mock('../../../generated/prisma/client.js', async () => {
   // Mock Prisma error classes
   class MockPrismaClientKnownRequestError extends Error {
     code: string;
@@ -61,7 +61,7 @@ vi.mock('@prisma/client', async () => {
 });
 
 // Import Prisma after mock
-const { Prisma } = await import('@prisma/client');
+const { Prisma } = await import('../../../generated/prisma/client.js');
 
 describe('errorHandler middleware', () => {
   let mockRequest: Partial<Request>;

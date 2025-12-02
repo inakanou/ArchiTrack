@@ -10,7 +10,8 @@
  * npm run prisma:seed
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '../src/generated/prisma/client.js';
 import { config } from 'dotenv';
 import logger from '../src/utils/logger.js';
 import {
@@ -23,7 +24,9 @@ import {
 // 環境変数を読み込み
 config();
 
-const prisma = new PrismaClient();
+const connectionString = process.env.DATABASE_URL!;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   const startTime = Date.now();

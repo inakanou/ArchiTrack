@@ -16,7 +16,7 @@
  * - 外部: Prisma Client
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import { UAParser } from 'ua-parser-js';
 import { Result, Ok, Err } from '../types/result.js';
 import type { ISessionService, SessionInfo, SessionError } from '../types/session.types.js';

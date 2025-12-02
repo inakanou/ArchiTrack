@@ -13,7 +13,7 @@
  */
 
 import { hash, verify } from '@node-rs/argon2';
-import type { PrismaClient, Prisma } from '@prisma/client';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import {
   PasswordViolation,
   type PasswordError,

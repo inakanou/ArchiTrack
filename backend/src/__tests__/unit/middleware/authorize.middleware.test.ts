@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../../generated/prisma/client.js';
 import { requirePermission } from '../../../middleware/authorize.middleware.js';
 import { RBACService } from '../../../services/rbac.service.js';
 

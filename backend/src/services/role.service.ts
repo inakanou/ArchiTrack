@@ -9,7 +9,7 @@
  * - Validation: ビジネスルール検証（システムロール保護、使用中チェック）
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import type {
   IRoleService,
   CreateRoleInput,

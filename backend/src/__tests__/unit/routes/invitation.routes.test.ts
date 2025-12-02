@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { type Application, type Request, type Response, type NextFunction } from 'express';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../../generated/prisma/client.js';
 import { InvitationStatus } from '../../../types/invitation.types.js';
 import { createInvitationRoutes } from '../../../routes/invitation.routes.js';
 

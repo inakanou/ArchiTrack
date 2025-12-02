@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { InvitationService } from '../../../services/invitation.service.js';
 import { InvitationStatus } from '../../../types/invitation.types.js';
-import type { PrismaClient, Invitation } from '@prisma/client';
+import type { PrismaClient, Invitation } from '../../../generated/prisma/client.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {

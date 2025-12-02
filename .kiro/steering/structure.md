@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-11-30（Steering Sync: E2Eテスト構造更新 - helpers/、fixtures/ディレクトリ追加、テストカテゴリ（admin/、security/）追加）_
+_最終更新: 2025-12-01（Steering Sync: Prisma 7アップグレード - generated/prismaディレクトリ追加、db.ts Driver Adapter Pattern更新）_
 
 ## ルートディレクトリ構成
 
@@ -77,7 +77,9 @@ ArchiTrack/
 │   ├── src/                # ソースコード
 │   │   ├── index.ts        # Expressサーバーエントリーポイント
 │   │   ├── app.ts          # Expressアプリケーション（テスト用に分離）
-│   │   ├── db.ts           # Prisma Clientシングルトン
+│   │   ├── db.ts           # Prisma Client（Driver Adapter Pattern）
+│   │   ├── generated/      # 生成されたコード
+│   │   │   └── prisma/     # Prisma Client出力先（Prisma 7）
 │   │   ├── redis.ts        # Redis接続管理
 │   │   ├── generate-swagger.ts  # Swagger/OpenAPI仕様生成スクリプト
 │   │   ├── middleware/     # ミドルウェア
@@ -502,7 +504,9 @@ backend/
 │   ├── app.ts             # Expressアプリケーション（テスト用に分離、Swagger UI統合）
 │   ├── index.ts           # Expressサーバーエントリーポイント（app.tsをimportして起動）
 │   ├── generate-swagger.ts  # Swagger/OpenAPI仕様生成スクリプト（JSDocから生成）
-│   ├── db.ts              # Prisma Clientシングルトン（lazy initialization）
+│   ├── generated/         # 生成されたコード
+│   │   └── prisma/        # Prisma Client出力先（Prisma 7 Driver Adapter）
+│   ├── db.ts              # Prisma Client（Driver Adapter Pattern、lazy initialization）
 │   └── redis.ts           # Redis接続管理（lazy initialization）
 ├── tsconfig.json          # TypeScript設定（Node.js専用、strictモード、Incremental Build有効、performance/含む）
 ├── vitest.config.ts       # Vitest設定（Node.js環境）
@@ -551,7 +555,7 @@ backend/src/
 - `docs/api-spec.json`: 自動生成されたOpenAPI 3.0仕様ファイル。Swagger UIで提供される
 - `performance/health-check.perf.ts`: autocannonを使用したヘルスチェックエンドポイントの負荷テスト（目標: <100ms、>1000req/s）
 - `performance/autocannon.d.ts`: autocannonライブラリのカスタム型定義ファイル（TypeScript型安全性）
-- `db.ts`: Prisma Clientのシングルトン実装。lazy initializationにより初回アクセス時に接続確立
+- `db.ts`: Prisma 7 Driver Adapter Patternによる接続管理。`@prisma/adapter-pg`と`PrismaPg`を使用し、lazy initializationにより初回アクセス時に接続確立。Prisma Clientは`./generated/prisma/client.js`からインポート
 - `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
 - `errors/ApiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
 - `middleware/errorHandler.middleware.ts`: グローバルエラーハンドラー。Zod、Prisma、一般エラーを統一的に処理

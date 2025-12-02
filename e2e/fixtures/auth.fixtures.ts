@@ -6,9 +6,13 @@
  */
 
 import { randomBytes } from 'crypto';
-import { PrismaClient } from '@prisma/client';
+// Prisma 7: Use root's generated client
+import { PrismaClient } from '../../src/generated/prisma/client.js';
 import { getPrismaClient } from './database';
 import { TEST_USERS, hashPassword, type TestUser } from '../helpers/test-users';
+
+/** Type alias for PrismaClient instance */
+type PrismaClientInstance = InstanceType<typeof PrismaClient>;
 
 /**
  * E2Eテスト用のダミー2FA秘密鍵
@@ -34,7 +38,10 @@ const DUMMY_TWO_FACTOR_SECRET = 'dummy:secret:for-e2e-test';
  * console.log(user.email); // user@example.com
  * ```
  */
-export async function createTestUser(userKey: keyof typeof TEST_USERS, prisma?: PrismaClient) {
+export async function createTestUser(
+  userKey: keyof typeof TEST_USERS,
+  prisma?: PrismaClientInstance
+) {
   const client = prisma || getPrismaClient();
   const userData = TEST_USERS[userKey];
 
@@ -86,7 +93,7 @@ export async function createTestUser(userKey: keyof typeof TEST_USERS, prisma?: 
  */
 export async function createTestUsers(
   userKeys: Array<keyof typeof TEST_USERS>,
-  prisma?: PrismaClient
+  prisma?: PrismaClientInstance
 ) {
   const users = [];
   for (const key of userKeys) {
@@ -109,7 +116,7 @@ export async function createTestUsers(
  * const users = await createAllTestUsers();
  * ```
  */
-export async function createAllTestUsers(prisma?: PrismaClient) {
+export async function createAllTestUsers(prisma?: PrismaClientInstance) {
   const userKeys = Object.keys(TEST_USERS) as Array<keyof typeof TEST_USERS>;
   return await createTestUsers(userKeys, prisma);
 }
@@ -133,7 +140,7 @@ export async function createAllTestUsers(prisma?: PrismaClient) {
  * });
  * ```
  */
-export async function createCustomUser(userData: TestUser, prisma?: PrismaClient) {
+export async function createCustomUser(userData: TestUser, prisma?: PrismaClientInstance) {
   const client = prisma || getPrismaClient();
 
   // パスワードハッシュ化
@@ -194,7 +201,7 @@ export async function createInvitation(
     expiresAt?: Date;
     status?: 'pending' | 'used' | 'expired' | 'revoked';
   },
-  prisma?: PrismaClient
+  prisma?: PrismaClientInstance
 ) {
   const client = prisma || getPrismaClient();
 
@@ -239,7 +246,7 @@ export async function createPasswordResetToken(
     expiresAt?: Date;
     usedAt?: Date | null;
   },
-  prisma?: PrismaClient
+  prisma?: PrismaClientInstance
 ) {
   const client = prisma || getPrismaClient();
 
@@ -284,7 +291,7 @@ export async function createRefreshToken(
     expiresAt?: Date;
     deviceInfo?: string;
   },
-  prisma?: PrismaClient
+  prisma?: PrismaClientInstance
 ) {
   const client = prisma || getPrismaClient();
 
@@ -328,7 +335,7 @@ export async function createTwoFactorBackupCodes(
     count?: number;
     codeHash?: string;
   },
-  prisma?: PrismaClient
+  prisma?: PrismaClientInstance
 ) {
   const client = prisma || getPrismaClient();
   const count = options.count || 10;

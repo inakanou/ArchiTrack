@@ -9,7 +9,7 @@
  * - 9.1-9.5: ユーザー情報取得
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import { InvitationService } from './invitation.service.js';
 import { PasswordService } from './password.service.js';
 import { TokenService, type TokenPayload } from './token.service.js';
@@ -841,7 +841,8 @@ export class AuthService implements IAuthService {
       const newRefreshToken = await this.tokenService.generateRefreshToken(tokenPayload);
 
       // 4. 古いリフレッシュトークンを削除（トークンローテーション）
-      await this.prisma.refreshToken.delete({
+      // Prisma 7: deleteMany を使用してレコードが存在しない場合でもエラーを回避
+      await this.prisma.refreshToken.deleteMany({
         where: { id: storedToken.id },
       });
 

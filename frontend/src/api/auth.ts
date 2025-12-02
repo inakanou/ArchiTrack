@@ -73,7 +73,7 @@ export async function refreshToken(): Promise<AuthResponse> {
  * @returns ユーザープロフィール
  */
 export async function getCurrentUser(): Promise<UserProfile> {
-  return apiClient.get<UserProfile>('/api/v1/users/me');
+  return apiClient.get<UserProfile>('/api/v1/auth/me');
 }
 
 /**
@@ -82,5 +82,5 @@ export async function getCurrentUser(): Promise<UserProfile> {
  * @returns 更新後のユーザープロフィール
  */
 export async function updateProfile(data: UpdateProfileData): Promise<UserProfile> {
-  return apiClient.patch<UserProfile>('/api/v1/users/me', data);
+  return apiClient.patch<UserProfile>('/api/v1/auth/me', data);
 }

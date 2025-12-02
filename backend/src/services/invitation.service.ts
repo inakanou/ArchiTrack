@@ -13,7 +13,7 @@
  */
 
 import crypto from 'crypto';
-import type { PrismaClient, Invitation } from '@prisma/client';
+import type { PrismaClient, Invitation } from '../generated/prisma/client.js';
 import {
   InvitationStatus,
   type InvitationError,

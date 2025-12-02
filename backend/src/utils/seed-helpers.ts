@@ -7,7 +7,7 @@
  * - 18: 権限管理（事前定義権限）
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import { hash } from '@node-rs/argon2';
 import logger from './logger.js';
 

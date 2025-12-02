@@ -21,6 +21,10 @@ RUN npm run build
 # Production stage
 FROM node:22-alpine
 
+# 非rootユーザーを作成
+RUN addgroup -g 1000 -S appgroup && \
+    adduser -u 1000 -S appuser -G appgroup
+
 WORKDIR /app
 
 # Copy package files
@@ -52,6 +56,12 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy seed helpers and scripts (built files already in dist/)
 COPY scripts ./scripts
+
+# /appディレクトリの所有権を変更
+RUN chown -R appuser:appgroup /app
+
+# 非rootユーザーに切り替え
+USER appuser
 
 # Railway uses PORT env variable
 ENV NODE_ENV=production

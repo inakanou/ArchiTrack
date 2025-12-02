@@ -5,13 +5,15 @@
  * トランザクション管理などのユーティリティを提供します。
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+// Prisma 7: Use root's generated client with driver adapter pattern
+import { PrismaClient } from '../../src/generated/prisma/client.js';
 
 /**
  * Prismaクライアントのシングルトンインスタンス
  * テスト実行中に複数回接続を作成しないようにキャッシュします。
  */
-let prisma: PrismaClient | null = null;
+let prisma: InstanceType<typeof PrismaClient> | null = null;
 
 /**
  * Prismaクライアントのインスタンスを取得
@@ -27,7 +29,7 @@ let prisma: PrismaClient | null = null;
  * const user = await prisma.user.findUnique({ where: { email: 'test@example.com' } });
  * ```
  */
-export function getPrismaClient(): PrismaClient {
+export function getPrismaClient(): InstanceType<typeof PrismaClient> {
   if (!prisma) {
     // E2Eテスト用のデータベース接続URL
     // Docker Compose環境では architrack_dev を使用（バックエンドと同じDB）
@@ -36,19 +38,11 @@ export function getPrismaClient(): PrismaClient {
     // バックエンドと同じデータベースを使用する必要があります。
     // Docker Composeのデフォルトは architrack_dev です。
     //
-    // 環境変数 DATABASE_URL で上書き可能です。
-    const databaseUrl =
-      process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_dev';
+    // Prisma 7: Driver adapter pattern required for instantiation
+    const connectionString = process.env.DATABASE_URL!;
+    const adapter = new PrismaPg({ connectionString });
 
-    prisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: databaseUrl,
-        },
-      },
-      // テストログを有効化（デバッグ用、必要に応じてコメントアウト）
-      // log: ['query', 'info', 'warn', 'error'],
-    });
+    prisma = new PrismaClient({ adapter });
   }
   return prisma;
 }

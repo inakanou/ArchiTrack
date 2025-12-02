@@ -1,6 +1,44 @@
 # データベースマイグレーション
 
-このドキュメントでは、Prismaを使用したデータベーススキーマの変更とマイグレーション管理について説明します。
+このドキュメントでは、Prisma 7を使用したデータベーススキーマの変更とマイグレーション管理について説明します。
+
+---
+
+## Prisma 7 Driver Adapter Pattern
+
+ArchiTrackでは、Prisma 7の**Driver Adapter Pattern**を採用しています。これにより、データベース接続をより細かく制御できます。
+
+### スキーマ設定
+
+```prisma
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+```
+
+### クライアント初期化
+
+```typescript
+// db.ts
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from './generated/prisma/client.js';
+
+const connectionString = process.env.DATABASE_URL;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
+```
+
+### 利点
+
+- **接続制御**: コネクションプーリングのカスタマイズ
+- **柔軟性**: 外部データベースドライバーとの統合
+- **パフォーマンス**: 接続の最適化
 
 ---
 
@@ -199,6 +237,8 @@ builder = "nixpacks"
 [deploy]
 startCommand = "npx prisma migrate deploy && npm start"
 ```
+
+**注意:** Prisma 7では、Prisma Clientは `backend/src/generated/prisma/` に出力されます。ビルド時に `prisma generate` が自動実行され、Clientが生成されます。
 
 ### マイグレーション検証手順
 

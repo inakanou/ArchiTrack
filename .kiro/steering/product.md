@@ -6,7 +6,7 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 Claude Codeを活用したKiro-style Spec Driven Development（スペック駆動開発）で開発されており、スラッシュコマンド、フック、エージェント機能を統合した体系的な開発ワークフローを実現しています。
 
-_最終更新: 2025-11-29（Steering Sync: 2FA機能強化、HTTPOnly Cookie実装、要件カバレッジチェック追加）_
+_最終更新: 2025-12-01（Steering Sync: Prisma 7アップグレード完了）_
 
 ## コア機能
 
@@ -54,7 +54,7 @@ _最終更新: 2025-11-29（Steering Sync: 2FA機能強化、HTTPOnly Cookie実�
 - **ヘルスチェック機能**: 全サービス（PostgreSQL、Redis、Backend、Frontend）でヘルスチェックを実装し、起動順序と依存関係を保証
 - **TypeScript完全サポート**: Backend、Frontend、E2Eテスト全体でTypeScript採用、厳格な型安全性を実現
 - **型安全性の徹底**: カスタム型定義ファイル（Express拡張、環境変数）による`any`型の完全排除
-- **Prisma ORM統合**: PostgreSQLとの型安全なデータアクセスを実現、マイグレーション管理とスキーマ駆動開発をサポート
+- **Prisma 7 ORM統合**: PostgreSQLとの型安全なデータアクセスを実現、Driver Adapter Patternによる接続管理、マイグレーション管理とスキーマ駆動開発をサポート
 
 ### 品質保証機能
 

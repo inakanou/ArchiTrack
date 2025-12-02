@@ -15,7 +15,7 @@ import { PasswordService } from '../../../services/password.service.js';
 import { TokenService } from '../../../services/token.service.js';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
 import { SessionService } from '../../../services/session.service.js';
-import type { PrismaClient, User, Invitation } from '@prisma/client';
+import type { PrismaClient, User, Invitation } from '../../../generated/prisma/client.js';
 import { Ok, Err } from '../../../types/result.js';
 
 // Prisma Clientのモック
@@ -1156,9 +1156,9 @@ describe('AuthService', () => {
         'new-refresh-token'
       );
 
-      // Prisma.refreshToken.delete をモック
-      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'token-id-123',
+      // Prisma.refreshToken.deleteMany をモック（Prisma 7対応）
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+        count: 1,
       });
 
       // SessionService.createSession をモック
@@ -1179,7 +1179,7 @@ describe('AuthService', () => {
       }
       expect(mockTokenService.verifyToken).toHaveBeenCalledWith(refreshToken, 'refresh');
       expect(mockPrismaClient.refreshToken.findUnique).toHaveBeenCalled();
-      expect(mockPrismaClient.refreshToken.delete).toHaveBeenCalled();
+      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalled();
       expect(mockSessionService.createSession).toHaveBeenCalled();
     });
 

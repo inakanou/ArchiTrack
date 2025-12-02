@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { ApiError, ValidationError } from '../errors/apiError.js';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../generated/prisma/client.js';
 import { captureException } from '../utils/sentry.js';
 import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';

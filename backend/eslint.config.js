@@ -8,7 +8,13 @@ import importPlugin from 'eslint-plugin-import';
 export default [
   // Ignore patterns
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.git/**'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
+      '**/.git/**',
+      '**/src/generated/**',
+    ],
   },
 
   // Base JavaScript configuration
@@ -34,15 +40,15 @@ export default [
     },
   },
 
-  // TypeScript configuration (excluding vitest.config.ts)
+  // TypeScript configuration (excluding vitest.config.ts and prisma.config.ts)
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
     files: ['**/*.ts'],
-    ignores: ['vitest.config.ts'],
+    ignores: ['vitest.config.ts', 'prisma.config.ts'],
   })),
   {
     files: ['**/*.ts'],
-    ignores: ['vitest.config.ts'],
+    ignores: ['vitest.config.ts', 'prisma.config.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -78,13 +84,13 @@ export default [
     },
   },
 
-  // vitest.config.ts (without project reference)
+  // vitest.config.ts and prisma.config.ts (without project reference)
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
-    files: ['vitest.config.ts'],
+    files: ['vitest.config.ts', 'prisma.config.ts'],
   })),
   {
-    files: ['vitest.config.ts'],
+    files: ['vitest.config.ts', 'prisma.config.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {

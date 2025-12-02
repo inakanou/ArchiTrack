@@ -32,7 +32,7 @@ ArchiTrack/
 
 ### `frontend/` - フロントエンドアプリケーション
 
-React 18 + Vite 7によるモダンなシングルページアプリケーション。
+React 19 + Vite 7によるモダンなシングルページアプリケーション。
 
 ```
 frontend/
@@ -42,63 +42,78 @@ frontend/
 │   ├── hooks/             # カスタムフック
 │   ├── utils/             # ユーティリティ関数
 │   ├── services/          # APIクライアント
+│   ├── contexts/          # Reactコンテキスト
 │   ├── types/             # TypeScript型定義
 │   ├── App.tsx            # ルートコンポーネント
 │   └── main.tsx           # エントリーポイント
 ├── public/                # 静的ファイル
-├── .storybook/            # Storybook設定
+├── .storybook/            # Storybook 10設定
 ├── __tests__/             # ユニットテスト
 ├── vite.config.ts         # Vite設定
 └── package.json
 ```
 
 **主要技術:**
-- React 18（UI）
+- React 19（UI）
 - Vite 7（ビルドツール）
-- TanStack Router（ルーティング）
-- Zustand（状態管理）
-- Vitest（テスト）
-- Storybook（コンポーネントカタログ）
+- React Router 7（ルーティング）
+- TypeScript 5.9（型安全性）
+- Vitest 4（テスト）
+- Storybook 10（コンポーネントカタログ）
 
 ### `backend/` - バックエンドAPI
 
-Node.js 22 + ExpressによるRESTful APIサーバー。
+Node.js 22 + Express 5によるRESTful APIサーバー。
 
 ```
 backend/
 ├── src/
 │   ├── config/            # アプリケーション設定
-│   ├── controllers/       # ルートハンドラー
 │   ├── services/          # ビジネスロジック
-│   ├── repositories/      # データアクセス層
 │   ├── middleware/        # Express ミドルウェア
 │   ├── routes/            # ルート定義
+│   ├── errors/            # カスタムエラー定義
 │   ├── types/             # TypeScript型定義
 │   ├── utils/             # ユーティリティ関数
+│   ├── generated/         # 生成されたコード
+│   │   └── prisma/        # Prisma Client出力先（Prisma 7）
 │   ├── __tests__/         # テスト
 │   │   ├── unit/          # ユニットテスト
 │   │   └── integration/   # 統合テスト
 │   ├── app.ts             # Expressアプリケーション
-│   └── server.ts          # サーバーエントリーポイント
+│   ├── index.ts           # サーバーエントリーポイント
+│   ├── db.ts              # Prisma Client（Driver Adapter Pattern）
+│   └── redis.ts           # Redis接続管理
 ├── prisma/
 │   ├── schema.prisma      # データベーススキーマ
-│   └── migrations/        # マイグレーションファイル
-├── scripts/               # ユーティリティスクリプト
+│   ├── migrations/        # マイグレーションファイル
+│   └── seed.ts            # シードデータ
+├── performance/           # パフォーマンステスト
 ├── dist/                  # ビルド出力（生成）
 └── package.json
 ```
 
 **主要技術:**
 - Node.js 22（ランタイム）
-- Express（Webフレームワーク）
-- Prisma（ORM）
+- Express 5（Webフレームワーク）
+- Prisma 7（ORM、Driver Adapter Pattern）
 - PostgreSQL 15（データベース）
 - Redis 7（キャッシュ/セッション）
-- Vitest（テスト）
+- Vitest 4（テスト）
+
+**Prisma 7 Driver Adapter Pattern:**
+```typescript
+// db.ts
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from './generated/prisma/client.js';
+
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
+```
 
 **レイヤードアーキテクチャ:**
 ```
-Routes → Controllers → Services → Repositories → Prisma → Database
+Routes → Services → Prisma Client → Database
 ```
 
 ### `e2e/` - E2Eテスト
