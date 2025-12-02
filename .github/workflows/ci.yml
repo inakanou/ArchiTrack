@@ -113,6 +113,9 @@ jobs:
           else
             npm --prefix ${{ matrix.workspace }} run type-check
           fi
+        env:
+          # Prisma 7 requires DATABASE_URL for prisma generate (dummy value for CI)
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
   test-unit:
     name: Unit Tests
@@ -140,6 +143,12 @@ jobs:
 
       - name: Install dependencies
         run: npm --prefix ${{ matrix.workspace }} ci
+      - name: Generate Prisma Client (backend only)
+        if: matrix.workspace == 'backend'
+        run: npm --prefix backend run prisma:generate
+        env:
+          # Prisma 7 requires DATABASE_URL for prisma generate (dummy value for CI)
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
       - name: Run unit tests
         run: |
           if [ "${{ matrix.workspace }}" = "backend" ]; then
@@ -189,6 +198,9 @@ jobs:
         run: npm --prefix ${{ matrix.workspace }} ci
       - name: Build
         run: npm --prefix ${{ matrix.workspace }} run build
+        env:
+          # Prisma 7 requires DATABASE_URL for prisma generate (dummy value for CI)
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
       # Phase 1: Validate ES Module imports with node (backend only)
       - name: Validate ES Module imports (backend)
