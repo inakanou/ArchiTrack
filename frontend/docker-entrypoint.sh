@@ -11,6 +11,8 @@ else
   ARCH=$(uname -m)
   if [ "$ARCH" = "aarch64" ]; then
     ARCH="arm64"
+  elif [ "$ARCH" = "x86_64" ]; then
+    ARCH="x64"
   fi
 
   if [ ! -d "node_modules/@rollup/rollup-linux-${ARCH}-gnu" ]; then
