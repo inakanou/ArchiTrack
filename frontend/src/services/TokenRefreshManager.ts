@@ -32,7 +32,7 @@ interface TokenRefreshedMessage {
 export class TokenRefreshManager {
   private refreshPromise: Promise<string> | null = null;
   private broadcastChannel: BroadcastChannel;
-  private autoRefreshTimer: number | null = null;
+  private autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private tokenRefreshedCallbacks: TokenRefreshedCallback[] = [];
 
   /**
