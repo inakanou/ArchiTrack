@@ -50,8 +50,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile.dev
     container_name: architrack-backend
-    # 非rootユーザーで実行（ホストのUID/GIDを使用してボリュームマウントの権限問題を回避）
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: ${PORT:-3000}
@@ -99,8 +97,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile.dev
     container_name: architrack-backend-prod
-    # 非rootユーザーで実行（ホストのUID/GIDを使用してボリュームマウントの権限問題を回避）
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -139,8 +135,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.dev
     container_name: architrack-frontend
-    # 非rootユーザーで実行（ホストのUID/GIDを使用してボリュームマウントの権限問題を回避）
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
     ports:

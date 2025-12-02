@@ -385,27 +385,17 @@ jobs:
 
       - name: Start Docker Compose for E2E
         run: |
-          # Set UID/GID to CI runner's user to avoid permission issues with volume mounts
-          # Note: UID is a readonly variable in bash, so we use HOST_UID/HOST_GID instead
-          export HOST_UID=$(id -u)
-          export HOST_GID=$(id -g)
-          # Use --wait flag to wait for healthchecks with extended timeout
-          docker compose up -d --wait --wait-timeout 180
+          docker compose up -d
+          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
+          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
 
-      - name: Debug - Check container status
+      - name: Debug - Check backend container logs
         if: always()
         run: |
-          echo "=== Docker container status ==="
-          docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-          echo ""
-          echo "=== Frontend container logs ==="
-          docker logs architrack-frontend --tail 100 2>&1 || echo "Frontend container not found"
-          echo ""
           echo "=== Backend container logs ==="
-          docker logs architrack-backend --tail 100 || echo "Backend container not found"
-          echo ""
+          docker logs architrack-backend --tail 100
           echo "=== Backend container environment variables (filtered) ==="
-          docker exec architrack-backend printenv | grep -E "NODE_ENV|PORT|DATABASE_URL|REDIS_URL|JWT" | sed 's/=.*/=***/' || echo "Backend container not running"
+          docker exec architrack-backend printenv | grep -E "NODE_ENV|PORT|DATABASE_URL|REDIS_URL|JWT" | sed 's/=.*/=***/'
 
       - name: Run database migrations
         run: docker exec architrack-backend npx prisma migrate deploy
