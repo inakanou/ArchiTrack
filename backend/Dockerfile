@@ -29,6 +29,9 @@ FROM node:22-alpine
 
 # node:22-alpineには既にnodeユーザー(UID/GID 1000)が存在するため、それを使用
 
+# Install bash for wait-for-it.sh script
+RUN apk add --no-cache bash
+
 WORKDIR /app
 
 # Copy package files
@@ -57,9 +60,10 @@ RUN DATABASE_URL=${DATABASE_URL} npx prisma generate
 # Note: Only needed for initial seeding when RUN_SEED=true
 RUN npm install tsx
 
-# Copy docker-entrypoint.sh for initialization
+# Copy docker-entrypoint.sh and wait-for-it.sh for initialization
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY wait-for-it.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/wait-for-it.sh
 
 # Copy seed helpers and scripts (built files already in dist/)
 COPY scripts ./scripts
