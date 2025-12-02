@@ -6,14 +6,20 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Copy Prisma schema
+# Copy Prisma schema and config
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 
 # Install all dependencies (including devDependencies for build)
 RUN npm ci
 
 # Copy source files
 COPY . .
+
+# Set dummy DATABASE_URL for prisma generate (not used for actual DB connection)
+# Prisma generate only creates client code and doesn't connect to the database
+ARG DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
+ENV DATABASE_URL=${DATABASE_URL}
 
 # Generate Prisma Client and build TypeScript
 RUN npm run build
@@ -28,8 +34,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Copy Prisma schema and migrations for runtime
+# Copy Prisma schema, config, and migrations for runtime
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 
 # Install production dependencies only
 RUN npm ci --omit=dev && \
@@ -42,7 +49,9 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma/migrations ./prisma/migrations
 
 # Generate Prisma Client for production
-RUN npx prisma generate
+# Set dummy DATABASE_URL for prisma generate (not used for actual DB connection)
+ARG DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
+RUN DATABASE_URL=${DATABASE_URL} npx prisma generate
 
 # Install tsx for running seed scripts in production
 # Note: Only needed for initial seeding when RUN_SEED=true
