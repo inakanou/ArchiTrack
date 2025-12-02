@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-01（Steering Sync: Prisma 7アップグレード - generated/prismaディレクトリ追加、db.ts Driver Adapter Pattern更新）_
+_最終更新: 2025-12-02（Steering Sync: Mailhogサービス追加、frontend services層確認）_
 
 ## ルートディレクトリ構成
 
@@ -623,7 +623,9 @@ backend/src/
 
 - `postgres`: PostgreSQL 15データベース（ポート5432）
 - `redis`: Redis 7キャッシュ（ポート6379）
+- `mailhog`: Mailpit（E2Eテスト用モックSMTPサーバー、ポート1025/8025）
 - `backend`: Node.js/Expressバックエンド（ポート3000）
+- `backend-prod`: 本番シミュレーション用バックエンド（ポート3001、profilesで分離）
 - `frontend`: React/Viteフロントエンド（ポート5173）
 
 **開発環境の特徴:**
