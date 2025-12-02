@@ -1,6 +1,28 @@
 #!/bin/sh
 set -e
 
+# Extract database host and port from DATABASE_URL for wait-for-it.sh
+# DATABASE_URL format: postgresql://user:password@host:port/database?schema=public
+extract_db_host_port() {
+  if [ -n "$DATABASE_URL" ]; then
+    # Extract host:port using sed
+    DB_HOST_PORT=$(echo "$DATABASE_URL" | sed -n 's/.*@\([^/]*\)\/.*/\1/p')
+    echo "$DB_HOST_PORT"
+  fi
+}
+
+# Wait for database to be ready (production only)
+wait_for_database() {
+  DB_HOST_PORT=$(extract_db_host_port)
+  if [ -n "$DB_HOST_PORT" ]; then
+    echo "Waiting for database at $DB_HOST_PORT..."
+    /usr/local/bin/wait-for-it.sh "$DB_HOST_PORT" -t 60
+    echo "Database is ready!"
+  else
+    echo "Warning: Could not extract database host from DATABASE_URL"
+  fi
+}
+
 echo "Checking dependencies..."
 
 if [ ! -d "node_modules/.bin" ]; then
@@ -39,6 +61,8 @@ if [ "$NODE_ENV" = "development" ] || [ "$NODE_ENV" = "test" ]; then
   npm run prisma:migrate:deploy
   echo "Migrations completed successfully"
 elif [ "$MIGRATE_ON_DEPLOY" = "true" ] && [ "$NODE_ENV" = "production" ]; then
+  # Wait for database to be available before running migrations
+  wait_for_database
   echo "Running database migrations (production)..."
   npm run prisma:migrate:deploy
   echo "Migrations completed successfully"
