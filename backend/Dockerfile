@@ -21,9 +21,7 @@ RUN npm run build
 # Production stage
 FROM node:22-alpine
 
-# 非rootユーザーを作成
-RUN addgroup -g 1000 -S appgroup && \
-    adduser -u 1000 -S appuser -G appgroup
+# node:22-alpineには既にnodeユーザー(UID/GID 1000)が存在するため、それを使用
 
 WORKDIR /app
 
@@ -58,10 +56,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 COPY scripts ./scripts
 
 # /appディレクトリの所有権を変更
-RUN chown -R appuser:appgroup /app
+RUN chown -R node:node /app
 
 # 非rootユーザーに切り替え
-USER appuser
+USER node
 
 # Railway uses PORT env variable
 ENV NODE_ENV=production
