@@ -389,17 +389,20 @@ jobs:
           # Note: UID is a readonly variable in bash, so we use HOST_UID/HOST_GID instead
           export HOST_UID=$(id -u)
           export HOST_GID=$(id -g)
-          docker compose up -d
-          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
-          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
+          # Use --wait flag to wait for healthchecks with extended timeout
+          docker compose up -d --wait --wait-timeout 180
 
-      - name: Debug - Check backend container logs
+      - name: Debug - Check container status
         if: always()
         run: |
+          echo "=== Docker container status ==="
+          docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+          echo ""
           echo "=== Backend container logs ==="
-          docker logs architrack-backend --tail 100
+          docker logs architrack-backend --tail 100 || echo "Backend container not found"
+          echo ""
           echo "=== Backend container environment variables (filtered) ==="
-          docker exec architrack-backend printenv | grep -E "NODE_ENV|PORT|DATABASE_URL|REDIS_URL|JWT" | sed 's/=.*/=***/'
+          docker exec architrack-backend printenv | grep -E "NODE_ENV|PORT|DATABASE_URL|REDIS_URL|JWT" | sed 's/=.*/=***/' || echo "Backend container not running"
 
       - name: Run database migrations
         run: docker exec architrack-backend npx prisma migrate deploy
