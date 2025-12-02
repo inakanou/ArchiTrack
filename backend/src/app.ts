@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import swaggerUi from 'swagger-ui-express';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -13,28 +14,37 @@ import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middlewar
 import { validateEnv } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
+import { generateCsrfToken } from './middleware/csrf.middleware.js';
 import adminRoutes from './routes/admin.routes.js';
+import authRoutes from './routes/auth.routes.js';
+import { createInvitationRoutes } from './routes/invitation.routes.js';
+import rolesRoutes from './routes/roles.routes.js';
+import permissionsRoutes from './routes/permissions.routes.js';
+import userRolesRoutes from './routes/user-roles.routes.js';
+import auditLogRoutes from './routes/audit-log.routes.js';
+import sessionRoutes from './routes/session.routes.js';
+import jwksRoutes from './routes/jwks.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
-// Trust proxy - Railway等のプロキシ環境で必須
-// X-Forwarded-* ヘッダーを信頼する
+// Trust proxy - Required for proxy environments like Railway
+// Trust X-Forwarded-* headers
 app.set('trust proxy', true);
 
 // Middleware
-// HTTPS強制（本番環境のみ）
+// Force HTTPS (production only)
 app.use(httpsRedirect);
 app.use(hsts);
 
-// HTTPロギングを適用
+// Apply HTTP logging
 app.use(httpLogger);
 
-// 環境変数を検証して取得
+// Validate and retrieve environment variables
 const env = validateEnv();
 
-// セキュリティヘッダーの設定
+// Configure security headers
 app.use(
   helmet({
     // Content Security Policy
@@ -57,20 +67,25 @@ app.use(
   cors({
     origin: env.FRONTEND_URL,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Length', 'X-Request-Id'],
+    maxAge: 86400, // 24 hours - preflight cache
   })
 );
 
-// 圧縮ミドルウェア（レスポンスサイズを削減）
+// Compression middleware (reduce response size)
 app.use(
   compression({
-    // 1KB以上のレスポンスのみ圧縮
+    // Compress only responses larger than 1KB
     threshold: 1024,
-    // 圧縮レベル（0-9、6がデフォルト）
+    // Compression level (0-9, default is 6)
     level: 6,
   })
 );
 
 app.use(express.json());
+app.use(cookieParser());
 
 // Swagger UI setup (development環境のみ有効)
 if (env.NODE_ENV !== 'production') {
@@ -145,7 +160,7 @@ app.get('/health', healthCheckLimiter, async (req: Request, res: Response) => {
     ]);
   };
 
-  // PostgreSQL チェック（オプショナル）
+  // PostgreSQL check (optional)
   try {
     const prisma = getPrismaClient();
     await withTimeout(prisma.$queryRaw`SELECT 1`, CHECK_TIMEOUT);
@@ -153,20 +168,20 @@ app.get('/health', healthCheckLimiter, async (req: Request, res: Response) => {
   } catch (error) {
     req.log.warn({ err: error }, 'PostgreSQL not available');
     services.database = 'disconnected';
-    // DB接続がない場合でもサーバーは稼働可能
+    // Server can run even without DB connection
   }
 
-  // Redis チェック（オプショナル）
+  // Redis check (optional)
   try {
     await withTimeout(redis.ping(), CHECK_TIMEOUT);
     services.redis = 'connected';
   } catch (error) {
     req.log.warn({ err: error }, 'Redis not available');
     services.redis = 'disconnected';
-    // Redis接続がない場合でもサーバーは稼働可能
+    // Server can run even without Redis connection
   }
 
-  // サーバー自体が起動していればOK
+  // Server is OK if it's running
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -174,9 +189,48 @@ app.get('/health', healthCheckLimiter, async (req: Request, res: Response) => {
   });
 });
 
-// Favicon handler - ブラウザのfaviconリクエストに対応
+// Favicon handler - respond to browser favicon requests
 app.get('/favicon.ico', (_req: Request, res: Response) => {
   res.status(204).end(); // No Content
+});
+
+// JWKS endpoint (RFC 7517) - JWT public key distribution
+app.use('/.well-known', jwksRoutes);
+
+/**
+ * @swagger
+ * /csrf-token:
+ *   get:
+ *     summary: Get CSRF Token
+ *     description: Generate and return a CSRF token for subsequent state-changing requests
+ *     tags:
+ *       - Security
+ *     responses:
+ *       200:
+ *         description: CSRF token generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 csrfToken:
+ *                   type: string
+ *                   example: a1b2c3d4e5f6...
+ */
+// CSRF token endpoint
+app.get('/csrf-token', (_req: Request, res: Response) => {
+  const token = generateCsrfToken();
+
+  // Send as cookie (HttpOnly, Secure, SameSite=Strict)
+  res.cookie('csrf-token', token, {
+    httpOnly: false, // Accessible from JavaScript (to set X-CSRF-Token header)
+    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    sameSite: 'strict', // CSRF attack protection
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  });
+
+  // Also send in response body
+  res.json({ csrfToken: token });
 });
 
 /**
@@ -203,7 +257,7 @@ app.get('/favicon.ico', (_req: Request, res: Response) => {
  *                   example: 1.0.0
  */
 // API routes
-// 全APIエンドポイントにレート制限を適用
+// Apply rate limiting to all API endpoints
 app.use('/api', apiLimiter);
 
 app.get('/api', (_req: Request, res: Response) => {
@@ -213,8 +267,26 @@ app.get('/api', (_req: Request, res: Response) => {
   });
 });
 
-// Admin routes (TODO: 認証ミドルウェアを追加)
+// Admin routes (TODO: add authentication middleware)
 app.use('/admin', adminRoutes);
+
+// Authentication routes
+app.use('/api/v1/auth', authRoutes);
+
+// Invitation routes
+const prisma = getPrismaClient();
+app.use('/api/v1/invitations', createInvitationRoutes(prisma));
+
+// RBAC routes
+app.use('/api/v1/roles', rolesRoutes);
+app.use('/api/v1/permissions', permissionsRoutes);
+app.use('/api/v1/users', userRolesRoutes);
+
+// Audit log routes
+app.use('/api/v1/audit-logs', auditLogRoutes);
+
+// Session management routes
+app.use('/api/v1/auth/sessions', sessionRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

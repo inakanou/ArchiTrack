@@ -23,12 +23,19 @@ interface RequestOptions {
 }
 
 /**
+ * トークンリフレッシュコールバックの型定義
+ */
+export type TokenRefreshCallback = () => Promise<string>;
+
+/**
  * APIクライアント
  * バックエンドAPIとの通信を抽象化
  */
 class ApiClient {
   private baseUrl: string;
   private defaultTimeout: number = 30000; // 30秒
+  private accessToken: string | null = null;
+  private tokenRefreshCallback: TokenRefreshCallback | null = null;
 
   constructor() {
     this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -47,14 +54,22 @@ class ApiClient {
     try {
       const url = `${this.baseUrl}${path}`;
 
+      // アクセストークンが設定されている場合、Authorizationヘッダーを追加
+      const requestHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...headers,
+      };
+
+      if (this.accessToken) {
+        requestHeaders['Authorization'] = `Bearer ${this.accessToken}`;
+      }
+
       const response = await fetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
+        headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
+        credentials: 'include', // 要件26.5: HTTPOnly Cookieを送受信するため
       });
 
       clearTimeout(timeoutId);
@@ -69,9 +84,46 @@ class ApiClient {
         data = await response.text();
       }
 
+      // 401エラーの場合、トークンリフレッシュを試みる
+      if (response.status === 401 && this.tokenRefreshCallback) {
+        // 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
+        if (import.meta.env.DEV) {
+          console.log('[Auth] Access token expired or invalid, attempting refresh...');
+        }
+        try {
+          // トークンをリフレッシュ
+          const newAccessToken = await this.tokenRefreshCallback();
+
+          // 新しいアクセストークンを設定
+          this.setAccessToken(newAccessToken);
+
+          // 元のリクエストをリトライ（リフレッシュコールバックをnullにして無限ループを防ぐ）
+          const originalCallback = this.tokenRefreshCallback;
+          this.tokenRefreshCallback = null;
+
+          try {
+            return await this.request<T>(path, options);
+          } finally {
+            this.tokenRefreshCallback = originalCallback;
+          }
+        } catch {
+          // リフレッシュ失敗時は401エラーをそのままスロー
+          const errorMessage =
+            (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+              ? data.error
+              : null) || response.statusText;
+          throw new ApiError(response.status, errorMessage, data);
+        }
+      }
+
       // エラーレスポンスの処理
       if (!response.ok) {
-        throw new ApiError(response.status, response.statusText, data);
+        // レスポンスボディのerrorフィールドを優先的に使用
+        const errorMessage =
+          (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+            ? data.error
+            : null) || response.statusText;
+        throw new ApiError(response.status, errorMessage, data);
       }
 
       return data as T;
@@ -148,6 +200,27 @@ class ApiClient {
    */
   setTimeout(timeout: number): void {
     this.defaultTimeout = timeout;
+  }
+
+  /**
+   * アクセストークンを設定
+   */
+  setAccessToken(token: string | null): void {
+    this.accessToken = token;
+  }
+
+  /**
+   * アクセストークンを取得
+   */
+  getAccessToken(): string | null {
+    return this.accessToken;
+  }
+
+  /**
+   * トークンリフレッシュコールバックを設定
+   */
+  setTokenRefreshCallback(callback: TokenRefreshCallback | null): void {
+    this.tokenRefreshCallback = callback;
   }
 }
 

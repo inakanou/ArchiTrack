@@ -31,18 +31,46 @@ services:
       timeout: 5s
       retries: 5
 
-  # Backend API
+  # Mailhog (Mock SMTP server for E2E testing)
+  mailhog:
+    image: axllent/mailpit:latest
+    container_name: architrack-mailhog
+    ports:
+      - "1025:1025"  # SMTP port
+      - "8025:8025"  # Web UI port
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (Development with tsx)
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
     container_name: architrack-backend
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://postgres:dev@postgres:5432/architrack_dev
-      REDIS_URL: redis://redis:6379
-      FRONTEND_URL: http://localhost:5173
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3000}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:dev@postgres:5432/architrack_dev}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ACCESS_TOKEN_EXPIRY: ${ACCESS_TOKEN_EXPIRY:-15m}
+      REFRESH_TOKEN_EXPIRY: ${REFRESH_TOKEN_EXPIRY:-7d}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
+      DISABLE_RATE_LIMIT: ${DISABLE_RATE_LIMIT:-false}
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@architrack.com}
     ports:
       - "3000:3000"
     volumes:
@@ -53,6 +81,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailhog:
+        condition: service_healthy
     command: npm run dev
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
@@ -61,6 +91,44 @@ services:
       retries: 5
       start_period: 30s
 
+  # Backend API (Production simulation with node - Phase 3)
+  backend-prod:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: architrack-backend-prod
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:dev@postgres:5432/architrack_dev}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ACCESS_TOKEN_EXPIRY: ${ACCESS_TOKEN_EXPIRY:-15m}
+      REFRESH_TOKEN_EXPIRY: ${REFRESH_TOKEN_EXPIRY:-7d}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - backend_prod_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "npm run build && node dist/src/index.js"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    profiles:
+      - prod-test
+
   # Frontend
   frontend:
     build:
@@ -68,7 +136,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: architrack-frontend
     environment:
-      VITE_API_URL: http://localhost:3000
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
     ports:
       - "5173:5173"
     volumes:
@@ -85,4 +153,5 @@ volumes:
   postgres_data:
   redis_data:
   backend_node_modules:
+  backend_prod_node_modules:
   frontend_node_modules:

@@ -2,26 +2,206 @@
 // https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
-// Example User model - サンプルモデル
-// プロジェクトの要件に合わせて調整してください
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ===== User Authentication Data Models =====
 
-  // パフォーマンス最適化用インデックス
-  @@index([createdAt], name: "idx_users_created_at")
-  @@index([updatedAt], name: "idx_users_updated_at")
-  @@index([email, createdAt], name: "idx_users_email_created_at")
+model User {
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  displayName          String
+  passwordHash         String
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecret      String? // AES-256-GCM暗号化済み（Base32エンコードされたTOTP秘密鍵）
+  isLocked             Boolean   @default(false)
+  lockedUntil          DateTime?
+  loginFailures        Int       @default(0)
+  twoFactorFailures    Int       @default(0)
+  twoFactorLockedUntil DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  userRoles             UserRole[]
+  refreshTokens         RefreshToken[]
+  invitationsSent       Invitation[]          @relation("InviterToInvitations")
+  invitation            Invitation?           @relation("InvitationToUser")
+  passwordResetRequests PasswordResetToken[]
+  passwordHistories     PasswordHistory[]
+  twoFactorBackupCodes  TwoFactorBackupCode[]
+  auditLogsAsActor      AuditLog[]            @relation("ActorAuditLogs")
+
+  @@index([email])
+  @@index([isLocked])
   @@map("users")
+}
+
+model Invitation {
+  id        String    @id @default(uuid())
+  email     String
+  token     String    @unique
+  inviterId String
+  status    String    @default("pending") // pending, used, expired, revoked
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+  userId    String?   @unique
+
+  inviter User  @relation("InviterToInvitations", fields: [inviterId], references: [id])
+  user    User? @relation("InvitationToUser", fields: [userId], references: [id])
+
+  @@index([token])
+  @@index([email])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  userId     String
+  token      String   @unique
+  deviceInfo String? // User-Agent情報（オプション）
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  priority    Int      @default(0) // 高い値が高優先度
+  isSystem    Boolean  @default(false) // システムロール（削除不可）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@index([name])
+  @@index([priority])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  resource    String // adr, user, role, permission, project, report, settings
+  action      String // create, read, update, delete, manage, approve, reject, delegate, export
+  description String
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@unique([resource, action])
+  @@index([resource])
+  @@index([action])
+  @@map("permissions")
+}
+
+model UserRole {
+  id         String   @id @default(uuid())
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  roleId       String
+  permissionId String
+  assignedAt   DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model PasswordHistory {
+  id           String   @id @default(uuid())
+  userId       String
+  passwordHash String // Argon2idハッシュ
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("password_histories")
+}
+
+model TwoFactorBackupCode {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String // Argon2idハッシュ（8文字の英数字コード）
+  usedAt    DateTime? // 使用済み追跡（1回限り使用）
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([usedAt])
+  @@map("two_factor_backup_codes")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String // ROLE_CREATED, ROLE_UPDATED, ROLE_DELETED, PERMISSION_ASSIGNED, PERMISSION_REVOKED, USER_ROLE_ASSIGNED, USER_ROLE_REVOKED, PERMISSION_CHECK_FAILED, TWO_FACTOR_ENABLED, TWO_FACTOR_DISABLED
+  actorId    String
+  targetType String // User, Role, Permission, UserRole, RolePermission
+  targetId   String
+  before     Json? // 変更前の値（JSON形式）
+  after      Json? // 変更後の値（JSON形式）
+  metadata   Json? // IPアドレス、ユーザーエージェント、リクエストID
+  createdAt  DateTime @default(now())
+
+  actor User @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
+  // Note: targetIdは多態的なフィールドで、targetTypeに応じてUser/Role/Permission等を参照
+  // 外部キー制約は設けず、アプリケーションレベルで整合性を管理
+
+  @@index([actorId])
+  @@index([targetId])
+  @@index([targetType, targetId])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

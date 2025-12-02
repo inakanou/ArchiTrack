@@ -38,10 +38,22 @@ describe('rateLimit middleware', () => {
     expect(typeof apiLimiter).toBe('function');
   });
 
-  it('authLimiterがエクスポートされていること', async () => {
-    const { authLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-    expect(authLimiter).toBeDefined();
-    expect(typeof authLimiter).toBe('function');
+  it('loginLimiterがエクスポートされていること', async () => {
+    const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+    expect(loginLimiter).toBeDefined();
+    expect(typeof loginLimiter).toBe('function');
+  });
+
+  it('refreshLimiterがエクスポートされていること', async () => {
+    const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+    expect(refreshLimiter).toBeDefined();
+    expect(typeof refreshLimiter).toBe('function');
+  });
+
+  it('invitationLimiterがエクスポートされていること', async () => {
+    const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+    expect(invitationLimiter).toBeDefined();
+    expect(typeof invitationLimiter).toBe('function');
   });
 
   it('healthCheckLimiterがエクスポートされていること', async () => {

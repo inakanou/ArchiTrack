@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-// import { visualizer } from 'rollup-plugin-visualizer';
+import { visualizer } from 'rollup-plugin-visualizer';
 
 export default defineConfig(({ mode }) => {
   const isDevelopment = mode === 'development';
@@ -9,14 +9,14 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
-      // Bundle analyzer (本番ビルド時のみ) - 一時的に無効化
-      // isProduction &&
-      //   visualizer({
-      //     filename: 'dist/stats.html',
-      //     open: false,
-      //     gzipSize: true,
-      //     brotliSize: true,
-      //   }),
+      // Bundle analyzer (本番ビルド時のみ)
+      isProduction &&
+        visualizer({
+          filename: 'dist/stats.html',
+          open: false,
+          gzipSize: true,
+          brotliSize: true,
+        }),
     ].filter(Boolean),
 
     // 開発サーバー設定

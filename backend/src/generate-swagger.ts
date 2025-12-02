@@ -1,5 +1,5 @@
 import swaggerJsdoc from 'swagger-jsdoc';
-import { writeFileSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -131,6 +131,38 @@ const options = {
         name: 'Admin',
         description: 'Administrative endpoints',
       },
+      {
+        name: 'Authentication',
+        description: 'User authentication endpoints (register, login, logout, token refresh)',
+      },
+      {
+        name: 'Two-Factor Authentication',
+        description: '2FA setup, verification, and backup code management',
+      },
+      {
+        name: 'Password Management',
+        description: 'Password reset and recovery endpoints',
+      },
+      {
+        name: 'Roles',
+        description: 'Role management endpoints (RBAC)',
+      },
+      {
+        name: 'Permissions',
+        description: 'Permission management endpoints (RBAC)',
+      },
+      {
+        name: 'Users',
+        description: 'User management endpoints',
+      },
+      {
+        name: 'Invitations',
+        description: 'User invitation and onboarding endpoints',
+      },
+      {
+        name: 'Audit Logs',
+        description: 'System audit log endpoints',
+      },
     ],
   },
   apis: ['./src/app.ts', './src/routes/**/*.ts'],
@@ -138,5 +170,10 @@ const options = {
 
 const specs = swaggerJsdoc(options);
 const outputPath = `${__dirname}/../docs/api-spec.json`;
+const outputDir = dirname(outputPath);
+
+// Ensure the output directory exists
+mkdirSync(outputDir, { recursive: true });
+
 writeFileSync(outputPath, JSON.stringify(specs, null, 2));
 console.log(`Swagger spec generated at ${outputPath}`);

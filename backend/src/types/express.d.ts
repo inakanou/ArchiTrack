@@ -18,6 +18,16 @@ declare global {
        * validate middleware使用後に利用可能
        */
       validatedParams?: unknown;
+
+      /**
+       * 認証済みユーザー情報
+       * authenticate middleware使用後に利用可能
+       */
+      user?: {
+        userId: string;
+        email: string;
+        roles: string[];
+      };
     }
   }
 }

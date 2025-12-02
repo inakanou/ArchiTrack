@@ -1,13 +1,12 @@
-# Claude Code Spec-Driven Development
+# AI-DLC and Spec-Driven Development
 
-Kiro-style Spec Driven Development implementation using claude code slash commands, hooks and agents.
+Kiro-style Spec Driven Development implementation on AI-DLC (AI Development Life Cycle)
 
 ## Project Context
 
 ### Paths
 - Steering: `.kiro/steering/`
 - Specs: `.kiro/specs/`
-- Commands: `.claude/commands/`
 
 ### Steering vs Specification
 
@@ -19,54 +18,28 @@ Kiro-style Spec Driven Development implementation using claude code slash comman
 - Use `/kiro:spec-status [feature-name]` to check progress
 
 ## Development Guidelines
-- Think in English, but generate responses in Japanese (思考は英語、回答の生成は日本語で行うように)
+- Think in English, generate responses in Japanese. All Markdown content written to project files (e.g., requirements.md, design.md, tasks.md, research.md, validation reports) MUST be written in the target language configured for this specification (see spec.json.language).
 
-## Workflow
-
-### Phase 0: Steering (Optional)
-`/kiro:steering` - Create/update steering documents
-`/kiro:steering-custom` - Create custom steering for specialized contexts
-
-Note: Optional for new features or small additions. You can proceed directly to spec-init.
-
-### Phase 1: Specification Creation
-1. `/kiro:spec-init [detailed description]` - Initialize spec with detailed project description
-2. `/kiro:spec-requirements [feature]` - Generate requirements document
-3. `/kiro:spec-design [feature]` - Interactive: "Have you reviewed requirements.md? [y/N]"
-4. `/kiro:spec-tasks [feature]` - Interactive: Confirms both requirements and design review
-
-### Phase 2: Progress Tracking
-`/kiro:spec-status [feature]` - Check current progress and phases
+## Minimal Workflow
+- Phase 0 (optional): `/kiro:steering`, `/kiro:steering-custom`
+- Phase 1 (Specification):
+  - `/kiro:spec-init "description"`
+  - `/kiro:spec-requirements {feature}`
+  - `/kiro:validate-gap {feature}` (optional: for existing codebase)
+  - `/kiro:spec-design {feature} [-y]`
+  - `/kiro:validate-design {feature}` (optional: design review)
+  - `/kiro:spec-tasks {feature} [-y]`
+- Phase 2 (Implementation): `/kiro:spec-impl {feature} [tasks]`
+  - `/kiro:validate-impl {feature}` (optional: after implementation)
+- Progress check: `/kiro:spec-status {feature}` (use anytime)
 
 ## Development Rules
-1. **Consider steering**: Run `/kiro:steering` before major development (optional for new features)
-2. **Follow 3-phase approval workflow**: Requirements → Design → Tasks → Implementation
-3. **Approval required**: Each phase requires human review (interactive prompt or manual)
-4. **No skipping phases**: Design requires approved requirements; Tasks require approved design
-5. **Update task status**: Mark tasks as completed when working on them
-6. **Keep steering current**: Run `/kiro:steering` after significant changes
-7. **Check spec compliance**: Use `/kiro:spec-status` to verify alignment
+- 3-phase approval workflow: Requirements → Design → Tasks → Implementation
+- Human review required each phase; use `-y` only for intentional fast-track
+- Keep steering current and verify alignment with `/kiro:spec-status`
+- Follow the user's instructions precisely, and within that scope act autonomously: gather the necessary context and complete the requested work end-to-end in this run, asking questions only when essential information is missing or the instructions are critically ambiguous.
 
 ## Steering Configuration
-
-### Current Steering Files
-Managed by `/kiro:steering` command. Updates here reflect command changes.
-
-### Active Steering Files
-- `product.md`: Always included - Product context and business objectives
-- `tech.md`: Always included - Technology stack and architectural decisions
-- `structure.md`: Always included - File organization and code patterns
-
-### Custom Steering Files
-<!-- Added by /kiro:steering-custom command -->
-<!-- Format:
-- `filename.md`: Mode - Pattern(s) - Description
-  Mode: Always|Conditional|Manual
-  Pattern: File patterns for Conditional mode
--->
-
-### Inclusion Modes
-- **Always**: Loaded in every interaction (default)
-- **Conditional**: Loaded for specific file patterns (e.g., "*.test.js")
-- **Manual**: Reference with `@filename.md` syntax
-
+- Load entire `.kiro/steering/` as project memory
+- Default files: `product.md`, `tech.md`, `structure.md`
+- Custom files are supported (managed via `/kiro:steering-custom`)

@@ -16,7 +16,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 初回ビルド時にnode_modulesをインストール
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 COPY . .
 

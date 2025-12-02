@@ -1,89 +1,73 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import App from '../App';
 
-// fetchをモック
-globalThis.fetch = vi.fn() as Mock;
+// AuthProvider のモック
+vi.mock('../contexts/AuthContext', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="auth-provider">{children}</div>
+  ),
+}));
+
+// useAuth フックのモック
+vi.mock('../hooks/useAuth', () => ({
+  useAuth: () => ({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    register: vi.fn(),
+  }),
+}));
+
+// ProtectedRoute のモック
+vi.mock('../components/ProtectedRoute', () => ({
+  ProtectedRoute: ({
+    children,
+    requireAuth = true,
+  }: {
+    children: React.ReactNode;
+    requireAuth?: boolean;
+  }) => {
+    // 認証不要、または認証が必要で認証済みの場合のみ子要素をレンダリング
+    if (!requireAuth) {
+      return <div data-testid="protected-route">{children}</div>;
+    }
+    // 認証が必要で未認証の場合はログインページにリダイレクト（実際のロジックは簡略化）
+    return <div data-testid="protected-route-redirect">Redirecting to login...</div>;
+  },
+}));
 
 describe('App Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('初期表示時に"ArchiTrack"タイトルが表示される', async () => {
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({ message: 'test', version: '1.0.0' }),
-    } as Response);
-
+  it('ErrorBoundary でラップされてレンダリングされる', () => {
     render(<App />);
-
-    // 非同期の状態更新を待機
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /ArchiTrack/i })).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/建築プロジェクト管理システム/i)).toBeInTheDocument();
+    // ErrorBoundary は正常時には子要素をそのまま表示するため、
+    // AuthProvider がレンダリングされていることを確認
+    expect(screen.getByTestId('auth-provider')).toBeInTheDocument();
   });
 
-  it('API接続成功時にconnectedステータスを表示する', async () => {
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({ message: 'ArchiTrack API', version: '1.0.0' }),
-    } as Response);
-
+  it('AuthProvider が正しく統合されている', () => {
     render(<App />);
-
-    // 初期状態のチェック
-    expect(screen.getByText(/checking.../i)).toBeInTheDocument();
-
-    // API接続後の状態をチェック
-    await waitFor(() => {
-      expect(screen.getByText(/connected/i)).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/バージョン: 1.0.0/i)).toBeInTheDocument();
-    expect(screen.getByText(/メッセージ: ArchiTrack API/i)).toBeInTheDocument();
+    expect(screen.getByTestId('auth-provider')).toBeInTheDocument();
   });
 
-  it('API接続失敗時にdisconnectedステータスを表示する', async () => {
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'));
-
+  it('BrowserRouter によるルーティングが動作する', async () => {
     render(<App />);
 
-    // 初期状態のチェック
-    expect(screen.getByText(/checking.../i)).toBeInTheDocument();
-
-    // API接続失敗後の状態をチェック
+    // ルートパス（/）は ProtectedRoute で保護されているため、
+    // 未認証の場合はリダイレクトメッセージが表示される
     await waitFor(() => {
-      expect(screen.getByText(/disconnected/i)).toBeInTheDocument();
+      expect(screen.getByTestId('protected-route-redirect')).toBeInTheDocument();
     });
-
-    // エラー時はAPI情報が表示されない
-    expect(screen.queryByText(/バージョン:/i)).not.toBeInTheDocument();
   });
 
-  it('正しいAPIエンドポイントにリクエストを送信する', async () => {
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({ message: 'test', version: '1.0.0' }),
-    } as Response);
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api',
-        expect.objectContaining({
-          method: 'GET',
-        })
-      );
-    });
+  it('コンポーネントが正常にマウントされる', () => {
+    const { container } = render(<App />);
+    expect(container.firstChild).toBeInTheDocument();
   });
 });

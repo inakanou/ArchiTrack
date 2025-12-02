@@ -194,14 +194,18 @@ describe('Redis Integration Tests', () => {
       const value = 'Will expire soon';
       const ttl = 1; // 1秒
 
+      // テスト前にキーを削除してクリーンな状態を確保
+      await client.del(key);
+
       await client.setex(key, ttl, value);
 
-      // 2秒待つ
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // 5秒待つ（Docker/CI環境でのTTL切れを確実にするため余裕を持たせる）
+      await new Promise((resolve) => setTimeout(resolve, 5000));
 
+      // Redis TTL expiration後のgetでキーが削除されることを確認
       const retrieved = await client.get(key);
       expect(retrieved).toBeNull();
-    }, 5000); // テストタイムアウトを5秒に設定
+    }, 15000); // テストタイムアウトを15秒に設定（Docker/CI環境を考慮）
   });
 
   describe('Hash Operations', () => {

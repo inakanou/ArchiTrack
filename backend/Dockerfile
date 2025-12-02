@@ -1,5 +1,5 @@
 # Build stage
-FROM node:20.11.1-alpine AS build
+FROM node:22-alpine AS build
 
 WORKDIR /app
 
@@ -19,14 +19,18 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:20.11.1-alpine
+FROM node:22-alpine
+
+# 非rootユーザーを作成
+RUN addgroup -g 1000 -S appgroup && \
+    adduser -u 1000 -S appuser -G appgroup
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Copy Prisma schema for runtime
+# Copy Prisma schema and migrations for runtime
 COPY prisma ./prisma/
 
 # Install production dependencies only
@@ -36,8 +40,28 @@ RUN npm ci --omit=dev && \
 # Copy built files from build stage
 COPY --from=build /app/dist ./dist
 
+# Copy migration files from build stage
+COPY --from=build /app/prisma/migrations ./prisma/migrations
+
 # Generate Prisma Client for production
 RUN npx prisma generate
+
+# Install tsx for running seed scripts in production
+# Note: Only needed for initial seeding when RUN_SEED=true
+RUN npm install tsx
+
+# Copy docker-entrypoint.sh for initialization
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy seed helpers and scripts (built files already in dist/)
+COPY scripts ./scripts
+
+# /appディレクトリの所有権を変更
+RUN chown -R appuser:appgroup /app
+
+# 非rootユーザーに切り替え
+USER appuser
 
 # Railway uses PORT env variable
 ENV NODE_ENV=production
@@ -50,13 +74,8 @@ EXPOSE $PORT
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
 
-# Create startup script
-RUN echo '#!/bin/sh' > /app/start.sh && \
-    echo 'echo "Running Prisma migrations..."' >> /app/start.sh && \
-    echo 'npx prisma migrate deploy' >> /app/start.sh && \
-    echo 'echo "Starting application..."' >> /app/start.sh && \
-    echo 'exec node dist/src/index.js' >> /app/start.sh && \
-    chmod +x /app/start.sh
+# Use docker-entrypoint.sh for initialization (migrations, seeding, etc.)
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
-# Start the application with migrations
-CMD ["/app/start.sh"]
+# Start the application
+CMD ["node", "dist/src/index.js"]

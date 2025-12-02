@@ -1,43 +1,16 @@
-# Get list of staged files
-STAGED_FILES=$(git diff --cached --name-only)
+#!/bin/sh
+# ============================================================================
+# Pre-commit Hook Wrapper
+# ============================================================================
+# このファイルは Git/Husky によって実行されます (sh 環境)
+# 実際のロジックは scripts/pre-commit.sh (bash) で実装されています
+#
+# このアーキテクチャにより:
+# - 統一されたパターン (pre-pushと同じ構造)
+# - 将来的なbash機能追加が容易
+# - スクリプトを独立してテスト可能
+# - Gitでバージョン管理可能
+# ============================================================================
 
-# Backend: TypeScript/JavaScript files
-if echo "$STAGED_FILES" | grep -q '^backend/.*\.\(js\|ts\)$'; then
-  echo "🔍 Running lint-staged on backend..."
-  npx --prefix backend lint-staged
-
-  echo "🔎 Running TypeScript type check on backend..."
-  npm --prefix backend run type-check
-  if [ $? -ne 0 ]; then
-    echo "❌ Backend type check failed. Commit aborted."
-    exit 1
-  fi
-fi
-
-# Frontend: TypeScript/JavaScript/JSX/TSX files
-if echo "$STAGED_FILES" | grep -q '^frontend/.*\.\(js\|jsx\|ts\|tsx\)$'; then
-  echo "🔍 Running lint-staged on frontend..."
-  npx --prefix frontend lint-staged
-
-  echo "🔎 Running TypeScript type check on frontend..."
-  npm --prefix frontend run type-check
-  if [ $? -ne 0 ]; then
-    echo "❌ Frontend type check failed. Commit aborted."
-    exit 1
-  fi
-fi
-
-# E2E: TypeScript/JavaScript files
-if echo "$STAGED_FILES" | grep -q '^\(e2e/.*\|playwright\.config\)\.\(js\|ts\)$'; then
-  echo "🔍 Running lint-staged on E2E tests..."
-  npx lint-staged
-
-  echo "🔎 Running TypeScript type check on E2E..."
-  npm run type-check
-  if [ $? -ne 0 ]; then
-    echo "❌ E2E type check failed. Commit aborted."
-    exit 1
-  fi
-fi
-
-echo "✅ All checks passed!"
+# bashで実際のスクリプトを実行
+exec bash "$(dirname "$0")/scripts/pre-commit.sh" "$@"

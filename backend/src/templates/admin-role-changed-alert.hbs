@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>システム管理者ロール変更通知</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px;">
+    <h1 style="color: #c0392b; margin-bottom: 20px;">【重要】システム管理者ロール変更通知</h1>
+
+    <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+      <p style="margin: 0; color: #856404;">
+        <strong>セキュリティアラート</strong><br>
+        システム管理者ロールの変更が行われました。
+      </p>
+    </div>
+
+    <h2 style="color: #2c3e50; font-size: 18px; margin-top: 30px;">変更内容</h2>
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold; width: 30%;">アクション</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+          <span style="font-weight: bold;">{{actionText}}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">対象ユーザー</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+          {{targetUser.displayName}} ({{targetUser.email}})
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">ロール名</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{roleName}}</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">実行者</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+          {{performedBy.displayName}} ({{performedBy.email}})
+        </td>
+      </tr>
+    </table>
+
+    <h2 style="color: #2c3e50; font-size: 18px; margin-top: 30px;">対応が必要な場合</h2>
+    <p>この変更に心当たりがない場合や、不正なアクセスの可能性がある場合は、直ちに以下の対応を行ってください：</p>
+    <ul style="padding-left: 20px;">
+      <li>監査ログで詳細を確認</li>
+      <li>関係者に変更の確認</li>
+      <li>必要に応じてロールを元に戻す</li>
+      <li>セキュリティインシデントとして報告</li>
+    </ul>
+
+    <div style="background-color: #e9ecef; padding: 15px; margin: 20px 0; border-radius: 5px;">
+      <p style="margin: 0;">
+        <a href="{{frontendUrl}}/admin/audit-logs" style="color: #007bff; text-decoration: none; font-weight: bold;">
+          監査ログを確認する →
+        </a>
+      </p>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;">
+
+    <p style="font-size: 12px; color: #95a5a6;">
+      このメールはシステム管理者への重要な通知です。<br>
+      セキュリティに関する質問や懸念がある場合は、セキュリティチームにお問い合わせください。
+    </p>
+  </div>
+</body>
+</html>

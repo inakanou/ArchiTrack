@@ -24,6 +24,17 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
@@ -46,6 +57,24 @@ jobs:
             npm --prefix ${{ matrix.workspace }} run lint
           fi
 
+  requirement-coverage:
+    name: Requirement Coverage Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check requirement coverage
+        run: npm run check:req-coverage -- --threshold=100
+
   typecheck:
     name: TypeScript Type Check
     runs-on: ubuntu-latest
@@ -59,6 +88,17 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
@@ -73,6 +113,9 @@ jobs:
           else
             npm --prefix ${{ matrix.workspace }} run type-check
           fi
+        env:
+          # Prisma 7 requires DATABASE_URL for prisma generate (dummy value for CI)
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
   test-unit:
     name: Unit Tests
@@ -87,8 +130,25 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm --prefix ${{ matrix.workspace }} ci
+      - name: Generate Prisma Client (backend only)
+        if: matrix.workspace == 'backend'
+        run: npm --prefix backend run prisma:generate
+        env:
+          # Prisma 7 requires DATABASE_URL for prisma generate (dummy value for CI)
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
       - name: Run unit tests
         run: |
           if [ "${{ matrix.workspace }}" = "backend" ]; then
@@ -123,10 +183,46 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm --prefix ${{ matrix.workspace }} ci
       - name: Build
         run: npm --prefix ${{ matrix.workspace }} run build
+        env:
+          # Prisma 7 requires DATABASE_URL for prisma generate (dummy value for CI)
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+
+      # Phase 1: Validate ES Module imports with node (backend only)
+      - name: Validate ES Module imports (backend)
+        if: matrix.workspace == 'backend'
+        run: |
+          echo "🔍 Validating ES Module imports with node..."
+
+          # Validate entry point
+          node --check ${{ matrix.workspace }}/dist/src/index.js
+
+          # Validate all built JavaScript files
+          find ${{ matrix.workspace }}/dist -name '*.js' -type f | while read file; do
+            echo "Checking: $file"
+            node --check "$file" || {
+              echo "❌ ES Module error in: $file"
+              echo "💡 Hint: Check for missing .js extensions in imports"
+              exit 1
+            }
+          done
+
+          echo "✅ All ES modules are valid (no import errors detected)"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v5
         with:
@@ -134,10 +230,10 @@ jobs:
           path: ${{ matrix.workspace }}/dist
           retention-days: 7
 
-  test-integration:
-    name: Integration & E2E Tests
+  test-storybook:
+    name: Storybook Tests
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build]
+    needs: [lint, typecheck, build]
     steps:
       - uses: actions/checkout@v6
       - name: Setup Node.js
@@ -145,15 +241,164 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+      - name: Install Playwright browsers
+        run: npx --prefix frontend playwright install chromium --with-deps
+      - name: Run Storybook tests
+        run: npm --prefix frontend run test-storybook:ci
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: storybook-test-results
+          path: frontend/test-results/
+
+  test-integration:
+    name: Integration & E2E Tests
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test-unit, build, test-storybook]
+    # Dependabot PRではシークレットにアクセスできないため、integration/e2eテストをスキップ
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
+      - name: Install Japanese fonts for Playwright screenshots
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
       - name: Install root dependencies
         run: npm ci
-      - name: Start Docker Compose
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Generate Prisma Client
+        run: npm --prefix backend run prisma:generate
+        env:
+          # Prisma 7 requires DATABASE_URL for prisma generate (dummy value for CI)
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+      - name: Start PostgreSQL and Redis with Docker Compose
+        run: |
+          # PostgreSQLとRedisのみを起動（backendとfrontendは起動しない）
+          docker compose up -d postgres redis
+          # サービスがhealthyになるまで待つ
+          timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-postgres"; do sleep 2; done'
+          timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-redis"; do sleep 2; done'
+      - name: Validate environment variables for integration tests
+        run: |
+          echo "🔍 Validating required environment variables for integration tests..."
+
+          missing_vars=()
+
+          if [ -z "${{ secrets.TEST_JWT_PUBLIC_KEY }}" ]; then
+            missing_vars+=("TEST_JWT_PUBLIC_KEY")
+          fi
+
+          if [ -z "${{ secrets.TEST_JWT_PRIVATE_KEY }}" ]; then
+            missing_vars+=("TEST_JWT_PRIVATE_KEY")
+          fi
+
+          if [ -z "${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" ]; then
+            missing_vars+=("TEST_TWO_FACTOR_ENCRYPTION_KEY")
+          fi
+
+          if [ ${#missing_vars[@]} -gt 0 ]; then
+            echo "❌ Missing required GitHub Secrets:"
+            for var in "${missing_vars[@]}"; do
+              echo "  - $var"
+            done
+            echo ""
+            echo "Please configure these secrets in:"
+            echo "  Settings > Secrets and variables > Actions > Repository secrets"
+            echo ""
+            echo "To generate these values:"
+            echo "  - JWT keys: npm run generate-keys (in backend directory)"
+            echo "  - 2FA key: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+            exit 1
+          fi
+
+          echo "✅ All required environment variables are configured"
+
+      - name: Setup test database
+        run: |
+          # テストデータベースが既に存在する場合は削除して再作成（クリーンな状態を保証）
+          docker exec architrack-postgres psql -U postgres -c "DROP DATABASE IF EXISTS architrack_test;"
+          docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;"
+          # マイグレーションを適用（ランナー上で実行）
+          npm --prefix backend run prisma:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
+      - name: Run integration tests
+        run: npm --prefix backend run test:integration
+        env:
+          DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
+          NODE_ENV: test
+          REDIS_URL: redis://localhost:6379/1
+          JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
+          JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
+
+      - name: Create .env file for E2E
+        run: |
+          echo "NODE_ENV=test" > .env
+          echo "PORT=3000" >> .env
+          echo "LOG_LEVEL=info" >> .env
+          echo "DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test" >> .env
+          echo "REDIS_URL=redis://redis:6379" >> .env
+          echo "FRONTEND_URL=http://localhost:5173" >> .env
+          echo "ACCESS_TOKEN_EXPIRY=15m" >> .env
+          echo "REFRESH_TOKEN_EXPIRY=7d" >> .env
+          echo "VITE_API_URL=http://localhost:3000" >> .env
+          echo "JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}" >> .env
+          echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
+          echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
+          echo "DISABLE_RATE_LIMIT=true" >> .env
+
+      - name: Start Docker Compose for E2E
         run: |
           docker compose up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
-      - name: Run integration tests
-        run: docker exec architrack-backend npm run test:integration
+
+      - name: Debug - Check backend container logs
+        if: always()
+        run: |
+          echo "=== Backend container logs ==="
+          docker logs architrack-backend --tail 100
+          echo "=== Backend container environment variables (filtered) ==="
+          docker exec architrack-backend printenv | grep -E "NODE_ENV|PORT|DATABASE_URL|REDIS_URL|JWT" | sed 's/=.*/=***/'
+
+      - name: Run database migrations
+        run: docker exec architrack-backend npx prisma migrate deploy
       - name: Run E2E tests
         run: npm run test:e2e
         env:
@@ -179,20 +424,437 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Run npm audit
-        run: npm --prefix ${{ matrix.workspace }} audit --audit-level=moderate || true
+        # Note: Prisma 7 internal dependencies (hono, valibot in @prisma/dev) have known
+        # vulnerabilities that cannot be fixed without downgrading Prisma.
+        # These are dev tools and do not affect runtime. Using continue-on-error
+        # until Prisma team updates these dependencies.
+        continue-on-error: ${{ matrix.workspace == 'backend' }}
+        run: npm --prefix ${{ matrix.workspace }} audit --audit-level=moderate
+      - name: Security scan status
+        if: matrix.workspace == 'backend'
+        run: |
+          echo "⚠️ Backend security scan may have warnings due to Prisma 7 internal dependencies."
+          echo "   - hono and valibot are used by @prisma/dev (Prisma CLI internal)"
+          echo "   - These do not affect runtime and will be fixed when Prisma updates."
+          npm --prefix backend audit --audit-level=moderate || true
 
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-integration, security]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage]
     if: always()
     steps:
       - name: Check status
         run: |
+          # Dependabot PRの場合、Integration Testsはスキップされるため、skippedも許容
+          integration_ok="false"
+          if [[ "${{ needs.test-integration.result }}" == "success" ]] || \
+             [[ "${{ needs.test-integration.result }}" == "skipped" ]]; then
+            integration_ok="true"
+          fi
+
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.typecheck.result }}" != "success" ]] || \
              [[ "${{ needs.test-unit.result }}" != "success" ]] || \
              [[ "${{ needs.build.result }}" != "success" ]] || \
-             [[ "${{ needs.test-integration.result }}" != "success" ]]; then
+             [[ "${{ needs.test-storybook.result }}" != "success" ]] || \
+             [[ "$integration_ok" != "true" ]] || \
+             [[ "${{ needs.security.result }}" != "success" ]] || \
+             [[ "${{ needs.requirement-coverage.result }}" != "success" ]]; then
+            echo "❌ CI check failed:"
+            echo "   - Lint: ${{ needs.lint.result }}"
+            echo "   - TypeCheck: ${{ needs.typecheck.result }}"
+            echo "   - Unit Tests: ${{ needs.test-unit.result }}"
+            echo "   - Build: ${{ needs.build.result }}"
+            echo "   - Storybook Tests: ${{ needs.test-storybook.result }}"
+            echo "   - Integration Tests: ${{ needs.test-integration.result }}"
+            echo "   - Security: ${{ needs.security.result }}"
+            echo "   - Requirement Coverage: ${{ needs.requirement-coverage.result }}"
             exit 1
           fi
+          echo "✅ All CI checks passed successfully"
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [ci-success]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment:
+      name: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Check environment variables
+        run: npm --prefix backend run check:env
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.STAGING_REDIS_URL }}
+          FRONTEND_URL: ${{ secrets.STAGING_FRONTEND_URL }}
+          JWT_PUBLIC_KEY: ${{ secrets.STAGING_JWT_PUBLIC_KEY }}
+          JWT_PRIVATE_KEY: ${{ secrets.STAGING_JWT_PRIVATE_KEY }}
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.STAGING_TWO_FACTOR_ENCRYPTION_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+      - name: Pre-deployment notification
+        run: |
+          echo "========================================="
+          echo "Staging Deployment Information"
+          echo "========================================="
+          echo "Environment: staging"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Commit Message: ${{ github.event.head_commit.message }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "========================================="
+
+      - name: Setup Railway CLI
+        run: npm i -g @railway/cli
+
+      - name: Deploy Backend to Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "========================================="
+          echo "Deploying Backend to Railway (Staging)"
+          echo "========================================="
+          railway up --service ${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }} --environment staging --detach
+          echo "Backend deployment initiated"
+
+      - name: Deploy Frontend to Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "========================================="
+          echo "Deploying Frontend to Railway (Staging)"
+          echo "========================================="
+          railway up --service ${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }} --environment staging --detach
+          echo "Frontend deployment initiated"
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for Railway deployment to complete..."
+          sleep 90
+
+      - name: Health check
+        id: health-check
+        run: |
+          echo "========================================="
+          echo "Running Health Checks (Staging)"
+          echo "========================================="
+
+          BACKEND_URL="${{ secrets.STAGING_BACKEND_URL }}"
+          FRONTEND_URL="${{ secrets.STAGING_FRONTEND_URL }}"
+          MAX_RETRIES=10
+          RETRY_INTERVAL=10
+
+          echo "Target Backend URL: ${BACKEND_URL}"
+          echo "Target Frontend URL: ${FRONTEND_URL}"
+          echo ""
+
+          # バックエンドヘルスチェック
+          echo "1. Backend Health Check"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "✓ Backend health check passed (HTTP $HTTP_CODE)"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "✗ Backend health check failed after $MAX_RETRIES attempts (HTTP $HTTP_CODE)"
+              exit 1
+            else
+              echo "Backend not ready yet (HTTP $HTTP_CODE), retrying in ${RETRY_INTERVAL}s..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          # フロントエンドヘルスチェック
+          echo ""
+          echo "2. Frontend Health Check"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" || echo "000")
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "✓ Frontend health check passed (HTTP $HTTP_CODE)"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "✗ Frontend health check failed after $MAX_RETRIES attempts (HTTP $HTTP_CODE)"
+              exit 1
+            else
+              echo "Frontend not ready yet (HTTP $HTTP_CODE), retrying in ${RETRY_INTERVAL}s..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          echo ""
+          echo "========================================="
+          echo "All Health Checks Passed"
+          echo "========================================="
+
+      - name: Post-deployment notification
+        if: success()
+        run: |
+          echo "========================================="
+          echo "Staging Deployment Completed Successfully"
+          echo "========================================="
+          echo "Environment: staging"
+          echo "Backend URL: ${{ secrets.STAGING_BACKEND_URL }}"
+          echo "Frontend URL: ${{ secrets.STAGING_FRONTEND_URL }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo ""
+          echo "Next steps:"
+          echo "1. Run integration tests on staging environment"
+          echo "2. Perform QA validation"
+          echo "3. If tests pass, create PR to merge develop → main"
+          echo "========================================="
+
+      - name: Deployment failure notification
+        if: failure()
+        run: |
+          echo "========================================="
+          echo "Staging Deployment Failed"
+          echo "========================================="
+          echo "Environment: staging"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo ""
+          echo "Action required:"
+          echo "1. Check Railway deployment logs"
+          echo "2. Review CI test results"
+          echo "3. Fix issues and push again to develop"
+          echo "========================================="
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [ci-success]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache Prisma binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            **/node_modules/.prisma
+          key: prisma-binaries-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            prisma-binaries-${{ runner.os }}-
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Check environment variables
+        run: npm --prefix backend run check:env
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.PRODUCTION_REDIS_URL }}
+          FRONTEND_URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}
+          JWT_PUBLIC_KEY: ${{ secrets.PRODUCTION_JWT_PUBLIC_KEY }}
+          JWT_PRIVATE_KEY: ${{ secrets.PRODUCTION_JWT_PRIVATE_KEY }}
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+      - name: Pre-deployment notification
+        run: |
+          echo "========================================="
+          echo "Production Deployment Information"
+          echo "========================================="
+          echo "Environment: production"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Commit Message: ${{ github.event.head_commit.message }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "========================================="
+          echo ""
+          echo "⚠️  PRODUCTION DEPLOYMENT IN PROGRESS"
+          echo "⚠️  This will affect live users"
+          echo ""
+
+      - name: Setup Railway CLI
+        run: npm i -g @railway/cli
+
+      - name: Deploy Backend to Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "========================================="
+          echo "Deploying Backend to Railway (Production)"
+          echo "========================================="
+          railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --environment production --detach
+          echo "Backend deployment initiated"
+
+      - name: Deploy Frontend to Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "========================================="
+          echo "Deploying Frontend to Railway (Production)"
+          echo "========================================="
+          railway up --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }} --environment production --detach
+          echo "Frontend deployment initiated"
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for Railway deployment to complete..."
+          sleep 90
+
+      - name: Health check
+        id: health-check
+        run: |
+          echo "========================================="
+          echo "Running Health Checks (Production)"
+          echo "========================================="
+
+          BACKEND_URL="${{ secrets.PRODUCTION_BACKEND_URL }}"
+          FRONTEND_URL="${{ secrets.PRODUCTION_FRONTEND_URL }}"
+          MAX_RETRIES=10
+          RETRY_INTERVAL=10
+
+          echo "Target Backend URL: ${BACKEND_URL}"
+          echo "Target Frontend URL: ${FRONTEND_URL}"
+          echo ""
+
+          # バックエンドヘルスチェック
+          echo "1. Backend Health Check"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${BACKEND_URL}/health" || echo "000")
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "✓ Backend health check passed (HTTP $HTTP_CODE)"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "✗ Backend health check failed after $MAX_RETRIES attempts (HTTP $HTTP_CODE)"
+              exit 1
+            else
+              echo "Backend not ready yet (HTTP $HTTP_CODE), retrying in ${RETRY_INTERVAL}s..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          # フロントエンドヘルスチェック
+          echo ""
+          echo "2. Frontend Health Check"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" || echo "000")
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "✓ Frontend health check passed (HTTP $HTTP_CODE)"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "✗ Frontend health check failed after $MAX_RETRIES attempts (HTTP $HTTP_CODE)"
+              exit 1
+            else
+              echo "Frontend not ready yet (HTTP $HTTP_CODE), retrying in ${RETRY_INTERVAL}s..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          echo ""
+          echo "========================================="
+          echo "All Health Checks Passed"
+          echo "========================================="
+
+      - name: Post-deployment notification
+        if: success()
+        run: |
+          echo "========================================="
+          echo "Production Deployment Completed Successfully"
+          echo "========================================="
+          echo "Environment: production"
+          echo "Backend URL: ${{ secrets.PRODUCTION_BACKEND_URL }}"
+          echo "Frontend URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo ""
+          echo "✓ Live service is now updated"
+          echo ""
+          echo "Post-deployment checklist:"
+          echo "1. Monitor error rates (Sentry)"
+          echo "2. Check application metrics"
+          echo "3. Verify user-facing features"
+          echo "4. Monitor Railway deployment logs"
+          echo "========================================="
+
+      - name: Deployment failure notification
+        if: failure()
+        run: |
+          echo "========================================="
+          echo "⚠️  PRODUCTION DEPLOYMENT FAILED ⚠️"
+          echo "========================================="
+          echo "Environment: production"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo ""
+          echo "⚠️  IMMEDIATE ACTION REQUIRED ⚠️"
+          echo ""
+          echo "Rollback options:"
+          echo ""
+          echo "Option 1: Railway Dashboard"
+          echo "  1. Log in to Railway Dashboard"
+          echo "  2. Select ArchiTrack project"
+          echo "  3. Go to Deployments tab"
+          echo "  4. Select last successful deployment"
+          echo "  5. Click 'Redeploy'"
+          echo ""
+          echo "Option 2: Manual workflow trigger"
+          echo "  1. Go to Actions tab"
+          echo "  2. Select 'CI' workflow"
+          echo "  3. Click 'Run workflow'"
+          echo "  4. Select previous commit SHA"
+          echo ""
+          echo "Option 3: Git revert"
+          echo "  git revert ${{ github.sha }}"
+          echo "  git push origin main"
+          echo ""
+          echo "========================================="
+          exit 1

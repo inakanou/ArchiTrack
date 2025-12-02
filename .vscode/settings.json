@@ -1,0 +1,61 @@
+{
+  // TypeScript設定
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // デバッグ設定
+  "debug.javascript.autoAttachFilter": "onlyWithFlag",
+  "debug.javascript.terminalOptions": {
+    "skipFiles": [
+      "<node_internals>/**"
+    ]
+  },
+
+  // Playwright設定
+  "playwright.env": {
+    "PWDEBUG": "1"
+  },
+  "playwright.reuseBrowser": true,
+
+  // エディタ設定
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+
+  // ファイル除外設定
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/coverage/**": true,
+    "**/.git/**": true,
+    "**/test-results/**": true,
+    "**/playwright-report/**": true
+  },
+
+  // 検索除外設定
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/coverage": true,
+    "**/test-results": true,
+    "**/playwright-report": true
+  },
+
+  // Jest/Vitest設定
+  "vitest.enable": true,
+  "vitest.commandLine": "npm test --",
+
+  // ESLint設定
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "eslint.workingDirectories": [
+    "./frontend",
+    "./backend"
+  ]
+}

@@ -1,12 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { takeScreenshot, takeScreenshotOnFailure } from '../../helpers/screenshot.js';
+import { getTimeout } from '../../helpers/wait-helpers';
 
 /**
  * ホームページUIテスト
  */
 test.describe('Homepage', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, context }) => {
+    // テスト間の状態をクリア
+    await context.clearCookies();
     await page.goto('/');
+    await page.evaluate(() => localStorage.clear());
   });
 
   // 失敗時に自動的にスクリーンショットを撮影
@@ -32,7 +36,7 @@ test.describe('Homepage', () => {
     await expect(root).toBeAttached();
 
     // Reactコンテンツがレンダリングされるまで待機
-    await expect(root.locator('*').first()).toBeVisible({ timeout: 10000 });
+    await expect(root.locator('*').first()).toBeVisible({ timeout: getTimeout(10000) });
 
     // スクリーンショット撮影（タイムスタンプ付きフォルダに保存）
     await takeScreenshot(page, testInfo, 'page-elements', { fullPage: true });

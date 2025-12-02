@@ -64,11 +64,11 @@ export default [
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
     files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['vitest.config.ts', 'vite.config.ts'],
+    ignores: ['vitest.config.ts', 'vite.config.ts', '.storybook/**/*.ts'],
   })),
   {
     files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['vitest.config.ts', 'vite.config.ts'],
+    ignores: ['vitest.config.ts', 'vite.config.ts', '.storybook/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -106,6 +106,7 @@ export default [
       'react/react-in-jsx-scope': 'off',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'error',
     },
   },
 

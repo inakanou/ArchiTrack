@@ -6,10 +6,10 @@ import redis, { initRedis } from './redis.js';
 import logger from './utils/logger.js';
 import { validateEnv } from './config/env.js';
 
-// Sentryの初期化（最初に実行）
+// Initialize Sentry (must run first)
 initSentry();
 
-// 環境変数の検証
+// Validate environment variables
 const env = validateEnv();
 const PORT = env.PORT;
 
@@ -32,14 +32,15 @@ const gracefulShutdown = async (): Promise<void> => {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-// アプリケーション初期化と起動
+// Initialize and start the application
 async function startServer(): Promise<void> {
   try {
-    // Redisの初期化（失敗してもアプリケーションは起動）
+    // Initialize Redis (application starts even if Redis initialization fails)
     await initRedis();
 
-    // サーバー起動
-    app.listen(PORT, () => {
+    // Start server
+    // Listen on 0.0.0.0 to accept external connections in container environments (e.g., Railway)
+    app.listen(PORT, '0.0.0.0', () => {
       logger.info({
         msg: 'Server started',
         port: PORT,

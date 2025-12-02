@@ -1,7 +1,8 @@
+// vitest.global-setup.tsで.env.testが読み込まれるため、ここでは不要
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../generated/prisma/client.js';
 
 // 環境変数を初期化（モジュールインポート前に実行）
 validateEnv();
@@ -118,7 +119,7 @@ describe('API Integration Tests', () => {
       // 61回目は429 (Too Many Requests) の可能性がある
       const rateLimitedCount = responses.filter((r) => r.status === 429).length;
       expect(rateLimitedCount).toBeGreaterThanOrEqual(0);
-    }, 30000); // タイムアウトを30秒に設定
+    }, 60000); // タイムアウトを60秒に設定（Docker/CI環境を考慮）
 
     it('レート制限超過時に適切なエラーメッセージを返すこと', async () => {
       // API エンドポイントは15分間に100リクエストまで
@@ -132,7 +133,7 @@ describe('API Integration Tests', () => {
         expect(rateLimitedResponse.body).toHaveProperty('error');
         expect(rateLimitedResponse.headers).toHaveProperty('retry-after');
       }
-    }, 30000);
+    }, 60000); // タイムアウトを60秒に設定（Docker/CI環境を考慮）
   });
 
   describe('CORS Configuration', () => {
@@ -174,7 +175,14 @@ describe('API Integration Tests', () => {
       const response = await request(app).get('/non-existent-endpoint');
 
       expect(response.status).toBe(404);
-      expect(response.body).toEqual({ error: 'Not found', code: 'NOT_FOUND' });
+      // Problem Details (RFC 7807) 形式
+      expect(response.body).toMatchObject({
+        type: expect.stringContaining('/errors/not-found'),
+        title: 'Not Found',
+        status: 404,
+        detail: expect.any(String),
+        instance: '/non-existent-endpoint',
+      });
     });
 
     it('faviconリクエストで204を返すこと', async () => {
@@ -215,7 +223,8 @@ describe('API Integration Tests', () => {
       const user = await prisma.user.create({
         data: {
           email: 'test-api-integration-db@example.com',
-          name: 'API Test User',
+          displayName: 'API Test User',
+          passwordHash: 'test-hash',
         },
       });
 

@@ -5,41 +5,53 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "playwright install chromium",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
+    "postinstall": "playwright install chromium && npx prisma generate",
+    "test:e2e": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_test playwright test",
+    "test:e2e:ui": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_test playwright test --ui",
+    "test:e2e:headed": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_test playwright test --headed",
+    "test:e2e:debug": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_test playwright test --debug",
     "test:e2e:report": "playwright show-report $(ls -td playwright-report/*/ | head -1)",
     "test:coverage": "npm --prefix backend run test:coverage && npm --prefix frontend run test:coverage",
-    "lint": "eslint e2e/**/*.{js,ts} playwright.config.{js,ts}",
-    "lint:fix": "eslint e2e/**/*.{js,ts} playwright.config.{js,ts} --fix",
-    "format": "prettier --write \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\"",
-    "format:check": "prettier --check \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\"",
+    "lint": "eslint e2e/**/*.{js,ts} playwright.config.{js,ts} scripts/**/*.ts",
+    "lint:fix": "eslint e2e/**/*.{js,ts} playwright.config.{js,ts} scripts/**/*.ts --fix",
+    "format": "prettier --write \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"e2e/**/*.{js,ts}\" \"playwright.config.{js,ts}\" \"scripts/**/*.ts\"",
     "type-check": "tsc --noEmit",
+    "check:req-coverage": "npx tsx scripts/check-requirement-coverage.ts",
+    "check:req-coverage:verbose": "npx tsx scripts/check-requirement-coverage.ts --verbose",
+    "check:req-coverage:json": "npx tsx scripts/check-requirement-coverage.ts --json",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.40.0",
-    "@types/node": "^24.10.0",
-    "@typescript-eslint/eslint-plugin": "^8.46.2",
-    "@typescript-eslint/parser": "^8.46.2",
+    "@types/node": "^24.10.1",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.46.4",
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
-    "globals": "^15.15.0",
+    "globals": "^16.5.0",
     "husky": "^9.1.7",
     "prettier": "^3.6.2",
+    "prisma": "^7.0.1",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.3"
+    "typescript-eslint": "^8.47.0"
   },
   "lint-staged": {
     "*.{js,ts}": [
       "prettier --write",
       "eslint --fix"
     ]
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/adapter-pg": "^7.0.1",
+    "@prisma/client": "^7.0.1"
   }
 }

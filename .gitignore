@@ -15,6 +15,9 @@ test-results/
 dist/
 build/
 
+# Generated API Documentation
+backend/docs/
+
 # Storybook
 storybook-static/
 .storybook-cache/
@@ -27,9 +30,17 @@ storybook-static/
 .env
 .env.local
 .env.*.local
+.env.test
+
+# MCP (Model Context Protocol)
+.mcp.local.json
 
 # IDE
-.vscode/
+# .vscode/ は選択的に共有（extensions.json, settings.json, launch.json, tasks.json）
+.vscode/*.code-workspace
+.vscode/history/
+.vscode/.browse.c_cpp.db*
+.vscode/ipch/
 .idea/
 *.swp
 *.swo
@@ -41,6 +52,7 @@ Thumbs.db
 
 # Logs
 logs/
+.logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -52,3 +64,4 @@ lerna-debug.log*
 .railway/
 
 /generated/prisma
+/src/generated/
