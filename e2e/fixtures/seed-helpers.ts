@@ -8,7 +8,7 @@
  * マスターデータ定義を変更する場合は、両方のファイルを更新してください。
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../backend/src/generated/prisma/client.js';
 
 /**
  * 事前定義ロールのシーディング

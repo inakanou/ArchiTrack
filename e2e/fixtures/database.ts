@@ -5,7 +5,7 @@
  * トランザクション管理などのユーティリティを提供します。
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../../backend/src/generated/prisma/client.js';
 
 /**
  * Prismaクライアントのシングルトンインスタンス
@@ -37,20 +37,13 @@ export function getPrismaClient(): PrismaClient {
     // Docker Composeのデフォルトは architrack_dev です。
     //
     // 環境変数 DATABASE_URL で上書き可能です。
-    const databaseUrl =
-      process.env.DATABASE_URL || 'postgresql://postgres:dev@localhost:5432/architrack_dev';
+    // Prisma 7ではprisma.config.tsでDATABASE_URLを設定します。
 
-    prisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: databaseUrl,
-        },
-      },
-      // テストログを有効化（デバッグ用、必要に応じてコメントアウト）
-      // log: ['query', 'info', 'warn', 'error'],
-    });
+    // Prisma 7では型が厳格になったため、anyキャストを使用
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    prisma = new (PrismaClient as any)();
   }
-  return prisma;
+  return prisma!;
 }
 
 /**

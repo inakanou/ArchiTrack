@@ -6,7 +6,7 @@
  */
 
 import { randomBytes } from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../../backend/src/generated/prisma/client.js';
 import { getPrismaClient } from './database';
 import { TEST_USERS, hashPassword, type TestUser } from '../helpers/test-users';
 
