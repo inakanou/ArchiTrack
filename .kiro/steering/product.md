@@ -6,7 +6,7 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 Claude Codeを活用したKiro-style Spec Driven Development（スペック駆動開発）で開発されており、スラッシュコマンド、フック、エージェント機能を統合した体系的な開発ワークフローを実現しています。
 
-_最終更新: 2025-12-01（Steering Sync: Prisma 7アップグレード完了）_
+_最終更新: 2025-12-02（Steering Sync: バージョンドリフト確認完了）_
 
 ## コア機能
 
