@@ -292,4 +292,104 @@ describe('PasswordResetPage Component', () => {
       });
     });
   });
+
+  describe('要件29.2: パスワード再設定画面の実装検証', () => {
+    describe('トークン検証', () => {
+      it('ページロード時にトークン検証APIが呼ばれること（要件29.2-11）', async () => {
+        vi.mocked(apiClient.get).mockResolvedValueOnce({});
+
+        renderPasswordResetPage('?token=test-reset-token');
+
+        await waitFor(() => {
+          expect(apiClient.get).toHaveBeenCalledWith(
+            '/api/v1/auth/password/verify-reset?token=test-reset-token'
+          );
+        });
+      });
+
+      it('トークン検証中はローディング表示されること（要件29.2-11）', async () => {
+        // トークン検証を遅延させる
+        let resolveGet: (value: unknown) => void;
+        const getPromise = new Promise((resolve) => {
+          resolveGet = resolve;
+        });
+        vi.mocked(apiClient.get).mockReturnValueOnce(getPromise as Promise<unknown>);
+
+        renderPasswordResetPage('?token=test-reset-token');
+
+        // ローディング表示があること
+        expect(screen.getByText(/リセットリンクを検証中/i)).toBeInTheDocument();
+
+        // 検証完了
+        resolveGet!({});
+        await waitFor(() => {
+          expect(screen.queryByText(/リセットリンクを検証中/i)).not.toBeInTheDocument();
+        });
+      });
+
+      it('トークンが期限切れの場合、期限切れエラーが表示されること（要件29.2-12）', async () => {
+        const { ApiError } = await import('../../api/client');
+        const expiredError = new ApiError(400, 'Token expired', { code: 'TOKEN_EXPIRED' });
+        vi.mocked(apiClient.get).mockRejectedValueOnce(expiredError);
+
+        renderPasswordResetPage('?token=expired-token');
+
+        await waitFor(() => {
+          expect(screen.getByText(/リセットリンクの有効期限が切れています/i)).toBeInTheDocument();
+        });
+      });
+
+      it('トークンが無効な場合、無効エラーが表示されること（要件29.2-12）', async () => {
+        const { ApiError } = await import('../../api/client');
+        const invalidError = new ApiError(400, 'Invalid token', {
+          code: 'INVALID_RESET_TOKEN',
+        });
+        vi.mocked(apiClient.get).mockRejectedValueOnce(invalidError);
+
+        renderPasswordResetPage('?token=invalid-token');
+
+        await waitFor(() => {
+          expect(screen.getByText(/無効なリセットリンク/i)).toBeInTheDocument();
+        });
+      });
+
+      it('トークンが既に使用済みの場合、無効エラーが表示されること（要件29.2-12）', async () => {
+        const { ApiError } = await import('../../api/client');
+        const usedError = new ApiError(400, 'Token used', { code: 'TOKEN_USED' });
+        vi.mocked(apiClient.get).mockRejectedValueOnce(usedError);
+
+        renderPasswordResetPage('?token=used-token');
+
+        await waitFor(() => {
+          expect(screen.getByText(/無効なリセットリンク/i)).toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('リセット成功後のリダイレクト', () => {
+      it('リセット成功後にログイン画面へリダイレクトすること（要件29.2-17,18）', async () => {
+        const user = userEvent.setup();
+        vi.mocked(apiClient.post).mockResolvedValueOnce({});
+
+        renderPasswordResetPage('?token=valid-token');
+
+        // トークン検証が完了するまで待つ
+        await waitFor(() => {
+          expect(screen.getByTestId('reset-button')).toBeInTheDocument();
+        });
+
+        await user.click(screen.getByTestId('reset-button'));
+
+        // API呼び出しを確認
+        await waitFor(() => {
+          expect(apiClient.post).toHaveBeenCalled();
+        });
+
+        // リダイレクトが呼ばれること
+        await waitFor(() => {
+          expect(mockNavigate).toHaveBeenCalledWith('/login', expect.any(Object));
+        });
+      });
+    });
+  });
 });

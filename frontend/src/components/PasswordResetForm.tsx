@@ -1,5 +1,11 @@
 import { useState, useEffect, FormEvent } from 'react';
-import type { PasswordResetRequestFormData, PasswordResetFormData } from '../types/auth.types';
+import PasswordStrengthIndicator from './PasswordStrengthIndicator';
+import type {
+  PasswordResetRequestFormData,
+  PasswordResetFormData,
+  PasswordStrengthResult,
+  PasswordRequirements,
+} from '../types/auth.types';
 
 interface PasswordResetFormProps {
   resetToken?: string;
@@ -41,6 +47,72 @@ function PasswordResetForm({
     }
     return undefined;
   }, [successMessage]);
+
+  // パスワード要件チェック
+  const checkPasswordRequirements = (pwd: string): PasswordRequirements => {
+    return {
+      minLength: pwd.length >= 12,
+      hasUppercase: /[A-Z]/.test(pwd),
+      hasLowercase: /[a-z]/.test(pwd),
+      hasNumber: /\d/.test(pwd),
+      hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
+      complexity:
+        [
+          /[A-Z]/.test(pwd),
+          /[a-z]/.test(pwd),
+          /\d/.test(pwd),
+          /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
+        ].filter(Boolean).length >= 3,
+    };
+  };
+
+  // パスワード強度評価
+  const evaluatePasswordStrength = (pwd: string): PasswordStrengthResult => {
+    if (!pwd) {
+      return { strength: 'weak', score: 0, feedback: [] };
+    }
+
+    const requirements = checkPasswordRequirements(pwd);
+    const feedback: string[] = [];
+
+    if (!requirements.minLength) {
+      feedback.push('パスワードは12文字以上にしてください');
+    }
+    if (!requirements.hasUppercase) {
+      feedback.push('大文字を含めてください');
+    }
+    if (!requirements.hasLowercase) {
+      feedback.push('小文字を含めてください');
+    }
+    if (!requirements.hasNumber) {
+      feedback.push('数字を含めてください');
+    }
+    if (!requirements.hasSpecialChar) {
+      feedback.push('特殊文字を含めてください');
+    }
+    if (!requirements.complexity) {
+      feedback.push('3種類以上の文字種を含めてください');
+    }
+
+    // スコア計算
+    let score = 0;
+    if (requirements.minLength) score += 1;
+    if (requirements.complexity) score += 1;
+    if (requirements.hasUppercase && requirements.hasLowercase) score += 1;
+    if (requirements.hasNumber && requirements.hasSpecialChar) score += 1;
+
+    // 強度レベル判定
+    let strength: PasswordStrengthResult['strength'] = 'weak';
+    if (score === 4) strength = 'very-strong';
+    else if (score === 3) strength = 'strong';
+    else if (score === 2) strength = 'good';
+    else if (score === 1) strength = 'fair';
+
+    return { strength, score, feedback };
+  };
+
+  const passwordStrengthResult = evaluatePasswordStrength(password);
+  const passwordRequirements = checkPasswordRequirements(password);
 
   // メールアドレスバリデーション
   const validateEmail = (value: string): string => {
@@ -402,6 +474,14 @@ function PasswordResetForm({
           >
             {errors.password}
           </p>
+        )}
+
+        {/* パスワード強度インジケーター */}
+        {password && (
+          <PasswordStrengthIndicator
+            result={passwordStrengthResult}
+            requirements={passwordRequirements}
+          />
         )}
       </div>
 
