@@ -1067,6 +1067,8 @@ sequenceDiagram
 | 17-22 | 動的ロール管理、権限管理、ユーザー・ロール割り当て、権限チェック、監査ログ | RBACService, AuditLogService | POST /api/v1/roles, POST /api/v1/permissions, POST /api/v1/users/:id/roles, GET /api/v1/audit-logs | - |
 | 23-26 | 非機能要件（パフォーマンス、フォールトトレランス、データ整合性、セキュリティ） | Redis Cache, Prisma Transaction, ApiError | 全コンポーネント | - |
 | 27系列 | 二要素認証（2FA）設定・ログイン・管理・セキュリティ・UI/UX・アクセシビリティ | TwoFactorService | POST /api/v1/auth/2fa/setup, POST /api/v1/auth/2fa/enable, POST /api/v1/auth/verify-2fa | 2FA設定フロー、ログインフロー |
+| 28 | 画面遷移とナビゲーション | Router, ProtectedRoute, Navigation | React Router, History API | 全フロー |
+| 29 | パスワードリセット画面のUI/UX | PasswordResetRequestPage, PasswordResetPage | POST /api/v1/auth/password/reset-request, GET /api/v1/auth/password/verify-reset, POST /api/v1/auth/password/reset | パスワードリセットフロー |
 
 ## Type Definitions
 
@@ -3710,3 +3712,680 @@ graph TB
 - Phase 3完了: 単体テスト（RBACService）合格、E2Eテスト（権限チェック）合格
 - Phase 4完了: 単体テスト（TwoFactorService）合格、E2Eテスト（2FAログイン）合格
 - Phase 5完了: 監査ログ記録確認、アーカイブバッチジョブ実行確認
+
+## 画面遷移とナビゲーション設計（要件28対応）
+
+本セクションでは、フロントエンドの画面遷移とナビゲーション設計を定義します（requirements.md 要件28対応）。
+
+### ルーティング構成
+
+React Routerを使用した画面遷移とナビゲーションを実装します。
+
+```typescript
+// frontend/src/routes/index.tsx
+import { createBrowserRouter } from 'react-router-dom';
+
+const router = createBrowserRouter([
+  // 公開ルート（認証不要）
+  {
+    path: '/login',
+    element: <LoginPage />,
+  },
+  {
+    path: '/register/:invitationToken',
+    element: <RegisterPage />,
+  },
+  {
+    path: '/password-reset',
+    element: <PasswordResetRequestPage />,
+  },
+  {
+    path: '/password-reset/:resetToken',
+    element: <PasswordResetPage />,
+  },
+  {
+    path: '/verify-2fa',
+    element: <TwoFactorVerificationPage />,
+  },
+  {
+    path: '/verify-2fa/backup',
+    element: <BackupCodeVerificationPage />,
+  },
+
+  // 保護ルート（認証必須）
+  {
+    path: '/',
+    element: <ProtectedRoute><AppLayout /></ProtectedRoute>,
+    children: [
+      {
+        index: true,
+        element: <DashboardPage />,
+      },
+      {
+        path: 'profile',
+        element: <ProfilePage />,
+      },
+      {
+        path: 'profile/2fa',
+        element: <TwoFactorSetupPage />,
+      },
+      {
+        path: 'profile/sessions',
+        element: <SessionManagementPage />,
+      },
+      // 管理者専用ルート
+      {
+        path: 'admin/users',
+        element: <ProtectedRoute requiredPermission="user:read"><UserManagementPage /></ProtectedRoute>,
+      },
+      {
+        path: 'admin/invitations',
+        element: <ProtectedRoute requiredPermission="user:invite"><InvitationManagementPage /></ProtectedRoute>,
+      },
+      {
+        path: 'admin/roles',
+        element: <ProtectedRoute requiredPermission="role:read"><RoleManagementPage /></ProtectedRoute>,
+      },
+      {
+        path: 'admin/permissions',
+        element: <ProtectedRoute requiredPermission="permission:read"><PermissionManagementPage /></ProtectedRoute>,
+      },
+      {
+        path: 'admin/audit-logs',
+        element: <ProtectedRoute requiredPermission="audit:read"><AuditLogPage /></ProtectedRoute>,
+      },
+    ],
+  },
+]);
+```
+
+### 画面遷移フロー
+
+```mermaid
+graph TB
+    subgraph "公開ルート"
+        Login[ログイン画面<br/>/login]
+        Register[ユーザー登録画面<br/>/register/:token]
+        PWResetReq[パスワードリセット要求画面<br/>/password-reset]
+        PWReset[パスワード再設定画面<br/>/password-reset/:token]
+        Verify2FA[2FA検証画面<br/>/verify-2fa]
+        BackupCode[バックアップコード検証画面<br/>/verify-2fa/backup]
+    end
+
+    subgraph "保護ルート"
+        Dashboard[ダッシュボード<br/>/]
+        Profile[プロフィール画面<br/>/profile]
+        TwoFactorSetup[2FA設定画面<br/>/profile/2fa]
+        Sessions[セッション管理画面<br/>/profile/sessions]
+    end
+
+    subgraph "管理者専用ルート"
+        UserMgmt[ユーザー管理<br/>/admin/users]
+        InvitationMgmt[招待管理<br/>/admin/invitations]
+        RoleMgmt[ロール管理<br/>/admin/roles]
+        PermMgmt[権限管理<br/>/admin/permissions]
+        AuditLog[監査ログ<br/>/admin/audit-logs]
+    end
+
+    Login -->|ログイン成功| Dashboard
+    Login -->|2FA有効| Verify2FA
+    Login -->|パスワード忘れ| PWResetReq
+
+    Verify2FA -->|検証成功| Dashboard
+    Verify2FA -->|バックアップコード使用| BackupCode
+    BackupCode -->|検証成功| Dashboard
+    BackupCode -->|TOTPに戻る| Verify2FA
+
+    Register -->|登録成功| Dashboard
+
+    PWResetReq -->|メール送信成功| Login
+    PWReset -->|パスワード変更成功| Login
+
+    Dashboard -->|プロフィールリンク| Profile
+    Profile -->|2FA設定リンク| TwoFactorSetup
+    Profile -->|セッション管理リンク| Sessions
+    TwoFactorSetup -->|設定完了/キャンセル| Profile
+    Sessions -->|戻る| Profile
+
+    Dashboard -->|管理メニュー| UserMgmt
+    Dashboard -->|管理メニュー| InvitationMgmt
+    Dashboard -->|管理メニュー| RoleMgmt
+    Dashboard -->|管理メニュー| PermMgmt
+    Dashboard -->|管理メニュー| AuditLog
+```
+
+### 共通ヘッダーナビゲーション
+
+```typescript
+// frontend/src/components/Navigation/AppHeader.tsx
+
+interface AppHeaderProps {
+  user: User;
+  permissions: string[];
+}
+
+export function AppHeader({ user, permissions }: AppHeaderProps): ReactElement {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  const isAdmin = permissions.some(p =>
+    p === '*:*' || p.startsWith('user:') || p.startsWith('role:')
+  );
+
+  return (
+    <header className="flex items-center justify-between px-6 py-4 bg-white shadow-sm">
+      {/* ロゴ・ダッシュボードリンク */}
+      <Link to="/" className="flex items-center space-x-2">
+        <span className="text-xl font-bold text-gray-900">ArchiTrack</span>
+      </Link>
+
+      {/* ナビゲーションメニュー */}
+      <nav className="flex items-center space-x-4">
+        <Link to="/" className="text-gray-700 hover:text-gray-900">
+          ダッシュボード
+        </Link>
+
+        {/* 管理メニュー（管理者のみ表示） */}
+        {isAdmin && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="text-gray-700 hover:text-gray-900">
+                管理メニュー
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {permissions.includes('user:read') && (
+                <DropdownMenuItem onClick={() => navigate('/admin/users')}>
+                  ユーザー管理
+                </DropdownMenuItem>
+              )}
+              {permissions.includes('user:invite') && (
+                <DropdownMenuItem onClick={() => navigate('/admin/invitations')}>
+                  招待管理
+                </DropdownMenuItem>
+              )}
+              {permissions.includes('role:read') && (
+                <DropdownMenuItem onClick={() => navigate('/admin/roles')}>
+                  ロール管理
+                </DropdownMenuItem>
+              )}
+              {permissions.includes('permission:read') && (
+                <DropdownMenuItem onClick={() => navigate('/admin/permissions')}>
+                  権限管理
+                </DropdownMenuItem>
+              )}
+              {permissions.includes('audit:read') && (
+                <DropdownMenuItem onClick={() => navigate('/admin/audit-logs')}>
+                  監査ログ
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {/* ユーザーメニュー */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center space-x-2 text-gray-700 hover:text-gray-900">
+              <span>{user.displayName}</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => navigate('/profile')}>
+              プロフィール
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={logout}>
+              ログアウト
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </nav>
+    </header>
+  );
+}
+```
+
+### ProtectedRouteコンポーネント
+
+認証・認可保護されたルートを実装します。
+
+```typescript
+// frontend/src/components/ProtectedRoute.tsx
+
+interface ProtectedRouteProps {
+  children: ReactElement;
+  requiredPermission?: string;
+  redirectTo?: string;
+}
+
+export function ProtectedRoute({
+  children,
+  requiredPermission,
+  redirectTo = '/login',
+}: ProtectedRouteProps): ReactElement {
+  const { isAuthenticated, isLoading, user, permissions } = useAuth();
+  const location = useLocation();
+
+  // 認証状態読み込み中（要件16A対応: UIチラつき防止）
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div
+          className="text-center"
+          role="status"
+          aria-label="認証状態を確認中"
+          aria-live="polite"
+        >
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto" />
+          <p className="mt-4 text-gray-600">認証状態を確認中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 未認証の場合はログイン画面へリダイレクト
+  if (!isAuthenticated) {
+    return (
+      <Navigate
+        to={redirectTo}
+        state={{ from: location.pathname + location.search }}
+        replace
+      />
+    );
+  }
+
+  // 権限チェック（requiredPermissionが指定されている場合）
+  if (requiredPermission) {
+    const hasPermission = permissions.includes('*:*') ||
+      permissions.includes(requiredPermission) ||
+      permissions.some(p => {
+        const [resource, action] = requiredPermission.split(':');
+        return p === `${resource}:*` || p === `*:${action}`;
+      });
+
+    if (!hasPermission) {
+      return (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900">アクセス権限がありません</h1>
+            <p className="mt-2 text-gray-600">
+              このページにアクセスするには、{requiredPermission}権限が必要です。
+            </p>
+            <Link to="/" className="mt-4 inline-block text-blue-600 hover:underline">
+              ダッシュボードへ戻る
+            </Link>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  return children;
+}
+```
+
+### redirectUrl保存とリダイレクト処理
+
+```typescript
+// frontend/src/hooks/useRedirectAfterLogin.ts
+
+export function useRedirectAfterLogin(): (defaultPath?: string) => void {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  return useCallback((defaultPath = '/') => {
+    // locationのstateからリダイレクト先を取得
+    const from = (location.state as { from?: string })?.from;
+
+    // URLパラメータからredirectUrlを取得（フォールバック）
+    const searchParams = new URLSearchParams(location.search);
+    const redirectUrl = searchParams.get('redirectUrl');
+
+    // 優先順位: state.from > redirectUrl > defaultPath
+    const targetPath = from || redirectUrl || defaultPath;
+
+    navigate(targetPath, { replace: true });
+  }, [navigate, location]);
+}
+```
+
+## パスワードリセット画面設計（要件29対応）
+
+本セクションでは、パスワードリセット機能の画面設計を定義します（requirements.md 要件29対応）。
+
+### パスワードリセット要求画面
+
+```typescript
+// frontend/src/pages/PasswordResetRequestPage.tsx
+
+interface PasswordResetRequestFormData {
+  email: string;
+}
+
+export function PasswordResetRequestPage(): ReactElement {
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<PasswordResetRequestFormData>();
+
+  const onSubmit = async (data: PasswordResetRequestFormData) => {
+    await apiClient.post('/api/v1/auth/password/reset-request', {
+      email: data.email,
+    });
+    // セキュリティ上、成功・失敗を問わず同じメッセージを表示
+    setIsSubmitted(true);
+  };
+
+  if (isSubmitted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-md">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">
+            メールを送信しました
+          </h1>
+          <p className="text-gray-600 mb-6">
+            入力されたメールアドレスにパスワードリセットのリンクを送信しました。
+            メールをご確認ください。
+          </p>
+          <Link
+            to="/login"
+            className="w-full inline-block text-center py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            ログイン画面へ戻る
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-md">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">
+          パスワードリセット
+        </h1>
+        <p className="text-gray-600 mb-6">
+          登録されているメールアドレスを入力してください。
+          パスワードリセットのリンクをお送りします。
+        </p>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              メールアドレス
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              autoFocus
+              {...register('email', {
+                required: 'メールアドレスを入力してください',
+                pattern: {
+                  value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                  message: '有効なメールアドレスを入力してください',
+                },
+              })}
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              aria-invalid={errors.email ? 'true' : 'false'}
+              aria-describedby={errors.email ? 'email-error' : undefined}
+            />
+            {errors.email && (
+              <p
+                id="email-error"
+                className="mt-1 text-sm text-red-600"
+                aria-live="polite"
+              >
+                {errors.email.message}
+              </p>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+          >
+            {isSubmitting ? (
+              <>
+                <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                送信中...
+              </>
+            ) : (
+              'リセットメールを送信'
+            )}
+          </button>
+        </form>
+        <div className="mt-6 text-center">
+          <Link to="/login" className="text-sm text-blue-600 hover:underline">
+            ログイン画面へ戻る
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### パスワード再設定画面
+
+```typescript
+// frontend/src/pages/PasswordResetPage.tsx
+
+interface PasswordResetFormData {
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export function PasswordResetPage(): ReactElement {
+  const { resetToken } = useParams<{ resetToken: string }>();
+  const navigate = useNavigate();
+  const [isTokenValid, setIsTokenValid] = useState<boolean | null>(null);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<PasswordResetFormData>();
+  const newPassword = watch('newPassword', '');
+
+  // リセットトークン検証
+  useEffect(() => {
+    async function verifyToken() {
+      try {
+        await apiClient.get(`/api/v1/auth/password/verify-reset?token=${resetToken}`);
+        setIsTokenValid(true);
+      } catch {
+        setIsTokenValid(false);
+      }
+    }
+    verifyToken();
+  }, [resetToken]);
+
+  const onSubmit = async (data: PasswordResetFormData) => {
+    await apiClient.post('/api/v1/auth/password/reset', {
+      token: resetToken,
+      newPassword: data.newPassword,
+    });
+    setIsSuccess(true);
+    // 3秒後にログイン画面へリダイレクト
+    setTimeout(() => navigate('/login'), 3000);
+  };
+
+  // トークン検証中
+  if (isTokenValid === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto" />
+          <p className="mt-4 text-gray-600">トークンを検証中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // トークン無効
+  if (isTokenValid === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-md text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">
+            リンクが無効または期限切れです
+          </h1>
+          <p className="text-gray-600 mb-6">
+            パスワードリセットのリンクが無効または期限切れです。
+            再度パスワードリセットを申請してください。
+          </p>
+          <Link
+            to="/password-reset"
+            className="inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            パスワードリセットを再度申請する
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // パスワード変更成功
+  if (isSuccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-md text-center">
+          <h1 className="text-2xl font-bold text-green-600 mb-4">
+            パスワードを変更しました
+          </h1>
+          <p className="text-gray-600 mb-6">
+            パスワードが正常に変更されました。
+            新しいパスワードでログインしてください。
+          </p>
+          <p className="text-sm text-gray-500">
+            3秒後に自動的にログイン画面へリダイレクトします...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-md">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">
+          新しいパスワードを設定
+        </h1>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div>
+            <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700">
+              新しいパスワード
+            </label>
+            <input
+              id="newPassword"
+              type="password"
+              autoComplete="new-password"
+              {...register('newPassword', {
+                required: '新しいパスワードを入力してください',
+                minLength: {
+                  value: 12,
+                  message: 'パスワードは12文字以上で入力してください',
+                },
+              })}
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              aria-invalid={errors.newPassword ? 'true' : 'false'}
+            />
+            {/* パスワード強度インジケーター */}
+            <PasswordStrengthIndicator password={newPassword} />
+            {/* パスワード要件チェックリスト */}
+            <PasswordRequirementsChecklist password={newPassword} />
+            {errors.newPassword && (
+              <p className="mt-1 text-sm text-red-600" aria-live="polite">
+                {errors.newPassword.message}
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+              パスワード確認
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              {...register('confirmPassword', {
+                required: 'パスワード確認を入力してください',
+                validate: value =>
+                  value === newPassword || 'パスワードが一致しません',
+              })}
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              aria-invalid={errors.confirmPassword ? 'true' : 'false'}
+            />
+            {errors.confirmPassword && (
+              <p className="mt-1 text-sm text-red-600" aria-live="polite">
+                {errors.confirmPassword.message}
+              </p>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+          >
+            {isSubmitting ? (
+              <>
+                <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                変更中...
+              </>
+            ) : (
+              'パスワードを変更'
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+```
+
+### パスワードリセットフロー
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant FE as Frontend
+    participant BE as Backend API
+    participant DB as PostgreSQL
+    participant Email as Email Service
+
+    User->>FE: パスワードリセット要求画面にアクセス
+    FE-->>User: メールアドレス入力フォーム表示
+
+    User->>FE: メールアドレス入力・送信
+    FE->>BE: POST /api/v1/auth/password/reset-request
+    BE->>DB: ユーザー検索（email）
+    alt ユーザーが存在する
+        BE->>BE: リセットトークン生成（24時間有効）
+        BE->>DB: PasswordResetToken保存
+        BE->>Email: パスワードリセットメール送信
+    end
+    BE-->>FE: 200 OK（成功・失敗を問わず同じレスポンス）
+    FE-->>User: 「メールを送信しました」メッセージ表示
+
+    User->>FE: リセットメールのリンクをクリック
+    FE->>BE: GET /api/v1/auth/password/verify-reset?token={token}
+    BE->>DB: リセットトークン検証
+    alt トークンが有効
+        BE-->>FE: 200 OK
+        FE-->>User: パスワード再設定フォーム表示
+        User->>FE: 新しいパスワード入力・送信
+        FE->>BE: POST /api/v1/auth/password/reset
+        BE->>DB: パスワード更新（Argon2idハッシュ）
+        BE->>DB: 全リフレッシュトークン無効化
+        BE->>DB: リセットトークンを使用済みにマーク
+        BE-->>FE: 200 OK
+        FE-->>User: 成功メッセージ表示
+        FE-->>User: 3秒後にログイン画面へリダイレクト
+    else トークンが無効または期限切れ
+        BE-->>FE: 400 Bad Request
+        FE-->>User: エラーメッセージと再申請リンク表示
+    end
+```
