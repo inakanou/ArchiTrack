@@ -408,8 +408,12 @@ echo ""
 
 # テスト環境の起動（開発環境とは独立）
 echo "   Starting test environment containers..."
-npm run test:docker 2>&1 | head -20
-if [ $? -ne 0 ]; then
+# Note: `head -20`を使用すると、出力が20行を超えた時点でSIGPIPEが発生し、
+# docker composeが異常終了コード141を返すため、tailを使用して最後の20行を表示
+docker_output=$(npm run test:docker 2>&1)
+docker_exit_code=$?
+echo "$docker_output" | tail -20
+if [ $docker_exit_code -ne 0 ]; then
   echo "❌ Failed to start test Docker containers. Push aborted."
   exit 1
 fi
