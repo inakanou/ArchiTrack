@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-02（Steering Sync: Mailhogサービス追加、frontend services層確認）_
+_最終更新: 2025-12-03（Steering Sync: Navigation ディレクトリ追加、AppHeader コンポーネント、パスワードリセット E2E テスト追加）_
 
 ## ルートディレクトリ構成
 
@@ -242,7 +242,7 @@ e2e/
 
 - `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
 - `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
-- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待等）
+- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待、パスワードリセット等）
 - `admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
 - `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
 - `performance/` - パフォーマンステスト（ページロード時間等）
@@ -295,8 +295,12 @@ frontend/
 │   │   ├── api/           # APIクライアントテスト
 │   │   │   └── client.test.ts  # APIクライアントテスト（fetch、エラーハンドリング）
 │   │   └── components/    # Reactコンポーネントテスト
-│   │       └── ErrorBoundary.test.tsx  # エラーバウンダリコンポーネントテスト
+│   │       ├── ErrorBoundary.test.tsx  # エラーバウンダリコンポーネントテスト
+│   │       └── AppHeader.test.tsx      # AppHeaderコンポーネントテスト
 │   ├── components/        # Reactコンポーネント
+│   │   ├── Navigation/             # ナビゲーションコンポーネント
+│   │   │   ├── AppHeader.tsx       # アプリヘッダー（認証状態対応）
+│   │   │   └── index.ts            # エクスポート集約
 │   │   ├── ErrorBoundary.tsx       # エラーバウンダリコンポーネント
 │   │   ├── ErrorBoundary.stories.tsx  # Storybook ストーリー（5バリアント）
 │   │   ├── LoginForm.tsx           # ログインフォーム
