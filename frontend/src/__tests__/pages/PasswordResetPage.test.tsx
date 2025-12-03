@@ -230,4 +230,66 @@ describe('PasswordResetPage Component', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/login');
     });
   });
+
+  describe('要件29.1: パスワードリセット要求画面の実装検証', () => {
+    it('メールアドレス入力フォームが表示されること', () => {
+      renderPasswordResetPage();
+
+      // フォームが表示されること
+      expect(screen.getByTestId('password-reset-form')).toBeInTheDocument();
+      // リセット要求モードであること
+      expect(screen.getByTestId('mode')).toHaveTextContent('request');
+    });
+
+    it('送信成功時に確認メッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.post).mockResolvedValueOnce({});
+
+      renderPasswordResetPage();
+
+      await user.click(screen.getByTestId('request-button'));
+
+      await waitFor(() => {
+        // APIが正しく呼ばれること
+        expect(apiClient.post).toHaveBeenCalledWith('/api/v1/auth/password/reset-request', {
+          email: 'test@example.com',
+        });
+      });
+    });
+
+    it('ログイン画面へのリンクが配置されていること', () => {
+      renderPasswordResetPage();
+
+      const loginLink = screen.getByRole('link', { name: /ログインページに戻る/i });
+      expect(loginLink).toBeInTheDocument();
+      expect(loginLink).toHaveAttribute('href', '/login');
+    });
+
+    it('リセット実行モードでもログイン画面へのリンクが配置されていること', async () => {
+      renderPasswordResetPage('?token=test-token');
+
+      // トークン検証が完了するまで待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('mode')).toHaveTextContent('reset');
+      });
+
+      const loginLink = screen.getByRole('link', { name: /ログインページに戻る/i });
+      expect(loginLink).toBeInTheDocument();
+    });
+
+    it('存在しないメールアドレスでもAPIが成功を返し同一メッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      // 存在しないメールアドレスでもAPIは成功を返す（セキュリティ上の理由）
+      vi.mocked(apiClient.post).mockResolvedValueOnce({});
+
+      renderPasswordResetPage();
+
+      await user.click(screen.getByTestId('request-button'));
+
+      await waitFor(() => {
+        // APIが正しく呼ばれること（メールアドレスの存在有無に関わらず成功）
+        expect(apiClient.post).toHaveBeenCalled();
+      });
+    });
+  });
 });

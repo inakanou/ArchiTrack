@@ -235,6 +235,53 @@ describe('PasswordResetForm', () => {
     });
   });
 
+  describe('セキュリティ要件', () => {
+    it('存在しないメールアドレスでも成功メッセージが表示されること（要件29.1）', async () => {
+      const user = userEvent.setup();
+      // APIは成功を返す（存在しないメールアドレスでもセキュリティ上の理由で成功を返す）
+      mockOnRequestReset.mockResolvedValue(undefined);
+
+      render(<PasswordResetForm onRequestReset={mockOnRequestReset} />);
+
+      const emailInput = screen.getByLabelText(/メールアドレス/i);
+      const resetButton = screen.getByRole('button', {
+        name: /リセットリンクを送信/i,
+      });
+
+      // 存在しないメールアドレスを入力
+      await user.type(emailInput, 'nonexistent@example.com');
+      await user.click(resetButton);
+
+      // 成功メッセージが表示されることを確認（セキュリティ上の理由でメールアドレスの存在有無を示さない）
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードリセットリンクを送信しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('成功メッセージがメールアドレスの存在を示唆しないこと（要件29.1）', async () => {
+      const user = userEvent.setup();
+      mockOnRequestReset.mockResolvedValue(undefined);
+
+      render(<PasswordResetForm onRequestReset={mockOnRequestReset} />);
+
+      const emailInput = screen.getByLabelText(/メールアドレス/i);
+      const resetButton = screen.getByRole('button', {
+        name: /リセットリンクを送信/i,
+      });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        const successMessage = screen.getByText(/パスワードリセットリンクを送信しました/i);
+        expect(successMessage).toBeInTheDocument();
+        // メールアドレスの存在を示唆する表現が含まれていないことを確認
+        expect(successMessage.textContent).not.toMatch(/が見つかりました/i);
+        expect(successMessage.textContent).not.toMatch(/登録されて/i);
+      });
+    });
+  });
+
   describe('エラーハンドリング', () => {
     it('リクエスト失敗時、汎用エラーが表示されること', async () => {
       const user = userEvent.setup();
