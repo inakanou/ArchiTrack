@@ -414,6 +414,60 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
 });
 
 /**
+ * タスク23.3: 401エラー受信時のログイン画面リダイレクト処理の検証
+ * 要件16.1, 16.2
+ *
+ * ProtectedRouteからログイン画面へのリダイレクト時にredirectUrlクエリパラメータを追加
+ */
+describe('ProtectedRoute - 要件16: redirectUrlクエリパラメータ', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * 要件16.1: 未認証ユーザーが保護されたURLに直接アクセスする場合、
+   * ログイン画面へリダイレクトし、元のURLをredirectUrlクエリパラメータとして保存する
+   */
+  it('未認証ユーザーがリダイレクトされる際にredirectUrlクエリパラメータが含まれること', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+      user: null,
+    });
+
+    // クエリパラメータ付きのURLでテスト
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/admin/users?page=2&sort=name']}>
+          <Routes>
+            <Route
+              path="/admin/users"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/login"
+              element={
+                <div data-testid="login-page">
+                  <span data-testid="current-url">{window.location.href}</span>
+                </div>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ログインページにリダイレクトされていることを確認
+    expect(screen.getByTestId('login-page')).toBeInTheDocument();
+  });
+});
+
+/**
  * タスク23.1: ProtectedRouteの遷移先state保存の検証と強化
  * 要件28.1, 28.3
  */

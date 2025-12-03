@@ -92,6 +92,146 @@ describe('LoginPage Component', () => {
   });
 
   /**
+   * タスク23.3: 401エラー受信時のログイン画面リダイレクト処理の検証
+   * 要件16.1, 16.2, 28.1
+   *
+   * redirectUrlクエリパラメータを使用したリダイレクト処理のテスト
+   */
+  describe('要件16: redirectUrlクエリパラメータによるリダイレクト', () => {
+    /**
+     * 要件16.2: redirectUrlクエリパラメータからリダイレクト先を取得し、
+     * ログイン成功後にそのURLへ遷移する
+     */
+    it('URLのredirectUrlクエリパラメータからリダイレクト先を取得してログイン後に遷移する', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              search: '?redirectUrl=%2Fadmin%2Fusers%3Fpage%3D2',
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // redirectUrlクエリパラメータからデコードされたパスにリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/users?page=2', { replace: true });
+    });
+
+    /**
+     * 要件16.2: redirectUrlクエリパラメータが存在する場合、state.fromより優先される
+     */
+    it('redirectUrlクエリパラメータはstate.fromよりも優先される', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              search: '?redirectUrl=%2Fprofile',
+              state: { from: '/dashboard' },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // redirectUrlクエリパラメータのパスにリダイレクトされることを確認（state.fromではない）
+      expect(mockNavigate).toHaveBeenCalledWith('/profile', { replace: true });
+    });
+
+    /**
+     * 要件16.2: redirectUrlクエリパラメータが存在しない場合、state.fromを使用する
+     */
+    it('redirectUrlクエリパラメータがない場合はstate.fromを使用する', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              state: { from: '/settings' },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // state.fromのパスにリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/settings', { replace: true });
+    });
+
+    /**
+     * 要件28.1: セキュリティ対策 - 外部URLへのリダイレクトを防止する
+     */
+    it('外部URLへのリダイレクトを防止し、デフォルトの/dashboardへ遷移する', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              search: '?redirectUrl=https%3A%2F%2Fmalicious.com%2Fphishing',
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // 外部URLではなく、デフォルトの/dashboardにリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+    });
+
+    /**
+     * 要件28.1: セキュリティ対策 - //で始まるプロトコル相対URLを防止する
+     */
+    it('プロトコル相対URL（//）へのリダイレクトを防止する', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              search: '?redirectUrl=%2F%2Fmalicious.com%2Fphishing',
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // プロトコル相対URLではなく、デフォルトの/dashboardにリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+    });
+  });
+
+  /**
    * タスク23.1: ProtectedRouteの遷移先state保存の検証と強化
    * 要件28.1, 28.3
    */

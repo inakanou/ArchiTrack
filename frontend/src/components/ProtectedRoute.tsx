@@ -86,14 +86,19 @@ export function ProtectedRoute({
     }
 
     if (!isAuthenticated) {
-      // 未認証の場合、現在のパスをstateに保存してリダイレクト
+      // 未認証の場合、現在のパスをstateとクエリパラメータの両方に保存してリダイレクト
       // ログイン後にこのパスに戻れるようにする（Requirement 16）
       // セッション期限切れの場合はsessionExpiredフラグも渡す（Requirement 16.8）
+      // 要件16.7: redirectUrlクエリパラメータとして現在のURLを保存
+      const currentPath = location.pathname + location.search;
+      const redirectUrlParam = encodeURIComponent(currentPath);
+      const redirectPath = `${redirectTo}?redirectUrl=${redirectUrlParam}`;
+
       return (
         <Navigate
-          to={redirectTo}
+          to={redirectPath}
           state={{
-            from: location.pathname + location.search,
+            from: currentPath,
             sessionExpired,
           }}
           replace

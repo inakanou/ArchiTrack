@@ -1,10 +1,42 @@
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import LoginForm from '../components/LoginForm';
 import TwoFactorVerificationForm from '../components/TwoFactorVerificationForm';
 import type { LoginFormData, LoginResult } from '../types/auth.types';
 import { ApiError } from '../api/client';
+
+/**
+ * リダイレクトURLを検証し、安全なURLのみを返す
+ * 外部URLやプロトコル相対URLは拒否してデフォルトを返す
+ *
+ * @param url 検証するURL
+ * @param defaultUrl デフォルトのリダイレクト先
+ * @returns 安全なリダイレクト先URL
+ */
+function validateRedirectUrl(url: string | null, defaultUrl: string): string {
+  if (!url) {
+    return defaultUrl;
+  }
+
+  // 外部URL（http://, https://）を拒否
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return defaultUrl;
+  }
+
+  // プロトコル相対URL（//）を拒否
+  if (url.startsWith('//')) {
+    return defaultUrl;
+  }
+
+  // 相対パスは許可（/で始まるパスのみ）
+  if (url.startsWith('/')) {
+    return url;
+  }
+
+  // その他のURLはデフォルトを返す
+  return defaultUrl;
+}
 
 /**
  * ログインページ
@@ -24,6 +56,7 @@ import { ApiError } from '../api/client';
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { login, twoFactorState, verify2FA, verifyBackupCode, cancel2FA, isAuthenticated } =
     useAuth();
   const [loginError, setLoginError] = useState<ApiError | null>(null);
@@ -33,15 +66,36 @@ export function LoginPage() {
   // location.stateからセッション期限切れフラグを取得（要件16.8）
   const sessionExpired = (location.state as { sessionExpired?: boolean })?.sessionExpired;
 
+  // リダイレクト先を決定
+  // 要件16.2: redirectUrlクエリパラメータを優先、なければstate.from、なければ/dashboard
+  const redirectTarget = useMemo(() => {
+    const redirectUrlParam = searchParams.get('redirectUrl');
+    const stateFrom = (location.state as { from?: string })?.from;
+    const defaultUrl = '/dashboard';
+
+    // redirectUrlクエリパラメータを優先（デコードされた値）
+    if (redirectUrlParam) {
+      return validateRedirectUrl(redirectUrlParam, defaultUrl);
+    }
+
+    // state.fromがあればそれを使用
+    if (stateFrom) {
+      return validateRedirectUrl(stateFrom, defaultUrl);
+    }
+
+    // どちらもなければデフォルト
+    return defaultUrl;
+  }, [searchParams, location.state]);
+
   // 2FA認証成功後のリダイレクト
-  // 要件28.5: state.fromが存在する場合、そのパスにリダイレクト
-  // 要件28.6: state.fromが存在しない場合、デフォルトで/dashboardにリダイレクト
+  // 要件16.2: redirectUrlクエリパラメータまたはstate.fromにリダイレクト
+  // 要件28.5: 存在する場合、保存されたURLにリダイレクト
+  // 要件28.6: 存在しない場合、デフォルトで/dashboardにリダイレクト
   useEffect(() => {
     if (isAuthenticated && !twoFactorState) {
-      const from = (location.state as { from?: string })?.from || '/dashboard';
-      navigate(from, { replace: true });
+      navigate(redirectTarget, { replace: true });
     }
-  }, [isAuthenticated, twoFactorState, navigate, location.state]);
+  }, [isAuthenticated, twoFactorState, navigate, redirectTarget]);
 
   /**
    * ログイン処理
