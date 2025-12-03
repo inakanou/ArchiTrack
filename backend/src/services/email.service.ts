@@ -302,7 +302,7 @@ export class EmailService {
     const { to, resetToken } = data;
     logger.debug({ to }, 'Processing password reset email');
 
-    const resetUrl = `${this.frontendUrl}/reset-password?token=${resetToken}`;
+    const resetUrl = `${this.frontendUrl}/password-reset?token=${resetToken}`;
 
     // Handlebarsテンプレート読み込み
     const templatePath = join(__dirname, '../templates/password-reset-email.hbs');

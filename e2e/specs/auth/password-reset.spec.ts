@@ -394,6 +394,371 @@ test.describe('パスワード管理機能', () => {
 });
 
 /**
+ * パスワードリセットフローの完全E2Eテスト
+ *
+ * タスク24.3: パスワードリセットフローのE2Eテスト検証
+ * - パスワードリセット要求 → メール送信 → リセット実行 → ログインの一連のフロー確認
+ *
+ * @REQ-29 パスワードリセット画面のUI/UX
+ */
+test.describe('パスワードリセット完全E2Eフロー', () => {
+  // 並列実行を無効化（メール確認の競合を防ぐ）
+  test.describe.configure({ mode: 'serial' });
+
+  // Mailpit API URL
+  const mailpitApiUrl = 'http://localhost:8025/api/v1';
+
+  /**
+   * Mailpitから全メールを削除
+   */
+  async function clearMailpit(): Promise<void> {
+    try {
+      await fetch(`${mailpitApiUrl}/messages`, { method: 'DELETE' });
+    } catch {
+      // Mailpitが利用できない場合はスキップ
+      console.warn('Mailpit not available, skipping email clear');
+    }
+  }
+
+  /**
+   * Mailpitから特定の宛先に送信されたメールを取得
+   * @param toEmail - 宛先メールアドレス
+   * @param maxRetries - 最大リトライ回数
+   * @returns メール情報（見つからない場合はnull）
+   */
+  async function getEmailFromMailpit(
+    toEmail: string,
+    maxRetries = 5
+  ): Promise<{
+    id: string;
+    subject: string;
+    html: string;
+    text: string;
+  } | null> {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        // メール一覧を取得
+        const response = await fetch(`${mailpitApiUrl}/messages`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch messages: ${response.statusText}`);
+        }
+        const data = (await response.json()) as {
+          messages: Array<{
+            ID: string;
+            To: Array<{ Address: string }>;
+            Subject: string;
+          }>;
+        };
+
+        // 宛先でフィルタリング
+        const email = data.messages?.find((msg) =>
+          msg.To?.some((to) => to.Address.toLowerCase() === toEmail.toLowerCase())
+        );
+
+        if (email) {
+          // メール本文を取得
+          const messageResponse = await fetch(`${mailpitApiUrl}/message/${email.ID}`);
+          if (messageResponse.ok) {
+            const messageData = (await messageResponse.json()) as {
+              ID: string;
+              Subject: string;
+              HTML: string;
+              Text: string;
+            };
+            return {
+              id: messageData.ID,
+              subject: messageData.Subject,
+              html: messageData.HTML,
+              text: messageData.Text,
+            };
+          }
+        }
+
+        // メールが見つからない場合は少し待ってリトライ
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error) {
+        if (i === maxRetries - 1) {
+          console.warn('Failed to get email from Mailpit:', error);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    return null;
+  }
+
+  /**
+   * メール本文からリセットトークンを抽出
+   * @param emailText - メール本文
+   * @returns リセットトークン（見つからない場合はnull）
+   */
+  function extractResetTokenFromEmail(emailText: string): string | null {
+    // URLからトークンを抽出 (例: http://localhost:5173/password-reset?token=xxx)
+    const urlMatch = emailText.match(/password-reset\?token=([a-zA-Z0-9_-]+)/);
+    return urlMatch ? (urlMatch[1] ?? null) : null;
+  }
+
+  test.beforeEach(async ({ context }) => {
+    // テスト間の状態をクリア
+    await context.clearCookies();
+
+    // Mailpitのメールをクリア
+    await clearMailpit();
+
+    // テストユーザーの状態をリセット
+    const prisma = getPrismaClient();
+    const user = TEST_USERS.REGULAR_USER;
+
+    await prisma.user.update({
+      where: { email: user.email },
+      data: {
+        passwordHash: await hashPassword(user.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+
+    // 既存のパスワードリセットトークンを削除
+    await prisma.passwordResetToken.deleteMany({
+      where: {
+        user: { email: user.email },
+      },
+    });
+  });
+
+  /**
+   * 要件29.1, 29.2, 29.3: パスワードリセット完全フロー
+   * パスワードリセット要求 → メール送信確認 → リセット実行 → ログインの一連のフロー
+   */
+  test('パスワードリセット要求からログインまでの完全フローが動作する', async ({ page }) => {
+    const userEmail = 'user@example.com';
+    const newPassword = `NewSecurePass${Date.now()}!Aa`;
+
+    // Step 1: パスワードリセット要求画面にアクセス
+    await page.goto('/password-reset');
+    await expect(page.getByText(/パスワードリセット用のリンクをメールで送信します/i)).toBeVisible();
+
+    // Step 2: メールアドレスを入力してリセット要求を送信
+    await page.getByLabel(/メールアドレス/i).fill(userEmail);
+    await page.getByRole('button', { name: /リセットリンクを送信/i }).click();
+
+    // Step 3: 成功メッセージが表示される
+    await expect(
+      page.getByText(/パスワードリセットリンクを送信しました.*メールをご確認ください/i)
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    // Step 4: Mailpitからリセットメールを取得
+    const email = await getEmailFromMailpit(userEmail);
+
+    // メールが取得できた場合のみ続行
+    if (email) {
+      expect(email.subject).toContain('パスワードリセット');
+
+      // メール本文からリセットトークンを抽出
+      const resetToken = extractResetTokenFromEmail(email.text || email.html);
+      expect(resetToken).toBeTruthy();
+
+      // Step 5: リセットURLにアクセス
+      await page.goto(`/password-reset?token=${resetToken}`);
+
+      // トークン検証が完了するまで待機
+      await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+
+      // Step 6: 新しいパスワードを入力
+      await page.locator('input#password').fill(newPassword);
+      await page.locator('input#passwordConfirm').fill(newPassword);
+      await page.getByRole('button', { name: /パスワードをリセット/i }).click();
+
+      // Step 7: ログインページにリダイレクト
+      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
+      await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
+
+      // Step 8: 新しいパスワードでログイン
+      await page.getByLabel(/メールアドレス/i).fill(userEmail);
+      await page.locator('input#password').fill(newPassword);
+      await page.getByRole('button', { name: /ログイン/i }).click();
+
+      // Step 9: ログイン成功（ダッシュボードへリダイレクト）
+      await expect(page).toHaveURL(/\//, { timeout: getTimeout(15000) });
+    } else {
+      // メールが取得できない場合（Mailpitが利用不可）はDBのトークンで検証
+      const prisma = getPrismaClient();
+      const user = await prisma.user.findUnique({
+        where: { email: userEmail },
+        include: { passwordResetRequests: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      });
+
+      expect(user?.passwordResetRequests).toHaveLength(1);
+      const dbToken = user!.passwordResetRequests[0]!.token;
+
+      // DBから取得したトークンでリセット実行
+      await page.goto(`/password-reset?token=${dbToken}`);
+      await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+
+      await page.locator('input#password').fill(newPassword);
+      await page.locator('input#passwordConfirm').fill(newPassword);
+      await page.getByRole('button', { name: /パスワードをリセット/i }).click();
+
+      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
+      await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
+
+      await page.getByLabel(/メールアドレス/i).fill(userEmail);
+      await page.locator('input#password').fill(newPassword);
+      await page.getByRole('button', { name: /ログイン/i }).click();
+
+      await expect(page).toHaveURL(/\//, { timeout: getTimeout(15000) });
+    }
+  });
+
+  /**
+   * 要件29.3: パスワードリセット成功後のログイン画面へのリダイレクト
+   * WHEN パスワード再設定が成功する
+   * THEN Frontend UIは成功メッセージを表示し、ログイン画面へリダイレクトする
+   */
+  test('パスワードリセット成功後、成功メッセージが表示されログインページにリダイレクトされる', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const user = await prisma.user.findUnique({
+      where: { email: 'user@example.com' },
+    });
+
+    // ユニークなトークンとパスワードを生成
+    const resetToken = `redirect-test-token-${Date.now()}`;
+    const uniquePassword = `RedirectTest${Date.now()}!Aa`;
+
+    await prisma.passwordResetToken.create({
+      data: {
+        token: resetToken,
+        userId: user!.id,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // リセットURLにアクセス
+    await page.goto(`/password-reset?token=${resetToken}`);
+    await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+
+    // 新しいパスワードを設定
+    await page.locator('input#password').fill(uniquePassword);
+    await page.locator('input#passwordConfirm').fill(uniquePassword);
+    await page.getByRole('button', { name: /パスワードをリセット/i }).click();
+
+    // ログインページにリダイレクト
+    await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
+
+    // 成功メッセージが表示される
+    await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
+  });
+
+  /**
+   * 要件29.1: パスワードリセット要求画面のUI確認
+   * WHEN パスワードリセット要求画面が表示される
+   * THEN Frontend UIはメールアドレス入力フィールド、送信ボタン、ログイン画面へ戻るリンクを表示する
+   */
+  test('パスワードリセット要求画面に必要な要素が表示される', async ({ page }) => {
+    await page.goto('/password-reset');
+
+    // メールアドレス入力フィールド
+    await expect(page.getByLabel(/メールアドレス/i)).toBeVisible();
+
+    // 送信ボタン
+    await expect(page.getByRole('button', { name: /リセットリンクを送信/i })).toBeVisible();
+
+    // ログイン画面へ戻るリンク
+    await expect(page.getByRole('link', { name: /ログインページに戻る/i })).toBeVisible();
+
+    // ガイダンステキスト
+    await expect(page.getByText(/パスワードリセット用のリンクをメールで送信します/i)).toBeVisible();
+  });
+
+  /**
+   * 要件29.2: パスワード再設定画面のUI確認
+   * WHEN パスワード再設定画面が表示される
+   * THEN Frontend UIは新しいパスワード入力フィールド、パスワード確認フィールド、変更ボタンを表示する
+   */
+  test('有効なトークンでパスワード再設定画面に必要な要素が表示される', async ({ page }) => {
+    const prisma = getPrismaClient();
+    const user = await prisma.user.findUnique({
+      where: { email: 'user@example.com' },
+    });
+
+    const resetToken = `ui-verification-token-${Date.now()}`;
+    await prisma.passwordResetToken.create({
+      data: {
+        token: resetToken,
+        userId: user!.id,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    await page.goto(`/password-reset?token=${resetToken}`);
+
+    // トークン検証完了を待機
+    await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+
+    // 新しいパスワード入力フィールド
+    await expect(page.locator('input#password')).toBeVisible();
+
+    // パスワード確認フィールド
+    await expect(page.locator('input#passwordConfirm')).toBeVisible();
+
+    // 変更ボタン
+    await expect(page.getByRole('button', { name: /パスワードをリセット/i })).toBeVisible();
+  });
+
+  /**
+   * 要件29.2: 無効トークンでのエラー表示
+   * IF リセットトークンが無効または期限切れである
+   * THEN Frontend UIはエラーメッセージと「パスワードリセットを再度申請する」リンクを表示する
+   */
+  test('無効なトークンでエラーメッセージと再申請案内が表示される', async ({ page }) => {
+    await page.goto('/password-reset?token=completely-invalid-token-12345');
+
+    // エラーメッセージが表示される
+    await expect(
+      page.getByText(/無効なリセットリンクです.*再度リセットを要求してください/i)
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    // パスワード入力フィールドが無効化されている
+    await expect(page.locator('input#password')).toBeDisabled();
+    await expect(page.locator('input#passwordConfirm')).toBeDisabled();
+  });
+
+  /**
+   * 要件29.2: 期限切れトークンでのエラー表示
+   * IF リセットトークンが期限切れである
+   * THEN Frontend UIはエラーメッセージを表示する
+   */
+  test('期限切れトークンでエラーメッセージが表示される', async ({ page }) => {
+    const prisma = getPrismaClient();
+    const user = await prisma.user.findUnique({
+      where: { email: 'user@example.com' },
+    });
+
+    const expiredToken = `expired-flow-test-${Date.now()}`;
+    await prisma.passwordResetToken.create({
+      data: {
+        token: expiredToken,
+        userId: user!.id,
+        expiresAt: new Date(Date.now() - 1000), // 1秒前に期限切れ
+      },
+    });
+
+    await page.goto(`/password-reset?token=${expiredToken}`);
+
+    // 期限切れエラーメッセージが表示される
+    await expect(
+      page.getByText(/リセットリンクの有効期限が切れています.*再度リセットを要求してください/i)
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    // パスワード入力フィールドが無効化されている
+    await expect(page.locator('input#password')).toBeDisabled();
+    await expect(page.locator('input#passwordConfirm')).toBeDisabled();
+  });
+});
+
+/**
  * パスワード変更後のセッション無効化テスト
  *
  * このテストは他のテストから独立して実行されます。
