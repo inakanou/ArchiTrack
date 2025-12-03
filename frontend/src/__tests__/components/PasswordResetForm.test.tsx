@@ -222,15 +222,62 @@ describe('PasswordResetForm', () => {
       await user.type(passwordConfirmInput, 'Password123!');
       await user.click(resetButton);
 
-      // ローディング中
-      expect(screen.getByRole('status')).toBeInTheDocument();
+      // ローディング中（ローディングスピナーはaria-label="ローディング中"を持つ）
+      expect(screen.getByRole('status', { name: /ローディング中/i })).toBeInTheDocument();
       expect(resetButton).toBeDisabled();
 
       // リセット完了
       resolveReset!();
       await waitFor(() => {
-        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+        expect(screen.queryByRole('status', { name: /ローディング中/i })).not.toBeInTheDocument();
         expect(resetButton).not.toBeDisabled();
+      });
+    });
+  });
+
+  describe('セキュリティ要件', () => {
+    it('存在しないメールアドレスでも成功メッセージが表示されること（要件29.1）', async () => {
+      const user = userEvent.setup();
+      // APIは成功を返す（存在しないメールアドレスでもセキュリティ上の理由で成功を返す）
+      mockOnRequestReset.mockResolvedValue(undefined);
+
+      render(<PasswordResetForm onRequestReset={mockOnRequestReset} />);
+
+      const emailInput = screen.getByLabelText(/メールアドレス/i);
+      const resetButton = screen.getByRole('button', {
+        name: /リセットリンクを送信/i,
+      });
+
+      // 存在しないメールアドレスを入力
+      await user.type(emailInput, 'nonexistent@example.com');
+      await user.click(resetButton);
+
+      // 成功メッセージが表示されることを確認（セキュリティ上の理由でメールアドレスの存在有無を示さない）
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードリセットリンクを送信しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('成功メッセージがメールアドレスの存在を示唆しないこと（要件29.1）', async () => {
+      const user = userEvent.setup();
+      mockOnRequestReset.mockResolvedValue(undefined);
+
+      render(<PasswordResetForm onRequestReset={mockOnRequestReset} />);
+
+      const emailInput = screen.getByLabelText(/メールアドレス/i);
+      const resetButton = screen.getByRole('button', {
+        name: /リセットリンクを送信/i,
+      });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        const successMessage = screen.getByText(/パスワードリセットリンクを送信しました/i);
+        expect(successMessage).toBeInTheDocument();
+        // メールアドレスの存在を示唆する表現が含まれていないことを確認
+        expect(successMessage.textContent).not.toMatch(/が見つかりました/i);
+        expect(successMessage.textContent).not.toMatch(/登録されて/i);
       });
     });
   });
@@ -493,6 +540,127 @@ describe('PasswordResetForm', () => {
         const errorContainer = screen.getByRole('alert');
         expect(errorContainer).toBeInTheDocument();
         expect(errorContainer).toHaveAttribute('aria-live', 'polite');
+      });
+    });
+  });
+
+  describe('要件29.2: パスワード再設定画面の実装検証', () => {
+    describe('パスワード強度インジケーター統合', () => {
+      it('パスワード入力時にパスワード強度インジケーターが表示されること（要件29.2-13）', async () => {
+        const user = userEvent.setup();
+        render(
+          <PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />
+        );
+
+        const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+
+        // パスワードを入力
+        await user.type(passwordInput, 'Test123!');
+
+        // パスワード強度インジケーターが表示されること
+        await waitFor(() => {
+          expect(screen.getByTestId('password-strength-indicator')).toBeInTheDocument();
+        });
+      });
+
+      it('弱いパスワードで「弱い」と表示されること（要件29.2-13）', async () => {
+        const user = userEvent.setup();
+        render(
+          <PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />
+        );
+
+        const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+
+        // 弱いパスワードを入力
+        await user.type(passwordInput, 'abc');
+
+        await waitFor(() => {
+          expect(screen.getByTestId('password-strength-text')).toHaveTextContent('弱い');
+        });
+      });
+
+      it('強いパスワードで「強い」または「非常に強い」と表示されること（要件29.2-13）', async () => {
+        const user = userEvent.setup();
+        render(
+          <PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />
+        );
+
+        const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+
+        // 強いパスワードを入力
+        await user.type(passwordInput, 'StrongP@ssw0rd!123');
+
+        await waitFor(() => {
+          const strengthText = screen.getByTestId('password-strength-text').textContent;
+          expect(['強い', '非常に強い']).toContain(strengthText);
+        });
+      });
+    });
+
+    describe('パスワード要件チェックリスト統合', () => {
+      it('パスワード入力時にパスワード要件チェックリストが表示されること（要件29.2-14）', async () => {
+        const user = userEvent.setup();
+        render(
+          <PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />
+        );
+
+        const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+
+        // パスワードを入力
+        await user.type(passwordInput, 'Test');
+
+        // 要件チェックリストが表示されること
+        await waitFor(() => {
+          expect(screen.getByText('12文字以上')).toBeInTheDocument();
+          expect(screen.getByText('大文字を含む')).toBeInTheDocument();
+          expect(screen.getByText('小文字を含む')).toBeInTheDocument();
+          expect(screen.getByText('数字を含む')).toBeInTheDocument();
+          expect(screen.getByText('特殊文字を含む')).toBeInTheDocument();
+        });
+      });
+
+      it('要件を満たすと要件アイテムにチェックマークが表示されること（要件29.2-14）', async () => {
+        const user = userEvent.setup();
+        render(
+          <PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />
+        );
+
+        const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+
+        // 大文字、小文字を含むパスワードを入力
+        await user.type(passwordInput, 'TestPassword');
+
+        // 大文字を含む要件が満たされていること
+        await waitFor(() => {
+          const uppercaseItem = screen.getByText('大文字を含む').closest('li');
+          expect(uppercaseItem).toHaveClass('requirement-met');
+        });
+      });
+    });
+
+    describe('リセット成功後の自動リダイレクト', () => {
+      it('パスワード変更成功時に成功メッセージと自動リダイレクト通知が表示されること（要件29.2-17,18）', async () => {
+        const user = userEvent.setup();
+        mockOnResetPassword.mockResolvedValue(undefined);
+
+        render(
+          <PasswordResetForm resetToken="valid-token" onResetPassword={mockOnResetPassword} />
+        );
+
+        const passwordInput = screen.getByLabelText(/^新しいパスワード$/i);
+        const passwordConfirmInput = screen.getByLabelText(/パスワード \(確認\)/i);
+        const resetButton = screen.getByRole('button', {
+          name: /パスワードをリセット/i,
+        });
+
+        await user.type(passwordInput, 'Password123!');
+        await user.type(passwordConfirmInput, 'Password123!');
+        await user.click(resetButton);
+
+        await waitFor(() => {
+          // 成功メッセージが表示されること
+          expect(screen.getByText(/パスワードをリセットしました/i)).toBeInTheDocument();
+        });
       });
     });
   });

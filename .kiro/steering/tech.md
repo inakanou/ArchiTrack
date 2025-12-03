@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-02（Steering Sync: Express 5.2.0、Vite 7.2.6、Storybook 10.1.x、Mailhogサービス追加）_
+_最終更新: 2025-12-03（Steering Sync: Vitest 4.0.14、Prettier 3.7.3、commitlint 20.x、Navigation コンポーネント追加）_
 
 ## アーキテクチャ
 
@@ -45,14 +45,14 @@ ArchiTrack/
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.6.2 - コードフォーマッター
 - `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
-- `vitest` ^4.0.10 - 単体テストフレームワーク
-- `@vitest/ui` ^4.0.10 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.10 - Vitestカバレッジ（V8プロバイダー）
-- `@vitest/coverage-istanbul` ^4.0.10 - Vitestカバレッジ（Istanbulプロバイダー）
+- `vitest` ^4.0.14 - 単体テストフレームワーク
+- `@vitest/ui` ^4.0.14 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.0.14 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-istanbul` ^4.0.14 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
-- `jsdom` ^27.1.0 - ブラウザ環境シミュレーション
+- `jsdom` ^27.2.0 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.22.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
 - `storybook` ^10.1.3 - コンポーネントドキュメント・開発環境（**Storybook 10.x**）

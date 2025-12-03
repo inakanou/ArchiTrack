@@ -5,12 +5,19 @@
  * - 3.1-3.5: 初期管理者アカウントのセットアップ
  * - 17: 動的ロール管理（事前定義ロール）
  * - 18: 権限管理（事前定義権限）
+ *
+ * Task 25.1: prisma/seed.tsの実装確認と検証
+ * - 初期管理者アカウント作成ロジックの確認（ADMIN_EMAIL, ADMIN_PASSWORD環境変数）
+ * - システムロール（admin, user）の初期データ挿入確認
+ * - デフォルト権限（user:read, user:create, user:update, user:delete, user:invite等）の定義確認
+ * - パスワードがArgon2idでハッシュ化されていることの確認
+ * - 重複実行時の冪等性の確認
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma/client.js';
-import { hash } from '@node-rs/argon2';
+import { hash, verify } from '@node-rs/argon2';
 
 const connectionString = process.env.DATABASE_URL!;
 const adapter = new PrismaPg({ connectionString });
@@ -100,6 +107,13 @@ describe('Seed Script Integration Tests', () => {
       where: { resource: 'user', action: 'read' },
     });
     expect(userReadPermission).toBeDefined();
+
+    // Assert: user:invite権限（要件25.1: デフォルト権限の定義確認）
+    const userInvitePermission = await prisma.permission.findFirst({
+      where: { resource: 'user', action: 'invite' },
+    });
+    expect(userInvitePermission).toBeDefined();
+    expect(userInvitePermission?.description).toContain('招待');
   });
 
   it('ロールと権限が正しく紐付けられる', async () => {
@@ -277,5 +291,132 @@ describe('Seed Script Integration Tests', () => {
     });
     expect(adminUser).toBeDefined();
     expect(adminUser?.displayName).toBe('Existing Admin'); // 変更されていない
+  });
+
+  it('初期管理者のパスワードがArgon2idでハッシュ化されている', async () => {
+    // Arrange: テストデータをクリーンアップ
+    await prisma.userRole.deleteMany({
+      where: {
+        user: {
+          email: 'admin@test.example.com',
+        },
+      },
+    });
+    await prisma.user.deleteMany({
+      where: {
+        email: 'admin@test.example.com',
+      },
+    });
+
+    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
+      '../../utils/seed-helpers.js'
+    );
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+
+    // Act
+    await seedAdminUser(prisma);
+
+    // Assert: 管理者ユーザーが作成されている
+    const adminUser = await prisma.user.findUnique({
+      where: { email: 'admin@test.example.com' },
+    });
+    expect(adminUser).toBeDefined();
+    expect(adminUser?.passwordHash).toBeDefined();
+
+    // Assert: パスワードがArgon2idでハッシュ化されている（Argon2idハッシュは$argon2id$で始まる）
+    expect(adminUser?.passwordHash).toMatch(/^\$argon2id\$/);
+
+    // Assert: ハッシュが正しいパスワードで検証できる（Argon2idのパラメータが正しい）
+    const isValid = await verify(adminUser!.passwordHash, 'AdminTest123!@#');
+    expect(isValid).toBe(true);
+
+    // Assert: 異なるパスワードでは検証に失敗する
+    const isInvalid = await verify(adminUser!.passwordHash, 'WrongPassword123!@#');
+    expect(isInvalid).toBe(false);
+  });
+
+  it('INITIAL_ADMIN_*環境変数が優先される', async () => {
+    // Arrange: テストデータをクリーンアップ
+    await prisma.userRole.deleteMany({
+      where: {
+        user: {
+          email: {
+            in: ['admin@test.example.com', 'initial-admin@test.example.com'],
+          },
+        },
+      },
+    });
+    await prisma.user.deleteMany({
+      where: {
+        email: {
+          in: ['admin@test.example.com', 'initial-admin@test.example.com'],
+        },
+      },
+    });
+
+    // Arrange: INITIAL_ADMIN_*環境変数を設定（ADMIN_*より優先される）
+    const originalInitialEmail = process.env.INITIAL_ADMIN_EMAIL;
+    const originalInitialPassword = process.env.INITIAL_ADMIN_PASSWORD;
+    const originalInitialDisplayName = process.env.INITIAL_ADMIN_DISPLAY_NAME;
+
+    process.env.INITIAL_ADMIN_EMAIL = 'initial-admin@test.example.com';
+    process.env.INITIAL_ADMIN_PASSWORD = 'InitialAdmin123!@#';
+    process.env.INITIAL_ADMIN_DISPLAY_NAME = 'Initial Test Admin';
+
+    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
+      '../../utils/seed-helpers.js'
+    );
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+
+    // Act
+    await seedAdminUser(prisma);
+
+    // Assert: INITIAL_ADMIN_*の値でユーザーが作成される
+    const adminUser = await prisma.user.findUnique({
+      where: { email: 'initial-admin@test.example.com' },
+    });
+    expect(adminUser).toBeDefined();
+    expect(adminUser?.displayName).toBe('Initial Test Admin');
+
+    // Assert: ADMIN_*の値ではユーザーが作成されていない
+    const fallbackUser = await prisma.user.findUnique({
+      where: { email: 'admin@test.example.com' },
+    });
+    expect(fallbackUser).toBeNull();
+
+    // Cleanup
+    await prisma.userRole.deleteMany({
+      where: {
+        user: {
+          email: 'initial-admin@test.example.com',
+        },
+      },
+    });
+    await prisma.user.deleteMany({
+      where: {
+        email: 'initial-admin@test.example.com',
+      },
+    });
+
+    // 環境変数を元に戻す
+    if (originalInitialEmail !== undefined) {
+      process.env.INITIAL_ADMIN_EMAIL = originalInitialEmail;
+    } else {
+      delete process.env.INITIAL_ADMIN_EMAIL;
+    }
+    if (originalInitialPassword !== undefined) {
+      process.env.INITIAL_ADMIN_PASSWORD = originalInitialPassword;
+    } else {
+      delete process.env.INITIAL_ADMIN_PASSWORD;
+    }
+    if (originalInitialDisplayName !== undefined) {
+      process.env.INITIAL_ADMIN_DISPLAY_NAME = originalInitialDisplayName;
+    } else {
+      delete process.env.INITIAL_ADMIN_DISPLAY_NAME;
+    }
   });
 });

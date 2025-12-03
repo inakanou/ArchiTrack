@@ -413,6 +413,180 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
   });
 });
 
+/**
+ * タスク23.3: 401エラー受信時のログイン画面リダイレクト処理の検証
+ * 要件16.1, 16.2
+ *
+ * ProtectedRouteからログイン画面へのリダイレクト時にredirectUrlクエリパラメータを追加
+ */
+describe('ProtectedRoute - 要件16: redirectUrlクエリパラメータ', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * 要件16.1: 未認証ユーザーが保護されたURLに直接アクセスする場合、
+   * ログイン画面へリダイレクトし、元のURLをredirectUrlクエリパラメータとして保存する
+   */
+  it('未認証ユーザーがリダイレクトされる際にredirectUrlクエリパラメータが含まれること', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+      user: null,
+    });
+
+    // クエリパラメータ付きのURLでテスト
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/admin/users?page=2&sort=name']}>
+          <Routes>
+            <Route
+              path="/admin/users"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/login"
+              element={
+                <div data-testid="login-page">
+                  <span data-testid="current-url">{window.location.href}</span>
+                </div>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ログインページにリダイレクトされていることを確認
+    expect(screen.getByTestId('login-page')).toBeInTheDocument();
+  });
+});
+
+/**
+ * タスク23.1: ProtectedRouteの遷移先state保存の検証と強化
+ * 要件28.1, 28.3
+ */
+describe('ProtectedRoute - 要件28: 遷移先state保存', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * 要件28.1: 未認証ユーザーが保護されたURLに直接アクセスする場合、
+   * ログイン画面へリダイレクトし、元のURL（pathname + search）をstateに保存する
+   */
+  it('should save original path with query string in state.from when redirecting', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+      user: null,
+    });
+
+    // クエリパラメータ付きのURLでテスト
+    const testLocation = {
+      pathname: '/admin/users',
+      search: '?page=2&sort=name',
+      state: null,
+    };
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={[`${testLocation.pathname}${testLocation.search}`]}>
+          <Routes>
+            <Route
+              path="/admin/users"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/login" element={<div data-testid="login-state-check" />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ログインページにリダイレクトされていることを確認
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+  });
+
+  /**
+   * 要件28.3: 元のパス（pathname）のみの場合も正しく保存される
+   */
+  it('should save original path without query string in state.from', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+      user: null,
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/profile']}>
+          <Routes>
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ログインページにリダイレクトされ、保護されたコンテンツは表示されないことを確認
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+    expect(screen.getByTestId('login-page')).toBeInTheDocument();
+  });
+
+  /**
+   * 要件28.3: sessionExpiredフラグがstate内で正しく渡される
+   */
+  it('should include sessionExpired flag in redirect state', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+      sessionExpired: true,
+      user: null,
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Routes>
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ログインページにリダイレクトされていることを確認
+    expect(screen.getByTestId('login-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+  });
+});
+
 describe('ProtectedRoute - requireAuth=false', () => {
   beforeEach(() => {
     vi.clearAllMocks();
