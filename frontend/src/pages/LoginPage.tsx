@@ -34,9 +34,11 @@ export function LoginPage() {
   const sessionExpired = (location.state as { sessionExpired?: boolean })?.sessionExpired;
 
   // 2FA認証成功後のリダイレクト
+  // 要件28.5: state.fromが存在する場合、そのパスにリダイレクト
+  // 要件28.6: state.fromが存在しない場合、デフォルトで/dashboardにリダイレクト
   useEffect(() => {
     if (isAuthenticated && !twoFactorState) {
-      const from = (location.state as { from?: string })?.from || '/';
+      const from = (location.state as { from?: string })?.from || '/dashboard';
       navigate(from, { replace: true });
     }
   }, [isAuthenticated, twoFactorState, navigate, location.state]);

@@ -19,18 +19,21 @@ const mockCancel2FA = vi.fn();
 let mockIsAuthenticated = false;
 let mockTwoFactorState: { required: boolean } | null = null;
 
+// useAuthフックのモックを関数として定義（re-render時に値を取得できるように）
+const useAuthMock = vi.fn(() => ({
+  login: async (...args: unknown[]) => {
+    await mockLogin(...args);
+    mockIsAuthenticated = true;
+  },
+  isAuthenticated: mockIsAuthenticated,
+  twoFactorState: mockTwoFactorState,
+  verify2FA: mockVerify2FA,
+  verifyBackupCode: mockVerifyBackupCode,
+  cancel2FA: mockCancel2FA,
+}));
+
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({
-    login: async (...args: unknown[]) => {
-      await mockLogin(...args);
-      mockIsAuthenticated = true;
-    },
-    isAuthenticated: mockIsAuthenticated,
-    twoFactorState: mockTwoFactorState,
-    verify2FA: mockVerify2FA,
-    verifyBackupCode: mockVerifyBackupCode,
-    cancel2FA: mockCancel2FA,
-  }),
+  useAuth: () => useAuthMock(),
 }));
 
 // react-router-domのuseNavigateをモック
@@ -86,6 +89,110 @@ describe('LoginPage Component', () => {
     vi.clearAllMocks();
     mockIsAuthenticated = false;
     mockTwoFactorState = null;
+  });
+
+  /**
+   * タスク23.1: ProtectedRouteの遷移先state保存の検証と強化
+   * 要件28.1, 28.3
+   */
+  describe('要件28: 画面遷移とナビゲーション - リダイレクト処理', () => {
+    /**
+     * 要件28.5: ログインが成功する AND redirectUrlパラメータが存在する場合、
+     * 保存されたURLへリダイレクトする
+     *
+     * このテストでは、認証済み状態でコンポーネントがマウントされた時の
+     * useEffectの動作を確認します（ログイン成功後のリダイレクト）
+     */
+    it('認証済み状態でマウント時、state.fromのパスへリダイレクトする', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              state: { from: '/admin/users?page=2' },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // 認証済み状態の場合、state.fromのパスにリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/users?page=2', { replace: true });
+    });
+
+    /**
+     * 要件28.6: ログインが成功する AND redirectUrlパラメータが存在しない場合、
+     * ダッシュボード画面へリダイレクトする（デフォルト: /dashboard）
+     */
+    it('認証済み状態でマウント時、state.fromが存在しない場合はデフォルトで/dashboardへリダイレクトする', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              state: {},
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // state.fromがない場合、/dashboardにリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+    });
+
+    /**
+     * 要件28.6: state自体が存在しない場合でも、/dashboardへリダイレクトする
+     */
+    it('認証済み状態でマウント時、stateが存在しない場合はデフォルトで/dashboardへリダイレクトする', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      renderLoginPage();
+
+      // stateが存在しない場合、/dashboardにリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+    });
+
+    /**
+     * 要件28.1: 元のパスにクエリパラメータが含まれている場合も正しく保存される
+     */
+    it('認証済み状態でマウント時、クエリパラメータ付きのパスへも正しくリダイレクトする', () => {
+      // 認証済み状態でモックを設定
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              state: { from: '/profile?tab=security&highlight=2fa' },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // クエリパラメータを含むパスに正しくリダイレクトされることを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/profile?tab=security&highlight=2fa', {
+        replace: true,
+      });
+    });
   });
 
   describe('初期表示', () => {
