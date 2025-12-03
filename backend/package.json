@@ -8,6 +8,7 @@
     "build": "npm run prisma:generate && tsc && npm run docs:generate",
     "start": "node dist/src/index.js",
     "dev": "tsx watch src/index.ts",
+    "dev:debug": "tsx --inspect=0.0.0.0:9229 watch src/index.ts",
     "dev:node": "npm run build && node dist/src/index.js",
     "dev:js": "node --watch src/index.js",
     "check:env": "tsx src/check-env.ts",

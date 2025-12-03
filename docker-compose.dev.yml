@@ -55,6 +55,7 @@ services:
       SMTP_FROM: noreply@architrack.com
     ports:
       - "3000:3000"
+      - "9229:9229"  # Node.js debugger port
     volumes:
       - ./backend:/app
       - backend_dev_node_modules:/app/node_modules

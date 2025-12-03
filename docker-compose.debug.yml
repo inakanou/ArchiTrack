@@ -1,0 +1,9 @@
+# ArchiTrack Docker Compose Debug Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.debug.yml --env-file .env.dev up
+#
+# This override enables Node.js inspector mode for debugging backend in VSCode.
+# Use with "Attach to Docker Backend (Dev)" launch configuration.
+
+services:
+  backend:
+    command: npm run dev:debug
