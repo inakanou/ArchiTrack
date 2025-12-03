@@ -3,6 +3,9 @@
 #   開発環境: docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
 #   テスト環境: docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up
 #   または npm scripts を使用: npm run dev:docker / npm run test:docker
+#
+# Note: backend/frontend use host user (UID:GID) to avoid file permission issues
+#       with mounted volumes (e.g., Prisma generated files)
 
 services:
   # PostgreSQL Database
@@ -39,6 +42,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+    user: "${UID:-1000}:${GID:-1000}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,6 +63,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+    user: "${UID:-1000}:${GID:-1000}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5173"]
       interval: 10s
