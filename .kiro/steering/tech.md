@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-03（Steering Sync: Vitest 4.0.14、Prettier 3.7.3、commitlint 20.x、Navigation コンポーネント追加）_
+_最終更新: 2025-12-03（環境分離: 開発環境・テスト環境のDocker Compose分離、ポートオフセット方式導入）_
 
 ## アーキテクチャ
 
@@ -521,24 +521,80 @@ volumes:
 
 ### Docker Compose による起動（推奨）
 
+ArchiTrackでは、**開発環境**と**テスト環境**を分離した複数ファイル構成を採用しています。
+
+#### 環境構成
+
+| 環境 | 用途 | データベース | ポート（Backend/Frontend/PostgreSQL/Redis） |
+|------|------|-------------|-------------------------------------------|
+| 開発環境 | 手動テスト・画面打鍵 | architrack_dev | 3000/5173/5432/6379 |
+| テスト環境 | 自動テスト（Unit/Integration/E2E） | architrack_test | 3100/5174/5433/6380 |
+| CI環境 | GitHub Actions | architrack_test | 3000/5173/5432/6379 |
+
+#### Docker Composeファイル構成
+
+```
+docker-compose.yml       # 基本サービス定義（環境非依存）
+docker-compose.dev.yml   # 開発環境オーバーライド
+docker-compose.test.yml  # テスト環境オーバーライド（ポートオフセット）
+docker-compose.ci.yml    # CI環境オーバーライド
+.env.dev                 # 開発環境変数
+.env.test                # テスト環境変数
+```
+
+#### 開発環境（画面打鍵用）
+
 ```bash
-# すべてのサービスを起動（PostgreSQL、Redis、Backend、Frontend）
-docker-compose up
+# npm scriptsを使用（推奨）
+npm run dev:docker           # 起動（フォアグラウンド）
+npm run dev:docker:build     # 再ビルドして起動
+npm run dev:docker:down      # 停止
+npm run dev:docker:logs      # ログ確認
 
-# バックグラウンドで起動
-docker-compose up -d
+# 直接コマンドを使用する場合
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev down
+```
 
-# 特定のサービスのみ起動
-docker-compose up postgres redis
+#### テスト環境（自動テスト用）
 
-# サービス停止
-docker-compose down
+```bash
+# npm scriptsを使用（推奨）
+npm run test:docker          # 起動（バックグラウンド）
+npm run test:docker:build    # 再ビルドして起動
+npm run test:docker:down     # 停止（データ破棄）
+npm run test:docker:logs     # ログ確認
 
-# ボリュームも含めて完全削除
-docker-compose down -v
+# E2Eテスト実行
+npm run test:e2e             # テスト実行
+npm run test:e2e:headed      # ブラウザ表示モード
+npm run test:e2e:ui          # UIモード
 
-# 再ビルドして起動
-docker-compose up --build
+# 直接コマンドを使用する場合
+docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
+docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down -v
+```
+
+#### 同時実行（開発＋テスト）
+
+開発環境とテスト環境はポートが分離されているため、同時に起動できます：
+
+```bash
+# 開発環境を起動（ポート: 3000, 5173, 5432, 6379）
+npm run dev:docker &
+
+# テスト環境を起動（ポート: 3100, 5174, 5433, 6380）
+npm run test:docker
+```
+
+#### 従来のコマンド（後方互換）
+
+```bash
+# 旧: docker-compose up（現在は開発環境として動作）
+# 新: npm run dev:docker を推奨
+
+# 特定のサービスのみ起動（開発環境）
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up postgres redis
 ```
 
 ### プロジェクトセットアップ（個別実行時）
@@ -854,13 +910,21 @@ DISABLE_RATE_LIMIT=true  # 本番環境では必ずfalseまたは未設定
 
 ## ポート設定
 
-デフォルトのポート設定:
+### 環境別ポートマップ
 
-- **フロントエンド**: 5173 (Vite dev server)
-- **バックエンド**: 3000
-- **PostgreSQL**: 5432
-- **Redis**: 6379
-- **nginx（本番）**: 80/443
+| サービス | 開発環境 | テスト環境 | CI環境 | 本番環境 |
+|---------|---------|----------|--------|---------|
+| Backend | 3000 | 3100 | 3000 | Railway |
+| Frontend | 5173 | 5174 | 5173 | Railway |
+| PostgreSQL | 5432 | 5433 | 5432 | Railway |
+| Redis | 6379 | 6380 | 6379 | Railway |
+| Mailhog SMTP | 1025 | 1026 | - | - |
+| Mailhog Web | 8025 | 8026 | - | - |
+| nginx（本番） | - | - | - | 80/443 |
+
+### 同時実行対応
+
+テスト環境はポートオフセット（+100/+1）を使用しているため、開発環境と同時に起動可能です。
 
 Railway環境では動的に割り当てられるPORTを使用します。
 

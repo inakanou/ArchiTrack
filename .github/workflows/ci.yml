@@ -309,7 +309,8 @@ jobs:
       - name: Start PostgreSQL and Redis with Docker Compose
         run: |
           # PostgreSQLとRedisのみを起動（backendとfrontendは起動しない）
-          docker compose up -d postgres redis
+          # CI環境用のオーバーライドファイルを使用
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
           # サービスがhealthyになるまで待つ
           timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-postgres"; do sleep 2; done'
           timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-redis"; do sleep 2; done'
@@ -385,7 +386,8 @@ jobs:
 
       - name: Start Docker Compose for E2E
         run: |
-          docker compose up -d
+          # CI環境用のオーバーライドファイルを使用
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
           timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
 
@@ -403,6 +405,8 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+          # CI環境では標準ポートを使用（docker-compose.ci.yml設定）
+          BASE_URL: http://localhost:5173
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
@@ -413,7 +417,7 @@ jobs:
             playwright-report/
       - name: Stop Docker Compose
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 
   security:
     name: Security Scan
