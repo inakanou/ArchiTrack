@@ -3,6 +3,7 @@ import { getPrismaClient } from '../../fixtures/database';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { FRONTEND_BASE_URL } from '../../config';
 
 /**
  * パスワード管理機能のE2Eテスト
@@ -767,7 +768,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
 test.describe('パスワード変更後のセッション管理', () => {
   // テスト専用のユーザー情報（他のテストと干渉しない）
   const testEmail = 'user2@example.com';
-  const baseURL = 'http://localhost:5173';
+  const baseURL = FRONTEND_BASE_URL;
 
   /**
    * 要件7.5: パスワード変更後の全セッション無効化

@@ -62,7 +62,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await context.clearPermissions();
 
     // ページに一度アクセスしてからストレージをクリア（SecurityError回避）
-    await page.goto('http://localhost:5173');
+    await page.goto('');
     await page.evaluate(() => {
       localStorage.clear();
       sessionStorage.clear();
@@ -90,7 +90,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     });
 
     // 保護されたページにアクセス（未認証ユーザー）
-    await page.goto('http://localhost:5173/dashboard');
+    await page.goto('/dashboard');
 
     // ログイン画面にリダイレクトされるまで待機（タイムアウト延長）
     await page.waitForURL('**/login**', { timeout: getTimeout(10000) });
@@ -121,7 +121,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    */
   test('should restore session and display dashboard for authenticated users', async ({ page }) => {
     // Step 1: ログイン処理
-    await page.goto('http://localhost:5173/login');
+    await page.goto('/login');
 
     // ログインフォームに入力
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
@@ -172,7 +172,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     page,
   }) => {
     // Step 1: ログイン処理
-    await page.goto('http://localhost:5173/login');
+    await page.goto('/login');
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
@@ -221,13 +221,13 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     page,
   }) => {
     // Step 1: localStorageに無効なリフレッシュトークンを設定
-    await page.goto('http://localhost:5173');
+    await page.goto('');
     await page.evaluate(() => {
       localStorage.setItem('refreshToken', 'invalid-refresh-token');
     });
 
     // Step 2: 保護されたページにアクセス
-    await page.goto('http://localhost:5173/dashboard');
+    await page.goto('/dashboard');
 
     // セッション復元が失敗し、ログイン画面にリダイレクトされることを確認
     await page.waitForURL('**/login**', { timeout: getTimeout(10000) });
@@ -247,7 +247,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    */
   test('should have accessible loading indicator with proper ARIA attributes', async ({ page }) => {
     // Step 1: ログイン処理
-    await page.goto('http://localhost:5173/login');
+    await page.goto('/login');
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
