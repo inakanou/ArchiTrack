@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { API_BASE_URL } from '../../config';
 
 /**
  * ページロードパフォーマンステスト
@@ -88,7 +89,7 @@ test.describe('APIパフォーマンス', () => {
     await cleanDatabase();
     await createTestUser('ADMIN_USER');
 
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -104,7 +105,7 @@ test.describe('APIパフォーマンス', () => {
   test('ログインAPIが500ms以内にレスポンスを返す', async ({ request }) => {
     const startTime = Date.now();
 
-    const response = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -123,7 +124,7 @@ test.describe('APIパフォーマンス', () => {
    */
   test('トークンリフレッシュAPIが300ms以内にレスポンスを返す', async ({ request }) => {
     // まずログインしてリフレッシュトークンを取得
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -133,7 +134,7 @@ test.describe('APIパフォーマンス', () => {
 
     const startTime = Date.now();
 
-    const response = await request.post('http://localhost:3000/api/v1/auth/refresh', {
+    const response = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
       data: {
         refreshToken,
       },
@@ -152,7 +153,7 @@ test.describe('APIパフォーマンス', () => {
   test('権限チェックを含むAPIが適切な時間内にレスポンスを返す', async ({ request }) => {
     const startTime = Date.now();
 
-    const response = await request.get('http://localhost:3000/api/v1/permissions', {
+    const response = await request.get(`${API_BASE_URL}/api/v1/permissions`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -171,7 +172,7 @@ test.describe('APIパフォーマンス', () => {
   test('ヘルスチェックAPIが100ms以内にレスポンスを返す', async ({ request }) => {
     const startTime = Date.now();
 
-    const response = await request.get('http://localhost:3000/health');
+    const response = await request.get(`${API_BASE_URL}/health`);
 
     const responseTime = Date.now() - startTime;
 
