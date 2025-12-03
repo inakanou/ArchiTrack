@@ -106,7 +106,7 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
     {
       resource: 'user',
       action: 'create',
-      description: 'ユーザーの作成（招待）',
+      description: 'ユーザーの作成',
     },
     {
       resource: 'user',
@@ -122,6 +122,11 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       resource: 'user',
       action: 'delete',
       description: 'ユーザーの削除',
+    },
+    {
+      resource: 'user',
+      action: 'invite',
+      description: 'ユーザーの招待',
     },
     {
       resource: 'user',
