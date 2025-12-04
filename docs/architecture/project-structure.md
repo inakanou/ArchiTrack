@@ -8,22 +8,28 @@
 
 ```
 ArchiTrack/
-├── frontend/              # React/Viteフロントエンド
-├── backend/               # Node.js/Expressバックエンド
-├── e2e/                   # E2Eテスト（Playwright）
-├── docs/                  # ドキュメント
-│   ├── getting-started/   # 初めての人向け
-│   ├── development/       # 開発者向け
-│   ├── deployment/        # デプロイ担当者向け
-│   ├── architecture/      # 技術者・レビュワー向け
-│   ├── api/               # API利用者向け
-│   └── contributing/      # コントリビューター向け
-├── .kiro/                 # Kiro-style SDD
-├── .claude/               # Claude Code設定
-├── .github/               # CI/CD（GitHub Actions）
-├── .husky/                # Git hooks
-├── scripts/               # ユーティリティスクリプト
-└── docker-compose.yml     # ローカル開発環境
+├── frontend/                  # React/Viteフロントエンド
+├── backend/                   # Node.js/Expressバックエンド
+├── e2e/                       # E2Eテスト（Playwright）
+├── docs/                      # ドキュメント
+│   ├── getting-started/       # 初めての人向け
+│   ├── development/           # 開発者向け
+│   ├── deployment/            # デプロイ担当者向け
+│   ├── architecture/          # 技術者・レビュワー向け
+│   ├── api/                   # API利用者向け
+│   └── contributing/          # コントリビューター向け
+├── .kiro/                     # Kiro-style SDD
+├── .claude/                   # Claude Code設定
+├── .github/                   # CI/CD（GitHub Actions）
+├── .husky/                    # Git hooks
+├── scripts/                   # ユーティリティスクリプト
+├── docker-compose.yml         # Docker Compose ベース設定
+├── docker-compose.dev.yml     # 開発環境オーバーライド
+├── docker-compose.test.yml    # テスト環境オーバーライド
+├── docker-compose.debug.yml   # デバッグ環境オーバーライド
+├── docker-compose.ci.yml      # CI環境オーバーライド
+├── .env.dev                   # 開発環境変数
+└── .env.test                  # テスト環境変数
 ```
 
 ---
@@ -279,12 +285,46 @@ scripts/
 
 | ファイル | 説明 |
 |---------|------|
-| `docker-compose.yml` | ローカル開発環境（PostgreSQL、Redis、Backend、Frontend） |
-| `.env` | 環境変数（Git管理外） |
-| `.env.example` | 環境変数テンプレート |
+| `docker-compose.yml` | Docker Composeベース設定（サービス定義） |
+| `docker-compose.dev.yml` | 開発環境オーバーライド（ポート: 3000, 5173） |
+| `docker-compose.test.yml` | テスト環境オーバーライド（ポート: 3100, 5174、データ揮発） |
+| `docker-compose.debug.yml` | デバッグ環境オーバーライド（Node.js inspector有効） |
+| `docker-compose.ci.yml` | CI環境オーバーライド（GitHub Actions用、データ揮発） |
+| `.env.dev` | 開発環境変数（Git管理外） |
+| `.env.test` | テスト環境変数（Git管理外） |
 | `.gitignore` | Git除外設定 |
 | `package.json` | ルートパッケージ設定（E2Eテスト） |
 | `README.md` | プロジェクトREADME |
+
+### Docker Compose構成
+
+ArchiTrackでは、用途別に複数のDocker Compose構成を用意しています：
+
+```bash
+# 開発環境
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+
+# テスト環境（開発環境と同時実行可能）
+docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
+
+# デバッグ環境（Node.js inspector有効）
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.debug.yml --env-file .env.dev up -d
+
+# CI環境
+docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+```
+
+**環境別ポート:**
+
+| サービス | 開発環境 | テスト環境 | CI環境 |
+|---------|---------|----------|--------|
+| PostgreSQL | 5432 | 5433 | 5432 |
+| Redis | 6379 | 6380 | 6379 |
+| Mailhog SMTP | 1025 | 1026 | 1025 |
+| Mailhog UI | 8025 | 8026 | 8025 |
+| Backend | 3000 | 3100 | 3000 |
+| Backend Debug | 9229 | 9230 | - |
+| Frontend | 5173 | 5174 | 5173 |
 
 ### Backend
 
