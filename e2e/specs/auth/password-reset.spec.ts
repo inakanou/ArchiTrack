@@ -950,8 +950,9 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     const resetButton = page.getByRole('button', { name: /パスワードをリセット/i });
     await resetButton.click();
 
-    // ローディング状態が表示される（ボタンが無効化される）
-    await expect(resetButton).toBeDisabled();
+    // ローディング状態が表示される（ボタンが無効化され、テキストが「リセット中...」に変わる）
+    const loadingButton = page.getByRole('button', { name: /リセット中/i });
+    await expect(loadingButton).toBeDisabled();
   });
 });
 
