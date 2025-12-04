@@ -105,26 +105,101 @@ test.describe('新規登録機能', () => {
 
   /**
    * 要件2.2: 無効な招待トークン
+   * IF 招待トークンが無効または存在しない
+   * THEN Authentication Serviceはエラーメッセージを返さなければならない
    * @REQ-2.2
    */
-  test.skip('無効な招待トークンの処理', async ({ page: _page }) => {
-    // このテストは無効な招待トークンのテストとして実装予定
+  test('無効な招待トークンの処理', async ({ page, context }) => {
+    // このテストは独自のナビゲーションを行うため、beforeEachのナビゲーションを上書き
+    await context.clearCookies();
+
+    // 存在しない無効なトークンでアクセス
+    const invalidToken = 'invalid_nonexistent_token_' + Date.now();
+    await page.goto(`/register?token=${invalidToken}`);
+
+    // エラーメッセージが表示されることを確認
+    await expect(
+      page.getByText(/招待トークンの検証に失敗しました|招待トークンが無効です/i)
+    ).toBeVisible();
+
+    // 管理者への連絡案内が表示されることを確認
+    await expect(page.getByText(/管理者に連絡してください/i)).toBeVisible();
   });
 
   /**
    * 要件2.3: 期限切れ招待トークン
+   * IF 招待トークンが期限切れである
+   * THEN Authentication Serviceはエラーメッセージを返さなければならない
    * @REQ-2.3
    */
-  test.skip('期限切れ招待トークンの処理', async ({ page: _page }) => {
-    // このテストは期限切れ招待トークンのテストとして実装予定
+  test('期限切れ招待トークンの処理', async ({ page, context }) => {
+    // このテストは独自のナビゲーションを行うため、beforeEachのナビゲーションを上書き
+    await context.clearCookies();
+
+    // 期限切れの招待トークンを作成
+    const prisma = getPrismaClient();
+    const admin = await prisma.user.findUnique({
+      where: { email: TEST_USERS.ADMIN_USER.email },
+    });
+    if (!admin) {
+      throw new Error('Admin user not found');
+    }
+
+    // 過去の日時で期限切れの招待を作成
+    const expiredInvitation = await createInvitation({
+      email: 'expired_test_' + Date.now() + '@example.com',
+      inviterId: admin.id,
+      expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24時間前（期限切れ）
+    });
+
+    // 期限切れトークンでアクセス
+    await page.goto(`/register?token=${expiredInvitation.token}`);
+
+    // エラーメッセージが表示されることを確認
+    await expect(
+      page.getByText(/招待トークンの検証に失敗しました|招待トークンが無効です/i)
+    ).toBeVisible();
+
+    // 管理者への連絡案内が表示されることを確認
+    await expect(page.getByText(/管理者に連絡してください/i)).toBeVisible();
   });
 
   /**
    * 要件2.4: 使用済み招待トークン
+   * IF 招待トークンが既に使用済みである
+   * THEN Authentication Serviceはエラーメッセージを返さなければならない
    * @REQ-2.4
    */
-  test.skip('使用済み招待トークンの処理', async ({ page: _page }) => {
-    // このテストは使用済み招待トークンのテストとして実装予定
+  test('使用済み招待トークンの処理', async ({ page, context }) => {
+    // このテストは独自のナビゲーションを行うため、beforeEachのナビゲーションを上書き
+    await context.clearCookies();
+
+    // 使用済みの招待トークンを作成
+    const prisma = getPrismaClient();
+    const admin = await prisma.user.findUnique({
+      where: { email: TEST_USERS.ADMIN_USER.email },
+    });
+    if (!admin) {
+      throw new Error('Admin user not found');
+    }
+
+    // status='used'で使用済みの招待を作成
+    const usedInvitation = await createInvitation({
+      email: 'used_test_' + Date.now() + '@example.com',
+      inviterId: admin.id,
+      status: 'used',
+    });
+
+    // 使用済みトークンでアクセス
+    await page.goto(`/register?token=${usedInvitation.token}`);
+
+    // エラーメッセージが表示されることを確認
+    await expect(
+      page.getByText(/招待トークンの検証に失敗しました|招待トークンが無効です/i)
+    ).toBeVisible();
+
+    // 管理者への連絡案内が表示されることを確認
+    await expect(page.getByText(/管理者に連絡してください/i)).toBeVisible();
   });
 
   /**
