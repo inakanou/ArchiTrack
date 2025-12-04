@@ -400,7 +400,9 @@ function calculateCoverage(
 
   // 受入基準レベルのカバレッジ（全体）
   const coveredAcceptanceCriteria = Array.from(coveredAcSet).sort();
-  const uncoveredAcceptanceCriteria = allAcceptanceCriteria.filter((ac) => !coveredAcSet.has(ac.id));
+  const uncoveredAcceptanceCriteria = allAcceptanceCriteria.filter(
+    (ac) => !coveredAcSet.has(ac.id)
+  );
 
   const acceptanceCriteriaCoveragePercent =
     allAcceptanceCriteria.length > 0
@@ -669,12 +671,12 @@ function main(): void {
     if (!options.json) {
       console.log('');
       if (!passed) {
-        console.log(
-          `❌ FAILED: E2E適用対象のカバレッジが閾値(${options.threshold}%)未満です`
-        );
+        console.log(`❌ FAILED: E2E適用対象のカバレッジが閾値(${options.threshold}%)未満です`);
       }
       if (!strictPassed) {
-        console.log(`❌ FAILED: 除外リストにない未カバー要件が${uncoveredNotExcluded.length}件あります`);
+        console.log(
+          `❌ FAILED: 除外リストにない未カバー要件が${uncoveredNotExcluded.length}件あります`
+        );
       }
       console.log('');
       console.log('対応方法:');
@@ -693,7 +695,9 @@ function main(): void {
       console.log('');
       console.log('✅ PASSED: E2E適用対象のカバレッジが閾値を満たしています');
       if (result.excludedAcceptanceCriteriaCount > 0) {
-        console.log(`   (${result.excludedAcceptanceCriteriaCount}件の除外要件は代替検証方法で対応)`);
+        console.log(
+          `   (${result.excludedAcceptanceCriteriaCount}件の除外要件は代替検証方法で対応)`
+        );
       }
       console.log('');
     }

@@ -65,7 +65,9 @@ test.describe('AppHeader ナビゲーション', () => {
     await expect(page.getByRole('link', { name: 'ダッシュボード' })).toBeVisible();
 
     // ユーザーメニューを開く
-    const userMenuButton = page.locator('nav[role="navigation"] button[aria-haspopup="menu"]').first();
+    const userMenuButton = page
+      .locator('nav[role="navigation"] button[aria-haspopup="menu"]')
+      .first();
     await userMenuButton.click();
 
     // プロフィールリンクが表示されていることを確認
@@ -86,7 +88,9 @@ test.describe('AppHeader ナビゲーション', () => {
     await page.waitForURL(/\/dashboard/);
 
     // ユーザーメニューボタンにユーザー名が表示されていることを確認
-    const userMenuButton = page.locator('nav[role="navigation"] button[aria-haspopup="menu"]').first();
+    const userMenuButton = page
+      .locator('nav[role="navigation"] button[aria-haspopup="menu"]')
+      .first();
     await expect(userMenuButton).toBeVisible();
     // ボタンにユーザー名が含まれていることを確認（空でないこと）
     await expect(userMenuButton).not.toHaveText('');
@@ -233,7 +237,9 @@ test.describe('AppHeader ナビゲーション', () => {
     await page.waitForURL(/\/dashboard/);
 
     // ユーザーメニューを開いてログアウトをクリック
-    const userMenuButton = page.locator('nav[role="navigation"] button[aria-haspopup="menu"]').first();
+    const userMenuButton = page
+      .locator('nav[role="navigation"] button[aria-haspopup="menu"]')
+      .first();
     await userMenuButton.click();
     await page.getByTestId('user-menu-logout').click();
 
@@ -250,7 +256,9 @@ test.describe('AppHeader ナビゲーション', () => {
     await page.waitForURL(/\/dashboard/);
 
     // ユーザーメニューを開いてプロフィールをクリック
-    const userMenuButton = page.locator('nav[role="navigation"] button[aria-haspopup="menu"]').first();
+    const userMenuButton = page
+      .locator('nav[role="navigation"] button[aria-haspopup="menu"]')
+      .first();
     await userMenuButton.click();
     await page.getByTestId('user-menu-profile').click();
 
