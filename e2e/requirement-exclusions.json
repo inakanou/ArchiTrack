@@ -1,0 +1,235 @@
+{
+  "$schema": "./requirement-exclusions.schema.json",
+  "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
+  "version": "1.0.0",
+  "lastUpdated": "2024-12-04",
+  "exclusions": [
+    {
+      "id": "REQ-23.3",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "レスポンスタイム要件",
+      "reason": "パフォーマンステストはE2Eテストの範囲外。負荷テストツールで検証が必要",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Artillery / JMeter",
+        "description": "同時1000ユーザー負荷時のp95レスポンスタイムを計測",
+        "threshold": "p95 < 500ms"
+      }
+    },
+    {
+      "id": "REQ-23.4",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "キャッシュヒット率要件",
+      "reason": "Redis統計情報の継続的監視が必要。単発E2Eテストでは検証不可",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "monitoring",
+        "tool": "Redis INFO / Prometheus / Grafana",
+        "description": "本番環境でキャッシュヒット率を継続監視",
+        "threshold": "cache_hit_rate >= 90%"
+      }
+    },
+    {
+      "id": "REQ-23.5",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "データベース接続プール管理",
+      "reason": "接続プール設定はインフラ構成。テストではなく設定レビューで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "config-review",
+        "tool": "Prisma config / Railway Dashboard",
+        "description": "接続プール設定（10-50接続）を設定ファイルとインフラ設定で確認",
+        "threshold": "pool_size: 10-50"
+      }
+    },
+    {
+      "id": "REQ-23.7",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "水平スケーリング対応",
+      "reason": "複数インスタンス環境のテストはE2E範囲外。アーキテクチャレビューで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "architecture-review",
+        "tool": "Code Review / ADR",
+        "description": "ステートレス設計の確認（セッション管理はRedis、JWT使用等）",
+        "threshold": "stateless_design: true"
+      }
+    },
+    {
+      "id": "REQ-24.1",
+      "requirement": "REQ-24: フォールトトレランス（障害耐性）",
+      "title": "データベース接続タイムアウト時の503エラー",
+      "reason": "データベース障害シミュレーションはE2E範囲外。カオスエンジニアリングで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "chaos-engineering",
+        "tool": "Docker network disconnect / Toxiproxy",
+        "description": "DB接続を意図的に切断し、503エラーが返却されることを確認",
+        "threshold": "http_status: 503"
+      }
+    },
+    {
+      "id": "REQ-24.2",
+      "requirement": "REQ-24: フォールトトレランス（障害耐性）",
+      "title": "キャッシュ障害時のフォールバック",
+      "reason": "Redis障害シミュレーションはE2E範囲外。カオスエンジニアリングで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "chaos-engineering",
+        "tool": "Docker stop redis / Toxiproxy",
+        "description": "Redis停止時にDBからの直接取得にフォールバックすることを確認",
+        "threshold": "fallback_to_db: true"
+      }
+    },
+    {
+      "id": "REQ-24.3",
+      "requirement": "REQ-24: フォールトトレランス（障害耐性）",
+      "title": "メールサービス障害時のキュー保存",
+      "reason": "外部メールサービス障害シミュレーションはE2E範囲外",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Vitest with mock",
+        "description": "メール送信失敗時のキュー保存をモックを使用した統合テストで検証",
+        "threshold": "queue_on_failure: true"
+      }
+    },
+    {
+      "id": "REQ-24.6",
+      "requirement": "REQ-24: フォールトトレランス（障害耐性）",
+      "title": "データベース接続リトライ",
+      "reason": "一時的なDB障害のリトライはE2E範囲外。統合テストまたはカオスエンジニアリングで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Toxiproxy",
+        "description": "一時的なDB接続失敗時に最大3回リトライすることを確認",
+        "threshold": "max_retries: 3"
+      }
+    },
+    {
+      "id": "REQ-24.7",
+      "requirement": "REQ-24: フォールトトレランス（障害耐性）",
+      "title": "キャッシュ障害時の警告ログ",
+      "reason": "ログ出力の検証はE2E範囲外。統合テストでログ内容を検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest with log spy",
+        "description": "キャッシュ障害時にWARNレベルのログが出力されることを確認",
+        "threshold": "log_level: WARN"
+      }
+    },
+    {
+      "id": "REQ-24.8",
+      "requirement": "REQ-24: フォールトトレランス（障害耐性）",
+      "title": "メール送信不可時のユーザー登録継続",
+      "reason": "外部サービス障害時の挙動はE2E範囲外。統合テストで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest with mock",
+        "description": "メール送信失敗時もユーザー登録が成功することを確認",
+        "threshold": "registration_success: true"
+      }
+    },
+    {
+      "id": "REQ-24.9",
+      "requirement": "REQ-24: フォールトトレランス（障害耐性）",
+      "title": "ヘルスチェックエンドポイント",
+      "reason": "部分障害からの復旧検証はE2E範囲外。ヘルスチェックの存在はAPIテストで確認済み",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "api-test",
+        "tool": "curl / httpie",
+        "description": "/health エンドポイントの応答を確認",
+        "threshold": "http_status: 200"
+      }
+    },
+    {
+      "id": "REQ-25.6",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "パスワードリセットのトランザクション",
+      "reason": "トランザクション境界のテストはE2E範囲外。統合テストでDB状態を検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "パスワードリセット時にトークン生成と無効化が同一トランザクションで実行されることを確認",
+        "threshold": "transaction_atomic: true"
+      }
+    },
+    {
+      "id": "REQ-25.8",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "楽観的ロック競合処理",
+      "reason": "同時更新の競合テストはE2E範囲外。統合テストで並行アクセスを検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Concurrent requests",
+        "description": "同時更新時に楽観的ロック競合が検出され、適切にリトライまたはエラーを返すことを確認",
+        "threshold": "optimistic_lock: handled"
+      }
+    },
+    {
+      "id": "REQ-26.3",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "CSRFトークン検証",
+      "reason": "テスト環境ではCSRF保護が無効化されている。本番環境でのセキュリティ監査で検証",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "security-audit",
+        "tool": "OWASP ZAP / Burp Suite",
+        "description": "本番環境でCSRFトークンが必須であることをセキュリティスキャンで確認",
+        "threshold": "csrf_protection: enabled"
+      }
+    },
+    {
+      "id": "REQ-26.8",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "パスワードリセットトークンの暗号学的安全性",
+      "reason": "トークン生成アルゴリズムの検証はコードレビュー範囲。E2Eでは検証不可",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "code-review",
+        "tool": "Manual review / Static analysis",
+        "description": "crypto.randomBytes(32)使用によるトークン生成を確認",
+        "threshold": "entropy_bits: >= 256"
+      }
+    }
+  ],
+  "categories": {
+    "performance": {
+      "description": "負荷テストやモニタリングで検証が必要な要件",
+      "verificationPhase": "load-testing"
+    },
+    "infrastructure": {
+      "description": "インフラ設定やアーキテクチャレビューで検証が必要な要件",
+      "verificationPhase": "design-review"
+    },
+    "fault-tolerance": {
+      "description": "カオスエンジニアリングや統合テストで検証が必要な障害耐性要件",
+      "verificationPhase": "chaos-testing"
+    },
+    "data-integrity": {
+      "description": "トランザクション境界や並行処理の統合テストで検証が必要な要件",
+      "verificationPhase": "integration-testing"
+    },
+    "security": {
+      "description": "セキュリティ監査やコードレビューで検証が必要な要件",
+      "verificationPhase": "security-audit"
+    }
+  },
+  "summary": {
+    "totalExclusions": 15,
+    "byCategory": {
+      "performance": 4,
+      "infrastructure": 0,
+      "fault-tolerance": 7,
+      "data-integrity": 2,
+      "security": 2
+    }
+  }
+}

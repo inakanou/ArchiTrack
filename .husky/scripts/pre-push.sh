@@ -532,6 +532,35 @@ if [ -d "backend" ]; then
   fi
 fi
 
+# ============================================================================
+# 要件カバレッジチェック（E2Eテスト実行の前提条件）
+# ============================================================================
+# ベストプラクティス: E2Eテスト実行前に要件カバレッジを検証
+# - E2E対象の受入基準が100%カバーされていることを確認
+# - 除外リスト（e2e/requirement-exclusions.json）の要件は代替検証方法で対応
+# - カバレッジ不足の場合、E2Eテストを実行せずに早期失敗
+# ============================================================================
+
+echo "📋 Checking requirement coverage (prerequisite for E2E tests)..."
+echo "   This ensures all E2E-applicable acceptance criteria are covered."
+npm run check:req-coverage
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement coverage check failed. Push aborted."
+  echo ""
+  echo "   E2Eテストは実行されません（前提条件未達）"
+  echo ""
+  echo "対応方法:"
+  echo "  1. 未カバー受入基準に対応するE2Eテストを作成してください"
+  echo "  2. テストに @REQ-N.M タグを追加してください"
+  echo "  3. E2E対象外の場合は e2e/requirement-exclusions.json に追加してください"
+  echo ""
+  echo "詳細確認: npm run check:req-coverage:verbose"
+  exit 1
+fi
+
+echo "✅ Requirement coverage check passed"
+echo ""
+
 # E2E tests
 echo "🧪 Running E2E tests..."
 
@@ -561,15 +590,6 @@ elif [ $E2E_EXIT_CODE -eq 137 ]; then
   exit 1
 elif [ $E2E_EXIT_CODE -ne 0 ]; then
   echo "❌ E2E tests failed with exit code: $E2E_EXIT_CODE. Push aborted."
-  exit 1
-fi
-
-# Requirement coverage check
-echo "📋 Checking E2E requirement coverage..."
-npm run check:req-coverage -- --threshold=100
-if [ $? -ne 0 ]; then
-  echo "❌ Requirement coverage check failed. Push aborted."
-  echo "   Run 'npm run check:req-coverage:verbose' to see details."
   exit 1
 fi
 

@@ -73,7 +73,18 @@ jobs:
         run: npm ci
 
       - name: Check requirement coverage
-        run: npm run check:req-coverage -- --threshold=100
+        run: |
+          echo "========================================="
+          echo "Requirement Coverage Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that:"
+          echo "  1. All E2E-applicable acceptance criteria are covered by tests"
+          echo "  2. Excluded requirements have defined alternative verification methods"
+          echo ""
+          echo "Exclusion list: e2e/requirement-exclusions.json"
+          echo ""
+          npm run check:req-coverage
 
   typecheck:
     name: TypeScript Type Check
@@ -268,7 +279,8 @@ jobs:
   test-integration:
     name: Integration & E2E Tests
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook]
+    # requirement-coverage を前提条件に追加（E2E実行前にカバレッジ検証を通過する必要がある）
+    needs: [lint, typecheck, test-unit, build, test-storybook, requirement-coverage]
     # Dependabot PRではシークレットにアクセスできないため、integration/e2eテストをスキップ
     if: github.actor != 'dependabot[bot]'
     steps:

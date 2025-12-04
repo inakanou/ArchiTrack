@@ -33,6 +33,8 @@ test.describe('データ整合性とトランザクション管理', () => {
 
   /**
    * 要件25.1: ユーザー登録はトランザクション内で処理
+   * @REQ-25.1
+   * @REQ-25.2
    */
   test('ユーザー登録時にユーザー作成とロール割り当てが一貫して行われる', async () => {
     const prisma = getPrismaClient();
@@ -60,6 +62,8 @@ test.describe('データ整合性とトランザクション管理', () => {
 
   /**
    * 要件25.3: 複数ロールの一括割り当てはトランザクション内で処理
+   * @REQ-25.3
+   * @REQ-25.2
    */
   test('複数ロールの一括割り当てはアトミックに行われる', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -108,6 +112,8 @@ test.describe('データ整合性とトランザクション管理', () => {
   /**
    * 要件25.5: 監査ログの保存失敗時はロールバック
    * （このテストはAPIの振る舞いを検証）
+   * @REQ-25.5
+   * @REQ-25.2
    */
   test('ロール作成と監査ログは一貫して記録される', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -144,6 +150,7 @@ test.describe('データ整合性とトランザクション管理', () => {
 
   /**
    * 要件25.7: ロール・権限の紐付け変更時の整合性検証
+   * @REQ-25.7
    */
   test('ロール権限の変更は整合性を保つ', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -206,6 +213,8 @@ test.describe('データ整合性とトランザクション管理', () => {
 
   /**
    * ユーザー削除時の関連データ整合性
+   * @REQ-25.4
+   * @REQ-25.2
    */
   test('ユーザー削除時に関連データが適切に処理される', async ({ request }) => {
     const prisma = getPrismaClient();

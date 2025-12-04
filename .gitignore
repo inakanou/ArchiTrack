@@ -31,6 +31,7 @@ storybook-static/
 .env.local
 .env.*.local
 .env.test
+.env.dev
 
 # MCP (Model Context Protocol)
 .mcp.local.json

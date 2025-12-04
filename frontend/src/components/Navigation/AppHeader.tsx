@@ -210,6 +210,7 @@ export function AppHeader(): ReactElement {
   ];
 
   // 管理者メニューの項目
+  // REQ-28.25: ユーザー管理、招待管理、ロール管理、権限管理、監査ログへのリンク
   const adminMenuItems: DropdownMenuItem[] = [
     {
       label: 'ユーザー管理',
@@ -220,6 +221,16 @@ export function AppHeader(): ReactElement {
       label: '招待管理',
       onClick: () => navigate('/admin/invitations'),
       testId: 'admin-menu-invitations',
+    },
+    {
+      label: 'ロール管理',
+      onClick: () => navigate('/admin/roles'),
+      testId: 'admin-menu-roles',
+    },
+    {
+      label: '権限管理',
+      onClick: () => navigate('/admin/permissions'),
+      testId: 'admin-menu-permissions',
     },
     {
       label: '監査ログ',
