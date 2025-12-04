@@ -196,8 +196,15 @@ test.describe('セッション管理機能', () => {
   });
 
   test('全デバイスログアウトができる', async ({ page }) => {
-    // セッション管理ページに再度移動（beforeEachの状態をリフレッシュ）
-    await page.goto('/sessions', { waitUntil: 'networkidle' });
+    // beforeEachですでに/sessionsページに移動済み
+    // ページをリロードしてセッション状態をリフレッシュ
+    await page.reload({ waitUntil: 'networkidle' });
+
+    // ログインページにリダイレクトされた場合は再ログイン
+    if (page.url().includes('/login')) {
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto('/sessions', { waitUntil: 'networkidle' });
+    }
 
     // セッション管理ページが表示されるまで待機
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
