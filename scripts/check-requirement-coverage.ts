@@ -195,7 +195,7 @@ function loadExclusions(): ExclusionsFile | null {
   try {
     const content = fs.readFileSync(EXCLUSIONS_PATH, 'utf-8');
     return JSON.parse(content) as ExclusionsFile;
-  } catch (_error) {
+  } catch {
     console.warn(`警告: 除外リストの読み込みに失敗しました: ${EXCLUSIONS_PATH}`);
     return null;
   }
