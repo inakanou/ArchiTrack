@@ -429,7 +429,7 @@ test.describe('パスワード管理機能', () => {
     await page.getByRole('button', { name: /リセットリンクを送信/i }).click();
 
     // 必須フィールドエラーが表示される
-    await expect(page.getByText(/メールアドレスを入力してください/i)).toBeVisible();
+    await expect(page.getByText(/メールアドレスは必須です/i)).toBeVisible();
   });
 
   /**
