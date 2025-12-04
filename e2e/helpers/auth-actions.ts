@@ -111,6 +111,13 @@ async function performLogin(
   await emailInput.fill(user.email);
   await passwordInput.fill(user.password);
 
+  // ログインAPI呼び出しを監視しながらボタンをクリック
+  const loginApiPromise = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/v1/auth/login') && response.request().method() === 'POST',
+    { timeout: getTimeout(20000) }
+  );
+
   // ログインボタンをクリック
   await loginButton.click();
 
@@ -118,6 +125,13 @@ async function performLogin(
   // 2FAが有効な場合は2FA画面にリダイレクトされる可能性があるため、
   // そのケースは個別に処理する
   if (!user.twoFactorEnabled) {
+    // APIレスポンスを待機してエラーをチェック
+    const loginResponse = await loginApiPromise;
+    if (!loginResponse.ok()) {
+      const errorBody = await loginResponse.text().catch(() => 'Unknown error');
+      throw new Error(`Login API failed with status ${loginResponse.status()}: ${errorBody}`);
+    }
+
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: getTimeout(15000),

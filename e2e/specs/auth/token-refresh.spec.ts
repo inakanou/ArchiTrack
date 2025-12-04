@@ -363,32 +363,31 @@ test.describe('トークンリフレッシュ機能', () => {
    * 要件16.9: 再ログイン成功後、保存されたURLへ自動リダイレクト
    * @REQ-16.7 @REQ-16.9 @REQ-28.5
    *
-   * 注意: React Routerの実装ではlocation.stateを使用してリダイレクトURLを保存します。
-   * この機能はSPA内でのナビゲーション時に有効です。
-   * テストでは、ナビゲーションメニューのリンクをクリックしてSPA内ナビゲーションをトリガーします。
+   * 注意: React SPAでは、localStorageの変更だけではReactの認証状態が更新されないため、
+   * セッション期限切れをシミュレートするにはページリロードが必要です。
+   * これにより、AuthContextが再初期化され、localStorageの状態が正しく反映されます。
    */
   test('セッション期限切れ後の再ログインで元のページに戻る', async ({ page }) => {
     await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
-    // ダッシュボードに移動して認証が有効であることを確認
-    await page.goto('/dashboard');
-    await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
+    // プロフィールページに移動（これが再ログイン後の戻り先となる）
+    await page.goto('/profile');
+    await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
     // セッションを無効化（localStorageのトークンを削除）
-    // これにより、次回の保護されたページへのSPA内ナビゲーションで
-    // ProtectedRouteが認証なしと判断してログインページにリダイレクトする
     await page.evaluate(() => {
-      // 認証コンテキストをリセット
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
     });
 
-    // SPA内でプロフィールページへナビゲーション（リンクをクリック）
-    // ナビゲーションメニューの「プロフィール」リンクをクリック
-    await page.getByRole('link', { name: /プロフィール/i }).click();
+    // ページをリロードしてAuthContextを再初期化
+    // これにより、localStorageの状態がReactの認証状態に反映される
+    await page.reload({ waitUntil: 'networkidle' });
 
-    // 要件16.7: ログイン画面にリダイレクトされる
+    // 要件16.7: ログイン画面にリダイレクトされる（redirectUrlパラメータ付き）
     await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
 
     // ログイン画面が表示されていることを確認
