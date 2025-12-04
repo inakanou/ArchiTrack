@@ -439,6 +439,22 @@ test.describe('パスワード管理機能', () => {
    * @REQ-29.5
    */
   test('リセットメール送信中にローディングスピナーが表示される', async ({ page }) => {
+    // APIレスポンスを遅延させてローディング状態を確認できるようにする
+    await page.route('**/*', async (route) => {
+      const url = route.request().url();
+      if (url.includes('password/reset-request')) {
+        // 3秒間遅延させてローディング状態を確認できるようにする
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
     await page.goto('/password-reset');
 
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
@@ -447,9 +463,10 @@ test.describe('パスワード管理機能', () => {
     const submitButton = page.getByRole('button', { name: /リセットリンクを送信/i });
     await submitButton.click();
 
-    // ローディングスピナーまたはローディング状態が表示される
-    // (ボタンが無効化されるか、ローディングインジケーターが表示される)
-    await expect(submitButton).toBeDisabled();
+    // ローディング状態が表示される
+    // ボタンテキストが「送信中...」に変わり、ボタンが無効化される
+    await expect(page.getByRole('button', { name: /送信中/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /送信中/i })).toBeDisabled();
   });
 
   /**
