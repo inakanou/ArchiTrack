@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-03（環境分離: 開発環境・テスト環境のDocker Compose分離、ポートオフセット方式導入）_
+_最終更新: 2025-12-04（Steering Sync: マルチ環境Docker Compose構成、Debug overlay、初期管理者アカウント設定）_
 
 ## アーキテクチャ
 
@@ -466,7 +466,24 @@ node e2e/helpers/browser.js api http://localhost:3000/health
 
 ### Docker開発環境パターン
 
-ArchiTrackでは、開発環境の一貫性と再現性を確保するため、以下のDocker開発パターンを採用しています。
+ArchiTrackでは、開発環境の一貫性と再現性を確保するため、マルチファイルDocker Compose構成を採用しています。
+
+#### Docker Composeファイル構成
+
+```
+docker-compose.yml       # 基本サービス定義（環境非依存）
+docker-compose.dev.yml   # 開発環境オーバーライド
+docker-compose.test.yml  # テスト環境オーバーライド（ポートオフセット）
+docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
+docker-compose.ci.yml    # CI環境オーバーライド
+.env.dev                 # 開発環境変数
+.env.test                # テスト環境変数
+```
+
+**環境分離パターン:**
+- **ベースファイル + オーバーライド方式**: 共通設定をbase、環境固有設定をoverlay
+- **ポートオフセット方式**: テスト環境は+100/+1オフセットで同時実行可能
+- **tmpfs使用**: テスト環境はデータを永続化せずクリーンな状態を維持
 
 #### エントリポイントスクリプトパターン
 
@@ -480,6 +497,19 @@ ArchiTrackでは、開発環境の一貫性と再現性を確保するため、�
 **バックエンド (`backend/docker-entrypoint.sh`):**
 - `node_modules/.bin`の存在確認
 - 不足している場合のみ依存関係をインストール
+
+#### デバッグサポート
+
+Node.js inspectorモードによるVSCodeデバッグ統合：
+- **docker-compose.debug.yml**: `npm run dev:debug`コマンドに切り替え
+- **デバッガーポート**: 開発環境9229、テスト環境9230
+- **VSCode設定**: `.vscode/launch.json`の"Attach to Docker Backend"設定を使用
+
+#### 初期管理者アカウント
+
+データベースシード時の初期管理者アカウント設定：
+- 環境変数で設定可能: `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`, `INITIAL_ADMIN_DISPLAY_NAME`
+- デフォルト値あり、本番環境では必ず変更
 
 #### ヘルスチェック設定
 
@@ -498,6 +528,13 @@ ArchiTrackでは、開発環境の一貫性と再現性を確保するため、�
 volumes:
   - ./frontend:/app
   - frontend_node_modules:/app/node_modules
+```
+
+#### ホストユーザーパターン
+
+ファイルパーミッション問題回避のため、コンテナはホストユーザーとして実行：
+```yaml
+user: "${UID:-1000}:${GID:-1000}"
 ```
 
 ### 必須ツール
@@ -530,6 +567,7 @@ ArchiTrackでは、**開発環境**と**テスト環境**を分離した複数�
 | 開発環境 | 手動テスト・画面打鍵 | architrack_dev | 3000/5173/5432/6379 |
 | テスト環境 | 自動テスト（Unit/Integration/E2E） | architrack_test | 3100/5174/5433/6380 |
 | CI環境 | GitHub Actions | architrack_test | 3000/5173/5432/6379 |
+| デバッグ環境 | VSCodeデバッグ | architrack_dev | 3000/5173/5432/6379 + 9229 |
 
 #### Docker Composeファイル構成
 
@@ -537,6 +575,7 @@ ArchiTrackでは、**開発環境**と**テスト環境**を分離した複数�
 docker-compose.yml       # 基本サービス定義（環境非依存）
 docker-compose.dev.yml   # 開発環境オーバーライド
 docker-compose.test.yml  # テスト環境オーバーライド（ポートオフセット）
+docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
 docker-compose.ci.yml    # CI環境オーバーライド
 .env.dev                 # 開発環境変数
 .env.test                # テスト環境変数
