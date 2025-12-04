@@ -328,7 +328,10 @@ export function Profile() {
       setPasswordMessage('パスワードを変更しました');
 
       // 全デバイスからログアウト
+      // パスワード変更後はサーバー側でセッションが無効化されているため、
+      // トークンリフレッシュを無効化してから即座にログアウト
       setTimeout(() => {
+        apiClient.setTokenRefreshCallback(null);
         logout();
       }, 2000);
     } catch (error) {
@@ -406,7 +409,10 @@ export function Profile() {
       setDisableMessage('二要素認証を無効化しました');
 
       // 要件27B.6: 全デバイスからログアウト
+      // 2FA無効化後はサーバー側でセッションが無効化されているため、
+      // トークンリフレッシュを無効化してから即座にログアウト
       setTimeout(() => {
+        apiClient.setTokenRefreshCallback(null);
         logout();
       }, 2000);
     } catch (error) {

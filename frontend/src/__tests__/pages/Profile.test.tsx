@@ -16,6 +16,7 @@ vi.mock('../../api/client', () => ({
     get: vi.fn(),
     patch: vi.fn(),
     post: vi.fn(),
+    setTokenRefreshCallback: vi.fn(),
   },
 }));
 
