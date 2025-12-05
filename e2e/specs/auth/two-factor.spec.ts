@@ -150,7 +150,7 @@ test.describe('2要素認証機能', () => {
 
       // 要件27.5: 秘密鍵が表示される (Base32形式)
       await expect(page.getByText(/秘密鍵（手動入力用）/i)).toBeVisible();
-      const secretKey = page.getByText(/^[A-Z2-7]+=*$/);
+      const secretKey = page.getByTestId('secret-key');
       await expect(secretKey).toBeVisible();
       const secretText = await secretKey.textContent();
       expect(secretText).toMatch(/^[A-Z2-7]+=*$/); // Base32形式検証

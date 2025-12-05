@@ -274,6 +274,7 @@ function TwoFactorSetupForm({
             秘密鍵（手動入力用）：
           </p>
           <div
+            data-testid="secret-key"
             style={{
               padding: '12px',
               backgroundColor: '#f5f5f5',
