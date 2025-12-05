@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 
 /**
  * 管理者としてログイン
@@ -30,6 +32,17 @@ async function loginAsRegularUser(page: import('@playwright/test').Page): Promis
  * @REQ-28.25 管理メニュー内のリンク表示
  */
 test.describe('AppHeader ナビゲーション', () => {
+  /**
+   * テスト開始前にデータベースをクリーンアップし、テストユーザーを再作成
+   * 前のテスト（例: profile.spec.tsのパスワード変更テスト）による
+   * パスワード変更の影響を防止
+   */
+  test.beforeAll(async () => {
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await createAllTestUsers(prisma);
+  });
+
   /**
    * @REQ-28.21 共通ヘッダーナビゲーション表示
    * WHEN 認証済みユーザーが保護された画面にアクセスする
