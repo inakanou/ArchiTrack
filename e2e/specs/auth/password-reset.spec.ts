@@ -504,6 +504,33 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
   // 並列実行を無効化（メール確認の競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
+  // テストグループ終了後にユーザーのパスワードをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    const user1 = TEST_USERS.REGULAR_USER;
+    const user2 = TEST_USERS.REGULAR_USER_2;
+
+    await prisma.user.update({
+      where: { email: user1.email },
+      data: {
+        passwordHash: await hashPassword(user1.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+
+    await prisma.user.update({
+      where: { email: user2.email },
+      data: {
+        passwordHash: await hashPassword(user2.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+  });
+
   // Mailpit API URL
   const mailpitApiUrl = 'http://localhost:8025/api/v1';
 
@@ -984,6 +1011,33 @@ test.describe('パスワード変更後のセッション管理', () => {
   // テスト専用のユーザー情報（他のテストと干渉しない）
   const testEmail = 'user2@example.com';
   const baseURL = FRONTEND_BASE_URL;
+
+  // テストグループ終了後にユーザーのパスワードをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    const user1 = TEST_USERS.REGULAR_USER;
+    const user2 = TEST_USERS.REGULAR_USER_2;
+
+    await prisma.user.update({
+      where: { email: user1.email },
+      data: {
+        passwordHash: await hashPassword(user1.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+
+    await prisma.user.update({
+      where: { email: user2.email },
+      data: {
+        passwordHash: await hashPassword(user2.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+  });
 
   /**
    * 要件7.5: パスワード変更後の全セッション無効化

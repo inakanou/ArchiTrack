@@ -342,6 +342,16 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
   // 並列実行を無効化（データベースリセットの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
+  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
+  });
+
   // 各テストの前にデータベースをリセットしてユーザーを再作成
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
