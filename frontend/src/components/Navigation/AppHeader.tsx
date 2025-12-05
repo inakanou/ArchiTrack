@@ -372,7 +372,7 @@ export function AppHeader(): ReactElement {
 
   // ユーザーメニューのトリガー
   const userMenuTrigger = (
-    <div className="app-header-user-trigger" aria-expanded={isUserMenuOpen} aria-haspopup="menu">
+    <div className="app-header-user-trigger">
       <div className="app-header-avatar">{getInitials(user?.displayName)}</div>
       <span className="app-header-user-name">{user?.displayName ?? 'ユーザー'}</span>
       <Icons.ChevronDown />
@@ -381,7 +381,7 @@ export function AppHeader(): ReactElement {
 
   // 管理メニューのトリガー
   const adminMenuTrigger = (
-    <div className="app-header-admin-trigger" aria-expanded={isAdminMenuOpen} aria-haspopup="menu">
+    <div className="app-header-admin-trigger">
       <Icons.Admin />
       <span>管理メニュー</span>
       <Icons.ChevronDown />
