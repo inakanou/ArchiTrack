@@ -402,11 +402,14 @@ jobs:
       - name: Run database migrations
         run: docker exec architrack-backend npx prisma migrate deploy
       - name: Run E2E tests
-        run: npm run test:e2e
+        run: npx playwright test
         env:
           CI: true
+          NODE_ENV: test
+          DISABLE_RATE_LIMIT: "true"
           # CI環境では標準ポートを使用（docker-compose.ci.yml設定）
           BASE_URL: http://localhost:5173
+          DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
