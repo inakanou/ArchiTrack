@@ -14,6 +14,9 @@ import { API_BASE_URL } from '../../config';
  * 要件: ページロード時間が2秒以内であること
  */
 test.describe('ページロードパフォーマンス', () => {
+  /**
+   * @REQ-23.1
+   */
   test('ログインページが2秒以内にロードされる', async ({ page }) => {
     const startTime = Date.now();
 
@@ -31,6 +34,9 @@ test.describe('ページロードパフォーマンス', () => {
     console.log(`Login page load time: ${loadTime}ms`);
   });
 
+  /**
+   * @REQ-23.1
+   */
   test('ダッシュボードページが2秒以内にロードされる', async ({ page, context }) => {
     // 認証済みユーザーとしてログイン
     await context.addCookies([
@@ -53,6 +59,9 @@ test.describe('ページロードパフォーマンス', () => {
     console.log(`Dashboard page load time: ${loadTime}ms`);
   });
 
+  /**
+   * @REQ-23.1
+   */
   test('プロフィールページが2秒以内にロードされる', async ({ page, context }) => {
     await context.addCookies([
       {
@@ -101,6 +110,8 @@ test.describe('APIパフォーマンス', () => {
 
   /**
    * 要件23.1: ログインAPIは95パーセンタイルで500ms以内
+   * @REQ-23.1
+   * @REQ-23.8
    */
   test('ログインAPIが500ms以内にレスポンスを返す', async ({ request }) => {
     const startTime = Date.now();
@@ -121,6 +132,8 @@ test.describe('APIパフォーマンス', () => {
 
   /**
    * 要件23.6: トークンリフレッシュAPIは95パーセンタイルで300ms以内
+   * @REQ-23.6
+   * @REQ-23.8
    */
   test('トークンリフレッシュAPIが300ms以内にレスポンスを返す', async ({ request }) => {
     // まずログインしてリフレッシュトークンを取得
@@ -149,6 +162,8 @@ test.describe('APIパフォーマンス', () => {
 
   /**
    * 要件23.2: 権限チェックAPIは99パーセンタイルで100ms以内
+   * @REQ-23.2
+   * @REQ-23.8
    */
   test('権限チェックを含むAPIが適切な時間内にレスポンスを返す', async ({ request }) => {
     const startTime = Date.now();
@@ -168,6 +183,8 @@ test.describe('APIパフォーマンス', () => {
 
   /**
    * ヘルスチェックAPIのレスポンス時間
+   * @REQ-23.2
+   * @REQ-23.8
    */
   test('ヘルスチェックAPIが100ms以内にレスポンスを返す', async ({ request }) => {
     const startTime = Date.now();

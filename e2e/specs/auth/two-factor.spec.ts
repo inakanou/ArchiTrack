@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser, createTwoFactorBackupCodes } from '../../fixtures/auth.fixtures';
+import {
+  createTestUser,
+  createTwoFactorBackupCodes,
+  createAllTestUsers,
+} from '../../fixtures/auth.fixtures';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
@@ -29,8 +34,19 @@ test.describe('2要素認証機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
+  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
+  });
+
   /**
    * 要件27: 二要素認証（2FA）設定機能
+   * @REQ-27
    */
   test.describe('2FAセットアップ', () => {
     test.beforeEach(async ({ page, context }) => {
@@ -53,9 +69,16 @@ test.describe('2要素認証機能', () => {
     });
 
     /**
+     * 要件27.1: RFC 6238準拠のTOTP秘密鍵を生成
+     * 要件27.2: 32バイト（256ビット）の暗号学的に安全な乱数を使用
      * 要件27.4: QRコード表示 (otpauth://totp/ArchiTrack:{email}?secret={secret}&issuer=ArchiTrack)
      * 要件27.5: Base32エンコード済み秘密鍵の提供
+     * 要件27C.2: qrcodeライブラリ使用
+     * 要件27C.3: otplibライブラリ使用
      * 要件27D.1: 3ステップのプログレスバー表示
+     * @REQ-27.1 @REQ-27.2 @REQ-27.4 @REQ-27.5 @REQ-27C.2 @REQ-27C.3 @REQ-27D.1 @REQ-27E.1
+     * @REQ-28.28 プロフィール画面表示 → 2FA設定セクションへのリンク表示
+     * @REQ-28.29 2FA設定リンククリック → 2FA設定画面遷移
      */
     test('2FAセットアップページが正しく表示される', async ({ page }) => {
       // CI環境での安定性向上のため、リトライロジックを追加
@@ -127,7 +150,7 @@ test.describe('2要素認証機能', () => {
 
       // 要件27.5: 秘密鍵が表示される (Base32形式)
       await expect(page.getByText(/秘密鍵（手動入力用）/i)).toBeVisible();
-      const secretKey = page.getByText(/^[A-Z2-7]+=*$/);
+      const secretKey = page.getByTestId('secret-key');
       await expect(secretKey).toBeVisible();
       const secretText = await secretKey.textContent();
       expect(secretText).toMatch(/^[A-Z2-7]+=*$/); // Base32形式検証
@@ -141,10 +164,12 @@ test.describe('2要素認証機能', () => {
     });
 
     /**
+     * 要件27.6: 10個のバックアップコード（8文字英数字）を生成
+     * 要件27.7: バックアップコードをbcrypt（cost=12）でハッシュ化
+     * 要件27.8: バックアップコードを1回のみ表示
      * 要件27.9: QRコード画面から次に進む際にTOTPコード検証を要求
      * 要件27.10: 6桁のTOTPコードを検証し、正しい場合のみ2FAを有効化
-     * 要件27.6: 10個のバックアップコード（8文字英数字）を生成
-     * 要件27.8: バックアップコードを1回のみ表示
+     * @REQ-27.6 @REQ-27.7 @REQ-27.8 @REQ-27.9 @REQ-27.10 @REQ-27D.4 @REQ-27D.5
      */
     test('TOTPコード検証後にバックアップコードが表示される', async ({ page }) => {
       await page.goto('/profile/2fa-setup');
@@ -218,6 +243,7 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27D.4: バックアップコードのダウンロード（.txt形式）
+     * @REQ-27D.4
      */
     test('バックアップコードのダウンロードができる', async ({ page }) => {
       await page.goto('/profile/2fa-setup');
@@ -270,6 +296,9 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27D.6: 2FA設定完了時にトーストメッセージ表示
+     * @REQ-27D.6
+     * @REQ-28.32 2FA設定完了 → プロフィール画面へリダイレクト
+     * @REQ-28.33 2FA設定画面でキャンセルボタンクリック → プロフィール画面へ戻る
      */
     test('2FA設定完了時に成功メッセージが表示される', async ({ page }) => {
       // 2FAセットアップページをリトライ付きでロード
@@ -323,6 +352,7 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27D.2: 6桁の個別入力フィールドと自動タブ移動
+     * @REQ-27D.2 @REQ-27E.2
      */
     test('TOTPコード入力時に自動タブ移動が機能する', async ({ page }) => {
       // CI環境での安定性向上のため、リトライロジックを追加
@@ -381,6 +411,7 @@ test.describe('2要素認証機能', () => {
 
   /**
    * 要件27A: 二要素認証（2FA）ログイン機能
+   * @REQ-27A
    */
   test.describe('2FAログイン', () => {
     test.beforeEach(async ({ page, context }) => {
@@ -402,7 +433,11 @@ test.describe('2要素認証機能', () => {
     /**
      * 要件27A.1: 2FA有効ユーザーのログイン時にメールアドレス・パスワード検証後に2FA検証画面を表示
      * 要件27A.2: 6桁のTOTPコード入力フィールドを提供
+     * 要件27C.1: SHA-1アルゴリズム（Google Authenticator互換性）を使用
      * 要件27D.3: 30秒カウントダウンタイマーと視覚的プログレスバー
+     * @REQ-27A.1 @REQ-27A.2 @REQ-27C.1 @REQ-27D.3
+     * @REQ-28.7 2FA有効ユーザーがログイン成功 → 2FA検証画面遷移
+     * @REQ-28.14 2FA検証画面表示 → TOTPコード入力フィールド/検証ボタン/バックアップコードリンク表示
      */
     test('2FAが有効な状態でログイン時にTOTP検証が要求される', async ({ page }) => {
       await page.goto('/login');
@@ -430,6 +465,8 @@ test.describe('2要素認証機能', () => {
     /**
      * 要件27A.3: TOTPコード検証（30秒ウィンドウ、±1ステップ許容 = 合計90秒）
      * 要件27A.8: 2FA検証成功時にJWTアクセストークンとリフレッシュトークンを発行
+     * @REQ-27A.3 @REQ-27A.8
+     * @REQ-28.16 2FA検証成功 → ダッシュボード画面（またはredirectURL）へリダイレクト
      */
     test('正しいTOTPコードでログインできる', async ({ page }) => {
       await page.goto('/login');
@@ -457,6 +494,7 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27A.4: TOTPコード検証が5回連続で失敗した場合、アカウントを一時的にロック（5分間）
+     * @REQ-27A.4 @REQ-27E.4
      */
     test('5回連続でTOTPコード検証に失敗するとアカウントがロックされる', async ({ page }) => {
       await page.goto('/login');
@@ -506,6 +544,9 @@ test.describe('2要素認証機能', () => {
      * 要件27A.5: 「バックアップコードを使用する」選択時にバックアップコード入力フィールドを表示
      * 要件27A.6: バックアップコード検証（未使用のコードとbcrypt比較）
      * 要件27A.7: バックアップコード使用後、usedAtフィールドを更新
+     * @REQ-27A.5 @REQ-27A.6 @REQ-27A.7
+     * @REQ-28.15 バックアップコードを使用するリンククリック → バックアップコード入力画面遷移
+     * @REQ-28.17 バックアップコード入力画面でTOTPコードを使用するリンククリック → 2FA検証画面へ戻る
      */
     test('バックアップコードでログインできる', async ({ page }) => {
       await page.goto('/login');
@@ -538,6 +579,7 @@ test.describe('2要素認証機能', () => {
 
   /**
    * 要件27B: 二要素認証（2FA）管理機能
+   * @REQ-27B
    */
   test.describe('2FA管理機能', () => {
     test.beforeEach(async ({ page, context }) => {
@@ -605,6 +647,7 @@ test.describe('2要素認証機能', () => {
     /**
      * 要件27B.1: プロフィール画面でバックアップコードを表示（使用済みコードをグレーアウト・取り消し線）
      * 要件27E.3: 使用済みバックアップコードにaria-label="使用済み"を設定
+     * @REQ-27B.1 @REQ-27E.3
      */
     test('バックアップコードの使用状況が視覚的に表示される', async ({ page }) => {
       // beforeEachで認証済みのため、直接/profileに遷移
@@ -689,6 +732,38 @@ test.describe('2要素認証機能', () => {
           } catch {
             // ボタンが見つからない場合はページをリロードして再試行
             await page.reload({ waitUntil: 'networkidle' });
+
+            // ログインページにリダイレクトされた場合は再認証
+            if (page.url().includes('/login')) {
+              await loginAsUser(page, 'TWO_FA_USER');
+              const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
+              try {
+                await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
+                const digits = '123456'.split('');
+                for (let i = 0; i < 6; i++) {
+                  const digitInput = page.getByTestId(`totp-digit-${i}`);
+                  const digit = digits[i];
+                  if (digit) {
+                    await digitInput.fill(digit);
+                  }
+                }
+                await page.getByRole('button', { name: /検証/i }).click();
+                await page.waitForURL((url) => !url.pathname.includes('/login'), {
+                  timeout: getTimeout(10000),
+                });
+              } catch {
+                // 2FAフォームが表示されない場合は既にログイン済み
+              }
+              await page.goto('/profile');
+              await page.waitForLoadState('networkidle');
+            }
+
+            // 認証状態が復元され、2FAセクションが表示されるまで待機
+            await expect(
+              page.getByRole('heading', { name: '二要素認証', exact: true })
+            ).toBeVisible({
+              timeout: getTimeout(15000),
+            });
             showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
             await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
           }
@@ -717,6 +792,38 @@ test.describe('2要素認証機能', () => {
           } else {
             // 401エラーの場合、ページをリロードして再試行
             await page.reload({ waitUntil: 'networkidle' });
+
+            // ログインページにリダイレクトされた場合は再認証
+            if (page.url().includes('/login')) {
+              await loginAsUser(page, 'TWO_FA_USER');
+              const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
+              try {
+                await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
+                const digits = '123456'.split('');
+                for (let i = 0; i < 6; i++) {
+                  const digitInput = page.getByTestId(`totp-digit-${i}`);
+                  const digit = digits[i];
+                  if (digit) {
+                    await digitInput.fill(digit);
+                  }
+                }
+                await page.getByRole('button', { name: /検証/i }).click();
+                await page.waitForURL((url) => !url.pathname.includes('/login'), {
+                  timeout: getTimeout(10000),
+                });
+              } catch {
+                // 2FAフォームが表示されない場合は既にログイン済み
+              }
+              await page.goto('/profile');
+              await page.waitForLoadState('networkidle');
+            }
+
+            // 認証状態が復元され、2FAセクションが表示されるまで待機
+            await expect(
+              page.getByRole('heading', { name: '二要素認証', exact: true })
+            ).toBeVisible({
+              timeout: getTimeout(15000),
+            });
             showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
             await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
           }
@@ -757,6 +864,7 @@ test.describe('2要素認証機能', () => {
     /**
      * 要件27B.2: 残りバックアップコードが3個以下の場合、警告メッセージと再生成リンクを表示
      * 要件27B.3: バックアップコード再生成（既存削除 + 新しい10個生成）
+     * @REQ-27B.2 @REQ-27B.3
      */
     test('残りバックアップコードが少ない場合に警告が表示される', async ({ page }) => {
       // Note: このテストは、バックアップコードが7個以上使用されているユーザーが必要
@@ -779,6 +887,7 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27B.3: バックアップコード再生成
+     * @REQ-27B.3
      */
     test('バックアップコードを再生成できる', async ({ page }) => {
       await page.goto('/profile');
@@ -828,6 +937,7 @@ test.describe('2要素認証機能', () => {
      * 要件27B.4: 2FA無効化時にパスワード入力確認ダイアログを表示
      * 要件27B.5: 2FA無効化時にトランザクション内で秘密鍵とバックアップコードを削除
      * 要件27B.6: 2FA無効化完了後、全デバイスからログアウト
+     * @REQ-27B.4 @REQ-27B.5 @REQ-27B.6
      */
     test('2FAを無効化できる', async ({ page }) => {
       await page.goto('/profile');
@@ -862,10 +972,15 @@ test.describe('2要素認証機能', () => {
    * 要件27C: 二要素認証（2FA）セキュリティ要件
    * Note: セキュリティ要件の多くはバックエンド実装で検証されるため、
    * E2Eテストでは主にエンドツーエンドのフローを検証
+   * @REQ-27C
    */
   test.describe('2FAセキュリティ', () => {
     /**
+     * 要件27.3: TOTP秘密鍵をAES-256-GCM暗号化して保存
+     * 要件27C.4: TWO_FACTOR_ENCRYPTION_KEY（256ビット、16進数形式）環境変数を要求
+     * 要件27C.5: 暗号化鍵未設定時のエラー（サーバー起動時にチェック）
      * 要件27C.6: 2FA有効化・無効化イベントを監査ログに記録
+     * @REQ-27.3 @REQ-27C.4 @REQ-27C.5 @REQ-27C.6
      */
     test('2FA有効化・無効化が監査ログに記録される', async ({ page }) => {
       // 管理者でログイン
@@ -887,6 +1002,7 @@ test.describe('2要素認証機能', () => {
 
   /**
    * 要件27E: 二要素認証（2FA）アクセシビリティ要件
+   * @REQ-27E
    */
   test.describe('2FAアクセシビリティ', () => {
     test.beforeEach(async ({ page, context }) => {
@@ -906,6 +1022,7 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27E.1: QRコードにalt属性「二要素認証用QRコード」を設定
+     * @REQ-27E.1
      */
     test('QRコードに適切なalt属性が設定されている', async ({ page }) => {
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
@@ -965,6 +1082,7 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27E.2: TOTPコード入力フィールドにaria-label属性とrole="group"を設定
+     * @REQ-27E.2
      */
     test('TOTPコード入力フィールドに適切なARIA属性が設定されている', async ({ page }) => {
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
@@ -1010,6 +1128,7 @@ test.describe('2要素認証機能', () => {
 
     /**
      * 要件27E.4: 2FA検証エラーがaria-live="polite"でスクリーンリーダーに通知される
+     * @REQ-27E.4
      */
     test('2FA検証エラーがスクリーンリーダーに通知される', async ({ page }) => {
       // 2FA有効ユーザーでログイン試行

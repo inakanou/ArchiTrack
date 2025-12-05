@@ -21,6 +21,10 @@ test.describe('ログイン機能', () => {
     await page.goto('/login');
   });
 
+  /**
+   * 要件11.1: ログイン画面の基本要素
+   * @REQ-11.1
+   */
   test('ログインフォームが正しく表示される', async ({ page }) => {
     // メールアドレス入力フィールド
     await expect(page.getByLabel(/メールアドレス/i)).toBeVisible();
@@ -35,6 +39,9 @@ test.describe('ログイン機能', () => {
     await expect(page.getByRole('link', { name: /パスワードを忘れた/i })).toBeVisible();
   });
 
+  /**
+   * @REQ-4.1 @REQ-4.4 @REQ-4.5 @REQ-4.7 @REQ-28.6 @REQ-28.43
+   */
   test('有効な認証情報でログインできる', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
     await page.locator('input#password').fill('Password123!');
@@ -44,6 +51,10 @@ test.describe('ログイン機能', () => {
     await expect(page).toHaveURL(/\/dashboard|\/$/);
   });
 
+  /**
+   * 要件11.7: ログイン失敗時のエラー
+   * @REQ-4.2 @REQ-4.3 @REQ-11.7
+   */
   test('無効な認証情報でログインできない', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('invalid@example.com');
     await page.locator('input#password').fill('wrongpassword');
@@ -53,6 +64,10 @@ test.describe('ログイン機能', () => {
     await expect(page.getByText(/メールアドレスまたはパスワードが正しくありません/i)).toBeVisible();
   });
 
+  /**
+   * 要件11.5: 未入力時のエラー
+   * @REQ-11.5
+   */
   test('メールアドレス未入力時にバリデーションエラーが表示される', async ({ page }) => {
     await page.locator('input#password').fill('Password123!');
     await page.getByRole('button', { name: /ログイン/i }).click();
@@ -61,6 +76,10 @@ test.describe('ログイン機能', () => {
     await expect(page.getByText(/メールアドレスは必須/i)).toBeVisible();
   });
 
+  /**
+   * 要件11.5: 未入力時のエラー
+   * @REQ-11.5
+   */
   test('パスワード未入力時にバリデーションエラーが表示される', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
     await page.getByRole('button', { name: /ログイン/i }).click();
@@ -79,6 +98,8 @@ test.describe('ログイン機能', () => {
 
   /**
    * 要件7.1: パスワードリセット要求
+   * 要件11.9: パスワードリセットリンク
+   * @REQ-11.9 @REQ-28.4
    * Note: Playwright + React Router Link の互換性問題により、
    * リンククリックではなくpage.goto()を使用してナビゲーションを検証
    */
@@ -107,6 +128,8 @@ test.describe('ログイン機能', () => {
 
   /**
    * 要件4.6: アカウントロック機能
+   * 要件11.8: アカウントロック時の表示
+   * @REQ-11.8
    * WHEN 同一メールアドレスで5回連続してログインに失敗する
    * THEN アカウントが15分間ロックされ、ログインできなくなる
    */
@@ -154,9 +177,12 @@ test.describe('ログイン機能', () => {
   });
 
   /**
+   * 要件11.6: ページロード時の自動フォーカス
    * 要件11.11: ページロード時の自動フォーカス
+   * @REQ-11.6 @REQ-11.11
    * WHEN ログインページが読み込まれる
    * THEN メールアドレスフィールドに自動的にフォーカスされる
+   * Note: REQ-11.6はローディングスピナーと記載されているが、実装では自動フォーカスを指していると解釈
    */
   test('ページロード時にメールアドレスフィールドにオートフォーカスされる', async ({ page }) => {
     await page.goto('/login');
@@ -168,6 +194,8 @@ test.describe('ログイン機能', () => {
 
   /**
    * 要件11.11: Tab キーでフォーカス移動
+   * 要件11.3: フォーカス時の視覚的フィードバック
+   * @REQ-11.3 @REQ-11.11
    * WHEN Tab キーを押す
    * THEN 論理的な順序でフォーカスが移動する
    */

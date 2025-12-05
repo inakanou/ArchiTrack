@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-04（Steering Sync: マルチ環境Docker Compose構成追加、debug overlay追加）_
+_最終更新: 2025-12-05（Steering Sync: AppHeaderナビゲーション統合、新ページ・コンポーネント追加）_
 
 ## ルートディレクトリ構成
 
@@ -229,7 +229,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── performance/      # パフォーマンステスト
 │   │   └── *.spec.ts
-│   └── security/         # セキュリティテスト
+│   ├── security/         # セキュリティテスト
+│   │   └── *.spec.ts
+│   └── navigation/       # ナビゲーションテスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -253,6 +255,7 @@ e2e/
 - `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
 - `performance/` - パフォーマンステスト（ページロード時間等）
 - `security/` - セキュリティテスト（CSRF、XSS対策等）
+- `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
 
 **テストヘルパー:**
 
@@ -320,6 +323,7 @@ frontend/
 │   │   ├── RolePermissionManager.tsx # ロール権限管理
 │   │   ├── RolePermissionManager.stories.tsx # Storybook ストーリー
 │   │   ├── ProtectedRoute.tsx      # 保護されたルート
+│   │   ├── ProtectedLayout.tsx     # 保護されたページレイアウト（AppHeader付き）
 │   │   ├── ProfileForm.tsx         # プロフィール編集フォーム
 │   │   ├── SessionManager.tsx      # セッション管理UI
 │   │   ├── SessionManagement.tsx   # セッション管理コンポーネント
@@ -334,17 +338,19 @@ frontend/
 │   ├── contexts/          # Reactコンテキスト
 │   │   └── AuthContext.tsx # 認証コンテキスト
 │   ├── pages/             # ページコンポーネント
+│   │   ├── Dashboard.tsx   # ダッシュボード（ログイン後ランディング）
 │   │   ├── LoginPage.tsx   # ログインページ
 │   │   ├── RegisterPage.tsx # 登録ページ
 │   │   ├── PasswordResetPage.tsx # パスワードリセットページ
 │   │   ├── Profile.tsx     # プロフィールページ
 │   │   ├── Sessions.tsx    # セッション管理ページ
 │   │   ├── TwoFactorSetupPage.tsx # 2FA設定ページ
-│   │   ├── InvitationsPage.tsx # 招待管理ページ
-│   │   ├── UserManagement.tsx # ユーザー管理ページ
-│   │   └── AuditLogs.tsx   # 監査ログページ
-│   ├── routes/            # ルーティング設定
-│   │   └── routes.tsx      # React Router v6設定
+│   │   ├── InvitationsPage.tsx # 招待管理ページ（管理者）
+│   │   ├── UserManagement.tsx # ユーザー管理ページ（管理者）
+│   │   ├── RoleManagement.tsx # ロール管理ページ（管理者）
+│   │   ├── PermissionManagement.tsx # 権限管理ページ（管理者）
+│   │   └── AuditLogs.tsx   # 監査ログページ（管理者）
+│   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   │   ├── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）

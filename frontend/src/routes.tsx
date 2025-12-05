@@ -1,5 +1,6 @@
 import { RouteObject, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { ProtectedLayout } from './components/ProtectedLayout';
 import { Profile } from './pages/Profile';
 import { Sessions } from './pages/Sessions';
 import { AuditLogs } from './pages/AuditLogs';
@@ -9,6 +10,9 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { PasswordResetPage } from './pages/PasswordResetPage';
 import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage';
+import { Dashboard } from './pages/Dashboard';
+import { RoleManagement } from './pages/RoleManagement';
+import { PermissionManagement } from './pages/PermissionManagement';
 
 /**
  * アプリケーションのルート設定
@@ -33,23 +37,7 @@ export const routes: RouteObject[] = [
     element: <Navigate to="/dashboard" replace />,
   },
 
-  // ダッシュボード - ルートパスと同じ内容
-  {
-    path: '/dashboard',
-    element: (
-      <ProtectedRoute>
-        <div data-testid="dashboard">
-          <h1>ArchiTrack Dashboard</h1>
-          <p>アーキテクチャ決定記録管理システム</p>
-          <p>
-            <a href="/profile">プロフィール</a> | <a href="/sessions">セッション管理</a>
-          </p>
-        </div>
-      </ProtectedRoute>
-    ),
-  },
-
-  // 認証関連の公開ルート
+  // 認証関連の公開ルート（AppHeaderなし）
   {
     path: '/login',
     element: (
@@ -75,68 +63,88 @@ export const routes: RouteObject[] = [
     ),
   },
 
-  // ユーザープロフィールとセッション管理
+  // 保護されたルート（AppHeader付きレイアウト）
+  // REQ-28.21: 認証済みユーザーが保護された画面にアクセスすると共通ヘッダーナビゲーションが表示される
   {
-    path: '/profile',
     element: (
       <ProtectedRoute>
-        <Profile />
+        <ProtectedLayout />
       </ProtectedRoute>
     ),
-  },
-  {
-    path: '/sessions',
-    element: (
-      <ProtectedRoute>
-        <Sessions />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/profile/2fa-setup',
-    element: (
-      <ProtectedRoute>
-        <TwoFactorSetupPage />
-      </ProtectedRoute>
-    ),
+    children: [
+      // ダッシュボード
+      {
+        path: '/dashboard',
+        element: <Dashboard />,
+      },
+      // ユーザープロフィール
+      {
+        path: '/profile',
+        element: <Profile />,
+      },
+      // セッション管理
+      {
+        path: '/sessions',
+        element: <Sessions />,
+      },
+      // 2FA設定
+      {
+        path: '/profile/2fa-setup',
+        element: <TwoFactorSetupPage />,
+      },
+    ],
   },
 
-  // Admin routes
+  // 管理者専用ルート（AppHeader付きレイアウト）
   {
-    path: '/admin/audit-logs',
     element: (
       <ProtectedRoute requiredRole="admin">
-        <AuditLogs />
+        <ProtectedLayout />
       </ProtectedRoute>
     ),
-  },
-  {
-    path: '/admin/users',
-    element: (
-      <ProtectedRoute requiredRole="admin">
-        <UserManagement />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/admin/invitations',
-    element: (
-      <ProtectedRoute requiredRole="admin">
-        <InvitationsPage />
-      </ProtectedRoute>
-    ),
+    children: [
+      // 監査ログ
+      {
+        path: '/admin/audit-logs',
+        element: <AuditLogs />,
+      },
+      // ユーザー管理
+      {
+        path: '/admin/users',
+        element: <UserManagement />,
+      },
+      // 招待管理
+      {
+        path: '/admin/invitations',
+        element: <InvitationsPage />,
+      },
+      // ロール管理
+      {
+        path: '/admin/roles',
+        element: <RoleManagement />,
+      },
+      // 権限管理
+      {
+        path: '/admin/permissions',
+        element: <PermissionManagement />,
+      },
+    ],
   },
 
   // 404 Not Found
   {
     path: '*',
     element: (
-      <div>
-        <h1>404 - ページが見つかりません</h1>
-        <p>お探しのページは存在しません。</p>
-        <p>
-          <a href="/">ホームに戻る</a>
-        </p>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900">404 - ページが見つかりません</h1>
+          <p className="mt-2 text-gray-600">お探しのページは存在しません。</p>
+          <p className="mt-4">
+            <a href="/" className="text-blue-600 hover:text-blue-800 underline">
+              ホームに戻る
+            </a>
+          </p>
+        </div>
       </div>
     ),
   },

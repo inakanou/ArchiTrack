@@ -54,6 +54,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.1: パスワードリセット要求
    * WHEN ユーザーがパスワードリセットを要求する
    * THEN Authentication Serviceはメールアドレスにリセットトークンを送信する
+   * @REQ-7.1 @REQ-29.6 @REQ-28.9
    */
   test('有効なメールアドレスでパスワードリセットを要求できる', async ({ page }) => {
     // メールアドレスを入力
@@ -82,6 +83,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.1: 未登録メールアドレスでのパスワードリセット要求
    * WHEN 未登録のメールアドレスでパスワードリセットを要求する
    * THEN エラーメッセージが表示される（セキュリティ上、メールアドレスの存在を明かさない）
+   * @REQ-29.7
    */
   test('未登録メールアドレスでも同じ成功メッセージが表示される', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('nonexistent@example.com');
@@ -97,6 +99,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: 有効なリセットトークンでパスワードをリセット
    * WHEN ユーザーが有効なリセットトークンと新しいパスワードを提供する
    * THEN Authentication Serviceはパスワードを更新する
+   * @REQ-29.17 @REQ-29.18 @REQ-28.13
    */
   test('有効なリセットトークンでパスワードを変更できる', async ({ page }) => {
     // Step 1: リセットトークンを生成
@@ -145,6 +148,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.3: リセットトークンの有効期限切れ
    * WHEN リセットトークンが24時間の有効期限を超過している
    * THEN Authentication Serviceはトークンを無効として扱う
+   * @REQ-7.3 @REQ-29.12 @REQ-28.12
    */
   test('有効期限切れのリセットトークンではエラーが表示される', async ({ page }) => {
     // Step 1: 有効期限切れのリセットトークンを生成
@@ -180,6 +184,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: 無効なリセットトークン
    * WHEN 無効なリセツトークンが提供される
    * THEN エラーメッセージが表示される
+   * @REQ-7.2 @REQ-29.12 @REQ-28.12
    */
   test('無効なリセットトークンではエラーが表示される', async ({ page }) => {
     await page.goto('/password-reset?token=invalid-token-12345');
@@ -198,6 +203,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.1: パスワードリセット画面のUI/UX
    * WHEN パスワードリセット画面が表示される
    * THEN 適切なフォームとガイダンスが表示される
+   * @REQ-29.1 @REQ-29.9 @REQ-28.8
    */
   test('パスワードリセット画面が正しく表示される', async ({ page }) => {
     await page.goto('/password-reset');
@@ -217,6 +223,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: パスワードリセットフォームのUI/UX（トークン有効時）
    * WHEN 有効なリセットトークンでアクセスする
    * THEN パスワード入力フォームが表示される
+   * @REQ-7.2 @REQ-29.10 @REQ-29.11 @REQ-28.11
    */
   test('有効なトークンでパスワード入力フォームが表示される', async ({ page }) => {
     // リセットトークンを生成
@@ -251,6 +258,7 @@ test.describe('パスワード管理機能', () => {
    * 要件2.5-2.8: パスワードリセット時の複雑性検証
    * WHEN 複雑性要件を満たさないパスワードを入力する
    * THEN エラーメッセージが表示される
+   * @REQ-29.14
    */
   test('12文字未満のパスワードではエラーが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -307,6 +315,7 @@ test.describe('パスワード管理機能', () => {
 
   /**
    * 要件15.12: autocomplete属性の適切な設定
+   * @REQ-15.12
    * WHEN パスワードリセットフォームが表示される
    * THEN 適切なautocomplete属性が設定されている
    */
@@ -374,9 +383,98 @@ test.describe('パスワード管理機能', () => {
   });
 
   /**
+   * 要件29.2: メールアドレスフィールドへの自動フォーカス
+   * WHEN パスワードリセット要求画面が表示される
+   * THEN メールアドレス入力フィールドに自動フォーカスが当たる
+   * @REQ-29.2
+   */
+  test('メールアドレスフィールドに自動フォーカスが当たる', async ({ page }) => {
+    await page.goto('/password-reset');
+
+    // メールアドレスフィールドにフォーカスが当たっている
+    const emailInput = page.getByLabel(/メールアドレス/i);
+    await expect(emailInput).toBeFocused();
+  });
+
+  /**
+   * 要件29.3: メールアドレス形式無効時のリアルタイムバリデーション
+   * WHEN 無効なメールアドレス形式を入力する
+   * THEN リアルタイムでバリデーションエラーが表示される
+   * @REQ-29.3
+   */
+  test('無効なメールアドレス形式でリアルタイムバリデーションエラーが表示される', async ({
+    page,
+  }) => {
+    await page.goto('/password-reset');
+
+    const emailInput = page.getByLabel(/メールアドレス/i);
+
+    // 無効な形式のメールアドレスを入力
+    await emailInput.fill('invalid-email');
+    await emailInput.blur();
+
+    // バリデーションエラーが表示される
+    await expect(page.getByText(/有効なメールアドレスを入力してください/i)).toBeVisible();
+  });
+
+  /**
+   * 要件29.4: 未入力で送信時の必須フィールドエラー
+   * WHEN メールアドレスを入力せずに送信する
+   * THEN 必須フィールドエラーが表示される
+   * @REQ-29.4
+   */
+  test('未入力で送信時に必須フィールドエラーが表示される', async ({ page }) => {
+    await page.goto('/password-reset');
+
+    // メールアドレスを入力せずに送信ボタンをクリック
+    await page.getByRole('button', { name: /リセットリンクを送信/i }).click();
+
+    // 必須フィールドエラーが表示される
+    await expect(page.getByText(/メールアドレスは必須です/i)).toBeVisible();
+  });
+
+  /**
+   * 要件29.5: リセットメール送信中のローディングスピナー
+   * WHEN リセットメール送信リクエストが処理中である
+   * THEN ローディングスピナーが表示される
+   * @REQ-29.5
+   */
+  test('リセットメール送信中にローディングスピナーが表示される', async ({ page }) => {
+    // APIレスポンスを遅延させてローディング状態を確認できるようにする
+    await page.route('**/*', async (route) => {
+      const url = route.request().url();
+      if (url.includes('password/reset-request')) {
+        // 3秒間遅延させてローディング状態を確認できるようにする
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.goto('/password-reset');
+
+    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
+
+    // 送信ボタンをクリック
+    const submitButton = page.getByRole('button', { name: /リセットリンクを送信/i });
+    await submitButton.click();
+
+    // ローディング状態が表示される
+    // ボタンテキストが「送信中...」に変わり、ボタンが無効化される
+    await expect(page.getByRole('button', { name: /送信中/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /送信中/i })).toBeDisabled();
+  });
+
+  /**
    * 要件15.1: レスポンシブデザイン（モバイル）
    * WHEN デバイス画面幅が768px未満である
    * THEN モバイル最適化されたレイアウトを表示する
+   * @REQ-29.8
    */
   test('モバイル画面でレイアウトが最適化される', async ({ page }) => {
     // モバイルビューポートに設定
@@ -405,6 +503,33 @@ test.describe('パスワード管理機能', () => {
 test.describe('パスワードリセット完全E2Eフロー', () => {
   // 並列実行を無効化（メール確認の競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
+
+  // テストグループ終了後にユーザーのパスワードをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    const user1 = TEST_USERS.REGULAR_USER;
+    const user2 = TEST_USERS.REGULAR_USER_2;
+
+    await prisma.user.update({
+      where: { email: user1.email },
+      data: {
+        passwordHash: await hashPassword(user1.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+
+    await prisma.user.update({
+      where: { email: user2.email },
+      data: {
+        passwordHash: await hashPassword(user2.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+  });
 
   // Mailpit API URL
   const mailpitApiUrl = 'http://localhost:8025/api/v1';
@@ -530,6 +655,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
   /**
    * 要件29.1, 29.2, 29.3: パスワードリセット完全フロー
    * パスワードリセット要求 → メール送信確認 → リセット実行 → ログインの一連のフロー
+   * @REQ-29.1 @REQ-29.6 @REQ-29.10 @REQ-29.11 @REQ-29.17 @REQ-29.18 @REQ-28.10
    */
   test('パスワードリセット要求からログインまでの完全フローが動作する', async ({ page }) => {
     const userEmail = 'user@example.com';
@@ -612,9 +738,10 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
   });
 
   /**
-   * 要件29.3: パスワードリセット成功後のログイン画面へのリダイレクト
+   * 要件29: パスワードリセット成功後のログイン画面へのリダイレクト
    * WHEN パスワード再設定が成功する
    * THEN Frontend UIは成功メッセージを表示し、ログイン画面へリダイレクトする
+   * @REQ-29.17 @REQ-29.18
    */
   test('パスワードリセット成功後、成功メッセージが表示されログインページにリダイレクトされる', async ({
     page,
@@ -656,6 +783,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.1: パスワードリセット要求画面のUI確認
    * WHEN パスワードリセット要求画面が表示される
    * THEN Frontend UIはメールアドレス入力フィールド、送信ボタン、ログイン画面へ戻るリンクを表示する
+   * @REQ-29.1 @REQ-29.9
    */
   test('パスワードリセット要求画面に必要な要素が表示される', async ({ page }) => {
     await page.goto('/password-reset');
@@ -677,6 +805,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.2: パスワード再設定画面のUI確認
    * WHEN パスワード再設定画面が表示される
    * THEN Frontend UIは新しいパスワード入力フィールド、パスワード確認フィールド、変更ボタンを表示する
+   * @REQ-29.10
    */
   test('有効なトークンでパスワード再設定画面に必要な要素が表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -712,6 +841,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.2: 無効トークンでのエラー表示
    * IF リセットトークンが無効または期限切れである
    * THEN Frontend UIはエラーメッセージと「パスワードリセットを再度申請する」リンクを表示する
+   * @REQ-29.12
    */
   test('無効なトークンでエラーメッセージと再申請案内が表示される', async ({ page }) => {
     await page.goto('/password-reset?token=completely-invalid-token-12345');
@@ -730,6 +860,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.2: 期限切れトークンでのエラー表示
    * IF リセットトークンが期限切れである
    * THEN Frontend UIはエラーメッセージを表示する
+   * @REQ-29.12
    */
   test('期限切れトークンでエラーメッセージが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -757,6 +888,117 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     await expect(page.locator('input#password')).toBeDisabled();
     await expect(page.locator('input#passwordConfirm')).toBeDisabled();
   });
+
+  /**
+   * 要件29.13: 新しいパスワード入力時のパスワード強度インジケーター
+   * WHEN 新しいパスワードを入力する
+   * THEN パスワード強度インジケーターが表示される
+   * @REQ-29.13
+   */
+  test('新しいパスワード入力時にパスワード強度インジケーターが表示される', async ({ page }) => {
+    const prisma = getPrismaClient();
+    const user = await prisma.user.findUnique({
+      where: { email: 'user@example.com' },
+    });
+
+    const resetToken = `strength-test-token-${Date.now()}`;
+    await prisma.passwordResetToken.create({
+      data: {
+        token: resetToken,
+        userId: user!.id,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    await page.goto(`/password-reset?token=${resetToken}`);
+    await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+
+    // 弱いパスワードを入力
+    await page.locator('input#password').fill('weak');
+
+    // パスワード強度インジケーターが表示される
+    await expect(page.locator('[data-testid="password-strength-indicator"]')).toBeVisible();
+
+    // 強いパスワードに変更
+    await page.locator('input#password').fill('VeryStrong123!@#Pass');
+
+    // 強度インジケーターが更新される
+    await expect(page.locator('[data-testid="password-strength-indicator"]')).toBeVisible();
+  });
+
+  /**
+   * 要件29.15: パスワード確認不一致時のリアルタイムバリデーション
+   * WHEN パスワードと確認パスワードが一致しない
+   * THEN リアルタイムでバリデーションエラーが表示される
+   * @REQ-29.15
+   */
+  test('パスワード確認不一致時にリアルタイムバリデーションエラーが表示される', async ({ page }) => {
+    const prisma = getPrismaClient();
+    const user = await prisma.user.findUnique({
+      where: { email: 'user@example.com' },
+    });
+
+    const resetToken = `mismatch-test-token-${Date.now()}`;
+    await prisma.passwordResetToken.create({
+      data: {
+        token: resetToken,
+        userId: user!.id,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    await page.goto(`/password-reset?token=${resetToken}`);
+    await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+
+    // パスワードを入力
+    await page.locator('input#password').fill('TestPassword123!');
+
+    // 異なるパスワードを確認フィールドに入力
+    await page.locator('input#passwordConfirm').fill('DifferentPassword123!');
+    await page.locator('input#passwordConfirm').blur();
+
+    // 不一致エラーが表示される
+    await expect(page.getByText(/パスワードが一致しません/i)).toBeVisible();
+  });
+
+  /**
+   * 要件29.16: パスワード変更中のローディングスピナー
+   * WHEN パスワード変更リクエストが処理中である
+   * THEN ローディングスピナーが表示される
+   * @REQ-29.16
+   */
+  test('パスワード変更中にローディングスピナーが表示される', async ({ page }) => {
+    const prisma = getPrismaClient();
+    const user = await prisma.user.findUnique({
+      where: { email: 'user@example.com' },
+    });
+
+    const resetToken = `loading-test-token-${Date.now()}`;
+    const uniquePassword = `LoadingTest${Date.now()}!Aa`;
+
+    await prisma.passwordResetToken.create({
+      data: {
+        token: resetToken,
+        userId: user!.id,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    await page.goto(`/password-reset?token=${resetToken}`);
+    await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+
+    // パスワードを入力
+    await page.locator('input#password').fill(uniquePassword);
+    await page.locator('input#passwordConfirm').fill(uniquePassword);
+
+    // リセットボタンをクリック
+    const resetButton = page.getByRole('button', { name: /パスワードをリセット/i });
+    await resetButton.click();
+
+    // ローディング状態が表示される（ボタンが無効化され、テキストが「リセット中...」に変わる）
+    const loadingButton = page.getByRole('button', { name: /リセット中/i });
+    await expect(loadingButton).toBeDisabled();
+  });
 });
 
 /**
@@ -770,10 +1012,38 @@ test.describe('パスワード変更後のセッション管理', () => {
   const testEmail = 'user2@example.com';
   const baseURL = FRONTEND_BASE_URL;
 
+  // テストグループ終了後にユーザーのパスワードをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    const user1 = TEST_USERS.REGULAR_USER;
+    const user2 = TEST_USERS.REGULAR_USER_2;
+
+    await prisma.user.update({
+      where: { email: user1.email },
+      data: {
+        passwordHash: await hashPassword(user1.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+
+    await prisma.user.update({
+      where: { email: user2.email },
+      data: {
+        passwordHash: await hashPassword(user2.password),
+        loginFailures: 0,
+        isLocked: false,
+        lockedUntil: null,
+      },
+    });
+  });
+
   /**
    * 要件7.5: パスワード変更後の全セッション無効化
    * WHEN パスワードが更新される
    * THEN Authentication Serviceは全ての既存リフレッシュトークンを無効化する
+   * @REQ-7.5
    */
   test('パスワード変更後、全セッションが無効化される', async ({ page, browser }) => {
     // テストごとに一意のパスワードを生成（キャッシュやパスワード履歴の問題を回避）

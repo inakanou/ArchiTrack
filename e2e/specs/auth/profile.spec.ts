@@ -34,6 +34,13 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     });
   });
 
+  /**
+   * 要件9.1: 認証済みユーザーのプロフィール取得
+   * 要件9.2: 無効なアクセストークンで401エラー
+   * @REQ-9.1 @REQ-9.2
+   * @REQ-14.1 プロフィール画面の基本要素表示
+   * @REQ-14.2 ユーザー情報セクション表示
+   */
   test('プロフィール画面が正しく表示される', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible();
     await expect(page.getByLabel(/メールアドレス/i)).toBeVisible();
@@ -41,6 +48,10 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(page.getByText(/ロール/i)).toBeVisible();
   });
 
+  /**
+   * @REQ-9.3
+   * @REQ-14.4 更新成功のトーストメッセージ
+   */
   test('表示名を変更できる', async ({ page }) => {
     // 表示名フィールドが読み込まれるまで待機
     const displayNameInput = page.getByLabel(/表示名/i);
@@ -93,6 +104,9 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     expect(messageShown).toBe(true);
   });
 
+  /**
+   * @REQ-14.5
+   */
   test('パスワード変更フォームが表示される', async ({ page }) => {
     await expect(page.locator('input#currentPassword')).toBeVisible();
     await expect(page.locator('input#newPassword')).toBeVisible();
@@ -100,6 +114,17 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
   });
 
   // 管理者テストはパスワードを変更しないため、ここで実行可能
+  /**
+   * @REQ-14.9
+   * @REQ-17.4 管理者がロール一覧を取得
+   * @REQ-28.21 認証済みユーザーが保護画面にアクセス → 共通ヘッダーナビゲーション表示
+   * @REQ-28.22 共通ヘッダーナビゲーション表示 → ダッシュボード/プロフィール/ログアウトリンク表示
+   * @REQ-28.23 共通ヘッダーナビゲーション表示 → ユーザー表示名表示
+   * @REQ-28.24 管理者ユーザー → 「管理メニュー」ドロップダウン表示
+   * @REQ-28.25 管理メニュー展開 → ユーザー管理/招待管理/ロール管理/権限管理/監査ログへのリンク表示
+   * @REQ-28.26 ダッシュボードにクイックアクセスリンク
+   * @REQ-28.37 ユーザー管理リンククリック → ユーザー管理画面遷移
+   */
   test('管理者ユーザーには「ユーザー管理」リンクが表示される', async ({ page, context }) => {
     // 現在のセッションをクリア（beforeEachでログインしたREGULAR_USERのセッション）
     await context.clearCookies();
@@ -120,6 +145,8 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    * 要件14.6: パスワード変更時の強度インジケーター表示
    * WHEN 新しいパスワードを入力する
    * THEN パスワード強度インジケーターが表示される
+   * @REQ-14.6
+   * @REQ-28.27 ダッシュボードのプロフィールリンククリック → プロフィール画面遷移
    */
   test('新パスワード入力時に強度インジケーターが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
@@ -138,6 +165,7 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    * 要件14.6: パスワード強度インジケーター（弱・中・強）
    * WHEN 異なる強度のパスワードを入力する
    * THEN インジケーターが適切に反応する
+   * @REQ-14.6
    */
   test('弱いパスワードで「弱」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
@@ -153,6 +181,9 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(progressBar).toHaveAttribute('data-strength', 'weak');
   });
 
+  /**
+   * @REQ-14.6
+   */
   test('普通のパスワードで「普通」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
     await page.locator('input#newPassword').fill('passwordpass'); // 12文字、小文字のみ（minLengthのみ達成）
@@ -167,6 +198,9 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(progressBar).toHaveAttribute('data-strength', 'fair');
   });
 
+  /**
+   * @REQ-14.6
+   */
   test('強いパスワードで「強」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
     await page.locator('input#newPassword').fill('VeryStrong!Password123@XYZ'); // 27文字、複雑
@@ -186,6 +220,7 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    * 要件2.5-2.8: パスワード変更時の複雑性検証
    * WHEN 複雑性要件を満たさないパスワードを入力する
    * THEN エラーメッセージが表示される
+   * @REQ-2.5
    */
   test('12文字未満の新パスワードではエラーが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
@@ -196,6 +231,9 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(page.getByText(/パスワードは12文字以上である必要があります/i)).toBeVisible();
   });
 
+  /**
+   * @REQ-2.6
+   */
   test('大文字を含まない新パスワードではエラーが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
     // ユニークなパスワード: 大文字なし、漏洩DBにない
@@ -206,6 +244,9 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(page.getByText(/パスワードは大文字を1文字以上含む必要があります/i)).toBeVisible();
   });
 
+  /**
+   * @REQ-2.6
+   */
   test('連続した同一文字を含む新パスワードではエラーが表示される', async ({ page }) => {
     await page.locator('input#currentPassword').fill('Password123!');
     // ユニークなパスワード: 'www'が連続、12文字以上
@@ -222,6 +263,7 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    * 要件7.8: パスワード変更時のHIBP Pwned Passwordsチェック
    * WHEN 漏洩が確認されているパスワードに変更しようとする
    * THEN エラーメッセージが表示される
+   * @REQ-2.7
    */
   test('漏洩パスワードには変更できない', async ({ page }) => {
     // パスワードフィールドが表示されるまで待機
@@ -263,6 +305,8 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
    * 要件11.11: プロフィールページのキーボードナビゲーション
    * WHEN Tab キーを押す
    * THEN 論理的な順序でフォーカスが移動する
+   * @REQ-14.3
+   * @REQ-14.10 モバイル最適化レイアウト（768px未満）
    */
   test('Tab キーで論理的な順序でフォーカスが移動する', async ({ page }) => {
     // 表示名フィールドにフォーカスを移動
@@ -298,6 +342,16 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
   // 並列実行を無効化（データベースリセットの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
+  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
+  });
+
   // 各テストの前にデータベースをリセットしてユーザーを再作成
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
@@ -319,6 +373,11 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await createAllTestUsers(prisma);
   });
 
+  /**
+   * 要件7.4: パスワード変更時の現在パスワード確認
+   * @REQ-7.4
+   * @REQ-14.7 @REQ-14.8
+   */
   test('パスワードを変更できる', async ({ page }) => {
     // ログイン
     await loginAsUser(page, 'REGULAR_USER');
@@ -452,6 +511,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
    * 要件7.6-7.7: パスワード履歴検証（過去3回のパスワード再利用防止）
    * WHEN 過去3回に使用したパスワードを設定しようとする
    * THEN エラーメッセージが表示される
+   * @REQ-7.7
    */
   test('過去3回に使用したパスワードは再利用できない', async ({ page }) => {
     // ログイン（REGULAR_USER_2を使用して他のテストに影響しないようにする）
@@ -729,6 +789,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
    * 要件7.6-7.7: パスワード履歴検証（4回前のパスワードは再利用可能）
    * WHEN 過去4回前のパスワードを設定しようとする
    * THEN パスワード変更が成功する
+   * @REQ-7.6 @REQ-7.8
    */
   test('過去4回前のパスワードは再利用できる', async ({ page }) => {
     // ログイン

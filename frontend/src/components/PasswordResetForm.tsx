@@ -320,6 +320,7 @@ function PasswordResetForm({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onBlur={handleEmailBlur}
+            autoFocus
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? 'email-error' : undefined}
             style={{

@@ -67,3 +67,4 @@ lerna-debug.log*
 
 /generated/prisma
 /src/generated/
+.playwright-mcp/

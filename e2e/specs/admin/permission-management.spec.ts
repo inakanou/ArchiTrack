@@ -7,6 +7,14 @@ import { API_BASE_URL } from '../../config';
  * 権限（Permission）管理のE2Eテスト
  *
  * @REQ-18 権限（Permission）管理
+ * @REQ-18.1 システム初期化時に事前定義権限を自動作成
+ * @REQ-18.2 権限定義にresource:action形式（例: adr:read, user:delete）を使用
+ * @REQ-18.3 システム管理者が権限一覧を取得（リソースタイプ、アクション、説明を含む）
+ * @REQ-18.4 ワイルドカード権限（例: adr:*, *:read）をサポート
+ * @REQ-18.5 *:*権限を持つユーザーに全てのリソースへの全てのアクションを許可
+ * @REQ-18.6 権限評価時に最も具体的な権限を優先
+ * @REQ-18.7 システム管理者がカスタム権限を作成（権限の名前、リソースタイプ、アクション、説明を保存）
+ * @REQ-28.39 権限管理リンククリック → 権限管理画面遷移
  *
  * このテストスイートは、権限の定義と管理機能を
  * End-to-Endで検証します。
@@ -22,6 +30,7 @@ test.describe('権限管理', () => {
 
   /**
    * 要件18.1: システム初期化時の事前定義権限自動作成
+   * @REQ-18.1
    */
   test('システム初期化時に事前定義権限が存在する', async () => {
     const prisma = getPrismaClient();
@@ -38,6 +47,7 @@ test.describe('権限管理', () => {
 
   /**
    * 要件18.2: resource:action形式の権限定義
+   * @REQ-18.2
    */
   test('権限はresource:action形式で定義される', async () => {
     const prisma = getPrismaClient();
@@ -55,6 +65,7 @@ test.describe('権限管理', () => {
 
   /**
    * 要件18.3: 権限一覧の取得
+   * @REQ-18.3
    */
   test('管理者は権限一覧を取得できる', async ({ request }) => {
     // 管理者としてログイン
@@ -88,6 +99,7 @@ test.describe('権限管理', () => {
 
   /**
    * 要件18.4: ワイルドカード権限のサポート
+   * @REQ-18.4
    */
   test('ワイルドカード権限が正しく機能する', async () => {
     const prisma = getPrismaClient();
@@ -115,6 +127,7 @@ test.describe('権限管理', () => {
 
   /**
    * 要件18.5: *:* 権限を持つユーザーの全アクセス許可
+   * @REQ-18.5
    */
   test('*:*権限を持つユーザーは全てのリソースにアクセスできる', async ({ request }) => {
     // 管理者としてログイン（*:*権限を持つ）
@@ -146,6 +159,7 @@ test.describe('権限管理', () => {
 
   /**
    * 要件18.6: 具体的な権限の優先評価
+   * @REQ-18.6
    */
   test('権限の構造が正しい', async () => {
     const prisma = getPrismaClient();
@@ -166,6 +180,7 @@ test.describe('権限管理', () => {
 
   /**
    * 要件18.7: カスタム権限の作成（APIが実装されている場合）
+   * @REQ-18.7
    */
   test('権限には説明が含まれる', async () => {
     const prisma = getPrismaClient();
