@@ -16,23 +16,186 @@
       "detail": "E2Eテスト用のDockerコンテナを起動・準備します"
     },
     {
-      "label": "Docker Compose Up",
+      "label": "Dev: Docker Compose Up",
       "type": "shell",
-      "command": "docker",
-      "args": ["compose", "up", "-d"],
+      "command": "npm",
+      "args": ["run", "dev:docker"],
       "group": "none",
       "presentation": {
         "reveal": "always",
         "panel": "shared"
       },
       "problemMatcher": [],
-      "detail": "全てのDockerコンテナをバックグラウンドで起動"
+      "detail": "開発環境のDockerコンテナをバックグラウンドで起動 (ports: 3000/5173/5432/6379)"
     },
     {
-      "label": "Docker Compose Down",
+      "label": "Dev: Docker Compose Down",
       "type": "shell",
       "command": "docker",
-      "args": ["compose", "down"],
+      "args": [
+        "compose",
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.dev.yml",
+        "down"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "開発環境のDockerコンテナを停止・削除"
+    },
+    {
+      "label": "Dev: Docker Compose Up (Debug)",
+      "type": "shell",
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.dev.yml",
+        "-f", "docker-compose.debug.yml",
+        "--env-file", ".env.dev",
+        "up", "-d"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "開発環境のDockerコンテナをデバッグモードで起動 (ports: 3000/5173/5432/6379, debugger: 9229)"
+    },
+    {
+      "label": "Dev: Docker Compose Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.dev.yml",
+        "logs", "-f", "--tail=100"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "開発環境のDockerコンテナログをフォロー"
+    },
+    {
+      "label": "Dev: Backend Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": ["logs", "-f", "--tail=100", "architrack-backend-dev"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "開発環境のバックエンドログをフォロー"
+    },
+    {
+      "label": "Dev: Frontend Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": ["logs", "-f", "--tail=100", "architrack-frontend-dev"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "開発環境のフロントエンドログをフォロー"
+    },
+    {
+      "label": "Test: Docker Compose Up",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "test:docker"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "テスト環境のDockerコンテナをバックグラウンドで起動 (ports: 3100/5174/5433/6380)"
+    },
+    {
+      "label": "Test: Docker Compose Down",
+      "type": "shell",
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.test.yml",
+        "down"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "テスト環境のDockerコンテナを停止・削除"
+    },
+    {
+      "label": "Test: Docker Compose Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.test.yml",
+        "logs", "-f", "--tail=100"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "テスト環境のDockerコンテナログをフォロー"
+    },
+    {
+      "label": "Test: Backend Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": ["logs", "-f", "--tail=100", "architrack-backend-test"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "テスト環境のバックエンドログをフォロー"
+    },
+    {
+      "label": "Test: Frontend Logs",
+      "type": "shell",
+      "command": "docker",
+      "args": ["logs", "-f", "--tail=100", "architrack-frontend-test"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "テスト環境のフロントエンドログをフォロー"
+    },
+    {
+      "label": "All: Docker Compose Down",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "down", "--remove-orphans"],
       "group": "none",
       "presentation": {
         "reveal": "always",
@@ -42,32 +205,23 @@
       "detail": "全てのDockerコンテナを停止・削除"
     },
     {
-      "label": "Docker Compose Logs",
+      "label": "All: Docker Clean (Volumes)",
       "type": "shell",
       "command": "docker",
-      "args": ["compose", "logs", "-f", "--tail=100"],
+      "args": [
+        "volume", "rm",
+        "architrack_postgres_dev_data",
+        "architrack_redis_dev_data",
+        "architrack_backend_dev_node_modules",
+        "architrack_frontend_dev_node_modules"
+      ],
       "group": "none",
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
+        "panel": "shared"
       },
       "problemMatcher": [],
-      "isBackground": true,
-      "detail": "Dockerコンテナのログをフォロー"
-    },
-    {
-      "label": "Docker Backend Logs",
-      "type": "shell",
-      "command": "docker",
-      "args": ["logs", "-f", "--tail=100", "architrack-backend"],
-      "group": "none",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
-      "problemMatcher": [],
-      "isBackground": true,
-      "detail": "バックエンドコンテナのログをフォロー"
+      "detail": "開発環境のDockerボリュームを削除（データリセット）"
     }
   ]
 }

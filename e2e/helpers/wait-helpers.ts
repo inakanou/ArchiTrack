@@ -272,6 +272,7 @@ export async function waitForLoadingComplete(
  * セッションデータの読み込み完了を待機
  *
  * セッション管理ページでセッションデータが読み込まれるまで待機します。
+ * APIエラーが発生した場合はfalseを返し、再ログインが必要であることを示します。
  *
  * @param page - Playwrightのページオブジェクト
  * @param options - オプション
@@ -301,7 +302,33 @@ export async function waitForSessionDataLoaded(
       // ローディング完了を待機
       await waitForLoadingComplete(page, { timeout });
 
+      // ログインページにリダイレクトされていないかチェック
+      if (page.url().includes('/login')) {
+        // ログインページにリダイレクトされた場合は再認証が必要
+        return false;
+      }
+
+      // APIエラーが発生していないかチェック
+      const hasError = await page.getByText(/セッション情報を取得できませんでした/i).isVisible();
+      if (hasError) {
+        // エラー状態の場合はリトライ（再ログインが必要な場合がある）
+        if (retry < maxRetries - 1) {
+          await page.reload({ waitUntil: 'networkidle' });
+          // リロード後にログインページにリダイレクトされた場合
+          if (page.url().includes('/login')) {
+            return false;
+          }
+          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+            timeout: getTimeout(15000),
+          });
+          continue;
+        }
+        return false;
+      }
+
       // セッションデータまたは空状態メッセージのいずれかが表示されるまで待機
+      // 注意：「アクティブなセッションがありません」はエラー時にも表示されるため、
+      // エラーチェック後にのみ成功と判定する
       await Promise.race([
         expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout }),
         expect(page.getByText(/全デバイスからログアウト/i)).toBeVisible({ timeout }),

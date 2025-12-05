@@ -3,6 +3,7 @@ import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * ロールベースアクセス制御（RBAC）のE2Eテスト
@@ -215,7 +216,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     await createTestUser('REGULAR_USER');
 
     // ログインしてトークンを取得
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'user@example.com',
         password: 'Password123!',
@@ -226,7 +227,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     const { accessToken } = await loginResponse.json();
 
     // 権限が必要なエンドポイント（ロール一覧）にアクセス
-    const rolesResponse = await request.get('http://localhost:3000/api/v1/roles', {
+    const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -246,7 +247,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     await createTestUser('ADMIN_USER');
 
     // ログインしてトークンを取得
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -257,7 +258,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     const { accessToken } = await loginResponse.json();
 
     // ロール一覧にアクセス
-    const rolesResponse = await request.get('http://localhost:3000/api/v1/roles', {
+    const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -266,7 +267,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     expect(rolesResponse.ok()).toBeTruthy();
 
     // 権限一覧にアクセス
-    const permissionsResponse = await request.get('http://localhost:3000/api/v1/permissions', {
+    const permissionsResponse = await request.get(`${API_BASE_URL}/api/v1/permissions`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },

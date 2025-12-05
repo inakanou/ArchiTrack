@@ -64,8 +64,10 @@ export async function setup() {
     const isInDocker = originalDbUrl?.includes('@postgres:');
 
     // Docker内の場合はホスト名を'postgres'に、ローカルの場合は'localhost'に設定
+    // ローカルテスト環境はポート5433を使用（開発環境5432と分離）
     const dbHost = isInDocker ? 'postgres' : 'localhost';
-    process.env.DATABASE_URL = `postgresql://postgres:dev@${dbHost}:5432/architrack_test`;
+    const dbPort = isInDocker ? '5432' : '5433';
+    process.env.DATABASE_URL = `postgresql://postgres:test@${dbHost}:${dbPort}/architrack_test`;
 
     console.log(
       '[GLOBAL SETUP] DATABASE_URL overridden for tests:',
@@ -82,13 +84,15 @@ export async function setup() {
       process.env.DATABASE_URL?.includes('@postgres:') ||
       process.env.REDIS_URL?.includes('redis://redis:');
 
-    // Docker内の場合はredis、ローカルの場合はlocalhostに設定
+    // Docker内の場合はredis:6379、ローカルの場合はlocalhost:6380に設定
+    // ローカルテスト環境はポート6380を使用（開発環境6379と分離）
     const redisHost = isInDocker ? 'redis' : 'localhost';
-    process.env.REDIS_URL = `redis://${redisHost}:6379/1`;
+    const redisPort = isInDocker ? '6379' : '6380';
+    process.env.REDIS_URL = `redis://${redisHost}:${redisPort}/1`;
 
     console.log(
       '[GLOBAL SETUP] REDIS_URL set for tests:',
-      `redis://${redisHost}:6379/1`,
+      `redis://${redisHost}:${redisPort}/1`,
       `(${isInDocker ? 'Docker' : 'Local'})`
     );
   }

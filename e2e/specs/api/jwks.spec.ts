@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * RFC 7517 JSON Web Key (JWK) Set
@@ -35,8 +36,6 @@ interface JWKSResponse {
  * RFC 7517 (JSON Web Key) 準拠のエンドポイントを検証
  */
 test.describe('JWKS Endpoint E2E', () => {
-  const API_BASE = 'http://localhost:3000';
-
   // テストの前にAPIが利用可能になるまで待機
   test.beforeAll(async ({ request }) => {
     // 最大30秒間、1秒ごとにヘルスチェックを試行
@@ -45,7 +44,7 @@ test.describe('JWKS Endpoint E2E', () => {
 
     while (retries > 0) {
       try {
-        const response = await request.get(`${API_BASE}/health`, {
+        const response = await request.get(`${API_BASE_URL}/health`, {
           timeout: getTimeout(5000),
         });
         if (response.ok()) {
@@ -63,14 +62,14 @@ test.describe('JWKS Endpoint E2E', () => {
 
   test.describe('GET /.well-known/jwks.json', () => {
     test('JWKS エンドポイントが成功レスポンスを返すこと', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
 
       // ステータスコードが200であることを確認
       expect(response.status()).toBe(200);
     });
 
     test('レスポンスがapplication/json Content-Typeであること', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
 
       const contentType = response.headers()['content-type'];
       expect(contentType).toMatch(/application\/json/);
@@ -79,7 +78,7 @@ test.describe('JWKS Endpoint E2E', () => {
     test('RFC 7517準拠: レスポンスがkeysプロパティを持つJWKS形式であること', async ({
       request,
     }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
       // RFC 7517 Section 5: keys プロパティが必須
@@ -88,7 +87,7 @@ test.describe('JWKS Endpoint E2E', () => {
     });
 
     test('RFC 7517準拠: 公開鍵がEdDSA (OKP) 形式であること', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
       // 公開鍵が設定されている場合のみ検証
@@ -112,7 +111,7 @@ test.describe('JWKS Endpoint E2E', () => {
     });
 
     test('RFC 7517準拠: 公開鍵にkid (Key ID) が設定されていること', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
       // 公開鍵が設定されている場合のみ検証
@@ -127,7 +126,7 @@ test.describe('JWKS Endpoint E2E', () => {
     });
 
     test('RFC 7517準拠: 公開鍵にuse (Public Key Use) が設定されていること', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
       // 公開鍵が設定されている場合のみ検証
@@ -141,7 +140,7 @@ test.describe('JWKS Endpoint E2E', () => {
     });
 
     test('RFC 7517準拠: 公開鍵にalg (Algorithm) が設定されていること', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
       // 公開鍵が設定されている場合のみ検証
@@ -155,7 +154,7 @@ test.describe('JWKS Endpoint E2E', () => {
     });
 
     test('セキュリティ: 秘密鍵 (d parameter) が公開されていないこと', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
       // すべての鍵について秘密鍵が含まれていないことを確認
@@ -166,7 +165,7 @@ test.describe('JWKS Endpoint E2E', () => {
     });
 
     test('猶予期間中の複数鍵配信: keys配列が空でないこと', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
       // JWT_PUBLIC_KEY環境変数が設定されている場合、少なくとも1つの鍵が存在
@@ -175,7 +174,7 @@ test.describe('JWKS Endpoint E2E', () => {
     });
 
     test('キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること', async ({ request }) => {
-      const response = await request.get(`${API_BASE}/.well-known/jwks.json`);
+      const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
 
       // Cache-Controlヘッダーが設定されている場合は検証
       // 注: 現在の実装ではCache-Controlが設定されていない可能性がある

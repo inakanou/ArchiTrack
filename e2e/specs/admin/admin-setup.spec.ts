@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
+import { API_BASE_URL } from '../../config';
 
 /**
  * 初期管理者アカウントセットアップのE2Eテスト
@@ -15,8 +16,6 @@ import { getPrismaClient } from '../../fixtures/database';
 test.describe('初期管理者アカウントセットアップ', () => {
   test.describe.configure({ mode: 'serial' });
 
-  const API_BASE = 'http://localhost:3000';
-
   /**
    * 要件3.1: Backend Service初回起動時の管理者自動作成
    * 要件3.3: 管理者ロール（admin）の割り当て
@@ -24,7 +23,7 @@ test.describe('初期管理者アカウントセットアップ', () => {
    */
   test('システム初期化時に管理者アカウントが存在する', async ({ request }) => {
     // ヘルスチェックでAPIが利用可能であることを確認
-    const healthResponse = await request.get(`${API_BASE}/health`);
+    const healthResponse = await request.get(`${API_BASE_URL}/health`);
     expect(healthResponse.ok()).toBeTruthy();
 
     // データベースに管理者ロールが存在することを確認

@@ -32,14 +32,16 @@ let prisma: InstanceType<typeof PrismaClient> | null = null;
 export function getPrismaClient(): InstanceType<typeof PrismaClient> {
   if (!prisma) {
     // E2Eテスト用のデータベース接続URL
-    // Docker Compose環境では architrack_dev を使用（バックエンドと同じDB）
     //
-    // 重要: E2EテストはDocker Composeで起動したバックエンドと通信するため、
-    // バックエンドと同じデータベースを使用する必要があります。
-    // Docker Composeのデフォルトは architrack_dev です。
+    // E2Eテストはホストマシンから実行されるため、Docker内部ホスト名(postgres)ではなく
+    // localhost経由でテスト環境のPostgreSQLに接続する必要があります。
+    // テスト環境のポート: 5433 (開発環境5432とは異なる)
+    //
+    // DATABASE_URLが設定されていない場合、テスト環境のデフォルト値を使用します。
     //
     // Prisma 7: Driver adapter pattern required for instantiation
-    const connectionString = process.env.DATABASE_URL!;
+    const connectionString =
+      process.env.DATABASE_URL || 'postgresql://postgres:test@localhost:5433/architrack_test';
     const adapter = new PrismaPg({ connectionString });
 
     prisma = new PrismaClient({ adapter });

@@ -160,7 +160,7 @@ function showUsage(): void {
   console.log('Examples:');
   console.log('  node browser.js screenshot http://localhost:5173 screenshot.png');
   console.log('  node browser.js info http://localhost:5173');
-  console.log('  node browser.js api http://localhost:3000/health');
+  console.log('  node browser.js api http://localhost:3100/health');
 }
 
 // スクリプトとして直接実行された場合

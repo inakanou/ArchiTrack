@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { API_BASE_URL } from '../../config';
 
 /**
  * 権限（Permission）管理のE2Eテスト
@@ -68,7 +69,7 @@ test.describe('権限管理', () => {
    */
   test('管理者は権限一覧を取得できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -77,7 +78,7 @@ test.describe('権限管理', () => {
     const { accessToken } = await loginResponse.json();
 
     // 権限一覧を取得
-    const permissionsResponse = await request.get('http://localhost:3000/api/v1/permissions', {
+    const permissionsResponse = await request.get(`${API_BASE_URL}/api/v1/permissions`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -130,7 +131,7 @@ test.describe('権限管理', () => {
    */
   test('*:*権限を持つユーザーは全てのリソースにアクセスできる', async ({ request }) => {
     // 管理者としてログイン（*:*権限を持つ）
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -147,7 +148,7 @@ test.describe('権限管理', () => {
     ];
 
     for (const endpoint of endpoints) {
-      const response = await request.get(`http://localhost:3000${endpoint}`, {
+      const response = await request.get(`${API_BASE_URL}${endpoint}`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },

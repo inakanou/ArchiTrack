@@ -34,7 +34,18 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 ## クイックスタート
 
-Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-local-env.sh`を実行して環境を自動セットアップし、`docker-compose up -d`で起動します。
+```bash
+# 1. 環境を自動セットアップ（初回のみ）
+./scripts/setup-local-env.sh
+
+# 2. 開発環境を起動
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+```
+
+**アクセス先:**
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:3000
+- Swagger UI: http://localhost:3000/docs
 
 詳細は[クイックスタート](docs/getting-started/quick-start.md)または[インストール手順](docs/getting-started/installation.md)を参照してください。
 
@@ -121,6 +132,15 @@ Node.js 22、Docker、Docker Composeをインストール後、`./scripts/setup-
 - **docs/** - 包括的なドキュメント（対象読者ごとに整理）
 - **.kiro/** - Kiro-style Spec-Driven Development
 - **.github/** - CI/CD（GitHub Actions）
+
+### Docker Compose構成
+
+| 環境 | 構成ファイル | 用途 |
+|------|-------------|------|
+| **開発環境** | `docker-compose.yml` + `docker-compose.dev.yml` | ローカル画面打鍵・開発作業 |
+| **テスト環境** | `docker-compose.yml` + `docker-compose.test.yml` | ローカル自動テスト実行 |
+| **デバッグ環境** | `+ docker-compose.debug.yml` | Node.jsデバッガ接続 |
+| **CI環境** | `docker-compose.yml` + `docker-compose.ci.yml` | GitHub Actions用 |
 
 詳細なディレクトリ構造は[プロジェクト構造](docs/architecture/project-structure.md)を参照してください。
 

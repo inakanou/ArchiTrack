@@ -17,6 +17,11 @@ RUN npm ci
 
 COPY . .
 
+# /appディレクトリの所有権をnodeユーザー（UID 1000）に変更
+# docker-compose.ymlでuser: 1000:1000として実行されるため、
+# ホストマウントされたファイルの権限問題を回避
+RUN chown -R node:node /app
+
 EXPOSE 3000
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

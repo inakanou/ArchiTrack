@@ -3,6 +3,7 @@ import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForAuthState, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * トークンリフレッシュ機能のE2Eテスト
@@ -512,7 +513,7 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // 新しいAPIコンテキストを作成（ブラウザのCookieを持たない）
     const apiContext = await playwright.request.newContext({
-      baseURL: 'http://localhost:3000',
+      baseURL: API_BASE_URL,
     });
 
     try {

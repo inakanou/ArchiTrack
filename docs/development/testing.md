@@ -78,8 +78,11 @@ describe('validateEmail', () => {
 ### 実行方法
 
 ```bash
-# Backend統合テスト（Docker環境で実行）
-docker exec architrack-backend npm run test:integration
+# Backend統合テスト（開発環境のDocker内で実行）
+docker exec architrack-backend-dev npm run test:integration
+
+# テスト環境で実行する場合
+docker exec architrack-backend-test npm run test:integration
 ```
 
 ### テストファイル配置
@@ -122,16 +125,36 @@ npm install
 sudo npx playwright install-deps chromium
 ```
 
+### テスト環境の種類
+
+ArchiTrackには、E2Eテスト用に複数の環境が用意されています：
+
+| 環境 | 用途 | ポート |
+|------|------|--------|
+| **開発環境** | ローカル画面打鍵 | Backend: 3000、Frontend: 5173 |
+| **テスト環境** | ローカル自動テスト | Backend: 3100、Frontend: 5174 |
+| **CI環境** | GitHub Actions | Backend: 3000、Frontend: 5173 |
+
 ### 実行方法
 
-#### 基本的なテスト実行
+#### 基本的なテスト実行（開発環境を使用）
 
 ```bash
-# アプリケーションを起動
-docker-compose up -d
+# 開発環境を起動
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
 
 # E2Eテストを実行
 npm run test:e2e
+```
+
+#### テスト環境で実行（推奨：開発環境と同時実行可能）
+
+```bash
+# テスト環境を起動（開発環境とポートが異なる）
+docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
+
+# E2Eテストを実行（テスト環境のポートを指定）
+BASE_URL=http://localhost:5174 npm run test:e2e
 ```
 
 #### UIモードで実行（対話的）
@@ -275,11 +298,23 @@ npm run test:coverage
 
 GitHub Actionsで自動的に以下が実行されます：
 
-1. **Lint & Format Check**: コード品質チェック
-2. **Type Check**: TypeScript型チェック
-3. **Unit Tests**: ユニットテスト + カバレッジ検証
-4. **Build Test**: ビルド成功確認
-5. **Integration & E2E Tests**: Docker環境で統合・E2Eテスト
+1. **Lint & Format Check**: コード品質チェック（backend, frontend, e2e）
+2. **Requirement Coverage**: 要件カバレッジチェック（100%必須）
+3. **Type Check**: TypeScript型チェック（backend, frontend, e2e）
+4. **Unit Tests**: ユニットテスト + カバレッジ検証（backend, frontend）
+5. **Build Test**: ビルド成功確認 + ESモジュール検証
+6. **Storybook Tests**: コンポーネントのビジュアル・アクセシビリティテスト
+7. **Integration & E2E Tests**: Docker環境（docker-compose.ci.yml）で統合・E2Eテスト
+8. **Security Scan**: npm audit によるセキュリティスキャン
+
+### CI環境のDocker構成
+
+CI環境では `docker-compose.ci.yml` を使用し、標準ポート（3000, 5173）で実行されます：
+
+```bash
+# CI環境と同じ構成でローカルテスト
+docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+```
 
 詳細は `.github/workflows/ci.yml` を参照してください。
 

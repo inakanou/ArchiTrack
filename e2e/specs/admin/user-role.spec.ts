@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { API_BASE_URL } from '../../config';
 
 /**
  * ユーザーへのロール割り当てのE2Eテスト
@@ -30,7 +31,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -56,7 +57,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     const testUser = await createTestUser('REGULAR_USER');
 
     // 新しいロールを作成
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -69,17 +70,14 @@ test.describe('ユーザーへのロール割り当て', () => {
     const newRole = await createRoleResponse.json();
 
     // ユーザーにロールを追加
-    const assignResponse = await request.post(
-      `http://localhost:3000/api/v1/users/${testUser.id}/roles`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        data: {
-          roleIds: [newRole.id],
-        },
-      }
-    );
+    const assignResponse = await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        roleIds: [newRole.id],
+      },
+    });
 
     expect(assignResponse.ok()).toBeTruthy();
 
@@ -108,17 +106,14 @@ test.describe('ユーザーへのロール割り当て', () => {
     });
 
     // 既に持っているロールを再度割り当て
-    const assignResponse = await request.post(
-      `http://localhost:3000/api/v1/users/${testUser.id}/roles`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        data: {
-          roleIds: [userRole!.id],
-        },
-      }
-    );
+    const assignResponse = await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        roleIds: [userRole!.id],
+      },
+    });
 
     // 重複は無視されてエラーにならない
     expect(assignResponse.ok()).toBeTruthy();
@@ -148,7 +143,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     const testUser = await createTestUser('REGULAR_USER');
 
     // 追加のロールを作成して割り当て
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -159,7 +154,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     });
     const tempRole = await createRoleResponse.json();
 
-    await request.post(`http://localhost:3000/api/v1/users/${testUser.id}/roles`, {
+    await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -170,7 +165,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
     // ロールを削除
     const deleteResponse = await request.delete(
-      `http://localhost:3000/api/v1/users/${testUser.id}/roles/${tempRole.id}`,
+      `${API_BASE_URL}/api/v1/users/${testUser.id}/roles/${tempRole.id}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -262,7 +257,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
     // 管理者ロールの削除を試みる
     const deleteResponse = await request.delete(
-      `http://localhost:3000/api/v1/users/${adminUser!.id}/roles/${adminRole!.id}`,
+      `${API_BASE_URL}/api/v1/users/${adminUser!.id}/roles/${adminRole!.id}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -285,14 +280,11 @@ test.describe('ユーザーへのロール割り当て', () => {
     const testUser = await createTestUser('REGULAR_USER');
 
     // ユーザーのロール一覧を取得
-    const rolesResponse = await request.get(
-      `http://localhost:3000/api/v1/users/${testUser.id}/roles`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
+    const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
     expect(rolesResponse.ok()).toBeTruthy();
     const roles = await rolesResponse.json();
@@ -313,11 +305,11 @@ test.describe('ユーザーへのロール割り当て', () => {
     const testUser = await createTestUser('REGULAR_USER');
 
     // 複数の新しいロールを作成
-    const role1Response = await request.post('http://localhost:3000/api/v1/roles', {
+    const role1Response = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       data: { name: 'Role A', description: 'First role' },
     });
-    const role2Response = await request.post('http://localhost:3000/api/v1/roles', {
+    const role2Response = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       data: { name: 'Role B', description: 'Second role' },
     });
@@ -326,17 +318,14 @@ test.describe('ユーザーへのロール割り当て', () => {
     const role2 = await role2Response.json();
 
     // 複数ロールを一括割り当て
-    const assignResponse = await request.post(
-      `http://localhost:3000/api/v1/users/${testUser.id}/roles`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        data: {
-          roleIds: [role1.id, role2.id],
-        },
-      }
-    );
+    const assignResponse = await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        roleIds: [role1.id, role2.id],
+      },
+    });
 
     expect(assignResponse.ok()).toBeTruthy();
 

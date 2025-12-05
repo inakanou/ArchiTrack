@@ -15,10 +15,16 @@ import AxeBuilder from '@axe-core/playwright';
  */
 
 test.describe('セキュリティテスト', () => {
-  test.describe.configure({ mode: 'serial' });
-
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     await context.clearCookies();
+    // localStorageもクリア（前回のテスト実行から残っている古いトークンを削除）
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    // ページをリロードして状態をクリア
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await cleanDatabase();
     await createTestUser('REGULAR_USER');
   });
@@ -61,8 +67,34 @@ test.describe('セキュリティテスト', () => {
    * THEN システムはスクリプトをエスケープまたはサニタイズする
    */
   test('XSS攻撃が適切にエスケープされる', async ({ page }) => {
+    // 前のテストの認証状態が残っていた場合に備えてクリア
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
     await loginAsUser(page, 'REGULAR_USER');
-    await page.goto('/profile');
+
+    // リフレッシュAPIのレスポンスを監視
+    let refreshApiStatus: number | null = null;
+    page.on('response', (response) => {
+      if (response.url().includes('/api/v1/auth/refresh')) {
+        refreshApiStatus = response.status();
+      }
+    });
+
+    await page.goto('/profile', { waitUntil: 'networkidle' });
+
+    // リフレッシュAPIが呼ばれた場合、成功していることを確認
+    // 前回のテスト実行から古いトークンが残っている場合、リフレッシュが401で失敗することがある
+    if (refreshApiStatus !== null && refreshApiStatus !== 200) {
+      // リフレッシュが失敗した場合、再度ログインを試みる
+      await page.evaluate(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+      });
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto('/profile', { waitUntil: 'networkidle' });
+    }
 
     // プロフィールページのロード完了を待機
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
@@ -72,7 +104,7 @@ test.describe('セキュリティテスト', () => {
     // 認証状態を確認（ログインページにリダイレクトされていないか）
     if (page.url().includes('/login')) {
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/profile');
+      await page.goto('/profile', { waitUntil: 'networkidle' });
       await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
         timeout: getTimeout(15000),
       });
@@ -261,10 +293,15 @@ test.describe('セキュリティテスト', () => {
 });
 
 test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => {
-  test.describe.configure({ mode: 'serial' });
-
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     await context.clearCookies();
+    // localStorageもクリア（前回のテスト実行から残っている古いトークンを削除）
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await cleanDatabase();
     await createTestUser('REGULAR_USER');
   });
@@ -428,10 +465,15 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
 });
 
 test.describe('レスポンシブデザインテスト', () => {
-  test.describe.configure({ mode: 'serial' });
-
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     await context.clearCookies();
+    // localStorageもクリア（前回のテスト実行から残っている古いトークンを削除）
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await cleanDatabase();
     await createTestUser('REGULAR_USER');
   });
@@ -495,10 +537,15 @@ test.describe('レスポンシブデザインテスト', () => {
 });
 
 test.describe('モーダルとトーストメッセージテスト', () => {
-  test.describe.configure({ mode: 'serial' });
-
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     await context.clearCookies();
+    // localStorageもクリア（前回のテスト実行から残っている古いトークンを削除）
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await cleanDatabase();
     await createTestUser('REGULAR_USER');
   });

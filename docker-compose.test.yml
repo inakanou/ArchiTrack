@@ -1,0 +1,91 @@
+# ArchiTrack Docker Compose Test Environment Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up
+# Or: npm run test:docker
+#
+# Ports are offset to allow simultaneous running with dev environment:
+#   Backend:    3100 (dev: 3000)
+#   Frontend:   5174 (dev: 5173)
+#   PostgreSQL: 5433 (dev: 5432)
+#   Redis:      6380 (dev: 6379)
+#   Mailhog:    1026/8026 (dev: 1025/8025)
+#
+# Data is ephemeral (tmpfs) for clean test runs
+
+services:
+  # PostgreSQL Database (Test) - Ephemeral
+  postgres:
+    container_name: architrack-postgres-test
+    environment:
+      POSTGRES_DB: architrack_test
+      POSTGRES_PASSWORD: test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  # Redis (Test) - Ephemeral
+  redis:
+    container_name: architrack-redis-test
+    ports:
+      - "6380:6379"
+    tmpfs:
+      - /data
+
+  # Mailhog (Test)
+  mailhog:
+    container_name: architrack-mailhog-test
+    ports:
+      - "1026:1025"  # SMTP port
+      - "8026:8025"  # Web UI port
+
+  # Backend API (Test)
+  backend:
+    container_name: architrack-backend-test
+    environment:
+      NODE_ENV: test
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:test@postgres:5432/architrack_test
+      REDIS_URL: redis://redis:6379/1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FRONTEND_URL: http://localhost:5174
+      LOG_LEVEL: warn
+      ACCESS_TOKEN_EXPIRY: 15m
+      REFRESH_TOKEN_EXPIRY: 7d
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
+      DISABLE_RATE_LIMIT: "true"
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: noreply@architrack.com
+      # Initial Admin Account
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@example.com}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-AdminTest123!@#}
+      INITIAL_ADMIN_DISPLAY_NAME: ${INITIAL_ADMIN_DISPLAY_NAME:-System Administrator}
+    ports:
+      - "3100:3000"
+      - "9230:9229"  # Node.js debugger port (offset for test env)
+    volumes:
+      - ./backend:/app
+      - backend_test_node_modules:/app/node_modules
+
+  # Frontend (Test)
+  frontend:
+    container_name: architrack-frontend-test
+    environment:
+      VITE_API_URL: http://localhost:3100
+    ports:
+      - "5174:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_test_node_modules:/app/node_modules
+
+volumes:
+  backend_test_node_modules:
+    name: architrack_backend_test_node_modules
+  frontend_test_node_modules:
+    name: architrack_frontend_test_node_modules

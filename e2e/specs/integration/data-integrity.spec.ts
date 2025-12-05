@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { API_BASE_URL } from '../../config';
 
 /**
  * データ整合性とトランザクション管理のE2Eテスト
@@ -21,7 +22,7 @@ test.describe('データ整合性とトランザクション管理', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -72,11 +73,11 @@ test.describe('データ整合性とトランザクション管理', () => {
     const testUser = await createTestUser('REGULAR_USER');
 
     // 複数の新しいロールを作成
-    const role1Response = await request.post('http://localhost:3000/api/v1/roles', {
+    const role1Response = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       data: { name: 'Role X', description: 'First role' },
     });
-    const role2Response = await request.post('http://localhost:3000/api/v1/roles', {
+    const role2Response = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       data: { name: 'Role Y', description: 'Second role' },
     });
@@ -85,17 +86,14 @@ test.describe('データ整合性とトランザクション管理', () => {
     const role2 = await role2Response.json();
 
     // 複数ロールを一括割り当て
-    const assignResponse = await request.post(
-      `http://localhost:3000/api/v1/users/${testUser.id}/roles`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        data: {
-          roleIds: [role1.id, role2.id],
-        },
-      }
-    );
+    const assignResponse = await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        roleIds: [role1.id, role2.id],
+      },
+    });
 
     expect(assignResponse.ok()).toBeTruthy();
 
@@ -119,7 +117,7 @@ test.describe('データ整合性とトランザクション管理', () => {
     const prisma = getPrismaClient();
 
     // ロールを作成
-    const createResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -156,7 +154,7 @@ test.describe('データ整合性とトランザクション管理', () => {
     const prisma = getPrismaClient();
 
     // テスト用ロールを作成
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -173,7 +171,7 @@ test.describe('データ整合性とトランザクション管理', () => {
     });
 
     // 権限を追加
-    await request.post(`http://localhost:3000/api/v1/roles/${role.id}/permissions`, {
+    await request.post(`${API_BASE_URL}/api/v1/roles/${role.id}/permissions`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -192,14 +190,11 @@ test.describe('データ整合性とトランザクション管理', () => {
     expect(rolePermission).not.toBeNull();
 
     // 権限を削除
-    await request.delete(
-      `http://localhost:3000/api/v1/roles/${role.id}/permissions/${permission!.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
+    await request.delete(`${API_BASE_URL}/api/v1/roles/${role.id}/permissions/${permission!.id}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
     // 権限が削除されていることを確認
     const deletedRolePermission = await prisma.rolePermission.findFirst({
@@ -229,14 +224,11 @@ test.describe('データ整合性とトランザクション管理', () => {
     expect(userBefore).not.toBeNull();
 
     // ユーザーを削除
-    const deleteResponse = await request.delete(
-      `http://localhost:3000/api/v1/users/${testUser.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
+    const deleteResponse = await request.delete(`${API_BASE_URL}/api/v1/users/${testUser.id}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
     expect(deleteResponse.ok()).toBeTruthy();
 
