@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createTestUser, createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForAuthState, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -20,6 +21,16 @@ import { API_BASE_URL } from '../../config';
 
 test.describe('トークンリフレッシュ機能', () => {
   test.describe.configure({ mode: 'serial' });
+
+  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
+  });
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();

@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser, createTwoFactorBackupCodes } from '../../fixtures/auth.fixtures';
+import {
+  createTestUser,
+  createTwoFactorBackupCodes,
+  createAllTestUsers,
+} from '../../fixtures/auth.fixtures';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
@@ -28,6 +33,16 @@ function generateMockTOTPCode(): string {
 test.describe('2要素認証機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
+
+  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
+  });
 
   /**
    * 要件27: 二要素認証（2FA）設定機能
