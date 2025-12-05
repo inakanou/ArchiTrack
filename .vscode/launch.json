@@ -153,7 +153,7 @@
       }
     },
     {
-      "name": "Debug Backend Server",
+      "name": "Debug Backend Server (Local)",
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "npm",
@@ -175,6 +175,44 @@
       }
     },
     {
+      "name": "Attach to Docker Backend (Dev)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "address": "localhost",
+      "localRoot": "${workspaceFolder}/backend",
+      "remoteRoot": "/app",
+      "restart": true,
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "presentation": {
+        "group": "docker",
+        "order": 1
+      }
+    },
+    {
+      "name": "Attach to Docker Backend (Test)",
+      "type": "node",
+      "request": "attach",
+      "port": 9230,
+      "address": "localhost",
+      "localRoot": "${workspaceFolder}/backend",
+      "remoteRoot": "/app",
+      "restart": true,
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "presentation": {
+        "group": "docker",
+        "order": 2
+      }
+    },
+    {
       "name": "Attach to Chrome (Frontend)",
       "type": "chrome",
       "request": "attach",
@@ -191,13 +229,25 @@
   ],
   "compounds": [
     {
-      "name": "Full Stack Debug",
+      "name": "Full Stack Debug (Local)",
       "configurations": [
-        "Debug Backend Server"
+        "Debug Backend Server (Local)"
       ],
       "presentation": {
         "group": "compound",
         "order": 1
+      },
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack Debug (Docker Dev)",
+      "configurations": [
+        "Attach to Docker Backend (Dev)"
+      ],
+      "preLaunchTask": "Dev: Docker Compose Up (Debug)",
+      "presentation": {
+        "group": "compound",
+        "order": 2
       },
       "stopAll": true
     }

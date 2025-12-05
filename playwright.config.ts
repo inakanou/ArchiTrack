@@ -62,7 +62,8 @@ export default defineConfig({
   // すべてのテストで共通の設定
   use: {
     // ベースURL（環境変数で上書き可能）
-    baseURL: process.env.BASE_URL || 'http://localhost:5173',
+    // テスト環境のデフォルトポートは5174（開発環境5173と分離）
+    baseURL: process.env.BASE_URL || 'http://localhost:5174',
 
     // スクリーンショット設定
     screenshot: {
@@ -108,11 +109,13 @@ export default defineConfig({
 
   // Webサーバーの設定（ローカルテスト用のみ）
   // CI環境ではワークフローで明示的にDocker Composeを管理
+  // テスト環境: ポート5174（開発環境5173と分離）
   webServer: process.env.CI
     ? undefined
     : {
-        command: 'docker compose up',
-        url: 'http://localhost:5173',
+        command:
+          'docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up',
+        url: 'http://localhost:5174',
         timeout: 120000,
         reuseExistingServer: true,
         stdout: 'pipe',

@@ -390,144 +390,118 @@ if [ -f ".env" ]; then
   echo ""
 fi
 
-# Docker環境の自動構築
-echo "🐳 Setting up Docker environment for tests..."
+# Docker テスト環境の自動構築
+# ============================================================================
+# 環境分離設計:
+#   - architrack-dev (開発環境): ポート 3000/5173/5432/6379 - 手動打鍵用
+#   - architrack-test (テスト環境): ポート 3100/5174/5433/6380 - 自動テスト用
+#
+# テスト環境は開発環境と完全に分離されており、同時実行が可能
+# tmpfsを使用してテストデータは揮発性（テスト終了後に自動削除）
+# ============================================================================
+echo "🐳 Setting up Docker test environment..."
 echo ""
-echo "   DB使い分け:"
-echo "     - architrack_dev:  開発者の手動打鍵用（データ保護）"
-echo "     - architrack_test: 全自動テスト用（統合 + E2E）"
+echo "   環境分離:"
+echo "     - architrack-dev  (3000/5173/5432/6379): 開発者の手動打鍵用（データ保護）"
+echo "     - architrack-test (3100/5174/5433/6380): 全自動テスト用（統合 + E2E）"
 echo ""
 
-# Docker環境のチェックと起動
-if ! docker ps | grep -q architrack-postgres; then
-  echo "   Docker containers not running. Starting Docker Compose..."
-  docker compose up -d postgres redis mailhog
-  if [ $? -ne 0 ]; then
-    echo "❌ Failed to start Docker containers. Push aborted."
-    exit 1
-  fi
-
-  # データベースが起動するまで待機
-  echo "   Waiting for database to be ready..."
-  sleep 10
-
-  # ヘルスチェック（最大30秒待機）
-  MAX_RETRIES=6
-  RETRY_COUNT=0
-  while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if docker exec architrack-postgres pg_isready -U postgres > /dev/null 2>&1; then
-      echo "   ✅ Database is ready"
-      break
-    fi
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-      echo "❌ Database failed to start within timeout. Push aborted."
-      exit 1
-    fi
-    echo "   Waiting for database... ($RETRY_COUNT/$MAX_RETRIES)"
-    sleep 5
-  done
-else
-  echo "   ✅ Docker containers already running"
+# テスト環境の起動（開発環境とは独立）
+echo "   Starting test environment containers..."
+# Note: `head -20`を使用すると、出力が20行を超えた時点でSIGPIPEが発生し、
+# docker composeが異常終了コード141を返すため、tailを使用して最後の20行を表示
+docker_output=$(npm run test:docker 2>&1)
+docker_exit_code=$?
+echo "$docker_output" | tail -20
+if [ $docker_exit_code -ne 0 ]; then
+  echo "❌ Failed to start test Docker containers. Push aborted."
+  exit 1
 fi
 
-# テストデータベースの存在確認と作成
-echo "   Checking test database (architrack_test)..."
-DB_EXISTS=$(docker exec architrack-postgres psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='architrack_test'" 2>/dev/null || echo "")
-if [ "$DB_EXISTS" != "1" ]; then
-  echo "   Creating test database: architrack_test"
-  docker exec architrack-postgres psql -U postgres -c "CREATE DATABASE architrack_test;" > /dev/null 2>&1
-  if [ $? -ne 0 ]; then
-    echo "❌ Failed to create test database. Push aborted."
+# PostgreSQLテストコンテナのヘルスチェック（最大60秒待機）
+echo "   Waiting for test database to be ready..."
+MAX_RETRIES=12
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if docker exec architrack-postgres-test pg_isready -U postgres > /dev/null 2>&1; then
+    echo "   ✅ Test database is ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ Test database failed to start within timeout. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
     exit 1
   fi
-  echo "   ✅ Test database created"
-else
-  echo "   ✅ Test database already exists"
-fi
+  echo "   Waiting for test database... ($RETRY_COUNT/$MAX_RETRIES)"
+  sleep 5
+done
 
 # テストデータベースへのマイグレーション実行
-# Prisma 7: prisma.config.tsを使用するため、npm経由で実行
+# テスト環境はポート5433を使用
 echo "   Running Prisma migrations on test database..."
-DATABASE_URL="postgresql://postgres:dev@localhost:5432/architrack_test" npm --prefix backend run prisma:migrate:deploy > /dev/null 2>&1
+DATABASE_URL="postgresql://postgres:test@localhost:5433/architrack_test" npm --prefix backend run prisma:migrate:deploy > /dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "❌ Failed to run migrations on test database. Push aborted."
+  npm run test:docker:down > /dev/null 2>&1
   exit 1
 fi
 echo "   ✅ Migrations applied to test database"
 
-# バックエンドをテストモードで再起動（E2Eテスト用）
-# NODE_ENV=test: 2FAテストで固定TOTPコード "123456" を受け入れる
-# DATABASE_URL: テストDB（architrack_test）を使用
-echo "   Restarting backend with test database and test mode..."
-docker compose stop backend > /dev/null 2>&1
-# コンテナを削除して環境変数を確実に反映させる
-docker compose rm -f backend > /dev/null 2>&1
-export NODE_ENV=test
-export DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test
-docker compose up -d backend
-if [ $? -ne 0 ]; then
-  echo "❌ Failed to start backend container. Push aborted."
-  exit 1
-fi
-
-# バックエンドが起動するまで待機
-echo "   Waiting for backend to be ready..."
+# バックエンドテストコンテナのヘルスチェック（最大60秒待機）
+# テスト環境はポート3100を使用
+echo "   Waiting for test backend to be ready..."
 MAX_RETRIES=12
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-  if curl -s http://localhost:3000/health > /dev/null 2>&1; then
-    echo "   ✅ Backend is ready"
+  if curl -s http://localhost:3100/health > /dev/null 2>&1; then
+    echo "   ✅ Test backend is ready"
     break
   fi
   RETRY_COUNT=$((RETRY_COUNT + 1))
   if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "❌ Backend failed to start within timeout. Push aborted."
+    echo "❌ Test backend failed to start within timeout. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
     exit 1
   fi
-  echo "   Waiting for backend... ($RETRY_COUNT/$MAX_RETRIES)"
+  echo "   Waiting for test backend... ($RETRY_COUNT/$MAX_RETRIES)"
   sleep 5
 done
 
-# フロントエンドを起動（E2Eテスト用）
-echo "   Starting frontend..."
-docker compose up -d frontend
-if [ $? -ne 0 ]; then
-  echo "❌ Failed to start frontend container. Push aborted."
-  exit 1
-fi
-
-# フロントエンドが起動するまで待機
-echo "   Waiting for frontend to be ready..."
+# フロントエンドテストコンテナのヘルスチェック（最大90秒待機）
+# テスト環境はポート5174を使用
+echo "   Waiting for test frontend to be ready..."
 MAX_RETRIES=18
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-  if curl -s http://localhost:5173 > /dev/null 2>&1; then
-    echo "   ✅ Frontend is ready"
+  if curl -s http://localhost:5174 > /dev/null 2>&1; then
+    echo "   ✅ Test frontend is ready"
     break
   fi
   RETRY_COUNT=$((RETRY_COUNT + 1))
   if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "❌ Frontend failed to start within timeout. Push aborted."
+    echo "❌ Test frontend failed to start within timeout. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
     exit 1
   fi
-  echo "   Waiting for frontend... ($RETRY_COUNT/$MAX_RETRIES)"
+  echo "   Waiting for test frontend... ($RETRY_COUNT/$MAX_RETRIES)"
   sleep 5
 done
 
-echo "   ✅ All Docker services are ready for testing"
+echo "   ✅ All test Docker services are ready"
 
 # Backend integration tests
 if [ -d "backend" ]; then
   echo "🔗 Running backend integration tests..."
 
-  # インテグレーションテストはDockerコンテナ内で実行
-  # ローカル環境でのPrisma Query Engine問題を回避
+  # インテグレーションテストはテスト用Dockerコンテナ内で実行
+  # テスト環境コンテナ名: architrack-backend-test
   # NODE_ENV=test を設定してレート制限をスキップ
-  # DATABASE_URL を architrack_test に設定（開発データ保護のため）
-  docker exec -e NODE_ENV=test -e DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_test architrack-backend npm run test:integration
+  # DATABASE_URL は docker-compose.test.yml で architrack_test に設定済み
+  docker exec -e NODE_ENV=test architrack-backend-test npm run test:integration
   if [ $? -ne 0 ]; then
     echo "❌ Backend integration tests failed. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
     exit 1
   fi
 fi
@@ -554,13 +528,16 @@ E2E_EXIT_CODE=$?
 if [ $E2E_EXIT_CODE -eq 124 ]; then
   echo "❌ E2E tests timed out after 30 minutes. Push aborted."
   echo "   This usually indicates a hanging test or infinite loop."
+  npm run test:docker:down > /dev/null 2>&1
   exit 1
 elif [ $E2E_EXIT_CODE -eq 137 ]; then
   echo "❌ E2E tests were forcibly killed (SIGKILL). Push aborted."
   echo "   Tests did not respond to termination signal within grace period."
+  npm run test:docker:down > /dev/null 2>&1
   exit 1
 elif [ $E2E_EXIT_CODE -ne 0 ]; then
   echo "❌ E2E tests failed with exit code: $E2E_EXIT_CODE. Push aborted."
+  npm run test:docker:down > /dev/null 2>&1
   exit 1
 fi
 
@@ -570,8 +547,15 @@ npm run check:req-coverage -- --threshold=100
 if [ $? -ne 0 ]; then
   echo "❌ Requirement coverage check failed. Push aborted."
   echo "   Run 'npm run check:req-coverage:verbose' to see details."
+  npm run test:docker:down > /dev/null 2>&1
   exit 1
 fi
+
+# テスト環境のクリーンアップ（成功時）
+# tmpfsを使用しているため、データは自動的に破棄される
+echo "🧹 Cleaning up test environment..."
+npm run test:docker:down > /dev/null 2>&1
+echo "   ✅ Test containers stopped and removed"
 
 echo "✅ All checks passed!"
 

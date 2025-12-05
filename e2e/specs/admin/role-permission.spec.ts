@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { API_BASE_URL } from '../../config';
 
 /**
  * ロールへの権限割り当てのE2Eテスト
@@ -21,7 +22,7 @@ test.describe('ロールへの権限割り当て', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -38,7 +39,7 @@ test.describe('ロールへの権限割り当て', () => {
     const prisma = getPrismaClient();
 
     // テスト用ロールを作成
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -62,7 +63,7 @@ test.describe('ロールへの権限割り当て', () => {
 
     // ロールに権限を追加
     const assignResponse = await request.post(
-      `http://localhost:3000/api/v1/roles/${role.id}/permissions`,
+      `${API_BASE_URL}/api/v1/roles/${role.id}/permissions`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -91,7 +92,7 @@ test.describe('ロールへの権限割り当て', () => {
     const prisma = getPrismaClient();
 
     // テスト用ロールを作成
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -108,7 +109,7 @@ test.describe('ロールへの権限割り当て', () => {
     });
 
     // 同じ権限を2回追加
-    await request.post(`http://localhost:3000/api/v1/roles/${role.id}/permissions`, {
+    await request.post(`${API_BASE_URL}/api/v1/roles/${role.id}/permissions`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -118,7 +119,7 @@ test.describe('ロールへの権限割り当て', () => {
     });
 
     const secondResponse = await request.post(
-      `http://localhost:3000/api/v1/roles/${role.id}/permissions`,
+      `${API_BASE_URL}/api/v1/roles/${role.id}/permissions`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -149,7 +150,7 @@ test.describe('ロールへの権限割り当て', () => {
     const prisma = getPrismaClient();
 
     // テスト用ロールを作成
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -165,7 +166,7 @@ test.describe('ロールへの権限割り当て', () => {
       where: { resource: 'adr', action: 'read' },
     });
 
-    await request.post(`http://localhost:3000/api/v1/roles/${role.id}/permissions`, {
+    await request.post(`${API_BASE_URL}/api/v1/roles/${role.id}/permissions`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -176,7 +177,7 @@ test.describe('ロールへの権限割り当て', () => {
 
     // 権限を削除
     const deleteResponse = await request.delete(
-      `http://localhost:3000/api/v1/roles/${role.id}/permissions/${permission!.id}`,
+      `${API_BASE_URL}/api/v1/roles/${role.id}/permissions/${permission!.id}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -206,7 +207,7 @@ test.describe('ロールへの権限割り当て', () => {
 
     // ロールの権限一覧を取得
     const permissionsResponse = await request.get(
-      `http://localhost:3000/api/v1/roles/${adminRole!.id}/permissions`,
+      `${API_BASE_URL}/api/v1/roles/${adminRole!.id}/permissions`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -242,7 +243,7 @@ test.describe('ロールへの権限割り当て', () => {
 
     // *:*権限の削除を試みる
     const deleteResponse = await request.delete(
-      `http://localhost:3000/api/v1/roles/${adminRole!.id}/permissions/${wildcardPermission!.id}`,
+      `${API_BASE_URL}/api/v1/roles/${adminRole!.id}/permissions/${wildcardPermission!.id}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -260,7 +261,7 @@ test.describe('ロールへの権限割り当て', () => {
    */
   test('存在しない権限IDでの割り当ては拒否される', async ({ request }) => {
     // テスト用ロールを作成
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -273,7 +274,7 @@ test.describe('ロールへの権限割り当て', () => {
 
     // 存在しない権限IDで割り当てを試みる
     const assignResponse = await request.post(
-      `http://localhost:3000/api/v1/roles/${role.id}/permissions`,
+      `${API_BASE_URL}/api/v1/roles/${role.id}/permissions`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,

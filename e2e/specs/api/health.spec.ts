@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 interface HealthCheckResponse {
   status: string;
@@ -14,8 +15,6 @@ interface HealthCheckResponse {
  * ヘルスチェックAPIテスト
  */
 test.describe('Health Check API', () => {
-  const API_BASE = 'http://localhost:3000';
-
   // テストの前にAPIが利用可能になるまで待機
   test.beforeAll(async ({ request }) => {
     // 最大30秒間、1秒ごとにヘルスチェックを試行
@@ -24,7 +23,7 @@ test.describe('Health Check API', () => {
 
     while (retries > 0) {
       try {
-        const response = await request.get(`${API_BASE}/health`, {
+        const response = await request.get(`${API_BASE_URL}/health`, {
           timeout: getTimeout(5000),
         });
         if (response.ok()) {
@@ -42,7 +41,7 @@ test.describe('Health Check API', () => {
 
   test('APIヘルスチェックが成功すること', async ({ request }) => {
     // バックエンドAPIのヘルスチェック
-    const response = await request.get(`${API_BASE}/health`);
+    const response = await request.get(`${API_BASE_URL}/health`);
 
     // ステータスコードが200であることを確認
     expect(response.status()).toBe(200);
@@ -54,7 +53,7 @@ test.describe('Health Check API', () => {
   });
 
   test('レスポンスに必要なフィールドが含まれること', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/health`);
+    const response = await request.get(`${API_BASE_URL}/health`);
     const body: HealthCheckResponse = await response.json();
 
     // 必須フィールドの確認

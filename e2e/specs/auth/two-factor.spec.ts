@@ -589,6 +589,17 @@ test.describe('2要素認証機能', () => {
       await page.waitForURL((url) => !url.pathname.includes('/login'), {
         timeout: getTimeout(10000),
       });
+
+      // トークンがlocalStorageに保存されるまで待機
+      await page.waitForFunction(
+        () => {
+          return (
+            localStorage.getItem('refreshToken') !== null &&
+            localStorage.getItem('accessToken') !== null
+          );
+        },
+        { timeout: getTimeout(10000), polling: 500 }
+      );
     });
 
     /**
@@ -596,79 +607,122 @@ test.describe('2要素認証機能', () => {
      * 要件27E.3: 使用済みバックアップコードにaria-label="使用済み"を設定
      */
     test('バックアップコードの使用状況が視覚的に表示される', async ({ page }) => {
-      // CI環境での安定性向上のため、リトライロジックを追加
-      let profileLoaded = false;
+      // beforeEachで認証済みのため、直接/profileに遷移
+      // 認証状態が完全に確立されるまで十分な待機を設ける
+      await page.goto('/profile');
+      await page.waitForLoadState('networkidle');
 
-      for (let retry = 0; retry < 3; retry++) {
-        await page.goto('/profile');
-        // ページの読み込みとAPI呼び出しが完了するまで待機
-        await page.waitForLoadState('networkidle');
+      // ログインページにリダイレクトされた場合は、認証が失効しているため再ログイン
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'TWO_FA_USER');
 
-        // ログインページにリダイレクトされた場合は再ログイン
-        if (page.url().includes('/login')) {
-          await loginAsUser(page, 'TWO_FA_USER');
-
-          // 2FA検証フォームが表示される場合は検証
-          const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-          const hasTwoFactorForm = (await twoFactorHeading.count()) > 0;
-          if (hasTwoFactorForm) {
-            const digits = '123456'.split('');
-            for (let i = 0; i < 6; i++) {
-              const digitInput = page.getByTestId(`totp-digit-${i}`);
-              const digit = digits[i];
-              if (digit) {
-                await digitInput.fill(digit);
-              }
-            }
-            await page.getByRole('button', { name: /検証/i }).click();
-            await page.waitForURL((url) => !url.pathname.includes('/login'), {
-              timeout: getTimeout(10000),
-            });
-          }
-          await page.goto('/profile');
-          await page.waitForLoadState('networkidle');
-        }
-
-        // 2FA管理セクションが表示されるか確認
+        // 2FA検証フォームが表示される場合は検証
+        const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
         try {
-          await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible({
+          await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
+          const digits = '123456'.split('');
+          for (let i = 0; i < 6; i++) {
+            const digitInput = page.getByTestId(`totp-digit-${i}`);
+            const digit = digits[i];
+            if (digit) {
+              await digitInput.fill(digit);
+            }
+          }
+          await page.getByRole('button', { name: /検証/i }).click();
+          await page.waitForURL((url) => !url.pathname.includes('/login'), {
             timeout: getTimeout(10000),
           });
-          profileLoaded = true;
-          break;
+          // トークンがlocalStorageに保存されるまで待機
+          await page.waitForFunction(
+            () => {
+              return (
+                localStorage.getItem('refreshToken') !== null &&
+                localStorage.getItem('accessToken') !== null
+              );
+            },
+            { timeout: getTimeout(10000), polling: 500 }
+          );
         } catch {
-          if (retry < 2) {
-            await page.reload({ waitUntil: 'networkidle' });
-          }
+          // 2FAフォームが表示されない場合は既にログイン済み
+        }
+        await page.goto('/profile');
+        await page.waitForLoadState('networkidle');
+      }
+
+      // プロフィールページの2FA管理セクションが表示されるまで待機
+      await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // バックアップコードを表示ボタンが操作可能になるまで待機
+      // ボタンのテキストは「表示」と「隠す」で切り替わるため、両方のパターンをサポート
+      let showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+
+      // ボタンが見つからない場合は「隠す」状態かもしれないので確認
+      const showButtonVisible = await showBackupCodesButton.count();
+      if (showButtonVisible === 0) {
+        // すでに「隠す」状態の場合、一度クリックして閉じてから再度開く
+        const hideButton = page.getByRole('button', { name: /バックアップコードを隠す/i });
+        if ((await hideButton.count()) > 0) {
+          await hideButton.click();
+          await page.waitForTimeout(500);
+          showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
         }
       }
 
-      expect(profileLoaded).toBe(true);
-
-      // バックアップコードを表示ボタンが操作可能になるまで待機
-      const showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
       await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
-      await showBackupCodesButton.click();
 
       // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）- リトライ付き
       let backupCodesLoaded = false;
       for (let retry = 0; retry < 5; retry++) {
-        try {
-          await page
-            .getByTestId('backup-code-item')
-            .first()
-            .waitFor({ state: 'visible', timeout: getTimeout(10000) });
-          backupCodesLoaded = true;
-          break;
-        } catch {
-          if (retry < 4) {
-            // ボタンを再度クリック（モーダルが閉じている可能性がある）
-            const buttonVisible = await showBackupCodesButton.isVisible();
-            if (buttonVisible) {
-              await showBackupCodesButton.click();
-            }
-            await page.waitForLoadState('networkidle');
+        // リトライ時はボタンの存在を再確認
+        if (retry > 0) {
+          await page.waitForLoadState('networkidle');
+          const hideBtn = page.getByRole('button', { name: /バックアップコードを隠す/i });
+          if ((await hideBtn.count()) > 0) {
+            await hideBtn.click();
+            await page.waitForTimeout(500);
           }
+          showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+          try {
+            await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
+          } catch {
+            // ボタンが見つからない場合はページをリロードして再試行
+            await page.reload({ waitUntil: 'networkidle' });
+            showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+            await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
+          }
+        }
+
+        // クリック前にAPIレスポンスを待機するプロミスを設定
+        const backupCodesApiPromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('backup-codes') &&
+            (response.status() === 200 || response.status() === 401),
+          { timeout: getTimeout(15000) }
+        );
+
+        await showBackupCodesButton.click();
+
+        try {
+          const apiResponse = await backupCodesApiPromise;
+          if (apiResponse.status() === 200) {
+            // APIが成功した場合、バックアップコードが表示されるはず
+            await page
+              .getByTestId('backup-code-item')
+              .first()
+              .waitFor({ state: 'visible', timeout: getTimeout(5000) });
+            backupCodesLoaded = true;
+            break;
+          } else {
+            // 401エラーの場合、ページをリロードして再試行
+            await page.reload({ waitUntil: 'networkidle' });
+            showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+            await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
+          }
+        } catch {
+          // タイムアウトの場合、次のリトライでループ先頭の処理が実行される
+          // 最後のリトライでも失敗した場合はループを抜ける
         }
       }
       expect(backupCodesLoaded).toBe(true);

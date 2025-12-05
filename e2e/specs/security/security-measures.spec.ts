@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * セキュリティ対策（脅威モデリング）のE2Eテスト
@@ -25,7 +26,7 @@ test.describe('セキュリティ対策', () => {
    */
   test('SQLインジェクションが無害化される', async ({ request }) => {
     // SQLインジェクションを含むリクエスト
-    const response = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: "' OR '1'='1",
         password: "' OR '1'='1",
@@ -43,7 +44,7 @@ test.describe('セキュリティ対策', () => {
   test('連続ログイン失敗でアカウントがロックされる', async ({ request }) => {
     // 6回連続でログイン失敗
     for (let i = 0; i < 6; i++) {
-      await request.post('http://localhost:3000/api/v1/auth/login', {
+      await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
         data: {
           email: 'admin@example.com',
           password: 'WrongPassword123!',
@@ -52,7 +53,7 @@ test.describe('セキュリティ対策', () => {
     }
 
     // 正しいパスワードでもロックされていることを確認
-    const response = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -68,7 +69,7 @@ test.describe('セキュリティ対策', () => {
    * 要件26.5: CookieのHttpOnly、Secure、SameSite属性
    */
   test('認証CookieにはHttpOnly属性が設定される', async ({ request }) => {
-    const response = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -89,7 +90,7 @@ test.describe('セキュリティ対策', () => {
    * 要件26.6: CORSヘッダーの設定
    */
   test('APIエンドポイントに適切なCORSヘッダーが設定される', async ({ request }) => {
-    const response = await request.get('http://localhost:3000/health');
+    const response = await request.get(`${API_BASE_URL}/health`);
 
     expect(response.ok()).toBeTruthy();
 
@@ -105,7 +106,7 @@ test.describe('セキュリティ対策', () => {
    * 要件26.10: セキュリティヘッダーの設定
    */
   test('セキュリティ関連ヘッダーが設定される', async ({ request }) => {
-    const response = await request.get('http://localhost:3000/health');
+    const response = await request.get(`${API_BASE_URL}/health`);
 
     expect(response.ok()).toBeTruthy();
 
@@ -127,7 +128,7 @@ test.describe('セキュリティ対策', () => {
    */
   test('認証なしで保護リソースにアクセスできない', async ({ request }) => {
     // 認証なしでユーザー一覧にアクセス
-    const response = await request.get('http://localhost:3000/api/v1/users');
+    const response = await request.get(`${API_BASE_URL}/api/v1/users`);
 
     expect(response.status()).toBe(401);
   });
@@ -136,7 +137,7 @@ test.describe('セキュリティ対策', () => {
    * 無効なトークンでのアクセス拒否
    */
   test('無効なトークンでアクセスが拒否される', async ({ request }) => {
-    const response = await request.get('http://localhost:3000/api/v1/users', {
+    const response = await request.get(`${API_BASE_URL}/api/v1/users`, {
       headers: {
         Authorization: 'Bearer invalid-token',
       },
@@ -150,7 +151,7 @@ test.describe('セキュリティ対策', () => {
    */
   test('改ざんされたトークンでアクセスが拒否される', async ({ request }) => {
     // 正規のログインでトークンを取得
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -166,7 +167,7 @@ test.describe('セキュリティ対策', () => {
       const tamperedSignature = 'invalid_signature_that_will_definitely_fail_verification';
       const tamperedToken = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
 
-      const response = await request.get('http://localhost:3000/api/v1/users', {
+      const response = await request.get(`${API_BASE_URL}/api/v1/users`, {
         headers: {
           Authorization: `Bearer ${tamperedToken}`,
         },
@@ -177,7 +178,7 @@ test.describe('セキュリティ対策', () => {
       // トークン形式が想定外の場合、元の方法で試行
       const tamperedToken = accessToken.slice(0, -10) + 'XXXXXXXXXX';
 
-      const response = await request.get('http://localhost:3000/api/v1/users', {
+      const response = await request.get(`${API_BASE_URL}/api/v1/users`, {
         headers: {
           Authorization: `Bearer ${tamperedToken}`,
         },
@@ -191,7 +192,7 @@ test.describe('セキュリティ対策', () => {
    * パスワード漏洩防止（レスポンスにパスワードが含まれない）
    */
   test('APIレスポンスにパスワードが含まれない', async ({ request }) => {
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -200,7 +201,7 @@ test.describe('セキュリティ対策', () => {
     const { accessToken } = await loginResponse.json();
 
     // ユーザー情報を取得
-    const userResponse = await request.get('http://localhost:3000/api/v1/auth/me', {
+    const userResponse = await request.get(`${API_BASE_URL}/api/v1/auth/me`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -219,7 +220,7 @@ test.describe('セキュリティ対策', () => {
    */
   test('期限切れのリフレッシュトークンでリフレッシュできない', async ({ request }) => {
     // 無効なリフレッシュトークンでリフレッシュを試みる
-    const response = await request.post('http://localhost:3000/api/v1/auth/refresh', {
+    const response = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
       data: {
         refreshToken: 'expired-refresh-token',
       },

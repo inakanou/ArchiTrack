@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 interface HealthCheckResponse {
   status: string;
@@ -15,8 +16,6 @@ interface HealthCheckResponse {
  * PostgreSQLとRedisの接続状態を確認
  */
 test.describe('Database Integration', () => {
-  const API_BASE = 'http://localhost:3000';
-
   // テストの前にAPIが利用可能になるまで待機
   test.beforeAll(async ({ request }) => {
     let retries = 30;
@@ -24,7 +23,7 @@ test.describe('Database Integration', () => {
 
     while (retries > 0) {
       try {
-        const response = await request.get(`${API_BASE}/health`, {
+        const response = await request.get(`${API_BASE_URL}/health`, {
           timeout: getTimeout(5000),
         });
         if (response.ok()) {
@@ -41,7 +40,7 @@ test.describe('Database Integration', () => {
   });
 
   test('Postgresデータベース接続が正常であること', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/health`);
+    const response = await request.get(`${API_BASE_URL}/health`);
     expect(response.ok()).toBeTruthy();
 
     const health: HealthCheckResponse = await response.json();
@@ -51,7 +50,7 @@ test.describe('Database Integration', () => {
   });
 
   test('Redis接続が正常であること', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/health`);
+    const response = await request.get(`${API_BASE_URL}/health`);
     expect(response.ok()).toBeTruthy();
 
     const health: HealthCheckResponse = await response.json();
@@ -61,7 +60,7 @@ test.describe('Database Integration', () => {
   });
 
   test('すべてのサービスが正常に動作していること', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/health`);
+    const response = await request.get(`${API_BASE_URL}/health`);
     const health: HealthCheckResponse = await response.json();
 
     // システム全体のステータスがOKであること

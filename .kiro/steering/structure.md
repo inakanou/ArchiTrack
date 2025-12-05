@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-03（Steering Sync: Navigation ディレクトリ追加、AppHeader コンポーネント、パスワードリセット E2E テスト追加）_
+_最終更新: 2025-12-04（Steering Sync: マルチ環境Docker Compose構成追加、debug overlay追加）_
 
 ## ルートディレクトリ構成
 
@@ -95,7 +95,13 @@ ArchiTrack/
 │   ├── eslint.config.js    # ESLint設定（Flat Config形式）
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
-├── docker-compose.yml      # ローカル開発環境定義
+├── docker-compose.yml      # 基本サービス定義（環境非依存）
+├── docker-compose.dev.yml  # 開発環境オーバーライド
+├── docker-compose.test.yml # テスト環境オーバーライド（ポートオフセット）
+├── docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
+├── docker-compose.ci.yml   # CI環境オーバーライド
+├── .env.dev                # 開発環境変数
+├── .env.test               # テスト環境変数
 ├── package.json            # E2Eテスト依存関係
 ├── tsconfig.json           # TypeScript設定（E2Eテスト用）
 ├── playwright.config.ts    # Playwright設定（TypeScript）
@@ -619,18 +625,38 @@ backend/src/
 
 ## Docker構成
 
-### `docker-compose.yml`
+### マルチファイルDocker Compose構成
 
-ローカル開発環境全体を定義します。
+ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔軟な構成管理を実現しています。
 
-**サービス構成:**
+**ファイル構成パターン:**
 
-- `postgres`: PostgreSQL 15データベース（ポート5432）
-- `redis`: Redis 7キャッシュ（ポート6379）
-- `mailhog`: Mailpit（E2Eテスト用モックSMTPサーバー、ポート1025/8025）
-- `backend`: Node.js/Expressバックエンド（ポート3000）
-- `backend-prod`: 本番シミュレーション用バックエンド（ポート3001、profilesで分離）
-- `frontend`: React/Viteフロントエンド（ポート5173）
+| ファイル | 用途 |
+|---------|------|
+| `docker-compose.yml` | 基本サービス定義（環境非依存）|
+| `docker-compose.dev.yml` | 開発環境オーバーライド（永続化、標準ポート）|
+| `docker-compose.test.yml` | テスト環境オーバーライド（tmpfs、ポートオフセット）|
+| `docker-compose.debug.yml` | デバッグオーバーライド（Node.js inspector）|
+| `docker-compose.ci.yml` | CI環境オーバーライド（GitHub Actions用）|
+| `.env.dev` | 開発環境変数 |
+| `.env.test` | テスト環境変数 |
+
+**サービス構成（全環境共通）:**
+
+- `postgres`: PostgreSQL 15データベース
+- `redis`: Redis 7キャッシュ
+- `mailhog`: Mailpit（モックSMTPサーバー）
+- `backend`: Node.js/Expressバックエンド
+- `frontend`: React/Viteフロントエンド
+
+**環境別特徴:**
+
+| 環境 | データ永続化 | ポート | 用途 |
+|-----|------------|-------|------|
+| 開発 | ボリューム | 標準（3000, 5173等） | 手動テスト・画面打鍵 |
+| テスト | tmpfs（揮発性）| オフセット（+100/+1）| 自動テスト |
+| デバッグ | ボリューム | 標準 + 9229 | VSCodeデバッグ |
+| CI | tmpfs | 標準 | GitHub Actions |
 
 **開発環境の特徴:**
 
@@ -638,6 +664,8 @@ backend/src/
 - **名前付きボリューム**: `node_modules`を名前付きボリュームとしてマウント、パーミッション問題を回避
 - **エントリポイントスクリプト**: 各サービスは専用のdocker-entrypoint.shで依存関係を自動管理
 - **フロントエンド最適化**: アーキテクチャ固有モジュールの選択的再インストールで起動時間を短縮（45-60秒 → 10-15秒）
+- **ホストユーザー実行**: `user: "${UID:-1000}:${GID:-1000}"`でパーミッション問題回避
+- **初期管理者アカウント**: 環境変数でシードデータの管理者を設定可能
 
 ### Dockerfile構成
 

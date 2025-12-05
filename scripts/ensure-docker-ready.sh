@@ -1,6 +1,10 @@
 #!/bin/bash
 # scripts/ensure-docker-ready.sh
 # E2Eテスト実行前にDockerコンテナの準備を確認・実行するスクリプト
+#
+# 環境分離設計:
+#   - architrack-dev (開発環境): ポート 3000/5173/5432/6379 - 手動打鍵用
+#   - architrack-test (テスト環境): ポート 3100/5174/5433/6380 - 自動テスト用
 
 set -e
 
@@ -8,11 +12,16 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# 設定
-BACKEND_URL="http://localhost:3000/health"
-FRONTEND_URL="http://localhost:5173"
+# 環境設定（テスト環境のポートを使用）
+BACKEND_URL="http://localhost:3100/health"
+FRONTEND_URL="http://localhost:5174"
 MAX_WAIT_SECONDS=120
 CHECK_INTERVAL=3
+
+# コンテナ名（テスト環境）
+CONTAINER_PREFIX="architrack"
+CONTAINER_SUFFIX="-test"
+CONTAINERS=("backend" "frontend" "postgres" "redis" "mailhog")
 
 # カラー出力（対応端末のみ）
 if [ -t 1 ]; then
@@ -30,8 +39,11 @@ else
 fi
 
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}🐳 E2Eテスト用Dockerコンテナ準備${NC}"
+echo -e "${BLUE}🐳 E2Eテスト用Dockerコンテナ準備 (テスト環境)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "   環境: architrack-test"
+echo "   ポート: Backend=3100, Frontend=5174, PostgreSQL=5433, Redis=6380"
 echo ""
 
 cd "$PROJECT_ROOT"
@@ -51,8 +63,8 @@ check_container_health() {
 
 # 全コンテナが起動しているか確認
 check_all_containers_running() {
-  local containers=("architrack-backend" "architrack-frontend" "architrack-postgres" "architrack-redis" "architrack-mailhog")
-  for container in "${containers[@]}"; do
+  for service in "${CONTAINERS[@]}"; do
+    local container="${CONTAINER_PREFIX}-${service}${CONTAINER_SUFFIX}"
     local running=$(docker inspect --format='{{.State.Running}}' "$container" 2>/dev/null || echo "false")
     if [ "$running" != "true" ]; then
       return 1
@@ -63,8 +75,8 @@ check_all_containers_running() {
 
 # 全コンテナがhealthyか確認
 check_all_containers_healthy() {
-  local containers=("architrack-backend" "architrack-frontend" "architrack-postgres" "architrack-redis" "architrack-mailhog")
-  for container in "${containers[@]}"; do
+  for service in "${CONTAINERS[@]}"; do
+    local container="${CONTAINER_PREFIX}-${service}${CONTAINER_SUFFIX}"
     local health=$(check_container_health "$container")
     if [ "$health" != "healthy" ]; then
       return 1
@@ -81,10 +93,10 @@ check_endpoint() {
 }
 
 # Step 1: コンテナの状態確認
-echo -e "${YELLOW}📋 コンテナの状態を確認しています...${NC}"
+echo -e "${YELLOW}📋 テストコンテナの状態を確認しています...${NC}"
 
 if check_all_containers_running && check_all_containers_healthy; then
-  echo -e "${GREEN}✅ すべてのコンテナが起動済みです${NC}"
+  echo -e "${GREEN}✅ すべてのテストコンテナが起動済みです${NC}"
 
   # 念のためエンドポイントも確認
   if check_endpoint "$BACKEND_URL" && check_endpoint "$FRONTEND_URL"; then
@@ -97,9 +109,9 @@ if check_all_containers_running && check_all_containers_healthy; then
   fi
 fi
 
-# Step 2: コンテナを起動
-echo -e "${YELLOW}🚀 Dockerコンテナを起動しています...${NC}"
-docker compose up -d
+# Step 2: テストコンテナを起動
+echo -e "${YELLOW}🚀 テストDockerコンテナを起動しています...${NC}"
+npm run test:docker
 
 # Step 3: ヘルスチェックを待機
 echo ""
@@ -110,11 +122,11 @@ echo ""
 elapsed=0
 while [ $elapsed -lt $MAX_WAIT_SECONDS ]; do
   # 進捗表示
-  backend_health=$(check_container_health "architrack-backend")
-  frontend_health=$(check_container_health "architrack-frontend")
-  postgres_health=$(check_container_health "architrack-postgres")
-  redis_health=$(check_container_health "architrack-redis")
-  mailhog_health=$(check_container_health "architrack-mailhog")
+  backend_health=$(check_container_health "${CONTAINER_PREFIX}-backend${CONTAINER_SUFFIX}")
+  frontend_health=$(check_container_health "${CONTAINER_PREFIX}-frontend${CONTAINER_SUFFIX}")
+  postgres_health=$(check_container_health "${CONTAINER_PREFIX}-postgres${CONTAINER_SUFFIX}")
+  redis_health=$(check_container_health "${CONTAINER_PREFIX}-redis${CONTAINER_SUFFIX}")
+  mailhog_health=$(check_container_health "${CONTAINER_PREFIX}-mailhog${CONTAINER_SUFFIX}")
 
   # ステータス表示（同じ行に上書き）
   printf "\r   postgres: %-10s redis: %-10s mailhog: %-10s backend: %-10s frontend: %-10s [%3ds]" \
@@ -131,7 +143,7 @@ while [ $elapsed -lt $MAX_WAIT_SECONDS ]; do
 
     # 最終確認：エンドポイントへの接続
     if check_endpoint "$BACKEND_URL" && check_endpoint "$FRONTEND_URL"; then
-      echo -e "${GREEN}✅ すべてのコンテナがhealthyになりました${NC}"
+      echo -e "${GREEN}✅ すべてのテストコンテナがhealthyになりました${NC}"
       echo -e "${GREEN}✅ エンドポイントへの接続を確認しました${NC}"
       echo ""
       echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -149,11 +161,11 @@ done
 echo ""
 echo ""
 echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${RED}❌ タイムアウト: コンテナの準備が完了しませんでした${NC}"
+echo -e "${RED}❌ タイムアウト: テストコンテナの準備が完了しませんでした${NC}"
 echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "コンテナの状態を確認してください:"
-echo "  docker ps -a"
-echo "  docker logs architrack-backend"
+echo "  docker ps -a | grep test"
+echo "  docker logs architrack-backend-test"
 echo ""
 exit 1

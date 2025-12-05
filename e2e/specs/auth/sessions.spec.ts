@@ -67,10 +67,29 @@ test.describe('セッション管理機能', () => {
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
     // セッションデータの読み込み完了を待機（リトライ付き、CI用に増加）
-    const sessionDataLoaded = await waitForSessionDataLoaded(page, {
+    let sessionDataLoaded = await waitForSessionDataLoaded(page, {
       timeout: getTimeout(30000),
       maxRetries: 7,
     });
+
+    if (!sessionDataLoaded) {
+      // ログインページにリダイレクトされた場合、またはAPIエラーが発生している場合は再ログインを試みる
+      const isOnLoginPage = page.url().includes('/login');
+      const hasError =
+        !isOnLoginPage &&
+        (await page.getByText(/セッション情報を取得できませんでした/i).isVisible());
+
+      if (isOnLoginPage || hasError) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto('/sessions');
+        await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
+        await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
+        sessionDataLoaded = await waitForSessionDataLoaded(page, {
+          timeout: getTimeout(30000),
+          maxRetries: 3,
+        });
+      }
+    }
 
     if (!sessionDataLoaded) {
       // フォールバック：最終確認（タイムアウト延長）
@@ -196,8 +215,15 @@ test.describe('セッション管理機能', () => {
   });
 
   test('全デバイスログアウトができる', async ({ page }) => {
-    // セッション管理ページに再度移動（beforeEachの状態をリフレッシュ）
-    await page.goto('/sessions', { waitUntil: 'networkidle' });
+    // beforeEachですでに/sessionsページに移動済み
+    // ページをリロードしてセッション状態をリフレッシュ
+    await page.reload({ waitUntil: 'networkidle' });
+
+    // ログインページにリダイレクトされた場合は再ログイン
+    if (page.url().includes('/login')) {
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto('/sessions', { waitUntil: 'networkidle' });
+    }
 
     // セッション管理ページが表示されるまで待機
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({

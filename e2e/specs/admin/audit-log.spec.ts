@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { API_BASE_URL } from '../../config';
 
 /**
  * 監査ログとコンプライアンスのE2Eテスト
@@ -21,7 +22,7 @@ test.describe('監査ログとコンプライアンス', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -41,7 +42,7 @@ test.describe('監査ログとコンプライアンス', () => {
     const beforeCount = await prisma.auditLog.count();
 
     // ロールを作成
-    await request.post('http://localhost:3000/api/v1/roles', {
+    await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -78,7 +79,7 @@ test.describe('監査ログとコンプライアンス', () => {
     const testUser = await createTestUser('REGULAR_USER');
 
     // 新しいロールを作成
-    const createRoleResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -93,7 +94,7 @@ test.describe('監査ログとコンプライアンス', () => {
     const beforeCount = await prisma.auditLog.count();
 
     // ユーザーにロールを割り当て
-    await request.post(`http://localhost:3000/api/v1/users/${testUser.id}/roles`, {
+    await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -114,7 +115,7 @@ test.describe('監査ログとコンプライアンス', () => {
     const prisma = getPrismaClient();
 
     // ロールを作成して監査ログを生成
-    await request.post('http://localhost:3000/api/v1/roles', {
+    await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -143,7 +144,7 @@ test.describe('監査ログとコンプライアンス', () => {
    */
   test('管理者は監査ログをフィルタリングして取得できる', async ({ request }) => {
     // 監査ログ一覧を取得
-    const logsResponse = await request.get('http://localhost:3000/api/v1/audit-logs', {
+    const logsResponse = await request.get(`${API_BASE_URL}/api/v1/audit-logs`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -165,7 +166,7 @@ test.describe('監査ログとコンプライアンス', () => {
     yesterday.setDate(yesterday.getDate() - 1);
 
     // 日付範囲でフィルタリング
-    const logsResponse = await request.get('http://localhost:3000/api/v1/audit-logs', {
+    const logsResponse = await request.get(`${API_BASE_URL}/api/v1/audit-logs`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -183,7 +184,7 @@ test.describe('監査ログとコンプライアンス', () => {
    */
   test('監査ログをJSON形式でエクスポートできる', async ({ request }) => {
     // ロールを作成して監査ログを生成
-    await request.post('http://localhost:3000/api/v1/roles', {
+    await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -194,7 +195,7 @@ test.describe('監査ログとコンプライアンス', () => {
     });
 
     // エクスポートAPIを呼び出し
-    const exportResponse = await request.get('http://localhost:3000/api/v1/audit-logs/export', {
+    const exportResponse = await request.get(`${API_BASE_URL}/api/v1/audit-logs/export`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -212,7 +213,7 @@ test.describe('監査ログとコンプライアンス', () => {
     const prisma = getPrismaClient();
 
     // ロールを作成して監査ログを生成
-    await request.post('http://localhost:3000/api/v1/roles', {
+    await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -248,7 +249,7 @@ test.describe('監査ログとコンプライアンス', () => {
     await createTestUser('REGULAR_USER');
 
     // 一般ユーザーとしてログイン
-    const userLoginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const userLoginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'user@example.com',
         password: 'Password123!',
@@ -257,7 +258,7 @@ test.describe('監査ログとコンプライアンス', () => {
     const { accessToken: userToken } = await userLoginResponse.json();
 
     // 監査ログにアクセス試行
-    const logsResponse = await request.get('http://localhost:3000/api/v1/audit-logs', {
+    const logsResponse = await request.get(`${API_BASE_URL}/api/v1/audit-logs`, {
       headers: {
         Authorization: `Bearer ${userToken}`,
       },

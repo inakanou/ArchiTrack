@@ -3,6 +3,7 @@ import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * 動的ロール管理のE2Eテスト
@@ -57,7 +58,7 @@ test.describe('動的ロール管理', () => {
    */
   test('重複するロール名では作成できない', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -66,7 +67,7 @@ test.describe('動的ロール管理', () => {
     const { accessToken } = await loginResponse.json();
 
     // 既存のロール名（admin）で作成を試みる
-    const createResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -86,7 +87,7 @@ test.describe('動的ロール管理', () => {
    */
   test('管理者はロール情報を更新できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -95,7 +96,7 @@ test.describe('動的ロール管理', () => {
     const { accessToken } = await loginResponse.json();
 
     // テスト用ロールを作成
-    const createResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -109,18 +110,15 @@ test.describe('動的ロール管理', () => {
     const createdRole = await createResponse.json();
 
     // ロールを更新
-    const updateResponse = await request.patch(
-      `http://localhost:3000/api/v1/roles/${createdRole.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        data: {
-          description: 'Updated description',
-          priority: 60,
-        },
-      }
-    );
+    const updateResponse = await request.patch(`${API_BASE_URL}/api/v1/roles/${createdRole.id}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        description: 'Updated description',
+        priority: 60,
+      },
+    });
 
     expect(updateResponse.ok()).toBeTruthy();
     const updatedRole = await updateResponse.json();
@@ -133,7 +131,7 @@ test.describe('動的ロール管理', () => {
    */
   test('管理者はロール一覧を取得できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -142,7 +140,7 @@ test.describe('動的ロール管理', () => {
     const { accessToken } = await loginResponse.json();
 
     // ロール一覧を取得
-    const rolesResponse = await request.get('http://localhost:3000/api/v1/roles', {
+    const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -162,7 +160,7 @@ test.describe('動的ロール管理', () => {
    */
   test('使用中のロールは削除できない', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -177,14 +175,11 @@ test.describe('動的ロール管理', () => {
     });
 
     // 使用中のロールを削除しようとする
-    const deleteResponse = await request.delete(
-      `http://localhost:3000/api/v1/roles/${userRole!.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
+    const deleteResponse = await request.delete(`${API_BASE_URL}/api/v1/roles/${userRole!.id}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
     // システムロールまたは使用中のため削除不可
     expect(deleteResponse.status()).toBe(400);
@@ -195,7 +190,7 @@ test.describe('動的ロール管理', () => {
    */
   test('システムロールは削除できない', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -210,14 +205,11 @@ test.describe('動的ロール管理', () => {
     });
 
     // システムロールを削除しようとする
-    const deleteResponse = await request.delete(
-      `http://localhost:3000/api/v1/roles/${adminRole!.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
+    const deleteResponse = await request.delete(`${API_BASE_URL}/api/v1/roles/${adminRole!.id}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
     expect(deleteResponse.status()).toBe(400);
     const error = await deleteResponse.json();
@@ -229,7 +221,7 @@ test.describe('動的ロール管理', () => {
    */
   test('ロールに優先順位を設定できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post('http://localhost:3000/api/v1/auth/login', {
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'admin@example.com',
         password: 'AdminPass123!',
@@ -238,7 +230,7 @@ test.describe('動的ロール管理', () => {
     const { accessToken } = await loginResponse.json();
 
     // 優先順位付きでロールを作成
-    const createResponse = await request.post('http://localhost:3000/api/v1/roles', {
+    const createResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },

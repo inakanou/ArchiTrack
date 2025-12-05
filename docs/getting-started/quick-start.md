@@ -7,23 +7,32 @@
 ## 前提条件
 
 - [前提条件](prerequisites.md)のツールがインストール済み
-- [インストール手順](installation.md)が完了済み
+- [インストール手順](installation.md)が完了済み（または以下のクイックセットアップを実行）
 
 ---
 
 ## ステップ1: アプリケーションの起動（1分）
 
+### クイックセットアップ（初回のみ）
+
 ```bash
 # プロジェクトルートで実行
-docker-compose up -d
+./scripts/setup-local-env.sh
+```
+
+### 開発環境の起動
+
+```bash
+# 開発環境を起動
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
 ```
 
 **起動完了の確認:**
 ```bash
-docker-compose ps
+docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
 ```
 
-すべてのサービスが`Up`状態であることを確認します。
+すべてのサービスが`Up (healthy)`状態であることを確認します。
 
 ---
 
@@ -73,20 +82,24 @@ curl http://localhost:3000/api
 
 ---
 
-## ステップ4: 初期管理者アカウントの作成（2分）
+## ステップ4: 初期管理者アカウントでログイン（1分）
 
-### シーディングスクリプトの実行
+開発環境では、初期管理者アカウントが自動で作成されます。
 
-```bash
-# backend/.env に以下を追加
-INITIAL_ADMIN_EMAIL=admin@example.com
-INITIAL_ADMIN_PASSWORD=YourStrongPassword123!
-INITIAL_ADMIN_DISPLAY_NAME=System Administrator
-```
+### ログイン
+
+1. http://localhost:5173 にアクセス
+2. 以下の情報でログイン:
+   - **メールアドレス**: `admin@example.com`
+   - **パスワード**: `AdminTest123!@#`
+
+### 手動でシーディングを実行する場合
+
+初期データが作成されていない場合は、手動でシーディングを実行できます：
 
 ```bash
 # シーディング実行
-docker exec architrack-backend npm run prisma:seed
+docker exec architrack-backend-dev npm run prisma:seed
 ```
 
 **期待される出力:**
@@ -96,13 +109,6 @@ docker exec architrack-backend npm run prisma:seed
 ✅ Role-Permission mappings seeded successfully
 ✅ Initial admin account created: admin@example.com
 ```
-
-### ログイン
-
-1. http://localhost:5173 にアクセス
-2. 以下の情報でログイン:
-   - **メールアドレス**: `admin@example.com`
-   - **パスワード**: `YourStrongPassword123!`
 
 ---
 
@@ -144,8 +150,8 @@ npm run test:e2e
 
 問題が発生した場合は、以下を確認してください：
 
-1. **全サービスが起動しているか**: `docker-compose ps`
-2. **ログにエラーがないか**: `docker-compose logs -f`
+1. **全サービスが起動しているか**: `docker compose -f docker-compose.yml -f docker-compose.dev.yml ps`
+2. **ログにエラーがないか**: `docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f`
 3. **ポートが使用中でないか**: `lsof -i :3000` / `lsof -i :5173`
 
 詳細は[デプロイのトラブルシューティング](../deployment/troubleshooting.md)を参照してください。
