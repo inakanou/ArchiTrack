@@ -18,6 +18,7 @@ interface DropdownMenuItem {
  */
 interface DropdownMenuProps {
   trigger: ReactElement;
+  triggerClassName?: string;
   items: DropdownMenuItem[];
   isOpen: boolean;
   onToggle: () => void;
@@ -34,6 +35,7 @@ interface DropdownMenuProps {
  */
 function DropdownMenu({
   trigger,
+  triggerClassName,
   items,
   isOpen,
   onToggle,
@@ -118,6 +120,7 @@ function DropdownMenu({
       <button
         ref={buttonRef}
         type="button"
+        className={triggerClassName}
         onClick={onToggle}
         onKeyDown={handleButtonKeyDown}
         aria-expanded={isOpen}
@@ -372,20 +375,20 @@ export function AppHeader(): ReactElement {
 
   // ユーザーメニューのトリガー
   const userMenuTrigger = (
-    <div className="app-header-user-trigger">
+    <>
       <div className="app-header-avatar">{getInitials(user?.displayName)}</div>
       <span className="app-header-user-name">{user?.displayName ?? 'ユーザー'}</span>
       <Icons.ChevronDown />
-    </div>
+    </>
   );
 
   // 管理メニューのトリガー
   const adminMenuTrigger = (
-    <div className="app-header-admin-trigger">
+    <>
       <Icons.Admin />
       <span>管理メニュー</span>
       <Icons.ChevronDown />
-    </div>
+    </>
   );
 
   return (
@@ -414,6 +417,7 @@ export function AppHeader(): ReactElement {
                 <div className="app-header-separator" />
                 <DropdownMenu
                   trigger={adminMenuTrigger}
+                  triggerClassName="app-header-admin-trigger"
                   items={adminMenuItems}
                   isOpen={isAdminMenuOpen}
                   onToggle={toggleAdminMenu}
@@ -427,6 +431,7 @@ export function AppHeader(): ReactElement {
             {/* ユーザーメニュー */}
             <DropdownMenu
               trigger={userMenuTrigger}
+              triggerClassName="app-header-user-trigger"
               items={userMenuItems}
               isOpen={isUserMenuOpen}
               onToggle={toggleUserMenu}

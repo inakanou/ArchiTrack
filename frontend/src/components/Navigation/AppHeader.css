@@ -241,6 +241,9 @@
   border-radius: 9999px;
   cursor: pointer;
   transition: all 0.2s ease;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
 
 .app-header-user-trigger:hover {
@@ -305,6 +308,7 @@
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   color: white;
+  font-family: inherit;
   font-weight: 500;
   font-size: 0.9375rem;
   cursor: pointer;
