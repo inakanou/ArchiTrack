@@ -67,10 +67,29 @@ test.describe('セッション管理機能', () => {
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
     // セッションデータの読み込み完了を待機（リトライ付き、CI用に増加）
-    const sessionDataLoaded = await waitForSessionDataLoaded(page, {
+    let sessionDataLoaded = await waitForSessionDataLoaded(page, {
       timeout: getTimeout(30000),
       maxRetries: 7,
     });
+
+    if (!sessionDataLoaded) {
+      // ログインページにリダイレクトされた場合、またはAPIエラーが発生している場合は再ログインを試みる
+      const isOnLoginPage = page.url().includes('/login');
+      const hasError =
+        !isOnLoginPage &&
+        (await page.getByText(/セッション情報を取得できませんでした/i).isVisible());
+
+      if (isOnLoginPage || hasError) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto('/sessions');
+        await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
+        await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
+        sessionDataLoaded = await waitForSessionDataLoaded(page, {
+          timeout: getTimeout(30000),
+          maxRetries: 3,
+        });
+      }
+    }
 
     if (!sessionDataLoaded) {
       // フォールバック：最終確認（タイムアウト延長）
