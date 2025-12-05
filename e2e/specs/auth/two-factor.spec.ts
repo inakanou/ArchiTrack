@@ -717,6 +717,38 @@ test.describe('2要素認証機能', () => {
           } catch {
             // ボタンが見つからない場合はページをリロードして再試行
             await page.reload({ waitUntil: 'networkidle' });
+
+            // ログインページにリダイレクトされた場合は再認証
+            if (page.url().includes('/login')) {
+              await loginAsUser(page, 'TWO_FA_USER');
+              const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
+              try {
+                await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
+                const digits = '123456'.split('');
+                for (let i = 0; i < 6; i++) {
+                  const digitInput = page.getByTestId(`totp-digit-${i}`);
+                  const digit = digits[i];
+                  if (digit) {
+                    await digitInput.fill(digit);
+                  }
+                }
+                await page.getByRole('button', { name: /検証/i }).click();
+                await page.waitForURL((url) => !url.pathname.includes('/login'), {
+                  timeout: getTimeout(10000),
+                });
+              } catch {
+                // 2FAフォームが表示されない場合は既にログイン済み
+              }
+              await page.goto('/profile');
+              await page.waitForLoadState('networkidle');
+            }
+
+            // 認証状態が復元され、2FAセクションが表示されるまで待機
+            await expect(
+              page.getByRole('heading', { name: '二要素認証', exact: true })
+            ).toBeVisible({
+              timeout: getTimeout(15000),
+            });
             showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
             await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
           }
@@ -745,6 +777,38 @@ test.describe('2要素認証機能', () => {
           } else {
             // 401エラーの場合、ページをリロードして再試行
             await page.reload({ waitUntil: 'networkidle' });
+
+            // ログインページにリダイレクトされた場合は再認証
+            if (page.url().includes('/login')) {
+              await loginAsUser(page, 'TWO_FA_USER');
+              const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
+              try {
+                await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
+                const digits = '123456'.split('');
+                for (let i = 0; i < 6; i++) {
+                  const digitInput = page.getByTestId(`totp-digit-${i}`);
+                  const digit = digits[i];
+                  if (digit) {
+                    await digitInput.fill(digit);
+                  }
+                }
+                await page.getByRole('button', { name: /検証/i }).click();
+                await page.waitForURL((url) => !url.pathname.includes('/login'), {
+                  timeout: getTimeout(10000),
+                });
+              } catch {
+                // 2FAフォームが表示されない場合は既にログイン済み
+              }
+              await page.goto('/profile');
+              await page.waitForLoadState('networkidle');
+            }
+
+            // 認証状態が復元され、2FAセクションが表示されるまで待機
+            await expect(
+              page.getByRole('heading', { name: '二要素認証', exact: true })
+            ).toBeVisible({
+              timeout: getTimeout(15000),
+            });
             showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
             await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
           }
