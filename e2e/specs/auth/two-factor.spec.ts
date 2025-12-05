@@ -675,6 +675,25 @@ test.describe('2要素認証機能', () => {
       // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）- リトライ付き
       let backupCodesLoaded = false;
       for (let retry = 0; retry < 5; retry++) {
+        // リトライ時はボタンの存在を再確認
+        if (retry > 0) {
+          await page.waitForLoadState('networkidle');
+          const hideBtn = page.getByRole('button', { name: /バックアップコードを隠す/i });
+          if ((await hideBtn.count()) > 0) {
+            await hideBtn.click();
+            await page.waitForTimeout(500);
+          }
+          showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+          try {
+            await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
+          } catch {
+            // ボタンが見つからない場合はページをリロードして再試行
+            await page.reload({ waitUntil: 'networkidle' });
+            showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
+            await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
+          }
+        }
+
         // クリック前にAPIレスポンスを待機するプロミスを設定
         const backupCodesApiPromise = page.waitForResponse(
           (response) =>
@@ -702,22 +721,8 @@ test.describe('2要素認証機能', () => {
             await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
           }
         } catch {
-          if (retry < 4) {
-            // タイムアウトの場合、ボタンを再度クリック
-            await page.waitForLoadState('networkidle');
-            // ボタンの状態を確認して適切なロケーターを使用
-            const showBtn = page.getByRole('button', { name: /バックアップコードを表示/i });
-            const hideBtn = page.getByRole('button', { name: /バックアップコードを隠す/i });
-            if ((await hideBtn.count()) > 0) {
-              await hideBtn.click();
-              await page.waitForTimeout(500);
-              showBackupCodesButton = page.getByRole('button', {
-                name: /バックアップコードを表示/i,
-              });
-            } else if ((await showBtn.count()) > 0) {
-              showBackupCodesButton = showBtn;
-            }
-          }
+          // タイムアウトの場合、次のリトライでループ先頭の処理が実行される
+          // 最後のリトライでも失敗した場合はループを抜ける
         }
       }
       expect(backupCodesLoaded).toBe(true);
