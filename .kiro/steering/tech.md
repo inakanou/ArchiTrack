@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-05（Steering Sync: AppHeaderナビゲーション統合、新ページ追加）_
+_最終更新: 2025-12-06（Steering Sync: project-management仕様追加、Storybook 10.x統一）_
 
 ## アーキテクチャ
 
@@ -55,9 +55,9 @@ ArchiTrack/
 - `jsdom` ^27.2.0 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.22.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
-- `storybook` ^10.1.3 - コンポーネントドキュメント・開発環境（**Storybook 10.x**）
-- `@storybook/react` ^10.0.8 - Storybook React統合（**10.x系**）
-- `@storybook/react-vite` ^10.1.3 - Storybook React + Vite統合（**10.x系**）
+- `storybook` ^10.1.3 - コンポーネントドキュメント・開発環境（Storybook 10.x）
+- `@storybook/react` ^10.0.8 - Storybook React統合（10.x系）
+- `@storybook/react-vite` ^10.1.3 - Storybook React + Vite統合（10.x系）
 - `@storybook/test-runner` ^0.24.1 - Storybookインタラクションテスト
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
