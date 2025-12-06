@@ -2,7 +2,7 @@
 
 ## Task 1: データベーススキーマとモデル基盤
 
-- [ ] 1.1 (P) プロジェクトステータスとトランジション種別のEnum定義
+- [x] 1.1 (P) プロジェクトステータスとトランジション種別のEnum定義
   - ProjectStatus Enum（12種類: PREPARING, SURVEYING, ESTIMATING, APPROVING, CONTRACTING, CONSTRUCTING, DELIVERING, BILLING, AWAITING, COMPLETED, CANCELLED, LOST）を定義
   - TransitionType Enum（4種類: initial, forward, backward, terminate）を定義
   - ステータスの日本語ラベルマッピングを実装
