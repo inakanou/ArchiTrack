@@ -80,7 +80,7 @@
 
 ## Task 4: バックエンドAPI層の実装
 
-- [ ] 4.1 (P) 担当者候補取得APIの実装
+- [x] 4.1 (P) 担当者候補取得APIの実装
   - GET /api/users/assignable エンドポイントを実装
   - admin以外の有効なユーザー一覧を取得（id, displayName）
   - 認証ミドルウェアを適用
