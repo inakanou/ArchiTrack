@@ -285,7 +285,7 @@
   - リンク先を /projects に設定
   - _Requirements: 21.5, 21.6, 21.7, 21.8_
 
-- [ ] 10.3 ルーティング設定
+- [x] 10.3 ルーティング設定
   - /projects ルートを追加（ProjectListPage）
   - /projects/:id ルートを追加（ProjectDetailPage）
   - /projects/new ルートを追加（プロジェクト作成フォーム）
