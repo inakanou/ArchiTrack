@@ -55,7 +55,7 @@
   - SortInput用Zodスキーマを実装（field, order）
   - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8, 13.10, 13.11_
 
-- [ ] 3.3 ProjectStatusServiceの実装
+- [x] 3.3 ProjectStatusServiceの実装
   - ステータス遷移ルールマップ（順方向・差し戻し・終端遷移）を定義
   - getAllowedTransitions: 現在のステータスから遷移可能なステータス一覧を取得
   - getTransitionType: 遷移種別（forward, backward, terminate）を判定
