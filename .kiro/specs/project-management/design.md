@@ -1,0 +1,1087 @@
+# 技術設計書
+
+## Overview
+
+本ドキュメントは、ArchiTrackシステムにおけるプロジェクト管理機能の技術設計を定義します。プロジェクトとは、工事案件が発生した際に最初に作成されるエンティティであり、当該工事における現場調査や見積などの業務は、プロジェクト配下にぶら下がる形で管理されます。
+
+**Purpose**: ユーザーが工事案件のプロジェクトを作成・管理し、ステータスを追跡できるようにすることで、業務の可視化と効率化を実現します。
+
+**Users**: 一般ユーザー（プロジェクトの作成・編集・閲覧）、システム管理者（アクセス制御・監査）
+
+**Impact**: 既存の認証・認可基盤、監査ログ基盤、UIコンポーネント（AppHeader、Dashboard、ProtectedLayout）を拡張し、新しいプロジェクト管理ドメインを導入します。
+
+### Goals
+
+- プロジェクトのCRUD操作を実現し、工事案件の一元管理を可能にする
+- 12段階のステータスワークフローにより、プロジェクトの進捗を正確に追跡する
+- 既存のRBAC基盤を活用した権限ベースのアクセス制御を実装する
+- レスポンシブデザインによりデスクトップ・タブレット・モバイルに対応する
+- WCAG 2.1 Level AA準拠のアクセシビリティを確保する
+
+### Non-Goals
+
+- 現場調査機能の実装（プロジェクト詳細画面からのリンクのみ）
+- 見積書機能の実装（プロジェクト詳細画面からのリンクのみ）
+- 取引先管理機能の実装（既存機能への連携のみ）
+- プロジェクトの一括インポート・エクスポート機能
+- プロジェクトのアーカイブ・復元機能
+
+## Architecture
+
+### Existing Architecture Analysis
+
+ArchiTrackは、フロントエンド（React 19 + TypeScript）とバックエンド（Express 5 + Prisma 7）を分離したモノレポ構成を採用しています。
+
+**既存パターン**:
+- **認証・認可**: JWT認証（EdDSA署名）、RBACサービス（`rbac.service.ts`）、権限ミドルウェア（`authorize.middleware.ts`）
+- **監査ログ**: `audit-log.service.ts`によるセンシティブ操作の記録
+- **UIレイアウト**: `ProtectedLayout`による認証済み画面の共通レイアウト、`AppHeader`によるナビゲーション
+- **ルーティング**: React Router v7による宣言的ルーティング
+- **データアクセス**: Prisma ORMによる型安全なデータアクセス、Driver Adapter Pattern
+
+**拡張ポイント**:
+- Prismaスキーマに`Project`および`ProjectStatusHistory`モデルを追加
+- `AppHeader`に「プロジェクト」ナビゲーションリンクを追加
+- `Dashboard`にプロジェクト管理カードを追加
+- 新しいAPI routes（`projects.routes.ts`）を追加
+- 新しいPermissionレコード（`project:create/read/update/delete`）を追加
+
+### Architecture Pattern & Boundary Map
+
+```mermaid
+graph TB
+    subgraph Frontend[Frontend Layer]
+        AppHeader[AppHeader]
+        Dashboard[Dashboard]
+        ProjectList[ProjectListPage]
+        ProjectDetail[ProjectDetailPage]
+        ProjectForm[ProjectForm]
+    end
+
+    subgraph Backend[Backend Layer]
+        ProjectRoutes[projects.routes]
+        UserRoutes[users.routes]
+        ProjectService[ProjectService]
+        ProjectStatusService[ProjectStatusService]
+        RBACService[RBACService]
+        AuditLogService[AuditLogService]
+    end
+
+    subgraph Data[Data Layer]
+        Prisma[Prisma Client]
+        PostgreSQL[(PostgreSQL)]
+        Redis[(Redis Cache)]
+    end
+
+    AppHeader --> ProjectList
+    Dashboard --> ProjectList
+    ProjectList --> ProjectDetail
+    ProjectDetail --> ProjectForm
+
+    ProjectList --> ProjectRoutes
+    ProjectDetail --> ProjectRoutes
+    ProjectForm --> ProjectRoutes
+    ProjectForm --> UserRoutes
+
+    ProjectRoutes --> ProjectService
+    ProjectRoutes --> RBACService
+    ProjectService --> ProjectStatusService
+    ProjectService --> AuditLogService
+
+    ProjectService --> Prisma
+    RBACService --> Redis
+    Prisma --> PostgreSQL
+```
+
+**Architecture Integration**:
+- **Selected pattern**: Service Layer Pattern（既存のサービス層パターンを踏襲）
+- **Domain boundaries**: プロジェクト管理ドメインは独立したサービス層を持ち、認証・認可ドメインとは明確に分離
+- **Existing patterns preserved**: RBACによる権限チェック、監査ログ記録、Cache-Aside Pattern
+- **New components rationale**: プロジェクト固有のビジネスロジック（ステータス遷移、バリデーション）を担当
+- **Steering compliance**: TypeScript strict mode、Prisma型安全なデータアクセス、Conventional Commits
+
+### Technology Stack
+
+| Layer | Choice / Version | Role in Feature | Notes |
+|-------|------------------|-----------------|-------|
+| Frontend | React 19.2.0, TypeScript 5.9.3 | プロジェクト一覧・詳細画面、フォームコンポーネント | 既存スタック |
+| Routing | React Router v7.9.6 | `/projects`ルーティング | 既存スタック |
+| Backend | Express 5.2.0, TypeScript 5.9.3 | RESTful API提供 | 既存スタック |
+| ORM | Prisma 7.0.0 | Project/ProjectStatusHistoryモデル管理 | 既存スタック |
+| Database | PostgreSQL 15 | プロジェクトデータ永続化 | 既存スタック |
+| Cache | Redis 7, ioredis 5.3.2 | 権限キャッシュ | 既存スタック |
+| Validation | Zod 4.1.12 | リクエストバリデーション | 既存スタック |
+
+## System Flows
+
+### プロジェクト作成フロー
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as Frontend
+    participant API as Backend API
+    participant PS as ProjectService
+    participant AL as AuditLogService
+    participant DB as PostgreSQL
+
+    U->>FE: 新規作成ボタンクリック
+    FE->>FE: フォーム表示
+    U->>FE: フォーム入力・送信
+    FE->>FE: クライアントバリデーション
+    FE->>API: POST /api/projects
+    API->>API: JWT認証・権限チェック
+    API->>PS: createProject(data)
+    PS->>PS: サーバーバリデーション
+    PS->>DB: INSERT Project
+    PS->>DB: INSERT ProjectStatusHistory
+    PS->>AL: 監査ログ記録
+    PS-->>API: Project
+    API-->>FE: 201 Created
+    FE->>FE: 詳細画面に遷移
+```
+
+### ステータス遷移フロー
+
+```mermaid
+stateDiagram-v2
+    [*] --> 準備中: 新規作成
+    準備中 --> 調査中: 調査開始
+    準備中 --> 中止: 案件中止
+    調査中 --> 見積中: 見積作成
+    調査中 --> 中止: 案件中止
+    見積中 --> 決裁待ち: 見積提出
+    見積中 --> 中止: 案件中止
+    決裁待ち --> 契約中: 決裁承認
+    決裁待ち --> 失注: 失注
+    契約中 --> 工事中: 工事開始
+    契約中 --> 失注: 失注
+    工事中 --> 引渡中: 工事完了
+    引渡中 --> 請求中: 引渡完了
+    請求中 --> 入金待ち: 請求完了
+    入金待ち --> 完了: 入金確認
+    完了 --> [*]
+    中止 --> [*]
+    失注 --> [*]
+```
+
+**Key Decisions**:
+- ステータス遷移は順方向のみ許可（逆方向遷移は禁止）
+- 「中止」「失注」は終端ステータス（遷移不可）
+- すべてのステータス変更は履歴として記録
+
+## Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 1.1-1.14 | プロジェクト作成 | ProjectForm, ProjectService | POST /api/projects | プロジェクト作成フロー |
+| 2.1-2.6 | プロジェクト一覧表示 | ProjectListPage, ProjectService | GET /api/projects | - |
+| 3.1-3.5 | ページネーション | ProjectListPage, ProjectService | GET /api/projects?page,limit | - |
+| 4.1-4.5 | 検索 | ProjectListPage, ProjectService | GET /api/projects?search | - |
+| 5.1-5.6 | フィルタリング | ProjectListPage, ProjectService | GET /api/projects?status,from,to | - |
+| 6.1-6.5 | ソート | ProjectListPage, ProjectService | GET /api/projects?sort,order | - |
+| 7.1-7.7 | 詳細表示 | ProjectDetailPage, ProjectService | GET /api/projects/:id | - |
+| 8.1-8.6 | 編集 | ProjectForm, ProjectService | PUT /api/projects/:id | - |
+| 9.1-9.7 | 削除 | ProjectDetailPage, ProjectService | DELETE /api/projects/:id | - |
+| 10.1-10.10 | ステータス管理 | ProjectStatusBadge, ProjectStatusService | PATCH /api/projects/:id/status | ステータス遷移フロー |
+| 11.1-11.5 | 関連データ参照 | ProjectDetailPage, ProjectService | GET /api/projects/:id | - |
+| 12.1-12.6 | アクセス制御 | authorize middleware, RBACService | - | - |
+| 13.1-13.11 | バリデーション | ProjectSchema, ProjectService | - | - |
+| 14.1-14.7 | API | ProjectRoutes | RESTful API全般 | - |
+| 15.1-15.5 | レスポンシブ | 全UIコンポーネント | - | - |
+| 16.1-16.10 | 取引先オートコンプリート | CustomerAutocomplete | GET /api/business-partners | - |
+| 17.1-17.12 | 担当者選択 | UserSelect | GET /api/users/assignable | - |
+| 18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification | - | - |
+| 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
+| 20.1-20.6 | アクセシビリティ | 全UIコンポーネント | - | - |
+| 21.1-21.8 | ナビゲーション | AppHeader, Dashboard | - | - |
+
+## Components and Interfaces
+
+### Component Summary
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート | 2, 3, 4, 5, 6 | ProjectService (P0), useAuth (P0) | State |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除 | 7, 8, 9, 10, 11 | ProjectService (P0), ProjectStatusService (P1) | State |
+| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17 | CustomerAutocomplete (P1), UserSelect (P1) | Service |
+| CustomerAutocomplete | UI/Component | 取引先名オートコンプリート | 16 | BusinessPartnerAPI (P1) | API |
+| UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
+| ProjectStatusBadge | UI/Component | ステータス表示・遷移UI | 10 | ProjectStatusService (P1) | State |
+| ProjectService | Backend/Service | プロジェクトCRUDビジネスロジック | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
+| ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
+| ProjectRoutes | Backend/Route | RESTful APIエンドポイント | 14 | ProjectService (P0), authorize (P0) | API |
+
+### Backend / Services
+
+#### ProjectService
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクトのCRUD操作とビジネスロジックを担当 |
+| Requirements | 1.1-1.14, 2.1-2.6, 3.1-3.5, 4.1-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.7, 8.1-8.6, 9.1-9.7, 11.1-11.5, 13.1-13.11 |
+| Owner / Reviewers | Backend Team |
+
+**Responsibilities & Constraints**
+- プロジェクトの作成・取得・更新・削除のビジネスロジック
+- 論理削除の実装（`deletedAt`フィールドによる管理）
+- ページネーション、検索、フィルタリング、ソートのサポート
+- 楽観的排他制御（`updatedAt`フィールドによる競合検出）
+- 関連データ（現場調査、見積書）の件数取得
+
+**Dependencies**
+- Inbound: ProjectRoutes — API呼び出し (P0)
+- Outbound: Prisma — データアクセス (P0)
+- Outbound: AuditLogService — 監査ログ記録 (P1)
+- Outbound: ProjectStatusService — ステータス遷移 (P1)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface IProjectService {
+  /**
+   * プロジェクト作成
+   */
+  createProject(
+    input: CreateProjectInput,
+    actorId: string
+  ): Promise<Result<ProjectInfo, ProjectError>>;
+
+  /**
+   * プロジェクト一覧取得
+   */
+  getProjects(
+    filter: ProjectFilter,
+    pagination: PaginationInput,
+    sort: SortInput
+  ): Promise<Result<PaginatedProjects, ProjectError>>;
+
+  /**
+   * プロジェクト詳細取得
+   */
+  getProject(id: string): Promise<Result<ProjectDetail, ProjectError>>;
+
+  /**
+   * プロジェクト更新
+   */
+  updateProject(
+    id: string,
+    input: UpdateProjectInput,
+    actorId: string,
+    expectedUpdatedAt: Date
+  ): Promise<Result<ProjectInfo, ProjectError>>;
+
+  /**
+   * プロジェクト削除（論理削除）
+   */
+  deleteProject(
+    id: string,
+    actorId: string
+  ): Promise<Result<void, ProjectError>>;
+
+  /**
+   * 関連データ件数取得
+   */
+  getRelatedCounts(id: string): Promise<Result<RelatedCounts, ProjectError>>;
+}
+
+interface CreateProjectInput {
+  name: string;
+  customerName: string;
+  salesPersonId: string;
+  constructionPersonId?: string;
+  siteAddress?: string;
+  description?: string;
+}
+
+interface UpdateProjectInput {
+  name?: string;
+  customerName?: string;
+  salesPersonId?: string;
+  constructionPersonId?: string;
+  siteAddress?: string;
+  description?: string;
+}
+
+interface ProjectFilter {
+  search?: string;           // プロジェクト名・顧客名の部分一致
+  status?: ProjectStatus[];  // ステータスフィルタ
+  createdFrom?: Date;        // 作成日開始
+  createdTo?: Date;          // 作成日終了
+}
+
+interface PaginationInput {
+  page: number;    // 1-indexed
+  limit: number;   // デフォルト20
+}
+
+interface SortInput {
+  field: 'id' | 'name' | 'customerName' | 'status' | 'createdAt' | 'updatedAt';
+  order: 'asc' | 'desc';
+}
+
+type ProjectError =
+  | { type: 'NOT_FOUND'; message: string }
+  | { type: 'VALIDATION_ERROR'; message: string; details: Record<string, string> }
+  | { type: 'CONFLICT'; message: string }
+  | { type: 'FORBIDDEN'; message: string };
+```
+
+- Preconditions: 有効なユーザーIDが提供されること
+- Postconditions: 成功時はプロジェクトデータを返却、失敗時はエラー型を返却
+- Invariants: 論理削除されたプロジェクトは一覧に表示されない
+
+**Implementation Notes**
+- Integration: 既存のPrisma Clientパターンを踏襲、N+1問題回避のためincludeを使用
+- Validation: Zodスキーマによるバリデーション、`validate.middleware.ts`と連携
+- Risks: 楽観的排他制御の競合エラー発生時のUX検討が必要
+
+---
+
+#### ProjectStatusService
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクトステータスの遷移ロジックと履歴管理を担当 |
+| Requirements | 10.1-10.10 |
+| Owner / Reviewers | Backend Team |
+
+**Responsibilities & Constraints**
+- ステータス遷移の妥当性検証（許可された遷移のみ実行）
+- ステータス変更履歴の記録
+- ステータス遷移ルールの一元管理
+
+**Dependencies**
+- Inbound: ProjectService, ProjectRoutes — ステータス変更呼び出し (P0)
+- Outbound: Prisma — データアクセス (P0)
+- Outbound: AuditLogService — 監査ログ記録 (P1)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+type ProjectStatus =
+  | 'PREPARING'    // 準備中
+  | 'SURVEYING'    // 調査中
+  | 'ESTIMATING'   // 見積中
+  | 'APPROVING'    // 決裁待ち
+  | 'CONTRACTING'  // 契約中
+  | 'CONSTRUCTING' // 工事中
+  | 'DELIVERING'   // 引渡中
+  | 'BILLING'      // 請求中
+  | 'AWAITING'     // 入金待ち
+  | 'COMPLETED'    // 完了
+  | 'CANCELLED'    // 中止
+  | 'LOST';        // 失注
+
+interface IProjectStatusService {
+  /**
+   * ステータス遷移
+   */
+  transitionStatus(
+    projectId: string,
+    newStatus: ProjectStatus,
+    actorId: string
+  ): Promise<Result<ProjectInfo, StatusTransitionError>>;
+
+  /**
+   * 許可された遷移先を取得
+   */
+  getAllowedTransitions(currentStatus: ProjectStatus): ProjectStatus[];
+
+  /**
+   * ステータス変更履歴取得
+   */
+  getStatusHistory(projectId: string): Promise<ProjectStatusHistory[]>;
+}
+
+interface ProjectStatusHistory {
+  id: string;
+  projectId: string;
+  fromStatus: ProjectStatus;
+  toStatus: ProjectStatus;
+  changedBy: string;
+  changedAt: Date;
+}
+
+type StatusTransitionError =
+  | { type: 'NOT_FOUND'; message: string }
+  | { type: 'INVALID_TRANSITION'; message: string; allowed: ProjectStatus[] }
+  | { type: 'FORBIDDEN'; message: string };
+```
+
+- Preconditions: プロジェクトが存在し、現在のステータスからの遷移が許可されていること
+- Postconditions: ステータスが更新され、履歴が記録される
+- Invariants: 終端ステータス（完了、中止、失注）からの遷移は禁止
+
+**Implementation Notes**
+- Integration: ステータス遷移マップをconstで定義し、型安全性を確保
+- Validation: 遷移前に許可チェックを実施
+- Risks: 遷移ルールの変更時は既存データとの整合性確認が必要
+
+---
+
+#### ProjectRoutes
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト関連のRESTful APIエンドポイントを提供 |
+| Requirements | 14.1-14.7 |
+| Owner / Reviewers | Backend Team |
+
+**Responsibilities & Constraints**
+- HTTPリクエストの受信とレスポンスの返却
+- 認証・認可ミドルウェアの適用
+- バリデーションミドルウェアの適用
+- Swagger/OpenAPIドキュメントの生成
+
+**Dependencies**
+- Inbound: Express Router — HTTPリクエスト (P0)
+- Outbound: ProjectService — ビジネスロジック (P0)
+- Outbound: authenticate/authorize middleware — 認証・認可 (P0)
+- Outbound: validate middleware — バリデーション (P0)
+
+**Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/projects | ProjectListQuery | PaginatedProjects | 400, 401, 403 |
+| GET | /api/projects/:id | - | ProjectDetail | 400, 401, 403, 404 |
+| POST | /api/projects | CreateProjectRequest | ProjectInfo | 400, 401, 403 |
+| PUT | /api/projects/:id | UpdateProjectRequest | ProjectInfo | 400, 401, 403, 404, 409 |
+| DELETE | /api/projects/:id | - | - | 400, 401, 403, 404 |
+| PATCH | /api/projects/:id/status | StatusChangeRequest | ProjectInfo | 400, 401, 403, 404, 422 |
+| GET | /api/projects/:id/status-history | - | StatusHistory[] | 400, 401, 403, 404 |
+| GET | /api/users/assignable | - | AssignableUser[] | 400, 401, 403 |
+
+**Request/Response Schemas**:
+
+```typescript
+// GET /api/projects クエリパラメータ
+interface ProjectListQuery {
+  page?: number;        // デフォルト: 1
+  limit?: number;       // デフォルト: 20, 最大: 100
+  search?: string;      // 最小2文字
+  status?: string;      // カンマ区切り複数指定可
+  createdFrom?: string; // ISO8601形式
+  createdTo?: string;   // ISO8601形式
+  sort?: string;        // id|name|customerName|status|createdAt|updatedAt
+  order?: string;       // asc|desc
+}
+
+// POST /api/projects リクエストボディ
+interface CreateProjectRequest {
+  name: string;                    // 1-255文字
+  customerName: string;            // 1-255文字
+  salesPersonId: string;           // UUID
+  constructionPersonId?: string;   // UUID（任意）
+  siteAddress?: string;            // 最大500文字
+  description?: string;            // 最大5000文字
+}
+
+// PUT /api/projects/:id リクエストボディ
+interface UpdateProjectRequest {
+  name?: string;
+  customerName?: string;
+  salesPersonId?: string;
+  constructionPersonId?: string;
+  siteAddress?: string;
+  description?: string;
+  expectedUpdatedAt: string;       // 楽観的排他制御用
+}
+
+// PATCH /api/projects/:id/status リクエストボディ
+interface StatusChangeRequest {
+  status: ProjectStatus;
+}
+
+// レスポンス: プロジェクト情報
+interface ProjectInfo {
+  id: string;
+  name: string;
+  customerName: string;
+  salesPerson: UserSummary;
+  constructionPerson?: UserSummary;
+  siteAddress?: string;
+  description?: string;
+  status: ProjectStatus;
+  statusLabel: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// レスポンス: ページネーション付き一覧
+interface PaginatedProjects {
+  data: ProjectInfo[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+// レスポンス: 担当者候補
+interface AssignableUser {
+  id: string;
+  displayName: string;
+}
+```
+
+**Implementation Notes**
+- Integration: 既存の`roles.routes.ts`パターンを踏襲、Swagger JSDocコメント付き
+- Validation: Zodスキーマを使用、`validate.middleware.ts`と連携
+- Risks: レート制限の設定が必要（既存の`express-rate-limit`を使用）
+
+---
+
+### Frontend / Pages
+
+#### ProjectListPage
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト一覧の表示、検索、フィルタリング、ソート機能を提供 |
+| Requirements | 2.1-2.6, 3.1-3.5, 4.1-4.5, 5.1-5.6, 6.1-6.5, 15.1-15.5 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- プロジェクト一覧のテーブル/カード表示（レスポンシブ対応）
+- ページネーション、検索、フィルタリング、ソートのUI提供
+- URLパラメータによる状態管理
+- ローディング・エラー・空状態の表示
+
+**Dependencies**
+- Inbound: Router — ページ遷移 (P0)
+- Outbound: ProjectService API — データ取得 (P0)
+- Outbound: ToastNotification — エラー通知 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ProjectListState {
+  projects: ProjectInfo[];
+  pagination: PaginationInfo;
+  isLoading: boolean;
+  error: string | null;
+  filters: {
+    search: string;
+    status: ProjectStatus[];
+    createdFrom: Date | null;
+    createdTo: Date | null;
+  };
+  sort: {
+    field: SortField;
+    order: 'asc' | 'desc';
+  };
+}
+```
+
+- State model: React useState + useSearchParams（URLパラメータ同期）
+- Persistence: URLパラメータによる状態永続化
+- Concurrency: デバウンスによる連続リクエスト抑制
+
+**Implementation Notes**
+- Integration: 768px未満でカード表示に切り替え（`useMediaQuery`フック使用）
+- Validation: 検索キーワード2文字以上のバリデーション
+- Risks: 大量データ時のパフォーマンス（仮想スクロールの検討が必要な場合あり）
+
+---
+
+#### ProjectDetailPage
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細情報の表示、編集、削除、ステータス変更機能を提供 |
+| Requirements | 7.1-7.7, 8.1-8.6, 9.1-9.7, 10.1-10.10, 11.1-11.5 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- プロジェクト詳細情報の表示
+- 編集モード切り替え
+- 削除確認ダイアログ
+- ステータス遷移UI
+- 関連データ（現場調査・見積書）の件数表示とリンク
+
+**Dependencies**
+- Inbound: Router — ページ遷移 (P0)
+- Outbound: ProjectService API — データ取得・更新・削除 (P0)
+- Outbound: ProjectStatusService API — ステータス遷移 (P1)
+- Outbound: ToastNotification — 通知 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ProjectDetailState {
+  project: ProjectDetail | null;
+  statusHistory: ProjectStatusHistory[];
+  isLoading: boolean;
+  isEditing: boolean;
+  isDeleting: boolean;
+  error: string | null;
+  conflictError: ConflictError | null;
+}
+```
+
+**Implementation Notes**
+- Integration: 編集時の競合検出と再読み込み誘導
+- Validation: 削除時の関連データ確認（警告ダイアログ表示）
+- Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
+
+---
+
+### Frontend / Components
+
+#### ProjectForm
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト作成・編集フォームを提供 |
+| Requirements | 1.1-1.14, 8.1-8.6, 13.1-13.11, 16.1-16.10, 17.1-17.12 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- フォームフィールドのレンダリング
+- クライアントサイドバリデーション
+- 担当者デフォルト値の設定
+- 送信処理とエラーハンドリング
+
+**Dependencies**
+- Inbound: ProjectListPage, ProjectDetailPage — フォーム表示 (P0)
+- Outbound: CustomerAutocomplete — 顧客名入力 (P1)
+- Outbound: UserSelect — 担当者選択 (P1)
+- Outbound: useAuth — ログインユーザー取得 (P0)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface ProjectFormProps {
+  mode: 'create' | 'edit';
+  initialData?: Partial<ProjectFormData>;
+  onSubmit: (data: ProjectFormData) => Promise<void>;
+  onCancel: () => void;
+  isSubmitting: boolean;
+}
+
+interface ProjectFormData {
+  name: string;
+  customerName: string;
+  salesPersonId: string;
+  constructionPersonId?: string;
+  siteAddress?: string;
+  description?: string;
+}
+```
+
+**Implementation Notes**
+- Integration: 既存のフォームパターン（React Hook Form等）の検討
+- Validation: Zodスキーマでクライアント・サーバー共通バリデーション
+- Risks: オートコンプリートのUX（遅延、候補なし時の挙動）
+
+---
+
+#### CustomerAutocomplete
+
+| Field | Detail |
+|-------|--------|
+| Intent | 取引先名のオートコンプリート入力を提供 |
+| Requirements | 16.1-16.10 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- テキスト入力に基づく取引先候補の表示
+- キーボード・マウスによる候補選択
+- 任意入力の許可（取引先外も可）
+- 500ms以内のレスポンス
+
+**Dependencies**
+- Inbound: ProjectForm — 顧客名入力 (P0)
+- Outbound: BusinessPartnerAPI — 取引先検索 (P1)
+
+**Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/business-partners | `?q=検索文字列&limit=10` | BusinessPartner[] | 400, 401 |
+
+**Implementation Notes**
+- Integration: デバウンス（300ms）による連続リクエスト抑制
+- Validation: 1文字以上で検索開始
+- Risks: 取引先管理機能が未実装の場合のフォールバック検討
+
+---
+
+#### UserSelect
+
+| Field | Detail |
+|-------|--------|
+| Intent | 担当者選択ドロップダウンを提供 |
+| Requirements | 17.1-17.12 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- admin以外の有効なユーザー一覧の表示
+- ログインユーザーのデフォルト選択
+- 500ms以内のレスポンス
+
+**Dependencies**
+- Inbound: ProjectForm — 担当者選択 (P0)
+- Outbound: UserAPI — ユーザー一覧取得 (P1)
+
+**Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/users/assignable | - | AssignableUser[] | 401, 403 |
+
+**Implementation Notes**
+- Integration: 既存のUserモデルを活用、adminユーザーを除外
+- Validation: 選択されたユーザーIDの存在確認
+- Risks: ユーザー数が多い場合のパフォーマンス
+
+---
+
+#### ProjectStatusBadge
+
+| Field | Detail |
+|-------|--------|
+| Intent | ステータス表示と遷移UIを提供 |
+| Requirements | 10.1-10.10 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- ステータスの色分け表示
+- 遷移可能なステータスの表示
+- ステータス変更操作
+
+**Dependencies**
+- Inbound: ProjectListPage, ProjectDetailPage — ステータス表示 (P0)
+- Outbound: ProjectStatusService API — ステータス遷移 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+ステータスカラーマップ:
+```typescript
+const STATUS_COLORS: Record<ProjectStatus, { bg: string; text: string }> = {
+  PREPARING: { bg: 'bg-gray-100', text: 'text-gray-800' },
+  SURVEYING: { bg: 'bg-blue-100', text: 'text-blue-800' },
+  ESTIMATING: { bg: 'bg-yellow-100', text: 'text-yellow-800' },
+  APPROVING: { bg: 'bg-orange-100', text: 'text-orange-800' },
+  CONTRACTING: { bg: 'bg-purple-100', text: 'text-purple-800' },
+  CONSTRUCTING: { bg: 'bg-indigo-100', text: 'text-indigo-800' },
+  DELIVERING: { bg: 'bg-cyan-100', text: 'text-cyan-800' },
+  BILLING: { bg: 'bg-teal-100', text: 'text-teal-800' },
+  AWAITING: { bg: 'bg-lime-100', text: 'text-lime-800' },
+  COMPLETED: { bg: 'bg-green-100', text: 'text-green-800' },
+  CANCELLED: { bg: 'bg-red-100', text: 'text-red-800' },
+  LOST: { bg: 'bg-rose-100', text: 'text-rose-800' },
+};
+```
+
+**Implementation Notes**
+- Integration: Tailwind CSSのカラークラスを使用
+- Validation: 遷移前にサーバー側でも検証
+- Risks: カラーコントラストのアクセシビリティ確認が必要
+
+---
+
+### Navigation Integration
+
+#### AppHeader Extension (Summary Only)
+
+既存の`AppHeader`コンポーネントを拡張し、「プロジェクト」リンクを追加します。
+
+- 配置: 「ダッシュボード」リンクの右側
+- アイコン: プロジェクトを表すフォルダアイコン
+- リンク先: `/projects`
+
+**Implementation Note**: 既存の`Icons`オブジェクトに`Project`アイコンを追加し、ナビゲーションリンクを挿入
+
+---
+
+#### Dashboard Extension (Summary Only)
+
+既存の`Dashboard`コンポーネントを拡張し、「プロジェクト管理」カードを追加します。
+
+- 配置: クイックアクセスセクションの先頭
+- 説明文: 「工事案件の作成・管理」
+- リンク先: `/projects`
+
+**Implementation Note**: 既存のカードパターンを踏襲
+
+## Data Models
+
+### Domain Model
+
+```mermaid
+erDiagram
+    Project ||--o{ ProjectStatusHistory : has
+    Project }o--|| User : salesPerson
+    Project }o--o| User : constructionPerson
+    Project }o--|| User : createdBy
+
+    Project {
+        string id PK
+        string name
+        string customerName
+        string salesPersonId FK
+        string constructionPersonId FK
+        string siteAddress
+        string description
+        ProjectStatus status
+        datetime createdAt
+        datetime updatedAt
+        datetime deletedAt
+        string createdById FK
+    }
+
+    ProjectStatusHistory {
+        string id PK
+        string projectId FK
+        ProjectStatus fromStatus
+        ProjectStatus toStatus
+        string changedById FK
+        datetime changedAt
+    }
+```
+
+**Aggregates and Boundaries**:
+- `Project`はプロジェクト管理ドメインのルートエンティティ
+- `ProjectStatusHistory`は`Project`に従属するエンティティ（プロジェクトなしでは存在しない）
+
+**Business Rules & Invariants**:
+- プロジェクト名は必須かつ1-255文字
+- 顧客名は必須かつ1-255文字
+- 営業担当者は必須
+- ステータスは定義された12種類のいずれか
+- 論理削除されたプロジェクトは一覧に表示されない
+
+### Logical Data Model
+
+**Structure Definition**:
+
+| Entity | Attribute | Type | Constraints |
+|--------|-----------|------|-------------|
+| Project | id | UUID | PK, auto-generated |
+| Project | name | VARCHAR(255) | NOT NULL |
+| Project | customerName | VARCHAR(255) | NOT NULL |
+| Project | salesPersonId | UUID | FK → users.id, NOT NULL |
+| Project | constructionPersonId | UUID | FK → users.id, NULLABLE |
+| Project | siteAddress | VARCHAR(500) | NULLABLE |
+| Project | description | TEXT | NULLABLE, max 5000 chars |
+| Project | status | ENUM | NOT NULL, default 'PREPARING' |
+| Project | createdAt | TIMESTAMP | NOT NULL, auto-generated |
+| Project | updatedAt | TIMESTAMP | NOT NULL, auto-updated |
+| Project | deletedAt | TIMESTAMP | NULLABLE |
+| Project | createdById | UUID | FK → users.id, NOT NULL |
+| ProjectStatusHistory | id | UUID | PK, auto-generated |
+| ProjectStatusHistory | projectId | UUID | FK → projects.id, NOT NULL |
+| ProjectStatusHistory | fromStatus | ENUM | NOT NULL |
+| ProjectStatusHistory | toStatus | ENUM | NOT NULL |
+| ProjectStatusHistory | changedById | UUID | FK → users.id, NOT NULL |
+| ProjectStatusHistory | changedAt | TIMESTAMP | NOT NULL |
+
+**Consistency & Integrity**:
+- プロジェクト作成時に初期ステータス履歴を同時に作成（トランザクション）
+- ステータス変更時に履歴を同時に作成（トランザクション）
+- 論理削除時はdeletedAtを設定（物理削除は行わない）
+
+### Physical Data Model
+
+**Prisma Schema Definition**:
+
+```prisma
+model Project {
+  id                   String    @id @default(uuid())
+  name                 String
+  customerName         String
+  salesPersonId        String
+  constructionPersonId String?
+  siteAddress          String?
+  description          String?
+  status               ProjectStatus @default(PREPARING)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+  createdById          String
+
+  salesPerson          User      @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
+  constructionPerson   User?     @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
+  createdBy            User      @relation("CreatedProjects", fields: [createdById], references: [id])
+  statusHistory        ProjectStatusHistory[]
+
+  @@index([name])
+  @@index([customerName])
+  @@index([status])
+  @@index([salesPersonId])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+model ProjectStatusHistory {
+  id          String        @id @default(uuid())
+  projectId   String
+  fromStatus  ProjectStatus
+  toStatus    ProjectStatus
+  changedById String
+  changedAt   DateTime      @default(now())
+
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changedBy   User          @relation("StatusChangedByUser", fields: [changedById], references: [id])
+
+  @@index([projectId])
+  @@index([changedAt])
+  @@map("project_status_histories")
+}
+
+enum ProjectStatus {
+  PREPARING     // 準備中
+  SURVEYING     // 調査中
+  ESTIMATING    // 見積中
+  APPROVING     // 決裁待ち
+  CONTRACTING   // 契約中
+  CONSTRUCTING  // 工事中
+  DELIVERING    // 引渡中
+  BILLING       // 請求中
+  AWAITING      // 入金待ち
+  COMPLETED     // 完了
+  CANCELLED     // 中止
+  LOST          // 失注
+}
+```
+
+**Indexes**:
+- 検索用: `name`, `customerName`（部分一致検索）
+- フィルタリング用: `status`, `createdAt`
+- ソート用: `createdAt`, `updatedAt`
+- 外部キー用: `salesPersonId`
+- 論理削除確認用: `deletedAt`
+
+## Error Handling
+
+### Error Categories and Responses
+
+**User Errors (4xx)**:
+- 400 Bad Request: バリデーションエラー（必須フィールド未入力、文字数超過、無効なステータス等）
+- 401 Unauthorized: 未認証アクセス → ログインページへリダイレクト
+- 403 Forbidden: 権限不足 → 権限エラーメッセージ表示
+- 404 Not Found: プロジェクト不存在 → 404ページ表示
+- 409 Conflict: 楽観的排他制御エラー → 最新データ確認を促すメッセージ表示
+- 422 Unprocessable Entity: 無効なステータス遷移 → 許可された遷移先を表示
+
+**System Errors (5xx)**:
+- 500 Internal Server Error: サーバーエラー → 「しばらくしてからお試しください」メッセージ
+- 503 Service Unavailable: サービス停止 → メンテナンスメッセージ
+
+**Business Logic Errors (422)**:
+- 無効なステータス遷移 → 現在のステータスと許可された遷移先を表示
+- 関連データ存在時の削除 → 警告ダイアログ表示
+
+### Monitoring
+
+- エラーログ: Pinoロガーによる構造化ログ出力
+- 監査ログ: プロジェクト作成・更新・削除・ステータス変更を記録
+- Sentryエラートラッキング: 予期せぬエラーの自動報告
+
+## Testing Strategy
+
+### Unit Tests
+
+- ProjectService: CRUD操作、バリデーション、エラーハンドリング
+- ProjectStatusService: ステータス遷移ロジック、履歴記録
+- ProjectForm: フォームバリデーション、送信処理
+- CustomerAutocomplete: 検索ロジック、候補表示
+- UserSelect: ユーザー一覧取得、フィルタリング
+
+### Integration Tests
+
+- POST /api/projects: プロジェクト作成フロー（認証、権限、バリデーション、DB保存）
+- GET /api/projects: 一覧取得（ページネーション、検索、フィルタ、ソート）
+- PUT /api/projects/:id: 更新フロー（楽観的排他制御、監査ログ）
+- PATCH /api/projects/:id/status: ステータス遷移（遷移ルール、履歴記録）
+- DELETE /api/projects/:id: 削除フロー（論理削除、関連データ確認）
+
+### E2E/UI Tests
+
+- プロジェクト作成フロー: フォーム入力 → 送信 → 詳細画面遷移
+- プロジェクト一覧操作: 検索 → フィルタ → ソート → ページ遷移
+- ステータス変更: ステータスドロップダウン → 遷移確認
+- レスポンシブ表示: デスクトップ → タブレット → モバイル
+- キーボードナビゲーション: Tab, Enter, Escape操作
+
+### Performance
+
+- 一覧表示: 1000件以上のデータで2秒以内の表示
+- API応答: CRUD操作500ms以内
+- 検索・フィルタ: 1秒以内の結果表示
+
+## Security Considerations
+
+### Authentication and Authorization
+
+- 全APIエンドポイントで`authenticate.middleware.ts`による認証必須
+- 操作別の権限チェック（`authorize.middleware.ts`）:
+  - `project:create`: プロジェクト作成
+  - `project:read`: プロジェクト閲覧
+  - `project:update`: プロジェクト更新
+  - `project:delete`: プロジェクト削除
+- 既存のPermissionテーブルへの権限追加（マイグレーション）
+
+### Data Protection
+
+- 担当者IDの検証: admin以外の有効なユーザーIDであることを確認
+- 入力サニタイズ: XSS対策（React自動エスケープ）
+- SQLインジェクション対策: Prisma ORMによるパラメータ化クエリ
+
+### Audit Trail
+
+- 監査対象操作:
+  - PROJECT_CREATED: プロジェクト作成
+  - PROJECT_UPDATED: プロジェクト更新
+  - PROJECT_DELETED: プロジェクト削除
+  - PROJECT_STATUS_CHANGED: ステータス変更
+- 記録内容: actorId, targetId, before/after, metadata（IPアドレス、User-Agent）
+
+## Performance & Scalability
+
+### Target Metrics
+
+| Operation | Target | Measurement |
+|-----------|--------|-------------|
+| 一覧表示（初期表示） | 2秒以内 | First Contentful Paint |
+| 詳細表示 | 1秒以内 | Time to Interactive |
+| CRUD操作 | 500ms以内 | API Response Time |
+| 検索・フィルタ | 1秒以内 | API Response Time |
+| オートコンプリート | 500ms以内 | API Response Time |
+
+### Optimization Techniques
+
+- ページネーション: 1ページ20件でデータ量制限
+- インデックス: 検索・フィルタ・ソート対象カラムにインデックス設定
+- N+1防止: Prisma includeによる効率的なクエリ
+- デバウンス: 検索・オートコンプリートのリクエスト抑制（300ms）
+- 仮想スクロール: 大量データ時の検討（将来対応）
+
+### Caching Strategy
+
+- 権限キャッシュ: 既存のRBACキャッシュ（Redis、15分TTL）を活用
+- ユーザー一覧キャッシュ: 担当者選択用（将来検討）
