@@ -87,7 +87,7 @@
   - Swagger JSDocコメントを追加
   - _Requirements: 17.3, 17.4, 17.5, 17.11, 17.12_
 
-- [ ] 4.2 プロジェクトCRUD APIの実装
+- [x] 4.2 プロジェクトCRUD APIの実装
   - GET /api/projects: 一覧取得（ページネーション、検索、フィルタリング、ソートのクエリパラメータ対応）を実装
   - GET /api/projects/:id: 詳細取得を実装
   - POST /api/projects: 作成を実装
