@@ -286,7 +286,19 @@ model Project {
 /**
  * プロジェクトステータス変更履歴
  * ステータス変更の履歴を記録し、遷移種別と差し戻し理由を含む
- * Note: Task 1.3で完全実装予定。Task 1.2では最小定義のみ
+ * フィールド:
+ * - id: 履歴レコードの一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - fromStatus: 変更前のステータス（nullable: 初期遷移時はnull）
+ * - toStatus: 変更後のステータス（必須）
+ * - transitionType: 遷移種別（initial/forward/backward/terminate）
+ * - reason: 差し戻し理由（backward遷移時は必須、他は任意）
+ * - changedById: 変更実行者ID（外部キー）
+ * - changedAt: 変更日時（自動設定）
+ * インデックス:
+ * - projectId: プロジェクト単位での履歴検索用
+ * - changedAt: タイムライン検索用
+ * - transitionType: 遷移種別によるフィルタリング用
  * Requirements: 10.10, 10.11, 10.15
  */
 model ProjectStatusHistory {

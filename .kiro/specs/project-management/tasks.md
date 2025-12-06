@@ -15,7 +15,7 @@
   - 論理削除フィールド（deletedAt）を設定
   - _Requirements: 1.14, 1.15, 9.7, 13.1, 13.2, 13.3, 13.5, 13.7, 13.8_
 
-- [ ] 1.3 ProjectStatusHistoryモデルのスキーマ定義
+- [x] 1.3 ProjectStatusHistoryモデルのスキーマ定義
   - ステータス履歴テーブル（id, projectId, fromStatus, toStatus, transitionType, reason, changedById, changedAt）を定義
   - Projectモデルとのリレーション（onDelete: Cascade）を設定
   - Userモデルとのリレーション（changedBy）を設定
