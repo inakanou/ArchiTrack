@@ -39,7 +39,7 @@
 
 ## Task 3: バックエンドサービス層の実装
 
-- [ ] 3.1 (P) プロジェクト用カスタム例外クラスの実装
+- [x] 3.1 (P) プロジェクト用カスタム例外クラスの実装
   - ProjectNotFoundError（プロジェクト未存在時）を実装
   - ProjectValidationError（バリデーションエラー時）を実装
   - ProjectConflictError（楽観的排他制御エラー時）を実装
