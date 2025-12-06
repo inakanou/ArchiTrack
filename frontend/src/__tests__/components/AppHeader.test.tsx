@@ -579,4 +579,137 @@ describe('AppHeader - タスク23.2: ナビゲーションコンポーネント�
       expect(logoLink).toHaveAttribute('href', '/');
     });
   });
+
+  /**
+   * タスク10.1: AppHeaderへのプロジェクトリンク追加
+   *
+   * 要件:
+   * - 21.1: ナビゲーションメニューにプロジェクト管理へのリンクが表示されている
+   * - 21.2: プロジェクトリンクをクリックするとプロジェクト一覧ページに遷移する
+   * - 21.3: プロジェクトリンクはアイコン付きで表示される
+   * - 21.4: プロジェクトリンクはダッシュボードリンクの隣に配置される
+   */
+  describe('プロジェクトリンク（タスク10.1）', () => {
+    /**
+     * REQ-21.1: ナビゲーションメニューにプロジェクト管理へのリンクが表示されている
+     */
+    it('should render project link in navigation', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByRole('link', { name: /プロジェクト/i })).toBeInTheDocument();
+    });
+
+    /**
+     * REQ-21.2: プロジェクトリンクをクリックするとプロジェクト一覧ページ（/projects）に遷移する
+     */
+    it('should have correct href to /projects', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const projectLink = screen.getByRole('link', { name: /プロジェクト/i });
+      expect(projectLink).toHaveAttribute('href', '/projects');
+    });
+
+    /**
+     * REQ-21.3: プロジェクトリンクはアイコン付きで表示される
+     */
+    it('should render project link with icon', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const projectLink = screen.getByRole('link', { name: /プロジェクト/i });
+      // SVGアイコンが含まれていることを確認
+      const svg = projectLink.querySelector('svg');
+      expect(svg).toBeInTheDocument();
+      expect(svg).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    /**
+     * REQ-21.4: プロジェクトリンクはダッシュボードリンクの隣（右側）に配置される
+     */
+    it('should render project link after dashboard link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const dashboardLink = screen.getByRole('link', { name: /ダッシュボード/i });
+      const projectLink = screen.getByRole('link', { name: /プロジェクト/i });
+
+      // DOM順序でプロジェクトリンクがダッシュボードリンクの後に来ることを確認
+      const nav = screen.getByRole('navigation');
+      const links = nav.querySelectorAll('a.app-header-nav-link');
+
+      // linksをArrayに変換
+      const linksArray = Array.from(links);
+
+      const dashboardIndex = linksArray.indexOf(dashboardLink);
+      const projectIndex = linksArray.indexOf(projectLink);
+
+      expect(dashboardIndex).toBeLessThan(projectIndex);
+      expect(projectIndex).toBe(dashboardIndex + 1);
+    });
+
+    /**
+     * プロジェクトリンクが正しいCSSクラスを持つ
+     */
+    it('should have correct CSS class on project link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const projectLink = screen.getByRole('link', { name: /プロジェクト/i });
+      expect(projectLink).toHaveClass('app-header-nav-link');
+    });
+
+    /**
+     * プロジェクトリンクにテキスト「プロジェクト」が表示される
+     */
+    it('should display text "プロジェクト" in link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByText('プロジェクト')).toBeInTheDocument();
+    });
+  });
 });
