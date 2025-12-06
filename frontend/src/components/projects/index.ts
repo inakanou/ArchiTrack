@@ -33,3 +33,6 @@ export type { ProjectSearchFilterProps } from './ProjectSearchFilter';
 
 export { default as PaginationUI } from './PaginationUI';
 export type { PaginationUIProps } from './PaginationUI';
+
+export { default as DeleteConfirmationDialog } from './DeleteConfirmationDialog';
+export type { DeleteConfirmationDialogProps, RelatedDataCounts } from './DeleteConfirmationDialog';
