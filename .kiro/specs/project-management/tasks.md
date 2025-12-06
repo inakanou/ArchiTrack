@@ -128,7 +128,7 @@
   - AssignableUser型を定義
   - _Requirements: 10.1, 10.11_
 
-- [ ] 5.2 (P) プロジェクト用APIクライアントの実装
+- [x] 5.2 (P) プロジェクト用APIクライアントの実装
   - getProjects: 一覧取得（クエリパラメータ対応）を実装
   - getProject: 詳細取得を実装
   - createProject: 作成を実装
