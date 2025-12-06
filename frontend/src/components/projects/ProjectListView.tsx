@@ -2,11 +2,13 @@
  * @fileoverview プロジェクト一覧ビューコンポーネント
  *
  * Task 8.2: プロジェクト一覧カード表示の実装
+ * Task 11.1: 画面幅対応の実装
  *
  * Requirements:
  * - 15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
  * - 15.3: 768px未満でカード形式に切り替えて表示
  * - 15.4: タッチ操作に最適化されたUI（タップターゲット44x44px以上）
+ * - 15.5: 320px〜1920pxの画面幅に対応
  *
  * このコンポーネントは、画面幅に応じてテーブル表示とカード表示を切り替えます。
  * - 768px以上: ProjectListTable（テーブル表示）
@@ -14,6 +16,7 @@
  */
 
 import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
 import ProjectListTable from './ProjectListTable';
 import ProjectListCard from './ProjectListCard';
 import type { ProjectInfo } from '../../types/project.types';
@@ -38,16 +41,6 @@ export interface ProjectListViewProps {
   /** 行/カードクリックハンドラ */
   onRowClick: (projectId: string) => void;
 }
-
-// ============================================================================
-// 定数定義
-// ============================================================================
-
-/**
- * モバイル判定用のメディアクエリ
- * 768px未満をモバイルとして扱う
- */
-const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)';
 
 // ============================================================================
 // メインコンポーネント
@@ -77,7 +70,8 @@ export default function ProjectListView({
   onRowClick,
 }: ProjectListViewProps) {
   // 768px未満の場合はモバイル表示（カード）
-  const isMobile = useMediaQuery(MOBILE_BREAKPOINT_QUERY);
+  // MEDIA_QUERIES.isMobile は '(max-width: 767px)' を使用
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
 
   if (isMobile) {
     // モバイル: カード表示
