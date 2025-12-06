@@ -251,19 +251,26 @@ describe('BackwardReasonDialog', () => {
   });
 
   describe('ダイアログリセット', () => {
-    it('ダイアログが閉じて再度開くと、入力内容とエラーがリセットされる', async () => {
+    it('キャンセル後に再度開くと、入力内容がリセットされる', async () => {
       const user = userEvent.setup({ delay: null });
-      const { rerender } = render(<BackwardReasonDialog {...defaultProps} />);
+      const mockOnCancel = vi.fn();
+      const { rerender } = render(
+        <BackwardReasonDialog {...defaultProps} onCancel={mockOnCancel} />
+      );
 
-      // 理由を入力して確認ボタンを押す
+      // 理由を入力
       const textarea = screen.getByRole('textbox', { name: /差し戻し理由/i });
       await user.type(textarea, 'テスト理由');
 
+      // キャンセルボタンをクリック（stateがリセットされる）
+      await user.click(screen.getByRole('button', { name: /キャンセル/i }));
+      expect(mockOnCancel).toHaveBeenCalled();
+
       // ダイアログを閉じる
-      rerender(<BackwardReasonDialog {...defaultProps} isOpen={false} />);
+      rerender(<BackwardReasonDialog {...defaultProps} onCancel={mockOnCancel} isOpen={false} />);
 
       // ダイアログを再度開く
-      rerender(<BackwardReasonDialog {...defaultProps} isOpen={true} />);
+      rerender(<BackwardReasonDialog {...defaultProps} onCancel={mockOnCancel} isOpen={true} />);
 
       // 入力内容がリセットされている
       const newTextarea = screen.getByRole('textbox', { name: /差し戻し理由/i });
@@ -274,11 +281,7 @@ describe('BackwardReasonDialog', () => {
   describe('異なるステータスでの表示', () => {
     it('見積中から調査中への差し戻しが正しく表示される', () => {
       render(
-        <BackwardReasonDialog
-          {...defaultProps}
-          fromStatus="ESTIMATING"
-          toStatus="SURVEYING"
-        />
+        <BackwardReasonDialog {...defaultProps} fromStatus="ESTIMATING" toStatus="SURVEYING" />
       );
 
       expect(screen.getByText(/見積中/)).toBeInTheDocument();
@@ -287,11 +290,7 @@ describe('BackwardReasonDialog', () => {
 
     it('工事中から契約中への差し戻しが正しく表示される', () => {
       render(
-        <BackwardReasonDialog
-          {...defaultProps}
-          fromStatus="CONSTRUCTING"
-          toStatus="CONTRACTING"
-        />
+        <BackwardReasonDialog {...defaultProps} fromStatus="CONSTRUCTING" toStatus="CONTRACTING" />
       );
 
       expect(screen.getByText(/工事中/)).toBeInTheDocument();

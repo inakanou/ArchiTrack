@@ -10,7 +10,7 @@
  * - 20.1: すべての操作をキーボードのみで実行可能にする
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import FocusManager from '../FocusManager';
 import type { ProjectStatus } from '../../types/project.types';
 import { PROJECT_STATUS_LABELS } from '../../types/project.types';
@@ -177,25 +177,21 @@ function BackwardReasonDialog({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const errorId = 'backward-reason-error';
 
-  // ダイアログが閉じたときにリセット
-  useEffect(() => {
-    if (!isOpen) {
-      setReason('');
-      setError(null);
-    }
-  }, [isOpen]);
+  // キャンセル時にリセットしてコールバック呼び出し
+  const handleCancel = useCallback(() => {
+    setReason('');
+    setError(null);
+    onCancel();
+  }, [onCancel]);
 
   // 入力時にエラーをクリア
-  const handleReasonChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const value = e.target.value;
-      setReason(value);
-      if (value.trim()) {
-        setError(null);
-      }
-    },
-    []
-  );
+  const handleReasonChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setReason(value);
+    if (value.trim()) {
+      setError(null);
+    }
+  }, []);
 
   // 確認ボタンクリック
   const handleConfirm = useCallback(() => {
@@ -214,7 +210,7 @@ function BackwardReasonDialog({
   return (
     <FocusManager
       isOpen={isOpen}
-      onClose={onCancel}
+      onClose={handleCancel}
       closeOnEscape={!isSubmitting}
       closeOnOutsideClick={false}
       initialFocusRef={textareaRef as React.RefObject<HTMLElement>}
@@ -272,12 +268,7 @@ function BackwardReasonDialog({
             }}
           />
           {error && (
-            <div
-              id={errorId}
-              role="alert"
-              aria-live="polite"
-              style={styles.errorMessage}
-            >
+            <div id={errorId} role="alert" aria-live="polite" style={styles.errorMessage}>
               {error}
             </div>
           )}
@@ -287,7 +278,7 @@ function BackwardReasonDialog({
         <div style={styles.buttonContainer}>
           <button
             type="button"
-            onClick={onCancel}
+            onClick={handleCancel}
             disabled={isSubmitting}
             style={{
               ...styles.buttonBase,
