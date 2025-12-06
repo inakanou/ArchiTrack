@@ -27,3 +27,6 @@ export type { StatusTransitionUIProps } from './StatusTransitionUI';
 
 export { default as BackwardReasonDialog } from './BackwardReasonDialog';
 export type { BackwardReasonDialogProps } from './BackwardReasonDialog';
+
+export { default as ProjectSearchFilter } from './ProjectSearchFilter';
+export type { ProjectSearchFilterProps } from './ProjectSearchFilter';
