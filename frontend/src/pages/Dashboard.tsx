@@ -9,12 +9,17 @@ import { useAuth } from '../hooks/useAuth';
  * 認証済みユーザー向けの主要機能へのクイックアクセスリンクを提供します。
  *
  * ## 機能
+ * - プロジェクト管理へのリンク（クイックアクセスセクション先頭）
  * - プロフィールへのリンク
  * - セッション管理へのリンク
  * - 2FA設定へのリンク
  * - 管理者向け機能へのリンク（管理者のみ表示）
  *
  * ## 要件
+ * - REQ-21.5: ダッシュボードにプロジェクト管理へのクイックアクセスカードが表示されている
+ * - REQ-21.6: プロジェクト管理カードをクリックするとプロジェクト一覧ページに遷移する
+ * - REQ-21.7: プロジェクト管理カードには「工事案件の作成・管理」という説明が表示される
+ * - REQ-21.8: プロジェクト管理カードはクイックアクセスセクションの先頭に配置される
  * - REQ-28.26: ダッシュボード画面は主要機能へのクイックアクセスリンクを提供する
  * - REQ-28.27: プロフィールリンククリック → プロフィール画面遷移
  */
@@ -36,6 +41,16 @@ export function Dashboard(): ReactElement {
       <section>
         <h2 className="text-xl font-semibold text-gray-800 mb-4">クイックアクセス</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* プロジェクト管理 - REQ 21.5, 21.6, 21.7, 21.8: セクション先頭に配置 */}
+          <Link
+            to="/projects"
+            className="block p-6 bg-white rounded-lg shadow hover:shadow-md transition-shadow"
+            data-testid="quick-link-projects"
+          >
+            <h3 className="text-lg font-medium text-gray-900">プロジェクト管理</h3>
+            <p className="mt-2 text-gray-600">工事案件の作成・管理</p>
+          </Link>
+
           {/* プロフィール */}
           <Link
             to="/profile"
