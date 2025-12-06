@@ -31,7 +31,7 @@
 
 ## Task 2: 権限設定
 
-- [ ] 2.1 プロジェクト権限の追加
+- [x] 2.1 プロジェクト権限の追加
   - 既存Permissionテーブルに「project:create」「project:read」「project:update」「project:delete」権限を追加
   - シードデータまたはマイグレーションで権限を登録
   - 適切なロールに権限を割り当て
