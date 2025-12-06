@@ -99,7 +99,7 @@
   - 3.4のProjectServiceが必要
   - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 12.1, 12.2, 12.3_
 
-- [ ] 4.3 ステータス遷移APIの実装
+- [x] 4.3 ステータス遷移APIの実装
   - PATCH /api/projects/:id/status: ステータス変更（status, reason）を実装
   - GET /api/projects/:id/status-history: ステータス変更履歴取得を実装
   - 差し戻し遷移時の理由必須バリデーションを実装

@@ -8,11 +8,17 @@
  * - 14.4: PUT /api/projects/:id プロジェクト更新
  * - 14.5: DELETE /api/projects/:id プロジェクト削除
  * - 14.6: 一覧取得APIでページネーション、検索、フィルタリング、ソートのクエリパラメータをサポート
+ * - 14.7: ステータス遷移API（PATCH /:id/status, GET /:id/status-history）
+ * - 10.8: 許可されたステータス遷移の実行
+ * - 10.9: 無効なステータス遷移時のエラーレスポンス（422）
+ * - 10.13: ステータス変更履歴取得
+ * - 10.14: 差し戻し遷移時の理由必須バリデーション
  * - 12.1, 12.2, 12.3: 認証・認可ミドルウェア適用
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ProjectService } from '../services/project.service.js';
+import { ProjectStatusService } from '../services/project-status.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -24,11 +30,14 @@ import {
   updateProjectSchema,
   projectListQuerySchema,
   projectIdParamSchema,
+  statusChangeSchema,
 } from '../schemas/project.schema.js';
 import {
   ProjectNotFoundError,
   ProjectValidationError,
   ProjectConflictError,
+  InvalidStatusTransitionError,
+  ReasonRequiredError,
 } from '../errors/projectError.js';
 import { z } from 'zod';
 
@@ -36,6 +45,10 @@ const router = Router();
 const prisma = getPrismaClient();
 const auditLogService = new AuditLogService({ prisma });
 const projectService = new ProjectService({
+  prisma,
+  auditLogService,
+});
+const projectStatusService = new ProjectStatusService({
   prisma,
   auditLogService,
 });
@@ -454,6 +467,239 @@ router.delete(
       logger.info({ userId: actorId, projectId: id }, 'Project deleted successfully');
 
       res.status(204).send();
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) {
+        res.status(404).json({
+          type: error.problemType,
+          title: 'Project Not Found',
+          status: 404,
+          detail: error.message,
+          code: error.code,
+          projectId: error.projectId,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/projects/{id}/status:
+ *   patch:
+ *     summary: プロジェクトステータス変更
+ *     description: プロジェクトのステータスを変更（遷移ルールに従う）
+ *     tags:
+ *       - Projects
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: プロジェクトID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [PREPARING, SURVEYING, ESTIMATING, APPROVING, CONTRACTING, CONSTRUCTING, DELIVERING, BILLING, AWAITING, COMPLETED, CANCELLED, LOST]
+ *                 description: 新しいステータス
+ *               reason:
+ *                 type: string
+ *                 description: 差し戻し理由（backward遷移時は必須）
+ *     responses:
+ *       200:
+ *         description: ステータス変更成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                   format: uuid
+ *                 name:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない
+ *       422:
+ *         description: 無効なステータス遷移または差し戻し理由未入力
+ */
+router.patch(
+  '/:id/status',
+  authenticate,
+  requirePermission('project:update'),
+  validate(projectIdParamSchema, 'params'),
+  validate(statusChangeSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const actorId = req.user!.userId;
+      const { status, reason } = req.validatedBody as {
+        status: import('../types/project.types.js').ProjectStatus;
+        reason?: string | null;
+      };
+
+      const project = await projectStatusService.transitionStatus(
+        id,
+        status,
+        actorId,
+        reason ?? undefined
+      );
+
+      logger.info(
+        { userId: actorId, projectId: id, newStatus: status },
+        'Project status changed successfully'
+      );
+
+      res.json(project);
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) {
+        res.status(404).json({
+          type: error.problemType,
+          title: 'Project Not Found',
+          status: 404,
+          detail: error.message,
+          code: error.code,
+          projectId: error.projectId,
+        });
+        return;
+      }
+      if (error instanceof InvalidStatusTransitionError) {
+        res.status(422).json({
+          type: error.problemType,
+          title: 'Invalid Status Transition',
+          status: 422,
+          detail: error.message,
+          code: error.code,
+          fromStatus: error.fromStatus,
+          toStatus: error.toStatus,
+          allowed: error.allowed,
+        });
+        return;
+      }
+      if (error instanceof ReasonRequiredError) {
+        res.status(422).json({
+          type: error.problemType,
+          title: 'Reason Required',
+          status: 422,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/projects/{id}/status-history:
+ *   get:
+ *     summary: ステータス変更履歴取得
+ *     description: プロジェクトのステータス変更履歴を取得
+ *     tags:
+ *       - Projects
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: プロジェクトID
+ *     responses:
+ *       200:
+ *         description: ステータス変更履歴
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                     format: uuid
+ *                   projectId:
+ *                     type: string
+ *                     format: uuid
+ *                   fromStatus:
+ *                     type: string
+ *                     nullable: true
+ *                   toStatus:
+ *                     type: string
+ *                   transitionType:
+ *                     type: string
+ *                     enum: [initial, forward, backward, terminate]
+ *                   reason:
+ *                     type: string
+ *                     nullable: true
+ *                   changedById:
+ *                     type: string
+ *                     format: uuid
+ *                   changedAt:
+ *                     type: string
+ *                     format: date-time
+ *                   changedBy:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       displayName:
+ *                         type: string
+ *       400:
+ *         description: 無効なプロジェクトID形式
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない
+ */
+router.get(
+  '/:id/status-history',
+  authenticate,
+  requirePermission('project:read'),
+  validate(projectIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+
+      const histories = await projectStatusService.getStatusHistory(id);
+
+      logger.debug(
+        { userId: req.user?.userId, projectId: id, historyCount: histories.length },
+        'Status history retrieved'
+      );
+
+      res.json(histories);
     } catch (error) {
       if (error instanceof ProjectNotFoundError) {
         res.status(404).json({
