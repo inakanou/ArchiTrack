@@ -1,13 +1,13 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2025-12-06T17:30:00Z",
+  "updated_at": "2025-12-06T18:00:00Z",
   "language": "ja",
-  "phase": "requirements-modified",
+  "phase": "design-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
       "generated": true,

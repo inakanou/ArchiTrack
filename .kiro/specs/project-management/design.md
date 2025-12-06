@@ -13,15 +13,15 @@
 ### Goals
 
 - プロジェクトのCRUD操作を実現し、工事案件の一元管理を可能にする
-- 12段階のステータスワークフローにより、プロジェクトの進捗を正確に追跡する
+- 12段階のステータスワークフロー（順方向遷移・差し戻し遷移・終端遷移）により、プロジェクトの進捗を正確に追跡する
 - 既存のRBAC基盤を活用した権限ベースのアクセス制御を実装する
 - レスポンシブデザインによりデスクトップ・タブレット・モバイルに対応する
 - WCAG 2.1 Level AA準拠のアクセシビリティを確保する
 
 ### Non-Goals
 
-- 現場調査機能の実装（プロジェクト詳細画面からのリンクのみ）
-- 見積書機能の実装（プロジェクト詳細画面からのリンクのみ）
+- 現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
+- 見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
 - 取引先管理機能の実装（既存機能への連携のみ）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
@@ -56,6 +56,7 @@ graph TB
         ProjectList[ProjectListPage]
         ProjectDetail[ProjectDetailPage]
         ProjectForm[ProjectForm]
+        StatusTransitionUI[StatusTransitionUI]
     end
 
     subgraph Backend[Backend Layer]
@@ -77,11 +78,13 @@ graph TB
     Dashboard --> ProjectList
     ProjectList --> ProjectDetail
     ProjectDetail --> ProjectForm
+    ProjectDetail --> StatusTransitionUI
 
     ProjectList --> ProjectRoutes
     ProjectDetail --> ProjectRoutes
     ProjectForm --> ProjectRoutes
     ProjectForm --> UserRoutes
+    StatusTransitionUI --> ProjectRoutes
 
     ProjectRoutes --> ProjectService
     ProjectRoutes --> RBACService
@@ -146,35 +149,80 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> 準備中: 新規作成
-    準備中 --> 調査中: 調査開始
-    準備中 --> 中止: 案件中止
-    調査中 --> 見積中: 見積作成
-    調査中 --> 中止: 案件中止
-    見積中 --> 決裁待ち: 見積提出
-    見積中 --> 中止: 案件中止
-    決裁待ち --> 契約中: 決裁承認
-    決裁待ち --> 失注: 失注
-    契約中 --> 工事中: 工事開始
-    契約中 --> 失注: 失注
-    工事中 --> 引渡中: 工事完了
-    引渡中 --> 請求中: 引渡完了
-    請求中 --> 入金待ち: 請求完了
-    入金待ち --> 完了: 入金確認
+
+    %% Forward transitions (順方向遷移)
+    準備中 --> 調査中: forward
+    調査中 --> 見積中: forward
+    見積中 --> 決裁待ち: forward
+    決裁待ち --> 契約中: forward
+    契約中 --> 工事中: forward
+    工事中 --> 引渡中: forward
+    引渡中 --> 請求中: forward
+    請求中 --> 入金待ち: forward
+    入金待ち --> 完了: forward
+
+    %% Backward transitions (差し戻し遷移)
+    調査中 --> 準備中: backward
+    見積中 --> 調査中: backward
+    決裁待ち --> 見積中: backward
+    契約中 --> 決裁待ち: backward
+    工事中 --> 契約中: backward
+    引渡中 --> 工事中: backward
+    請求中 --> 引渡中: backward
+    入金待ち --> 請求中: backward
+
+    %% Terminate transitions (終端遷移)
+    準備中 --> 中止: terminate
+    調査中 --> 中止: terminate
+    見積中 --> 中止: terminate
+    決裁待ち --> 失注: terminate
+    契約中 --> 失注: terminate
+
     完了 --> [*]
     中止 --> [*]
     失注 --> [*]
 ```
 
 **Key Decisions**:
-- ステータス遷移は順方向のみ許可（逆方向遷移は禁止）
-- 「中止」「失注」は終端ステータス（遷移不可）
-- すべてのステータス変更は履歴として記録
+- ステータス遷移は3種類: forward（順方向）、backward（差し戻し）、terminate（終端）
+- 差し戻し遷移（backward）は1つ前のステータスへのみ許可、理由入力を必須とする
+- 「完了」「中止」「失注」は終端ステータス（いずれの遷移も禁止）
+- すべてのステータス変更は履歴として記録（遷移種別と差し戻し理由を含む）
+
+### ステータス遷移UIフロー
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as StatusTransitionUI
+    participant API as Backend API
+    participant PSS as ProjectStatusService
+    participant DB as PostgreSQL
+
+    U->>UI: ステータス変更ボタンクリック
+    UI->>UI: 遷移可能ステータス表示
+    U->>UI: 新ステータス選択
+
+    alt backward transition
+        UI->>UI: 差し戻し理由入力ダイアログ表示
+        U->>UI: 理由入力・確認
+    end
+
+    UI->>API: PATCH /api/projects/:id/status
+    API->>PSS: transitionStatus(id, status, reason)
+    PSS->>PSS: 遷移ルール検証
+    PSS->>DB: UPDATE Project.status
+    PSS->>DB: INSERT ProjectStatusHistory
+    PSS-->>API: ProjectInfo
+    API-->>UI: 200 OK
+    UI->>UI: ステータス更新・履歴反映
+```
 
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.14 | プロジェクト作成 | ProjectForm, ProjectService | POST /api/projects | プロジェクト作成フロー |
+| 1.1-1.15 | プロジェクト作成 | ProjectForm, ProjectService | POST /api/projects | プロジェクト作成フロー |
 | 2.1-2.6 | プロジェクト一覧表示 | ProjectListPage, ProjectService | GET /api/projects | - |
 | 3.1-3.5 | ページネーション | ProjectListPage, ProjectService | GET /api/projects?page,limit | - |
 | 4.1-4.5 | 検索 | ProjectListPage, ProjectService | GET /api/projects?search | - |
@@ -183,8 +231,8 @@ stateDiagram-v2
 | 7.1-7.7 | 詳細表示 | ProjectDetailPage, ProjectService | GET /api/projects/:id | - |
 | 8.1-8.6 | 編集 | ProjectForm, ProjectService | PUT /api/projects/:id | - |
 | 9.1-9.7 | 削除 | ProjectDetailPage, ProjectService | DELETE /api/projects/:id | - |
-| 10.1-10.10 | ステータス管理 | ProjectStatusBadge, ProjectStatusService | PATCH /api/projects/:id/status | ステータス遷移フロー |
-| 11.1-11.5 | 関連データ参照 | ProjectDetailPage, ProjectService | GET /api/projects/:id | - |
+| 10.1-10.16 | ステータス管理 | StatusTransitionUI, ProjectStatusService | PATCH /api/projects/:id/status | ステータス遷移フロー |
+| 11.1-11.6 | 関連データ参照 | ProjectDetailPage, ProjectService, FeatureFlags | GET /api/projects/:id | - |
 | 12.1-12.6 | アクセス制御 | authorize middleware, RBACService | - | - |
 | 13.1-13.11 | バリデーション | ProjectSchema, ProjectService | - | - |
 | 14.1-14.7 | API | ProjectRoutes | RESTful API全般 | - |
@@ -207,7 +255,7 @@ stateDiagram-v2
 | ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17 | CustomerAutocomplete (P1), UserSelect (P1) | Service |
 | CustomerAutocomplete | UI/Component | 取引先名オートコンプリート | 16 | BusinessPartnerAPI (P1) | API |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
-| ProjectStatusBadge | UI/Component | ステータス表示・遷移UI | 10 | ProjectStatusService (P1) | State |
+| StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
 | ProjectService | Backend/Service | プロジェクトCRUDビジネスロジック | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
 | ProjectRoutes | Backend/Route | RESTful APIエンドポイント | 14 | ProjectService (P0), authorize (P0) | API |
@@ -219,7 +267,7 @@ stateDiagram-v2
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクトのCRUD操作とビジネスロジックを担当 |
-| Requirements | 1.1-1.14, 2.1-2.6, 3.1-3.5, 4.1-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.7, 8.1-8.6, 9.1-9.7, 11.1-11.5, 13.1-13.11 |
+| Requirements | 1.1-1.15, 2.1-2.6, 3.1-3.5, 4.1-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.7, 8.1-8.6, 9.1-9.7, 11.1-11.6, 13.1-13.11 |
 | Owner / Reviewers | Backend Team |
 
 **Responsibilities & Constraints**
@@ -227,7 +275,7 @@ stateDiagram-v2
 - 論理削除の実装（`deletedAt`フィールドによる管理）
 - ページネーション、検索、フィルタリング、ソートのサポート
 - 楽観的排他制御（`updatedAt`フィールドによる競合検出）
-- 関連データ（現場調査、見積書）の件数取得
+- 関連データ（現場調査、見積書）の件数取得（機能フラグで制御）
 
 **Dependencies**
 - Inbound: ProjectRoutes — API呼び出し (P0)
@@ -345,12 +393,13 @@ type ProjectError =
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクトステータスの遷移ロジックと履歴管理を担当 |
-| Requirements | 10.1-10.10 |
+| Requirements | 10.1-10.16 |
 | Owner / Reviewers | Backend Team |
 
 **Responsibilities & Constraints**
-- ステータス遷移の妥当性検証（許可された遷移のみ実行）
-- ステータス変更履歴の記録
+- ステータス遷移の妥当性検証（順方向・差し戻し・終端遷移の許可判定）
+- 差し戻し遷移時の理由入力必須チェック
+- ステータス変更履歴の記録（遷移種別と差し戻し理由を含む）
 - ステータス遷移ルールの一元管理
 
 **Dependencies**
@@ -363,6 +412,9 @@ type ProjectError =
 ##### Service Interface
 
 ```typescript
+/**
+ * プロジェクトステータス
+ */
 type ProjectStatus =
   | 'PREPARING'    // 準備中
   | 'SURVEYING'    // 調査中
@@ -377,25 +429,50 @@ type ProjectStatus =
   | 'CANCELLED'    // 中止
   | 'LOST';        // 失注
 
+/**
+ * ステータス遷移種別
+ */
+type TransitionType =
+  | 'forward'    // 順方向遷移（ワークフロー進行）
+  | 'backward'   // 差し戻し遷移（1つ前のステータスへ戻る）
+  | 'terminate'; // 終端遷移（完了・中止・失注）
+
 interface IProjectStatusService {
   /**
    * ステータス遷移
+   * @param projectId プロジェクトID
+   * @param newStatus 新ステータス
+   * @param actorId 実行者ID
+   * @param reason 差し戻し理由（backward遷移時は必須）
    */
   transitionStatus(
     projectId: string,
     newStatus: ProjectStatus,
-    actorId: string
+    actorId: string,
+    reason?: string
   ): Promise<Result<ProjectInfo, StatusTransitionError>>;
 
   /**
    * 許可された遷移先を取得
+   * @returns 遷移可能なステータスと遷移種別のマップ
    */
-  getAllowedTransitions(currentStatus: ProjectStatus): ProjectStatus[];
+  getAllowedTransitions(currentStatus: ProjectStatus): AllowedTransition[];
 
   /**
    * ステータス変更履歴取得
    */
   getStatusHistory(projectId: string): Promise<ProjectStatusHistory[]>;
+
+  /**
+   * 遷移種別を判定
+   */
+  getTransitionType(fromStatus: ProjectStatus, toStatus: ProjectStatus): TransitionType | null;
+}
+
+interface AllowedTransition {
+  status: ProjectStatus;
+  type: TransitionType;
+  requiresReason: boolean;
 }
 
 interface ProjectStatusHistory {
@@ -403,23 +480,26 @@ interface ProjectStatusHistory {
   projectId: string;
   fromStatus: ProjectStatus;
   toStatus: ProjectStatus;
+  transitionType: TransitionType;
+  reason: string | null;
   changedBy: string;
   changedAt: Date;
 }
 
 type StatusTransitionError =
   | { type: 'NOT_FOUND'; message: string }
-  | { type: 'INVALID_TRANSITION'; message: string; allowed: ProjectStatus[] }
+  | { type: 'INVALID_TRANSITION'; message: string; allowed: AllowedTransition[] }
+  | { type: 'REASON_REQUIRED'; message: string }
   | { type: 'FORBIDDEN'; message: string };
 ```
 
-- Preconditions: プロジェクトが存在し、現在のステータスからの遷移が許可されていること
-- Postconditions: ステータスが更新され、履歴が記録される
+- Preconditions: プロジェクトが存在し、現在のステータスからの遷移が許可されていること。差し戻し遷移時は理由が必須
+- Postconditions: ステータスが更新され、履歴が記録される（遷移種別と差し戻し理由を含む）
 - Invariants: 終端ステータス（完了、中止、失注）からの遷移は禁止
 
 **Implementation Notes**
 - Integration: ステータス遷移マップをconstで定義し、型安全性を確保
-- Validation: 遷移前に許可チェックを実施
+- Validation: 遷移前に許可チェックを実施、差し戻し時は理由の存在チェック
 - Risks: 遷移ルールの変更時は既存データとの整合性確認が必要
 
 ---
@@ -498,6 +578,7 @@ interface UpdateProjectRequest {
 // PATCH /api/projects/:id/status リクエストボディ
 interface StatusChangeRequest {
   status: ProjectStatus;
+  reason?: string;                 // backward遷移時は必須
 }
 
 // レスポンス: プロジェクト情報
@@ -524,6 +605,20 @@ interface PaginatedProjects {
     total: number;
     totalPages: number;
   };
+}
+
+// レスポンス: ステータス変更履歴
+interface StatusHistoryResponse {
+  id: string;
+  fromStatus: ProjectStatus;
+  fromStatusLabel: string;
+  toStatus: ProjectStatus;
+  toStatusLabel: string;
+  transitionType: TransitionType;
+  transitionTypeLabel: string;
+  reason: string | null;
+  changedBy: UserSummary;
+  changedAt: string;
 }
 
 // レスポンス: 担当者候補
@@ -600,15 +695,15 @@ interface ProjectListState {
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクト詳細情報の表示、編集、削除、ステータス変更機能を提供 |
-| Requirements | 7.1-7.7, 8.1-8.6, 9.1-9.7, 10.1-10.10, 11.1-11.5 |
+| Requirements | 7.1-7.7, 8.1-8.6, 9.1-9.7, 10.1-10.16, 11.1-11.6 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
 - プロジェクト詳細情報の表示
 - 編集モード切り替え
 - 削除確認ダイアログ
-- ステータス遷移UI
-- 関連データ（現場調査・見積書）の件数表示とリンク
+- ステータス遷移UI（順方向・差し戻しの視覚的区別）
+- 関連データ（現場調査・見積書）の件数表示とリンク（機能フラグで制御）
 
 **Dependencies**
 - Inbound: Router — ページ遷移 (P0)
@@ -646,7 +741,7 @@ interface ProjectDetailState {
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクト作成・編集フォームを提供 |
-| Requirements | 1.1-1.14, 8.1-8.6, 13.1-13.11, 16.1-16.10, 17.1-17.12 |
+| Requirements | 1.1-1.15, 8.1-8.6, 13.1-13.11, 16.1-16.10, 17.1-17.12 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
@@ -756,29 +851,68 @@ interface ProjectFormData {
 
 ---
 
-#### ProjectStatusBadge
+#### StatusTransitionUI
 
 | Field | Detail |
 |-------|--------|
-| Intent | ステータス表示と遷移UIを提供 |
-| Requirements | 10.1-10.10 |
+| Intent | ステータス遷移UI（順方向・差し戻し・終端の視覚的区別）を提供 |
+| Requirements | 10.1-10.16 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
-- ステータスの色分け表示
-- 遷移可能なステータスの表示
-- ステータス変更操作
+- 現在のステータスと遷移可能なステータスの表示
+- 順方向遷移と差し戻し遷移の視覚的区別
+- 差し戻し時の理由入力ダイアログ
+- ステータス変更履歴の表示（遷移種別と差し戻し理由を含む）
 
 **Dependencies**
-- Inbound: ProjectListPage, ProjectDetailPage — ステータス表示 (P0)
+- Inbound: ProjectDetailPage — ステータス表示・遷移 (P0)
 - Outbound: ProjectStatusService API — ステータス遷移 (P1)
 
-**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### Service Interface
+
+```typescript
+interface StatusTransitionUIProps {
+  projectId: string;
+  currentStatus: ProjectStatus;
+  allowedTransitions: AllowedTransition[];
+  statusHistory: ProjectStatusHistory[];
+  onTransition: (newStatus: ProjectStatus, reason?: string) => Promise<void>;
+  isLoading: boolean;
+}
+
+interface AllowedTransition {
+  status: ProjectStatus;
+  type: TransitionType;
+  requiresReason: boolean;
+}
+```
 
 ##### State Management
 
-ステータスカラーマップ:
+ステータス遷移UI視覚区別:
 ```typescript
+const TRANSITION_TYPE_STYLES: Record<TransitionType, { icon: string; color: string; bgColor: string }> = {
+  forward: {
+    icon: 'arrow-right',      // 順方向矢印
+    color: 'text-green-700',
+    bgColor: 'bg-green-50'
+  },
+  backward: {
+    icon: 'arrow-left',       // 差し戻し矢印
+    color: 'text-orange-700',
+    bgColor: 'bg-orange-50'
+  },
+  terminate: {
+    icon: 'x-circle',         // 終端アイコン
+    color: 'text-red-700',
+    bgColor: 'bg-red-50'
+  },
+};
+
+// ステータスカラーマップ
 const STATUS_COLORS: Record<ProjectStatus, { bg: string; text: string }> = {
   PREPARING: { bg: 'bg-gray-100', text: 'text-gray-800' },
   SURVEYING: { bg: 'bg-blue-100', text: 'text-blue-800' },
@@ -796,9 +930,9 @@ const STATUS_COLORS: Record<ProjectStatus, { bg: string; text: string }> = {
 ```
 
 **Implementation Notes**
-- Integration: Tailwind CSSのカラークラスを使用
-- Validation: 遷移前にサーバー側でも検証
-- Risks: カラーコントラストのアクセシビリティ確認が必要
+- Integration: Tailwind CSSのカラークラスを使用、アイコンはHeroicons
+- Validation: 差し戻し時の理由入力必須チェック（クライアント・サーバー両方）
+- Risks: カラーコントラストのアクセシビリティ確認が必要（WCAG 2.1 Level AA準拠）
 
 ---
 
@@ -857,6 +991,8 @@ erDiagram
         string projectId FK
         ProjectStatus fromStatus
         ProjectStatus toStatus
+        TransitionType transitionType
+        string reason
         string changedById FK
         datetime changedAt
     }
@@ -871,6 +1007,8 @@ erDiagram
 - 顧客名は必須かつ1-255文字
 - 営業担当者は必須
 - ステータスは定義された12種類のいずれか
+- 遷移種別は3種類: forward, backward, terminate
+- 差し戻し遷移時は理由が必須
 - 論理削除されたプロジェクトは一覧に表示されない
 
 ### Logical Data Model
@@ -895,13 +1033,16 @@ erDiagram
 | ProjectStatusHistory | projectId | UUID | FK → projects.id, NOT NULL |
 | ProjectStatusHistory | fromStatus | ENUM | NOT NULL |
 | ProjectStatusHistory | toStatus | ENUM | NOT NULL |
+| ProjectStatusHistory | transitionType | ENUM | NOT NULL |
+| ProjectStatusHistory | reason | TEXT | NULLABLE, required for backward |
 | ProjectStatusHistory | changedById | UUID | FK → users.id, NOT NULL |
 | ProjectStatusHistory | changedAt | TIMESTAMP | NOT NULL |
 
 **Consistency & Integrity**:
 - プロジェクト作成時に初期ステータス履歴を同時に作成（トランザクション）
-- ステータス変更時に履歴を同時に作成（トランザクション）
+- ステータス変更時に履歴を同時に作成（遷移種別と差し戻し理由を含む、トランザクション）
 - 論理削除時はdeletedAtを設定（物理削除は行わない）
+- 差し戻し遷移時はreason必須、その他の遷移時はreason任意
 
 ### Physical Data Model
 
@@ -938,18 +1079,21 @@ model Project {
 }
 
 model ProjectStatusHistory {
-  id          String        @id @default(uuid())
-  projectId   String
-  fromStatus  ProjectStatus
-  toStatus    ProjectStatus
-  changedById String
-  changedAt   DateTime      @default(now())
+  id             String          @id @default(uuid())
+  projectId      String
+  fromStatus     ProjectStatus
+  toStatus       ProjectStatus
+  transitionType TransitionType
+  reason         String?
+  changedById    String
+  changedAt      DateTime        @default(now())
 
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  changedBy   User          @relation("StatusChangedByUser", fields: [changedById], references: [id])
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changedBy      User            @relation("StatusChangedByUser", fields: [changedById], references: [id])
 
   @@index([projectId])
   @@index([changedAt])
+  @@index([transitionType])
   @@map("project_status_histories")
 }
 
@@ -967,6 +1111,12 @@ enum ProjectStatus {
   CANCELLED     // 中止
   LOST          // 失注
 }
+
+enum TransitionType {
+  forward   // 順方向遷移
+  backward  // 差し戻し遷移
+  terminate // 終端遷移
+}
 ```
 
 **Indexes**:
@@ -975,6 +1125,7 @@ enum ProjectStatus {
 - ソート用: `createdAt`, `updatedAt`
 - 外部キー用: `salesPersonId`
 - 論理削除確認用: `deletedAt`
+- 履歴フィルタリング用: `transitionType`
 
 ## Error Handling
 
@@ -986,7 +1137,7 @@ enum ProjectStatus {
 - 403 Forbidden: 権限不足 → 権限エラーメッセージ表示
 - 404 Not Found: プロジェクト不存在 → 404ページ表示
 - 409 Conflict: 楽観的排他制御エラー → 最新データ確認を促すメッセージ表示
-- 422 Unprocessable Entity: 無効なステータス遷移 → 許可された遷移先を表示
+- 422 Unprocessable Entity: 無効なステータス遷移、差し戻し理由未入力 → 許可された遷移先を表示
 
 **System Errors (5xx)**:
 - 500 Internal Server Error: サーバーエラー → 「しばらくしてからお試しください」メッセージ
@@ -994,12 +1145,13 @@ enum ProjectStatus {
 
 **Business Logic Errors (422)**:
 - 無効なステータス遷移 → 現在のステータスと許可された遷移先を表示
+- 差し戻し理由未入力 → 「差し戻し理由は必須です」エラーメッセージ表示
 - 関連データ存在時の削除 → 警告ダイアログ表示
 
 ### Monitoring
 
 - エラーログ: Pinoロガーによる構造化ログ出力
-- 監査ログ: プロジェクト作成・更新・削除・ステータス変更を記録
+- 監査ログ: プロジェクト作成・更新・削除・ステータス変更を記録（差し戻し理由を含む）
 - Sentryエラートラッキング: 予期せぬエラーの自動報告
 
 ## Testing Strategy
@@ -1007,24 +1159,28 @@ enum ProjectStatus {
 ### Unit Tests
 
 - ProjectService: CRUD操作、バリデーション、エラーハンドリング
-- ProjectStatusService: ステータス遷移ロジック、履歴記録
+- ProjectStatusService: ステータス遷移ロジック（順方向・差し戻し・終端）、遷移種別判定、履歴記録、差し戻し理由検証
 - ProjectForm: フォームバリデーション、送信処理
 - CustomerAutocomplete: 検索ロジック、候補表示
 - UserSelect: ユーザー一覧取得、フィルタリング
+- StatusTransitionUI: 遷移種別の視覚的区別、差し戻し理由入力ダイアログ
 
 ### Integration Tests
 
 - POST /api/projects: プロジェクト作成フロー（認証、権限、バリデーション、DB保存）
 - GET /api/projects: 一覧取得（ページネーション、検索、フィルタ、ソート）
 - PUT /api/projects/:id: 更新フロー（楽観的排他制御、監査ログ）
-- PATCH /api/projects/:id/status: ステータス遷移（遷移ルール、履歴記録）
+- PATCH /api/projects/:id/status: ステータス遷移（順方向・差し戻し・終端遷移ルール、差し戻し理由必須チェック、履歴記録）
 - DELETE /api/projects/:id: 削除フロー（論理削除、関連データ確認）
+- GET /api/projects/:id/status-history: ステータス変更履歴取得（遷移種別・差し戻し理由表示）
 
 ### E2E/UI Tests
 
 - プロジェクト作成フロー: フォーム入力 → 送信 → 詳細画面遷移
 - プロジェクト一覧操作: 検索 → フィルタ → ソート → ページ遷移
-- ステータス変更: ステータスドロップダウン → 遷移確認
+- ステータス順方向遷移: ステータスボタン → 順方向遷移選択 → 確認
+- ステータス差し戻し遷移: ステータスボタン → 差し戻し遷移選択 → 理由入力 → 確認
+- ステータス遷移UIの視覚的区別: 順方向（緑）、差し戻し（オレンジ）、終端（赤）の表示確認
 - レスポンシブ表示: デスクトップ → タブレット → モバイル
 - キーボードナビゲーション: Tab, Enter, Escape操作
 
@@ -1051,6 +1207,7 @@ enum ProjectStatus {
 - 担当者IDの検証: admin以外の有効なユーザーIDであることを確認
 - 入力サニタイズ: XSS対策（React自動エスケープ）
 - SQLインジェクション対策: Prisma ORMによるパラメータ化クエリ
+- 差し戻し理由のサニタイズ: XSS対策
 
 ### Audit Trail
 
@@ -1058,8 +1215,8 @@ enum ProjectStatus {
   - PROJECT_CREATED: プロジェクト作成
   - PROJECT_UPDATED: プロジェクト更新
   - PROJECT_DELETED: プロジェクト削除
-  - PROJECT_STATUS_CHANGED: ステータス変更
-- 記録内容: actorId, targetId, before/after, metadata（IPアドレス、User-Agent）
+  - PROJECT_STATUS_CHANGED: ステータス変更（遷移種別・差し戻し理由を含む）
+- 記録内容: actorId, targetId, before/after, metadata（IPアドレス、User-Agent、transitionType、reason）
 
 ## Performance & Scalability
 
