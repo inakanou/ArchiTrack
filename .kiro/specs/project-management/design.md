@@ -22,7 +22,8 @@
 
 - 現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
 - 見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
-- 取引先管理機能の実装（既存機能への連携のみ）
+- 取引先管理機能の実装（別仕様として定義予定、本仕様では顧客名フリー入力のみ対応）
+- 取引先オートコンプリート機能（取引先管理機能の実装後に連携予定）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
 
@@ -184,7 +185,8 @@ stateDiagram-v2
 ```
 
 **Key Decisions**:
-- ステータス遷移は3種類: forward（順方向）、backward（差し戻し）、terminate（終端）
+- ステータス遷移は4種類: initial（初期）、forward（順方向）、backward（差し戻し）、terminate（終端）
+- プロジェクト作成時はtransitionType='initial'、fromStatus=nullの履歴を記録
 - 差し戻し遷移（backward）は1つ前のステータスへのみ許可、理由入力を必須とする
 - 「完了」「中止」「失注」は終端ステータス（いずれの遷移も禁止）
 - すべてのステータス変更は履歴として記録（遷移種別と差し戻し理由を含む）
@@ -237,7 +239,7 @@ sequenceDiagram
 | 13.1-13.11 | バリデーション | ProjectSchema, ProjectService | - | - |
 | 14.1-14.7 | API | ProjectRoutes | RESTful API全般 | - |
 | 15.1-15.5 | レスポンシブ | 全UIコンポーネント | - | - |
-| 16.1-16.10 | 取引先オートコンプリート | CustomerAutocomplete | GET /api/business-partners | - |
+| 16.1-16.10 | 取引先オートコンプリート | ※本仕様ではフリー入力のみ対応（取引先管理機能の実装後に連携予定） | - | - |
 | 17.1-17.12 | 担当者選択 | UserSelect | GET /api/users/assignable | - |
 | 18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification | - | - |
 | 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
@@ -252,8 +254,8 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート | 2, 3, 4, 5, 6 | ProjectService (P0), useAuth (P0) | State |
 | ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除 | 7, 8, 9, 10, 11 | ProjectService (P0), ProjectStatusService (P1) | State |
-| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17 | CustomerAutocomplete (P1), UserSelect (P1) | Service |
-| CustomerAutocomplete | UI/Component | 取引先名オートコンプリート | 16 | BusinessPartnerAPI (P1) | API |
+| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17 | CustomerNameInput (P1), UserSelect (P1) | Service |
+| CustomerNameInput | UI/Component | 顧客名フリー入力（将来オートコンプリート連携予定） | 16 | - | - |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
 | ProjectService | Backend/Service | プロジェクトCRUDビジネスロジック | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
@@ -287,15 +289,40 @@ sequenceDiagram
 
 ##### Service Interface
 
+**エラーハンドリング**: 既存コードベースのパターンに準拠し、例外ベースのエラーハンドリングを採用します。エラーはカスタム例外クラスをスローし、ルートレイヤーでキャッチして適切なHTTPレスポンスに変換します。
+
 ```typescript
+// カスタム例外クラス
+class ProjectNotFoundError extends Error {
+  constructor(projectId: string) {
+    super(`Project not found: ${projectId}`);
+    this.name = 'ProjectNotFoundError';
+  }
+}
+
+class ProjectValidationError extends Error {
+  constructor(public details: Record<string, string>) {
+    super('Validation failed');
+    this.name = 'ProjectValidationError';
+  }
+}
+
+class ProjectConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectConflictError';
+  }
+}
+
 interface IProjectService {
   /**
    * プロジェクト作成
+   * @throws ProjectValidationError バリデーションエラー
    */
   createProject(
     input: CreateProjectInput,
     actorId: string
-  ): Promise<Result<ProjectInfo, ProjectError>>;
+  ): Promise<ProjectInfo>;
 
   /**
    * プロジェクト一覧取得
@@ -304,35 +331,41 @@ interface IProjectService {
     filter: ProjectFilter,
     pagination: PaginationInput,
     sort: SortInput
-  ): Promise<Result<PaginatedProjects, ProjectError>>;
+  ): Promise<PaginatedProjects>;
 
   /**
    * プロジェクト詳細取得
+   * @throws ProjectNotFoundError プロジェクトが存在しない
    */
-  getProject(id: string): Promise<Result<ProjectDetail, ProjectError>>;
+  getProject(id: string): Promise<ProjectDetail>;
 
   /**
    * プロジェクト更新
+   * @throws ProjectNotFoundError プロジェクトが存在しない
+   * @throws ProjectValidationError バリデーションエラー
+   * @throws ProjectConflictError 楽観的排他制御エラー
    */
   updateProject(
     id: string,
     input: UpdateProjectInput,
     actorId: string,
     expectedUpdatedAt: Date
-  ): Promise<Result<ProjectInfo, ProjectError>>;
+  ): Promise<ProjectInfo>;
 
   /**
    * プロジェクト削除（論理削除）
+   * @throws ProjectNotFoundError プロジェクトが存在しない
    */
   deleteProject(
     id: string,
     actorId: string
-  ): Promise<Result<void, ProjectError>>;
+  ): Promise<void>;
 
   /**
    * 関連データ件数取得
+   * @throws ProjectNotFoundError プロジェクトが存在しない
    */
-  getRelatedCounts(id: string): Promise<Result<RelatedCounts, ProjectError>>;
+  getRelatedCounts(id: string): Promise<RelatedCounts>;
 }
 
 interface CreateProjectInput {
@@ -370,15 +403,10 @@ interface SortInput {
   order: 'asc' | 'desc';
 }
 
-type ProjectError =
-  | { type: 'NOT_FOUND'; message: string }
-  | { type: 'VALIDATION_ERROR'; message: string; details: Record<string, string> }
-  | { type: 'CONFLICT'; message: string }
-  | { type: 'FORBIDDEN'; message: string };
 ```
 
 - Preconditions: 有効なユーザーIDが提供されること
-- Postconditions: 成功時はプロジェクトデータを返却、失敗時はエラー型を返却
+- Postconditions: 成功時はプロジェクトデータを返却、失敗時は例外をスロー
 - Invariants: 論理削除されたプロジェクトは一覧に表示されない
 
 **Implementation Notes**
@@ -433,9 +461,29 @@ type ProjectStatus =
  * ステータス遷移種別
  */
 type TransitionType =
+  | 'initial'    // 初期遷移（プロジェクト作成時、fromStatusなし）
   | 'forward'    // 順方向遷移（ワークフロー進行）
   | 'backward'   // 差し戻し遷移（1つ前のステータスへ戻る）
   | 'terminate'; // 終端遷移（完了・中止・失注）
+
+// ステータス遷移用カスタム例外クラス
+class InvalidStatusTransitionError extends Error {
+  constructor(
+    public fromStatus: ProjectStatus,
+    public toStatus: ProjectStatus,
+    public allowed: AllowedTransition[]
+  ) {
+    super(`Invalid transition from ${fromStatus} to ${toStatus}`);
+    this.name = 'InvalidStatusTransitionError';
+  }
+}
+
+class ReasonRequiredError extends Error {
+  constructor() {
+    super('Reason is required for backward transition');
+    this.name = 'ReasonRequiredError';
+  }
+}
 
 interface IProjectStatusService {
   /**
@@ -444,13 +492,16 @@ interface IProjectStatusService {
    * @param newStatus 新ステータス
    * @param actorId 実行者ID
    * @param reason 差し戻し理由（backward遷移時は必須）
+   * @throws ProjectNotFoundError プロジェクトが存在しない
+   * @throws InvalidStatusTransitionError 無効なステータス遷移
+   * @throws ReasonRequiredError 差し戻し理由が未入力
    */
   transitionStatus(
     projectId: string,
     newStatus: ProjectStatus,
     actorId: string,
     reason?: string
-  ): Promise<Result<ProjectInfo, StatusTransitionError>>;
+  ): Promise<ProjectInfo>;
 
   /**
    * 許可された遷移先を取得
@@ -460,6 +511,7 @@ interface IProjectStatusService {
 
   /**
    * ステータス変更履歴取得
+   * @throws ProjectNotFoundError プロジェクトが存在しない
    */
   getStatusHistory(projectId: string): Promise<ProjectStatusHistory[]>;
 
@@ -478,23 +530,18 @@ interface AllowedTransition {
 interface ProjectStatusHistory {
   id: string;
   projectId: string;
-  fromStatus: ProjectStatus;
+  fromStatus: ProjectStatus | null;  // 初期遷移時はnull
   toStatus: ProjectStatus;
-  transitionType: TransitionType;
+  transitionType: TransitionType;    // 初期遷移時は'initial'
   reason: string | null;
   changedBy: string;
   changedAt: Date;
 }
 
-type StatusTransitionError =
-  | { type: 'NOT_FOUND'; message: string }
-  | { type: 'INVALID_TRANSITION'; message: string; allowed: AllowedTransition[] }
-  | { type: 'REASON_REQUIRED'; message: string }
-  | { type: 'FORBIDDEN'; message: string };
 ```
 
 - Preconditions: プロジェクトが存在し、現在のステータスからの遷移が許可されていること。差し戻し遷移時は理由が必須
-- Postconditions: ステータスが更新され、履歴が記録される（遷移種別と差し戻し理由を含む）
+- Postconditions: ステータスが更新され、履歴が記録される（遷移種別と差し戻し理由を含む）。失敗時は例外をスロー
 - Invariants: 終端ステータス（完了、中止、失注）からの遷移は禁止
 
 **Implementation Notes**
@@ -752,7 +799,7 @@ interface ProjectDetailState {
 
 **Dependencies**
 - Inbound: ProjectListPage, ProjectDetailPage — フォーム表示 (P0)
-- Outbound: CustomerAutocomplete — 顧客名入力 (P1)
+- Outbound: CustomerNameInput — 顧客名入力 (P1)
 - Outbound: UserSelect — 担当者選択 (P1)
 - Outbound: useAuth — ログインユーザー取得 (P0)
 
@@ -782,40 +829,32 @@ interface ProjectFormData {
 **Implementation Notes**
 - Integration: 既存のフォームパターン（React Hook Form等）の検討
 - Validation: Zodスキーマでクライアント・サーバー共通バリデーション
-- Risks: オートコンプリートのUX（遅延、候補なし時の挙動）
+- Future: 取引先管理機能実装後にCustomerNameInputをオートコンプリート対応に拡張予定
 
 ---
 
-#### CustomerAutocomplete
+#### CustomerNameInput（顧客名入力フィールド）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 取引先名のオートコンプリート入力を提供 |
-| Requirements | 16.1-16.10 |
+| Intent | 顧客名のフリー入力を提供（将来的に取引先オートコンプリート連携予定） |
+| Requirements | 16.1-16.10（本仕様ではフリー入力のみ、16.9に基づき取引先外も入力可能） |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
-- テキスト入力に基づく取引先候補の表示
-- キーボード・マウスによる候補選択
-- 任意入力の許可（取引先外も可）
-- 500ms以内のレスポンス
+- 顧客名のフリーテキスト入力
+- バリデーション（1-255文字）
+- 将来の取引先オートコンプリート連携に備えた拡張可能な設計
 
 **Dependencies**
 - Inbound: ProjectForm — 顧客名入力 (P0)
-- Outbound: BusinessPartnerAPI — 取引先検索 (P1)
 
-**Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
-
-##### API Contract
-
-| Method | Endpoint | Request | Response | Errors |
-|--------|----------|---------|----------|--------|
-| GET | /api/business-partners | `?q=検索文字列&limit=10` | BusinessPartner[] | 400, 401 |
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
 **Implementation Notes**
-- Integration: デバウンス（300ms）による連続リクエスト抑制
-- Validation: 1文字以上で検索開始
-- Risks: 取引先管理機能が未実装の場合のフォールバック検討
+- Integration: 標準的なテキスト入力コンポーネントとして実装
+- Validation: Zodスキーマによる文字数バリデーション
+- Future: 取引先管理機能（別仕様）実装後にオートコンプリート機能を追加予定
 
 ---
 
@@ -895,6 +934,11 @@ interface AllowedTransition {
 ステータス遷移UI視覚区別:
 ```typescript
 const TRANSITION_TYPE_STYLES: Record<TransitionType, { icon: string; color: string; bgColor: string }> = {
+  initial: {
+    icon: 'plus-circle',      // 初期作成アイコン
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50'
+  },
   forward: {
     icon: 'arrow-right',      // 順方向矢印
     color: 'text-green-700',
@@ -1007,7 +1051,8 @@ erDiagram
 - 顧客名は必須かつ1-255文字
 - 営業担当者は必須
 - ステータスは定義された12種類のいずれか
-- 遷移種別は3種類: forward, backward, terminate
+- 遷移種別は4種類: initial, forward, backward, terminate
+- プロジェクト作成時の初期履歴はfromStatus=null、transitionType='initial'
 - 差し戻し遷移時は理由が必須
 - 論理削除されたプロジェクトは一覧に表示されない
 
@@ -1031,7 +1076,7 @@ erDiagram
 | Project | createdById | UUID | FK → users.id, NOT NULL |
 | ProjectStatusHistory | id | UUID | PK, auto-generated |
 | ProjectStatusHistory | projectId | UUID | FK → projects.id, NOT NULL |
-| ProjectStatusHistory | fromStatus | ENUM | NOT NULL |
+| ProjectStatusHistory | fromStatus | ENUM | NULLABLE (null for initial transition) |
 | ProjectStatusHistory | toStatus | ENUM | NOT NULL |
 | ProjectStatusHistory | transitionType | ENUM | NOT NULL |
 | ProjectStatusHistory | reason | TEXT | NULLABLE, required for backward |
@@ -1081,7 +1126,7 @@ model Project {
 model ProjectStatusHistory {
   id             String          @id @default(uuid())
   projectId      String
-  fromStatus     ProjectStatus
+  fromStatus     ProjectStatus?  // nullable: initial遷移時はnull
   toStatus       ProjectStatus
   transitionType TransitionType
   reason         String?
@@ -1113,6 +1158,7 @@ enum ProjectStatus {
 }
 
 enum TransitionType {
+  initial   // 初期遷移（プロジェクト作成時）
   forward   // 順方向遷移
   backward  // 差し戻し遷移
   terminate // 終端遷移
