@@ -47,7 +47,7 @@
   - ReasonRequiredError（差し戻し理由未入力時）を実装
   - _Requirements: 8.6, 10.9, 10.14_
 
-- [ ] 3.2 (P) プロジェクト用バリデーションスキーマの実装
+- [x] 3.2 (P) プロジェクト用バリデーションスキーマの実装
   - CreateProjectInput用Zodスキーマを実装（name: 1-255文字必須、customerName: 1-255文字必須、salesPersonId: UUID必須、constructionPersonId: UUID任意、siteAddress: 最大500文字任意、description: 最大5000文字任意）
   - UpdateProjectInput用Zodスキーマを実装
   - ProjectFilter用Zodスキーマを実装（search, status, createdFrom, createdTo）
