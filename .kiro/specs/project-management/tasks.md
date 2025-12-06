@@ -8,7 +8,7 @@
   - ステータスの日本語ラベルマッピングを実装
   - _Requirements: 10.1, 10.11_
 
-- [ ] 1.2 (P) Projectモデルのスキーマ定義
+- [x] 1.2 (P) Projectモデルのスキーマ定義
   - プロジェクトテーブル（id, name, customerName, salesPersonId, constructionPersonId, siteAddress, description, status, createdAt, updatedAt, deletedAt, createdById）を定義
   - Userモデルとのリレーション（salesPerson, constructionPerson, createdBy）を設定
   - 検索・フィルタリング・ソート用インデックスを追加

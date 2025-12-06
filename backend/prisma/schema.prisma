@@ -36,6 +36,12 @@ model User {
   twoFactorBackupCodes  TwoFactorBackupCode[]
   auditLogsAsActor      AuditLog[]            @relation("ActorAuditLogs")
 
+  // Project Management リレーション
+  salesPersonProjects        Project[]              @relation("SalesPersonProjects")
+  constructionPersonProjects Project[]              @relation("ConstructionPersonProjects")
+  createdProjects            Project[]              @relation("CreatedProjects")
+  statusChangedHistories     ProjectStatusHistory[] @relation("StatusChangedByUser")
+
   @@index([email])
   @@index([isLocked])
   @@map("users")
@@ -204,4 +210,100 @@ model AuditLog {
   @@index([actorId, createdAt])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ===== Project Management Data Models =====
+
+/**
+ * プロジェクトステータス
+ * ワークフロー順: 準備中 → 調査中 → 見積中 → 決裁待ち → 契約中 → 工事中 → 引渡中 → 請求中 → 入金待ち → 完了
+ * 終端ステータス: 完了、中止、失注
+ * Requirements: 10.1
+ */
+enum ProjectStatus {
+  PREPARING // 準備中
+  SURVEYING // 調査中
+  ESTIMATING // 見積中
+  APPROVING // 決裁待ち
+  CONTRACTING // 契約中
+  CONSTRUCTING // 工事中
+  DELIVERING // 引渡中
+  BILLING // 請求中
+  AWAITING // 入金待ち
+  COMPLETED // 完了
+  CANCELLED // 中止
+  LOST // 失注
+}
+
+/**
+ * ステータス遷移種別
+ * Requirements: 10.11
+ */
+enum TransitionType {
+  initial // 初期遷移（プロジェクト作成時、fromStatusなし）
+  forward // 順方向遷移（ワークフロー進行）
+  backward // 差し戻し遷移（1つ前のステータスへ戻る）
+  terminate // 終端遷移（完了・中止・失注）
+}
+
+/**
+ * プロジェクトモデル
+ * プロジェクトは工事案件が発生した際に最初に作成されるエンティティ。
+ * 当該工事における現場調査や見積などの業務は、プロジェクト配下にぶら下がる形で管理される。
+ * Requirements: 1.14, 1.15, 9.7, 13.1, 13.2, 13.3, 13.5, 13.7, 13.8
+ */
+model Project {
+  id                   String        @id @default(uuid())
+  name                 String // プロジェクト名（必須、1-255文字）
+  customerName         String // 顧客名（必須、1-255文字）
+  salesPersonId        String // 営業担当者ID（必須）
+  constructionPersonId String? // 工事担当者ID（任意）
+  siteAddress          String? // 現場住所（任意、最大500文字）
+  description          String? // 概要（任意、最大5000文字）
+  status               ProjectStatus @default(PREPARING)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  deletedAt            DateTime? // 論理削除フィールド
+  createdById          String // 作成者ID
+
+  // Userモデルとのリレーション
+  salesPerson        User                   @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
+  constructionPerson User?                  @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
+  createdBy          User                   @relation("CreatedProjects", fields: [createdById], references: [id])
+  statusHistory      ProjectStatusHistory[]
+
+  // 検索・フィルタリング・ソート用インデックス
+  @@index([name])
+  @@index([customerName])
+  @@index([status])
+  @@index([salesPersonId])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+/**
+ * プロジェクトステータス変更履歴
+ * ステータス変更の履歴を記録し、遷移種別と差し戻し理由を含む
+ * Note: Task 1.3で完全実装予定。Task 1.2では最小定義のみ
+ * Requirements: 10.10, 10.11, 10.15
+ */
+model ProjectStatusHistory {
+  id             String         @id @default(uuid())
+  projectId      String
+  fromStatus     ProjectStatus? // nullable: initial遷移時はnull
+  toStatus       ProjectStatus
+  transitionType TransitionType
+  reason         String? // 差し戻し理由（backward遷移時は必須）
+  changedById    String
+  changedAt      DateTime       @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changedBy User    @relation("StatusChangedByUser", fields: [changedById], references: [id])
+
+  @@index([projectId])
+  @@index([changedAt])
+  @@index([transitionType])
+  @@map("project_status_histories")
 }
