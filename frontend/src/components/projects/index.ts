@@ -6,3 +6,6 @@
 
 export { default as CustomerNameInput } from './CustomerNameInput';
 export type { CustomerNameInputProps } from './CustomerNameInput';
+
+export { default as UserSelect } from './UserSelect';
+export type { UserSelectProps } from './UserSelect';
