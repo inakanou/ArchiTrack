@@ -30,3 +30,6 @@ export type { BackwardReasonDialogProps } from './BackwardReasonDialog';
 
 export { default as ProjectSearchFilter } from './ProjectSearchFilter';
 export type { ProjectSearchFilterProps } from './ProjectSearchFilter';
+
+export { default as PaginationUI } from './PaginationUI';
+export type { PaginationUIProps } from './PaginationUI';
