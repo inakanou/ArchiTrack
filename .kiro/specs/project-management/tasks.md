@@ -334,7 +334,7 @@
 
 ## Task 14: バックエンドテスト
 
-- [ ] 14.1 (P) ProjectStatusServiceのユニットテスト
+- [x] 14.1 (P) ProjectStatusServiceのユニットテスト
   - getAllowedTransitions: 各ステータスからの遷移可能先を検証
   - getTransitionType: 遷移種別判定を検証
   - transitionStatus: 正常遷移、無効遷移、差し戻し理由必須チェックを検証
