@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-06（Steering Sync: project-management仕様追加）_
+_最終更新: 2025-12-08（Steering Sync: project-management実装完了）_
 
 ## ルートディレクトリ構成
 
@@ -208,11 +208,11 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全46タスク完了）
   - 内容: 招待制ユーザー登録、ロールベースアクセス制御（RBAC）、JWT認証フロー、2FA、監査ログ
 
-**設計完了・実装準備中の仕様:**
+**実装完了の仕様:**
 
-- `.kiro/specs/project-management/` - プロジェクト管理機能 🚧設計完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装準備中**
-  - 内容: プロジェクトCRUD、メンバー管理、プロジェクト内ロール割り当て
+- `.kiro/specs/project-management/` - プロジェクト管理機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
+  - 内容: プロジェクトCRUD、ステータス遷移管理（12種類のステータス）、担当者割り当て、検索・フィルタリング・ページネーション
 
 ### `e2e/`
 
@@ -237,7 +237,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── security/         # セキュリティテスト
 │   │   └── *.spec.ts
-│   └── navigation/       # ナビゲーションテスト
+│   ├── navigation/       # ナビゲーションテスト
+│   │   └── *.spec.ts
+│   └── projects/         # プロジェクト管理テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -262,6 +264,7 @@ e2e/
 - `performance/` - パフォーマンステスト（ページロード時間等）
 - `security/` - セキュリティテスト（CSRF、XSS対策等）
 - `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
+- `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 
 **テストヘルパー:**
 
@@ -340,7 +343,19 @@ frontend/
 │   │   ├── TwoFactorVerificationForm.tsx # 2FA検証フォーム
 │   │   ├── OptimizedList.tsx       # 最適化されたリストコンポーネント
 │   │   ├── FocusManager.tsx        # フォーカス管理コンポーネント
-│   │   └── ToastNotification.tsx   # トースト通知コンポーネント
+│   │   ├── ToastNotification.tsx   # トースト通知コンポーネント
+│   │   └── projects/              # プロジェクト管理コンポーネント
+│   │       ├── ProjectForm.tsx     # プロジェクト作成・編集フォーム
+│   │       ├── CustomerNameInput.tsx # 顧客名入力
+│   │       ├── UserSelect.tsx      # 担当者選択
+│   │       ├── StatusTransitionUI.tsx # ステータス遷移UI
+│   │       ├── BackwardReasonDialog.tsx # 差し戻し理由入力ダイアログ
+│   │       ├── ProjectListTable.tsx # プロジェクト一覧テーブル
+│   │       ├── ProjectListCard.tsx # プロジェクト一覧カード（モバイル）
+│   │       ├── ProjectListView.tsx # プロジェクト一覧ビュー
+│   │       ├── ProjectSearchFilter.tsx # 検索・フィルタUI
+│   │       ├── PaginationUI.tsx    # ページネーションUI
+│   │       └── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
 │   ├── contexts/          # Reactコンテキスト
 │   │   └── AuthContext.tsx # 認証コンテキスト
 │   ├── pages/             # ページコンポーネント
@@ -355,7 +370,10 @@ frontend/
 │   │   ├── UserManagement.tsx # ユーザー管理ページ（管理者）
 │   │   ├── RoleManagement.tsx # ロール管理ページ（管理者）
 │   │   ├── PermissionManagement.tsx # 権限管理ページ（管理者）
-│   │   └── AuditLogs.tsx   # 監査ログページ（管理者）
+│   │   ├── AuditLogs.tsx   # 監査ログページ（管理者）
+│   │   ├── ProjectListPage.tsx # プロジェクト一覧ページ
+│   │   ├── ProjectDetailPage.tsx # プロジェクト詳細ページ
+│   │   └── ProjectCreatePage.tsx # プロジェクト作成ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -469,7 +487,9 @@ backend/
 │   │       │   ├── rbac.service.test.ts # RBAC統合（21テスト）
 │   │       │   ├── audit-log.service.test.ts # 監査ログ（35テスト）
 │   │       │   ├── archive.service.test.ts # ログアーカイブ（6テスト）
-│   │       │   └── email.service.test.ts # メール送信（Bull、14テスト）
+│   │       │   ├── email.service.test.ts # メール送信（Bull、14テスト）
+│   │       │   ├── project.service.test.ts # プロジェクト管理
+│   │       │   └── project-status.service.test.ts # プロジェクトステータス遷移
 │   │       └── utils/     # ユーティリティテスト
 │   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
 │   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
@@ -482,7 +502,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（9ファイル）
+│   ├── routes/            # ルート定義（10ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -491,11 +511,12 @@ backend/
 │   │   ├── audit-log.routes.ts # 監査ログルート
 │   │   ├── permissions.routes.ts # 権限管理ルート
 │   │   ├── roles.routes.ts  # ロール管理ルート
-│   │   └── user-roles.routes.ts # ユーザーロール管理ルート
+│   │   ├── user-roles.routes.ts # ユーザーロール管理ルート
+│   │   └── projects.routes.ts # プロジェクト管理ルート（CRUD、ステータス遷移）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── services/          # ビジネスロジック（14サービス）
+│   ├── services/          # ビジネスロジック（16サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -509,7 +530,9 @@ backend/
 │   │   ├── rbac.service.ts # RBAC統合サービス
 │   │   ├── audit-log.service.ts # 監査ログ
 │   │   ├── audit-log-archive.service.ts # ログアーカイブ
-│   │   └── email.service.ts # メール送信（Bull非同期キュー、Handlebars）
+│   │   ├── email.service.ts # メール送信（Bull非同期キュー、Handlebars）
+│   │   ├── project.service.ts # プロジェクト管理（CRUD、楽観的排他制御）
+│   │   └── project-status.service.ts # プロジェクトステータス遷移（12種類のステータス）
 │   ├── templates/         # メールテンプレート
 │   │   └── （Handlebarsテンプレート）
 │   ├── types/             # カスタム型定義
@@ -518,7 +541,8 @@ backend/
 │   │   ├── result.ts      # Result型（Ok/Err）
 │   │   ├── auth.types.ts  # 認証関連型定義
 │   │   ├── session.types.ts # セッション関連型定義
-│   │   └── password.types.ts # パスワード関連型定義
+│   │   ├── password.types.ts # パスワード関連型定義
+│   │   └── project.types.ts # プロジェクト関連型定義（ステータス、遷移）
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
 │   │   ├── env-validator.ts # 環境変数バリデーション（Zod）
@@ -586,7 +610,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（9ルートファイル）:**
+**実装済みAPI（10ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -624,6 +648,16 @@ backend/src/
 
 **公開鍵配信API（jwks.routes.ts）:**
 - `GET /.well-known/jwks.json`: JWT検証用公開鍵（JWKS形式、RFC 7517準拠）
+
+**プロジェクト管理API（projects.routes.ts）:**
+- `GET /api/projects`: プロジェクト一覧取得（ページネーション、検索、フィルタリング、ソート）
+- `GET /api/projects/:id`: プロジェクト詳細取得
+- `POST /api/projects`: プロジェクト作成
+- `PUT /api/projects/:id`: プロジェクト更新（楽観的排他制御）
+- `DELETE /api/projects/:id`: プロジェクト論理削除
+- `PATCH /api/projects/:id/status`: ステータス変更（差し戻し理由必須対応）
+- `GET /api/projects/:id/status-history`: ステータス変更履歴取得
+- `GET /api/users/assignable`: 担当者候補取得
 
 **実装済みミドルウェア:**
 
