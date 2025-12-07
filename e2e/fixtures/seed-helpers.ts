@@ -202,6 +202,28 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'manage',
       description: 'システム設定の完全管理',
     },
+
+    // プロジェクト関連権限
+    {
+      resource: 'project',
+      action: 'create',
+      description: 'プロジェクトの作成',
+    },
+    {
+      resource: 'project',
+      action: 'read',
+      description: 'プロジェクトの閲覧',
+    },
+    {
+      resource: 'project',
+      action: 'update',
+      description: 'プロジェクトの更新',
+    },
+    {
+      resource: 'project',
+      action: 'delete',
+      description: 'プロジェクトの削除',
+    },
   ];
 
   for (const permission of permissions) {
@@ -275,6 +297,10 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'adr', action: 'update' },
     { resource: 'user', action: 'read' },
     { resource: 'settings', action: 'read' },
+    // プロジェクト関連権限（削除以外）
+    { resource: 'project', action: 'create' },
+    { resource: 'project', action: 'read' },
+    { resource: 'project', action: 'update' },
   ];
 
   for (const { resource, action } of basicPermissions) {

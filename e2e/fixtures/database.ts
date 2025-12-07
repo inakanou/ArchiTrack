@@ -57,14 +57,16 @@ export function getPrismaClient(): InstanceType<typeof PrismaClient> {
  * マスターデータ（Role, Permission）は削除しません。
  *
  * 削除順序:
- * 1. AuditLog（Userに依存）
- * 2. RefreshToken（Userに依存）
- * 3. TwoFactorBackupCode（Userに依存）
- * 4. PasswordHistory（Userに依存）
- * 5. PasswordResetToken（Userに依存）
- * 6. Invitation（Userに依存、オプショナル）
- * 7. UserRole（User, Roleに依存）
- * 8. User
+ * 1. ProjectStatusHistory（Projectに依存）
+ * 2. Project（Userに依存）
+ * 3. AuditLog（Userに依存）
+ * 4. RefreshToken（Userに依存）
+ * 5. TwoFactorBackupCode（Userに依存）
+ * 6. PasswordHistory（Userに依存）
+ * 7. PasswordResetToken（Userに依存）
+ * 8. Invitation（Userに依存、オプショナル）
+ * 9. UserRole（User, Roleに依存）
+ * 10. User
  *
  * @example
  * ```typescript
@@ -79,6 +81,10 @@ export async function cleanDatabase(): Promise<void> {
   // トランザクションで確実にクリーンアップ
   // 外部キー制約の順序を考慮して削除（依存される側を先に削除）
   await client.$transaction([
+    // プロジェクト関連テーブルを先に削除（Userに依存）
+    client.projectStatusHistory.deleteMany(),
+    client.project.deleteMany(),
+    // 認証・ユーザー関連テーブル
     client.auditLog.deleteMany(),
     client.refreshToken.deleteMany(),
     client.twoFactorBackupCode.deleteMany(),
