@@ -341,7 +341,7 @@
   - getStatusHistory: 履歴取得を検証
   - _Requirements: 10.1, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.14_
 
-- [ ] 14.2 (P) ProjectServiceのユニットテスト
+- [x] 14.2 (P) ProjectServiceのユニットテスト
   - createProject: 正常作成、バリデーションエラー、初期ステータス履歴を検証
   - getProjects: ページネーション、検索、フィルタリング、ソートを検証
   - getProject: 正常取得、未存在エラーを検証

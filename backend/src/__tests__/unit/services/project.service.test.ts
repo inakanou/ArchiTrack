@@ -821,4 +821,541 @@ describe('ProjectService', () => {
       expect(result).toBeDefined();
     });
   });
+
+  describe('createProject - 初期ステータス履歴の詳細検証', () => {
+    it('初期ステータス履歴でtransitionType=initialとfromStatus=nullを記録する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const validInput: CreateProjectInput = {
+        name: 'テストプロジェクト',
+        customerName: 'テスト顧客',
+        salesPersonId: 'user-123',
+      };
+      const createdProject = {
+        ...mockProject,
+        salesPerson: mockUser,
+        constructionPerson: null,
+      };
+
+      let capturedHistoryData: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            create: vi.fn().mockResolvedValue(createdProject),
+          },
+          projectStatusHistory: {
+            create: vi.fn().mockImplementation((args) => {
+              capturedHistoryData = args.data;
+              return Promise.resolve({ id: 'history-1' });
+            }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.createProject(validInput, actorId);
+
+      // Assert
+      expect(capturedHistoryData).toEqual(
+        expect.objectContaining({
+          fromStatus: null,
+          toStatus: 'PREPARING',
+          transitionType: 'initial',
+          reason: null,
+          changedById: actorId,
+        })
+      );
+    });
+
+    it('監査ログにプロジェクト作成時のafter状態が記録される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const validInput: CreateProjectInput = {
+        name: '新規プロジェクト',
+        customerName: '新規顧客',
+        salesPersonId: 'user-123',
+        siteAddress: '東京都新宿区',
+        description: '詳細説明',
+      };
+      const createdProject = {
+        id: 'new-project-id',
+        name: '新規プロジェクト',
+        customerName: '新規顧客',
+        salesPersonId: 'user-123',
+        constructionPersonId: null,
+        siteAddress: '東京都新宿区',
+        description: '詳細説明',
+        status: 'PREPARING',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        createdById: actorId,
+        salesPerson: mockUser,
+        constructionPerson: null,
+        createdBy: mockUser,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            create: vi.fn().mockResolvedValue(createdProject),
+          },
+          projectStatusHistory: {
+            create: vi.fn().mockResolvedValue({ id: 'history-1' }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.createProject(validInput, actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PROJECT_CREATED',
+          before: null,
+          after: expect.objectContaining({
+            name: '新規プロジェクト',
+            customerName: '新規顧客',
+            status: 'PREPARING',
+          }),
+        })
+      );
+    });
+  });
+
+  describe('getProjects - 追加テスト', () => {
+    it('プロジェクトが0件の場合は空配列とtotalPages=0を返す', async () => {
+      // Arrange
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(0);
+
+      // Act
+      const result = await service.getProjects(
+        {},
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert
+      expect(result.data).toHaveLength(0);
+      expect(result.pagination.total).toBe(0);
+      expect(result.pagination.totalPages).toBe(0);
+    });
+
+    it('createdFromのみ指定した場合は開始日以降でフィルタリングする', async () => {
+      // Arrange
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+      // Act
+      await service.getProjects(
+        { createdFrom: '2024-01-01' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            createdAt: {
+              gte: expect.any(Date),
+            },
+          }),
+        })
+      );
+    });
+
+    it('createdToのみ指定した場合は終了日以前でフィルタリングする', async () => {
+      // Arrange
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+      // Act
+      await service.getProjects(
+        { createdTo: '2024-12-31' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            createdAt: {
+              lte: expect.any(Date),
+            },
+          }),
+        })
+      );
+    });
+
+    it('空のステータス配列の場合はステータスフィルタを適用しない', async () => {
+      // Arrange
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+      // Act
+      await service.getProjects(
+        { status: [] },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.not.objectContaining({
+            status: expect.anything(),
+          }),
+        })
+      );
+    });
+
+    it('複数のフィルタを組み合わせて適用する', async () => {
+      // Arrange
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+      // Act
+      await service.getProjects(
+        {
+          search: 'テスト',
+          status: ['PREPARING'],
+          createdFrom: '2024-01-01',
+          createdTo: '2024-12-31',
+        },
+        { page: 1, limit: 20 },
+        { sort: 'createdAt', order: 'asc' }
+      );
+
+      // Assert
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+            OR: expect.any(Array),
+            status: { in: ['PREPARING'] },
+            createdAt: {
+              gte: expect.any(Date),
+              lte: expect.any(Date),
+            },
+          }),
+          orderBy: { createdAt: 'asc' },
+        })
+      );
+    });
+
+    it('工事担当者がいるプロジェクトの情報を正しく変換する', async () => {
+      // Arrange
+      const projectWithConstruction = {
+        ...mockProject,
+        constructionPersonId: 'user-456',
+        constructionPerson: { id: 'user-456', displayName: '工事担当者' },
+      };
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([projectWithConstruction]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+      // Act
+      const result = await service.getProjects(
+        {},
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert
+      expect(result.data[0]).toBeDefined();
+      expect(result.data[0]!.constructionPerson).toBeDefined();
+      expect(result.data[0]!.constructionPerson?.displayName).toBe('工事担当者');
+    });
+  });
+
+  describe('getProject - 追加テスト', () => {
+    it('工事担当者がいるプロジェクトの詳細を正しく取得する', async () => {
+      // Arrange
+      const projectWithConstruction = {
+        ...mockProject,
+        constructionPersonId: 'user-456',
+        constructionPerson: { id: 'user-456', displayName: '工事担当者' },
+      };
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(projectWithConstruction);
+
+      // Act
+      const result = await service.getProject('project-123');
+
+      // Assert
+      expect(result.constructionPerson).toBeDefined();
+      expect(result.constructionPerson?.displayName).toBe('工事担当者');
+    });
+
+    it('オプショナルフィールドがnullの場合は結果に含まれない', async () => {
+      // Arrange
+      const projectWithNulls = {
+        ...mockProject,
+        siteAddress: null,
+        description: null,
+        constructionPersonId: null,
+        constructionPerson: null,
+      };
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(projectWithNulls);
+
+      // Act
+      const result = await service.getProject('project-123');
+
+      // Assert
+      expect(result.siteAddress).toBeUndefined();
+      expect(result.description).toBeUndefined();
+      expect(result.constructionPerson).toBeUndefined();
+    });
+
+    it('createdByの情報が正しく取得される', async () => {
+      // Arrange
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(mockProject);
+
+      // Act
+      const result = await service.getProject('project-123');
+
+      // Assert
+      expect(result.createdBy).toBeDefined();
+      expect(result.createdBy.displayName).toBe('テストユーザー');
+    });
+
+    it('ステータスラベルが正しく設定される', async () => {
+      // Arrange
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(mockProject);
+
+      // Act
+      const result = await service.getProject('project-123');
+
+      // Assert
+      expect(result.status).toBe('PREPARING');
+      expect(result.statusLabel).toBe('準備中');
+    });
+  });
+
+  describe('updateProject - 追加テスト', () => {
+    const expectedUpdatedAt = new Date('2024-01-02');
+
+    it('constructionPersonIdをnullに設定して工事担当者を削除する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const projectWithConstruction = {
+        ...mockProject,
+        constructionPersonId: 'user-456',
+        constructionPerson: { id: 'user-456', displayName: '工事担当者' },
+      };
+      const updatedProject = {
+        ...projectWithConstruction,
+        constructionPersonId: null,
+        constructionPerson: null,
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      let capturedUpdateData: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(projectWithConstruction),
+            update: vi.fn().mockImplementation((args) => {
+              capturedUpdateData = args.data;
+              return Promise.resolve(updatedProject);
+            }),
+          },
+          user: {
+            findUnique: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        { constructionPersonId: null },
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result.constructionPerson).toBeUndefined();
+      expect(capturedUpdateData).toEqual(
+        expect.objectContaining({
+          constructionPerson: { disconnect: true },
+        })
+      );
+    });
+
+    it('工事担当者をadminユーザーに更新しようとした場合はエラーを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const inputWithAdminConstruction: UpdateProjectInput = {
+        constructionPersonId: 'admin-id',
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            update: vi.fn(),
+          },
+          user: {
+            findUnique: vi.fn().mockResolvedValue({
+              ...mockAdminUser,
+              userRoles: [{ role: { name: 'admin' } }],
+            }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(
+        service.updateProject('project-123', inputWithAdminConstruction, actorId, expectedUpdatedAt)
+      ).rejects.toThrow(ProjectValidationError);
+    });
+
+    it('各フィールドを個別に更新できる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updatedProject = {
+        ...mockProject,
+        siteAddress: '更新後住所',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      let capturedUpdateData: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            update: vi.fn().mockImplementation((args) => {
+              capturedUpdateData = args.data;
+              return Promise.resolve(updatedProject);
+            }),
+          },
+          user: {
+            findUnique: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.updateProject(
+        'project-123',
+        { siteAddress: '更新後住所' },
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(capturedUpdateData).toEqual({ siteAddress: '更新後住所' });
+    });
+
+    it('監査ログにbefore/after状態が正しく記録される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updatedProject = {
+        ...mockProject,
+        name: '更新後名前',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+          user: {
+            findUnique: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.updateProject(
+        'project-123',
+        { name: '更新後名前' },
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PROJECT_UPDATED',
+          before: expect.objectContaining({
+            name: 'テストプロジェクト',
+          }),
+          after: expect.objectContaining({
+            name: '更新後名前',
+          }),
+        })
+      );
+    });
+  });
+
+  describe('deleteProject - 追加テスト', () => {
+    it('監査ログにbefore状態が記録されafter状態がnullになる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const deletedProject = {
+        ...mockProject,
+        deletedAt: new Date(),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            update: vi.fn().mockResolvedValue(deletedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteProject('project-123', actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PROJECT_DELETED',
+          before: expect.objectContaining({
+            name: 'テストプロジェクト',
+            customerName: 'テスト顧客',
+            status: 'PREPARING',
+          }),
+          after: null,
+        })
+      );
+    });
+  });
+
+  describe('getRelatedCounts - 追加テスト', () => {
+    it('論理削除されたプロジェクトの場合はエラーを返す', async () => {
+      // Arrange
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue({
+        ...mockProject,
+        deletedAt: new Date(),
+      });
+
+      // Act & Assert
+      await expect(service.getRelatedCounts('project-123')).rejects.toThrow(ProjectNotFoundError);
+    });
+  });
 });
