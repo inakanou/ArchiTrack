@@ -594,4 +594,105 @@ describe('ProjectListTable', () => {
       expect(within(row).getByText('2025/01/01')).toBeInTheDocument();
     });
   });
+
+  describe('キーボードナビゲーション（Task 12.1, Requirements 20.1, 20.4）', () => {
+    it('Tabキーでテーブル行間を移動できる', async () => {
+      const user = userEvent.setup();
+      renderWithRouter(
+        <ProjectListTable
+          projects={mockProjects}
+          sortField="updatedAt"
+          sortOrder="desc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      const row1 = screen.getByTestId('project-row-project-1');
+      const row2 = screen.getByTestId('project-row-project-2');
+
+      row1.focus();
+      expect(row1).toHaveFocus();
+
+      await user.tab();
+      expect(row2).toHaveFocus();
+    });
+
+    it('行にフォーカスが当たるとフォーカススタイルが適用される', () => {
+      renderWithRouter(
+        <ProjectListTable
+          projects={mockProjects}
+          sortField="updatedAt"
+          sortOrder="desc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      const row = screen.getByTestId('project-row-project-1');
+      expect(row).toHaveClass('focus:ring-2');
+      expect(row).toHaveClass('focus:ring-blue-500');
+    });
+
+    it('ソートボタンにEnterキーでソートを実行できる', async () => {
+      const user = userEvent.setup();
+      const onSort = vi.fn();
+      renderWithRouter(
+        <ProjectListTable
+          projects={mockProjects}
+          sortField="updatedAt"
+          sortOrder="desc"
+          onSort={onSort}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      const nameHeader = screen.getByRole('columnheader', { name: /プロジェクト名/i });
+      const sortButton = within(nameHeader).getByRole('button');
+      sortButton.focus();
+
+      await user.keyboard('{Enter}');
+
+      expect(onSort).toHaveBeenCalledWith('name');
+    });
+
+    it('ソートボタンにSpaceキーでソートを実行できる', async () => {
+      const user = userEvent.setup();
+      const onSort = vi.fn();
+      renderWithRouter(
+        <ProjectListTable
+          projects={mockProjects}
+          sortField="updatedAt"
+          sortOrder="desc"
+          onSort={onSort}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      const nameHeader = screen.getByRole('columnheader', { name: /プロジェクト名/i });
+      const sortButton = within(nameHeader).getByRole('button');
+      sortButton.focus();
+
+      await user.keyboard(' ');
+
+      expect(onSort).toHaveBeenCalledWith('name');
+    });
+
+    it('ソートボタンにフォーカスリングが表示される', () => {
+      renderWithRouter(
+        <ProjectListTable
+          projects={mockProjects}
+          sortField="updatedAt"
+          sortOrder="desc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      const nameHeader = screen.getByRole('columnheader', { name: /プロジェクト名/i });
+      const sortButton = within(nameHeader).getByRole('button');
+      expect(sortButton).toHaveClass('focus:ring-2');
+      expect(sortButton).toHaveClass('focus:ring-blue-500');
+    });
+  });
 });
