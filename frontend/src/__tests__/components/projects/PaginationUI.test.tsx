@@ -3,12 +3,12 @@
  *
  * Task 8.4: ページネーションUIの実装
  *
- * Requirements:
- * - 3.1: 1ページあたりのデフォルト表示件数を20件とする
- * - 3.2: プロジェクト総数がページサイズを超える場合、ページネーションコントロールを表示
- * - 3.3: ページ番号クリックで該当ページのプロジェクトを表示
- * - 3.4: 現在のページ番号、総ページ数、総プロジェクト数を表示
- * - 3.5: 表示件数変更で選択された件数で一覧を再表示
+ * Requirements (project-management):
+ * - REQ-3.1: 1ページあたりのデフォルト表示件数を20件とする
+ * - REQ-3.2: プロジェクト総数がページサイズを超える場合、ページネーションコントロールを表示
+ * - REQ-3.3: ページ番号クリックで該当ページのプロジェクトを表示
+ * - REQ-3.4: 現在のページ番号、総ページ数、総プロジェクト数を表示
+ * - REQ-3.5: 表示件数変更で選択された件数で一覧を再表示
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -88,7 +88,7 @@ describe('PaginationUI', () => {
     });
   });
 
-  describe('ページ情報表示（Requirement 3.4）', () => {
+  describe('ページ情報表示（project-management/REQ-3.4）', () => {
     it('現在のページ番号が表示される', () => {
       render(
         <PaginationUI
@@ -155,7 +155,7 @@ describe('PaginationUI', () => {
     });
   });
 
-  describe('ページ遷移（Requirements 3.2, 3.3）', () => {
+  describe('ページ遷移（project-management/REQ-3.2, REQ-3.3）', () => {
     it('前のページボタンをクリックするとonPageChangeが呼ばれる', async () => {
       const onPageChange = vi.fn();
       render(
@@ -263,7 +263,7 @@ describe('PaginationUI', () => {
     });
   });
 
-  describe('表示件数変更（Requirements 3.1, 3.5）', () => {
+  describe('表示件数変更（project-management/REQ-3.1, REQ-3.5）', () => {
     it('表示件数選択ドロップダウンが表示される', () => {
       render(
         <PaginationUI

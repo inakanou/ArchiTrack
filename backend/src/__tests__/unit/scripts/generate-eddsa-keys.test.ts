@@ -1,9 +1,9 @@
 /**
  * EdDSA鍵ペア生成スクリプトのテスト
  *
- * Requirements coverage:
- * - 要件5: トークン管理
- * - 要件10: セキュリティとエラーハンドリング
+ * Requirements coverage (user-authentication):
+ * - REQ-5: トークン管理
+ * - REQ-10: セキュリティとエラーハンドリング
  *
  * @module generate-eddsa-keys.test
  */

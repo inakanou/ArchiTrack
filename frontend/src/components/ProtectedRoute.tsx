@@ -39,7 +39,7 @@ export interface ProtectedRouteProps {
  * - 認証済みユーザーのみをリダイレクトするオプション（例: ログインページ→ダッシュボード）
  *
  * ## 要件
- * - Requirement 16: セッション有効期限切れ時のリダイレクトURL保存機能
+ * @requirement user-authentication/REQ-16: セッション有効期限切れ時のリダイレクトURL保存機能
  *
  * @example
  * // 保護されたルート（認証が必要）
@@ -87,9 +87,10 @@ export function ProtectedRoute({
 
     if (!isAuthenticated) {
       // 未認証の場合、現在のパスをstateとクエリパラメータの両方に保存してリダイレクト
-      // ログイン後にこのパスに戻れるようにする（Requirement 16）
-      // セッション期限切れの場合はsessionExpiredフラグも渡す（Requirement 16.8）
-      // 要件16.7: redirectUrlクエリパラメータとして現在のURLを保存
+      // ログイン後にこのパスに戻れるようにする
+      // @requirement user-authentication/REQ-16: リダイレクトURL保存
+      // @requirement user-authentication/REQ-16.8: セッション期限切れフラグ
+      // @requirement user-authentication/REQ-16.7: redirectUrlクエリパラメータとして現在のURLを保存
       const currentPath = location.pathname + location.search;
       const redirectUrlParam = encodeURIComponent(currentPath);
       const redirectPath = `${redirectTo}?redirectUrl=${redirectUrlParam}`;

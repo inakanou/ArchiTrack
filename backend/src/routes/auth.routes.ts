@@ -1,12 +1,12 @@
 /**
  * @fileoverview 認証APIルート
  *
- * Requirements:
- * - 2: ユーザー登録（招待経由）
- * - 4: ログイン
- * - 5: トークン管理（リフレッシュ、ログアウト）
- * - 9: ユーザー情報取得・更新
- * - 27A: 2FA検証
+ * Requirements (user-authentication):
+ * - REQ-2: ユーザー登録（招待経由）
+ * - REQ-4: ログイン
+ * - REQ-5: トークン管理（リフレッシュ、ログアウト）
+ * - REQ-9: ユーザー情報取得・更新
+ * - REQ-27A: 2FA検証
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -25,7 +25,7 @@ import { PasswordViolation } from '../types/password.types.js';
 
 /**
  * リフレッシュトークンをHTTPOnly Cookieに設定する
- * 要件26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
+ * @requirement user-authentication/REQ-26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
  */
 function setRefreshTokenCookie(res: Response, refreshToken: string): void {
   res.cookie('refreshToken', refreshToken, {

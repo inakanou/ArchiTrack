@@ -1,8 +1,8 @@
 /**
  * @fileoverview seed-helpersのユニットテスト
  *
- * Requirements:
- * - 12.5: プロジェクト権限の定義
+ * Requirements (project-management):
+ * - REQ-12.5: プロジェクト権限の定義
  *   - project:create, project:read, project:update, project:delete権限
  *   - 一般ユーザーロールへのプロジェクト基本権限割り当て
  *
@@ -33,7 +33,7 @@ describe('seedPermissions', () => {
     };
   });
 
-  describe('プロジェクト権限の定義（Requirements 12.5）', () => {
+  describe('プロジェクト権限の定義（project-management/REQ-12.5）', () => {
     it('project:create権限が定義されている', async () => {
       // Arrange
       const { seedPermissions } = await import('../../../utils/seed-helpers.js');
@@ -132,7 +132,7 @@ describe('seedRolePermissions', () => {
     vi.resetModules();
   });
 
-  describe('一般ユーザーロールへのプロジェクト権限割り当て（Requirements 12.5）', () => {
+  describe('一般ユーザーロールへのプロジェクト権限割り当て（project-management/REQ-12.5）', () => {
     it('一般ユーザーにproject:create権限が割り当てられる', async () => {
       // Arrange
       const userRoleId = 'user-role-id';

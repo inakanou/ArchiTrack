@@ -3,17 +3,17 @@
  *
  * Task 8.3: 検索・フィルタUIの実装
  *
- * Requirements:
- * - 4.1: 検索フィールドにキーワードを入力してEnterキーを押すまたは検索ボタンをクリックで検索実行
- * - 4.2: 検索結果が0件の場合、メッセージを表示（親コンポーネントの責務だがコンポーネント連携をテスト）
- * - 4.3: 検索キーワードをクリアすると全プロジェクト一覧を再表示
- * - 4.4: 2文字以上の検索キーワードを要求
- * - 4.5: 検索キーワードが1文字以下の場合、メッセージを表示し検索を実行しない
- * - 5.1: ステータスフィルタで値を選択すると選択されたステータスのプロジェクトのみ表示
- * - 5.2: 期間フィルタで作成日を基準とした日付範囲フィルタリング
- * - 5.3: 期間フィルタで日付範囲を指定すると指定期間内のプロジェクトのみ表示
- * - 5.4: 複数のフィルタを適用するとAND条件で絞り込み
- * - 5.5: フィルタをクリアをクリックするとすべてのフィルタを解除
+ * Requirements (project-management):
+ * - REQ-4.1: 検索フィールドにキーワードを入力してEnterキーを押すまたは検索ボタンをクリックで検索実行
+ * - REQ-4.2: 検索結果が0件の場合、メッセージを表示（親コンポーネントの責務だがコンポーネント連携をテスト）
+ * - REQ-4.3: 検索キーワードをクリアすると全プロジェクト一覧を再表示
+ * - REQ-4.4: 2文字以上の検索キーワードを要求
+ * - REQ-4.5: 検索キーワードが1文字以下の場合、メッセージを表示し検索を実行しない
+ * - REQ-5.1: ステータスフィルタで値を選択すると選択されたステータスのプロジェクトのみ表示
+ * - REQ-5.2: 期間フィルタで作成日を基準とした日付範囲フィルタリング
+ * - REQ-5.3: 期間フィルタで日付範囲を指定すると指定期間内のプロジェクトのみ表示
+ * - REQ-5.4: 複数のフィルタを適用するとAND条件で絞り込み
+ * - REQ-5.5: フィルタをクリアをクリックするとすべてのフィルタを解除
  */
 
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
@@ -93,11 +93,11 @@ describe('ProjectSearchFilter', () => {
   });
 
   // ==========================================================================
-  // 検索機能テスト（Requirements 4.1, 4.3, 4.4, 4.5）
+  // 検索機能テスト（project-management/REQ-4.1, REQ-4.3, REQ-4.4, REQ-4.5）
   // ==========================================================================
 
   describe('検索機能', () => {
-    it('Enterキーで検索が実行される（Requirement 4.1）', async () => {
+    it('Enterキーで検索が実行される（project-management/REQ-4.1）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -111,7 +111,7 @@ describe('ProjectSearchFilter', () => {
       );
     });
 
-    it('検索ボタンクリックで検索が実行される（Requirement 4.1）', async () => {
+    it('検索ボタンクリックで検索が実行される（project-management/REQ-4.1）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -128,7 +128,7 @@ describe('ProjectSearchFilter', () => {
       );
     });
 
-    it('2文字以上の検索キーワードで検索が実行される（Requirement 4.4）', async () => {
+    it('2文字以上の検索キーワードで検索が実行される（project-management/REQ-4.4）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -142,7 +142,7 @@ describe('ProjectSearchFilter', () => {
       );
     });
 
-    it('1文字以下の検索キーワードでは検索が実行されない（Requirement 4.5）', async () => {
+    it('1文字以下の検索キーワードでは検索が実行されない（project-management/REQ-4.5）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -157,7 +157,7 @@ describe('ProjectSearchFilter', () => {
       );
     });
 
-    it('1文字以下の検索キーワードでエラーメッセージが表示される（Requirement 4.5）', async () => {
+    it('1文字以下の検索キーワードでエラーメッセージが表示される（project-management/REQ-4.5）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -168,7 +168,7 @@ describe('ProjectSearchFilter', () => {
       expect(errorMessage).toBeInTheDocument();
     });
 
-    it('検索キーワードをクリアすると再検索される（Requirement 4.3）', async () => {
+    it('検索キーワードをクリアすると再検索される（project-management/REQ-4.3）', async () => {
       const user = userEvent.setup();
       const filterWithSearch: ProjectFilter = {
         ...defaultFilter,
@@ -204,11 +204,11 @@ describe('ProjectSearchFilter', () => {
   });
 
   // ==========================================================================
-  // ステータスフィルタテスト（Requirement 5.1）
+  // ステータスフィルタテスト（project-management/REQ-5.1）
   // ==========================================================================
 
   describe('ステータスフィルタ', () => {
-    it('ステータスを選択するとonFilterChangeが呼ばれる（Requirement 5.1）', async () => {
+    it('ステータスを選択するとonFilterChangeが呼ばれる（project-management/REQ-5.1）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -270,11 +270,11 @@ describe('ProjectSearchFilter', () => {
   });
 
   // ==========================================================================
-  // 期間フィルタテスト（Requirements 5.2, 5.3）
+  // 期間フィルタテスト（project-management/REQ-5.2, REQ-5.3）
   // ==========================================================================
 
   describe('期間フィルタ', () => {
-    it('開始日を選択するとonFilterChangeが呼ばれる（Requirement 5.2）', async () => {
+    it('開始日を選択するとonFilterChangeが呼ばれる（project-management/REQ-5.2）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -288,7 +288,7 @@ describe('ProjectSearchFilter', () => {
       );
     });
 
-    it('終了日を選択するとonFilterChangeが呼ばれる（Requirement 5.3）', async () => {
+    it('終了日を選択するとonFilterChangeが呼ばれる（project-management/REQ-5.3）', async () => {
       const user = userEvent.setup();
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
@@ -338,11 +338,11 @@ describe('ProjectSearchFilter', () => {
   });
 
   // ==========================================================================
-  // 複合フィルタテスト（Requirement 5.4）
+  // 複合フィルタテスト（project-management/REQ-5.4）
   // ==========================================================================
 
   describe('複合フィルタ', () => {
-    it('検索とステータスフィルタを組み合わせられる（Requirement 5.4）', async () => {
+    it('検索とステータスフィルタを組み合わせられる（project-management/REQ-5.4）', async () => {
       const user = userEvent.setup();
       // 制御コンポーネントなので、既にステータスが設定されているfilterを渡す
       const filterWithStatus: ProjectFilter = {
@@ -392,11 +392,11 @@ describe('ProjectSearchFilter', () => {
   });
 
   // ==========================================================================
-  // フィルタクリアテスト（Requirement 5.5）
+  // フィルタクリアテスト（project-management/REQ-5.5）
   // ==========================================================================
 
   describe('フィルタクリア', () => {
-    it('フィルタクリアボタンをクリックすると全フィルタがリセットされる（Requirement 5.5）', async () => {
+    it('フィルタクリアボタンをクリックすると全フィルタがリセットされる（project-management/REQ-5.5）', async () => {
       const user = userEvent.setup();
       const filterWithValues: ProjectFilter = {
         search: 'テスト',

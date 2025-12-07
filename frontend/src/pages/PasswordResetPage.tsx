@@ -14,7 +14,7 @@ import type { PasswordResetRequestFormData, PasswordResetFormData } from '../typ
  * - リセット実行モード（resetTokenあり）: 新しいパスワードを設定
  *
  * ## 要件
- * - Requirement 7: パスワードリセット機能
+ * @requirement user-authentication/REQ-7: パスワードリセット機能
  */
 export function PasswordResetPage() {
   const navigate = useNavigate();

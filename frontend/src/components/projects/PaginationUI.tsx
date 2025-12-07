@@ -36,7 +36,7 @@ export interface PaginationUIProps {
 
 /**
  * 表示件数オプション
- * Requirement 3.5: 10/20/50件から選択可能
+ * @requirement project-management/REQ-3.5: 10/20/50件から選択可能
  */
 const LIMIT_OPTIONS = [10, 20, 50] as const;
 

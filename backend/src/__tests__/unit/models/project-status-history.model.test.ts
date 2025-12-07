@@ -3,10 +3,10 @@
  *
  * TDD: RED Phase - Prismaスキーマで定義したProjectStatusHistoryモデルの型検証
  *
- * Requirements:
- * - 10.10: ステータス変更履歴（変更前後のステータス、変更日時、変更したユーザー、遷移種別）を記録
- * - 10.11: 遷移種別として4種類を定義: initial, forward, backward, terminate
- * - 10.15: ステータス変更履歴に差し戻し理由を記録
+ * Requirements (project-management):
+ * - REQ-10.10: ステータス変更履歴（変更前後のステータス、変更日時、変更したユーザー、遷移種別）を記録
+ * - REQ-10.11: 遷移種別として4種類を定義: initial, forward, backward, terminate
+ * - REQ-10.15: ステータス変更履歴に差し戻し理由を記録
  */
 
 import { describe, it, expect } from 'vitest';

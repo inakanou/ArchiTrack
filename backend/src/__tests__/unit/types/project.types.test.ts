@@ -1,9 +1,9 @@
 /**
  * @fileoverview プロジェクトステータスおよびトランジション種別の型定義テスト
  *
- * Requirements:
- * - 10.1: プロジェクトステータスとして12種類を提供
- * - 10.11: 遷移種別として4種類を定義
+ * Requirements (project-management):
+ * - REQ-10.1: プロジェクトステータスとして12種類を提供
+ * - REQ-10.11: 遷移種別として4種類を定義
  */
 
 import { describe, it, expect } from 'vitest';

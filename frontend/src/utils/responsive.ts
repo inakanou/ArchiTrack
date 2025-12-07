@@ -3,10 +3,10 @@
  *
  * Task 11.1: 画面幅対応の実装
  *
- * Requirements:
- * - 15.5: 320px〜1920pxの画面幅に対応
- * - 15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
- * - 15.2: プロジェクト詳細画面をデスクトップ、タブレット、モバイルに対応
+ * Requirements (project-management):
+ * - REQ-15.5: 320px〜1920pxの画面幅に対応
+ * - REQ-15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
+ * - REQ-15.2: プロジェクト詳細画面をデスクトップ、タブレット、モバイルに対応
  *
  * このファイルは、レスポンシブデザインに必要なブレークポイント定数、
  * メディアクエリ、およびユーティリティ関数を一元管理します。
@@ -54,13 +54,13 @@ export const BREAKPOINTS = {
 
 /**
  * サポートする最小画面幅（px）
- * Requirement 15.5: 320px〜1920pxの画面幅に対応
+ * @requirement project-management/REQ-15.5: 320px〜1920pxの画面幅に対応
  */
 export const MIN_VIEWPORT_WIDTH = 320;
 
 /**
  * サポートする最大画面幅（px）
- * Requirement 15.5: 320px〜1920pxの画面幅に対応
+ * @requirement project-management/REQ-15.5: 320px〜1920pxの画面幅に対応
  */
 export const MAX_VIEWPORT_WIDTH = 1920;
 

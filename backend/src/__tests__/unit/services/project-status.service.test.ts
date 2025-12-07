@@ -3,14 +3,14 @@
  *
  * TDD方式: テストを先に書き、実装が通るまで繰り返す
  *
- * Requirements:
- * - 10.1: 12種類のプロジェクトステータス
- * - 10.3-10.7: ステータス遷移ルール（順方向・差し戻し・終端）
- * - 10.8: 許可されたステータス遷移の実行
- * - 10.9: 無効なステータス遷移の拒否
- * - 10.10, 10.11: ステータス変更履歴の記録（遷移種別含む）
- * - 10.14: 差し戻し遷移時の理由必須チェック
- * - 12.6: 監査ログ連携（PROJECT_STATUS_CHANGED）
+ * Requirements (project-management):
+ * - REQ-10.1: 12種類のプロジェクトステータス
+ * - REQ-10.3-10.7: ステータス遷移ルール（順方向・差し戻し・終端）
+ * - REQ-10.8: 許可されたステータス遷移の実行
+ * - REQ-10.9: 無効なステータス遷移の拒否
+ * - REQ-10.10, REQ-10.11: ステータス変更履歴の記録（遷移種別含む）
+ * - REQ-10.14: 差し戻し遷移時の理由必須チェック
+ * - REQ-12.6: 監査ログ連携（PROJECT_STATUS_CHANGED）
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -83,7 +83,7 @@ describe('ProjectStatusService', () => {
   });
 
   /**
-   * @requirement 10.1: 12種類のプロジェクトステータスに対応
+   * @requirement project-management/REQ-10.1: 12種類のプロジェクトステータスに対応
    */
   describe('全12ステータスの遷移ルール検証', () => {
     const ALL_STATUSES: ProjectStatus[] = [
@@ -397,7 +397,7 @@ describe('ProjectStatusService', () => {
     });
 
     /**
-     * @requirement 10.5: 中止遷移は準備中・調査中・見積中からのみ許可
+     * @requirement project-management/REQ-10.5: 中止遷移は準備中・調査中・見積中からのみ許可
      */
     describe('中止遷移（terminate to CANCELLED）', () => {
       it('準備中から中止への遷移がterminateであること', () => {
@@ -423,7 +423,7 @@ describe('ProjectStatusService', () => {
     });
 
     /**
-     * @requirement 10.6: 失注遷移は決裁待ち・契約中からのみ許可
+     * @requirement project-management/REQ-10.6: 失注遷移は決裁待ち・契約中からのみ許可
      */
     describe('失注遷移（terminate to LOST）', () => {
       it('決裁待ちから失注への遷移がterminateであること', () => {
@@ -446,7 +446,7 @@ describe('ProjectStatusService', () => {
     });
 
     /**
-     * @requirement 10.7: 終端ステータスからの遷移禁止
+     * @requirement project-management/REQ-10.7: 終端ステータスからの遷移禁止
      */
     describe('終端ステータスからの遷移禁止', () => {
       const ALL_STATUSES: ProjectStatus[] = [
@@ -484,7 +484,7 @@ describe('ProjectStatusService', () => {
     });
 
     /**
-     * @requirement 10.3, 10.4: ワークフロー遷移の方向性検証
+     * @requirement project-management/REQ-10.3, REQ-10.4: ワークフロー遷移の方向性検証
      */
     describe('ワークフロー遷移の方向性検証', () => {
       it('2つ以上先のステータスへの直接遷移がnullであること（スキップ禁止）', () => {
@@ -688,7 +688,7 @@ describe('ProjectStatusService', () => {
       });
 
       /**
-       * @requirement 10.9: InvalidStatusTransitionErrorには許可された遷移先情報が含まれること
+       * @requirement project-management/REQ-10.9: InvalidStatusTransitionErrorには許可された遷移先情報が含まれること
        */
       it('InvalidStatusTransitionErrorに許可された遷移先情報が含まれること', async () => {
         try {
@@ -731,7 +731,7 @@ describe('ProjectStatusService', () => {
     });
 
     /**
-     * @requirement 10.8: 許可されたステータス遷移の実行テスト（追加ケース）
+     * @requirement project-management/REQ-10.8: 許可されたステータス遷移の実行テスト（追加ケース）
      */
     describe('全ワークフローステータスの遷移テスト', () => {
       it('調査中から見積中への順方向遷移が成功すること', async () => {
@@ -830,7 +830,7 @@ describe('ProjectStatusService', () => {
     });
 
     /**
-     * @requirement 10.14: 差し戻し遷移時の理由必須チェック（追加ケース）
+     * @requirement project-management/REQ-10.14: 差し戻し遷移時の理由必須チェック（追加ケース）
      */
     describe('差し戻し遷移の理由検証（追加ケース）', () => {
       it('差し戻し時に理由が記録されること', async () => {
@@ -962,7 +962,7 @@ describe('ProjectStatusService', () => {
     });
 
     /**
-     * @requirement 10.10, 10.11: ステータス変更履歴に遷移種別が含まれること
+     * @requirement project-management/REQ-10.10, REQ-10.11: ステータス変更履歴に遷移種別が含まれること
      */
     describe('履歴の遷移種別検証', () => {
       it('初期遷移（initial）の履歴が正しく取得できること', async () => {

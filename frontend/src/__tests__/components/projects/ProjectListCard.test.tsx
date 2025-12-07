@@ -3,10 +3,10 @@
  *
  * Task 8.2: プロジェクト一覧カード表示の実装
  *
- * Requirements:
- * - 15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
- * - 15.3: 768px未満でカード形式に切り替えて表示
- * - 15.4: タッチ操作に最適化されたUI（タップターゲット44x44px以上）
+ * Requirements (project-management):
+ * - REQ-15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
+ * - REQ-15.3: 768px未満でカード形式に切り替えて表示
+ * - REQ-15.4: タッチ操作に最適化されたUI（タップターゲット44x44px以上）
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -174,7 +174,7 @@ describe('ProjectListCard', () => {
     });
   });
 
-  describe('タップターゲット最適化（Requirement 15.4）', () => {
+  describe('タップターゲット最適化（project-management/REQ-15.4）', () => {
     it('カードがタップ可能なスタイルを持つ', () => {
       renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
 
@@ -254,7 +254,7 @@ describe('ProjectListCard', () => {
     });
   });
 
-  describe('レスポンシブ対応（Requirement 15.1, 15.3）', () => {
+  describe('レスポンシブ対応（project-management/REQ-15.1, REQ-15.3）', () => {
     it('カードリストがグリッドレイアウトを持つ', () => {
       renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
 

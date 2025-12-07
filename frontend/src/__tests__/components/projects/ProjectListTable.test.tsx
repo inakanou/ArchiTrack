@@ -3,15 +3,15 @@
  *
  * Task 8.1: プロジェクト一覧テーブルコンポーネントの実装
  *
- * Requirements:
- * - 2.2: 各プロジェクトのID、プロジェクト名、顧客名、ステータス、作成日、更新日を一覧に表示
- * - 2.3: プロジェクト行クリックで詳細画面に遷移
- * - 6.1: テーブルヘッダークリックで昇順ソート
- * - 6.2: 同じヘッダー再度クリックで降順ソート切り替え
- * - 6.3: 現在のソート状態をヘッダーにアイコン（昇順: up、降順: down）で表示
- * - 6.4: ソート対象外のカラムヘッダーにはソートアイコンを表示しない
- * - 6.5: ID、プロジェクト名、顧客名、ステータス、作成日、更新日のカラムでソート可能
- * - 20.6: テーブルヘッダーとデータセルの関連付け（アクセシビリティ）
+ * Requirements (project-management):
+ * - REQ-2.2: 各プロジェクトのID、プロジェクト名、顧客名、ステータス、作成日、更新日を一覧に表示
+ * - REQ-2.3: プロジェクト行クリックで詳細画面に遷移
+ * - REQ-6.1: テーブルヘッダークリックで昇順ソート
+ * - REQ-6.2: 同じヘッダー再度クリックで降順ソート切り替え
+ * - REQ-6.3: 現在のソート状態をヘッダーにアイコン（昇順: up、降順: down）で表示
+ * - REQ-6.4: ソート対象外のカラムヘッダーにはソートアイコンを表示しない
+ * - REQ-6.5: ID、プロジェクト名、顧客名、ステータス、作成日、更新日のカラムでソート可能
+ * - REQ-20.6: テーブルヘッダーとデータセルの関連付け（アクセシビリティ）
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -121,7 +121,7 @@ describe('ProjectListTable', () => {
     });
   });
 
-  describe('カラム表示（Requirement 2.2）', () => {
+  describe('カラム表示（project-management/REQ-2.2）', () => {
     it('ID列が表示される', () => {
       renderWithRouter(
         <ProjectListTable
@@ -274,7 +274,7 @@ describe('ProjectListTable', () => {
     });
   });
 
-  describe('行クリック（Requirement 2.3）', () => {
+  describe('行クリック（project-management/REQ-2.3）', () => {
     it('行クリックでonRowClickが呼ばれる', async () => {
       const onRowClick = vi.fn();
       renderWithRouter(
@@ -324,7 +324,7 @@ describe('ProjectListTable', () => {
     });
   });
 
-  describe('ソート機能（Requirements 6.1-6.5）', () => {
+  describe('ソート機能（project-management/REQ-6.1-REQ-6.5）', () => {
     it('ヘッダークリックでonSortが呼ばれる', async () => {
       const onSort = vi.fn();
       renderWithRouter(
@@ -468,7 +468,7 @@ describe('ProjectListTable', () => {
     });
   });
 
-  describe('アクセシビリティ（Requirement 20.6）', () => {
+  describe('アクセシビリティ（project-management/REQ-20.6）', () => {
     it('テーブルにaria-label属性が設定される', () => {
       renderWithRouter(
         <ProjectListTable
@@ -595,7 +595,7 @@ describe('ProjectListTable', () => {
     });
   });
 
-  describe('キーボードナビゲーション（Task 12.1, Requirements 20.1, 20.4）', () => {
+  describe('キーボードナビゲーション（Task 12.1, project-management/REQ-20.1, REQ-20.4）', () => {
     it('Tabキーでテーブル行間を移動できる', async () => {
       const user = userEvent.setup();
       renderWithRouter(

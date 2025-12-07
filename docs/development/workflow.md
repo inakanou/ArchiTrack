@@ -63,9 +63,10 @@ hotfix/* (緊急修正)   ← mainから分岐
 3. **要件定義** - `/kiro:spec-requirements` で詳細な要件を生成
 4. **設計** - `/kiro:spec-design` で技術設計を作成
 5. **タスク分解** - `/kiro:spec-tasks` で実装タスクに分解
-6. **実装** - タスクに従って段階的に実装
+6. **実装** - タスクに従って段階的に実装（要件タグ `@requirement` を付与）
 7. **Storybookストーリー作成** - 実装したコンポーネントのストーリーを作成（実装後ドキュメント化アプローチ）
-8. **進捗確認** - `/kiro:spec-status` で進捗を追跡
+8. **要件カバレッジ確認** - `npx tsx scripts/check-requirement-coverage.ts` でカバレッジを検証
+9. **進捗確認** - `/kiro:spec-status` で進捗を追跡
 
 各フェーズで人間のレビューを実施し、品質を確保します。
 
@@ -242,7 +243,35 @@ Claude Codeに以下のように依頼：
 .kiro/specs/user-auth/tasks.md のタスク1「JWT認証ミドルウェアの実装」を実装してください
 ```
 
-#### 6-4. 実装の確認
+#### 6-4. 要件タグの付与
+
+実装したコードには、対応する要件を紐付ける`@requirement`タグを付与します：
+
+```typescript
+/**
+ * @fileoverview 認証サービス
+ *
+ * Requirements (user-authentication):
+ * - REQ-4.1: ログイン成功時にアクセストークンとリフレッシュトークンを発行
+ * - REQ-4.4: 環境変数ACCESS_TOKEN_EXPIRYで設定された有効期限を持つアクセストークンを発行
+ */
+
+/**
+ * @requirement user-authentication/REQ-4.1: 有効な認証情報でトークン発行
+ */
+async function login(email: string, password: string) {
+  // 実装...
+}
+```
+
+**形式:** `@requirement {feature-name}/REQ-{N}.{M}`
+- `{feature-name}`: `.kiro/specs/`配下のディレクトリ名（例: `user-authentication`）
+- `REQ-{N}`: 要件番号
+- `.{M}`: 受入基準番号（任意）
+
+詳細は[コーディング規約 - 要件トレーサビリティ](coding-standards.md#要件トレーサビリティrequirements-traceability)を参照してください。
+
+#### 6-5. 実装の確認
 
 - コードレビュー
 - ローカルで動作確認
@@ -275,7 +304,12 @@ npm --prefix frontend run test
 # ビルド確認
 npm --prefix backend run build
 npm --prefix frontend run build
+
+# 要件カバレッジ確認
+npx tsx scripts/check-requirement-coverage.ts --threshold=0 --feature=user-auth
 ```
+
+**要件カバレッジ**: 実装した機能が要件定義書（`.kiro/specs/`）のどの受入基準をカバーしているかを検証します。詳細は[テスト - 要件カバレッジ](testing.md#要件カバレッジrequirements-traceability)を参照してください。
 
 ### Step 8: コミット
 

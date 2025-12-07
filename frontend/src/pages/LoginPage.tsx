@@ -50,8 +50,8 @@ function validateRedirectUrl(url: string | null, defaultUrl: string): string {
  * - パスワード忘れた場合のリンク（パスワードリセットページへ遷移）
  *
  * ## 要件
- * - Requirement 16: セッション有効期限切れ時のリダイレクトURL保存機能
- * - Requirement 27A: 2FA検証
+ * @requirement user-authentication/REQ-16: セッション有効期限切れ時のリダイレクトURL保存機能
+ * @requirement user-authentication/REQ-27A: 2FA検証
  */
 export function LoginPage() {
   const navigate = useNavigate();

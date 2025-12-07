@@ -41,7 +41,8 @@ export class TwoFactorService implements ITwoFactorService {
   private readonly prisma: PrismaClient;
 
   constructor() {
-    // otplibの設定（RFC 6238準拠、要件27C.1）
+    // otplibの設定（RFC 6238準拠）
+    // @requirement user-authentication/REQ-27C.1
     authenticator.options = {
       window: 1, // ±1ステップ許容（合計90秒）
     };
@@ -53,7 +54,7 @@ export class TwoFactorService implements ITwoFactorService {
    *
    * TOTP秘密鍵を生成し、QRコードとバックアップコードを返す。
    * データベースに秘密鍵とバックアップコードを保存する。
-   * 要件27.1-27.8: 二要素認証設定機能
+   * @requirement user-authentication/REQ-27.1-27.8: 二要素認証設定機能
    *
    * @param userId - ユーザーID
    * @returns 2FA設定データ（QRコード、秘密鍵、バックアップコード）
@@ -143,7 +144,7 @@ export class TwoFactorService implements ITwoFactorService {
    * TOTP秘密鍵を生成
    *
    * RFC 6238準拠の32バイト暗号学的乱数を生成し、Base32エンコードして返す。
-   * 要件27.2: 32バイト（256ビット）の暗号学的に安全な乱数を使用。
+   * @requirement user-authentication/REQ-27.2: 32バイト（256ビット）の暗号学的に安全な乱数を使用。
    *
    * @returns Base32エンコードされたTOTP秘密鍵
    */
@@ -204,7 +205,8 @@ export class TwoFactorService implements ITwoFactorService {
    * @returns 暗号化済み秘密鍵（Base64エンコード）
    */
   async encryptSecret(secret: string): Promise<string> {
-    // 暗号化鍵の存在チェック（要件27C.5）
+    // 暗号化鍵の存在チェック
+    // @requirement user-authentication/REQ-27C.5
     if (!process.env.TWO_FACTOR_ENCRYPTION_KEY) {
       throw new Error('TWO_FACTOR_ENCRYPTION_KEY環境変数が設定されていません');
     }
@@ -244,7 +246,8 @@ export class TwoFactorService implements ITwoFactorService {
    * @returns Base32エンコードされたTOTP秘密鍵
    */
   async decryptSecret(encryptedSecret: string): Promise<string> {
-    // 暗号化鍵の存在チェック（要件27C.5）
+    // 暗号化鍵の存在チェック
+    // @requirement user-authentication/REQ-27C.5
     if (!process.env.TWO_FACTOR_ENCRYPTION_KEY) {
       throw new Error('TWO_FACTOR_ENCRYPTION_KEY環境変数が設定されていません');
     }
@@ -335,7 +338,7 @@ export class TwoFactorService implements ITwoFactorService {
    * TOTP検証
    *
    * 30秒ウィンドウ、±1ステップ許容（合計90秒）で検証する。
-   * 要件27A.3: TOTP検証の実装
+   * @requirement user-authentication/REQ-27A.3: TOTP検証の実装
    *
    * @param userId - ユーザーID
    * @param totpCode - 6桁のTOTPコード
@@ -390,7 +393,7 @@ export class TwoFactorService implements ITwoFactorService {
    * バックアップコード検証
    *
    * 未使用のバックアップコードを検証し、使用済みとしてマークする。
-   * 要件27A.6-27A.7: バックアップコード検証の実装
+   * @requirement user-authentication/REQ-27A.6-27A.7: バックアップコード検証の実装
    *
    * @param userId - ユーザーID
    * @param backupCode - 8文字のバックアップコード
@@ -473,7 +476,7 @@ export class TwoFactorService implements ITwoFactorService {
    * 2FA有効化
    *
    * TOTP検証後にtwoFactorEnabledをtrueに設定する。
-   * 要件27.5: 2FA有効化の実装
+   * @requirement user-authentication/REQ-27.5: 2FA有効化の実装
    *
    * @param userId - ユーザーID
    * @param totpCode - 6桁のTOTPコード
@@ -585,7 +588,7 @@ export class TwoFactorService implements ITwoFactorService {
    * 2FA無効化
    *
    * パスワード確認後、秘密鍵とバックアップコードを削除し、全セッションを無効化する。
-   * 要件27B.4-27B.6: 2FA無効化の実装
+   * @requirement user-authentication/REQ-27B.4-27B.6: 2FA無効化の実装
    *
    * @param userId - ユーザーID
    * @param password - パスワード（確認用）
@@ -655,7 +658,7 @@ export class TwoFactorService implements ITwoFactorService {
    *
    * 現在のバックアップコードの使用状況を取得する。
    * コードはハッシュ化されているため、マスク表示用のプレースホルダーを返す。
-   * 要件27B.1: プロフィール画面でバックアップコードを表示（使用済みコードをグレーアウト・取り消し線）
+   * @requirement user-authentication/REQ-27B.1: プロフィール画面でバックアップコードを表示（使用済みコードをグレーアウト・取り消し線）
    *
    * @param userId - ユーザーID
    * @returns バックアップコードステータス配列
@@ -711,7 +714,7 @@ export class TwoFactorService implements ITwoFactorService {
    * バックアップコード再生成
    *
    * 既存のバックアップコードを全て削除し、新しく10個のバックアップコードを生成する。
-   * 要件27B.1-27B.3: バックアップコード管理機能の実装
+   * @requirement user-authentication/REQ-27B.1-27B.3: バックアップコード管理機能の実装
    *
    * @param userId - ユーザーID
    * @returns 10個の平文バックアップコード配列（最後の表示機会）

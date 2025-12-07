@@ -3,9 +3,9 @@
  *
  * Task 12.1: キーボードナビゲーションの実装
  *
- * Requirements:
- * - 20.1: すべての操作をキーボードのみで実行可能にする
- * - 20.4: フォーカス状態を視覚的に明確に表示
+ * Requirements (project-management):
+ * - REQ-20.1: すべての操作をキーボードのみで実行可能にする
+ * - REQ-20.4: フォーカス状態を視覚的に明確に表示
  */
 
 // ============================================================================
@@ -26,7 +26,7 @@ export const FOCUSABLE_SELECTOR = [
 
 /**
  * フォーカス状態の視覚的スタイル（WCAG 2.1 準拠）
- * Requirement 20.4: フォーカス状態を視覚的に明確に表示
+ * @requirement project-management/REQ-20.4: フォーカス状態を視覚的に明確に表示
  */
 export const FOCUS_VISIBLE_STYLES: React.CSSProperties = {
   outline: '2px solid #2563eb',
@@ -47,7 +47,7 @@ export const FOCUS_VISIBLE_HIGH_CONTRAST_STYLES: React.CSSProperties = {
 
 /**
  * アクティベーションキー（Enter/Space）かどうかを判定
- * Requirement 20.1: Enter/Spaceキーによる操作実行を実装
+ * @requirement project-management/REQ-20.1: Enter/Spaceキーによる操作実行を実装
  *
  * @param key - キーボードイベントのキー
  * @returns アクティベーションキーの場合 true
@@ -182,7 +182,7 @@ export function focusPrevious(
 
 /**
  * キーボードアクティベーションを処理
- * Requirement 20.1: Enter/Spaceキーによる操作実行を実装
+ * @requirement project-management/REQ-20.1: Enter/Spaceキーによる操作実行を実装
  *
  * @param event - キーボードイベント
  * @param handler - アクティベーション時に呼び出すハンドラ
@@ -206,7 +206,7 @@ export function handleKeyboardActivation(event: KeyboardEvent, handler: () => vo
 
 /**
  * 矢印キーナビゲーションを処理
- * Requirement 20.1: Tabキーによるフォーカス移動を実装
+ * @requirement project-management/REQ-20.1: Tabキーによるフォーカス移動を実装
  *
  * @param event - キーボードイベント
  * @param container - コンテナ要素

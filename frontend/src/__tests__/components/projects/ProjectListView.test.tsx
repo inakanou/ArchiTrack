@@ -3,10 +3,10 @@
  *
  * Task 8.2: プロジェクト一覧カード表示の実装
  *
- * Requirements:
- * - 15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
- * - 15.3: 768px未満でカード形式に切り替えて表示
- * - 15.4: タッチ操作に最適化されたUI（タップターゲット44x44px以上）
+ * Requirements (project-management):
+ * - REQ-15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
+ * - REQ-15.3: 768px未満でカード形式に切り替えて表示
+ * - REQ-15.4: タッチ操作に最適化されたUI（タップターゲット44x44px以上）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -115,7 +115,7 @@ describe('ProjectListView', () => {
     });
   });
 
-  describe('モバイル表示（768px未満）（Requirement 15.3）', () => {
+  describe('モバイル表示（768px未満）（project-management/REQ-15.3）', () => {
     beforeEach(() => {
       // 768px未満 = モバイル = true
       mockUseMediaQuery.mockReturnValue(true);
@@ -146,7 +146,7 @@ describe('ProjectListView', () => {
     });
   });
 
-  describe('レスポンシブ切り替え（Requirement 15.1）', () => {
+  describe('レスポンシブ切り替え（project-management/REQ-15.1）', () => {
     it('useMediaQueryに正しいクエリが渡される', () => {
       // モックの実装を差し替えて呼び出しを検証
       mockUseMediaQuery.mockReturnValue(false);

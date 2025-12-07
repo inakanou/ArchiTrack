@@ -1,10 +1,10 @@
 /**
  * @fileoverview Seedスクリプトのヘルパー関数
  *
- * Requirements:
- * - 3.1-3.5: 初期管理者アカウントのセットアップ
- * - 17: 動的ロール管理（事前定義ロール）
- * - 18: 権限管理（事前定義権限）
+ * Requirements (user-authentication):
+ * - REQ-3.1-3.5: 初期管理者アカウントのセットアップ
+ * - REQ-17: 動的ロール管理（事前定義ロール）
+ * - REQ-18: 権限管理（事前定義権限）
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -14,7 +14,7 @@ import logger from './logger.js';
 /**
  * 事前定義ロールのシーディング
  *
- * 要件17: 事前定義ロール
+ * @requirement user-authentication/REQ-17: 事前定義ロール
  * - システム管理者（admin）: 全ての権限を持つ最高権限ロール
  * - 一般ユーザー（user）: 自分が作成したリソースのみアクセス可能な基本ロール
  */
@@ -59,7 +59,7 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
 /**
  * 事前定義権限のシーディング
  *
- * 要件18: 権限管理
+ * @requirement user-authentication/REQ-18: 権限管理
  * - resource:action形式で権限を定義
  * - システム管理者用: *:* (全権限)
  * - 一般ユーザー用: adr:read, adr:create, adr:update, user:read, settings:read
@@ -334,7 +334,7 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
 /**
  * 初期管理者アカウントの作成
  *
- * 要件3: 初期管理者アカウントのセットアップ
+ * @requirement user-authentication/REQ-3: 初期管理者アカウントのセットアップ
  * - 環境変数から管理者情報を取得
  * - 既に存在する場合はスキップ（冪等性）
  * - システム管理者ロールを割り当て

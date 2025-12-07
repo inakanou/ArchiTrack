@@ -1,10 +1,10 @@
 /**
  * @fileoverview Seedスクリプトの統合テスト
  *
- * Requirements:
- * - 3.1-3.5: 初期管理者アカウントのセットアップ
- * - 17: 動的ロール管理（事前定義ロール）
- * - 18: 権限管理（事前定義権限）
+ * Requirements (user-authentication):
+ * - REQ-3.1-REQ-3.5: 初期管理者アカウントのセットアップ
+ * - REQ-17: 動的ロール管理（事前定義ロール）
+ * - REQ-18: 権限管理（事前定義権限）
  *
  * Task 25.1: prisma/seed.tsの実装確認と検証
  * - 初期管理者アカウント作成ロジックの確認（ADMIN_EMAIL, ADMIN_PASSWORD環境変数）
@@ -116,7 +116,7 @@ describe('Seed Script Integration Tests', () => {
     expect(userInvitePermission?.description).toContain('招待');
   });
 
-  it('プロジェクト権限が正しく作成される（Requirements 12.5）', async () => {
+  it('プロジェクト権限が正しく作成される（project-management/REQ-12.5）', async () => {
     // Arrange & Act
     const { seedPermissions } = await import('../../utils/seed-helpers.js');
     await seedPermissions(prisma);
@@ -150,7 +150,7 @@ describe('Seed Script Integration Tests', () => {
     expect(projectDeletePermission?.description).toBe('プロジェクトの削除');
   });
 
-  it('一般ユーザーロールにプロジェクト基本権限が割り当てられる（Requirements 12.5）', async () => {
+  it('一般ユーザーロールにプロジェクト基本権限が割り当てられる（project-management/REQ-12.5）', async () => {
     // Arrange
     const { seedRoles, seedPermissions, seedRolePermissions } = await import(
       '../../utils/seed-helpers.js'

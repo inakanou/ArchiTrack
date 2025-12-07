@@ -17,7 +17,7 @@ import { apiClient } from '../api/client';
  * - バックアップコードの生成と表示
  *
  * ## 要件
- * - Requirement 17: 2要素認証の設定と管理機能
+ * @requirement user-authentication/REQ-27: 2要素認証の設定と管理機能
  */
 export function TwoFactorSetupPage() {
   const navigate = useNavigate();
