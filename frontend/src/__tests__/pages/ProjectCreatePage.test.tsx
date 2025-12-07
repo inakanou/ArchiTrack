@@ -15,6 +15,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
+import { ToastProvider } from '../../hooks/useToast';
 import ProjectCreatePage from '../../pages/ProjectCreatePage';
 import { ApiError } from '../../api/client';
 
@@ -60,7 +61,9 @@ describe('ProjectCreatePage', () => {
   const renderWithRouter = () => {
     return render(
       <MemoryRouter initialEntries={['/projects/new']}>
-        <ProjectCreatePage />
+        <ToastProvider>
+          <ProjectCreatePage />
+        </ToastProvider>
       </MemoryRouter>
     );
   };
@@ -143,17 +146,14 @@ describe('ProjectCreatePage', () => {
       await userEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(mockNavigate).toHaveBeenCalledWith('/projects/new-project-id', {
-          state: { message: 'プロジェクトを作成しました' },
-        });
+        // トースト通知に変更されたため、stateは渡されない
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/new-project-id');
       });
     });
 
     it('APIエラー時、エラーメッセージを表示する', async () => {
       const { createProject } = await import('../../api/projects');
-      vi.mocked(createProject).mockRejectedValue(
-        new ApiError(500, 'サーバーエラーが発生しました')
-      );
+      vi.mocked(createProject).mockRejectedValue(new ApiError(500, 'サーバーエラーが発生しました'));
 
       renderWithRouter();
 

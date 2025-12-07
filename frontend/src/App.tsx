@@ -1,6 +1,8 @@
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './hooks/useToast';
 import ErrorBoundary from './components/ErrorBoundary';
+import ToastContainer from './components/ToastContainer';
 import { routes } from './routes';
 import './App.css';
 
@@ -27,7 +29,9 @@ const router = createBrowserRouter(routes);
  * App
  * ├─ ErrorBoundary （エラーキャッチ）
  * │  └─ AuthProvider （認証状態管理）
- * │     └─ RouterProvider （React Router v7ルーター）
+ * │     └─ ToastProvider （トースト通知管理）
+ * │        ├─ ToastContainer （トースト表示）
+ * │        └─ RouterProvider （React Router v7ルーター）
  * ```
  *
  * ## Note
@@ -38,7 +42,10 @@ function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <RouterProvider router={router} />
+        <ToastProvider>
+          <ToastContainer />
+          <RouterProvider router={router} />
+        </ToastProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

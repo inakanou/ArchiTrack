@@ -15,6 +15,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createProject } from '../api/projects';
 import { ApiError } from '../api/client';
+import { useToast } from '../hooks/useToast';
 import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
 
@@ -76,6 +77,7 @@ const styles = {
  */
 export default function ProjectCreatePage() {
   const navigate = useNavigate();
+  const toast = useToast();
 
   // UI状態
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -99,20 +101,26 @@ export default function ProjectCreatePage() {
           description: data.description,
         });
 
-        navigate(`/projects/${created.id}`, {
-          state: { message: 'プロジェクトを作成しました' },
-        });
+        // トースト通知で成功メッセージを表示
+        toast.projectCreated();
+
+        navigate(`/projects/${created.id}`);
       } catch (err) {
         if (err instanceof ApiError) {
-          setError(err.message || '作成中にエラーが発生しました');
+          const errorMessage = err.message || '作成中にエラーが発生しました';
+          setError(errorMessage);
+          // トースト通知でエラーメッセージを表示
+          toast.operationFailed(errorMessage);
         } else {
-          setError('作成中にエラーが発生しました');
+          const defaultErrorMessage = '作成中にエラーが発生しました';
+          setError(defaultErrorMessage);
+          toast.operationFailed(defaultErrorMessage);
         }
       } finally {
         setIsSubmitting(false);
       }
     },
-    [navigate]
+    [navigate, toast]
   );
 
   /**

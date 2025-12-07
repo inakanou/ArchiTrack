@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { ToastProvider } from '../../hooks/useToast';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
 import { ApiError } from '../../api/client';
@@ -77,9 +78,11 @@ const mockStatusHistory = [
 function renderWithRouter(projectId: string = 'project-1') {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
-      <Routes>
-        <Route path="/projects/:id" element={<ProjectDetailPage />} />
-      </Routes>
+      <ToastProvider>
+        <Routes>
+          <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        </Routes>
+      </ToastProvider>
     </MemoryRouter>
   );
 }
@@ -403,9 +406,8 @@ describe('ProjectDetailPage', () => {
 
       await waitFor(() => {
         expect(projectsApi.deleteProject).toHaveBeenCalledWith('project-1');
-        expect(mockNavigate).toHaveBeenCalledWith('/projects', {
-          state: { message: 'プロジェクトを削除しました' },
-        });
+        // トースト通知に変更されたため、stateは渡されない
+        expect(mockNavigate).toHaveBeenCalledWith('/projects');
       });
     });
   });

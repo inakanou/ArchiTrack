@@ -22,6 +22,7 @@ import {
   transitionStatus,
 } from '../api/projects';
 import { ApiError } from '../api/client';
+import { useToast } from '../hooks/useToast';
 import type {
   ProjectDetail,
   StatusHistoryResponse,
@@ -268,6 +269,7 @@ const styles = {
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const toast = useToast();
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -359,23 +361,31 @@ export default function ProjectDetailPage() {
         const refreshedProject = await getProject(id);
         setProject(refreshedProject);
         setIsEditing(false);
+
+        // トースト通知で成功メッセージを表示
+        toast.projectUpdated();
       } catch (err) {
         if (err instanceof ApiError) {
           if (err.statusCode === 409) {
-            setConflictError(
-              '他のユーザーによって更新されました。ページを再読み込みしてください。'
-            );
+            const conflictMessage =
+              '他のユーザーによって更新されました。ページを再読み込みしてください。';
+            setConflictError(conflictMessage);
+            toast.operationFailed(conflictMessage);
           } else {
-            setConflictError(err.message || '更新中にエラーが発生しました');
+            const errorMessage = err.message || '更新中にエラーが発生しました';
+            setConflictError(errorMessage);
+            toast.operationFailed(errorMessage);
           }
         } else {
-          setConflictError('更新中にエラーが発生しました');
+          const defaultErrorMessage = '更新中にエラーが発生しました';
+          setConflictError(defaultErrorMessage);
+          toast.operationFailed(defaultErrorMessage);
         }
       } finally {
         setIsSubmitting(false);
       }
     },
-    [project, id]
+    [project, id, toast]
   );
 
   /**
@@ -388,20 +398,26 @@ export default function ProjectDetailPage() {
 
     try {
       await deleteProject(id);
-      navigate('/projects', {
-        state: { message: 'プロジェクトを削除しました' },
-      });
+
+      // トースト通知で成功メッセージを表示
+      toast.projectDeleted();
+
+      navigate('/projects');
     } catch (err) {
       setShowDeleteDialog(false);
       if (err instanceof ApiError) {
-        setError(err.message || '削除中にエラーが発生しました');
+        const errorMessage = err.message || '削除中にエラーが発生しました';
+        setError(errorMessage);
+        toast.operationFailed(errorMessage);
       } else {
-        setError('削除中にエラーが発生しました');
+        const defaultErrorMessage = '削除中にエラーが発生しました';
+        setError(defaultErrorMessage);
+        toast.operationFailed(defaultErrorMessage);
       }
     } finally {
       setIsDeleting(false);
     }
-  }, [id, navigate]);
+  }, [id, navigate, toast]);
 
   /**
    * ステータス遷移
@@ -426,17 +442,25 @@ export default function ProjectDetailPage() {
 
         setProject(projectData);
         setStatusHistory(historyData);
+
+        // トースト通知で成功メッセージを表示
+        const statusLabel = PROJECT_STATUS_LABELS[newStatus];
+        toast.projectStatusChanged(statusLabel);
       } catch (err) {
         if (err instanceof ApiError) {
-          setError(err.message || 'ステータス変更中にエラーが発生しました');
+          const errorMessage = err.message || 'ステータス変更中にエラーが発生しました';
+          setError(errorMessage);
+          toast.operationFailed(errorMessage);
         } else {
-          setError('ステータス変更中にエラーが発生しました');
+          const defaultErrorMessage = 'ステータス変更中にエラーが発生しました';
+          setError(defaultErrorMessage);
+          toast.operationFailed(defaultErrorMessage);
         }
       } finally {
         setIsTransitioning(false);
       }
     },
-    [id]
+    [id, toast]
   );
 
   /**
