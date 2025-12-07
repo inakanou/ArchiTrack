@@ -2,6 +2,7 @@
  * @fileoverview プロジェクト一覧ページのテスト
  *
  * Task 8.5: ProjectListPageの実装
+ * Task 15.3: 一覧・詳細ページのユニットテスト追加
  *
  * Requirements:
  * - 2.1: ログイン後、プロジェクト一覧ページが表示される
@@ -10,6 +11,9 @@
  * - 4.1-4.5: 検索機能
  * - 5.1-5.5: フィルタ機能
  * - 6.1-6.6: ソート機能
+ * - 7.1: プロジェクト詳細画面で全情報を表示
+ * - 8.1: 編集ボタンクリック時にプロジェクト編集フォームを表示
+ * - 9.1: 削除ボタンクリック時に削除確認ダイアログを表示
  */
 
 import { render, screen, waitFor } from '@testing-library/react';
@@ -22,6 +26,12 @@ import type { PaginatedProjects, ProjectInfo } from '../../types/project.types';
 // APIモック
 vi.mock('../../api/projects', () => ({
   getProjects: vi.fn(),
+}));
+
+// useMediaQueryモック（レスポンシブ表示テスト用）
+const mockUseMediaQuery = vi.fn();
+vi.mock('../../hooks/useMediaQuery', () => ({
+  default: () => mockUseMediaQuery(),
 }));
 
 // useNavigateモック
@@ -77,6 +87,8 @@ describe('ProjectListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    // デフォルトはデスクトップ表示
+    mockUseMediaQuery.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -502,6 +514,528 @@ describe('ProjectListPage', () => {
         const alert = screen.getByRole('alert');
         expect(alert).toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.3: 追加テスト
+  // ==========================================================================
+
+  describe('レスポンシブ表示（Task 15.3）', () => {
+    it('デスクトップ表示でテーブル形式で表示される', async () => {
+      mockUseMediaQuery.mockReturnValue(false);
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // テーブルが表示される
+      expect(screen.getByRole('table')).toBeInTheDocument();
+      // カードリストは表示されない
+      expect(screen.queryByTestId('project-card-list')).not.toBeInTheDocument();
+    });
+
+    it('モバイル表示でカード形式で表示される', async () => {
+      mockUseMediaQuery.mockReturnValue(true);
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // カードリストが表示される
+      expect(screen.getByTestId('project-card-list')).toBeInTheDocument();
+      // テーブルは表示されない
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    });
+
+    it('モバイル表示でカードにプロジェクト情報が表示される', async () => {
+      mockUseMediaQuery.mockReturnValue(true);
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('project-card-1')).toBeInTheDocument();
+      });
+
+      // プロジェクト情報が表示される
+      expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      // モックデータのcustomerNameを使用
+      expect(screen.getAllByText(/顧客/).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('モバイル表示でカードクリックで詳細ページへ遷移する', async () => {
+      mockUseMediaQuery.mockReturnValue(true);
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('project-card-1')).toBeInTheDocument();
+      });
+
+      const card = screen.getByTestId('project-card-1');
+      await userEvent.click(card);
+
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/1');
+    });
+  });
+
+  describe('フィルタリング機能（Task 15.3）', () => {
+    it('ステータスフィルタが表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // ステータスフィルタが存在する（aria-label使用）
+      expect(screen.getByLabelText('ステータスフィルタ')).toBeInTheDocument();
+    });
+
+    it('ステータスフィルタ選択時にAPIが呼び出される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 初回呼び出しをリセット
+      vi.mocked(getProjects).mockClear();
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      // ステータスフィルタを変更
+      const statusSelect = screen.getByLabelText('ステータスフィルタ');
+      await userEvent.selectOptions(statusSelect, 'PREPARING');
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            filter: expect.objectContaining({
+              status: expect.arrayContaining(['PREPARING']),
+            }),
+          })
+        );
+      });
+    });
+
+    it('期間フィルタが表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 期間フィルタ（作成日From/To）が存在する（日付入力フィールドで確認）
+      expect(screen.getByLabelText('作成日（開始）')).toBeInTheDocument();
+      expect(screen.getByLabelText('作成日（終了）')).toBeInTheDocument();
+    });
+
+    it('検索入力が2文字未満の場合はエラー表示', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 1文字だけ入力
+      const searchInput = screen.getByRole('searchbox');
+      await userEvent.type(searchInput, 'あ');
+
+      // 検索ボタンをクリック
+      const searchButton = screen.getByRole('button', { name: '検索' });
+      await userEvent.click(searchButton);
+
+      // バリデーションエラーが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/2文字以上/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('ソート機能詳細（Task 15.3）', () => {
+    it('ID列でソートできる', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const sortButton = screen.getByRole('button', { name: 'IDでソート' });
+      await userEvent.click(sortButton);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'id',
+            order: 'asc',
+          })
+        );
+      });
+    });
+
+    it('顧客名列でソートできる', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const sortButton = screen.getByRole('button', { name: '顧客名でソート' });
+      await userEvent.click(sortButton);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'customerName',
+            order: 'asc',
+          })
+        );
+      });
+    });
+
+    it('ステータス列でソートできる', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const sortButton = screen.getByRole('button', { name: 'ステータスでソート' });
+      await userEvent.click(sortButton);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'status',
+            order: 'asc',
+          })
+        );
+      });
+    });
+
+    it('作成日列でソートできる', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const sortButton = screen.getByRole('button', { name: '作成日でソート' });
+      await userEvent.click(sortButton);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'createdAt',
+            order: 'asc',
+          })
+        );
+      });
+    });
+
+    it('更新日列でソートできる', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const sortButton = screen.getByRole('button', { name: '更新日でソート' });
+      await userEvent.click(sortButton);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'updatedAt',
+            // 初期状態がupdatedAt descなので、再クリックでascになる
+            order: 'asc',
+          })
+        );
+      });
+    });
+
+    it('同じカラムを再度クリックすると昇順/降順が切り替わる', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 更新日列（デフォルト: desc）を再クリック
+      const sortButton = screen.getByRole('button', { name: '更新日でソート' });
+      await userEvent.click(sortButton);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      // 1回目クリック: desc -> asc
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'updatedAt',
+            order: 'asc',
+          })
+        );
+      });
+
+      vi.mocked(getProjects).mockClear();
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      // 再度クリック
+      await userEvent.click(sortButton);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      // 2回目クリック: asc -> desc
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'updatedAt',
+            order: 'desc',
+          })
+        );
+      });
+    });
+  });
+
+  describe('ページネーション詳細（Task 15.3）', () => {
+    it('ページ1より後のページでは前へボタンが有効', async () => {
+      const manyProjectsResponse: PaginatedProjects = {
+        data: mockProjects,
+        pagination: {
+          page: 3,
+          limit: 20,
+          total: 100,
+          totalPages: 5,
+        },
+      };
+
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(manyProjectsResponse);
+
+      renderWithRouter(['/projects?page=3']);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pagination-controls')).toBeInTheDocument();
+      });
+
+      // 前へボタンが有効
+      const prevPageButton = screen.getByRole('button', { name: '前のページ' });
+      expect(prevPageButton).not.toBeDisabled();
+    });
+
+    it('最終ページの場合は次へ移動ボタンが無効', async () => {
+      const lastPageResponse: PaginatedProjects = {
+        data: mockProjects,
+        pagination: {
+          page: 5,
+          limit: 20,
+          total: 100,
+          totalPages: 5,
+        },
+      };
+
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(lastPageResponse);
+
+      renderWithRouter(['/projects?page=5']);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pagination-controls')).toBeInTheDocument();
+      });
+
+      // 次へ移動ボタンが無効
+      const nextPageButton = screen.getByRole('button', { name: '次のページ' });
+      expect(nextPageButton).toBeDisabled();
+    });
+
+    it('表示件数を10/20/50から選択できる', async () => {
+      const manyProjectsResponse: PaginatedProjects = {
+        data: mockProjects,
+        pagination: {
+          page: 1,
+          limit: 20,
+          total: 100,
+          totalPages: 5,
+        },
+      };
+
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(manyProjectsResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pagination-controls')).toBeInTheDocument();
+      });
+
+      const limitSelect = screen.getByLabelText('表示件数');
+
+      // 選択肢が存在することを確認
+      expect(limitSelect).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '10件' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '20件' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '50件' })).toBeInTheDocument();
+    });
+
+    it('ページネーション情報が正しく表示される', async () => {
+      const manyProjectsResponse: PaginatedProjects = {
+        data: mockProjects,
+        pagination: {
+          page: 2,
+          limit: 20,
+          total: 100,
+          totalPages: 5,
+        },
+      };
+
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(manyProjectsResponse);
+
+      renderWithRouter(['/projects?page=2']);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pagination-controls')).toBeInTheDocument();
+      });
+
+      // 総件数の表示
+      expect(screen.getByTestId('total-count')).toHaveTextContent('100');
+      // 現在のページ
+      expect(screen.getByTestId('current-page')).toHaveTextContent('2');
+      // 総ページ数
+      expect(screen.getByTestId('total-pages')).toHaveTextContent('5');
+    });
+  });
+
+  describe('プロジェクト一覧のカラム表示（Requirements 2.1, 2.2）', () => {
+    it('テーブルにID列が表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('columnheader', { name: /ID/ })).toBeInTheDocument();
+    });
+
+    it('テーブルにプロジェクト名列が表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('columnheader', { name: /プロジェクト名/ })).toBeInTheDocument();
+    });
+
+    it('テーブルに顧客名列が表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('columnheader', { name: /顧客名/ })).toBeInTheDocument();
+    });
+
+    it('テーブルにステータス列が表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('columnheader', { name: /ステータス/ })).toBeInTheDocument();
+    });
+
+    it('テーブルに作成日列が表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('columnheader', { name: /作成日/ })).toBeInTheDocument();
+    });
+
+    it('テーブルに更新日列が表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('columnheader', { name: /更新日/ })).toBeInTheDocument();
     });
   });
 });
