@@ -468,9 +468,9 @@ test.describe('ステータス遷移', () => {
 
       // 赤系の色が使われていることを確認（RGB値で検証）
       // #fef2f2 -> rgb(254, 242, 242)
-      // #dc2626 -> rgb(220, 38, 38)
+      // #b91c1c -> rgb(185, 28, 28) (text-red-700)
       expect(buttonStyles.backgroundColor).toContain('254'); // 薄い赤の背景
-      expect(buttonStyles.color).toContain('220'); // 赤のテキスト
+      expect(buttonStyles.color).toContain('185'); // 赤のテキスト (red-700)
     });
   });
 
