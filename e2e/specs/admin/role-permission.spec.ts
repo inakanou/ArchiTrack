@@ -6,15 +6,15 @@ import { API_BASE_URL } from '../../config';
 /**
  * ロールへの権限割り当てのE2Eテスト
  *
- * @REQ-19 ロールへの権限割り当て
- * @REQ-19.1 システム管理者がロールに権限を追加しロール・権限の紐付けを保存
- * @REQ-19.2 権限が既にロールに割り当てられている場合重複を無視
- * @REQ-19.3 システム管理者がロールから権限を削除し紐付けを削除
- * @REQ-19.4 システム管理者がロールの権限一覧を取得し全ての割り当てられた権限を返す
- * @REQ-19.5 ロールの権限を変更し変更履歴を監査ログに記録
- * @REQ-19.6 システム管理者ロールから*:*権限を削除しようとする場合削除を拒否
- * @REQ-19.7 複数の権限を一括で割り当てトランザクション内で処理
- * @REQ-19.8 ロールに権限を割り当て権限の存在を事前に検証
+ * @requirement user-authentication/REQ-19 ロールへの権限割り当て
+ * @requirement user-authentication/REQ-19.1 システム管理者がロールに権限を追加しロール・権限の紐付けを保存
+ * @requirement user-authentication/REQ-19.2 権限が既にロールに割り当てられている場合重複を無視
+ * @requirement user-authentication/REQ-19.3 システム管理者がロールから権限を削除し紐付けを削除
+ * @requirement user-authentication/REQ-19.4 システム管理者がロールの権限一覧を取得し全ての割り当てられた権限を返す
+ * @requirement user-authentication/REQ-19.5 ロールの権限を変更し変更履歴を監査ログに記録
+ * @requirement user-authentication/REQ-19.6 システム管理者ロールから*:*権限を削除しようとする場合削除を拒否
+ * @requirement user-authentication/REQ-19.7 複数の権限を一括で割り当てトランザクション内で処理
+ * @requirement user-authentication/REQ-19.8 ロールに権限を割り当て権限の存在を事前に検証
  *
  * このテストスイートは、ロールに対する権限の割り当て・削除機能を
  * End-to-Endで検証します。
@@ -46,8 +46,8 @@ test.describe('ロールへの権限割り当て', () => {
    * 要件19.7: 複数権限の一括割り当てをトランザクション処理
    * 要件22.2: 権限追加・削除時の監査ログ記録
    * 要件22.7: 監査ログに変更前後の値を含める
-   * @REQ-19.1 @REQ-19.5 @REQ-19.7
-   * @REQ-22.2 @REQ-22.7
+   * @requirement user-authentication/REQ-19.1 @requirement user-authentication/REQ-19.5 @requirement user-authentication/REQ-19.7
+   * @requirement user-authentication/REQ-22.2 @requirement user-authentication/REQ-22.7
    */
   test('管理者はロールに権限を追加できる', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -101,7 +101,7 @@ test.describe('ロールへの権限割り当て', () => {
 
   /**
    * 要件19.2: 既に割り当てられた権限の重複は無視
-   * @REQ-19.2
+   * @requirement user-authentication/REQ-19.2
    */
   test('重複する権限の割り当ては無視される', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -163,8 +163,8 @@ test.describe('ロールへの権限割り当て', () => {
    * 要件19.5: ロールの権限変更を監査ログに記録
    * 要件22.2: 権限追加・削除時の監査ログ記録
    * 要件22.7: 監査ログに変更前後の値を含める
-   * @REQ-19.3 @REQ-19.5
-   * @REQ-22.2 @REQ-22.7
+   * @requirement user-authentication/REQ-19.3 @requirement user-authentication/REQ-19.5
+   * @requirement user-authentication/REQ-22.2 @requirement user-authentication/REQ-22.7
    */
   test('管理者はロールから権限を削除できる', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -217,7 +217,7 @@ test.describe('ロールへの権限割り当て', () => {
   /**
    * 要件19.4: ロールの権限一覧取得
    * 要件19.5: ロールの権限変更を監査ログに記録
-   * @REQ-19.4 @REQ-19.5
+   * @requirement user-authentication/REQ-19.4 @requirement user-authentication/REQ-19.5
    */
   test('管理者はロールの権限一覧を取得できる', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -251,7 +251,7 @@ test.describe('ロールへの権限割り当て', () => {
 
   /**
    * 要件19.6: システム管理者ロールから*:*権限の削除拒否
-   * @REQ-19.6
+   * @requirement user-authentication/REQ-19.6
    */
   test('システム管理者ロールから*:*権限は削除できない', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -281,7 +281,7 @@ test.describe('ロールへの権限割り当て', () => {
 
   /**
    * 要件19.8: 権限の存在検証
-   * @REQ-19.8
+   * @requirement user-authentication/REQ-19.8
    */
   test('存在しない権限IDでの割り当ては拒否される', async ({ request }) => {
     // テスト用ロールを作成

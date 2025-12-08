@@ -8,7 +8,7 @@ import { FRONTEND_BASE_URL } from '../../config';
 /**
  * パスワード管理機能のE2Eテスト
  *
- * @REQ-7 パスワード管理
+ * @requirement user-authentication/REQ-7 パスワード管理
  *
  * このテストスイートは、パスワードリセット機能をEnd-to-Endで検証します。
  */
@@ -54,7 +54,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.1: パスワードリセット要求
    * WHEN ユーザーがパスワードリセットを要求する
    * THEN Authentication Serviceはメールアドレスにリセットトークンを送信する
-   * @REQ-7.1 @REQ-29.6 @REQ-28.9
+   * @requirement user-authentication/REQ-7.1 @requirement user-authentication/REQ-29.6 @requirement user-authentication/REQ-28.9
    */
   test('有効なメールアドレスでパスワードリセットを要求できる', async ({ page }) => {
     // メールアドレスを入力
@@ -83,7 +83,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.1: 未登録メールアドレスでのパスワードリセット要求
    * WHEN 未登録のメールアドレスでパスワードリセットを要求する
    * THEN エラーメッセージが表示される（セキュリティ上、メールアドレスの存在を明かさない）
-   * @REQ-29.7
+   * @requirement user-authentication/REQ-29.7
    */
   test('未登録メールアドレスでも同じ成功メッセージが表示される', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('nonexistent@example.com');
@@ -99,7 +99,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: 有効なリセットトークンでパスワードをリセット
    * WHEN ユーザーが有効なリセットトークンと新しいパスワードを提供する
    * THEN Authentication Serviceはパスワードを更新する
-   * @REQ-29.17 @REQ-29.18 @REQ-28.13
+   * @requirement user-authentication/REQ-29.17 @requirement user-authentication/REQ-29.18 @requirement user-authentication/REQ-28.13
    */
   test('有効なリセットトークンでパスワードを変更できる', async ({ page }) => {
     // Step 1: リセットトークンを生成
@@ -148,7 +148,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.3: リセットトークンの有効期限切れ
    * WHEN リセットトークンが24時間の有効期限を超過している
    * THEN Authentication Serviceはトークンを無効として扱う
-   * @REQ-7.3 @REQ-29.12 @REQ-28.12
+   * @requirement user-authentication/REQ-7.3 @requirement user-authentication/REQ-29.12 @requirement user-authentication/REQ-28.12
    */
   test('有効期限切れのリセットトークンではエラーが表示される', async ({ page }) => {
     // Step 1: 有効期限切れのリセットトークンを生成
@@ -184,7 +184,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: 無効なリセットトークン
    * WHEN 無効なリセツトークンが提供される
    * THEN エラーメッセージが表示される
-   * @REQ-7.2 @REQ-29.12 @REQ-28.12
+   * @requirement user-authentication/REQ-7.2 @requirement user-authentication/REQ-29.12 @requirement user-authentication/REQ-28.12
    */
   test('無効なリセットトークンではエラーが表示される', async ({ page }) => {
     await page.goto('/password-reset?token=invalid-token-12345');
@@ -203,7 +203,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.1: パスワードリセット画面のUI/UX
    * WHEN パスワードリセット画面が表示される
    * THEN 適切なフォームとガイダンスが表示される
-   * @REQ-29.1 @REQ-29.9 @REQ-28.8
+   * @requirement user-authentication/REQ-29.1 @requirement user-authentication/REQ-29.9 @requirement user-authentication/REQ-28.8
    */
   test('パスワードリセット画面が正しく表示される', async ({ page }) => {
     await page.goto('/password-reset');
@@ -223,7 +223,7 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: パスワードリセットフォームのUI/UX（トークン有効時）
    * WHEN 有効なリセットトークンでアクセスする
    * THEN パスワード入力フォームが表示される
-   * @REQ-7.2 @REQ-29.10 @REQ-29.11 @REQ-28.11
+   * @requirement user-authentication/REQ-7.2 @requirement user-authentication/REQ-29.10 @requirement user-authentication/REQ-29.11 @requirement user-authentication/REQ-28.11
    */
   test('有効なトークンでパスワード入力フォームが表示される', async ({ page }) => {
     // リセットトークンを生成
@@ -258,7 +258,7 @@ test.describe('パスワード管理機能', () => {
    * 要件2.5-2.8: パスワードリセット時の複雑性検証
    * WHEN 複雑性要件を満たさないパスワードを入力する
    * THEN エラーメッセージが表示される
-   * @REQ-29.14
+   * @requirement user-authentication/REQ-29.14
    */
   test('12文字未満のパスワードではエラーが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -315,7 +315,7 @@ test.describe('パスワード管理機能', () => {
 
   /**
    * 要件15.12: autocomplete属性の適切な設定
-   * @REQ-15.12
+   * @requirement user-authentication/REQ-15.12
    * WHEN パスワードリセットフォームが表示される
    * THEN 適切なautocomplete属性が設定されている
    */
@@ -386,7 +386,7 @@ test.describe('パスワード管理機能', () => {
    * 要件29.2: メールアドレスフィールドへの自動フォーカス
    * WHEN パスワードリセット要求画面が表示される
    * THEN メールアドレス入力フィールドに自動フォーカスが当たる
-   * @REQ-29.2
+   * @requirement user-authentication/REQ-29.2
    */
   test('メールアドレスフィールドに自動フォーカスが当たる', async ({ page }) => {
     await page.goto('/password-reset');
@@ -400,7 +400,7 @@ test.describe('パスワード管理機能', () => {
    * 要件29.3: メールアドレス形式無効時のリアルタイムバリデーション
    * WHEN 無効なメールアドレス形式を入力する
    * THEN リアルタイムでバリデーションエラーが表示される
-   * @REQ-29.3
+   * @requirement user-authentication/REQ-29.3
    */
   test('無効なメールアドレス形式でリアルタイムバリデーションエラーが表示される', async ({
     page,
@@ -421,7 +421,7 @@ test.describe('パスワード管理機能', () => {
    * 要件29.4: 未入力で送信時の必須フィールドエラー
    * WHEN メールアドレスを入力せずに送信する
    * THEN 必須フィールドエラーが表示される
-   * @REQ-29.4
+   * @requirement user-authentication/REQ-29.4
    */
   test('未入力で送信時に必須フィールドエラーが表示される', async ({ page }) => {
     await page.goto('/password-reset');
@@ -437,7 +437,7 @@ test.describe('パスワード管理機能', () => {
    * 要件29.5: リセットメール送信中のローディングスピナー
    * WHEN リセットメール送信リクエストが処理中である
    * THEN ローディングスピナーが表示される
-   * @REQ-29.5
+   * @requirement user-authentication/REQ-29.5
    */
   test('リセットメール送信中にローディングスピナーが表示される', async ({ page }) => {
     // APIレスポンスを遅延させてローディング状態を確認できるようにする
@@ -474,7 +474,7 @@ test.describe('パスワード管理機能', () => {
    * 要件15.1: レスポンシブデザイン（モバイル）
    * WHEN デバイス画面幅が768px未満である
    * THEN モバイル最適化されたレイアウトを表示する
-   * @REQ-29.8
+   * @requirement user-authentication/REQ-29.8
    */
   test('モバイル画面でレイアウトが最適化される', async ({ page }) => {
     // モバイルビューポートに設定
@@ -498,7 +498,7 @@ test.describe('パスワード管理機能', () => {
  * タスク24.3: パスワードリセットフローのE2Eテスト検証
  * - パスワードリセット要求 → メール送信 → リセット実行 → ログインの一連のフロー確認
  *
- * @REQ-29 パスワードリセット画面のUI/UX
+ * @requirement user-authentication/REQ-29 パスワードリセット画面のUI/UX
  */
 test.describe('パスワードリセット完全E2Eフロー', () => {
   // 並列実行を無効化（メール確認の競合を防ぐ）
@@ -655,7 +655,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
   /**
    * 要件29.1, 29.2, 29.3: パスワードリセット完全フロー
    * パスワードリセット要求 → メール送信確認 → リセット実行 → ログインの一連のフロー
-   * @REQ-29.1 @REQ-29.6 @REQ-29.10 @REQ-29.11 @REQ-29.17 @REQ-29.18 @REQ-28.10
+   * @requirement user-authentication/REQ-29.1 @requirement user-authentication/REQ-29.6 @requirement user-authentication/REQ-29.10 @requirement user-authentication/REQ-29.11 @requirement user-authentication/REQ-29.17 @requirement user-authentication/REQ-29.18 @requirement user-authentication/REQ-28.10
    */
   test('パスワードリセット要求からログインまでの完全フローが動作する', async ({ page }) => {
     const userEmail = 'user@example.com';
@@ -741,7 +741,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29: パスワードリセット成功後のログイン画面へのリダイレクト
    * WHEN パスワード再設定が成功する
    * THEN Frontend UIは成功メッセージを表示し、ログイン画面へリダイレクトする
-   * @REQ-29.17 @REQ-29.18
+   * @requirement user-authentication/REQ-29.17 @requirement user-authentication/REQ-29.18
    */
   test('パスワードリセット成功後、成功メッセージが表示されログインページにリダイレクトされる', async ({
     page,
@@ -783,7 +783,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.1: パスワードリセット要求画面のUI確認
    * WHEN パスワードリセット要求画面が表示される
    * THEN Frontend UIはメールアドレス入力フィールド、送信ボタン、ログイン画面へ戻るリンクを表示する
-   * @REQ-29.1 @REQ-29.9
+   * @requirement user-authentication/REQ-29.1 @requirement user-authentication/REQ-29.9
    */
   test('パスワードリセット要求画面に必要な要素が表示される', async ({ page }) => {
     await page.goto('/password-reset');
@@ -805,7 +805,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.2: パスワード再設定画面のUI確認
    * WHEN パスワード再設定画面が表示される
    * THEN Frontend UIは新しいパスワード入力フィールド、パスワード確認フィールド、変更ボタンを表示する
-   * @REQ-29.10
+   * @requirement user-authentication/REQ-29.10
    */
   test('有効なトークンでパスワード再設定画面に必要な要素が表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -841,7 +841,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.2: 無効トークンでのエラー表示
    * IF リセットトークンが無効または期限切れである
    * THEN Frontend UIはエラーメッセージと「パスワードリセットを再度申請する」リンクを表示する
-   * @REQ-29.12
+   * @requirement user-authentication/REQ-29.12
    */
   test('無効なトークンでエラーメッセージと再申請案内が表示される', async ({ page }) => {
     await page.goto('/password-reset?token=completely-invalid-token-12345');
@@ -860,7 +860,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.2: 期限切れトークンでのエラー表示
    * IF リセットトークンが期限切れである
    * THEN Frontend UIはエラーメッセージを表示する
-   * @REQ-29.12
+   * @requirement user-authentication/REQ-29.12
    */
   test('期限切れトークンでエラーメッセージが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -893,7 +893,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.13: 新しいパスワード入力時のパスワード強度インジケーター
    * WHEN 新しいパスワードを入力する
    * THEN パスワード強度インジケーターが表示される
-   * @REQ-29.13
+   * @requirement user-authentication/REQ-29.13
    */
   test('新しいパスワード入力時にパスワード強度インジケーターが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -930,7 +930,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.15: パスワード確認不一致時のリアルタイムバリデーション
    * WHEN パスワードと確認パスワードが一致しない
    * THEN リアルタイムでバリデーションエラーが表示される
-   * @REQ-29.15
+   * @requirement user-authentication/REQ-29.15
    */
   test('パスワード確認不一致時にリアルタイムバリデーションエラーが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -965,7 +965,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * 要件29.16: パスワード変更中のローディングスピナー
    * WHEN パスワード変更リクエストが処理中である
    * THEN ローディングスピナーが表示される
-   * @REQ-29.16
+   * @requirement user-authentication/REQ-29.16
    */
   test('パスワード変更中にローディングスピナーが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -1043,7 +1043,7 @@ test.describe('パスワード変更後のセッション管理', () => {
    * 要件7.5: パスワード変更後の全セッション無効化
    * WHEN パスワードが更新される
    * THEN Authentication Serviceは全ての既存リフレッシュトークンを無効化する
-   * @REQ-7.5
+   * @requirement user-authentication/REQ-7.5
    */
   test('パスワード変更後、全セッションが無効化される', async ({ page, browser }) => {
     // テストごとに一意のパスワードを生成（キャッシュやパスワード履歴の問題を回避）

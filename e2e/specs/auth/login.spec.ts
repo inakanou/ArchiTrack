@@ -5,9 +5,9 @@ import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 /**
  * ログイン機能のE2Eテスト
  *
- * @REQ-4 ログイン
- * @REQ-11 ログイン画面のUI/UX
- * @REQ-28 画面遷移とナビゲーション
+ * @requirement user-authentication/REQ-4 ログイン
+ * @requirement user-authentication/REQ-11 ログイン画面のUI/UX
+ * @requirement user-authentication/REQ-28 画面遷移とナビゲーション
  */
 test.describe('ログイン機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
@@ -23,7 +23,7 @@ test.describe('ログイン機能', () => {
 
   /**
    * 要件11.1: ログイン画面の基本要素
-   * @REQ-11.1
+   * @requirement user-authentication/REQ-11.1
    */
   test('ログインフォームが正しく表示される', async ({ page }) => {
     // メールアドレス入力フィールド
@@ -40,7 +40,7 @@ test.describe('ログイン機能', () => {
   });
 
   /**
-   * @REQ-4.1 @REQ-4.4 @REQ-4.5 @REQ-4.7 @REQ-28.6 @REQ-28.43
+   * @requirement user-authentication/REQ-4.1 @requirement user-authentication/REQ-4.4 @requirement user-authentication/REQ-4.5 @requirement user-authentication/REQ-4.7 @requirement user-authentication/REQ-28.6 @requirement user-authentication/REQ-28.43
    */
   test('有効な認証情報でログインできる', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
@@ -53,7 +53,7 @@ test.describe('ログイン機能', () => {
 
   /**
    * 要件11.7: ログイン失敗時のエラー
-   * @REQ-4.2 @REQ-4.3 @REQ-11.7
+   * @requirement user-authentication/REQ-4.2 @requirement user-authentication/REQ-4.3 @requirement user-authentication/REQ-11.7
    */
   test('無効な認証情報でログインできない', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('invalid@example.com');
@@ -66,7 +66,7 @@ test.describe('ログイン機能', () => {
 
   /**
    * 要件11.5: 未入力時のエラー
-   * @REQ-11.5
+   * @requirement user-authentication/REQ-11.5
    */
   test('メールアドレス未入力時にバリデーションエラーが表示される', async ({ page }) => {
     await page.locator('input#password').fill('Password123!');
@@ -78,7 +78,7 @@ test.describe('ログイン機能', () => {
 
   /**
    * 要件11.5: 未入力時のエラー
-   * @REQ-11.5
+   * @requirement user-authentication/REQ-11.5
    */
   test('パスワード未入力時にバリデーションエラーが表示される', async ({ page }) => {
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
@@ -99,7 +99,7 @@ test.describe('ログイン機能', () => {
   /**
    * 要件7.1: パスワードリセット要求
    * 要件11.9: パスワードリセットリンク
-   * @REQ-11.9 @REQ-28.4
+   * @requirement user-authentication/REQ-11.9 @requirement user-authentication/REQ-28.4
    * Note: Playwright + React Router Link の互換性問題により、
    * リンククリックではなくpage.goto()を使用してナビゲーションを検証
    */
@@ -129,7 +129,7 @@ test.describe('ログイン機能', () => {
   /**
    * 要件4.6: アカウントロック機能
    * 要件11.8: アカウントロック時の表示
-   * @REQ-11.8
+   * @requirement user-authentication/REQ-11.8
    * WHEN 同一メールアドレスで5回連続してログインに失敗する
    * THEN アカウントが15分間ロックされ、ログインできなくなる
    */
@@ -179,7 +179,7 @@ test.describe('ログイン機能', () => {
   /**
    * 要件11.6: ページロード時の自動フォーカス
    * 要件11.11: ページロード時の自動フォーカス
-   * @REQ-11.6 @REQ-11.11
+   * @requirement user-authentication/REQ-11.6 @requirement user-authentication/REQ-11.11
    * WHEN ログインページが読み込まれる
    * THEN メールアドレスフィールドに自動的にフォーカスされる
    * Note: REQ-11.6はローディングスピナーと記載されているが、実装では自動フォーカスを指していると解釈
@@ -195,14 +195,14 @@ test.describe('ログイン機能', () => {
   /**
    * 要件11.11: Tab キーでフォーカス移動
    * 要件11.3: フォーカス時の視覚的フィードバック
-   * @REQ-11.3 @REQ-11.11
+   * @requirement user-authentication/REQ-11.3 @requirement user-authentication/REQ-11.11
    * WHEN Tab キーを押す
    * THEN 論理的な順序でフォーカスが移動する
    */
   test('Tab キーで論理的な順序でフォーカスが移動する', async ({ page }) => {
     await page.goto('/login');
 
-    // 初期状態：メールアドレスフィールドにフォーカス
+    // 初期状態:メールアドレスフィールドにフォーカス
     const emailInput = page.getByLabel(/メールアドレス/i);
     await expect(emailInput).toBeFocused();
 
@@ -227,5 +227,81 @@ test.describe('ログイン機能', () => {
     await page.keyboard.press('Tab');
     const resetLink = page.getByRole('link', { name: /パスワードを忘れた/i });
     await expect(resetLink).toBeFocused();
+  });
+
+  /**
+   * 要件11.2: パスワードフィールドの表示/非表示切り替えボタン
+   * @requirement user-authentication/REQ-11.2
+   * WHEN パスワード入力フィールドが表示される
+   * THEN パスワードの表示/非表示切り替えボタンを提供する
+   */
+  test('パスワードの表示/非表示切り替えボタンが機能する', async ({ page }) => {
+    await page.goto('/login');
+
+    const passwordInput = page.locator('input#password');
+    await passwordInput.fill('TestPassword123!');
+
+    // 初期状態: パスワードはマスクされている (type="password")
+    await expect(passwordInput).toHaveAttribute('type', 'password');
+
+    // 表示切り替えボタンをクリック
+    const toggleButton = page.getByRole('button', {
+      name: /パスワードを表示|表示/i,
+    });
+    await toggleButton.click();
+
+    // パスワードが表示される (type="text")
+    await expect(passwordInput).toHaveAttribute('type', 'text');
+
+    // 再度クリックで非表示に
+    const hideButton = page.getByRole('button', {
+      name: /パスワードを非表示|非表示/i,
+    });
+    await hideButton.click();
+
+    // パスワードが再度マスクされる
+    await expect(passwordInput).toHaveAttribute('type', 'password');
+  });
+
+  /**
+   * 要件11.4: メールアドレス形式の無効時にリアルタイムバリデーションエラーを表示
+   * @requirement user-authentication/REQ-11.4
+   * IF メールアドレス形式が無効である
+   * THEN リアルタイムバリデーションエラーを表示する
+   */
+  test('無効なメールアドレス形式でリアルタイムバリデーションエラーが表示される', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+
+    const emailInput = page.getByLabel(/メールアドレス/i);
+
+    // 無効な形式のメールアドレスを入力
+    await emailInput.fill('invalid-email');
+    await emailInput.blur();
+
+    // バリデーションエラーが表示される
+    await expect(page.getByText(/有効なメールアドレスを入力してください/i)).toBeVisible();
+  });
+
+  /**
+   * 要件11.10: モバイル最適化されたレイアウト
+   * @requirement user-authentication/REQ-11.10
+   * WHEN デバイス画面幅が768px未満である
+   * THEN モバイル最適化されたレイアウトを表示する
+   */
+  test('モバイル画面でレイアウトが最適化される', async ({ page }) => {
+    // モバイルビューポートに設定 (iPhone SE サイズ)
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    await page.goto('/login');
+
+    // フォームが表示される
+    await expect(page.getByLabel(/メールアドレス/i)).toBeVisible();
+    await expect(page.locator('input#password')).toBeVisible();
+    await expect(page.getByRole('button', { name: /ログイン/i })).toBeVisible();
+
+    // パスワードリセットリンクが表示される
+    await expect(page.getByRole('link', { name: /パスワードを忘れた/i })).toBeVisible();
   });
 });

@@ -231,11 +231,16 @@ test.describe('ステータス遷移', () => {
   /**
    * 差し戻し遷移フローのテスト
    *
+   * REQ-10.4: 差し戻し遷移を許可する
    * REQ-10.14: 差し戻し遷移を実行すると差し戻し理由の入力を必須とする
    * REQ-10.16: ステータス変更UIで順方向遷移と差し戻し遷移を視覚的に区別して表示
    */
   test.describe('差し戻し遷移フロー', () => {
-    test('差し戻しボタン -> 理由入力ダイアログ -> 理由入力 -> 確認でステータスが差し戻される', async ({
+    /**
+     * @requirement project-management/REQ-10.4
+     * @requirement project-management/REQ-10.14
+     */
+    test('差し戻しボタン -> 理由入力ダイアログ -> 理由入力 -> 確認でステータスが差し戻される (project-management/REQ-10.4, REQ-10.14)', async ({
       page,
     }) => {
       // 一般ユーザーでログイン
@@ -641,6 +646,87 @@ test.describe('ステータス遷移', () => {
       // 差し戻し遷移アイコンを確認
       const backwardIcon = page.locator('[data-testid="transition-icon-backward"]').first();
       await expect(backwardIcon).toBeVisible({ timeout: getTimeout(10000) });
+    });
+
+    /**
+     * @requirement project-management/REQ-10.12
+     */
+    test('各ステータスを視覚的に区別できる色分けで表示する (project-management/REQ-10.12)', async ({
+      page,
+    }) => {
+      // 一般ユーザーでログイン
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新しいプロジェクトを作成
+      await createTestProject(page);
+      await page.waitForLoadState('networkidle');
+
+      // 現在のステータスバッジを確認
+      const statusBadge = page.getByTestId('current-status-badge');
+      await expect(statusBadge).toBeVisible({ timeout: getTimeout(10000) });
+
+      // ステータスバッジに色が設定されていることを確認
+      const badgeStyles = await statusBadge.evaluate((el) => {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - window is available in browser context
+        const style = window.getComputedStyle(el);
+        return {
+          backgroundColor: style.backgroundColor,
+          color: style.color,
+        };
+      });
+
+      // 背景色または文字色が設定されていることを確認
+      expect(badgeStyles.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+      expect(badgeStyles.backgroundColor).not.toBe('transparent');
+    });
+
+    /**
+     * @requirement project-management/REQ-10.16
+     */
+    test('ステータス変更UIで順方向遷移と差し戻し遷移を視覚的に区別して表示する (project-management/REQ-10.16)', async ({
+      page,
+    }) => {
+      // 一般ユーザーでログイン
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新しいプロジェクトを作成
+      await createTestProject(page);
+      await page.waitForLoadState('networkidle');
+
+      // 順方向遷移ボタンを確認
+      const forwardButton = page.locator('button[data-transition-type="forward"]').first();
+      await expect(forwardButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      const forwardStyles = await forwardButton.evaluate((el) => {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - window is available in browser context
+        const style = window.getComputedStyle(el);
+        return {
+          backgroundColor: style.backgroundColor,
+          color: style.color,
+        };
+      });
+
+      // 順方向遷移を実行
+      await executeForwardTransition(page);
+
+      // 差し戻し遷移ボタンを確認
+      const backwardButton = page.locator('button[data-transition-type="backward"]').first();
+      await expect(backwardButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      const backwardStyles = await backwardButton.evaluate((el) => {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - window is available in browser context
+        const style = window.getComputedStyle(el);
+        return {
+          backgroundColor: style.backgroundColor,
+          color: style.color,
+        };
+      });
+
+      // 順方向と差し戻しのスタイルが異なることを確認
+      expect(forwardStyles.backgroundColor).not.toBe(backwardStyles.backgroundColor);
     });
   });
 });

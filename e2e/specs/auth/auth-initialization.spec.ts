@@ -5,7 +5,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 /**
  * E2Eテスト: 認証状態初期化時のUIチラつき防止
  *
- * @REQ-16A 認証状態初期化時のUIチラつき防止
+ * @requirement user-authentication/REQ-16A 認証状態初期化時のUIチラつき防止
  *
  * このテストスイートは、ページロード時のUIチラつき防止機能をEnd-to-Endで検証します。
  * 業界標準パターン（Auth0、Firebase、NextAuth.js）との整合性を確認します。
@@ -72,7 +72,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
   /**
    * 要件16A.9: 未認証ユーザーが保護されたページにアクセスした場合、
    * 保護されたコンテンツを表示せずにログイン画面が表示されること
-   * @REQ-16A.9 @REQ-28.1 @REQ-28.3
+   * @requirement user-authentication/REQ-16A.9 @requirement user-authentication/REQ-28.1 @requirement user-authentication/REQ-28.3
    *
    * IF 未認証ユーザーが保護されたページにアクセスする
    * THEN システムはローディング中に保護されたコンテンツを表示してはならない
@@ -112,7 +112,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
   /**
    * 要件16A.8: 認証済みユーザーがページをリロードした場合、
    * セッションが復元されてダッシュボードが表示されること
-   * @REQ-16A.1 @REQ-16A.2 @REQ-16A.3 @REQ-16A.4 @REQ-16A.5 @REQ-16A.8 @REQ-28.2
+   * @requirement user-authentication/REQ-16A.1 @requirement user-authentication/REQ-16A.2 @requirement user-authentication/REQ-16A.3 @requirement user-authentication/REQ-16A.4 @requirement user-authentication/REQ-16A.5 @requirement user-authentication/REQ-16A.8 @requirement user-authentication/REQ-28.2
    *
    * IF 認証済みユーザーがページをリロードする
    * THEN システムはセッションを復元してダッシュボードを表示しなければならない
@@ -167,7 +167,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
    * 要件16A.10: セッション復元に200ms以上かかる場合、
    * ローディングインジケーターが表示されること
    * 要件16A.14: ローディング状態終了後の適切な画面表示
-   * @REQ-16A.7 @REQ-16A.10 @REQ-16A.14
+   * @requirement user-authentication/REQ-16A.7 @requirement user-authentication/REQ-16A.10 @requirement user-authentication/REQ-16A.14
    *
    * IF ローディング状態が200ms以上継続する
    * THEN システムはローディングインジケーターを表示しなければならない
@@ -218,7 +218,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
 
   /**
    * 要件16A.6: セッション復元失敗時、認証情報が破棄されログイン画面にリダイレクトされること
-   * @REQ-16A.6
+   * @requirement user-authentication/REQ-16A.6
    *
    * WHEN 認証状態確認が失敗する
    * THEN システムは認証情報を破棄し、ローディング状態を終了しなければならない
@@ -247,7 +247,7 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
   /**
    * 要件16A.11-12: ローディングインジケーターがアクセシビリティ準拠
    * （スクリーンリーダーで読み上げられること）
-   * @REQ-16A.11 @REQ-16A.12 @REQ-16A.13
+   * @requirement user-authentication/REQ-16A.11 @requirement user-authentication/REQ-16A.12 @requirement user-authentication/REQ-16A.13
    *
    * WHEN ローディングインジケーターが表示される
    * THEN システムは説明テキストとアクセシビリティ属性を設定しなければならない

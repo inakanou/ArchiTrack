@@ -8,17 +8,17 @@ import { API_BASE_URL } from '../../config';
 /**
  * 動的ロール管理のE2Eテスト
  *
- * @REQ-17 動的ロール管理
- * @REQ-17.1 システム管理者が新しいロールを作成しロール名、説明、優先順位を保存
- * @REQ-17.2 ロール名が既に存在する場合409 Conflictエラーを返す
- * @REQ-17.3 システム管理者がロール情報を更新し変更履歴を監査ログに記録
- * @REQ-17.4 システム管理者がロール一覧を取得し全てのロール（名前、説明、割り当てユーザー数、権限数）を返す
- * @REQ-17.5 システム管理者がロールを削除しロールが少なくとも1人のユーザーに割り当てられている場合削除を拒否
- * @REQ-17.6 システム管理者が事前定義ロール（システム管理者）を削除しようとする場合削除を拒否
- * @REQ-17.7 ロールを作成し一意のロールIDを生成
- * @REQ-17.8 ロール優先順位を設定し整数値（高い値が高優先度）を受け入れ
- * @REQ-17.9 新しいロールを作成しデフォルトで空の権限セットを割り当て
- * @REQ-28.38 ロール管理リンククリック → ロール管理画面遷移
+ * @requirement user-authentication/REQ-17 動的ロール管理
+ * @requirement user-authentication/REQ-17.1 システム管理者が新しいロールを作成しロール名、説明、優先順位を保存
+ * @requirement user-authentication/REQ-17.2 ロール名が既に存在する場合409 Conflictエラーを返す
+ * @requirement user-authentication/REQ-17.3 システム管理者がロール情報を更新し変更履歴を監査ログに記録
+ * @requirement user-authentication/REQ-17.4 システム管理者がロール一覧を取得し全てのロール（名前、説明、割り当てユーザー数、権限数）を返す
+ * @requirement user-authentication/REQ-17.5 システム管理者がロールを削除しロールが少なくとも1人のユーザーに割り当てられている場合削除を拒否
+ * @requirement user-authentication/REQ-17.6 システム管理者が事前定義ロール（システム管理者）を削除しようとする場合削除を拒否
+ * @requirement user-authentication/REQ-17.7 ロールを作成し一意のロールIDを生成
+ * @requirement user-authentication/REQ-17.8 ロール優先順位を設定し整数値（高い値が高優先度）を受け入れ
+ * @requirement user-authentication/REQ-17.9 新しいロールを作成しデフォルトで空の権限セットを割り当て
+ * @requirement user-authentication/REQ-28.38 ロール管理リンククリック → ロール管理画面遷移
  *
  * このテストスイートは、ロールの作成・更新・削除機能を
  * End-to-Endで検証します。
@@ -37,8 +37,8 @@ test.describe('動的ロール管理', () => {
    * 要件17.7: 一意のロールIDの生成
    * 要件17.9: デフォルトで空の権限セット
    * 要件22.1: ロール作成・更新・削除時の監査ログ記録
-   * @REQ-17.1 @REQ-17.7 @REQ-17.9
-   * @REQ-22.1
+   * @requirement user-authentication/REQ-17.1 @requirement user-authentication/REQ-17.7 @requirement user-authentication/REQ-17.9
+   * @requirement user-authentication/REQ-22.1
    */
   test('管理者は新しいロールを作成できる', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
@@ -68,7 +68,7 @@ test.describe('動的ロール管理', () => {
 
   /**
    * 要件17.2: 既存ロール名との重複エラー
-   * @REQ-17.2
+   * @requirement user-authentication/REQ-17.2
    */
   test('重複するロール名では作成できない', async ({ request }) => {
     // 管理者としてログイン
@@ -99,8 +99,8 @@ test.describe('動的ロール管理', () => {
   /**
    * 要件17.3: ロール情報の更新と監査ログ記録
    * 要件22.1: ロール作成・更新・削除時の監査ログ記録
-   * @REQ-17.3
-   * @REQ-22.1
+   * @requirement user-authentication/REQ-17.3
+   * @requirement user-authentication/REQ-22.1
    */
   test('管理者はロール情報を更新できる', async ({ request }) => {
     // 管理者としてログイン
@@ -145,7 +145,7 @@ test.describe('動的ロール管理', () => {
 
   /**
    * 要件17.4: ロール一覧の取得
-   * @REQ-17.4
+   * @requirement user-authentication/REQ-17.4
    */
   test('管理者はロール一覧を取得できる', async ({ request }) => {
     // 管理者としてログイン
@@ -175,7 +175,7 @@ test.describe('動的ロール管理', () => {
 
   /**
    * 要件17.5: 使用中のロールは削除不可
-   * @REQ-17.5
+   * @requirement user-authentication/REQ-17.5
    */
   test('使用中のロールは削除できない', async ({ request }) => {
     // 管理者としてログイン
@@ -207,8 +207,8 @@ test.describe('動的ロール管理', () => {
   /**
    * 要件17.6: システムロール（admin）の削除拒否
    * 要件22.1: ロール作成・更新・削除時の監査ログ記録
-   * @REQ-17.6
-   * @REQ-22.1
+   * @requirement user-authentication/REQ-17.6
+   * @requirement user-authentication/REQ-22.1
    */
   test('システムロールは削除できない', async ({ request }) => {
     // 管理者としてログイン
@@ -240,7 +240,7 @@ test.describe('動的ロール管理', () => {
 
   /**
    * 要件17.8: ロール優先順位の設定
-   * @REQ-17.8
+   * @requirement user-authentication/REQ-17.8
    */
   test('ロールに優先順位を設定できる', async ({ request }) => {
     // 管理者としてログイン
