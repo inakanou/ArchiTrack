@@ -55,11 +55,11 @@ router.get(
     try {
       const users = await prisma.user.findMany({
         where: {
-          // admin（system-admin）ロールを持つユーザーを除外
+          // adminロールを持つユーザーを除外
           userRoles: {
             none: {
               role: {
-                name: 'system-admin',
+                name: 'admin',
               },
             },
           },
