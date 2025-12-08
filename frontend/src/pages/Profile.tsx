@@ -759,7 +759,7 @@ export function Profile() {
 
           {/* セッション管理リンク - 要件28.31 */}
           <a
-            href="/settings/sessions"
+            href="/sessions"
             style={{
               display: 'flex',
               alignItems: 'center',

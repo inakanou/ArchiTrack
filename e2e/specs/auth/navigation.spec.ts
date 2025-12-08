@@ -153,6 +153,7 @@ test.describe('画面遷移とナビゲーション', () => {
     await loginAsUser(page, 'REGULAR_USER');
 
     await page.goto('/profile');
+    await page.waitForLoadState('networkidle');
 
     // セッション管理リンクが表示される
     await expect(page.getByRole('link', { name: /セッション管理/i })).toBeVisible();
@@ -173,7 +174,7 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.getByRole('link', { name: /セッション管理/i }).click();
 
     // セッション管理画面にリダイレクト
-    await expect(page).toHaveURL(/\/profile\/sessions/);
+    await expect(page).toHaveURL(/\/sessions/);
 
     // 要件28.34: アクティブなセッション一覧が表示される
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible();
@@ -188,7 +189,7 @@ test.describe('画面遷移とナビゲーション', () => {
   test('セッション管理画面からプロフィール画面に戻れる', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
-    await page.goto('/profile/sessions');
+    await page.goto('/sessions');
 
     // 戻るリンクをクリック
     await page.getByRole('link', { name: /戻る|プロフィール/i }).click();
@@ -336,14 +337,14 @@ test.describe('画面遷移とナビゲーション', () => {
     // ダッシュボード → プロフィール → セッション管理と遷移
     await page.goto('/');
     await page.goto('/profile');
-    await page.goto('/profile/sessions');
+    await page.goto('/sessions');
 
     // 要件28.44: ブラウザの戻るボタンで前の画面を適切に表示
     await page.goBack();
     await expect(page).toHaveURL(/\/profile$/);
 
     await page.goBack();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/(dashboard)?$/);
   });
 
   /**
