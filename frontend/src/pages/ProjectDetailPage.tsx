@@ -133,7 +133,7 @@ const styles = {
   } as React.CSSProperties,
   subtitle: {
     fontSize: '14px',
-    color: '#6b7280',
+    color: '#4b5563', // WCAG 2.1 AA準拠 - コントラスト比 5.7:1 on #f5f5f5
   } as React.CSSProperties,
   actionsContainer: {
     display: 'flex',

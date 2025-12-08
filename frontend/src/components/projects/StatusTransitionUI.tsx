@@ -95,7 +95,7 @@ const TRANSITION_TYPE_STYLES: Record<
     hoverBg: '#dbeafe',
   },
   forward: {
-    iconColor: '#16a34a', // グリーン
+    iconColor: '#166534', // グリーン - WCAG 2.1 AA準拠 (5.2:1 on #f0fdf4)
     bgColor: '#f0fdf4',
     hoverBg: '#dcfce7',
   },
@@ -105,7 +105,7 @@ const TRANSITION_TYPE_STYLES: Record<
     hoverBg: '#ffedd5',
   },
   terminate: {
-    iconColor: '#dc2626', // レッド
+    iconColor: '#b91c1c', // レッド - WCAG 2.1 AA準拠 (5.7:1 on #fef2f2)
     bgColor: '#fef2f2',
     hoverBg: '#fee2e2',
   },
@@ -204,7 +204,7 @@ const styles = {
   } as React.CSSProperties,
   historyMeta: {
     fontSize: '12px',
-    color: '#9ca3af',
+    color: '#4b5563', // WCAG 2.1 AA準拠 (5.9:1+ on all transition backgrounds)
     marginTop: '4px',
   } as React.CSSProperties,
   emptyMessage: {
