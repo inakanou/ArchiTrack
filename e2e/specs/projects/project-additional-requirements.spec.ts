@@ -180,7 +180,9 @@ test.describe('プロジェクト管理 追加要件', () => {
       expect(response.status()).toBe(201);
 
       // 詳細画面で顧客名が表示されることを確認
-      await expect(page.getByText(customerName)).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByText(customerName, { exact: true })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
