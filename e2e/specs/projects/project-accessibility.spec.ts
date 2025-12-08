@@ -612,7 +612,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await expect(page.locator('input[aria-label="顧客名"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
-      await expect(page.locator('textarea[aria-label="現場住所"]')).toBeVisible();
+      await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();
       await expect(page.locator('textarea[aria-label="概要"]')).toBeVisible();
     });
 
