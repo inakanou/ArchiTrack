@@ -97,7 +97,9 @@ test.describe('プロジェクトCRUD操作', () => {
 
       // ユーザー一覧取得エラーが表示されないことを確認（認証が成功している）
       // もしエラーがあればページをリロードして再試行
-      const userFetchError = page.getByText(/ユーザー一覧の取得に失敗しました/i);
+      // Note: 営業担当者と工事担当者の2つのUserSelectコンポーネントがあるため、
+      //       複数のエラーメッセージが表示される可能性がある。.first()を使用して厳密モード違反を回避
+      const userFetchError = page.getByText(/ユーザー一覧の取得に失敗しました/i).first();
       const hasError = await userFetchError.isVisible().catch(() => false);
       if (hasError) {
         console.log('User fetch error detected, reloading page...');
@@ -107,10 +109,13 @@ test.describe('プロジェクトCRUD操作', () => {
 
       // 営業担当者のセレクトボックスが読み込み完了になるまで待機
       // 「読み込み中...」または「ユーザー一覧の取得に失敗しました」が表示されなくなるまで待機
-      await expect(page.getByText(/読み込み中/i)).not.toBeVisible({ timeout: getTimeout(15000) });
+      // Note: 2つのUserSelectコンポーネントがあるため.first()を使用
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      // エラーがないことを確認
-      await expect(page.getByText(/ユーザー一覧の取得に失敗しました/i)).not.toBeVisible({
+      // エラーがないことを確認（countで0件であることを確認）
+      await expect(page.getByText(/ユーザー一覧の取得に失敗しました/i)).toHaveCount(0, {
         timeout: getTimeout(5000),
       });
 
@@ -458,8 +463,10 @@ test.describe('プロジェクトCRUD操作', () => {
         await page.getByRole('button', { name: /新規作成/i }).click();
         await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
 
-        // ユーザー一覧の読み込み完了を待機
-        await expect(page.getByText(/読み込み中/i)).not.toBeVisible({ timeout: getTimeout(15000) });
+        // ユーザー一覧の読み込み完了を待機（複数のUserSelectがあるため.first()を使用）
+        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+          timeout: getTimeout(15000),
+        });
 
         const projectName = `編集テスト用プロジェクト_${Date.now()}`;
         await page.getByLabel(/プロジェクト名/i).fill(projectName);
@@ -797,8 +804,10 @@ test.describe('プロジェクトCRUD操作', () => {
         await page.getByRole('button', { name: /新規作成/i }).click();
         await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
 
-        // ユーザー一覧の読み込み完了を待機
-        await expect(page.getByText(/読み込み中/i)).not.toBeVisible({ timeout: getTimeout(15000) });
+        // ユーザー一覧の読み込み完了を待機（複数のUserSelectがあるため.first()を使用）
+        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+          timeout: getTimeout(15000),
+        });
 
         await page.getByLabel(/プロジェクト名/i).fill(`キャンセルテスト_${Date.now()}`);
         await page.getByLabel(/顧客名/i).fill('キャンセルテスト顧客');
