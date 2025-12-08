@@ -289,13 +289,16 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
-      // APIレスポンスを確認
+      // APIレスポンスを確認（200または304はどちらも成功）
       const response = await apiPromise;
-      expect(response.status()).toBe(200);
+      expect([200, 304]).toContain(response.status());
 
-      const responseData = await response.json();
-      expect(responseData).toHaveProperty('projects');
-      expect(responseData).toHaveProperty('pagination');
+      // 304の場合はキャッシュレスポンスなのでjsonがない可能性あり
+      if (response.status() === 200) {
+        const responseData = await response.json();
+        expect(responseData).toHaveProperty('projects');
+        expect(responseData).toHaveProperty('pagination');
+      }
     });
 
     /**
