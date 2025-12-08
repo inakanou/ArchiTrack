@@ -330,6 +330,21 @@ export function AppHeader(): ReactElement {
   // ユーザーが管理者かどうかを判定
   const isAdmin = user?.roles?.includes('admin') ?? false;
 
+  /**
+   * ログアウト処理
+   * 要件28.41: ログアウトボタンクリック → ログアウト処理実行
+   * 要件28.42: ログアウト完了時に「ログアウトしました」メッセージを表示
+   *
+   * ログアウト後のメッセージ表示はsessionStorageを使用。
+   * ProtectedRouteがログアウト検知時に/loginへリダイレクトするため、
+   * location.stateでのメッセージ伝達はProtectedRouteのstateで上書きされてしまう。
+   */
+  const handleLogout = useCallback(async () => {
+    // ログアウトメッセージをsessionStorageに保存
+    sessionStorage.setItem('logoutMessage', 'ログアウトしました');
+    await logout();
+  }, [logout]);
+
   // ユーザーメニューの項目
   const userMenuItems: DropdownMenuItem[] = [
     {
@@ -340,7 +355,7 @@ export function AppHeader(): ReactElement {
     },
     {
       label: 'ログアウト',
-      onClick: () => logout(),
+      onClick: handleLogout,
       testId: 'user-menu-logout',
       icon: <Icons.Logout />,
     },

@@ -60,10 +60,12 @@ test.describe('画面遷移とナビゲーション', () => {
     await expect(page.getByRole('link', { name: /ダッシュボード|ホーム/i })).toBeVisible();
 
     // 要件28.23: ログイン中のユーザー名とアバター
-    await expect(page.getByText(/Regular User|user@example\.com/i)).toBeVisible();
+    const userMenuButton = page.getByRole('button', { name: /Test User|user@example\.com/i });
+    await expect(userMenuButton).toBeVisible();
 
-    // ログアウトボタン
-    await expect(page.getByRole('button', { name: /ログアウト/i })).toBeVisible();
+    // ユーザーメニューを開いてログアウトボタンを確認
+    await userMenuButton.click();
+    await expect(page.getByRole('menuitem', { name: /ログアウト/i })).toBeVisible();
   });
 
   /**
@@ -78,17 +80,17 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.goto('/profile');
 
     // 要件28.24: 管理メニューリンク
-    const adminMenu = page.getByRole('button', { name: /管理|Admin/i });
+    const adminMenu = page.getByRole('button', { name: /管理メニュー/i });
     await expect(adminMenu).toBeVisible();
 
     // 要件28.25: 管理メニュー展開でユーザー管理、招待管理、ロール管理、権限管理、監査ログへのリンク表示
     await adminMenu.click();
 
-    await expect(page.getByRole('link', { name: /ユーザー管理/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /招待管理/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /ロール管理/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /権限管理/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /監査ログ/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /ユーザー管理/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /招待管理/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /ロール管理/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /権限管理/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /監査ログ/i })).toBeVisible();
   });
 
   /**
@@ -102,8 +104,9 @@ test.describe('画面遷移とナビゲーション', () => {
 
     await page.goto('/');
 
-    // ダッシュボードが表示される
-    await expect(page.getByRole('heading', { name: /ダッシュボード|Dashboard/i })).toBeVisible();
+    // ダッシュボードが表示される（ウェルカムメッセージとクイックアクセスセクション）
+    await expect(page.getByRole('heading', { name: /ようこそ/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /クイックアクセス/i })).toBeVisible();
   });
 
   /**
@@ -118,7 +121,7 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.goto('/');
 
     // プロフィールリンクをクリック（ユーザー名またはアバターをクリック）
-    const profileLink = page.getByRole('link', { name: /プロフィール|Regular User/i });
+    const profileLink = page.getByRole('link', { name: /プロフィール|Test User/i });
     await profileLink.click();
 
     // プロフィール画面にリダイレクト
@@ -206,10 +209,10 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.goto('/');
 
     // 管理メニューを展開
-    await page.getByRole('button', { name: /管理|Admin/i }).click();
+    await page.getByRole('button', { name: /管理メニュー/i }).click();
 
-    // 招待管理リンクをクリック
-    await page.getByRole('link', { name: /招待管理/i }).click();
+    // 招待管理をクリック
+    await page.getByRole('menuitem', { name: /招待管理/i }).click();
 
     // 招待管理画面にリダイレクト
     await expect(page).toHaveURL(/\/admin\/invitations/);
@@ -227,10 +230,10 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.goto('/');
 
     // 管理メニューを展開
-    await page.getByRole('button', { name: /管理|Admin/i }).click();
+    await page.getByRole('button', { name: /管理メニュー/i }).click();
 
-    // ユーザー管理リンクをクリック
-    await page.getByRole('link', { name: /ユーザー管理/i }).click();
+    // ユーザー管理をクリック
+    await page.getByRole('menuitem', { name: /ユーザー管理/i }).click();
 
     // ユーザー管理画面にリダイレクト
     await expect(page).toHaveURL(/\/admin\/users/);
@@ -248,10 +251,10 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.goto('/');
 
     // 管理メニューを展開
-    await page.getByRole('button', { name: /管理|Admin/i }).click();
+    await page.getByRole('button', { name: /管理メニュー/i }).click();
 
-    // ロール管理リンクをクリック
-    await page.getByRole('link', { name: /ロール管理/i }).click();
+    // ロール管理をクリック
+    await page.getByRole('menuitem', { name: /ロール管理/i }).click();
 
     // ロール管理画面にリダイレクト
     await expect(page).toHaveURL(/\/admin\/roles/);
@@ -269,10 +272,10 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.goto('/');
 
     // 管理メニューを展開
-    await page.getByRole('button', { name: /管理|Admin/i }).click();
+    await page.getByRole('button', { name: /管理メニュー/i }).click();
 
-    // 権限管理リンクをクリック
-    await page.getByRole('link', { name: /権限管理/i }).click();
+    // 権限管理をクリック
+    await page.getByRole('menuitem', { name: /権限管理/i }).click();
 
     // 権限管理画面にリダイレクト
     await expect(page).toHaveURL(/\/admin\/permissions/);
@@ -290,10 +293,10 @@ test.describe('画面遷移とナビゲーション', () => {
     await page.goto('/');
 
     // 管理メニューを展開
-    await page.getByRole('button', { name: /管理|Admin/i }).click();
+    await page.getByRole('button', { name: /管理メニュー/i }).click();
 
-    // 監査ログリンクをクリック
-    await page.getByRole('link', { name: /監査ログ/i }).click();
+    // 監査ログをクリック
+    await page.getByRole('menuitem', { name: /監査ログ/i }).click();
 
     // 監査ログ画面にリダイレクト
     await expect(page).toHaveURL(/\/admin\/audit-logs/);
@@ -310,8 +313,9 @@ test.describe('画面遷移とナビゲーション', () => {
 
     await page.goto('/profile');
 
-    // ログアウトボタンをクリック
-    await page.getByRole('button', { name: /ログアウト/i }).click();
+    // ユーザーメニューを開いてログアウトをクリック
+    await page.getByRole('button', { name: /Test User|user@example\.com/i }).click();
+    await page.getByRole('menuitem', { name: /ログアウト/i }).click();
 
     // 要件28.42: ログアウト完了時に「ログアウトしました」メッセージを表示
     await expect(page.getByText(/ログアウトしました/i)).toBeVisible();
