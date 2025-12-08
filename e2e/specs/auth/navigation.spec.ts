@@ -334,14 +334,26 @@ test.describe('画面遷移とナビゲーション', () => {
   test('ブラウザの戻るボタンで前の画面に戻れる', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
-    // ダッシュボード → プロフィール → セッション管理と遷移
+    // ダッシュボード → プロジェクト一覧 → ダッシュボードと遷移
+    // React Router Linkを使ったSPAナビゲーションで履歴を正しく作成
     await page.goto('/');
-    await page.goto('/profile');
-    await page.goto('/sessions');
+    await page.waitForLoadState('networkidle');
+    await expect(page).toHaveURL(/\/(dashboard)?$/);
+
+    // プロジェクト一覧へ遷移（ヘッダーナビゲーションから - React Router Link）
+    await page.locator('.app-header-nav-link', { hasText: 'プロジェクト' }).click();
+    await expect(page).toHaveURL(/\/projects$/);
+    await page.waitForLoadState('networkidle');
+
+    // プロフィールへ遷移（ユーザーメニューから - React Router navigate）
+    await page.locator('.app-header-user-trigger').click();
+    await page.getByTestId('user-menu-profile').click();
+    await expect(page).toHaveURL(/\/profile$/);
+    await page.waitForLoadState('networkidle');
 
     // 要件28.44: ブラウザの戻るボタンで前の画面を適切に表示
     await page.goBack();
-    await expect(page).toHaveURL(/\/profile$/);
+    await expect(page).toHaveURL(/\/projects$/);
 
     await page.goBack();
     await expect(page).toHaveURL(/\/(dashboard)?$/);
