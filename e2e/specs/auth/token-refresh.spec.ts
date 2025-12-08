@@ -52,18 +52,23 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // プロフィールページに移動して認証済み状態を確認
     await page.goto('/profile');
+
+    // initializeAuthの完了を待機（ネットワークアイドル + トークン存在確認）
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+
+    // initializeAuthが完了してトークンが保存されるまで待機
+    // Note: loginAsUserで取得したトークンがinitializeAuthでローテーションされるため、
+    // 新しいトークンが保存されるまで待機する必要がある
+    await page.waitForFunction(
+      () =>
+        localStorage.getItem('refreshToken') !== null &&
+        localStorage.getItem('accessToken') !== null,
+      { timeout: getTimeout(15000), polling: 500 }
+    );
+
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
       timeout: getTimeout(10000),
     });
-
-    // リフレッシュトークンがlocalStorageに保存されていることを確認
-    // initializeAuthが完了するまで待機（networkidleとwaitForFunction）
-    // CI環境での安定性向上のため、リトライ付きの待機関数を使用
-    const authEstablished = await waitForAuthState(page, {
-      maxRetries: 5,
-      timeout: getTimeout(15000),
-    });
-    expect(authEstablished).toBe(true);
 
     const initialRefreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
     expect(initialRefreshToken).toBeTruthy();

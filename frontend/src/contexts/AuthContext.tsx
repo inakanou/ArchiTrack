@@ -4,6 +4,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   ReactNode,
   ReactElement,
 } from 'react';
@@ -89,6 +90,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const [sessionExpired, setSessionExpired] = useState<boolean>(false);
   const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
   const [twoFactorState, setTwoFactorState] = useState<TwoFactorState | null>(null);
+
+  // React 18 StrictModeでの重複実行を防ぐためのフラグ
+  const initializeStartedRef = useRef<boolean>(false);
 
   /**
    * ログイン関数
@@ -438,6 +442,14 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
    */
   useEffect(() => {
     const initializeAuth = async () => {
+      // React 18 StrictModeでの重複実行を防ぐ
+      // トークンローテーションにより、2回目のリフレッシュが古いトークンで失敗するのを防止
+      if (initializeStartedRef.current) {
+        logger.debug('initializeAuth already started, skipping duplicate execution');
+        return;
+      }
+      initializeStartedRef.current = true;
+
       // ページロード時にlocalStorageからリフレッシュトークンを取得し、セッションを復元
       const storedRefreshToken = localStorage.getItem('refreshToken');
       const storedAccessToken = localStorage.getItem('accessToken');
