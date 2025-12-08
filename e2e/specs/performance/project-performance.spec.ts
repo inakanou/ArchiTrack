@@ -32,16 +32,19 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
   test.describe.configure({ mode: 'serial' });
 
   let accessToken: string;
-  let adminUserId: string;
+  let regularUserId: string;
 
   test.beforeAll(async ({ request }) => {
     await cleanDatabase();
 
-    // Create admin user with project permissions
-    const adminUser = await createTestUser('ADMIN_USER');
-    adminUserId = adminUser.id;
+    // Create admin user for authentication (has project:create permission)
+    await createTestUser('ADMIN_USER');
 
-    // Login to get access token
+    // Create regular user for salesPersonId (admin users cannot be assigned as salesPerson)
+    const regularUser = await createTestUser('REGULAR_USER');
+    regularUserId = regularUser.id;
+
+    // Login to get access token (use admin for authentication)
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: TEST_USERS.ADMIN_USER.email,
@@ -71,7 +74,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       data: {
         name: 'パフォーマンステスト用プロジェクト',
         customerName: 'テスト顧客',
-        salesPersonId: adminUserId,
+        salesPersonId: regularUserId,
       },
     });
 
@@ -179,14 +182,19 @@ test.describe('大量データでのパフォーマンステスト', () => {
 
   let accessToken: string;
   let adminUserId: string;
+  let regularUserId: string;
   let createdProjectId: string;
 
   test.beforeAll(async ({ request }) => {
     await cleanDatabase();
 
-    // Create admin user
+    // Create admin user for authentication
     const adminUser = await createTestUser('ADMIN_USER');
     adminUserId = adminUser.id;
+
+    // Create regular user for salesPersonId (admin users cannot be assigned as salesPerson)
+    const regularUser = await createTestUser('REGULAR_USER');
+    regularUserId = regularUser.id;
 
     // Login
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -205,7 +213,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     const projectsData = Array.from({ length: LARGE_DATASET_SIZE }, (_, i) => ({
       name: `パフォーマンステストプロジェクト ${i + 1}`,
       customerName: `テスト顧客 ${(i % 10) + 1}`,
-      salesPersonId: adminUserId,
+      salesPersonId: regularUserId,
       createdById: adminUserId,
       status: 'PREPARING' as const,
     }));
@@ -363,7 +371,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       data: {
         name: '削除テスト用プロジェクト',
         customerName: 'テスト顧客',
-        salesPersonId: adminUserId,
+        salesPersonId: regularUserId,
       },
     });
     const createdProject = await createResponse.json();
@@ -391,15 +399,18 @@ test.describe('フロントエンドページロードパフォーマンス', ()
   test.describe.configure({ mode: 'serial' });
 
   let accessToken: string;
-  let adminUserId: string;
+  let regularUserId: string;
   let projectId: string;
 
   test.beforeAll(async ({ request }) => {
     await cleanDatabase();
 
-    // Create admin user
-    const adminUser = await createTestUser('ADMIN_USER');
-    adminUserId = adminUser.id;
+    // Create admin user for authentication
+    await createTestUser('ADMIN_USER');
+
+    // Create regular user for salesPersonId (admin users cannot be assigned as salesPerson)
+    const regularUser = await createTestUser('REGULAR_USER');
+    regularUserId = regularUser.id;
 
     // Login
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -421,7 +432,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
       data: {
         name: 'ページロードテスト用プロジェクト',
         customerName: 'テスト顧客',
-        salesPersonId: adminUserId,
+        salesPersonId: regularUserId,
       },
     });
     const projectData = await projectResponse.json();
