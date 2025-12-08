@@ -360,9 +360,12 @@ test.describe('プロジェクトCRUD操作', () => {
       await page.getByLabel(/プロジェクト名/i).fill('テストプロジェクト');
       await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
-      // 営業担当者を空にする
+      // 営業担当者を空にする（required属性でdisabledになっている空オプションを選択するため、JavaScriptで直接操作）
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      await salesPersonSelect.selectOption('');
+      await salesPersonSelect.evaluate((select) => {
+        (select as unknown as { value: string }).value = '';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
 
       // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
