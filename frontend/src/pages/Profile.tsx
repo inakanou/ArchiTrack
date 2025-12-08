@@ -749,7 +749,7 @@ export function Profile() {
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
-              color: '#3b82f6',
+              color: '#2563eb',
               textDecoration: 'underline',
               fontWeight: 500,
             }}
@@ -764,7 +764,7 @@ export function Profile() {
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
-              color: '#3b82f6',
+              color: '#2563eb',
               textDecoration: 'underline',
               fontWeight: 500,
             }}
