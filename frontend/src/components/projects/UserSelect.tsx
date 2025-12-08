@@ -43,7 +43,7 @@ const STYLES = {
     disabled: '#9ca3af',
     disabledBg: '#f3f4f6',
     white: '#ffffff',
-    placeholder: '#9ca3af',
+    placeholder: '#6b7280', // WCAG 2.1 AA準拠: 4.6:1 contrast ratio
   },
   borderRadius: '0.375rem',
   transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out',
