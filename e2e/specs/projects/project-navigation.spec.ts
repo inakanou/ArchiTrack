@@ -35,7 +35,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       await page.waitForLoadState('networkidle');
 
       // ヘッダーに「プロジェクト」リンクが存在することを確認
-      const projectLink = page.getByRole('link', { name: /プロジェクト/i });
+      const projectLink = page.getByRole('link', { name: 'プロジェクト', exact: true });
       await expect(projectLink).toBeVisible({ timeout: getTimeout(10000) });
     });
 
@@ -51,7 +51,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       await page.waitForLoadState('networkidle');
 
       // 「プロジェクト」リンクをクリック
-      const projectLink = page.getByRole('link', { name: /プロジェクト/i });
+      const projectLink = page.getByRole('link', { name: 'プロジェクト', exact: true });
       await projectLink.click();
 
       // プロジェクト一覧画面に遷移することを確認
@@ -100,7 +100,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       await page.waitForLoadState('networkidle');
 
       // 「プロジェクト」リンク内にアイコンが存在することを確認
-      const projectLink = page.getByRole('link', { name: /プロジェクト/i });
+      const projectLink = page.getByRole('link', { name: 'プロジェクト', exact: true });
       const icon = projectLink.locator('svg, img, i').first();
 
       const iconVisible = await icon.isVisible().catch(() => false);
