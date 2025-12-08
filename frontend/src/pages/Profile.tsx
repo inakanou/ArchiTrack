@@ -726,6 +726,54 @@ export function Profile() {
         </div>
       </section>
 
+      {/* セキュリティ設定セクション - 要件28.28, 28.31 */}
+      <section style={{ marginTop: '2rem' }}>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>
+          セキュリティ設定
+        </h2>
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+            padding: '1rem',
+            backgroundColor: '#f9fafb',
+            borderRadius: '0.5rem',
+          }}
+        >
+          {/* 2FA設定リンク - 要件28.28 */}
+          <a
+            href="/settings/security"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              color: '#3b82f6',
+              textDecoration: 'underline',
+              fontWeight: 500,
+            }}
+          >
+            二要素認証設定
+          </a>
+
+          {/* セッション管理リンク - 要件28.31 */}
+          <a
+            href="/settings/sessions"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              color: '#3b82f6',
+              textDecoration: 'underline',
+              fontWeight: 500,
+            }}
+          >
+            セッション管理
+          </a>
+        </div>
+      </section>
+
       {/* 二要素認証（2FA）管理セクション - 2FA有効時のみ表示 */}
       {user?.twoFactorEnabled && (
         <section style={{ marginTop: '2rem' }}>
