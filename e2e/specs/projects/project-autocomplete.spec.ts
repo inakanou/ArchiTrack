@@ -280,7 +280,9 @@ test.describe('取引先オートコンプリート連携', () => {
       expect(response.status()).toBe(201);
 
       // 詳細画面で任意の顧客名が表示されることを確認
-      await expect(page.getByText(arbitraryName)).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByText(arbitraryName, { exact: true })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
