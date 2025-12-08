@@ -67,6 +67,7 @@ export interface ProjectInfo {
   statusLabel: string;
   createdAt: Date;
   updatedAt: Date;
+  createdById: string;
 }
 
 /**
@@ -647,6 +648,7 @@ export class ProjectService {
     status: string;
     createdAt: Date;
     updatedAt: Date;
+    createdById: string;
     salesPerson: { id: string; displayName: string };
     constructionPerson: { id: string; displayName: string } | null;
   }): ProjectInfo {
@@ -662,6 +664,7 @@ export class ProjectService {
       statusLabel: PROJECT_STATUS_LABELS[project.status as ProjectStatus],
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
+      createdById: project.createdById,
     };
 
     if (project.constructionPerson) {
@@ -696,6 +699,7 @@ export class ProjectService {
     status: string;
     createdAt: Date;
     updatedAt: Date;
+    createdById: string;
     salesPerson: { id: string; displayName: string };
     constructionPerson: { id: string; displayName: string } | null;
     createdBy: { id: string; displayName: string };
