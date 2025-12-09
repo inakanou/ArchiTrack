@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger';
+
 /**
  * APIエラークラス
  */
@@ -87,9 +89,7 @@ class ApiClient {
       // 401エラーの場合、トークンリフレッシュを試みる
       if (response.status === 401 && this.tokenRefreshCallback) {
         // 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
-        if (import.meta.env.DEV) {
-          console.log('[Auth] Access token expired or invalid, attempting refresh...');
-        }
+        logger.debug('Access token expired or invalid, attempting refresh...');
         try {
           // トークンをリフレッシュ
           const newAccessToken = await this.tokenRefreshCallback();

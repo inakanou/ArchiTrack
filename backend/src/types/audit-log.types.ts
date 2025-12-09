@@ -128,7 +128,12 @@ export type AuditLogAction =
   | 'USER_DELETED'
   // 招待管理
   | 'INVITATION_CREATED'
-  | 'INVITATION_REVOKED';
+  | 'INVITATION_REVOKED'
+  // プロジェクト管理
+  | 'PROJECT_CREATED'
+  | 'PROJECT_UPDATED'
+  | 'PROJECT_DELETED'
+  | 'PROJECT_STATUS_CHANGED';
 
 /**
  * 監査ログエラー種別

@@ -23,11 +23,12 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 
 - 🤖 **AI支援開発**: Claude Codeによる体系的な開発ワークフロー
 - 📝 **スペック駆動**: 要件定義 → 設計 → タスク分解 → 実装の明確なフェーズ管理
+- 🔗 **要件トレーサビリティ**: コード・テストと要件定義書の自動紐付け・カバレッジ測定
 - ⚡ **高速**: Vite 7 + React 19によるモダンなフロントエンド
 - 🔒 **セキュア**: JWT認証（EdDSA）、2FA、RBAC、Argon2ハッシュ化、HIBP漏洩チェック
 - 🗄️ **モダンORM**: Prisma 7（Driver Adapter Pattern）による型安全なデータアクセス
 - 🐳 **コンテナ化**: Dockerによる一貫した開発・本番環境
-- 🧪 **高品質**: 80%以上のテストカバレッジ要件
+- 🧪 **高品質**: 80%以上のテストカバレッジ要件、要件カバレッジ検証
 - 🚀 **自動デプロイ**: GitHub ActionsによるCI/CDパイプライン
 
 ---
@@ -64,9 +65,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.d
 
 - [開発ワークフロー](docs/development/workflow.md) - Kiro-style SDD、ブランチ戦略
 - [データベースマイグレーション](docs/development/database-migration.md) - Prisma、Draft機能
-- [テスト](docs/development/testing.md) - ユニット・統合・E2Eテスト
+- [テスト](docs/development/testing.md) - ユニット・統合・E2Eテスト、要件カバレッジ
 - [デバッグ](docs/development/debugging.md) - VSCodeデバッグ設定、トラブルシューティング
-- [コーディング規約](docs/development/coding-standards.md) - TypeScript・React・Prisma規約
+- [コーディング規約](docs/development/coding-standards.md) - TypeScript・React・Prisma規約、要件タグ
 - [Git設定](docs/development/git-configuration.md) - Git hooks設定
 - [MCP設定](docs/development/mcp-setup.md) - Playwright MCPサーバー（Claude Code用）
 

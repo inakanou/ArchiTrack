@@ -1,10 +1,10 @@
 /**
  * @fileoverview Seedスクリプトの統合テスト
  *
- * Requirements:
- * - 3.1-3.5: 初期管理者アカウントのセットアップ
- * - 17: 動的ロール管理（事前定義ロール）
- * - 18: 権限管理（事前定義権限）
+ * Requirements (user-authentication):
+ * - REQ-3.1-REQ-3.5: 初期管理者アカウントのセットアップ
+ * - REQ-17: 動的ロール管理（事前定義ロール）
+ * - REQ-18: 権限管理（事前定義権限）
  *
  * Task 25.1: prisma/seed.tsの実装確認と検証
  * - 初期管理者アカウント作成ロジックの確認（ADMIN_EMAIL, ADMIN_PASSWORD環境変数）
@@ -114,6 +114,81 @@ describe('Seed Script Integration Tests', () => {
     });
     expect(userInvitePermission).toBeDefined();
     expect(userInvitePermission?.description).toContain('招待');
+  });
+
+  it('プロジェクト権限が正しく作成される（project-management/REQ-12.5）', async () => {
+    // Arrange & Act
+    const { seedPermissions } = await import('../../utils/seed-helpers.js');
+    await seedPermissions(prisma);
+
+    // Assert: project:create 権限
+    const projectCreatePermission = await prisma.permission.findFirst({
+      where: { resource: 'project', action: 'create' },
+    });
+    expect(projectCreatePermission).toBeDefined();
+    expect(projectCreatePermission?.description).toBe('プロジェクトの作成');
+
+    // Assert: project:read 権限
+    const projectReadPermission = await prisma.permission.findFirst({
+      where: { resource: 'project', action: 'read' },
+    });
+    expect(projectReadPermission).toBeDefined();
+    expect(projectReadPermission?.description).toBe('プロジェクトの閲覧');
+
+    // Assert: project:update 権限
+    const projectUpdatePermission = await prisma.permission.findFirst({
+      where: { resource: 'project', action: 'update' },
+    });
+    expect(projectUpdatePermission).toBeDefined();
+    expect(projectUpdatePermission?.description).toBe('プロジェクトの更新');
+
+    // Assert: project:delete 権限
+    const projectDeletePermission = await prisma.permission.findFirst({
+      where: { resource: 'project', action: 'delete' },
+    });
+    expect(projectDeletePermission).toBeDefined();
+    expect(projectDeletePermission?.description).toBe('プロジェクトの削除');
+  });
+
+  it('一般ユーザーロールにプロジェクト基本権限が割り当てられる（project-management/REQ-12.5）', async () => {
+    // Arrange
+    const { seedRoles, seedPermissions, seedRolePermissions } = await import(
+      '../../utils/seed-helpers.js'
+    );
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+
+    // 既存のuserロールの権限をクリーンアップして、seedRolePermissionsの結果だけを検証
+    const existingUserRole = await prisma.role.findUnique({ where: { name: 'user' } });
+    if (existingUserRole) {
+      await prisma.rolePermission.deleteMany({ where: { roleId: existingUserRole.id } });
+    }
+
+    // Act
+    await seedRolePermissions(prisma);
+
+    // Assert: 一般ユーザーロールがプロジェクト権限を持つ
+    const userRole = await prisma.role.findUnique({
+      where: { name: 'user' },
+      include: {
+        rolePermissions: {
+          include: {
+            permission: true,
+          },
+        },
+      },
+    });
+    expect(userRole).toBeDefined();
+    const permissions = userRole?.rolePermissions.map(
+      (rp) => `${rp.permission.resource}:${rp.permission.action}`
+    );
+
+    // 一般ユーザーはプロジェクトの作成・閲覧・更新が可能（削除は不可）
+    expect(permissions).toContain('project:create');
+    expect(permissions).toContain('project:read');
+    expect(permissions).toContain('project:update');
+    // 削除権限は一般ユーザーには付与されない
+    expect(permissions).not.toContain('project:delete');
   });
 
   it('ロールと権限が正しく紐付けられる', async () => {

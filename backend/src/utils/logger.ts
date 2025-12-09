@@ -31,7 +31,8 @@ const logger = pino({
   // タイムスタンプ形式（ISO 8601）
   timestamp: pino.stdTimeFunctions.isoTime,
 
-  // 機密情報のマスキング（要件26.11: ログマスキング処理）
+  // 機密情報のマスキング
+  // @requirement user-authentication/REQ-26.11: ログマスキング処理
   // パスワード、トークン、秘密鍵などをログに記録する際に自動的にマスキング
   redact: {
     paths: [

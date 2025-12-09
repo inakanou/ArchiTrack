@@ -257,7 +257,7 @@ export class AuthService implements IAuthService {
       });
 
       // ユーザーが存在しない場合
-      // 要件26.9: タイミング攻撃対策の遅延を挿入
+      // @requirement user-authentication/REQ-26.9: タイミング攻撃対策の遅延を挿入
       if (!user) {
         await addTimingAttackDelay();
         return Err({ type: 'INVALID_CREDENTIALS' });
@@ -311,7 +311,7 @@ export class AuthService implements IAuthService {
           });
         }
 
-        // 要件26.9: タイミング攻撃対策の遅延を挿入
+        // @requirement user-authentication/REQ-26.9: タイミング攻撃対策の遅延を挿入
         await addTimingAttackDelay();
         return Err({ type: 'INVALID_CREDENTIALS' });
       }
@@ -793,7 +793,7 @@ export class AuthService implements IAuthService {
 
   /**
    * トークンリフレッシュ
-   * 要件5.1: リフレッシュトークンを使用して新しいアクセストークンを発行
+   * @requirement user-authentication/REQ-5.1: リフレッシュトークンを使用して新しいアクセストークンを発行
    */
   async refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>> {
     try {

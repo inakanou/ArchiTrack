@@ -9,7 +9,7 @@ import {
 /**
  * セッション管理機能のE2Eテスト
  *
- * @REQ-8 セッション管理
+ * @requirement user-authentication/REQ-8 セッション管理
  *
  * CI環境での安定性を向上させるため、以下の対策を実装:
  * - リトライ付きの待機関数を使用
@@ -108,10 +108,10 @@ test.describe('セッション管理機能', () => {
   /**
    * 要件8.1: セッション情報の永続化
    * 要件8.2: アクティブユーザーのセッション有効期限延長
-   * @REQ-8.1 @REQ-8.2
-   * @REQ-28.30 セッション管理リンククリック → セッション管理画面遷移
-   * @REQ-28.31 プロフィール画面表示 → セッション管理リンク表示
-   * @REQ-28.34 セッション管理画面表示 → アクティブセッション一覧と他デバイスログアウトボタン表示
+   * @requirement user-authentication/REQ-8.1 @requirement user-authentication/REQ-8.2
+   * @requirement user-authentication/REQ-28.30 セッション管理リンククリック → セッション管理画面遷移
+   * @requirement user-authentication/REQ-28.31 プロフィール画面表示 → セッション管理リンク表示
+   * @requirement user-authentication/REQ-28.34 セッション管理画面表示 → アクティブセッション一覧と他デバイスログアウトボタン表示
    */
   test('セッション一覧が正しく表示される', async ({ page }) => {
     // セッション一覧のヘッダー（タイムアウト追加）
@@ -129,7 +129,7 @@ test.describe('セッション管理機能', () => {
   });
 
   /**
-   * @REQ-8.3 デバイス毎の独立セッション管理
+   * @requirement user-authentication/REQ-8.3 デバイス毎の独立セッション管理
    */
   test('個別デバイスログアウトボタンが表示される', async ({ page }) => {
     // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
@@ -166,7 +166,7 @@ test.describe('セッション管理機能', () => {
   });
 
   /**
-   * @REQ-8.4 対象デバイスのみのセッション削除
+   * @requirement user-authentication/REQ-8.4 対象デバイスのみのセッション削除
    */
   test('個別デバイスログアウトができる', async ({ page }) => {
     // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
@@ -223,7 +223,7 @@ test.describe('セッション管理機能', () => {
   });
 
   /**
-   * @REQ-8.5 全デバイスログアウト機能の提供
+   * @requirement user-authentication/REQ-8.5 全デバイスログアウト機能の提供
    */
   test('全デバイスログアウトボタンが表示される', async ({ page }) => {
     await expect(page.getByRole('button', { name: /全デバイスからログアウト/i })).toBeVisible({
@@ -232,11 +232,11 @@ test.describe('セッション管理機能', () => {
   });
 
   /**
-   * @REQ-8.5 全デバイスログアウト機能の実行
-   * @REQ-28.35 セッション管理画面で戻るリンククリック → プロフィール画面遷移
-   * @REQ-28.41 ログアウトボタンクリック → ログアウト処理、ログイン画面遷移
-   * @REQ-28.42 ログアウト完了 → メッセージ表示
-   * @REQ-28.44 ブラウザ戻るボタン → 前画面表示
+   * @requirement user-authentication/REQ-8.5 全デバイスログアウト機能の実行
+   * @requirement user-authentication/REQ-28.35 セッション管理画面で戻るリンククリック → プロフィール画面遷移
+   * @requirement user-authentication/REQ-28.41 ログアウトボタンクリック → ログアウト処理、ログイン画面遷移
+   * @requirement user-authentication/REQ-28.42 ログアウト完了 → メッセージ表示
+   * @requirement user-authentication/REQ-28.44 ブラウザ戻るボタン → 前画面表示
    */
   test('全デバイスログアウトができる', async ({ page }) => {
     // beforeEachですでに/sessionsページに移動済み
@@ -314,7 +314,7 @@ test.describe('セッション管理機能', () => {
   });
 
   /**
-   * @REQ-8.1 セッション情報の永続化と表示（作成日時・有効期限）
+   * @requirement user-authentication/REQ-8.1 セッション情報の永続化と表示（作成日時・有効期限）
    */
   test('セッション作成日時と有効期限が表示される', async ({ page }) => {
     // 作成日時が表示される（複数セッションがある場合は最初の要素を確認）

@@ -24,6 +24,8 @@ import userRolesRoutes from './routes/user-roles.routes.js';
 import auditLogRoutes from './routes/audit-log.routes.js';
 import sessionRoutes from './routes/session.routes.js';
 import jwksRoutes from './routes/jwks.routes.js';
+import usersRoutes from './routes/users.routes.js';
+import projectsRoutes from './routes/projects.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -287,6 +289,12 @@ app.use('/api/v1/audit-logs', auditLogRoutes);
 
 // Session management routes
 app.use('/api/v1/auth/sessions', sessionRoutes);
+
+// User routes (担当者候補取得等)
+app.use('/api/users', usersRoutes);
+
+// Project management routes
+app.use('/api/projects', projectsRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

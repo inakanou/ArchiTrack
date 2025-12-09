@@ -72,8 +72,8 @@ export class SessionService implements ISessionService {
    * セッション作成
    *
    * RefreshTokenレコードを作成し、デバイス情報を含むセッションを管理します。
-   * 要件8.1: ユーザーがログインするとセッション情報を永続化する
-   * 要件8.3: 複数デバイスからログインする場合、各デバイスで独立したセッションを管理する
+   * @requirement user-authentication/REQ-8.1: ユーザーがログインするとセッション情報を永続化する
+   * @requirement user-authentication/REQ-8.3: 複数デバイスからログインする場合、各デバイスで独立したセッションを管理する
    *
    * @param userId ユーザーID
    * @param refreshToken リフレッシュトークン
@@ -119,7 +119,7 @@ export class SessionService implements ISessionService {
    * セッション削除（単一デバイス）
    *
    * 指定されたリフレッシュトークンに対応するセッションを削除します。
-   * 要件8.4: ユーザーがログアウトすると、対象デバイスのセッションのみを削除する
+   * @requirement user-authentication/REQ-8.4: ユーザーがログアウトすると、対象デバイスのセッションのみを削除する
    *
    * @param refreshToken リフレッシュトークン
    * @returns 成功またはエラー
@@ -162,7 +162,7 @@ export class SessionService implements ISessionService {
    * 全セッション削除（全デバイス）
    *
    * 指定されたユーザーの全てのセッションを削除します。
-   * 要件8.5: 全デバイスログアウト機能を使用すると、全てのセッションを削除する
+   * @requirement user-authentication/REQ-8.5: 全デバイスログアウト機能を使用すると、全てのセッションを削除する
    *
    * @param userId ユーザーID
    */

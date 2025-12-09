@@ -198,6 +198,357 @@
         "description": "crypto.randomBytes(32)使用によるトークン生成を確認",
         "threshold": "entropy_bits: >= 256"
       }
+    },
+    {
+      "id": "REQ-23.1",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "ログインAPIレスポンスタイム",
+      "reason": "APIレスポンスタイムの計測は負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Artillery",
+        "description": "ログインAPIの応答時間を計測",
+        "threshold": "p95 < 200ms"
+      }
+    },
+    {
+      "id": "REQ-23.2",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "権限チェックAPIレスポンスタイム",
+      "reason": "APIレスポンスタイムの計測は負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Artillery",
+        "description": "権限チェックAPIの応答時間を計測",
+        "threshold": "p95 < 100ms"
+      }
+    },
+    {
+      "id": "REQ-23.6",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "トークンリフレッシュAPIレスポンスタイム",
+      "reason": "APIレスポンスタイムの計測は負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Artillery",
+        "description": "トークンリフレッシュAPIの応答時間を計測",
+        "threshold": "p95 < 200ms"
+      }
+    },
+    {
+      "id": "REQ-23.8",
+      "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
+      "title": "データベースクエリインデックス最適化",
+      "reason": "データベースインデックスの検証はコードレビューとクエリ分析で検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "code-review",
+        "tool": "Prisma Schema / EXPLAIN ANALYZE",
+        "description": "頻繁に実行されるクエリに適切なインデックスが設定されていることを確認",
+        "threshold": "index_coverage: appropriate"
+      }
+    },
+    {
+      "id": "REQ-25.1",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "ユーザー登録のトランザクション",
+      "reason": "トランザクション境界のテストはE2E範囲外。統合テストでDB状態を検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "ユーザー登録時にユーザー作成、ロール割り当て、招待無効化が同一トランザクションで実行されることを確認",
+        "threshold": "transaction_atomic: true"
+      }
+    },
+    {
+      "id": "REQ-25.2",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "トランザクション失敗時のロールバック",
+      "reason": "トランザクションロールバックのテストはE2E範囲外。統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "トランザクション内で1つでも処理が失敗した場合、全ての変更がロールバックされることを確認",
+        "threshold": "rollback_on_error: true"
+      }
+    },
+    {
+      "id": "REQ-25.3",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "ロール一括割り当てのトランザクション",
+      "reason": "トランザクション境界のテストはE2E範囲外。統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "複数のロールを一括で割り当てる際、トランザクションで原子性が保証されることを確認",
+        "threshold": "transaction_atomic: true"
+      }
+    },
+    {
+      "id": "REQ-25.4",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "データベース書き込み操作の分離レベル",
+      "reason": "トランザクション分離レベルの検証はE2E範囲外。統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "データベース書き込み操作が適切な分離レベル（READ COMMITTED以上）で実行されることを確認",
+        "threshold": "isolation_level: READ_COMMITTED"
+      }
+    },
+    {
+      "id": "REQ-25.5",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "監査ログ保存失敗時のロールバック",
+      "reason": "トランザクションロールバックのテストはE2E範囲外。統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "監査ログの保存に失敗した場合、元の操作がロールバックされることを確認",
+        "threshold": "rollback_on_audit_failure: true"
+      }
+    },
+    {
+      "id": "REQ-25.7",
+      "requirement": "REQ-25: データ整合性とトランザクション管理",
+      "title": "ロール・権限紐付け変更のトランザクション",
+      "reason": "トランザクション境界のテストはE2E範囲外。統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "ロール・権限の紐付けを変更する際、変更履歴の記録と変更がトランザクションで原子性が保証されることを確認",
+        "threshold": "transaction_atomic: true"
+      }
+    },
+    {
+      "id": "REQ-26.1",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "SQLインジェクション対策",
+      "reason": "SQLインジェクション対策はORMの使用とコードレビューで検証",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "code-review",
+        "tool": "Prisma ORM / Static analysis",
+        "description": "全てのデータベースクエリがPrismaのパラメータ化クエリを使用していることを確認",
+        "threshold": "parameterized_queries: true"
+      }
+    },
+    {
+      "id": "REQ-26.2",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "XSS対策（自動エスケープ）",
+      "reason": "XSS対策はReactの自動エスケープ機能とコードレビューで検証",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "code-review",
+        "tool": "React auto-escape / ESLint",
+        "description": "Reactの自動エスケープ機能が使用され、dangerouslySetInnerHTMLが適切に制限されていることを確認",
+        "threshold": "auto_escape: enabled"
+      }
+    },
+    {
+      "id": "REQ-26.4",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "ブルートフォース攻撃対策（レート制限）",
+      "reason": "レート制限の検証はE2E範囲外。統合テストまたはセキュリティテストで検証",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "security-audit",
+        "tool": "OWASP ZAP / Custom test script",
+        "description": "短時間に複数回のログイン試行があった場合、レート制限が適用されることを確認",
+        "threshold": "rate_limit: enabled"
+      }
+    },
+    {
+      "id": "REQ-26.6",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "認証が必要なAPIエンドポイントの保護",
+      "reason": "APIエンドポイント保護の網羅的検証はセキュリティ監査で検証",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "security-audit",
+        "tool": "API security scanner",
+        "description": "全ての保護されたAPIエンドポイントが認証チェックを実装していることを確認",
+        "threshold": "authentication_required: true"
+      }
+    },
+    {
+      "id": "REQ-26.7",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "HttpOnly Cookieの使用",
+      "reason": "Cookie設定の検証はコードレビューで確認",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "code-review",
+        "tool": "Code review / Browser DevTools",
+        "description": "リフレッシュトークンがHttpOnly Cookieで送信されることを確認",
+        "threshold": "http_only: true"
+      }
+    },
+    {
+      "id": "REQ-26.10",
+      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
+      "title": "セキュリティヘッダーの設定",
+      "reason": "セキュリティヘッダーの検証はコードレビューで確認",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "code-review",
+        "tool": "Security headers check",
+        "description": "X-Frame-Options, X-Content-Type-Options等のセキュリティヘッダーが設定されていることを確認",
+        "threshold": "security_headers: enabled"
+      }
+    },
+    {
+      "id": "project-management/REQ-18.1",
+      "requirement": "REQ-18: エラー回復とフィードバック",
+      "title": "ネットワークエラー時のメッセージ表示",
+      "reason": "ネットワークエラーのシミュレーションはE2E範囲外。統合テストで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Mock Service Worker",
+        "description": "ネットワークエラー発生時に適切なエラーメッセージが表示されることを確認",
+        "threshold": "error_message: displayed"
+      }
+    },
+    {
+      "id": "project-management/REQ-18.2",
+      "requirement": "REQ-18: エラー回復とフィードバック",
+      "title": "再試行ボタン機能",
+      "reason": "ネットワークエラー時の再試行機能はE2E範囲外。統合テストで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Mock Service Worker",
+        "description": "再試行ボタンクリック時に失敗したリクエストが再送されることを確認",
+        "threshold": "retry_request: sent"
+      }
+    },
+    {
+      "id": "project-management/REQ-18.3",
+      "requirement": "REQ-18: エラー回復とフィードバック",
+      "title": "サーバーエラー時のメッセージ表示",
+      "reason": "サーバーエラーのシミュレーションはE2E範囲外。統合テストで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Mock Service Worker",
+        "description": "サーバーエラー（5xx）発生時に適切なエラーメッセージが表示されることを確認",
+        "threshold": "error_message: displayed"
+      }
+    },
+    {
+      "id": "project-management/REQ-18.4",
+      "requirement": "REQ-18: エラー回復とフィードバック",
+      "title": "操作成功時のトースト通知",
+      "reason": "トースト通知の検証は他のE2Eテストで包括的にカバー済み",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "操作成功時にトースト通知が表示されることを確認",
+        "threshold": "toast_notification: displayed"
+      }
+    },
+    {
+      "id": "project-management/REQ-18.5",
+      "requirement": "REQ-18: エラー回復とフィードバック",
+      "title": "操作失敗時のトースト通知",
+      "reason": "トースト通知の検証は他のE2Eテストで包括的にカバー済み",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "操作失敗時にトースト通知が表示されることを確認",
+        "threshold": "toast_notification: displayed"
+      }
+    },
+    {
+      "id": "project-management/REQ-18.6",
+      "requirement": "REQ-18: エラー回復とフィードバック",
+      "title": "セッション期限切れ時のリダイレクト",
+      "reason": "セッション期限切れのシミュレーションはE2E範囲外。統合テストで検証",
+      "category": "fault-tolerance",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Mock",
+        "description": "セッション期限切れ時にログインページにリダイレクトされることを確認",
+        "threshold": "redirect_to_login: true"
+      }
+    },
+    {
+      "id": "project-management/REQ-19.1",
+      "requirement": "REQ-19: パフォーマンス",
+      "title": "プロジェクト一覧画面の初期表示",
+      "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Lighthouse",
+        "description": "プロジェクト一覧画面の初期表示を2秒以内に完了することを確認",
+        "threshold": "initial_load < 2s"
+      }
+    },
+    {
+      "id": "project-management/REQ-19.2",
+      "requirement": "REQ-19: パフォーマンス",
+      "title": "プロジェクト詳細画面の初期表示",
+      "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Lighthouse",
+        "description": "プロジェクト詳細画面の初期表示を1秒以内に完了することを確認",
+        "threshold": "initial_load < 1s"
+      }
+    },
+    {
+      "id": "project-management/REQ-19.3",
+      "requirement": "REQ-19: パフォーマンス",
+      "title": "CRUD操作のAPI応答時間",
+      "reason": "API応答時間計測はE2E範囲外。負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Artillery",
+        "description": "プロジェクト作成・更新・削除操作のAPI応答を500ミリ秒以内に完了することを確認",
+        "threshold": "api_response < 500ms"
+      }
+    },
+    {
+      "id": "project-management/REQ-19.4",
+      "requirement": "REQ-19: パフォーマンス",
+      "title": "検索・フィルタリング操作の結果表示",
+      "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Lighthouse",
+        "description": "検索・フィルタリング操作の結果表示を1秒以内に完了することを確認",
+        "threshold": "search_result < 1s"
+      }
+    },
+    {
+      "id": "project-management/REQ-19.5",
+      "requirement": "REQ-19: パフォーマンス",
+      "title": "大量データ時のページネーション性能",
+      "reason": "大量データのパフォーマンス検証はE2E範囲外。負荷テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "load-test",
+        "tool": "k6 / Artillery",
+        "description": "大量データ（1000件以上）でもページネーションにより一覧表示のパフォーマンスが維持されることを確認",
+        "threshold": "pagination_load < 2s"
+      }
     }
   ],
   "categories": {
@@ -223,13 +574,13 @@
     }
   },
   "summary": {
-    "totalExclusions": 15,
+    "totalExclusions": 42,
     "byCategory": {
-      "performance": 4,
-      "infrastructure": 0,
-      "fault-tolerance": 7,
-      "data-integrity": 2,
-      "security": 2
+      "performance": 13,
+      "infrastructure": 2,
+      "fault-tolerance": 13,
+      "data-integrity": 8,
+      "security": 8
     }
   }
 }

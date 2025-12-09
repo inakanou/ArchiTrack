@@ -6,8 +6,8 @@ import { TEST_USERS } from '../../helpers/test-users';
 /**
  * 新規登録機能のE2Eテスト
  *
- * @REQ-2 招待を受けたユーザーのアカウント作成
- * @REQ-12 ユーザー登録画面のUI/UX（招待リンク経由）
+ * @requirement user-authentication/REQ-2 招待を受けたユーザーのアカウント作成
+ * @requirement user-authentication/REQ-12 ユーザー登録画面のUI/UX（招待リンク経由）
  */
 test.describe('新規登録機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
@@ -45,7 +45,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-12.1 @REQ-12.3 @REQ-28.18
+   * @requirement user-authentication/REQ-12.1 @requirement user-authentication/REQ-12.3 @requirement user-authentication/REQ-28.18
    */
   test('登録フォームが正しく表示される', async ({ page }) => {
     await expect(page.getByLabel(/メールアドレス/i)).toBeVisible();
@@ -56,7 +56,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-2.1 @REQ-2.9 @REQ-2.10 @REQ-2.11 @REQ-2.12 @REQ-12.7 @REQ-12.8 @REQ-12.9 @REQ-28.19
+   * @requirement user-authentication/REQ-2.1 @requirement user-authentication/REQ-2.9 @requirement user-authentication/REQ-2.10 @requirement user-authentication/REQ-2.11 @requirement user-authentication/REQ-2.12 @requirement user-authentication/REQ-12.7 @requirement user-authentication/REQ-12.8 @requirement user-authentication/REQ-12.9 @requirement user-authentication/REQ-28.19
    */
   test('有効な情報で新規登録できる', async ({ page }) => {
     // メールアドレスは招待トークンから事前入力されている
@@ -78,7 +78,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-12.4 パスワード強度インジケーター
+   * @requirement user-authentication/REQ-12.4 パスワード強度インジケーター
    */
   test('パスワード入力時に強度インジケーターが表示される', async ({ page }) => {
     await page.locator('input#password').fill('weak');
@@ -88,7 +88,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-12.6 パスワード確認不一致
+   * @requirement user-authentication/REQ-12.6 パスワード確認不一致
    */
   test('パスワードが一致しない場合エラーが表示される', async ({ page }) => {
     // メールアドレスは招待トークンから事前入力されている
@@ -107,7 +107,7 @@ test.describe('新規登録機能', () => {
    * 要件2.2: 無効な招待トークン
    * IF 招待トークンが無効または存在しない
    * THEN Authentication Serviceはエラーメッセージを返さなければならない
-   * @REQ-2.2
+   * @requirement user-authentication/REQ-2.2
    */
   test('無効な招待トークンの処理', async ({ page, context }) => {
     // このテストは独自のナビゲーションを行うため、beforeEachのナビゲーションを上書き
@@ -130,7 +130,7 @@ test.describe('新規登録機能', () => {
    * 要件2.3: 期限切れ招待トークン
    * IF 招待トークンが期限切れである
    * THEN Authentication Serviceはエラーメッセージを返さなければならない
-   * @REQ-2.3
+   * @requirement user-authentication/REQ-2.3
    */
   test('期限切れ招待トークンの処理', async ({ page, context }) => {
     // このテストは独自のナビゲーションを行うため、beforeEachのナビゲーションを上書き
@@ -168,7 +168,7 @@ test.describe('新規登録機能', () => {
    * 要件2.4: 使用済み招待トークン
    * IF 招待トークンが既に使用済みである
    * THEN Authentication Serviceはエラーメッセージを返さなければならない
-   * @REQ-2.4
+   * @requirement user-authentication/REQ-2.4
    */
   test('使用済み招待トークンの処理', async ({ page, context }) => {
     // このテストは独自のナビゲーションを行うため、beforeEachのナビゲーションを上書き
@@ -204,7 +204,7 @@ test.describe('新規登録機能', () => {
 
   /**
    * 要件1.4: 招待メールアドレスが既に登録済みの場合はエラーメッセージを返す
-   * @REQ-1.4 @REQ-12.2 @REQ-28.20
+   * @requirement user-authentication/REQ-1.4 @requirement user-authentication/REQ-12.2 @requirement user-authentication/REQ-28.20
    */
   test('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
     // 既存ユーザーを作成（招待されたメールアドレスと同じ）
@@ -237,7 +237,7 @@ test.describe('新規登録機能', () => {
    * 要件2.5: パスワード長の検証（12文字以上）
    * WHEN 12文字未満のパスワードを入力する
    * THEN エラーメッセージが表示される
-   * @REQ-2.5 @REQ-12.5
+   * @requirement user-authentication/REQ-2.5 @requirement user-authentication/REQ-12.5
    */
   test('12文字未満のパスワードではエラーが表示される', async ({ page }) => {
     await page.locator('input#password').fill('Pass123!'); // 8文字（12文字未満）
@@ -254,7 +254,7 @@ test.describe('新規登録機能', () => {
    * 要件2.6: パスワード複雑性の検証（大文字・小文字・数字・記号を各1文字以上）
    * WHEN 必要な文字種を含まないパスワードを入力する
    * THEN エラーメッセージが表示される
-   * @REQ-2.6 @REQ-12.5
+   * @requirement user-authentication/REQ-2.6 @requirement user-authentication/REQ-12.5
    */
   test('大文字を含まないパスワードではエラーが表示される', async ({ page }) => {
     // 2種類のみ（小文字+数字）: 大文字なし、記号なし
@@ -269,7 +269,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-2.6 @REQ-12.5
+   * @requirement user-authentication/REQ-2.6 @requirement user-authentication/REQ-12.5
    */
   test('小文字を含まないパスワードではエラーが表示される', async ({ page }) => {
     // 2種類のみ（大文字+数字）: 小文字なし、記号なし
@@ -284,7 +284,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-2.6 @REQ-12.5
+   * @requirement user-authentication/REQ-2.6 @requirement user-authentication/REQ-12.5
    */
   test('数字を含まないパスワードではエラーが表示される', async ({ page }) => {
     // 2種類のみ（小文字+大文字）: 数字なし、記号なし
@@ -299,7 +299,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-2.6 @REQ-12.5
+   * @requirement user-authentication/REQ-2.6 @requirement user-authentication/REQ-12.5
    */
   test('記号を含まないパスワードではエラーが表示される', async ({ page }) => {
     // 大文字・小文字・数字あり、記号なし（12文字以上）
@@ -316,7 +316,7 @@ test.describe('新規登録機能', () => {
    * 要件2.7: HIBP Pwned Passwordsチェック
    * WHEN 漏洩が確認されているパスワードを入力する
    * THEN エラーメッセージが表示される
-   * @REQ-2.7 @REQ-12.5
+   * @requirement user-authentication/REQ-2.7 @requirement user-authentication/REQ-12.5
    */
   test('漏洩パスワードではエラーが表示される', async ({ page }) => {
     // 複雑性要件を満たしつつ漏洩DBに存在するパスワード（12文字以上、大文字・小文字・数字・記号）
@@ -338,7 +338,7 @@ test.describe('新規登録機能', () => {
    * 要件2.8: 連続した同一文字の禁止（3文字以上）
    * WHEN 3文字以上連続した同一文字を含むパスワードを入力する
    * THEN エラーメッセージが表示される
-   * @REQ-2.8 @REQ-12.5
+   * @requirement user-authentication/REQ-2.8 @requirement user-authentication/REQ-12.5
    */
   test('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {
     // ユニークなパスワード: 'sss'が連続、12文字以上
@@ -357,7 +357,7 @@ test.describe('新規登録機能', () => {
    * 要件14.6: パスワード強度インジケーター（詳細テスト）
    * WHEN 異なる強度のパスワードを入力する
    * THEN インジケーターが適切な強度レベルを表示する
-   * @REQ-12.4 パスワード強度インジケーター
+   * @requirement user-authentication/REQ-12.4 パスワード強度インジケーター
    */
   test('弱いパスワードで「弱」インジケーターが表示される', async ({ page }) => {
     // 2種類の文字種のみ（短く、文字種が少ない = 弱い）
@@ -376,7 +376,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-12.4 パスワード強度インジケーター
+   * @requirement user-authentication/REQ-12.4 パスワード強度インジケーター
    */
   test('普通のパスワードで「普通」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#password').fill('lowercaseonly'); // 13文字、小文字のみ（minLengthのみ達成）
@@ -394,7 +394,7 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * @REQ-12.4 パスワード強度インジケーター
+   * @requirement user-authentication/REQ-12.4 パスワード強度インジケーター
    */
   test('強いパスワードで「強」インジケーターが表示される', async ({ page }) => {
     await page.locator('input#password').fill('SuperSecure!Pass123@Word'); // 24文字、複雑
@@ -415,7 +415,7 @@ test.describe('新規登録機能', () => {
    * 要件14.6: パスワード強度インジケーターのアクセシビリティ
    * WHEN パスワード強度インジケーターが表示される
    * THEN ARIA属性が適切に設定されている
-   * @REQ-12.4 パスワード強度インジケーター
+   * @requirement user-authentication/REQ-12.4 パスワード強度インジケーター
    */
   test('パスワード強度インジケーターがアクセシビリティ要件を満たす', async ({ page }) => {
     await page.locator('input#password').fill('Password123!');
@@ -436,7 +436,7 @@ test.describe('新規登録機能', () => {
   /**
    * 要件11.11: 新規登録ページのオートフォーカス
    * 要件12.10: 登録画面のモバイルレイアウト（レスポンシブ対応の一環として関連）
-   * @REQ-11.11 @REQ-12.10
+   * @requirement user-authentication/REQ-11.11 @requirement user-authentication/REQ-12.10
    * WHEN 新規登録ページが読み込まれる
    * THEN 表示名フィールドに自動的にフォーカスされる（メールは事前入力済み）
    * Note: REQ-12.10はモバイルレイアウトを指すが、この画面全体の動作を含む

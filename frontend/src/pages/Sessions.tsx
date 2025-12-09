@@ -122,6 +122,21 @@ export function Sessions() {
     >
       <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '2rem' }}>セッション管理</h1>
 
+      {/* 戻るリンク - 要件28.35 */}
+      <a
+        href="/profile"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          color: '#3b82f6',
+          textDecoration: 'underline',
+          marginBottom: '1.5rem',
+        }}
+      >
+        ← プロフィールに戻る
+      </a>
+
       {/* エラーメッセージ */}
       {error && (
         <div

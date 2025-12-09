@@ -15,8 +15,8 @@ test-results/
 dist/
 build/
 
-# Generated API Documentation
-backend/docs/
+# Generated API Documentation (api-spec.json is tracked for CI tests)
+# backend/docs/
 
 # Storybook
 storybook-static/

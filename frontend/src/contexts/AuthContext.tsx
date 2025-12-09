@@ -4,11 +4,13 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   ReactNode,
   ReactElement,
 } from 'react';
 import { apiClient } from '../api/client';
 import { TokenRefreshManager } from '../services/TokenRefreshManager';
+import { logger } from '../utils/logger';
 
 /**
  * ユーザー情報の型定義
@@ -88,6 +90,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const [sessionExpired, setSessionExpired] = useState<boolean>(false);
   const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
   const [twoFactorState, setTwoFactorState] = useState<TwoFactorState | null>(null);
+
+  // React 18 StrictModeでの重複実行を防ぐためのフラグ
+  const initializeStartedRef = useRef<boolean>(false);
 
   /**
    * ログイン関数
@@ -203,7 +208,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       await apiClient.post('/api/v1/auth/logout');
     } catch (error) {
       // ログアウトAPIが失敗してもローカルのトークンは削除
-      console.error('Logout API failed:', error);
+      logger.error('Logout API failed', { error });
     } finally {
       // ユーザー情報をクリア
       setUser(null);
@@ -437,17 +442,24 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
    */
   useEffect(() => {
     const initializeAuth = async () => {
+      // React 18 StrictModeでの重複実行を防ぐ
+      // トークンローテーションにより、2回目のリフレッシュが古いトークンで失敗するのを防止
+      if (initializeStartedRef.current) {
+        logger.debug('initializeAuth already started, skipping duplicate execution');
+        return;
+      }
+      initializeStartedRef.current = true;
+
       // ページロード時にlocalStorageからリフレッシュトークンを取得し、セッションを復元
       const storedRefreshToken = localStorage.getItem('refreshToken');
       const storedAccessToken = localStorage.getItem('accessToken');
 
-      // 既存のaccessTokenがあれば即座にApiClientに設定（リフレッシュ中の間も認証状態を維持）
-      if (storedAccessToken) {
-        apiClient.setAccessToken(storedAccessToken);
-      }
-
       if (!storedRefreshToken) {
         // リフレッシュトークンが存在しない場合も初期化完了
+        // 既存のaccessTokenがあれば設定（リフレッシュ不要のケース）
+        if (storedAccessToken) {
+          apiClient.setAccessToken(storedAccessToken);
+        }
         setIsLoading(false);
         setIsInitialized(true);
         return;
@@ -455,11 +467,12 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
       try {
         // 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
-        if (import.meta.env.DEV) {
-          console.log('[Auth] Access token expired or missing, refreshing session...');
-        }
+        logger.debug('Access token expired or missing, refreshing session...');
 
         // リフレッシュAPIを呼び出し
+        // 注意: リフレッシュAPIは認証不要なので、accessTokenをクリアしてから呼び出す
+        // 古いaccessTokenがAuthorizationヘッダーに付加されると401が返される可能性がある
+        apiClient.setAccessToken(null);
         const refreshResponse = await apiClient.post<{
           accessToken: string;
           refreshToken?: string;
@@ -533,29 +546,23 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         // CI環境などでリフレッシュAPIが遅延・タイムアウトした場合のみフォールバック
         if (storedAccessToken && !isAuthError) {
           try {
-            if (import.meta.env.DEV) {
-              console.log(
-                '[Auth] Refresh failed (network error), trying with existing access token...'
-              );
-            }
+            logger.debug('Refresh failed (network error), trying with existing access token...');
             apiClient.setAccessToken(storedAccessToken);
             const userResponse = await apiClient.get<User>('/api/v1/auth/me');
             setUser(userResponse);
             // 既存トークンで成功した場合は認証状態を維持
-            if (import.meta.env.DEV) {
-              console.log('[Auth] Session restored with existing access token');
-            }
+            logger.debug('Session restored with existing access token');
             setIsLoading(false);
             setIsInitialized(true);
             return;
           } catch (userError) {
             // 既存トークンでも失敗した場合は本当にセッション切れ
-            console.error('Session restoration failed with existing token:', userError);
+            logger.error('Session restoration failed with existing token', { error: userError });
           }
         }
 
         // 完全に失敗した場合のみlocalStorageをクリア
-        console.error('Session restoration failed:', error);
+        logger.error('Session restoration failed', { error });
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('accessToken');
         apiClient.setAccessToken(null);

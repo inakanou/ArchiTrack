@@ -18,8 +18,8 @@ import type {
  * - 登録成功時にログインページへ遷移
  *
  * ## 要件
- * - Requirement 11: 招待経由のユーザー登録
- * - Requirement 12: パスワード強度要件
+ * @requirement user-authentication/REQ-11: 招待経由のユーザー登録
+ * @requirement user-authentication/REQ-12: パスワード強度要件
  */
 export function RegisterPage() {
   const navigate = useNavigate();

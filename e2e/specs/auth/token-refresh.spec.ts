@@ -9,9 +9,9 @@ import { API_BASE_URL } from '../../config';
 /**
  * トークンリフレッシュ機能のE2Eテスト
  *
- * @REQ-5 トークン管理
- * @REQ-16 認証状態管理のUI/UX
- * @REQ-24 セキュリティ - Race Condition対策
+ * @requirement user-authentication/REQ-5 トークン管理
+ * @requirement user-authentication/REQ-16 認証状態管理のUI/UX
+ * @requirement user-authentication/REQ-24 セキュリティ - Race Condition対策
  *
  * CI環境での安定性を向上させるため、以下の対策を実装:
  * - リトライ付きの待機関数を使用
@@ -44,7 +44,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * 1. ログイン後、プロフィールページで認証済み状態を確認
    * 2. ページ上でアクセストークンを期限切れに設定
    * 3. 新しいAPIリクエストをトリガーし、401 → リフレッシュ → リトライの流れを検証
-   * @REQ-5.1 @REQ-16.1 @REQ-16.2 @REQ-16.3
+   * @requirement user-authentication/REQ-5.1 @requirement user-authentication/REQ-16.1 @requirement user-authentication/REQ-16.2 @requirement user-authentication/REQ-16.3
    */
   test('アクセストークン期限切れ時に自動的にリフレッシュされる', async ({ page }) => {
     await createTestUser('REGULAR_USER');
@@ -52,18 +52,23 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // プロフィールページに移動して認証済み状態を確認
     await page.goto('/profile');
+
+    // initializeAuthの完了を待機（ネットワークアイドル + トークン存在確認）
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+
+    // initializeAuthが完了してトークンが保存されるまで待機
+    // Note: loginAsUserで取得したトークンがinitializeAuthでローテーションされるため、
+    // 新しいトークンが保存されるまで待機する必要がある
+    await page.waitForFunction(
+      () =>
+        localStorage.getItem('refreshToken') !== null &&
+        localStorage.getItem('accessToken') !== null,
+      { timeout: getTimeout(15000), polling: 500 }
+    );
+
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
       timeout: getTimeout(10000),
     });
-
-    // リフレッシュトークンがlocalStorageに保存されていることを確認
-    // initializeAuthが完了するまで待機（networkidleとwaitForFunction）
-    // CI環境での安定性向上のため、リトライ付きの待機関数を使用
-    const authEstablished = await waitForAuthState(page, {
-      maxRetries: 5,
-      timeout: getTimeout(15000),
-    });
-    expect(authEstablished).toBe(true);
 
     const initialRefreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
     expect(initialRefreshToken).toBeTruthy();
@@ -120,7 +125,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * 要件16.12: リフレッシュ処理中、他のリクエストをキューに保持
    * 要件16.13: リフレッシュ完了後、キューの全リクエストを新トークンで再実行
    * 要件24.4: Race Condition対策 - トークンリフレッシュ中の複数APIリクエスト処理
-   * @REQ-16.10 @REQ-16.12 @REQ-16.13 @REQ-24.4
+   * @requirement user-authentication/REQ-16.10 @requirement user-authentication/REQ-16.12 @requirement user-authentication/REQ-16.13 @requirement user-authentication/REQ-24.4
    *
    * テスト戦略:
    * - 認証済み状態でリフレッシュAPIが呼ばれることを検証
@@ -161,7 +166,7 @@ test.describe('トークンリフレッシュ機能', () => {
 
   /**
    * 要件16.11: マルチタブ環境でBroadcast Channel APIを使用してトークン更新を通知
-   * @REQ-16.11
+   * @requirement user-authentication/REQ-16.11
    *
    * テスト戦略:
    * 1. タブ1でログインしてダッシュボードを表示
@@ -259,7 +264,7 @@ test.describe('トークンリフレッシュ機能', () => {
   /**
    * 要件5.2: リフレッシュトークンが無効または期限切れの場合に再ログインを要求
    * 要件24.5: トークンリフレッシュが連続で失敗した場合、ログイン画面へリダイレクト
-   * @REQ-5.2 @REQ-5.3 @REQ-16.4 @REQ-16.5 @REQ-16.6 @REQ-16.8 @REQ-24.5
+   * @requirement user-authentication/REQ-5.2 @requirement user-authentication/REQ-5.3 @requirement user-authentication/REQ-16.4 @requirement user-authentication/REQ-16.5 @requirement user-authentication/REQ-16.6 @requirement user-authentication/REQ-16.8 @requirement user-authentication/REQ-24.5
    */
   test('リフレッシュトークンが無効な場合ログイン画面にリダイレクトされる', async ({ page }) => {
     await createTestUser('REGULAR_USER');
@@ -285,7 +290,7 @@ test.describe('トークンリフレッシュ機能', () => {
 
   /**
    * 要件16.16: アクセストークンが有効期限切れに近づいた時、バックグラウンドで自動リフレッシュ
-   * @REQ-5.7 @REQ-5.8 @REQ-16.16 @REQ-16.17
+   * @requirement user-authentication/REQ-5.7 @requirement user-authentication/REQ-5.8 @requirement user-authentication/REQ-16.16 @requirement user-authentication/REQ-16.17
    */
   test('アクセストークン有効期限の5分前に自動リフレッシュされる', async ({ page }) => {
     await createTestUser('REGULAR_USER');
@@ -330,7 +335,7 @@ test.describe('トークンリフレッシュ機能', () => {
 
   /**
    * 要件16.19: 401エラー検知時にlocalStorageからアクセストークンを削除、Cookieからリフレッシュトークンを削除
-   * @REQ-5.9 @REQ-5.10 @REQ-16.19 @REQ-16.20
+   * @requirement user-authentication/REQ-5.9 @requirement user-authentication/REQ-5.10 @requirement user-authentication/REQ-16.19 @requirement user-authentication/REQ-16.20
    */
   test('401エラー時にトークンがクリアされる', async ({ page }) => {
     await createTestUser('REGULAR_USER');
@@ -373,7 +378,7 @@ test.describe('トークンリフレッシュ機能', () => {
   /**
    * 要件16.7: ログイン画面へリダイレクト時に現在のページURLを保存
    * 要件16.9: 再ログイン成功後、保存されたURLへ自動リダイレクト
-   * @REQ-16.7 @REQ-16.9 @REQ-28.5
+   * @requirement user-authentication/REQ-16.7 @requirement user-authentication/REQ-16.9 @requirement user-authentication/REQ-28.5
    *
    * 注意: React SPAでは、localStorageの変更だけではReactの認証状態が更新されないため、
    * セッション期限切れをシミュレートするにはページリロードが必要です。
@@ -435,7 +440,7 @@ test.describe('トークンリフレッシュ機能', () => {
 
   /**
    * 要件16.14: ユーザーが明示的にログアウトする場合、リダイレクト先情報を設定しない
-   * @REQ-16.14 @REQ-16.15
+   * @requirement user-authentication/REQ-16.14 @requirement user-authentication/REQ-16.15
    *
    * 注意: 実装ではlocation.stateを使用しているため、URLパラメータではなく
    * ナビゲーション状態にリダイレクト先が含まれないことを検証します。
@@ -478,16 +483,16 @@ test.describe('トークンリフレッシュ機能', () => {
 
   /**
    * 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
-   * @REQ-16.21
+   * @requirement user-authentication/REQ-16.21
    */
   test('開発環境でトークン期限切れがコンソールログに記録される', async ({ page }) => {
     await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
-    // コンソールログを監視
+    // コンソールログを監視（debug, log, warningを含む）
     const consoleLogs: string[] = [];
     page.on('console', (msg) => {
-      if (msg.type() === 'log' || msg.type() === 'warning') {
+      if (msg.type() === 'debug' || msg.type() === 'log' || msg.type() === 'warning') {
         consoleLogs.push(msg.text());
       }
     });
@@ -517,7 +522,7 @@ test.describe('トークンリフレッシュ機能', () => {
   /**
    * 要件16.18: Authentication Serviceが401レスポンスを返す際に、
    * WWW-Authenticate: Bearer realm="ArchiTrack", error="invalid_token"ヘッダーを含める
-   * @REQ-16.18
+   * @requirement user-authentication/REQ-16.18
    */
   test('401レスポンスに正しいWWW-Authenticateヘッダーが含まれる', async ({ playwright }) => {
     await createTestUser('REGULAR_USER');
@@ -552,7 +557,7 @@ test.describe('トークンリフレッシュ機能', () => {
   /**
    * リフレッシュトークンのHTTPOnly Cookie検証
    * 要件26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
-   * @REQ-5.4 @REQ-5.5 @REQ-5.6
+   * @requirement user-authentication/REQ-5.4 @requirement user-authentication/REQ-5.5 @requirement user-authentication/REQ-5.6
    */
   test('リフレッシュトークンがHTTPOnly Cookieで送信される', async ({ page }) => {
     await createTestUser('REGULAR_USER');

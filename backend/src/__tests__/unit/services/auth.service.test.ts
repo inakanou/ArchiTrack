@@ -1,11 +1,11 @@
 /**
  * @fileoverview 認証サービスの単体テスト
  *
- * Requirements:
- * - 2.1-2.12: ユーザー登録機能（招待経由、トランザクション管理）
- * - 4.1-4.7: ログイン機能（連続失敗検知、アカウントロック）
- * - 8.1-8.5: セッション管理
- * - 9.1-9.5: ユーザー情報取得
+ * Requirements (user-authentication):
+ * - REQ-2.1-REQ-2.12: ユーザー登録機能（招待経由、トランザクション管理）
+ * - REQ-4.1-REQ-4.7: ログイン機能（連続失敗検知、アカウントロック）
+ * - REQ-8.1-REQ-8.5: セッション管理
+ * - REQ-9.1-REQ-9.5: ユーザー情報取得
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';

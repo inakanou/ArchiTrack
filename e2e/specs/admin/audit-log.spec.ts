@@ -6,8 +6,8 @@ import { API_BASE_URL } from '../../config';
 /**
  * 監査ログとコンプライアンスのE2Eテスト
  *
- * @REQ-22 監査ログとコンプライアンス
- * @REQ-28.40 監査ログリンククリック → 監査ログ画面遷移
+ * @requirement user-authentication/REQ-22 監査ログとコンプライアンス
+ * @requirement user-authentication/REQ-28.40 監査ログリンククリック → 監査ログ画面遷移
  *
  * このテストスイートは、監査ログの記録・取得機能を
  * End-to-Endで検証します。
@@ -36,10 +36,10 @@ test.describe('監査ログとコンプライアンス', () => {
   /**
    * 要件22.1: ロール作成時の監査ログ記録
    * 要件10.6: センシティブ操作の監査ログ
-   * @REQ-10.6 @REQ-22.1
-   * @REQ-22.2 権限追加・削除時の監査ログ
-   * @REQ-22.6 監査ログ保存失敗時の操作中断
-   * @REQ-22.7 監査ログに変更前後の値を含める
+   * @requirement user-authentication/REQ-10.6 @requirement user-authentication/REQ-22.1
+   * @requirement user-authentication/REQ-22.2 権限追加・削除時の監査ログ
+   * @requirement user-authentication/REQ-22.6 監査ログ保存失敗時の操作中断
+   * @requirement user-authentication/REQ-22.7 監査ログに変更前後の値を含める
    */
   test('ロール作成時に監査ログが記録される', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -78,9 +78,9 @@ test.describe('監査ログとコンプライアンス', () => {
   /**
    * 要件22.3: ユーザーへのロール割り当て時の監査ログ記録
    * 要件10.6: センシティブ操作の監査ログ
-   * @REQ-10.6 @REQ-22.3
-   * @REQ-22.2 権限追加・削除時の監査ログ
-   * @REQ-22.7 監査ログに変更前後の値を含める
+   * @requirement user-authentication/REQ-10.6 @requirement user-authentication/REQ-22.3
+   * @requirement user-authentication/REQ-22.2 権限追加・削除時の監査ログ
+   * @requirement user-authentication/REQ-22.7 監査ログに変更前後の値を含める
    */
   test('ユーザーへのロール割り当て時に監査ログが記録される', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -122,7 +122,7 @@ test.describe('監査ログとコンプライアンス', () => {
    * 要件22.4: 監査ログには実行者、対象、アクション、タイムスタンプが含まれる
    * 要件22.8: 権限チェック失敗をセキュリティログに記録
    * 要件10.6: センシティブ操作の監査ログ
-   * @REQ-10.6 @REQ-22.4 @REQ-22.8
+   * @requirement user-authentication/REQ-10.6 @requirement user-authentication/REQ-22.4 @requirement user-authentication/REQ-22.8
    */
   test('監査ログには必要な情報が含まれる', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -154,7 +154,7 @@ test.describe('監査ログとコンプライアンス', () => {
 
   /**
    * 要件22.5: 監査ログのフィルタリング（API経由）
-   * @REQ-22.5
+   * @requirement user-authentication/REQ-22.5
    */
   test('管理者は監査ログをフィルタリングして取得できる', async ({ request }) => {
     // 監査ログ一覧を取得
@@ -173,7 +173,7 @@ test.describe('監査ログとコンプライアンス', () => {
 
   /**
    * 要件22.5: 日付範囲でフィルタリング
-   * @REQ-22.5
+   * @requirement user-authentication/REQ-22.5
    */
   test('監査ログを日付範囲でフィルタリングできる', async ({ request }) => {
     const today = new Date();
@@ -196,7 +196,7 @@ test.describe('監査ログとコンプライアンス', () => {
 
   /**
    * 要件22.10: 監査ログのJSON形式エクスポート
-   * @REQ-22.10
+   * @requirement user-authentication/REQ-22.10
    */
   test('監査ログをJSON形式でエクスポートできる', async ({ request }) => {
     // ロールを作成して監査ログを生成
@@ -224,8 +224,8 @@ test.describe('監査ログとコンプライアンス', () => {
 
   /**
    * 要件22.11: 監査ログの構造検証
-   * @REQ-22.11
-   * @REQ-22.12 監査ログテーブルのインデックス設計
+   * @requirement user-authentication/REQ-22.11
+   * @requirement user-authentication/REQ-22.12 監査ログテーブルのインデックス設計
    */
   test('監査ログは規定の構造を持つ', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -262,7 +262,7 @@ test.describe('監査ログとコンプライアンス', () => {
   /**
    * 一般ユーザーは監査ログにアクセスできない
    * 要件22.9: センシティブ操作時のアラート通知
-   * @REQ-22.9
+   * @requirement user-authentication/REQ-22.9
    */
   test('一般ユーザーは監査ログにアクセスできない', async ({ request }) => {
     // 一般ユーザーを作成

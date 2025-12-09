@@ -6,16 +6,16 @@ import { API_BASE_URL } from '../../config';
 /**
  * ユーザーへのロール割り当てのE2Eテスト
  *
- * @REQ-20 ユーザーへのロール割り当て（マルチロール対応）
- * @REQ-20.1 システム管理者がユーザーにロールを追加しユーザー・ロールの紐付けを保存
- * @REQ-20.2 ロールが既にユーザーに割り当てられている場合重複を無視
- * @REQ-20.3 システム管理者がユーザーからロールを削除し紐付けを削除
- * @REQ-20.4 ユーザーが複数のロールを持つ場合全てのロールの権限を統合（OR演算）
- * @REQ-20.5 ユーザーのロールを変更し変更履歴を監査ログに記録
- * @REQ-20.6 ユーザーが最後のシステム管理者ロール保持者でシステム管理者ロールを削除しようとする場合削除を拒否
- * @REQ-20.7 ユーザーに新しいロールが割り当てられる場合次回トークンリフレッシュ時に新しい権限を反映
- * @REQ-20.8 システム管理者がユーザーのロール一覧を取得し全ての割り当てられたロール（名前、割り当て日時）を返す
- * @REQ-20.9 複数のロールを一括で割り当てトランザクション内で処理
+ * @requirement user-authentication/REQ-20 ユーザーへのロール割り当て（マルチロール対応）
+ * @requirement user-authentication/REQ-20.1 システム管理者がユーザーにロールを追加しユーザー・ロールの紐付けを保存
+ * @requirement user-authentication/REQ-20.2 ロールが既にユーザーに割り当てられている場合重複を無視
+ * @requirement user-authentication/REQ-20.3 システム管理者がユーザーからロールを削除し紐付けを削除
+ * @requirement user-authentication/REQ-20.4 ユーザーが複数のロールを持つ場合全てのロールの権限を統合（OR演算）
+ * @requirement user-authentication/REQ-20.5 ユーザーのロールを変更し変更履歴を監査ログに記録
+ * @requirement user-authentication/REQ-20.6 ユーザーが最後のシステム管理者ロール保持者でシステム管理者ロールを削除しようとする場合削除を拒否
+ * @requirement user-authentication/REQ-20.7 ユーザーに新しいロールが割り当てられる場合次回トークンリフレッシュ時に新しい権限を反映
+ * @requirement user-authentication/REQ-20.8 システム管理者がユーザーのロール一覧を取得し全ての割り当てられたロール（名前、割り当て日時）を返す
+ * @requirement user-authentication/REQ-20.9 複数のロールを一括で割り当てトランザクション内で処理
  *
  * このテストスイートは、ユーザーに対するロールの割り当て・削除機能を
  * End-to-Endで検証します。
@@ -47,8 +47,8 @@ test.describe('ユーザーへのロール割り当て', () => {
    * 要件20.7: 新ロール割り当て後の次回トークンリフレッシュで権限反映
    * 要件22.3: ユーザーへのロール割り当て・削除時の監査ログ記録
    * 要件22.7: 監査ログに変更前後の値を含める
-   * @REQ-20.1 @REQ-20.5 @REQ-20.7
-   * @REQ-22.3 @REQ-22.7
+   * @requirement user-authentication/REQ-20.1 @requirement user-authentication/REQ-20.5 @requirement user-authentication/REQ-20.7
+   * @requirement user-authentication/REQ-22.3 @requirement user-authentication/REQ-22.7
    */
   test('管理者はユーザーにロールを追加できる', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -92,7 +92,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
   /**
    * 要件20.2: 重複するロール割り当ては無視
-   * @REQ-20.2
+   * @requirement user-authentication/REQ-20.2
    */
   test('重複するロール割り当ては無視される', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -133,8 +133,8 @@ test.describe('ユーザーへのロール割り当て', () => {
    * 要件20.5: ユーザーのロール変更を監査ログに記録
    * 要件22.3: ユーザーへのロール割り当て・削除時の監査ログ記録
    * 要件22.7: 監査ログに変更前後の値を含める
-   * @REQ-20.3 @REQ-20.5
-   * @REQ-22.3 @REQ-22.7
+   * @requirement user-authentication/REQ-20.3 @requirement user-authentication/REQ-20.5
+   * @requirement user-authentication/REQ-22.3 @requirement user-authentication/REQ-22.7
    */
   test('管理者はユーザーからロールを削除できる', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -187,7 +187,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
   /**
    * 要件20.4: 複数ロールの権限統合（OR演算）
-   * @REQ-20.4
+   * @requirement user-authentication/REQ-20.4
    */
   test('複数ロールを持つユーザーは全ロールの権限を持つ', async () => {
     const prisma = getPrismaClient();
@@ -236,7 +236,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
   /**
    * 要件20.6: 最後のシステム管理者ロールの削除拒否
-   * @REQ-20.6
+   * @requirement user-authentication/REQ-20.6
    */
   test('最後の管理者からadminロールは削除できない', async ({ request }) => {
     const prisma = getPrismaClient();
@@ -273,7 +273,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
   /**
    * 要件20.8: ユーザーのロール一覧取得
-   * @REQ-20.8
+   * @requirement user-authentication/REQ-20.8
    */
   test('管理者はユーザーのロール一覧を取得できる', async ({ request }) => {
     // テストユーザーを作成
@@ -296,7 +296,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
   /**
    * 要件20.9: 複数ロールの一括割り当て
-   * @REQ-20.9
+   * @requirement user-authentication/REQ-20.9
    */
   test('複数のロールを一括で割り当てできる', async ({ request }) => {
     const prisma = getPrismaClient();

@@ -50,7 +50,7 @@ export const apiLimiter = rateLimit({
 
 /**
  * ログインエンドポイント用のレート制限
- * 要件26.12: 1分間で10リクエストまで
+ * @requirement user-authentication/REQ-26.12: 1分間で10リクエストまで
  */
 export const loginLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1分
@@ -93,7 +93,7 @@ export const loginLimiter = rateLimit({
 
 /**
  * トークンリフレッシュエンドポイント用のレート制限
- * 要件26.12: 1分間で20リクエストまで
+ * @requirement user-authentication/REQ-26.12: 1分間で20リクエストまで
  */
 export const refreshLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1分
@@ -136,7 +136,7 @@ export const refreshLimiter = rateLimit({
 
 /**
  * 招待エンドポイント用のレート制限
- * 要件26.12: 1分間で5リクエストまで（ユーザーIDベース）
+ * @requirement user-authentication/REQ-26.12: 1分間で5リクエストまで（ユーザーIDベース）
  */
 export const invitationLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1分

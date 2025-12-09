@@ -50,8 +50,8 @@ function validateRedirectUrl(url: string | null, defaultUrl: string): string {
  * - パスワード忘れた場合のリンク（パスワードリセットページへ遷移）
  *
  * ## 要件
- * - Requirement 16: セッション有効期限切れ時のリダイレクトURL保存機能
- * - Requirement 27A: 2FA検証
+ * @requirement user-authentication/REQ-16: セッション有効期限切れ時のリダイレクトURL保存機能
+ * @requirement user-authentication/REQ-27A: 2FA検証
  */
 export function LoginPage() {
   const navigate = useNavigate();
@@ -60,6 +60,18 @@ export function LoginPage() {
   const { login, twoFactorState, verify2FA, verifyBackupCode, cancel2FA, isAuthenticated } =
     useAuth();
   const [loginError, setLoginError] = useState<ApiError | null>(null);
+
+  // 要件28.42: ログアウト完了時に「ログアウトしました」メッセージを表示
+  // sessionStorageからログアウトメッセージを取得し、取得後は削除する
+  // 初期化時に一度だけ読み取り、メッセージを取得したら即座に削除する
+  const [logoutMessage] = useState<string | null>(() => {
+    const message = sessionStorage.getItem('logoutMessage');
+    if (message) {
+      sessionStorage.removeItem('logoutMessage');
+      return message;
+    }
+    return null;
+  });
 
   // location.stateから成功メッセージを取得（例：登録完了後のメッセージ）
   const successMessage = (location.state as { message?: string })?.message;
@@ -272,6 +284,26 @@ export function LoginPage() {
             }}
           >
             {successMessage}
+          </div>
+        )}
+
+        {/* ログアウトメッセージ（要件28.42） */}
+        {logoutMessage && (
+          <div
+            role="alert"
+            aria-live="polite"
+            style={{
+              padding: '0.75rem',
+              marginBottom: '1.5rem',
+              backgroundColor: '#d1fae5',
+              borderRadius: '0.375rem',
+              border: '1px solid #a7f3d0',
+              color: '#065f46',
+              textAlign: 'center',
+              fontSize: '0.875rem',
+            }}
+          >
+            {logoutMessage}
           </div>
         )}
 

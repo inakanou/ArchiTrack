@@ -1,12 +1,12 @@
 /**
  * @fileoverview JWT認証ミドルウェア
  *
- * Requirements:
- * - 5.4: 保護されたAPIエンドポイントにアクセスする際、有効なアクセストークンを検証
- * - 5.5: アクセストークンが改ざんされている場合、リクエストを拒否
- * - 16.1: Authorizationヘッダーからトークンを抽出
- * - 16.2: EdDSA署名を検証
- * - 16.18: 401レスポンスにWWW-Authenticateヘッダーを含める, req.userにユーザー情報を設定
+ * Requirements (user-authentication):
+ * - REQ-5.4: 保護されたAPIエンドポイントにアクセスする際、有効なアクセストークンを検証
+ * - REQ-5.5: アクセストークンが改ざんされている場合、リクエストを拒否
+ * - REQ-16.1: Authorizationヘッダーからトークンを抽出
+ * - REQ-16.2: EdDSA署名を検証
+ * - REQ-16.18: 401レスポンスにWWW-Authenticateヘッダーを含める, req.userにユーザー情報を設定
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -15,7 +15,7 @@ import tokenServiceInstance from '../services/token.service.js';
 
 /**
  * WWW-Authenticateヘッダー値を生成
- * 要件16.18: Bearer realm="ArchiTrack", error="..." 形式
+ * @requirement user-authentication/REQ-16.18: Bearer realm="ArchiTrack", error="..." 形式
  */
 function getWwwAuthenticateHeader(
   error: 'missing_token' | 'invalid_token' | 'expired_token'

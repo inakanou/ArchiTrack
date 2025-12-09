@@ -13,6 +13,9 @@ import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage';
 import { Dashboard } from './pages/Dashboard';
 import { RoleManagement } from './pages/RoleManagement';
 import { PermissionManagement } from './pages/PermissionManagement';
+import ProjectListPage from './pages/ProjectListPage';
+import ProjectDetailPage from './pages/ProjectDetailPage';
+import ProjectCreatePage from './pages/ProjectCreatePage';
 
 /**
  * アプリケーションのルート設定
@@ -91,6 +94,25 @@ export const routes: RouteObject[] = [
       {
         path: '/profile/2fa-setup',
         element: <TwoFactorSetupPage />,
+      },
+      // プロジェクト一覧
+      // REQ-21.2: ヘッダーの「プロジェクト」リンクからプロジェクト一覧画面に遷移
+      // REQ-21.6: ダッシュボードの「プロジェクト管理」カードからプロジェクト一覧画面に遷移
+      {
+        path: '/projects',
+        element: <ProjectListPage />,
+      },
+      // プロジェクト新規作成（/projects/:id より先に定義する必要あり）
+      // REQ-1.1: 「新規作成」ボタンでプロジェクト作成フォームを表示
+      {
+        path: '/projects/new',
+        element: <ProjectCreatePage />,
+      },
+      // プロジェクト詳細
+      // REQ-7.1, 7.2, 7.3: プロジェクト詳細表示
+      {
+        path: '/projects/:id',
+        element: <ProjectDetailPage />,
       },
     ],
   },

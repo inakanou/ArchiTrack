@@ -13,14 +13,14 @@ import redis, { initRedis } from '../../redis.js';
 /**
  * 認証APIエンドポイント統合テスト
  *
- * 要件カバレッジ:
- * - 要件1: 管理者によるユーザー招待
- * - 要件2: 招待を受けたユーザーのアカウント作成
- * - 要件4: ログイン
- * - 要件5: トークン管理
- * - 要件7: パスワード管理
- * - 要件9: ユーザー情報取得・管理
- * - 要件10: セキュリティとエラーハンドリング
+ * Requirements coverage (user-authentication):
+ * - REQ-1: 管理者によるユーザー招待
+ * - REQ-2: 招待を受けたユーザーのアカウント作成
+ * - REQ-4: ログイン
+ * - REQ-5: トークン管理
+ * - REQ-7: パスワード管理
+ * - REQ-9: ユーザー情報取得・管理
+ * - REQ-10: セキュリティとエラーハンドリング
  */
 describe('Authentication API Integration Tests', () => {
   let prisma: PrismaClient;

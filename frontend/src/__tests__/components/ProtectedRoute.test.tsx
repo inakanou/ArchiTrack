@@ -33,13 +33,13 @@ function createMockAuthContextValue(overrides: Partial<AuthContextValue> = {}): 
   };
 }
 
-describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
+describe('ProtectedRoute - user-authentication/REQ-16A: UIチラつき防止', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   /**
-   * 要件16A.7: isLoading=trueの間、ローディングインジケーターが表示されること
+   * @requirement user-authentication/REQ-16A.7: isLoading=trueの間、ローディングインジケーターが表示されること
    *
    * WHEN ローディング状態が有効である
    * THEN システムはローディングインジケーターを表示しなければならない
@@ -76,7 +76,7 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
   });
 
   /**
-   * 要件16A.8: ローディングインジケーターにWCAG 2.1 AA準拠の属性が設定されていること
+   * @requirement user-authentication/REQ-16A.8: ローディングインジケーターにWCAG 2.1 AA準拠の属性が設定されていること
    *
    * WHEN ローディングインジケーターが表示される
    * THEN システムはアクセシビリティ属性（aria-label, role="status", aria-live="polite"）を設定しなければならない
@@ -113,7 +113,7 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
   });
 
   /**
-   * 要件16A.9: isLoading=falseかつ認証済みの場合、保護されたコンテンツが表示されること
+   * @requirement user-authentication/REQ-16A.9: isLoading=falseかつ認証済みの場合、保護されたコンテンツが表示されること
    *
    * WHEN ローディング状態が終了する AND 認証状態に基づいて
    * THEN システムは認証済みの場合、保護されたコンテンツを表示しなければならない
@@ -155,7 +155,7 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
   });
 
   /**
-   * 要件16A.10: isLoading=falseかつ未認証の場合、ログイン画面にリダイレクトされること
+   * @requirement user-authentication/REQ-16A.10: isLoading=falseかつ未認証の場合、ログイン画面にリダイレクトされること
    *
    * WHEN ローディング状態が終了する AND 認証状態に基づいて
    * THEN システムは未認証の場合、ログイン画面にリダイレクトしなければならない
@@ -197,7 +197,7 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
   });
 
   /**
-   * 要件16A.11: isLoading=trueの間、リダイレクトが実行されないこと
+   * @requirement user-authentication/REQ-16A.11: isLoading=trueの間、リダイレクトが実行されないこと
    *
    * WHILE ローディング状態が有効である
    * THE システムは認証保護されたページへのリダイレクトを実行してはならない
@@ -305,7 +305,7 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
   });
 
   /**
-   * 要件16A: isInitialized=falseの間、ローディングインジケーターが表示されること
+   * @requirement user-authentication/REQ-16A: isInitialized=falseの間、ローディングインジケーターが表示されること
    */
   it('should display loading indicator when isInitialized=false', () => {
     const mockAuthValue = createMockAuthContextValue({
@@ -415,17 +415,18 @@ describe('ProtectedRoute - Requirement 16A: UIチラつき防止', () => {
 
 /**
  * タスク23.3: 401エラー受信時のログイン画面リダイレクト処理の検証
- * 要件16.1, 16.2
+ * @requirement user-authentication/REQ-16.1: 元のURLをredirectUrlクエリパラメータとして保存
+ * @requirement user-authentication/REQ-16.2: ログイン成功後に保存されたURLにリダイレクト
  *
  * ProtectedRouteからログイン画面へのリダイレクト時にredirectUrlクエリパラメータを追加
  */
-describe('ProtectedRoute - 要件16: redirectUrlクエリパラメータ', () => {
+describe('ProtectedRoute - user-authentication/REQ-16: redirectUrlクエリパラメータ', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   /**
-   * 要件16.1: 未認証ユーザーが保護されたURLに直接アクセスする場合、
+   * @requirement user-authentication/REQ-16.1: 未認証ユーザーが保護されたURLに直接アクセスする場合、
    * ログイン画面へリダイレクトし、元のURLをredirectUrlクエリパラメータとして保存する
    */
   it('未認証ユーザーがリダイレクトされる際にredirectUrlクエリパラメータが含まれること', () => {
@@ -469,15 +470,16 @@ describe('ProtectedRoute - 要件16: redirectUrlクエリパラメータ', () =>
 
 /**
  * タスク23.1: ProtectedRouteの遷移先state保存の検証と強化
- * 要件28.1, 28.3
+ * @requirement user-authentication/REQ-28.1: 元のURL（pathname + search）をstateに保存
+ * @requirement user-authentication/REQ-28.3: ログイン成功後に保存されたURLにリダイレクト
  */
-describe('ProtectedRoute - 要件28: 遷移先state保存', () => {
+describe('ProtectedRoute - user-authentication/REQ-28: 遷移先state保存', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   /**
-   * 要件28.1: 未認証ユーザーが保護されたURLに直接アクセスする場合、
+   * @requirement user-authentication/REQ-28.1: 未認証ユーザーが保護されたURLに直接アクセスする場合、
    * ログイン画面へリダイレクトし、元のURL（pathname + search）をstateに保存する
    */
   it('should save original path with query string in state.from when redirecting', () => {
@@ -518,7 +520,7 @@ describe('ProtectedRoute - 要件28: 遷移先state保存', () => {
   });
 
   /**
-   * 要件28.3: 元のパス（pathname）のみの場合も正しく保存される
+   * @requirement user-authentication/REQ-28.3: 元のパス（pathname）のみの場合も正しく保存される
    */
   it('should save original path without query string in state.from', () => {
     const mockAuthValue = createMockAuthContextValue({
@@ -552,7 +554,7 @@ describe('ProtectedRoute - 要件28: 遷移先state保存', () => {
   });
 
   /**
-   * 要件28.3: sessionExpiredフラグがstate内で正しく渡される
+   * @requirement user-authentication/REQ-28.3: sessionExpiredフラグがstate内で正しく渡される
    */
   it('should include sessionExpired flag in redirect state', () => {
     const mockAuthValue = createMockAuthContextValue({

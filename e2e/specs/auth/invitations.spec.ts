@@ -8,8 +8,8 @@ import { getTimeout } from '../../helpers/wait-helpers';
 /**
  * 管理者招待機能のE2Eテスト
  *
- * @REQ-1 管理者によるユーザー招待
- * @REQ-13 管理者ユーザー招待画面のUI/UX
+ * @requirement user-authentication/REQ-1 管理者によるユーザー招待
+ * @requirement user-authentication/REQ-13 管理者ユーザー招待画面のUI/UX
  *
  * このテストスイートは、管理者によるユーザー招待機能をEnd-to-Endで検証します。
  */
@@ -85,7 +85,7 @@ test.describe('管理者招待機能', () => {
    * 要件13.1: 招待画面のUI要素表示
    * WHEN 招待画面が表示される
    * THEN 招待フォームと招待一覧テーブルを表示する
-   * @REQ-13.1 @REQ-13.2
+   * @requirement user-authentication/REQ-13.1 @requirement user-authentication/REQ-13.2
    */
   test('招待画面が正しく表示される', async ({ page }) => {
     // 招待フォームが表示される
@@ -107,7 +107,7 @@ test.describe('管理者招待機能', () => {
    * 要件1.1-1.3: 有効なメールアドレスで招待を送信
    * WHEN 管理者が有効なメールアドレスを提供する
    * THEN Authentication Serviceは一意の招待トークンを生成し、招待メールを送信する
-   * @REQ-1.1 @REQ-1.2 @REQ-1.3 @REQ-1.6 @REQ-13.3
+   * @requirement user-authentication/REQ-1.1 @requirement user-authentication/REQ-1.2 @requirement user-authentication/REQ-1.3 @requirement user-authentication/REQ-1.6 @requirement user-authentication/REQ-13.3
    */
   test('有効なメールアドレスで招待を送信できる', async ({ page }) => {
     const newUserEmail = 'newuser@example.com';
@@ -151,7 +151,7 @@ test.describe('管理者招待機能', () => {
    * 要件13.3-13.5: 招待URLのコピー機能
    * WHEN 招待が成功する
    * THEN 招待URLのコピーボタンが表示され、クリップボードにコピーできる
-   * @REQ-13.5
+   * @requirement user-authentication/REQ-13.5
    */
   test('招待URLをクリップボードにコピーできる', async ({ page, context }) => {
     const newUserEmail = 'copytest@example.com';
@@ -188,7 +188,7 @@ test.describe('管理者招待機能', () => {
    * 要件1.4: 既に登録済みのメールアドレスでエラー
    * IF 招待メールアドレスが既に登録済みである
    * THEN Authentication Serviceはエラーメッセージを返す
-   * @REQ-13.4
+   * @requirement user-authentication/REQ-13.4
    */
   test('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
     // 既に登録済みのadmin@example.comで招待を試みる
@@ -203,8 +203,8 @@ test.describe('管理者招待機能', () => {
    * 要件1.5: 一般ユーザーは招待画面にアクセスできない
    * IF リクエスト送信者が管理者ロールを持たない
    * THEN Authentication Serviceは403 Forbiddenエラーを返す
-   * @REQ-1.5
-   * @REQ-28.36 招待管理リンククリック → 招待管理画面遷移
+   * @requirement user-authentication/REQ-1.5
+   * @requirement user-authentication/REQ-28.36 招待管理リンククリック → 招待管理画面遷移
    */
   test('一般ユーザーは招待画面にアクセスできない', async ({ page, context }) => {
     // 現在のセッションをクリア（beforeEachでログインしたADMIN_USERのセッション）
@@ -225,7 +225,7 @@ test.describe('管理者招待機能', () => {
    * 要件1.7: 招待一覧の取得とステータス表示
    * WHEN 管理者が招待一覧を取得する
    * THEN 招待ステータス（未使用、使用済み、期限切れ）を返す
-   * @REQ-1.7 @REQ-13.2 @REQ-13.10
+   * @requirement user-authentication/REQ-1.7 @requirement user-authentication/REQ-13.2 @requirement user-authentication/REQ-13.10
    */
   test('招待一覧に各ステータスが正しく表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -295,7 +295,7 @@ test.describe('管理者招待機能', () => {
    * 要件13.6-13.7: ステータスに応じたアクションボタンの表示
    * WHEN 招待ステータスが「未使用」である
    * THEN 「取り消し」ボタンを有効化する
-   * @REQ-13.6
+   * @requirement user-authentication/REQ-13.6
    */
   test('未使用の招待には取り消しボタンが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -329,7 +329,7 @@ test.describe('管理者招待機能', () => {
   });
 
   /**
-   * @REQ-13.7
+   * @requirement user-authentication/REQ-13.7
    */
   test('期限切れの招待には再送信ボタンが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -372,7 +372,7 @@ test.describe('管理者招待機能', () => {
    * 要件1.8: 未使用の招待を取り消す
    * WHEN 管理者が未使用の招待を取り消す
    * THEN Authentication Serviceは招待を無効化する
-   * @REQ-1.8 @REQ-13.6 @REQ-13.8
+   * @requirement user-authentication/REQ-1.8 @requirement user-authentication/REQ-13.6 @requirement user-authentication/REQ-13.8
    */
   test('未使用の招待を取り消せる', async ({ page }) => {
     const newUserEmail = 'cancel-me@example.com';
@@ -410,7 +410,7 @@ test.describe('管理者招待機能', () => {
    * 要件13.9: 招待一覧が10件以上ある場合のページネーション
    * WHEN 招待一覧が10件以上ある
    * THEN ページネーションまたは無限スクロールを提供する
-   * @REQ-13.9
+   * @requirement user-authentication/REQ-13.9
    */
   test('招待が10件以上ある場合、ページネーションが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -447,7 +447,7 @@ test.describe('管理者招待機能', () => {
    * 要件13.10: ステータスに応じた視覚的区別
    * WHEN 招待一覧が読み込まれる
    * THEN 招待ステータスに応じた視覚的な区別（色、アイコン）を提供する
-   * @REQ-13.10
+   * @requirement user-authentication/REQ-13.10
    */
   test('ステータスに応じた視覚的な区別が提供される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -513,7 +513,7 @@ test.describe('管理者招待機能', () => {
    * 要件29.19: モバイル最適化レイアウト（768px未満）
    * WHEN デバイス画面幅が768px未満である
    * THEN テーブルをカード形式のレイアウトに変換する
-   * @REQ-13.11 @REQ-29.19
+   * @requirement user-authentication/REQ-13.11 @requirement user-authentication/REQ-29.19
    */
   test('モバイル画面でカード形式のレイアウトが表示される', async ({ page }) => {
     const prisma = getPrismaClient();
@@ -589,7 +589,7 @@ test.describe('管理者招待機能', () => {
    * 要件15.11: モーダルダイアログのフォーカストラップ
    * WHEN 確認ダイアログが開かれる
    * THEN フォーカストラップを実装し、Escキーで閉じられる
-   * @REQ-13.8
+   * @requirement user-authentication/REQ-13.8
    */
   test('確認ダイアログがEscキーで閉じられる', async ({ page }) => {
     const prisma = getPrismaClient();

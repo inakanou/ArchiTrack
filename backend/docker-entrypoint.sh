@@ -25,11 +25,31 @@ wait_for_database() {
 
 echo "Checking dependencies..."
 
+# package.jsonのハッシュを計算
+CURRENT_HASH=$(sha256sum package.json package-lock.json 2>/dev/null | sha256sum | cut -d' ' -f1)
+STORED_HASH=""
+
+if [ -f "node_modules/.package-hash" ]; then
+  STORED_HASH=$(cat node_modules/.package-hash)
+fi
+
+needs_install=false
+
 if [ ! -d "node_modules/.bin" ]; then
   echo "node_modules is empty, installing dependencies..."
-  npm ci
+  needs_install=true
+elif [ "$CURRENT_HASH" != "$STORED_HASH" ]; then
+  echo "package.json or package-lock.json has changed, updating dependencies..."
+  needs_install=true
 else
   echo "Dependencies are up to date"
+fi
+
+if [ "$needs_install" = true ]; then
+  npm ci
+  # ハッシュを保存
+  echo "$CURRENT_HASH" > node_modules/.package-hash
+  echo "Dependencies installed successfully"
 fi
 
 echo "Generating Prisma Client..."

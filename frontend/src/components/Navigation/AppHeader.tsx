@@ -286,6 +286,20 @@ const Icons = {
       />
     </svg>
   ),
+  /**
+   * プロジェクトアイコン
+   * REQ-21.3: プロジェクトリンクはアイコン付きで表示される
+   */
+  Project: () => (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+      />
+    </svg>
+  ),
 };
 
 /**
@@ -316,6 +330,21 @@ export function AppHeader(): ReactElement {
   // ユーザーが管理者かどうかを判定
   const isAdmin = user?.roles?.includes('admin') ?? false;
 
+  /**
+   * ログアウト処理
+   * 要件28.41: ログアウトボタンクリック → ログアウト処理実行
+   * 要件28.42: ログアウト完了時に「ログアウトしました」メッセージを表示
+   *
+   * ログアウト後のメッセージ表示はsessionStorageを使用。
+   * ProtectedRouteがログアウト検知時に/loginへリダイレクトするため、
+   * location.stateでのメッセージ伝達はProtectedRouteのstateで上書きされてしまう。
+   */
+  const handleLogout = useCallback(async () => {
+    // ログアウトメッセージをsessionStorageに保存
+    sessionStorage.setItem('logoutMessage', 'ログアウトしました');
+    await logout();
+  }, [logout]);
+
   // ユーザーメニューの項目
   const userMenuItems: DropdownMenuItem[] = [
     {
@@ -326,7 +355,7 @@ export function AppHeader(): ReactElement {
     },
     {
       label: 'ログアウト',
-      onClick: () => logout(),
+      onClick: handleLogout,
       testId: 'user-menu-logout',
       icon: <Icons.Logout />,
     },
@@ -409,6 +438,12 @@ export function AppHeader(): ReactElement {
             <Link to="/" className="app-header-nav-link">
               <Icons.Dashboard />
               <span>ダッシュボード</span>
+            </Link>
+
+            {/* プロジェクトリンク - REQ-21.1, 21.2, 21.3, 21.4 */}
+            <Link to="/projects" className="app-header-nav-link">
+              <Icons.Project />
+              <span>プロジェクト</span>
             </Link>
 
             {/* 管理者メニュー（admin ロールを持つユーザーのみ） */}
