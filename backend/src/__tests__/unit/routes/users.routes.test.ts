@@ -104,7 +104,7 @@ describe('User Routes', () => {
 
       // adminロールを持つユーザーを除外する条件
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((callArgs.where as any).userRoles.none.role.name).toBe('system-admin');
+      expect((callArgs.where as any).userRoles.none.role.name).toBe('admin');
       // ロックされていないユーザーのみ
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((callArgs.where as any).isLocked).toBe(false);
