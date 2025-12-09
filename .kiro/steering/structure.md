@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-08（Steering Sync: project-management実装完了）_
+_最終更新: 2025-12-09（Steering Sync: schemas/追加、新規コンポーネント追加）_
 
 ## ルートディレクトリ構成
 
@@ -344,6 +344,8 @@ frontend/
 │   │   ├── OptimizedList.tsx       # 最適化されたリストコンポーネント
 │   │   ├── FocusManager.tsx        # フォーカス管理コンポーネント
 │   │   ├── ToastNotification.tsx   # トースト通知コンポーネント
+│   │   ├── ToastContainer.tsx      # トースト通知コンテナ
+│   │   ├── NetworkErrorDisplay.tsx # ネットワークエラー表示コンポーネント
 │   │   └── projects/              # プロジェクト管理コンポーネント
 │   │       ├── ProjectForm.tsx     # プロジェクト作成・編集フォーム
 │   │       ├── CustomerNameInput.tsx # 顧客名入力
@@ -516,7 +518,9 @@ backend/
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── services/          # ビジネスロジック（16サービス）
+│   ├── schemas/           # Zodバリデーションスキーマ
+│   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
+│   ├── services/          # ビジネスロジック（17サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理

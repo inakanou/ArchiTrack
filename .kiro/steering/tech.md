@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-08（Steering Sync: project-management実装完了）_
+_最終更新: 2025-12-09（Steering Sync: Tailwind CSS追加、依存関係バージョン更新）_
 
 ## アーキテクチャ
 
@@ -44,7 +44,9 @@ ArchiTrack/
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.6.2 - コードフォーマッター
-- `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
+- `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
+- `tailwindcss` ^4.1.17 - ユーティリティファーストCSSフレームワーク
+- `@tailwindcss/postcss` ^4.1.17 - Tailwind CSS PostCSSプラグイン
 - `vitest` ^4.0.14 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.14 - Vitest UIツール
 - `@vitest/coverage-v8` ^4.0.14 - Vitestカバレッジ（V8プロバイダー）
