@@ -158,6 +158,12 @@ describe('Seed Script Integration Tests', () => {
     await seedRoles(prisma);
     await seedPermissions(prisma);
 
+    // 既存のuserロールの権限をクリーンアップして、seedRolePermissionsの結果だけを検証
+    const existingUserRole = await prisma.role.findUnique({ where: { name: 'user' } });
+    if (existingUserRole) {
+      await prisma.rolePermission.deleteMany({ where: { roleId: existingUserRole.id } });
+    }
+
     // Act
     await seedRolePermissions(prisma);
 
