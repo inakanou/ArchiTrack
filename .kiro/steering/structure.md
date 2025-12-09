@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-09（Steering Sync: schemas/追加、新規コンポーネント追加）_
+_最終更新: 2025-12-09（Steering Sync: users.routes.ts追加確認）_
 
 ## ルートディレクトリ構成
 
@@ -504,7 +504,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（10ファイル）
+│   ├── routes/            # ルート定義（11ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -514,6 +514,7 @@ backend/
 │   │   ├── permissions.routes.ts # 権限管理ルート
 │   │   ├── roles.routes.ts  # ロール管理ルート
 │   │   ├── user-roles.routes.ts # ユーザーロール管理ルート
+│   │   ├── users.routes.ts  # ユーザー管理ルート（担当者候補取得）
 │   │   └── projects.routes.ts # プロジェクト管理ルート（CRUD、ステータス遷移）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
@@ -614,7 +615,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（10ルートファイル）:**
+**実装済みAPI（11ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -661,7 +662,9 @@ backend/src/
 - `DELETE /api/projects/:id`: プロジェクト論理削除
 - `PATCH /api/projects/:id/status`: ステータス変更（差し戻し理由必須対応）
 - `GET /api/projects/:id/status-history`: ステータス変更履歴取得
-- `GET /api/users/assignable`: 担当者候補取得
+
+**ユーザー管理API（users.routes.ts）:**
+- `GET /api/users/assignable`: 担当者候補一覧取得（admin以外の有効なユーザー）
 
 **実装済みミドルウェア:**
 
