@@ -346,10 +346,11 @@ test.describe('プロジェクト管理 追加要件', () => {
       const createData = await createResponse.json();
       const projectId = createData.id;
 
-      // 詳細取得APIを監視
+      // 詳細取得APIを監視（status-historyを除外）
       const detailPromise = page.waitForResponse(
         (response: Response) =>
           response.url().includes(`/api/projects/${projectId}`) &&
+          !response.url().includes('/status-history') &&
           response.request().method() === 'GET',
         { timeout: getTimeout(30000) }
       );
