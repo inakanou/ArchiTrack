@@ -489,10 +489,10 @@ test.describe('トークンリフレッシュ機能', () => {
     await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
-    // コンソールログを監視
+    // コンソールログを監視（debug, log, warningを含む）
     const consoleLogs: string[] = [];
     page.on('console', (msg) => {
-      if (msg.type() === 'log' || msg.type() === 'warning') {
+      if (msg.type() === 'debug' || msg.type() === 'log' || msg.type() === 'warning') {
         consoleLogs.push(msg.text());
       }
     });
