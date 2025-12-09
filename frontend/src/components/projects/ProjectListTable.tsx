@@ -85,6 +85,13 @@ function formatDate(dateString: string): string {
   });
 }
 
+/**
+ * UUIDを短縮表示（先頭8文字）
+ */
+function shortenId(id: string): string {
+  return id.substring(0, 8);
+}
+
 // ============================================================================
 // サブコンポーネント
 // ============================================================================
@@ -97,7 +104,9 @@ function SortIcon({ order }: { order: SortOrder }) {
     return (
       <svg
         data-testid="sort-icon-asc"
-        className="w-4 h-4 ml-1 inline-block"
+        width="16"
+        height="16"
+        className="ml-1 inline-block"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -110,7 +119,9 @@ function SortIcon({ order }: { order: SortOrder }) {
   return (
     <svg
       data-testid="sort-icon-desc"
-      className="w-4 h-4 ml-1 inline-block"
+      width="16"
+      height="16"
+      className="ml-1 inline-block"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
@@ -176,7 +187,7 @@ function TableHeaderCell({
   return (
     <th
       scope="col"
-      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+      className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider bg-gray-50/80"
       aria-sort={ariaSort}
     >
       {column.sortable ? (
@@ -184,7 +195,7 @@ function TableHeaderCell({
           type="button"
           onClick={handleClick}
           onKeyDown={handleKeyDown}
-          className="inline-flex items-center hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+          className="inline-flex items-center gap-1 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded px-1 -mx-1 py-0.5 transition-colors"
           aria-label={`${column.label}でソート`}
         >
           {column.label}
@@ -249,9 +260,9 @@ export default function ProjectListTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200" aria-label="プロジェクト一覧">
-        <thead className="bg-gray-50">
-          <tr>
+      <table className="min-w-full" aria-label="プロジェクト一覧">
+        <thead>
+          <tr className="border-b border-gray-200">
             {COLUMNS.map((column) => (
               <TableHeaderCell
                 key={column.key}
@@ -263,38 +274,107 @@ export default function ProjectListTable({
             ))}
           </tr>
         </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {projects.map((project) => (
+        <tbody className="divide-y divide-gray-100">
+          {projects.map((project, index) => (
             <tr
               key={project.id}
               data-testid={`project-row-${project.id}`}
               onClick={() => handleRowClick(project.id)}
               onKeyDown={(e) => handleRowKeyDown(e, project.id)}
               tabIndex={0}
-              className="cursor-pointer hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+              className={`
+                cursor-pointer transition-colors
+                ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}
+                hover:bg-blue-50/60 focus:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500
+              `}
               role="row"
             >
               {/* ID */}
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                {project.id}
+              <td className="px-6 py-4 whitespace-nowrap">
+                <span
+                  className="inline-flex items-center px-2.5 py-1 rounded-md bg-gray-100 text-xs font-mono font-medium text-gray-600"
+                  title={project.id}
+                >
+                  {shortenId(project.id)}
+                </span>
               </td>
               {/* プロジェクト名 */}
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{project.name}</td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center gap-2">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+                    <span className="text-white text-sm font-medium">
+                      {project.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <span className="text-sm font-medium text-gray-900">{project.name}</span>
+                </div>
+              </td>
               {/* 顧客名 */}
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {project.customerName}
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center gap-2">
+                  <svg
+                    width="16"
+                    height="16"
+                    className="text-gray-400 flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                    />
+                  </svg>
+                  <span className="text-sm text-gray-600">{project.customerName}</span>
+                </div>
               </td>
               {/* ステータス */}
               <td className="px-6 py-4 whitespace-nowrap">
                 <StatusBadge projectId={project.id} status={project.status} />
               </td>
               {/* 作成日 */}
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {formatDate(project.createdAt)}
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center gap-1.5 text-sm text-gray-500">
+                  <svg
+                    width="16"
+                    height="16"
+                    className="text-gray-400 flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                  {formatDate(project.createdAt)}
+                </div>
               </td>
               {/* 更新日 */}
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {formatDate(project.updatedAt)}
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center gap-1.5 text-sm text-gray-500">
+                  <svg
+                    width="16"
+                    height="16"
+                    className="text-gray-400 flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  {formatDate(project.updatedAt)}
+                </div>
               </td>
             </tr>
           ))}

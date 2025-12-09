@@ -140,13 +140,13 @@ function PrevButton({ disabled, onClick }: { disabled: boolean; onClick: () => v
       onClick={onClick}
       disabled={disabled}
       aria-label="前のページ"
-      className={`px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium ${
+      className={`p-2 rounded-lg border text-sm font-medium transition-all ${
         disabled
-          ? 'text-gray-300 cursor-not-allowed'
-          : 'text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1'
+          ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
+          : 'border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 bg-white'
       }`}
     >
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
       </svg>
     </button>
@@ -163,13 +163,13 @@ function NextButton({ disabled, onClick }: { disabled: boolean; onClick: () => v
       onClick={onClick}
       disabled={disabled}
       aria-label="次のページ"
-      className={`px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium ${
+      className={`p-2 rounded-lg border text-sm font-medium transition-all ${
         disabled
-          ? 'text-gray-300 cursor-not-allowed'
-          : 'text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1'
+          ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
+          : 'border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 bg-white'
       }`}
     >
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
       </svg>
     </button>
@@ -195,10 +195,10 @@ function PageButton({
       disabled={isCurrentPage}
       aria-label={`ページ ${page}`}
       aria-current={isCurrentPage ? 'page' : undefined}
-      className={`px-4 py-2 border-t border-b border-gray-300 text-sm font-medium ${
+      className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-all ${
         isCurrentPage
-          ? 'bg-blue-600 text-white cursor-not-allowed border-blue-600'
-          : 'bg-white text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1'
+          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
+          : 'bg-white text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 border border-gray-200 hover:border-gray-300'
       }`}
     >
       {page}
@@ -211,7 +211,7 @@ function PageButton({
  */
 function Ellipsis() {
   return (
-    <span className="px-4 py-2 border-t border-b border-gray-300 bg-white text-sm font-medium text-gray-500">
+    <span className="min-w-[40px] h-10 flex items-center justify-center text-sm font-medium text-gray-400">
       ...
     </span>
   );
@@ -232,16 +232,16 @@ function LimitSelect({
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <label htmlFor="limit-select" className="text-sm text-gray-600">
-        表示件数:
+    <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg">
+      <label htmlFor="limit-select" className="text-sm text-gray-600 whitespace-nowrap">
+        表示件数
       </label>
       <select
         id="limit-select"
         value={currentLimit}
         onChange={handleChange}
         aria-label="表示件数"
-        className="rounded-md border border-gray-300 px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
       >
         {LIMIT_OPTIONS.map((option) => (
           <option key={option} value={option}>
@@ -319,34 +319,47 @@ export default function PaginationUI({
       role="navigation"
       aria-label="ページネーション"
       data-testid="pagination-controls"
-      className="flex flex-col sm:flex-row items-center justify-between gap-4 py-4"
+      className="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 px-2"
     >
       {/* 左側: 表示範囲と総件数 */}
-      <div className="text-sm text-gray-600">
-        <span data-testid="total-count">{total}</span>件中{' '}
-        <span>
+      <div className="text-sm text-gray-600 bg-white px-4 py-2 rounded-lg border border-gray-200 shadow-sm">
+        <span className="font-semibold text-gray-900" data-testid="total-count">
+          {total}
+        </span>
+        <span className="text-gray-400 mx-1">件中</span>
+        <span className="font-medium text-gray-700">
           {displayRange.start}-{displayRange.end}件
         </span>
-        を表示 （<span data-testid="current-page">{page}</span> /{' '}
-        <span data-testid="total-pages">{totalPages}</span> ページ）
+        <span className="text-gray-400 mx-1">を表示</span>
+        <span className="text-gray-400 mx-1">|</span>
+        <span data-testid="current-page" className="font-medium text-blue-600">
+          {page}
+        </span>
+        <span className="text-gray-400 mx-0.5">/</span>
+        <span data-testid="total-pages" className="text-gray-500">
+          {totalPages}
+        </span>
+        <span className="text-gray-400 ml-1">ページ</span>
       </div>
 
       {/* 中央: ページ番号ボタン */}
-      <div className="flex items-center">
+      <div className="flex items-center gap-1">
         <PrevButton disabled={isFirstPage} onClick={handlePrev} />
 
-        {visiblePages.map((pageNum, index) =>
-          pageNum === -1 ? (
-            <Ellipsis key={`ellipsis-${index}`} />
-          ) : (
-            <PageButton
-              key={pageNum}
-              page={pageNum}
-              isCurrentPage={pageNum === page}
-              onClick={() => handlePageClick(pageNum)}
-            />
-          )
-        )}
+        <div className="flex items-center gap-1 mx-2">
+          {visiblePages.map((pageNum, index) =>
+            pageNum === -1 ? (
+              <Ellipsis key={`ellipsis-${index}`} />
+            ) : (
+              <PageButton
+                key={pageNum}
+                page={pageNum}
+                isCurrentPage={pageNum === page}
+                onClick={() => handlePageClick(pageNum)}
+              />
+            )
+          )}
+        </div>
 
         <NextButton disabled={isLastPage} onClick={handleNext} />
       </div>
