@@ -479,7 +479,7 @@ export default function ProjectListPage() {
   const isEmptyWithoutSearch = isEmpty && !hasSearched;
 
   return (
-    <main role="main" aria-busy={loading} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main role="main" aria-busy={loading} className="py-8">
       {/* ヘッダー */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div className="flex items-center gap-3">
