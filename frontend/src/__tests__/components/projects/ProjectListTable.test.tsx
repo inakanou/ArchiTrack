@@ -135,8 +135,10 @@ describe('ProjectListTable', () => {
 
       // ヘッダーにIDが含まれる
       expect(screen.getByRole('columnheader', { name: /ID/i })).toBeInTheDocument();
-      // データ行にプロジェクトIDが含まれる（先頭8文字など短縮表示の可能性も考慮）
-      expect(screen.getByText(/project-1/i)).toBeInTheDocument();
+      // データ行にプロジェクトIDが含まれる（shortenIdで先頭8文字に短縮されている）
+      // 複数のプロジェクトがあるためgetAllByTextを使用
+      const idElements = screen.getAllByText(/project-/i);
+      expect(idElements.length).toBeGreaterThan(0);
     });
 
     it('プロジェクト名列が表示される', () => {
@@ -320,7 +322,7 @@ describe('ProjectListTable', () => {
       );
 
       const row = screen.getByTestId('project-row-project-1');
-      expect(row).toHaveClass('hover:bg-gray-50');
+      expect(row).toHaveClass('hover:bg-blue-50/60');
     });
   });
 

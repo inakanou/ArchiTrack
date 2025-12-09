@@ -146,10 +146,8 @@ describe('ProjectListCard', () => {
       renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
 
       const card1 = screen.getByTestId('project-card-project-1');
-      // 更新日のラベルとそれに続く日付が存在することを確認
-      // UTCからJSTへの変換で日付が変わる可能性があるため、更新ラベルの存在で検証
-      expect(within(card1).getByText('更新:')).toBeInTheDocument();
       // 日付セクションには2つの日付が表示される（作成日と更新日）
+      // 現在のUIではテキストラベルではなくアイコンで表示されている
       const dateElements = within(card1).getAllByText(/^\d{4}\/\d{2}\/\d{2}$/);
       expect(dateElements).toHaveLength(2);
     });
@@ -170,7 +168,7 @@ describe('ProjectListCard', () => {
       renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
 
       const card = screen.getByTestId('project-card-project-1');
-      expect(card).toHaveClass('hover:bg-gray-50');
+      expect(card).toHaveClass('hover:shadow-md');
     });
   });
 
@@ -268,7 +266,7 @@ describe('ProjectListCard', () => {
 
       const card = screen.getByTestId('project-card-project-1');
       expect(card).toHaveClass('border');
-      expect(card).toHaveClass('rounded-lg');
+      expect(card).toHaveClass('rounded-xl');
     });
   });
 
@@ -279,7 +277,7 @@ describe('ProjectListCard', () => {
       const card = screen.getByTestId('project-card-project-1');
       const projectName = within(card).getByText('テストプロジェクト1');
       // font-medium or font-semibold で強調
-      expect(projectName).toHaveClass('font-medium');
+      expect(projectName).toHaveClass('font-semibold');
     });
 
     it('ステータスバッジがカードヘッダー部分に配置される', () => {

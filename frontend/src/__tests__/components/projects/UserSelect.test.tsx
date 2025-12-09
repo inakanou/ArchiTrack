@@ -28,6 +28,14 @@ vi.mock('../../../api/projects', () => ({
   getAssignableUsers: vi.fn(),
 }));
 
+// apiClientのモック（トークンを返すように設定）
+vi.mock('../../../api/client', () => ({
+  apiClient: {
+    getAccessToken: vi.fn(() => 'mock-token'),
+    setAccessToken: vi.fn(),
+  },
+}));
+
 // useAuthのモック
 vi.mock('../../../hooks/useAuth', () => ({
   useAuth: vi.fn(() => ({
@@ -37,6 +45,7 @@ vi.mock('../../../hooks/useAuth', () => ({
       email: 'current@example.com',
     },
     isAuthenticated: true,
+    isInitialized: true,
   })),
 }));
 

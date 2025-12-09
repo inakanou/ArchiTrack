@@ -28,6 +28,7 @@ vi.mock('../../hooks/useAuth', () => ({
       displayName: 'Current User',
     },
     isAuthenticated: true,
+    isInitialized: true,
   }),
 }));
 
@@ -40,6 +41,25 @@ vi.mock('../../api/projects', () => ({
     { id: 'current-user-id', displayName: 'Current User' },
   ]),
   searchCustomers: vi.fn().mockResolvedValue([]),
+}));
+
+// apiClientのモック（トークンを返すように設定）
+vi.mock('../../api/client', () => ({
+  apiClient: {
+    getAccessToken: vi.fn(() => 'mock-token'),
+    setAccessToken: vi.fn(),
+  },
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status?: number,
+      public code?: string,
+      public details?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
 }));
 
 // useNavigateモック

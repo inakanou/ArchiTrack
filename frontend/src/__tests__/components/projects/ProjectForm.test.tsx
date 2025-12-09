@@ -37,6 +37,7 @@ vi.mock('../../../hooks/useAuth', () => ({
       displayName: '現在のユーザー',
     },
     isAuthenticated: true,
+    isInitialized: true,
   }),
 }));
 
@@ -47,6 +48,14 @@ vi.mock('../../../api/projects', () => ({
     { id: 'user-2', displayName: 'ユーザー2' },
     { id: 'current-user-id', displayName: '現在のユーザー' },
   ]),
+}));
+
+// apiClientのモック（トークンを返すように設定）
+vi.mock('../../../api/client', () => ({
+  apiClient: {
+    getAccessToken: vi.fn(() => 'mock-token'),
+    setAccessToken: vi.fn(),
+  },
 }));
 
 describe('ProjectForm', () => {
