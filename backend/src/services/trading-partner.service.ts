@@ -35,6 +35,7 @@ import {
   DuplicatePartnerNameError,
   TradingPartnerNotFoundError,
   TradingPartnerConflictError,
+  PartnerInUseError,
 } from '../errors/tradingPartnerError.js';
 
 /**
@@ -559,6 +560,95 @@ export class TradingPartnerService {
       });
 
       return this.toTradingPartnerInfo(updatedPartner);
+    });
+  }
+
+  /**
+   * 取引先削除（論理削除）
+   *
+   * トランザクション内で以下を実行:
+   * 1. 取引先の存在確認（論理削除されていないもの）
+   * 2. プロジェクト紐付け確認（紐付けがあれば削除拒否）
+   * 3. 論理削除の実行（deletedAtの設定）
+   * 4. 監査ログの記録
+   *
+   * @param id - 取引先ID
+   * @param actorId - 実行者ID
+   * @throws TradingPartnerNotFoundError 取引先が見つからない場合
+   * @throws PartnerInUseError 取引先がプロジェクトに紐付いている場合
+   *
+   * Requirements:
+   * - 5.2: ユーザーが削除を確認したとき、取引先レコードを論理削除する
+   * - 5.4: 削除に成功したとき、成功メッセージを表示し、取引先一覧ページに遷移
+   * - 5.5: 取引先がプロジェクトに紐付いている場合、削除を拒否しエラーを表示
+   */
+  async deletePartner(id: string, actorId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      // 1. 取引先の存在確認（論理削除されていないもの）
+      const existingPartner = await tx.tradingPartner.findUnique({
+        where: {
+          id,
+          deletedAt: null,
+        },
+        include: {
+          types: true,
+        },
+      });
+
+      if (!existingPartner) {
+        throw new TradingPartnerNotFoundError(id);
+      }
+
+      // 2. プロジェクト紐付け確認
+      // 現在のProjectモデルでは取引先への直接参照がないため、
+      // 顧客名（customerName）で紐付けをチェック
+      // 将来的にProjectモデルにtradingPartnerIdが追加された場合は、
+      // そのフィールドでチェックするように変更
+      const relatedProjectsCount = await tx.project.count({
+        where: {
+          customerName: existingPartner.name,
+          deletedAt: null,
+        },
+      });
+
+      if (relatedProjectsCount > 0) {
+        throw new PartnerInUseError(id);
+      }
+
+      // 3. 論理削除の実行（deletedAtの設定）
+      await tx.tradingPartner.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+        },
+      });
+
+      // 4. 監査ログの記録
+      const typesArray = existingPartner.types.map((t) => t.type);
+      await this.auditLogService.createLog({
+        action: 'TRADING_PARTNER_DELETED',
+        actorId,
+        targetType: TRADING_PARTNER_TARGET_TYPE,
+        targetId: id,
+        before: {
+          name: existingPartner.name,
+          nameKana: existingPartner.nameKana,
+          branchName: existingPartner.branchName,
+          branchNameKana: existingPartner.branchNameKana,
+          representativeName: existingPartner.representativeName,
+          representativeNameKana: existingPartner.representativeNameKana,
+          address: existingPartner.address,
+          phoneNumber: existingPartner.phoneNumber,
+          faxNumber: existingPartner.faxNumber,
+          email: existingPartner.email,
+          billingClosingDay: existingPartner.billingClosingDay,
+          paymentMonthOffset: existingPartner.paymentMonthOffset,
+          paymentDay: existingPartner.paymentDay,
+          notes: existingPartner.notes,
+          types: typesArray,
+        },
+        after: null,
+      });
     });
   }
 

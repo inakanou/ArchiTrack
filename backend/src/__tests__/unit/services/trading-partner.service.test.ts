@@ -1776,4 +1776,349 @@ describe('TradingPartnerService', () => {
       );
     });
   });
+
+  /**
+   * deletePartner テスト
+   *
+   * Requirements:
+   * - 5.2: ユーザーが削除を確認したとき、取引先レコードを論理削除する
+   * - 5.4: 削除に成功したとき、成功メッセージを表示し、取引先一覧ページに遷移
+   * - 5.5: 取引先がプロジェクトに紐付いている場合、削除を拒否しエラーを表示
+   */
+  describe('deletePartner', () => {
+    const existingPartner = {
+      id: 'partner-to-delete',
+      name: '削除対象取引先株式会社',
+      nameKana: 'サクジョタイショウトリヒキサキカブシキガイシャ',
+      branchName: null,
+      branchNameKana: null,
+      representativeName: null,
+      representativeNameKana: null,
+      address: '東京都新宿区1-1-1',
+      phoneNumber: '03-1234-5678',
+      faxNumber: null,
+      email: null,
+      billingClosingDay: null,
+      paymentMonthOffset: null,
+      paymentDay: null,
+      notes: null,
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-15'),
+      deletedAt: null,
+      types: [{ id: 'type-1', tradingPartnerId: 'partner-to-delete', type: 'CUSTOMER' as const }],
+    };
+
+    it('取引先を正常に論理削除し、監査ログを記録する（Requirement 5.2, 5.4）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const deletedPartner = {
+        ...existingPartner,
+        deletedAt: new Date('2024-01-20'),
+        updatedAt: new Date('2024-01-20'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            update: vi.fn().mockResolvedValue(deletedPartner),
+          },
+          project: {
+            count: vi.fn().mockResolvedValue(0), // プロジェクト紐付けなし
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deletePartner('partner-to-delete', actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'TRADING_PARTNER_DELETED',
+          actorId,
+          targetType: 'TradingPartner',
+          targetId: 'partner-to-delete',
+        })
+      );
+    });
+
+    it('deletedAtが現在時刻に設定される（論理削除）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      let capturedUpdateArgs: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            update: vi.fn().mockImplementation((args) => {
+              capturedUpdateArgs = args;
+              return Promise.resolve({
+                ...existingPartner,
+                deletedAt: new Date(),
+              });
+            }),
+          },
+          project: {
+            count: vi.fn().mockResolvedValue(0),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deletePartner('partner-to-delete', actorId);
+
+      // Assert
+      expect(capturedUpdateArgs).toEqual(
+        expect.objectContaining({
+          where: { id: 'partner-to-delete' },
+          data: expect.objectContaining({
+            deletedAt: expect.any(Date),
+          }),
+        })
+      );
+    });
+
+    it('取引先が見つからない場合はTradingPartnerNotFoundErrorをスローする', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(null), // 取引先が見つからない
+            update: vi.fn(),
+          },
+          project: {
+            count: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(service.deletePartner('non-existent-id', actorId)).rejects.toThrow(
+        TradingPartnerNotFoundError
+      );
+    });
+
+    it('論理削除済みの取引先は再削除できない', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(null), // deletedAt: nullで検索するため見つからない
+            update: vi.fn(),
+          },
+          project: {
+            count: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(service.deletePartner('already-deleted-id', actorId)).rejects.toThrow(
+        TradingPartnerNotFoundError
+      );
+    });
+
+    it('監査ログにbefore（削除前データ）とafter=nullが記録される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            update: vi.fn().mockResolvedValue({
+              ...existingPartner,
+              deletedAt: new Date(),
+            }),
+          },
+          project: {
+            count: vi.fn().mockResolvedValue(0),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deletePartner('partner-to-delete', actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          before: expect.objectContaining({
+            name: '削除対象取引先株式会社',
+            nameKana: 'サクジョタイショウトリヒキサキカブシキガイシャ',
+          }),
+          after: null,
+        })
+      );
+    });
+
+    it('プロジェクトに紐付いている場合はPartnerInUseErrorをスローする（Requirement 5.5）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            update: vi.fn(),
+          },
+          project: {
+            count: vi.fn().mockResolvedValue(2), // 2件のプロジェクトに紐付いている
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      const { PartnerInUseError } = await import('../../../errors/tradingPartnerError.js');
+      await expect(service.deletePartner('partner-to-delete', actorId)).rejects.toThrow(
+        PartnerInUseError
+      );
+    });
+
+    it('プロジェクト紐付けエラー時、監査ログは記録されない', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            update: vi.fn(),
+          },
+          project: {
+            count: vi.fn().mockResolvedValue(1), // プロジェクト紐付けあり
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      const { PartnerInUseError } = await import('../../../errors/tradingPartnerError.js');
+      await expect(service.deletePartner('partner-to-delete', actorId)).rejects.toThrow(
+        PartnerInUseError
+      );
+
+      // 監査ログは記録されない
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('削除処理はトランザクション内で実行される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      let transactionCalled = false;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        transactionCalled = true;
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            update: vi.fn().mockResolvedValue({
+              ...existingPartner,
+              deletedAt: new Date(),
+            }),
+          },
+          project: {
+            count: vi.fn().mockResolvedValue(0),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deletePartner('partner-to-delete', actorId);
+
+      // Assert
+      expect(transactionCalled).toBe(true);
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('削除対象の検索にはdeletedAt: nullが条件として含まれる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      let capturedFindUniqueArgs: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockImplementation((args) => {
+              capturedFindUniqueArgs = args;
+              return Promise.resolve(existingPartner);
+            }),
+            update: vi.fn().mockResolvedValue({
+              ...existingPartner,
+              deletedAt: new Date(),
+            }),
+          },
+          project: {
+            count: vi.fn().mockResolvedValue(0),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deletePartner('partner-to-delete', actorId);
+
+      // Assert
+      expect(capturedFindUniqueArgs).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'partner-to-delete',
+            deletedAt: null,
+          }),
+        })
+      );
+    });
+
+    it('プロジェクト紐付け確認では論理削除されていないプロジェクトのみをカウントする', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      let capturedProjectCountArgs: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            update: vi.fn().mockResolvedValue({
+              ...existingPartner,
+              deletedAt: new Date(),
+            }),
+          },
+          project: {
+            count: vi.fn().mockImplementation((args) => {
+              capturedProjectCountArgs = args;
+              return Promise.resolve(0);
+            }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deletePartner('partner-to-delete', actorId);
+
+      // Assert
+      // 将来Projectモデルに取引先参照が追加された際のテスト
+      // 現時点では顧客名（customerName）で紐付けをチェック
+      expect(capturedProjectCountArgs).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+          }),
+        })
+      );
+    });
+  });
 });
