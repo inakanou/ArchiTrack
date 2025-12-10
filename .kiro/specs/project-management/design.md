@@ -15,6 +15,7 @@
 - プロジェクトのCRUD操作を実現し、工事案件の一元管理を可能にする
 - 12段階のステータスワークフロー（順方向遷移・差し戻し遷移・終端遷移）により、プロジェクトの進捗を正確に追跡する
 - 既存のRBAC基盤を活用した権限ベースのアクセス制御を実装する
+- 取引先管理機能との連携により、顧客（取引先）の選択をオートコンプリートで効率化する
 - レスポンシブデザインによりデスクトップ・タブレット・モバイルに対応する
 - WCAG 2.1 Level AA準拠のアクセシビリティを確保する
 
@@ -22,10 +23,11 @@
 
 - 現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
 - 見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
-- 取引先管理機能の実装（別仕様として定義予定、本仕様では顧客名フリー入力のみ対応）
-- 取引先オートコンプリート機能（取引先管理機能の実装後に連携予定）
+- 取引先管理機能の実装（別仕様`trading-partner-management`として定義）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
+
+**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれます。取引先管理機能（`trading-partner-management`仕様）が実装されている場合、顧客名入力時に取引先オートコンプリート連携を提供します。
 
 ## Architecture
 
@@ -245,6 +247,7 @@ sequenceDiagram
 | 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
 | 20.1-20.6 | アクセシビリティ | 全UIコンポーネント | - | - |
 | 21.1-21.8 | ナビゲーション | AppHeader, Dashboard | - | - |
+| 22.1-22.5 | 取引先連携 | ProjectForm, CustomerNameInput, ProjectDetailPage | GET /api/trading-partners | - |
 
 ## Components and Interfaces
 
@@ -253,9 +256,9 @@ sequenceDiagram
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート | 2, 3, 4, 5, 6 | ProjectService (P0), useAuth (P0) | State |
-| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除 | 7, 8, 9, 10, 11 | ProjectService (P0), ProjectStatusService (P1) | State |
-| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17 | CustomerNameInput (P1), UserSelect (P1) | Service |
-| CustomerNameInput | UI/Component | 顧客名フリー入力（将来オートコンプリート連携予定） | 16 | - | - |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除 | 7, 8, 9, 10, 11, 22 | ProjectService (P0), ProjectStatusService (P1) | State |
+| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17, 22 | CustomerNameInput (P1), UserSelect (P1) | Service |
+| CustomerNameInput | UI/Component | 顧客名入力・取引先オートコンプリート連携 | 16, 22 | TradingPartnerAPI (P1) | API |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
 | ProjectService | Backend/Service | プロジェクトCRUDビジネスロジック | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
@@ -829,32 +832,43 @@ interface ProjectFormData {
 **Implementation Notes**
 - Integration: 既存のフォームパターン（React Hook Form等）の検討
 - Validation: Zodスキーマでクライアント・サーバー共通バリデーション
-- Future: 取引先管理機能実装後にCustomerNameInputをオートコンプリート対応に拡張予定
+- TradingPartner連携: CustomerNameInputで取引先オートコンプリート機能を提供（取引先管理機能実装時）
 
 ---
 
-#### CustomerNameInput（顧客名入力フィールド）
+#### CustomerNameInput（顧客名入力フィールド / 取引先オートコンプリート）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 顧客名のフリー入力を提供（将来的に取引先オートコンプリート連携予定） |
-| Requirements | 16.1-16.10（本仕様ではフリー入力のみ、16.9に基づき取引先外も入力可能） |
+| Intent | 顧客名入力を提供し、取引先管理機能との連携時はオートコンプリート機能を提供 |
+| Requirements | 16.1-16.10, 22.1-22.5 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
-- 顧客名のフリーテキスト入力
+- 顧客名のフリーテキスト入力（取引先外の顧客名も入力可能）
+- 取引先管理機能（`trading-partner-management`）との連携時：
+  - 取引先種別に「顧客」を含む取引先一覧をオートコンプリート候補として表示
+  - 取引先名またはフリガナで部分一致検索
+  - 入力文字列に部分一致する取引先を最大10件まで候補表示
 - バリデーション（1-255文字）
-- 将来の取引先オートコンプリート連携に備えた拡張可能な設計
+- キーボード操作（上下キー選択、Enter確定）とマウス操作の両方に対応
 
 **Dependencies**
 - Inbound: ProjectForm — 顧客名入力 (P0)
+- Outbound: TradingPartnerAPI — 取引先検索（オートコンプリート候補取得）(P1)
 
-**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+**Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/trading-partners | ?search=string&types=customer | TradingPartner[] | 400, 401, 403 |
 
 **Implementation Notes**
-- Integration: 標準的なテキスト入力コンポーネントとして実装
+- Integration: 取引先管理機能が未実装の場合はフリー入力のみ対応（機能フラグで制御）
 - Validation: Zodスキーマによる文字数バリデーション
-- Future: 取引先管理機能（別仕様）実装後にオートコンプリート機能を追加予定
+- UX: 500ミリ秒以内のレスポンス、ローディングインジケータ表示、候補なし時のメッセージ表示
 
 ---
 
