@@ -133,7 +133,31 @@ export type AuditLogAction =
   | 'PROJECT_CREATED'
   | 'PROJECT_UPDATED'
   | 'PROJECT_DELETED'
-  | 'PROJECT_STATUS_CHANGED';
+  | 'PROJECT_STATUS_CHANGED'
+  // 取引先管理
+  | 'TRADING_PARTNER_CREATED'
+  | 'TRADING_PARTNER_UPDATED'
+  | 'TRADING_PARTNER_DELETED';
+
+/**
+ * 取引先管理の監査ログアクション一覧
+ * TradingPartnerServiceとの連携で使用
+ */
+export const TRADING_PARTNER_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'TRADING_PARTNER_CREATED',
+  'TRADING_PARTNER_UPDATED',
+  'TRADING_PARTNER_DELETED',
+] as const;
+
+/**
+ * 取引先監査ログアクション型（サブセット）
+ */
+export type TradingPartnerAuditAction = (typeof TRADING_PARTNER_AUDIT_ACTIONS)[number];
+
+/**
+ * 取引先監査ログのターゲットタイプ定数
+ */
+export const TRADING_PARTNER_TARGET_TYPE = 'TradingPartner' as const;
 
 /**
  * 監査ログエラー種別
