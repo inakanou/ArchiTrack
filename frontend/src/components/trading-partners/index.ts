@@ -12,3 +12,6 @@ export type { BillingClosingDaySelectProps } from './BillingClosingDaySelect';
 
 export { default as PaymentDateSelect } from './PaymentDateSelect';
 export type { PaymentDateSelectProps, PaymentDateValue } from './PaymentDateSelect';
+
+export { default as TradingPartnerForm } from './TradingPartnerForm';
+export type { TradingPartnerFormProps, TradingPartnerFormData } from './TradingPartnerForm';
