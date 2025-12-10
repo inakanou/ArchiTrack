@@ -2121,4 +2121,346 @@ describe('TradingPartnerService', () => {
       );
     });
   });
+
+  /**
+   * searchPartners テスト
+   *
+   * Requirements:
+   * - 10.1: GET /api/trading-partners/search エンドポイントで取引先検索機能を提供
+   * - 10.2: 検索クエリが1文字以上の場合、取引先名またはフリガナで部分一致検索を実行
+   * - 10.3: 検索結果を最大10件まで返却
+   * - 10.4: 検索結果に取引先ID、取引先名、フリガナ、種別を含める
+   * - 10.5: クエリパラメータで種別フィルタ（type=customer）が指定された場合、指定された種別を含む取引先のみを返却
+   * - 10.7: 検索結果が0件の場合、空配列を返却
+   */
+  describe('searchPartners', () => {
+    // テスト用モックデータ
+    const searchMockPartners = [
+      {
+        id: 'partner-1',
+        name: 'アルファ株式会社',
+        nameKana: 'アルファカブシキガイシャ',
+        branchName: '東京支店',
+        branchNameKana: 'トウキョウシテン',
+        representativeName: '山田太郎',
+        representativeNameKana: 'ヤマダタロウ',
+        address: '東京都渋谷区1-1-1',
+        phoneNumber: '03-1111-1111',
+        faxNumber: null,
+        email: 'alpha@example.com',
+        billingClosingDay: 25,
+        paymentMonthOffset: 1,
+        paymentDay: 15,
+        notes: null,
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-01'),
+        deletedAt: null,
+        types: [{ id: 'type-1', tradingPartnerId: 'partner-1', type: 'CUSTOMER' as const }],
+      },
+      {
+        id: 'partner-2',
+        name: 'ベータ建設株式会社',
+        nameKana: 'ベータケンセツカブシキガイシャ',
+        branchName: null,
+        branchNameKana: null,
+        representativeName: '鈴木一郎',
+        representativeNameKana: 'スズキイチロウ',
+        address: '大阪府大阪市2-2-2',
+        phoneNumber: '06-2222-2222',
+        faxNumber: '06-2222-2223',
+        email: null,
+        billingClosingDay: 99,
+        paymentMonthOffset: 2,
+        paymentDay: 99,
+        notes: 'メモ',
+        createdAt: new Date('2024-02-01'),
+        updatedAt: new Date('2024-02-01'),
+        deletedAt: null,
+        types: [{ id: 'type-2', tradingPartnerId: 'partner-2', type: 'SUBCONTRACTOR' as const }],
+      },
+      {
+        id: 'partner-3',
+        name: 'ガンマ商事株式会社',
+        nameKana: 'ガンマショウジカブシキガイシャ',
+        branchName: null,
+        branchNameKana: null,
+        representativeName: null,
+        representativeNameKana: null,
+        address: '愛知県名古屋市3-3-3',
+        phoneNumber: null,
+        faxNumber: null,
+        email: null,
+        billingClosingDay: null,
+        paymentMonthOffset: null,
+        paymentDay: null,
+        notes: null,
+        createdAt: new Date('2024-03-01'),
+        updatedAt: new Date('2024-03-01'),
+        deletedAt: null,
+        types: [
+          { id: 'type-3', tradingPartnerId: 'partner-3', type: 'CUSTOMER' as const },
+          { id: 'type-4', tradingPartnerId: 'partner-3', type: 'SUBCONTRACTOR' as const },
+        ],
+      },
+    ];
+
+    it('クエリで取引先名を部分一致検索できる（Requirement 10.2）', async () => {
+      // Arrange
+      const matchingPartners = searchMockPartners.filter((p) => p.name.includes('アルファ'));
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue(matchingPartners);
+
+      // Act
+      const result = await service.searchPartners('アルファ');
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual(
+        expect.objectContaining({
+          id: 'partner-1',
+          name: 'アルファ株式会社',
+          nameKana: 'アルファカブシキガイシャ',
+          types: ['CUSTOMER'],
+        })
+      );
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+            OR: [
+              { name: { contains: 'アルファ', mode: 'insensitive' } },
+              { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+            ],
+          }),
+        })
+      );
+    });
+
+    it('クエリでフリガナを部分一致検索できる（Requirement 10.2）', async () => {
+      // Arrange
+      const matchingPartners = searchMockPartners.filter((p) => p.nameKana.includes('ベータ'));
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue(matchingPartners);
+
+      // Act
+      const result = await service.searchPartners('ベータ');
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe('ベータ建設株式会社');
+    });
+
+    it('検索結果は最大10件まで返却する（Requirement 10.3）', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi
+        .fn()
+        .mockResolvedValue(searchMockPartners.slice(0, 3));
+
+      // Act
+      await service.searchPartners('株式会社');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 10,
+        })
+      );
+    });
+
+    it('検索結果にID、名前、フリガナ、種別が含まれる（Requirement 10.4）', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[2]]); // 両方の種別を持つ
+
+      // Act
+      const result = await service.searchPartners('ガンマ');
+
+      // Assert
+      expect(result).toHaveLength(1);
+      const partner = result[0];
+      expect(partner).toBeDefined();
+      expect(partner).toHaveProperty('id', 'partner-3');
+      expect(partner).toHaveProperty('name', 'ガンマ商事株式会社');
+      expect(partner).toHaveProperty('nameKana', 'ガンマショウジカブシキガイシャ');
+      expect(partner?.types).toContain('CUSTOMER');
+      expect(partner?.types).toContain('SUBCONTRACTOR');
+    });
+
+    it('種別フィルタでCUSTOMERのみを検索できる（Requirement 10.5）', async () => {
+      // Arrange
+      const customerPartners = searchMockPartners.filter((p) =>
+        p.types.some((t) => t.type === 'CUSTOMER')
+      );
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue(customerPartners);
+
+      // Act
+      await service.searchPartners('株式会社', 'CUSTOMER');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            types: {
+              some: {
+                type: 'CUSTOMER',
+              },
+            },
+          }),
+        })
+      );
+    });
+
+    it('種別フィルタでSUBCONTRACTORのみを検索できる（Requirement 10.5）', async () => {
+      // Arrange
+      const subcontractorPartners = searchMockPartners.filter((p) =>
+        p.types.some((t) => t.type === 'SUBCONTRACTOR')
+      );
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue(subcontractorPartners);
+
+      // Act
+      await service.searchPartners('株式会社', 'SUBCONTRACTOR');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            types: {
+              some: {
+                type: 'SUBCONTRACTOR',
+              },
+            },
+          }),
+        })
+      );
+    });
+
+    it('検索結果が0件の場合は空配列を返却する（Requirement 10.7）', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([]);
+
+      // Act
+      const result = await service.searchPartners('存在しない会社');
+
+      // Assert
+      expect(result).toEqual([]);
+      expect(result).toHaveLength(0);
+    });
+
+    it('limitパラメータでカスタムの件数制限を指定できる', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi
+        .fn()
+        .mockResolvedValue(searchMockPartners.slice(0, 5));
+
+      // Act
+      await service.searchPartners('株式会社', undefined, 5);
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 5,
+        })
+      );
+    });
+
+    it('limitを指定しない場合はデフォルト10件', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([]);
+
+      // Act
+      await service.searchPartners('株式会社');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 10,
+        })
+      );
+    });
+
+    it('論理削除されたレコードは検索結果から除外される', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([]);
+
+      // Act
+      await service.searchPartners('株式会社');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+          }),
+        })
+      );
+    });
+
+    it('typesリレーションがincludeされる', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
+
+      // Act
+      await service.searchPartners('アルファ');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: {
+            types: true,
+          },
+        })
+      );
+    });
+
+    it('検索結果は必要最小限のフィールドのみを返却する（オートコンプリート用）', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
+
+      // Act
+      const result = await service.searchPartners('アルファ');
+
+      // Assert
+      expect(result).toHaveLength(1);
+      const partner = result[0];
+      // オートコンプリート用に必要なフィールドのみ
+      expect(Object.keys(partner!).sort()).toEqual(['id', 'name', 'nameKana', 'types'].sort());
+      // 不要なフィールドは含まれない
+      expect(partner).not.toHaveProperty('address');
+      expect(partner).not.toHaveProperty('phoneNumber');
+      expect(partner).not.toHaveProperty('email');
+    });
+
+    it('フリガナ昇順でソートされる', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue(searchMockPartners);
+
+      // Act
+      await service.searchPartners('株式会社');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { nameKana: 'asc' },
+        })
+      );
+    });
+
+    it('1文字のクエリでも検索できる', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
+
+      // Act
+      const result = await service.searchPartners('ア');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { name: { contains: 'ア', mode: 'insensitive' } },
+              { nameKana: { contains: 'ア', mode: 'insensitive' } },
+            ],
+          }),
+        })
+      );
+      expect(result).toBeDefined();
+    });
+  });
 });

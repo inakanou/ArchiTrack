@@ -152,6 +152,19 @@ export interface TradingPartnerDetail extends TradingPartnerInfo {
 }
 
 /**
+ * 取引先検索結果（オートコンプリート用）
+ *
+ * Requirements:
+ * - 10.4: 検索結果に取引先ID、取引先名、フリガナ、種別を含める
+ */
+export interface TradingPartnerSearchResult {
+  id: string;
+  name: string;
+  nameKana: string;
+  types: TradingPartnerType[];
+}
+
+/**
  * 取引先サービス
  *
  * 取引先のCRUD操作とビジネスロジックを担当します。
@@ -650,6 +663,65 @@ export class TradingPartnerService {
         after: null,
       });
     });
+  }
+
+  /**
+   * 取引先検索結果（オートコンプリート用）
+   *
+   * Requirements:
+   * - 10.4: 検索結果に取引先ID、取引先名、フリガナ、種別を含める
+   */
+  async searchPartners(
+    query: string,
+    type?: TradingPartnerType,
+    limit: number = 10
+  ): Promise<TradingPartnerSearchResult[]> {
+    // WHERE条件の構築
+    const where: Prisma.TradingPartnerWhereInput = {
+      deletedAt: null,
+      OR: [
+        { name: { contains: query, mode: 'insensitive' as const } },
+        { nameKana: { contains: query, mode: 'insensitive' as const } },
+      ],
+    };
+
+    // 種別フィルター（リレーション経由）
+    if (type) {
+      where.types = {
+        some: {
+          type: type,
+        },
+      };
+    }
+
+    // 取引先検索
+    const partners = await this.prisma.tradingPartner.findMany({
+      where,
+      include: {
+        types: true,
+      },
+      orderBy: { nameKana: 'asc' },
+      take: limit,
+    });
+
+    return partners.map((p) => this.toTradingPartnerSearchResult(p));
+  }
+
+  /**
+   * データベースの結果をTradingPartnerSearchResultに変換（オートコンプリート用）
+   */
+  private toTradingPartnerSearchResult(partner: {
+    id: string;
+    name: string;
+    nameKana: string;
+    types: Array<{ type: string }>;
+  }): TradingPartnerSearchResult {
+    return {
+      id: partner.id,
+      name: partner.name,
+      nameKana: partner.nameKana,
+      types: partner.types.map((t) => t.type as TradingPartnerType),
+    };
   }
 
   /**
