@@ -1,13 +1,13 @@
 {
   "feature_name": "trading-partner-management",
   "created_at": "2025-12-10T00:00:00Z",
-  "updated_at": "2025-12-10T19:00:00Z",
+  "updated_at": "2025-12-11T00:00:00Z",
   "language": "ja",
-  "phase": "tasks-generated",
+  "phase": "requirements-updated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": true
+      "approved": false
     },
     "design": {
       "generated": true,
@@ -18,5 +18,6 @@
       "approved": true
     }
   },
-  "ready_for_implementation": true
+  "ready_for_implementation": false,
+  "notes": "Requirement 12（画面遷移・ナビゲーション）を追加。要件承認後、設計・タスクへの反映が必要。"
 }
