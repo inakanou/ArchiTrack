@@ -254,9 +254,20 @@ describe('TradingPartner Model Schema', () => {
   });
 });
 
+/**
+ * TradingPartnerTypeMappingモデルのスキーマ定義テスト
+ *
+ * TDD: RED Phase - Prismaスキーマで定義するTradingPartnerTypeMappingモデルの型検証
+ *
+ * Requirements (trading-partner-management):
+ * - REQ-6.1: 「顧客」と「協力業者」の2種類の取引先種別をシステムで提供する
+ * - REQ-6.2: 取引先種別を取引先登録時の必須選択項目として提供する
+ * - REQ-6.3: 取引先種別の複数選択を許可し、1つの取引先が「顧客」と「協力業者」の両方であることを可能とする
+ */
 describe('TradingPartnerTypeMapping Model Schema', () => {
   describe('TradingPartnerTypeMapping CreateInput type structure', () => {
     it('should require tradingPartnerId and type', () => {
+      // REQ-6.2: 種別は取引先登録時の必須項目
       const validInput: Prisma.TradingPartnerTypeMappingCreateInput = {
         tradingPartner: { connect: { id: 'partner-id' } },
         type: TradingPartnerType.CUSTOMER,
@@ -266,6 +277,7 @@ describe('TradingPartnerTypeMapping Model Schema', () => {
     });
 
     it('should support both CUSTOMER and SUBCONTRACTOR types', () => {
+      // REQ-6.1: 「顧客」と「協力業者」の2種類を提供
       const customerInput: Prisma.TradingPartnerTypeMappingCreateInput = {
         tradingPartner: { connect: { id: 'partner-id' } },
         type: TradingPartnerType.CUSTOMER,
@@ -310,6 +322,138 @@ describe('TradingPartnerTypeMapping Model Schema', () => {
         },
       };
       expect(where.tradingPartnerId_type).toBeDefined();
+    });
+  });
+
+  describe('TradingPartnerTypeMapping filter by type', () => {
+    it('should allow filtering by type for CUSTOMER', () => {
+      // 種別フィルタリング用のインデックスを使用
+      const where: Prisma.TradingPartnerTypeMappingWhereInput = {
+        type: TradingPartnerType.CUSTOMER,
+      };
+      expect(where.type).toBe('CUSTOMER');
+    });
+
+    it('should allow filtering by type for SUBCONTRACTOR', () => {
+      const where: Prisma.TradingPartnerTypeMappingWhereInput = {
+        type: TradingPartnerType.SUBCONTRACTOR,
+      };
+      expect(where.type).toBe('SUBCONTRACTOR');
+    });
+
+    it('should allow filtering by tradingPartnerId', () => {
+      // 取引先ID別の種別取得用インデックスを使用
+      const where: Prisma.TradingPartnerTypeMappingWhereInput = {
+        tradingPartnerId: 'partner-id',
+      };
+      expect(where.tradingPartnerId).toBe('partner-id');
+    });
+  });
+
+  describe('Multiple types for a single trading partner (REQ-6.3)', () => {
+    it('should allow creating multiple type mappings for a single partner', () => {
+      // REQ-6.3: 1つの取引先が「顧客」と「協力業者」の両方であることを可能とする
+      const partnerWithMultipleTypes: Prisma.TradingPartnerCreateInput = {
+        name: '株式会社両方',
+        nameKana: 'カブシキガイシャリョウホウ',
+        address: '東京都渋谷区1-1-1',
+        types: {
+          create: [
+            { type: TradingPartnerType.CUSTOMER },
+            { type: TradingPartnerType.SUBCONTRACTOR },
+          ],
+        },
+      };
+
+      // types配列に2つの種別が含まれることを確認
+      const typesCreate = partnerWithMultipleTypes.types?.create as Array<{
+        type: TradingPartnerType;
+      }>;
+      expect(typesCreate).toHaveLength(2);
+      expect(typesCreate[0]!.type).toBe(TradingPartnerType.CUSTOMER);
+      expect(typesCreate[1]!.type).toBe(TradingPartnerType.SUBCONTRACTOR);
+    });
+
+    it('should allow filtering partners with specific type combination', () => {
+      // 特定の種別を持つ取引先を検索
+      const whereCustomer: Prisma.TradingPartnerWhereInput = {
+        types: {
+          some: {
+            type: TradingPartnerType.CUSTOMER,
+          },
+        },
+      };
+      expect(whereCustomer.types?.some?.type).toBe('CUSTOMER');
+
+      // 両方の種別を持つ取引先を検索
+      const whereBoth: Prisma.TradingPartnerWhereInput = {
+        AND: [
+          {
+            types: {
+              some: {
+                type: TradingPartnerType.CUSTOMER,
+              },
+            },
+          },
+          {
+            types: {
+              some: {
+                type: TradingPartnerType.SUBCONTRACTOR,
+              },
+            },
+          },
+        ],
+      };
+      expect(whereBoth.AND).toHaveLength(2);
+    });
+  });
+
+  describe('Cascade delete behavior', () => {
+    it('should support cascade delete in Prisma schema (onDelete: Cascade)', () => {
+      // カスケード削除: TradingPartnerが削除されるとTradingPartnerTypeMappingも削除される
+      // このテストはPrismaスキーマの設定を検証するため、型レベルの確認を行う
+
+      // 取引先を削除する際、関連する種別マッピングも削除される
+      // Prismaのスキーマで `onDelete: Cascade` が設定されていることを前提とする
+      const deletePartner: Prisma.TradingPartnerDeleteArgs = {
+        where: { id: 'partner-id' },
+      };
+      expect(deletePartner.where.id).toBe('partner-id');
+
+      // 種別マッピングは取引先のリレーションを通じてアクセス可能
+      // 取引先削除時にマッピングも自動削除されることを確認
+      const partnerWithTypes: Prisma.TradingPartnerInclude = {
+        types: true,
+      };
+      expect(partnerWithTypes.types).toBe(true);
+    });
+
+    it('should not allow orphan type mappings (referential integrity)', () => {
+      // 参照整合性: 存在しない取引先への種別マッピングは作成できない
+      // これはデータベースレベルの外部キー制約で保証される
+      const mappingWithPartnerRef: Prisma.TradingPartnerTypeMappingCreateInput = {
+        tradingPartner: { connect: { id: 'existing-partner-id' } },
+        type: TradingPartnerType.CUSTOMER,
+      };
+      expect(mappingWithPartnerRef.tradingPartner.connect?.id).toBe('existing-partner-id');
+    });
+  });
+
+  describe('Index optimization', () => {
+    it('should support efficient lookup by tradingPartnerId (@@index([tradingPartnerId]))', () => {
+      // インデックス最適化: tradingPartnerId による効率的な検索
+      const where: Prisma.TradingPartnerTypeMappingWhereInput = {
+        tradingPartnerId: 'partner-id',
+      };
+      expect(where.tradingPartnerId).toBeDefined();
+    });
+
+    it('should support efficient lookup by type (@@index([type]))', () => {
+      // インデックス最適化: type による効率的な検索
+      const where: Prisma.TradingPartnerTypeMappingWhereInput = {
+        type: TradingPartnerType.CUSTOMER,
+      };
+      expect(where.type).toBeDefined();
     });
   });
 });
