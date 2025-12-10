@@ -1208,3 +1208,424 @@ describe('updateTradingPartnerSchema', () => {
     });
   });
 });
+
+/**
+ * 取引先一覧取得クエリスキーマのテスト
+ * Requirements:
+ * - 1.3: 検索キーワードによる部分一致検索
+ * - 1.4: 種別フィルタリング
+ * - 1.5: ページネーション
+ * - 1.6: ソート条件
+ */
+describe('tradingPartnerListQuerySchema', () => {
+  // 動的インポートで一覧取得クエリスキーマを取得
+  let tradingPartnerListQuerySchema: typeof import('../../../schemas/trading-partner.schema.js').tradingPartnerListQuerySchema;
+  let TRADING_PARTNER_LIST_VALIDATION_MESSAGES: typeof import('../../../schemas/trading-partner.schema.js').TRADING_PARTNER_LIST_VALIDATION_MESSAGES;
+
+  beforeAll(async () => {
+    const module = await import('../../../schemas/trading-partner.schema.js');
+    tradingPartnerListQuerySchema = module.tradingPartnerListQuerySchema;
+    TRADING_PARTNER_LIST_VALIDATION_MESSAGES = module.TRADING_PARTNER_LIST_VALIDATION_MESSAGES;
+  });
+
+  describe('ページネーションパラメータのバリデーション', () => {
+    it('pageとlimitが指定されていない場合、デフォルト値が適用されること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({});
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.page).toBe(1);
+        expect(result.data.limit).toBe(20);
+      }
+    });
+
+    it('pageが1以上の場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ page: '1' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.page).toBe(1);
+      }
+    });
+
+    it('pageが0の場合エラーになること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ page: '0' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_LIST_VALIDATION_MESSAGES.PAGE_MIN);
+      }
+    });
+
+    it('pageが負の数の場合エラーになること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ page: '-1' });
+      expect(result.success).toBe(false);
+    });
+
+    it('limitが1以上100以下の場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ limit: '50' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.limit).toBe(50);
+      }
+    });
+
+    it('limitが0の場合エラーになること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ limit: '0' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_LIST_VALIDATION_MESSAGES.LIMIT_MIN);
+      }
+    });
+
+    it('limitが100を超える場合エラーになること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ limit: '101' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_LIST_VALIDATION_MESSAGES.LIMIT_MAX);
+      }
+    });
+
+    it('pageとlimitが数値文字列として渡された場合、数値に変換されること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ page: '3', limit: '25' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.page).toBe(3);
+        expect(result.data.limit).toBe(25);
+      }
+    });
+  });
+
+  describe('検索キーワードのバリデーション', () => {
+    it('searchが未指定の場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('searchが1文字以上の場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ search: 'テ' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.search).toBe('テ');
+      }
+    });
+
+    it('searchが複数文字の場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ search: 'テスト会社' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.search).toBe('テスト会社');
+      }
+    });
+
+    it('searchが空文字の場合、undefinedとして扱われること', () => {
+      // 空文字はオプショナルな検索条件として無視
+      const result = tradingPartnerListQuerySchema.safeParse({ search: '' });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('種別フィルターのバリデーション', () => {
+    it('typeが未指定の場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('typeがCUSTOMERの場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ type: 'CUSTOMER' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.type).toBe('CUSTOMER');
+      }
+    });
+
+    it('typeがSUBCONTRACTORの場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ type: 'SUBCONTRACTOR' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.type).toBe('SUBCONTRACTOR');
+      }
+    });
+
+    it('typeが無効な値の場合エラーになること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ type: 'INVALID' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_LIST_VALIDATION_MESSAGES.TYPE_INVALID);
+      }
+    });
+  });
+
+  describe('ソート条件のバリデーション', () => {
+    it('sortとorderが未指定の場合、デフォルト値が適用されること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({});
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // Requirements 1.8: フリガナ昇順がデフォルト
+        expect(result.data.sort).toBe('nameKana');
+        expect(result.data.order).toBe('asc');
+      }
+    });
+
+    it('sortがnameKanaの場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ sort: 'nameKana' });
+      expect(result.success).toBe(true);
+    });
+
+    it('sortがnameの場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ sort: 'name' });
+      expect(result.success).toBe(true);
+    });
+
+    it('sortがcreatedAtの場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ sort: 'createdAt' });
+      expect(result.success).toBe(true);
+    });
+
+    it('sortが無効なフィールドの場合エラーになること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ sort: 'invalidField' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(
+          TRADING_PARTNER_LIST_VALIDATION_MESSAGES.SORT_FIELD_INVALID
+        );
+      }
+    });
+
+    it('orderがascの場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ order: 'asc' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.order).toBe('asc');
+      }
+    });
+
+    it('orderがdescの場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ order: 'desc' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.order).toBe('desc');
+      }
+    });
+
+    it('orderが無効な値の場合エラーになること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({ order: 'invalid' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_LIST_VALIDATION_MESSAGES.ORDER_INVALID);
+      }
+    });
+  });
+
+  describe('複合条件のバリデーション', () => {
+    it('すべてのパラメータが有効な場合成功すること', () => {
+      const result = tradingPartnerListQuerySchema.safeParse({
+        page: '2',
+        limit: '30',
+        search: 'テスト',
+        type: 'CUSTOMER',
+        sort: 'name',
+        order: 'desc',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.page).toBe(2);
+        expect(result.data.limit).toBe(30);
+        expect(result.data.search).toBe('テスト');
+        expect(result.data.type).toBe('CUSTOMER');
+        expect(result.data.sort).toBe('name');
+        expect(result.data.order).toBe('desc');
+      }
+    });
+  });
+});
+
+/**
+ * 取引先検索クエリスキーマのテスト（オートコンプリート用）
+ * Requirements:
+ * - 10.2: 検索クエリが1文字以上で部分一致検索
+ * - 10.5: 種別フィルター指定時の絞り込み
+ */
+describe('tradingPartnerSearchQuerySchema', () => {
+  // 動的インポートで検索クエリスキーマを取得
+  let tradingPartnerSearchQuerySchema: typeof import('../../../schemas/trading-partner.schema.js').tradingPartnerSearchQuerySchema;
+  let TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES: typeof import('../../../schemas/trading-partner.schema.js').TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES;
+
+  beforeAll(async () => {
+    const module = await import('../../../schemas/trading-partner.schema.js');
+    tradingPartnerSearchQuerySchema = module.tradingPartnerSearchQuerySchema;
+    TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES = module.TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES;
+  });
+
+  describe('検索クエリ（q）のバリデーション', () => {
+    it('qが1文字以上の場合成功すること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テ' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.q).toBe('テ');
+      }
+    });
+
+    it('qが複数文字の場合成功すること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト株式会社' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.q).toBe('テスト株式会社');
+      }
+    });
+
+    it('qが空文字の場合エラーになること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: '' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.QUERY_REQUIRED);
+      }
+    });
+
+    it('qが未指定の場合エラーになること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({});
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('種別フィルター（type）のバリデーション', () => {
+    it('typeが未指定の場合成功すること（オプショナル）', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.type).toBeUndefined();
+      }
+    });
+
+    it('typeがCUSTOMERの場合成功すること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト', type: 'CUSTOMER' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.type).toBe('CUSTOMER');
+      }
+    });
+
+    it('typeがSUBCONTRACTORの場合成功すること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({
+        q: 'テスト',
+        type: 'SUBCONTRACTOR',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.type).toBe('SUBCONTRACTOR');
+      }
+    });
+
+    it('typeが無効な値の場合エラーになること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト', type: 'INVALID' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.TYPE_INVALID);
+      }
+    });
+  });
+
+  describe('件数制限（limit）のバリデーション', () => {
+    it('limitが未指定の場合、デフォルト値（10）が適用されること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.limit).toBe(10);
+      }
+    });
+
+    it('limitが1以上10以下の場合成功すること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト', limit: '5' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.limit).toBe(5);
+      }
+    });
+
+    it('limitが0の場合エラーになること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト', limit: '0' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.LIMIT_MIN);
+      }
+    });
+
+    it('limitが10を超える場合エラーになること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({ q: 'テスト', limit: '11' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.LIMIT_MAX);
+      }
+    });
+  });
+
+  describe('複合条件のバリデーション', () => {
+    it('すべてのパラメータが有効な場合成功すること', () => {
+      const result = tradingPartnerSearchQuerySchema.safeParse({
+        q: 'テスト会社',
+        type: 'CUSTOMER',
+        limit: '5',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.q).toBe('テスト会社');
+        expect(result.data.type).toBe('CUSTOMER');
+        expect(result.data.limit).toBe(5);
+      }
+    });
+  });
+});
+
+/**
+ * 取引先IDパラメータスキーマのテスト
+ */
+describe('tradingPartnerIdParamSchema', () => {
+  // 動的インポートでIDパラメータスキーマを取得
+  let tradingPartnerIdParamSchema: typeof import('../../../schemas/trading-partner.schema.js').tradingPartnerIdParamSchema;
+  let TRADING_PARTNER_ID_VALIDATION_MESSAGES: typeof import('../../../schemas/trading-partner.schema.js').TRADING_PARTNER_ID_VALIDATION_MESSAGES;
+
+  beforeAll(async () => {
+    const module = await import('../../../schemas/trading-partner.schema.js');
+    tradingPartnerIdParamSchema = module.tradingPartnerIdParamSchema;
+    TRADING_PARTNER_ID_VALIDATION_MESSAGES = module.TRADING_PARTNER_ID_VALIDATION_MESSAGES;
+  });
+
+  describe('IDパラメータのバリデーション', () => {
+    it('有効なUUIDの場合成功すること', () => {
+      const result = tradingPartnerIdParamSchema.safeParse({
+        id: '550e8400-e29b-41d4-a716-446655440000',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('idが空文字の場合エラーになること', () => {
+      const result = tradingPartnerIdParamSchema.safeParse({ id: '' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_ID_VALIDATION_MESSAGES.ID_REQUIRED);
+      }
+    });
+
+    it('idがUUID形式でない場合エラーになること', () => {
+      const result = tradingPartnerIdParamSchema.safeParse({ id: 'invalid-uuid' });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const errorMessages = result.error.issues.map((issue) => issue.message);
+        expect(errorMessages).toContain(TRADING_PARTNER_ID_VALIDATION_MESSAGES.ID_INVALID_UUID);
+      }
+    });
+
+    it('idが未指定の場合エラーになること', () => {
+      const result = tradingPartnerIdParamSchema.safeParse({});
+      expect(result.success).toBe(false);
+    });
+  });
+});

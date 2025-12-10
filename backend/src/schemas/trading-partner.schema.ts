@@ -380,3 +380,177 @@ export const updateTradingPartnerSchema = z.object({
  * 取引先更新入力の型
  */
 export type UpdateTradingPartnerInput = z.infer<typeof updateTradingPartnerSchema>;
+
+/**
+ * 一覧取得用バリデーションエラーメッセージ定数
+ * Requirements: 1.3, 1.4, 1.5, 1.6
+ */
+export const TRADING_PARTNER_LIST_VALIDATION_MESSAGES = {
+  // ページネーション
+  PAGE_MIN: 'ページ番号は1以上である必要があります',
+  LIMIT_MIN: '表示件数は1以上である必要があります',
+  LIMIT_MAX: '表示件数は100以下である必要があります',
+
+  // 種別フィルター
+  TYPE_INVALID: '無効な種別です',
+
+  // ソート
+  SORT_FIELD_INVALID: '無効なソートフィールドです',
+  ORDER_INVALID: '無効なソート順序です',
+} as const;
+
+/**
+ * オートコンプリート検索用バリデーションエラーメッセージ定数
+ * Requirements: 10.2, 10.5
+ */
+export const TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES = {
+  // 検索クエリ
+  QUERY_REQUIRED: '検索クエリは必須です',
+
+  // 種別フィルター
+  TYPE_INVALID: '無効な種別です',
+
+  // 件数制限
+  LIMIT_MIN: '件数は1以上である必要があります',
+  LIMIT_MAX: '件数は10以下である必要があります',
+} as const;
+
+/**
+ * IDパラメータ用バリデーションエラーメッセージ定数
+ */
+export const TRADING_PARTNER_ID_VALIDATION_MESSAGES = {
+  ID_REQUIRED: '取引先IDは必須です',
+  ID_INVALID_UUID: '取引先IDの形式が不正です',
+} as const;
+
+/**
+ * ソート可能フィールド（取引先一覧用）
+ * Requirements: 1.6 - 指定された列でソート可能
+ */
+export const TRADING_PARTNER_SORTABLE_FIELDS = [
+  'id',
+  'name',
+  'nameKana',
+  'createdAt',
+  'updatedAt',
+] as const;
+export type TradingPartnerSortableField = (typeof TRADING_PARTNER_SORTABLE_FIELDS)[number];
+
+/**
+ * ソート順序
+ */
+export const SORT_ORDERS = ['asc', 'desc'] as const;
+export type SortOrder = (typeof SORT_ORDERS)[number];
+
+/**
+ * UUIDバリデーション用正規表現
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * ページネーション用スキーマ（取引先一覧用）
+ * クエリパラメータは文字列として送信されるため、coerceで数値に変換
+ * Requirements: 1.5
+ */
+const tradingPartnerPaginationSchema = z.object({
+  page: z.coerce
+    .number()
+    .int()
+    .min(1, TRADING_PARTNER_LIST_VALIDATION_MESSAGES.PAGE_MIN)
+    .default(1),
+
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1, TRADING_PARTNER_LIST_VALIDATION_MESSAGES.LIMIT_MIN)
+    .max(100, TRADING_PARTNER_LIST_VALIDATION_MESSAGES.LIMIT_MAX)
+    .default(20),
+});
+
+/**
+ * フィルター用スキーマ（取引先一覧用）
+ * Requirements: 1.3, 1.4
+ */
+const tradingPartnerFilterSchema = z.object({
+  // 検索キーワード（取引先名またはフリガナで部分一致検索）
+  // 空文字の場合はundefinedとして扱う
+  search: z
+    .string()
+    .optional()
+    .transform((val) => (val === '' ? undefined : val)),
+
+  // 種別フィルター
+  type: z
+    .enum(TRADING_PARTNER_TYPES, TRADING_PARTNER_LIST_VALIDATION_MESSAGES.TYPE_INVALID)
+    .optional(),
+});
+
+/**
+ * ソート用スキーマ（取引先一覧用）
+ * Requirements: 1.6, 1.8 - フリガナ昇順がデフォルト
+ */
+const tradingPartnerSortSchema = z.object({
+  sort: z
+    .enum(
+      TRADING_PARTNER_SORTABLE_FIELDS,
+      TRADING_PARTNER_LIST_VALIDATION_MESSAGES.SORT_FIELD_INVALID
+    )
+    .default('nameKana'),
+
+  order: z.enum(SORT_ORDERS, TRADING_PARTNER_LIST_VALIDATION_MESSAGES.ORDER_INVALID).default('asc'),
+});
+
+/**
+ * 取引先一覧取得用クエリスキーマ（フィルター + ページネーション + ソート）
+ * Requirements: 1.3, 1.4, 1.5, 1.6
+ */
+export const tradingPartnerListQuerySchema = tradingPartnerFilterSchema
+  .merge(tradingPartnerPaginationSchema)
+  .merge(tradingPartnerSortSchema);
+
+/**
+ * 取引先一覧取得用クエリの型
+ */
+export type TradingPartnerListQuery = z.infer<typeof tradingPartnerListQuerySchema>;
+
+/**
+ * オートコンプリート検索用クエリスキーマ
+ * Requirements: 10.2, 10.5
+ */
+export const tradingPartnerSearchQuerySchema = z.object({
+  // 検索クエリ（1文字以上必須）
+  q: z.string().min(1, TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.QUERY_REQUIRED),
+
+  // 種別フィルター（オプショナル）
+  type: z
+    .enum(TRADING_PARTNER_TYPES, TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.TYPE_INVALID)
+    .optional(),
+
+  // 件数制限（デフォルト10、最大10）
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1, TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.LIMIT_MIN)
+    .max(10, TRADING_PARTNER_SEARCH_VALIDATION_MESSAGES.LIMIT_MAX)
+    .default(10),
+});
+
+/**
+ * オートコンプリート検索用クエリの型
+ */
+export type TradingPartnerSearchQuery = z.infer<typeof tradingPartnerSearchQuerySchema>;
+
+/**
+ * 取引先IDパラメータ用スキーマ
+ */
+export const tradingPartnerIdParamSchema = z.object({
+  id: z
+    .string()
+    .min(1, TRADING_PARTNER_ID_VALIDATION_MESSAGES.ID_REQUIRED)
+    .regex(UUID_REGEX, TRADING_PARTNER_ID_VALIDATION_MESSAGES.ID_INVALID_UUID),
+});
+
+/**
+ * 取引先IDパラメータの型
+ */
+export type TradingPartnerIdParam = z.infer<typeof tradingPartnerIdParamSchema>;
