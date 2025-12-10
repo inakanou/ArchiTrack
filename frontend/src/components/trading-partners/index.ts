@@ -31,3 +31,6 @@ export type { TradingPartnerSearchFilterProps } from './TradingPartnerSearchFilt
 
 export { default as TradingPartnerDetailView } from './TradingPartnerDetailView';
 export type { TradingPartnerDetailViewProps } from './TradingPartnerDetailView';
+
+export { default as TradingPartnerDeleteDialog } from './TradingPartnerDeleteDialog';
+export type { TradingPartnerDeleteDialogProps } from './TradingPartnerDeleteDialog';
