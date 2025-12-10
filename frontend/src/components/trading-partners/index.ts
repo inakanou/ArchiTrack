@@ -28,3 +28,6 @@ export type { TradingPartnerPaginationUIProps } from './TradingPartnerPagination
 
 export { default as TradingPartnerSearchFilter } from './TradingPartnerSearchFilter';
 export type { TradingPartnerSearchFilterProps } from './TradingPartnerSearchFilter';
+
+export { default as TradingPartnerDetailView } from './TradingPartnerDetailView';
+export type { TradingPartnerDetailViewProps } from './TradingPartnerDetailView';
