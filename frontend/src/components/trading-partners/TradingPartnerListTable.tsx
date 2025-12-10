@@ -11,7 +11,7 @@
  * - REQ-1.8: 取引先一覧のデフォルトソート順をフリガナの昇順とする
  */
 
-import { useCallback, type KeyboardEvent } from 'react';
+import { useCallback, memo, type KeyboardEvent } from 'react';
 import type { TradingPartnerInfo, TradingPartnerType } from '../../types/trading-partner.types';
 import { TRADING_PARTNER_TYPE_LABELS } from '../../types/trading-partner.types';
 
@@ -249,6 +249,7 @@ function EmptyMessage() {
  * 取引先一覧テーブルコンポーネント
  *
  * テーブル形式で取引先一覧を表示し、ソートと行クリック機能を提供します。
+ * React.memoでラップし、propsが変更されない限り再レンダリングを防止します（REQ-9.1対応）。
  *
  * @example
  * ```tsx
@@ -261,7 +262,7 @@ function EmptyMessage() {
  * />
  * ```
  */
-export default function TradingPartnerListTable({
+const TradingPartnerListTable = memo(function TradingPartnerListTable({
   partners,
   sortField,
   sortOrder,
@@ -392,4 +393,6 @@ export default function TradingPartnerListTable({
       </table>
     </div>
   );
-}
+});
+
+export default TradingPartnerListTable;

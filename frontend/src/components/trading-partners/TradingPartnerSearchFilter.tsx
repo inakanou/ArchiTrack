@@ -8,7 +8,7 @@
  * - REQ-1.4: フィルター条件を選択したとき、取引先種別（顧客/協力業者）でのフィルタリングを実行
  */
 
-import { useState, useCallback, useId, type ChangeEvent } from 'react';
+import { useState, useCallback, useId, memo, type ChangeEvent } from 'react';
 import type { TradingPartnerFilter, TradingPartnerType } from '../../types/trading-partner.types';
 import {
   TRADING_PARTNER_TYPES,
@@ -37,6 +37,7 @@ export interface TradingPartnerSearchFilterProps {
  * 取引先検索・フィルタコンポーネント
  *
  * 検索フィールドと種別フィルタを提供します。
+ * React.memoでラップし、propsが変更されない限り再レンダリングを防止します（REQ-9.4対応）。
  *
  * @example
  * ```tsx
@@ -46,7 +47,7 @@ export interface TradingPartnerSearchFilterProps {
  * />
  * ```
  */
-export default function TradingPartnerSearchFilter({
+const TradingPartnerSearchFilter = memo(function TradingPartnerSearchFilter({
   filter,
   onFilterChange,
 }: TradingPartnerSearchFilterProps) {
@@ -306,4 +307,6 @@ export default function TradingPartnerSearchFilter({
       </div>
     </form>
   );
-}
+});
+
+export default TradingPartnerSearchFilter;

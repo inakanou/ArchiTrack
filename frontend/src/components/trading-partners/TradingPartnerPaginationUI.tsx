@@ -10,7 +10,7 @@
  *   - ページ切り替え時のデータ再取得
  */
 
-import { useMemo, useCallback, type ChangeEvent } from 'react';
+import { useMemo, useCallback, memo, type ChangeEvent } from 'react';
 import type { PaginationInfo } from '../../types/trading-partner.types';
 
 // ============================================================================
@@ -263,6 +263,7 @@ function LimitSelect({
  * 取引先一覧 ページネーションUIコンポーネント
  *
  * 取引先一覧のページネーションコントロールを提供します。
+ * React.memoでラップし、propsが変更されない限り再レンダリングを防止します（REQ-9.5対応）。
  *
  * @example
  * ```tsx
@@ -273,7 +274,7 @@ function LimitSelect({
  * />
  * ```
  */
-export default function TradingPartnerPaginationUI({
+const TradingPartnerPaginationUI = memo(function TradingPartnerPaginationUI({
   pagination,
   onPageChange,
   onLimitChange,
@@ -370,4 +371,6 @@ export default function TradingPartnerPaginationUI({
       <LimitSelect currentLimit={limit} onChange={onLimitChange} />
     </nav>
   );
-}
+});
+
+export default TradingPartnerPaginationUI;

@@ -15,6 +15,7 @@
  * - 3.3: 編集ボタンと削除ボタンを詳細ページに表示する
  */
 
+import { memo } from 'react';
 import type { TradingPartnerDetail } from '../../types/trading-partner.types';
 import { TRADING_PARTNER_TYPE_LABELS } from '../../types/trading-partner.types';
 import { formatBillingClosingDay, formatPaymentDate, formatDateTime } from '../../utils/formatters';
@@ -181,13 +182,18 @@ function Field({ label, value }: FieldProps) {
  *
  * 取引先の全フィールドを表示し、編集・削除ボタンを提供します。
  * 請求締日と支払日は日本語表記に変換して表示します。
+ * React.memoでラップし、propsが変更されない限り再レンダリングを防止します（REQ-9.2対応）。
  *
  * Requirements:
  * - 3.1: 取引先詳細ページを表示する
  * - 3.2: 全フィールドを表示する
  * - 3.3: 編集ボタンと削除ボタンを配置する
  */
-function TradingPartnerDetailView({ partner, onEdit, onDelete }: TradingPartnerDetailViewProps) {
+const TradingPartnerDetailView = memo(function TradingPartnerDetailView({
+  partner,
+  onEdit,
+  onDelete,
+}: TradingPartnerDetailViewProps) {
   // 請求締日を日本語表記に変換
   const billingClosingDayLabel = formatBillingClosingDay(partner.billingClosingDay);
 
@@ -284,6 +290,6 @@ function TradingPartnerDetailView({ partner, onEdit, onDelete }: TradingPartnerD
       </section>
     </div>
   );
-}
+});
 
 export default TradingPartnerDetailView;
