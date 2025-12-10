@@ -22,6 +22,7 @@ import type { CreateTradingPartnerInput } from '../../../schemas/trading-partner
 import {
   DuplicatePartnerNameError,
   TradingPartnerNotFoundError,
+  TradingPartnerConflictError,
 } from '../../../errors/tradingPartnerError.js';
 
 // テスト用モック
@@ -1124,6 +1125,655 @@ describe('TradingPartnerService', () => {
       expect(result).toHaveProperty('id');
       expect(result).toHaveProperty('types');
       // projects フィールドはオプションとして将来追加予定
+    });
+  });
+
+  /**
+   * updatePartner テスト
+   *
+   * Requirements:
+   * - 4.1: 現在の取引先情報がプリセットされた編集フォームを表示
+   * - 4.5: 変更の保存時、取引先レコードを更新する
+   * - 4.6: 更新に成功したとき、成功メッセージを表示し、取引先詳細ページに遷移
+   * - 4.7: 必須項目が未入力の場合、バリデーションエラーメッセージを表示
+   * - 4.8: 別の取引先と重複する取引先名に変更しようとした場合のエラー
+   * - 4.9: 楽観的排他制御（バージョン管理）を実装し、同時更新による競合を検出
+   * - 4.10: 楽観的排他制御で競合が検出された場合のエラー表示
+   */
+  describe('updatePartner', () => {
+    const existingPartner = {
+      id: 'partner-to-update',
+      name: '既存取引先株式会社',
+      nameKana: 'キゾントリヒキサキカブシキガイシャ',
+      branchName: '本店',
+      branchNameKana: 'ホンテン',
+      representativeName: '佐藤次郎',
+      representativeNameKana: 'サトウジロウ',
+      address: '東京都中央区1-1-1',
+      phoneNumber: '03-1111-2222',
+      faxNumber: '03-1111-3333',
+      email: 'existing@example.com',
+      billingClosingDay: 25,
+      paymentMonthOffset: 1,
+      paymentDay: 15,
+      notes: '既存の備考',
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-15T10:00:00.000Z'),
+      deletedAt: null,
+      types: [{ id: 'type-1', tradingPartnerId: 'partner-to-update', type: 'CUSTOMER' as const }],
+    };
+
+    it('取引先を正常に更新し、監査ログを記録する（Requirement 4.5, 4.6）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        name: '更新後取引先株式会社',
+        nameKana: 'コウシンゴトリヒキサキカブシキガイシャ',
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        name: '更新後取引先株式会社',
+        nameKana: 'コウシンゴトリヒキサキカブシキガイシャ',
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner) // 最初の呼び出し（存在確認）
+              .mockResolvedValueOnce(updatedPartner), // 2回目の呼び出し（更新後の取得）
+            findFirst: vi.fn().mockResolvedValue(null), // 重複なし
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('更新後取引先株式会社');
+      expect(result.nameKana).toBe('コウシンゴトリヒキサキカブシキガイシャ');
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'TRADING_PARTNER_UPDATED',
+          actorId,
+          targetType: 'TradingPartner',
+          targetId: 'partner-to-update',
+        })
+      );
+    });
+
+    it('楽観的排他制御：updatedAtが一致しない場合はTradingPartnerConflictErrorをスローする（Requirement 4.9, 4.10）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const staleExpectedUpdatedAt = new Date('2024-01-10T10:00:00.000Z'); // 古い日時
+      const updateInput = {
+        expectedUpdatedAt: staleExpectedUpdatedAt.toISOString(),
+        name: '更新後取引先株式会社',
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner), // updatedAt: 2024-01-15
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn(),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn(),
+            createMany: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(
+        service.updatePartner('partner-to-update', updateInput, actorId, staleExpectedUpdatedAt)
+      ).rejects.toThrow(TradingPartnerConflictError);
+    });
+
+    it('取引先が見つからない場合はTradingPartnerNotFoundErrorをスローする', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: new Date().toISOString(),
+        name: '更新後取引先株式会社',
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(null), // 取引先が見つからない
+            findFirst: vi.fn(),
+            update: vi.fn(),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn(),
+            createMany: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(
+        service.updatePartner('non-existent-id', updateInput, actorId, new Date())
+      ).rejects.toThrow(TradingPartnerNotFoundError);
+    });
+
+    it('別の取引先と重複する取引先名に変更しようとした場合はDuplicatePartnerNameErrorをスローする（Requirement 4.8）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        name: '既に存在する取引先名', // 重複する名前に変更
+      };
+
+      const anotherPartner = {
+        id: 'another-partner-id',
+        name: '既に存在する取引先名',
+        deletedAt: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(existingPartner),
+            findFirst: vi.fn().mockResolvedValue(anotherPartner), // 別の取引先が存在
+            update: vi.fn(),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn(),
+            createMany: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(
+        service.updatePartner(
+          'partner-to-update',
+          updateInput,
+          actorId,
+          new Date(updateInput.expectedUpdatedAt)
+        )
+      ).rejects.toThrow(DuplicatePartnerNameError);
+    });
+
+    it('自身と同じ名前への更新は重複エラーにならない', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        name: existingPartner.name, // 同じ名前
+        address: '新しい住所', // 他のフィールドを更新
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        address: '新しい住所',
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner) // 最初の呼び出し
+              .mockResolvedValueOnce(updatedPartner), // 更新後の取得
+            findFirst: vi.fn().mockResolvedValue(null), // 自身を除く重複なし
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.address).toBe('新しい住所');
+    });
+
+    it('種別を更新できる（CUSTOMERからSUBCONTRACTORへ）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        types: ['SUBCONTRACTOR' as const],
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+        types: [
+          {
+            id: 'type-new',
+            tradingPartnerId: 'partner-to-update',
+            type: 'SUBCONTRACTOR' as const,
+          },
+        ],
+      };
+
+      let deleteManyCalledWith: unknown = null;
+      let createManyCalledWith: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner)
+              .mockResolvedValueOnce(updatedPartner),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockImplementation((args) => {
+              deleteManyCalledWith = args;
+              return Promise.resolve({ count: 1 });
+            }),
+            createMany: vi.fn().mockImplementation((args) => {
+              createManyCalledWith = args;
+              return Promise.resolve({ count: 1 });
+            }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(result.types).toContain('SUBCONTRACTOR');
+      expect(deleteManyCalledWith).toEqual(
+        expect.objectContaining({
+          where: { tradingPartnerId: 'partner-to-update' },
+        })
+      );
+      expect(createManyCalledWith).toEqual(
+        expect.objectContaining({
+          data: [{ tradingPartnerId: 'partner-to-update', type: 'SUBCONTRACTOR' }],
+        })
+      );
+    });
+
+    it('複数種別への更新ができる（CUSTOMERのみからCUSTOMER + SUBCONTRACTORへ）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        types: ['CUSTOMER' as const, 'SUBCONTRACTOR' as const],
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+        types: [
+          { id: 'type-1', tradingPartnerId: 'partner-to-update', type: 'CUSTOMER' as const },
+          { id: 'type-2', tradingPartnerId: 'partner-to-update', type: 'SUBCONTRACTOR' as const },
+        ],
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner)
+              .mockResolvedValueOnce(updatedPartner),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 2 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(result.types).toHaveLength(2);
+      expect(result.types).toContain('CUSTOMER');
+      expect(result.types).toContain('SUBCONTRACTOR');
+    });
+
+    it('部分更新ができる（名前のみ更新）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        name: '新しい取引先名',
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        name: '新しい取引先名',
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner)
+              .mockResolvedValueOnce(updatedPartner),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(result.name).toBe('新しい取引先名');
+      // 他のフィールドは変更されていない
+      expect(result.nameKana).toBe(existingPartner.nameKana);
+      expect(result.address).toBe(existingPartner.address);
+    });
+
+    it('監査ログにbefore（更新前）とafter（更新後）のデータが記録される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        name: '更新後取引先株式会社',
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        name: '更新後取引先株式会社',
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner)
+              .mockResolvedValueOnce(updatedPartner),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          before: expect.objectContaining({
+            name: '既存取引先株式会社',
+          }),
+          after: expect.objectContaining({
+            name: '更新後取引先株式会社',
+          }),
+        })
+      );
+    });
+
+    it('請求締日と支払日を末日（99）に更新できる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        billingClosingDay: 99,
+        paymentDay: 99,
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        billingClosingDay: 99,
+        paymentDay: 99,
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner)
+              .mockResolvedValueOnce(updatedPartner),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(result.billingClosingDay).toBe(99);
+      expect(result.paymentDay).toBe(99);
+    });
+
+    it('任意フィールドをnullにクリアできる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        branchName: null,
+        representativeName: null,
+        phoneNumber: null,
+        email: null,
+        notes: null,
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        branchName: null,
+        representativeName: null,
+        phoneNumber: null,
+        email: null,
+        notes: null,
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner)
+              .mockResolvedValueOnce(updatedPartner),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(result.branchName).toBeNull();
+      expect(result.representativeName).toBeNull();
+      expect(result.phoneNumber).toBeNull();
+      expect(result.email).toBeNull();
+      expect(result.notes).toBeNull();
+    });
+
+    it('論理削除された取引先は更新できない', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        name: '更新後取引先株式会社',
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(null), // 論理削除で見つからない
+            findFirst: vi.fn(),
+            update: vi.fn(),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn(),
+            createMany: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(
+        service.updatePartner(
+          'deleted-partner-id',
+          updateInput,
+          actorId,
+          new Date(updateInput.expectedUpdatedAt)
+        )
+      ).rejects.toThrow(TradingPartnerNotFoundError);
+    });
+
+    it('重複チェックでは自身を除外し、論理削除されていないもののみをチェックする', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+        name: '新しい取引先名',
+      };
+
+      const updatedPartner = {
+        ...existingPartner,
+        name: '新しい取引先名',
+        updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+      };
+
+      let capturedFindFirstArgs: unknown = null;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce(existingPartner)
+              .mockResolvedValueOnce(updatedPartner),
+            findFirst: vi.fn().mockImplementation((args) => {
+              capturedFindFirstArgs = args;
+              return Promise.resolve(null);
+            }),
+            update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+          },
+          tradingPartnerTypeMapping: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.updatePartner(
+        'partner-to-update',
+        updateInput,
+        actorId,
+        new Date(updateInput.expectedUpdatedAt)
+      );
+
+      // Assert
+      expect(capturedFindFirstArgs).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            name: '新しい取引先名',
+            deletedAt: null,
+            NOT: { id: 'partner-to-update' },
+          }),
+        })
+      );
     });
   });
 });

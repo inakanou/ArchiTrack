@@ -25,6 +25,7 @@ import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import type {
   CreateTradingPartnerInput,
+  UpdateTradingPartnerInput,
   TradingPartnerType,
   TradingPartnerSortableField,
   SortOrder,
@@ -33,6 +34,7 @@ import { TRADING_PARTNER_TARGET_TYPE } from '../types/audit-log.types.js';
 import {
   DuplicatePartnerNameError,
   TradingPartnerNotFoundError,
+  TradingPartnerConflictError,
 } from '../errors/tradingPartnerError.js';
 
 /**
@@ -378,6 +380,186 @@ export class TradingPartnerService {
     // const projects = await this.getRelatedProjects(id);
 
     return this.toTradingPartnerInfo(partner);
+  }
+
+  /**
+   * 取引先更新
+   *
+   * トランザクション内で以下を実行:
+   * 1. 取引先の存在確認（論理削除されていないもの）
+   * 2. 楽観的排他制御のチェック（updatedAtの比較）
+   * 3. 取引先名の重複チェック（自身を除く、論理削除されていないもの）
+   * 4. 取引先レコードの更新
+   * 5. 種別マッピングの更新（削除 → 再作成）
+   * 6. 監査ログの記録
+   *
+   * @param id - 取引先ID
+   * @param input - 更新入力（部分更新対応）
+   * @param actorId - 実行者ID
+   * @param expectedUpdatedAt - 楽観的排他制御用の期待更新日時
+   * @returns 更新された取引先情報
+   * @throws TradingPartnerNotFoundError 取引先が見つからない場合
+   * @throws TradingPartnerConflictError 楽観的排他制御で競合が検出された場合
+   * @throws DuplicatePartnerNameError 別の取引先と重複する名前に変更しようとした場合
+   *
+   * Requirements:
+   * - 4.5: 変更の保存時、取引先レコードを更新する
+   * - 4.6: 更新に成功したとき、成功メッセージを表示し、取引先詳細ページに遷移
+   * - 4.8: 別の取引先と重複する取引先名に変更しようとした場合のエラー
+   * - 4.9: 楽観的排他制御（バージョン管理）を実装し、同時更新による競合を検出
+   * - 4.10: 楽観的排他制御で競合が検出された場合のエラー表示
+   */
+  async updatePartner(
+    id: string,
+    input: Omit<UpdateTradingPartnerInput, 'expectedUpdatedAt'>,
+    actorId: string,
+    expectedUpdatedAt: Date
+  ): Promise<TradingPartnerInfo> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. 取引先の存在確認（論理削除されていないもの）
+      const existingPartner = await tx.tradingPartner.findUnique({
+        where: {
+          id,
+          deletedAt: null,
+        },
+        include: {
+          types: true,
+        },
+      });
+
+      if (!existingPartner) {
+        throw new TradingPartnerNotFoundError(id);
+      }
+
+      // 2. 楽観的排他制御のチェック（updatedAtの比較）
+      // ミリ秒まで比較（タイムゾーンの差異を考慮）
+      const existingTime = existingPartner.updatedAt.getTime();
+      const expectedTime = expectedUpdatedAt.getTime();
+
+      if (existingTime !== expectedTime) {
+        throw new TradingPartnerConflictError(undefined, {
+          expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+          actualUpdatedAt: existingPartner.updatedAt.toISOString(),
+        });
+      }
+
+      // 3. 取引先名の重複チェック（名前が変更される場合のみ）
+      if (input.name !== undefined) {
+        const duplicatePartner = await tx.tradingPartner.findFirst({
+          where: {
+            name: input.name,
+            deletedAt: null,
+            NOT: { id },
+          },
+        });
+
+        if (duplicatePartner) {
+          throw new DuplicatePartnerNameError(input.name);
+        }
+      }
+
+      // 4. 更新データの構築（undefinedのフィールドは更新しない）
+      const updateData: Prisma.TradingPartnerUpdateInput = {};
+
+      if (input.name !== undefined) updateData.name = input.name;
+      if (input.nameKana !== undefined) updateData.nameKana = input.nameKana;
+      if (input.branchName !== undefined) updateData.branchName = input.branchName;
+      if (input.branchNameKana !== undefined) updateData.branchNameKana = input.branchNameKana;
+      if (input.representativeName !== undefined)
+        updateData.representativeName = input.representativeName;
+      if (input.representativeNameKana !== undefined)
+        updateData.representativeNameKana = input.representativeNameKana;
+      if (input.address !== undefined) updateData.address = input.address;
+      if (input.phoneNumber !== undefined) updateData.phoneNumber = input.phoneNumber;
+      if (input.faxNumber !== undefined) updateData.faxNumber = input.faxNumber;
+      if (input.email !== undefined) updateData.email = input.email;
+      if (input.billingClosingDay !== undefined)
+        updateData.billingClosingDay = input.billingClosingDay;
+      if (input.paymentMonthOffset !== undefined)
+        updateData.paymentMonthOffset = input.paymentMonthOffset;
+      if (input.paymentDay !== undefined) updateData.paymentDay = input.paymentDay;
+      if (input.notes !== undefined) updateData.notes = input.notes;
+
+      // 5. 取引先レコードの更新
+      await tx.tradingPartner.update({
+        where: { id },
+        data: updateData,
+      });
+
+      // 6. 種別マッピングの更新（変更がある場合のみ）
+      if (input.types !== undefined) {
+        // 既存の種別マッピングを削除
+        await tx.tradingPartnerTypeMapping.deleteMany({
+          where: { tradingPartnerId: id },
+        });
+
+        // 新しい種別マッピングを作成
+        await tx.tradingPartnerTypeMapping.createMany({
+          data: input.types.map((type) => ({
+            tradingPartnerId: id,
+            type,
+          })),
+        });
+      }
+
+      // 7. 更新後の取引先情報を取得
+      const updatedPartner = await tx.tradingPartner.findUnique({
+        where: { id },
+        include: { types: true },
+      });
+
+      if (!updatedPartner) {
+        // This should never happen, but TypeScript needs this check
+        throw new Error('Failed to retrieve updated trading partner');
+      }
+
+      // 8. 監査ログの記録
+      const beforeTypesArray = existingPartner.types.map((t) => t.type);
+      const afterTypesArray = updatedPartner.types.map((t) => t.type);
+
+      await this.auditLogService.createLog({
+        action: 'TRADING_PARTNER_UPDATED',
+        actorId,
+        targetType: TRADING_PARTNER_TARGET_TYPE,
+        targetId: id,
+        before: {
+          name: existingPartner.name,
+          nameKana: existingPartner.nameKana,
+          branchName: existingPartner.branchName,
+          branchNameKana: existingPartner.branchNameKana,
+          representativeName: existingPartner.representativeName,
+          representativeNameKana: existingPartner.representativeNameKana,
+          address: existingPartner.address,
+          phoneNumber: existingPartner.phoneNumber,
+          faxNumber: existingPartner.faxNumber,
+          email: existingPartner.email,
+          billingClosingDay: existingPartner.billingClosingDay,
+          paymentMonthOffset: existingPartner.paymentMonthOffset,
+          paymentDay: existingPartner.paymentDay,
+          notes: existingPartner.notes,
+          types: beforeTypesArray,
+        },
+        after: {
+          name: updatedPartner.name,
+          nameKana: updatedPartner.nameKana,
+          branchName: updatedPartner.branchName,
+          branchNameKana: updatedPartner.branchNameKana,
+          representativeName: updatedPartner.representativeName,
+          representativeNameKana: updatedPartner.representativeNameKana,
+          address: updatedPartner.address,
+          phoneNumber: updatedPartner.phoneNumber,
+          faxNumber: updatedPartner.faxNumber,
+          email: updatedPartner.email,
+          billingClosingDay: updatedPartner.billingClosingDay,
+          paymentMonthOffset: updatedPartner.paymentMonthOffset,
+          paymentDay: updatedPartner.paymentDay,
+          notes: updatedPartner.notes,
+          types: afterTypesArray,
+        },
+      });
+
+      return this.toTradingPartnerInfo(updatedPartner);
+    });
   }
 
   /**
