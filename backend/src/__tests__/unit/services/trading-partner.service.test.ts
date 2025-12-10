@@ -2392,7 +2392,7 @@ describe('TradingPartnerService', () => {
       );
     });
 
-    it('typesリレーションがincludeされる', async () => {
+    it('selectで必要最小限のフィールドのみ取得される（パフォーマンス最適化）', async () => {
       // Arrange
       mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
 
@@ -2400,10 +2400,18 @@ describe('TradingPartnerService', () => {
       await service.searchPartners('アルファ');
 
       // Assert
+      // Requirements 10.6: 検索APIのレスポンス時間を500ms以内にするため、selectで必要最小限のフィールドのみ取得
       expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          include: {
-            types: true,
+          select: {
+            id: true,
+            name: true,
+            nameKana: true,
+            types: {
+              select: {
+                type: true,
+              },
+            },
           },
         })
       );

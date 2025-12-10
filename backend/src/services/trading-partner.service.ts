@@ -668,8 +668,13 @@ export class TradingPartnerService {
   /**
    * 取引先検索結果（オートコンプリート用）
    *
+   * パフォーマンス最適化:
+   * - selectを使用して必要最小限のフィールドのみ取得（Requirements 10.6: 500ms以内）
+   * - インデックスを活用したクエリ（nameKana, deletedAt）
+   *
    * Requirements:
    * - 10.4: 検索結果に取引先ID、取引先名、フリガナ、種別を含める
+   * - 10.6: 検索APIのレスポンス時間を500ミリ秒以内
    */
   async searchPartners(
     query: string,
@@ -694,11 +699,19 @@ export class TradingPartnerService {
       };
     }
 
-    // 取引先検索
+    // 取引先検索（必要最小限のフィールドのみ取得）
+    // Performance optimization: select only required fields for autocomplete
     const partners = await this.prisma.tradingPartner.findMany({
       where,
-      include: {
-        types: true,
+      select: {
+        id: true,
+        name: true,
+        nameKana: true,
+        types: {
+          select: {
+            type: true,
+          },
+        },
       },
       orderBy: { nameKana: 'asc' },
       take: limit,

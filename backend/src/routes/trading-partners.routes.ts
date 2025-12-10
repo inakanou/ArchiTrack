@@ -10,6 +10,14 @@
  * - 10.1: GET /api/trading-partners/search エンドポイントで取引先検索機能を提供
  * - 10.6: 検索APIのレスポンス時間を500ミリ秒以内
  *
+ * Requirements (パフォーマンス):
+ * - 9.3: 取引先作成・更新・削除操作のAPI応答を500ミリ秒以内に完了
+ *
+ * パフォーマンス最適化:
+ * - 検索APIはselectを使用して必要最小限のフィールドのみ取得
+ * - インデックス活用（nameKana, deletedAt, type）
+ * - ページネーションによる大量データ対応
+ *
  * @module routes/trading-partners
  */
 
