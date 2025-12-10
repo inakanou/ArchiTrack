@@ -15,3 +15,10 @@ export type { PaymentDateSelectProps, PaymentDateValue } from './PaymentDateSele
 
 export { default as TradingPartnerForm } from './TradingPartnerForm';
 export type { TradingPartnerFormProps, TradingPartnerFormData } from './TradingPartnerForm';
+
+export { default as TradingPartnerListTable } from './TradingPartnerListTable';
+export type {
+  TradingPartnerListTableProps,
+  SortField as TradingPartnerSortField,
+  SortOrder as TradingPartnerSortOrder,
+} from './TradingPartnerListTable';
