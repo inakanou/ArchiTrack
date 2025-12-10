@@ -3,7 +3,17 @@
  *
  * 取引先のCRUD操作とビジネスロジックを担当します。
  *
- * Requirements:
+ * Requirements (一覧取得):
+ * - 1.1: 登録済みの取引先をテーブル形式で表示する
+ * - 1.2: 取引先名、フリガナ、部課/支店/支社名、代表者名、取引先種別、住所、電話番号、登録日を表示
+ * - 1.3: 取引先名またはフリガナによる部分一致検索
+ * - 1.4: 取引先種別でのフィルタリング
+ * - 1.5: ページネーション
+ * - 1.6: 指定された列でソート
+ * - 1.7: 取引先データが存在しない場合のメッセージ（空配列返却）
+ * - 1.8: デフォルトソート順をフリガナの昇順
+ *
+ * Requirements (作成):
  * - 2.7: ユーザーが有効なデータを入力して保存ボタンをクリック時、新しい取引先レコードをデータベースに作成
  * - 2.8: 取引先作成成功時、成功メッセージを表示し取引先一覧ページに遷移
  * - 2.11: 同一の取引先名が既に存在する場合、エラーを表示
@@ -11,11 +21,13 @@
  * @module services/trading-partner
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import type {
   CreateTradingPartnerInput,
   TradingPartnerType,
+  TradingPartnerSortableField,
+  SortOrder,
 } from '../schemas/trading-partner.schema.js';
 import { TRADING_PARTNER_TARGET_TYPE } from '../types/audit-log.types.js';
 import { DuplicatePartnerNameError } from '../errors/tradingPartnerError.js';
@@ -26,6 +38,63 @@ import { DuplicatePartnerNameError } from '../errors/tradingPartnerError.js';
 export interface TradingPartnerServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
+}
+
+/**
+ * 取引先フィルター条件
+ *
+ * Requirements:
+ * - 1.3: 取引先名またはフリガナによる部分一致検索
+ * - 1.4: 取引先種別でのフィルタリング
+ */
+export interface TradingPartnerFilter {
+  search?: string;
+  type?: TradingPartnerType;
+}
+
+/**
+ * ページネーション入力
+ *
+ * Requirements:
+ * - 1.5: ページネーション提供
+ */
+export interface PaginationInput {
+  page: number;
+  limit: number;
+}
+
+/**
+ * ソート入力
+ *
+ * Requirements:
+ * - 1.6: 指定された列でソート
+ * - 1.8: デフォルトソート順をフリガナの昇順
+ */
+export interface SortInput {
+  sort: TradingPartnerSortableField;
+  order: SortOrder;
+}
+
+/**
+ * ページネーション情報
+ */
+export interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+/**
+ * ページネーション付き取引先一覧
+ *
+ * Requirements:
+ * - 1.1: 登録済みの取引先をテーブル形式で表示
+ * - 1.5: ページネーション提供
+ */
+export interface PaginatedPartners {
+  data: TradingPartnerInfo[];
+  pagination: PaginationInfo;
 }
 
 /**
@@ -173,6 +242,79 @@ export class TradingPartnerService {
 
       return this.toTradingPartnerInfo(createdPartner);
     });
+  }
+
+  /**
+   * 取引先一覧取得
+   *
+   * ページネーション、検索、フィルタリング、ソートに対応。
+   * 論理削除されたレコードは除外される。
+   *
+   * @param filter - フィルター条件
+   * @param pagination - ページネーション入力
+   * @param sort - ソート入力
+   * @returns ページネーション付き取引先一覧
+   *
+   * Requirements:
+   * - 1.1: 登録済みの取引先をテーブル形式で表示する
+   * - 1.2: 取引先名、フリガナ、部課/支店/支社名、代表者名、取引先種別、住所、電話番号、登録日を表示
+   * - 1.3: 取引先名またはフリガナによる部分一致検索
+   * - 1.4: 取引先種別でのフィルタリング
+   * - 1.5: ページネーション
+   * - 1.6: 指定された列でソート
+   * - 1.7: 取引先データが存在しない場合の空結果返却
+   * - 1.8: デフォルトソート順をフリガナの昇順
+   */
+  async getPartners(
+    filter: TradingPartnerFilter,
+    pagination: PaginationInput,
+    sort: SortInput
+  ): Promise<PaginatedPartners> {
+    // WHERE条件の構築
+    const where: Prisma.TradingPartnerWhereInput = {
+      deletedAt: null,
+    };
+
+    // 検索キーワード（取引先名またはフリガナの部分一致）
+    if (filter.search) {
+      where.OR = [
+        { name: { contains: filter.search, mode: 'insensitive' as const } },
+        { nameKana: { contains: filter.search, mode: 'insensitive' as const } },
+      ];
+    }
+
+    // 種別フィルター（リレーション経由）
+    if (filter.type) {
+      where.types = {
+        some: {
+          type: filter.type,
+        },
+      };
+    }
+
+    // 総件数取得
+    const total = await this.prisma.tradingPartner.count({ where });
+
+    // 取引先一覧取得
+    const partners = await this.prisma.tradingPartner.findMany({
+      where,
+      include: {
+        types: true,
+      },
+      orderBy: { [sort.sort]: sort.order },
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+    });
+
+    return {
+      data: partners.map((p) => this.toTradingPartnerInfo(p)),
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / pagination.limit),
+      },
+    };
   }
 
   /**
