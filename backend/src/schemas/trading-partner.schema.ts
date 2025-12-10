@@ -1,13 +1,21 @@
 /**
  * @fileoverview 取引先用バリデーションスキーマ
  *
- * Requirements:
+ * Requirements (作成):
  * - 2.2, 2.3: 必須入力欄（名前、フリガナ、種別、住所）の定義
  * - 2.4: 請求締日として1日〜31日および「末日」の計32オプション
  * - 2.5: 支払日として月選択（翌月/翌々月/3ヶ月後）と日選択（1日〜31日および「末日」）
  * - 2.6: 種別選択肢として「顧客」と「協力業者」をチェックボックスで複数選択可能
  * - 2.9: 必須項目未入力時のバリデーションエラー表示
  * - 2.10: メールアドレス形式不正時のエラー表示
+ *
+ * Requirements (更新):
+ * - 4.2: 作成時と同じ必須・任意項目の編集を可能とする
+ * - 4.3: 請求締日として1日〜31日および「末日」の計32オプションをドロップダウンで提供
+ * - 4.4: 支払日として月選択と日選択の組み合わせをドロップダウンで提供
+ * - 4.9: 楽観的排他制御（バージョン管理）を実装
+ *
+ * Requirements (データ整合性):
  * - 11.1: 取引先名の最大文字数を200文字に制限
  * - 11.2: フリガナの最大文字数を200文字に制限し、カタカナのみを許可
  * - 11.3: 部課/支店/支社名の最大文字数を100文字に制限
@@ -249,3 +257,126 @@ export const createTradingPartnerSchema = z.object({
  * 取引先作成入力の型
  */
 export type CreateTradingPartnerInput = z.infer<typeof createTradingPartnerSchema>;
+
+/**
+ * 楽観的排他制御用バリデーションエラーメッセージ
+ * Requirements: 4.9, 4.10
+ */
+export const EXPECTED_UPDATED_AT_VALIDATION_MESSAGES = {
+  REQUIRED: '更新日時は必須です',
+  INVALID: '更新日時の形式が不正です',
+} as const;
+
+/**
+ * 日付文字列バリデーション（ISO8601形式またはYYYY-MM-DD形式）
+ * Requirements: 4.9
+ */
+const dateStringSchema = z.string().refine(
+  (val) => {
+    if (!val || val.trim() === '') {
+      return false;
+    }
+    const date = new Date(val);
+    return !isNaN(date.getTime());
+  },
+  { message: EXPECTED_UPDATED_AT_VALIDATION_MESSAGES.INVALID }
+);
+
+/**
+ * 取引先更新用スキーマ
+ * Requirements: 4.2, 4.3, 4.4, 11.1-11.13
+ *
+ * 部分更新に対応: すべてのフィールドがオプショナル（expectedUpdatedAt以外）
+ * 楽観的排他制御: expectedUpdatedAtは必須
+ */
+export const updateTradingPartnerSchema = z.object({
+  // 楽観的排他制御用（必須）
+  expectedUpdatedAt: dateStringSchema,
+
+  // 必須フィールド（指定された場合のみバリデーション）
+  name: z
+    .string()
+    .min(1, TRADING_PARTNER_VALIDATION_MESSAGES.NAME_REQUIRED)
+    .max(200, TRADING_PARTNER_VALIDATION_MESSAGES.NAME_TOO_LONG)
+    .refine((val) => val.trim().length > 0, {
+      message: TRADING_PARTNER_VALIDATION_MESSAGES.NAME_REQUIRED,
+    })
+    .optional(),
+
+  nameKana: z
+    .string()
+    .min(1, TRADING_PARTNER_VALIDATION_MESSAGES.NAME_KANA_REQUIRED)
+    .max(200, TRADING_PARTNER_VALIDATION_MESSAGES.NAME_KANA_TOO_LONG)
+    .refine((val) => KATAKANA_REGEX.test(val), {
+      message: TRADING_PARTNER_VALIDATION_MESSAGES.NAME_KANA_KATAKANA_ONLY,
+    })
+    .optional(),
+
+  types: z
+    .array(z.enum(TRADING_PARTNER_TYPES, TRADING_PARTNER_VALIDATION_MESSAGES.TYPES_INVALID))
+    .min(1, TRADING_PARTNER_VALIDATION_MESSAGES.TYPES_REQUIRED)
+    .optional(),
+
+  address: z
+    .string()
+    .min(1, TRADING_PARTNER_VALIDATION_MESSAGES.ADDRESS_REQUIRED)
+    .max(500, TRADING_PARTNER_VALIDATION_MESSAGES.ADDRESS_TOO_LONG)
+    .refine((val) => val.trim().length > 0, {
+      message: TRADING_PARTNER_VALIDATION_MESSAGES.ADDRESS_REQUIRED,
+    })
+    .optional(),
+
+  // 任意フィールド
+  branchName: z
+    .string()
+    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_TOO_LONG)
+    .nullable()
+    .optional(),
+
+  branchNameKana: z
+    .string()
+    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_TOO_LONG)
+    .refine((val) => KATAKANA_REGEX.test(val), {
+      message: TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_KATAKANA_ONLY,
+    })
+    .nullable()
+    .optional(),
+
+  representativeName: z
+    .string()
+    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_TOO_LONG)
+    .nullable()
+    .optional(),
+
+  representativeNameKana: z
+    .string()
+    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_TOO_LONG)
+    .refine((val) => KATAKANA_REGEX.test(val), {
+      message: TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_KATAKANA_ONLY,
+    })
+    .nullable()
+    .optional(),
+
+  phoneNumber: phoneOrFaxSchema(TRADING_PARTNER_VALIDATION_MESSAGES.PHONE_NUMBER_INVALID),
+
+  faxNumber: phoneOrFaxSchema(TRADING_PARTNER_VALIDATION_MESSAGES.FAX_NUMBER_INVALID),
+
+  email: z.string().email(TRADING_PARTNER_VALIDATION_MESSAGES.EMAIL_INVALID).nullable().optional(),
+
+  billingClosingDay: billingClosingDaySchema,
+
+  paymentMonthOffset: paymentMonthOffsetSchema,
+
+  paymentDay: paymentDaySchema,
+
+  notes: z
+    .string()
+    .max(2000, TRADING_PARTNER_VALIDATION_MESSAGES.NOTES_TOO_LONG)
+    .nullable()
+    .optional(),
+});
+
+/**
+ * 取引先更新入力の型
+ */
+export type UpdateTradingPartnerInput = z.infer<typeof updateTradingPartnerSchema>;

@@ -765,3 +765,446 @@ describe('電話番号・FAX番号正規表現', () => {
     expect(PHONE_FAX_REGEX.test('03@1234#5678')).toBe(false);
   });
 });
+
+/**
+ * 取引先更新スキーマのテスト
+ * Requirements:
+ * - 4.2, 4.3, 4.4: 更新時の必須・任意項目バリデーション
+ * - 11.1-11.13: 各フィールドの文字数制限・形式バリデーション
+ */
+describe('updateTradingPartnerSchema', () => {
+  // 動的インポートで更新スキーマを取得
+  let updateTradingPartnerSchema: typeof import('../../../schemas/trading-partner.schema.js').updateTradingPartnerSchema;
+
+  beforeAll(async () => {
+    const module = await import('../../../schemas/trading-partner.schema.js');
+    updateTradingPartnerSchema = module.updateTradingPartnerSchema;
+  });
+
+  // 有効な更新データのテンプレート
+  const validUpdateData = {
+    name: '更新テスト株式会社',
+    nameKana: 'コウシンテストカブシキガイシャ',
+    types: ['CUSTOMER'],
+    address: '大阪府大阪市1-2-3',
+    expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+  };
+
+  describe('expectedUpdatedAtフィールドのバリデーション', () => {
+    it('有効なISO8601形式の日付を受け入れること', () => {
+      const result = updateTradingPartnerSchema.safeParse(validUpdateData);
+      expect(result.success).toBe(true);
+    });
+
+    it('expectedUpdatedAtが必須であること', () => {
+      const { expectedUpdatedAt: _, ...dataWithoutExpectedUpdatedAt } = validUpdateData;
+      void _; // unused variable warning suppression
+      const result = updateTradingPartnerSchema.safeParse(dataWithoutExpectedUpdatedAt);
+      expect(result.success).toBe(false);
+    });
+
+    it('無効な日付形式を拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        ...validUpdateData,
+        expectedUpdatedAt: 'invalid-date',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('空文字列を拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        ...validUpdateData,
+        expectedUpdatedAt: '',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('日付のみの形式（YYYY-MM-DD）を受け入れること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        ...validUpdateData,
+        expectedUpdatedAt: '2025-01-01',
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('部分更新の対応', () => {
+    it('expectedUpdatedAtのみ指定した場合でも成功すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('nameのみ更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        name: '新しい会社名',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('nameKanaのみ更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        nameKana: 'アタラシイカイシャメイ',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('typesのみ更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        types: ['SUBCONTRACTOR'],
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('addressのみ更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        address: '新しい住所',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('複数フィールドを同時に更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        name: '新しい会社名',
+        nameKana: 'アタラシイカイシャメイ',
+        phoneNumber: '06-1234-5678',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('更新時の必須フィールドバリデーション', () => {
+    it('nameが空の場合エラーになること（部分更新でnameを指定した場合）', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        name: '',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('nameKanaが空の場合エラーになること（部分更新でnameKanaを指定した場合）', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        nameKana: '',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('typesが空配列の場合エラーになること（部分更新でtypesを指定した場合）', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        types: [],
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('addressが空の場合エラーになること（部分更新でaddressを指定した場合）', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        address: '',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('更新時の文字数制限バリデーション', () => {
+    it('nameが200文字を超える場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        name: 'あ'.repeat(201),
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('nameKanaが200文字を超える場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        nameKana: 'ア'.repeat(201),
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('branchNameが100文字を超える場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        branchName: 'あ'.repeat(101),
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('addressが500文字を超える場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        address: 'あ'.repeat(501),
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('notesが2000文字を超える場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        notes: 'あ'.repeat(2001),
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('更新時のフリガナカタカナ制約', () => {
+    it('nameKanaがカタカナの場合成功すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        nameKana: 'コウシンテスト',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('nameKanaがひらがなを含む場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        nameKana: 'こうしんてすと',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('branchNameKanaがひらがなを含む場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        branchNameKana: 'おおさかしてん',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('representativeNameKanaがひらがなを含む場合エラーになること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        representativeNameKana: 'たなかいちろう',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('更新時の種別バリデーション', () => {
+    it('CUSTOMERに更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        types: ['CUSTOMER'],
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('SUBCONTRACTORに更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        types: ['SUBCONTRACTOR'],
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('CUSTOMERとSUBCONTRACTORの両方に更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        types: ['CUSTOMER', 'SUBCONTRACTOR'],
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('無効な種別を拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        types: ['INVALID_TYPE'],
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('更新時の電話番号・FAX番号バリデーション', () => {
+    it('有効な電話番号形式を受け入れること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        phoneNumber: '06-1234-5678',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('無効な電話番号形式を拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        phoneNumber: 'invalid-phone',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('有効なFAX番号形式を受け入れること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        faxNumber: '06-1234-5679',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('無効なFAX番号形式を拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        faxNumber: 'abc-defg-hijk',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('更新時のメールアドレスバリデーション', () => {
+    it('有効なメールアドレスを受け入れること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        email: 'update@example.com',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('無効なメールアドレスを拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        email: 'invalid-email',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('更新時の請求締日・支払日バリデーション', () => {
+    it('請求締日を1〜31で更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        billingClosingDay: 25,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('請求締日を末日（99）で更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        billingClosingDay: 99,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('無効な請求締日を拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        billingClosingDay: 50,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('支払月オフセットを1〜3で更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        paymentMonthOffset: 2,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('無効な支払月オフセットを拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        paymentMonthOffset: 5,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('支払日を1〜31で更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        paymentDay: 15,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('支払日を末日（99）で更新できること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        paymentDay: 99,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('無効な支払日を拒否すること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        paymentDay: 40,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('任意フィールドのnullクリア', () => {
+    it('branchNameをnullでクリアできること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        branchName: null,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('phoneNumberをnullでクリアできること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        phoneNumber: null,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('emailをnullでクリアできること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        email: null,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('billingClosingDayをnullでクリアできること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        billingClosingDay: null,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('notesをnullでクリアできること', () => {
+      const result = updateTradingPartnerSchema.safeParse({
+        notes: null,
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('全フィールド更新', () => {
+    it('すべてのフィールドを同時に更新できること', () => {
+      const fullUpdateData = {
+        name: '更新後株式会社',
+        nameKana: 'コウシンゴカブシキガイシャ',
+        types: ['CUSTOMER', 'SUBCONTRACTOR'],
+        address: '大阪府大阪市中央区1-2-3',
+        branchName: '大阪支店',
+        branchNameKana: 'オオサカシテン',
+        representativeName: '田中一郎',
+        representativeNameKana: 'タナカイチロウ',
+        phoneNumber: '06-1234-5678',
+        faxNumber: '06-1234-5679',
+        email: 'updated@example.co.jp',
+        billingClosingDay: 25,
+        paymentMonthOffset: 2,
+        paymentDay: 10,
+        notes: '更新後の備考',
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+      };
+      const result = updateTradingPartnerSchema.safeParse(fullUpdateData);
+      expect(result.success).toBe(true);
+    });
+  });
+});
