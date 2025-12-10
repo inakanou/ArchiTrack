@@ -3301,6 +3301,78 @@
         }
       }
     },
+    "/api/trading-partners/search": {
+      "get": {
+        "summary": "取引先検索（オートコンプリート用）",
+        "description": "取引先名またはフリガナで部分一致検索を実行。プロジェクト管理機能からの取引先候補取得に使用",
+        "tags": [
+          "TradingPartners"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "検索クエリ（1文字以上）"
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CUSTOMER",
+                "SUBCONTRACTOR"
+              ]
+            },
+            "description": "種別フィルター"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 10
+            },
+            "description": "最大件数（1〜10）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "検索結果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TradingPartnerSearchResult"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
     "/api/trading-partners/{id}": {
       "get": {
         "summary": "取引先詳細取得",
