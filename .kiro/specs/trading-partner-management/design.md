@@ -15,6 +15,7 @@
 - プロジェクト管理機能からの取引先候補取得API提供
 - 監査ログによる操作履歴の記録
 - 楽観的排他制御による同時更新の競合検出
+- アプリケーション全体からのシームレスなナビゲーション（AppHeader、Dashboard統合）
 
 ### Non-Goals
 
@@ -22,6 +23,7 @@
 - 取引先のインポート/エクスポート機能
 - 取引先のマスタデータ連携（外部システム連携）
 - 取引先種別のカスタマイズ機能（現段階では固定）
+- パンくずナビゲーションコンポーネントの新規作成（既存プロジェクトにも未実装のため、将来の共通対応へ延期）
 
 ## Architecture
 
@@ -40,9 +42,16 @@
 
 ```mermaid
 graph TB
+    subgraph Navigation
+        AppHeader[AppHeader]
+        Dashboard[Dashboard]
+        RoutesConfig[routes.tsx]
+    end
+
     subgraph Frontend
         TradingPartnerListPage[TradingPartnerListPage]
         TradingPartnerDetailPage[TradingPartnerDetailPage]
+        TradingPartnerCreatePage[TradingPartnerCreatePage]
         TradingPartnerForm[TradingPartnerForm]
         TradingPartnerSearchFilter[TradingPartnerSearchFilter]
     end
@@ -63,10 +72,21 @@ graph TB
         AuditLogService[AuditLogService]
         AuthMiddleware[authenticate/authorize]
         ProjectService[ProjectService]
+        ProtectedRoute[ProtectedRoute]
+        ProtectedLayout[ProtectedLayout]
     end
+
+    AppHeader -->|取引先リンク| RoutesConfig
+    Dashboard -->|クイックアクセスカード| RoutesConfig
+    RoutesConfig --> ProtectedRoute
+    ProtectedRoute --> ProtectedLayout
+    ProtectedLayout --> TradingPartnerListPage
+    ProtectedLayout --> TradingPartnerDetailPage
+    ProtectedLayout --> TradingPartnerCreatePage
 
     TradingPartnerListPage --> TradingPartnerRoutes
     TradingPartnerDetailPage --> TradingPartnerRoutes
+    TradingPartnerCreatePage --> TradingPartnerRoutes
     TradingPartnerForm --> TradingPartnerRoutes
     TradingPartnerSearchFilter --> TradingPartnerRoutes
 
@@ -177,6 +197,62 @@ sequenceDiagram
     Frontend-->>User: 結果表示
 ```
 
+### ナビゲーションフロー
+
+```mermaid
+graph TB
+    subgraph EntryPoints
+        Header[AppHeader 取引先リンク]
+        DashCard[Dashboard 取引先管理カード]
+        DirectURL[直接URL入力]
+    end
+
+    subgraph ProtectedRoutes
+        ProtRoute[ProtectedRoute]
+        ProtLayout[ProtectedLayout]
+    end
+
+    subgraph Pages
+        List[/trading-partners 一覧]
+        New[/trading-partners/new 新規作成]
+        Detail[/trading-partners/:id 詳細]
+    end
+
+    subgraph Transitions
+        ListToNew[新規作成ボタン]
+        ListToDetail[行クリック]
+        DetailEdit[編集ボタン]
+        CreateSuccess[作成成功]
+        UpdateSuccess[更新成功]
+        DeleteSuccess[削除成功]
+    end
+
+    Header --> ProtRoute
+    DashCard --> ProtRoute
+    DirectURL --> ProtRoute
+
+    ProtRoute -->|認証済み| ProtLayout
+    ProtRoute -->|未認証| LoginPage[/login]
+    LoginPage -->|ログイン後| OriginalPage[元のページ]
+
+    ProtLayout --> List
+    ProtLayout --> New
+    ProtLayout --> Detail
+
+    List --> ListToNew --> New
+    List --> ListToDetail --> Detail
+    Detail --> DetailEdit --> Detail
+    New --> CreateSuccess --> List
+    Detail --> UpdateSuccess --> Detail
+    Detail --> DeleteSuccess --> List
+```
+
+**Key Decisions**:
+- 認証済みユーザーのみ取引先管理ページにアクセス可能（ProtectedRoute）
+- ログイン後は元のページ（リダイレクト元）に遷移（12.27）
+- 編集は詳細ページ内でインライン/モーダル形式で提供（12.12オプション）
+- 作成成功時は一覧に遷移、更新成功時は詳細に留まる（12.21-12.23）
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -192,6 +268,12 @@ sequenceDiagram
 | 9.1-9.5 | パフォーマンス | インデックス設計, ページネーション | - | - |
 | 10.1-10.7 | 取引先検索API | TradingPartnerService | GET /api/trading-partners/search | - |
 | 11.1-11.14 | データインテグリティ | TradingPartnerSchema, TradingPartner Model | Zodバリデーション | - |
+| 12.1-12.4 | ヘッダーナビゲーション | AppHeader (既存拡張) | Link | ナビゲーションフロー |
+| 12.5-12.8 | ダッシュボードクイックアクセス | Dashboard (既存拡張) | Link | ナビゲーションフロー |
+| 12.9-12.13 | URL構造・ルーティング | routes.tsx (既存拡張), TradingPartnerNotFound | React Router | ナビゲーションフロー |
+| 12.14-12.17 | パンくずナビゲーション | 将来実装予定 | - | - |
+| 12.18-12.23 | 画面間遷移 | TradingPartnerListPage, TradingPartnerDetailPage, TradingPartnerCreatePage | React Router navigate | 画面遷移フロー |
+| 12.24-12.27 | アクセス制御とルート保護 | ProtectedRoute (既存), ProtectedLayout (既存), routes.tsx | - | 認証フロー |
 
 ## Components and Interfaces
 
@@ -204,9 +286,14 @@ sequenceDiagram
 | TradingPartnerSchema | Backend/Schema | リクエストバリデーション | 2, 4, 11 | Zod (P0) | - |
 | TradingPartnerError | Backend/Error | ドメイン固有エラー | 5, 8 | ApiError (P0) | - |
 | TradingPartner Model | Data/Prisma | データモデル | 11 | PostgreSQL (P0) | - |
-| TradingPartnerListPage | Frontend/Page | 一覧画面 | 1, 8, 9 | TradingPartnerService (P0) | State |
-| TradingPartnerDetailPage | Frontend/Page | 詳細画面 | 3, 5 | TradingPartnerService (P0) | State |
+| TradingPartnerListPage | Frontend/Page | 一覧画面 | 1, 8, 9, 12.18-12.19 | TradingPartnerService (P0) | State |
+| TradingPartnerDetailPage | Frontend/Page | 詳細画面 | 3, 5, 12.20, 12.22 | TradingPartnerService (P0) | State |
+| TradingPartnerCreatePage | Frontend/Page | 新規作成画面 | 2, 12.21 | TradingPartnerForm (P0) | State |
 | TradingPartnerForm | Frontend/Component | 作成・編集フォーム | 2, 4, 11 | - | - |
+| AppHeader (既存拡張) | Frontend/Navigation | ヘッダーナビゲーション | 12.1-12.4 | React Router (P0) | - |
+| Dashboard (既存拡張) | Frontend/Page | ダッシュボード | 12.5-12.8 | React Router (P0) | - |
+| routes.tsx (既存拡張) | Frontend/Config | ルート定義 | 12.9-12.13, 12.24-12.27 | ProtectedRoute (P0), ProtectedLayout (P0) | - |
+| TradingPartnerNotFound | Frontend/Component | 404表示 | 12.13 | - | - |
 
 ### Backend Layer
 
@@ -399,6 +486,194 @@ class TradingPartnerService {
 - 支払日: 月選択（翌月/翌々月/3ヶ月後）と日選択（1日〜31日および「末日」）
 - バリデーションエラー: 各入力欄にエラーメッセージ表示
 - フリガナ入力支援: カタカナ以外の入力時に警告表示
+
+#### TradingPartnerCreatePage
+
+| Field | Detail |
+|-------|--------|
+| Intent | 取引先新規作成専用ページを提供 |
+| Requirements | 2.1-2.11, 12.10, 12.19, 12.21 |
+
+**Implementation Notes**
+- URL: `/trading-partners/new`
+- TradingPartnerFormを再利用し、新規作成モードで表示
+- 作成成功時: 成功メッセージ表示後、一覧ページ（/trading-partners）へ遷移
+- 戻るボタン: 一覧ページへのリンク提供
+
+### Navigation Layer (既存コンポーネント拡張)
+
+#### AppHeader (既存拡張)
+
+| Field | Detail |
+|-------|--------|
+| Intent | メインナビゲーションに「取引先」リンクを追加 |
+| Requirements | 12.1, 12.2, 12.3, 12.4 |
+
+**Responsibilities & Constraints**
+- 既存の`Icons.Project`パターンに従い、`Icons.TradingPartner`（ビルディングアイコン）を追加
+- 「取引先」リンクを「プロジェクト」リンクの次に配置
+- 認証済みユーザーのみ表示（既存のProtectedLayout内で使用）
+
+**Dependencies**
+- Inbound: ProtectedLayout — 認証済みページで表示 (P0)
+- Outbound: React Router Link — ナビゲーション (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Interface Extension
+
+```typescript
+// AppHeader内のIcons拡張
+const Icons = {
+  // ... 既存アイコン
+  /**
+   * 取引先アイコン（ビルディング）
+   * REQ-12.3: 取引先リンクにアイコンを付与して視認性を高める
+   */
+  TradingPartner: () => (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+      />
+    </svg>
+  ),
+};
+
+// ナビゲーションリンク追加位置
+// 既存: ダッシュボード → プロジェクト → [管理者メニュー]
+// 変更: ダッシュボード → プロジェクト → 取引先 → [管理者メニュー]
+<Link to="/trading-partners" className="app-header-nav-link">
+  <Icons.TradingPartner />
+  <span>取引先</span>
+</Link>
+```
+
+#### Dashboard (既存拡張)
+
+| Field | Detail |
+|-------|--------|
+| Intent | クイックアクセスセクションに「取引先管理」カードを追加 |
+| Requirements | 12.5, 12.6, 12.7, 12.8 |
+
+**Responsibilities & Constraints**
+- 「プロジェクト管理」カードの次（2番目）に配置
+- カード説明: 「顧客・協力業者の登録・管理」
+- クリック時: `/trading-partners` に遷移
+
+**Dependencies**
+- Outbound: React Router Link — ナビゲーション (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Interface Extension
+
+```typescript
+// クイックアクセスセクション内の配置
+{/* プロジェクト管理 - REQ 21.5-21.8 */}
+<Link to="/projects" ... >
+  <h3>プロジェクト管理</h3>
+  <p>工事案件の作成・管理</p>
+</Link>
+
+{/* 取引先管理 - REQ 12.5-12.8: プロジェクト管理の次に配置 */}
+<Link
+  to="/trading-partners"
+  className="block p-6 bg-white rounded-lg shadow hover:shadow-md transition-shadow"
+  data-testid="quick-link-trading-partners"
+>
+  <h3 className="text-lg font-medium text-gray-900">取引先管理</h3>
+  <p className="mt-2 text-gray-600">顧客・協力業者の登録・管理</p>
+</Link>
+
+{/* プロフィール */}
+<Link to="/profile" ... >
+```
+
+#### routes.tsx (既存拡張)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 取引先管理ページのルート定義を追加 |
+| Requirements | 12.9, 12.10, 12.11, 12.12, 12.24, 12.25, 12.26, 12.27 |
+
+**Responsibilities & Constraints**
+- URL構造: `/trading-partners`, `/trading-partners/new`, `/trading-partners/:id`
+- ProtectedRoute + ProtectedLayout による認証保護
+- プロジェクト管理と同じルートグループ（保護されたルート）に配置
+
+**Dependencies**
+- Outbound: ProtectedRoute — 認証チェック (P0)
+- Outbound: ProtectedLayout — AppHeader付きレイアウト (P0)
+- Outbound: TradingPartnerListPage, TradingPartnerDetailPage, TradingPartnerCreatePage — ページコンポーネント (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Route Configuration
+
+```typescript
+// 保護されたルート（AppHeader付きレイアウト）内に追加
+{
+  element: (
+    <ProtectedRoute>
+      <ProtectedLayout />
+    </ProtectedRoute>
+  ),
+  children: [
+    // ... 既存ルート（dashboard, profile, sessions, projects等）
+
+    // 取引先一覧 - REQ 12.9
+    {
+      path: '/trading-partners',
+      element: <TradingPartnerListPage />,
+    },
+    // 取引先新規作成 - REQ 12.10（:id より先に定義）
+    {
+      path: '/trading-partners/new',
+      element: <TradingPartnerCreatePage />,
+    },
+    // 取引先詳細 - REQ 12.11
+    {
+      path: '/trading-partners/:id',
+      element: <TradingPartnerDetailPage />,
+    },
+  ],
+}
+```
+
+**Implementation Notes**
+- `/trading-partners/new` は `/trading-partners/:id` より先に定義（React Routerのマッチング順序）
+- 既存のProjectルートパターン（/projects, /projects/new, /projects/:id）を踏襲
+- 編集ページ（/trading-partners/:id/edit）は詳細ページ内インライン編集のため省略可（12.12オプション）
+
+#### TradingPartnerNotFound
+
+| Field | Detail |
+|-------|--------|
+| Intent | 存在しない取引先IDにアクセスした場合のエラー表示 |
+| Requirements | 12.13 |
+
+**Implementation Notes**
+- 「取引先が見つかりません」メッセージを表示
+- 取引先一覧（/trading-partners）への戻るリンクを提供
+- TradingPartnerDetailPage内で取引先が見つからない場合に表示
+
+```typescript
+// TradingPartnerDetailPage内での使用
+if (error?.code === 'TRADING_PARTNER_NOT_FOUND') {
+  return (
+    <div className="text-center py-12">
+      <h1 className="text-2xl font-bold text-gray-900">取引先が見つかりません</h1>
+      <p className="mt-2 text-gray-600">指定された取引先は存在しないか、削除されています。</p>
+      <Link to="/trading-partners" className="mt-4 text-blue-600 hover:text-blue-800 underline">
+        取引先一覧に戻る
+      </Link>
+    </div>
+  );
+}
+```
 
 ## Data Models
 
@@ -604,6 +879,14 @@ interface TradingPartnerSearchResponse {
 - 取引先一覧表示: ページネーション、検索、フィルタリング、ソート
 - 取引先CRUD: 作成→詳細→編集→削除フロー
 - エラーハンドリング: 重複名、楽観的排他制御エラー
+- ナビゲーション（要件12）:
+  - AppHeaderの「取引先」リンクから一覧ページへの遷移（12.1, 12.2）
+  - ダッシュボードの「取引先管理」カードから一覧ページへの遷移（12.5, 12.6）
+  - URL直接アクセス（/trading-partners, /trading-partners/new, /trading-partners/:id）（12.9-12.12）
+  - 存在しない取引先IDへのアクセス時の404表示と戻るリンク（12.13）
+  - 画面間遷移: 一覧→詳細、一覧→新規作成、詳細→編集（12.18-12.20）
+  - 操作後遷移: 作成成功→一覧、更新成功→詳細、削除成功→一覧（12.21-12.23）
+  - 未認証アクセス時のログインリダイレクトとログイン後の元ページ復帰（12.24-12.27）
 
 ### Performance Tests
 - 一覧取得: 1000件以上でのページネーションパフォーマンス（2秒以内）
