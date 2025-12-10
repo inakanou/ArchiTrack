@@ -319,3 +319,87 @@ model ProjectStatusHistory {
   @@index([transitionType])
   @@map("project_status_histories")
 }
+
+// ===== Trading Partner Management Data Models =====
+
+/**
+ * 取引先種別
+ * Requirements: 6.1, 6.2, 6.3
+ */
+enum TradingPartnerType {
+  CUSTOMER // 顧客
+  SUBCONTRACTOR // 協力業者
+}
+
+/**
+ * 取引先モデル
+ * 取引先（顧客および協力業者）の情報を一元管理する。
+ * フィールド:
+ * - id: 取引先の一意ID（UUID）
+ * - name: 取引先名（必須、最大200文字）
+ * - nameKana: フリガナ（必須、最大200文字、カタカナのみ）
+ * - branchName: 部課/支店/支社名（任意、最大100文字）
+ * - branchNameKana: 部課/支店/支社フリガナ（任意、最大100文字）
+ * - representativeName: 代表者名（任意、最大100文字）
+ * - representativeNameKana: 代表者フリガナ（任意、最大100文字）
+ * - address: 住所（必須、最大500文字）
+ * - phoneNumber: 電話番号（任意）
+ * - faxNumber: FAX番号（任意）
+ * - email: メールアドレス（任意）
+ * - billingClosingDay: 請求締日（1-31 or 99=末日）
+ * - paymentMonthOffset: 支払月オフセット（1=翌月, 2=翌々月, 3=3ヶ月後）
+ * - paymentDay: 支払日（1-31 or 99=末日）
+ * - notes: 備考（最大2000文字）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.10, 11.11, 11.12, 11.13, 11.14
+ */
+model TradingPartner {
+  id                     String    @id @default(uuid())
+  name                   String // 取引先名（必須、最大200文字）
+  nameKana               String // フリガナ（必須、最大200文字、カタカナのみ）
+  branchName             String? // 部課/支店/支社名（任意、最大100文字）
+  branchNameKana         String? // 部課/支店/支社フリガナ（任意、最大100文字）
+  representativeName     String? // 代表者名（任意、最大100文字）
+  representativeNameKana String? // 代表者フリガナ（任意、最大100文字）
+  address                String // 住所（必須、最大500文字）
+  phoneNumber            String? // 電話番号（任意）
+  faxNumber              String? // FAX番号（任意）
+  email                  String? // メールアドレス（任意）
+  billingClosingDay      Int? // 請求締日（1-31 or 99=末日）
+  paymentMonthOffset     Int? // 支払月オフセット（1=翌月, 2=翌々月, 3=3ヶ月後）
+  paymentDay             Int? // 支払日（1-31 or 99=末日）
+  notes                  String? // 備考（最大2000文字）
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime? // 論理削除
+
+  // リレーション
+  types TradingPartnerTypeMapping[]
+
+  // インデックス
+  @@unique([name, deletedAt], name: "name_deletedAt") // 削除されていない取引先名の一意制約
+  @@index([nameKana])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("trading_partners")
+}
+
+/**
+ * 取引先種別マッピング（多対多の代替としてのジョイントテーブル）
+ * 1つの取引先は「顧客」「協力業者」またはその両方を持つことができる。
+ * Requirements: 6.1, 6.2, 6.3
+ */
+model TradingPartnerTypeMapping {
+  id               String             @id @default(uuid())
+  tradingPartnerId String
+  type             TradingPartnerType
+
+  tradingPartner TradingPartner @relation(fields: [tradingPartnerId], references: [id], onDelete: Cascade)
+
+  @@unique([tradingPartnerId, type], name: "tradingPartnerId_type")
+  @@index([tradingPartnerId])
+  @@index([type])
+  @@map("trading_partner_type_mappings")
+}
