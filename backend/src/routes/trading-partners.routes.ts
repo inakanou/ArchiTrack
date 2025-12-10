@@ -1,10 +1,14 @@
 /**
- * @fileoverview 取引先CRUD APIルート
+ * @fileoverview 取引先管理APIルート
  *
- * Requirements:
+ * Requirements (アクセス制御):
  * - 7.1: 認証済みユーザーのみに取引先一覧・詳細の閲覧を許可
  * - 7.2: 取引先の作成・編集・削除操作に対して適切な権限チェックを実行
  * - 7.3: 権限のないユーザーが操作を試みた場合、403 Forbiddenエラーを返却
+ *
+ * Requirements (検索API):
+ * - 10.1: GET /api/trading-partners/search エンドポイントで取引先検索機能を提供
+ * - 10.6: 検索APIのレスポンス時間を500ミリ秒以内
  *
  * @module routes/trading-partners
  */
@@ -22,9 +26,11 @@ import {
   updateTradingPartnerSchema,
   tradingPartnerListQuerySchema,
   tradingPartnerIdParamSchema,
+  tradingPartnerSearchQuerySchema,
   type CreateTradingPartnerInput,
   type UpdateTradingPartnerInput,
   type TradingPartnerListQuery,
+  type TradingPartnerSearchQuery,
   type TradingPartnerType,
   type TradingPartnerSortableField,
   type SortOrder,
@@ -141,6 +147,82 @@ router.get(
       );
 
       res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/trading-partners/search:
+ *   get:
+ *     summary: 取引先検索（オートコンプリート用）
+ *     description: 取引先名またはフリガナで部分一致検索を実行。プロジェクト管理機能からの取引先候補取得に使用
+ *     tags:
+ *       - TradingPartners
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *           minLength: 1
+ *         description: 検索クエリ（1文字以上）
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [CUSTOMER, SUBCONTRACTOR]
+ *         description: 種別フィルター
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           maximum: 10
+ *         description: 最大件数（1〜10）
+ *     responses:
+ *       200:
+ *         description: 検索結果
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/TradingPartnerSearchResult'
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ */
+router.get(
+  '/search',
+  authenticate,
+  requirePermission('trading-partner:read'),
+  validate(tradingPartnerSearchQuerySchema, 'query'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const validatedQuery = req.validatedQuery as TradingPartnerSearchQuery;
+
+      const { q, type, limit } = validatedQuery;
+
+      const results = await tradingPartnerService.searchPartners(
+        q,
+        type as TradingPartnerType | undefined,
+        limit
+      );
+
+      logger.debug(
+        { userId: req.user?.userId, query: q, type, limit, resultCount: results.length },
+        'Trading partners search completed'
+      );
+
+      res.json(results);
     } catch (error) {
       next(error);
     }

@@ -18,6 +18,7 @@ const {
   mockCreatePartner,
   mockUpdatePartner,
   mockDeletePartner,
+  mockSearchPartners,
   mockCreateLog,
   mockRequirePermission,
   mockState,
@@ -27,6 +28,7 @@ const {
   mockCreatePartner: vi.fn(),
   mockUpdatePartner: vi.fn(),
   mockDeletePartner: vi.fn(),
+  mockSearchPartners: vi.fn(),
   mockCreateLog: vi.fn(),
   mockRequirePermission: vi.fn(),
   mockState: { shouldRejectPermission: false },
@@ -53,6 +55,7 @@ vi.mock('../../../services/trading-partner.service.js', () => ({
     createPartner = mockCreatePartner;
     updatePartner = mockUpdatePartner;
     deletePartner = mockDeletePartner;
+    searchPartners = mockSearchPartners;
   },
 }));
 
@@ -442,6 +445,153 @@ describe('TradingPartnersRoutes', () => {
       // Assert
       expect(response.status).toBe(403);
       expect(response.body.code).toBe('FORBIDDEN');
+    });
+  });
+
+  /**
+   * 取引先検索エンドポイント（オートコンプリート用）のテスト
+   *
+   * Requirements:
+   * - 10.1: GET /api/trading-partners/search エンドポイントで取引先検索機能を提供
+   * - 10.6: 検索APIのレスポンス時間を500ミリ秒以内
+   */
+  describe('GET /api/trading-partners/search', () => {
+    it('認証済みユーザーが取引先を検索できる', async () => {
+      // Arrange
+      mockSearchPartners.mockResolvedValue([
+        {
+          id: 'partner-1',
+          name: 'テスト株式会社',
+          nameKana: 'テストカブシキガイシャ',
+          types: ['CUSTOMER'],
+        },
+        {
+          id: 'partner-2',
+          name: 'テスト商事',
+          nameKana: 'テストショウジ',
+          types: ['SUBCONTRACTOR'],
+        },
+      ]);
+
+      // Act
+      const response = await request(app).get('/api/trading-partners/search?q=テスト');
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0].id).toBe('partner-1');
+      expect(response.body[0].name).toBe('テスト株式会社');
+      expect(response.body[0].nameKana).toBe('テストカブシキガイシャ');
+      expect(response.body[0].types).toContain('CUSTOMER');
+      expect(mockRequirePermission).toHaveBeenCalledWith('trading-partner:read');
+    });
+
+    it('trading-partner:read権限が必要', async () => {
+      // Arrange
+      mockSearchPartners.mockResolvedValue([]);
+
+      // Act
+      await request(app).get('/api/trading-partners/search?q=テスト');
+
+      // Assert
+      expect(mockRequirePermission).toHaveBeenCalledWith('trading-partner:read');
+    });
+
+    it('権限がない場合は403エラーを返す', async () => {
+      // Arrange
+      mockState.shouldRejectPermission = true;
+
+      // Act
+      const response = await request(app).get('/api/trading-partners/search?q=テスト');
+
+      // Assert
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe('FORBIDDEN');
+    });
+
+    it('検索クエリが空の場合はバリデーションエラーを返す', async () => {
+      // Act
+      const response = await request(app).get('/api/trading-partners/search?q=');
+
+      // Assert
+      expect(response.status).toBe(400);
+    });
+
+    it('検索クエリがない場合はバリデーションエラーを返す', async () => {
+      // Act
+      const response = await request(app).get('/api/trading-partners/search');
+
+      // Assert
+      expect(response.status).toBe(400);
+    });
+
+    it('種別フィルターを処理できる', async () => {
+      // Arrange
+      mockSearchPartners.mockResolvedValue([
+        {
+          id: 'partner-1',
+          name: 'テスト株式会社',
+          nameKana: 'テストカブシキガイシャ',
+          types: ['CUSTOMER'],
+        },
+      ]);
+
+      // Act
+      const response = await request(app).get(
+        '/api/trading-partners/search?q=テスト&type=CUSTOMER'
+      );
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(mockSearchPartners).toHaveBeenCalledWith('テスト', 'CUSTOMER', 10);
+    });
+
+    it('件数制限を処理できる', async () => {
+      // Arrange
+      mockSearchPartners.mockResolvedValue([
+        {
+          id: 'partner-1',
+          name: 'テスト株式会社',
+          nameKana: 'テストカブシキガイシャ',
+          types: ['CUSTOMER'],
+        },
+      ]);
+
+      // Act
+      const response = await request(app).get('/api/trading-partners/search?q=テスト&limit=5');
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(mockSearchPartners).toHaveBeenCalledWith('テスト', undefined, 5);
+    });
+
+    it('件数制限が10を超える場合はバリデーションエラーを返す', async () => {
+      // Act
+      const response = await request(app).get('/api/trading-partners/search?q=テスト&limit=11');
+
+      // Assert
+      expect(response.status).toBe(400);
+    });
+
+    it('無効な種別フィルターの場合はバリデーションエラーを返す', async () => {
+      // Act
+      const response = await request(app).get('/api/trading-partners/search?q=テスト&type=INVALID');
+
+      // Assert
+      expect(response.status).toBe(400);
+    });
+
+    it('検索結果が0件の場合は空配列を返す', async () => {
+      // Arrange
+      mockSearchPartners.mockResolvedValue([]);
+
+      // Act
+      const response = await request(app).get('/api/trading-partners/search?q=存在しない');
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([]);
     });
   });
 });
