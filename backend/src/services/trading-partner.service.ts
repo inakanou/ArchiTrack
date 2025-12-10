@@ -30,7 +30,10 @@ import type {
   SortOrder,
 } from '../schemas/trading-partner.schema.js';
 import { TRADING_PARTNER_TARGET_TYPE } from '../types/audit-log.types.js';
-import { DuplicatePartnerNameError } from '../errors/tradingPartnerError.js';
+import {
+  DuplicatePartnerNameError,
+  TradingPartnerNotFoundError,
+} from '../errors/tradingPartnerError.js';
 
 /**
  * TradingPartnerService依存関係
@@ -119,6 +122,30 @@ export interface TradingPartnerInfo {
   types: TradingPartnerType[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * プロジェクトサマリー（将来の連携用）
+ *
+ * Requirements:
+ * - 3.4: プロジェクト管理機能が有効なとき、当該取引先に紐付くプロジェクト一覧を表示する
+ */
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  status: string;
+}
+
+/**
+ * 取引先詳細情報（詳細取得レスポンス用）
+ *
+ * Requirements:
+ * - 3.1: 取引先詳細ページを表示する
+ * - 3.2: 全フィールドを詳細ページに表示する
+ * - 3.4: 当該取引先に紐付くプロジェクト一覧を表示する（将来対応）
+ */
+export interface TradingPartnerDetail extends TradingPartnerInfo {
+  projects?: ProjectSummary[];
 }
 
 /**
@@ -315,6 +342,42 @@ export class TradingPartnerService {
         totalPages: total === 0 ? 0 : Math.ceil(total / pagination.limit),
       },
     };
+  }
+
+  /**
+   * 取引先詳細取得
+   *
+   * IDによる単一取引先の詳細情報を取得します。
+   * 論理削除されたレコードは取得対象外です。
+   *
+   * @param id - 取引先ID
+   * @returns 取引先詳細情報
+   * @throws TradingPartnerNotFoundError 取引先が見つからない場合
+   *
+   * Requirements:
+   * - 3.1: ユーザーが一覧から取引先を選択したとき、取引先詳細ページを表示する
+   * - 3.2: 全フィールド情報を詳細ページに表示する
+   * - 3.4: プロジェクト管理機能が有効なとき、当該取引先に紐付くプロジェクト一覧を表示する（将来対応）
+   */
+  async getPartner(id: string): Promise<TradingPartnerDetail> {
+    const partner = await this.prisma.tradingPartner.findUnique({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        types: true,
+      },
+    });
+
+    if (!partner) {
+      throw new TradingPartnerNotFoundError(id);
+    }
+
+    // 将来的にプロジェクト連携を追加する際は、ここでプロジェクト情報を取得
+    // const projects = await this.getRelatedProjects(id);
+
+    return this.toTradingPartnerInfo(partner);
   }
 
   /**

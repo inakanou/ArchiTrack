@@ -19,7 +19,10 @@ import {
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import type { CreateTradingPartnerInput } from '../../../schemas/trading-partner.schema.js';
-import { DuplicatePartnerNameError } from '../../../errors/tradingPartnerError.js';
+import {
+  DuplicatePartnerNameError,
+  TradingPartnerNotFoundError,
+} from '../../../errors/tradingPartnerError.js';
 
 // テスト用モック
 function createMockPrisma() {
@@ -914,6 +917,213 @@ describe('TradingPartnerService', () => {
           },
         })
       );
+    });
+  });
+
+  /**
+   * getPartner テスト
+   *
+   * Requirements:
+   * - 3.1: ユーザーが一覧から取引先を選択したとき、取引先詳細ページを表示する
+   * - 3.2: 全フィールド情報を詳細ページに表示する
+   * - 3.4: プロジェクト管理機能が有効なとき、当該取引先に紐付くプロジェクト一覧を表示する（将来対応）
+   */
+  describe('getPartner', () => {
+    const mockPartnerWithAllFields = {
+      id: 'partner-detail-123',
+      name: 'テスト取引先株式会社',
+      nameKana: 'テストトリヒキサキカブシキガイシャ',
+      branchName: '東京支店',
+      branchNameKana: 'トウキョウシテン',
+      representativeName: '山田太郎',
+      representativeNameKana: 'ヤマダタロウ',
+      address: '東京都渋谷区1-1-1',
+      phoneNumber: '03-1234-5678',
+      faxNumber: '03-1234-5679',
+      email: 'contact@test.example.com',
+      billingClosingDay: 25,
+      paymentMonthOffset: 1,
+      paymentDay: 15,
+      notes: 'これは備考です。',
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-15'),
+      deletedAt: null,
+      types: [
+        { id: 'type-1', tradingPartnerId: 'partner-detail-123', type: 'CUSTOMER' as const },
+        { id: 'type-2', tradingPartnerId: 'partner-detail-123', type: 'SUBCONTRACTOR' as const },
+      ],
+    };
+
+    it('IDで取引先詳細を取得できる（Requirement 3.1）', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(mockPartnerWithAllFields);
+
+      // Act
+      const result = await service.getPartner('partner-detail-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.id).toBe('partner-detail-123');
+      expect(result.name).toBe('テスト取引先株式会社');
+      expect(mockPrisma.tradingPartner.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'partner-detail-123', deletedAt: null },
+        })
+      );
+    });
+
+    it('全フィールドの情報を返却する（Requirement 3.2）', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(mockPartnerWithAllFields);
+
+      // Act
+      const result = await service.getPartner('partner-detail-123');
+
+      // Assert
+      expect(result.name).toBe('テスト取引先株式会社');
+      expect(result.nameKana).toBe('テストトリヒキサキカブシキガイシャ');
+      expect(result.branchName).toBe('東京支店');
+      expect(result.branchNameKana).toBe('トウキョウシテン');
+      expect(result.representativeName).toBe('山田太郎');
+      expect(result.representativeNameKana).toBe('ヤマダタロウ');
+      expect(result.address).toBe('東京都渋谷区1-1-1');
+      expect(result.phoneNumber).toBe('03-1234-5678');
+      expect(result.faxNumber).toBe('03-1234-5679');
+      expect(result.email).toBe('contact@test.example.com');
+      expect(result.billingClosingDay).toBe(25);
+      expect(result.paymentMonthOffset).toBe(1);
+      expect(result.paymentDay).toBe(15);
+      expect(result.notes).toBe('これは備考です。');
+      expect(result.createdAt).toEqual(new Date('2024-01-01'));
+      expect(result.updatedAt).toEqual(new Date('2024-01-15'));
+    });
+
+    it('種別情報を配列で返却する', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(mockPartnerWithAllFields);
+
+      // Act
+      const result = await service.getPartner('partner-detail-123');
+
+      // Assert
+      expect(result.types).toContain('CUSTOMER');
+      expect(result.types).toContain('SUBCONTRACTOR');
+      expect(result.types).toHaveLength(2);
+    });
+
+    it('取引先が見つからない場合はTradingPartnerNotFoundErrorをスローする', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.getPartner('non-existent-id')).rejects.toThrow(
+        TradingPartnerNotFoundError
+      );
+    });
+
+    it('論理削除された取引先は取得できない', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.getPartner('deleted-partner-id')).rejects.toThrow(
+        TradingPartnerNotFoundError
+      );
+
+      // WHERE条件にdeletedAt: nullが含まれていることを確認
+      expect(mockPrisma.tradingPartner.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'deleted-partner-id', deletedAt: null },
+        })
+      );
+    });
+
+    it('typesリレーションがincludeされる', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(mockPartnerWithAllFields);
+
+      // Act
+      await service.getPartner('partner-detail-123');
+
+      // Assert
+      expect(mockPrisma.tradingPartner.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: {
+            types: true,
+          },
+        })
+      );
+    });
+
+    it('必須フィールドのみの取引先詳細を取得できる', async () => {
+      // Arrange
+      const minimalPartner = {
+        id: 'minimal-partner-id',
+        name: '最小取引先',
+        nameKana: 'サイショウトリヒキサキ',
+        branchName: null,
+        branchNameKana: null,
+        representativeName: null,
+        representativeNameKana: null,
+        address: '東京都',
+        phoneNumber: null,
+        faxNumber: null,
+        email: null,
+        billingClosingDay: null,
+        paymentMonthOffset: null,
+        paymentDay: null,
+        notes: null,
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-01'),
+        deletedAt: null,
+        types: [
+          { id: 'type-1', tradingPartnerId: 'minimal-partner-id', type: 'CUSTOMER' as const },
+        ],
+      };
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(minimalPartner);
+
+      // Act
+      const result = await service.getPartner('minimal-partner-id');
+
+      // Assert
+      expect(result.name).toBe('最小取引先');
+      expect(result.branchName).toBeNull();
+      expect(result.representativeName).toBeNull();
+      expect(result.phoneNumber).toBeNull();
+      expect(result.email).toBeNull();
+      expect(result.billingClosingDay).toBeNull();
+    });
+
+    it('末日（99）が設定された請求締日・支払日を正しく返却する', async () => {
+      // Arrange
+      const partnerWithEndOfMonth = {
+        ...mockPartnerWithAllFields,
+        billingClosingDay: 99, // 末日
+        paymentDay: 99, // 末日
+      };
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(partnerWithEndOfMonth);
+
+      // Act
+      const result = await service.getPartner('partner-detail-123');
+
+      // Assert
+      expect(result.billingClosingDay).toBe(99);
+      expect(result.paymentDay).toBe(99);
+    });
+
+    it('プロジェクト情報取得用のインターフェースが準備されている（将来対応、Requirement 3.4）', async () => {
+      // Arrange
+      mockPrisma.tradingPartner.findUnique = vi.fn().mockResolvedValue(mockPartnerWithAllFields);
+
+      // Act
+      const result = await service.getPartner('partner-detail-123');
+
+      // Assert
+      // 現時点ではprojectsは未実装だが、インターフェースとして存在確認
+      // TradingPartnerDetailがTradingPartnerInfoを拡張し、projects?: ProjectSummary[]を持つ
+      expect(result).toHaveProperty('id');
+      expect(result).toHaveProperty('types');
+      // projects フィールドはオプションとして将来追加予定
     });
   });
 });
