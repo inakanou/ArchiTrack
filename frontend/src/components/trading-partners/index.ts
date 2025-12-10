@@ -22,3 +22,9 @@ export type {
   SortField as TradingPartnerSortField,
   SortOrder as TradingPartnerSortOrder,
 } from './TradingPartnerListTable';
+
+export { default as TradingPartnerPaginationUI } from './TradingPartnerPaginationUI';
+export type { TradingPartnerPaginationUIProps } from './TradingPartnerPaginationUI';
+
+export { default as TradingPartnerSearchFilter } from './TradingPartnerSearchFilter';
+export type { TradingPartnerSearchFilterProps } from './TradingPartnerSearchFilter';
