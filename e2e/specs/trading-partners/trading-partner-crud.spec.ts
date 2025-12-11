@@ -31,9 +31,16 @@ test.describe('取引先CRUD操作', () => {
   // テストで作成した取引先のIDを保存
   let createdTradingPartnerId: string | null = null;
 
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+
+    // localStorageもクリア（テスト間の認証状態の干渉を防ぐ）
+    // ページを一度開いてからlocalStorageをクリアする必要がある
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
   });
 
   /**

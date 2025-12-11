@@ -38,8 +38,14 @@ import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 test.describe('取引先ナビゲーション・画面遷移', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     await context.clearCookies();
+
+    // localStorageもクリア（テスト間の認証状態の干渉を防ぐ）
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
   });
 
   /**
@@ -928,6 +934,7 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
       // ログインを実行（ただしcontextをクリアしていないのでcookie付き）
       // 代わりにloginAsUserのロジックを適用
       await context.clearCookies();
+      await page.evaluate(() => localStorage.clear());
       await loginAsUser(page, 'REGULAR_USER');
 
       // ダッシュボードにリダイレクトされる（ProtectedRoute実装による）

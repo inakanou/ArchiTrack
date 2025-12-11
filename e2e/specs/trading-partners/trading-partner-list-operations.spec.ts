@@ -26,9 +26,15 @@ test.describe('取引先一覧操作', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+
+    // localStorageもクリア（テスト間の認証状態の干渉を防ぐ）
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
   });
 
   /**
