@@ -8,6 +8,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { TEST_USERS } from '../../helpers/test-users';
 
 /**
  * プロジェクト管理ナビゲーションのE2Eテスト
@@ -762,18 +763,24 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       const url = new URL(page.url());
       const redirectUrl = url.searchParams.get('redirectUrl');
 
-      // ログイン
-      await loginAsUser(page, 'REGULAR_USER');
+      // redirectUrlが設定されていることを確認
+      expect(redirectUrl).toBeTruthy();
+      expect(redirectUrl).toContain('/projects');
+
+      // 現在のページ（redirectUrl付きのログインページ）で直接ログイン操作を行う
+      // loginAsUserは/loginに移動してしまうため、直接フォームを操作
+      const user = TEST_USERS.REGULAR_USER;
+      const emailInput = page.getByLabel(/メールアドレス/i);
+      const passwordInput = page.locator('input#password');
+      const loginButton = page.getByRole('button', { name: /ログイン/i });
+
+      await emailInput.waitFor({ state: 'visible', timeout: getTimeout(10000) });
+      await emailInput.fill(user.email);
+      await passwordInput.fill(user.password);
+      await loginButton.click();
 
       // 元のページ（/projects）に遷移することを確認
-      if (redirectUrl && redirectUrl.includes('/projects')) {
-        await expect(page).toHaveURL(/\/projects/, { timeout: getTimeout(10000) });
-      } else {
-        // redirectUrlパラメータがない場合は、手動でプロジェクトページに移動
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-        await expect(page).toHaveURL(/\/projects/, { timeout: getTimeout(10000) });
-      }
+      await expect(page).toHaveURL(/\/projects/, { timeout: getTimeout(10000) });
 
       // プロジェクト一覧ページが表示されることを確認
       await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
