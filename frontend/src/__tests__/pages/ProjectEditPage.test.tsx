@@ -22,6 +22,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '../../contexts/AuthContext';
+import { ToastProvider } from '../../hooks/useToast';
 import ProjectEditPage from '../../pages/ProjectEditPage';
 import * as projectsApi from '../../api/projects';
 import type { ProjectDetail } from '../../types/project.types';
@@ -90,9 +91,11 @@ function renderProjectEditPage(projectId: string = 'project-1') {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}/edit`]}>
       <AuthProvider>
-        <Routes>
-          <Route path="/projects/:id/edit" element={<ProjectEditPage />} />
-        </Routes>
+        <ToastProvider>
+          <Routes>
+            <Route path="/projects/:id/edit" element={<ProjectEditPage />} />
+          </Routes>
+        </ToastProvider>
       </AuthProvider>
     </MemoryRouter>
   );
@@ -212,11 +215,11 @@ describe('ProjectEditPage', () => {
   // ========================================================================
 
   describe('編集フォーム表示', () => {
-    it('ページタイトル「プロジェクトの編集」を表示する', async () => {
+    it('ページタイトル「プロジェクトを編集」を表示する', async () => {
       renderProjectEditPage();
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'プロジェクトの編集' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'プロジェクトを編集' })).toBeInTheDocument();
       });
     });
 

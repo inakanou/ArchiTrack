@@ -38,15 +38,14 @@ test.describe('プロジェクト取引先連携', () => {
       await page.waitForLoadState('networkidle');
 
       // フォームが表示されることを確認
-      await expect(page.getByLabel(/^名前$/i)).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByLabel('取引先名')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 取引先情報を入力
-      await page.getByLabel(/^名前$/i).fill(testTradingPartnerName);
-      await page.getByLabel(/^フリガナ$/i).fill(testTradingPartnerKana);
+      await page.getByLabel('取引先名').fill(testTradingPartnerName);
+      await page.getByLabel('フリガナ', { exact: true }).fill(testTradingPartnerKana);
 
       // 種別で「顧客」をチェック（REQ-22.1: 顧客種別を持つ取引先のみが候補）
-      const customerCheckbox = page.locator('input[type="checkbox"][value="customer"]');
-      await customerCheckbox.check();
+      await page.getByRole('checkbox', { name: /顧客/i }).check();
 
       // 住所を入力（必須項目）
       await page.getByLabel(/住所/i).fill('東京都渋谷区テスト1-2-3');

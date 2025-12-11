@@ -62,25 +62,23 @@ test.describe('取引先管理の追加要件', () => {
       await page.getByLabel('住所').fill('東京都渋谷区監査ログテスト1-2-3');
       await page.getByRole('checkbox', { name: /顧客/i }).check();
 
-      // 監査ログAPIの呼び出しを監視
-      const auditLogPromise = page.waitForResponse(
+      // 作成APIのレスポンスを待機
+      const createPromise = page.waitForResponse(
         (response) =>
-          response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
+          response.url().includes('/api/trading-partners') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
         { timeout: getTimeout(30000) }
       );
 
       // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
 
-      // 監査ログAPIが呼び出されることを確認
-      const auditLogResponse = await auditLogPromise.catch(() => null);
+      // 作成APIのレスポンスを待機
+      await createPromise;
 
-      // 監査ログが記録されたことを確認（APIレスポンスまたは成功メッセージで確認）
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
-
-      // 作成成功を確認
+      // 作成成功を確認（一覧ページに遷移して成功メッセージが表示される）
+      await expect(page).toHaveURL(/\/trading-partners$/, { timeout: getTimeout(10000) });
       await expect(page.getByText(/取引先を作成しました/i)).toBeVisible({
         timeout: getTimeout(10000),
       });

@@ -27,6 +27,7 @@ import type { ProjectDetail } from '../types/project.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
+import { useToast } from '../hooks/useToast';
 
 // ============================================================================
 // 型定義
@@ -151,6 +152,7 @@ const styles = {
 export default function ProjectEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { projectUpdated } = useToast();
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -223,7 +225,8 @@ export default function ProjectEditPage() {
           project.updatedAt
         );
 
-        // 成功時は詳細ページへ遷移
+        // 成功時はトースト表示と詳細ページへ遷移
+        projectUpdated();
         navigate(`/projects/${id}`);
       } catch (err) {
         if (isApiError(err)) {
@@ -242,7 +245,7 @@ export default function ProjectEditPage() {
         setIsSubmitting(false);
       }
     },
-    [id, project, navigate]
+    [id, project, navigate, projectUpdated]
   );
 
   /**
@@ -332,7 +335,7 @@ export default function ProjectEditPage() {
 
       {/* ページヘッダー */}
       <header style={styles.header}>
-        <h1 style={styles.title}>プロジェクトの編集</h1>
+        <h1 style={styles.title}>プロジェクトを編集</h1>
       </header>
 
       {/* 送信エラー表示 (REQ-8.6) */}

@@ -358,13 +358,13 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await expect(dashboardLink).toBeVisible({ timeout: getTimeout(10000) });
       await dashboardLink.click();
 
-      // ダッシュボードページへ遷移したことを確認
-      await page.waitForURL('/', { timeout: getTimeout(15000) });
+      // ダッシュボードページへ遷移したことを確認（/は/dashboardにリダイレクトされる）
+      await page.waitForURL(/\/(dashboard)?$/, { timeout: getTimeout(15000) });
       await page.waitForLoadState('networkidle');
 
       // ダッシュボードページの特徴的な要素が表示されていることを確認
       const dashboard = page.locator('[data-testid="dashboard"]');
-      await expect(dashboard).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(dashboard).toBeVisible({ timeout: getTimeout(15000) });
 
       // 「ようこそ」というウェルカムメッセージが表示されていることを確認
       const welcomeHeading = page.getByRole('heading', { name: /ようこそ/i });

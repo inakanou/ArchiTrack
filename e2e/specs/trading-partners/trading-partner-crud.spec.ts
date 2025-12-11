@@ -111,7 +111,9 @@ test.describe('取引先CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 任意入力欄が全て存在することを確認
-      await expect(page.getByLabel(/部課名/i)).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByLabel(/部課\/支店\/支社名/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
       await expect(page.getByLabel(/代表者名/i)).toBeVisible();
       await expect(page.getByLabel(/電話番号/i)).toBeVisible();
       await expect(page.getByLabel(/FAX/i)).toBeVisible();
