@@ -84,6 +84,8 @@ export async function cleanDatabase(): Promise<void> {
     // プロジェクト関連テーブルを先に削除（Userに依存）
     client.projectStatusHistory.deleteMany(),
     client.project.deleteMany(),
+    // 取引先関連テーブルを削除
+    client.tradingPartner.deleteMany(),
     // 認証・ユーザー関連テーブル
     client.auditLog.deleteMany(),
     client.refreshToken.deleteMany(),
