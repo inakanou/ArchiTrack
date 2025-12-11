@@ -471,7 +471,7 @@
   - アクセシビリティ属性（aria-label、aria-current）を確認
   - _Requirements: 21.14, 21.18_
 
-- [ ] 19.2 (P) ProjectDetailPageへのパンくずナビゲーション追加
+- [x] 19.2 (P) ProjectDetailPageへのパンくずナビゲーション追加
   - 既存のBreadcrumbコンポーネントをインポートして使用
   - 「ダッシュボード > プロジェクト > [プロジェクト名]」のパンくずを表示
   - ダッシュボードリンクは / へ遷移可能に設定

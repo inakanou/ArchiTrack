@@ -3,6 +3,7 @@
  *
  * Task 9.2: ProjectDetailPageの実装
  * Task 18.3: 取引先情報表示拡張
+ * Task 19.2: パンくずナビゲーション追加
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -11,6 +12,7 @@
  * - 11.1, 11.2, 11.3, 11.4, 11.5, 11.6: 関連データ参照（機能フラグ対応）
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
+ * - 21.15, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト > [プロジェクト名]）
  * - 22.5: プロジェクトが取引先と紐付いている場合に取引先情報（名前）を表示
  */
 
@@ -38,6 +40,7 @@ import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
 import StatusTransitionUI from '../components/projects/StatusTransitionUI';
 import DeleteConfirmationDialog from '../components/projects/DeleteConfirmationDialog';
+import { Breadcrumb } from '../components/common';
 
 // ============================================================================
 // 定数定義
@@ -116,6 +119,9 @@ const styles = {
     maxWidth: '1024px',
     margin: '0 auto',
     padding: '32px 16px',
+  } as React.CSSProperties,
+  breadcrumbWrapper: {
+    marginBottom: '16px',
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',
@@ -542,6 +548,17 @@ export default function ProjectDetailPage() {
   if (isEditing) {
     return (
       <main role="main" style={styles.container}>
+        {/* パンくずナビゲーション */}
+        <div style={styles.breadcrumbWrapper}>
+          <Breadcrumb
+            items={[
+              { label: 'ダッシュボード', path: '/' },
+              { label: 'プロジェクト', path: '/projects' },
+              { label: project.name },
+            ]}
+          />
+        </div>
+
         <div style={styles.header}>
           <Link to="/projects" style={styles.backLink}>
             ← 一覧に戻る
@@ -579,6 +596,17 @@ export default function ProjectDetailPage() {
   // 詳細表示
   return (
     <main role="main" aria-busy={isLoading} style={styles.container}>
+      {/* パンくずナビゲーション */}
+      <div style={styles.breadcrumbWrapper}>
+        <Breadcrumb
+          items={[
+            { label: 'ダッシュボード', path: '/' },
+            { label: 'プロジェクト', path: '/projects' },
+            { label: project.name },
+          ]}
+        />
+      </div>
+
       {/* ヘッダー */}
       <div style={styles.header}>
         <Link to="/projects" style={styles.backLink}>

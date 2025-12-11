@@ -3,6 +3,7 @@
  *
  * Task 9.2: ProjectDetailPageの実装
  * Task 15.3: 一覧・詳細ページのユニットテスト追加
+ * Task 19.2: パンくずナビゲーション追加
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -11,6 +12,7 @@
  * - 11.1, 11.2, 11.3, 11.4, 11.5, 11.6: 関連データ参照
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
+ * - 21.15, 21.18: パンくずナビゲーション
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1095,6 +1097,136 @@ describe('ProjectDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('form')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 19.2: パンくずナビゲーション (Requirements 21.15, 21.18)
+  // ==========================================================================
+
+  describe('パンくずナビゲーション（Task 19.2, Requirements 21.15, 21.18）', () => {
+    it('パンくずナビゲーションが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // パンくずナビゲーションが存在する
+      expect(
+        screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
+      ).toBeInTheDocument();
+    });
+
+    it('「ダッシュボード」リンクが表示され、/へ遷移可能', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const dashboardLink = screen.getByRole('link', { name: 'ダッシュボード' });
+      expect(dashboardLink).toHaveAttribute('href', '/');
+    });
+
+    it('「プロジェクト」リンクが表示され、/projectsへ遷移可能', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const projectsLink = screen.getByRole('link', { name: 'プロジェクト' });
+      expect(projectsLink).toHaveAttribute('href', '/projects');
+    });
+
+    it('プロジェクト名がパンくずの最後に表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // パンくずナビゲーション内でプロジェクト名を確認
+      const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      expect(within(nav).getByText('テストプロジェクト')).toBeInTheDocument();
+    });
+
+    it('現在ページ（プロジェクト名）にaria-current="page"が設定される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const currentPage = within(nav).getByText('テストプロジェクト');
+      expect(currentPage).toHaveAttribute('aria-current', 'page');
+    });
+
+    it('プロジェクト名は現在ページとしてリンクなしで表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // プロジェクト名はリンクではない
+      expect(screen.queryByRole('link', { name: 'テストプロジェクト' })).not.toBeInTheDocument();
+    });
+
+    it('パンくず項目間に区切り文字「>」が表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      // 3項目（ダッシュボード、プロジェクト、プロジェクト名）なので2つの区切り文字
+      const separators = within(nav).getAllByText('>');
+      expect(separators).toHaveLength(2);
+    });
+
+    it('プロジェクト名がAPIから取得したデータで動的に表示される', async () => {
+      const customProject = {
+        ...mockProject,
+        name: 'カスタムプロジェクト名',
+      };
+      vi.mocked(projectsApi.getProject).mockResolvedValue(customProject);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { level: 1, name: 'カスタムプロジェクト名' })
+        ).toBeInTheDocument();
+      });
+
+      const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      expect(within(nav).getByText('カスタムプロジェクト名')).toBeInTheDocument();
+    });
+
+    it('編集モードでもパンくずナビゲーションが表示される', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 編集モードに切り替え
+      const editButton = screen.getByRole('button', { name: '編集' });
+      await user.click(editButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('form')).toBeInTheDocument();
+      });
+
+      // 編集モードでもパンくずナビゲーションが存在する
+      expect(
+        screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
+      ).toBeInTheDocument();
     });
   });
 
