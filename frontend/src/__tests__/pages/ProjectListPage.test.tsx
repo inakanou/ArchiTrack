@@ -1038,4 +1038,124 @@ describe('ProjectListPage', () => {
       expect(screen.getByRole('columnheader', { name: /更新日/ })).toBeInTheDocument();
     });
   });
+
+  // ==========================================================================
+  // Task 19.1: パンくずナビゲーションテスト
+  // ==========================================================================
+
+  describe('パンくずナビゲーション（Task 19.1）', () => {
+    it('パンくずナビゲーションが表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // パンくずナビゲーションのnav要素が存在する
+      expect(
+        screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
+      ).toBeInTheDocument();
+    });
+
+    it('パンくずに「ダッシュボード」リンクが表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 「ダッシュボード」リンクが存在する
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const dashboardLink = breadcrumbNav.querySelector('a[href="/"]');
+      expect(dashboardLink).toBeInTheDocument();
+      expect(dashboardLink).toHaveTextContent('ダッシュボード');
+    });
+
+    it('パンくずに「プロジェクト」が現在ページとして表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 「プロジェクト」が現在ページとして表示される（リンクなし、aria-current="page"）
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const currentPage = breadcrumbNav.querySelector('[aria-current="page"]');
+      expect(currentPage).toBeInTheDocument();
+      expect(currentPage).toHaveTextContent('プロジェクト');
+    });
+
+    it('パンくずに区切り文字「>」が表示される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 区切り文字が存在する
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      expect(breadcrumbNav.textContent).toContain('>');
+    });
+
+    it('「ダッシュボード」リンクは / へ遷移可能', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const dashboardLink = breadcrumbNav.querySelector('a[href="/"]');
+      expect(dashboardLink).toHaveAttribute('href', '/');
+    });
+
+    it('「プロジェクト」はリンクなし（現在ページ）', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      // 「プロジェクト」はリンクではない（span要素）
+      const projectText = breadcrumbNav.querySelector('[aria-current="page"]');
+      expect(projectText).toBeInTheDocument();
+      expect(projectText?.tagName.toLowerCase()).toBe('span');
+    });
+
+    it('パンくずはページ上部（ヘッダーの直後）に配置される', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      const main = screen.getByRole('main');
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+
+      // パンくずナビゲーションがmain要素内に存在する
+      expect(main.contains(breadcrumbNav)).toBe(true);
+    });
+  });
 });

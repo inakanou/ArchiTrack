@@ -29,6 +29,7 @@ import type { SortField, SortOrder } from '../components/projects/ProjectListTab
 import ProjectListView from '../components/projects/ProjectListView';
 import ProjectSearchFilter from '../components/projects/ProjectSearchFilter';
 import PaginationUI from '../components/projects/PaginationUI';
+import { Breadcrumb } from '../components/common';
 
 // ============================================================================
 // 型定義
@@ -478,8 +479,16 @@ export default function ProjectListPage() {
   const isEmptyWithSearch = isEmpty && hasSearched;
   const isEmptyWithoutSearch = isEmpty && !hasSearched;
 
+  // パンくずナビゲーション項目
+  const breadcrumbItems = [{ label: 'ダッシュボード', path: '/' }, { label: 'プロジェクト' }];
+
   return (
     <main role="main" aria-busy={loading} className="py-8">
+      {/* パンくずナビゲーション */}
+      <div className="mb-4">
+        <Breadcrumb items={breadcrumbItems} />
+      </div>
+
       {/* ヘッダー */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div className="flex items-center gap-3">
