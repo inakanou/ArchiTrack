@@ -2,6 +2,7 @@
  * @fileoverview 取引先用APIクライアント
  *
  * Task 8.2: フォーム送信とエラーハンドリングの実装
+ * Task 18.1: 取引先オートコンプリートAPI連携の実装
  *
  * Requirements:
  * - 2.7: 有効なデータを入力して保存ボタンクリックで新しい取引先レコードを作成
@@ -13,6 +14,9 @@
  * - 8.1: ネットワークエラー時の再試行ボタン表示
  * - 8.2: サーバーエラー（5xx）時のメッセージ表示
  * - 8.4: ToastNotificationでエラー通知
+ * - 22.1: 顧客種別を持つ取引先をオートコンプリート候補として表示
+ * - 22.3: 入力文字列で取引先名・フリガナの部分一致検索
+ * - 16.5: 候補は最大10件まで表示
  */
 
 import { apiClient } from './client';
@@ -206,4 +210,44 @@ export async function searchTradingPartners(
   return apiClient.get<TradingPartnerSearchResult[]>(
     `/api/trading-partners/search?${params.toString()}`
   );
+}
+
+/**
+ * プロジェクト顧客選択用の取引先オートコンプリート検索
+ *
+ * Task 18.1: 取引先オートコンプリートAPI連携の実装
+ *
+ * - GET /api/trading-partners/search エンドポイントへ接続
+ * - 取引先種別に「顧客」を含む取引先をフィルタリング
+ * - 取引先名またはフリガナでの部分一致検索
+ *
+ * Requirements:
+ * - 22.1: 顧客種別を持つ取引先をオートコンプリート候補として表示
+ * - 22.3: 入力文字列で取引先名・フリガナの部分一致検索
+ * - 16.5: 候補は最大10件まで表示
+ *
+ * @param query - 検索キーワード（取引先名・フリガナの部分一致）
+ * @param limit - 取得件数（デフォルト: 10）
+ * @returns 検索結果の配列（顧客種別を含む取引先のみ）
+ * @throws ApiError
+ *   - ネットワークエラー（0）: 通信失敗時
+ *   - 認証エラー（401）: ログイン必要時
+ *   - 権限不足（403）: 閲覧権限がない場合
+ *   - 機能未実装（404）: 取引先管理機能が未実装の場合
+ *   - サーバーエラー（500）: サーバー内部エラー時
+ *
+ * @example
+ * // 基本的な使用
+ * const results = await searchTradingPartnersForAutocomplete('テスト');
+ *
+ * @example
+ * // 取得件数を指定
+ * const results = await searchTradingPartnersForAutocomplete('テスト', 5);
+ */
+export async function searchTradingPartnersForAutocomplete(
+  query: string,
+  limit: number = 10
+): Promise<TradingPartnerSearchResult[]> {
+  // 顧客種別（CUSTOMER）を含む取引先のみをフィルタリング
+  return searchTradingPartners(query, ['CUSTOMER'], limit);
 }

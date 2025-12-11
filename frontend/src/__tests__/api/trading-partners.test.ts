@@ -2,11 +2,13 @@
  * @fileoverview 取引先APIクライアントのユニットテスト
  *
  * Task 8.2: フォーム送信とエラーハンドリングの実装
+ * Task 18.1: 取引先オートコンプリートAPI連携の実装
  *
  * テスト対象:
  * - 作成・更新APIの呼び出し
  * - バリデーションエラー、重複エラー、競合エラーの処理
  * - ネットワークエラー処理
+ * - オートコンプリート用検索API（searchTradingPartners, searchTradingPartnersForAutocomplete）
  *
  * Requirements:
  * - 2.7: 有効なデータを入力して保存ボタンクリックで新しい取引先レコードを作成
@@ -18,6 +20,10 @@
  * - 8.1: ネットワークエラー時の再試行ボタン表示
  * - 8.2: サーバーエラー（5xx）時のメッセージ表示
  * - 8.4: ToastNotificationでエラー通知
+ * - 22.1: 顧客種別を持つ取引先をオートコンプリート候補として表示
+ * - 22.3: 入力文字列で取引先名・フリガナの部分一致検索
+ * - 16.4: 空の検索結果を正しく処理する
+ * - 16.5: 候補は最大10件まで表示
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -25,6 +31,7 @@ import { apiClient, ApiError } from '../../api/client';
 import type {
   TradingPartnerInfo,
   CreateTradingPartnerInput,
+  TradingPartnerSearchResult,
 } from '../../types/trading-partner.types';
 
 // モック
@@ -49,6 +56,8 @@ import {
   updateTradingPartner,
   getTradingPartner,
   deleteTradingPartner,
+  searchTradingPartners,
+  searchTradingPartnersForAutocomplete,
 } from '../../api/trading-partners';
 
 describe('Trading Partners API Client', () => {
@@ -257,6 +266,137 @@ describe('Trading Partners API Client', () => {
       await expect(deleteTradingPartner(mockTradingPartner.id)).rejects.toThrow(
         'この取引先は現在プロジェクトに使用されているため削除できません'
       );
+    });
+  });
+
+  // ============================================================================
+  // 取引先検索テスト（オートコンプリート用）
+  // Task 18.1: 取引先オートコンプリートAPI連携の実装
+  // ============================================================================
+  describe('searchTradingPartners', () => {
+    const mockSearchResults: TradingPartnerSearchResult[] = [
+      {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        name: '株式会社テスト',
+        nameKana: 'カブシキガイシャテスト',
+        types: ['CUSTOMER'],
+      },
+      {
+        id: '123e4567-e89b-12d3-a456-426614174002',
+        name: '株式会社テスト2',
+        nameKana: 'カブシキガイシャテストニ',
+        types: ['CUSTOMER', 'SUBCONTRACTOR'],
+      },
+    ];
+
+    it('正常に取引先を検索できる (Requirement 22.3)', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockSearchResults);
+
+      const result = await searchTradingPartners('テスト');
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners/search?q=%E3%83%86%E3%82%B9%E3%83%88&limit=10'
+      );
+      expect(result).toEqual(mockSearchResults);
+    });
+
+    it('取引先種別でフィルタリングできる (Requirement 22.1)', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce([mockSearchResults[0]]);
+
+      const result = await searchTradingPartners('テスト', ['CUSTOMER']);
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners/search?q=%E3%83%86%E3%82%B9%E3%83%88&type=CUSTOMER&limit=10'
+      );
+      expect(result).toHaveLength(1);
+    });
+
+    it('件数制限を指定できる (Requirement 22.4)', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockSearchResults.slice(0, 1));
+
+      await searchTradingPartners('テスト', undefined, 5);
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners/search?q=%E3%83%86%E3%82%B9%E3%83%88&limit=5'
+      );
+    });
+
+    it('空の検索結果を正しく処理する (Requirement 16.4)', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce([]);
+
+      const result = await searchTradingPartners('存在しない');
+
+      expect(result).toEqual([]);
+    });
+
+    it('ネットワークエラー（0）を正しく処理する', async () => {
+      const networkError = new ApiError(0, 'Network error');
+      vi.mocked(apiClient.get).mockRejectedValueOnce(networkError);
+
+      await expect(searchTradingPartners('テスト')).rejects.toThrow('Network error');
+    });
+
+    it('サーバーエラー（500）を正しく処理する', async () => {
+      const serverError = new ApiError(500, 'Internal Server Error');
+      vi.mocked(apiClient.get).mockRejectedValueOnce(serverError);
+
+      await expect(searchTradingPartners('テスト')).rejects.toThrow('Internal Server Error');
+    });
+  });
+
+  // ============================================================================
+  // プロジェクト顧客選択用オートコンプリートテスト
+  // Task 18.1: 取引先オートコンプリートAPI連携の実装
+  // ============================================================================
+  describe('searchTradingPartnersForAutocomplete', () => {
+    const mockSearchResults: TradingPartnerSearchResult[] = [
+      {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        name: '株式会社テスト',
+        nameKana: 'カブシキガイシャテスト',
+        types: ['CUSTOMER'],
+      },
+    ];
+
+    it('顧客種別を含む取引先を検索できる (Requirement 22.1)', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockSearchResults);
+
+      const result = await searchTradingPartnersForAutocomplete('テスト');
+
+      // CUSTOMERタイプでフィルタリングされることを確認
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners/search?q=%E3%83%86%E3%82%B9%E3%83%88&type=CUSTOMER&limit=10'
+      );
+      expect(result).toEqual(mockSearchResults);
+    });
+
+    it('フリガナでも検索できる (Requirement 22.3)', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockSearchResults);
+
+      await searchTradingPartnersForAutocomplete('カブシキ');
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners/search?q=%E3%82%AB%E3%83%96%E3%82%B7%E3%82%AD&type=CUSTOMER&limit=10'
+      );
+    });
+
+    it('最大10件まで取得する (Requirement 16.5)', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockSearchResults);
+
+      await searchTradingPartnersForAutocomplete('テスト');
+
+      // limit=10が設定されていることを確認
+      const calls = vi.mocked(apiClient.get).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls[0]![0]).toContain('limit=10');
+    });
+
+    it('取引先管理機能未実装時はエラーを返す（フォールバック対応）', async () => {
+      // 404エラーは取引先管理機能が未実装であることを示す
+      const notFoundError = new ApiError(404, 'Not Found');
+      vi.mocked(apiClient.get).mockRejectedValueOnce(notFoundError);
+
+      await expect(searchTradingPartnersForAutocomplete('テスト')).rejects.toThrow('Not Found');
     });
   });
 });
