@@ -232,4 +232,130 @@ describe('ProjectCreatePage', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 19.3: パンくずナビゲーションテスト
+  // ==========================================================================
+
+  describe('パンくずナビゲーション（Task 19.3）', () => {
+    it('パンくずナビゲーションが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      // パンくずナビゲーションのnav要素が存在する
+      expect(
+        screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
+      ).toBeInTheDocument();
+    });
+
+    it('パンくずに「ダッシュボード」リンクが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      // 「ダッシュボード」リンクが存在する
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const dashboardLink = breadcrumbNav.querySelector('a[href="/"]');
+      expect(dashboardLink).toBeInTheDocument();
+      expect(dashboardLink).toHaveTextContent('ダッシュボード');
+    });
+
+    it('パンくずに「プロジェクト」リンクが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      // 「プロジェクト」リンクが存在する（/projectsへ遷移可能）
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const projectLink = breadcrumbNav.querySelector('a[href="/projects"]');
+      expect(projectLink).toBeInTheDocument();
+      expect(projectLink).toHaveTextContent('プロジェクト');
+    });
+
+    it('パンくずに「新規作成」が現在ページとして表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      // 「新規作成」が現在ページとして表示される（リンクなし、aria-current="page"）
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const currentPage = breadcrumbNav.querySelector('[aria-current="page"]');
+      expect(currentPage).toBeInTheDocument();
+      expect(currentPage).toHaveTextContent('新規作成');
+    });
+
+    it('「ダッシュボード」リンクは / へ遷移可能', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const dashboardLink = breadcrumbNav.querySelector('a[href="/"]');
+      expect(dashboardLink).toHaveAttribute('href', '/');
+    });
+
+    it('「プロジェクト」リンクは /projects へ遷移可能', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const projectLink = breadcrumbNav.querySelector('a[href="/projects"]');
+      expect(projectLink).toHaveAttribute('href', '/projects');
+    });
+
+    it('「新規作成」はリンクなし（現在ページ）', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      // 「新規作成」はリンクではない（span要素）
+      const currentPage = breadcrumbNav.querySelector('[aria-current="page"]');
+      expect(currentPage).toBeInTheDocument();
+      expect(currentPage?.tagName.toLowerCase()).toBe('span');
+    });
+
+    it('パンくずに区切り文字「>」が表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      // 区切り文字が存在する（2つの > が必要：ダッシュボード > プロジェクト > 新規作成）
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const separators = breadcrumbNav.querySelectorAll('[aria-hidden="true"]');
+      expect(separators.length).toBe(2);
+    });
+
+    it('パンくずはページ上部に配置される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
+      });
+
+      const main = screen.getByRole('main');
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+
+      // パンくずナビゲーションがmain要素内に存在する
+      expect(main.contains(breadcrumbNav)).toBe(true);
+    });
+  });
 });

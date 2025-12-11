@@ -2,6 +2,7 @@
  * @fileoverview プロジェクト作成ページ
  *
  * Task 10.3: ルーティング設定
+ * Task 19.3: パンくずナビゲーション追加
  *
  * Requirements:
  * - 1.1: 「新規作成」ボタンでプロジェクト作成フォームを表示する
@@ -9,6 +10,7 @@
  * - 1.8: 作成成功時に成功メッセージを表示
  * - 13.9: サーバーサイドバリデーションエラー発生時、エラーメッセージを該当フィールドに表示
  * - 18.1: APIエラーが発生した場合、エラーダイアログを表示
+ * - 21.16, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト > 新規作成）
  */
 
 import { useState, useCallback } from 'react';
@@ -18,6 +20,7 @@ import { ApiError } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
+import { Breadcrumb } from '../components/common';
 
 // ============================================================================
 // スタイル定義
@@ -28,6 +31,9 @@ const styles = {
     maxWidth: '768px',
     margin: '0 auto',
     padding: '32px 16px',
+  } as React.CSSProperties,
+  breadcrumbWrapper: {
+    marginBottom: '16px',
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',
@@ -132,6 +138,17 @@ export default function ProjectCreatePage() {
 
   return (
     <main role="main" style={styles.container}>
+      {/* パンくずナビゲーション */}
+      <div style={styles.breadcrumbWrapper}>
+        <Breadcrumb
+          items={[
+            { label: 'ダッシュボード', path: '/' },
+            { label: 'プロジェクト', path: '/projects' },
+            { label: '新規作成' },
+          ]}
+        />
+      </div>
+
       {/* ヘッダー */}
       <div style={styles.header}>
         <Link to="/projects" style={styles.backLink}>
