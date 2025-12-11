@@ -508,7 +508,7 @@
   - 6.3のProjectFormコンポーネントに依存
   - _Requirements: 21.12, 21.17, 21.18, 21.21, 21.23, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [ ] 19.5 ProjectDetailPageの編集ボタン遷移先更新
+- [x] 19.5 ProjectDetailPageの編集ボタン遷移先更新
   - 編集ボタンクリック時に /projects/:id/edit へ遷移するよう変更
   - インラインフォーム表示から独立ページ遷移パターンに変更
   - 取引先管理機能（TradingPartnerDetailPage）と同一パターンを適用

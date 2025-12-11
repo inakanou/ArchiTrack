@@ -4,6 +4,7 @@
  * Task 9.2: ProjectDetailPageの実装
  * Task 15.3: 一覧・詳細ページのユニットテスト追加
  * Task 19.2: パンくずナビゲーション追加
+ * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -13,6 +14,7 @@
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
  * - 21.15, 21.18: パンくずナビゲーション
+ * - 21.21: 編集ボタンクリックで編集ページへ遷移
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -250,10 +252,11 @@ describe('ProjectDetailPage', () => {
 
   // ==========================================================================
   // 8.1-8.6: 編集機能
+  // Task 19.5: 編集ボタンクリックで編集ページ（/projects/:id/edit）へ遷移
   // ==========================================================================
 
   describe('編集機能', () => {
-    it('編集ボタンをクリックすると編集フォームを表示する', async () => {
+    it('編集ボタンをクリックすると編集ページへ遷移する', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -266,10 +269,11 @@ describe('ProjectDetailPage', () => {
       const editButton = screen.getByRole('button', { name: '編集' });
       await user.click(editButton);
 
-      expect(screen.getByRole('form')).toBeInTheDocument();
+      // 編集ページ（/projects/:id/edit）へ遷移することを確認
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1/edit');
     });
 
-    it('キャンセルボタンをクリックすると詳細表示に戻る', async () => {
+    it('編集ボタンクリック後、インラインフォームは表示しない', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -282,73 +286,8 @@ describe('ProjectDetailPage', () => {
       const editButton = screen.getByRole('button', { name: '編集' });
       await user.click(editButton);
 
-      expect(screen.getByRole('form')).toBeInTheDocument();
-
-      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
-      await user.click(cancelButton);
-
-      await waitFor(() => {
-        expect(screen.queryByRole('form')).not.toBeInTheDocument();
-      });
-    });
-
-    it('編集フォーム送信時に更新APIを呼び出す', async () => {
-      const user = userEvent.setup();
-      vi.mocked(projectsApi.updateProject).mockResolvedValue({
-        ...mockProject,
-        name: '更新されたプロジェクト',
-      });
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('heading', { level: 1, name: 'テストプロジェクト' })
-        ).toBeInTheDocument();
-      });
-
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await user.click(editButton);
-
-      // フォームが表示されるまで待機
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      // フォームの入力を変更して送信（aria-labelでテキストボックスを取得）
-      const nameInput = screen.getByRole('textbox', { name: 'プロジェクト名' });
-      await user.clear(nameInput);
-      await user.type(nameInput, '更新されたプロジェクト');
-
-      const submitButton = screen.getByRole('button', { name: '保存' });
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(projectsApi.updateProject).toHaveBeenCalled();
-      });
-    });
-
-    it('競合エラー（409）発生時にエラーメッセージを表示する', async () => {
-      const user = userEvent.setup();
-      vi.mocked(projectsApi.updateProject).mockRejectedValue(
-        new ApiError(409, '他のユーザーによって更新されました')
-      );
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await user.click(editButton);
-
-      const submitButton = screen.getByRole('button', { name: '保存' });
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/他のユーザーによって更新されました/)).toBeInTheDocument();
-      });
+      // インラインフォームは表示されない（ページ遷移するため）
+      expect(screen.queryByRole('form')).not.toBeInTheDocument();
     });
   });
 
@@ -621,8 +560,8 @@ describe('ProjectDetailPage', () => {
     });
   });
 
-  describe('編集モード詳細（Task 15.3, Requirements 8.1）', () => {
-    it('編集モードではフォームが表示される', async () => {
+  describe('編集ボタン遷移詳細（Task 19.5, Requirements 21.21）', () => {
+    it('編集ボタンクリックで正しいパスへ遷移する', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -633,11 +572,11 @@ describe('ProjectDetailPage', () => {
       const editButton = screen.getByRole('button', { name: '編集' });
       await user.click(editButton);
 
-      // フォームが表示される
-      expect(screen.getByRole('form')).toBeInTheDocument();
+      // /projects/:id/edit へ遷移する
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1/edit');
     });
 
-    it('編集モードではプロジェクト名入力フィールドが表示される', async () => {
+    it('取引先詳細ページと同じパターンで遷移する', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -648,14 +587,11 @@ describe('ProjectDetailPage', () => {
       const editButton = screen.getByRole('button', { name: '編集' });
       await user.click(editButton);
 
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      expect(screen.getByRole('textbox', { name: 'プロジェクト名' })).toBeInTheDocument();
+      // navigate関数が1回だけ呼ばれることを確認（インラインフォーム表示ではなく遷移）
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
     });
 
-    it('編集モードでは顧客名入力フィールドが表示される', async () => {
+    it('編集ボタンクリック後、詳細表示のまま遷移を待つ', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -666,90 +602,11 @@ describe('ProjectDetailPage', () => {
       const editButton = screen.getByRole('button', { name: '編集' });
       await user.click(editButton);
 
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      // CustomerNameInputはtextboxとして表示される
-      expect(screen.getByLabelText('顧客名')).toBeInTheDocument();
-    });
-
-    it('編集モードでは保存ボタンとキャンセルボタンが表示される', async () => {
-      const user = userEvent.setup();
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await user.click(editButton);
-
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
-    });
-
-    it('編集モードでは現在の値がフォームに表示される', async () => {
-      const user = userEvent.setup();
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await user.click(editButton);
-
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      const nameInput = screen.getByRole('textbox', { name: 'プロジェクト名' });
-      expect(nameInput).toHaveValue('テストプロジェクト');
-    });
-
-    it('編集後に詳細表示に戻ると更新された値が表示される', async () => {
-      const user = userEvent.setup();
-      vi.mocked(projectsApi.updateProject).mockResolvedValue({
-        ...mockProject,
-        name: '更新後のプロジェクト名',
-      });
-      vi.mocked(projectsApi.getProject)
-        .mockResolvedValueOnce(mockProject) // 初回取得
-        .mockResolvedValueOnce({
-          ...mockProject,
-          name: '更新後のプロジェクト名',
-        }); // 更新後の再取得
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await user.click(editButton);
-
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      const nameInput = screen.getByRole('textbox', { name: 'プロジェクト名' });
-      await user.clear(nameInput);
-      await user.type(nameInput, '更新後のプロジェクト名');
-
-      const saveButton = screen.getByRole('button', { name: '保存' });
-      await user.click(saveButton);
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('heading', { level: 1, name: '更新後のプロジェクト名' })
-        ).toBeInTheDocument();
-      });
+      // 詳細表示が維持される（インラインフォームに切り替わらない）
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'テストプロジェクト' })
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('form')).not.toBeInTheDocument();
     });
   });
 
@@ -1014,32 +871,8 @@ describe('ProjectDetailPage', () => {
       expect(projectsApi.getProject).toHaveBeenCalledTimes(2);
     });
 
-    it('更新中のエラー時にエラーメッセージを表示する', async () => {
-      const user = userEvent.setup();
-      vi.mocked(projectsApi.updateProject).mockRejectedValue(
-        new ApiError(500, 'Internal Server Error')
-      );
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await user.click(editButton);
-
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      const saveButton = screen.getByRole('button', { name: '保存' });
-      await user.click(saveButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Internal Server Error/)).toBeInTheDocument();
-      });
-    });
+    // Note: Task 19.5 により編集は /projects/:id/edit ページで行われるため、
+    // 詳細ページでの更新中エラーテストは ProjectEditPage.test.tsx に移動済み
   });
 
   describe('アクセシビリティ詳細（Task 15.3）', () => {
@@ -1083,20 +916,15 @@ describe('ProjectDetailPage', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
-    it('編集フォームにrole="form"が設定される', async () => {
-      const user = userEvent.setup();
+    it('編集ボタンが表示される', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await user.click(editButton);
-
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
+      // 編集ボタンが存在することを確認（Task 19.5: 編集ページへ遷移するためフォームは表示しない）
+      expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
     });
   });
 
@@ -1207,7 +1035,7 @@ describe('ProjectDetailPage', () => {
       expect(within(nav).getByText('カスタムプロジェクト名')).toBeInTheDocument();
     });
 
-    it('編集モードでもパンくずナビゲーションが表示される', async () => {
+    it('編集ボタンクリック時もパンくずナビゲーションが表示されている', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -1215,15 +1043,16 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 編集モードに切り替え
+      // パンくずナビゲーションが存在することを確認
+      expect(
+        screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
+      ).toBeInTheDocument();
+
+      // 編集ボタンをクリック（Task 19.5: 編集ページへ遷移）
       const editButton = screen.getByRole('button', { name: '編集' });
       await user.click(editButton);
 
-      await waitFor(() => {
-        expect(screen.getByRole('form')).toBeInTheDocument();
-      });
-
-      // 編集モードでもパンくずナビゲーションが存在する
+      // 遷移前の状態でパンくずナビゲーションが存在することを確認
       expect(
         screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
       ).toBeInTheDocument();

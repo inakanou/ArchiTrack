@@ -4,6 +4,7 @@
  * Task 9.2: ProjectDetailPageの実装
  * Task 18.3: 取引先情報表示拡張
  * Task 19.2: パンくずナビゲーション追加
+ * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -13,18 +14,13 @@
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
  * - 21.15, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト > [プロジェクト名]）
+ * - 21.21: 編集ボタンクリックで編集ページへ遷移
  * - 22.5: プロジェクトが取引先と紐付いている場合に取引先情報（名前）を表示
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import {
-  getProject,
-  getStatusHistory,
-  updateProject,
-  deleteProject,
-  transitionStatus,
-} from '../api/projects';
+import { getProject, getStatusHistory, deleteProject, transitionStatus } from '../api/projects';
 import { ApiError } from '../api/client';
 import { searchTradingPartners } from '../api/trading-partners';
 import { useToast } from '../hooks/useToast';
@@ -36,8 +32,6 @@ import type {
 } from '../types/project.types';
 import type { TradingPartnerSearchResult } from '../types/trading-partner.types';
 import { PROJECT_STATUS_LABELS } from '../types/project.types';
-import ProjectForm from '../components/projects/ProjectForm';
-import type { ProjectFormData } from '../components/projects/ProjectForm';
 import StatusTransitionUI from '../components/projects/StatusTransitionUI';
 import DeleteConfirmationDialog from '../components/projects/DeleteConfirmationDialog';
 import { Breadcrumb } from '../components/common';
@@ -288,15 +282,12 @@ export default function ProjectDetailPage() {
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // エラー状態
   const [error, setError] = useState<string | null>(null);
-  const [conflictError, setConflictError] = useState<string | null>(null);
 
   /**
    * 顧客名に一致する取引先を検索
@@ -368,59 +359,14 @@ export default function ProjectDetailPage() {
   }, [project]);
 
   /**
-   * プロジェクト更新
+   * 編集ページへ遷移
+   * Task 19.5: TradingPartnerDetailPageと同じパターンで編集ページへ遷移
    */
-  const handleUpdate = useCallback(
-    async (data: ProjectFormData) => {
-      if (!project || !id) return;
-
-      setIsSubmitting(true);
-      setConflictError(null);
-
-      try {
-        await updateProject(
-          id,
-          {
-            name: data.name,
-            customerName: data.customerName,
-            salesPersonId: data.salesPersonId,
-            constructionPersonId: data.constructionPersonId,
-            siteAddress: data.siteAddress,
-            description: data.description,
-          },
-          project.updatedAt
-        );
-
-        // 詳細データとして再取得（salesPerson等のネストしたデータが必要）
-        const refreshedProject = await getProject(id);
-        setProject(refreshedProject);
-        setIsEditing(false);
-
-        // トースト通知で成功メッセージを表示
-        toast.projectUpdated();
-      } catch (err) {
-        if (err instanceof ApiError) {
-          if (err.statusCode === 409) {
-            const conflictMessage =
-              '他のユーザーによって更新されました。ページを再読み込みしてください。';
-            setConflictError(conflictMessage);
-            toast.operationFailed(conflictMessage);
-          } else {
-            const errorMessage = err.message || '更新中にエラーが発生しました';
-            setConflictError(errorMessage);
-            toast.operationFailed(errorMessage);
-          }
-        } else {
-          const defaultErrorMessage = '更新中にエラーが発生しました';
-          setConflictError(defaultErrorMessage);
-          toast.operationFailed(defaultErrorMessage);
-        }
-      } finally {
-        setIsSubmitting(false);
-      }
-    },
-    [project, id, toast]
-  );
+  const handleEdit = useCallback(() => {
+    if (project) {
+      navigate(`/projects/${project.id}/edit`);
+    }
+  }, [project, navigate]);
 
   /**
    * プロジェクト削除
@@ -497,14 +443,6 @@ export default function ProjectDetailPage() {
     [id, toast]
   );
 
-  /**
-   * 編集キャンセル
-   */
-  const handleCancelEdit = useCallback(() => {
-    setIsEditing(false);
-    setConflictError(null);
-  }, []);
-
   // ローディング表示
   if (isLoading) {
     return (
@@ -544,55 +482,6 @@ export default function ProjectDetailPage() {
     return null;
   }
 
-  // 編集フォーム表示
-  if (isEditing) {
-    return (
-      <main role="main" style={styles.container}>
-        {/* パンくずナビゲーション */}
-        <div style={styles.breadcrumbWrapper}>
-          <Breadcrumb
-            items={[
-              { label: 'ダッシュボード', path: '/' },
-              { label: 'プロジェクト', path: '/projects' },
-              { label: project.name },
-            ]}
-          />
-        </div>
-
-        <div style={styles.header}>
-          <Link to="/projects" style={styles.backLink}>
-            ← 一覧に戻る
-          </Link>
-          <h1 style={styles.title}>プロジェクトを編集</h1>
-        </div>
-
-        {conflictError && (
-          <div role="alert" style={styles.conflictError}>
-            <p style={styles.conflictErrorText}>{conflictError}</p>
-          </div>
-        )}
-
-        <div style={styles.section}>
-          <ProjectForm
-            key={project.id}
-            mode="edit"
-            initialData={{
-              name: project.name,
-              customerName: project.customerName,
-              salesPersonId: project.salesPerson.id,
-              constructionPersonId: project.constructionPerson?.id,
-              siteAddress: project.siteAddress,
-              description: project.description,
-            }}
-            onSubmit={handleUpdate}
-            onCancel={handleCancelEdit}
-            isSubmitting={isSubmitting}
-          />
-        </div>
-      </main>
-    );
-  }
-
   // 詳細表示
   return (
     <main role="main" aria-busy={isLoading} style={styles.container}>
@@ -620,7 +509,7 @@ export default function ProjectDetailPage() {
         <div style={styles.actionsContainer}>
           <button
             type="button"
-            onClick={() => setIsEditing(true)}
+            onClick={handleEdit}
             style={{ ...styles.button, ...styles.editButton }}
           >
             編集
