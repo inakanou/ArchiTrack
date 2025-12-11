@@ -242,7 +242,7 @@
   - Task 12.1 に依存
   - _Requirements: 2.1, 2.8, 12.10, 12.16, 12.19, 12.21_
 
-- [ ] 12.5 TradingPartnerEditPageの実装
+- [x] 12.5 TradingPartnerEditPageの実装
   - TradingPartnerFormコンポーネントを編集モードで使用
   - パンくずナビゲーション（ダッシュボード > 取引先 > [取引先名] > 編集）
   - 更新成功時は成功メッセージ表示後、詳細ページへ遷移
