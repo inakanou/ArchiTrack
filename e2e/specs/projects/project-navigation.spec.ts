@@ -429,10 +429,10 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
-      // プロジェクトリンクをクリック
-      const projectLink = page.getByRole('link', { name: /ナビゲーションテスト_/i }).first();
-      await expect(projectLink).toBeVisible({ timeout: getTimeout(10000) });
-      await projectLink.click();
+      // 作成したプロジェクトの行をクリック（data-testidで特定）
+      const projectRow = page.locator(`[data-testid="project-row-${testProjectId}"]`);
+      await expect(projectRow).toBeVisible({ timeout: getTimeout(10000) });
+      await projectRow.click();
 
       // 詳細ページに遷移することを確認
       await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+$/, { timeout: getTimeout(10000) });
