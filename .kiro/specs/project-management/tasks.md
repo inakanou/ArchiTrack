@@ -490,7 +490,7 @@
   - アクセシビリティ属性を確認
   - _Requirements: 21.16, 21.18_
 
-- [ ] 19.4 ProjectEditPageの実装とパンくずナビゲーション追加
+- [x] 19.4 ProjectEditPageの実装とパンくずナビゲーション追加
   - /projects/:id/edit ルートを追加
   - ProjectEditPageコンポーネントを新規作成
   - 既存プロジェクトデータの取得と編集フォーム表示を実装

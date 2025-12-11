@@ -16,6 +16,7 @@ import { PermissionManagement } from './pages/PermissionManagement';
 import ProjectListPage from './pages/ProjectListPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import ProjectCreatePage from './pages/ProjectCreatePage';
+import ProjectEditPage from './pages/ProjectEditPage';
 import TradingPartnerListPage from './pages/TradingPartnerListPage';
 import TradingPartnerDetailPage from './pages/TradingPartnerDetailPage';
 import TradingPartnerCreatePage from './pages/TradingPartnerCreatePage';
@@ -111,6 +112,13 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/new',
         element: <ProjectCreatePage />,
+      },
+      // プロジェクト編集（/projects/:id より先に定義する必要あり）
+      // REQ-21.23: /projects/:id/edit のURLで提供
+      // REQ-21.17: パンくず: ダッシュボード > プロジェクト > [プロジェクト名] > 編集
+      {
+        path: '/projects/:id/edit',
+        element: <ProjectEditPage />,
       },
       // プロジェクト詳細
       // REQ-7.1, 7.2, 7.3: プロジェクト詳細表示
