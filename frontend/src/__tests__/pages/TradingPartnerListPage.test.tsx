@@ -536,4 +536,76 @@ describe('TradingPartnerListPage', () => {
       expect(main).toHaveAttribute('aria-busy', 'true');
     });
   });
+
+  // ==========================================================================
+  // Task 12.9: TradingPartnerListPageにパンくずナビゲーション追加
+  // ==========================================================================
+
+  describe('パンくずナビゲーション（Task 12.9 / Requirements 12.14, 12.18）', () => {
+    it('パンくずナビゲーションが表示される', async () => {
+      const { getTradingPartners } = await import('../../api/trading-partners');
+      vi.mocked(getTradingPartners).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        expect(breadcrumb).toBeInTheDocument();
+      });
+    });
+
+    it('パンくずに「ダッシュボード」リンクが表示される（REQ-12.14）', async () => {
+      const { getTradingPartners } = await import('../../api/trading-partners');
+      vi.mocked(getTradingPartners).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        const dashboardLink = screen.getByRole('link', { name: 'ダッシュボード' });
+        expect(dashboardLink).toBeInTheDocument();
+        expect(dashboardLink).toHaveAttribute('href', '/');
+      });
+    });
+
+    it('パンくずに「取引先」がリンクなしで表示される（REQ-12.14）', async () => {
+      const { getTradingPartners } = await import('../../api/trading-partners');
+      vi.mocked(getTradingPartners).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        // 「取引先」は現在のページなのでリンクではなくテキストとして表示される
+        const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        expect(breadcrumbNav).toHaveTextContent('取引先');
+
+        // リンクではないことを確認（aria-current="page"が設定される）
+        const currentPage = screen.getByText('取引先');
+        expect(currentPage).toHaveAttribute('aria-current', 'page');
+      });
+    });
+
+    it('パンくずの区切り文字が「>」である（REQ-12.14）', async () => {
+      const { getTradingPartners } = await import('../../api/trading-partners');
+      vi.mocked(getTradingPartners).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        expect(breadcrumbNav).toHaveTextContent('>');
+      });
+    });
+
+    it('パンくずがWAI-ARIA準拠（aria-label="パンくずナビゲーション"）である', async () => {
+      const { getTradingPartners } = await import('../../api/trading-partners');
+      vi.mocked(getTradingPartners).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        expect(nav).toHaveAttribute('aria-label', 'パンくずナビゲーション');
+      });
+    });
+  });
 });

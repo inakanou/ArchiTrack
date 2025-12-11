@@ -2,6 +2,7 @@
  * @fileoverview 取引先一覧ページ
  *
  * Task 9.4: 一覧画面のエラーハンドリング
+ * Task 12.9: TradingPartnerListPageにパンくずナビゲーション追加
  *
  * Requirements (trading-partner-management):
  * - REQ-1.1: 取引先一覧ページにアクセスしたとき、登録済みの取引先をテーブル形式で表示
@@ -15,6 +16,8 @@
  * - REQ-8.1: ネットワークエラー時のエラーメッセージ表示と再試行ボタン
  * - REQ-8.2: サーバーエラー（5xx）時のメッセージ表示
  * - REQ-8.3: セッション期限切れ時のログインページリダイレクト
+ * - REQ-12.14: 取引先一覧ページに「ダッシュボード > 取引先」のパンくずナビゲーションを表示
+ * - REQ-12.18: パンくずナビゲーションの任意の階層をクリックしたとき、該当ページに遷移
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -31,6 +34,7 @@ import TradingPartnerListTable from '../components/trading-partners/TradingPartn
 import TradingPartnerSearchFilter from '../components/trading-partners/TradingPartnerSearchFilter';
 import TradingPartnerPaginationUI from '../components/trading-partners/TradingPartnerPaginationUI';
 import NetworkErrorDisplay from '../components/NetworkErrorDisplay';
+import { Breadcrumb } from '../components/common/Breadcrumb';
 import { useNetworkError } from '../hooks/useNetworkError';
 
 // ============================================================================
@@ -352,6 +356,11 @@ export default function TradingPartnerListPage() {
 
   return (
     <main role="main" aria-busy={loading} className="py-8">
+      {/* パンくずナビゲーション（REQ-12.14, REQ-12.18） */}
+      <div className="mb-6">
+        <Breadcrumb items={[{ label: 'ダッシュボード', path: '/' }, { label: '取引先' }]} />
+      </div>
+
       {/* エラー表示（REQ-8.1, 8.2, 8.3） */}
       <NetworkErrorDisplay
         error={networkError}

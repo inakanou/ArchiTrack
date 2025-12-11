@@ -271,7 +271,7 @@
   - クリックで/trading-partnersへ遷移
   - _Requirements: 12.5, 12.6, 12.7, 12.8_
 
-- [ ] 12.9 TradingPartnerListPageにパンくずナビゲーション追加
+- [x] 12.9 TradingPartnerListPageにパンくずナビゲーション追加
   - 既存のTradingPartnerListPageにBreadcrumbコンポーネントを追加
   - パンくず: ダッシュボード > 取引先
   - Task 12.1 に依存
