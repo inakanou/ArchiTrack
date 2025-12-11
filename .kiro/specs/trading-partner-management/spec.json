@@ -1,9 +1,9 @@
 {
   "feature_name": "trading-partner-management",
   "created_at": "2025-12-10T00:00:00Z",
-  "updated_at": "2025-12-11T12:00:00Z",
+  "updated_at": "2025-12-11T16:00:00Z",
   "language": "ja",
-  "phase": "design-generated",
+  "phase": "tasks-generated",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -11,13 +11,13 @@
     },
     "design": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "tasks": {
       "generated": true,
-      "approved": true
+      "approved": false
     }
   },
   "ready_for_implementation": false,
-  "notes": "要件12（画面遷移・ナビゲーション）の設計をdesign.mdに追加。設計承認後、タスクへの反映が必要。"
+  "notes": "タスク更新（Gap Analysis反映）: Task 12（ナビゲーション・画面遷移）を再構成。Requirement 12の全28項目をカバー。共通コンポーネント（Breadcrumb, ResourceNotFound）、ページコンポーネント（DetailPage, CreatePage, EditPage）、routes.tsx、AppHeader、Dashboard統合のタスクを明確化。並列実行可能タスクに(P)マーカーを付与。"
 }

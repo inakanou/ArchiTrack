@@ -23,7 +23,6 @@
 - 取引先のインポート/エクスポート機能
 - 取引先のマスタデータ連携（外部システム連携）
 - 取引先種別のカスタマイズ機能（現段階では固定）
-- パンくずナビゲーションコンポーネントの新規作成（既存プロジェクトにも未実装のため、将来の共通対応へ延期）
 
 ## Architecture
 
@@ -52,8 +51,11 @@ graph TB
         TradingPartnerListPage[TradingPartnerListPage]
         TradingPartnerDetailPage[TradingPartnerDetailPage]
         TradingPartnerCreatePage[TradingPartnerCreatePage]
+        TradingPartnerEditPage[TradingPartnerEditPage]
         TradingPartnerForm[TradingPartnerForm]
         TradingPartnerSearchFilter[TradingPartnerSearchFilter]
+        Breadcrumb[Breadcrumb 共通]
+        ResourceNotFound[ResourceNotFound 共通]
     end
 
     subgraph Backend
@@ -83,10 +85,18 @@ graph TB
     ProtectedLayout --> TradingPartnerListPage
     ProtectedLayout --> TradingPartnerDetailPage
     ProtectedLayout --> TradingPartnerCreatePage
+    ProtectedLayout --> TradingPartnerEditPage
+
+    TradingPartnerListPage --> Breadcrumb
+    TradingPartnerDetailPage --> Breadcrumb
+    TradingPartnerCreatePage --> Breadcrumb
+    TradingPartnerEditPage --> Breadcrumb
+    TradingPartnerDetailPage --> ResourceNotFound
 
     TradingPartnerListPage --> TradingPartnerRoutes
     TradingPartnerDetailPage --> TradingPartnerRoutes
     TradingPartnerCreatePage --> TradingPartnerRoutes
+    TradingPartnerEditPage --> TradingPartnerRoutes
     TradingPartnerForm --> TradingPartnerRoutes
     TradingPartnerSearchFilter --> TradingPartnerRoutes
 
@@ -216,12 +226,13 @@ graph TB
         List[/trading-partners 一覧]
         New[/trading-partners/new 新規作成]
         Detail[/trading-partners/:id 詳細]
+        Edit[/trading-partners/:id/edit 編集]
     end
 
     subgraph Transitions
         ListToNew[新規作成ボタン]
         ListToDetail[行クリック]
-        DetailEdit[編集ボタン]
+        DetailToEdit[編集ボタン]
         CreateSuccess[作成成功]
         UpdateSuccess[更新成功]
         DeleteSuccess[削除成功]
@@ -238,20 +249,21 @@ graph TB
     ProtLayout --> List
     ProtLayout --> New
     ProtLayout --> Detail
+    ProtLayout --> Edit
 
     List --> ListToNew --> New
     List --> ListToDetail --> Detail
-    Detail --> DetailEdit --> Detail
+    Detail --> DetailToEdit --> Edit
     New --> CreateSuccess --> List
-    Detail --> UpdateSuccess --> Detail
+    Edit --> UpdateSuccess --> Detail
     Detail --> DeleteSuccess --> List
 ```
 
 **Key Decisions**:
 - 認証済みユーザーのみ取引先管理ページにアクセス可能（ProtectedRoute）
 - ログイン後は元のページ（リダイレクト元）に遷移（12.27）
-- 編集は詳細ページ内でインライン/モーダル形式で提供（12.12オプション）
-- 作成成功時は一覧に遷移、更新成功時は詳細に留まる（12.21-12.23）
+- 編集は独立した編集ページ（/trading-partners/:id/edit）で提供（12.12）
+- 作成成功時は一覧に遷移、更新成功時は詳細に遷移（12.21-12.23）
 
 ## Requirements Traceability
 
@@ -270,9 +282,9 @@ graph TB
 | 11.1-11.14 | データインテグリティ | TradingPartnerSchema, TradingPartner Model | Zodバリデーション | - |
 | 12.1-12.4 | ヘッダーナビゲーション | AppHeader (既存拡張) | Link | ナビゲーションフロー |
 | 12.5-12.8 | ダッシュボードクイックアクセス | Dashboard (既存拡張) | Link | ナビゲーションフロー |
-| 12.9-12.13 | URL構造・ルーティング | routes.tsx (既存拡張), TradingPartnerNotFound | React Router | ナビゲーションフロー |
-| 12.14-12.17 | パンくずナビゲーション | 将来実装予定 | - | - |
-| 12.18-12.23 | 画面間遷移 | TradingPartnerListPage, TradingPartnerDetailPage, TradingPartnerCreatePage | React Router navigate | 画面遷移フロー |
+| 12.9-12.13 | URL構造・ルーティング | routes.tsx (既存拡張), ResourceNotFound (共通) | React Router | ナビゲーションフロー |
+| 12.14-12.17 | パンくずナビゲーション | Breadcrumb (共通新規) | React Router Link | ナビゲーションフロー |
+| 12.18-12.23 | 画面間遷移 | TradingPartnerListPage, TradingPartnerDetailPage, TradingPartnerCreatePage, TradingPartnerEditPage | React Router navigate | 画面遷移フロー |
 | 12.24-12.27 | アクセス制御とルート保護 | ProtectedRoute (既存), ProtectedLayout (既存), routes.tsx | - | 認証フロー |
 
 ## Components and Interfaces
@@ -286,14 +298,16 @@ graph TB
 | TradingPartnerSchema | Backend/Schema | リクエストバリデーション | 2, 4, 11 | Zod (P0) | - |
 | TradingPartnerError | Backend/Error | ドメイン固有エラー | 5, 8 | ApiError (P0) | - |
 | TradingPartner Model | Data/Prisma | データモデル | 11 | PostgreSQL (P0) | - |
-| TradingPartnerListPage | Frontend/Page | 一覧画面 | 1, 8, 9, 12.18-12.19 | TradingPartnerService (P0) | State |
-| TradingPartnerDetailPage | Frontend/Page | 詳細画面 | 3, 5, 12.20, 12.22 | TradingPartnerService (P0) | State |
-| TradingPartnerCreatePage | Frontend/Page | 新規作成画面 | 2, 12.21 | TradingPartnerForm (P0) | State |
+| TradingPartnerListPage | Frontend/Page | 一覧画面 | 1, 8, 9, 12.14, 12.18-12.19 | TradingPartnerService (P0), Breadcrumb (P0) | State |
+| TradingPartnerDetailPage | Frontend/Page | 詳細画面 | 3, 5, 12.15, 12.20 | TradingPartnerService (P0), Breadcrumb (P0), ResourceNotFound (P0) | State |
+| TradingPartnerCreatePage | Frontend/Page | 新規作成画面 | 2, 12.16, 12.21 | TradingPartnerForm (P0), Breadcrumb (P0) | State |
+| TradingPartnerEditPage | Frontend/Page | 編集画面 | 4, 12.12, 12.22 | TradingPartnerForm (P0), Breadcrumb (P0) | State |
 | TradingPartnerForm | Frontend/Component | 作成・編集フォーム | 2, 4, 11 | - | - |
+| Breadcrumb | Frontend/Common | パンくずナビゲーション | 12.14-12.17 | React Router Link (P0) | - |
+| ResourceNotFound | Frontend/Common | リソース未検出表示 | 12.13 | React Router Link (P0) | - |
 | AppHeader (既存拡張) | Frontend/Navigation | ヘッダーナビゲーション | 12.1-12.4 | React Router (P0) | - |
 | Dashboard (既存拡張) | Frontend/Page | ダッシュボード | 12.5-12.8 | React Router (P0) | - |
-| routes.tsx (既存拡張) | Frontend/Config | ルート定義 | 12.9-12.13, 12.24-12.27 | ProtectedRoute (P0), ProtectedLayout (P0) | - |
-| TradingPartnerNotFound | Frontend/Component | 404表示 | 12.13 | - | - |
+| routes.tsx (既存拡張) | Frontend/Config | ルート定義 | 12.9-12.12, 12.24-12.27 | ProtectedRoute (P0), ProtectedLayout (P0) | - |
 
 ### Backend Layer
 
@@ -499,6 +513,186 @@ class TradingPartnerService {
 - TradingPartnerFormを再利用し、新規作成モードで表示
 - 作成成功時: 成功メッセージ表示後、一覧ページ（/trading-partners）へ遷移
 - 戻るボタン: 一覧ページへのリンク提供
+- パンくず: 「ダッシュボード > 取引先 > 新規作成」
+
+#### TradingPartnerEditPage
+
+| Field | Detail |
+|-------|--------|
+| Intent | 取引先編集専用ページを提供 |
+| Requirements | 4.1-4.10, 12.12, 12.22 |
+
+**Implementation Notes**
+- URL: `/trading-partners/:id/edit`
+- TradingPartnerFormを再利用し、編集モードで表示（既存データをプリセット）
+- 更新成功時: 成功メッセージ表示後、詳細ページ（/trading-partners/:id）へ遷移
+- キャンセルボタン: 詳細ページへのリンク提供
+- パンくず: 「ダッシュボード > 取引先 > [取引先名] > 編集」
+- 楽観的排他制御: expectedUpdatedAtをリクエストに含める
+
+### Common Components (共通コンポーネント)
+
+#### Breadcrumb
+
+| Field | Detail |
+|-------|--------|
+| Intent | 階層構造を示すパンくずナビゲーションを提供（他機能でも再利用可能） |
+| Requirements | 12.14, 12.15, 12.16, 12.17 |
+
+**Responsibilities & Constraints**
+- 階層構造を配列で受け取り、リンク付きのパンくずを生成
+- 最後の項目（現在のページ）はリンクなしで表示
+- 区切り文字は「>」を使用
+- 将来的にプロジェクト管理や他機能でも再利用可能
+
+**Dependencies**
+- Outbound: React Router Link — ナビゲーション (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Interface
+
+```typescript
+// frontend/src/components/common/Breadcrumb.tsx
+
+interface BreadcrumbItem {
+  label: string;      // 表示テキスト
+  path?: string;      // リンク先パス（省略時はリンクなし）
+}
+
+interface BreadcrumbProps {
+  items: BreadcrumbItem[];
+}
+
+/**
+ * パンくずナビゲーションコンポーネント
+ *
+ * @example
+ * // 取引先一覧ページ
+ * <Breadcrumb items={[
+ *   { label: 'ダッシュボード', path: '/' },
+ *   { label: '取引先' }
+ * ]} />
+ *
+ * @example
+ * // 取引先詳細ページ
+ * <Breadcrumb items={[
+ *   { label: 'ダッシュボード', path: '/' },
+ *   { label: '取引先', path: '/trading-partners' },
+ *   { label: partner.name }
+ * ]} />
+ *
+ * @example
+ * // 取引先新規作成ページ
+ * <Breadcrumb items={[
+ *   { label: 'ダッシュボード', path: '/' },
+ *   { label: '取引先', path: '/trading-partners' },
+ *   { label: '新規作成' }
+ * ]} />
+ */
+export function Breadcrumb({ items }: BreadcrumbProps): ReactElement {
+  return (
+    <nav aria-label="パンくずナビゲーション" className="breadcrumb">
+      <ol className="flex items-center space-x-2 text-sm text-gray-500">
+        {items.map((item, index) => (
+          <li key={index} className="flex items-center">
+            {index > 0 && <span className="mx-2">&gt;</span>}
+            {item.path ? (
+              <Link to={item.path} className="hover:text-gray-700 hover:underline">
+                {item.label}
+              </Link>
+            ) : (
+              <span className="text-gray-900 font-medium">{item.label}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+```
+
+**Design Notes**
+- WAI-ARIA: `aria-label="パンくずナビゲーション"` でアクセシビリティ対応
+- セマンティクス: `<nav>`, `<ol>`, `<li>` 要素で構造化
+- スタイル: Tailwind CSSでシンプルなデザイン
+- 再利用性: 汎用的なインターフェースで他機能でも使用可能
+
+#### ResourceNotFound
+
+| Field | Detail |
+|-------|--------|
+| Intent | リソースが見つからない場合の統一されたエラー表示を提供（他機能でも再利用可能） |
+| Requirements | 12.13 |
+
+**Responsibilities & Constraints**
+- リソースタイプに応じたメッセージを表示
+- 一覧ページへの戻るリンクを提供
+- 将来的にプロジェクト管理や他機能でも再利用可能
+
+**Dependencies**
+- Outbound: React Router Link — ナビゲーション (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Interface
+
+```typescript
+// frontend/src/components/common/ResourceNotFound.tsx
+
+interface ResourceNotFoundProps {
+  resourceType: string;      // "取引先" | "プロジェクト" など
+  returnPath: string;        // "/trading-partners" | "/projects" など
+  returnLabel: string;       // "取引先一覧に戻る" など
+}
+
+/**
+ * リソース未検出コンポーネント
+ *
+ * @example
+ * // 取引先詳細ページで取引先が見つからない場合
+ * <ResourceNotFound
+ *   resourceType="取引先"
+ *   returnPath="/trading-partners"
+ *   returnLabel="取引先一覧に戻る"
+ * />
+ *
+ * @example
+ * // プロジェクト詳細ページでプロジェクトが見つからない場合
+ * <ResourceNotFound
+ *   resourceType="プロジェクト"
+ *   returnPath="/projects"
+ *   returnLabel="プロジェクト一覧に戻る"
+ * />
+ */
+export function ResourceNotFound({
+  resourceType,
+  returnPath,
+  returnLabel
+}: ResourceNotFoundProps): ReactElement {
+  return (
+    <div className="text-center py-12">
+      <h1 className="text-2xl font-bold text-gray-900">
+        {resourceType}が見つかりません
+      </h1>
+      <p className="mt-2 text-gray-600">
+        指定された{resourceType}は存在しないか、削除されています。
+      </p>
+      <Link
+        to={returnPath}
+        className="mt-4 inline-block text-blue-600 hover:text-blue-800 underline"
+      >
+        {returnLabel}
+      </Link>
+    </div>
+  );
+}
+```
+
+**Design Notes**
+- 統一されたエラーUX: 全機能で一貫したメッセージ形式
+- カスタマイズ性: リソースタイプと戻り先を指定可能
+- アクセシビリティ: 明確な見出しと説明文
 
 ### Navigation Layer (既存コンポーネント拡張)
 
@@ -600,14 +794,14 @@ const Icons = {
 | Requirements | 12.9, 12.10, 12.11, 12.12, 12.24, 12.25, 12.26, 12.27 |
 
 **Responsibilities & Constraints**
-- URL構造: `/trading-partners`, `/trading-partners/new`, `/trading-partners/:id`
+- URL構造: `/trading-partners`, `/trading-partners/new`, `/trading-partners/:id`, `/trading-partners/:id/edit`
 - ProtectedRoute + ProtectedLayout による認証保護
 - プロジェクト管理と同じルートグループ（保護されたルート）に配置
 
 **Dependencies**
 - Outbound: ProtectedRoute — 認証チェック (P0)
 - Outbound: ProtectedLayout — AppHeader付きレイアウト (P0)
-- Outbound: TradingPartnerListPage, TradingPartnerDetailPage, TradingPartnerCreatePage — ページコンポーネント (P0)
+- Outbound: TradingPartnerListPage, TradingPartnerDetailPage, TradingPartnerCreatePage, TradingPartnerEditPage — ページコンポーネント (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
@@ -634,6 +828,11 @@ const Icons = {
       path: '/trading-partners/new',
       element: <TradingPartnerCreatePage />,
     },
+    // 取引先編集 - REQ 12.12（:id より先に定義）
+    {
+      path: '/trading-partners/:id/edit',
+      element: <TradingPartnerEditPage />,
+    },
     // 取引先詳細 - REQ 12.11
     {
       path: '/trading-partners/:id',
@@ -644,36 +843,8 @@ const Icons = {
 ```
 
 **Implementation Notes**
-- `/trading-partners/new` は `/trading-partners/:id` より先に定義（React Routerのマッチング順序）
+- `/trading-partners/new` と `/trading-partners/:id/edit` は `/trading-partners/:id` より先に定義（React Routerのマッチング順序）
 - 既存のProjectルートパターン（/projects, /projects/new, /projects/:id）を踏襲
-- 編集ページ（/trading-partners/:id/edit）は詳細ページ内インライン編集のため省略可（12.12オプション）
-
-#### TradingPartnerNotFound
-
-| Field | Detail |
-|-------|--------|
-| Intent | 存在しない取引先IDにアクセスした場合のエラー表示 |
-| Requirements | 12.13 |
-
-**Implementation Notes**
-- 「取引先が見つかりません」メッセージを表示
-- 取引先一覧（/trading-partners）への戻るリンクを提供
-- TradingPartnerDetailPage内で取引先が見つからない場合に表示
-
-```typescript
-// TradingPartnerDetailPage内での使用
-if (error?.code === 'TRADING_PARTNER_NOT_FOUND') {
-  return (
-    <div className="text-center py-12">
-      <h1 className="text-2xl font-bold text-gray-900">取引先が見つかりません</h1>
-      <p className="mt-2 text-gray-600">指定された取引先は存在しないか、削除されています。</p>
-      <Link to="/trading-partners" className="mt-4 text-blue-600 hover:text-blue-800 underline">
-        取引先一覧に戻る
-      </Link>
-    </div>
-  );
-}
-```
 
 ## Data Models
 
@@ -927,3 +1098,59 @@ interface TradingPartnerSearchResponse {
 - インデックス: nameKana、deletedAt、createdAtにインデックス
 - 検索API: 結果を最大10件に制限
 - キャッシュ: RBACの権限キャッシュを活用（既存機能）
+
+## Implementation Status (Gap Analysis)
+
+> 本セクションは2025-12-11のGap Analysisに基づく実装状況を記録する。詳細は`research.md`を参照。
+
+### 実装済みコンポーネント
+
+| Layer | Component | Status | Notes |
+|-------|-----------|--------|-------|
+| Backend | Prismaスキーマ（TradingPartner, TradingPartnerTypeMapping） | 完了 | Requirement 11 |
+| Backend | TradingPartnerService | 完了 | Requirement 1-5, 10 |
+| Backend | trading-partners.routes.ts | 完了 | Requirement 1-5, 7, 10 |
+| Backend | trading-partner.schema.ts | 完了 | Requirement 2, 4, 11 |
+| Backend | tradingPartnerError.ts | 完了 | Requirement 5, 8 |
+| Frontend | TradingPartnerListPage | 完了 | Requirement 1（パンくず未実装） |
+| Frontend | TradingPartnerListTable | 完了 | Requirement 1 |
+| Frontend | TradingPartnerSearchFilter | 完了 | Requirement 1 |
+| Frontend | TradingPartnerPaginationUI | 完了 | Requirement 1 |
+| Frontend | TradingPartnerForm | 完了 | Requirement 2, 4 |
+| Frontend | TradingPartnerFormContainer | 完了 | Requirement 2, 4 |
+| Frontend | TradingPartnerDetailView | 完了 | Requirement 3 |
+| Frontend | TradingPartnerDeleteDialog | 完了 | Requirement 5 |
+| Frontend | TradingPartnerTypeSelect | 完了 | Requirement 6 |
+| Frontend | trading-partners.ts（API） | 完了 | - |
+
+### 未実装コンポーネント（Requirement 12関連）
+
+| Layer | Component | Priority | Requirements | Notes |
+|-------|-----------|----------|--------------|-------|
+| Frontend | Breadcrumb（共通） | P0 | 12.14-12.17 | 再利用可能な共通コンポーネント |
+| Frontend | ResourceNotFound（共通） | P0 | 12.13 | 再利用可能な共通コンポーネント |
+| Frontend | TradingPartnerDetailPage | P0 | 3, 12.11, 12.15, 12.20 | 詳細表示ページ（既存DetailView活用） |
+| Frontend | TradingPartnerCreatePage | P0 | 2, 12.10, 12.16, 12.19, 12.21 | 新規作成ページ（既存Form活用） |
+| Frontend | TradingPartnerEditPage | P0 | 4, 12.12, 12.22 | 編集ページ（既存Form活用） |
+| Frontend | routes.tsx 拡張 | P0 | 12.9-12.12, 12.24-12.27 | 取引先ルート追加 |
+| Frontend | AppHeader 拡張 | P0 | 12.1-12.4 | 取引先リンク追加 |
+| Frontend | Dashboard 拡張 | P0 | 12.5-12.8 | クイックアクセスカード追加 |
+
+### テスト未完了
+
+| Category | Status | Notes |
+|----------|--------|-------|
+| Unit Tests（サービス層） | 未実装 | tasks.md 12.2 |
+| Unit Tests（バリデーション） | 未実装 | tasks.md 12.1 |
+| Integration Tests（API） | 未実装 | tasks.md 13.1, 13.2 |
+| E2E Tests（CRUD） | 未実装 | tasks.md 14.1 |
+| E2E Tests（一覧機能） | 未実装 | tasks.md 14.2 |
+| E2E Tests（ナビゲーション） | 未実装 | Requirement 12のE2Eテスト |
+| Performance Tests | 一部実装 | tasks.md 14.3（パフォーマンステストスクリプト作成済み） |
+
+### 次のステップ
+
+1. **Phase 1**: 共通コンポーネント実装（Breadcrumb、ResourceNotFound）
+2. **Phase 2**: ページコンポーネント実装（DetailPage、CreatePage、EditPage）
+3. **Phase 3**: ナビゲーション統合（routes.tsx、AppHeader、Dashboard）
+4. **Phase 4**: テスト実装（Unit、Integration、E2E）
