@@ -6,3 +6,6 @@
 
 export { Breadcrumb } from './Breadcrumb';
 export type { BreadcrumbItem, BreadcrumbProps } from './Breadcrumb';
+
+export { ResourceNotFound } from './ResourceNotFound';
+export type { ResourceNotFoundProps } from './ResourceNotFound';
