@@ -69,6 +69,23 @@ vi.mock('../../pages/Dashboard', () => ({
   Dashboard: () => <div data-testid="dashboard-page">Dashboard</div>,
 }));
 
+// 取引先ページコンポーネントモック
+vi.mock('../../pages/TradingPartnerListPage', () => ({
+  default: () => <div data-testid="trading-partner-list-page">Trading Partner List Page</div>,
+}));
+
+vi.mock('../../pages/TradingPartnerDetailPage', () => ({
+  default: () => <div data-testid="trading-partner-detail-page">Trading Partner Detail Page</div>,
+}));
+
+vi.mock('../../pages/TradingPartnerCreatePage', () => ({
+  default: () => <div data-testid="trading-partner-create-page">Trading Partner Create Page</div>,
+}));
+
+vi.mock('../../pages/TradingPartnerEditPage', () => ({
+  default: () => <div data-testid="trading-partner-edit-page">Trading Partner Edit Page</div>,
+}));
+
 vi.mock('../../components/ProtectedRoute', () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -182,6 +199,163 @@ describe('Routes - Project Management', () => {
       });
 
       expect(screen.queryByTestId('project-detail-page')).not.toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * 取引先管理ルートのテスト
+ *
+ * Task 12.6: routes.tsx 取引先ルート追加
+ *
+ * Requirements:
+ * - 12.9: 取引先一覧ページを /trading-partners のURLで提供する
+ * - 12.10: 取引先新規作成ページを /trading-partners/new のURLで提供する
+ * - 12.11: 取引先詳細ページを /trading-partners/:id のURLで提供する
+ * - 12.12: 取引先編集ページを /trading-partners/:id/edit のURLで提供する
+ * - 12.24: 取引先管理ページ群をProtectedRouteで保護し、認証済みユーザーのみアクセスを許可する
+ * - 12.25: 取引先管理ページ群にProtectedLayout（AppHeader付き）を適用する
+ * - 12.26: 未認証ユーザーが取引先管理ページにアクセスした場合はログインページにリダイレクトする
+ * - 12.27: ログイン後は元のページ（リダイレクト元の取引先ページ）に遷移する
+ */
+describe('Routes - Trading Partner Management', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('/trading-partners ルート (REQ-12.9)', () => {
+    it('/trading-partners にアクセスすると取引先一覧ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trading-partner-list-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/trading-partners はProtectedLayoutでラップされている (REQ-12.25)', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('/trading-partners/new ルート (REQ-12.10)', () => {
+    it('/trading-partners/new にアクセスすると取引先作成ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trading-partner-create-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/trading-partners/new はProtectedLayoutでラップされている (REQ-12.25)', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('/trading-partners/:id ルート (REQ-12.11)', () => {
+    it('/trading-partners/:id にアクセスすると取引先詳細ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/test-partner-id'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trading-partner-detail-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/trading-partners/:id はProtectedLayoutでラップされている (REQ-12.25)', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/test-partner-id'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('/trading-partners/:id/edit ルート (REQ-12.12)', () => {
+    it('/trading-partners/:id/edit にアクセスすると取引先編集ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/test-partner-id/edit'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trading-partner-edit-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/trading-partners/:id/edit はProtectedLayoutでラップされている (REQ-12.25)', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/test-partner-id/edit'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('ルート順序', () => {
+    it('/trading-partners/new は /trading-partners/:id より先にマッチする', async () => {
+      // /trading-partners/new に "new" がIDとして解釈されないことを確認
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trading-partner-create-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('trading-partner-detail-page')).not.toBeInTheDocument();
+    });
+
+    it('/trading-partners/:id/edit は /trading-partners/:id より先にマッチする', async () => {
+      // /trading-partners/:id/edit が正しくマッチすることを確認
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/trading-partners/test-id/edit'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trading-partner-edit-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('trading-partner-detail-page')).not.toBeInTheDocument();
     });
   });
 });

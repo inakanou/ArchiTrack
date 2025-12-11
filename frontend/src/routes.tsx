@@ -19,6 +19,7 @@ import ProjectCreatePage from './pages/ProjectCreatePage';
 import TradingPartnerListPage from './pages/TradingPartnerListPage';
 import TradingPartnerDetailPage from './pages/TradingPartnerDetailPage';
 import TradingPartnerCreatePage from './pages/TradingPartnerCreatePage';
+import TradingPartnerEditPage from './pages/TradingPartnerEditPage';
 
 /**
  * アプリケーションのルート設定
@@ -132,6 +133,13 @@ export const routes: RouteObject[] = [
       {
         path: '/trading-partners/new',
         element: <TradingPartnerCreatePage />,
+      },
+      // 取引先編集（/trading-partners/:id より先に定義する必要あり）
+      // REQ-12.12: /trading-partners/:id/edit のURLで提供
+      // REQ-12.17: パンくず: ダッシュボード > 取引先 > [取引先名] > 編集
+      {
+        path: '/trading-partners/:id/edit',
+        element: <TradingPartnerEditPage />,
       },
       // 取引先詳細
       // REQ-12.11: /trading-partners/:id のURLで提供

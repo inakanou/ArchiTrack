@@ -251,7 +251,7 @@
   - Task 12.1 に依存
   - _Requirements: 4.1, 4.5, 4.6, 12.12, 12.17, 12.22_
 
-- [ ] 12.6 routes.tsx 取引先ルート追加
+- [x] 12.6 routes.tsx 取引先ルート追加
   - /trading-partners（一覧）、/trading-partners/new（新規作成）、/trading-partners/:id（詳細）、/trading-partners/:id/edit（編集）
   - ProtectedRoute + ProtectedLayoutによる認証保護
   - /trading-partners/newと/trading-partners/:id/editは/trading-partners/:idより先に定義
