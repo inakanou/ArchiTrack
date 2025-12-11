@@ -127,6 +127,14 @@ test.describe('取引先管理の追加要件', () => {
       const updatedNotes = `監査ログテスト備考_${Date.now()}`;
       await page.getByLabel('備考').fill(updatedNotes);
 
+      // 更新APIのレスポンスを待機
+      const updatePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/trading-partners/${partnerId}`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+
       // 監査ログAPIの呼び出しを監視
       const auditLogPromise = page.waitForResponse(
         (response) =>
@@ -137,6 +145,10 @@ test.describe('取引先管理の追加要件', () => {
       // 保存ボタンをクリック
       await page.getByRole('button', { name: /保存/i }).click();
 
+      // 更新APIのレスポンスを待機
+      const updateResponse = await updatePromise;
+      expect(updateResponse.status()).toBe(200);
+
       // 監査ログAPIが呼び出されることを確認
       const auditLogResponse = await auditLogPromise.catch(() => null);
 
@@ -145,8 +157,8 @@ test.describe('取引先管理の追加要件', () => {
         expect(auditLogResponse.status()).toBe(201);
       }
 
-      // 更新成功を確認
-      await expect(page.getByText(/取引先を更新しました/i)).toBeVisible({
+      // 更新成功を確認（詳細ページに遷移することで確認）
+      await expect(page).toHaveURL(new RegExp(`/trading-partners/${partnerId}$`), {
         timeout: getTimeout(10000),
       });
     });
