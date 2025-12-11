@@ -225,7 +225,7 @@
   - 他機能でも再利用可能な汎用インターフェース
   - _Requirements: 12.13_
 
-- [ ] 12.3 TradingPartnerDetailPageの実装
+- [x] 12.3 TradingPartnerDetailPageの実装
   - TradingPartnerDetailViewコンポーネントを活用した詳細ページ
   - パンくずナビゲーション（ダッシュボード > 取引先 > [取引先名]）
   - 編集ボタンクリックで編集ページへ遷移
