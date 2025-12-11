@@ -430,6 +430,7 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
         required
         disabled={isSubmitting}
         error={errors.customerName}
+        enableAutocomplete
       />
 
       {/* 営業担当者 */}
