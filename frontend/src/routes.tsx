@@ -16,6 +16,9 @@ import { PermissionManagement } from './pages/PermissionManagement';
 import ProjectListPage from './pages/ProjectListPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import ProjectCreatePage from './pages/ProjectCreatePage';
+import TradingPartnerListPage from './pages/TradingPartnerListPage';
+import TradingPartnerDetailPage from './pages/TradingPartnerDetailPage';
+import TradingPartnerCreatePage from './pages/TradingPartnerCreatePage';
 
 /**
  * アプリケーションのルート設定
@@ -113,6 +116,29 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:id',
         element: <ProjectDetailPage />,
+      },
+
+      // 取引先一覧
+      // REQ-12.9: /trading-partners のURLで提供
+      // REQ-12.2: ヘッダーの「取引先」リンクから取引先一覧画面に遷移
+      // REQ-12.6: ダッシュボードの「取引先管理」カードから取引先一覧画面に遷移
+      {
+        path: '/trading-partners',
+        element: <TradingPartnerListPage />,
+      },
+      // 取引先新規作成（/trading-partners/:id より先に定義する必要あり）
+      // REQ-12.10: /trading-partners/new のURLで提供
+      // REQ-12.16: パンくず: ダッシュボード > 取引先 > 新規作成
+      {
+        path: '/trading-partners/new',
+        element: <TradingPartnerCreatePage />,
+      },
+      // 取引先詳細
+      // REQ-12.11: /trading-partners/:id のURLで提供
+      // REQ-12.15: パンくず: ダッシュボード > 取引先 > [取引先名]
+      {
+        path: '/trading-partners/:id',
+        element: <TradingPartnerDetailPage />,
       },
     ],
   },

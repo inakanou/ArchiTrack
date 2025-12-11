@@ -234,7 +234,7 @@
   - Task 12.1, 12.2 に依存
   - _Requirements: 3.1, 3.2, 3.3, 12.11, 12.13, 12.15, 12.20_
 
-- [ ] 12.4 TradingPartnerCreatePageの実装
+- [x] 12.4 TradingPartnerCreatePageの実装
   - TradingPartnerFormコンポーネントを新規作成モードで使用
   - パンくずナビゲーション（ダッシュボード > 取引先 > 新規作成）
   - 作成成功時は成功メッセージ表示後、一覧ページへ遷移
