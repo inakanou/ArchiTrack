@@ -375,7 +375,8 @@ frontend/
 │   │   ├── AuditLogs.tsx   # 監査ログページ（管理者）
 │   │   ├── ProjectListPage.tsx # プロジェクト一覧ページ
 │   │   ├── ProjectDetailPage.tsx # プロジェクト詳細ページ
-│   │   └── ProjectCreatePage.tsx # プロジェクト作成ページ
+│   │   ├── ProjectCreatePage.tsx # プロジェクト作成ページ
+│   │   └── ProjectEditPage.tsx # プロジェクト編集ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等

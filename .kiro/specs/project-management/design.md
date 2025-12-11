@@ -246,7 +246,8 @@ sequenceDiagram
 | 18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification | - | - |
 | 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
 | 20.1-20.6 | アクセシビリティ | 全UIコンポーネント | - | - |
-| 21.1-21.8 | ナビゲーション | AppHeader, Dashboard | - | - |
+| 21.1-21.13 | ナビゲーション | AppHeader, Dashboard | - | - |
+| 21.14-21.18 | パンくずナビゲーション | Breadcrumb, ProjectListPage, ProjectDetailPage, ProjectCreatePage, ProjectEditPage | - | - |
 | 22.1-22.5 | 取引先連携 | ProjectForm, CustomerNameInput, ProjectDetailPage | GET /api/trading-partners | - |
 
 ## Components and Interfaces
@@ -255,12 +256,14 @@ sequenceDiagram
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
-| ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート | 2, 3, 4, 5, 6 | ProjectService (P0), useAuth (P0) | State |
-| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除 | 7, 8, 9, 10, 11, 22 | ProjectService (P0), ProjectStatusService (P1) | State |
+| ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず | 2, 3, 4, 5, 6, 21.14 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず | 7, 8, 9, 10, 11, 21.15, 21.17, 22 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1) | State |
+| ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
 | ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17, 22 | CustomerNameInput (P1), UserSelect (P1) | Service |
 | CustomerNameInput | UI/Component | 顧客名入力・取引先オートコンプリート連携 | 16, 22 | TradingPartnerAPI (P1) | API |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
+| Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
 | ProjectService | Backend/Service | プロジェクトCRUDビジネスロジック | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
 | ProjectRoutes | Backend/Route | RESTful APIエンドポイント | 14 | ProjectService (P0), authorize (P0) | API |
@@ -737,6 +740,7 @@ interface ProjectListState {
 - Integration: 768px未満でカード表示に切り替え（`useMediaQuery`フック使用）
 - Validation: 検索キーワード2文字以上のバリデーション
 - Risks: 大量データ時のパフォーマンス（仮想スクロールの検討が必要な場合あり）
+- Breadcrumb: 既存の`Breadcrumb`コンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）を再利用し、「ダッシュボード > プロジェクト」のパンくずを表示（21.14）
 
 ---
 
@@ -749,15 +753,15 @@ interface ProjectListState {
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
-- プロジェクト詳細情報の表示
-- 編集モード切り替え
+- プロジェクト詳細情報の表示（読み取り専用）
+- 編集ページへの遷移（編集ボタン押下で`/projects/:id/edit`へ遷移）
 - 削除確認ダイアログ
 - ステータス遷移UI（順方向・差し戻しの視覚的区別）
 - 関連データ（現場調査・見積書）の件数表示とリンク（機能フラグで制御）
 
 **Dependencies**
 - Inbound: Router — ページ遷移 (P0)
-- Outbound: ProjectService API — データ取得・更新・削除 (P0)
+- Outbound: ProjectService API — データ取得・削除 (P0)
 - Outbound: ProjectStatusService API — ステータス遷移 (P1)
 - Outbound: ToastNotification — 通知 (P1)
 
@@ -770,8 +774,48 @@ interface ProjectDetailState {
   project: ProjectDetail | null;
   statusHistory: ProjectStatusHistory[];
   isLoading: boolean;
-  isEditing: boolean;
   isDeleting: boolean;
+  error: string | null;
+}
+```
+
+**Implementation Notes**
+- Integration: 削除時の関連データ確認（警告ダイアログ表示）
+- Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
+- Breadcrumb: 「ダッシュボード > プロジェクト > [プロジェクト名]」のパンくずを表示（21.15）
+- 設計方針: 取引先管理機能と同様に、詳細ページは読み取り専用とし、編集は独立した`ProjectEditPage`（`/projects/:id/edit`）で行う
+
+---
+
+#### ProjectEditPage
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト情報の編集機能を提供 |
+| Requirements | 8.1-8.6, 21.12, 21.17, 21.21 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 既存プロジェクトデータの編集フォーム表示
+- クライアントサイドバリデーション
+- 楽観的排他制御による競合検出
+- 保存成功時の詳細ページへの遷移
+
+**Dependencies**
+- Inbound: Router — ページ遷移 (P0)
+- Outbound: ProjectService API — データ取得・更新 (P0)
+- Outbound: ProjectForm — フォームUI (P0)
+- Outbound: ToastNotification — 通知 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ProjectEditState {
+  project: ProjectDetail | null;
+  isLoading: boolean;
+  isSubmitting: boolean;
   error: string | null;
   conflictError: ConflictError | null;
 }
@@ -779,8 +823,10 @@ interface ProjectDetailState {
 
 **Implementation Notes**
 - Integration: 編集時の競合検出と再読み込み誘導
-- Validation: 削除時の関連データ確認（警告ダイアログ表示）
+- Validation: ProjectFormコンポーネントでクライアントサイドバリデーション実行
 - Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
+- Breadcrumb: 「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」のパンくずを表示（21.17）
+- 設計方針: 取引先管理機能の`TradingPartnerEditPage`と同一パターン
 
 ---
 
@@ -991,6 +1037,115 @@ const STATUS_COLORS: Record<ProjectStatus, { bg: string; text: string }> = {
 - Integration: Tailwind CSSのカラークラスを使用、アイコンはHeroicons
 - Validation: 差し戻し時の理由入力必須チェック（クライアント・サーバー両方）
 - Risks: カラーコントラストのアクセシビリティ確認が必要（WCAG 2.1 Level AA準拠）
+
+---
+
+### Breadcrumb Integration
+
+#### Breadcrumb（パンくずナビゲーション - 既存コンポーネント再利用）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 階層構造を示すナビゲーションを提供し、ユーザーが現在位置を把握・任意の階層へ遷移できるようにする |
+| Requirements | 21.14, 21.15, 21.16, 21.17, 21.18 |
+| Owner / Reviewers | Frontend Team |
+
+**既存コンポーネントの再利用**
+
+プロジェクト管理機能では、取引先管理機能（`trading-partner-management`）で実装済みの`Breadcrumb`コンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）をそのまま再利用します。
+
+**既存Breadcrumbコンポーネントの仕様**:
+
+```typescript
+// frontend/src/components/common/Breadcrumb.tsx
+
+/**
+ * パンくずナビゲーションの項目
+ */
+interface BreadcrumbItem {
+  /** 表示テキスト */
+  label: string;
+  /** リンク先パス（省略時はリンクなし） */
+  path?: string;
+}
+
+/**
+ * Breadcrumbコンポーネントのprops
+ */
+interface BreadcrumbProps {
+  /** パンくず項目の配列 */
+  items: BreadcrumbItem[];
+}
+```
+
+**アクセシビリティ対応**（既存実装済み）:
+- `aria-label="パンくずナビゲーション"`: スクリーンリーダー対応
+- `aria-current="page"`: 現在ページの識別
+- `aria-hidden="true"`: 区切り文字の非読み上げ
+
+**プロジェクト管理ページでの使用パターン**:
+
+```typescript
+// 1. プロジェクト一覧ページ（21.14）
+const listBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト' }  // 現在ページ（リンクなし）
+];
+
+// 2. プロジェクト詳細ページ（21.15）
+const detailBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name }  // 現在ページ（リンクなし）
+];
+
+// 3. プロジェクト新規作成ページ（21.16）
+const createBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: '新規作成' }  // 現在ページ（リンクなし）
+];
+
+// 4. プロジェクト編集ページ（21.17） - 独立ページ方式
+// ProjectEditPage.tsx で使用
+const editBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name, path: `/projects/${project.id}` },  // 詳細ページへのリンク
+  { label: '編集' }  // 現在ページ（リンクなし）
+];
+```
+
+**設計方針：独立ページ方式（パターンB）**
+
+取引先管理機能との一貫性を重視し、詳細ページと編集ページを独立したページコンポーネントとして分離します：
+
+| ページ | URL | コンポーネント | パンくず |
+|--------|-----|---------------|---------|
+| 詳細 | `/projects/:id` | `ProjectDetailPage` | ダッシュボード > プロジェクト > [プロジェクト名] |
+| 編集 | `/projects/:id/edit` | `ProjectEditPage` | ダッシュボード > プロジェクト > [プロジェクト名] > 編集 |
+
+```typescript
+// ProjectDetailPage.tsx - 詳細ページ（読み取り専用）
+const detailBreadcrumbItems: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name }  // 現在ページ（リンクなし）
+];
+
+// ProjectEditPage.tsx - 編集ページ
+const editBreadcrumbItems: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name, path: `/projects/${project.id}` },  // 詳細ページへのリンク
+  { label: '編集' }  // 現在ページ（リンクなし）
+];
+```
+
+**Implementation Notes**
+- Integration: 既存の`Breadcrumb`コンポーネントをインポートして使用（`import { Breadcrumb } from '../components/common'`）
+- 取引先管理機能と同一パターン: `TradingPartnerListPage`, `TradingPartnerDetailPage`, `TradingPartnerEditPage`の実装を参照
+- ルーティング: `routes.tsx`に`/projects/:id/edit`ルートを追加し、`ProjectEditPage`にマッピング
 
 ---
 
@@ -1241,6 +1396,12 @@ enum TransitionType {
 - ステータス順方向遷移: ステータスボタン → 順方向遷移選択 → 確認
 - ステータス差し戻し遷移: ステータスボタン → 差し戻し遷移選択 → 理由入力 → 確認
 - ステータス遷移UIの視覚的区別: 順方向（緑）、差し戻し（オレンジ）、終端（赤）の表示確認
+- パンくずナビゲーション（21.14-21.18）:
+  - 一覧ページ: 「ダッシュボード > プロジェクト」の表示確認
+  - 詳細ページ: 「ダッシュボード > プロジェクト > [プロジェクト名]」の表示確認
+  - 新規作成ページ: 「ダッシュボード > プロジェクト > 新規作成」の表示確認
+  - 編集モード時: 「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」の動的表示確認
+  - パンくずクリック遷移: 各階層クリックで該当ページへ遷移確認
 - レスポンシブ表示: デスクトップ → タブレット → モバイル
 - キーボードナビゲーション: Tab, Enter, Escape操作
 
