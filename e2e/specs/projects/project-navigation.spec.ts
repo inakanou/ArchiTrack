@@ -716,7 +716,10 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       await expect(nav).toBeVisible({ timeout: getTimeout(10000) });
 
       // ダッシュボードリンクが存在することを確認（ProtectedLayoutの一部）
-      await expect(page.getByRole('link', { name: /ダッシュボード/i })).toBeVisible({
+      // ヘッダー内のダッシュボードリンクを特定（パンくずリストにも存在するため）
+      await expect(
+        page.getByRole('banner').getByRole('link', { name: /ダッシュボード/i })
+      ).toBeVisible({
         timeout: getTimeout(10000),
       });
 
