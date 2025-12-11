@@ -20,10 +20,12 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ToastProvider } from '../../hooks/useToast';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
+import * as tradingPartnersApi from '../../api/trading-partners';
 import { ApiError } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/projects');
+vi.mock('../../api/trading-partners');
 
 // useAuthフックのモック
 vi.mock('../../hooks/useAuth', () => ({
@@ -95,12 +97,22 @@ const mockAssignableUsers = [
   { id: 'user-3', displayName: 'テストユーザー' },
 ];
 
+// 取引先モックデータ
+const mockTradingPartner = {
+  id: 'trading-partner-1',
+  name: 'テスト顧客',
+  nameKana: 'テストコキャク',
+  types: ['CUSTOMER' as const],
+};
+
 describe('ProjectDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
     vi.mocked(projectsApi.getStatusHistory).mockResolvedValue(mockStatusHistory);
     vi.mocked(projectsApi.getAssignableUsers).mockResolvedValue(mockAssignableUsers);
+    // デフォルトでは取引先が見つからない設定
+    vi.mocked(tradingPartnersApi.searchTradingPartners).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -1083,6 +1095,110 @@ describe('ProjectDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('form')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // 22.5: 取引先情報表示（Task 18.3）
+  // ==========================================================================
+
+  describe('取引先情報表示（Task 18.3, Requirements 22.5）', () => {
+    it('顧客名に一致する取引先がある場合、取引先情報セクションを表示する', async () => {
+      vi.mocked(tradingPartnersApi.searchTradingPartners).mockResolvedValue([mockTradingPartner]);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 取引先情報セクションが表示される
+      expect(screen.getByText('取引先情報')).toBeInTheDocument();
+      expect(screen.getByText('取引先名')).toBeInTheDocument();
+      // 取引先名が表示される
+      expect(screen.getAllByText('テスト顧客').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('顧客名に一致する取引先がない場合、取引先情報セクションを表示しない', async () => {
+      vi.mocked(tradingPartnersApi.searchTradingPartners).mockResolvedValue([]);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 取引先情報セクションが表示されない
+      expect(screen.queryByText('取引先情報')).not.toBeInTheDocument();
+    });
+
+    it('取引先検索APIがエラーの場合、取引先情報セクションを表示しない', async () => {
+      vi.mocked(tradingPartnersApi.searchTradingPartners).mockRejectedValue(new Error('API Error'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 取引先情報セクションが表示されない（エラー時はフォールバック）
+      expect(screen.queryByText('取引先情報')).not.toBeInTheDocument();
+    });
+
+    it('取引先検索APIが顧客名で呼び出される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 検索APIが顧客名で呼び出されたことを確認
+      expect(tradingPartnersApi.searchTradingPartners).toHaveBeenCalledWith(
+        'テスト顧客',
+        ['CUSTOMER'],
+        1
+      );
+    });
+
+    it('取引先未設定時は顧客名のみ表示する（フォールバック）', async () => {
+      vi.mocked(tradingPartnersApi.searchTradingPartners).mockResolvedValue([]);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 顧客名は基本情報セクションに表示される
+      expect(screen.getAllByText('テスト顧客').length).toBeGreaterThanOrEqual(1);
+
+      // 取引先情報セクションは表示されない
+      expect(screen.queryByText('取引先情報')).not.toBeInTheDocument();
+    });
+
+    it('取引先情報セクションには取引先名が表示される', async () => {
+      const tradingPartnerWithDetails = {
+        id: 'trading-partner-1',
+        name: 'テスト顧客',
+        nameKana: 'テストコキャク',
+        types: ['CUSTOMER' as const],
+      };
+      vi.mocked(tradingPartnersApi.searchTradingPartners).mockResolvedValue([
+        tradingPartnerWithDetails,
+      ]);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('取引先情報')).toBeInTheDocument();
+      });
+
+      // 取引先名のラベルと値
+      expect(screen.getByText('取引先名')).toBeInTheDocument();
     });
   });
 });

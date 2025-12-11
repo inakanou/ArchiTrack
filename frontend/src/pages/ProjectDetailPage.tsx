@@ -2,6 +2,7 @@
  * @fileoverview プロジェクト詳細ページ
  *
  * Task 9.2: ProjectDetailPageの実装
+ * Task 18.3: 取引先情報表示拡張
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -10,6 +11,7 @@
  * - 11.1, 11.2, 11.3, 11.4, 11.5, 11.6: 関連データ参照（機能フラグ対応）
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
+ * - 22.5: プロジェクトが取引先と紐付いている場合に取引先情報（名前）を表示
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -22,6 +24,7 @@ import {
   transitionStatus,
 } from '../api/projects';
 import { ApiError } from '../api/client';
+import { searchTradingPartners } from '../api/trading-partners';
 import { useToast } from '../hooks/useToast';
 import type {
   ProjectDetail,
@@ -29,6 +32,7 @@ import type {
   AllowedTransition,
   ProjectStatus,
 } from '../types/project.types';
+import type { TradingPartnerSearchResult } from '../types/trading-partner.types';
 import { PROJECT_STATUS_LABELS } from '../types/project.types';
 import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
@@ -274,6 +278,7 @@ export default function ProjectDetailPage() {
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [statusHistory, setStatusHistory] = useState<StatusHistoryResponse[]>([]);
+  const [tradingPartner, setTradingPartner] = useState<TradingPartnerSearchResult | null>(null);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -288,6 +293,23 @@ export default function ProjectDetailPage() {
   const [conflictError, setConflictError] = useState<string | null>(null);
 
   /**
+   * 顧客名に一致する取引先を検索
+   * Task 18.3: 取引先情報表示拡張 (Requirements 22.5)
+   */
+  const fetchTradingPartner = useCallback(async (customerName: string) => {
+    try {
+      // 顧客名で完全一致する取引先を検索（limit: 1）
+      const results = await searchTradingPartners(customerName, ['CUSTOMER'], 1);
+      // 検索結果の最初の取引先が顧客名と完全一致するか確認
+      const matchedPartner = results.find((p) => p.name === customerName);
+      setTradingPartner(matchedPartner || null);
+    } catch {
+      // 取引先検索失敗時はフォールバック（顧客名のみ表示）
+      setTradingPartner(null);
+    }
+  }, []);
+
+  /**
    * プロジェクトデータを取得
    */
   const fetchProject = useCallback(async () => {
@@ -295,12 +317,18 @@ export default function ProjectDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setTradingPartner(null);
 
     try {
       const [projectData, historyData] = await Promise.all([getProject(id), getStatusHistory(id)]);
 
       setProject(projectData);
       setStatusHistory(historyData);
+
+      // 取引先情報を取得（顧客名で検索）
+      if (projectData.customerName) {
+        fetchTradingPartner(projectData.customerName);
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -318,7 +346,7 @@ export default function ProjectDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [id, navigate]);
+  }, [id, navigate, fetchTradingPartner]);
 
   // 初回読み込み
   useEffect(() => {
@@ -633,6 +661,19 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </section>
+
+      {/* 取引先情報セクション（取引先が紐付いている場合のみ表示）Task 18.3 */}
+      {tradingPartner && (
+        <section style={styles.section}>
+          <h2 style={styles.sectionTitle}>取引先情報</h2>
+          <div style={styles.grid}>
+            <div style={styles.field}>
+              <div style={styles.fieldLabel}>取引先名</div>
+              <div style={styles.fieldValue}>{tradingPartner.name}</div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ステータス遷移UI */}
       <section style={styles.section}>
