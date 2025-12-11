@@ -712,4 +712,169 @@ describe('AppHeader - タスク23.2: ナビゲーションコンポーネント�
       expect(screen.getByText('プロジェクト')).toBeInTheDocument();
     });
   });
+
+  /**
+   * タスク12.7: AppHeaderへの取引先リンク追加
+   *
+   * 要件:
+   * - 12.1: AppHeaderのメインナビゲーションに「取引先」リンクを表示する
+   * - 12.2: 認証済みユーザーがAppHeaderの「取引先」リンクをクリックしたとき、取引先一覧ページ（/trading-partners）に遷移する
+   * - 12.3: 「取引先」リンクにアイコン（ビルディングアイコン）を付与して視認性を高める
+   * - 12.4: 「取引先」リンクを「プロジェクト」リンクの次に配置する
+   */
+  describe('取引先リンク（タスク12.7）', () => {
+    /**
+     * REQ-12.1: AppHeaderのメインナビゲーションに「取引先」リンクを表示する
+     */
+    it('should render trading partner link in navigation', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByRole('link', { name: /取引先/i })).toBeInTheDocument();
+    });
+
+    /**
+     * REQ-12.2: 認証済みユーザーがAppHeaderの「取引先」リンクをクリックしたとき、
+     * 取引先一覧ページ（/trading-partners）に遷移する
+     */
+    it('should have correct href to /trading-partners', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const tradingPartnerLink = screen.getByRole('link', { name: /取引先/i });
+      expect(tradingPartnerLink).toHaveAttribute('href', '/trading-partners');
+    });
+
+    /**
+     * REQ-12.3: 「取引先」リンクにアイコン（ビルディングアイコン）を付与して視認性を高める
+     */
+    it('should render trading partner link with icon', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const tradingPartnerLink = screen.getByRole('link', { name: /取引先/i });
+      // SVGアイコンが含まれていることを確認
+      const svg = tradingPartnerLink.querySelector('svg');
+      expect(svg).toBeInTheDocument();
+      expect(svg).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    /**
+     * REQ-12.4: 「取引先」リンクを「プロジェクト」リンクの次に配置する
+     */
+    it('should render trading partner link after project link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const projectLink = screen.getByRole('link', { name: /プロジェクト/i });
+      const tradingPartnerLink = screen.getByRole('link', { name: /取引先/i });
+
+      // DOM順序で取引先リンクがプロジェクトリンクの後に来ることを確認
+      const nav = screen.getByRole('navigation');
+      const links = nav.querySelectorAll('a.app-header-nav-link');
+
+      // linksをArrayに変換
+      const linksArray = Array.from(links);
+
+      const projectIndex = linksArray.indexOf(projectLink);
+      const tradingPartnerIndex = linksArray.indexOf(tradingPartnerLink);
+
+      expect(projectIndex).toBeLessThan(tradingPartnerIndex);
+      expect(tradingPartnerIndex).toBe(projectIndex + 1);
+    });
+
+    /**
+     * 取引先リンクが正しいCSSクラスを持つ
+     */
+    it('should have correct CSS class on trading partner link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const tradingPartnerLink = screen.getByRole('link', { name: /取引先/i });
+      expect(tradingPartnerLink).toHaveClass('app-header-nav-link');
+    });
+
+    /**
+     * 取引先リンクにテキスト「取引先」が表示される
+     */
+    it('should display text "取引先" in link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByText('取引先')).toBeInTheDocument();
+    });
+
+    /**
+     * ナビゲーションリンクの順序が正しい（ダッシュボード → プロジェクト → 取引先）
+     */
+    it('should have correct navigation link order: Dashboard > Project > Trading Partner', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const nav = screen.getByRole('navigation');
+      const links = nav.querySelectorAll('a.app-header-nav-link');
+      const linksArray = Array.from(links);
+
+      const dashboardLink = screen.getByRole('link', { name: /ダッシュボード/i });
+      const projectLink = screen.getByRole('link', { name: /プロジェクト/i });
+      const tradingPartnerLink = screen.getByRole('link', { name: /取引先/i });
+
+      const dashboardIndex = linksArray.indexOf(dashboardLink);
+      const projectIndex = linksArray.indexOf(projectLink);
+      const tradingPartnerIndex = linksArray.indexOf(tradingPartnerLink);
+
+      expect(dashboardIndex).toBe(0);
+      expect(projectIndex).toBe(1);
+      expect(tradingPartnerIndex).toBe(2);
+    });
+  });
 });
