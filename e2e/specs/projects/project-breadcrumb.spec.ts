@@ -331,4 +331,295 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       }
     });
   });
+
+  /**
+   * Task 20.2: パンくずナビゲーション遷移E2Eテスト
+   * REQ-21.18: パンくずナビゲーションからの遷移機能
+   */
+  test.describe('パンくずナビゲーション遷移', () => {
+    /**
+     * @requirement project-management/REQ-21.18
+     */
+    test('一覧ページのパンくずからダッシュボードリンクをクリックし、ダッシュボードページへ遷移する (project-management/REQ-21.18)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // プロジェクト一覧ページに遷移
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+
+      // パンくずナビゲーションを取得
+      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 「ダッシュボード」リンクをクリック
+      const dashboardLink = breadcrumb.getByRole('link', { name: 'ダッシュボード' });
+      await expect(dashboardLink).toBeVisible({ timeout: getTimeout(10000) });
+      await dashboardLink.click();
+
+      // ダッシュボードページへ遷移したことを確認
+      await page.waitForURL('/', { timeout: getTimeout(15000) });
+      await page.waitForLoadState('networkidle');
+
+      // ダッシュボードページの特徴的な要素が表示されていることを確認
+      const dashboard = page.locator('[data-testid="dashboard"]');
+      await expect(dashboard).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 「ようこそ」というウェルカムメッセージが表示されていることを確認
+      const welcomeHeading = page.getByRole('heading', { name: /ようこそ/i });
+      await expect(welcomeHeading).toBeVisible({ timeout: getTimeout(10000) });
+    });
+
+    /**
+     * @requirement project-management/REQ-21.18
+     */
+    test('新規作成ページのパンくずからプロジェクトリンクをクリックし、プロジェクト一覧ページへ遷移する (project-management/REQ-21.18)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新規作成ページに遷移
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+
+      // パンくずナビゲーションを取得
+      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 「プロジェクト」リンクをクリック
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      await expect(projectsLink).toBeVisible({ timeout: getTimeout(10000) });
+      await projectsLink.click();
+
+      // プロジェクト一覧ページへ遷移したことを確認
+      await page.waitForURL('/projects', { timeout: getTimeout(15000) });
+      await page.waitForLoadState('networkidle');
+
+      // プロジェクト一覧ページのパンくずが「ダッシュボード > プロジェクト」になっていることを確認
+      const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(newBreadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 現在ページが「プロジェクト」になっていることを確認
+      const currentPage = newBreadcrumb.locator('[aria-current="page"]');
+      await expect(currentPage).toHaveText('プロジェクト');
+    });
+
+    /**
+     * @requirement project-management/REQ-21.18
+     */
+    test('詳細ページのパンくずからプロジェクトリンクをクリックし、プロジェクト一覧ページへ遷移する (project-management/REQ-21.18)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // テスト用プロジェクトを作成
+      const project = await createTestProject(page);
+
+      // 詳細ページに遷移
+      await page.goto(`/projects/${project.id}`);
+      await page.waitForLoadState('networkidle');
+
+      // パンくずナビゲーションを取得
+      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 「プロジェクト」リンクをクリック
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      await expect(projectsLink).toBeVisible({ timeout: getTimeout(10000) });
+      await projectsLink.click();
+
+      // プロジェクト一覧ページへ遷移したことを確認
+      await page.waitForURL('/projects', { timeout: getTimeout(15000) });
+      await page.waitForLoadState('networkidle');
+
+      // 遷移後も適切なパンくずが表示されることを確認
+      const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      const currentPage = newBreadcrumb.locator('[aria-current="page"]');
+      await expect(currentPage).toHaveText('プロジェクト');
+    });
+
+    /**
+     * @requirement project-management/REQ-21.18
+     */
+    test('編集ページのパンくずからプロジェクト名リンクをクリックし、詳細ページへ遷移する (project-management/REQ-21.18)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // テスト用プロジェクトを作成
+      const project = await createTestProject(page);
+
+      // 詳細ページでプロジェクト名を取得
+      await page.goto(`/projects/${project.id}`);
+      await page.waitForLoadState('networkidle');
+
+      const pageTitle = page.locator('h1');
+      const expectedProjectName = await pageTitle.textContent();
+
+      // 編集ページに遷移
+      await page.goto(`/projects/${project.id}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // パンくずナビゲーションを取得
+      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      // プロジェクト名リンクをクリック
+      if (expectedProjectName) {
+        const projectNameLink = breadcrumb.getByRole('link', { name: expectedProjectName });
+        await expect(projectNameLink).toBeVisible({ timeout: getTimeout(10000) });
+        await projectNameLink.click();
+
+        // 詳細ページへ遷移したことを確認（正規表現でIDパターンを検証）
+        await page.waitForURL(
+          (url) => {
+            const pathname = url.pathname;
+            return pathname.match(/\/projects\/[^/]+$/) !== null && !pathname.includes('/edit');
+          },
+          { timeout: getTimeout(15000) }
+        );
+        await page.waitForLoadState('networkidle');
+
+        // 遷移後も適切なパンくずが表示されることを確認
+        const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+        await expect(newBreadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+        // 現在ページがプロジェクト名になっていることを確認
+        const currentPage = newBreadcrumb.locator('[aria-current="page"]');
+        await expect(currentPage).toContainText('テスト案件');
+      }
+    });
+
+    /**
+     * @requirement project-management/REQ-21.18
+     */
+    test('現在ページ項目がクリック不可（リンクなし）であることを確認 (project-management/REQ-21.18)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 各ページで現在ページ項目がリンクではないことを確認
+
+      // 1. 一覧ページ：「プロジェクト」が現在ページ
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+
+      let breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 「プロジェクト」がリンクでないことを確認
+      let currentPageElement = breadcrumb.locator('[aria-current="page"]');
+      await expect(currentPageElement).toBeVisible({ timeout: getTimeout(10000) });
+      // リンク要素ではなくspanであることを確認（親がaタグでない）
+      const listCurrentTagName = await currentPageElement.evaluate((el) =>
+        el.tagName.toLowerCase()
+      );
+      expect(listCurrentTagName).toBe('span');
+
+      // 2. 新規作成ページ：「新規作成」が現在ページ
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+
+      breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      currentPageElement = breadcrumb.locator('[aria-current="page"]');
+      await expect(currentPageElement).toHaveText('新規作成');
+      const createCurrentTagName = await currentPageElement.evaluate((el) =>
+        el.tagName.toLowerCase()
+      );
+      expect(createCurrentTagName).toBe('span');
+
+      // 3. 詳細ページ：プロジェクト名が現在ページ
+      const project = await createTestProject(page);
+      await page.goto(`/projects/${project.id}`);
+      await page.waitForLoadState('networkidle');
+
+      breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      currentPageElement = breadcrumb.locator('[aria-current="page"]');
+      await expect(currentPageElement).toContainText('テスト案件');
+      const detailCurrentTagName = await currentPageElement.evaluate((el) =>
+        el.tagName.toLowerCase()
+      );
+      expect(detailCurrentTagName).toBe('span');
+
+      // 4. 編集ページ：「編集」が現在ページ
+      await page.goto(`/projects/${project.id}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      currentPageElement = breadcrumb.locator('[aria-current="page"]');
+      await expect(currentPageElement).toHaveText('編集');
+      const editCurrentTagName = await currentPageElement.evaluate((el) =>
+        el.tagName.toLowerCase()
+      );
+      expect(editCurrentTagName).toBe('span');
+    });
+
+    /**
+     * @requirement project-management/REQ-21.18
+     */
+    test('パンくずナビゲーションから複数回の遷移ができる (project-management/REQ-21.18)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // テスト用プロジェクトを作成
+      const project = await createTestProject(page);
+
+      // 編集ページに遷移
+      await page.goto(`/projects/${project.id}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 1. 編集ページ -> プロジェクト詳細ページ（プロジェクト名リンク）
+      let breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      // プロジェクト名リンクを特定して詳細ページへ遷移
+      const allLinks = await breadcrumb.getByRole('link').all();
+      let projectNameLink: import('@playwright/test').Locator | undefined;
+      for (const link of allLinks) {
+        const href = await link.getAttribute('href');
+        if (href && href.match(/\/projects\/[^/]+$/) && !href.includes('/projects/new')) {
+          projectNameLink = link;
+          break;
+        }
+      }
+      expect(projectNameLink).toBeDefined();
+      if (projectNameLink) {
+        await projectNameLink.click();
+        await page.waitForURL(/\/projects\/[^/]+$/, { timeout: getTimeout(15000) });
+        await page.waitForLoadState('networkidle');
+      }
+
+      // 2. プロジェクト詳細ページ -> プロジェクト一覧ページ（プロジェクトリンク）
+      breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      await projectsLink.click();
+      await page.waitForURL('/projects', { timeout: getTimeout(15000) });
+      await page.waitForLoadState('networkidle');
+
+      // 3. プロジェクト一覧ページ -> ダッシュボード（ダッシュボードリンク）
+      breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+
+      const dashboardLink = breadcrumb.getByRole('link', { name: 'ダッシュボード' });
+      await dashboardLink.click();
+
+      // ダッシュボードページに遷移していることを確認（URLよりも要素の表示を優先）
+      const dashboard = page.locator('[data-testid="dashboard"]');
+      await expect(dashboard).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 「ようこそ」というウェルカムメッセージが表示されていることを確認
+      const welcomeHeading = page.getByRole('heading', { name: /ようこそ/i });
+      await expect(welcomeHeading).toBeVisible({ timeout: getTimeout(10000) });
+    });
+  });
 });
