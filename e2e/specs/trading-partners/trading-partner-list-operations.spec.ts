@@ -491,8 +491,10 @@ test.describe('取引先一覧操作', () => {
       await expect(page).toHaveURL(/order=desc/, { timeout: getTimeout(10000) });
 
       // 3回目のクリック（name asc に戻る）
+      // 注: asc はデフォルト値なので URLパラメータには order が含まれない
       await sortButton.click();
-      await expect(page).toHaveURL(/order=asc/, { timeout: getTimeout(10000) });
+      await expect(page).not.toHaveURL(/order=desc/, { timeout: getTimeout(10000) });
+      await expect(page).toHaveURL(/sort=name/, { timeout: getTimeout(5000) });
     });
 
     test('ソートアイコンが現在のソート状態を反映する', async ({ page }) => {

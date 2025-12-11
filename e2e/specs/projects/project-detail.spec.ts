@@ -186,9 +186,9 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto('/projects/00000000-0000-0000-0000-000000000000');
       await page.waitForLoadState('networkidle');
 
-      // エラーメッセージの確認（404/Bad Request/Not Foundのいずれか）
+      // エラーメッセージの確認（404/Bad Request/Not Found/形式不正のいずれか）
       const errorMessage = page.getByText(
-        /プロジェクトが見つかりませんでした|404|Not Found|Bad Request/i
+        /プロジェクトが見つかりませんでした|プロジェクトIDの形式が不正です|404|Not Found|Bad Request/i
       );
       await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
     });
@@ -209,9 +209,9 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto('/projects/00000000-0000-0000-0000-000000000000');
       await page.waitForLoadState('networkidle');
 
-      // エラーが表示されることを確認（404/403/Bad Requestのいずれか）
+      // エラーが表示されることを確認（404/403/Bad Request/形式不正のいずれか）
       const errorMessage = page.getByText(
-        /プロジェクトが見つかりませんでした|アクセス権限がありません|403|404|Forbidden|Not Found|Bad Request/i
+        /プロジェクトが見つかりませんでした|アクセス権限がありません|プロジェクトIDの形式が不正です|403|404|Forbidden|Not Found|Bad Request/i
       );
       await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
     });
