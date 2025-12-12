@@ -2,13 +2,14 @@
  * @fileoverview 取引先一覧テーブルコンポーネント
  *
  * Task 9.1: 取引先一覧テーブルの実装
+ * Task 19.1: 取引先一覧テーブルからフリガナ列を削除
  *
  * Requirements (trading-partner-management):
  * - REQ-1.1: 取引先一覧ページにアクセスしたとき、登録済みの取引先をテーブル形式で表示
- * - REQ-1.2: 取引先名、フリガナ、部課/支店/支社名、代表者名、取引先種別、住所、電話番号、登録日を一覧に表示
- * - REQ-1.6: ソート列クリックで指定された列（取引先名、フリガナ、登録日等）で昇順または降順にソート
+ * - REQ-1.2: 取引先名、部課/支店/支社名、代表者名、取引先種別、住所、電話番号、登録日を一覧に表示（フリガナ列は削除）
+ * - REQ-1.6: ソート列クリックで指定された列（取引先名、登録日等）で昇順または降順にソート
  * - REQ-1.7: 取引先データが存在しない場合、「取引先が登録されていません」というメッセージを表示
- * - REQ-1.8: 取引先一覧のデフォルトソート順をフリガナの昇順とする
+ * - REQ-1.8: 取引先一覧のデフォルトソート順をフリガナの昇順とする（内部的にフリガナでソートするが、列は非表示）
  */
 
 import { useCallback, memo, type KeyboardEvent } from 'react';
@@ -51,6 +52,8 @@ export interface TradingPartnerListTableProps {
 
 /**
  * テーブルカラム定義
+ * Task 19.1: フリガナ列を削除（nameKana列を除去）
+ * 注: sortFieldとしてのnameKanaは内部的に引き続きサポート（デフォルトソート用）
  */
 const COLUMNS: Array<{
   key: SortField | 'branchName' | 'representativeName' | 'types' | 'address' | 'phoneNumber';
@@ -58,7 +61,6 @@ const COLUMNS: Array<{
   sortable: boolean;
 }> = [
   { key: 'name', label: '取引先名', sortable: true },
-  { key: 'nameKana', label: 'フリガナ', sortable: true },
   { key: 'branchName', label: '部課/支店/支社', sortable: false },
   { key: 'representativeName', label: '代表者名', sortable: false },
   { key: 'types', label: '種別', sortable: false },
@@ -337,10 +339,7 @@ const TradingPartnerListTable = memo(function TradingPartnerListTable({
                     <span className="text-sm font-medium text-gray-900">{partner.name}</span>
                   </div>
                 </td>
-                {/* フリガナ */}
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <span className="text-sm text-gray-600">{partner.nameKana}</span>
-                </td>
+                {/* Task 19.1: フリガナ列を削除 */}
                 {/* 部課/支店/支社名 */}
                 <td className="px-4 py-3 whitespace-nowrap">
                   <span className="text-sm text-gray-600">{partner.branchName || '-'}</span>

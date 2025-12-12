@@ -2,13 +2,14 @@
  * @fileoverview TradingPartnerListTable コンポーネント テスト
  *
  * Task 9.1: 取引先一覧テーブルの実装
+ * Task 19.1: 取引先一覧テーブルからフリガナ列を削除
  *
  * Requirements (trading-partner-management):
  * - REQ-1.1: 取引先一覧ページにアクセスしたとき、登録済みの取引先をテーブル形式で表示
- * - REQ-1.2: 取引先名、フリガナ、部課/支店/支社名、代表者名、取引先種別、住所、電話番号、登録日を一覧に表示
- * - REQ-1.6: ソート列クリックで指定された列（取引先名、フリガナ、登録日等）で昇順または降順にソート
+ * - REQ-1.2: 取引先名、部課/支店/支社名、代表者名、取引先種別、住所、電話番号、登録日を一覧に表示（フリガナ列は削除）
+ * - REQ-1.6: ソート列クリックで指定された列（取引先名、登録日等）で昇順または降順にソート
  * - REQ-1.7: 取引先データが存在しない場合、「取引先が登録されていません」というメッセージを表示
- * - REQ-1.8: 取引先一覧のデフォルトソート順をフリガナの昇順とする
+ * - REQ-1.8: 取引先一覧のデフォルトソート順をフリガナの昇順とする（ソートは内部的にフリガナを使用するが、列は非表示）
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -181,7 +182,7 @@ describe('TradingPartnerListTable', () => {
       expect(screen.getByText('協力工業株式会社')).toBeInTheDocument();
     });
 
-    it('フリガナ列が表示される', () => {
+    it('フリガナ列は表示されない（REQ-1.2改訂: フリガナ列削除）', () => {
       renderWithRouter(
         <TradingPartnerListTable
           partners={mockPartners}
@@ -192,9 +193,12 @@ describe('TradingPartnerListTable', () => {
         />
       );
 
-      expect(screen.getByRole('columnheader', { name: /フリガナ/i })).toBeInTheDocument();
-      expect(screen.getByText('テストカブシキガイシャ')).toBeInTheDocument();
-      expect(screen.getByText('サンプルケンセツ')).toBeInTheDocument();
+      // フリガナ列のヘッダーが存在しないことを確認
+      expect(screen.queryByRole('columnheader', { name: /^フリガナ$/i })).not.toBeInTheDocument();
+      // フリガナデータがテーブルセルとして表示されていないことを確認（データ自体は行に含まれない）
+      const table = screen.getByRole('table');
+      expect(within(table).queryByText('テストカブシキガイシャ')).not.toBeInTheDocument();
+      expect(within(table).queryByText('サンプルケンセツ')).not.toBeInTheDocument();
     });
 
     it('部課/支店/支社名列が表示される', () => {
@@ -294,7 +298,7 @@ describe('TradingPartnerListTable', () => {
       expect(screen.getByRole('columnheader', { name: /登録日/i })).toBeInTheDocument();
     });
 
-    it('カラムの表示順序が正しい（取引先名, フリガナ, 部課/支店/支社, 代表者名, 種別, 住所, 電話番号, 登録日）', () => {
+    it('カラムの表示順序が正しい（取引先名, 部課/支店/支社, 代表者名, 種別, 住所, 電話番号, 登録日）- フリガナ列は含まない', () => {
       renderWithRouter(
         <TradingPartnerListTable
           partners={mockPartners}
@@ -308,14 +312,15 @@ describe('TradingPartnerListTable', () => {
       const headers = screen.getAllByRole('columnheader');
       const headerTexts = headers.map((h) => h.textContent);
 
+      // フリガナ列削除後の7カラム構成
+      expect(headers).toHaveLength(7);
       expect(headerTexts[0]).toMatch(/取引先名/i);
-      expect(headerTexts[1]).toMatch(/フリガナ/i);
-      expect(headerTexts[2]).toMatch(/部課\/支店\/支社/i);
-      expect(headerTexts[3]).toMatch(/代表者名/i);
-      expect(headerTexts[4]).toMatch(/種別/i);
-      expect(headerTexts[5]).toMatch(/住所/i);
-      expect(headerTexts[6]).toMatch(/電話番号/i);
-      expect(headerTexts[7]).toMatch(/登録日/i);
+      expect(headerTexts[1]).toMatch(/部課\/支店\/支社/i);
+      expect(headerTexts[2]).toMatch(/代表者名/i);
+      expect(headerTexts[3]).toMatch(/種別/i);
+      expect(headerTexts[4]).toMatch(/住所/i);
+      expect(headerTexts[5]).toMatch(/電話番号/i);
+      expect(headerTexts[6]).toMatch(/登録日/i);
     });
 
     it('部課/支店/支社名がnullの場合はハイフンまたは空欄で表示される', () => {
@@ -499,21 +504,22 @@ describe('TradingPartnerListTable', () => {
       expect(onSort).toHaveBeenCalledWith('name');
     });
 
-    it('フリガナでソートできる', async () => {
-      const onSort = vi.fn();
+    it('フリガナソートは内部的にサポートされるが、フリガナ列ヘッダーは表示されない', () => {
+      // フリガナ列が削除されたため、フリガナ列ヘッダーからのソートはできない
+      // ただし、sortField="nameKana"は引き続き内部的にサポートされる（デフォルトソート用）
       renderWithRouter(
         <TradingPartnerListTable
           partners={mockPartners}
-          sortField="name"
+          sortField="nameKana"
           sortOrder="asc"
-          onSort={onSort}
+          onSort={vi.fn()}
           onRowClick={vi.fn()}
         />
       );
 
-      const kanaHeader = screen.getByRole('columnheader', { name: /フリガナ/i });
-      await userEvent.click(within(kanaHeader).getByRole('button'));
-      expect(onSort).toHaveBeenCalledWith('nameKana');
+      // フリガナ列ヘッダーが存在しないことを確認
+      expect(screen.queryByRole('columnheader', { name: /^フリガナ$/i })).not.toBeInTheDocument();
+      // nameKana sortFieldは内部的に動作するが、UIにソートアイコンは表示されない（該当列がないため）
     });
 
     it('登録日でソートできる', async () => {
@@ -537,39 +543,7 @@ describe('TradingPartnerListTable', () => {
       renderWithRouter(
         <TradingPartnerListTable
           partners={mockPartners}
-          sortField="nameKana"
-          sortOrder="asc"
-          onSort={vi.fn()}
-          onRowClick={vi.fn()}
-        />
-      );
-
-      const kanaHeader = screen.getByRole('columnheader', { name: /フリガナ/i });
-      const sortIcon = within(kanaHeader).getByTestId('sort-icon-asc');
-      expect(sortIcon).toBeInTheDocument();
-    });
-
-    it('現在のソートカラムに降順アイコン（下向き）が表示される（降順時）', () => {
-      renderWithRouter(
-        <TradingPartnerListTable
-          partners={mockPartners}
-          sortField="nameKana"
-          sortOrder="desc"
-          onSort={vi.fn()}
-          onRowClick={vi.fn()}
-        />
-      );
-
-      const kanaHeader = screen.getByRole('columnheader', { name: /フリガナ/i });
-      const sortIcon = within(kanaHeader).getByTestId('sort-icon-desc');
-      expect(sortIcon).toBeInTheDocument();
-    });
-
-    it('ソート対象外のカラムにはソートアイコンが表示されない', () => {
-      renderWithRouter(
-        <TradingPartnerListTable
-          partners={mockPartners}
-          sortField="nameKana"
+          sortField="name"
           sortOrder="asc"
           onSort={vi.fn()}
           onRowClick={vi.fn()}
@@ -577,42 +551,76 @@ describe('TradingPartnerListTable', () => {
       );
 
       const nameHeader = screen.getByRole('columnheader', { name: /取引先名/i });
-      expect(within(nameHeader).queryByTestId('sort-icon-asc')).not.toBeInTheDocument();
-      expect(within(nameHeader).queryByTestId('sort-icon-desc')).not.toBeInTheDocument();
+      const sortIcon = within(nameHeader).getByTestId('sort-icon-asc');
+      expect(sortIcon).toBeInTheDocument();
     });
 
-    it('ソートヘッダーにaria-sort属性が設定される', () => {
+    it('現在のソートカラムに降順アイコン（下向き）が表示される（降順時）', () => {
       renderWithRouter(
         <TradingPartnerListTable
           partners={mockPartners}
-          sortField="nameKana"
-          sortOrder="asc"
-          onSort={vi.fn()}
-          onRowClick={vi.fn()}
-        />
-      );
-
-      const kanaHeader = screen.getByRole('columnheader', { name: /フリガナ/i });
-      expect(kanaHeader).toHaveAttribute('aria-sort', 'ascending');
-    });
-
-    it('降順ソート時にaria-sort="descending"が設定される', () => {
-      renderWithRouter(
-        <TradingPartnerListTable
-          partners={mockPartners}
-          sortField="nameKana"
+          sortField="name"
           sortOrder="desc"
           onSort={vi.fn()}
           onRowClick={vi.fn()}
         />
       );
 
-      const kanaHeader = screen.getByRole('columnheader', { name: /フリガナ/i });
-      expect(kanaHeader).toHaveAttribute('aria-sort', 'descending');
+      const nameHeader = screen.getByRole('columnheader', { name: /取引先名/i });
+      const sortIcon = within(nameHeader).getByTestId('sort-icon-desc');
+      expect(sortIcon).toBeInTheDocument();
     });
 
-    it('デフォルトソートフィールドはnameKana（フリガナ）である', () => {
-      // このテストはデフォルト値の確認のため、nameKana/ascで正しく動作することを確認
+    it('ソート対象外のカラムにはソートアイコンが表示されない', () => {
+      renderWithRouter(
+        <TradingPartnerListTable
+          partners={mockPartners}
+          sortField="name"
+          sortOrder="asc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      // 種別列はソート不可なので、ソートアイコンは表示されない
+      const typesHeader = screen.getByRole('columnheader', { name: /種別/i });
+      expect(within(typesHeader).queryByTestId('sort-icon-asc')).not.toBeInTheDocument();
+      expect(within(typesHeader).queryByTestId('sort-icon-desc')).not.toBeInTheDocument();
+    });
+
+    it('ソートヘッダーにaria-sort属性が設定される', () => {
+      renderWithRouter(
+        <TradingPartnerListTable
+          partners={mockPartners}
+          sortField="name"
+          sortOrder="asc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      const nameHeader = screen.getByRole('columnheader', { name: /取引先名/i });
+      expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+    });
+
+    it('降順ソート時にaria-sort="descending"が設定される', () => {
+      renderWithRouter(
+        <TradingPartnerListTable
+          partners={mockPartners}
+          sortField="name"
+          sortOrder="desc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      const nameHeader = screen.getByRole('columnheader', { name: /取引先名/i });
+      expect(nameHeader).toHaveAttribute('aria-sort', 'descending');
+    });
+
+    it('デフォルトソートフィールドはnameKana（フリガナ）として内部的にサポートされる', () => {
+      // nameKanaはデフォルトソートとして内部的にサポートされるが、フリガナ列は表示されない
+      // ソートアイコンは該当する列がないため表示されない
       renderWithRouter(
         <TradingPartnerListTable
           partners={mockPartners}
@@ -623,8 +631,11 @@ describe('TradingPartnerListTable', () => {
         />
       );
 
-      const kanaHeader = screen.getByRole('columnheader', { name: /フリガナ/i });
-      expect(kanaHeader).toHaveAttribute('aria-sort', 'ascending');
+      // フリガナ列が存在しないことを確認
+      expect(screen.queryByRole('columnheader', { name: /^フリガナ$/i })).not.toBeInTheDocument();
+      // 他のソート可能な列にはaria-sortが設定されていない（nameKanaの場合）
+      const nameHeader = screen.getByRole('columnheader', { name: /取引先名/i });
+      expect(nameHeader).not.toHaveAttribute('aria-sort');
     });
   });
 
