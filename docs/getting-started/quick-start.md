@@ -23,13 +23,20 @@
 ### 開発環境の起動
 
 ```bash
-# 開発環境を起動
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+# 開発環境を起動（npm scriptsを使用、推奨）
+npm run dev:docker
+
+# または直接コマンドを使用する場合
+docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
 ```
 
 **起動完了の確認:**
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
+# npm scriptsを使用（推奨）
+npm run dev:docker:logs  # ログを確認
+
+# または直接コマンドを使用する場合
+docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml ps
 ```
 
 すべてのサービスが`Up (healthy)`状態であることを確認します。
@@ -150,8 +157,8 @@ npm run test:e2e
 
 問題が発生した場合は、以下を確認してください：
 
-1. **全サービスが起動しているか**: `docker compose -f docker-compose.yml -f docker-compose.dev.yml ps`
-2. **ログにエラーがないか**: `docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f`
+1. **全サービスが起動しているか**: `npm run dev:docker:logs` または `docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml ps`
+2. **ログにエラーがないか**: `npm run dev:docker:logs` で確認
 3. **ポートが使用中でないか**: `lsof -i :3000` / `lsof -i :5173`
 
 詳細は[デプロイのトラブルシューティング](../deployment/troubleshooting.md)を参照してください。

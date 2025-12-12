@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-12（Steering Sync: パフォーマンステスト追加確認）_
+_最終更新: 2025-12-12（ドキュメント整合性チェック：Docker Composeコマンド・バージョン情報更新）_
 
 ## アーキテクチャ
 
@@ -294,12 +294,12 @@ npm --prefix backend run test:unit:coverage  # ユニットテストカバレッ
 ### Frontend単体テスト
 
 **主要な依存関係:**
-- `vitest` ^4.0.6 - テストランナー
+- `vitest` ^4.0.15 - テストランナー
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
-- `jsdom` ^27.1.0 - ブラウザ環境エミュレーション
-- `@vitest/ui` ^4.0.6 - 対話的UIツール
+- `jsdom` ^27.2.0 - ブラウザ環境エミュレーション
+- `@vitest/ui` ^4.0.15 - 対話的UIツール
 
 **設定ファイル:**
 - `frontend/vitest.config.ts` - jsdom環境、React プラグイン設定
@@ -596,9 +596,9 @@ npm run dev:docker:build     # 再ビルドして起動
 npm run dev:docker:down      # 停止
 npm run dev:docker:logs      # ログ確認
 
-# 直接コマンドを使用する場合
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev down
+# 直接コマンドを使用する場合（-p オプションでプロジェクト名を指定）
+docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
+docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev down
 ```
 
 #### テスト環境（自動テスト用）
@@ -615,9 +615,9 @@ npm run test:e2e             # テスト実行
 npm run test:e2e:headed      # ブラウザ表示モード
 npm run test:e2e:ui          # UIモード
 
-# 直接コマンドを使用する場合
-docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
-docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down -v
+# 直接コマンドを使用する場合（-p オプションでプロジェクト名を指定）
+docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
+docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down -v
 ```
 
 #### 同時実行（開発＋テスト）
@@ -765,8 +765,8 @@ npm --prefix frontend run build-storybook
 ### バックエンド開発ツール
 
 ```bash
-# Swagger仕様生成
-npm --prefix backend run swagger:generate
+# OpenAPI仕様生成
+npm --prefix backend run docs:generate
 
 # パフォーマンステスト実行
 npm --prefix backend run test:perf             # ヘルスチェック
