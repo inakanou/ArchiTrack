@@ -220,9 +220,9 @@ describe('TradingPartner Model Schema', () => {
   });
 
   describe('TradingPartner unique constraint', () => {
-    it('should support unique compound constraint on name and deletedAt', () => {
-      // 取引先名の一意制約（deletedAt=nullの範囲内）
-      // この制約はPrismaスキーマの @@unique([name, deletedAt]) で定義される
+    it('should support unique compound constraint on name, branchName and deletedAt', () => {
+      // 取引先名+支店名の一意制約（deletedAt=nullの範囲内）
+      // この制約はPrismaスキーマの @@unique([name, branchName, deletedAt]) で定義される
       // Prisma 7では、nullableフィールドを含む複合ユニーク制約では、
       // deletedAtが設定されている場合のみ複合ユニーク検索が可能
       // deletedAt: null のレコードはidで検索する必要がある
@@ -230,14 +230,16 @@ describe('TradingPartner Model Schema', () => {
       // deletedAtが設定されている場合の複合ユニーク検索
       const deletedDate = new Date('2024-01-01');
       const whereWithDeletedAt: Prisma.TradingPartnerWhereUniqueInput = {
-        name_deletedAt: {
+        name_branchName_deletedAt: {
           name: '株式会社テスト',
+          branchName: '本社',
           deletedAt: deletedDate,
         },
       };
-      expect(whereWithDeletedAt.name_deletedAt).toBeDefined();
-      expect(whereWithDeletedAt.name_deletedAt?.name).toBe('株式会社テスト');
-      expect(whereWithDeletedAt.name_deletedAt?.deletedAt).toBe(deletedDate);
+      expect(whereWithDeletedAt.name_branchName_deletedAt).toBeDefined();
+      expect(whereWithDeletedAt.name_branchName_deletedAt?.name).toBe('株式会社テスト');
+      expect(whereWithDeletedAt.name_branchName_deletedAt?.branchName).toBe('本社');
+      expect(whereWithDeletedAt.name_branchName_deletedAt?.deletedAt).toBe(deletedDate);
     });
 
     it('should support id-based unique lookup for active records', () => {

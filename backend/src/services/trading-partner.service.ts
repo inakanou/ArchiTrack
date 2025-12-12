@@ -201,10 +201,13 @@ export class TradingPartnerService {
     actorId: string
   ): Promise<TradingPartnerInfo> {
     return await this.prisma.$transaction(async (tx) => {
-      // 1. 取引先名の重複チェック（論理削除されていないもののみ）
+      // 1. 取引先名 + 支店名の複合一意制約チェック（論理削除されていないもののみ）
+      // Requirements: 2.11 - 同一の取引先名+支店名が既に存在する場合、エラーを表示
+      const branchNameValue = input.branchName || null;
       const existingPartner = await tx.tradingPartner.findFirst({
         where: {
           name: input.name,
+          branchName: branchNameValue,
           deletedAt: null,
         },
       });
@@ -454,18 +457,25 @@ export class TradingPartnerService {
         });
       }
 
-      // 3. 取引先名の重複チェック（名前が変更される場合のみ）
-      if (input.name !== undefined) {
+      // 3. 取引先名 + 支店名の複合一意制約チェック（名前または支店名が変更される場合）
+      // Requirements: 4.8 - 別の取引先と重複する取引先名+支店名に変更しようとした場合のエラー
+      if (input.name !== undefined || input.branchName !== undefined) {
+        // 更新後の値を決定（未指定の場合は既存の値を使用）
+        const newName = input.name !== undefined ? input.name : existingPartner.name;
+        const newBranchName =
+          input.branchName !== undefined ? input.branchName : existingPartner.branchName;
+
         const duplicatePartner = await tx.tradingPartner.findFirst({
           where: {
-            name: input.name,
+            name: newName,
+            branchName: newBranchName,
             deletedAt: null,
             NOT: { id },
           },
         });
 
         if (duplicatePartner) {
-          throw new DuplicatePartnerNameError(input.name);
+          throw new DuplicatePartnerNameError(newName);
         }
       }
 

@@ -377,7 +377,8 @@ model TradingPartner {
   projects Project[] // この取引先に紐付くプロジェクト
 
   // インデックス
-  @@unique([name, deletedAt], name: "name_deletedAt") // 削除されていない取引先名の一意制約
+  // Requirements: 2.11, 4.8 - 同一の取引先名+支店名の重複を防ぐ複合一意制約
+  @@unique([name, branchName, deletedAt], name: "name_branchName_deletedAt")
   @@index([nameKana])
   @@index([deletedAt])
   @@index([createdAt])
