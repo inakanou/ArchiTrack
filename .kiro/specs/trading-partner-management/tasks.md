@@ -345,7 +345,7 @@
 3. フリガナ検索でひらがな・カタカナ両方対応（KanaConverterユーティリティ追加）
 
 - [ ] 16. かな変換ユーティリティの実装
-- [ ] 16.1 (P) KanaConverterユーティリティの実装
+- [x] 16.1 (P) KanaConverterユーティリティの実装
   - ひらがな→カタカナ変換関数（toKatakana）を実装
   - カタカナ→ひらがな変換関数（toHiragana）を実装
   - Unicode code point演算による変換（ひらがな: 0x3041-0x3096、カタカナ: 0x30A1-0x30F6）

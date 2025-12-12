@@ -15,9 +15,8 @@
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
-  "ready_for_implementation": false,
-  "notes": "要件変更対応タスク追加完了: (1) KanaConverterユーティリティ実装、(2) branchNameKana/representativeNameKanaフィールド削除マイグレーション、(3) サービス層のかな変換ロジック追加、(4) UI更新（フリガナ列削除、フィールド削除）、(5) かな変換検索のテスト追加。Task 16-20を新規追加。"
+  "ready_for_implementation": true
 }
