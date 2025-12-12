@@ -917,6 +917,172 @@ describe('TradingPartnerService', () => {
         })
       );
     });
+
+    /**
+     * かな変換検索テスト
+     *
+     * Requirements:
+     * - 1.3: 取引先名またはフリガナによる部分一致検索
+     * - 1.3.1: ひらがな入力とカタカナ入力の両方を許容し、同一の検索結果を返却する
+     */
+    describe('ひらがな・カタカナ両対応検索（Requirement 1.3.1）', () => {
+      it('ひらがな入力がカタカナに変換されて検索される', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([mockPartners[0]]);
+
+        // Act - ひらがな「あるふぁ」で検索
+        await service.getPartners(
+          { search: 'あるふぁ' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Assert - カタカナ「アルファ」に変換されて検索される
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: [
+                { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+              ],
+            }),
+          })
+        );
+      });
+
+      it('カタカナ入力はそのまま検索される', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([mockPartners[0]]);
+
+        // Act - カタカナ「アルファ」で検索
+        await service.getPartners(
+          { search: 'アルファ' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Assert - カタカナ「アルファ」のまま検索される
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: [
+                { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+              ],
+            }),
+          })
+        );
+      });
+
+      it('混合入力（漢字＋ひらがな）でひらがな部分のみカタカナに変換される', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([mockPartners[0]]);
+
+        // Act - 「株式がいしゃ」（漢字＋ひらがな）で検索
+        await service.getPartners(
+          { search: '株式がいしゃ' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Assert - ひらがな部分のみカタカナに変換「株式ガイシャ」
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: [
+                { name: { contains: '株式ガイシャ', mode: 'insensitive' } },
+                { nameKana: { contains: '株式ガイシャ', mode: 'insensitive' } },
+              ],
+            }),
+          })
+        );
+      });
+
+      it('ひらがな検索とカタカナ検索で同一の検索結果が返却される', async () => {
+        // Arrange
+        const matchingPartner = mockPartners[1]; // ベータ建設株式会社
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([matchingPartner]);
+
+        // Act - ひらがな「べーた」で検索
+        const resultHiragana = await service.getPartners(
+          { search: 'べーた' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Arrange - 再度モック設定
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([matchingPartner]);
+
+        // Act - カタカナ「ベータ」で検索
+        const resultKatakana = await service.getPartners(
+          { search: 'ベータ' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Assert - 両方とも同じ取引先が返却される
+        expect(resultHiragana.data).toEqual(resultKatakana.data);
+        expect(resultHiragana.data[0]?.name).toBe('ベータ建設株式会社');
+      });
+
+      it('検索クエリが空の場合はかな変換されない', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(3);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue(mockPartners);
+
+        // Act - 検索クエリなし
+        await service.getPartners({}, { page: 1, limit: 20 }, { sort: 'nameKana', order: 'asc' });
+
+        // Assert - OR条件が含まれない
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+            }),
+          })
+        );
+        // OR条件が含まれていないことを確認
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const callArgs = (mockPrisma.tradingPartner.findMany as any).mock.calls[0][0];
+        expect(callArgs.where.OR).toBeUndefined();
+      });
+
+      it('かな変換と種別フィルタを組み合わせて検索できる', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([mockPartners[1]]);
+
+        // Act - ひらがな「べーた」+ 協力業者フィルタ
+        await service.getPartners(
+          { search: 'べーた', type: 'SUBCONTRACTOR' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Assert - カタカナ変換 + 種別フィルタ
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: [
+                { name: { contains: 'ベータ', mode: 'insensitive' } },
+                { nameKana: { contains: 'ベータ', mode: 'insensitive' } },
+              ],
+              types: {
+                some: {
+                  type: 'SUBCONTRACTOR',
+                },
+              },
+            }),
+          })
+        );
+      });
+    });
   });
 
   /**

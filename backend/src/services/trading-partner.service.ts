@@ -37,6 +37,7 @@ import {
   TradingPartnerConflictError,
   PartnerInUseError,
 } from '../errors/tradingPartnerError.js';
+import { toKatakana } from '../utils/kana-converter.js';
 
 /**
  * TradingPartnerService依存関係
@@ -313,10 +314,12 @@ export class TradingPartnerService {
     };
 
     // 検索キーワード（取引先名またはフリガナの部分一致）
+    // Requirements 1.3.1: ひらがな入力をカタカナに変換して検索（フリガナはカタカナで保存されているため）
     if (filter.search) {
+      const normalizedSearch = toKatakana(filter.search);
       where.OR = [
-        { name: { contains: filter.search, mode: 'insensitive' as const } },
-        { nameKana: { contains: filter.search, mode: 'insensitive' as const } },
+        { name: { contains: normalizedSearch, mode: 'insensitive' as const } },
+        { nameKana: { contains: normalizedSearch, mode: 'insensitive' as const } },
       ];
     }
 
