@@ -369,9 +369,12 @@ router.post(
           type: error.problemType,
           title: 'Duplicate Partner Name',
           status: 409,
-          detail: error.message,
+          message: error.message,
           code: error.code,
-          name: error.partnerName,
+          details: {
+            name: error.partnerName,
+            branchName: error.branchName,
+          },
         });
         return;
       }
@@ -484,9 +487,12 @@ router.put(
           type: error.problemType,
           title: 'Duplicate Partner Name',
           status: 409,
-          detail: error.message,
+          message: error.message,
           code: error.code,
-          name: error.partnerName,
+          details: {
+            name: error.partnerName,
+            branchName: error.branchName,
+          },
         });
         return;
       }

@@ -793,6 +793,392 @@ describe('Trading Partner API Integration Tests', () => {
     });
 
     /**
+     * 複合一意制約テスト（取引先名＋部課/支店/支社名）
+     * TDD Task 25.1: APIエンドポイント経由での複合重複チェックテスト
+     *
+     * Requirements:
+     * - 2.11: 同一の取引先名+支店名が既に存在する場合のエラー
+     * - 4.8: 別の取引先と重複する取引先名+支店名に変更しようとした場合のエラー
+     */
+    describe('Composite Uniqueness Constraint (name + branchName)', () => {
+      /**
+       * POST /api/trading-partnersでの複合重複チェック
+       */
+      describe('POST /api/trading-partners - Composite Duplicate Check', () => {
+        it('同一取引先名＋同一支店名で作成しようとすると409が返ること', async () => {
+          // 最初の取引先を作成（支店名あり）
+          await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-dup',
+              nameKana: 'テストコンポジットダップ',
+              branchName: '渋谷支店',
+              address: '東京都渋谷区1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          // 同じ名前＋同じ支店名で再度作成を試みる
+          const response = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-dup',
+              nameKana: 'テストコンポジットダップニ',
+              branchName: '渋谷支店',
+              address: '東京都新宿区2-2-2',
+              types: ['SUBCONTRACTOR'],
+            })
+            .expect(409);
+
+          // 409 Conflictレスポンスフォーマット検証
+          expect(response.body).toMatchObject({
+            status: 409,
+            code: 'DUPLICATE_PARTNER_NAME',
+            message: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+          });
+
+          // detailsに name と branchName が含まれることを検証
+          expect(response.body.details).toMatchObject({
+            name: 'test-api-integration-composite-dup',
+            branchName: '渋谷支店',
+          });
+        });
+
+        it('同一取引先名でも支店名が異なれば作成できること', async () => {
+          // 最初の取引先を作成（渋谷支店）
+          await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-ok',
+              nameKana: 'テストコンポジットオーケー',
+              branchName: '渋谷支店',
+              address: '東京都渋谷区1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          // 同じ名前だが異なる支店名で作成
+          const response = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-ok',
+              nameKana: 'テストコンポジットオーケー',
+              branchName: '新宿支店',
+              address: '東京都新宿区2-2-2',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          expect(response.body).toMatchObject({
+            name: 'test-api-integration-composite-ok',
+            branchName: '新宿支店',
+          });
+        });
+
+        it('同一取引先名＋支店名なし（null）同士で重複エラーになること', async () => {
+          // 最初の取引先を作成（支店名なし）
+          await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-null',
+              nameKana: 'テストコンポジットナル',
+              address: '東京都渋谷区1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          // 同じ名前＋支店名なしで再度作成を試みる
+          const response = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-null',
+              nameKana: 'テストコンポジットナルニ',
+              address: '東京都新宿区2-2-2',
+              types: ['SUBCONTRACTOR'],
+            })
+            .expect(409);
+
+          expect(response.body).toMatchObject({
+            status: 409,
+            code: 'DUPLICATE_PARTNER_NAME',
+          });
+
+          // branchNameがnullであることを検証
+          expect(response.body.details).toMatchObject({
+            name: 'test-api-integration-composite-null',
+            branchName: null,
+          });
+        });
+
+        it('支店名ありの取引先と同名だが支店名なしなら作成できること', async () => {
+          // 最初の取引先を作成（支店名あり）
+          await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-mixed',
+              nameKana: 'テストコンポジットミックスド',
+              branchName: '大阪支店',
+              address: '大阪府大阪市1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          // 同じ名前だが支店名なしで作成
+          const response = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-composite-mixed',
+              nameKana: 'テストコンポジットミックスド',
+              address: '東京都渋谷区1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          expect(response.body).toMatchObject({
+            name: 'test-api-integration-composite-mixed',
+            branchName: null,
+          });
+        });
+      });
+
+      /**
+       * PUT /api/trading-partners/:idでの複合重複チェック
+       */
+      describe('PUT /api/trading-partners/:id - Composite Duplicate Check', () => {
+        it('既存の取引先と同一の取引先名＋支店名への変更は409が返ること', async () => {
+          // 最初の取引先を作成
+          await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-target',
+              nameKana: 'テストアップデートターゲット',
+              branchName: '横浜支店',
+              address: '神奈川県横浜市1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          // 2番目の取引先を作成
+          const createResponse = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-source',
+              nameKana: 'テストアップデートソース',
+              branchName: '名古屋支店',
+              address: '愛知県名古屋市1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          const partnerId = createResponse.body.id;
+          const updatedAt = createResponse.body.updatedAt;
+
+          // 2番目の取引先を1番目と同じ名前＋支店名に変更しようとする
+          const response = await request(app)
+            .put(`/api/trading-partners/${partnerId}`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-target',
+              branchName: '横浜支店',
+              expectedUpdatedAt: updatedAt,
+            })
+            .expect(409);
+
+          // 409 Conflictレスポンスフォーマット検証
+          expect(response.body).toMatchObject({
+            status: 409,
+            code: 'DUPLICATE_PARTNER_NAME',
+            message: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+          });
+
+          // detailsに name と branchName が含まれることを検証
+          expect(response.body.details).toMatchObject({
+            name: 'test-api-integration-update-target',
+            branchName: '横浜支店',
+          });
+        });
+
+        it('自分自身と同じ名前＋支店名への更新は成功すること', async () => {
+          // 取引先を作成
+          const createResponse = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-self',
+              nameKana: 'テストアップデートセルフ',
+              branchName: '福岡支店',
+              address: '福岡県福岡市1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          const partnerId = createResponse.body.id;
+          const updatedAt = createResponse.body.updatedAt;
+
+          // 自分自身と同じ名前＋支店名で更新（他のフィールドのみ変更）
+          const response = await request(app)
+            .put(`/api/trading-partners/${partnerId}`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-self',
+              branchName: '福岡支店',
+              address: '福岡県福岡市2-2-2', // アドレスのみ変更
+              expectedUpdatedAt: updatedAt,
+            })
+            .expect(200);
+
+          expect(response.body).toMatchObject({
+            name: 'test-api-integration-update-self',
+            branchName: '福岡支店',
+            address: '福岡県福岡市2-2-2',
+          });
+        });
+
+        it('名前は同じでも支店名を変更すれば更新できること', async () => {
+          // 最初の取引先を作成
+          const createResponse = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-branch',
+              nameKana: 'テストアップデートブランチ',
+              branchName: '札幌支店',
+              address: '北海道札幌市1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          const partnerId = createResponse.body.id;
+          const updatedAt = createResponse.body.updatedAt;
+
+          // 支店名を変更
+          const response = await request(app)
+            .put(`/api/trading-partners/${partnerId}`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              branchName: '仙台支店',
+              expectedUpdatedAt: updatedAt,
+            })
+            .expect(200);
+
+          expect(response.body).toMatchObject({
+            name: 'test-api-integration-update-branch',
+            branchName: '仙台支店',
+          });
+        });
+
+        it('既存取引先と同一の取引先名＋支店名null への変更は409が返ること', async () => {
+          // 最初の取引先を作成（支店名なし）
+          await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-null-target',
+              nameKana: 'テストアップデートナルターゲット',
+              address: '東京都渋谷区1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          // 2番目の取引先を作成（支店名あり）
+          const createResponse = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-null-source',
+              nameKana: 'テストアップデートナルソース',
+              branchName: '本社',
+              address: '東京都新宿区1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          const partnerId = createResponse.body.id;
+          const updatedAt = createResponse.body.updatedAt;
+
+          // 2番目の取引先を1番目と同じ名前＋支店名なしに変更しようとする
+          const response = await request(app)
+            .put(`/api/trading-partners/${partnerId}`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-update-null-target',
+              branchName: null,
+              expectedUpdatedAt: updatedAt,
+            })
+            .expect(409);
+
+          expect(response.body).toMatchObject({
+            status: 409,
+            code: 'DUPLICATE_PARTNER_NAME',
+          });
+
+          expect(response.body.details).toMatchObject({
+            name: 'test-api-integration-update-null-target',
+            branchName: null,
+          });
+        });
+      });
+
+      /**
+       * 409 Conflictレスポンスフォーマット検証
+       */
+      describe('409 Conflict Response Format', () => {
+        it('重複エラーレスポンスがRFC 7807形式であること', async () => {
+          // 最初の取引先を作成
+          await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-rfc7807',
+              nameKana: 'テストアールエフシーナナハチゼロナナ',
+              branchName: '本社',
+              address: '東京都渋谷区1-1-1',
+              types: ['CUSTOMER'],
+            })
+            .expect(201);
+
+          // 同じ名前＋支店名で再度作成を試みる
+          const response = await request(app)
+            .post('/api/trading-partners')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              name: 'test-api-integration-rfc7807',
+              nameKana: 'テストアールエフシーナナハチゼロナナニ',
+              branchName: '本社',
+              address: '東京都新宿区2-2-2',
+              types: ['SUBCONTRACTOR'],
+            })
+            .expect(409);
+
+          // RFC 7807 Problem Details形式の検証
+          expect(response.body).toMatchObject({
+            type: expect.stringContaining('conflict'),
+            status: 409,
+            code: 'DUPLICATE_PARTNER_NAME',
+            message: expect.any(String),
+            details: expect.objectContaining({
+              name: expect.any(String),
+              branchName: expect.any(String),
+            }),
+          });
+
+          // Content-Typeヘッダー検証
+          expect(response.headers['content-type']).toMatch(/application\/json/);
+        });
+      });
+    });
+
+    /**
      * 楽観的排他制御エラー (409)
      */
     it('古いupdatedAtで更新しようとすると409が返ること', async () => {
