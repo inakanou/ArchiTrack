@@ -584,9 +584,7 @@ test.describe('取引先管理の追加要件', () => {
       await phoneInput.blur();
 
       // バリデーションエラーが表示されることを確認
-      await expect(
-        page.getByText(/有効な電話番号を入力してください|電話番号の形式が不正です/i)
-      ).toBeVisible({
+      await expect(page.getByText(/電話番号は数字、ハイフン、括弧のみ使用できます/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
