@@ -113,7 +113,6 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
         const projectName = `アクセシビリティテスト_${Date.now()}`;
         await page.getByLabel(/プロジェクト名/i).fill(projectName);
-        await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
         // 営業担当者を確認・選択
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -182,7 +181,6 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
         const projectName = `アクセシビリティ編集テスト_${Date.now()}`;
         await page.getByLabel(/プロジェクト名/i).fill(projectName);
-        await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
         // 営業担当者を確認・選択
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -267,10 +265,10 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await projectNameInput.focus();
       await expect(projectNameInput).toBeFocused();
 
-      // Tab: 顧客名フィールドへ
+      // Tab: 取引先セレクトへ
       await page.keyboard.press('Tab');
-      const customerNameInput = page.getByLabel(/顧客名/i);
-      await expect(customerNameInput).toBeFocused();
+      const tradingPartnerSelect = page.locator('select[aria-label="取引先"]');
+      await expect(tradingPartnerSelect).toBeFocused();
 
       // Tab: 営業担当者セレクトへ
       await page.keyboard.press('Tab');
@@ -346,7 +344,6 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
         const projectName = `Escapeテスト_${Date.now()}`;
         await page.getByLabel(/プロジェクト名/i).fill(projectName);
-        await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
         const salesPersonValue = await salesPersonSelect.inputValue();
@@ -540,7 +537,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
       // 各フィールドのaria-label属性を確認
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible();
-      await expect(page.locator('input[aria-label="顧客名"]')).toBeVisible();
+      await expect(page.locator('select[aria-label="取引先"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();
@@ -565,11 +562,12 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       const projectNameInput = page.locator('input[aria-label="プロジェクト名"]');
       await expect(projectNameInput).toHaveAttribute('aria-required', 'true');
 
-      const customerNameInput = page.locator('input[aria-label="顧客名"]');
-      await expect(customerNameInput).toHaveAttribute('aria-required', 'true');
-
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       await expect(salesPersonSelect).toHaveAttribute('aria-required', 'true');
+
+      // 取引先は任意フィールドなのでaria-required="false"
+      const tradingPartnerSelect = page.locator('select[aria-label="取引先"]');
+      await expect(tradingPartnerSelect).toHaveAttribute('aria-required', 'false');
     });
 
     /**
@@ -648,7 +646,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible({
         timeout: getTimeout(10000),
       });
-      await expect(page.locator('input[aria-label="顧客名"]')).toBeVisible();
+      await expect(page.locator('select[aria-label="取引先"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();

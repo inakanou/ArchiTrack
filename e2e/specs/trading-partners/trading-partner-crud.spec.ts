@@ -532,10 +532,9 @@ test.describe('取引先CRUD操作', () => {
 
     /**
      * @requirement trading-partner-management/REQ-3.4
-     * NOTE: REQ-3.4は「プロジェクト管理機能が有効なとき」という条件付きの要件
-     * 取引先詳細ページにプロジェクト一覧セクションが実装されるまでスキップ
+     * プロジェクト管理機能が有効なとき、取引先詳細ページに関連プロジェクト一覧を表示
      */
-    test.skip('当該取引先に紐付くプロジェクト一覧が表示される (trading-partner-management/REQ-3.4)', async ({
+    test('当該取引先に紐付くプロジェクト一覧が表示される (trading-partner-management/REQ-3.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

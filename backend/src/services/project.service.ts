@@ -53,12 +53,22 @@ export interface UserSummary {
 }
 
 /**
+ * 取引先情報（表示用）
+ */
+export interface TradingPartnerSummary {
+  id: string;
+  name: string;
+  nameKana: string;
+}
+
+/**
  * プロジェクト情報（一覧・作成・更新用）
  */
 export interface ProjectInfo {
   id: string;
   name: string;
-  customerName: string;
+  tradingPartnerId: string | null;
+  tradingPartner: TradingPartnerSummary | null;
   salesPerson: UserSummary;
   constructionPerson?: UserSummary;
   siteAddress?: string;
@@ -85,6 +95,7 @@ export interface ProjectFilter {
   status?: ProjectStatus[];
   createdFrom?: string;
   createdTo?: string;
+  tradingPartnerId?: string;
 }
 
 /**
@@ -178,7 +189,7 @@ export class ProjectService {
       const project = await tx.project.create({
         data: {
           name: input.name,
-          customerName: input.customerName,
+          tradingPartnerId: input.tradingPartnerId || null,
           salesPersonId: input.salesPersonId,
           constructionPersonId: input.constructionPersonId || null,
           siteAddress: input.siteAddress || null,
@@ -187,6 +198,13 @@ export class ProjectService {
           createdById: actorId,
         },
         include: {
+          tradingPartner: {
+            select: {
+              id: true,
+              name: true,
+              nameKana: true,
+            },
+          },
           salesPerson: {
             select: {
               id: true,
@@ -229,7 +247,7 @@ export class ProjectService {
         before: null,
         after: {
           name: project.name,
-          customerName: project.customerName,
+          tradingPartnerId: project.tradingPartnerId,
           salesPersonId: project.salesPersonId,
           constructionPersonId: project.constructionPersonId,
           siteAddress: project.siteAddress,
@@ -263,11 +281,12 @@ export class ProjectService {
       deletedAt: null,
     };
 
-    // 検索キーワード（プロジェクト名・顧客名の部分一致）
+    // 検索キーワード（プロジェクト名・取引先名の部分一致）
     if (filter.search) {
       where.OR = [
         { name: { contains: filter.search, mode: 'insensitive' as const } },
-        { customerName: { contains: filter.search, mode: 'insensitive' as const } },
+        { tradingPartner: { name: { contains: filter.search, mode: 'insensitive' as const } } },
+        { tradingPartner: { nameKana: { contains: filter.search, mode: 'insensitive' as const } } },
       ];
     }
 
@@ -287,6 +306,11 @@ export class ProjectService {
       }
     }
 
+    // 取引先IDフィルター
+    if (filter.tradingPartnerId) {
+      where.tradingPartnerId = filter.tradingPartnerId;
+    }
+
     // 総件数取得
     const total = await this.prisma.project.count({ where });
 
@@ -294,6 +318,13 @@ export class ProjectService {
     const projects = await this.prisma.project.findMany({
       where,
       include: {
+        tradingPartner: {
+          select: {
+            id: true,
+            name: true,
+            nameKana: true,
+          },
+        },
         salesPerson: {
           select: {
             id: true,
@@ -334,6 +365,13 @@ export class ProjectService {
     const project = await this.prisma.project.findUnique({
       where: { id },
       include: {
+        tradingPartner: {
+          select: {
+            id: true,
+            name: true,
+            nameKana: true,
+          },
+        },
         salesPerson: {
           select: {
             id: true,
@@ -394,6 +432,13 @@ export class ProjectService {
       const project = await tx.project.findUnique({
         where: { id },
         include: {
+          tradingPartner: {
+            select: {
+              id: true,
+              name: true,
+              nameKana: true,
+            },
+          },
           salesPerson: {
             select: {
               id: true,
@@ -439,8 +484,12 @@ export class ProjectService {
       if (input.name !== undefined) {
         updateData.name = input.name;
       }
-      if (input.customerName !== undefined) {
-        updateData.customerName = input.customerName;
+      if (input.tradingPartnerId !== undefined) {
+        if (input.tradingPartnerId === null) {
+          updateData.tradingPartner = { disconnect: true };
+        } else {
+          updateData.tradingPartner = { connect: { id: input.tradingPartnerId } };
+        }
       }
       if (input.salesPersonId !== undefined) {
         updateData.salesPerson = { connect: { id: input.salesPersonId } };
@@ -463,6 +512,13 @@ export class ProjectService {
         where: { id },
         data: updateData,
         include: {
+          tradingPartner: {
+            select: {
+              id: true,
+              name: true,
+              nameKana: true,
+            },
+          },
           salesPerson: {
             select: {
               id: true,
@@ -486,7 +542,7 @@ export class ProjectService {
         targetId: id,
         before: {
           name: project.name,
-          customerName: project.customerName,
+          tradingPartnerId: project.tradingPartnerId,
           salesPersonId: project.salesPersonId,
           constructionPersonId: project.constructionPersonId,
           siteAddress: project.siteAddress,
@@ -494,7 +550,7 @@ export class ProjectService {
         },
         after: {
           name: updatedProject.name,
-          customerName: updatedProject.customerName,
+          tradingPartnerId: updatedProject.tradingPartnerId,
           salesPersonId: updatedProject.salesPersonId,
           constructionPersonId: updatedProject.constructionPersonId,
           siteAddress: updatedProject.siteAddress,
@@ -523,7 +579,7 @@ export class ProjectService {
         select: {
           id: true,
           name: true,
-          customerName: true,
+          tradingPartnerId: true,
           status: true,
           deletedAt: true,
         },
@@ -547,7 +603,7 @@ export class ProjectService {
         targetId: id,
         before: {
           name: project.name,
-          customerName: project.customerName,
+          tradingPartnerId: project.tradingPartnerId,
           status: project.status,
         },
         after: null,
@@ -640,7 +696,8 @@ export class ProjectService {
   private toProjectInfo(project: {
     id: string;
     name: string;
-    customerName: string;
+    tradingPartnerId: string | null;
+    tradingPartner: { id: string; name: string; nameKana: string } | null;
     salesPersonId: string;
     constructionPersonId: string | null;
     siteAddress: string | null;
@@ -655,7 +712,14 @@ export class ProjectService {
     const result: ProjectInfo = {
       id: project.id,
       name: project.name,
-      customerName: project.customerName,
+      tradingPartnerId: project.tradingPartnerId,
+      tradingPartner: project.tradingPartner
+        ? {
+            id: project.tradingPartner.id,
+            name: project.tradingPartner.name,
+            nameKana: project.tradingPartner.nameKana,
+          }
+        : null,
       salesPerson: {
         id: project.salesPerson.id,
         displayName: project.salesPerson.displayName,
@@ -691,7 +755,8 @@ export class ProjectService {
   private toProjectDetail(project: {
     id: string;
     name: string;
-    customerName: string;
+    tradingPartnerId: string | null;
+    tradingPartner: { id: string; name: string; nameKana: string } | null;
     salesPersonId: string;
     constructionPersonId: string | null;
     siteAddress: string | null;

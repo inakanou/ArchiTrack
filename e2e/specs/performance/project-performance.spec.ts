@@ -73,7 +73,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       },
       data: {
         name: 'パフォーマンステスト用プロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: null,
         salesPersonId: regularUserId,
       },
     });
@@ -212,7 +212,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     const prisma = getPrismaClient();
     const projectsData = Array.from({ length: LARGE_DATASET_SIZE }, (_, i) => ({
       name: `パフォーマンステストプロジェクト ${i + 1}`,
-      customerName: `テスト顧客 ${(i % 10) + 1}`,
+      tradingPartnerId: null,
       salesPersonId: regularUserId,
       createdById: adminUserId,
       status: 'PREPARING' as const,
@@ -370,7 +370,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
       data: {
         name: '削除テスト用プロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: null,
         salesPersonId: regularUserId,
       },
     });
@@ -431,7 +431,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
       },
       data: {
         name: 'ページロードテスト用プロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: null,
         salesPersonId: regularUserId,
       },
     });

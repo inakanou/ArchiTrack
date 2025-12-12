@@ -66,7 +66,7 @@ test.describe('プロジェクトCRUD操作', () => {
       // フォームが表示されることを確認
       await expect(page.getByRole('heading', { name: /新規プロジェクト/i })).toBeVisible();
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible();
-      await expect(page.getByLabel(/顧客名/i)).toBeVisible();
+      await expect(page.getByLabel(/取引先/i)).toBeVisible();
     });
 
     /**
@@ -125,12 +125,11 @@ test.describe('プロジェクトCRUD操作', () => {
 
       // フォームに入力
       const projectName = `E2Eテストプロジェクト_${Date.now()}`;
-      const customerName = 'テスト顧客株式会社';
       const siteAddress = '東京都渋谷区テスト1-2-3';
       const description = 'E2Eテスト用のプロジェクト説明文です。';
 
       await page.getByLabel(/プロジェクト名/i).fill(projectName);
-      await page.getByLabel(/顧客名/i).fill(customerName);
+      // 取引先は任意フィールドなのでスキップ（選択しない）
       await page.getByLabel(/現場住所/i).fill(siteAddress);
       await page.getByLabel(/概要/i).fill(description);
 
@@ -177,7 +176,8 @@ test.describe('プロジェクトCRUD操作', () => {
       // 詳細画面にプロジェクト情報が表示されることを確認
       // プロジェクト名は複数箇所に表示されるのでheadingを指定
       await expect(page.getByRole('heading', { name: projectName })).toBeVisible();
-      await expect(page.getByText(customerName).first()).toBeVisible();
+      // 取引先は選択していないので"-"が表示される
+      await expect(page.getByText(/-/).first()).toBeVisible();
 
       // 作成したプロジェクトのIDを保存（後続テストで使用）
       const url = page.url();
@@ -202,15 +202,13 @@ test.describe('プロジェクトCRUD操作', () => {
         page.locator('input[aria-label="プロジェクト名"][aria-required="true"]')
       ).toBeVisible();
 
-      await expect(page.getByLabel(/顧客名/i)).toBeVisible();
-      await expect(page.locator('input[aria-label="顧客名"][aria-required="true"]')).toBeVisible();
-
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(
         page.locator('select[aria-label="営業担当者"][aria-required="true"]')
       ).toBeVisible();
 
       // 任意フィールドの確認
+      await expect(page.locator('select[aria-label="取引先"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.getByLabel(/現場住所/i)).toBeVisible();
       await expect(page.getByLabel(/概要/i)).toBeVisible();
@@ -264,9 +262,6 @@ test.describe('プロジェクトCRUD操作', () => {
       await expect(page.getByText(/プロジェクト名は必須です/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
-      await expect(page.getByText(/顧客名は必須です/i)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
     });
 
     /**
@@ -280,9 +275,7 @@ test.describe('プロジェクトCRUD操作', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      // 顧客名のみ入力
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
-
+      // 取引先は任意なので何も入力しない
       // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
 
@@ -306,7 +299,6 @@ test.describe('プロジェクトCRUD操作', () => {
       // 256文字のプロジェクト名を入力
       const longName = 'あ'.repeat(256);
       await page.getByLabel(/プロジェクト名/i).fill(longName);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
@@ -320,9 +312,10 @@ test.describe('プロジェクトCRUD操作', () => {
     /**
      * @requirement project-management/REQ-1.12
      */
-    test('顧客名未入力時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
+    test.skip('顧客名未入力時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
       page,
     }) => {
+      // 取引先は任意フィールドになったため、このテストは不要
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects/new');
@@ -334,10 +327,7 @@ test.describe('プロジェクトCRUD操作', () => {
       // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
 
-      // 顧客名のバリデーションエラーを確認
-      await expect(page.getByText(/顧客名は必須です/i)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+      // 取引先は任意なのでバリデーションエラーは表示されない
     });
 
     /**
@@ -395,7 +385,6 @@ test.describe('プロジェクトCRUD操作', () => {
 
       const projectName = `自動記録テスト_${Date.now()}`;
       await page.getByLabel(/プロジェクト名/i).fill(projectName);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -473,7 +462,6 @@ test.describe('プロジェクトCRUD操作', () => {
 
         const projectName = `編集テスト用プロジェクト_${Date.now()}`;
         await page.getByLabel(/プロジェクト名/i).fill(projectName);
-        await page.getByLabel(/顧客名/i).fill('編集テスト顧客');
 
         // 営業担当者を確認・選択
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -522,7 +510,6 @@ test.describe('プロジェクトCRUD操作', () => {
 
       // 現在の値がプリセットされていることを確認
       await expect(page.getByLabel(/プロジェクト名/i)).toHaveValue(/.+/);
-      await expect(page.getByLabel(/顧客名/i)).toHaveValue(/.+/);
 
       // 値を変更
       const updatedDescription = `E2E編集テスト_更新済み_${Date.now()}`;
@@ -695,7 +682,6 @@ test.describe('プロジェクトCRUD操作', () => {
 
       const projectNameToDelete = `削除テスト用プロジェクト_${Date.now()}`;
       await page.getByLabel(/プロジェクト名/i).fill(projectNameToDelete);
-      await page.getByLabel(/顧客名/i).fill('削除テスト顧客');
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -813,7 +799,6 @@ test.describe('プロジェクトCRUD操作', () => {
         });
 
         await page.getByLabel(/プロジェクト名/i).fill(`キャンセルテスト_${Date.now()}`);
-        await page.getByLabel(/顧客名/i).fill('キャンセルテスト顧客');
 
         // 営業担当者を確認・選択
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -903,7 +888,6 @@ test.describe('プロジェクトCRUD操作', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`関連データテスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('関連データテスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();

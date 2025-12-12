@@ -96,10 +96,17 @@ const mockAdminUser = {
   userRoles: [{ role: { name: 'admin' } }],
 };
 
+const mockTradingPartner = {
+  id: 'trading-partner-123',
+  name: 'テスト取引先',
+  nameKana: 'テストトリヒキサキ',
+};
+
 const mockProject = {
   id: 'project-123',
   name: 'テストプロジェクト',
-  customerName: 'テスト顧客',
+  tradingPartnerId: 'trading-partner-123',
+  tradingPartner: mockTradingPartner,
   salesPersonId: 'user-123',
   constructionPersonId: null,
   siteAddress: '東京都渋谷区1-1-1',
@@ -134,7 +141,7 @@ describe('ProjectService', () => {
   describe('createProject', () => {
     const validInput: CreateProjectInput = {
       name: 'テストプロジェクト',
-      customerName: 'テスト顧客',
+      tradingPartnerId: 'trading-partner-123',
       salesPersonId: 'user-123',
       constructionPersonId: 'user-456',
       siteAddress: '東京都渋谷区1-1-1',
@@ -373,7 +380,8 @@ describe('ProjectService', () => {
             deletedAt: null,
             OR: expect.arrayContaining([
               { name: { contains: 'テスト', mode: 'insensitive' } },
-              { customerName: { contains: 'テスト', mode: 'insensitive' } },
+              { tradingPartner: { name: { contains: 'テスト', mode: 'insensitive' } } },
+              { tradingPartner: { nameKana: { contains: 'テスト', mode: 'insensitive' } } },
             ]),
           }),
         })
@@ -523,7 +531,7 @@ describe('ProjectService', () => {
   describe('updateProject', () => {
     const updateInput: UpdateProjectInput = {
       name: '更新後プロジェクト名',
-      customerName: '更新後顧客名',
+      tradingPartnerId: 'trading-partner-456',
     };
     const expectedUpdatedAt = new Date('2024-01-02');
 
@@ -810,7 +818,7 @@ describe('ProjectService', () => {
 
       const input: CreateProjectInput = {
         name: 'テストプロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: 'trading-partner-123',
         salesPersonId: 'user-123',
       };
 
@@ -828,7 +836,7 @@ describe('ProjectService', () => {
       const actorId = 'actor-123';
       const validInput: CreateProjectInput = {
         name: 'テストプロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: 'trading-partner-123',
         salesPersonId: 'user-123',
       };
       const createdProject = {
@@ -877,7 +885,7 @@ describe('ProjectService', () => {
       const actorId = 'actor-123';
       const validInput: CreateProjectInput = {
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'trading-partner-new',
         salesPersonId: 'user-123',
         siteAddress: '東京都新宿区',
         description: '詳細説明',
@@ -885,7 +893,12 @@ describe('ProjectService', () => {
       const createdProject = {
         id: 'new-project-id',
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'trading-partner-new',
+        tradingPartner: {
+          id: 'trading-partner-new',
+          name: '新規取引先',
+          nameKana: 'シンキトリヒキサキ',
+        },
         salesPersonId: 'user-123',
         constructionPersonId: null,
         siteAddress: '東京都新宿区',
@@ -925,7 +938,7 @@ describe('ProjectService', () => {
           before: null,
           after: expect.objectContaining({
             name: '新規プロジェクト',
-            customerName: '新規顧客',
+            tradingPartnerId: 'trading-partner-new',
             status: 'PREPARING',
           }),
         })
@@ -1337,7 +1350,7 @@ describe('ProjectService', () => {
           action: 'PROJECT_DELETED',
           before: expect.objectContaining({
             name: 'テストプロジェクト',
-            customerName: 'テスト顧客',
+            tradingPartnerId: 'trading-partner-123',
             status: 'PREPARING',
           }),
           after: null,

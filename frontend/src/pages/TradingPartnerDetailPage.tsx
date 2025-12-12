@@ -12,6 +12,7 @@
  *        部課/支店/支社フリガナ、代表者名、代表者フリガナ、種別、住所、電話番号、
  *        FAX番号、メールアドレス、請求締日、支払日、備考、登録日、更新日
  * - 3.3: 編集ボタンと削除ボタンを詳細ページに表示する
+ * - 3.4: 当該取引先に紐付くプロジェクト一覧を表示する
  * - 12.11: 取引先詳細ページを /trading-partners/:id のURLで提供する
  * - 12.13: 存在しない取引先IDへのアクセス時はResourceNotFound表示
  * - 12.15: パンくず: ダッシュボード > 取引先 > [取引先名]
@@ -19,10 +20,13 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getTradingPartner, deleteTradingPartner } from '../api/trading-partners';
+import { getProjects } from '../api/projects';
 import { useToast } from '../hooks/useToast';
 import type { TradingPartnerDetail } from '../types/trading-partner.types';
+import type { ProjectInfo } from '../types/project.types';
+import { PROJECT_STATUS_LABELS } from '../types/project.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import TradingPartnerDetailView from '../components/trading-partners/TradingPartnerDetailView';
 import TradingPartnerDeleteDialog from '../components/trading-partners/TradingPartnerDeleteDialog';
@@ -99,6 +103,68 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
   } as React.CSSProperties,
+  // 関連プロジェクトセクション (REQ-3.4)
+  projectsSection: {
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    border: '1px solid #e5e7eb',
+    padding: '24px',
+    marginTop: '24px',
+  } as React.CSSProperties,
+  projectsSectionTitle: {
+    fontSize: '16px',
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: '16px',
+    paddingBottom: '8px',
+    borderBottom: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  projectsEmptyMessage: {
+    color: '#6b7280',
+    fontSize: '14px',
+    textAlign: 'center' as const,
+    padding: '24px 0',
+  } as React.CSSProperties,
+  projectsTable: {
+    width: '100%',
+    borderCollapse: 'collapse' as const,
+  } as React.CSSProperties,
+  projectsTableHeader: {
+    textAlign: 'left' as const,
+    padding: '8px 12px',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#6b7280',
+    textTransform: 'uppercase' as const,
+    backgroundColor: '#f9fafb',
+    borderBottom: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  projectsTableCell: {
+    padding: '12px',
+    fontSize: '14px',
+    color: '#374151',
+    borderBottom: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  projectLink: {
+    color: '#2563eb',
+    textDecoration: 'none',
+    fontWeight: '500',
+  } as React.CSSProperties,
+  statusBadge: {
+    display: 'inline-block',
+    padding: '2px 8px',
+    fontSize: '12px',
+    fontWeight: '500',
+    borderRadius: '9999px',
+    backgroundColor: '#e5e7eb',
+    color: '#374151',
+  } as React.CSSProperties,
+  projectsLoadingText: {
+    color: '#6b7280',
+    fontSize: '14px',
+    textAlign: 'center' as const,
+    padding: '16px 0',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -128,6 +194,10 @@ export default function TradingPartnerDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
+
+  // 関連プロジェクト状態 (REQ-3.4)
+  const [relatedProjects, setRelatedProjects] = useState<ProjectInfo[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
 
   /**
    * 取引先データを取得
@@ -161,6 +231,30 @@ export default function TradingPartnerDetailPage() {
   useEffect(() => {
     fetchPartner();
   }, [fetchPartner]);
+
+  // 関連プロジェクトを取得 (REQ-3.4)
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchRelatedProjects = async () => {
+      setIsLoadingProjects(true);
+      try {
+        const result = await getProjects({
+          filter: { tradingPartnerId: id },
+          limit: 10,
+          sort: 'updatedAt',
+          order: 'desc',
+        });
+        setRelatedProjects(result.data);
+      } catch {
+        // プロジェクト取得エラーは無視（メイン表示に影響しないため）
+      } finally {
+        setIsLoadingProjects(false);
+      }
+    };
+
+    fetchRelatedProjects();
+  }, [id]);
 
   /**
    * 編集ページへ遷移
@@ -292,6 +386,43 @@ export default function TradingPartnerDetailPage() {
         onEdit={handleEdit}
         onDelete={handleDeleteClick}
       />
+
+      {/* 関連プロジェクトセクション (REQ-3.4) */}
+      <section style={styles.projectsSection}>
+        <h2 style={styles.projectsSectionTitle}>関連プロジェクト</h2>
+        {isLoadingProjects ? (
+          <p style={styles.projectsLoadingText}>読み込み中...</p>
+        ) : relatedProjects.length === 0 ? (
+          <p style={styles.projectsEmptyMessage}>関連するプロジェクトはありません</p>
+        ) : (
+          <table style={styles.projectsTable} aria-label="プロジェクト一覧">
+            <thead>
+              <tr>
+                <th style={styles.projectsTableHeader}>プロジェクト名</th>
+                <th style={styles.projectsTableHeader}>ステータス</th>
+                <th style={styles.projectsTableHeader}>営業担当者</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relatedProjects.map((project) => (
+                <tr key={project.id}>
+                  <td style={styles.projectsTableCell}>
+                    <Link to={`/projects/${project.id}`} style={styles.projectLink}>
+                      {project.name}
+                    </Link>
+                  </td>
+                  <td style={styles.projectsTableCell}>
+                    <span style={styles.statusBadge}>
+                      {PROJECT_STATUS_LABELS[project.status] || project.status}
+                    </span>
+                  </td>
+                  <td style={styles.projectsTableCell}>{project.salesPerson.displayName}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       {/* 削除確認ダイアログ */}
       <TradingPartnerDeleteDialog

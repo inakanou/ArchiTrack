@@ -60,24 +60,22 @@ describe('Project Model Schema', () => {
 
   describe('Project CreateInput type structure', () => {
     it('should require mandatory fields', () => {
-      // Requirement 13.1, 13.2, 13.3: 必須フィールドの検証
+      // Requirement 13.1, 13.3: 必須フィールドの検証
       // この型テストはコンパイル時に検証される
       const validInput: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
-        customerName: '株式会社テスト',
         salesPerson: { connect: { id: 'user-id' } },
         createdBy: { connect: { id: 'user-id' } },
       };
 
       expect(validInput.name).toBe('テストプロジェクト');
-      expect(validInput.customerName).toBe('株式会社テスト');
     });
 
     it('should allow optional fields', () => {
-      // Requirement 13.5, 13.7, 13.8: 任意フィールドの検証
+      // Requirement 13.5, 13.7, 13.8, 22.1-22.5: 任意フィールドの検証
       const inputWithOptionalFields: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
-        customerName: '株式会社テスト',
+        tradingPartner: { connect: { id: 'trading-partner-id' } },
         salesPerson: { connect: { id: 'sales-user-id' } },
         createdBy: { connect: { id: 'creator-id' } },
         constructionPerson: { connect: { id: 'construction-user-id' } },
@@ -93,7 +91,6 @@ describe('Project Model Schema', () => {
       // Requirement 10.2: デフォルトステータスは「準備中」
       const input: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
-        customerName: '株式会社テスト',
         salesPerson: { connect: { id: 'user-id' } },
         createdBy: { connect: { id: 'user-id' } },
         // status is optional - defaults to PREPARING
@@ -186,11 +183,11 @@ describe('Project Model Schema', () => {
       expect(where.name).toBeDefined();
     });
 
-    it('should allow filtering by customerName', () => {
+    it('should allow filtering by tradingPartnerId', () => {
       const where: Prisma.ProjectWhereInput = {
-        customerName: { contains: '株式会社' },
+        tradingPartnerId: 'trading-partner-id',
       };
-      expect(where.customerName).toBeDefined();
+      expect(where.tradingPartnerId).toBeDefined();
     });
 
     it('should allow filtering by status', () => {

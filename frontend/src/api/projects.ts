@@ -95,6 +95,9 @@ export async function getProjects(options: GetProjectsOptions = {}): Promise<Pag
   if (filter?.createdTo) {
     params.append('createdTo', filter.createdTo);
   }
+  if (filter?.tradingPartnerId) {
+    params.append('tradingPartnerId', filter.tradingPartnerId);
+  }
   if (sort) {
     params.append('sort', sort);
   }

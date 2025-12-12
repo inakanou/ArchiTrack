@@ -100,7 +100,7 @@ export default function ProjectCreatePage() {
       try {
         const created = await createProject({
           name: data.name,
-          customerName: data.customerName,
+          tradingPartnerId: data.tradingPartnerId,
           salesPersonId: data.salesPersonId,
           constructionPersonId: data.constructionPersonId,
           siteAddress: data.siteAddress,

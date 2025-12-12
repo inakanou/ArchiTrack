@@ -322,10 +322,7 @@ export default function ProjectDetailPage() {
       setProject(projectData);
       setStatusHistory(historyData);
 
-      // 取引先情報を取得（顧客名で検索）
-      if (projectData.customerName) {
-        fetchTradingPartner(projectData.customerName);
-      }
+      // 取引先情報は既にprojectDataに含まれている（tradingPartnerフィールド）
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -503,7 +500,7 @@ export default function ProjectDetailPage() {
         </Link>
         <h1 style={styles.title}>{project.name}</h1>
         <p style={styles.subtitle}>
-          {project.customerName} | {PROJECT_STATUS_LABELS[project.status]}
+          {project.tradingPartner?.name ?? '-'} | {PROJECT_STATUS_LABELS[project.status]}
         </p>
 
         <div style={styles.actionsContainer}>
@@ -540,8 +537,8 @@ export default function ProjectDetailPage() {
             <div style={styles.fieldValue}>{project.name}</div>
           </div>
           <div style={styles.field}>
-            <div style={styles.fieldLabel}>顧客名</div>
-            <div style={styles.fieldValue}>{project.customerName}</div>
+            <div style={styles.fieldLabel}>取引先</div>
+            <div style={styles.fieldValue}>{project.tradingPartner?.name ?? '-'}</div>
           </div>
           <div style={styles.field}>
             <div style={styles.fieldLabel}>営業担当者</div>

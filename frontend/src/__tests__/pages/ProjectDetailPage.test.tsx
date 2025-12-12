@@ -53,7 +53,8 @@ vi.mock('react-router-dom', async () => {
 const mockProject = {
   id: 'project-1',
   name: 'テストプロジェクト',
-  customerName: 'テスト顧客',
+  tradingPartnerId: 'partner-1',
+  tradingPartner: { id: 'partner-1', name: 'テスト顧客', nameKana: 'テストコキャク' },
   salesPerson: { id: 'user-1', displayName: '営業太郎' },
   constructionPerson: { id: 'user-2', displayName: '工事次郎' },
   siteAddress: '東京都渋谷区1-2-3',

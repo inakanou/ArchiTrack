@@ -88,7 +88,7 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *         name: search
  *         schema:
  *           type: string
- *         description: 検索キーワード（プロジェクト名・顧客名の部分一致、2文字以上）
+ *         description: 検索キーワード（プロジェクト名・取引先名の部分一致、2文字以上）
  *       - in: query
  *         name: status
  *         schema:
@@ -110,7 +110,7 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *         name: sort
  *         schema:
  *           type: string
- *           enum: [id, name, customerName, status, createdAt, updatedAt]
+ *           enum: [id, name, tradingPartnerId, status, createdAt, updatedAt]
  *           default: updatedAt
  *         description: ソートフィールド
  *       - in: query

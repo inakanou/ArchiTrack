@@ -116,7 +116,7 @@ describe('ProjectForm', () => {
   describe('編集モード', () => {
     const initialData: Partial<ProjectFormData> = {
       name: '既存プロジェクト',
-      customerName: '既存顧客',
+      tradingPartnerId: 'partner-1',
       salesPersonId: 'user-1',
       constructionPersonId: 'user-2',
       siteAddress: '東京都千代田区',
@@ -363,7 +363,7 @@ describe('ProjectForm', () => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'テストプロジェクト',
-            customerName: 'テスト顧客',
+            tradingPartnerId: expect.any(String),
           })
         );
       });
@@ -419,7 +419,7 @@ describe('ProjectForm', () => {
       const user = userEvent.setup();
       const initialData: Partial<ProjectFormData> = {
         name: '既存プロジェクト',
-        customerName: '既存顧客',
+        tradingPartnerId: 'partner-1',
         salesPersonId: 'user-1',
       };
 

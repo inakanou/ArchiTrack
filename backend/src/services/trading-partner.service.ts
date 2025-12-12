@@ -613,13 +613,9 @@ export class TradingPartnerService {
       }
 
       // 2. プロジェクト紐付け確認
-      // 現在のProjectモデルでは取引先への直接参照がないため、
-      // 顧客名（customerName）で紐付けをチェック
-      // 将来的にProjectモデルにtradingPartnerIdが追加された場合は、
-      // そのフィールドでチェックするように変更
       const relatedProjectsCount = await tx.project.count({
         where: {
-          customerName: existingPartner.name,
+          tradingPartnerId: id,
           deletedAt: null,
         },
       });

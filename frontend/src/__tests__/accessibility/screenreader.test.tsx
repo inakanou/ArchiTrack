@@ -63,7 +63,8 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-1',
     name: 'テストプロジェクト1',
-    customerName: 'テスト顧客1',
+    tradingPartnerId: 'partner-1',
+    tradingPartner: { id: 'partner-1', name: 'テスト顧客1', nameKana: 'テストコキャク1' },
     salesPerson: { id: 'user-1', displayName: 'ユーザー1' },
     status: 'PREPARING',
     statusLabel: '準備中',

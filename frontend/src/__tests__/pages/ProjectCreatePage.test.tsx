@@ -137,7 +137,8 @@ describe('ProjectCreatePage', () => {
       vi.mocked(createProject).mockResolvedValue({
         id: 'new-project-id',
         name: 'Test Project',
-        customerName: 'Test Customer',
+        tradingPartnerId: 'partner-1',
+        tradingPartner: { id: 'partner-1', name: 'Test Customer', nameKana: 'テストカスタマー' },
         salesPerson: { id: 'current-user-id', displayName: 'Current User' },
         status: 'PREPARING',
         statusLabel: '準備中',

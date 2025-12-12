@@ -48,7 +48,8 @@ vi.mock('react-router-dom', async (importOriginal) => {
 const createMockProject = (id: string, overrides: Partial<ProjectInfo> = {}): ProjectInfo => ({
   id,
   name: `テストプロジェクト${id}`,
-  customerName: `顧客名${id}`,
+  tradingPartnerId: `partner-${id}`,
+  tradingPartner: { id: `partner-${id}`, name: `顧客名${id}`, nameKana: `コキャクメイ${id}` },
   salesPerson: { id: `sales-${id}`, displayName: `営業担当${id}` },
   status: 'PREPARING',
   statusLabel: '準備中',

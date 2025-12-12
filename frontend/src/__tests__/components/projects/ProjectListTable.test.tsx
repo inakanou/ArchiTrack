@@ -29,7 +29,12 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-1',
     name: 'テストプロジェクト1',
-    customerName: '顧客A株式会社',
+    tradingPartnerId: 'partner-a',
+    tradingPartner: {
+      id: 'partner-a',
+      name: '顧客A株式会社',
+      nameKana: 'コキャクエーカブシキガイシャ',
+    },
     salesPerson: { id: 'user-1', displayName: '営業担当1' },
     constructionPerson: { id: 'user-2', displayName: '工事担当1' },
     status: 'PREPARING',
@@ -40,7 +45,12 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-2',
     name: 'テストプロジェクト2',
-    customerName: '顧客B株式会社',
+    tradingPartnerId: 'partner-b',
+    tradingPartner: {
+      id: 'partner-b',
+      name: '顧客B株式会社',
+      nameKana: 'コキャクビーカブシキガイシャ',
+    },
     salesPerson: { id: 'user-3', displayName: '営業担当2' },
     status: 'SURVEYING',
     statusLabel: '調査中',
@@ -50,7 +60,12 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-3',
     name: 'テストプロジェクト3',
-    customerName: '顧客C株式会社',
+    tradingPartnerId: 'partner-c',
+    tradingPartner: {
+      id: 'partner-c',
+      name: '顧客C株式会社',
+      nameKana: 'コキャクシーカブシキガイシャ',
+    },
     salesPerson: { id: 'user-1', displayName: '営業担当1' },
     status: 'COMPLETED',
     statusLabel: '完了',

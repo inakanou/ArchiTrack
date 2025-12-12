@@ -71,7 +71,8 @@ describe('projects API client', () => {
         {
           id: 'project-1',
           name: 'テストプロジェクト1',
-          customerName: 'テスト顧客1',
+          tradingPartnerId: 'partner-1',
+          tradingPartner: { id: 'partner-1', name: 'テスト顧客1', nameKana: 'テストコキャク1' },
           salesPerson: { id: 'user-1', displayName: '営業太郎' },
           constructionPerson: { id: 'user-2', displayName: '工事花子' },
           status: 'PREPARING',
@@ -213,7 +214,8 @@ describe('projects API client', () => {
     const mockProjectDetail: ProjectDetail = {
       id: 'project-1',
       name: 'テストプロジェクト1',
-      customerName: 'テスト顧客1',
+      tradingPartnerId: 'partner-1',
+      tradingPartner: { id: 'partner-1', name: 'テスト顧客1', nameKana: 'テストコキャク1' },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       constructionPerson: { id: 'user-2', displayName: '工事花子' },
       siteAddress: '東京都千代田区1-1-1',
@@ -254,7 +256,8 @@ describe('projects API client', () => {
     const mockProjectInfo: ProjectInfo = {
       id: 'project-new',
       name: '新規プロジェクト',
-      customerName: '新規顧客',
+      tradingPartnerId: 'partner-new',
+      tradingPartner: { id: 'partner-new', name: '新規顧客', nameKana: 'シンキコキャク' },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       status: 'PREPARING',
       statusLabel: '準備中',
@@ -267,7 +270,7 @@ describe('projects API client', () => {
 
       const input: CreateProjectInput = {
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'partner-new',
         salesPersonId: 'user-1',
       };
       const result = await createProject(input);
@@ -281,7 +284,7 @@ describe('projects API client', () => {
 
       const input: CreateProjectInput = {
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'partner-new',
         salesPersonId: 'user-1',
         constructionPersonId: 'user-2',
         siteAddress: '東京都千代田区1-1-1',
@@ -299,7 +302,6 @@ describe('projects API client', () => {
 
       const input: CreateProjectInput = {
         name: '',
-        customerName: '顧客名',
         salesPersonId: 'user-1',
       };
 
@@ -320,7 +322,12 @@ describe('projects API client', () => {
     const mockProjectInfo: ProjectInfo = {
       id: 'project-1',
       name: '更新されたプロジェクト',
-      customerName: '更新された顧客',
+      tradingPartnerId: 'partner-updated',
+      tradingPartner: {
+        id: 'partner-updated',
+        name: '更新された顧客',
+        nameKana: 'コウシンサレタコキャク',
+      },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       status: 'PREPARING',
       statusLabel: '準備中',
@@ -349,7 +356,7 @@ describe('projects API client', () => {
 
       const input: UpdateProjectInput = {
         name: '更新されたプロジェクト',
-        customerName: '更新された顧客',
+        tradingPartnerId: 'partner-updated',
         siteAddress: '新しい住所',
       };
       const expectedUpdatedAt = '2025-01-02T00:00:00.000Z';
@@ -428,7 +435,8 @@ describe('projects API client', () => {
     const mockProjectInfo: ProjectInfo = {
       id: 'project-1',
       name: 'テストプロジェクト',
-      customerName: 'テスト顧客',
+      tradingPartnerId: 'partner-1',
+      tradingPartner: { id: 'partner-1', name: 'テスト顧客', nameKana: 'テストコキャク' },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       status: 'SURVEYING',
       statusLabel: '調査中',

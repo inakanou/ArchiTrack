@@ -3,7 +3,6 @@
  *
  * Requirements:
  * - 13.1: プロジェクト名は必須かつ1〜255文字
- * - 13.2: 顧客名は必須かつ1〜255文字
  * - 13.3: 営業担当者は必須
  * - 13.4: 営業担当者の値がadmin以外の有効なユーザーIDであることを検証（サービス層で検証）
  * - 13.5: 工事担当者は任意
@@ -12,6 +11,7 @@
  * - 13.8: 概要は任意かつ最大5000文字
  * - 13.10: フロントエンドでバリデーションエラーが発生する場合、エラーメッセージを即座に表示
  * - 13.11: バックエンドでバリデーションエラーが発生する場合、400 Bad Requestエラーとエラー詳細を返却
+ * - 22.1-22.5: 取引先連携（tradingPartnerIdによる外部キー参照）
  */
 
 import { z } from 'zod';
@@ -26,9 +26,8 @@ export const PROJECT_VALIDATION_MESSAGES = {
   NAME_REQUIRED: 'プロジェクト名は必須です',
   NAME_TOO_LONG: 'プロジェクト名は255文字以内で入力してください',
 
-  // 顧客名
-  CUSTOMER_NAME_REQUIRED: '顧客名は必須です',
-  CUSTOMER_NAME_TOO_LONG: '顧客名は255文字以内で入力してください',
+  // 取引先ID
+  TRADING_PARTNER_ID_INVALID_UUID: '取引先IDの形式が不正です',
 
   // 営業担当者
   SALES_PERSON_REQUIRED: '営業担当者は必須です',
@@ -72,7 +71,7 @@ export const PROJECT_VALIDATION_MESSAGES = {
 export const SORTABLE_FIELDS = [
   'id',
   'name',
-  'customerName',
+  'tradingPartnerId',
   'status',
   'createdAt',
   'updatedAt',
@@ -131,13 +130,11 @@ export const createProjectSchema = z.object({
       message: PROJECT_VALIDATION_MESSAGES.NAME_REQUIRED,
     }),
 
-  customerName: z
+  tradingPartnerId: z
     .string()
-    .min(1, PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_REQUIRED)
-    .max(255, PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_TOO_LONG)
-    .refine((val) => val.trim().length > 0, {
-      message: PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_REQUIRED,
-    }),
+    .regex(UUID_REGEX, PROJECT_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID)
+    .nullable()
+    .optional(),
 
   salesPersonId: z
     .string()
@@ -182,13 +179,10 @@ export const updateProjectSchema = z.object({
     })
     .optional(),
 
-  customerName: z
+  tradingPartnerId: z
     .string()
-    .min(1, PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_REQUIRED)
-    .max(255, PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_TOO_LONG)
-    .refine((val) => val.trim().length > 0, {
-      message: PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_REQUIRED,
-    })
+    .regex(UUID_REGEX, PROJECT_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID)
+    .nullable()
     .optional(),
 
   salesPersonId: z
@@ -231,6 +225,11 @@ export const projectFilterSchema = z.object({
   createdFrom: dateStringSchema.optional(),
 
   createdTo: dateStringSchema.optional(),
+
+  tradingPartnerId: z
+    .string()
+    .regex(UUID_REGEX, PROJECT_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID)
+    .optional(),
 });
 
 /**

@@ -94,6 +94,18 @@ export interface UserSummary {
 }
 
 /**
+ * 取引先情報サマリー（一覧・詳細表示用）
+ */
+export interface TradingPartnerSummary {
+  /** 取引先ID */
+  id: string;
+  /** 取引先名 */
+  name: string;
+  /** 取引先名カナ */
+  nameKana: string;
+}
+
+/**
  * プロジェクト情報（一覧表示用）
  */
 export interface ProjectInfo {
@@ -101,8 +113,10 @@ export interface ProjectInfo {
   id: string;
   /** プロジェクト名 */
   name: string;
-  /** 顧客名 */
-  customerName: string;
+  /** 取引先ID（任意） */
+  tradingPartnerId: string | null;
+  /** 取引先情報（任意） */
+  tradingPartner: TradingPartnerSummary | null;
   /** 営業担当者 */
   salesPerson: UserSummary;
   /** 工事担当者（任意） */
@@ -210,8 +224,8 @@ export interface AssignableUser {
 export interface CreateProjectInput {
   /** プロジェクト名（1-255文字、必須） */
   name: string;
-  /** 顧客名（1-255文字、必須） */
-  customerName: string;
+  /** 取引先ID（UUID、任意） */
+  tradingPartnerId?: string | null;
   /** 営業担当者ID（UUID、必須） */
   salesPersonId: string;
   /** 工事担当者ID（UUID、任意） */
@@ -228,8 +242,8 @@ export interface CreateProjectInput {
 export interface UpdateProjectInput {
   /** プロジェクト名（1-255文字） */
   name?: string;
-  /** 顧客名（1-255文字） */
-  customerName?: string;
+  /** 取引先ID（UUID） */
+  tradingPartnerId?: string | null;
   /** 営業担当者ID（UUID） */
   salesPersonId?: string;
   /** 工事担当者ID（UUID） */
@@ -244,7 +258,7 @@ export interface UpdateProjectInput {
  * プロジェクトフィルタ
  */
 export interface ProjectFilter {
-  /** 検索キーワード（プロジェクト名・顧客名の部分一致） */
+  /** 検索キーワード（プロジェクト名・取引先名の部分一致） */
   search?: string;
   /** ステータスフィルタ（複数指定可） */
   status?: ProjectStatus[];
@@ -252,6 +266,8 @@ export interface ProjectFilter {
   createdFrom?: string;
   /** 作成日終了（ISO8601形式） */
   createdTo?: string;
+  /** 取引先ID（UUID） */
+  tradingPartnerId?: string;
 }
 
 /**

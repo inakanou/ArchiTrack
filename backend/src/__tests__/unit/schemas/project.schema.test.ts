@@ -35,7 +35,6 @@ describe('project.schema', () => {
       it('should accept a valid name', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(true);
@@ -44,7 +43,6 @@ describe('project.schema', () => {
       it('should reject an empty name', () => {
         const result = createProjectSchema.safeParse({
           name: '',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(false);
@@ -56,7 +54,6 @@ describe('project.schema', () => {
       it('should reject a name with only whitespace', () => {
         const result = createProjectSchema.safeParse({
           name: '   ',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(false);
@@ -65,7 +62,6 @@ describe('project.schema', () => {
       it('should reject a name exceeding 255 characters', () => {
         const result = createProjectSchema.safeParse({
           name: 'a'.repeat(256),
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(false);
@@ -77,7 +73,6 @@ describe('project.schema', () => {
       it('should accept a name with exactly 255 characters', () => {
         const result = createProjectSchema.safeParse({
           name: 'a'.repeat(255),
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(true);
@@ -85,66 +80,34 @@ describe('project.schema', () => {
 
       it('should reject missing name field', () => {
         const result = createProjectSchema.safeParse({
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(false);
       });
     });
 
-    describe('customerName field', () => {
-      it('should accept a valid customer name', () => {
-        const result = createProjectSchema.safeParse({
-          name: 'Test Project',
-          customerName: 'Test Customer',
-          salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
-        });
-        expect(result.success).toBe(true);
-      });
-
-      it('should reject an empty customer name', () => {
-        const result = createProjectSchema.safeParse({
-          name: 'Test Project',
-          customerName: '',
-          salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
-        });
-        expect(result.success).toBe(false);
-        if (!result.success) {
-          expect(result.error.issues[0]?.message).toBe(
-            PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_REQUIRED
-          );
-        }
-      });
-
-      it('should reject a customer name exceeding 255 characters', () => {
-        const result = createProjectSchema.safeParse({
-          name: 'Test Project',
-          customerName: 'a'.repeat(256),
-          salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
-        });
-        expect(result.success).toBe(false);
-        if (!result.success) {
-          expect(result.error.issues[0]?.message).toBe(
-            PROJECT_VALIDATION_MESSAGES.CUSTOMER_NAME_TOO_LONG
-          );
-        }
-      });
-
-      it('should accept a customer name with exactly 255 characters', () => {
-        const result = createProjectSchema.safeParse({
-          name: 'Test Project',
-          customerName: 'a'.repeat(255),
-          salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
-        });
-        expect(result.success).toBe(true);
-      });
-    });
-
-    describe('salesPersonId field', () => {
+    describe('tradingPartnerId field', () => {
       it('should accept a valid UUID', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
+          tradingPartnerId: '550e8400-e29b-41d4-a716-446655440000',
+          salesPersonId: '550e8400-e29b-41d4-a716-446655440001',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('should accept null', () => {
+        const result = createProjectSchema.safeParse({
+          name: 'Test Project',
+          tradingPartnerId: null,
+          salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('should accept undefined (optional field)', () => {
+        const result = createProjectSchema.safeParse({
+          name: 'Test Project',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(true);
@@ -153,7 +116,30 @@ describe('project.schema', () => {
       it('should reject an invalid UUID', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
+          tradingPartnerId: 'invalid-uuid',
+          salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
+        });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]?.message).toBe(
+            PROJECT_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID
+          );
+        }
+      });
+    });
+
+    describe('salesPersonId field', () => {
+      it('should accept a valid UUID', () => {
+        const result = createProjectSchema.safeParse({
+          name: 'Test Project',
+          salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('should reject an invalid UUID', () => {
+        const result = createProjectSchema.safeParse({
+          name: 'Test Project',
           salesPersonId: 'invalid-uuid',
         });
         expect(result.success).toBe(false);
@@ -167,7 +153,6 @@ describe('project.schema', () => {
       it('should reject an empty salesPersonId', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '',
         });
         expect(result.success).toBe(false);
@@ -181,7 +166,6 @@ describe('project.schema', () => {
       it('should reject missing salesPersonId field', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
         });
         expect(result.success).toBe(false);
       });
@@ -191,7 +175,6 @@ describe('project.schema', () => {
       it('should accept without constructionPersonId', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(true);
@@ -200,7 +183,6 @@ describe('project.schema', () => {
       it('should accept a valid UUID for constructionPersonId', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           constructionPersonId: '550e8400-e29b-41d4-a716-446655440001',
         });
@@ -210,7 +192,6 @@ describe('project.schema', () => {
       it('should reject an invalid UUID for constructionPersonId', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           constructionPersonId: 'invalid-uuid',
         });
@@ -225,7 +206,6 @@ describe('project.schema', () => {
       it('should accept null for constructionPersonId', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           constructionPersonId: null,
         });
@@ -237,7 +217,6 @@ describe('project.schema', () => {
       it('should accept without siteAddress', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(true);
@@ -246,7 +225,6 @@ describe('project.schema', () => {
       it('should accept a valid siteAddress', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           siteAddress: '東京都渋谷区1-2-3',
         });
@@ -256,7 +234,6 @@ describe('project.schema', () => {
       it('should reject a siteAddress exceeding 500 characters', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           siteAddress: 'a'.repeat(501),
         });
@@ -271,7 +248,6 @@ describe('project.schema', () => {
       it('should accept a siteAddress with exactly 500 characters', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           siteAddress: 'a'.repeat(500),
         });
@@ -283,7 +259,6 @@ describe('project.schema', () => {
       it('should accept without description', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         });
         expect(result.success).toBe(true);
@@ -292,7 +267,6 @@ describe('project.schema', () => {
       it('should accept a valid description', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           description: 'This is a test project description.',
         });
@@ -302,7 +276,6 @@ describe('project.schema', () => {
       it('should reject a description exceeding 5000 characters', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           description: 'a'.repeat(5001),
         });
@@ -317,7 +290,6 @@ describe('project.schema', () => {
       it('should accept a description with exactly 5000 characters', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           description: 'a'.repeat(5000),
         });
@@ -329,7 +301,6 @@ describe('project.schema', () => {
       it('should accept a complete valid input with all fields', () => {
         const result = createProjectSchema.safeParse({
           name: 'Test Project',
-          customerName: 'Test Customer',
           salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
           constructionPersonId: '550e8400-e29b-41d4-a716-446655440001',
           siteAddress: '東京都渋谷区1-2-3',
@@ -339,7 +310,6 @@ describe('project.schema', () => {
         if (result.success) {
           expect(result.data).toEqual({
             name: 'Test Project',
-            customerName: 'Test Customer',
             salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
             constructionPersonId: '550e8400-e29b-41d4-a716-446655440001',
             siteAddress: '東京都渋谷区1-2-3',
@@ -370,9 +340,9 @@ describe('project.schema', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should validate customerName field when provided', () => {
+    it('should validate tradingPartnerId field when provided', () => {
       const result = updateProjectSchema.safeParse({
-        customerName: '',
+        tradingPartnerId: 'invalid-uuid',
       });
       expect(result.success).toBe(false);
     });
@@ -394,7 +364,7 @@ describe('project.schema', () => {
     it('should accept all valid fields for update', () => {
       const result = updateProjectSchema.safeParse({
         name: 'Updated Name',
-        customerName: 'Updated Customer',
+        tradingPartnerId: '550e8400-e29b-41d4-a716-446655440002',
         salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
         constructionPersonId: '550e8400-e29b-41d4-a716-446655440001',
         siteAddress: 'Updated Address',
@@ -596,9 +566,9 @@ describe('project.schema', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should accept valid sort field: customerName', () => {
+    it('should accept valid sort field: tradingPartnerId', () => {
       const result = sortSchema.safeParse({
-        sort: 'customerName',
+        sort: 'tradingPartnerId',
       });
       expect(result.success).toBe(true);
     });
@@ -743,7 +713,6 @@ describe('project.schema', () => {
     it('should provide correct type inference for createProjectSchema', () => {
       const validData = {
         name: 'Test Project',
-        customerName: 'Test Customer',
         salesPersonId: '550e8400-e29b-41d4-a716-446655440000',
       };
       const result = createProjectSchema.safeParse(validData);
@@ -751,7 +720,7 @@ describe('project.schema', () => {
       if (result.success) {
         // Type inference check - these should compile without errors
         const _name: string = result.data.name;
-        const _customerName: string = result.data.customerName;
+        const _tradingPartnerId: string | null | undefined = result.data.tradingPartnerId;
         const _salesPersonId: string = result.data.salesPersonId;
         const _constructionPersonId: string | null | undefined = result.data.constructionPersonId;
         const _siteAddress: string | null | undefined = result.data.siteAddress;
@@ -759,7 +728,7 @@ describe('project.schema', () => {
 
         // Suppress unused variable warnings
         void _name;
-        void _customerName;
+        void _tradingPartnerId;
         void _salesPersonId;
         void _constructionPersonId;
         void _siteAddress;

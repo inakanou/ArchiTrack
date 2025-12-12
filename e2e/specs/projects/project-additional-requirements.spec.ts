@@ -135,9 +135,10 @@ test.describe('プロジェクト管理 追加要件', () => {
     /**
      * @requirement project-management/REQ-13.9
      */
-    test('顧客名に取引先として登録されていない名前を入力できる (project-management/REQ-13.9)', async ({
+    test.skip('顧客名に取引先として登録されていない名前を入力できる (project-management/REQ-13.9)', async ({
       page,
     }) => {
+      // 取引先は選択式になったため、このテストは不要
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects/new');
@@ -148,10 +149,8 @@ test.describe('プロジェクト管理 追加要件', () => {
         timeout: getTimeout(15000),
       });
 
-      // 取引先として登録されていない顧客名を入力
-      const customerName = `未登録顧客_${Date.now()}`;
       await page.getByLabel(/プロジェクト名/i).fill('未登録顧客テスト');
-      await page.getByLabel(/顧客名/i).fill(customerName);
+      // 取引先は任意なので選択しない
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -179,8 +178,8 @@ test.describe('プロジェクト管理 追加要件', () => {
       const response = await createPromise;
       expect(response.status()).toBe(201);
 
-      // 詳細画面で顧客名が表示されることを確認
-      await expect(page.getByText(customerName, { exact: true })).toBeVisible({
+      // 詳細画面で取引先が"-"で表示されることを確認
+      await expect(page.getByText(/-/).first()).toBeVisible({
         timeout: getTimeout(10000),
       });
     });
@@ -203,9 +202,6 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // エラーメッセージが即座に表示されることを確認
       await expect(page.getByText(/プロジェクト名は必須です/i)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-      await expect(page.getByText(/顧客名は必須です/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
@@ -231,7 +227,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       // バックエンドバリデーションエラーを引き起こす入力（例: 超長文）
       const veryLongName = 'あ'.repeat(256);
       await page.getByLabel(/プロジェクト名/i).fill(veryLongName);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -319,7 +314,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`APIテスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -383,7 +377,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`POSTテスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -778,7 +771,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`監査ログテスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -833,7 +825,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`更新テスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('更新テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -905,7 +896,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`削除テスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('削除テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();

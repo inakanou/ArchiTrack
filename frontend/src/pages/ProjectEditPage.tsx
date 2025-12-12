@@ -216,7 +216,7 @@ export default function ProjectEditPage() {
           id,
           {
             name: data.name,
-            customerName: data.customerName,
+            tradingPartnerId: data.tradingPartnerId,
             salesPersonId: data.salesPersonId,
             constructionPersonId: data.constructionPersonId,
             siteAddress: data.siteAddress,
@@ -319,7 +319,7 @@ export default function ProjectEditPage() {
   // フォーム初期データ
   const initialData: Partial<ProjectFormData> = {
     name: project.name,
-    customerName: project.customerName,
+    tradingPartnerId: project.tradingPartnerId ?? undefined,
     salesPersonId: project.salesPerson.id,
     constructionPersonId: project.constructionPerson?.id,
     siteAddress: project.siteAddress,

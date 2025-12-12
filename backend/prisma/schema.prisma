@@ -255,7 +255,7 @@ enum TransitionType {
 model Project {
   id                   String        @id @default(uuid())
   name                 String // プロジェクト名（必須、1-255文字）
-  customerName         String // 顧客名（必須、1-255文字）
+  tradingPartnerId     String? // 取引先ID（任意、外部キー）
   salesPersonId        String // 営業担当者ID（必須）
   constructionPersonId String? // 工事担当者ID（任意）
   siteAddress          String? // 現場住所（任意、最大500文字）
@@ -266,7 +266,8 @@ model Project {
   deletedAt            DateTime? // 論理削除フィールド
   createdById          String // 作成者ID
 
-  // Userモデルとのリレーション
+  // リレーション
+  tradingPartner     TradingPartner?        @relation(fields: [tradingPartnerId], references: [id])
   salesPerson        User                   @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
   constructionPerson User?                  @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
   createdBy          User                   @relation("CreatedProjects", fields: [createdById], references: [id])
@@ -274,7 +275,7 @@ model Project {
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
-  @@index([customerName])
+  @@index([tradingPartnerId])
   @@index([status])
   @@index([salesPersonId])
   @@index([createdAt])
@@ -376,7 +377,8 @@ model TradingPartner {
   deletedAt              DateTime? // 論理削除
 
   // リレーション
-  types TradingPartnerTypeMapping[]
+  types    TradingPartnerTypeMapping[]
+  projects Project[] // この取引先に紐付くプロジェクト
 
   // インデックス
   @@unique([name, deletedAt], name: "name_deletedAt") // 削除されていない取引先名の一意制約
