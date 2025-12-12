@@ -541,7 +541,7 @@ test.describe('取引先管理の追加要件', () => {
       // 存在しない検索クエリでAPIを呼び出し
       const nonExistentQuery = `存在しない取引先_${Date.now()}_XXXXXXXXX`;
       const searchResponse = await request.get(
-        `/api/trading-partners/search?q=${encodeURIComponent(nonExistentQuery)}`,
+        `${API_BASE_URL}/api/trading-partners/search?q=${encodeURIComponent(nonExistentQuery)}`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
