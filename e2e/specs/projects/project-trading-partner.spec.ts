@@ -467,19 +467,22 @@ test.describe('プロジェクト取引先連携', () => {
 
       // 取引先フィールドで取引先を検索して選択
       const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      await tradingPartnerInput.click();
       await tradingPartnerInput.fill('E2Eテスト');
 
-      // オートコンプリート候補から取引先を選択
+      // オートコンプリート候補の表示を待機
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (listVisible) {
-        const targetOption = page.getByText(testTradingPartnerName, { exact: true });
-        const optionVisible = await targetOption.isVisible().catch(() => false);
-        if (optionVisible) {
-          await targetOption.click();
-        }
-      }
+      // 取引先オプションをクリック
+      const targetOption = autocompleteList
+        .getByRole('option')
+        .filter({ hasText: testTradingPartnerName });
+      await expect(targetOption).toBeVisible({ timeout: getTimeout(5000) });
+      await targetOption.click();
+
+      // 選択が反映されるまで待機
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -511,12 +514,9 @@ test.describe('プロジェクト取引先連携', () => {
 
       // プロジェクト詳細画面に取引先名が表示されることを確認
       // 取引先情報は「顧客名」または「取引先」フィールドとして表示される
-      const tradingPartnerDisplayed = await page
-        .getByText(testTradingPartnerName)
-        .first()
-        .isVisible()
-        .catch(() => false);
-      expect(tradingPartnerDisplayed).toBe(true);
+      await expect(page.getByText(testTradingPartnerName).first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
