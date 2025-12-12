@@ -243,6 +243,7 @@ function PaymentDateSelect({
         {/* 月選択ドロップダウン */}
         <select
           id={monthSelectId}
+          name="paymentMonthOffset"
           value={monthOffset === null ? '' : monthOffset.toString()}
           onChange={handleMonthChange}
           disabled={disabled}
@@ -262,6 +263,7 @@ function PaymentDateSelect({
         {/* 日選択ドロップダウン */}
         <select
           id={daySelectId}
+          name="paymentDay"
           value={day === null ? '' : day.toString()}
           onChange={handleDayChange}
           disabled={disabled}
