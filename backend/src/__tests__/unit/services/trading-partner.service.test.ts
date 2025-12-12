@@ -229,9 +229,7 @@ describe('TradingPartnerService', () => {
         types: ['CUSTOMER'],
         address: '東京都千代田区1-2-3',
         branchName: '本社営業部',
-        branchNameKana: 'ホンシャエイギョウブ',
         representativeName: '山田太郎',
-        representativeNameKana: 'ヤマダタロウ',
         phoneNumber: '03-1111-2222',
         faxNumber: '03-1111-3333',
         email: 'contact@example.com',
@@ -984,9 +982,7 @@ describe('TradingPartnerService', () => {
       expect(result.name).toBe('テスト取引先株式会社');
       expect(result.nameKana).toBe('テストトリヒキサキカブシキガイシャ');
       expect(result.branchName).toBe('東京支店');
-      expect(result.branchNameKana).toBe('トウキョウシテン');
       expect(result.representativeName).toBe('山田太郎');
-      expect(result.representativeNameKana).toBe('ヤマダタロウ');
       expect(result.address).toBe('東京都渋谷区1-1-1');
       expect(result.phoneNumber).toBe('03-1234-5678');
       expect(result.faxNumber).toBe('03-1234-5679');

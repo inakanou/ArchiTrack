@@ -19,9 +19,7 @@
  * - 11.1: 取引先名の最大文字数を200文字に制限
  * - 11.2: フリガナの最大文字数を200文字に制限し、カタカナのみを許可
  * - 11.3: 部課/支店/支社名の最大文字数を100文字に制限
- * - 11.4: 部課/支店/支社フリガナの最大文字数を100文字に制限し、カタカナのみを許可
  * - 11.5: 代表者名の最大文字数を100文字に制限
- * - 11.6: 代表者フリガナの最大文字数を100文字に制限し、カタカナのみを許可
  * - 11.7: 電話番号の形式バリデーション（数字、ハイフン、括弧のみ許可）
  * - 11.8: FAX番号の形式バリデーション（数字、ハイフン、括弧のみ許可）
  * - 11.9: メールアドレスの形式バリデーション
@@ -63,13 +61,9 @@ export const TRADING_PARTNER_VALIDATION_MESSAGES = {
 
   // 部課/支店/支社名
   BRANCH_NAME_TOO_LONG: '部課/支店/支社名は100文字以内で入力してください',
-  BRANCH_NAME_KANA_TOO_LONG: '部課/支店/支社フリガナは100文字以内で入力してください',
-  BRANCH_NAME_KANA_KATAKANA_ONLY: '部課/支店/支社フリガナはカタカナで入力してください',
 
   // 代表者名
   REPRESENTATIVE_NAME_TOO_LONG: '代表者名は100文字以内で入力してください',
-  REPRESENTATIVE_NAME_KANA_TOO_LONG: '代表者フリガナは100文字以内で入力してください',
-  REPRESENTATIVE_NAME_KANA_KATAKANA_ONLY: '代表者フリガナはカタカナで入力してください',
 
   // 種別
   TYPES_REQUIRED: '種別を1つ以上選択してください',
@@ -104,14 +98,13 @@ export const TRADING_PARTNER_VALIDATION_MESSAGES = {
 /**
  * カタカナバリデーション用正規表現
  * 全角カタカナ、長音符（ー）、中黒（・）、全角スペース、半角スペースを許可
- * Requirements: 11.2, 11.4, 11.6
+ * Requirements: 11.2
  */
 export const KATAKANA_REGEX = /^[ァ-ヶー・\u3000 ]+$/;
 
 /**
  * 電話番号・FAX番号バリデーション用正規表現
  * 数字、ハイフン、括弧のみを許可
- * Requirements: 11.7, 11.8
  */
 export const PHONE_FAX_REGEX = /^[0-9\-()]+$/;
 
@@ -210,27 +203,9 @@ export const createTradingPartnerSchema = z.object({
     .nullable()
     .optional(),
 
-  branchNameKana: z
-    .string()
-    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_TOO_LONG)
-    .refine((val) => KATAKANA_REGEX.test(val), {
-      message: TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_KATAKANA_ONLY,
-    })
-    .nullable()
-    .optional(),
-
   representativeName: z
     .string()
     .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_TOO_LONG)
-    .nullable()
-    .optional(),
-
-  representativeNameKana: z
-    .string()
-    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_TOO_LONG)
-    .refine((val) => KATAKANA_REGEX.test(val), {
-      message: TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_KATAKANA_ONLY,
-    })
     .nullable()
     .optional(),
 
@@ -333,27 +308,9 @@ export const updateTradingPartnerSchema = z.object({
     .nullable()
     .optional(),
 
-  branchNameKana: z
-    .string()
-    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_TOO_LONG)
-    .refine((val) => KATAKANA_REGEX.test(val), {
-      message: TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_KATAKANA_ONLY,
-    })
-    .nullable()
-    .optional(),
-
   representativeName: z
     .string()
     .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_TOO_LONG)
-    .nullable()
-    .optional(),
-
-  representativeNameKana: z
-    .string()
-    .max(100, TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_TOO_LONG)
-    .refine((val) => KATAKANA_REGEX.test(val), {
-      message: TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_KATAKANA_ONLY,
-    })
     .nullable()
     .optional(),
 

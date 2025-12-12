@@ -152,19 +152,6 @@ describe('createTradingPartnerSchema', () => {
       }
     });
 
-    it('branchNameKanaが100文字を超える場合エラーになること', () => {
-      const result = createTradingPartnerSchema.safeParse({
-        ...validData,
-        branchNameKana: 'ア'.repeat(101),
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(getFirstErrorMessage(result)).toBe(
-          TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_TOO_LONG
-        );
-      }
-    });
-
     it('representativeNameが100文字を超える場合エラーになること', () => {
       const result = createTradingPartnerSchema.safeParse({
         ...validData,
@@ -174,19 +161,6 @@ describe('createTradingPartnerSchema', () => {
       if (!result.success) {
         expect(getFirstErrorMessage(result)).toBe(
           TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_TOO_LONG
-        );
-      }
-    });
-
-    it('representativeNameKanaが100文字を超える場合エラーになること', () => {
-      const result = createTradingPartnerSchema.safeParse({
-        ...validData,
-        representativeNameKana: 'ア'.repeat(101),
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(getFirstErrorMessage(result)).toBe(
-          TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_TOO_LONG
         );
       }
     });
@@ -288,32 +262,6 @@ describe('createTradingPartnerSchema', () => {
         nameKana: 'サービスセンター',
       });
       expect(result.success).toBe(true);
-    });
-
-    it('branchNameKanaがひらがなを含む場合エラーになること', () => {
-      const result = createTradingPartnerSchema.safeParse({
-        ...validData,
-        branchNameKana: 'とうきょうしてん',
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(getFirstErrorMessage(result)).toBe(
-          TRADING_PARTNER_VALIDATION_MESSAGES.BRANCH_NAME_KANA_KATAKANA_ONLY
-        );
-      }
-    });
-
-    it('representativeNameKanaがひらがなを含む場合エラーになること', () => {
-      const result = createTradingPartnerSchema.safeParse({
-        ...validData,
-        representativeNameKana: 'やまだたろう',
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(getFirstErrorMessage(result)).toBe(
-          TRADING_PARTNER_VALIDATION_MESSAGES.REPRESENTATIVE_NAME_KANA_KATAKANA_ONLY
-        );
-      }
     });
   });
 
@@ -638,9 +586,7 @@ describe('createTradingPartnerSchema', () => {
       const result = createTradingPartnerSchema.safeParse({
         ...validData,
         branchName: null,
-        branchNameKana: null,
         representativeName: null,
-        representativeNameKana: null,
         phoneNumber: null,
         faxNumber: null,
         email: null,
@@ -664,9 +610,7 @@ describe('createTradingPartnerSchema', () => {
         types: ['CUSTOMER', 'SUBCONTRACTOR'],
         address: '東京都渋谷区1-2-3',
         branchName: '東京支店',
-        branchNameKana: 'トウキョウシテン',
         representativeName: '山田太郎',
-        representativeNameKana: 'ヤマダタロウ',
         phoneNumber: '03-1234-5678',
         faxNumber: '03-1234-5679',
         email: 'contact@test.co.jp',
@@ -971,22 +915,6 @@ describe('updateTradingPartnerSchema', () => {
       });
       expect(result.success).toBe(false);
     });
-
-    it('branchNameKanaがひらがなを含む場合エラーになること', () => {
-      const result = updateTradingPartnerSchema.safeParse({
-        branchNameKana: 'おおさかしてん',
-        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('representativeNameKanaがひらがなを含む場合エラーになること', () => {
-      const result = updateTradingPartnerSchema.safeParse({
-        representativeNameKana: 'たなかいちろう',
-        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
-      });
-      expect(result.success).toBe(false);
-    });
   });
 
   describe('更新時の種別バリデーション', () => {
@@ -1191,9 +1119,7 @@ describe('updateTradingPartnerSchema', () => {
         types: ['CUSTOMER', 'SUBCONTRACTOR'],
         address: '大阪府大阪市中央区1-2-3',
         branchName: '大阪支店',
-        branchNameKana: 'オオサカシテン',
         representativeName: '田中一郎',
-        representativeNameKana: 'タナカイチロウ',
         phoneNumber: '06-1234-5678',
         faxNumber: '06-1234-5679',
         email: 'updated@example.co.jp',

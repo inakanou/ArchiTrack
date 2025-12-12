@@ -62,9 +62,7 @@ describe('TradingPartner Model Schema', () => {
           create: [{ type: TradingPartnerType.CUSTOMER }],
         },
         branchName: '渋谷支店',
-        branchNameKana: 'シブヤシテン',
         representativeName: '山田太郎',
-        representativeNameKana: 'ヤマダタロウ',
         phoneNumber: '03-1234-5678',
         faxNumber: '03-1234-5679',
         email: 'test@example.com',
@@ -157,9 +155,7 @@ describe('TradingPartner Model Schema', () => {
     it('should have all optional fields selectable', () => {
       const partnerSelect: Prisma.TradingPartnerSelect = {
         branchName: true,
-        branchNameKana: true,
         representativeName: true,
-        representativeNameKana: true,
         phoneNumber: true,
         faxNumber: true,
         email: true,

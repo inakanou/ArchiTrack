@@ -111,9 +111,7 @@ export interface TradingPartnerInfo {
   name: string;
   nameKana: string;
   branchName: string | null;
-  branchNameKana: string | null;
   representativeName: string | null;
-  representativeNameKana: string | null;
   address: string;
   phoneNumber: string | null;
   faxNumber: string | null;
@@ -220,9 +218,7 @@ export class TradingPartnerService {
           name: input.name,
           nameKana: input.nameKana,
           branchName: input.branchName || null,
-          branchNameKana: input.branchNameKana || null,
           representativeName: input.representativeName || null,
-          representativeNameKana: input.representativeNameKana || null,
           address: input.address,
           phoneNumber: input.phoneNumber || null,
           faxNumber: input.faxNumber || null,
@@ -268,9 +264,7 @@ export class TradingPartnerService {
           name: createdPartner.name,
           nameKana: createdPartner.nameKana,
           branchName: createdPartner.branchName,
-          branchNameKana: createdPartner.branchNameKana,
           representativeName: createdPartner.representativeName,
-          representativeNameKana: createdPartner.representativeNameKana,
           address: createdPartner.address,
           phoneNumber: createdPartner.phoneNumber,
           faxNumber: createdPartner.faxNumber,
@@ -478,11 +472,8 @@ export class TradingPartnerService {
       if (input.name !== undefined) updateData.name = input.name;
       if (input.nameKana !== undefined) updateData.nameKana = input.nameKana;
       if (input.branchName !== undefined) updateData.branchName = input.branchName;
-      if (input.branchNameKana !== undefined) updateData.branchNameKana = input.branchNameKana;
       if (input.representativeName !== undefined)
         updateData.representativeName = input.representativeName;
-      if (input.representativeNameKana !== undefined)
-        updateData.representativeNameKana = input.representativeNameKana;
       if (input.address !== undefined) updateData.address = input.address;
       if (input.phoneNumber !== undefined) updateData.phoneNumber = input.phoneNumber;
       if (input.faxNumber !== undefined) updateData.faxNumber = input.faxNumber;
@@ -540,9 +531,7 @@ export class TradingPartnerService {
           name: existingPartner.name,
           nameKana: existingPartner.nameKana,
           branchName: existingPartner.branchName,
-          branchNameKana: existingPartner.branchNameKana,
           representativeName: existingPartner.representativeName,
-          representativeNameKana: existingPartner.representativeNameKana,
           address: existingPartner.address,
           phoneNumber: existingPartner.phoneNumber,
           faxNumber: existingPartner.faxNumber,
@@ -557,9 +546,7 @@ export class TradingPartnerService {
           name: updatedPartner.name,
           nameKana: updatedPartner.nameKana,
           branchName: updatedPartner.branchName,
-          branchNameKana: updatedPartner.branchNameKana,
           representativeName: updatedPartner.representativeName,
-          representativeNameKana: updatedPartner.representativeNameKana,
           address: updatedPartner.address,
           phoneNumber: updatedPartner.phoneNumber,
           faxNumber: updatedPartner.faxNumber,
@@ -643,9 +630,7 @@ export class TradingPartnerService {
           name: existingPartner.name,
           nameKana: existingPartner.nameKana,
           branchName: existingPartner.branchName,
-          branchNameKana: existingPartner.branchNameKana,
           representativeName: existingPartner.representativeName,
-          representativeNameKana: existingPartner.representativeNameKana,
           address: existingPartner.address,
           phoneNumber: existingPartner.phoneNumber,
           faxNumber: existingPartner.faxNumber,
@@ -741,9 +726,7 @@ export class TradingPartnerService {
     name: string;
     nameKana: string;
     branchName: string | null;
-    branchNameKana: string | null;
     representativeName: string | null;
-    representativeNameKana: string | null;
     address: string;
     phoneNumber: string | null;
     faxNumber: string | null;
@@ -761,9 +744,7 @@ export class TradingPartnerService {
       name: partner.name,
       nameKana: partner.nameKana,
       branchName: partner.branchName,
-      branchNameKana: partner.branchNameKana,
       representativeName: partner.representativeName,
-      representativeNameKana: partner.representativeNameKana,
       address: partner.address,
       phoneNumber: partner.phoneNumber,
       faxNumber: partner.faxNumber,

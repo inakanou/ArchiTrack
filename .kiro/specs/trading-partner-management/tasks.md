@@ -362,8 +362,8 @@
   - containsHiragana / containsKatakana の判定テスト
   - _Requirements: 1.3.1_
 
-- [ ] 17. フィールド削除マイグレーションの実装
-- [ ] 17.1 branchNameKana / representativeNameKana フィールド削除マイグレーション
+- [x] 17. フィールド削除マイグレーションの実装
+- [x] 17.1 branchNameKana / representativeNameKana フィールド削除マイグレーション
   - Prismaスキーマから branchNameKana / representativeNameKana を削除
   - マイグレーションファイルを作成・適用
   - 削除されるフィールドは任意項目のためデータ損失の影響は限定的
