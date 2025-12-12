@@ -1512,6 +1512,116 @@ describe('tradingPartnerSearchQuerySchema', () => {
 /**
  * 取引先IDパラメータスキーマのテスト
  */
+/**
+ * branchNameKana / representativeNameKana フィールド除外テスト
+ * Requirements:
+ * - 11.3: 部課/支店/支社名（branchName）は100文字制限、フリガナは不要
+ * - 11.4: branchNameKanaとrepresentativeNameKanaはスキーマに含まない
+ *
+ * これらのフィールドが誤って追加されないことを保証するテスト
+ */
+describe('branchNameKana / representativeNameKana exclusion', () => {
+  describe('createTradingPartnerSchema', () => {
+    // 有効なデータのテンプレート
+    const validData = {
+      name: 'テスト株式会社',
+      nameKana: 'テストカブシキガイシャ',
+      types: ['CUSTOMER'],
+      address: '東京都渋谷区1-2-3',
+    };
+
+    it('branchNameKanaフィールドを含めてもスキーマで無視されること', () => {
+      const dataWithBranchNameKana = {
+        ...validData,
+        branchNameKana: 'トウキョウシテン',
+      };
+      const result = createTradingPartnerSchema.safeParse(dataWithBranchNameKana);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // branchNameKanaはスキーマに含まれないため、出力に存在しない
+        expect('branchNameKana' in result.data).toBe(false);
+      }
+    });
+
+    it('representativeNameKanaフィールドを含めてもスキーマで無視されること', () => {
+      const dataWithRepresentativeNameKana = {
+        ...validData,
+        representativeNameKana: 'ヤマダタロウ',
+      };
+      const result = createTradingPartnerSchema.safeParse(dataWithRepresentativeNameKana);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // representativeNameKanaはスキーマに含まれないため、出力に存在しない
+        expect('representativeNameKana' in result.data).toBe(false);
+      }
+    });
+
+    it('branchNameとrepresentativeNameは引き続き有効であること', () => {
+      const dataWithValidFields = {
+        ...validData,
+        branchName: '東京支店',
+        representativeName: '山田太郎',
+      };
+      const result = createTradingPartnerSchema.safeParse(dataWithValidFields);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.branchName).toBe('東京支店');
+        expect(result.data.representativeName).toBe('山田太郎');
+      }
+    });
+  });
+
+  describe('updateTradingPartnerSchema', () => {
+    // 動的インポートで更新スキーマを取得
+    let updateTradingPartnerSchema: typeof import('../../../schemas/trading-partner.schema.js').updateTradingPartnerSchema;
+
+    beforeAll(async () => {
+      const module = await import('../../../schemas/trading-partner.schema.js');
+      updateTradingPartnerSchema = module.updateTradingPartnerSchema;
+    });
+
+    it('branchNameKanaフィールドを含めてもスキーマで無視されること', () => {
+      const dataWithBranchNameKana = {
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+        branchNameKana: 'オオサカシテン',
+      };
+      const result = updateTradingPartnerSchema.safeParse(dataWithBranchNameKana);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // branchNameKanaはスキーマに含まれないため、出力に存在しない
+        expect('branchNameKana' in result.data).toBe(false);
+      }
+    });
+
+    it('representativeNameKanaフィールドを含めてもスキーマで無視されること', () => {
+      const dataWithRepresentativeNameKana = {
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+        representativeNameKana: 'タナカイチロウ',
+      };
+      const result = updateTradingPartnerSchema.safeParse(dataWithRepresentativeNameKana);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // representativeNameKanaはスキーマに含まれないため、出力に存在しない
+        expect('representativeNameKana' in result.data).toBe(false);
+      }
+    });
+
+    it('branchNameとrepresentativeNameの更新は引き続き有効であること', () => {
+      const dataWithValidFields = {
+        expectedUpdatedAt: '2025-01-01T00:00:00.000Z',
+        branchName: '大阪支店',
+        representativeName: '田中一郎',
+      };
+      const result = updateTradingPartnerSchema.safeParse(dataWithValidFields);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.branchName).toBe('大阪支店');
+        expect(result.data.representativeName).toBe('田中一郎');
+      }
+    });
+  });
+});
+
 describe('tradingPartnerIdParamSchema', () => {
   // 動的インポートでIDパラメータスキーマを取得
   let tradingPartnerIdParamSchema: typeof import('../../../schemas/trading-partner.schema.js').tradingPartnerIdParamSchema;

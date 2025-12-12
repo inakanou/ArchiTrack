@@ -383,7 +383,7 @@
   - Task 16.1 に依存
   - _Requirements: 10.2_
 
-- [ ] 19. UI更新（フィールド削除・フリガナ列削除）
+- [x] 19. UI更新（フィールド削除・フリガナ列削除）
 - [x] 19.1 (P) 取引先一覧テーブルからフリガナ列を削除
   - TradingPartnerListTableコンポーネントからフリガナ列を削除
   - テーブルヘッダーとデータセルの両方からフリガナを除去
@@ -404,9 +404,10 @@
   - TradingPartnerDetailViewコンポーネントから代表者フリガナ表示を削除
   - _Requirements: 3.2_
 
-- [ ] 19.4 バックエンドバリデーションスキーマから branchNameKana / representativeNameKana を削除
-  - 作成スキーマから該当フィールドを削除
-  - 更新スキーマから該当フィールドを削除
+- [x] 19.4 バックエンドバリデーションスキーマから branchNameKana / representativeNameKana を削除
+  - 作成スキーマから該当フィールドを削除（既に除外済み：スキーマには含まれていない）
+  - 更新スキーマから該当フィールドを削除（既に除外済み：スキーマには含まれていない）
+  - フィールド除外を保証するテストを追加（branchNameKana / representativeNameKana exclusion テスト）
   - Task 17.1 に依存
   - _Requirements: 11.3, 11.4_
 
