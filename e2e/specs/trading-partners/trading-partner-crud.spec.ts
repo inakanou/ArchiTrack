@@ -1193,7 +1193,6 @@ test.describe('取引先CRUD操作', () => {
 
       const projectName = `紐付きプロジェクト_${Date.now()}`;
       await page.getByLabel('プロジェクト名').fill(projectName);
-      await page.getByLabel('プロジェクトコード').fill(`PROJ${Date.now()}`);
 
       // 取引先を選択（セレクトボックスから選択）
       const tradingPartnerSelect = page.getByLabel(/取引先/i);
