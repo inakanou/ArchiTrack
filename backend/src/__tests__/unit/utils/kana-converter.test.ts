@@ -197,4 +197,178 @@ describe('kana-converter utils', () => {
       expect(normalizedQuery).toBe('山田');
     });
   });
+
+  describe('三種混合文字列（漢字+ひらがな+カタカナ）のテスト', () => {
+    describe('toKatakana - 三種混合', () => {
+      it('漢字+ひらがな+カタカナの混合文字列で、ひらがな部分のみカタカナに変換すること', () => {
+        expect(toKatakana('山田たろうタロウ')).toBe('山田タロウタロウ');
+      });
+
+      it('複雑な混合文字列を正しく変換すること', () => {
+        expect(toKatakana('東京とうきょうトウキョウ')).toBe('東京トウキョウトウキョウ');
+      });
+
+      it('会社名のような混合パターンを正しく変換すること', () => {
+        expect(toKatakana('株式会社やまだ工業ヤマダ')).toBe('株式会社ヤマダ工業ヤマダ');
+      });
+    });
+
+    describe('toHiragana - 三種混合', () => {
+      it('漢字+ひらがな+カタカナの混合文字列で、カタカナ部分のみひらがなに変換すること', () => {
+        expect(toHiragana('山田たろうタロウ')).toBe('山田たろうたろう');
+      });
+
+      it('複雑な混合文字列を正しく変換すること', () => {
+        expect(toHiragana('東京とうきょうトウキョウ')).toBe('東京とうきょうとうきょう');
+      });
+
+      it('会社名のような混合パターンを正しく変換すること', () => {
+        expect(toHiragana('株式会社やまだ工業ヤマダ')).toBe('株式会社やまだ工業やまだ');
+      });
+    });
+
+    describe('containsHiragana - 三種混合', () => {
+      it('漢字+ひらがな+カタカナの混合文字列でtrueを返すこと', () => {
+        expect(containsHiragana('山田たろうタロウ')).toBe(true);
+      });
+    });
+
+    describe('containsKatakana - 三種混合', () => {
+      it('漢字+ひらがな+カタカナの混合文字列でtrueを返すこと', () => {
+        expect(containsKatakana('山田たろうタロウ')).toBe(true);
+      });
+    });
+  });
+
+  describe('null/undefined境界値テスト（ランタイム安全性確認）', () => {
+    // TypeScriptの型システムではnull/undefinedは許可されないが、
+    // JavaScriptランタイムでの呼び出しを想定したテスト
+    describe('toKatakana - null/undefined', () => {
+      it('空文字列を空文字列として返すこと（再確認）', () => {
+        expect(toKatakana('')).toBe('');
+      });
+
+      it('ランタイムでnullが渡された場合、エラーが発生すること', () => {
+        // TypeScript型チェックを回避してnullをテスト
+        expect(() => toKatakana(null as unknown as string)).toThrow();
+      });
+
+      it('ランタイムでundefinedが渡された場合、エラーが発生すること', () => {
+        // TypeScript型チェックを回避してundefinedをテスト
+        expect(() => toKatakana(undefined as unknown as string)).toThrow();
+      });
+    });
+
+    describe('toHiragana - null/undefined', () => {
+      it('空文字列を空文字列として返すこと（再確認）', () => {
+        expect(toHiragana('')).toBe('');
+      });
+
+      it('ランタイムでnullが渡された場合、エラーが発生すること', () => {
+        expect(() => toHiragana(null as unknown as string)).toThrow();
+      });
+
+      it('ランタイムでundefinedが渡された場合、エラーが発生すること', () => {
+        expect(() => toHiragana(undefined as unknown as string)).toThrow();
+      });
+    });
+
+    describe('containsHiragana - null/undefined', () => {
+      it('空文字列でfalseを返すこと（再確認）', () => {
+        expect(containsHiragana('')).toBe(false);
+      });
+
+      it('ランタイムでnullが渡された場合、エラーが発生すること', () => {
+        expect(() => containsHiragana(null as unknown as string)).toThrow();
+      });
+
+      it('ランタイムでundefinedが渡された場合、エラーが発生すること', () => {
+        expect(() => containsHiragana(undefined as unknown as string)).toThrow();
+      });
+    });
+
+    describe('containsKatakana - null/undefined', () => {
+      it('空文字列でfalseを返すこと（再確認）', () => {
+        expect(containsKatakana('')).toBe(false);
+      });
+
+      it('ランタイムでnullが渡された場合、エラーが発生すること', () => {
+        expect(() => containsKatakana(null as unknown as string)).toThrow();
+      });
+
+      it('ランタイムでundefinedが渡された場合、エラーが発生すること', () => {
+        expect(() => containsKatakana(undefined as unknown as string)).toThrow();
+      });
+    });
+  });
+
+  describe('エッジケーステスト', () => {
+    describe('特殊文字・空白', () => {
+      it('空白文字のみの文字列をそのまま返すこと', () => {
+        expect(toKatakana('   ')).toBe('   ');
+        expect(toHiragana('   ')).toBe('   ');
+      });
+
+      it('タブ文字を含む文字列を正しく処理すること', () => {
+        expect(toKatakana('あ\tい')).toBe('ア\tイ');
+        expect(toHiragana('ア\tイ')).toBe('あ\tい');
+      });
+
+      it('改行文字を含む文字列を正しく処理すること', () => {
+        expect(toKatakana('あ\nい')).toBe('ア\nイ');
+        expect(toHiragana('ア\nイ')).toBe('あ\nい');
+      });
+
+      it('全角スペースを含む文字列を正しく処理すること', () => {
+        expect(toKatakana('あ　い')).toBe('ア　イ');
+        expect(toHiragana('ア　イ')).toBe('あ　い');
+      });
+    });
+
+    describe('長い文字列', () => {
+      it('非常に長いひらがな文字列を正しく変換すること', () => {
+        const longHiragana = 'あいうえお'.repeat(100);
+        const expectedKatakana = 'アイウエオ'.repeat(100);
+        expect(toKatakana(longHiragana)).toBe(expectedKatakana);
+      });
+
+      it('非常に長いカタカナ文字列を正しく変換すること', () => {
+        const longKatakana = 'アイウエオ'.repeat(100);
+        const expectedHiragana = 'あいうえお'.repeat(100);
+        expect(toHiragana(longKatakana)).toBe(expectedHiragana);
+      });
+    });
+
+    describe('containsHiragana/containsKatakana - 特殊文字', () => {
+      it('空白文字のみでfalseを返すこと', () => {
+        expect(containsHiragana('   ')).toBe(false);
+        expect(containsKatakana('   ')).toBe(false);
+      });
+
+      it('改行のみでfalseを返すこと', () => {
+        expect(containsHiragana('\n')).toBe(false);
+        expect(containsKatakana('\n')).toBe(false);
+      });
+    });
+
+    describe('絵文字・サロゲートペア', () => {
+      it('絵文字を含む文字列で、絵文字はそのまま保持すること', () => {
+        // 絵文字はBMP外の文字だがtoKatakanaはBMP内のかな文字のみ変換
+        expect(toKatakana('あいう😀')).toBe('アイウ😀');
+        expect(toHiragana('アイウ😀')).toBe('あいう😀');
+      });
+
+      it('絵文字のみの文字列をそのまま返すこと', () => {
+        expect(toKatakana('😀😁😂')).toBe('😀😁😂');
+        expect(toHiragana('😀😁😂')).toBe('😀😁😂');
+      });
+
+      it('絵文字を含む文字列でcontainsHiragana/containsKatakanaが正しく判定すること', () => {
+        expect(containsHiragana('あ😀')).toBe(true);
+        expect(containsHiragana('😀')).toBe(false);
+        expect(containsKatakana('ア😀')).toBe(true);
+        expect(containsKatakana('😀')).toBe(false);
+      });
+    });
+  });
 });
