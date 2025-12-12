@@ -18,6 +18,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * 取引先管理の追加要件テスト
@@ -439,11 +440,14 @@ test.describe('取引先管理の追加要件', () => {
       const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
 
       // 検索APIを直接呼び出し
-      const searchResponse = await request.get('/api/trading-partners/search?q=テスト', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
+      const searchResponse = await request.get(
+        `${API_BASE_URL}/api/trading-partners/search?q=テスト`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
 
       expect(searchResponse.status()).toBe(200);
 
