@@ -843,7 +843,7 @@ test.describe('取引先CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       await page.getByLabel('取引先名').fill(partner1Name);
-      await page.getByLabel('フリガナ', { exact: true }).fill('ジュウフクヘンシュウテスト1');
+      await page.getByLabel('フリガナ', { exact: true }).fill('ジュウフクヘンシュウテストイチ');
       await page.getByLabel('住所').fill('東京都渋谷区テスト1-2-3');
       await page.getByRole('checkbox', { name: /顧客/i }).check();
 
@@ -865,7 +865,7 @@ test.describe('取引先CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       await page.getByLabel('取引先名').fill(partner2Name);
-      await page.getByLabel('フリガナ', { exact: true }).fill('ジュウフクヘンシュウテスト2');
+      await page.getByLabel('フリガナ', { exact: true }).fill('ジュウフクヘンシュウテストニ');
       await page.getByLabel('住所').fill('東京都渋谷区テスト2-2-3');
       await page.getByRole('checkbox', { name: /顧客/i }).check();
 
@@ -909,11 +909,9 @@ test.describe('取引先CRUD操作', () => {
       expect(response.status()).toBe(409);
 
       // 重複エラーメッセージが表示されることを確認
-      await expect(page.getByText(/この取引先名は既に登録されています|既に存在|重複/i)).toBeVisible(
-        {
-          timeout: getTimeout(15000),
-        }
-      );
+      await expect(page.getByText('この取引先名は既に登録されています')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 編集ページに留まっていることを確認
       await expect(page).toHaveURL(new RegExp(`/trading-partners/${partner2Id}/edit`));
