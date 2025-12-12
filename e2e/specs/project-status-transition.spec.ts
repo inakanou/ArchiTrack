@@ -80,7 +80,7 @@ async function createTestProject(page: Page): Promise<{ id: string; name: string
 
   const projectName = `ステータス遷移テスト_${Date.now()}`;
   await page.getByLabel(/プロジェクト名/i).fill(projectName);
-  await page.getByLabel(/顧客名/i).fill('テスト顧客株式会社');
+  // 取引先は任意フィールドのため未選択のまま進める
 
   // 営業担当者を確認・選択
   const salesPersonValue = await salesPersonSelect.inputValue();

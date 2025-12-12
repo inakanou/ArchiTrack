@@ -78,7 +78,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
 
     const projectName = `ナビゲーションテスト_${Date.now()}`;
     await page.getByLabel(/プロジェクト名/i).fill(projectName);
-    await page.getByLabel(/顧客名/i).fill('テスト顧客株式会社');
+    // 取引先は任意フィールドのため未選択のまま進める
     await page.getByLabel(/現場住所/i).fill('東京都渋谷区テスト1-2-3');
 
     // 営業担当者を確認・選択
@@ -525,7 +525,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       // フォームに入力
       const projectName = `作成遷移テスト_${Date.now()}`;
       await page.getByLabel(/プロジェクト名/i).fill(projectName);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
+      // 取引先は任意フィールドのため未選択のまま進める
 
       // 営業担当者を選択
       const salesPersonValue = await salesPersonSelect.inputValue();

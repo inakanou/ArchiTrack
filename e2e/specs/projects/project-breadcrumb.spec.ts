@@ -46,7 +46,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
 
     // フォームに入力（正規表現を使用）
     await page.getByLabel(/プロジェクト名/i).fill(uniqueName);
-    await page.getByLabel(/顧客名/i).fill('テスト顧客株式会社');
+    // 取引先は任意フィールドのため未選択のまま進める
 
     // 営業担当者はデフォルトでログインユーザーが選択されているはず
 
