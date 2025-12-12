@@ -61,7 +61,7 @@ export class DuplicatePartnerNameError extends ApiError {
   ) {
     super(
       409,
-      'この取引先名は既に登録されています',
+      'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
       'DUPLICATE_PARTNER_NAME',
       { name: partnerName, branchName: branchName },
       PROBLEM_TYPES.CONFLICT

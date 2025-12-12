@@ -127,7 +127,9 @@ describe('TradingPartner Error Classes', () => {
       const partnerName = '株式会社サンプル';
       const error = new DuplicatePartnerNameError(partnerName);
 
-      expect(error.message).toBe('この取引先名は既に登録されています');
+      expect(error.message).toBe(
+        'この取引先名と部課/支店/支社名の組み合わせは既に登録されています'
+      );
     });
 
     it('should include partner name and branchName in details (branchName defaults to null)', () => {
@@ -172,7 +174,7 @@ describe('TradingPartner Error Classes', () => {
       const json = error.toJSON();
 
       expect(json).toEqual({
-        error: 'この取引先名は既に登録されています',
+        error: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
         code: 'DUPLICATE_PARTNER_NAME',
         details: { name: '株式会社テスト', branchName: null },
       });
@@ -183,7 +185,7 @@ describe('TradingPartner Error Classes', () => {
       const json = error.toJSON();
 
       expect(json).toEqual({
-        error: 'この取引先名は既に登録されています',
+        error: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
         code: 'DUPLICATE_PARTNER_NAME',
         details: { name: '株式会社テスト', branchName: '大阪支店' },
       });
@@ -371,7 +373,7 @@ describe('TradingPartner Error Classes', () => {
         type: PROBLEM_TYPES.CONFLICT,
         title: 'DUPLICATE_PARTNER_NAME',
         status: 409,
-        detail: 'この取引先名は既に登録されています',
+        detail: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
         instance: '/api/trading-partners',
         details: { name: '株式会社テスト', branchName: null },
       });
@@ -385,7 +387,7 @@ describe('TradingPartner Error Classes', () => {
         type: PROBLEM_TYPES.CONFLICT,
         title: 'DUPLICATE_PARTNER_NAME',
         status: 409,
-        detail: 'この取引先名は既に登録されています',
+        detail: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
         instance: '/api/trading-partners',
         details: { name: '株式会社テスト', branchName: '大阪支店' },
       });

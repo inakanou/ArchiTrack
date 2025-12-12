@@ -3407,6 +3407,234 @@ describe('TradingPartnerService', () => {
         expect(result).toBeDefined();
         expect(result.address).toBe('新しい住所');
       });
+
+      it('branchNameがNULLの取引先を別のNULL branchName取引先と重複する名前に変更するとDuplicatePartnerNameErrorをスローする（Requirement 4.8）', async () => {
+        // Arrange: branchNameがNULLの既存取引先
+        const partnerWithNullBranch = {
+          ...existingPartner,
+          id: 'partner-with-null-branch',
+          name: '株式会社A',
+          branchName: null, // NULL
+        };
+
+        const actorId = 'actor-123';
+        const updateInput = {
+          expectedUpdatedAt: partnerWithNullBranch.updatedAt.toISOString(),
+          name: '株式会社B', // 別の名前に変更
+          // branchNameは変更なし（NULLのまま）
+        };
+
+        // 別の取引先（同じname + NULLのbranchName）
+        const anotherPartnerWithSameName = {
+          id: 'another-partner-id',
+          name: '株式会社B',
+          branchName: null, // NULL
+          deletedAt: null,
+        };
+
+        mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            tradingPartner: {
+              findUnique: vi.fn().mockResolvedValue(partnerWithNullBranch),
+              findFirst: vi.fn().mockResolvedValue(anotherPartnerWithSameName), // 重複あり
+              update: vi.fn(),
+            },
+            tradingPartnerTypeMapping: {
+              deleteMany: vi.fn(),
+              createMany: vi.fn(),
+            },
+          };
+          return fn(tx);
+        });
+
+        // Act & Assert
+        await expect(
+          service.updatePartner(
+            'partner-with-null-branch',
+            updateInput,
+            actorId,
+            new Date(updateInput.expectedUpdatedAt)
+          )
+        ).rejects.toThrow(DuplicatePartnerNameError);
+      });
+
+      it('重複エラー時のエラーメッセージに取引先名と支店名の組み合わせが含まれる（Requirement 4.8）', async () => {
+        // Arrange
+        const actorId = 'actor-123';
+        const updateInput = {
+          expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+          name: '重複取引先',
+          branchName: '重複支店',
+        };
+
+        // 別の取引先（同じname + 同じbranchName）
+        const duplicatePartner = {
+          id: 'duplicate-partner-id',
+          name: '重複取引先',
+          branchName: '重複支店',
+          deletedAt: null,
+        };
+
+        mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            tradingPartner: {
+              findUnique: vi.fn().mockResolvedValue(existingPartner),
+              findFirst: vi.fn().mockResolvedValue(duplicatePartner), // 重複あり
+              update: vi.fn(),
+            },
+            tradingPartnerTypeMapping: {
+              deleteMany: vi.fn(),
+              createMany: vi.fn(),
+            },
+          };
+          return fn(tx);
+        });
+
+        // Act & Assert
+        try {
+          await service.updatePartner(
+            'partner-to-update',
+            updateInput,
+            actorId,
+            new Date(updateInput.expectedUpdatedAt)
+          );
+          // Should not reach here
+          expect(true).toBe(false);
+        } catch (error) {
+          expect(error).toBeInstanceOf(DuplicatePartnerNameError);
+          const duplicateError = error as InstanceType<typeof DuplicatePartnerNameError>;
+          // エラーメッセージが複合一意制約に対応していることを確認
+          expect(duplicateError.message).toContain('取引先名');
+          expect(duplicateError.message).toContain('部課/支店/支社名');
+          expect(duplicateError.message).toContain('組み合わせ');
+          // エラー詳細にnameとbranchNameが含まれていることを確認
+          expect(duplicateError.partnerName).toBe('重複取引先');
+          expect(duplicateError.branchName).toBe('重複支店');
+        }
+      });
+
+      it('branchNameをNULLから値ありに変更する場合も複合一意制約のチェックが行われる', async () => {
+        // Arrange: branchNameがNULLの既存取引先
+        const partnerWithNullBranch = {
+          ...existingPartner,
+          id: 'partner-with-null-branch',
+          name: 'テスト株式会社',
+          branchName: null, // NULL
+        };
+
+        const actorId = 'actor-123';
+        const updateInput = {
+          expectedUpdatedAt: partnerWithNullBranch.updatedAt.toISOString(),
+          branchName: '東京支店', // NULLから値ありに変更
+        };
+
+        let capturedFindFirstArgs: unknown = null;
+
+        const updatedPartner = {
+          ...partnerWithNullBranch,
+          branchName: '東京支店',
+          updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+        };
+
+        mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            tradingPartner: {
+              findUnique: vi
+                .fn()
+                .mockResolvedValueOnce(partnerWithNullBranch)
+                .mockResolvedValueOnce(updatedPartner),
+              findFirst: vi.fn().mockImplementation((args) => {
+                capturedFindFirstArgs = args;
+                return Promise.resolve(null);
+              }),
+              update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+            },
+            tradingPartnerTypeMapping: {
+              deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return fn(tx);
+        });
+
+        // Act
+        await service.updatePartner(
+          'partner-with-null-branch',
+          updateInput,
+          actorId,
+          new Date(updateInput.expectedUpdatedAt)
+        );
+
+        // Assert: findFirstの引数にnameとbranchNameが含まれていることを確認
+        expect(capturedFindFirstArgs).toEqual(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              name: 'テスト株式会社', // 既存のname
+              branchName: '東京支店', // 変更後のbranchName
+              deletedAt: null,
+              NOT: { id: 'partner-with-null-branch' },
+            }),
+          })
+        );
+      });
+
+      it('branchNameを値ありからNULLに変更する場合も複合一意制約のチェックが行われる', async () => {
+        // Arrange
+        const actorId = 'actor-123';
+        const updateInput = {
+          expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
+          branchName: null, // 値ありからNULLに変更
+        };
+
+        let capturedFindFirstArgs: unknown = null;
+
+        const updatedPartner = {
+          ...existingPartner,
+          branchName: null,
+          updatedAt: new Date('2024-01-16T10:00:00.000Z'),
+        };
+
+        mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            tradingPartner: {
+              findUnique: vi
+                .fn()
+                .mockResolvedValueOnce(existingPartner)
+                .mockResolvedValueOnce(updatedPartner),
+              findFirst: vi.fn().mockImplementation((args) => {
+                capturedFindFirstArgs = args;
+                return Promise.resolve(null);
+              }),
+              update: vi.fn().mockResolvedValue({ ...updatedPartner, types: [] }),
+            },
+            tradingPartnerTypeMapping: {
+              deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return fn(tx);
+        });
+
+        // Act
+        await service.updatePartner(
+          'partner-to-update',
+          updateInput,
+          actorId,
+          new Date(updateInput.expectedUpdatedAt)
+        );
+
+        // Assert: findFirstの引数にnameとbranchName(null)が含まれていることを確認
+        expect(capturedFindFirstArgs).toEqual(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              name: 'テスト株式会社', // 既存のname
+              branchName: null, // 変更後のbranchName（NULL）
+              deletedAt: null,
+              NOT: { id: 'partner-to-update' },
+            }),
+          })
+        );
+      });
     });
   });
 });

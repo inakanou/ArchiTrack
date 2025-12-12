@@ -453,7 +453,7 @@
   - Task 21.1 に依存
   - _Requirements: 2.11_
 
-- [ ] 22.2 (P) 取引先更新時の複合重複チェック実装
+- [x] 22.2 (P) 取引先更新時の複合重複チェック実装
   - TradingPartnerServiceのupdatePartnerメソッドで`name + branchName`の組み合わせ重複チェックを実装
   - 更新対象の取引先自身は重複チェックから除外（NOT条件でid指定）
   - `branchName`がNULLの場合の比較ロジックを正しく実装
