@@ -2,6 +2,7 @@
  * @fileoverview 取引先詳細表示コンポーネント
  *
  * Task 10.1: 取引先詳細表示コンポーネントの実装
+ * Task 19.3: 取引先詳細画面からbranchNameKana/representativeNameKana表示を削除
  *
  * 取引先の詳細情報を表示するコンポーネントです。
  * 全フィールドの表示、請求締日・支払日の日本語表記変換、
@@ -10,8 +11,9 @@
  * Requirements:
  * - 3.1: ユーザーが一覧から取引先を選択したとき、取引先詳細ページを表示する
  * - 3.2: 以下の情報を詳細ページに表示する: 名前、フリガナ、部課/支店/支社名、
- *        部課/支店/支社フリガナ、代表者名、代表者フリガナ、種別、住所、電話番号、
- *        FAX番号、メールアドレス、請求締日、支払日、備考、登録日、更新日
+ *        代表者名、種別、住所、電話番号、FAX番号、メールアドレス、請求締日、
+ *        支払日、備考、登録日、更新日
+ *        ※ 部課/支店/支社フリガナ、代表者フリガナは削除（Task 19.3）
  * - 3.3: 編集ボタンと削除ボタンを詳細ページに表示する
  */
 
@@ -236,9 +238,7 @@ const TradingPartnerDetailView = memo(function TradingPartnerDetailView({
           <Field label="取引先名" value={partner.name} />
           <Field label="フリガナ" value={partner.nameKana} />
           <Field label="部課/支店/支社名" value={partner.branchName} />
-          <Field label="部課/支店/支社フリガナ" value={partner.branchNameKana} />
           <Field label="代表者名" value={partner.representativeName} />
-          <Field label="代表者フリガナ" value={partner.representativeNameKana} />
           <div style={styles.field}>
             <div style={styles.fieldLabel}>取引先種別</div>
             <div style={styles.fieldValue}>

@@ -399,7 +399,7 @@
   - 関連するテストを更新
   - _Requirements: 2.3, 4.2_
 
-- [ ] 19.3 (P) 取引先詳細画面から branchNameKana / representativeNameKana 表示を削除
+- [x] 19.3 (P) 取引先詳細画面から branchNameKana / representativeNameKana 表示を削除
   - TradingPartnerDetailViewコンポーネントから部課/支店/支社フリガナ表示を削除
   - TradingPartnerDetailViewコンポーネントから代表者フリガナ表示を削除
   - _Requirements: 3.2_

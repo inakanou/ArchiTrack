@@ -2,12 +2,14 @@
  * @fileoverview TradingPartnerDetailView コンポーネントのテスト
  *
  * Task 10.1: 取引先詳細表示コンポーネントの実装
+ * Task 19.3: 取引先詳細画面からbranchNameKana/representativeNameKana表示を削除
  *
  * Requirements:
  * - 3.1: ユーザーが一覧から取引先を選択したとき、取引先詳細ページを表示する
- * - 3.2: 以下の情報を詳細ページに表示する: 名前、フリガナ、部課/支店/支社名、部課/支店/支社フリガナ、
- *        代表者名、代表者フリガナ、種別、住所、電話番号、FAX番号、メールアドレス、請求締日、支払日、
+ * - 3.2: 以下の情報を詳細ページに表示する: 名前、フリガナ、部課/支店/支社名、
+ *        代表者名、種別、住所、電話番号、FAX番号、メールアドレス、請求締日、支払日、
  *        備考、登録日、更新日
+ *        ※ 部課/支店/支社フリガナ、代表者フリガナは削除
  * - 3.3: 編集ボタンと削除ボタンを詳細ページに表示する
  */
 
@@ -121,7 +123,7 @@ describe('TradingPartnerDetailView', () => {
       expect(screen.getByText('東京支店')).toBeInTheDocument();
     });
 
-    it('部課/支店/支社フリガナを表示する', () => {
+    it('部課/支店/支社フリガナは表示しない（Task 19.3: フィールド削除）', () => {
       render(
         <TradingPartnerDetailView
           partner={mockTradingPartner}
@@ -130,7 +132,8 @@ describe('TradingPartnerDetailView', () => {
         />
       );
 
-      expect(screen.getByText('トウキョウシテン')).toBeInTheDocument();
+      // 部課/支店/支社フリガナのラベルが表示されないことを確認
+      expect(screen.queryByText('部課/支店/支社フリガナ')).not.toBeInTheDocument();
     });
 
     it('代表者名を表示する', () => {
@@ -145,7 +148,7 @@ describe('TradingPartnerDetailView', () => {
       expect(screen.getByText('山田太郎')).toBeInTheDocument();
     });
 
-    it('代表者フリガナを表示する', () => {
+    it('代表者フリガナは表示しない（Task 19.3: フィールド削除）', () => {
       render(
         <TradingPartnerDetailView
           partner={mockTradingPartner}
@@ -154,7 +157,8 @@ describe('TradingPartnerDetailView', () => {
         />
       );
 
-      expect(screen.getByText('ヤマダタロウ')).toBeInTheDocument();
+      // 代表者フリガナのラベルが表示されないことを確認
+      expect(screen.queryByText('代表者フリガナ')).not.toBeInTheDocument();
     });
 
     it('取引先種別（複数）を日本語ラベルで表示する', () => {
