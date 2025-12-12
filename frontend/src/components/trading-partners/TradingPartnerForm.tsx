@@ -40,6 +40,9 @@ import PaymentDateSelect from './PaymentDateSelect';
 
 /**
  * 取引先フォームデータ
+ *
+ * Note: Task 19.2で branchNameKana / representativeNameKana フィールドを削除
+ * フリガナは自動変換機能により生成されるため、手動入力欄は不要
  */
 export interface TradingPartnerFormData {
   /** 取引先名（1-200文字、必須） */
@@ -52,12 +55,8 @@ export interface TradingPartnerFormData {
   address: string;
   /** 部課/支店/支社名（最大100文字、任意） */
   branchName: string | null;
-  /** 部課/支店/支社フリガナ（最大100文字、任意） */
-  branchNameKana: string | null;
   /** 代表者名（最大100文字、任意） */
   representativeName: string | null;
-  /** 代表者フリガナ（最大100文字、任意） */
-  representativeNameKana: string | null;
   /** 電話番号（任意） */
   phoneNumber: string | null;
   /** FAX番号（任意） */
@@ -99,9 +98,7 @@ const VALIDATION = {
   NAME_MAX_LENGTH: 200,
   NAME_KANA_MAX_LENGTH: 200,
   BRANCH_NAME_MAX_LENGTH: 100,
-  BRANCH_NAME_KANA_MAX_LENGTH: 100,
   REPRESENTATIVE_NAME_MAX_LENGTH: 100,
-  REPRESENTATIVE_NAME_KANA_MAX_LENGTH: 100,
   ADDRESS_MAX_LENGTH: 500,
   NOTES_MAX_LENGTH: 2000,
 } as const;
@@ -150,9 +147,7 @@ interface FieldErrors {
   types?: string;
   address?: string;
   branchName?: string;
-  branchNameKana?: string;
   representativeName?: string;
-  representativeNameKana?: string;
   phoneNumber?: string;
   faxNumber?: string;
   email?: string;
@@ -197,12 +192,8 @@ function TradingPartnerForm({
 
   // 任意フィールド
   const [branchName, setBranchName] = useState(initialData?.branchName ?? '');
-  const [branchNameKana, setBranchNameKana] = useState(initialData?.branchNameKana ?? '');
   const [representativeName, setRepresentativeName] = useState(
     initialData?.representativeName ?? ''
-  );
-  const [representativeNameKana, setRepresentativeNameKana] = useState(
-    initialData?.representativeNameKana ?? ''
   );
   const [phoneNumber, setPhoneNumber] = useState(initialData?.phoneNumber ?? '');
   const [faxNumber, setFaxNumber] = useState(initialData?.faxNumber ?? '');
@@ -294,37 +285,11 @@ function TradingPartnerForm({
   }, []);
 
   /**
-   * 部課/支店/支社フリガナのバリデーション
-   */
-  const validateBranchNameKana = useCallback((value: string): string => {
-    if (value && value.length > VALIDATION.BRANCH_NAME_KANA_MAX_LENGTH) {
-      return `部課/支店/支社フリガナは${VALIDATION.BRANCH_NAME_KANA_MAX_LENGTH}文字以内で入力してください`;
-    }
-    if (value && !KATAKANA_REGEX.test(value)) {
-      return '部課/支店/支社フリガナはカタカナのみで入力してください';
-    }
-    return '';
-  }, []);
-
-  /**
    * 代表者名のバリデーション
    */
   const validateRepresentativeName = useCallback((value: string): string => {
     if (value && value.length > VALIDATION.REPRESENTATIVE_NAME_MAX_LENGTH) {
       return `代表者名は${VALIDATION.REPRESENTATIVE_NAME_MAX_LENGTH}文字以内で入力してください`;
-    }
-    return '';
-  }, []);
-
-  /**
-   * 代表者フリガナのバリデーション
-   */
-  const validateRepresentativeNameKana = useCallback((value: string): string => {
-    if (value && value.length > VALIDATION.REPRESENTATIVE_NAME_KANA_MAX_LENGTH) {
-      return `代表者フリガナは${VALIDATION.REPRESENTATIVE_NAME_KANA_MAX_LENGTH}文字以内で入力してください`;
-    }
-    if (value && !KATAKANA_REGEX.test(value)) {
-      return '代表者フリガナはカタカナのみで入力してください';
     }
     return '';
   }, []);
@@ -378,9 +343,7 @@ function TradingPartnerForm({
     const typesError = validateTypes(types);
     const addressError = validateAddress(address);
     const branchNameError = validateBranchName(branchName);
-    const branchNameKanaError = validateBranchNameKana(branchNameKana);
     const representativeNameError = validateRepresentativeName(representativeName);
-    const representativeNameKanaError = validateRepresentativeNameKana(representativeNameKana);
     const phoneNumberError = validatePhoneNumber(phoneNumber);
     const faxNumberError = validateFaxNumber(faxNumber);
     const emailError = validateEmail(email);
@@ -392,9 +355,7 @@ function TradingPartnerForm({
     if (typesError) newErrors.types = typesError;
     if (addressError) newErrors.address = addressError;
     if (branchNameError) newErrors.branchName = branchNameError;
-    if (branchNameKanaError) newErrors.branchNameKana = branchNameKanaError;
     if (representativeNameError) newErrors.representativeName = representativeNameError;
-    if (representativeNameKanaError) newErrors.representativeNameKana = representativeNameKanaError;
     if (phoneNumberError) newErrors.phoneNumber = phoneNumberError;
     if (faxNumberError) newErrors.faxNumber = faxNumberError;
     if (emailError) newErrors.email = emailError;
@@ -409,9 +370,7 @@ function TradingPartnerForm({
     types,
     address,
     branchName,
-    branchNameKana,
     representativeName,
-    representativeNameKana,
     phoneNumber,
     faxNumber,
     email,
@@ -421,9 +380,7 @@ function TradingPartnerForm({
     validateTypes,
     validateAddress,
     validateBranchName,
-    validateBranchNameKana,
     validateRepresentativeName,
-    validateRepresentativeNameKana,
     validatePhoneNumber,
     validateFaxNumber,
     validateEmail,
@@ -492,9 +449,7 @@ function TradingPartnerForm({
       types: true,
       address: true,
       branchName: true,
-      branchNameKana: true,
       representativeName: true,
-      representativeNameKana: true,
       phoneNumber: true,
       faxNumber: true,
       email: true,
@@ -513,9 +468,7 @@ function TradingPartnerForm({
       types,
       address: address.trim(),
       branchName: branchName.trim() || null,
-      branchNameKana: branchNameKana.trim() || null,
       representativeName: representativeName.trim() || null,
-      representativeNameKana: representativeNameKana.trim() || null,
       phoneNumber: phoneNumber.trim() || null,
       faxNumber: faxNumber.trim() || null,
       email: email.trim() || null,
@@ -582,12 +535,8 @@ function TradingPartnerForm({
   const addressErrorId = `address-error-${uniqueId}`;
   const branchNameId = `branch-name-${uniqueId}`;
   const branchNameErrorId = `branch-name-error-${uniqueId}`;
-  const branchNameKanaId = `branch-name-kana-${uniqueId}`;
-  const branchNameKanaErrorId = `branch-name-kana-error-${uniqueId}`;
   const representativeNameId = `representative-name-${uniqueId}`;
   const representativeNameErrorId = `representative-name-error-${uniqueId}`;
-  const representativeNameKanaId = `representative-name-kana-${uniqueId}`;
-  const representativeNameKanaErrorId = `representative-name-kana-error-${uniqueId}`;
   const phoneNumberId = `phone-number-${uniqueId}`;
   const phoneNumberErrorId = `phone-number-error-${uniqueId}`;
   const faxNumberId = `fax-number-${uniqueId}`;
@@ -832,56 +781,6 @@ function TradingPartnerForm({
         )}
       </div>
 
-      {/* 部課/支店/支社フリガナ */}
-      <div style={{ marginBottom: '1rem' }}>
-        <label
-          htmlFor={branchNameKanaId}
-          style={{
-            display: 'block',
-            marginBottom: '0.5rem',
-            fontWeight: 500,
-            color: errors.branchNameKana ? STYLES.colors.error : STYLES.colors.label,
-          }}
-        >
-          部課/支店/支社フリガナ
-        </label>
-        <input
-          id={branchNameKanaId}
-          type="text"
-          value={branchNameKana}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => {
-            setBranchNameKana(e.target.value);
-            if (touched.branchNameKana) {
-              const error = validateBranchNameKana(e.target.value);
-              setErrors((prev) => ({ ...prev, branchNameKana: error || undefined }));
-            }
-          }}
-          onFocus={() => setFocusedField('branchNameKana')}
-          onBlur={(e: FocusEvent<HTMLInputElement>) =>
-            handleTextFieldBlur('branchNameKana', e.target.value, validateBranchNameKana)
-          }
-          disabled={isSubmitting}
-          aria-label="部課/支店/支社フリガナ"
-          aria-invalid={!!errors.branchNameKana}
-          aria-describedby={errors.branchNameKana ? branchNameKanaErrorId : undefined}
-          style={getInputStyle('branchNameKana', !!errors.branchNameKana)}
-        />
-        {errors.branchNameKana && (
-          <p
-            id={branchNameKanaErrorId}
-            role="alert"
-            aria-live="polite"
-            style={{
-              marginTop: '0.25rem',
-              fontSize: '0.875rem',
-              color: STYLES.colors.error,
-            }}
-          >
-            {errors.branchNameKana}
-          </p>
-        )}
-      </div>
-
       {/* 代表者名 */}
       <div style={{ marginBottom: '1rem' }}>
         <label
@@ -928,62 +827,6 @@ function TradingPartnerForm({
             }}
           >
             {errors.representativeName}
-          </p>
-        )}
-      </div>
-
-      {/* 代表者フリガナ */}
-      <div style={{ marginBottom: '1rem' }}>
-        <label
-          htmlFor={representativeNameKanaId}
-          style={{
-            display: 'block',
-            marginBottom: '0.5rem',
-            fontWeight: 500,
-            color: errors.representativeNameKana ? STYLES.colors.error : STYLES.colors.label,
-          }}
-        >
-          代表者フリガナ
-        </label>
-        <input
-          id={representativeNameKanaId}
-          type="text"
-          value={representativeNameKana}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => {
-            setRepresentativeNameKana(e.target.value);
-            if (touched.representativeNameKana) {
-              const error = validateRepresentativeNameKana(e.target.value);
-              setErrors((prev) => ({ ...prev, representativeNameKana: error || undefined }));
-            }
-          }}
-          onFocus={() => setFocusedField('representativeNameKana')}
-          onBlur={(e: FocusEvent<HTMLInputElement>) =>
-            handleTextFieldBlur(
-              'representativeNameKana',
-              e.target.value,
-              validateRepresentativeNameKana
-            )
-          }
-          disabled={isSubmitting}
-          aria-label="代表者フリガナ"
-          aria-invalid={!!errors.representativeNameKana}
-          aria-describedby={
-            errors.representativeNameKana ? representativeNameKanaErrorId : undefined
-          }
-          style={getInputStyle('representativeNameKana', !!errors.representativeNameKana)}
-        />
-        {errors.representativeNameKana && (
-          <p
-            id={representativeNameKanaErrorId}
-            role="alert"
-            aria-live="polite"
-            style={{
-              marginTop: '0.25rem',
-              fontSize: '0.875rem',
-              color: STYLES.colors.error,
-            }}
-          >
-            {errors.representativeNameKana}
           </p>
         )}
       </div>

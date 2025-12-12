@@ -390,10 +390,13 @@
   - 列幅の再調整（8列→7列）
   - _Requirements: 1.2_
 
-- [ ] 19.2 (P) 取引先フォームから branchNameKana / representativeNameKana 入力欄を削除
+- [x] 19.2 (P) 取引先フォームから branchNameKana / representativeNameKana 入力欄を削除
   - TradingPartnerFormコンポーネントから部課/支店/支社フリガナ入力欄を削除
   - TradingPartnerFormコンポーネントから代表者フリガナ入力欄を削除
-  - フォームバリデーションスキーマの更新
+  - TradingPartnerFormDataインターフェースからフィールドを削除
+  - TradingPartnerFormContainerの初期データ・送信データからフィールドを削除
+  - フォームバリデーション関数（validateBranchNameKana, validateRepresentativeNameKana）を削除
+  - 関連するテストを更新
   - _Requirements: 2.3, 4.2_
 
 - [ ] 19.3 (P) 取引先詳細画面から branchNameKana / representativeNameKana 表示を削除

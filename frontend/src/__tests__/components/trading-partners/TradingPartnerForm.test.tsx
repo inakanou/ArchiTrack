@@ -218,10 +218,9 @@ describe('TradingPartnerForm', () => {
       );
 
       // 任意項目の確認 (Requirement 2.3)
+      // Note: branchNameKana / representativeNameKana はTask 19.2で削除
       expect(screen.getByLabelText(/部課\/支店\/支社名/)).toBeInTheDocument();
-      expect(screen.getByLabelText(/部課\/支店\/支社フリガナ/)).toBeInTheDocument();
       expect(screen.getByLabelText(/代表者名/)).toBeInTheDocument();
-      expect(screen.getByLabelText(/代表者フリガナ/)).toBeInTheDocument();
       expect(screen.getByLabelText(/電話番号/)).toBeInTheDocument();
       expect(screen.getByLabelText(/FAX番号/)).toBeInTheDocument();
       expect(screen.getByLabelText(/メールアドレス/)).toBeInTheDocument();
@@ -259,15 +258,14 @@ describe('TradingPartnerForm', () => {
     });
 
     it('編集モードで初期データがプリセットされる', () => {
+      // Note: branchNameKana / representativeNameKana はTask 19.2で削除
       const initialData: TradingPartnerFormData = {
         name: '株式会社テスト',
         nameKana: 'カブシキガイシャテスト',
         types: ['CUSTOMER'],
         address: '東京都渋谷区1-1-1',
         branchName: '本社',
-        branchNameKana: 'ホンシャ',
         representativeName: '山田太郎',
-        representativeNameKana: 'ヤマダタロウ',
         phoneNumber: '03-1234-5678',
         faxNumber: '03-1234-5679',
         email: 'test@example.com',
@@ -292,11 +290,9 @@ describe('TradingPartnerForm', () => {
       expect(screen.getByLabelText(/^フリガナ$/)).toHaveValue('カブシキガイシャテスト');
       expect(screen.getByLabelText(/^住所$/)).toHaveValue('東京都渋谷区1-1-1');
 
-      // 任意項目のプリセット確認
+      // 任意項目のプリセット確認 (branchNameKana / representativeNameKana は削除済み)
       expect(screen.getByLabelText(/部課\/支店\/支社名/)).toHaveValue('本社');
-      expect(screen.getByLabelText(/部課\/支店\/支社フリガナ/)).toHaveValue('ホンシャ');
       expect(screen.getByLabelText(/代表者名/)).toHaveValue('山田太郎');
-      expect(screen.getByLabelText(/代表者フリガナ/)).toHaveValue('ヤマダタロウ');
       expect(screen.getByLabelText(/電話番号/)).toHaveValue('03-1234-5678');
       expect(screen.getByLabelText(/FAX番号/)).toHaveValue('03-1234-5679');
       expect(screen.getByLabelText(/メールアドレス/)).toHaveValue('test@example.com');
@@ -476,8 +472,12 @@ describe('TradingPartnerForm', () => {
       });
     });
 
-    it('部課/支店/支社フリガナがカタカナ以外を含む場合、エラーが表示される', async () => {
-      const user = userEvent.setup();
+    // Note: Task 19.2で branchNameKana / representativeNameKana 入力欄を削除したため、
+    // 以下のバリデーションテストは削除:
+    // - 部課/支店/支社フリガナがカタカナ以外を含む場合のエラー表示
+    // - 代表者フリガナがカタカナ以外を含む場合のエラー表示
+
+    it('branchNameKana入力欄が存在しない', () => {
       render(
         <TradingPartnerForm
           mode="create"
@@ -487,21 +487,11 @@ describe('TradingPartnerForm', () => {
         />
       );
 
-      const branchKanaInput = screen.getByLabelText(/部課\/支店\/支社フリガナ/);
-      await user.type(branchKanaInput, 'テストtest');
-
-      // フォーカスを外してバリデーションを発火
-      fireEvent.blur(branchKanaInput);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('部課/支店/支社フリガナはカタカナのみで入力してください')
-        ).toBeInTheDocument();
-      });
+      // branchNameKana入力欄がフォームから削除されていることを確認
+      expect(screen.queryByLabelText(/部課\/支店\/支社フリガナ/)).not.toBeInTheDocument();
     });
 
-    it('代表者フリガナがカタカナ以外を含む場合、エラーが表示される', async () => {
-      const user = userEvent.setup();
+    it('representativeNameKana入力欄が存在しない', () => {
       render(
         <TradingPartnerForm
           mode="create"
@@ -511,17 +501,8 @@ describe('TradingPartnerForm', () => {
         />
       );
 
-      const repKanaInput = screen.getByLabelText(/代表者フリガナ/);
-      await user.type(repKanaInput, 'テストtest');
-
-      // フォーカスを外してバリデーションを発火
-      fireEvent.blur(repKanaInput);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('代表者フリガナはカタカナのみで入力してください')
-        ).toBeInTheDocument();
-      });
+      // representativeNameKana入力欄がフォームから削除されていることを確認
+      expect(screen.queryByLabelText(/代表者フリガナ/)).not.toBeInTheDocument();
     });
   });
 
@@ -551,6 +532,7 @@ describe('TradingPartnerForm', () => {
       // 送信
       await user.click(screen.getByRole('button', { name: /作成/ }));
 
+      // Note: Task 19.2で branchNameKana / representativeNameKana を削除
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith({
           name: '株式会社テスト',
@@ -558,9 +540,7 @@ describe('TradingPartnerForm', () => {
           types: ['CUSTOMER'],
           address: '東京都渋谷区1-1-1',
           branchName: null,
-          branchNameKana: null,
           representativeName: null,
-          representativeNameKana: null,
           phoneNumber: null,
           faxNumber: null,
           email: null,
@@ -589,11 +569,9 @@ describe('TradingPartnerForm', () => {
       await user.type(screen.getByLabelText(/^住所$/), '東京都渋谷区1-1-1');
       await user.click(screen.getByRole('checkbox', { name: /顧客/ }));
 
-      // 任意フィールドを入力
+      // 任意フィールドを入力 (branchNameKana / representativeNameKana は削除済み)
       await user.type(screen.getByLabelText(/部課\/支店\/支社名/), '本社');
-      await user.type(screen.getByLabelText(/部課\/支店\/支社フリガナ/), 'ホンシャ');
       await user.type(screen.getByLabelText(/代表者名/), '山田太郎');
-      await user.type(screen.getByLabelText(/代表者フリガナ/), 'ヤマダタロウ');
       await user.type(screen.getByLabelText(/電話番号/), '03-1234-5678');
       await user.type(screen.getByLabelText(/FAX番号/), '03-1234-5679');
       await user.type(screen.getByLabelText(/メールアドレス/), 'test@example.com');
@@ -602,6 +580,7 @@ describe('TradingPartnerForm', () => {
       // 送信
       await user.click(screen.getByRole('button', { name: /作成/ }));
 
+      // Note: Task 19.2で branchNameKana / representativeNameKana を削除
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith({
           name: '株式会社テスト',
@@ -609,9 +588,7 @@ describe('TradingPartnerForm', () => {
           types: ['CUSTOMER'],
           address: '東京都渋谷区1-1-1',
           branchName: '本社',
-          branchNameKana: 'ホンシャ',
           representativeName: '山田太郎',
-          representativeNameKana: 'ヤマダタロウ',
           phoneNumber: '03-1234-5678',
           faxNumber: '03-1234-5679',
           email: 'test@example.com',

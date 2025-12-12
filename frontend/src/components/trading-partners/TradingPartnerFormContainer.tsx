@@ -99,15 +99,14 @@ function TradingPartnerFormContainer({ mode, tradingPartnerId }: TradingPartnerF
     try {
       const data = await getTradingPartner(tradingPartnerId);
       setTradingPartner(data);
+      // Note: Task 19.2で branchNameKana / representativeNameKana を削除
       setInitialData({
         name: data.name,
         nameKana: data.nameKana,
         types: data.types,
         address: data.address,
         branchName: data.branchName,
-        branchNameKana: data.branchNameKana,
         representativeName: data.representativeName,
-        representativeNameKana: data.representativeNameKana,
         phoneNumber: data.phoneNumber,
         faxNumber: data.faxNumber,
         email: data.email,
@@ -148,15 +147,14 @@ function TradingPartnerFormContainer({ mode, tradingPartnerId }: TradingPartnerF
       try {
         if (mode === 'create') {
           // 作成モード
+          // Note: Task 19.2で branchNameKana / representativeNameKana を削除
           await createTradingPartner({
             name: data.name,
             nameKana: data.nameKana,
             types: data.types,
             address: data.address,
             branchName: data.branchName,
-            branchNameKana: data.branchNameKana,
             representativeName: data.representativeName,
-            representativeNameKana: data.representativeNameKana,
             phoneNumber: data.phoneNumber,
             faxNumber: data.faxNumber,
             email: data.email,
@@ -175,6 +173,7 @@ function TradingPartnerFormContainer({ mode, tradingPartnerId }: TradingPartnerF
             throw new Error('取引先IDまたはデータがありません');
           }
 
+          // Note: Task 19.2で branchNameKana / representativeNameKana を削除
           await updateTradingPartner(
             tradingPartnerId,
             {
@@ -183,9 +182,7 @@ function TradingPartnerFormContainer({ mode, tradingPartnerId }: TradingPartnerF
               types: data.types,
               address: data.address,
               branchName: data.branchName,
-              branchNameKana: data.branchNameKana,
               representativeName: data.representativeName,
-              representativeNameKana: data.representativeNameKana,
               phoneNumber: data.phoneNumber,
               faxNumber: data.faxNumber,
               email: data.email,
