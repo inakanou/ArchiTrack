@@ -986,8 +986,9 @@ test.describe('取引先CRUD操作', () => {
       expect(response.status()).toBe(409);
 
       // 競合エラーメッセージが表示されることを確認
+      // バックエンドは「他のユーザーによって更新されました。画面を更新してください」を返す
       await expect(
-        page.getByText(/他のユーザーによって更新されています|競合|最新の情報を取得/i)
+        page.getByText(/他のユーザーによって更新されました|競合|画面を更新してください/i)
       ).toBeVisible({
         timeout: getTimeout(15000),
       });
