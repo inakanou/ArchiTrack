@@ -309,31 +309,14 @@ test.describe('プロジェクトCRUD操作', () => {
       });
     });
 
+    // Note: REQ-1.12 は「営業担当者未選択時のバリデーション」であり、
+    // 以下のテスト（REQ-1.12）で実施済み。
+    // 取引先（顧客名）は任意フィールドのため、バリデーションテスト不要。
+
     /**
      * @requirement project-management/REQ-1.12
      */
-    test.skip('顧客名未入力時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
-      page,
-    }) => {
-      // 取引先は任意フィールドになったため、このテストは不要
-      await loginAsUser(page, 'REGULAR_USER');
-
-      await page.goto('/projects/new');
-      await page.waitForLoadState('networkidle');
-
-      // プロジェクト名のみ入力
-      await page.getByLabel(/プロジェクト名/i).fill('テストプロジェクト');
-
-      // 作成ボタンをクリック
-      await page.getByRole('button', { name: /^作成$/i }).click();
-
-      // 取引先は任意なのでバリデーションエラーは表示されない
-    });
-
-    /**
-     * @requirement project-management/REQ-1.13
-     */
-    test('営業担当者未選択時にバリデーションエラーが表示される (project-management/REQ-1.13)', async ({
+    test('営業担当者未選択時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -346,9 +329,8 @@ test.describe('プロジェクトCRUD操作', () => {
         timeout: getTimeout(15000),
       });
 
-      // プロジェクト名と顧客名を入力
+      // プロジェクト名を入力（取引先は任意のためスキップ）
       await page.getByLabel(/プロジェクト名/i).fill('テストプロジェクト');
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       // 営業担当者を空にする（required属性でdisabledになっている空オプションを選択するため、JavaScriptで直接操作）
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -367,10 +349,10 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
+     * @requirement project-management/REQ-1.13
      * @requirement project-management/REQ-1.14
-     * @requirement project-management/REQ-1.15
      */
-    test('プロジェクト作成時に作成日時・作成者・IDが自動記録される (project-management/REQ-1.14, REQ-1.15)', async ({
+    test('プロジェクト作成時に作成日時・作成者・IDが自動記録される (project-management/REQ-1.13, REQ-1.14)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

@@ -15,7 +15,7 @@
 - プロジェクトのCRUD操作を実現し、工事案件の一元管理を可能にする
 - 12段階のステータスワークフロー（順方向遷移・差し戻し遷移・終端遷移）により、プロジェクトの進捗を正確に追跡する
 - 既存のRBAC基盤を活用した権限ベースのアクセス制御を実装する
-- 取引先管理機能との連携により、顧客（取引先）の選択をオートコンプリートで効率化する
+- 取引先管理機能との連携により、取引先IDによる外部キー参照でデータ整合性を確保する
 - レスポンシブデザインによりデスクトップ・タブレット・モバイルに対応する
 - WCAG 2.1 Level AA準拠のアクセシビリティを確保する
 
@@ -27,7 +27,19 @@
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
 
-**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれます。取引先管理機能（`trading-partner-management`仕様）が実装されている場合、顧客名入力時に取引先オートコンプリート連携を提供します。
+**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれ、取引先管理機能（`trading-partner-management`仕様）実装後に`customerName`フィールドから`tradingPartnerId`外部キーへ移行しました（2025-12-12マイグレーション完了）。プロジェクトは取引先テーブルへの外部キー参照により取引先情報を取得します。
+
+---
+
+**実装状態（2025-12-12更新）**:
+- フェーズ: **実装完了** - 全17タスク完了（100%）
+- 主要変更:
+  - `customerName`（文字列フィールド）→ `tradingPartnerId`（外部キー）への移行完了
+  - `TradingPartnerSelect`コンポーネントによる取引先選択UI実装
+  - E2Eテスト、統合テスト、単体テスト全て合格
+- マイグレーション: `20251212021700_replace_customer_name_with_trading_partner_id`
+
+---
 
 ## Architecture
 
@@ -259,8 +271,8 @@ sequenceDiagram
 | ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず | 2, 3, 4, 5, 6, 21.14 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
 | ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず | 7, 8, 9, 10, 11, 21.15, 21.17, 22 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
-| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17, 22 | CustomerNameInput (P1), UserSelect (P1) | Service |
-| CustomerNameInput | UI/Component | 顧客名入力・取引先オートコンプリート連携 | 16, 22 | TradingPartnerAPI (P1) | API |
+| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
+| TradingPartnerSelect | UI/Component | 取引先選択（外部キー連携） | 16, 22 | TradingPartnerAPI (P1) | API |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
 | Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
@@ -376,7 +388,7 @@ interface IProjectService {
 
 interface CreateProjectInput {
   name: string;
-  customerName: string;
+  tradingPartnerId?: string | null;  // 取引先ID（外部キー）
   salesPersonId: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -385,7 +397,7 @@ interface CreateProjectInput {
 
 interface UpdateProjectInput {
   name?: string;
-  customerName?: string;
+  tradingPartnerId?: string | null;  // 取引先ID（外部キー）
   salesPersonId?: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -393,10 +405,11 @@ interface UpdateProjectInput {
 }
 
 interface ProjectFilter {
-  search?: string;           // プロジェクト名・顧客名の部分一致
+  search?: string;           // プロジェクト名・取引先名の部分一致
   status?: ProjectStatus[];  // ステータスフィルタ
   createdFrom?: Date;        // 作成日開始
   createdTo?: Date;          // 作成日終了
+  tradingPartnerId?: string; // 取引先ID（外部キー）
 }
 
 interface PaginationInput {
@@ -405,7 +418,7 @@ interface PaginationInput {
 }
 
 interface SortInput {
-  field: 'id' | 'name' | 'customerName' | 'status' | 'createdAt' | 'updatedAt';
+  field: 'id' | 'name' | 'tradingPartnerName' | 'status' | 'createdAt' | 'updatedAt';
   order: 'asc' | 'desc';
 }
 
@@ -610,7 +623,7 @@ interface ProjectListQuery {
 // POST /api/projects リクエストボディ
 interface CreateProjectRequest {
   name: string;                    // 1-255文字
-  customerName: string;            // 1-255文字
+  tradingPartnerId?: string | null; // UUID（任意、取引先外部キー）
   salesPersonId: string;           // UUID
   constructionPersonId?: string;   // UUID（任意）
   siteAddress?: string;            // 最大500文字
@@ -620,7 +633,7 @@ interface CreateProjectRequest {
 // PUT /api/projects/:id リクエストボディ
 interface UpdateProjectRequest {
   name?: string;
-  customerName?: string;
+  tradingPartnerId?: string | null; // UUID（任意、取引先外部キー）
   salesPersonId?: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -638,7 +651,8 @@ interface StatusChangeRequest {
 interface ProjectInfo {
   id: string;
   name: string;
-  customerName: string;
+  tradingPartnerId: string | null;      // 取引先ID（外部キー）
+  tradingPartner: TradingPartnerSummary | null;  // 取引先情報
   salesPerson: UserSummary;
   constructionPerson?: UserSummary;
   siteAddress?: string;
@@ -647,6 +661,13 @@ interface ProjectInfo {
   statusLabel: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// 取引先サマリー情報
+interface TradingPartnerSummary {
+  id: string;
+  name: string;
+  nameKana: string;
 }
 
 // レスポンス: ページネーション付き一覧
@@ -867,7 +888,7 @@ interface ProjectFormProps {
 
 interface ProjectFormData {
   name: string;
-  customerName: string;
+  tradingPartnerId?: string | null;  // 取引先ID（外部キー）
   salesPersonId: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -878,29 +899,28 @@ interface ProjectFormData {
 **Implementation Notes**
 - Integration: 既存のフォームパターン（React Hook Form等）の検討
 - Validation: Zodスキーマでクライアント・サーバー共通バリデーション
-- TradingPartner連携: CustomerNameInputで取引先オートコンプリート機能を提供（取引先管理機能実装時）
+- TradingPartner連携: TradingPartnerSelectで取引先選択機能を提供（外部キー連携実装済み）
 
 ---
 
-#### CustomerNameInput（顧客名入力フィールド / 取引先オートコンプリート）
+#### TradingPartnerSelect（取引先選択コンポーネント）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 顧客名入力を提供し、取引先管理機能との連携時はオートコンプリート機能を提供 |
+| Intent | 取引先の選択UIを提供（ドロップダウン + オートコンプリート） |
 | Requirements | 16.1-16.10, 22.1-22.5 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
-- 顧客名のフリーテキスト入力（取引先外の顧客名も入力可能）
-- 取引先管理機能（`trading-partner-management`）との連携時：
-  - 取引先種別に「顧客」を含む取引先一覧をオートコンプリート候補として表示
-  - 取引先名またはフリガナで部分一致検索
-  - 入力文字列に部分一致する取引先を最大10件まで候補表示
-- バリデーション（1-255文字）
+- 取引先管理機能（`trading-partner-management`）との外部キー連携
+- 取引先種別に「顧客」を含む取引先一覧を候補として表示
+- 取引先名またはフリガナで部分一致検索（オートコンプリート）
+- 入力文字列に部分一致する取引先を最大10件まで候補表示
+- 任意選択（null許容）
 - キーボード操作（上下キー選択、Enter確定）とマウス操作の両方に対応
 
 **Dependencies**
-- Inbound: ProjectForm — 顧客名入力 (P0)
+- Inbound: ProjectForm — 取引先選択 (P0)
 - Outbound: TradingPartnerAPI — 取引先検索（オートコンプリート候補取得）(P1)
 
 **Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
@@ -909,12 +929,17 @@ interface ProjectFormData {
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/trading-partners | ?search=string&types=customer | TradingPartner[] | 400, 401, 403 |
+| GET | /api/trading-partners | ?search=string&types=CUSTOMER | TradingPartner[] | 400, 401, 403 |
 
 **Implementation Notes**
-- Integration: 取引先管理機能が未実装の場合はフリー入力のみ対応（機能フラグで制御）
-- Validation: Zodスキーマによる文字数バリデーション
+- Integration: 取引先管理機能と連携、取引先IDを外部キーとして保存
+- Validation: 選択された取引先IDの存在確認（サーバーサイド）
 - UX: 500ミリ秒以内のレスポンス、ローディングインジケータ表示、候補なし時のメッセージ表示
+
+**アーキテクチャ決定（2025-12-12）**:
+- `customerName`フリーテキストフィールドから`tradingPartnerId`外部キーへ移行完了
+- 取引先未選択時は`null`を許容（任意フィールド）
+- Prismaスキーマ: `tradingPartnerId String?`、`@relation(fields: [tradingPartnerId], references: [id])`
 
 ---
 
@@ -1183,11 +1208,12 @@ erDiagram
     Project }o--|| User : salesPerson
     Project }o--o| User : constructionPerson
     Project }o--|| User : createdBy
+    Project }o--o| TradingPartner : tradingPartner
 
     Project {
         string id PK
         string name
-        string customerName
+        string tradingPartnerId FK
         string salesPersonId FK
         string constructionPersonId FK
         string siteAddress
@@ -1197,6 +1223,12 @@ erDiagram
         datetime updatedAt
         datetime deletedAt
         string createdById FK
+    }
+
+    TradingPartner {
+        string id PK
+        string name
+        string nameKana
     }
 
     ProjectStatusHistory {
@@ -1217,7 +1249,7 @@ erDiagram
 
 **Business Rules & Invariants**:
 - プロジェクト名は必須かつ1-255文字
-- 顧客名は必須かつ1-255文字
+- 取引先ID（tradingPartnerId）は任意、指定時は有効な取引先への参照
 - 営業担当者は必須
 - ステータスは定義された12種類のいずれか
 - 遷移種別は4種類: initial, forward, backward, terminate
@@ -1233,7 +1265,7 @@ erDiagram
 |--------|-----------|------|-------------|
 | Project | id | UUID | PK, auto-generated |
 | Project | name | VARCHAR(255) | NOT NULL |
-| Project | customerName | VARCHAR(255) | NOT NULL |
+| Project | tradingPartnerId | UUID | FK → trading_partners.id, NULLABLE |
 | Project | salesPersonId | UUID | FK → users.id, NOT NULL |
 | Project | constructionPersonId | UUID | FK → users.id, NULLABLE |
 | Project | siteAddress | VARCHAR(500) | NULLABLE |
@@ -1257,6 +1289,7 @@ erDiagram
 - ステータス変更時に履歴を同時に作成（遷移種別と差し戻し理由を含む、トランザクション）
 - 論理削除時はdeletedAtを設定（物理削除は行わない）
 - 差し戻し遷移時はreason必須、その他の遷移時はreason任意
+- 取引先ID（tradingPartnerId）は外部キー制約で参照整合性を保証
 
 ### Physical Data Model
 
@@ -1264,26 +1297,28 @@ erDiagram
 
 ```prisma
 model Project {
-  id                   String    @id @default(uuid())
+  id                   String        @id @default(uuid())
   name                 String
-  customerName         String
+  tradingPartnerId     String?       // 取引先ID（任意、外部キー）
   salesPersonId        String
   constructionPersonId String?
   siteAddress          String?
   description          String?
   status               ProjectStatus @default(PREPARING)
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
   deletedAt            DateTime?
   createdById          String
 
-  salesPerson          User      @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
-  constructionPerson   User?     @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
-  createdBy            User      @relation("CreatedProjects", fields: [createdById], references: [id])
-  statusHistory        ProjectStatusHistory[]
+  // リレーション
+  tradingPartner     TradingPartner? @relation(fields: [tradingPartnerId], references: [id])
+  salesPerson        User            @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
+  constructionPerson User?           @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
+  createdBy          User            @relation("CreatedProjects", fields: [createdById], references: [id])
+  statusHistory      ProjectStatusHistory[]
 
   @@index([name])
-  @@index([customerName])
+  @@index([tradingPartnerId])
   @@index([status])
   @@index([salesPersonId])
   @@index([createdAt])
@@ -1335,10 +1370,10 @@ enum TransitionType {
 ```
 
 **Indexes**:
-- 検索用: `name`, `customerName`（部分一致検索）
+- 検索用: `name`（部分一致検索）、取引先名は`tradingPartner`リレーション経由で検索
+- 外部キー用: `tradingPartnerId`, `salesPersonId`
 - フィルタリング用: `status`, `createdAt`
 - ソート用: `createdAt`, `updatedAt`
-- 外部キー用: `salesPersonId`
 - 論理削除確認用: `deletedAt`
 - 履歴フィルタリング用: `transitionType`
 
@@ -1376,7 +1411,7 @@ enum TransitionType {
 - ProjectService: CRUD操作、バリデーション、エラーハンドリング
 - ProjectStatusService: ステータス遷移ロジック（順方向・差し戻し・終端）、遷移種別判定、履歴記録、差し戻し理由検証
 - ProjectForm: フォームバリデーション、送信処理
-- CustomerAutocomplete: 検索ロジック、候補表示
+- TradingPartnerSelect: 取引先検索ロジック、候補表示
 - UserSelect: ユーザー一覧取得、フィルタリング
 - StatusTransitionUI: 遷移種別の視覚的区別、差し戻し理由入力ダイアログ
 
