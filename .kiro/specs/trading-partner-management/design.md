@@ -17,6 +17,7 @@
 - 監査ログによる操作履歴の記録
 - 楽観的排他制御による同時更新の競合検出
 - アプリケーション全体からのシームレスなナビゲーション（AppHeader、Dashboard統合）
+- 取引先名＋部課/支店/支社名の組み合わせによる重複防止（複合一意制約）
 
 ### Non-Goals
 
@@ -178,9 +179,9 @@ sequenceDiagram
     Frontend->>API: POST /api/trading-partners
     API->>API: validate(createSchema)
     API->>Service: createPartner(input, actorId)
-    Service->>DB: 重複チェック(name)
+    Service->>DB: 重複チェック(name + branchName)
     alt 重複あり
-        Service-->>API: DuplicateNameError
+        Service-->>API: DuplicatePartnerNameError
         API-->>Frontend: 409 Conflict
     else 重複なし
         Service->>DB: $transaction create
@@ -191,6 +192,10 @@ sequenceDiagram
     end
     Frontend-->>User: 成功通知・一覧遷移
 ```
+
+**Key Decisions**:
+- 重複チェックは取引先名（name）と部課/支店/支社名（branchName）の組み合わせで実行（2.11, 4.8）
+- branchNameがNULLの場合、同一取引先名＋NULL branchNameの組み合わせで重複判定
 
 ### 取引先削除フロー（プロジェクト紐付けチェック）
 
@@ -398,11 +403,12 @@ export function containsKatakana(str: string): boolean;
 
 **Responsibilities & Constraints**
 - 取引先のCRUD操作（作成、一覧取得、詳細取得、更新、削除）
-- 取引先名の重複チェック（作成・更新時）
+- 取引先名＋部課/支店/支社名の複合重複チェック（作成・更新時）
 - プロジェクト紐付け確認（削除時）
 - 楽観的排他制御による同時更新検出
 - 監査ログの記録
 - **検索時のかな変換**: ひらがな入力をカタカナに正規化してから検索実行
+- **重複判定ルール**: 同一の`name`と`branchName`の組み合わせを重複とみなす（branchNameがNULLの場合はNULL同士で比較）
 
 **Dependencies**
 - Inbound: TradingPartnerRoutes — APIリクエスト処理 (P0)
@@ -425,9 +431,7 @@ interface TradingPartnerInfo {
   name: string;
   nameKana: string;
   branchName: string | null;
-  // branchNameKana: 削除
   representativeName: string | null;
-  // representativeNameKana: 削除
   types: TradingPartnerType[];
   address: string;
   phoneNumber: string | null;
@@ -439,6 +443,17 @@ interface TradingPartnerInfo {
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * 重複チェックのための複合条件
+ * 取引先名＋部課/支店/支社名の組み合わせで一意性を判定
+ */
+interface DuplicateCheckCondition {
+  name: string;
+  branchName: string | null;
+  deletedAt: null;
+  NOT?: { id: string }; // 更新時は自身を除外
 }
 
 interface TradingPartnerDetail extends TradingPartnerInfo {
@@ -463,21 +478,34 @@ class TradingPartnerService {
   constructor(deps: TradingPartnerServiceDependencies);
 
   // CRUD操作
+  /**
+   * 取引先作成
+   * @throws DuplicatePartnerNameError 同一のname＋branchNameの組み合わせが存在する場合
+   */
   createPartner(input: CreatePartnerInput, actorId: string): Promise<TradingPartnerInfo>;
+
   getPartners(filter: PartnerFilter, pagination: PaginationInput, sort: SortInput): Promise<PaginatedPartners>;
   getPartner(id: string): Promise<TradingPartnerDetail>;
+
+  /**
+   * 取引先更新
+   * @throws DuplicatePartnerNameError 別の取引先と同一のname＋branchNameの組み合わせになる場合
+   */
   updatePartner(id: string, input: UpdatePartnerInput, actorId: string, expectedUpdatedAt: Date): Promise<TradingPartnerInfo>;
   deletePartner(id: string, actorId: string): Promise<void>;
 
   // 検索API（オートコンプリート用）
   // 内部でKanaConverter.toKatakana()を使用し、ひらがな入力もカタカナに正規化して検索
   searchPartners(query: string, type?: TradingPartnerType, limit?: number): Promise<TradingPartnerSearchResult[]>;
+
+  // 内部ヘルパーメソッド（重複チェック）
+  private checkDuplicate(condition: DuplicateCheckCondition): Promise<boolean>;
 }
 ```
 
 - Preconditions: 認証済みユーザー、適切な権限
 - Postconditions: データベース更新、監査ログ記録
-- Invariants: 取引先名の一意性、プロジェクト紐付け時の削除禁止
+- Invariants: 取引先名＋部課/支店/支社名の組み合わせの一意性、プロジェクト紐付け時の削除禁止
 
 #### TradingPartnerRoutes
 
@@ -537,7 +565,9 @@ class TradingPartnerService {
 - `TradingPartnerNotFoundError` (404)
 - `TradingPartnerValidationError` (400)
 - `TradingPartnerConflictError` (409) - 楽観的排他制御エラー
-- `DuplicatePartnerNameError` (409) - 取引先名重複
+- `DuplicatePartnerNameError` (409) - 取引先名＋部課/支店/支社名の組み合わせ重複
+  - エラーメッセージ: 「この取引先名と部課/支店/支社名の組み合わせは既に登録されています」
+  - nameとbranchNameの両方をエラー詳細に含める
 - `PartnerInUseError` (409) - プロジェクト紐付け時の削除拒否
 
 ### Frontend Layer
@@ -942,7 +972,7 @@ erDiagram
 
     TradingPartner {
         uuid id PK
-        string name UK
+        string name
         string nameKana
         string branchName
         string representativeName
@@ -972,7 +1002,9 @@ erDiagram
 ```
 
 **Business Rules & Invariants**:
-- 取引先名は一意（deletedAt=nullの範囲内）
+- **複合一意制約**: 取引先名（name）＋部課/支店/支社名（branchName）の組み合わせは一意（deletedAt=nullの範囲内）
+  - 例: 「株式会社ABC」＋「東京支店」と「株式会社ABC」＋「大阪支店」は別の取引先として登録可能
+  - 例: 「株式会社ABC」＋NULL（本社）は1件のみ登録可能
 - 種別は1つ以上必須（顧客、協力業者、または両方）
 - フリガナはカタカナのみ
 - プロジェクト紐付け時は削除不可（将来実装）
@@ -1015,7 +1047,7 @@ model TradingPartner {
   types                 TradingPartnerTypeMapping[]
 
   // インデックス
-  @@unique([name, deletedAt]) // 削除されていない取引先名の一意制約
+  @@unique([name, branchName, deletedAt], name: "name_branchName_deletedAt") // 取引先名＋部課/支店/支社名の複合一意制約
   @@index([nameKana])
   @@index([deletedAt])
   @@index([createdAt])
@@ -1051,9 +1083,15 @@ model TradingPartnerTypeMapping {
 | trading_partners | idx_trading_partners_name_kana | フリガナ検索・ソート |
 | trading_partners | idx_trading_partners_deleted_at | 論理削除フィルタ |
 | trading_partners | idx_trading_partners_created_at | 作成日ソート |
-| trading_partners | unique_name_deleted_at | 取引先名一意制約 |
+| trading_partners | unique_name_branchName_deleted_at | 取引先名＋部課/支店/支社名の複合一意制約 |
 | trading_partner_type_mappings | idx_type_mappings_partner_id | 種別取得 |
 | trading_partner_type_mappings | idx_type_mappings_type | 種別フィルタ |
+
+**複合一意制約の詳細**:
+- **制約名**: `name_branchName_deletedAt`
+- **対象カラム**: `name`, `branchName`, `deletedAt`
+- **NULL処理**: PostgreSQLではNULLは一意制約の比較で「等しくない」とみなされるため、アプリケーション層での重複チェックが必須
+- **アプリケーション層での対応**: `findFirst`クエリで`name`と`branchName`の両方を条件に含め、`branchName`がNULLの場合も正しく比較
 
 ### Data Contracts & Integration
 
@@ -1110,6 +1148,34 @@ ALTER TABLE trading_partners DROP COLUMN IF EXISTS representative_name_kana;
 - **リスク評価**: 低（任意フィールドであり、データ損失の影響は限定的）
 - **ロールバック**: 必要に応じてフィールドを再追加し、NULLで初期化
 
+**複合一意制約マイグレーション**:
+
+既存の`name + deletedAt`の一意制約を`name + branchName + deletedAt`の複合一意制約に変更するマイグレーションが必要。
+
+```sql
+-- マイグレーション: 一意制約の変更（name → name + branchName）
+-- Step 1: 既存の一意制約を削除
+ALTER TABLE trading_partners DROP CONSTRAINT IF EXISTS "name_deletedAt";
+
+-- Step 2: 新しい複合一意制約を追加
+ALTER TABLE trading_partners ADD CONSTRAINT "name_branchName_deletedAt"
+  UNIQUE (name, branch_name, deleted_at);
+```
+
+**複合一意制約マイグレーション戦略**:
+- **アプローチ**: 制約の削除と再作成
+- **リスク評価**: 中（既存データに同一name+branchNameの組み合わせが存在する場合、マイグレーション失敗の可能性）
+- **事前検証**: マイグレーション前に重複チェッククエリを実行
+  ```sql
+  SELECT name, branch_name, COUNT(*)
+  FROM trading_partners
+  WHERE deleted_at IS NULL
+  GROUP BY name, branch_name
+  HAVING COUNT(*) > 1;
+  ```
+- **ロールバック**: 新しい制約を削除し、元の制約を再作成
+- **適用タイミング**: アプリケーション更新と同時にマイグレーション適用（ダウンタイム最小化）
+
 ## Error Handling
 
 ### Error Strategy
@@ -1124,10 +1190,15 @@ ALTER TABLE trading_partners DROP COLUMN IF EXISTS representative_name_kana;
 | User Errors | 401 | UNAUTHORIZED | 認証エラー |
 | User Errors | 403 | FORBIDDEN | 権限不足 |
 | User Errors | 404 | TRADING_PARTNER_NOT_FOUND | 取引先が見つからない |
-| Business Logic | 409 | DUPLICATE_PARTNER_NAME | 取引先名重複 |
+| Business Logic | 409 | DUPLICATE_PARTNER_NAME | 取引先名＋部課/支店/支社名の組み合わせ重複 |
 | Business Logic | 409 | PARTNER_IN_USE | プロジェクト紐付け中の削除 |
 | Business Logic | 409 | TRADING_PARTNER_CONFLICT | 楽観的排他制御エラー |
 | System Errors | 500 | INTERNAL_SERVER_ERROR | サーバーエラー |
+
+**重複エラーの詳細**:
+- **エラーメッセージ**: 「この取引先名と部課/支店/支社名の組み合わせは既に登録されています」
+- **エラー詳細**: `{ name: string, branchName: string | null }` を含む
+- **発生条件**: 同一のname＋branchNameの組み合わせが既に存在する場合（deletedAt=nullのレコード）
 
 ### Monitoring
 
@@ -1139,19 +1210,30 @@ ALTER TABLE trading_partners DROP COLUMN IF EXISTS representative_name_kana;
 
 ### Unit Tests
 - KanaConverter: ひらがな→カタカナ変換、カタカナ→ひらがな変換、混合文字列、空文字列
-- TradingPartnerService: CRUD操作、重複チェック、プロジェクト紐付け確認、かな変換検索
+- TradingPartnerService: CRUD操作、複合一意制約の重複チェック、プロジェクト紐付け確認、かな変換検索
+  - 複合一意制約テスト:
+    - 同一name＋同一branchNameで重複エラー
+    - 同一name＋異なるbranchNameで正常作成
+    - 同一name＋NULL branchNameの重複チェック
+    - 更新時の重複チェック（自身を除外）
 - TradingPartnerSchema: Zodバリデーション（カタカナ、電話番号形式、必須項目）
-- TradingPartnerError: エラークラスのHTTPステータス・コード検証
+- TradingPartnerError: エラークラスのHTTPステータス・コード検証、重複エラーのdetails検証
 
 ### Integration Tests
 - TradingPartnerRoutes: 認証・認可ミドルウェア、エンドポイントレスポンス
 - データベーストランザクション: 作成時の種別マッピング整合性
+- 複合一意制約の統合テスト:
+  - APIエンドポイント経由での重複チェック動作検証
+  - エラーレスポンスのフォーマット検証（name, branchName両方を含む）
 - かな変換検索: ひらがな入力での検索結果一致
 
 ### E2E Tests
 - 取引先一覧表示: ページネーション、検索（ひらがな・カタカナ両方）、フィルタリング、ソート
 - 取引先CRUD: 作成→詳細→編集→削除フロー
-- エラーハンドリング: 重複名、楽観的排他制御エラー
+- エラーハンドリング:
+  - 複合一意制約エラー（同一name＋branchName）
+  - エラーメッセージの表示検証（「この取引先名と部課/支店/支社名の組み合わせは既に登録されています」）
+  - 楽観的排他制御エラー
 - ナビゲーション（要件12）:
   - AppHeaderの「取引先」リンクから一覧ページへの遷移（12.1, 12.2）
   - ダッシュボードの「取引先管理」カードから一覧ページへの遷移（12.5, 12.6）
