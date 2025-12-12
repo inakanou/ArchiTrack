@@ -121,14 +121,20 @@ describe('Trading Partners API Client', () => {
     });
 
     it('重複エラー（409）を正しく処理する (Requirement 2.11)', async () => {
-      const duplicateError = new ApiError(409, 'この取引先名は既に登録されています', {
-        error: 'この取引先名は既に登録されています',
-        code: 'DUPLICATE_PARTNER_NAME',
-      });
+      const duplicateError = new ApiError(
+        409,
+        'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+        {
+          error: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+          code: 'DUPLICATE_PARTNER_NAME',
+          name: '株式会社テスト',
+          branchName: '東京支店',
+        }
+      );
       vi.mocked(apiClient.post).mockRejectedValueOnce(duplicateError);
 
       await expect(createTradingPartner(createInput)).rejects.toThrow(
-        'この取引先名は既に登録されています'
+        'この取引先名と部課/支店/支社名の組み合わせは既に登録されています'
       );
     });
 
@@ -174,15 +180,21 @@ describe('Trading Partners API Client', () => {
     });
 
     it('重複エラー（409）を正しく処理する (Requirement 4.8)', async () => {
-      const duplicateError = new ApiError(409, 'この取引先名は既に登録されています', {
-        error: 'この取引先名は既に登録されています',
-        code: 'DUPLICATE_PARTNER_NAME',
-      });
+      const duplicateError = new ApiError(
+        409,
+        'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+        {
+          error: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+          code: 'DUPLICATE_PARTNER_NAME',
+          name: '株式会社テスト更新',
+          branchName: null,
+        }
+      );
       vi.mocked(apiClient.put).mockRejectedValueOnce(duplicateError);
 
       await expect(
         updateTradingPartner(mockTradingPartner.id, updateInput, expectedUpdatedAt)
-      ).rejects.toThrow('この取引先名は既に登録されています');
+      ).rejects.toThrow('この取引先名と部課/支店/支社名の組み合わせは既に登録されています');
     });
 
     it('競合エラー（409 - 楽観的排他制御）を正しく処理する', async () => {

@@ -203,7 +203,10 @@ describe('TradingPartnerFormContainer', () => {
     });
 
     it('重複エラー（409）時にエラーメッセージを表示する (Requirement 2.11)', async () => {
-      const duplicateError = new ApiError(409, 'この取引先名は既に登録されています');
+      const duplicateError = new ApiError(
+        409,
+        'この取引先名と部課/支店/支社名の組み合わせは既に登録されています'
+      );
       mockCreateTradingPartner.mockRejectedValueOnce(duplicateError);
       const user = userEvent.setup();
 
@@ -216,7 +219,9 @@ describe('TradingPartnerFormContainer', () => {
       await user.click(screen.getByTestId('submit-button'));
 
       await waitFor(() => {
-        expect(mockError).toHaveBeenCalledWith('この取引先名は既に登録されています');
+        expect(mockError).toHaveBeenCalledWith(
+          'この取引先名と部課/支店/支社名の組み合わせは既に登録されています'
+        );
       });
     });
 
@@ -363,7 +368,10 @@ describe('TradingPartnerFormContainer', () => {
     });
 
     it('重複エラー（409）時にエラーメッセージを表示する (Requirement 4.8)', async () => {
-      const duplicateError = new ApiError(409, 'この取引先名は既に登録されています');
+      const duplicateError = new ApiError(
+        409,
+        'この取引先名と部課/支店/支社名の組み合わせは既に登録されています'
+      );
       mockUpdateTradingPartner.mockRejectedValueOnce(duplicateError);
       const user = userEvent.setup();
 
@@ -381,7 +389,9 @@ describe('TradingPartnerFormContainer', () => {
       await user.click(screen.getByTestId('submit-button'));
 
       await waitFor(() => {
-        expect(mockError).toHaveBeenCalledWith('この取引先名は既に登録されています');
+        expect(mockError).toHaveBeenCalledWith(
+          'この取引先名と部課/支店/支社名の組み合わせは既に登録されています'
+        );
       });
     });
 

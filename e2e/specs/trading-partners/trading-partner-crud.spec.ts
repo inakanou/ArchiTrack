@@ -420,11 +420,13 @@ test.describe('取引先CRUD操作', () => {
 
       // 重複エラーがトーストで表示されることを確認
       // トーストは複数の方法で表示される可能性があるため、複数のセレクタを試す
-      await expect(page.getByText(/この取引先名は既に登録されています|既に存在|重複/i)).toBeVisible(
-        {
-          timeout: getTimeout(15000),
-        }
-      );
+      await expect(
+        page.getByText(
+          /この取引先名と部課\/支店\/支社名の組み合わせは既に登録されています|この取引先名は既に登録されています|既に存在|重複/i
+        )
+      ).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 作成ページに留まっていることを確認（エラー時は遷移しない）
       await expect(page).toHaveURL(/\/trading-partners\/new/);
@@ -909,7 +911,11 @@ test.describe('取引先CRUD操作', () => {
       expect(response.status()).toBe(409);
 
       // 重複エラーメッセージが表示されることを確認
-      await expect(page.getByText('この取引先名は既に登録されています')).toBeVisible({
+      await expect(
+        page.getByText(
+          /この取引先名と部課\/支店\/支社名の組み合わせは既に登録されています|この取引先名は既に登録されています/
+        )
+      ).toBeVisible({
         timeout: getTimeout(15000),
       });
 
