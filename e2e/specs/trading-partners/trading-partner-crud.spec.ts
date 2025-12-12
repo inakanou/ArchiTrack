@@ -1199,6 +1199,15 @@ test.describe('取引先CRUD操作', () => {
       await tradingPartnerSelect.click();
       await page.getByRole('option', { name: new RegExp(partnerName) }).click();
 
+      // 営業担当者を選択（ADMIN_USERはassignableユーザーに含まれないため明示的に選択）
+      const salesPersonSelect = page.getByLabel('営業担当者');
+      // ローディング完了を待つ
+      await expect(salesPersonSelect).toBeEnabled({
+        timeout: getTimeout(15000),
+      });
+      // 最初のユーザーを選択
+      await salesPersonSelect.selectOption({ index: 1 });
+
       const projectCreatePromise = page.waitForResponse(
         (response) =>
           response.url().includes('/api/projects') &&
@@ -1210,7 +1219,8 @@ test.describe('取引先CRUD操作', () => {
       await page.getByRole('button', { name: /^作成$/i }).click();
       await projectCreatePromise;
 
-      await page.waitForURL(/\/projects$/);
+      // プロジェクト作成後は詳細ページに遷移する
+      await page.waitForURL(/\/projects\/[a-f0-9-]+$/);
 
       // 取引先の詳細ページに移動して削除を試みる
       await page.goto(`/trading-partners/${partnerId}`);
@@ -1242,11 +1252,11 @@ test.describe('取引先CRUD操作', () => {
       // 400または409エラーが返されることを確認（プロジェクトに紐付いているため削除不可）
       expect([400, 409]).toContain(response.status());
 
-      // エラーメッセージが表示されることを確認
+      // エラーメッセージが表示されることを確認（複数要素にマッチする可能性があるためfirst()を使用）
       await expect(
-        page.getByText(
-          /プロジェクトに紐付いています|削除できません|関連するプロジェクトがあります/i
-        )
+        page
+          .getByText(/プロジェクトに紐付いています|削除できません|関連するプロジェクトがあります/i)
+          .first()
       ).toBeVisible({
         timeout: getTimeout(15000),
       });
