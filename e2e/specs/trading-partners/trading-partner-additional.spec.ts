@@ -504,9 +504,8 @@ test.describe('取引先管理の追加要件', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // 種別フィルタで「顧客」を選択
-      const typeFilter = page.locator('select[name="type"], [data-testid="type-filter"]').first();
-      await typeFilter.selectOption('CUSTOMER');
+      // 種別フィルタで「顧客」チェックボックスを選択
+      await page.getByRole('checkbox', { name: /顧客/i }).check();
 
       // 検索APIの呼び出しを監視
       const searchApiPromise = page.waitForResponse(
