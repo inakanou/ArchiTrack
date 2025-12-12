@@ -537,7 +537,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
       // 各フィールドのaria-label属性を確認
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible();
-      await expect(page.locator('select[aria-label="取引先"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();
@@ -566,7 +566,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await expect(salesPersonSelect).toHaveAttribute('aria-required', 'true');
 
       // 取引先は任意フィールドなのでaria-required="false"
-      const tradingPartnerSelect = page.locator('select[aria-label="取引先"]');
+      const tradingPartnerSelect = page.locator('[role="combobox"][aria-label="取引先"]');
       await expect(tradingPartnerSelect).toHaveAttribute('aria-required', 'false');
     });
 
@@ -646,7 +646,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible({
         timeout: getTimeout(10000),
       });
-      await expect(page.locator('select[aria-label="取引先"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();

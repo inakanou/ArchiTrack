@@ -379,6 +379,7 @@ export default function TradingPartnerSelect({
           }
           role="combobox"
           aria-label="取引先"
+          aria-required="false"
           aria-expanded={isOpen}
           aria-haspopup="listbox"
           aria-controls={listboxId}
