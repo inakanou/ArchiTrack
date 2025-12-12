@@ -210,6 +210,15 @@ test.describe('取引先管理の追加要件', () => {
         timeout: getTimeout(10000),
       });
 
+      // 削除APIレスポンスを待機
+      const deletePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/trading-partners/${partnerId}`) &&
+          response.request().method() === 'DELETE' &&
+          response.status() === 204,
+        { timeout: getTimeout(30000) }
+      );
+
       // 監査ログAPIの呼び出しを監視
       const auditLogPromise = page.waitForResponse(
         (response) =>
@@ -223,6 +232,14 @@ test.describe('取引先管理の追加要件', () => {
         .getByRole('button', { name: /^削除$/i })
         .click();
 
+      // 削除APIレスポンスを待機
+      await deletePromise;
+
+      // 削除成功を確認（トーストは自動消去されるため、先に確認する）
+      await expect(page.getByText(/取引先を削除しました/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
       // 監査ログAPIが呼び出されることを確認
       const auditLogResponse = await auditLogPromise.catch(() => null);
 
@@ -230,11 +247,6 @@ test.describe('取引先管理の追加要件', () => {
       if (auditLogResponse) {
         expect(auditLogResponse.status()).toBe(201);
       }
-
-      // 削除成功を確認
-      await expect(page.getByText(/取引先を削除しました/i)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
     });
   });
 
