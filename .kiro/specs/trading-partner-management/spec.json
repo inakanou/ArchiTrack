@@ -1,7 +1,7 @@
 {
   "feature_name": "trading-partner-management",
   "created_at": "2025-12-10T00:00:00Z",
-  "updated_at": "2025-12-11T16:00:00Z",
+  "updated_at": "2025-12-12T13:00:00Z",
   "language": "ja",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,5 +19,5 @@
     }
   },
   "ready_for_implementation": false,
-  "notes": "タスク更新（Gap Analysis反映）: Task 12（ナビゲーション・画面遷移）を再構成。Requirement 12の全28項目をカバー。共通コンポーネント（Breadcrumb, ResourceNotFound）、ページコンポーネント（DetailPage, CreatePage, EditPage）、routes.tsx、AppHeader、Dashboard統合のタスクを明確化。並列実行可能タスクに(P)マーカーを付与。"
+  "notes": "要件変更対応タスク追加完了: (1) KanaConverterユーティリティ実装、(2) branchNameKana/representativeNameKanaフィールド削除マイグレーション、(3) サービス層のかな変換ロジック追加、(4) UI更新（フリガナ列削除、フィールド削除）、(5) かな変換検索のテスト追加。Task 16-20を新規追加。"
 }

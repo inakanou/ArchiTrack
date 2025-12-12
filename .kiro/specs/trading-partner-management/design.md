@@ -12,6 +12,7 @@
 
 - 取引先（顧客/協力業者）の効率的なCRUD操作
 - 取引先一覧の検索・フィルタリング・ソート・ページネーション
+- フリガナ検索でひらがな・カタカナ両方の入力に対応
 - プロジェクト管理機能からの取引先候補取得API提供
 - 監査ログによる操作履歴の記録
 - 楽観的排他制御による同時更新の競合検出
@@ -63,6 +64,7 @@ graph TB
         TradingPartnerService[TradingPartnerService]
         TradingPartnerSchema[trading-partner.schema.ts]
         TradingPartnerError[tradingPartnerError.ts]
+        KanaConverter[kana-converter.ts]
     end
 
     subgraph Database
@@ -107,6 +109,7 @@ graph TB
     TradingPartnerService --> TradingPartnerTypeJoin
     TradingPartnerService --> AuditLogService
     TradingPartnerService --> TradingPartnerError
+    TradingPartnerService --> KanaConverter
 
     ProjectService -.->|将来統合| TradingPartnerService
 ```
@@ -115,7 +118,7 @@ graph TB
 - **Selected pattern**: レイヤードアーキテクチャ（Routes → Service → Repository/Prisma）
 - **Domain boundaries**: 取引先ドメインは独立したサービス・スキーマ・エラークラスを持つ
 - **Existing patterns preserved**: ProjectServiceと同一のDIパターン、Zodバリデーション、監査ログ統合
-- **New components rationale**: 取引先固有のビジネスロジック（重複チェック、種別管理）を分離
+- **New components rationale**: 取引先固有のビジネスロジック（重複チェック、種別管理）を分離。かな変換ユーティリティ（KanaConverter）を追加し、検索時のひらがな・カタカナ両対応を実現
 - **Steering compliance**: TypeScript厳格モード、`any`型禁止、Prisma 7 Driver Adapter Pattern
 
 ### Technology Stack
@@ -138,18 +141,27 @@ sequenceDiagram
     participant Frontend
     participant API as /api/trading-partners
     participant Service as TradingPartnerService
+    participant KanaConv as KanaConverter
     participant DB as PostgreSQL
 
     User->>Frontend: 取引先一覧ページアクセス
     Frontend->>API: GET /api/trading-partners?page=1&limit=20
     API->>API: authenticate + requirePermission
     API->>Service: getPartners(filter, pagination, sort)
+    alt フリガナ検索あり
+        Service->>KanaConv: toKatakana(searchQuery)
+        KanaConv-->>Service: カタカナ変換済みクエリ
+    end
     Service->>DB: findMany with WHERE/ORDER/LIMIT
     DB-->>Service: partners + count
     Service-->>API: PaginatedPartners
     API-->>Frontend: 200 OK + JSON
     Frontend-->>User: テーブル表示
 ```
+
+**Key Decisions**:
+- 検索クエリはアプリケーション層でカタカナに正規化してから検索実行（1.3.1）
+- フリガナ列は一覧テーブルから削除（1.2改訂）
 
 ### 取引先作成フロー
 
@@ -269,17 +281,18 @@ graph TB
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.8 | 取引先一覧表示 | TradingPartnerListPage, TradingPartnerService | GET /api/trading-partners | 一覧表示フロー |
-| 2.1-2.11 | 取引先新規作成 | TradingPartnerForm, TradingPartnerService | POST /api/trading-partners | 作成フロー |
-| 3.1-3.4 | 取引先詳細表示 | TradingPartnerDetailPage, TradingPartnerService | GET /api/trading-partners/:id | - |
-| 4.1-4.10 | 取引先編集 | TradingPartnerForm, TradingPartnerService | PUT /api/trading-partners/:id | - |
+| 1.1-1.2, 1.4-1.8 | 取引先一覧表示（フリガナ列削除） | TradingPartnerListPage, TradingPartnerService | GET /api/trading-partners | 一覧表示フロー |
+| 1.3, 1.3.1 | フリガナ検索（ひらがな・カタカナ両対応） | TradingPartnerSearchFilter, TradingPartnerService, KanaConverter | GET /api/trading-partners | 一覧表示フロー |
+| 2.1-2.11 | 取引先新規作成（フリガナフィールド削減） | TradingPartnerForm, TradingPartnerService | POST /api/trading-partners | 作成フロー |
+| 3.1-3.4 | 取引先詳細表示（フリガナフィールド削減） | TradingPartnerDetailPage, TradingPartnerService | GET /api/trading-partners/:id | - |
+| 4.1-4.10 | 取引先編集（フリガナフィールド削減） | TradingPartnerForm, TradingPartnerService | PUT /api/trading-partners/:id | - |
 | 5.1-5.5 | 取引先削除 | TradingPartnerDetailPage, TradingPartnerService | DELETE /api/trading-partners/:id | 削除フロー |
 | 6.1-6.4 | 取引先種別管理 | TradingPartnerTypeSelect, TradingPartnerService | - | - |
 | 7.1-7.6 | アクセス制御 | AuthMiddleware, PermissionSeed | requirePermission | - |
 | 8.1-8.4 | エラー回復とフィードバック | ToastNotification, NetworkErrorDisplay | - | - |
 | 9.1-9.5 | パフォーマンス | インデックス設計, ページネーション | - | - |
-| 10.1-10.7 | 取引先検索API | TradingPartnerService | GET /api/trading-partners/search | - |
-| 11.1-11.14 | データインテグリティ | TradingPartnerSchema, TradingPartner Model | Zodバリデーション | - |
+| 10.1-10.7 | 取引先検索API | TradingPartnerService, KanaConverter | GET /api/trading-partners/search | - |
+| 11.1-11.14 | データインテグリティ（フリガナフィールド削減） | TradingPartnerSchema, TradingPartner Model | Zodバリデーション | - |
 | 12.1-12.4 | ヘッダーナビゲーション | AppHeader (既存拡張) | Link | ナビゲーションフロー |
 | 12.5-12.8 | ダッシュボードクイックアクセス | Dashboard (既存拡張) | Link | ナビゲーションフロー |
 | 12.9-12.13 | URL構造・ルーティング | routes.tsx (既存拡張), ResourceNotFound (共通) | React Router | ナビゲーションフロー |
@@ -293,7 +306,8 @@ graph TB
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| TradingPartnerService | Backend/Service | 取引先CRUDとビジネスロジック | 1-5, 10 | PrismaClient (P0), AuditLogService (P1) | Service |
+| KanaConverter | Backend/Utils | ひらがな⇔カタカナ変換ユーティリティ | 1.3.1, 10.2 | - | Service |
+| TradingPartnerService | Backend/Service | 取引先CRUDとビジネスロジック | 1-5, 10 | PrismaClient (P0), AuditLogService (P1), KanaConverter (P0) | Service |
 | TradingPartnerRoutes | Backend/Routes | REST APIエンドポイント | 1-5, 7, 10 | TradingPartnerService (P0), AuthMiddleware (P0) | API |
 | TradingPartnerSchema | Backend/Schema | リクエストバリデーション | 2, 4, 11 | Zod (P0) | - |
 | TradingPartnerError | Backend/Error | ドメイン固有エラー | 5, 8 | ApiError (P0) | - |
@@ -311,11 +325,75 @@ graph TB
 
 ### Backend Layer
 
+#### KanaConverter
+
+| Field | Detail |
+|-------|--------|
+| Intent | ひらがな⇔カタカナの相互変換を提供し、フリガナ検索でひらがな・カタカナ両方の入力を許容する |
+| Requirements | 1.3.1, 10.2 |
+
+**Responsibilities & Constraints**
+- ひらがなをカタカナに変換（Unicode範囲: U+3041-U+3096 → U+30A1-U+30F6）
+- カタカナをひらがなに変換（Unicode範囲: U+30A1-U+30F6 → U+3041-U+3096）
+- 半角カナは対象外（現行要件ではカタカナのみ許容）
+- 変換対象外の文字はそのまま返却
+
+**Dependencies**
+- Inbound: TradingPartnerService — 検索クエリの正規化 (P0)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+// backend/src/utils/kana-converter.ts
+
+/**
+ * ひらがなをカタカナに変換する
+ * @param str 入力文字列
+ * @returns カタカナに変換された文字列
+ * @example
+ * toKatakana('やまだたろう') // 'ヤマダタロウ'
+ * toKatakana('ヤマダタロウ') // 'ヤマダタロウ'（変換不要）
+ * toKatakana('山田太郎') // '山田太郎'（変換対象外）
+ */
+export function toKatakana(str: string): string;
+
+/**
+ * カタカナをひらがなに変換する
+ * @param str 入力文字列
+ * @returns ひらがなに変換された文字列
+ * @example
+ * toHiragana('ヤマダタロウ') // 'やまだたろう'
+ * toHiragana('やまだたろう') // 'やまだたろう'（変換不要）
+ */
+export function toHiragana(str: string): string;
+
+/**
+ * 文字列がひらがなを含むかどうかを判定する
+ * @param str 入力文字列
+ * @returns ひらがなを含む場合はtrue
+ */
+export function containsHiragana(str: string): boolean;
+
+/**
+ * 文字列がカタカナを含むかどうかを判定する
+ * @param str 入力文字列
+ * @returns カタカナを含む場合はtrue
+ */
+export function containsKatakana(str: string): boolean;
+```
+
+**Implementation Notes**
+- Unicode code point演算による変換（ひらがな: 0x3041-0x3096、カタカナ: 0x30A1-0x30F6）
+- 変換差分は0x60（96）
+- パフォーマンス: 単純な文字コード変換のため、追加のライブラリ依存は不要
+
 #### TradingPartnerService
 
 | Field | Detail |
 |-------|--------|
-| Intent | 取引先のCRUD操作とビジネスロジック（重複チェック、プロジェクト紐付け確認、監査ログ記録）を担当 |
+| Intent | 取引先のCRUD操作とビジネスロジック（重複チェック、プロジェクト紐付け確認、監査ログ記録、かな変換）を担当 |
 | Requirements | 1.1-1.8, 2.1-2.11, 3.1-3.4, 4.1-4.10, 5.1-5.5, 10.1-10.7 |
 
 **Responsibilities & Constraints**
@@ -324,11 +402,13 @@ graph TB
 - プロジェクト紐付け確認（削除時）
 - 楽観的排他制御による同時更新検出
 - 監査ログの記録
+- **検索時のかな変換**: ひらがな入力をカタカナに正規化してから検索実行
 
 **Dependencies**
 - Inbound: TradingPartnerRoutes — APIリクエスト処理 (P0)
 - Outbound: PrismaClient — データベース操作 (P0)
 - Outbound: AuditLogService — 監査ログ記録 (P1)
+- Outbound: KanaConverter — 検索クエリの正規化 (P0)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
@@ -345,9 +425,9 @@ interface TradingPartnerInfo {
   name: string;
   nameKana: string;
   branchName: string | null;
-  branchNameKana: string | null;
+  // branchNameKana: 削除
   representativeName: string | null;
-  representativeNameKana: string | null;
+  // representativeNameKana: 削除
   types: TradingPartnerType[];
   address: string;
   phoneNumber: string | null;
@@ -390,6 +470,7 @@ class TradingPartnerService {
   deletePartner(id: string, actorId: string): Promise<void>;
 
   // 検索API（オートコンプリート用）
+  // 内部でKanaConverter.toKatakana()を使用し、ひらがな入力もカタカナに正規化して検索
   searchPartners(query: string, type?: TradingPartnerType, limit?: number): Promise<TradingPartnerSearchResult[]>;
 }
 ```
@@ -442,6 +523,7 @@ class TradingPartnerService {
 - 電話番号・FAX番号は数字、ハイフン、括弧のみ許可
 - 請求締日は1-31または99（末日）
 - 支払日は月オフセット（1-3）と日（1-31または99）の組み合わせ
+- **削除フィールド**: branchNameKana、representativeNameKana
 
 #### TradingPartnerError
 
@@ -470,7 +552,7 @@ class TradingPartnerService {
 **Implementation Notes**
 - 既存の`ProjectListPage`パターンを踏襲
 - デフォルトソート: フリガナ昇順
-- 表示列: 取引先名、フリガナ、部課/支店/支社名、代表者名、種別、住所、電話番号、登録日
+- **表示列（改訂）**: 取引先名、部課/支店/支社名、代表者名、種別、住所、電話番号、登録日（フリガナ列は削除）
 - 種別フィルター: 顧客/協力業者
 - エラー時: ToastNotificationとNetworkErrorDisplayを使用
 
@@ -484,6 +566,7 @@ class TradingPartnerService {
 **Implementation Notes**
 - 全フィールドの表示（請求締日・支払日は日本語表記に変換）
 - 編集ボタン・削除ボタンの配置
+- **削除フィールド**: 部課/支店/支社フリガナ、代表者フリガナは詳細画面からも削除
 - 将来: 紐付くプロジェクト一覧の表示
 
 #### TradingPartnerForm
@@ -495,7 +578,8 @@ class TradingPartnerService {
 
 **Implementation Notes**
 - 必須項目: 名前、フリガナ、種別（チェックボックス）、住所
-- 任意項目: 部課/支店/支社名、代表者名、各フリガナ、電話番号、FAX番号、メールアドレス、請求締日、支払日、備考
+- 任意項目: 部課/支店/支社名、代表者名、電話番号、FAX番号、メールアドレス、請求締日、支払日、備考
+- **削除フィールド**: 部課/支店/支社フリガナ、代表者フリガナ（入力欄削除）
 - 請求締日: 1日〜31日および「末日」のドロップダウン
 - 支払日: 月選択（翌月/翌々月/3ヶ月後）と日選択（1日〜31日および「末日」）
 - バリデーションエラー: 各入力欄にエラーメッセージ表示
@@ -861,9 +945,7 @@ erDiagram
         string name UK
         string nameKana
         string branchName
-        string branchNameKana
         string representativeName
-        string representativeNameKana
         string address
         string phoneNumber
         string faxNumber
@@ -895,6 +977,7 @@ erDiagram
 - フリガナはカタカナのみ
 - プロジェクト紐付け時は削除不可（将来実装）
 - 楽観的排他制御: updatedAtによる競合検出
+- **削除フィールド**: branchNameKana、representativeNameKanaはデータモデルから削除
 
 ### Logical Data Model
 
@@ -913,9 +996,9 @@ model TradingPartner {
   name                  String                      // 取引先名（必須、最大200文字）
   nameKana              String                      // フリガナ（必須、最大200文字、カタカナのみ）
   branchName            String?                     // 部課/支店/支社名（任意、最大100文字）
-  branchNameKana        String?                     // 部課/支店/支社フリガナ（任意、最大100文字）
+  // branchNameKana は削除
   representativeName    String?                     // 代表者名（任意、最大100文字）
-  representativeNameKana String?                    // 代表者フリガナ（任意、最大100文字）
+  // representativeNameKana は削除
   address               String                      // 住所（必須、最大500文字）
   phoneNumber           String?                     // 電話番号（任意）
   faxNumber             String?                     // FAX番号（任意）
@@ -984,9 +1067,9 @@ interface CreateTradingPartnerRequest {
   types: TradingPartnerType[];     // 必須、1つ以上
   address: string;                 // 必須、1-500文字
   branchName?: string | null;      // 任意、最大100文字
-  branchNameKana?: string | null;  // 任意、最大100文字、カタカナのみ
+  // branchNameKana: 削除
   representativeName?: string | null;     // 任意、最大100文字
-  representativeNameKana?: string | null; // 任意、最大100文字、カタカナのみ
+  // representativeNameKana: 削除
   phoneNumber?: string | null;     // 任意、電話番号形式
   faxNumber?: string | null;       // 任意、電話番号形式
   email?: string | null;           // 任意、メールアドレス形式
@@ -1009,6 +1092,23 @@ interface TradingPartnerSearchResponse {
   types: TradingPartnerType[];
 }
 ```
+
+### Migration Strategy
+
+**フィールド削除マイグレーション**:
+
+既存のbranchNameKanaおよびrepresentativeNameKanaフィールドを削除するマイグレーションが必要。
+
+```sql
+-- マイグレーション: branchNameKana, representativeNameKana フィールド削除
+ALTER TABLE trading_partners DROP COLUMN IF EXISTS branch_name_kana;
+ALTER TABLE trading_partners DROP COLUMN IF EXISTS representative_name_kana;
+```
+
+**マイグレーション戦略**:
+- **アプローチ**: 単純削除（任意フィールドのためデータ破棄可）
+- **リスク評価**: 低（任意フィールドであり、データ損失の影響は限定的）
+- **ロールバック**: 必要に応じてフィールドを再追加し、NULLで初期化
 
 ## Error Handling
 
@@ -1038,16 +1138,18 @@ interface TradingPartnerSearchResponse {
 ## Testing Strategy
 
 ### Unit Tests
-- TradingPartnerService: CRUD操作、重複チェック、プロジェクト紐付け確認
+- KanaConverter: ひらがな→カタカナ変換、カタカナ→ひらがな変換、混合文字列、空文字列
+- TradingPartnerService: CRUD操作、重複チェック、プロジェクト紐付け確認、かな変換検索
 - TradingPartnerSchema: Zodバリデーション（カタカナ、電話番号形式、必須項目）
 - TradingPartnerError: エラークラスのHTTPステータス・コード検証
 
 ### Integration Tests
 - TradingPartnerRoutes: 認証・認可ミドルウェア、エンドポイントレスポンス
 - データベーストランザクション: 作成時の種別マッピング整合性
+- かな変換検索: ひらがな入力での検索結果一致
 
 ### E2E Tests
-- 取引先一覧表示: ページネーション、検索、フィルタリング、ソート
+- 取引先一覧表示: ページネーション、検索（ひらがな・カタカナ両方）、フィルタリング、ソート
 - 取引先CRUD: 作成→詳細→編集→削除フロー
 - エラーハンドリング: 重複名、楽観的排他制御エラー
 - ナビゲーション（要件12）:
@@ -1062,6 +1164,7 @@ interface TradingPartnerSearchResponse {
 ### Performance Tests
 - 一覧取得: 1000件以上でのページネーションパフォーマンス（2秒以内）
 - 検索API: 500ms以内のレスポンス
+- かな変換: 大量文字列でのパフォーマンス（追加オーバーヘッドは無視できるレベル）
 
 ## Security Considerations
 
@@ -1098,30 +1201,43 @@ interface TradingPartnerSearchResponse {
 - インデックス: nameKana、deletedAt、createdAtにインデックス
 - 検索API: 結果を最大10件に制限
 - キャッシュ: RBACの権限キャッシュを活用（既存機能）
+- かな変換: アプリケーション層で実行（データベース関数よりも移植性が高い）
 
 ## Implementation Status (Gap Analysis)
 
-> 本セクションは2025-12-11のGap Analysisに基づく実装状況を記録する。詳細は`research.md`を参照。
+> 本セクションは2025-12-12のGap Analysisに基づく実装状況を記録する。
 
 ### 実装済みコンポーネント
 
 | Layer | Component | Status | Notes |
 |-------|-----------|--------|-------|
 | Backend | Prismaスキーマ（TradingPartner, TradingPartnerTypeMapping） | 完了 | Requirement 11 |
-| Backend | TradingPartnerService | 完了 | Requirement 1-5, 10 |
+| Backend | TradingPartnerService | 完了 | Requirement 1-5, 10（かな変換対応要更新） |
 | Backend | trading-partners.routes.ts | 完了 | Requirement 1-5, 7, 10 |
-| Backend | trading-partner.schema.ts | 完了 | Requirement 2, 4, 11 |
+| Backend | trading-partner.schema.ts | 完了 | Requirement 2, 4, 11（フィールド削除要更新） |
 | Backend | tradingPartnerError.ts | 完了 | Requirement 5, 8 |
-| Frontend | TradingPartnerListPage | 完了 | Requirement 1（パンくず未実装） |
-| Frontend | TradingPartnerListTable | 完了 | Requirement 1 |
+| Frontend | TradingPartnerListPage | 完了 | Requirement 1（フリガナ列削除要更新） |
+| Frontend | TradingPartnerListTable | 完了 | Requirement 1（フリガナ列削除要更新） |
 | Frontend | TradingPartnerSearchFilter | 完了 | Requirement 1 |
 | Frontend | TradingPartnerPaginationUI | 完了 | Requirement 1 |
-| Frontend | TradingPartnerForm | 完了 | Requirement 2, 4 |
+| Frontend | TradingPartnerForm | 完了 | Requirement 2, 4（フィールド削除要更新） |
 | Frontend | TradingPartnerFormContainer | 完了 | Requirement 2, 4 |
-| Frontend | TradingPartnerDetailView | 完了 | Requirement 3 |
+| Frontend | TradingPartnerDetailView | 完了 | Requirement 3（フィールド削除要更新） |
 | Frontend | TradingPartnerDeleteDialog | 完了 | Requirement 5 |
 | Frontend | TradingPartnerTypeSelect | 完了 | Requirement 6 |
 | Frontend | trading-partners.ts（API） | 完了 | - |
+
+### 要件変更に伴う更新が必要なコンポーネント
+
+| Layer | Component | 変更内容 | Priority | Requirements |
+|-------|-----------|----------|----------|--------------|
+| Backend | kana-converter.ts | 新規作成（ひらがな⇔カタカナ変換ユーティリティ） | P0 | 1.3.1 |
+| Backend | TradingPartnerService | searchPartners()にかな変換ロジック追加 | P0 | 1.3.1, 10.2 |
+| Backend | trading-partner.schema.ts | branchNameKana, representativeNameKana削除 | P0 | 11 |
+| Backend | Prismaスキーマ | branchNameKana, representativeNameKana削除マイグレーション | P0 | 11 |
+| Frontend | TradingPartnerListTable | フリガナ列削除 | P0 | 1.2 |
+| Frontend | TradingPartnerForm | branchNameKana, representativeNameKana入力欄削除 | P0 | 2.3, 4.2 |
+| Frontend | TradingPartnerDetailView | branchNameKana, representativeNameKana表示削除 | P0 | 3.2 |
 
 ### 未実装コンポーネント（Requirement 12関連）
 
@@ -1140,17 +1256,18 @@ interface TradingPartnerSearchResponse {
 
 | Category | Status | Notes |
 |----------|--------|-------|
-| Unit Tests（サービス層） | 未実装 | tasks.md 12.2 |
-| Unit Tests（バリデーション） | 未実装 | tasks.md 12.1 |
-| Integration Tests（API） | 未実装 | tasks.md 13.1, 13.2 |
-| E2E Tests（CRUD） | 未実装 | tasks.md 14.1 |
-| E2E Tests（一覧機能） | 未実装 | tasks.md 14.2 |
-| E2E Tests（ナビゲーション） | 未実装 | Requirement 12のE2Eテスト |
-| Performance Tests | 一部実装 | tasks.md 14.3（パフォーマンステストスクリプト作成済み） |
+| Unit Tests（KanaConverter） | 未実装 | 新規コンポーネント |
+| Unit Tests（サービス層かな変換） | 未実装 | 検索ロジック更新に伴う追加テスト |
+| Integration Tests（かな変換検索） | 未実装 | ひらがな入力での検索結果一致テスト |
+| E2E Tests（かな変換検索） | 未実装 | ひらがな・カタカナ両方での検索テスト |
 
 ### 次のステップ
 
-1. **Phase 1**: 共通コンポーネント実装（Breadcrumb、ResourceNotFound）
-2. **Phase 2**: ページコンポーネント実装（DetailPage、CreatePage、EditPage）
-3. **Phase 3**: ナビゲーション統合（routes.tsx、AppHeader、Dashboard）
-4. **Phase 4**: テスト実装（Unit、Integration、E2E）
+1. **Phase 1**: かな変換ユーティリティ実装（KanaConverter）
+2. **Phase 2**: フィールド削除マイグレーション（branchNameKana, representativeNameKana）
+3. **Phase 3**: サービス層更新（検索時のかな変換ロジック追加）
+4. **Phase 4**: フロントエンド更新（フリガナ列削除、フィールド削除）
+5. **Phase 5**: 共通コンポーネント実装（Breadcrumb、ResourceNotFound）
+6. **Phase 6**: ページコンポーネント実装（DetailPage、CreatePage、EditPage）
+7. **Phase 7**: ナビゲーション統合（routes.tsx、AppHeader、Dashboard）
+8. **Phase 8**: テスト実装（Unit、Integration、E2E）
