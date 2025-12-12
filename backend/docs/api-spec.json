@@ -2160,7 +2160,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "検索キーワード（プロジェクト名・顧客名の部分一致、2文字以上）"
+            "description": "検索キーワード（プロジェクト名・取引先名の部分一致、2文字以上）"
           },
           {
             "in": "query",
@@ -2196,7 +2196,7 @@
               "enum": [
                 "id",
                 "name",
-                "customerName",
+                "tradingPartnerId",
                 "status",
                 "createdAt",
                 "updatedAt"
