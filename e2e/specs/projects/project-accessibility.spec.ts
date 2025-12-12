@@ -265,10 +265,10 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await projectNameInput.focus();
       await expect(projectNameInput).toBeFocused();
 
-      // Tab: 取引先セレクトへ
+      // Tab: 取引先コンボボックスへ
       await page.keyboard.press('Tab');
-      const tradingPartnerSelect = page.locator('select[aria-label="取引先"]');
-      await expect(tradingPartnerSelect).toBeFocused();
+      const tradingPartnerCombobox = page.locator('[role="combobox"][aria-label="取引先"]');
+      await expect(tradingPartnerCombobox).toBeFocused();
 
       // Tab: 営業担当者セレクトへ
       await page.keyboard.press('Tab');
