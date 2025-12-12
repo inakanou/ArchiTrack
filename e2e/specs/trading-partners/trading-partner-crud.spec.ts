@@ -743,10 +743,11 @@ test.describe('取引先CRUD操作', () => {
       await billingCutoffDaySelect.click();
 
       // 1日〜31日と「末日」のオプションが存在することを確認（請求締日のセレクトにスコープ）
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /末日/i })).toBeVisible();
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /^1日$/i })).toBeVisible();
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /^15日$/i })).toBeVisible();
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /^31日$/i })).toBeVisible();
+      // NOTE: <option>要素はネイティブselectでhiddenとなる場合があるため、toHaveCount(1)で存在確認
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /末日/i })).toHaveCount(1);
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^1日$/i })).toHaveCount(1);
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^15日$/i })).toHaveCount(1);
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^31日$/i })).toHaveCount(1);
     });
 
     /**
