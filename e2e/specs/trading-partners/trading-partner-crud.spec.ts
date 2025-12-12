@@ -743,11 +743,11 @@ test.describe('取引先CRUD操作', () => {
       await expect(billingCutoffDaySelect).toBeVisible({ timeout: getTimeout(10000) });
       await billingCutoffDaySelect.click();
 
-      // 1日〜31日と「末日」のオプションが存在することを確認
-      await expect(page.getByRole('option', { name: /末日/i })).toBeVisible();
-      await expect(page.getByRole('option', { name: /^1日$/i })).toBeVisible();
-      await expect(page.getByRole('option', { name: /^15日$/i })).toBeVisible();
-      await expect(page.getByRole('option', { name: /^31日$/i })).toBeVisible();
+      // 1日〜31日と「末日」のオプションが存在することを確認（請求締日のセレクトにスコープ）
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /末日/i })).toBeVisible();
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^1日$/i })).toBeVisible();
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^15日$/i })).toBeVisible();
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^31日$/i })).toBeVisible();
     });
 
     /**
