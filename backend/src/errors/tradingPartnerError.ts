@@ -49,14 +49,21 @@ export class TradingPartnerValidationError extends ApiError {
 /**
  * 取引先名重複エラー
  * 409 Conflict
+ *
+ * Requirements:
+ * - 2.11: 同一の取引先名+支店名が既に存在する場合、エラー詳細にnameとbranchNameを含める
+ * - 4.8: 別の取引先と重複する取引先名+支店名に変更しようとした場合のエラー
  */
 export class DuplicatePartnerNameError extends ApiError {
-  constructor(public readonly partnerName: string) {
+  constructor(
+    public readonly partnerName: string,
+    public readonly branchName: string | null = null
+  ) {
     super(
       409,
       'この取引先名は既に登録されています',
       'DUPLICATE_PARTNER_NAME',
-      { name: partnerName },
+      { name: partnerName, branchName: branchName },
       PROBLEM_TYPES.CONFLICT
     );
     this.name = 'DuplicatePartnerNameError';

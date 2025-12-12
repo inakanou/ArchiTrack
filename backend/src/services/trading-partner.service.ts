@@ -213,7 +213,7 @@ export class TradingPartnerService {
       });
 
       if (existingPartner) {
-        throw new DuplicatePartnerNameError(input.name);
+        throw new DuplicatePartnerNameError(input.name, branchNameValue);
       }
 
       // 2. 取引先レコードの作成
@@ -475,7 +475,7 @@ export class TradingPartnerService {
         });
 
         if (duplicatePartner) {
-          throw new DuplicatePartnerNameError(newName);
+          throw new DuplicatePartnerNameError(newName, newBranchName);
         }
       }
 

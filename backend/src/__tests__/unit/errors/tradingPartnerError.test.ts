@@ -130,11 +130,19 @@ describe('TradingPartner Error Classes', () => {
       expect(error.message).toBe('この取引先名は既に登録されています');
     });
 
-    it('should include partner name in details', () => {
+    it('should include partner name and branchName in details (branchName defaults to null)', () => {
       const partnerName = '株式会社サンプル';
       const error = new DuplicatePartnerNameError(partnerName);
 
-      expect(error.details).toEqual({ name: partnerName });
+      expect(error.details).toEqual({ name: partnerName, branchName: null });
+    });
+
+    it('should include partner name and branchName in details (branchName specified)', () => {
+      const partnerName = '株式会社サンプル';
+      const branchName = '大阪支店';
+      const error = new DuplicatePartnerNameError(partnerName, branchName);
+
+      expect(error.details).toEqual({ name: partnerName, branchName: branchName });
     });
 
     it('should expose partnerName property', () => {
@@ -144,14 +152,40 @@ describe('TradingPartner Error Classes', () => {
       expect(error.partnerName).toBe(partnerName);
     });
 
-    it('toJSON() should return correct format', () => {
+    it('should expose branchName property', () => {
+      const partnerName = '株式会社テスト';
+      const branchName = '東京本社';
+      const error = new DuplicatePartnerNameError(partnerName, branchName);
+
+      expect(error.branchName).toBe(branchName);
+    });
+
+    it('should expose branchName property as null when not specified', () => {
+      const partnerName = '株式会社テスト';
+      const error = new DuplicatePartnerNameError(partnerName);
+
+      expect(error.branchName).toBeNull();
+    });
+
+    it('toJSON() should return correct format (branchName defaults to null)', () => {
       const error = new DuplicatePartnerNameError('株式会社テスト');
       const json = error.toJSON();
 
       expect(json).toEqual({
         error: 'この取引先名は既に登録されています',
         code: 'DUPLICATE_PARTNER_NAME',
-        details: { name: '株式会社テスト' },
+        details: { name: '株式会社テスト', branchName: null },
+      });
+    });
+
+    it('toJSON() should return correct format (branchName specified)', () => {
+      const error = new DuplicatePartnerNameError('株式会社テスト', '大阪支店');
+      const json = error.toJSON();
+
+      expect(json).toEqual({
+        error: 'この取引先名は既に登録されています',
+        code: 'DUPLICATE_PARTNER_NAME',
+        details: { name: '株式会社テスト', branchName: '大阪支店' },
       });
     });
   });
@@ -329,7 +363,7 @@ describe('TradingPartner Error Classes', () => {
       });
     });
 
-    it('DuplicatePartnerNameError should return RFC 7807 format', () => {
+    it('DuplicatePartnerNameError should return RFC 7807 format (branchName defaults to null)', () => {
       const error = new DuplicatePartnerNameError('株式会社テスト');
       const problemDetails = error.toProblemDetails('/api/trading-partners');
 
@@ -339,7 +373,21 @@ describe('TradingPartner Error Classes', () => {
         status: 409,
         detail: 'この取引先名は既に登録されています',
         instance: '/api/trading-partners',
-        details: { name: '株式会社テスト' },
+        details: { name: '株式会社テスト', branchName: null },
+      });
+    });
+
+    it('DuplicatePartnerNameError should return RFC 7807 format (branchName specified)', () => {
+      const error = new DuplicatePartnerNameError('株式会社テスト', '大阪支店');
+      const problemDetails = error.toProblemDetails('/api/trading-partners');
+
+      expect(problemDetails).toEqual({
+        type: PROBLEM_TYPES.CONFLICT,
+        title: 'DUPLICATE_PARTNER_NAME',
+        status: 409,
+        detail: 'この取引先名は既に登録されています',
+        instance: '/api/trading-partners',
+        details: { name: '株式会社テスト', branchName: '大阪支店' },
       });
     });
 

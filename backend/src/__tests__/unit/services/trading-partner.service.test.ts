@@ -2974,6 +2974,100 @@ describe('TradingPartnerService', () => {
         );
       });
 
+      /**
+       * タスク22.1: 重複エラーにnameとbranchNameの両方が含まれることを検証
+       *
+       * Requirements:
+       * - 2.11: 同一の取引先名+支店名が既に存在する場合、エラー詳細にnameとbranchNameを含める
+       */
+      it('重複エラー時、DuplicatePartnerNameErrorのdetailsにnameとbranchNameの両方が含まれる', async () => {
+        // Arrange
+        const actorId = 'actor-123';
+        const inputWithBranch: CreateTradingPartnerInput = {
+          ...validInput,
+          branchName: '大阪支店',
+        };
+
+        // 既存取引先（同じname + 同じbranchName）
+        const existingPartner = {
+          id: 'existing-partner-id',
+          name: 'テスト株式会社',
+          branchName: '大阪支店',
+          deletedAt: null,
+        };
+
+        mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            tradingPartner: {
+              findFirst: vi.fn().mockResolvedValue(existingPartner), // 重複あり
+              create: vi.fn(),
+            },
+            tradingPartnerTypeMapping: {
+              createMany: vi.fn(),
+            },
+          };
+          return fn(tx);
+        });
+
+        // Act & Assert
+        try {
+          await service.createPartner(inputWithBranch, actorId);
+          expect.fail('DuplicatePartnerNameError should have been thrown');
+        } catch (error) {
+          expect(error).toBeInstanceOf(DuplicatePartnerNameError);
+          const duplicateError = error as DuplicatePartnerNameError;
+          // エラー詳細にnameとbranchNameの両方が含まれることを確認
+          expect(duplicateError.details).toEqual({
+            name: 'テスト株式会社',
+            branchName: '大阪支店',
+          });
+        }
+      });
+
+      it('重複エラー時、branchNameがnullの場合もdetailsにbranchName: nullが含まれる', async () => {
+        // Arrange
+        const actorId = 'actor-123';
+        const inputWithoutBranch: CreateTradingPartnerInput = {
+          ...validInput,
+          branchName: undefined, // nullとして扱われる
+        };
+
+        // 既存取引先（branchName: null）
+        const existingPartner = {
+          id: 'existing-partner-id',
+          name: 'テスト株式会社',
+          branchName: null,
+          deletedAt: null,
+        };
+
+        mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            tradingPartner: {
+              findFirst: vi.fn().mockResolvedValue(existingPartner), // 重複あり
+              create: vi.fn(),
+            },
+            tradingPartnerTypeMapping: {
+              createMany: vi.fn(),
+            },
+          };
+          return fn(tx);
+        });
+
+        // Act & Assert
+        try {
+          await service.createPartner(inputWithoutBranch, actorId);
+          expect.fail('DuplicatePartnerNameError should have been thrown');
+        } catch (error) {
+          expect(error).toBeInstanceOf(DuplicatePartnerNameError);
+          const duplicateError = error as DuplicatePartnerNameError;
+          // エラー詳細にnameとbranchName: nullの両方が含まれることを確認
+          expect(duplicateError.details).toEqual({
+            name: 'テスト株式会社',
+            branchName: null,
+          });
+        }
+      });
+
       it('branchNameがnullの場合、重複チェックにnullが含まれる', async () => {
         // Arrange
         const actorId = 'actor-123';

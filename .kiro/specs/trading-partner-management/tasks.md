@@ -446,7 +446,7 @@
   - _Requirements: 2.11, 4.8_
 
 - [ ] 22. バックエンド重複チェックロジックの更新
-- [ ] 22.1 (P) 取引先作成時の複合重複チェック実装
+- [x] 22.1 (P) 取引先作成時の複合重複チェック実装
   - TradingPartnerServiceのcreatePartnerメソッドで`name + branchName`の組み合わせ重複チェックを実装
   - `branchName`がNULLの場合も正しく重複判定（同一name＋NULL branchNameの組み合わせ）
   - 重複検出時は`DuplicatePartnerNameError`をスローし、nameとbranchNameの両方をエラー詳細に含める
