@@ -2632,5 +2632,131 @@ describe('TradingPartnerService', () => {
       );
       expect(result).toBeDefined();
     });
+
+    /**
+     * かな変換検索テスト（Task 18.2）
+     *
+     * Requirements:
+     * - 10.2: オートコンプリート検索でひらがな入力をカタカナに変換して検索
+     *
+     * フリガナはカタカナで保存されているため、ひらがな入力をカタカナに正規化して検索する
+     */
+    describe('かな変換検索（Task 18.2）', () => {
+      it('ひらがな入力をカタカナに変換して検索する（Requirement 10.2）', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
+
+        // Act
+        // ひらがな「あるふぁ」で検索
+        await service.searchPartners('あるふぁ');
+
+        // Assert
+        // ひらがながカタカナに変換されてクエリが実行される
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: [
+                { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+              ],
+            }),
+          })
+        );
+      });
+
+      it('カタカナ入力はそのまま検索する', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
+
+        // Act
+        // カタカナ「アルファ」で検索
+        await service.searchPartners('アルファ');
+
+        // Assert
+        // カタカナはそのまま
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: [
+                { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+              ],
+            }),
+          })
+        );
+      });
+
+      it('漢字混じりのひらがな入力も正しく変換される', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[1]]);
+
+        // Act
+        // 漢字混じりひらがな「べーた建設」で検索
+        await service.searchPartners('べーた建設');
+
+        // Assert
+        // ひらがな部分のみカタカナに変換（「ベータ建設」）
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: [
+                { name: { contains: 'ベータ建設', mode: 'insensitive' } },
+                { nameKana: { contains: 'ベータ建設', mode: 'insensitive' } },
+              ],
+            }),
+          })
+        );
+      });
+
+      it('ひらがな入力でフリガナにマッチする取引先を検索できる', async () => {
+        // Arrange
+        // 「アルファカブシキガイシャ」にマッチ
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
+
+        // Act
+        // ひらがな「かぶしきがいしゃ」で検索
+        const result = await service.searchPartners('かぶしきがいしゃ');
+
+        // Assert
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: [
+                { name: { contains: 'カブシキガイシャ', mode: 'insensitive' } },
+                { nameKana: { contains: 'カブシキガイシャ', mode: 'insensitive' } },
+              ],
+            }),
+          })
+        );
+        expect(result).toHaveLength(1);
+      });
+
+      it('種別フィルタと組み合わせてかな変換検索ができる', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
+
+        // Act
+        // ひらがな「あるふぁ」+ 種別フィルタ「CUSTOMER」で検索
+        await service.searchPartners('あるふぁ', 'CUSTOMER');
+
+        // Assert
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: [
+                { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+              ],
+              types: {
+                some: {
+                  type: 'CUSTOMER',
+                },
+              },
+            }),
+          })
+        );
+      });
+    });
   });
 });

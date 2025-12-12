@@ -657,6 +657,8 @@ export class TradingPartnerService {
    * - インデックスを活用したクエリ（nameKana, deletedAt）
    *
    * Requirements:
+   * - 10.2: 検索クエリが1文字以上の場合、取引先名またはフリガナで部分一致検索を実行
+   *         （ひらがな入力をカタカナに正規化して検索）
    * - 10.4: 検索結果に取引先ID、取引先名、フリガナ、種別を含める
    * - 10.6: 検索APIのレスポンス時間を500ミリ秒以内
    */
@@ -665,12 +667,16 @@ export class TradingPartnerService {
     type?: TradingPartnerType,
     limit: number = 10
   ): Promise<TradingPartnerSearchResult[]> {
+    // Requirements 10.2: ひらがな入力をカタカナに正規化してから検索
+    // フリガナはカタカナで保存されているため、ひらがな入力もカタカナに変換して検索
+    const normalizedQuery = toKatakana(query);
+
     // WHERE条件の構築
     const where: Prisma.TradingPartnerWhereInput = {
       deletedAt: null,
       OR: [
-        { name: { contains: query, mode: 'insensitive' as const } },
-        { nameKana: { contains: query, mode: 'insensitive' as const } },
+        { name: { contains: normalizedQuery, mode: 'insensitive' as const } },
+        { nameKana: { contains: normalizedQuery, mode: 'insensitive' as const } },
       ],
     };
 
