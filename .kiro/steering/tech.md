@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-11（Steering Sync: 取引先管理機能追加）_
+_最終更新: 2025-12-12（Steering Sync: パフォーマンステスト追加確認）_
 
 ## アーキテクチャ
 
@@ -769,7 +769,10 @@ npm --prefix frontend run build-storybook
 npm --prefix backend run swagger:generate
 
 # パフォーマンステスト実行
-npm --prefix backend run perf:health
+npm --prefix backend run test:perf             # ヘルスチェック
+npm --prefix backend run test:perf:login       # ログイン
+npm --prefix backend run test:perf:project     # プロジェクトCRUD
+npm --prefix backend run test:perf:trading-partner  # 取引先CRUD
 ```
 
 ### Kiroスラッシュコマンド

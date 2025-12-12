@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-11（Steering Sync: 取引先管理機能追加）_
+_最終更新: 2025-12-12（Steering Sync: 取引先管理コンポーネント追加）_
 
 ## ルートディレクトリ構成
 
@@ -364,13 +364,19 @@ frontend/
 │   │       ├── ProjectListView.tsx # プロジェクト一覧ビュー
 │   │       ├── ProjectSearchFilter.tsx # 検索・フィルタUI
 │   │       ├── PaginationUI.tsx    # ページネーションUI
-│   │       └── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
+│   │       ├── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
+│   │       └── TradingPartnerSelect.tsx # 取引先選択（オートコンプリート）
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
+│   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
 │   │       ├── TradingPartnerDetailView.tsx # 取引先詳細表示
 │   │       ├── TradingPartnerListTable.tsx # 取引先一覧テーブル
 │   │       ├── TradingPartnerSearchFilter.tsx # 検索・フィルタUI
-│   │       └── TradingPartnerPaginationUI.tsx # ページネーションUI
+│   │       ├── TradingPartnerPaginationUI.tsx # ページネーションUI
+│   │       ├── TradingPartnerDeleteDialog.tsx # 削除確認ダイアログ
+│   │       ├── TradingPartnerTypeSelect.tsx # 取引先種別選択
+│   │       ├── BillingClosingDaySelect.tsx # 請求締日選択
+│   │       └── PaymentDateSelect.tsx # 支払日選択
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
 │   │       └── ResourceNotFound.tsx # リソース未発見表示
