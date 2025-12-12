@@ -140,13 +140,14 @@ test.describe('取引先CRUD操作', () => {
       await billingCutoffDaySelect.click();
 
       // 1日〜31日と「末日」のオプションが存在することを確認（計32個）
+      // option要素はhiddenなのでtoHaveCountで存在確認する
       // まず「末日」オプションの存在を確認（請求締日のセレクト内で）
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /末日/i })).toBeVisible();
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /末日/i })).toHaveCount(1);
 
       // いくつかの代表的な日付オプションの存在を確認（請求締日のセレクト内で）
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /^1日$/i })).toBeVisible();
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /^15日$/i })).toBeVisible();
-      await expect(billingCutoffDaySelect.getByRole('option', { name: /^31日$/i })).toBeVisible();
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^1日$/i })).toHaveCount(1);
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^15日$/i })).toHaveCount(1);
+      await expect(billingCutoffDaySelect.getByRole('option', { name: /^31日$/i })).toHaveCount(1);
     });
 
     /**
@@ -165,10 +166,14 @@ test.describe('取引先CRUD操作', () => {
       await expect(paymentMonthOffsetSelect).toBeVisible({ timeout: getTimeout(10000) });
       await paymentMonthOffsetSelect.click();
 
-      // 月選択のオプションを確認
-      await expect(page.getByRole('option', { name: /翌月/i })).toBeVisible();
-      await expect(page.getByRole('option', { name: /翌々月/i })).toBeVisible();
-      await expect(page.getByRole('option', { name: /3ヶ月後/i })).toBeVisible();
+      // 月選択のオプションを確認（option要素はhiddenなのでtoHaveCountで存在確認）
+      await expect(paymentMonthOffsetSelect.getByRole('option', { name: /翌月/i })).toHaveCount(1);
+      await expect(paymentMonthOffsetSelect.getByRole('option', { name: /翌々月/i })).toHaveCount(
+        1
+      );
+      await expect(paymentMonthOffsetSelect.getByRole('option', { name: /3ヶ月後/i })).toHaveCount(
+        1
+      );
 
       // 支払日の日選択セレクトボックスを確認
       const paymentDaySelect = page.locator('select[name="paymentDay"]');
