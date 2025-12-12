@@ -405,10 +405,11 @@ test.describe('取引先管理の追加要件', () => {
       const searchInput = page.getByRole('searchbox', { name: /検索キーワード/i });
       await searchInput.fill(uniquePrefix.substring(0, 3)); // 最初の3文字で検索
 
-      // 検索APIの呼び出しを監視
+      // 検索APIの呼び出しを監視（一覧APIにsearchパラメータを付けて呼び出す）
       const searchApiPromise = page.waitForResponse(
         (response) =>
-          response.url().includes('/api/trading-partners/search') &&
+          response.url().includes('/api/trading-partners') &&
+          response.url().includes('search=') &&
           response.request().method() === 'GET',
         { timeout: getTimeout(30000) }
       );
