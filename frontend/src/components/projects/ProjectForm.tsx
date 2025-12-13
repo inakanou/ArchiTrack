@@ -14,9 +14,11 @@
  * - 1.10: プロジェクト名が未入力の場合、「プロジェクト名は必須です」エラーを表示
  * - 1.11: プロジェクト名が255文字を超える場合、「プロジェクト名は255文字以内で入力してください」エラーを表示
  * - 1.13: 営業担当者が未選択の場合、「営業担当者は必須です」エラーを表示
+ * - 1.15: プロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
  * - 8.1: プロジェクト詳細画面で「編集」ボタンをクリックすると編集フォームを表示
  * - 8.4: バリデーションエラーが発生するとエラーメッセージを該当フィールドに表示
  * - 8.5: 「キャンセル」ボタンをクリックすると編集内容を破棄し、詳細表示に戻る
+ * - 8.7: 更新時にプロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
  * - 13.10: フロントエンドでバリデーションエラーが発生した場合、エラーメッセージを即座に表示
  * - 20.1: すべての操作をキーボードのみで実行可能
  * - 20.2: フォーム要素にaria-label属性を適切に設定
@@ -24,9 +26,10 @@
  * - 22.1: 顧客種別を持つ取引先をセレクトボックスで選択可能
  */
 
-import { useState, useCallback, useId, FormEvent, ChangeEvent, FocusEvent } from 'react';
+import { useState, useCallback, useId, useMemo, FormEvent, ChangeEvent, FocusEvent } from 'react';
 import TradingPartnerSelect from './TradingPartnerSelect';
 import UserSelect from './UserSelect';
+import { isDuplicateProjectNameErrorResponse } from '../../types/project.types';
 
 /**
  * プロジェクトフォームデータ
@@ -60,6 +63,18 @@ export interface ProjectFormProps {
   onCancel: () => void;
   /** 送信中フラグ */
   isSubmitting: boolean;
+  /**
+   * サーバーからのエラーレスポンス（Task 22.5）
+   *
+   * フォーム送信後にサーバーから返されたエラーを渡すことで、
+   * フォーム内にサーバーエラーを表示できます。
+   *
+   * プロジェクト名重複エラー（409）の場合、プロジェクト名フィールドに
+   * 「このプロジェクト名は既に使用されています」エラーを表示します。
+   *
+   * Requirements: 1.15, 8.7
+   */
+  submitError?: unknown | null;
 }
 
 /** バリデーション定数 */
@@ -112,7 +127,14 @@ interface FieldErrors {
  * />
  * ```
  */
-function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: ProjectFormProps) {
+function ProjectForm({
+  mode,
+  initialData,
+  onSubmit,
+  onCancel,
+  isSubmitting,
+  submitError,
+}: ProjectFormProps) {
   // フォームの値
   const [name, setName] = useState(initialData?.name ?? '');
   const [tradingPartnerId, setTradingPartnerId] = useState(initialData?.tradingPartnerId ?? '');
@@ -139,6 +161,18 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
   const siteAddressErrorId = `site-address-error-${uniqueId}`;
   const descriptionId = `description-${uniqueId}`;
   const descriptionErrorId = `description-error-${uniqueId}`;
+
+  /**
+   * サーバーからのプロジェクト名重複エラーを検出
+   * Task 22.5: submitError propsからプロジェクト名重複エラーを識別
+   * Requirements: 1.15, 8.7
+   */
+  const serverNameError = useMemo(() => {
+    if (isDuplicateProjectNameErrorResponse(submitError)) {
+      return 'このプロジェクト名は既に使用されています';
+    }
+    return undefined;
+  }, [submitError]);
 
   // Note: initialDataの変更時にフォームをリセットする場合は、
   // 親コンポーネントで<ProjectForm key={projectId} ... />のようにkeyを指定してください。
@@ -338,6 +372,14 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
   const submitButtonText = mode === 'create' ? '作成' : '保存';
   const submitButtonLoadingText = mode === 'create' ? '作成中...' : '保存中...';
 
+  /**
+   * プロジェクト名フィールドの有効なエラーメッセージを取得
+   * クライアントバリデーションエラー > サーバーエラー の優先順位
+   * Task 22.5: submitErrorからのサーバーエラーも考慮
+   */
+  const effectiveNameError = errors.name || serverNameError;
+  const hasNameError = !!effectiveNameError;
+
   return (
     <form id={formId} onSubmit={handleSubmit} role="form" style={{ maxWidth: '600px' }}>
       {/* プロジェクト名 */}
@@ -348,7 +390,7 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
             display: 'block',
             marginBottom: '0.5rem',
             fontWeight: 500,
-            color: errors.name ? STYLES.colors.error : STYLES.colors.label,
+            color: hasNameError ? STYLES.colors.error : STYLES.colors.label,
           }}
         >
           プロジェクト名
@@ -379,14 +421,14 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
           disabled={isSubmitting}
           aria-label="プロジェクト名"
           aria-required="true"
-          aria-invalid={!!errors.name}
-          aria-describedby={errors.name ? nameErrorId : undefined}
+          aria-invalid={hasNameError}
+          aria-describedby={hasNameError ? nameErrorId : undefined}
           style={{
             width: '100%',
             padding: '0.5rem 0.75rem',
-            border: errors.name
+            border: hasNameError
               ? `2px solid ${STYLES.colors.error}`
-              : `1px solid ${getBorderColor('name', !!errors.name)}`,
+              : `1px solid ${getBorderColor('name', hasNameError)}`,
             borderRadius: STYLES.borderRadius,
             fontSize: '1rem',
             lineHeight: '1.5',
@@ -395,10 +437,10 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
             outline: 'none',
             cursor: isSubmitting ? 'not-allowed' : 'text',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('name', !!errors.name),
+            boxShadow: getBoxShadow('name', hasNameError),
           }}
         />
-        {errors.name && (
+        {hasNameError && (
           <p
             id={nameErrorId}
             role="alert"
@@ -409,7 +451,7 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
               color: STYLES.colors.error,
             }}
           >
-            {errors.name}
+            {effectiveNameError}
           </p>
         )}
       </div>

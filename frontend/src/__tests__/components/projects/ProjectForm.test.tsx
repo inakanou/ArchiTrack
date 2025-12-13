@@ -548,6 +548,176 @@ describe('ProjectForm', () => {
     });
   });
 
+  describe('サーバーエラー表示', () => {
+    /**
+     * Task 22.5: ProjectFormコンポーネントにプロジェクト名重複エラー表示を追加
+     * Requirements: 1.15, 8.7
+     *
+     * submitError propsでサーバーエラーを受け取り、
+     * 409エラー時にプロジェクト名フィールドにエラーメッセージを表示する
+     */
+    it('submitErrorがプロジェクト名重複エラーの場合、プロジェクト名フィールドにエラーを表示する', async () => {
+      const duplicateError = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'プロジェクト名重複エラー',
+        status: 409 as const,
+        detail: 'このプロジェクト名は既に使用されています: 重複プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE' as const,
+        projectName: '重複プロジェクト',
+      };
+
+      render(
+        <ProjectForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+          submitError={duplicateError}
+        />
+      );
+
+      // プロジェクト名重複エラーメッセージを確認
+      expect(screen.getByText('このプロジェクト名は既に使用されています')).toBeInTheDocument();
+
+      // プロジェクト名フィールドがエラー状態になっている
+      const nameInput = screen.getByLabelText(/プロジェクト名/);
+      expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    it('submitErrorがnullの場合、サーバーエラーを表示しない', () => {
+      render(
+        <ProjectForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+          submitError={null}
+        />
+      );
+
+      // エラーメッセージが表示されていない
+      expect(
+        screen.queryByText('このプロジェクト名は既に使用されています')
+      ).not.toBeInTheDocument();
+    });
+
+    it('submitErrorがundefinedの場合、サーバーエラーを表示しない', () => {
+      render(
+        <ProjectForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      // エラーメッセージが表示されていない
+      expect(
+        screen.queryByText('このプロジェクト名は既に使用されています')
+      ).not.toBeInTheDocument();
+    });
+
+    it('submitErrorがプロジェクト名重複以外の409エラーの場合、プロジェクト名エラーを表示しない', () => {
+      // 楽観的排他制御エラー（競合エラー）の例
+      const conflictError = {
+        type: 'https://architrack.example.com/problems/optimistic-lock-error',
+        title: '競合エラー',
+        status: 409 as const,
+        detail: '他のユーザーが更新しました',
+        code: 'OPTIMISTIC_LOCK_ERROR',
+      };
+
+      render(
+        <ProjectForm
+          mode="edit"
+          initialData={{ name: 'テスト', salesPersonId: 'user-1' }}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+          submitError={conflictError}
+        />
+      );
+
+      // プロジェクト名重複エラーは表示されない
+      expect(
+        screen.queryByText('このプロジェクト名は既に使用されています')
+      ).not.toBeInTheDocument();
+    });
+
+    it('プロジェクト名を変更するとsubmitErrorがクリアされる', async () => {
+      const user = userEvent.setup();
+      const duplicateError = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'プロジェクト名重複エラー',
+        status: 409 as const,
+        detail: 'このプロジェクト名は既に使用されています: 重複プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE' as const,
+        projectName: '重複プロジェクト',
+      };
+
+      const { rerender } = render(
+        <ProjectForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+          submitError={duplicateError}
+        />
+      );
+
+      // エラーが表示されている
+      expect(screen.getByText('このプロジェクト名は既に使用されています')).toBeInTheDocument();
+
+      // プロジェクト名を変更
+      const nameInput = screen.getByLabelText(/プロジェクト名/);
+      await user.type(nameInput, '新しい名前');
+
+      // 再レンダリング（親コンポーネントがsubmitErrorをクリアする想定）
+      rerender(
+        <ProjectForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+          submitError={null}
+        />
+      );
+
+      // エラーが消えている
+      expect(
+        screen.queryByText('このプロジェクト名は既に使用されています')
+      ).not.toBeInTheDocument();
+    });
+
+    it('編集モードでsubmitErrorがプロジェクト名重複エラーの場合、エラーを表示する', async () => {
+      const duplicateError = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'プロジェクト名重複エラー',
+        status: 409 as const,
+        detail: 'このプロジェクト名は既に使用されています: 重複プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE' as const,
+        projectName: '重複プロジェクト',
+      };
+
+      render(
+        <ProjectForm
+          mode="edit"
+          initialData={{
+            name: '重複プロジェクト',
+            salesPersonId: 'user-1',
+          }}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+          submitError={duplicateError}
+        />
+      );
+
+      // プロジェクト名重複エラーメッセージを確認
+      expect(screen.getByText('このプロジェクト名は既に使用されています')).toBeInTheDocument();
+    });
+  });
+
   describe('デフォルト値', () => {
     it('作成モードでは営業担当者にログインユーザーがデフォルト設定される', async () => {
       render(
