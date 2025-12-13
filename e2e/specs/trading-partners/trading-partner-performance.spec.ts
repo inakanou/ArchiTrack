@@ -224,9 +224,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       nameKana: `パフォーマンステストトリヒキサキ ${String(i + 1).padStart(4, '0')}`,
       address: `東京都渋谷区テスト ${(i % 100) + 1}-${(i % 10) + 1}-${(i % 5) + 1}`,
       branchName: i % 3 === 0 ? `支店${(i % 10) + 1}` : null,
-      branchNameKana: i % 3 === 0 ? `シテン${(i % 10) + 1}` : null,
       representativeName: i % 2 === 0 ? `代表者${(i % 20) + 1}` : null,
-      representativeNameKana: i % 2 === 0 ? `ダイヒョウシャ${(i % 20) + 1}` : null,
       phoneNumber: `03-${String(1234 + (i % 1000)).padStart(4, '0')}-${String(5678 + (i % 1000)).padStart(4, '0')}`,
       email: `test${i + 1}@example.com`,
     }));
