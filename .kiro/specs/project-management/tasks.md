@@ -616,12 +616,14 @@
   - _Requirements: 2.2_
   - _Completed: 2025-12-13_
 
-- [ ] 22.4 (P) プロジェクトAPIクライアントに409エラーハンドリング追加
+- [x] 22.4 (P) プロジェクトAPIクライアントに409エラーハンドリング追加
   - createProject関数で409エラーを識別
   - updateProject関数で409エラーを識別
   - DuplicateProjectNameErrorResponse型を定義
+  - isDuplicateProjectNameErrorResponse型ガード関数を追加
   - エラー情報を呼び出し元に伝播
   - _Requirements: 1.15, 8.7_
+  - _Completed: 2025-12-13_
 
 - [ ] 22.5 ProjectFormコンポーネントにプロジェクト名重複エラー表示を追加
   - submitError propsでサーバーエラーを受け取り

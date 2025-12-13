@@ -26,16 +26,17 @@ import {
   getStatusHistory,
   getAssignableUsers,
 } from '../../api/projects';
-import type {
-  PaginatedProjects,
-  ProjectDetail,
-  ProjectInfo,
-  StatusHistoryResponse,
-  AssignableUser,
-  CreateProjectInput,
-  UpdateProjectInput,
-  ProjectFilter,
-  StatusChangeInput,
+import {
+  isDuplicateProjectNameErrorResponse,
+  type PaginatedProjects,
+  type ProjectDetail,
+  type ProjectInfo,
+  type StatusHistoryResponse,
+  type AssignableUser,
+  type CreateProjectInput,
+  type UpdateProjectInput,
+  type ProjectFilter,
+  type StatusChangeInput,
 } from '../../types/project.types';
 
 // モック設定
@@ -595,6 +596,116 @@ describe('projects API client', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(401);
+      }
+    });
+  });
+
+  // ==========================================================================
+  // 409エラーハンドリング（プロジェクト名重複）
+  // Task 22.4: プロジェクトAPIクライアントに409エラーハンドリング追加
+  // Requirements: 1.15, 8.7
+  // ==========================================================================
+  describe('プロジェクト名重複エラー（409）', () => {
+    it('createProjectでプロジェクト名重複エラー（409）を識別できること', async () => {
+      const duplicateErrorResponse = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: 既存プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '既存プロジェクト',
+      };
+      const mockError = new ApiError(409, duplicateErrorResponse.detail, duplicateErrorResponse);
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      const input: CreateProjectInput = {
+        name: '既存プロジェクト',
+        salesPersonId: 'user-1',
+      };
+
+      try {
+        await createProject(input);
+        expect.fail('エラーがスローされるべきです');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        const apiError = error as ApiError;
+        expect(apiError.statusCode).toBe(409);
+        expect(apiError.message).toBe('このプロジェクト名は既に使用されています: 既存プロジェクト');
+        expect(apiError.response).toBeDefined();
+        // 型ガードを使用してresponseの内容を検証
+        expect(isDuplicateProjectNameErrorResponse(apiError.response)).toBe(true);
+        if (isDuplicateProjectNameErrorResponse(apiError.response)) {
+          expect(apiError.response.code).toBe('PROJECT_NAME_DUPLICATE');
+          expect(apiError.response.projectName).toBe('既存プロジェクト');
+        }
+      }
+    });
+
+    it('updateProjectでプロジェクト名重複エラー（409）を識別できること', async () => {
+      const duplicateErrorResponse = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: 別の既存プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '別の既存プロジェクト',
+      };
+      const mockError = new ApiError(409, duplicateErrorResponse.detail, duplicateErrorResponse);
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
+
+      const input: UpdateProjectInput = {
+        name: '別の既存プロジェクト',
+      };
+      const expectedUpdatedAt = '2025-01-02T00:00:00.000Z';
+
+      try {
+        await updateProject('project-1', input, expectedUpdatedAt);
+        expect.fail('エラーがスローされるべきです');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        const apiError = error as ApiError;
+        expect(apiError.statusCode).toBe(409);
+        expect(apiError.message).toBe(
+          'このプロジェクト名は既に使用されています: 別の既存プロジェクト'
+        );
+        expect(apiError.response).toBeDefined();
+        // 型ガードを使用してresponseの内容を検証
+        expect(isDuplicateProjectNameErrorResponse(apiError.response)).toBe(true);
+        if (isDuplicateProjectNameErrorResponse(apiError.response)) {
+          expect(apiError.response.code).toBe('PROJECT_NAME_DUPLICATE');
+          expect(apiError.response.projectName).toBe('別の既存プロジェクト');
+        }
+      }
+    });
+
+    it('updateProjectで409エラーが楽観的排他制御エラーかプロジェクト名重複エラーかを区別できること', async () => {
+      // 楽観的排他制御エラー（競合エラー）
+      const conflictErrorResponse = {
+        type: 'https://architrack.example.com/problems/conflict',
+        title: 'Conflict',
+        status: 409,
+        detail: 'プロジェクトは他のユーザーによって更新されました',
+        code: 'CONFLICT',
+      };
+      const mockConflictError = new ApiError(
+        409,
+        conflictErrorResponse.detail,
+        conflictErrorResponse
+      );
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockConflictError);
+
+      const input: UpdateProjectInput = { name: '更新' };
+      const expectedUpdatedAt = '2025-01-01T00:00:00.000Z';
+
+      try {
+        await updateProject('project-1', input, expectedUpdatedAt);
+        expect.fail('エラーがスローされるべきです');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        const apiError = error as ApiError;
+        expect(apiError.statusCode).toBe(409);
+        // プロジェクト名重複エラーではない
+        expect(isDuplicateProjectNameErrorResponse(apiError.response)).toBe(false);
       }
     });
   });

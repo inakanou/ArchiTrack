@@ -2,6 +2,7 @@
  * @fileoverview プロジェクト用APIクライアント
  *
  * Task 5.2: プロジェクト用APIクライアントの実装
+ * Task 22.4: プロジェクトAPIクライアントに409エラーハンドリング追加
  *
  * Requirements:
  * - 14.1: GET /api/projects プロジェクト一覧取得（ページネーション、検索、フィルタ、ソート対応）
@@ -11,6 +12,7 @@
  * - 14.5: DELETE /api/projects/:id プロジェクト削除
  * - 17.12: GET /api/users/assignable 担当者候補取得
  * - 18.1, 18.2, 18.3: エラーハンドリング（ネットワークエラー、サーバーエラー）
+ * - 1.15, 1.16, 8.7, 8.8: プロジェクト名重複エラー（409）ハンドリング
  */
 
 import { apiClient } from './client';
@@ -141,16 +143,37 @@ export async function getProject(id: string): Promise<ProjectDetail> {
 /**
  * プロジェクトを作成する
  *
+ * Task 22.4: プロジェクトAPIクライアントに409エラーハンドリング追加
+ * Requirements: 1.15, 1.16
+ *
  * @param input - プロジェクト作成データ
  * @returns 作成されたプロジェクト情報
- * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）
+ * @throws ApiError
+ *   - バリデーションエラー（400）
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - プロジェクト名重複（409）- `isDuplicateProjectNameErrorResponse(error.response)`で識別可能
  *
  * @example
+ * // 基本的な使用法
  * const project = await createProject({
  *   name: '新規プロジェクト',
- *   customerName: '顧客名',
+ *   tradingPartnerId: 'partner-id',
  *   salesPersonId: 'user-id',
  * });
+ *
+ * @example
+ * // プロジェクト名重複エラーの処理
+ * try {
+ *   await createProject(input);
+ * } catch (error) {
+ *   if (error instanceof ApiError && error.statusCode === 409) {
+ *     if (isDuplicateProjectNameErrorResponse(error.response)) {
+ *       // プロジェクト名重複エラー
+ *       console.log(`重複: ${error.response.projectName}`);
+ *     }
+ *   }
+ * }
  */
 export async function createProject(input: CreateProjectInput): Promise<ProjectInfo> {
   return apiClient.post<ProjectInfo>('/api/projects', input);
@@ -159,18 +182,44 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectI
 /**
  * プロジェクトを更新する
  *
+ * Task 22.4: プロジェクトAPIクライアントに409エラーハンドリング追加
+ * Requirements: 8.7, 8.8
+ *
  * @param id - プロジェクトID（UUID）
  * @param input - プロジェクト更新データ
  * @param expectedUpdatedAt - 楽観的排他制御用の期待される更新日時（ISO8601形式）
  * @returns 更新されたプロジェクト情報
- * @throws ApiError プロジェクトが見つからない（404）、バリデーションエラー（400）、競合（409）
+ * @throws ApiError
+ *   - バリデーションエラー（400）
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - プロジェクトが見つからない（404）
+ *   - 競合（409）- 楽観的排他制御エラーまたはプロジェクト名重複
+ *     - プロジェクト名重複は`isDuplicateProjectNameErrorResponse(error.response)`で識別可能
  *
  * @example
+ * // 基本的な使用法
  * const project = await updateProject(
  *   '550e8400-e29b-41d4-a716-446655440000',
  *   { name: '更新された名前' },
  *   '2025-01-01T00:00:00.000Z'
  * );
+ *
+ * @example
+ * // 409エラーの種類を判別する
+ * try {
+ *   await updateProject(id, input, expectedUpdatedAt);
+ * } catch (error) {
+ *   if (error instanceof ApiError && error.statusCode === 409) {
+ *     if (isDuplicateProjectNameErrorResponse(error.response)) {
+ *       // プロジェクト名重複エラー
+ *       console.log(`重複: ${error.response.projectName}`);
+ *     } else {
+ *       // 楽観的排他制御エラー（他のユーザーが更新済み）
+ *       console.log('データを再読み込みしてください');
+ *     }
+ *   }
+ * }
  */
 export async function updateProject(
   id: string,

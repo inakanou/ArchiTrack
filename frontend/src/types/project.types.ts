@@ -281,8 +281,82 @@ export interface StatusChangeInput {
 }
 
 // ============================================================================
+// エラーレスポンス型定義
+// ============================================================================
+
+/**
+ * プロジェクト名重複エラーレスポンス
+ *
+ * Task 22.4: プロジェクトAPIクライアントに409エラーハンドリング追加
+ * Requirements: 1.15, 1.16, 8.7, 8.8
+ *
+ * プロジェクト作成・更新時にプロジェクト名が重複している場合に返されるエラーレスポンス
+ */
+export interface DuplicateProjectNameErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（409） */
+  status: 409;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'PROJECT_NAME_DUPLICATE';
+  /** 重複しているプロジェクト名 */
+  projectName: string;
+}
+
+// ============================================================================
 // タイプガード関数
 // ============================================================================
+
+/**
+ * 値がDuplicateProjectNameErrorResponseかどうかを判定するタイプガード
+ *
+ * Task 22.4: プロジェクトAPIクライアントに409エラーハンドリング追加
+ * Requirements: 1.15, 1.16, 8.7, 8.8
+ *
+ * 409エラーレスポンスがプロジェクト名重複エラーかどうかを判定します。
+ * これにより、楽観的排他制御エラー（競合エラー）との区別が可能です。
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがDuplicateProjectNameErrorResponseならtrue
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await createProject(input);
+ * } catch (error) {
+ *   if (error instanceof ApiError && error.statusCode === 409) {
+ *     if (isDuplicateProjectNameErrorResponse(error.response)) {
+ *       // プロジェクト名重複エラー
+ *       console.log(`重複したプロジェクト名: ${error.response.projectName}`);
+ *     } else {
+ *       // 楽観的排他制御エラー等、その他の409エラー
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export function isDuplicateProjectNameErrorResponse(
+  value: unknown
+): value is DuplicateProjectNameErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 409 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'PROJECT_NAME_DUPLICATE' &&
+    typeof obj.projectName === 'string'
+  );
+}
 
 /**
  * 値がProjectStatusかどうかを判定するタイプガード
