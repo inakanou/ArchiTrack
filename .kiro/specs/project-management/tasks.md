@@ -551,7 +551,7 @@
   - エラーメッセージ「このプロジェクト名は既に使用されています」を設定
   - _Requirements: 1.15, 8.7_
 
-- [ ] 21.2 (P) ソートフィールド拡張のZodスキーマ更新
+- [x] 21.2 (P) ソートフィールド拡張のZodスキーマ更新
   - SORTABLE_FIELDSから'id'を削除
   - SORTABLE_FIELDSに'salesPersonName', 'constructionPersonName'を追加
   - 'customerName'（既存の'tradingPartnerId'からエイリアス）を追加

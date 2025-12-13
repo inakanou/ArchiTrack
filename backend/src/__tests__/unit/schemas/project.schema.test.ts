@@ -26,6 +26,7 @@ import {
   statusChangeSchema,
   projectIdParamSchema,
   PROJECT_VALIDATION_MESSAGES,
+  SORTABLE_FIELDS,
 } from '../../../schemas/project.schema.js';
 import { PROJECT_STATUSES } from '../../../types/project.types.js';
 
@@ -552,11 +553,15 @@ describe('project.schema', () => {
       }
     });
 
-    it('should accept valid sort field: id', () => {
+    /**
+     * Task 21.2: SORTABLE_FIELDSから'id'を削除
+     * Requirements: 6.5
+     */
+    it('should reject sort field: id (removed from SORTABLE_FIELDS)', () => {
       const result = sortSchema.safeParse({
         sort: 'id',
       });
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     });
 
     it('should accept valid sort field: name', () => {
@@ -566,11 +571,48 @@ describe('project.schema', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should accept valid sort field: tradingPartnerId', () => {
+    /**
+     * Task 21.2: 'customerName'を追加（tradingPartner.nameへのエイリアス）
+     * Requirements: 6.5
+     */
+    it('should accept valid sort field: customerName', () => {
+      const result = sortSchema.safeParse({
+        sort: 'customerName',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    /**
+     * Task 21.2: 'salesPersonName'を追加
+     * Requirements: 6.5
+     */
+    it('should accept valid sort field: salesPersonName', () => {
+      const result = sortSchema.safeParse({
+        sort: 'salesPersonName',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    /**
+     * Task 21.2: 'constructionPersonName'を追加
+     * Requirements: 6.5
+     */
+    it('should accept valid sort field: constructionPersonName', () => {
+      const result = sortSchema.safeParse({
+        sort: 'constructionPersonName',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    /**
+     * Task 21.2: 'tradingPartnerId'は削除（customerNameに置き換え）
+     * Requirements: 6.5
+     */
+    it('should reject sort field: tradingPartnerId (removed from SORTABLE_FIELDS)', () => {
       const result = sortSchema.safeParse({
         sort: 'tradingPartnerId',
       });
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     });
 
     it('should accept valid sort field: status', () => {
@@ -632,6 +674,53 @@ describe('project.schema', () => {
         expect(result.data.sort).toBe('createdAt');
         expect(result.data.order).toBe('asc');
       }
+    });
+  });
+
+  /**
+   * Task 21.2: SORTABLE_FIELDS配列の内容を直接テスト
+   * Requirements: 6.5
+   */
+  describe('SORTABLE_FIELDS', () => {
+    it('should NOT contain "id" field', () => {
+      expect(SORTABLE_FIELDS).not.toContain('id');
+    });
+
+    it('should NOT contain "tradingPartnerId" field', () => {
+      expect(SORTABLE_FIELDS).not.toContain('tradingPartnerId');
+    });
+
+    it('should contain "name" field', () => {
+      expect(SORTABLE_FIELDS).toContain('name');
+    });
+
+    it('should contain "customerName" field', () => {
+      expect(SORTABLE_FIELDS).toContain('customerName');
+    });
+
+    it('should contain "salesPersonName" field', () => {
+      expect(SORTABLE_FIELDS).toContain('salesPersonName');
+    });
+
+    it('should contain "constructionPersonName" field', () => {
+      expect(SORTABLE_FIELDS).toContain('constructionPersonName');
+    });
+
+    it('should contain "status" field', () => {
+      expect(SORTABLE_FIELDS).toContain('status');
+    });
+
+    it('should contain "createdAt" field', () => {
+      expect(SORTABLE_FIELDS).toContain('createdAt');
+    });
+
+    it('should contain "updatedAt" field', () => {
+      expect(SORTABLE_FIELDS).toContain('updatedAt');
+    });
+
+    it('should have exactly 7 fields', () => {
+      // name, customerName, salesPersonName, constructionPersonName, status, createdAt, updatedAt
+      expect(SORTABLE_FIELDS.length).toBe(7);
     });
   });
 

@@ -67,11 +67,20 @@ export const PROJECT_VALIDATION_MESSAGES = {
 
 /**
  * ソート可能フィールド
+ *
+ * Task 21.2: ソートフィールドの拡張
+ * - 'id'を削除
+ * - 'tradingPartnerId'を'customerName'に変更（tradingPartner.nameへのエイリアス）
+ * - 'salesPersonName'を追加（salesPerson.displayNameへのエイリアス）
+ * - 'constructionPersonName'を追加（constructionPerson.displayNameへのエイリアス）
+ *
+ * Requirements: 6.5
  */
 export const SORTABLE_FIELDS = [
-  'id',
   'name',
-  'tradingPartnerId',
+  'customerName',
+  'salesPersonName',
+  'constructionPersonName',
   'status',
   'createdAt',
   'updatedAt',
