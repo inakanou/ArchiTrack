@@ -32,6 +32,12 @@ import type {
 
 /**
  * プロジェクト一覧取得のオプション
+ *
+ * Task 22.1: SortField型の更新に伴うsortフィールドの変更
+ * - 'id'を削除
+ * - 'salesPersonName', 'constructionPersonName'を追加
+ *
+ * Requirements: 6.5
  */
 export interface GetProjectsOptions {
   /** ページ番号（1始まり） */
@@ -41,7 +47,14 @@ export interface GetProjectsOptions {
   /** フィルタ条件 */
   filter?: ProjectFilter;
   /** ソートフィールド */
-  sort?: 'id' | 'name' | 'customerName' | 'status' | 'createdAt' | 'updatedAt';
+  sort?:
+    | 'name'
+    | 'customerName'
+    | 'salesPersonName'
+    | 'constructionPersonName'
+    | 'status'
+    | 'createdAt'
+    | 'updatedAt';
   /** ソート順序 */
   order?: 'asc' | 'desc';
 }

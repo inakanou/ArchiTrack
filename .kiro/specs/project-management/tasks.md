@@ -587,13 +587,18 @@
 
 ## Task 22: フロントエンド差分実装
 
-- [ ] 22.1 (P) SortField型定義の更新
+- [x] 22.1 (P) SortField型定義の更新
   - SortFieldから'id'を削除
   - SortFieldに'salesPersonName', 'constructionPersonName'を追加
   - ProjectListPageの状態管理に反映
+  - GetProjectsOptions.sortフィールドも同様に更新
+  - ProjectListTableのCOLUMS配列も同時に更新（ID列削除、営業担当者・工事担当者列追加）
+  - 既存テストを新しい列構成に対応するよう更新
+  - SortField.test.tsを新規作成して型テストを追加
   - _Requirements: 6.5_
+  - _Completed: 2025-12-13_
 
-- [ ] 22.2 ProjectListTableコンポーネントの列構成変更
+- [x] 22.2 ProjectListTableコンポーネントの列構成変更
   - COLUMNS配列からID列を削除
   - COLUMNS配列に営業担当者列を追加（key: 'salesPersonName'）
   - COLUMNS配列に工事担当者列を追加（key: 'constructionPersonName'）
@@ -601,6 +606,8 @@
   - 工事担当者はnullableなのでオプショナルチェイン（project.constructionPerson?.displayName ?? '-'）
   - 22.1の型更新が必要
   - _Requirements: 2.2, 6.5_
+  - _Note: 22.1と併せて実装済み（同時に変更しないと型エラーが発生するため）_
+  - _Completed: 2025-12-13_
 
 - [ ] 22.3 (P) ProjectListCardコンポーネントの表示項目更新
   - カード表示に営業担当者を追加
