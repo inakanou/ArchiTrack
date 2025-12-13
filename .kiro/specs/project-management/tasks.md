@@ -1,5 +1,12 @@
 # Implementation Plan
 
+## 既存実装タスク（完了済み）
+
+> 以下のタスクは初期実装時に完了済みです。差分実装タスクは「差分実装タスク」セクションを参照してください。
+
+<details>
+<summary>Task 1〜20: 既存タスク（クリックで展開）</summary>
+
 ## Task 1: データベーススキーマとモデル基盤
 
 - [x] 1.1 (P) プロジェクトステータスとトランジション種別のEnum定義
@@ -516,3 +523,199 @@
   - プロジェクト詳細画面で取引先名が表示されることを確認
   - プロジェクト一覧画面で取引先名が表示されることを確認
   - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.9, 22.10_
+
+</details>
+
+---
+
+## 差分実装タスク（2025-12-13要件変更対応）
+
+以下のタスクは、2025-12-13の要件更新に対応するための差分実装です。
+
+### 変更概要
+
+1. **一覧表示の列構成変更**: ID列削除、営業担当者・工事担当者列追加（2.2）
+2. **検索対象の拡張**: 営業担当者・工事担当者を検索対象に追加（4.1a, 4.1b）
+3. **フリガナ検索のひらがな・カタカナ両対応**: 取引先検索でひらがな・カタカナどちらの入力でも検索可能（16.3, 22.5）
+4. **プロジェクト名一意性チェック**: 作成・更新時に重複チェックを実行、409エラーを返却（1.15, 1.16, 8.7, 8.8）
+5. **ソートフィールドの拡張**: 営業担当者・工事担当者でのソートを追加（6.5）
+
+---
+
+## Task 21: バックエンド差分実装
+
+- [ ] 21.1 (P) プロジェクト名重複エラークラスの追加
+  - DuplicateProjectNameErrorクラスをprojectError.tsに追加
+  - PROBLEM_TYPES.PROJECT_NAME_DUPLICATEを追加
+  - ERROR_CODES.PROJECT_NAME_DUPLICATEを追加
+  - エラーメッセージ「このプロジェクト名は既に使用されています」を設定
+  - _Requirements: 1.15, 8.7_
+
+- [ ] 21.2 (P) ソートフィールド拡張のZodスキーマ更新
+  - SORTABLE_FIELDSから'id'を削除
+  - SORTABLE_FIELDSに'salesPersonName', 'constructionPersonName'を追加
+  - 'customerName'（既存の'tradingPartnerId'からエイリアス）を追加
+  - _Requirements: 6.5_
+
+- [ ] 21.3 ProjectServiceにプロジェクト名一意性チェックを追加
+  - checkProjectNameUniquenessプライベートメソッドを追加
+  - 論理削除されていないプロジェクトのみを対象にチェック
+  - createProjectメソッド内でプロジェクト名重複チェックを呼び出し
+  - updateProjectメソッド内でプロジェクト名重複チェックを呼び出し（自身を除外）
+  - 21.1のエラークラスが必要
+  - _Requirements: 1.15, 1.16, 8.7, 8.8_
+
+- [ ] 21.4 (P) ProjectServiceに検索対象拡張を追加
+  - getProjectsメソッドの検索クエリに営業担当者の表示名を追加
+  - getProjectsメソッドの検索クエリに工事担当者の表示名を追加
+  - Prismaのincludeでリレーション取得済みであることを確認
+  - _Requirements: 4.1a, 4.1b_
+
+- [ ] 21.5 (P) ProjectServiceにソートロジック拡張を追加
+  - buildOrderByメソッドに'customerName'ケースを追加（tradingPartner.name）
+  - buildOrderByメソッドに'salesPersonName'ケースを追加（salesPerson.displayName）
+  - buildOrderByメソッドに'constructionPersonName'ケースを追加（constructionPerson.displayName）
+  - 21.2のスキーマ更新が必要
+  - _Requirements: 6.5_
+
+- [ ] 21.6 プロジェクトルートに409エラーハンドリングを追加
+  - POST /api/projectsハンドラでDuplicateProjectNameErrorをキャッチ
+  - PUT /api/projects/:idハンドラでDuplicateProjectNameErrorをキャッチ
+  - RFC 7807形式のエラーレスポンスを返却（type, title, status, detail, code, projectName）
+  - 21.1と21.3が必要
+  - _Requirements: 1.15, 8.7_
+
+## Task 22: フロントエンド差分実装
+
+- [ ] 22.1 (P) SortField型定義の更新
+  - SortFieldから'id'を削除
+  - SortFieldに'salesPersonName', 'constructionPersonName'を追加
+  - ProjectListPageの状態管理に反映
+  - _Requirements: 6.5_
+
+- [ ] 22.2 ProjectListTableコンポーネントの列構成変更
+  - COLUMNS配列からID列を削除
+  - COLUMNS配列に営業担当者列を追加（key: 'salesPersonName'）
+  - COLUMNS配列に工事担当者列を追加（key: 'constructionPersonName'）
+  - テーブルセルのレンダリングで担当者の表示名を表示
+  - 工事担当者はnullableなのでオプショナルチェイン（project.constructionPerson?.displayName ?? '-'）
+  - 22.1の型更新が必要
+  - _Requirements: 2.2, 6.5_
+
+- [ ] 22.3 (P) ProjectListCardコンポーネントの表示項目更新
+  - カード表示に営業担当者を追加
+  - カード表示に工事担当者を追加
+  - モバイル表示時のレイアウト調整
+  - _Requirements: 2.2_
+
+- [ ] 22.4 (P) プロジェクトAPIクライアントに409エラーハンドリング追加
+  - createProject関数で409エラーを識別
+  - updateProject関数で409エラーを識別
+  - DuplicateProjectNameErrorResponse型を定義
+  - エラー情報を呼び出し元に伝播
+  - _Requirements: 1.15, 8.7_
+
+- [ ] 22.5 ProjectFormコンポーネントにプロジェクト名重複エラー表示を追加
+  - submitError propsでサーバーエラーを受け取り
+  - 409エラー時にプロジェクト名フィールドにエラーメッセージを表示
+  - 「このプロジェクト名は既に使用されています」メッセージを表示
+  - 22.4のエラーハンドリングが必要
+  - _Requirements: 1.15, 8.7_
+
+- [ ] 22.6 ProjectCreatePageに409エラーハンドリングを追加
+  - createProject呼び出し時の409エラーをキャッチ
+  - ProjectFormにsubmitErrorを渡す
+  - エラー発生時のUIフィードバック（トースト通知）
+  - 22.4と22.5が必要
+  - _Requirements: 1.15_
+
+- [ ] 22.7 ProjectEditPageに409エラーハンドリングを追加
+  - updateProject呼び出し時の409エラーをキャッチ
+  - ProjectFormにsubmitErrorを渡す
+  - エラー発生時のUIフィードバック（トースト通知）
+  - 22.4と22.5が必要
+  - _Requirements: 8.7_
+
+## Task 23: フリガナ検索ひらがな・カタカナ両対応
+
+- [ ] 23.1 取引先サービスのひらがな・カタカナ変換確認
+  - trading-partner.service.tsのひらがな⇔カタカナ変換ロジックが実装済みか確認
+  - 実装済みでない場合は変換関数を追加
+  - 検索時にhiraganaToKatakana、katakanaToHiragana両方で検索
+  - _Requirements: 16.3, 22.5_
+
+## Task 24: 差分実装のテスト
+
+- [ ] 24.1 (P) プロジェクト名一意性チェックのユニットテスト
+  - createProject: 重複プロジェクト名でDuplicateProjectNameErrorを検証
+  - updateProject: 重複プロジェクト名（自身除外）でエラーを検証
+  - updateProject: 同名でも自身の場合はエラーなしを検証
+  - 論理削除されたプロジェクト名は重複チェック対象外を検証
+  - _Requirements: 1.15, 1.16, 8.7, 8.8_
+
+- [ ] 24.2 (P) 検索対象拡張のユニットテスト
+  - getProjects: 営業担当者名での検索を検証
+  - getProjects: 工事担当者名での検索を検証
+  - getProjects: 複数フィールド（プロジェクト名、顧客名、担当者名）の部分一致を検証
+  - _Requirements: 4.1a, 4.1b_
+
+- [ ] 24.3 (P) ソート拡張のユニットテスト
+  - getProjects: salesPersonNameでの昇順・降順ソートを検証
+  - getProjects: constructionPersonNameでの昇順・降順ソートを検証
+  - getProjects: customerNameでの昇順・降順ソートを検証
+  - _Requirements: 6.5_
+
+- [ ] 24.4 (P) フロントエンド一覧表示のユニットテスト
+  - ProjectListTable: 営業担当者列の表示を検証
+  - ProjectListTable: 工事担当者列の表示を検証
+  - ProjectListTable: ID列が表示されないことを検証
+  - ProjectListTable: 工事担当者null時の「-」表示を検証
+  - _Requirements: 2.2_
+
+- [ ] 24.5 (P) プロジェクト名重複エラー表示のユニットテスト
+  - ProjectForm: 409エラー時のエラーメッセージ表示を検証
+  - ProjectCreatePage: 作成時の重複エラーハンドリングを検証
+  - ProjectEditPage: 更新時の重複エラーハンドリングを検証
+  - _Requirements: 1.15, 8.7_
+
+## Task 25: 差分実装のE2Eテスト
+
+- [ ] 25.1 プロジェクト名一意性チェックE2Eテスト
+  - プロジェクト作成時に重複プロジェクト名でエラーメッセージが表示されることを確認
+  - プロジェクト編集時に重複プロジェクト名でエラーメッセージが表示されることを確認
+  - 重複エラー後にプロジェクト名を変更して正常に保存できることを確認
+  - 24.1完了後に実施
+  - _Requirements: 1.15, 1.16, 8.7, 8.8_
+
+- [ ] 25.2 一覧表示の列構成変更E2Eテスト
+  - 一覧画面でID列が表示されないことを確認
+  - 一覧画面で営業担当者列が表示されることを確認
+  - 一覧画面で工事担当者列が表示されることを確認
+  - 営業担当者・工事担当者の表示名が正しく表示されることを確認
+  - 工事担当者未設定時に「-」が表示されることを確認
+  - _Requirements: 2.2_
+
+- [ ] 25.3 検索対象拡張E2Eテスト
+  - 営業担当者名での検索結果が正しいことを確認
+  - 工事担当者名での検索結果が正しいことを確認
+  - 複数フィールドにまたがる検索が動作することを確認
+  - 24.2完了後に実施
+  - _Requirements: 4.1a, 4.1b_
+
+- [ ] 25.4 ソート拡張E2Eテスト
+  - 営業担当者列のヘッダークリックでソートが動作することを確認
+  - 工事担当者列のヘッダークリックでソートが動作することを確認
+  - 昇順・降順の切り替えが正しく動作することを確認
+  - ソートアイコンが適切に表示されることを確認
+  - 24.3完了後に実施
+  - _Requirements: 6.5_
+
+## Task 26: 統合テストと動作確認
+
+- [ ] 26.1 差分実装の統合テスト
+  - バックエンドAPIの一貫性を確認（検索、ソート、一意性チェック）
+  - フロントエンドUIの整合性を確認
+  - 既存機能への影響がないことを確認
+  - エラーハンドリングの動作確認
+  - 25.1〜25.4完了後に実施
+  - _Requirements: 1.15, 1.16, 2.2, 4.1a, 4.1b, 6.5, 8.7, 8.8, 16.3, 22.5_
