@@ -633,12 +633,13 @@
   - _Requirements: 1.15, 8.7_
   - _Completed: 2025-12-13_
 
-- [ ] 22.6 ProjectCreatePageに409エラーハンドリングを追加
+- [x] 22.6 ProjectCreatePageに409エラーハンドリングを追加
   - createProject呼び出し時の409エラーをキャッチ
   - ProjectFormにsubmitErrorを渡す
   - エラー発生時のUIフィードバック（トースト通知）
   - 22.4と22.5が必要
   - _Requirements: 1.15_
+  - _Completed: 2025-12-13_
 
 - [ ] 22.7 ProjectEditPageに409エラーハンドリングを追加
   - updateProject呼び出し時の409エラーをキャッチ

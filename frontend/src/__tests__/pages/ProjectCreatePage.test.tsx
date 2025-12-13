@@ -2,11 +2,13 @@
  * @fileoverview プロジェクト作成ページのテスト
  *
  * Task 10.3: ルーティング設定
+ * Task 22.6: ProjectCreatePageに409エラーハンドリングを追加
  *
  * Requirements:
  * - 1.1: 「新規作成」ボタンでプロジェクト作成フォームを表示する
  * - 1.7: 「作成」ボタンをクリックした場合、プロジェクトが作成され、詳細画面に遷移
  * - 1.8: 作成成功時に成功メッセージを表示
+ * - 1.15: プロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
  * - 13.9: サーバーサイドバリデーションエラー発生時、エラーメッセージを該当フィールドに表示
  * - 18.1: APIエラーが発生した場合、エラーダイアログを表示
  */
@@ -50,14 +52,14 @@ vi.mock('../../api/client', () => ({
     setAccessToken: vi.fn(),
   },
   ApiError: class ApiError extends Error {
-    constructor(
-      message: string,
-      public status?: number,
-      public code?: string,
-      public details?: unknown
-    ) {
+    public statusCode: number;
+    public response?: unknown;
+
+    constructor(statusCode: number, message: string, response?: unknown) {
       super(message);
       this.name = 'ApiError';
+      this.statusCode = statusCode;
+      this.response = response;
     }
   },
 }));
@@ -120,7 +122,7 @@ describe('ProjectCreatePage', () => {
         expect(screen.getByLabelText(/プロジェクト名/i)).toBeInTheDocument();
       });
 
-      expect(screen.getByLabelText(/顧客名/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/取引先/i)).toBeInTheDocument();
 
       // UserSelectのローディング完了を待つ
       await waitFor(() => {
@@ -157,9 +159,6 @@ describe('ProjectCreatePage', () => {
       const nameInput = screen.getByLabelText(/プロジェクト名/i);
       await userEvent.type(nameInput, 'Test Project');
 
-      const customerInput = screen.getByLabelText(/顧客名/i);
-      await userEvent.type(customerInput, 'Test Customer');
-
       // 営業担当者はデフォルトでログインユーザーが選択されている
 
       // 作成ボタンをクリック
@@ -174,7 +173,9 @@ describe('ProjectCreatePage', () => {
 
     it('APIエラー時、エラーメッセージを表示する', async () => {
       const { createProject } = await import('../../api/projects');
-      vi.mocked(createProject).mockRejectedValue(new ApiError(500, 'サーバーエラーが発生しました'));
+      vi.mocked(createProject).mockRejectedValue(
+        new ApiError(500, 'サーバーエラーが発生しました', { error: 'Internal Server Error' })
+      );
 
       renderWithRouter();
 
@@ -186,9 +187,6 @@ describe('ProjectCreatePage', () => {
       // フォーム入力
       const nameInput = screen.getByLabelText(/プロジェクト名/i);
       await userEvent.type(nameInput, 'Test Project');
-
-      const customerInput = screen.getByLabelText(/顧客名/i);
-      await userEvent.type(customerInput, 'Test Customer');
 
       // 作成ボタンをクリック
       const submitButton = screen.getByRole('button', { name: /作成$/i });
@@ -357,6 +355,196 @@ describe('ProjectCreatePage', () => {
 
       // パンくずナビゲーションがmain要素内に存在する
       expect(main.contains(breadcrumbNav)).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // Task 22.6: 409エラーハンドリングテスト
+  // ==========================================================================
+
+  describe('プロジェクト名重複エラー（Task 22.6）', () => {
+    it('409エラー（プロジェクト名重複）時、プロジェクト名フィールドにエラーを表示する', async () => {
+      const { createProject } = await import('../../api/projects');
+
+      // DuplicateProjectNameErrorResponse形式のレスポンスを含む409エラー
+      const duplicateErrorResponse = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'プロジェクト名重複エラー',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: 既存プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '既存プロジェクト',
+      };
+
+      vi.mocked(createProject).mockRejectedValue(
+        new ApiError(409, duplicateErrorResponse.detail, duplicateErrorResponse)
+      );
+
+      renderWithRouter();
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // フォーム入力（重複するプロジェクト名を入力）
+      const nameInput = screen.getByLabelText(/プロジェクト名/i);
+      await userEvent.type(nameInput, '既存プロジェクト');
+
+      // 作成ボタンをクリック
+      const submitButton = screen.getByRole('button', { name: /作成$/i });
+      await userEvent.click(submitButton);
+
+      // プロジェクト名フィールドにエラーメッセージが表示される
+      await waitFor(() => {
+        expect(screen.getByText('このプロジェクト名は既に使用されています')).toBeInTheDocument();
+      });
+
+      // 画面遷移していないことを確認
+      expect(mockNavigate).not.toHaveBeenCalledWith(expect.stringMatching(/^\/projects\/.+$/));
+    });
+
+    it('409エラー時、submitErrorがProjectFormに渡される', async () => {
+      const { createProject } = await import('../../api/projects');
+
+      // DuplicateProjectNameErrorResponse形式のレスポンスを含む409エラー
+      const duplicateErrorResponse = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'プロジェクト名重複エラー',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: 重複テスト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '重複テスト',
+      };
+
+      vi.mocked(createProject).mockRejectedValue(
+        new ApiError(409, duplicateErrorResponse.detail, duplicateErrorResponse)
+      );
+
+      renderWithRouter();
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // フォーム入力
+      const nameInput = screen.getByLabelText(/プロジェクト名/i);
+      await userEvent.type(nameInput, '重複テスト');
+
+      // 作成ボタンをクリック
+      const submitButton = screen.getByRole('button', { name: /作成$/i });
+      await userEvent.click(submitButton);
+
+      // エラーメッセージがプロジェクト名フィールドの近くに表示される
+      await waitFor(() => {
+        // プロジェクト名フィールドがaria-invalid="true"になっている
+        const nameField = screen.getByLabelText(/プロジェクト名/i);
+        expect(nameField).toHaveAttribute('aria-invalid', 'true');
+      });
+    });
+
+    it('409エラー時、ページ上部のエラーアラートも表示される', async () => {
+      const { createProject } = await import('../../api/projects');
+
+      const duplicateErrorResponse = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'プロジェクト名重複エラー',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: アラートテスト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: 'アラートテスト',
+      };
+
+      vi.mocked(createProject).mockRejectedValue(
+        new ApiError(409, duplicateErrorResponse.detail, duplicateErrorResponse)
+      );
+
+      renderWithRouter();
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // フォーム入力
+      const nameInput = screen.getByLabelText(/プロジェクト名/i);
+      await userEvent.type(nameInput, 'アラートテスト');
+
+      // 作成ボタンをクリック
+      const submitButton = screen.getByRole('button', { name: /作成$/i });
+      await userEvent.click(submitButton);
+
+      // ページ上部のエラーアラートとフィールドエラーの両方が表示される
+      // 複数のアラートがあることを確認（ページ上部 + フィールド内）
+      await waitFor(() => {
+        const alerts = screen.getAllByRole('alert');
+        expect(alerts.length).toBeGreaterThanOrEqual(1);
+        // ページ上部のエラーメッセージを確認（サーバーからのdetailメッセージ）
+        expect(
+          screen.getByText('このプロジェクト名は既に使用されています: アラートテスト')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('再送信時にsubmitErrorがクリアされ、新しいエラーが設定される', async () => {
+      const { createProject } = await import('../../api/projects');
+
+      const duplicateErrorResponse1 = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'プロジェクト名重複エラー',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: 最初のプロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '最初のプロジェクト',
+      };
+
+      vi.mocked(createProject).mockRejectedValue(
+        new ApiError(409, duplicateErrorResponse1.detail, duplicateErrorResponse1)
+      );
+
+      renderWithRouter();
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // 最初の送信
+      const nameInput = screen.getByLabelText(/プロジェクト名/i);
+      await userEvent.type(nameInput, '最初のプロジェクト');
+
+      const submitButton = screen.getByRole('button', { name: /作成$/i });
+      await userEvent.click(submitButton);
+
+      // エラー表示を確認
+      await waitFor(() => {
+        expect(screen.getByText('このプロジェクト名は既に使用されています')).toBeInTheDocument();
+      });
+
+      // 2回目の送信（成功するケース）
+      vi.mocked(createProject).mockResolvedValue({
+        id: 'new-project-id',
+        name: '最初のプロジェクト改',
+        tradingPartnerId: null,
+        tradingPartner: null,
+        salesPerson: { id: 'current-user-id', displayName: 'Current User' },
+        status: 'PREPARING',
+        statusLabel: '準備中',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      // プロジェクト名を修正
+      await userEvent.clear(nameInput);
+      await userEvent.type(nameInput, '最初のプロジェクト改');
+
+      await userEvent.click(submitButton);
+
+      // 成功時は詳細ページに遷移
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/new-project-id');
+      });
     });
   });
 });
