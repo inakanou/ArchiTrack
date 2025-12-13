@@ -674,24 +674,27 @@
   - _Requirements: 4.1a, 4.1b_
   - _Completed: 2025-12-13_
 
-- [ ] 24.3 (P) ソート拡張のユニットテスト
+- [x] 24.3 (P) ソート拡張のユニットテスト
   - getProjects: salesPersonNameでの昇順・降順ソートを検証
   - getProjects: constructionPersonNameでの昇順・降順ソートを検証
   - getProjects: customerNameでの昇順・降順ソートを検証
   - _Requirements: 6.5_
+  - _Completed: 2025-12-13_
 
-- [ ] 24.4 (P) フロントエンド一覧表示のユニットテスト
+- [x] 24.4 (P) フロントエンド一覧表示のユニットテスト
   - ProjectListTable: 営業担当者列の表示を検証
   - ProjectListTable: 工事担当者列の表示を検証
   - ProjectListTable: ID列が表示されないことを検証
   - ProjectListTable: 工事担当者null時の「-」表示を検証
   - _Requirements: 2.2_
+  - _Completed: 2025-12-13_
 
-- [ ] 24.5 (P) プロジェクト名重複エラー表示のユニットテスト
+- [x] 24.5 (P) プロジェクト名重複エラー表示のユニットテスト
   - ProjectForm: 409エラー時のエラーメッセージ表示を検証
   - ProjectCreatePage: 作成時の重複エラーハンドリングを検証
   - ProjectEditPage: 更新時の重複エラーハンドリングを検証
   - _Requirements: 1.15, 8.7_
+  - _Completed: 2025-12-13_
 
 ## Task 25: 差分実装のE2Eテスト
 
