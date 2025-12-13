@@ -7,7 +7,7 @@
  * - 1.7, 1.8, 1.14, 1.15: プロジェクト作成（初期ステータス履歴含む）
  * - 2.1, 2.2, 2.6: プロジェクト一覧表示
  * - 3.1, 3.2, 3.3, 3.4, 3.5: ページネーション
- * - 4.1: 検索
+ * - 4.1, 4.1a, 4.1b: 検索（プロジェクト名・顧客名・営業担当者・工事担当者）
  * - 5.1, 5.2, 5.3, 5.4: フィルタリング
  * - 6.1, 6.2, 6.5: ソート
  * - 7.1: プロジェクト詳細取得
@@ -342,6 +342,116 @@ describe('ProjectService', () => {
   });
 
   describe('getProjects', () => {
+    /**
+     * 検索対象拡張のテスト（Requirements: 4.1a, 4.1b）
+     *
+     * 検索対象:
+     * - プロジェクト名
+     * - 顧客名（取引先名）
+     * - 顧客名フリガナ（取引先フリガナ）
+     * - 営業担当者の表示名 (4.1a)
+     * - 工事担当者の表示名 (4.1b)
+     */
+    describe('検索対象拡張 (4.1a, 4.1b)', () => {
+      it('営業担当者名で検索できる', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          { search: 'テストユーザー' },
+          { page: 1, limit: 20 },
+          { sort: 'updatedAt', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: expect.arrayContaining([
+                {
+                  salesPerson: { displayName: { contains: 'テストユーザー', mode: 'insensitive' } },
+                },
+              ]),
+            }),
+          })
+        );
+      });
+
+      it('工事担当者名で検索できる', async () => {
+        // Arrange
+        const projectWithConstruction = {
+          ...mockProject,
+          constructionPersonId: 'user-456',
+          constructionPerson: { id: 'user-456', displayName: '工事担当者' },
+        };
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([projectWithConstruction]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          { search: '工事担当者' },
+          { page: 1, limit: 20 },
+          { sort: 'updatedAt', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: expect.arrayContaining([
+                {
+                  constructionPerson: {
+                    displayName: { contains: '工事担当者', mode: 'insensitive' },
+                  },
+                },
+              ]),
+            }),
+          })
+        );
+      });
+
+      it('検索キーワードがプロジェクト名、顧客名、営業担当者、工事担当者のいずれかにマッチする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          { search: '検索キーワード' },
+          { page: 1, limit: 20 },
+          { sort: 'updatedAt', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: [
+                { name: { contains: '検索キーワード', mode: 'insensitive' } },
+                { tradingPartner: { name: { contains: '検索キーワード', mode: 'insensitive' } } },
+                {
+                  tradingPartner: { nameKana: { contains: '検索キーワード', mode: 'insensitive' } },
+                },
+                {
+                  salesPerson: { displayName: { contains: '検索キーワード', mode: 'insensitive' } },
+                },
+                {
+                  constructionPerson: {
+                    displayName: { contains: '検索キーワード', mode: 'insensitive' },
+                  },
+                },
+              ],
+            }),
+          })
+        );
+      });
+    });
+
     it('ページネーション付きでプロジェクト一覧を取得する', async () => {
       // Arrange
       const projects = [mockProject];
@@ -385,6 +495,8 @@ describe('ProjectService', () => {
               { name: { contains: 'テスト', mode: 'insensitive' } },
               { tradingPartner: { name: { contains: 'テスト', mode: 'insensitive' } } },
               { tradingPartner: { nameKana: { contains: 'テスト', mode: 'insensitive' } } },
+              { salesPerson: { displayName: { contains: 'テスト', mode: 'insensitive' } } },
+              { constructionPerson: { displayName: { contains: 'テスト', mode: 'insensitive' } } },
             ]),
           }),
         })

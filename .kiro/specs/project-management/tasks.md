@@ -565,7 +565,7 @@
   - 21.1のエラークラスが必要
   - _Requirements: 1.15, 1.16, 8.7, 8.8_
 
-- [ ] 21.4 (P) ProjectServiceに検索対象拡張を追加
+- [x] 21.4 (P) ProjectServiceに検索対象拡張を追加
   - getProjectsメソッドの検索クエリに営業担当者の表示名を追加
   - getProjectsメソッドの検索クエリに工事担当者の表示名を追加
   - Prismaのincludeでリレーション取得済みであることを確認

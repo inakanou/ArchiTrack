@@ -8,7 +8,7 @@
  * - 1.15, 1.16: プロジェクト名の一意性チェック（作成時）
  * - 2.1, 2.2, 2.6: プロジェクト一覧表示
  * - 3.1, 3.2, 3.3, 3.4, 3.5: ページネーション
- * - 4.1: 検索（プロジェクト名・顧客名の部分一致）
+ * - 4.1, 4.1a, 4.1b: 検索（プロジェクト名・顧客名・営業担当者・工事担当者の部分一致）
  * - 5.1, 5.2, 5.3, 5.4: フィルタリング（ステータス、作成日範囲）
  * - 6.1, 6.2, 6.5: ソート
  * - 7.1: プロジェクト詳細取得
@@ -289,12 +289,19 @@ export class ProjectService {
       deletedAt: null,
     };
 
-    // 検索キーワード（プロジェクト名・取引先名の部分一致）
+    // 検索キーワード（プロジェクト名・取引先名・営業担当者・工事担当者の部分一致）
+    // Requirements: 4.1a, 4.1b - 検索対象に営業担当者・工事担当者を追加
     if (filter.search) {
       where.OR = [
         { name: { contains: filter.search, mode: 'insensitive' as const } },
         { tradingPartner: { name: { contains: filter.search, mode: 'insensitive' as const } } },
         { tradingPartner: { nameKana: { contains: filter.search, mode: 'insensitive' as const } } },
+        { salesPerson: { displayName: { contains: filter.search, mode: 'insensitive' as const } } },
+        {
+          constructionPerson: {
+            displayName: { contains: filter.search, mode: 'insensitive' as const },
+          },
+        },
       ];
     }
 
