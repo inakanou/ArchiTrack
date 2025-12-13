@@ -2,6 +2,7 @@
  * @fileoverview プロジェクト編集ページ
  *
  * Task 19.4: ProjectEditPageの実装とパンくずナビゲーション追加
+ * Task 22.7: 409エラーハンドリングを追加
  *
  * ProjectFormコンポーネントを編集モードで使用。
  * パンくずナビゲーション、楽観的排他制御、保存成功時の詳細ページ遷移を提供。
@@ -18,12 +19,15 @@
  * - 8.4: バリデーションエラーが発生するとエラーメッセージを表示
  * - 8.5: キャンセルボタンで詳細ページに戻る
  * - 8.6: 楽観的排他制御による競合検出
+ * - 8.7: 更新時にプロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getProject, updateProject } from '../api/projects';
+import { ApiError } from '../api/client';
 import type { ProjectDetail } from '../types/project.types';
+import { isDuplicateProjectNameErrorResponse } from '../types/project.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
@@ -33,22 +37,7 @@ import { useToast } from '../hooks/useToast';
 // 型定義
 // ============================================================================
 
-/**
- * APIエラーの型
- */
-interface ApiErrorLike {
-  statusCode?: number;
-  message?: string;
-}
-
-/**
- * ApiErrorかどうかを判定する型ガード
- */
-function isApiError(error: unknown): error is ApiErrorLike {
-  return (
-    typeof error === 'object' && error !== null && ('statusCode' in error || 'message' in error)
-  );
-}
+// ApiError class is imported from '../api/client'
 
 // ============================================================================
 // スタイル定義
@@ -152,7 +141,7 @@ const styles = {
 export default function ProjectEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { projectUpdated } = useToast();
+  const { projectUpdated, operationFailed } = useToast();
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -163,7 +152,12 @@ export default function ProjectEditPage() {
 
   // エラー状態
   const [error, setError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  /**
+   * サーバーからのエラーレスポンス
+   * Task 22.7: ProjectFormに渡してプロジェクト名重複エラーをフィールドに表示
+   * Requirements: 8.7
+   */
+  const [submitError, setSubmitError] = useState<unknown | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
 
   /**
@@ -180,7 +174,7 @@ export default function ProjectEditPage() {
       const data = await getProject(id);
       setProject(data);
     } catch (err) {
-      if (isApiError(err)) {
+      if (err instanceof ApiError) {
         if (err.statusCode === 404) {
           setIsNotFound(true);
           return;
@@ -201,13 +195,18 @@ export default function ProjectEditPage() {
 
   /**
    * フォーム送信ハンドラ
-   * (REQ-8.3, 8.6, 21.21)
+   * (REQ-8.3, 8.6, 8.7, 21.21)
+   *
+   * Task 22.7: 409エラーハンドリングを追加
+   * - プロジェクト名重複エラー: submitErrorにサーバーレスポンスを保存しProjectFormに渡す
+   * - 楽観的排他制御エラー: submitErrorにサーバーレスポンスを保存
    */
   const handleSubmit = useCallback(
     async (data: ProjectFormData) => {
       if (!id || !project) return;
 
       setIsSubmitting(true);
+      // 再送信時にsubmitErrorをクリア（Task 22.7）
       setSubmitError(null);
 
       try {
@@ -229,23 +228,32 @@ export default function ProjectEditPage() {
         projectUpdated();
         navigate(`/projects/${id}`);
       } catch (err) {
-        if (isApiError(err)) {
-          if (err.statusCode === 409) {
-            // 競合エラー
-            setSubmitError(
-              err.message || 'このプロジェクトは他のユーザーによって更新されています。'
-            );
+        if (err instanceof ApiError) {
+          const errorMessage = err.message || 'プロジェクトの更新に失敗しました';
+
+          // トースト通知でエラーを表示
+          operationFailed(errorMessage);
+
+          if (err.statusCode === 409 && isDuplicateProjectNameErrorResponse(err.response)) {
+            // Task 22.7: プロジェクト名重複エラー（409）の場合
+            // サーバーレスポンスをProjectFormに渡す
+            // これにより、ProjectFormがプロジェクト名重複エラーをフィールドに表示できる
+            setSubmitError(err.response);
           } else {
-            setSubmitError(err.message || 'プロジェクトの更新に失敗しました');
+            // 楽観的排他制御エラー（409だがプロジェクト名重複ではない）や
+            // その他のエラーは文字列として保存
+            setSubmitError(errorMessage);
           }
         } else {
-          setSubmitError('プロジェクトの更新に失敗しました');
+          const defaultErrorMessage = 'プロジェクトの更新に失敗しました';
+          operationFailed(defaultErrorMessage);
+          setSubmitError(defaultErrorMessage);
         }
       } finally {
         setIsSubmitting(false);
       }
     },
-    [id, project, navigate, projectUpdated]
+    [id, project, navigate, projectUpdated, operationFailed]
   );
 
   /**
@@ -338,22 +346,31 @@ export default function ProjectEditPage() {
         <h1 style={styles.title}>プロジェクトを編集</h1>
       </header>
 
-      {/* 送信エラー表示 (REQ-8.6) */}
-      {submitError && (
+      {/*
+        送信エラー表示 (REQ-8.6, 8.7)
+        Task 22.7: プロジェクト名重複エラーはProjectForm内で表示するため、
+        ここではプロジェクト名重複エラー以外のエラーのみ表示
+      */}
+      {submitError !== null && !isDuplicateProjectNameErrorResponse(submitError) && (
         <div role="alert" style={styles.submitErrorContainer}>
-          <p style={styles.submitErrorText}>{submitError}</p>
+          <p style={styles.submitErrorText}>
+            {typeof submitError === 'string'
+              ? (submitError as string)
+              : 'プロジェクトの更新に失敗しました'}
+          </p>
         </div>
       )}
 
       {/* フォームセクション */}
       <section style={styles.formSection}>
         {/*
-          ProjectForm (REQ-8.1, 8.2, 8.3, 8.4, 8.5)
+          ProjectForm (REQ-8.1, 8.2, 8.3, 8.4, 8.5, 8.7)
           - mode="edit" で編集モード
           - initialData で現在のプロジェクト情報をプリセット
           - key={project.id} でプロジェクト変更時にフォームをリセット
           - onSubmit で保存処理（楽観的排他制御）
           - onCancel で詳細ページへ戻る
+          - submitError でサーバーエラーレスポンスを渡す（Task 22.7）
         */}
         <ProjectForm
           key={project.id}
@@ -362,6 +379,7 @@ export default function ProjectEditPage() {
           onSubmit={handleSubmit}
           onCancel={handleCancel}
           isSubmitting={isSubmitting}
+          submitError={submitError}
         />
       </section>
     </main>
