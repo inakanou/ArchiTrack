@@ -571,7 +571,7 @@
   - Prismaのincludeでリレーション取得済みであることを確認
   - _Requirements: 4.1a, 4.1b_
 
-- [ ] 21.5 (P) ProjectServiceにソートロジック拡張を追加
+- [x] 21.5 (P) ProjectServiceにソートロジック拡張を追加
   - buildOrderByメソッドに'customerName'ケースを追加（tradingPartner.name）
   - buildOrderByメソッドに'salesPersonName'ケースを追加（salesPerson.displayName）
   - buildOrderByメソッドに'constructionPersonName'ケースを追加（constructionPerson.displayName）

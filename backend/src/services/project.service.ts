@@ -353,7 +353,7 @@ export class ProjectService {
           },
         },
       },
-      orderBy: { [sort.sort]: sort.order },
+      orderBy: this.buildOrderBy(sort),
       skip: (pagination.page - 1) * pagination.limit,
       take: pagination.limit,
     });
@@ -709,6 +709,36 @@ export class ProjectService {
       throw new ProjectValidationError({
         [fieldName]: '管理者ユーザーは担当者として指定できません',
       });
+    }
+  }
+
+  /**
+   * ソートフィールドに基づいてPrisma orderByオブジェクトを構築
+   *
+   * リレーションフィールドへのエイリアスを解決:
+   * - customerName -> tradingPartner.name
+   * - salesPersonName -> salesPerson.displayName
+   * - constructionPersonName -> constructionPerson.displayName
+   *
+   * Requirements:
+   * - 6.5: ソート可能フィールドに営業担当者・工事担当者を追加
+   * - Task 21.5: buildOrderByメソッドにリレーションソートケースを追加
+   *
+   * @param sort - ソート入力（フィールドとオーダー）
+   * @returns Prisma orderByオブジェクト
+   */
+  private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
+    const { sort: field, order } = sort;
+
+    switch (field) {
+      case 'customerName':
+        return { tradingPartner: { name: order } };
+      case 'salesPersonName':
+        return { salesPerson: { displayName: order } };
+      case 'constructionPersonName':
+        return { constructionPerson: { displayName: order } };
+      default:
+        return { [field]: order };
     }
   }
 

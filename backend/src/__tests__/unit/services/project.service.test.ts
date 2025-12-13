@@ -568,6 +568,184 @@ describe('ProjectService', () => {
       );
     });
 
+    /**
+     * ソートロジック拡張のテスト（Task 21.5, Requirements: 6.5）
+     *
+     * リレーションフィールドでのソート対応:
+     * - customerName -> tradingPartner.name
+     * - salesPersonName -> salesPerson.displayName
+     * - constructionPersonName -> constructionPerson.displayName
+     */
+    describe('ソートロジック拡張 (Task 21.5, 6.5)', () => {
+      it('customerNameでソートする場合はtradingPartner.nameでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'customerName', order: 'asc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { tradingPartner: { name: 'asc' } },
+          })
+        );
+      });
+
+      it('customerNameで降順ソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'customerName', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { tradingPartner: { name: 'desc' } },
+          })
+        );
+      });
+
+      it('salesPersonNameでソートする場合はsalesPerson.displayNameでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'salesPersonName', order: 'asc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { salesPerson: { displayName: 'asc' } },
+          })
+        );
+      });
+
+      it('salesPersonNameで降順ソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'salesPersonName', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { salesPerson: { displayName: 'desc' } },
+          })
+        );
+      });
+
+      it('constructionPersonNameでソートする場合はconstructionPerson.displayNameでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'constructionPersonName', order: 'asc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { constructionPerson: { displayName: 'asc' } },
+          })
+        );
+      });
+
+      it('constructionPersonNameで降順ソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'constructionPersonName', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { constructionPerson: { displayName: 'desc' } },
+          })
+        );
+      });
+
+      it('statusでソートする場合は従来通りstatusフィールドでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects({}, { page: 1, limit: 20 }, { sort: 'status', order: 'asc' });
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { status: 'asc' },
+          })
+        );
+      });
+
+      it('createdAtでソートする場合は従来通りcreatedAtフィールドでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects({}, { page: 1, limit: 20 }, { sort: 'createdAt', order: 'desc' });
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { createdAt: 'desc' },
+          })
+        );
+      });
+
+      it('updatedAtでソートする場合は従来通りupdatedAtフィールドでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects({}, { page: 1, limit: 20 }, { sort: 'updatedAt', order: 'asc' });
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { updatedAt: 'asc' },
+          })
+        );
+      });
+    });
+
     it('論理削除されたプロジェクトを除外する', async () => {
       // Arrange
       mockPrisma.project.findMany = vi.fn().mockResolvedValue([]);
