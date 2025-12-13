@@ -79,8 +79,9 @@ test.describe('プロジェクト取引先連携', () => {
 
     /**
      * @requirement project-management/REQ-22.1
+     * @requirement project-management/REQ-22.2
      */
-    test('プロジェクト作成画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.1)', async ({
+    test('プロジェクト作成画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.1, REQ-22.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -107,9 +108,9 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.3
+     * @requirement project-management/REQ-22.4
      */
-    test('顧客選択時に取引先名またはフリガナで検索可能なオートコンプリート機能を提供する (project-management/REQ-22.3)', async ({
+    test('顧客選択時に取引先名またはフリガナで検索可能なオートコンプリート機能を提供する (project-management/REQ-22.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -137,9 +138,9 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.4
+     * @requirement project-management/REQ-22.5
      */
-    test('オートコンプリートの検索フィールドにテキストを入力すると300ms後に検索実行される (project-management/REQ-22.4)', async ({
+    test('オートコンプリートの検索フィールドにテキストを入力すると300ms後に検索実行される (project-management/REQ-22.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -191,9 +192,9 @@ test.describe('プロジェクト取引先連携', () => {
 
   test.describe('取引先オートコンプリート機能（編集画面）', () => {
     /**
-     * @requirement project-management/REQ-22.2
+     * @requirement project-management/REQ-22.3
      */
-    test('プロジェクト編集画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.2)', async ({
+    test('プロジェクト編集画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -271,9 +272,9 @@ test.describe('プロジェクト取引先連携', () => {
 
   test.describe('取引先表示形式のフォールバック', () => {
     /**
-     * @requirement project-management/REQ-22.6
+     * @requirement project-management/REQ-22.7
      */
-    test('部課・支店・支社名が未設定の場合、「名前 / 代表者名」の形式で表示する (project-management/REQ-22.6)', async ({
+    test('部課・支店・支社名が未設定の場合、「名前 / 代表者名」の形式で表示する (project-management/REQ-22.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -302,9 +303,9 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.7
+     * @requirement project-management/REQ-22.8
      */
-    test('代表者名が未設定の場合、「名前 / 部課・支店・支社名」または「名前」のみで表示する (project-management/REQ-22.7)', async ({
+    test('代表者名が未設定の場合、「名前 / 部課・支店・支社名」または「名前」のみで表示する (project-management/REQ-22.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -333,9 +334,9 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.8
+     * @requirement project-management/REQ-22.9
      */
-    test('取引先マスタに登録されていない顧客の自由入力を許可しない (project-management/REQ-22.8)', async ({
+    test('取引先マスタに登録されていない顧客の自由入力を許可しない (project-management/REQ-22.9)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -370,9 +371,9 @@ test.describe('プロジェクト取引先連携', () => {
 
   test.describe('取引先情報の表示', () => {
     /**
-     * @requirement project-management/REQ-22.5
+     * @requirement project-management/REQ-22.6
      */
-    test('プロジェクトが取引先と紐付いている場合、プロジェクト詳細画面に取引先情報を表示する (project-management/REQ-22.5)', async ({
+    test('プロジェクトが取引先と紐付いている場合、プロジェクト詳細画面に取引先情報を表示する (project-management/REQ-22.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -445,9 +446,9 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.9
+     * @requirement project-management/REQ-22.10
      */
-    test('プロジェクト詳細画面に取引先情報（名前）を表示する (project-management/REQ-22.9)', async ({
+    test('プロジェクト詳細画面に取引先情報（名前）を表示する (project-management/REQ-22.10)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -520,9 +521,9 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.10
+     * @requirement project-management/REQ-22.11
      */
-    test('プロジェクト一覧画面に取引先名を表示する (project-management/REQ-22.10)', async ({
+    test('プロジェクト一覧画面に取引先名を表示する (project-management/REQ-22.11)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

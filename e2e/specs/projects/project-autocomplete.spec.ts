@@ -26,8 +26,9 @@ test.describe('取引先オートコンプリート連携', () => {
     /**
      * @requirement project-management/REQ-1.3
      * @requirement project-management/REQ-16.1
+     * @requirement project-management/REQ-16.2
      */
-    test('取引先フィールドにテキスト入力すると取引先オートコンプリート候補が表示される (project-management/REQ-1.3, REQ-16.1)', async ({
+    test('取引先フィールドにテキスト入力すると取引先オートコンプリート候補が表示される (project-management/REQ-1.3, REQ-16.1, REQ-16.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -64,9 +65,9 @@ test.describe('取引先オートコンプリート連携', () => {
 
     /**
      * @requirement project-management/REQ-1.4
-     * @requirement project-management/REQ-16.9
+     * @requirement project-management/REQ-16.10
      */
-    test('オートコンプリート候補をクリックすると取引先フィールドに反映される (project-management/REQ-1.4, REQ-16.9)', async ({
+    test('オートコンプリート候補をクリックすると取引先フィールドに反映される (project-management/REQ-1.4, REQ-16.10)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -113,9 +114,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.2
+     * @requirement project-management/REQ-16.3
      */
-    test('入力文字列に前方一致または部分一致する取引先がオートコンプリート候補として表示される (project-management/REQ-16.2)', async ({
+    test('入力文字列に前方一致または部分一致する取引先がオートコンプリート候補として表示される (project-management/REQ-16.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -147,9 +148,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.6
+     * @requirement project-management/REQ-16.7
      */
-    test('取引先候補検索中にローディングインジケータが表示される (project-management/REQ-16.6)', async ({
+    test('取引先候補検索中にローディングインジケータが表示される (project-management/REQ-16.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -179,9 +180,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.7
+     * @requirement project-management/REQ-16.8
      */
-    test('該当する取引先候補が存在しない場合、「該当する取引先がありません」メッセージが表示される (project-management/REQ-16.7)', async ({
+    test('該当する取引先候補が存在しない場合、「該当する取引先がありません」メッセージが表示される (project-management/REQ-16.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -211,7 +212,7 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.5
+     * @requirement project-management/REQ-16.6
      * 備考: requirements.mdでは「最大10件」の明記はないが、UXとして妥当な上限
      */
     test('オートコンプリート候補は最大10件まで表示される (project-management/REQ-16.5)', async ({
@@ -244,9 +245,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.8
+     * @requirement project-management/REQ-16.9
      */
-    test('キーボードの上下キーで候補を選択してEnterキーで確定できる (project-management/REQ-16.8)', async ({
+    test('キーボードの上下キーで候補を選択してEnterキーで確定できる (project-management/REQ-16.9)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -319,9 +320,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.10
+     * @requirement project-management/REQ-16.11
      */
-    test('取引先はマスタ登録済みの候補からのみ選択可能（自由入力不可） (project-management/REQ-16.10)', async ({
+    test('取引先はマスタ登録済みの候補からのみ選択可能（自由入力不可） (project-management/REQ-16.11)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -385,9 +386,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.3
+     * @requirement project-management/REQ-16.4
      */
-    test('取引先候補の表示形式が「名前 / 部課・支店・支社名 / 代表者名」の組み合わせで表示される (project-management/REQ-16.3)', async ({
+    test('取引先候補の表示形式が「名前 / 部課・支店・支社名 / 代表者名」の組み合わせで表示される (project-management/REQ-16.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -425,9 +426,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.4
+     * @requirement project-management/REQ-16.5
      */
-    test('部課・支店・支社名が未設定の場合、「名前 / 代表者名」の形式で表示される (project-management/REQ-16.4)', async ({
+    test('部課・支店・支社名が未設定の場合、「名前 / 代表者名」の形式で表示される (project-management/REQ-16.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -457,9 +458,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.12
+     * @requirement project-management/REQ-16.13
      */
-    test('取引先種別に「顧客」（CUSTOMER）を含む取引先のみを候補として表示する (project-management/REQ-16.12)', async ({
+    test('取引先種別に「顧客」（CUSTOMER）を含む取引先のみを候補として表示する (project-management/REQ-16.13)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -503,9 +504,9 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.11
+     * @requirement project-management/REQ-16.12
      */
-    test('取引先選択APIのレスポンス時間は500ミリ秒以内である (project-management/REQ-16.11)', async ({
+    test('取引先選択APIのレスポンス時間は500ミリ秒以内である (project-management/REQ-16.12)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
