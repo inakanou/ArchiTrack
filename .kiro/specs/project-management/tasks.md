@@ -544,7 +544,7 @@
 
 ## Task 21: バックエンド差分実装
 
-- [ ] 21.1 (P) プロジェクト名重複エラークラスの追加
+- [x] 21.1 (P) プロジェクト名重複エラークラスの追加
   - DuplicateProjectNameErrorクラスをprojectError.tsに追加
   - PROBLEM_TYPES.PROJECT_NAME_DUPLICATEを追加
   - ERROR_CODES.PROJECT_NAME_DUPLICATEを追加
