@@ -651,11 +651,12 @@
 
 ## Task 23: フリガナ検索ひらがな・カタカナ両対応
 
-- [ ] 23.1 取引先サービスのひらがな・カタカナ変換確認
+- [x] 23.1 取引先サービスのひらがな・カタカナ変換確認
   - trading-partner.service.tsのひらがな⇔カタカナ変換ロジックが実装済みか確認
   - 実装済みでない場合は変換関数を追加
   - 検索時にhiraganaToKatakana、katakanaToHiragana両方で検索
   - _Requirements: 16.3, 22.5_
+  - _Completed: 2025-12-13_
 
 ## Task 24: 差分実装のテスト
 

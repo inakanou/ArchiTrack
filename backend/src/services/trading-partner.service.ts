@@ -37,7 +37,7 @@ import {
   TradingPartnerConflictError,
   PartnerInUseError,
 } from '../errors/tradingPartnerError.js';
-import { toKatakana } from '../utils/kana-converter.js';
+import { toKatakana, toHiragana } from '../utils/kana-converter.js';
 
 /**
  * TradingPartnerService依存関係
@@ -317,12 +317,16 @@ export class TradingPartnerService {
     };
 
     // 検索キーワード（取引先名またはフリガナの部分一致）
-    // Requirements 1.3.1: ひらがな入力をカタカナに変換して検索（フリガナはカタカナで保存されているため）
+    // Requirements 1.3.1, 16.3, 22.5: ひらがな・カタカナ両対応検索
+    // - ひらがな入力: カタカナに変換してnameKana検索、元のひらがなでname検索
+    // - カタカナ入力: ひらがなに変換してname検索、元のカタカナでnameKana検索
     if (filter.search) {
-      const normalizedSearch = toKatakana(filter.search);
+      const searchKatakana = toKatakana(filter.search);
+      const searchHiragana = toHiragana(filter.search);
       where.OR = [
-        { name: { contains: normalizedSearch, mode: 'insensitive' as const } },
-        { nameKana: { contains: normalizedSearch, mode: 'insensitive' as const } },
+        { name: { contains: searchKatakana, mode: 'insensitive' as const } },
+        { name: { contains: searchHiragana, mode: 'insensitive' as const } },
+        { nameKana: { contains: searchKatakana, mode: 'insensitive' as const } },
       ];
     }
 
@@ -677,16 +681,19 @@ export class TradingPartnerService {
     type?: TradingPartnerType,
     limit: number = 10
   ): Promise<TradingPartnerSearchResult[]> {
-    // Requirements 10.2: ひらがな入力をカタカナに正規化してから検索
-    // フリガナはカタカナで保存されているため、ひらがな入力もカタカナに変換して検索
-    const normalizedQuery = toKatakana(query);
+    // Requirements 10.2, 16.3, 22.5: ひらがな・カタカナ両対応検索
+    // - ひらがな入力: カタカナに変換してnameKana検索、元のひらがなでname検索
+    // - カタカナ入力: ひらがなに変換してname検索、元のカタカナでnameKana検索
+    const searchKatakana = toKatakana(query);
+    const searchHiragana = toHiragana(query);
 
     // WHERE条件の構築
     const where: Prisma.TradingPartnerWhereInput = {
       deletedAt: null,
       OR: [
-        { name: { contains: normalizedQuery, mode: 'insensitive' as const } },
-        { nameKana: { contains: normalizedQuery, mode: 'insensitive' as const } },
+        { name: { contains: searchKatakana, mode: 'insensitive' as const } },
+        { name: { contains: searchHiragana, mode: 'insensitive' as const } },
+        { nameKana: { contains: searchKatakana, mode: 'insensitive' as const } },
       ],
     };
 

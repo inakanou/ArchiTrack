@@ -675,12 +675,13 @@ describe('TradingPartnerService', () => {
         { sort: 'nameKana', order: 'asc' }
       );
 
-      // Assert
+      // Assert - カタカナ入力はカタカナで検索 + ひらがな変換でも検索
       expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             OR: [
               { name: { contains: 'アルファ', mode: 'insensitive' } },
+              { name: { contains: 'あるふぁ', mode: 'insensitive' } },
               { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
             ],
           }),
@@ -800,13 +801,14 @@ describe('TradingPartnerService', () => {
         { sort: 'nameKana', order: 'asc' }
       );
 
-      // Assert
+      // Assert - カタカナ入力はカタカナで検索 + ひらがな変換でも検索
       expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             deletedAt: null,
             OR: [
               { name: { contains: 'アルファ', mode: 'insensitive' } },
+              { name: { contains: 'あるふぁ', mode: 'insensitive' } },
               { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
             ],
             types: {
@@ -938,12 +940,13 @@ describe('TradingPartnerService', () => {
           { sort: 'nameKana', order: 'asc' }
         );
 
-        // Assert - カタカナ「アルファ」に変換されて検索される
+        // Assert - カタカナ変換「アルファ」とひらがな「あるふぁ」両方で検索される
         expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               OR: [
                 { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { name: { contains: 'あるふぁ', mode: 'insensitive' } },
                 { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
               ],
             }),
@@ -951,7 +954,7 @@ describe('TradingPartnerService', () => {
         );
       });
 
-      it('カタカナ入力はそのまま検索される', async () => {
+      it('カタカナ入力はカタカナ・ひらがな両方で検索される', async () => {
         // Arrange
         mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
         mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([mockPartners[0]]);
@@ -963,12 +966,13 @@ describe('TradingPartnerService', () => {
           { sort: 'nameKana', order: 'asc' }
         );
 
-        // Assert - カタカナ「アルファ」のまま検索される
+        // Assert - カタカナ「アルファ」とひらがな変換「あるふぁ」両方で検索される
         expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               OR: [
                 { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { name: { contains: 'あるふぁ', mode: 'insensitive' } },
                 { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
               ],
             }),
@@ -988,12 +992,13 @@ describe('TradingPartnerService', () => {
           { sort: 'nameKana', order: 'asc' }
         );
 
-        // Assert - ひらがな部分のみカタカナに変換「株式ガイシャ」
+        // Assert - カタカナ変換「株式ガイシャ」と元のひらがな「株式がいしゃ」両方で検索
         expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               OR: [
                 { name: { contains: '株式ガイシャ', mode: 'insensitive' } },
+                { name: { contains: '株式がいしゃ', mode: 'insensitive' } },
                 { nameKana: { contains: '株式ガイシャ', mode: 'insensitive' } },
               ],
             }),
@@ -1064,13 +1069,14 @@ describe('TradingPartnerService', () => {
           { sort: 'nameKana', order: 'asc' }
         );
 
-        // Assert - カタカナ変換 + 種別フィルタ
+        // Assert - カタカナ変換 + ひらがな + 種別フィルタ
         expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               deletedAt: null,
               OR: [
                 { name: { contains: 'ベータ', mode: 'insensitive' } },
+                { name: { contains: 'べーた', mode: 'insensitive' } },
                 { nameKana: { contains: 'ベータ', mode: 'insensitive' } },
               ],
               types: {
@@ -1078,6 +1084,90 @@ describe('TradingPartnerService', () => {
                   type: 'SUBCONTRACTOR',
                 },
               },
+            }),
+          })
+        );
+      });
+
+      /**
+       * 双方向かな変換テスト（project-management 16.3, 22.5）
+       *
+       * Requirements:
+       * - 16.3: ひらがな入力もカタカナに変換して検索
+       * - 22.5: カタカナ入力もひらがなに変換して検索
+       *
+       * nameフィールドにひらがな・カタカナが混在する可能性があるため、
+       * 両方向の変換で検索する必要がある。
+       */
+      it('カタカナ入力でひらがなの取引先名も検索できる（Requirement 22.5）', async () => {
+        // Arrange
+        // 取引先名がひらがな「やまだ商事」の取引先
+        const hiraganaNamePartner = {
+          id: 'partner-hiragana',
+          name: 'やまだ商事',
+          nameKana: 'ヤマダショウジ',
+          branchName: null,
+          branchNameKana: null,
+          representativeName: null,
+          representativeNameKana: null,
+          address: '東京都渋谷区1-1-1',
+          phoneNumber: null,
+          faxNumber: null,
+          email: null,
+          billingClosingDay: null,
+          paymentMonthOffset: null,
+          paymentDay: null,
+          notes: null,
+          createdAt: new Date('2024-01-01'),
+          updatedAt: new Date('2024-01-01'),
+          deletedAt: null,
+          types: [
+            { id: 'type-1', tradingPartnerId: 'partner-hiragana', type: 'CUSTOMER' as const },
+          ],
+        };
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(1);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([hiraganaNamePartner]);
+
+        // Act - カタカナ「ヤマダ」で検索
+        await service.getPartners(
+          { search: 'ヤマダ' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Assert - ひらがな「やまだ」でも検索される（name: やまだ商事 にマッチ）
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: expect.arrayContaining([{ name: { contains: 'やまだ', mode: 'insensitive' } }]),
+            }),
+          })
+        );
+      });
+
+      it('検索クエリがカタカナとひらがな両方で検索される', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.count = vi.fn().mockResolvedValue(0);
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([]);
+
+        // Act - ひらがな「あるふぁ」で検索
+        await service.getPartners(
+          { search: 'あるふぁ' },
+          { page: 1, limit: 20 },
+          { sort: 'nameKana', order: 'asc' }
+        );
+
+        // Assert - カタカナ変換結果とひらがな変換結果の両方で検索
+        // ひらがな入力「あるふぁ」→ カタカナ変換「アルファ」でnameKanaを検索
+        // ひらがな入力「あるふぁ」→ そのままでnameを検索
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: expect.arrayContaining([
+                { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { name: { contains: 'あるふぁ', mode: 'insensitive' } },
+                { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+              ]),
             }),
           })
         );
@@ -2384,12 +2474,14 @@ describe('TradingPartnerService', () => {
           types: ['CUSTOMER'],
         })
       );
+      // カタカナ入力はカタカナ + ひらがな変換の両方で検索される
       expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             deletedAt: null,
             OR: [
               { name: { contains: 'アルファ', mode: 'insensitive' } },
+              { name: { contains: 'あるふぁ', mode: 'insensitive' } },
               { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
             ],
           }),
@@ -2620,11 +2712,13 @@ describe('TradingPartnerService', () => {
       const result = await service.searchPartners('ア');
 
       // Assert
+      // 1文字のカタカナ「ア」はカタカナ + ひらがな変換「あ」の両方で検索
       expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             OR: [
               { name: { contains: 'ア', mode: 'insensitive' } },
+              { name: { contains: 'あ', mode: 'insensitive' } },
               { nameKana: { contains: 'ア', mode: 'insensitive' } },
             ],
           }),
@@ -2638,8 +2732,10 @@ describe('TradingPartnerService', () => {
      *
      * Requirements:
      * - 10.2: オートコンプリート検索でひらがな入力をカタカナに変換して検索
+     * - 16.3, 22.5: ひらがな・カタカナ両対応検索
      *
      * フリガナはカタカナで保存されているため、ひらがな入力をカタカナに正規化して検索する
+     * nameフィールドにひらがな・カタカナが混在する可能性があるため、両方向の変換で検索する
      */
     describe('かな変換検索（Task 18.2）', () => {
       it('ひらがな入力をカタカナに変換して検索する（Requirement 10.2）', async () => {
@@ -2651,12 +2747,13 @@ describe('TradingPartnerService', () => {
         await service.searchPartners('あるふぁ');
 
         // Assert
-        // ひらがながカタカナに変換されてクエリが実行される
+        // ひらがな入力はカタカナ変換 + ひらがなの両方で検索
         expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               OR: [
                 { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { name: { contains: 'あるふぁ', mode: 'insensitive' } },
                 { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
               ],
             }),
@@ -2664,7 +2761,7 @@ describe('TradingPartnerService', () => {
         );
       });
 
-      it('カタカナ入力はそのまま検索する', async () => {
+      it('カタカナ入力はカタカナ・ひらがな両方で検索する', async () => {
         // Arrange
         mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([searchMockPartners[0]]);
 
@@ -2673,12 +2770,13 @@ describe('TradingPartnerService', () => {
         await service.searchPartners('アルファ');
 
         // Assert
-        // カタカナはそのまま
+        // カタカナ入力はカタカナ + ひらがな変換の両方で検索
         expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               OR: [
                 { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { name: { contains: 'あるふぁ', mode: 'insensitive' } },
                 { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
               ],
             }),
@@ -2695,12 +2793,13 @@ describe('TradingPartnerService', () => {
         await service.searchPartners('べーた建設');
 
         // Assert
-        // ひらがな部分のみカタカナに変換（「ベータ建設」）
+        // ひらがな部分のみカタカナに変換（「ベータ建設」）+ 元の入力
         expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               OR: [
                 { name: { contains: 'ベータ建設', mode: 'insensitive' } },
+                { name: { contains: 'べーた建設', mode: 'insensitive' } },
                 { nameKana: { contains: 'ベータ建設', mode: 'insensitive' } },
               ],
             }),
@@ -2723,6 +2822,7 @@ describe('TradingPartnerService', () => {
             where: expect.objectContaining({
               OR: [
                 { name: { contains: 'カブシキガイシャ', mode: 'insensitive' } },
+                { name: { contains: 'かぶしきがいしゃ', mode: 'insensitive' } },
                 { nameKana: { contains: 'カブシキガイシャ', mode: 'insensitive' } },
               ],
             }),
@@ -2746,6 +2846,7 @@ describe('TradingPartnerService', () => {
               deletedAt: null,
               OR: [
                 { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { name: { contains: 'あるふぁ', mode: 'insensitive' } },
                 { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
               ],
               types: {
@@ -2753,6 +2854,57 @@ describe('TradingPartnerService', () => {
                   type: 'CUSTOMER',
                 },
               },
+            }),
+          })
+        );
+      });
+
+      /**
+       * 双方向かな変換テスト（project-management 16.3, 22.5）
+       *
+       * Requirements:
+       * - 16.3: ひらがな入力もカタカナに変換して検索
+       * - 22.5: カタカナ入力もひらがなに変換して検索
+       */
+      it('カタカナ入力でひらがなの取引先名も検索できる（オートコンプリート）（Requirement 22.5）', async () => {
+        // Arrange
+        const hiraganaNamePartner = {
+          id: 'partner-hiragana',
+          name: 'やまだ商事',
+          nameKana: 'ヤマダショウジ',
+          types: [{ type: 'CUSTOMER' as const }],
+        };
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([hiraganaNamePartner]);
+
+        // Act - カタカナ「ヤマダ」で検索
+        await service.searchPartners('ヤマダ');
+
+        // Assert - ひらがな「やまだ」でも検索される
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: expect.arrayContaining([{ name: { contains: 'やまだ', mode: 'insensitive' } }]),
+            }),
+          })
+        );
+      });
+
+      it('検索クエリがカタカナとひらがな両方で検索される（オートコンプリート）', async () => {
+        // Arrange
+        mockPrisma.tradingPartner.findMany = vi.fn().mockResolvedValue([]);
+
+        // Act - ひらがな「あるふぁ」で検索
+        await service.searchPartners('あるふぁ');
+
+        // Assert - カタカナ変換結果とひらがな変換結果の両方で検索
+        expect(mockPrisma.tradingPartner.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: expect.arrayContaining([
+                { name: { contains: 'アルファ', mode: 'insensitive' } },
+                { name: { contains: 'あるふぁ', mode: 'insensitive' } },
+                { nameKana: { contains: 'アルファ', mode: 'insensitive' } },
+              ]),
             }),
           })
         );
