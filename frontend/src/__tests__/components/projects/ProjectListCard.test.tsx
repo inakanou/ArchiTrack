@@ -125,6 +125,46 @@ describe('ProjectListCard', () => {
       expect(screen.getByText('顧客C株式会社')).toBeInTheDocument();
     });
 
+    /**
+     * Task 22.3: 営業担当者の表示
+     * Requirements: 2.2 - プロジェクト一覧に営業担当者列を追加
+     */
+    it('営業担当者が表示される', () => {
+      renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
+
+      // 営業担当1はproject-1とproject-3で使用されている（2回表示）
+      expect(screen.getAllByText('営業担当1')).toHaveLength(2);
+      // 営業担当2はproject-2のみ
+      expect(screen.getByText('営業担当2')).toBeInTheDocument();
+    });
+
+    /**
+     * Task 22.3: 工事担当者の表示
+     * Requirements: 2.2 - プロジェクト一覧に工事担当者列を追加
+     */
+    it('工事担当者が表示される', () => {
+      renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
+
+      // project-1: 工事担当1 が存在
+      expect(screen.getByText('工事担当1')).toBeInTheDocument();
+    });
+
+    /**
+     * Task 22.3: 工事担当者未設定時の表示
+     * Requirements: 2.2 - 工事担当者がnullableなので適切な表示
+     */
+    it('工事担当者が未設定の場合は「-」を表示する', () => {
+      renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
+
+      // project-2, project-3: 工事担当者なし → 「-」表示
+      const card2 = screen.getByTestId('project-card-project-2');
+      const card3 = screen.getByTestId('project-card-project-3');
+
+      // 工事担当者セクションの「-」を確認
+      expect(within(card2).getByTestId('construction-person-project-2')).toHaveTextContent('-');
+      expect(within(card3).getByTestId('construction-person-project-3')).toHaveTextContent('-');
+    });
+
     it('ステータスがバッジとして表示される', () => {
       renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
 

@@ -2,8 +2,10 @@
  * @fileoverview プロジェクト一覧カードコンポーネント
  *
  * Task 8.2: プロジェクト一覧カード表示の実装
+ * Task 22.3: ProjectListCardコンポーネントの表示項目更新
  *
  * Requirements:
+ * - 2.2: プロジェクト一覧に営業担当者・工事担当者を表示
  * - 15.1: プロジェクト一覧画面をデスクトップ、タブレット、モバイルに対応
  * - 15.3: 768px未満でカード形式に切り替えて表示
  * - 15.4: タッチ操作に最適化されたUI（タップターゲット44x44px以上）
@@ -121,6 +123,7 @@ function ProjectCard({
             <h3 className="font-semibold text-gray-900 text-base leading-tight line-clamp-2 group-hover:text-blue-700 transition-colors">
               {project.name}
             </h3>
+            {/* 顧客名 */}
             <div className="flex items-center gap-1.5 mt-1">
               <svg
                 width="14"
@@ -129,6 +132,7 @@ function ProjectCard({
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -144,6 +148,59 @@ function ProjectCard({
           </div>
         </div>
         <StatusBadge projectId={project.id} status={project.status} />
+      </div>
+
+      {/* 担当者情報: 営業担当者・工事担当者 (Task 22.3) */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-sm">
+        {/* 営業担当者 */}
+        <div data-testid={`sales-person-${project.id}`} className="flex items-center gap-1.5">
+          <svg
+            width="14"
+            height="14"
+            className="text-blue-400 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+            />
+          </svg>
+          <span className="text-gray-600">{project.salesPerson.displayName}</span>
+        </div>
+        {/* 工事担当者 */}
+        <div
+          data-testid={`construction-person-${project.id}`}
+          className="flex items-center gap-1.5"
+        >
+          <svg
+            width="14"
+            height="14"
+            className="text-orange-400 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+          </svg>
+          <span className="text-gray-600">{project.constructionPerson?.displayName ?? '-'}</span>
+        </div>
       </div>
 
       {/* 日付情報 */}
