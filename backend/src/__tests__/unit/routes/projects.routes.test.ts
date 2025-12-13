@@ -92,6 +92,7 @@ import {
   ProjectNotFoundError,
   ProjectValidationError,
   ProjectConflictError,
+  DuplicateProjectNameError,
 } from '../../../errors/projectError.js';
 
 describe('Projects Routes', () => {
@@ -451,6 +452,28 @@ describe('Projects Routes', () => {
 
       expect(response.status).toBe(400);
     });
+
+    /**
+     * Task 21.6: POST /api/projectsハンドラでDuplicateProjectNameErrorをキャッチ
+     * Requirements: 1.15, 8.7
+     */
+    it('should return 409 when project name already exists', async () => {
+      (mockProjectService.createProject as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new DuplicateProjectNameError('新規プロジェクト')
+      );
+
+      const response = await request(app).post('/api/projects').send(validCreateInput);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        type: expect.stringContaining('project-name-duplicate'),
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '新規プロジェクト',
+      });
+    });
   });
 
   describe('PUT /api/projects/:id', () => {
@@ -556,6 +579,30 @@ describe('Projects Routes', () => {
         .send(validUpdateInput);
 
       expect(response.status).toBe(409);
+    });
+
+    /**
+     * Task 21.6: PUT /api/projects/:idハンドラでDuplicateProjectNameErrorをキャッチ
+     * Requirements: 1.15, 8.7
+     */
+    it('should return 409 when updating project name to existing name', async () => {
+      (mockProjectService.updateProject as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new DuplicateProjectNameError('更新プロジェクト')
+      );
+
+      const response = await request(app)
+        .put('/api/projects/550e8400-e29b-41d4-a716-446655440000')
+        .send(validUpdateInput);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        type: expect.stringContaining('project-name-duplicate'),
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '更新プロジェクト',
+      });
     });
   });
 

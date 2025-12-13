@@ -578,7 +578,7 @@
   - 21.2のスキーマ更新が必要
   - _Requirements: 6.5_
 
-- [ ] 21.6 プロジェクトルートに409エラーハンドリングを追加
+- [x] 21.6 プロジェクトルートに409エラーハンドリングを追加
   - POST /api/projectsハンドラでDuplicateProjectNameErrorをキャッチ
   - PUT /api/projects/:idハンドラでDuplicateProjectNameErrorをキャッチ
   - RFC 7807形式のエラーレスポンスを返却（type, title, status, detail, code, projectName）
