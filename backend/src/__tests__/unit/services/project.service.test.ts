@@ -30,6 +30,7 @@ import {
   ProjectNotFoundError,
   ProjectConflictError,
   ProjectValidationError,
+  DuplicateProjectNameError,
 } from '../../../errors/projectError.js';
 
 // テスト用モック
@@ -168,6 +169,7 @@ describe('ProjectService', () => {
               .mockResolvedValueOnce({ ...mockUser, id: 'user-456', userRoles: [] }), // constructionPerson
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -209,7 +211,7 @@ describe('ProjectService', () => {
               userRoles: [{ role: { name: 'admin' } }],
             }),
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -230,7 +232,7 @@ describe('ProjectService', () => {
           user: {
             findUnique: vi.fn().mockResolvedValue(null),
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -261,7 +263,7 @@ describe('ProjectService', () => {
                 userRoles: [{ role: { name: 'admin' } }],
               }), // constructionPerson is admin
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -289,7 +291,7 @@ describe('ProjectService', () => {
               .mockResolvedValueOnce({ ...mockUser, userRoles: [] }) // salesPerson exists
               .mockResolvedValueOnce(null), // constructionPerson does not exist
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -320,6 +322,7 @@ describe('ProjectService', () => {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -548,6 +551,7 @@ describe('ProjectService', () => {
         const tx = {
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             update: vi.fn().mockResolvedValue(updatedProject),
           },
           user: {
@@ -807,6 +811,7 @@ describe('ProjectService', () => {
             }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -853,6 +858,7 @@ describe('ProjectService', () => {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -919,6 +925,7 @@ describe('ProjectService', () => {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -1290,6 +1297,7 @@ describe('ProjectService', () => {
         const tx = {
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             update: vi.fn().mockResolvedValue(updatedProject),
           },
           user: {
@@ -1369,6 +1377,324 @@ describe('ProjectService', () => {
 
       // Act & Assert
       await expect(service.getRelatedCounts('project-123')).rejects.toThrow(ProjectNotFoundError);
+    });
+  });
+
+  /**
+   * プロジェクト名一意性チェックのテスト
+   *
+   * Requirements:
+   * - 1.15: プロジェクト作成時にプロジェクト名の重複チェックを実行
+   * - 1.16: プロジェクト名の一意性チェックを作成時に実行
+   * - 8.7: プロジェクト更新時に重複プロジェクト名でエラー表示
+   * - 8.8: プロジェクト名の一意性チェックを更新時に実行（自身を除外）
+   */
+  describe('createProject - プロジェクト名一意性チェック (1.15, 1.16)', () => {
+    const validInput: CreateProjectInput = {
+      name: '新規プロジェクト',
+      tradingPartnerId: 'trading-partner-123',
+      salesPersonId: 'user-123',
+    };
+
+    it('同一プロジェクト名が既に存在する場合はDuplicateProjectNameErrorを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const existingProject = {
+        id: 'existing-project-id',
+        name: '新規プロジェクト',
+        deletedAt: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findFirst: vi.fn().mockResolvedValue(existingProject),
+            create: vi.fn(),
+          },
+          projectStatusHistory: {
+            create: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(service.createProject(validInput, actorId)).rejects.toThrow(
+        DuplicateProjectNameError
+      );
+    });
+
+    it('同一プロジェクト名が存在しない場合は正常に作成される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const createdProject = {
+        ...mockProject,
+        name: '新規プロジェクト',
+        salesPerson: mockUser,
+        constructionPerson: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findFirst: vi.fn().mockResolvedValue(null), // 重複なし
+            create: vi.fn().mockResolvedValue(createdProject),
+          },
+          projectStatusHistory: {
+            create: vi.fn().mockResolvedValue({ id: 'history-1' }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.createProject(validInput, actorId);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('新規プロジェクト');
+    });
+
+    it('論理削除されたプロジェクトと同名の場合は正常に作成される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const createdProject = {
+        ...mockProject,
+        name: '新規プロジェクト',
+        salesPerson: mockUser,
+        constructionPerson: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            // findFirstは論理削除されていないプロジェクトのみ検索するため、nullを返す
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue(createdProject),
+          },
+          projectStatusHistory: {
+            create: vi.fn().mockResolvedValue({ id: 'history-1' }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.createProject(validInput, actorId);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('新規プロジェクト');
+    });
+  });
+
+  describe('updateProject - プロジェクト名一意性チェック (8.7, 8.8)', () => {
+    const expectedUpdatedAt = new Date('2024-01-02');
+
+    it('別のプロジェクトと重複するプロジェクト名に変更しようとした場合はDuplicateProjectNameErrorを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: '既存のプロジェクト名',
+      };
+      const existingProject = {
+        id: 'another-project-id',
+        name: '既存のプロジェクト名',
+        deletedAt: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject), // 更新対象のプロジェクト
+            findFirst: vi.fn().mockResolvedValue(existingProject), // 重複チェック：他のプロジェクトが存在
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(
+        service.updateProject('project-123', updateInput, actorId, expectedUpdatedAt)
+      ).rejects.toThrow(DuplicateProjectNameError);
+    });
+
+    it('同名でも自身のプロジェクトの場合はエラーなしで更新される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: 'テストプロジェクト', // 現在の名前と同じ
+      };
+      const updatedProject = {
+        ...mockProject,
+        name: 'テストプロジェクト',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            // findFirst は呼ばれない（名前が変更されていないため）
+            findFirst: vi.fn(),
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('テストプロジェクト');
+    });
+
+    it('プロジェクト名を変更して重複がない場合は正常に更新される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: '新しいプロジェクト名',
+      };
+      const updatedProject = {
+        ...mockProject,
+        name: '新しいプロジェクト名',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null), // 重複なし
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('新しいプロジェクト名');
+    });
+
+    it('論理削除されたプロジェクトと同名への変更は許可される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: '削除済みプロジェクト名',
+      };
+      const updatedProject = {
+        ...mockProject,
+        name: '削除済みプロジェクト名',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            // findFirst は deletedAt: null の条件で検索するため、論理削除されたプロジェクトは返さない
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('削除済みプロジェクト名');
+    });
+
+    it('名前以外のフィールドのみ更新する場合は重複チェックをスキップする', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        description: '新しい説明文',
+      };
+      const updatedProject = {
+        ...mockProject,
+        description: '新しい説明文',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      let findFirstCalled = false;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockImplementation(() => {
+              findFirstCalled = true;
+              return Promise.resolve(null);
+            }),
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.description).toBe('新しい説明文');
+      // 名前が変更されていないので findFirst は呼ばれない
+      expect(findFirstCalled).toBe(false);
     });
   });
 });

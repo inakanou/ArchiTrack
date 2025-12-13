@@ -557,7 +557,7 @@
   - 'customerName'（既存の'tradingPartnerId'からエイリアス）を追加
   - _Requirements: 6.5_
 
-- [ ] 21.3 ProjectServiceにプロジェクト名一意性チェックを追加
+- [x] 21.3 ProjectServiceにプロジェクト名一意性チェックを追加
   - checkProjectNameUniquenessプライベートメソッドを追加
   - 論理削除されていないプロジェクトのみを対象にチェック
   - createProjectメソッド内でプロジェクト名重複チェックを呼び出し

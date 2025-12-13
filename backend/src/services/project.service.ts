@@ -4,7 +4,8 @@
  * プロジェクトのCRUD操作とビジネスロジックを担当します。
  *
  * Requirements:
- * - 1.7, 1.8, 1.14, 1.15: プロジェクト作成（初期ステータス履歴含む）
+ * - 1.7, 1.8, 1.14: プロジェクト作成（初期ステータス履歴含む）
+ * - 1.15, 1.16: プロジェクト名の一意性チェック（作成時）
  * - 2.1, 2.2, 2.6: プロジェクト一覧表示
  * - 3.1, 3.2, 3.3, 3.4, 3.5: ページネーション
  * - 4.1: 検索（プロジェクト名・顧客名の部分一致）
@@ -12,6 +13,7 @@
  * - 6.1, 6.2, 6.5: ソート
  * - 7.1: プロジェクト詳細取得
  * - 8.2, 8.3, 8.6: プロジェクト更新（楽観的排他制御）
+ * - 8.7, 8.8: プロジェクト名の一意性チェック（更新時、自身を除外）
  * - 9.2, 9.6: プロジェクト論理削除
  * - 11.5, 11.6: 関連データ件数取得（機能フラグ対応）
  * - 12.4, 12.6: 監査ログ連携（PROJECT_CREATED, PROJECT_UPDATED, PROJECT_DELETED）
@@ -34,6 +36,7 @@ import {
   ProjectNotFoundError,
   ProjectValidationError,
   ProjectConflictError,
+  DuplicateProjectNameError,
 } from '../errors/projectError.js';
 
 /**
@@ -166,26 +169,31 @@ export class ProjectService {
    * プロジェクト作成
    *
    * トランザクション内で以下を実行:
-   * 1. 担当者IDのバリデーション（admin以外の有効ユーザー確認）
-   * 2. プロジェクト作成
-   * 3. 初期ステータス履歴の記録（transitionType='initial'）
-   * 4. 監査ログの記録
+   * 1. プロジェクト名の一意性チェック (Requirements: 1.15, 1.16)
+   * 2. 担当者IDのバリデーション（admin以外の有効ユーザー確認）
+   * 3. プロジェクト作成
+   * 4. 初期ステータス履歴の記録（transitionType='initial'）
+   * 5. 監査ログの記録
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
    * @returns 作成されたプロジェクト情報
+   * @throws DuplicateProjectNameError プロジェクト名が重複する場合
    * @throws ProjectValidationError 担当者IDが無効な場合
    */
   async createProject(input: CreateProjectInput, actorId: string): Promise<ProjectInfo> {
     return await this.prisma.$transaction(async (tx) => {
-      // 1. 担当者IDのバリデーション
+      // 1. プロジェクト名の一意性チェック (Requirements: 1.15, 1.16)
+      await this.checkProjectNameUniqueness(tx, input.name);
+
+      // 2. 担当者IDのバリデーション
       await this.validateAssignableUser(tx, input.salesPersonId, 'salesPersonId');
 
       if (input.constructionPersonId) {
         await this.validateAssignableUser(tx, input.constructionPersonId, 'constructionPersonId');
       }
 
-      // 2. プロジェクト作成
+      // 3. プロジェクト作成
       const project = await tx.project.create({
         data: {
           name: input.name,
@@ -226,7 +234,7 @@ export class ProjectService {
         },
       });
 
-      // 3. 初期ステータス履歴の記録
+      // 4. 初期ステータス履歴の記録
       await tx.projectStatusHistory.create({
         data: {
           projectId: project.id,
@@ -238,7 +246,7 @@ export class ProjectService {
         },
       });
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'PROJECT_CREATED',
         actorId,
@@ -408,9 +416,10 @@ export class ProjectService {
    *
    * トランザクション内で以下を実行:
    * 1. プロジェクトの存在確認・楽観的排他制御
-   * 2. 担当者IDのバリデーション（更新対象の場合のみ）
-   * 3. プロジェクト更新
-   * 4. 監査ログの記録
+   * 2. プロジェクト名の一意性チェック（名前変更時のみ）(Requirements: 8.7, 8.8)
+   * 3. 担当者IDのバリデーション（更新対象の場合のみ）
+   * 4. プロジェクト更新
+   * 5. 監査ログの記録
    *
    * @param id - プロジェクトID
    * @param input - 更新入力
@@ -419,6 +428,7 @@ export class ProjectService {
    * @returns 更新されたプロジェクト情報
    * @throws ProjectNotFoundError プロジェクトが存在しない場合
    * @throws ProjectConflictError 楽観的排他制御エラー
+   * @throws DuplicateProjectNameError プロジェクト名が重複する場合
    * @throws ProjectValidationError 担当者IDが無効な場合
    */
   async updateProject(
@@ -469,7 +479,12 @@ export class ProjectService {
         );
       }
 
-      // 2. 担当者IDのバリデーション（更新対象の場合のみ）
+      // 2. プロジェクト名の一意性チェック（名前が変更される場合のみ）(Requirements: 8.7, 8.8)
+      if (input.name !== undefined && input.name !== project.name) {
+        await this.checkProjectNameUniqueness(tx, input.name, id);
+      }
+
+      // 3. 担当者IDのバリデーション（更新対象の場合のみ）
       if (input.salesPersonId) {
         await this.validateAssignableUser(tx, input.salesPersonId, 'salesPersonId');
       }
@@ -478,7 +493,7 @@ export class ProjectService {
         await this.validateAssignableUser(tx, input.constructionPersonId, 'constructionPersonId');
       }
 
-      // 3. プロジェクト更新
+      // 4. プロジェクト更新
       const updateData: Prisma.ProjectUpdateInput = {};
 
       if (input.name !== undefined) {
@@ -534,7 +549,7 @@ export class ProjectService {
         },
       });
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'PROJECT_UPDATED',
         actorId,
@@ -687,6 +702,40 @@ export class ProjectService {
       throw new ProjectValidationError({
         [fieldName]: '管理者ユーザーは担当者として指定できません',
       });
+    }
+  }
+
+  /**
+   * プロジェクト名の一意性チェック
+   *
+   * 論理削除されていないプロジェクトの中に同名のプロジェクトが存在しないことを確認する。
+   * 更新時は自身のプロジェクトを除外してチェックする。
+   *
+   * Requirements:
+   * - 1.15, 1.16: プロジェクト作成時にプロジェクト名の重複チェックを実行
+   * - 8.7, 8.8: プロジェクト更新時にプロジェクト名の重複チェックを実行（自身を除外）
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param name - チェックするプロジェクト名
+   * @param excludeId - 除外するプロジェクトID（更新時に自身を除外）
+   * @throws DuplicateProjectNameError 同名のプロジェクトが存在する場合
+   */
+  private async checkProjectNameUniqueness(
+    tx: PrismaTransactionClient,
+    name: string,
+    excludeId?: string
+  ): Promise<void> {
+    const existingProject = await tx.project.findFirst({
+      where: {
+        name: name,
+        deletedAt: null,
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+
+    if (existingProject) {
+      throw new DuplicateProjectNameError(name);
     }
   }
 
