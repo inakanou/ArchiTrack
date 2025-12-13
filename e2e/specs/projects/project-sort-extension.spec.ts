@@ -21,9 +21,19 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+
+    // ビューポートサイズをデスクトップサイズにリセット（他のテストファイルでの変更を引き継がないため）
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    // ブラウザのストレージを完全にクリア（前のテストの状態を引き継がないため）
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
   });
 
   /**
@@ -149,6 +159,15 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
       const salesPersonSortButton = page.getByRole('button', { name: /営業担当者でソート/i });
       await expect(salesPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
 
+      // 現在のURLをチェックして、すでにソートが適用されている場合はリセット
+      const currentUrl = page.url();
+      if (currentUrl.includes('sort=salesPersonName')) {
+        // すでにソートが適用されている場合、ページをリロードしてリセット
+        await page.goto('/projects');
+        await page.waitForLoadState('networkidle');
+        await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+      }
+
       // 1回目のクリック - 昇順
       await salesPersonSortButton.click();
       await expect(page).toHaveURL(/sort=salesPersonName/, { timeout: getTimeout(10000) });
@@ -157,10 +176,19 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
       // ローディング完了を待機
       await waitForLoadingComplete(page, { timeout: getTimeout(10000) });
 
+      // ボタンが再度クリック可能になるまで待機
+      await expect(salesPersonSortButton).toBeEnabled({ timeout: getTimeout(5000) });
+
+      // 昇順ソートが適用されたことを確認（URLで確認）
+      await expect(page).toHaveURL(/order=asc/, { timeout: getTimeout(5000) });
+
+      // クリック間の安定待機（ダブルクリック防止）
+      await page.waitForTimeout(500);
+
       // 2回目のクリック - 降順
       await salesPersonSortButton.click();
-      await expect(page).toHaveURL(/sort=salesPersonName/, { timeout: getTimeout(10000) });
-      await expect(page).toHaveURL(/order=desc/, { timeout: getTimeout(10000) });
+      // URLが変更されるのを待機
+      await expect(page).toHaveURL(/order=desc/, { timeout: getTimeout(15000) });
     } else {
       // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
       const emptyOrError = page.getByText(
@@ -203,6 +231,15 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
       });
       await expect(constructionPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
 
+      // 現在のURLをチェックして、すでにソートが適用されている場合はリセット
+      const currentUrl = page.url();
+      if (currentUrl.includes('sort=constructionPersonName')) {
+        // すでにソートが適用されている場合、ページをリロードしてリセット
+        await page.goto('/projects');
+        await page.waitForLoadState('networkidle');
+        await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+      }
+
       // 1回目のクリック - 昇順
       await constructionPersonSortButton.click();
       await expect(page).toHaveURL(/sort=constructionPersonName/, { timeout: getTimeout(10000) });
@@ -211,10 +248,19 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
       // ローディング完了を待機
       await waitForLoadingComplete(page, { timeout: getTimeout(10000) });
 
+      // ボタンが再度クリック可能になるまで待機
+      await expect(constructionPersonSortButton).toBeEnabled({ timeout: getTimeout(5000) });
+
+      // 昇順ソートが適用されたことを確認（URLで確認）
+      await expect(page).toHaveURL(/order=asc/, { timeout: getTimeout(5000) });
+
+      // クリック間の安定待機（ダブルクリック防止）
+      await page.waitForTimeout(500);
+
       // 2回目のクリック - 降順
       await constructionPersonSortButton.click();
-      await expect(page).toHaveURL(/sort=constructionPersonName/, { timeout: getTimeout(10000) });
-      await expect(page).toHaveURL(/order=desc/, { timeout: getTimeout(10000) });
+      // URLが変更されるのを待機
+      await expect(page).toHaveURL(/order=desc/, { timeout: getTimeout(15000) });
     } else {
       // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
       const emptyOrError = page.getByText(

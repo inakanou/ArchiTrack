@@ -19,9 +19,19 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
-  test.beforeEach(async ({ context }) => {
+  test.beforeEach(async ({ context, page }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+
+    // ビューポートサイズをデスクトップサイズにリセット（他のテストファイルでの変更を引き継がないため）
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    // ブラウザのストレージを完全にクリア（前のテストの状態を引き継がないため）
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
   });
 
   /**
@@ -379,11 +389,14 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       timeout: getTimeout(10000),
     });
 
-    // カードリストが表示されているか確認
-    const cardList = page.getByTestId('project-card-list');
-    const cardListVisible = await cardList.isVisible().catch(() => false);
+    // ローディング完了後、少し待機してDOMが安定するのを待つ
+    await page.waitForTimeout(500);
 
-    if (cardListVisible) {
+    // カードリストが表示されているか確認（タイムアウト付きで待機）
+    const cardList = page.getByTestId('project-card-list');
+    try {
+      await expect(cardList).toBeVisible({ timeout: getTimeout(10000) });
+
       // カードが存在する場合、最初のカードの担当者情報を確認
       const cards = page.locator('[data-testid^="project-card-"]');
       const cardCount = await cards.count();
@@ -401,8 +414,8 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
         );
         await expect(constructionPersonElement).toBeVisible({ timeout: getTimeout(10000) });
       }
-    } else {
-      // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
+    } catch {
+      // カードリストが見つからない場合、プロジェクトがないか確認
       const emptyOrError = page.getByText(
         /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
       );

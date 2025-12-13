@@ -11,7 +11,11 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import {
+  cleanDatabase,
+  cleanDatabaseAndRestoreTestData,
+  getPrismaClient,
+} from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
@@ -499,5 +503,15 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     console.log(
       `Project detail page load time: ${loadTime}ms (threshold: ${THRESHOLDS.PROJECT_DETAIL_LOAD}ms)`
     );
+  });
+
+  /**
+   * テスト終了後にテストデータを復元
+   * 他のテストファイルへの影響を防ぐため
+   */
+  test.afterAll(async () => {
+    console.log('  - Restoring test data after performance tests...');
+    await cleanDatabaseAndRestoreTestData();
+    console.log('  ✓ Test data restored successfully');
   });
 });

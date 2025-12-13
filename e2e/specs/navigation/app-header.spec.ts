@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import {
+  cleanDatabase,
+  cleanDatabaseAndRestoreTestData,
+  getPrismaClient,
+} from '../../fixtures/database';
 import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 
 /**
@@ -296,5 +300,15 @@ test.describe('AppHeader ナビゲーション', () => {
     await expect(page.getByTestId('quick-link-admin-users')).toBeVisible();
     await expect(page.getByTestId('quick-link-admin-invitations')).toBeVisible();
     await expect(page.getByTestId('quick-link-admin-audit')).toBeVisible();
+  });
+
+  /**
+   * テスト終了後にテストデータを復元
+   * 他のテストファイルへの影響を防ぐため
+   */
+  test.afterAll(async () => {
+    console.log('  - Restoring test data after app-header tests...');
+    await cleanDatabaseAndRestoreTestData();
+    console.log('  ✓ Test data restored successfully');
   });
 });

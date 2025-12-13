@@ -27,6 +27,9 @@ test.describe('複合一意制約（取引先名+部課/支店/支社名）', ()
     // テスト間の状態をクリア
     await context.clearCookies();
 
+    // ビューポートサイズをデスクトップサイズにリセット（他のテストファイルでの変更を引き継がないため）
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // localStorageもクリア（テスト間の認証状態の干渉を防ぐ）
     await page.goto('/login');
     await page.evaluate(() => {

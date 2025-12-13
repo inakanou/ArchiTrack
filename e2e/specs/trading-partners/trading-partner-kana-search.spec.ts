@@ -63,6 +63,9 @@ test.describe('かな変換検索', () => {
     // テスト間の状態をクリア
     await context.clearCookies();
 
+    // ビューポートサイズをデスクトップサイズにリセット（他のテストファイルでの変更を引き継がないため）
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // localStorageもクリア（テスト間の認証状態の干渉を防ぐ）
     await page.goto('/login');
     await page.evaluate(() => {

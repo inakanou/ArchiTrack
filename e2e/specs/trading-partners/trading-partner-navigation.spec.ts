@@ -41,6 +41,9 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
   test.beforeEach(async ({ context, page }) => {
     await context.clearCookies();
 
+    // ビューポートサイズをデスクトップサイズにリセット（他のテストファイルでの変更を引き継がないため）
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // localStorageもクリア（テスト間の認証状態の干渉を防ぐ）
     await page.goto('/login');
     await page.evaluate(() => {

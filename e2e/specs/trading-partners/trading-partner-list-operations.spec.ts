@@ -30,6 +30,9 @@ test.describe('取引先一覧操作', () => {
     // テスト間の状態をクリア
     await context.clearCookies();
 
+    // ビューポートサイズをデスクトップサイズにリセット（他のテストファイルでの変更を引き継がないため）
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // localStorageもクリア（テスト間の認証状態の干渉を防ぐ）
     await page.goto('/login');
     await page.evaluate(() => {
@@ -407,32 +410,7 @@ test.describe('取引先一覧操作', () => {
       await expect(page).toHaveURL(/sort=name/, { timeout: getTimeout(10000) });
     });
 
-    test('フリガナヘッダーをクリックするとフリガナでソートされる', async ({ page }) => {
-      await loginAsUser(page, 'REGULAR_USER');
-
-      await page.goto('/trading-partners');
-      await page.waitForLoadState('networkidle');
-      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
-
-      // テーブルが表示されているか確認
-      const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        const emptyMessage = page.getByText(/取引先が登録されていません/i);
-        await expect(emptyMessage).toBeVisible();
-        return;
-      }
-
-      // フリガナヘッダーのソートボタンをクリック
-      const sortButton = page.getByRole('button', { name: /フリガナでソート/i });
-      await expect(sortButton).toBeVisible({ timeout: getTimeout(10000) });
-
-      await sortButton.click();
-
-      // デフォルトがnameKana ascなので、クリックするとdescになる
-      await expect(page).toHaveURL(/order=desc/, { timeout: getTimeout(10000) });
-    });
+    // Note: フリガナ列は Task 19.1 で削除されたため、フリガナソートテストは削除
 
     test('登録日ヘッダーをクリックすると登録日でソートされる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -514,12 +492,16 @@ test.describe('取引先一覧操作', () => {
         return;
       }
 
-      // デフォルトでフリガナの昇順ソートなので、昇順アイコンが表示されているはず
+      // 取引先名ヘッダーのソートボタンをクリック（昇順でソート開始）
+      // Note: フリガナ列は Task 19.1 で削除されたため、取引先名でテスト
+      const sortButton = page.getByRole('button', { name: /取引先名でソート/i });
+      await sortButton.click();
+
+      // 昇順アイコンが表示されることを確認
       const ascIcon = page.getByTestId('sort-icon-asc');
       await expect(ascIcon).toBeVisible({ timeout: getTimeout(5000) });
 
-      // フリガナヘッダーのソートボタンをクリック（降順に切り替わる）
-      const sortButton = page.getByRole('button', { name: /フリガナでソート/i });
+      // もう一度クリックして降順に切り替え
       await sortButton.click();
 
       // 降順アイコンが表示されることを確認
