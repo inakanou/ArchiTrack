@@ -660,7 +660,7 @@
 
 ## Task 24: 差分実装のテスト
 
-- [ ] 24.1 (P) プロジェクト名一意性チェックのユニットテスト
+- [x] 24.1 (P) プロジェクト名一意性チェックのユニットテスト
   - createProject: 重複プロジェクト名でDuplicateProjectNameErrorを検証
   - updateProject: 重複プロジェクト名（自身除外）でエラーを検証
   - updateProject: 同名でも自身の場合はエラーなしを検証
