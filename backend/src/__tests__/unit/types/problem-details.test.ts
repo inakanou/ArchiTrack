@@ -234,7 +234,13 @@ describe('Problem Details (RFC 9457)', () => {
       });
 
       // 期待されるプロパティ数を確認
-      expect(Object.keys(PROBLEM_TYPES).length).toBe(11);
+      expect(Object.keys(PROBLEM_TYPES).length).toBe(12);
+    });
+
+    it('PROJECT_NAME_DUPLICATE タイプが定義されている', () => {
+      expect(PROBLEM_TYPES.PROJECT_NAME_DUPLICATE).toBe(
+        'https://api.architrack.com/errors/project-name-duplicate'
+      );
     });
   });
 
