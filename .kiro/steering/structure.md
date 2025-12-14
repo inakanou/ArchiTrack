@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-12（Steering Sync: 取引先管理コンポーネント追加）_
+_最終更新: 2025-12-14（Steering Sync: テストファイル数・サービス数の整合性確認）_
 
 ## ルートディレクトリ構成
 
@@ -487,7 +487,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（472テスト）
+│   │   └── unit/          # ユニットテスト（73テストファイル、1800+テストケース）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -549,7 +549,7 @@ backend/
 │   │   └── security.constants.ts # セキュリティ定数
 │   ├── schemas/           # Zodバリデーションスキーマ
 │   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
-│   ├── services/          # ビジネスロジック（18サービス）
+│   ├── services/          # ビジネスロジック（17サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -981,8 +981,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 1011+テストケース（単体）+ 68テスト（統合）
-- Frontend: 667+テストケース（単体）
+- Backend: 1800+テストケース（単体、73ファイル）+ 70+テスト（統合）
+- Frontend: 700+テストケース（単体、83ファイル）
 
 ### .gitignore
 
