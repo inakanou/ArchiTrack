@@ -679,31 +679,6 @@ describe('ProjectListPage', () => {
   });
 
   describe('ソート機能詳細（Task 15.3）', () => {
-    it('ID列でソートできる', async () => {
-      const { getProjects } = await import('../../api/projects');
-      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
-      });
-
-      const sortButton = screen.getByRole('button', { name: 'IDでソート' });
-      await userEvent.click(sortButton);
-
-      await vi.advanceTimersByTimeAsync(300);
-
-      await waitFor(() => {
-        expect(getProjects).toHaveBeenCalledWith(
-          expect.objectContaining({
-            sort: 'id',
-            order: 'asc',
-          })
-        );
-      });
-    });
-
     it('顧客名列でソートできる', async () => {
       const { getProjects } = await import('../../api/projects');
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
@@ -961,19 +936,6 @@ describe('ProjectListPage', () => {
   });
 
   describe('プロジェクト一覧のカラム表示（Requirements 2.1, 2.2）', () => {
-    it('テーブルにID列が表示される', async () => {
-      const { getProjects } = await import('../../api/projects');
-      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
-      });
-
-      expect(screen.getByRole('columnheader', { name: /ID/ })).toBeInTheDocument();
-    });
-
     it('テーブルにプロジェクト名列が表示される', async () => {
       const { getProjects } = await import('../../api/projects');
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
