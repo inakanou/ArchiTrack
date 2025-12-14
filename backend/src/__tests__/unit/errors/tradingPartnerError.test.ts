@@ -341,7 +341,7 @@ describe('TradingPartner Error Classes', () => {
       const error = new TradingPartnerNotFoundError('test-id');
       const problemDetails = error.toProblemDetails('/api/trading-partners/test-id');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.NOT_FOUND,
         title: 'TRADING_PARTNER_NOT_FOUND',
         status: 404,
@@ -355,7 +355,7 @@ describe('TradingPartner Error Classes', () => {
       const error = new TradingPartnerValidationError({ name: '必須です' });
       const problemDetails = error.toProblemDetails('/api/trading-partners');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.VALIDATION_ERROR,
         title: 'TRADING_PARTNER_VALIDATION_ERROR',
         status: 400,
@@ -369,7 +369,7 @@ describe('TradingPartner Error Classes', () => {
       const error = new DuplicatePartnerNameError('株式会社テスト');
       const problemDetails = error.toProblemDetails('/api/trading-partners');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.CONFLICT,
         title: 'DUPLICATE_PARTNER_NAME',
         status: 409,
@@ -383,7 +383,7 @@ describe('TradingPartner Error Classes', () => {
       const error = new DuplicatePartnerNameError('株式会社テスト', '大阪支店');
       const problemDetails = error.toProblemDetails('/api/trading-partners');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.CONFLICT,
         title: 'DUPLICATE_PARTNER_NAME',
         status: 409,
@@ -397,7 +397,7 @@ describe('TradingPartner Error Classes', () => {
       const error = new PartnerInUseError('partner-id', ['proj-1']);
       const problemDetails = error.toProblemDetails('/api/trading-partners/partner-id');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.CONFLICT,
         title: 'PARTNER_IN_USE',
         status: 409,
@@ -413,7 +413,7 @@ describe('TradingPartner Error Classes', () => {
       });
       const problemDetails = error.toProblemDetails('/api/trading-partners/123');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.CONFLICT,
         title: 'TRADING_PARTNER_CONFLICT',
         status: 409,

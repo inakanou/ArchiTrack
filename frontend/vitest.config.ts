@@ -20,9 +20,8 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: ['node_modules/', 'dist/', 'src/**/*.d.ts', 'src/vite-env.d.ts'],
-      clean: true,
       // WSL環境でのファイル競合問題を回避
-      processingConcurrency: 1,
+      clean: false,
       thresholds: {
         statements: 80,
         branches: 80,

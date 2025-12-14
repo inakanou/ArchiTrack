@@ -357,7 +357,7 @@ describe('Project Error Classes', () => {
       const error = new DuplicateProjectNameError(projectName);
       const problemDetails = error.toProblemDetails('/api/projects');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.PROJECT_NAME_DUPLICATE,
         title: 'PROJECT_NAME_DUPLICATE',
         status: 409,
@@ -380,7 +380,7 @@ describe('Project Error Classes', () => {
       const error = new ProjectNotFoundError('test-id');
       const problemDetails = error.toProblemDetails('/api/projects/test-id');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.NOT_FOUND,
         title: 'PROJECT_NOT_FOUND',
         status: 404,
@@ -394,7 +394,7 @@ describe('Project Error Classes', () => {
       const error = new ProjectValidationError({ name: '必須です' });
       const problemDetails = error.toProblemDetails('/api/projects');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.VALIDATION_ERROR,
         title: 'PROJECT_VALIDATION_ERROR',
         status: 400,
@@ -408,7 +408,7 @@ describe('Project Error Classes', () => {
       const error = new InvalidStatusTransitionError('PREPARING', 'COMPLETED', []);
       const problemDetails = error.toProblemDetails('/api/projects/123/status');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.VALIDATION_ERROR,
         title: 'INVALID_STATUS_TRANSITION',
         status: 422,

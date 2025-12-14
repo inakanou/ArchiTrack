@@ -23,9 +23,10 @@ export class ApiError extends Error {
 
   /**
    * Convert to RFC 7807 Problem Details format
+   * Also includes code and message fields for backward compatibility
    */
   toProblemDetails(instance?: string): ProblemDetails {
-    return createProblemDetails({
+    const problemDetails = createProblemDetails({
       type: this.problemType || PROBLEM_TYPES.INTERNAL_SERVER_ERROR,
       title: this.code || 'Internal Server Error',
       status: this.statusCode,
@@ -33,6 +34,14 @@ export class ApiError extends Error {
       instance,
       extensions: this.details ? { details: this.details } : undefined,
     });
+    // Add code and message fields for backward compatibility
+    if (this.code) {
+      problemDetails.code = this.code;
+    }
+    if (this.message) {
+      problemDetails.message = this.message;
+    }
+    return problemDetails;
   }
 
   /**
