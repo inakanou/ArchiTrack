@@ -836,7 +836,7 @@ describe('Trading Partner API Integration Tests', () => {
           expect(response.body).toMatchObject({
             status: 409,
             code: 'DUPLICATE_PARTNER_NAME',
-            message: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+            detail: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
           });
 
           // detailsに name と branchName が含まれることを検証
@@ -998,7 +998,7 @@ describe('Trading Partner API Integration Tests', () => {
           expect(response.body).toMatchObject({
             status: 409,
             code: 'DUPLICATE_PARTNER_NAME',
-            message: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
+            detail: 'この取引先名と部課/支店/支社名の組み合わせは既に登録されています',
           });
 
           // detailsに name と branchName が含まれることを検証
@@ -1165,7 +1165,7 @@ describe('Trading Partner API Integration Tests', () => {
             type: expect.stringContaining('conflict'),
             status: 409,
             code: 'DUPLICATE_PARTNER_NAME',
-            message: expect.any(String),
+            detail: expect.any(String),
             details: expect.objectContaining({
               name: expect.any(String),
               branchName: expect.any(String),
