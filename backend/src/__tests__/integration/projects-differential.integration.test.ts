@@ -31,6 +31,7 @@ validateEnv();
 import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 
 /**
  * プロジェクト差分実装の統合テスト
@@ -292,6 +293,11 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
 
     // Redisの初期化
     await initRedis();
+
+    // シードデータを投入（CIでシードが実行されていない場合に備える）
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
   });
 
   afterAll(async () => {
