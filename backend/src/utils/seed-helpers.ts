@@ -257,20 +257,16 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
     },
   ];
 
-  for (const permission of permissions) {
-    await prisma.permission.upsert({
-      where: {
-        resource_action: {
-          resource: permission.resource,
-          action: permission.action,
-        },
-      },
-      update: {},
-      create: permission,
-    });
-  }
+  // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
+  // PostgreSQLのON CONFLICT DO NOTHINGを使用するため、重複時はスキップされる
+  const result = await prisma.permission.createMany({
+    data: permissions,
+    skipDuplicates: true,
+  });
 
-  logger.info(`${permissions.length} permissions seeded successfully`);
+  logger.info(
+    `${result.count} permissions seeded successfully (${permissions.length - result.count} already existed)`
+  );
 }
 
 /**

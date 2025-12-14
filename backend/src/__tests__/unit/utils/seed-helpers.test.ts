@@ -20,12 +20,17 @@ import type { PrismaClient } from '../../../generated/prisma/client.js';
 // seed-helpersをインポートするためにモジュールを動的にインポート
 describe('seedPermissions', () => {
   let mockPrisma: Partial<PrismaClient>;
+  let createManyData: Array<{ resource: string; action: string; description: string }>;
 
   beforeEach(() => {
     vi.resetModules();
+    createManyData = [];
     mockPrisma = {
       permission: {
-        upsert: vi.fn().mockResolvedValue({}),
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
         findFirst: vi.fn().mockResolvedValue(null),
       } as unknown as PrismaClient['permission'],
       role: {
@@ -47,13 +52,12 @@ describe('seedPermissions', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const projectCreateCall = upsertCalls.find(
-        (call) => call[0].create.resource === 'project' && call[0].create.action === 'create'
+      const projectCreatePerm = createManyData.find(
+        (perm) => perm.resource === 'project' && perm.action === 'create'
       );
 
-      expect(projectCreateCall).toBeDefined();
-      expect(projectCreateCall![0].create.description).toBe('プロジェクトの作成');
+      expect(projectCreatePerm).toBeDefined();
+      expect(projectCreatePerm!.description).toBe('プロジェクトの作成');
     });
 
     it('project:read権限が定義されている', async () => {
@@ -64,13 +68,12 @@ describe('seedPermissions', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const projectReadCall = upsertCalls.find(
-        (call) => call[0].create.resource === 'project' && call[0].create.action === 'read'
+      const projectReadPerm = createManyData.find(
+        (perm) => perm.resource === 'project' && perm.action === 'read'
       );
 
-      expect(projectReadCall).toBeDefined();
-      expect(projectReadCall![0].create.description).toBe('プロジェクトの閲覧');
+      expect(projectReadPerm).toBeDefined();
+      expect(projectReadPerm!.description).toBe('プロジェクトの閲覧');
     });
 
     it('project:update権限が定義されている', async () => {
@@ -81,13 +84,12 @@ describe('seedPermissions', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const projectUpdateCall = upsertCalls.find(
-        (call) => call[0].create.resource === 'project' && call[0].create.action === 'update'
+      const projectUpdatePerm = createManyData.find(
+        (perm) => perm.resource === 'project' && perm.action === 'update'
       );
 
-      expect(projectUpdateCall).toBeDefined();
-      expect(projectUpdateCall![0].create.description).toBe('プロジェクトの更新');
+      expect(projectUpdatePerm).toBeDefined();
+      expect(projectUpdatePerm!.description).toBe('プロジェクトの更新');
     });
 
     it('project:delete権限が定義されている', async () => {
@@ -98,13 +100,12 @@ describe('seedPermissions', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const projectDeleteCall = upsertCalls.find(
-        (call) => call[0].create.resource === 'project' && call[0].create.action === 'delete'
+      const projectDeletePerm = createManyData.find(
+        (perm) => perm.resource === 'project' && perm.action === 'delete'
       );
 
-      expect(projectDeleteCall).toBeDefined();
-      expect(projectDeleteCall![0].create.description).toBe('プロジェクトの削除');
+      expect(projectDeletePerm).toBeDefined();
+      expect(projectDeletePerm!.description).toBe('プロジェクトの削除');
     });
 
     it('全4つのプロジェクト権限が定義されている', async () => {
@@ -115,13 +116,10 @@ describe('seedPermissions', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const projectPermissions = upsertCalls.filter(
-        (call) => call[0].create.resource === 'project'
-      );
+      const projectPermissions = createManyData.filter((perm) => perm.resource === 'project');
 
       expect(projectPermissions).toHaveLength(4);
-      const actions = projectPermissions.map((call) => call[0].create.action);
+      const actions = projectPermissions.map((perm) => perm.action);
       expect(actions).toContain('create');
       expect(actions).toContain('read');
       expect(actions).toContain('update');
@@ -132,12 +130,17 @@ describe('seedPermissions', () => {
 
 describe('seedPermissions - 取引先管理権限', () => {
   let mockPrisma: Partial<PrismaClient>;
+  let createManyData: Array<{ resource: string; action: string; description: string }>;
 
   beforeEach(() => {
     vi.resetModules();
+    createManyData = [];
     mockPrisma = {
       permission: {
-        upsert: vi.fn().mockResolvedValue({}),
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
         findFirst: vi.fn().mockResolvedValue(null),
       } as unknown as PrismaClient['permission'],
       role: {
@@ -159,14 +162,12 @@ describe('seedPermissions - 取引先管理権限', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const tradingPartnerCreateCall = upsertCalls.find(
-        (call) =>
-          call[0].create.resource === 'trading-partner' && call[0].create.action === 'create'
+      const tradingPartnerCreatePerm = createManyData.find(
+        (perm) => perm.resource === 'trading-partner' && perm.action === 'create'
       );
 
-      expect(tradingPartnerCreateCall).toBeDefined();
-      expect(tradingPartnerCreateCall![0].create.description).toBe('取引先の作成');
+      expect(tradingPartnerCreatePerm).toBeDefined();
+      expect(tradingPartnerCreatePerm!.description).toBe('取引先の作成');
     });
 
     it('trading-partner:read権限が定義されている', async () => {
@@ -177,13 +178,12 @@ describe('seedPermissions - 取引先管理権限', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const tradingPartnerReadCall = upsertCalls.find(
-        (call) => call[0].create.resource === 'trading-partner' && call[0].create.action === 'read'
+      const tradingPartnerReadPerm = createManyData.find(
+        (perm) => perm.resource === 'trading-partner' && perm.action === 'read'
       );
 
-      expect(tradingPartnerReadCall).toBeDefined();
-      expect(tradingPartnerReadCall![0].create.description).toBe('取引先の閲覧');
+      expect(tradingPartnerReadPerm).toBeDefined();
+      expect(tradingPartnerReadPerm!.description).toBe('取引先の閲覧');
     });
 
     it('trading-partner:update権限が定義されている', async () => {
@@ -194,14 +194,12 @@ describe('seedPermissions - 取引先管理権限', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const tradingPartnerUpdateCall = upsertCalls.find(
-        (call) =>
-          call[0].create.resource === 'trading-partner' && call[0].create.action === 'update'
+      const tradingPartnerUpdatePerm = createManyData.find(
+        (perm) => perm.resource === 'trading-partner' && perm.action === 'update'
       );
 
-      expect(tradingPartnerUpdateCall).toBeDefined();
-      expect(tradingPartnerUpdateCall![0].create.description).toBe('取引先の更新');
+      expect(tradingPartnerUpdatePerm).toBeDefined();
+      expect(tradingPartnerUpdatePerm!.description).toBe('取引先の更新');
     });
 
     it('trading-partner:delete権限が定義されている', async () => {
@@ -212,14 +210,12 @@ describe('seedPermissions - 取引先管理権限', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const tradingPartnerDeleteCall = upsertCalls.find(
-        (call) =>
-          call[0].create.resource === 'trading-partner' && call[0].create.action === 'delete'
+      const tradingPartnerDeletePerm = createManyData.find(
+        (perm) => perm.resource === 'trading-partner' && perm.action === 'delete'
       );
 
-      expect(tradingPartnerDeleteCall).toBeDefined();
-      expect(tradingPartnerDeleteCall![0].create.description).toBe('取引先の削除');
+      expect(tradingPartnerDeletePerm).toBeDefined();
+      expect(tradingPartnerDeletePerm!.description).toBe('取引先の削除');
     });
 
     it('全4つの取引先権限が定義されている', async () => {
@@ -230,13 +226,12 @@ describe('seedPermissions - 取引先管理権限', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.permission!.upsert).mock.calls;
-      const tradingPartnerPermissions = upsertCalls.filter(
-        (call) => call[0].create.resource === 'trading-partner'
+      const tradingPartnerPermissions = createManyData.filter(
+        (perm) => perm.resource === 'trading-partner'
       );
 
       expect(tradingPartnerPermissions).toHaveLength(4);
-      const actions = tradingPartnerPermissions.map((call) => call[0].create.action);
+      const actions = tradingPartnerPermissions.map((perm) => perm.action);
       expect(actions).toContain('create');
       expect(actions).toContain('read');
       expect(actions).toContain('update');
