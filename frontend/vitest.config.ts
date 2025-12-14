@@ -10,18 +10,18 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     // WSL環境でのメモリ不足を防ぐため、並行実行を制限
     fileParallelism: false,
+    // シングルスレッドで順次実行
     pool: 'forks',
     poolOptions: {
       forks: {
         singleFork: true,
+        isolate: false,
       },
     },
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
       reporter: ['text', 'json', 'html'],
       exclude: ['node_modules/', 'dist/', 'src/**/*.d.ts', 'src/vite-env.d.ts'],
-      // WSL環境でのファイル競合問題を回避
-      clean: false,
       thresholds: {
         statements: 80,
         branches: 80,
