@@ -140,8 +140,11 @@ ArchiTrackには、E2Eテスト用に複数の環境が用意されています�
 #### 基本的なテスト実行（開発環境を使用）
 
 ```bash
-# 開発環境を起動
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+# 開発環境を起動（npm scriptsを使用、推奨）
+npm run dev:docker
+
+# または直接コマンドを使用する場合
+# docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
 
 # E2Eテストを実行
 npm run test:e2e
@@ -150,11 +153,14 @@ npm run test:e2e
 #### テスト環境で実行（推奨：開発環境と同時実行可能）
 
 ```bash
-# テスト環境を起動（開発環境とポートが異なる）
-docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
+# テスト環境を起動（npm scriptsを使用、推奨）
+npm run test:docker
 
-# E2Eテストを実行（テスト環境のポートを指定）
-BASE_URL=http://localhost:5174 npm run test:e2e
+# または直接コマンドを使用する場合
+# docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
+
+# E2Eテストを実行（テスト環境のポートを使用、npm scriptsで自動設定済み）
+npm run test:e2e
 ```
 
 #### UIモードで実行（対話的）

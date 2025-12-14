@@ -110,14 +110,18 @@ describe('errorHandler middleware', () => {
         'API error'
       );
       expect(statusMock).toHaveBeenCalledWith(400);
-      expect(jsonMock).toHaveBeenCalledWith({
-        type: 'https://api.architrack.com/errors/internal-server-error',
-        title: 'TEST_CODE',
-        status: 400,
-        detail: 'Test error',
-        instance: '/api/test',
-        details: { detail: 'test' },
-      });
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'https://api.architrack.com/errors/internal-server-error',
+          title: 'TEST_CODE',
+          status: 400,
+          detail: 'Test error',
+          instance: '/api/test',
+          details: { detail: 'test' },
+          code: 'TEST_CODE',
+          message: 'Test error',
+        })
+      );
     });
 
     it('should handle BadRequestError properly', () => {
@@ -126,13 +130,17 @@ describe('errorHandler middleware', () => {
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(statusMock).toHaveBeenCalledWith(400);
-      expect(jsonMock).toHaveBeenCalledWith({
-        type: 'https://api.architrack.com/errors/bad-request',
-        title: 'BAD_REQUEST',
-        status: 400,
-        detail: 'Invalid input',
-        instance: '/api/test',
-      });
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'https://api.architrack.com/errors/bad-request',
+          title: 'BAD_REQUEST',
+          status: 400,
+          detail: 'Invalid input',
+          instance: '/api/test',
+          code: 'BAD_REQUEST',
+          message: 'Invalid input',
+        })
+      );
     });
 
     it('should handle ValidationError properly', () => {
@@ -143,14 +151,18 @@ describe('errorHandler middleware', () => {
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(statusMock).toHaveBeenCalledWith(400);
-      expect(jsonMock).toHaveBeenCalledWith({
-        type: 'https://api.architrack.com/errors/validation-error',
-        title: 'VALIDATION_ERROR',
-        status: 400,
-        detail: 'Validation failed',
-        instance: '/api/test',
-        details: [{ path: 'email', message: 'Invalid email' }],
-      });
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'https://api.architrack.com/errors/validation-error',
+          title: 'VALIDATION_ERROR',
+          status: 400,
+          detail: 'Validation failed',
+          instance: '/api/test',
+          details: [{ path: 'email', message: 'Invalid email' }],
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+        })
+      );
     });
   });
 
@@ -182,23 +194,25 @@ describe('errorHandler middleware', () => {
 
       expect(mockRequest.log?.warn).toHaveBeenCalledWith({ err: zodError }, 'Validation error');
       expect(statusMock).toHaveBeenCalledWith(400);
-      expect(jsonMock).toHaveBeenCalledWith({
-        type: 'https://api.architrack.com/errors/validation-error',
-        title: 'VALIDATION_ERROR',
-        status: 400,
-        detail: 'Validation failed',
-        instance: '/api/test',
-        details: [
-          {
-            path: 'email',
-            message: 'Expected string, received number',
-          },
-          {
-            path: 'password',
-            message: 'String must contain at least 8 character(s)',
-          },
-        ],
-      });
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'https://api.architrack.com/errors/validation-error',
+          title: 'VALIDATION_ERROR',
+          status: 400,
+          detail: 'Validation failed',
+          instance: '/api/test',
+          details: [
+            {
+              path: 'email',
+              message: 'Expected string, received number',
+            },
+            {
+              path: 'password',
+              message: 'String must contain at least 8 character(s)',
+            },
+          ],
+        })
+      );
     });
 
     it('should handle ZodError with nested paths', () => {
@@ -216,19 +230,21 @@ describe('errorHandler middleware', () => {
 
       errorHandler(zodError, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(jsonMock).toHaveBeenCalledWith({
-        type: 'https://api.architrack.com/errors/validation-error',
-        title: 'VALIDATION_ERROR',
-        status: 400,
-        detail: 'Validation failed',
-        instance: '/api/test',
-        details: [
-          {
-            path: 'user.profile.name',
-            message: 'Required',
-          },
-        ],
-      });
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'https://api.architrack.com/errors/validation-error',
+          title: 'VALIDATION_ERROR',
+          status: 400,
+          detail: 'Validation failed',
+          instance: '/api/test',
+          details: [
+            {
+              path: 'user.profile.name',
+              message: 'Required',
+            },
+          ],
+        })
+      );
     });
   });
 

@@ -38,6 +38,7 @@ import {
   ProjectConflictError,
   InvalidStatusTransitionError,
   ReasonRequiredError,
+  DuplicateProjectNameError,
 } from '../errors/projectError.js';
 import { z } from 'zod';
 
@@ -88,7 +89,7 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *         name: search
  *         schema:
  *           type: string
- *         description: 検索キーワード（プロジェクト名・顧客名の部分一致、2文字以上）
+ *         description: 検索キーワード（プロジェクト名・取引先名の部分一致、2文字以上）
  *       - in: query
  *         name: status
  *         schema:
@@ -110,7 +111,7 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *         name: sort
  *         schema:
  *           type: string
- *           enum: [id, name, customerName, status, createdAt, updatedAt]
+ *           enum: [id, name, tradingPartnerId, status, createdAt, updatedAt]
  *           default: updatedAt
  *         description: ソートフィールド
  *       - in: query
@@ -311,6 +312,22 @@ router.post(
         });
         return;
       }
+      /**
+       * Task 21.6: POST /api/projectsハンドラでDuplicateProjectNameErrorをキャッチ
+       * Requirements: 1.15, 8.7
+       * RFC 7807形式のエラーレスポンスを返却
+       */
+      if (error instanceof DuplicateProjectNameError) {
+        res.status(409).json({
+          type: error.problemType,
+          title: 'Duplicate Project Name',
+          status: 409,
+          detail: error.message,
+          code: error.code,
+          projectName: error.projectName,
+        });
+        return;
+      }
       next(error);
     }
   }
@@ -414,6 +431,22 @@ router.put(
           detail: error.message,
           code: error.code,
           ...(conflictDetails ?? {}),
+        });
+        return;
+      }
+      /**
+       * Task 21.6: PUT /api/projects/:idハンドラでDuplicateProjectNameErrorをキャッチ
+       * Requirements: 1.15, 8.7
+       * RFC 7807形式のエラーレスポンスを返却
+       */
+      if (error instanceof DuplicateProjectNameError) {
+        res.status(409).json({
+          type: error.problemType,
+          title: 'Duplicate Project Name',
+          status: 409,
+          detail: error.message,
+          code: error.code,
+          projectName: error.projectName,
         });
         return;
       }

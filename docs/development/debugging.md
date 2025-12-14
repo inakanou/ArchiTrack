@@ -131,8 +131,8 @@ Docker内で動作するバックエンドにVSCodeからアタッチしてデ�
 #### 方法1: デバッグ環境で起動
 
 ```bash
-# デバッグ用オーバーライドを追加して起動
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.debug.yml --env-file .env.dev up -d
+# デバッグ用オーバーライドを追加して起動（-p オプションでプロジェクト名を指定）
+docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.debug.yml --env-file .env.dev up -d
 ```
 
 このコマンドは `npm run dev:debug` でバックエンドを起動し、Node.js inspectorが有効になります（ポート: 9229）。
@@ -175,8 +175,11 @@ launch.jsonの各E2Eテスト設定には`preLaunchTask`が設定されており
 # スクリプトを直接実行
 ./scripts/ensure-docker-ready.sh
 
-# または開発環境を起動
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+# または npm scripts を使用して開発環境を起動（推奨）
+npm run dev:docker
+
+# または直接コマンドを使用する場合
+# docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
 ```
 
 ---
@@ -209,11 +212,16 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.d
 # コンテナの状態を確認
 docker ps -a
 
-# バックエンドが停止している場合（開発環境）
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+# バックエンドが停止している場合（npm scriptsを使用、推奨）
+npm run dev:docker
+
+# または直接コマンドを使用する場合
+# docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
 
 # バックエンドのログを確認
-docker logs architrack-backend-dev
+npm run dev:docker:logs
+# または
+# docker logs architrack-backend-dev
 ```
 
 ---

@@ -25,8 +25,21 @@ import { PROJECT_STATUS_LABELS } from '../../types/project.types';
 
 /**
  * ソート可能なフィールド
+ *
+ * Task 22.1: SortField型定義の更新
+ * - 'id'を削除
+ * - 'salesPersonName', 'constructionPersonName'を追加
+ *
+ * Requirements: 6.5
  */
-export type SortField = 'id' | 'name' | 'customerName' | 'status' | 'createdAt' | 'updatedAt';
+export type SortField =
+  | 'name'
+  | 'customerName'
+  | 'salesPersonName'
+  | 'constructionPersonName'
+  | 'status'
+  | 'createdAt'
+  | 'updatedAt';
 
 /**
  * ソート順序
@@ -55,15 +68,23 @@ export interface ProjectListTableProps {
 
 /**
  * テーブルカラム定義
+ *
+ * Task 22.1: SortField型の更新に伴う列構成の変更
+ * - ID列を削除
+ * - 営業担当者列を追加
+ * - 工事担当者列を追加
+ *
+ * Requirements: 2.2, 6.5
  */
 const COLUMNS: Array<{
   key: SortField;
   label: string;
   sortable: boolean;
 }> = [
-  { key: 'id', label: 'ID', sortable: true },
   { key: 'name', label: 'プロジェクト名', sortable: true },
   { key: 'customerName', label: '顧客名', sortable: true },
+  { key: 'salesPersonName', label: '営業担当者', sortable: true },
+  { key: 'constructionPersonName', label: '工事担当者', sortable: true },
   { key: 'status', label: 'ステータス', sortable: true },
   { key: 'createdAt', label: '作成日', sortable: true },
   { key: 'updatedAt', label: '更新日', sortable: true },
@@ -83,13 +104,6 @@ function formatDate(dateString: string): string {
     month: '2-digit',
     day: '2-digit',
   });
-}
-
-/**
- * UUIDを短縮表示（先頭8文字）
- */
-function shortenId(id: string): string {
-  return id.substring(0, 8);
 }
 
 // ============================================================================
@@ -289,15 +303,6 @@ export default function ProjectListTable({
               `}
               role="row"
             >
-              {/* ID */}
-              <td className="px-6 py-4 whitespace-nowrap">
-                <span
-                  className="inline-flex items-center px-2.5 py-1 rounded-md bg-gray-100 text-xs font-mono font-medium text-gray-600"
-                  title={project.id}
-                >
-                  {shortenId(project.id)}
-                </span>
-              </td>
               {/* プロジェクト名 */}
               <td className="px-6 py-4 whitespace-nowrap">
                 <div className="flex items-center gap-2">
@@ -327,7 +332,61 @@ export default function ProjectListTable({
                       d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
                     />
                   </svg>
-                  <span className="text-sm text-gray-600">{project.customerName}</span>
+                  <span className="text-sm text-gray-600">
+                    {project.tradingPartner?.name ?? '-'}
+                  </span>
+                </div>
+              </td>
+              {/* 営業担当者 */}
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center gap-2">
+                  <svg
+                    width="16"
+                    height="16"
+                    className="text-gray-400 flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
+                  </svg>
+                  <span className="text-sm text-gray-600">
+                    {project.salesPerson?.displayName ?? '-'}
+                  </span>
+                </div>
+              </td>
+              {/* 工事担当者 */}
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center gap-2">
+                  <svg
+                    width="16"
+                    height="16"
+                    className="text-gray-400 flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                  </svg>
+                  <span className="text-sm text-gray-600">
+                    {project.constructionPerson?.displayName ?? '-'}
+                  </span>
                 </div>
               </td>
               {/* ステータス */}

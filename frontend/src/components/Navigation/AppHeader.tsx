@@ -300,6 +300,20 @@ const Icons = {
       />
     </svg>
   ),
+  /**
+   * 取引先アイコン（ビルディング）
+   * REQ-12.3: 「取引先」リンクにアイコンを付与して視認性を高める
+   */
+  TradingPartner: () => (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+      />
+    </svg>
+  ),
 };
 
 /**
@@ -444,6 +458,12 @@ export function AppHeader(): ReactElement {
             <Link to="/projects" className="app-header-nav-link">
               <Icons.Project />
               <span>プロジェクト</span>
+            </Link>
+
+            {/* 取引先リンク - REQ-12.1, 12.2, 12.3, 12.4 */}
+            <Link to="/trading-partners" className="app-header-nav-link">
+              <Icons.TradingPartner />
+              <span>取引先</span>
             </Link>
 
             {/* 管理者メニュー（admin ロールを持つユーザーのみ） */}

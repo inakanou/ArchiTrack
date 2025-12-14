@@ -86,7 +86,7 @@ test.describe('プロジェクト詳細画面', () => {
 
     const projectName = `詳細テスト_${Date.now()}`;
     await page.getByLabel(/プロジェクト名/i).fill(projectName);
-    await page.getByLabel(/顧客名/i).fill('テスト顧客株式会社');
+    // 取引先は任意フィールドのため未選択のまま進める
     await page.getByLabel(/現場住所/i).fill('東京都渋谷区テスト1-2-3');
     await page.getByLabel(/概要/i).fill('テスト用の概要説明');
 
@@ -137,8 +137,7 @@ test.describe('プロジェクト詳細画面', () => {
 
       // 全情報が表示されることを確認
       await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(10000) });
-      // 顧客名はヘッダーと基本情報の両方に表示されるため、first()を使用
-      await expect(page.getByText(/テスト顧客株式会社/i).first()).toBeVisible();
+      // 取引先は任意フィールドのため未選択なので表示なし
       await expect(page.getByText(/東京都渋谷区テスト1-2-3/i).first()).toBeVisible();
       await expect(page.getByText(/テスト用の概要説明/i).first()).toBeVisible();
 
@@ -186,9 +185,9 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto('/projects/00000000-0000-0000-0000-000000000000');
       await page.waitForLoadState('networkidle');
 
-      // エラーメッセージの確認（404/Bad Request/Not Foundのいずれか）
+      // エラーメッセージの確認（404/Bad Request/Not Found/形式不正のいずれか）
       const errorMessage = page.getByText(
-        /プロジェクトが見つかりませんでした|404|Not Found|Bad Request/i
+        /プロジェクトが見つかりませんでした|プロジェクトIDの形式が不正です|404|Not Found|Bad Request/i
       );
       await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
     });
@@ -209,9 +208,9 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto('/projects/00000000-0000-0000-0000-000000000000');
       await page.waitForLoadState('networkidle');
 
-      // エラーが表示されることを確認（404/403/Bad Requestのいずれか）
+      // エラーが表示されることを確認（404/403/Bad Request/形式不正のいずれか）
       const errorMessage = page.getByText(
-        /プロジェクトが見つかりませんでした|アクセス権限がありません|403|404|Forbidden|Not Found|Bad Request/i
+        /プロジェクトが見つかりませんでした|アクセス権限がありません|プロジェクトIDの形式が不正です|403|404|Forbidden|Not Found|Bad Request/i
       );
       await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
     });
@@ -296,7 +295,7 @@ test.describe('プロジェクト詳細画面', () => {
         .toBeGreaterThanOrEqual(2);
 
       await page.getByLabel(/プロジェクト名/i).fill(`工事担当者テスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
+      // 取引先は任意フィールドのため未選択のまま進める
 
       // 営業担当者を確認・選択
       const salesPersonValue = await salesPersonSelect.inputValue();

@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import {
+  cleanDatabase,
+  cleanDatabaseAndRestoreTestData,
+  getPrismaClient,
+} from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL } from '../../config';
 
@@ -243,5 +247,15 @@ test.describe('データ整合性とトランザクション管理', () => {
       where: { userId: testUser.id },
     });
     expect(userRoles.length).toBe(0);
+  });
+
+  /**
+   * テスト終了後にマスターデータとテストユーザーを再作成
+   * 他のテストファイルへの影響を防ぐため
+   */
+  test.afterAll(async () => {
+    console.log('  - Restoring test data after data-integrity tests...');
+    await cleanDatabaseAndRestoreTestData();
+    console.log('  ✓ Test data restored successfully');
   });
 });

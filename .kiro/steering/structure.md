@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-09（Steering Sync: users.routes.ts追加確認）_
+_最終更新: 2025-12-14（Steering Sync: テストファイル数・サービス数の整合性確認）_
 
 ## ルートディレクトリ構成
 
@@ -214,6 +214,10 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
   - 内容: プロジェクトCRUD、ステータス遷移管理（12種類のステータス）、担当者割り当て、検索・フィルタリング・ページネーション
 
+- `.kiro/specs/trading-partner-management/` - 取引先管理機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全15タスク完了）
+  - 内容: 取引先CRUD、種別管理（顧客/協力業者）、請求締日・支払日管理、検索・フィルタリング・ページネーション
+
 ### `e2e/`
 
 Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可能。
@@ -239,7 +243,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── navigation/       # ナビゲーションテスト
 │   │   └── *.spec.ts
-│   └── projects/         # プロジェクト管理テスト
+│   ├── projects/         # プロジェクト管理テスト
+│   │   └── *.spec.ts
+│   └── trading-partners/ # 取引先管理テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -261,10 +267,11 @@ e2e/
 - `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待、パスワードリセット等）
 - `admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
 - `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
-- `performance/` - パフォーマンステスト（ページロード時間等）
+- `performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作のパフォーマンス等）
 - `security/` - セキュリティテスト（CSRF、XSS対策等）
 - `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
+- `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
 
 **テストヘルパー:**
 
@@ -357,7 +364,22 @@ frontend/
 │   │       ├── ProjectListView.tsx # プロジェクト一覧ビュー
 │   │       ├── ProjectSearchFilter.tsx # 検索・フィルタUI
 │   │       ├── PaginationUI.tsx    # ページネーションUI
-│   │       └── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
+│   │       ├── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
+│   │       └── TradingPartnerSelect.tsx # 取引先選択（オートコンプリート）
+│   │   ├── trading-partners/        # 取引先管理コンポーネント
+│   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
+│   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
+│   │       ├── TradingPartnerDetailView.tsx # 取引先詳細表示
+│   │       ├── TradingPartnerListTable.tsx # 取引先一覧テーブル
+│   │       ├── TradingPartnerSearchFilter.tsx # 検索・フィルタUI
+│   │       ├── TradingPartnerPaginationUI.tsx # ページネーションUI
+│   │       ├── TradingPartnerDeleteDialog.tsx # 削除確認ダイアログ
+│   │       ├── TradingPartnerTypeSelect.tsx # 取引先種別選択
+│   │       ├── BillingClosingDaySelect.tsx # 請求締日選択
+│   │       └── PaymentDateSelect.tsx # 支払日選択
+│   │   └── common/                  # 共通コンポーネント
+│   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
+│   │       └── ResourceNotFound.tsx # リソース未発見表示
 │   ├── contexts/          # Reactコンテキスト
 │   │   └── AuthContext.tsx # 認証コンテキスト
 │   ├── pages/             # ページコンポーネント
@@ -375,7 +397,12 @@ frontend/
 │   │   ├── AuditLogs.tsx   # 監査ログページ（管理者）
 │   │   ├── ProjectListPage.tsx # プロジェクト一覧ページ
 │   │   ├── ProjectDetailPage.tsx # プロジェクト詳細ページ
-│   │   └── ProjectCreatePage.tsx # プロジェクト作成ページ
+│   │   ├── ProjectCreatePage.tsx # プロジェクト作成ページ
+│   │   ├── ProjectEditPage.tsx # プロジェクト編集ページ
+│   │   ├── TradingPartnerListPage.tsx # 取引先一覧ページ
+│   │   ├── TradingPartnerDetailPage.tsx # 取引先詳細ページ
+│   │   ├── TradingPartnerCreatePage.tsx # 取引先作成ページ
+│   │   └── TradingPartnerEditPage.tsx # 取引先編集ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -460,7 +487,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（472テスト）
+│   │   └── unit/          # ユニットテスト（73テストファイル、1800+テストケース）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -504,7 +531,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（11ファイル）
+│   ├── routes/            # ルート定義（12ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -515,7 +542,8 @@ backend/
 │   │   ├── roles.routes.ts  # ロール管理ルート
 │   │   ├── user-roles.routes.ts # ユーザーロール管理ルート
 │   │   ├── users.routes.ts  # ユーザー管理ルート（担当者候補取得）
-│   │   └── projects.routes.ts # プロジェクト管理ルート（CRUD、ステータス遷移）
+│   │   ├── projects.routes.ts # プロジェクト管理ルート（CRUD、ステータス遷移）
+│   │   └── trading-partners.routes.ts # 取引先管理ルート（CRUD、検索）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
@@ -537,7 +565,8 @@ backend/
 │   │   ├── audit-log-archive.service.ts # ログアーカイブ
 │   │   ├── email.service.ts # メール送信（Bull非同期キュー、Handlebars）
 │   │   ├── project.service.ts # プロジェクト管理（CRUD、楽観的排他制御）
-│   │   └── project-status.service.ts # プロジェクトステータス遷移（12種類のステータス）
+│   │   ├── project-status.service.ts # プロジェクトステータス遷移（12種類のステータス）
+│   │   └── trading-partner.service.ts # 取引先管理（CRUD、種別管理、楽観的排他制御）
 │   ├── templates/         # メールテンプレート
 │   │   └── （Handlebarsテンプレート）
 │   ├── types/             # カスタム型定義
@@ -615,7 +644,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（11ルートファイル）:**
+**実装済みAPI（12ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -665,6 +694,14 @@ backend/src/
 
 **ユーザー管理API（users.routes.ts）:**
 - `GET /api/users/assignable`: 担当者候補一覧取得（admin以外の有効なユーザー）
+
+**取引先管理API（trading-partners.routes.ts）:**
+- `GET /api/trading-partners`: 取引先一覧取得（ページネーション、検索、フィルタリング、ソート）
+- `GET /api/trading-partners/:id`: 取引先詳細取得
+- `POST /api/trading-partners`: 取引先作成
+- `PUT /api/trading-partners/:id`: 取引先更新（楽観的排他制御）
+- `DELETE /api/trading-partners/:id`: 取引先論理削除
+- `GET /api/trading-partners/search`: 取引先検索（オートコンプリート用）
 
 **実装済みミドルウェア:**
 
@@ -944,8 +981,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 1011+テストケース（単体）+ 68テスト（統合）
-- Frontend: 667+テストケース（単体）
+- Backend: 1800+テストケース（単体、73ファイル）+ 70+テスト（統合）
+- Frontend: 700+テストケース（単体、83ファイル）
 
 ### .gitignore
 

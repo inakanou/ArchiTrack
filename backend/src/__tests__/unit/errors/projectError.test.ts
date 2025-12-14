@@ -5,6 +5,7 @@ import {
   ProjectConflictError,
   InvalidStatusTransitionError,
   ReasonRequiredError,
+  DuplicateProjectNameError,
 } from '../../../errors/projectError.js';
 import { ApiError } from '../../../errors/apiError.js';
 import { PROBLEM_TYPES } from '../../../types/problem-details.js';
@@ -294,6 +295,7 @@ describe('Project Error Classes', () => {
         ApiError
       );
       expect(new ReasonRequiredError()).toBeInstanceOf(ApiError);
+      expect(new DuplicateProjectNameError('test')).toBeInstanceOf(ApiError);
     });
 
     it('all project errors should inherit from Error', () => {
@@ -302,6 +304,74 @@ describe('Project Error Classes', () => {
       expect(new ProjectConflictError('test')).toBeInstanceOf(Error);
       expect(new InvalidStatusTransitionError('PREPARING', 'COMPLETED', [])).toBeInstanceOf(Error);
       expect(new ReasonRequiredError()).toBeInstanceOf(Error);
+      expect(new DuplicateProjectNameError('test')).toBeInstanceOf(Error);
+    });
+  });
+
+  describe('DuplicateProjectNameError', () => {
+    it('should have 409 status code', () => {
+      const error = new DuplicateProjectNameError('テストプロジェクト');
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error.name).toBe('DuplicateProjectNameError');
+      expect(error.statusCode).toBe(409);
+      expect(error.code).toBe('PROJECT_NAME_DUPLICATE');
+      expect(error.problemType).toBe(PROBLEM_TYPES.PROJECT_NAME_DUPLICATE);
+    });
+
+    it('should have error message in Japanese', () => {
+      const projectName = 'テストプロジェクト';
+      const error = new DuplicateProjectNameError(projectName);
+
+      expect(error.message).toBe('このプロジェクト名は既に使用されています');
+    });
+
+    it('should include projectName in details', () => {
+      const projectName = '重複プロジェクト名';
+      const error = new DuplicateProjectNameError(projectName);
+
+      expect(error.details).toEqual({ projectName });
+    });
+
+    it('should expose projectName property', () => {
+      const projectName = 'マイプロジェクト';
+      const error = new DuplicateProjectNameError(projectName);
+
+      expect(error.projectName).toBe(projectName);
+    });
+
+    it('toJSON() should return correct format', () => {
+      const projectName = 'テストプロジェクト';
+      const error = new DuplicateProjectNameError(projectName);
+      const json = error.toJSON();
+
+      expect(json).toEqual({
+        error: 'このプロジェクト名は既に使用されています',
+        code: 'PROJECT_NAME_DUPLICATE',
+        details: { projectName },
+      });
+    });
+
+    it('toProblemDetails() should return RFC 7807 format', () => {
+      const projectName = 'テストプロジェクト';
+      const error = new DuplicateProjectNameError(projectName);
+      const problemDetails = error.toProblemDetails('/api/projects');
+
+      expect(problemDetails).toMatchObject({
+        type: PROBLEM_TYPES.PROJECT_NAME_DUPLICATE,
+        title: 'PROJECT_NAME_DUPLICATE',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています',
+        instance: '/api/projects',
+        details: { projectName },
+      });
+    });
+
+    it('should capture stack trace', () => {
+      const error = new DuplicateProjectNameError('test');
+
+      expect(error.stack).toBeDefined();
+      expect(error.stack).toContain('projectError.test.ts');
     });
   });
 
@@ -310,7 +380,7 @@ describe('Project Error Classes', () => {
       const error = new ProjectNotFoundError('test-id');
       const problemDetails = error.toProblemDetails('/api/projects/test-id');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.NOT_FOUND,
         title: 'PROJECT_NOT_FOUND',
         status: 404,
@@ -324,7 +394,7 @@ describe('Project Error Classes', () => {
       const error = new ProjectValidationError({ name: '必須です' });
       const problemDetails = error.toProblemDetails('/api/projects');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.VALIDATION_ERROR,
         title: 'PROJECT_VALIDATION_ERROR',
         status: 400,
@@ -338,7 +408,7 @@ describe('Project Error Classes', () => {
       const error = new InvalidStatusTransitionError('PREPARING', 'COMPLETED', []);
       const problemDetails = error.toProblemDetails('/api/projects/123/status');
 
-      expect(problemDetails).toEqual({
+      expect(problemDetails).toMatchObject({
         type: PROBLEM_TYPES.VALIDATION_ERROR,
         title: 'INVALID_STATUS_TRANSITION',
         status: 422,

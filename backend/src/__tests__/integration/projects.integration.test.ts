@@ -26,6 +26,7 @@ validateEnv();
 import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 
 /**
  * プロジェクトAPI統合テスト
@@ -183,6 +184,11 @@ describe('Project API Integration Tests', () => {
 
     // Redisの初期化
     await initRedis();
+
+    // シードデータを投入（CIでシードが実行されていない場合に備える）
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
   });
 
   afterAll(async () => {
@@ -362,15 +368,16 @@ describe('Project API Integration Tests', () => {
     /**
      * プロジェクト作成フローの統合テスト
      * 要件: 1.7, 1.8, 1.14, 1.15, 12.4
+     * 注: customerNameはtradingPartnerIdへ移行済み（2025-12-12）
      */
     it('プロジェクトを作成し、詳細を取得できること', async () => {
-      // 1. プロジェクト作成
+      // 1. プロジェクト作成（tradingPartnerIdは任意）
       const createResponse = await request(app)
         .post('/api/projects')
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-create',
-          customerName: 'テスト顧客株式会社',
+          // tradingPartnerIdは任意（取引先連携はtradingPartner管理機能経由）
           salesPersonId: testSalesPersonId,
           constructionPersonId: testConstructionPersonId,
           siteAddress: '東京都渋谷区神宮前1-1-1',
@@ -384,7 +391,6 @@ describe('Project API Integration Tests', () => {
       expect(createResponse.body).toMatchObject({
         id: expect.any(String),
         name: 'test-project-integration-create',
-        customerName: 'テスト顧客株式会社',
         status: 'PREPARING',
         statusLabel: '準備中',
         salesPerson: {
@@ -406,7 +412,6 @@ describe('Project API Integration Tests', () => {
       expect(getResponse.body).toMatchObject({
         id: projectId,
         name: 'test-project-integration-create',
-        customerName: 'テスト顧客株式会社',
         status: 'PREPARING',
         siteAddress: '東京都渋谷区神宮前1-1-1',
         description: '統合テスト用プロジェクト',
@@ -449,7 +454,7 @@ describe('Project API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             name: `test-project-integration-list-${i}`,
-            customerName: `顧客${i}`,
+            // tradingPartnerIdは任意（顧客連携はtradingPartner管理機能経由）
             salesPersonId: testSalesPersonId,
           })
           .expect(201);
@@ -501,7 +506,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-update',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -561,7 +566,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-delete',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -616,7 +621,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-status-forward',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -678,7 +683,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-status-backward',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -741,7 +746,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-status-invalid',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -772,7 +777,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-status-terminal',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -810,7 +815,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-concurrent',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -858,7 +863,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-audit',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);
@@ -926,7 +931,7 @@ describe('Project API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
           name: 'test-project-integration-perf',
-          customerName: 'テスト顧客',
+          // tradingPartnerIdは任意
           salesPersonId: testSalesPersonId,
         })
         .expect(201);

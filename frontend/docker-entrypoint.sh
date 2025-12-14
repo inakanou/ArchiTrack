@@ -36,7 +36,7 @@ else
 fi
 
 if [ "$needs_install" = true ]; then
-  npm install --legacy-peer-deps
+  npm ci
   # ハッシュを保存
   echo "$CURRENT_HASH" > node_modules/.package-hash
   echo "Dependencies installed successfully"

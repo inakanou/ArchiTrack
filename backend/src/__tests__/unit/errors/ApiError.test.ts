@@ -80,6 +80,8 @@ describe('ApiError', () => {
         detail: 'Test error',
         instance: '/api/test',
         details: { detail: 'test' },
+        code: 'TEST_CODE',
+        message: 'Test error',
       });
     });
 
@@ -95,6 +97,9 @@ describe('ApiError', () => {
       const problemDetails = error.toProblemDetails('/api/test');
 
       expect(problemDetails).not.toHaveProperty('details');
+      // code and message should still be present
+      expect(problemDetails.code).toBe('NOT_FOUND');
+      expect(problemDetails.message).toBe('Not found');
     });
   });
 

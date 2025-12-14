@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
+import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -276,5 +276,15 @@ test.describe('XSS対策', () => {
     const dialog = await dialogPromise;
 
     expect(dialog).toBeNull();
+  });
+
+  /**
+   * テスト終了後にテストデータを復元
+   * 他のテストファイルへの影響を防ぐため
+   */
+  test.afterAll(async () => {
+    console.log('  - Restoring test data after security tests...');
+    await cleanDatabaseAndRestoreTestData();
+    console.log('  ✓ Test data restored successfully');
   });
 });

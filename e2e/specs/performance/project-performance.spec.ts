@@ -11,7 +11,11 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import {
+  cleanDatabase,
+  cleanDatabaseAndRestoreTestData,
+  getPrismaClient,
+} from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
@@ -73,7 +77,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       },
       data: {
         name: 'パフォーマンステスト用プロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: null,
         salesPersonId: regularUserId,
       },
     });
@@ -212,7 +216,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     const prisma = getPrismaClient();
     const projectsData = Array.from({ length: LARGE_DATASET_SIZE }, (_, i) => ({
       name: `パフォーマンステストプロジェクト ${i + 1}`,
-      customerName: `テスト顧客 ${(i % 10) + 1}`,
+      tradingPartnerId: null,
       salesPersonId: regularUserId,
       createdById: adminUserId,
       status: 'PREPARING' as const,
@@ -370,7 +374,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
       data: {
         name: '削除テスト用プロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: null,
         salesPersonId: regularUserId,
       },
     });
@@ -431,7 +435,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
       },
       data: {
         name: 'ページロードテスト用プロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: null,
         salesPersonId: regularUserId,
       },
     });
@@ -499,5 +503,15 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     console.log(
       `Project detail page load time: ${loadTime}ms (threshold: ${THRESHOLDS.PROJECT_DETAIL_LOAD}ms)`
     );
+  });
+
+  /**
+   * テスト終了後にテストデータを復元
+   * 他のテストファイルへの影響を防ぐため
+   */
+  test.afterAll(async () => {
+    console.log('  - Restoring test data after performance tests...');
+    await cleanDatabaseAndRestoreTestData();
+    console.log('  ✓ Test data restored successfully');
   });
 });

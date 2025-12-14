@@ -8,6 +8,8 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 // Prisma 7: Use root's generated client with driver adapter pattern
 import { PrismaClient } from '../../src/generated/prisma/client.js';
+import { seedRoles, seedPermissions, seedRolePermissions } from './seed-helpers';
+import { createAllTestUsers } from './auth.fixtures';
 
 /**
  * Prismaクライアントのシングルトンインスタンス
@@ -84,6 +86,8 @@ export async function cleanDatabase(): Promise<void> {
     // プロジェクト関連テーブルを先に削除（Userに依存）
     client.projectStatusHistory.deleteMany(),
     client.project.deleteMany(),
+    // 取引先関連テーブルを削除
+    client.tradingPartner.deleteMany(),
     // 認証・ユーザー関連テーブル
     client.auditLog.deleteMany(),
     client.refreshToken.deleteMany(),
@@ -111,6 +115,34 @@ export async function cleanDatabase(): Promise<void> {
 
   // Note: システムロール（isSystem=true）とPermissionテーブルはマスターデータなので削除しない
   // これらはglobal-setupで初期化され、テスト全体で共有されます
+}
+
+/**
+ * データベースをクリーンアップし、テストデータを復元
+ *
+ * cleanDatabase()を実行した後、マスターデータとテストユーザーを再作成します。
+ * テストファイルのafterAllで使用することで、他のテストファイルへの影響を防ぎます。
+ *
+ * @example
+ * ```typescript
+ * test.afterAll(async () => {
+ *   await cleanDatabaseAndRestoreTestData();
+ * });
+ * ```
+ */
+export async function cleanDatabaseAndRestoreTestData(): Promise<void> {
+  const client = getPrismaClient();
+
+  // データベースをクリーンアップ
+  await cleanDatabase();
+
+  // マスターデータを再作成
+  await seedRoles(client);
+  await seedPermissions(client);
+  await seedRolePermissions(client);
+
+  // 全テストユーザーを再作成
+  await createAllTestUsers(client);
 }
 
 /**

@@ -537,7 +537,9 @@ test.describe('2要素認証機能', () => {
       }
 
       // 要件27A.4: 5回失敗後にアカウントロックメッセージ
-      await expect(page.getByText(/アカウントが一時的にロックされました|5分後/i)).toBeVisible();
+      await expect(
+        page.getByText(/アカウントが一時的にロックされました|アカウントがロックされています|5分後/i)
+      ).toBeVisible();
     });
 
     /**

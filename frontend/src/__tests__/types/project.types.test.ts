@@ -197,7 +197,12 @@ describe('Project Types', () => {
         const project: ProjectInfo = {
           id: '123e4567-e89b-12d3-a456-426614174001',
           name: 'テストプロジェクト',
-          customerName: 'テスト株式会社',
+          tradingPartnerId: 'partner-1',
+          tradingPartner: {
+            id: 'partner-1',
+            name: 'テスト株式会社',
+            nameKana: 'テストカブシキガイシャ',
+          },
           salesPerson: {
             id: '123e4567-e89b-12d3-a456-426614174002',
             displayName: '営業太郎',
@@ -209,7 +214,8 @@ describe('Project Types', () => {
         };
         expect(project.id).toBeDefined();
         expect(project.name).toBeDefined();
-        expect(project.customerName).toBeDefined();
+        expect(project.tradingPartnerId).toBeDefined();
+        expect(project.tradingPartner).toBeDefined();
         expect(project.salesPerson).toBeDefined();
         expect(project.status).toBeDefined();
         expect(project.statusLabel).toBeDefined();
@@ -221,7 +227,12 @@ describe('Project Types', () => {
         const projectWithConstructionPerson: ProjectInfo = {
           id: '123e4567-e89b-12d3-a456-426614174001',
           name: 'テストプロジェクト',
-          customerName: 'テスト株式会社',
+          tradingPartnerId: 'partner-1',
+          tradingPartner: {
+            id: 'partner-1',
+            name: 'テスト株式会社',
+            nameKana: 'テストカブシキガイシャ',
+          },
           salesPerson: {
             id: '123e4567-e89b-12d3-a456-426614174002',
             displayName: '営業太郎',
@@ -244,7 +255,12 @@ describe('Project Types', () => {
         const projectDetail: ProjectDetail = {
           id: '123e4567-e89b-12d3-a456-426614174001',
           name: 'テストプロジェクト',
-          customerName: 'テスト株式会社',
+          tradingPartnerId: 'partner-1',
+          tradingPartner: {
+            id: 'partner-1',
+            name: 'テスト株式会社',
+            nameKana: 'テストカブシキガイシャ',
+          },
           salesPerson: {
             id: '123e4567-e89b-12d3-a456-426614174002',
             displayName: '営業太郎',
@@ -264,7 +280,12 @@ describe('Project Types', () => {
         const projectDetailMinimal: ProjectDetail = {
           id: '123e4567-e89b-12d3-a456-426614174001',
           name: 'テストプロジェクト',
-          customerName: 'テスト株式会社',
+          tradingPartnerId: 'partner-1',
+          tradingPartner: {
+            id: 'partner-1',
+            name: 'テスト株式会社',
+            nameKana: 'テストカブシキガイシャ',
+          },
           salesPerson: {
             id: '123e4567-e89b-12d3-a456-426614174002',
             displayName: '営業太郎',
@@ -419,18 +440,18 @@ describe('Project Types', () => {
       it('should have required fields', () => {
         const input: CreateProjectInput = {
           name: '新規プロジェクト',
-          customerName: '株式会社テスト',
+          tradingPartnerId: 'partner-1',
           salesPersonId: '123e4567-e89b-12d3-a456-426614174000',
         };
         expect(input.name).toBe('新規プロジェクト');
-        expect(input.customerName).toBe('株式会社テスト');
+        expect(input.tradingPartnerId).toBe('partner-1');
         expect(input.salesPersonId).toBe('123e4567-e89b-12d3-a456-426614174000');
       });
 
       it('should allow optional fields', () => {
         const input: CreateProjectInput = {
           name: '新規プロジェクト',
-          customerName: '株式会社テスト',
+          tradingPartnerId: 'partner-1',
           salesPersonId: '123e4567-e89b-12d3-a456-426614174000',
           constructionPersonId: '123e4567-e89b-12d3-a456-426614174001',
           siteAddress: '東京都渋谷区1-1-1',
@@ -448,20 +469,20 @@ describe('Project Types', () => {
           name: '更新されたプロジェクト名',
         };
         expect(input.name).toBe('更新されたプロジェクト名');
-        expect(input.customerName).toBeUndefined();
+        expect(input.tradingPartnerId).toBeUndefined();
       });
 
       it('should allow all fields to be updated', () => {
         const input: UpdateProjectInput = {
           name: '更新プロジェクト',
-          customerName: '株式会社更新',
+          tradingPartnerId: 'partner-2',
           salesPersonId: '123e4567-e89b-12d3-a456-426614174000',
           constructionPersonId: '123e4567-e89b-12d3-a456-426614174001',
           siteAddress: '大阪府大阪市1-1-1',
           description: '更新された概要',
         };
         expect(input.name).toBeDefined();
-        expect(input.customerName).toBeDefined();
+        expect(input.tradingPartnerId).toBeDefined();
         expect(input.salesPersonId).toBeDefined();
         expect(input.constructionPersonId).toBeDefined();
         expect(input.siteAddress).toBeDefined();

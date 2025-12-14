@@ -92,6 +92,7 @@ import {
   ProjectNotFoundError,
   ProjectValidationError,
   ProjectConflictError,
+  DuplicateProjectNameError,
 } from '../../../errors/projectError.js';
 
 describe('Projects Routes', () => {
@@ -105,7 +106,7 @@ describe('Projects Routes', () => {
   const mockProjectInfo = {
     id: TEST_PROJECT_ID,
     name: 'テストプロジェクト',
-    customerName: 'テスト顧客',
+    tradingPartner: null,
     salesPerson: { id: TEST_USER_1_ID, displayName: '営業太郎' },
     constructionPerson: { id: TEST_USER_2_ID, displayName: '工事次郎' },
     siteAddress: '東京都千代田区',
@@ -299,7 +300,6 @@ describe('Projects Routes', () => {
       expect(response.body).toMatchObject({
         id: TEST_PROJECT_ID,
         name: 'テストプロジェクト',
-        customerName: 'テスト顧客',
         status: 'PREPARING',
         statusLabel: '準備中',
         createdBy: { id: TEST_USER_1_ID, displayName: '営業太郎' },
@@ -326,7 +326,6 @@ describe('Projects Routes', () => {
   describe('POST /api/projects', () => {
     const validCreateInput = {
       name: '新規プロジェクト',
-      customerName: '新規顧客',
       salesPersonId: '550e8400-e29b-41d4-a716-446655440001',
       constructionPersonId: '550e8400-e29b-41d4-a716-446655440002',
       siteAddress: '東京都港区',
@@ -354,7 +353,6 @@ describe('Projects Routes', () => {
       expect(mockProjectService.createProject).toHaveBeenCalledWith(
         expect.objectContaining({
           name: validCreateInput.name,
-          customerName: validCreateInput.customerName,
           salesPersonId: validCreateInput.salesPersonId,
         }),
         'test-user-id'
@@ -364,7 +362,6 @@ describe('Projects Routes', () => {
     it('should create project with minimal required fields', async () => {
       const minimalInput = {
         name: '最小プロジェクト',
-        customerName: '最小顧客',
         salesPersonId: '550e8400-e29b-41d4-a716-446655440001',
       };
 
@@ -385,18 +382,6 @@ describe('Projects Routes', () => {
 
     it('should return 400 when name is missing', async () => {
       const invalidInput = {
-        customerName: '顧客名',
-        salesPersonId: '550e8400-e29b-41d4-a716-446655440001',
-      };
-
-      const response = await request(app).post('/api/projects').send(invalidInput);
-
-      expect(response.status).toBe(400);
-    });
-
-    it('should return 400 when customerName is missing', async () => {
-      const invalidInput = {
-        name: 'プロジェクト名',
         salesPersonId: '550e8400-e29b-41d4-a716-446655440001',
       };
 
@@ -408,7 +393,6 @@ describe('Projects Routes', () => {
     it('should return 400 when salesPersonId is missing', async () => {
       const invalidInput = {
         name: 'プロジェクト名',
-        customerName: '顧客名',
       };
 
       const response = await request(app).post('/api/projects').send(invalidInput);
@@ -419,7 +403,6 @@ describe('Projects Routes', () => {
     it('should return 400 when name exceeds 255 characters', async () => {
       const invalidInput = {
         name: 'a'.repeat(256),
-        customerName: '顧客名',
         salesPersonId: '550e8400-e29b-41d4-a716-446655440001',
       };
 
@@ -431,7 +414,6 @@ describe('Projects Routes', () => {
     it('should return 400 when salesPersonId is invalid UUID format', async () => {
       const invalidInput = {
         name: 'プロジェクト名',
-        customerName: '顧客名',
         salesPersonId: 'invalid-uuid',
       };
 
@@ -451,12 +433,33 @@ describe('Projects Routes', () => {
 
       expect(response.status).toBe(400);
     });
+
+    /**
+     * Task 21.6: POST /api/projectsハンドラでDuplicateProjectNameErrorをキャッチ
+     * Requirements: 1.15, 8.7
+     */
+    it('should return 409 when project name already exists', async () => {
+      (mockProjectService.createProject as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new DuplicateProjectNameError('新規プロジェクト')
+      );
+
+      const response = await request(app).post('/api/projects').send(validCreateInput);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        type: expect.stringContaining('project-name-duplicate'),
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '新規プロジェクト',
+      });
+    });
   });
 
   describe('PUT /api/projects/:id', () => {
     const validUpdateInput = {
       name: '更新プロジェクト',
-      customerName: '更新顧客',
       expectedUpdatedAt: '2025-01-02T00:00:00.000Z',
     };
 
@@ -464,7 +467,6 @@ describe('Projects Routes', () => {
       const updatedProject = {
         ...mockProjectInfo,
         name: validUpdateInput.name,
-        customerName: validUpdateInput.customerName,
       };
 
       (mockProjectService.updateProject as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -478,13 +480,11 @@ describe('Projects Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
         name: '更新プロジェクト',
-        customerName: '更新顧客',
       });
       expect(mockProjectService.updateProject).toHaveBeenCalledWith(
         '550e8400-e29b-41d4-a716-446655440000',
         expect.objectContaining({
           name: validUpdateInput.name,
-          customerName: validUpdateInput.customerName,
         }),
         'test-user-id',
         expect.any(Date)
@@ -557,6 +557,30 @@ describe('Projects Routes', () => {
 
       expect(response.status).toBe(409);
     });
+
+    /**
+     * Task 21.6: PUT /api/projects/:idハンドラでDuplicateProjectNameErrorをキャッチ
+     * Requirements: 1.15, 8.7
+     */
+    it('should return 409 when updating project name to existing name', async () => {
+      (mockProjectService.updateProject as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new DuplicateProjectNameError('更新プロジェクト')
+      );
+
+      const response = await request(app)
+        .put('/api/projects/550e8400-e29b-41d4-a716-446655440000')
+        .send(validUpdateInput);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        type: expect.stringContaining('project-name-duplicate'),
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '更新プロジェクト',
+      });
+    });
   });
 
   describe('DELETE /api/projects/:id', () => {
@@ -614,7 +638,6 @@ describe('Projects Routes', () => {
     it('should require authentication for POST /api/projects', async () => {
       const validInput = {
         name: 'プロジェクト',
-        customerName: '顧客',
         salesPersonId: '550e8400-e29b-41d4-a716-446655440001',
       };
 

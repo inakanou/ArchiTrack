@@ -2,12 +2,17 @@
  * @fileoverview ダッシュボードページのテスト
  *
  * Task 10.2: Dashboardへのプロジェクト管理カード追加
+ * Task 12.8: Dashboardへの取引先管理カード追加
  *
  * Requirements:
  * - 21.5: ダッシュボードにプロジェクト管理へのクイックアクセスカードが表示されている
  * - 21.6: プロジェクト管理カードをクリックするとプロジェクト一覧ページに遷移する
  * - 21.7: プロジェクト管理カードには「工事案件の作成・管理」という説明が表示される
  * - 21.8: プロジェクト管理カードはクイックアクセスセクションの先頭に配置される
+ * - 12.5: ダッシュボードのクイックアクセスセクションに「取引先管理」カードを表示する
+ * - 12.6: 取引先管理カードをクリックすると取引先一覧ページ（/trading-partners）に遷移する
+ * - 12.7: 取引先管理カードには「顧客・協力業者の登録・管理」という説明を表示する
+ * - 12.8: 取引先管理カードを「プロジェクト管理」カードの次に配置する
  */
 
 import { render, screen, within } from '@testing-library/react';
@@ -51,6 +56,10 @@ describe('Dashboard', () => {
           <Route
             path="/projects"
             element={<div data-testid="projects-page">プロジェクト一覧</div>}
+          />
+          <Route
+            path="/trading-partners"
+            element={<div data-testid="trading-partners-page">取引先一覧</div>}
           />
         </Routes>
       </MemoryRouter>
@@ -128,6 +137,55 @@ describe('Dashboard', () => {
     it('2FA設定カードが表示される', () => {
       renderWithRouter();
       expect(screen.getByTestId('quick-link-2fa')).toBeInTheDocument();
+    });
+  });
+
+  describe('取引先管理カード - REQ 12.5, 12.7, 12.8', () => {
+    it('取引先管理カードが表示される (REQ 12.5)', () => {
+      renderWithRouter();
+      expect(screen.getByTestId('quick-link-trading-partners')).toBeInTheDocument();
+      expect(screen.getByText('取引先管理')).toBeInTheDocument();
+    });
+
+    it('取引先管理カードに「顧客・協力業者の登録・管理」という説明文が表示される (REQ 12.7)', () => {
+      renderWithRouter();
+      const tradingPartnerCard = screen.getByTestId('quick-link-trading-partners');
+      expect(
+        within(tradingPartnerCard).getByText('顧客・協力業者の登録・管理')
+      ).toBeInTheDocument();
+    });
+
+    it('取引先管理カードは「プロジェクト管理」カードの次（2番目）に配置される (REQ 12.8)', () => {
+      renderWithRouter();
+      // クイックアクセスセクション内のリンクカードを取得
+      const quickAccessSection = screen.getByText('クイックアクセス').closest('section');
+      expect(quickAccessSection).toBeInTheDocument();
+
+      // セクション内のリンクカードを取得（data-testid="quick-link-*"を持つ要素）
+      const linkCards = within(quickAccessSection!).getAllByRole('link');
+
+      // 1番目のカードがプロジェクト管理であることを確認
+      expect(linkCards[0]).toHaveAttribute('data-testid', 'quick-link-projects');
+      // 2番目のカードが取引先管理であることを確認
+      expect(linkCards[1]).toHaveAttribute('data-testid', 'quick-link-trading-partners');
+    });
+
+    it('取引先管理カードのリンク先が /trading-partners に設定されている', () => {
+      renderWithRouter();
+      const tradingPartnerCard = screen.getByTestId('quick-link-trading-partners');
+      expect(tradingPartnerCard).toHaveAttribute('href', '/trading-partners');
+    });
+  });
+
+  describe('取引先管理カードのナビゲーション - REQ 12.6', () => {
+    it('取引先管理カードをクリックすると取引先一覧ページに遷移する (REQ 12.6)', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      const tradingPartnerCard = screen.getByTestId('quick-link-trading-partners');
+      await user.click(tradingPartnerCard);
+
+      expect(screen.getByTestId('trading-partners-page')).toBeInTheDocument();
     });
   });
 });

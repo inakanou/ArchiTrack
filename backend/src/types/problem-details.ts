@@ -94,4 +94,5 @@ export const PROBLEM_TYPES = {
   ACCOUNT_LOCKED: 'https://api.architrack.com/errors/account-locked',
   INVALID_CREDENTIALS: 'https://api.architrack.com/errors/invalid-credentials',
   TOKEN_EXPIRED: 'https://api.architrack.com/errors/token-expired',
+  PROJECT_NAME_DUPLICATE: 'https://api.architrack.com/errors/project-name-duplicate',
 } as const;

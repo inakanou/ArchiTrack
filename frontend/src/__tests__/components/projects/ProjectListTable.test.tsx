@@ -2,15 +2,16 @@
  * @fileoverview ProjectListTable コンポーネント テスト
  *
  * Task 8.1: プロジェクト一覧テーブルコンポーネントの実装
+ * Task 22.1: SortField型定義の更新（ID列削除、営業担当者・工事担当者列追加）
  *
  * Requirements (project-management):
- * - REQ-2.2: 各プロジェクトのID、プロジェクト名、顧客名、ステータス、作成日、更新日を一覧に表示
+ * - REQ-2.2: 各プロジェクトのプロジェクト名、顧客名、営業担当者、工事担当者、ステータス、作成日、更新日を一覧に表示
  * - REQ-2.3: プロジェクト行クリックで詳細画面に遷移
  * - REQ-6.1: テーブルヘッダークリックで昇順ソート
  * - REQ-6.2: 同じヘッダー再度クリックで降順ソート切り替え
  * - REQ-6.3: 現在のソート状態をヘッダーにアイコン（昇順: up、降順: down）で表示
  * - REQ-6.4: ソート対象外のカラムヘッダーにはソートアイコンを表示しない
- * - REQ-6.5: ID、プロジェクト名、顧客名、ステータス、作成日、更新日のカラムでソート可能
+ * - REQ-6.5: プロジェクト名、顧客名、営業担当者、工事担当者、ステータス、作成日、更新日のカラムでソート可能
  * - REQ-20.6: テーブルヘッダーとデータセルの関連付け（アクセシビリティ）
  */
 
@@ -29,7 +30,12 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-1',
     name: 'テストプロジェクト1',
-    customerName: '顧客A株式会社',
+    tradingPartnerId: 'partner-a',
+    tradingPartner: {
+      id: 'partner-a',
+      name: '顧客A株式会社',
+      nameKana: 'コキャクエーカブシキガイシャ',
+    },
     salesPerson: { id: 'user-1', displayName: '営業担当1' },
     constructionPerson: { id: 'user-2', displayName: '工事担当1' },
     status: 'PREPARING',
@@ -40,7 +46,12 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-2',
     name: 'テストプロジェクト2',
-    customerName: '顧客B株式会社',
+    tradingPartnerId: 'partner-b',
+    tradingPartner: {
+      id: 'partner-b',
+      name: '顧客B株式会社',
+      nameKana: 'コキャクビーカブシキガイシャ',
+    },
     salesPerson: { id: 'user-3', displayName: '営業担当2' },
     status: 'SURVEYING',
     statusLabel: '調査中',
@@ -50,7 +61,12 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-3',
     name: 'テストプロジェクト3',
-    customerName: '顧客C株式会社',
+    tradingPartnerId: 'partner-c',
+    tradingPartner: {
+      id: 'partner-c',
+      name: '顧客C株式会社',
+      nameKana: 'コキャクシーカブシキガイシャ',
+    },
     salesPerson: { id: 'user-1', displayName: '営業担当1' },
     status: 'COMPLETED',
     statusLabel: '完了',
@@ -122,7 +138,7 @@ describe('ProjectListTable', () => {
   });
 
   describe('カラム表示（project-management/REQ-2.2）', () => {
-    it('ID列が表示される', () => {
+    it('ID列は表示されない（Task 22.1で削除）', () => {
       renderWithRouter(
         <ProjectListTable
           projects={mockProjects}
@@ -133,12 +149,8 @@ describe('ProjectListTable', () => {
         />
       );
 
-      // ヘッダーにIDが含まれる
-      expect(screen.getByRole('columnheader', { name: /ID/i })).toBeInTheDocument();
-      // データ行にプロジェクトIDが含まれる（shortenIdで先頭8文字に短縮されている）
-      // 複数のプロジェクトがあるためgetAllByTextを使用
-      const idElements = screen.getAllByText(/project-/i);
-      expect(idElements.length).toBeGreaterThan(0);
+      // ヘッダーにIDが含まれないことを確認
+      expect(screen.queryByRole('columnheader', { name: /^ID$/i })).not.toBeInTheDocument();
     });
 
     it('プロジェクト名列が表示される', () => {
@@ -220,7 +232,41 @@ describe('ProjectListTable', () => {
       expect(screen.getByRole('columnheader', { name: /更新日/i })).toBeInTheDocument();
     });
 
-    it('カラムの表示順序が正しい（ID, プロジェクト名, 顧客名, ステータス, 作成日, 更新日）', () => {
+    it('営業担当者列が表示される（Task 22.1で追加）', () => {
+      renderWithRouter(
+        <ProjectListTable
+          projects={mockProjects}
+          sortField="updatedAt"
+          sortOrder="desc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      expect(screen.getByRole('columnheader', { name: /営業担当者/i })).toBeInTheDocument();
+      // データ行に営業担当者名が表示される（複数回表示される場合があるためgetAllByTextを使用）
+      const salesPerson1Elements = screen.getAllByText('営業担当1');
+      expect(salesPerson1Elements.length).toBeGreaterThan(0);
+      expect(screen.getByText('営業担当2')).toBeInTheDocument();
+    });
+
+    it('工事担当者列が表示される（Task 22.1で追加）', () => {
+      renderWithRouter(
+        <ProjectListTable
+          projects={mockProjects}
+          sortField="updatedAt"
+          sortOrder="desc"
+          onSort={vi.fn()}
+          onRowClick={vi.fn()}
+        />
+      );
+
+      expect(screen.getByRole('columnheader', { name: /工事担当者/i })).toBeInTheDocument();
+      // データ行に工事担当者名が表示される（存在する場合）
+      expect(screen.getByText('工事担当1')).toBeInTheDocument();
+    });
+
+    it('カラムの表示順序が正しい（プロジェクト名, 顧客名, 営業担当者, 工事担当者, ステータス, 作成日, 更新日）（Task 22.1で更新）', () => {
       renderWithRouter(
         <ProjectListTable
           projects={mockProjects}
@@ -235,12 +281,13 @@ describe('ProjectListTable', () => {
       const headerTexts = headers.map((h) => h.textContent);
 
       // ソートアイコンを含む可能性があるので、部分一致で確認
-      expect(headerTexts[0]).toMatch(/ID/i);
-      expect(headerTexts[1]).toMatch(/プロジェクト名/i);
-      expect(headerTexts[2]).toMatch(/顧客名/i);
-      expect(headerTexts[3]).toMatch(/ステータス/i);
-      expect(headerTexts[4]).toMatch(/作成日/i);
-      expect(headerTexts[5]).toMatch(/更新日/i);
+      expect(headerTexts[0]).toMatch(/プロジェクト名/i);
+      expect(headerTexts[1]).toMatch(/顧客名/i);
+      expect(headerTexts[2]).toMatch(/営業担当者/i);
+      expect(headerTexts[3]).toMatch(/工事担当者/i);
+      expect(headerTexts[4]).toMatch(/ステータス/i);
+      expect(headerTexts[5]).toMatch(/作成日/i);
+      expect(headerTexts[6]).toMatch(/更新日/i);
     });
   });
 
@@ -347,7 +394,7 @@ describe('ProjectListTable', () => {
       expect(onSort).toHaveBeenCalledWith('name');
     });
 
-    it('各ソート可能カラムでソートできる', async () => {
+    it('各ソート可能カラムでソートできる（Task 22.1で更新）', async () => {
       const onSort = vi.fn();
       renderWithRouter(
         <ProjectListTable
@@ -359,11 +406,6 @@ describe('ProjectListTable', () => {
         />
       );
 
-      // IDカラム
-      const idHeader = screen.getByRole('columnheader', { name: /ID/i });
-      await userEvent.click(within(idHeader).getByRole('button'));
-      expect(onSort).toHaveBeenCalledWith('id');
-
       // プロジェクト名カラム
       const nameHeader = screen.getByRole('columnheader', { name: /プロジェクト名/i });
       await userEvent.click(within(nameHeader).getByRole('button'));
@@ -373,6 +415,18 @@ describe('ProjectListTable', () => {
       const customerHeader = screen.getByRole('columnheader', { name: /顧客名/i });
       await userEvent.click(within(customerHeader).getByRole('button'));
       expect(onSort).toHaveBeenCalledWith('customerName');
+
+      // 営業担当者カラム（Task 22.1で追加）
+      const salesPersonHeader = screen.getByRole('columnheader', { name: /営業担当者/i });
+      await userEvent.click(within(salesPersonHeader).getByRole('button'));
+      expect(onSort).toHaveBeenCalledWith('salesPersonName');
+
+      // 工事担当者カラム（Task 22.1で追加）
+      const constructionPersonHeader = screen.getByRole('columnheader', {
+        name: /工事担当者/i,
+      });
+      await userEvent.click(within(constructionPersonHeader).getByRole('button'));
+      expect(onSort).toHaveBeenCalledWith('constructionPersonName');
 
       // ステータスカラム
       const statusHeader = screen.getByRole('columnheader', { name: /ステータス/i });

@@ -2,33 +2,34 @@
  * @fileoverview プロジェクト作成・編集フォームコンポーネント
  *
  * プロジェクトの作成および編集に使用するフォームUIを提供します。
- * CustomerNameInputとUserSelectコンポーネントを利用し、
+ * TradingPartnerSelectとUserSelectコンポーネントを利用し、
  * クライアントサイドバリデーションを実装しています。
  *
  * Requirements:
  * - 1.1: 「新規作成」ボタンでプロジェクト作成フォームを表示する
- * - 1.2: プロジェクト名（必須）、顧客名（必須）、営業担当者（必須）、工事担当者（任意）、現場住所（任意）、概要（任意）の入力フィールドを表示
- * - 1.3: 顧客名フィールドでオートコンプリート候補を表示する（将来実装）
- * - 1.4: オートコンプリート候補から取引先を選択する（将来実装）
+ * - 1.2: プロジェクト名（必須）、取引先（任意）、営業担当者（必須）、工事担当者（任意）、現場住所（任意）、概要（任意）の入力フィールドを表示
  * - 1.5: 営業担当者フィールドのデフォルト値としてログインユーザーを設定
  * - 1.6: 工事担当者フィールドのデフォルト値としてログインユーザーを設定
  * - 1.9: 必須項目を入力せずに「作成」ボタンをクリックした場合、入力エラーメッセージを該当フィールドに表示
  * - 1.10: プロジェクト名が未入力の場合、「プロジェクト名は必須です」エラーを表示
  * - 1.11: プロジェクト名が255文字を超える場合、「プロジェクト名は255文字以内で入力してください」エラーを表示
- * - 1.12: 顧客名が未入力の場合、「顧客名は必須です」エラーを表示
  * - 1.13: 営業担当者が未選択の場合、「営業担当者は必須です」エラーを表示
+ * - 1.15: プロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
  * - 8.1: プロジェクト詳細画面で「編集」ボタンをクリックすると編集フォームを表示
  * - 8.4: バリデーションエラーが発生するとエラーメッセージを該当フィールドに表示
  * - 8.5: 「キャンセル」ボタンをクリックすると編集内容を破棄し、詳細表示に戻る
+ * - 8.7: 更新時にプロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
  * - 13.10: フロントエンドでバリデーションエラーが発生した場合、エラーメッセージを即座に表示
  * - 20.1: すべての操作をキーボードのみで実行可能
  * - 20.2: フォーム要素にaria-label属性を適切に設定
  * - 20.4: フォーカス状態を視覚的に明確に表示
+ * - 22.1: 顧客種別を持つ取引先をセレクトボックスで選択可能
  */
 
-import { useState, useCallback, useId, FormEvent, ChangeEvent, FocusEvent } from 'react';
-import CustomerNameInput from './CustomerNameInput';
+import { useState, useCallback, useId, useMemo, FormEvent, ChangeEvent, FocusEvent } from 'react';
+import TradingPartnerSelect from './TradingPartnerSelect';
 import UserSelect from './UserSelect';
+import { isDuplicateProjectNameErrorResponse } from '../../types/project.types';
 
 /**
  * プロジェクトフォームデータ
@@ -36,8 +37,8 @@ import UserSelect from './UserSelect';
 export interface ProjectFormData {
   /** プロジェクト名（1-255文字、必須） */
   name: string;
-  /** 顧客名（1-255文字、必須） */
-  customerName: string;
+  /** 取引先ID（UUID、任意） */
+  tradingPartnerId?: string;
   /** 営業担当者ID（UUID、必須） */
   salesPersonId: string;
   /** 工事担当者ID（UUID、任意） */
@@ -62,12 +63,23 @@ export interface ProjectFormProps {
   onCancel: () => void;
   /** 送信中フラグ */
   isSubmitting: boolean;
+  /**
+   * サーバーからのエラーレスポンス（Task 22.5）
+   *
+   * フォーム送信後にサーバーから返されたエラーを渡すことで、
+   * フォーム内にサーバーエラーを表示できます。
+   *
+   * プロジェクト名重複エラー（409）の場合、プロジェクト名フィールドに
+   * 「このプロジェクト名は既に使用されています」エラーを表示します。
+   *
+   * Requirements: 1.15, 8.7
+   */
+  submitError?: unknown | null;
 }
 
 /** バリデーション定数 */
 const VALIDATION = {
   NAME_MAX_LENGTH: 255,
-  CUSTOMER_NAME_MAX_LENGTH: 255,
   SITE_ADDRESS_MAX_LENGTH: 500,
   DESCRIPTION_MAX_LENGTH: 5000,
 } as const;
@@ -95,7 +107,7 @@ const STYLES = {
 /** フィールドエラー型 */
 interface FieldErrors {
   name?: string;
-  customerName?: string;
+  tradingPartnerId?: string;
   salesPersonId?: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -115,10 +127,17 @@ interface FieldErrors {
  * />
  * ```
  */
-function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: ProjectFormProps) {
+function ProjectForm({
+  mode,
+  initialData,
+  onSubmit,
+  onCancel,
+  isSubmitting,
+  submitError,
+}: ProjectFormProps) {
   // フォームの値
   const [name, setName] = useState(initialData?.name ?? '');
-  const [customerName, setCustomerName] = useState(initialData?.customerName ?? '');
+  const [tradingPartnerId, setTradingPartnerId] = useState(initialData?.tradingPartnerId ?? '');
   const [salesPersonId, setSalesPersonId] = useState(initialData?.salesPersonId ?? '');
   const [constructionPersonId, setConstructionPersonId] = useState(
     initialData?.constructionPersonId ?? ''
@@ -143,6 +162,18 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
   const descriptionId = `description-${uniqueId}`;
   const descriptionErrorId = `description-error-${uniqueId}`;
 
+  /**
+   * サーバーからのプロジェクト名重複エラーを検出
+   * Task 22.5: submitError propsからプロジェクト名重複エラーを識別
+   * Requirements: 1.15, 8.7
+   */
+  const serverNameError = useMemo(() => {
+    if (isDuplicateProjectNameErrorResponse(submitError)) {
+      return 'このプロジェクト名は既に使用されています';
+    }
+    return undefined;
+  }, [submitError]);
+
   // Note: initialDataの変更時にフォームをリセットする場合は、
   // 親コンポーネントで<ProjectForm key={projectId} ... />のようにkeyを指定してください。
   // これにより、コンポーネントが再マウントされ、初期値が正しく設定されます。
@@ -161,15 +192,10 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
   }, []);
 
   /**
-   * 顧客名のバリデーション
+   * 取引先IDのバリデーション（任意フィールドのため常に空文字を返す）
    */
-  const validateCustomerName = useCallback((value: string): string => {
-    if (!value.trim()) {
-      return '顧客名は必須です';
-    }
-    if (value.length > VALIDATION.CUSTOMER_NAME_MAX_LENGTH) {
-      return `顧客名は${VALIDATION.CUSTOMER_NAME_MAX_LENGTH}文字以内で入力してください`;
-    }
+  const validateTradingPartnerId = useCallback((_value: string): string => {
+    // 取引先は任意フィールドのためバリデーションエラーなし
     return '';
   }, []);
 
@@ -208,14 +234,14 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
    */
   const validateAll = useCallback((): boolean => {
     const nameError = validateName(name);
-    const customerNameError = validateCustomerName(customerName);
+    const tradingPartnerIdError = validateTradingPartnerId(tradingPartnerId);
     const salesPersonIdError = validateSalesPersonId(salesPersonId);
     const siteAddressError = validateSiteAddress(siteAddress);
     const descriptionError = validateDescription(description);
 
     const newErrors: FieldErrors = {};
     if (nameError) newErrors.name = nameError;
-    if (customerNameError) newErrors.customerName = customerNameError;
+    if (tradingPartnerIdError) newErrors.tradingPartnerId = tradingPartnerIdError;
     if (salesPersonIdError) newErrors.salesPersonId = salesPersonIdError;
     if (siteAddressError) newErrors.siteAddress = siteAddressError;
     if (descriptionError) newErrors.description = descriptionError;
@@ -225,12 +251,12 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
     return Object.keys(newErrors).length === 0;
   }, [
     name,
-    customerName,
+    tradingPartnerId,
     salesPersonId,
     siteAddress,
     description,
     validateName,
-    validateCustomerName,
+    validateTradingPartnerId,
     validateSalesPersonId,
     validateSiteAddress,
     validateDescription,
@@ -268,16 +294,16 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
   );
 
   /**
-   * 顧客名のblurイベントハンドラ
+   * 取引先IDのblurイベントハンドラ
    */
-  const handleCustomerNameBlur = useCallback(() => {
-    setTouched((prev) => ({ ...prev, customerName: true }));
-    const error = validateCustomerName(customerName);
+  const handleTradingPartnerIdBlur = useCallback(() => {
+    setTouched((prev) => ({ ...prev, tradingPartnerId: true }));
+    const error = validateTradingPartnerId(tradingPartnerId);
     setErrors((prev) => ({
       ...prev,
-      customerName: error || undefined,
+      tradingPartnerId: error || undefined,
     }));
-  }, [customerName, validateCustomerName]);
+  }, [tradingPartnerId, validateTradingPartnerId]);
 
   /**
    * 営業担当者のblurイベントハンドラ
@@ -300,7 +326,7 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
     // 全フィールドをタッチ済みにする
     setTouched({
       name: true,
-      customerName: true,
+      tradingPartnerId: true,
       salesPersonId: true,
       constructionPersonId: true,
       siteAddress: true,
@@ -315,7 +341,7 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
     // 送信データを構築
     const formData: ProjectFormData = {
       name: name.trim(),
-      customerName: customerName.trim(),
+      tradingPartnerId: tradingPartnerId.trim() || undefined,
       salesPersonId,
       constructionPersonId: constructionPersonId || undefined,
       siteAddress: siteAddress.trim() || undefined,
@@ -346,6 +372,14 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
   const submitButtonText = mode === 'create' ? '作成' : '保存';
   const submitButtonLoadingText = mode === 'create' ? '作成中...' : '保存中...';
 
+  /**
+   * プロジェクト名フィールドの有効なエラーメッセージを取得
+   * クライアントバリデーションエラー > サーバーエラー の優先順位
+   * Task 22.5: submitErrorからのサーバーエラーも考慮
+   */
+  const effectiveNameError = errors.name || serverNameError;
+  const hasNameError = !!effectiveNameError;
+
   return (
     <form id={formId} onSubmit={handleSubmit} role="form" style={{ maxWidth: '600px' }}>
       {/* プロジェクト名 */}
@@ -356,7 +390,7 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
             display: 'block',
             marginBottom: '0.5rem',
             fontWeight: 500,
-            color: errors.name ? STYLES.colors.error : STYLES.colors.label,
+            color: hasNameError ? STYLES.colors.error : STYLES.colors.label,
           }}
         >
           プロジェクト名
@@ -387,14 +421,14 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
           disabled={isSubmitting}
           aria-label="プロジェクト名"
           aria-required="true"
-          aria-invalid={!!errors.name}
-          aria-describedby={errors.name ? nameErrorId : undefined}
+          aria-invalid={hasNameError}
+          aria-describedby={hasNameError ? nameErrorId : undefined}
           style={{
             width: '100%',
             padding: '0.5rem 0.75rem',
-            border: errors.name
+            border: hasNameError
               ? `2px solid ${STYLES.colors.error}`
-              : `1px solid ${getBorderColor('name', !!errors.name)}`,
+              : `1px solid ${getBorderColor('name', hasNameError)}`,
             borderRadius: STYLES.borderRadius,
             fontSize: '1rem',
             lineHeight: '1.5',
@@ -403,10 +437,10 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
             outline: 'none',
             cursor: isSubmitting ? 'not-allowed' : 'text',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('name', !!errors.name),
+            boxShadow: getBoxShadow('name', hasNameError),
           }}
         />
-        {errors.name && (
+        {hasNameError && (
           <p
             id={nameErrorId}
             role="alert"
@@ -417,19 +451,18 @@ function ProjectForm({ mode, initialData, onSubmit, onCancel, isSubmitting }: Pr
               color: STYLES.colors.error,
             }}
           >
-            {errors.name}
+            {effectiveNameError}
           </p>
         )}
       </div>
 
-      {/* 顧客名 */}
-      <CustomerNameInput
-        value={customerName}
-        onChange={setCustomerName}
-        onBlur={handleCustomerNameBlur}
-        required
+      {/* 取引先（任意） */}
+      <TradingPartnerSelect
+        value={tradingPartnerId}
+        onChange={setTradingPartnerId}
+        onBlur={handleTradingPartnerIdBlur}
         disabled={isSubmitting}
-        error={errors.customerName}
+        error={errors.tradingPartnerId}
       />
 
       {/* 営業担当者 */}

@@ -15,17 +15,37 @@
 - プロジェクトのCRUD操作を実現し、工事案件の一元管理を可能にする
 - 12段階のステータスワークフロー（順方向遷移・差し戻し遷移・終端遷移）により、プロジェクトの進捗を正確に追跡する
 - 既存のRBAC基盤を活用した権限ベースのアクセス制御を実装する
+- 取引先管理機能との連携により、取引先IDによる外部キー参照でデータ整合性を確保する
 - レスポンシブデザインによりデスクトップ・タブレット・モバイルに対応する
 - WCAG 2.1 Level AA準拠のアクセシビリティを確保する
+- **プロジェクト名の一意性を確保し、重複を防止する**（1.15, 1.16, 8.7, 8.8）
 
 ### Non-Goals
 
 - 現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
 - 見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
-- 取引先管理機能の実装（別仕様として定義予定、本仕様では顧客名フリー入力のみ対応）
-- 取引先オートコンプリート機能（取引先管理機能の実装後に連携予定）
+- 取引先管理機能の実装（別仕様`trading-partner-management`として定義）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
+
+**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれ、取引先管理機能（`trading-partner-management`仕様）実装後に`customerName`フィールドから`tradingPartnerId`外部キーへ移行しました（2025-12-12マイグレーション完了）。プロジェクトは取引先テーブルへの外部キー参照により取引先情報を取得します。
+
+---
+
+**実装状態（2025-12-13更新）**:
+- フェーズ: **要件更新対応** - 既存実装は完了済み、要件変更に対応するための差分設計
+- 主要変更（2025-12-13要件更新）:
+  - 一覧画面からID列を削除、営業担当者・工事担当者列を追加（2.2）
+  - 検索対象に営業担当者・工事担当者を追加（4.1a, 4.1b）
+  - フリガナ検索でひらがな・カタカナ両対応（16.3, 22.5）
+  - プロジェクト名の一意性チェックを追加（1.15, 1.16, 8.7, 8.8）
+- 既存実装（2025-12-12）:
+  - `customerName`（文字列フィールド）→ `tradingPartnerId`（外部キー）への移行完了
+  - `TradingPartnerSelect`コンポーネントによる取引先選択UI実装
+  - E2Eテスト、統合テスト、単体テスト全て合格
+- マイグレーション: `20251212021700_replace_customer_name_with_trading_partner_id`
+
+---
 
 ## Architecture
 
@@ -39,6 +59,15 @@ ArchiTrackは、フロントエンド（React 19 + TypeScript）とバックエ�
 - **UIレイアウト**: `ProtectedLayout`による認証済み画面の共通レイアウト、`AppHeader`によるナビゲーション
 - **ルーティング**: React Router v7による宣言的ルーティング
 - **データアクセス**: Prisma ORMによる型安全なデータアクセス、Driver Adapter Pattern
+
+**既存実装状況**（差分設計の基盤）:
+- `backend/src/routes/projects.routes.ts`: プロジェクトCRUD APIルート（実装済み）
+- `backend/src/services/project.service.ts`: プロジェクトサービス（実装済み）
+- `backend/src/services/project-status.service.ts`: ステータス遷移サービス（実装済み）
+- `backend/src/schemas/project.schema.ts`: Zodバリデーションスキーマ（実装済み）
+- `frontend/src/pages/ProjectListPage.tsx`: プロジェクト一覧ページ（実装済み）
+- `frontend/src/pages/ProjectDetailPage.tsx`: プロジェクト詳細ページ（実装済み）
+- `frontend/src/components/projects/ProjectListTable.tsx`: 一覧テーブル（実装済み）
 
 **拡張ポイント**:
 - Prismaスキーマに`Project`および`ProjectStatusHistory`モデルを追加
@@ -118,7 +147,7 @@ graph TB
 
 ## System Flows
 
-### プロジェクト作成フロー
+### プロジェクト作成フロー（一意性チェック追加）
 
 ```mermaid
 sequenceDiagram
@@ -137,12 +166,19 @@ sequenceDiagram
     API->>API: JWT認証・権限チェック
     API->>PS: createProject(data)
     PS->>PS: サーバーバリデーション
-    PS->>DB: INSERT Project
-    PS->>DB: INSERT ProjectStatusHistory
-    PS->>AL: 監査ログ記録
-    PS-->>API: Project
-    API-->>FE: 201 Created
-    FE->>FE: 詳細画面に遷移
+    PS->>DB: SELECT (name重複チェック)
+    alt プロジェクト名重複
+        PS-->>API: DuplicateProjectNameError
+        API-->>FE: 409 Conflict
+        FE->>FE: エラー表示
+    else プロジェクト名ユニーク
+        PS->>DB: INSERT Project
+        PS->>DB: INSERT ProjectStatusHistory
+        PS->>AL: 監査ログ記録
+        PS-->>API: Project
+        API-->>FE: 201 Created
+        FE->>FE: 詳細画面に遷移
+    end
 ```
 
 ### ステータス遷移フロー
@@ -203,6 +239,7 @@ sequenceDiagram
 
     U->>UI: ステータス変更ボタンクリック
     UI->>UI: 遷移可能ステータス表示
+
     U->>UI: 新ステータス選択
 
     alt backward transition
@@ -224,14 +261,16 @@ sequenceDiagram
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.15 | プロジェクト作成 | ProjectForm, ProjectService | POST /api/projects | プロジェクト作成フロー |
-| 2.1-2.6 | プロジェクト一覧表示 | ProjectListPage, ProjectService | GET /api/projects | - |
+| 1.1-1.14 | プロジェクト作成 | ProjectForm, ProjectService | POST /api/projects | プロジェクト作成フロー |
+| 1.15, 1.16 | **プロジェクト名一意性チェック（作成時）** | ProjectService | POST /api/projects | プロジェクト作成フロー |
+| 2.1-2.6 | プロジェクト一覧表示（**ID列削除、営業担当者・工事担当者列追加**） | ProjectListPage, ProjectListTable, ProjectService | GET /api/projects | - |
 | 3.1-3.5 | ページネーション | ProjectListPage, ProjectService | GET /api/projects?page,limit | - |
-| 4.1-4.5 | 検索 | ProjectListPage, ProjectService | GET /api/projects?search | - |
+| 4.1a, 4.1b | 検索（**プロジェクト名・顧客名・営業担当者・工事担当者**） | ProjectListPage, ProjectService | GET /api/projects?search | - |
 | 5.1-5.6 | フィルタリング | ProjectListPage, ProjectService | GET /api/projects?status,from,to | - |
-| 6.1-6.5 | ソート | ProjectListPage, ProjectService | GET /api/projects?sort,order | - |
-| 7.1-7.7 | 詳細表示 | ProjectDetailPage, ProjectService | GET /api/projects/:id | - |
+| 6.1-6.5 | ソート（**営業担当者・工事担当者追加**） | ProjectListPage, ProjectService | GET /api/projects?sort,order | - |
+| 7.1-7.6 | 詳細表示 | ProjectDetailPage, ProjectService | GET /api/projects/:id | - |
 | 8.1-8.6 | 編集 | ProjectForm, ProjectService | PUT /api/projects/:id | - |
+| 8.7, 8.8 | **プロジェクト名一意性チェック（更新時）** | ProjectService | PUT /api/projects/:id | - |
 | 9.1-9.7 | 削除 | ProjectDetailPage, ProjectService | DELETE /api/projects/:id | - |
 | 10.1-10.16 | ステータス管理 | StatusTransitionUI, ProjectStatusService | PATCH /api/projects/:id/status | ステータス遷移フロー |
 | 11.1-11.6 | 関連データ参照 | ProjectDetailPage, ProjectService, FeatureFlags | GET /api/projects/:id | - |
@@ -239,12 +278,14 @@ sequenceDiagram
 | 13.1-13.11 | バリデーション | ProjectSchema, ProjectService | - | - |
 | 14.1-14.7 | API | ProjectRoutes | RESTful API全般 | - |
 | 15.1-15.5 | レスポンシブ | 全UIコンポーネント | - | - |
-| 16.1-16.10 | 取引先オートコンプリート | ※本仕様ではフリー入力のみ対応（取引先管理機能の実装後に連携予定） | - | - |
+| 16.1-16.13 | 取引先オートコンプリート（**ひらがな・カタカナ両対応**） | TradingPartnerSelect | GET /api/trading-partners | - |
 | 17.1-17.12 | 担当者選択 | UserSelect | GET /api/users/assignable | - |
 | 18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification | - | - |
 | 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
 | 20.1-20.6 | アクセシビリティ | 全UIコンポーネント | - | - |
-| 21.1-21.8 | ナビゲーション | AppHeader, Dashboard | - | - |
+| 21.1-21.13 | ナビゲーション | AppHeader, Dashboard | - | - |
+| 21.14-21.18 | パンくずナビゲーション | Breadcrumb, ProjectListPage, ProjectDetailPage, ProjectCreatePage, ProjectEditPage | - | - |
+| 22.1-22.11 | 取引先連携（**ひらがな・カタカナ両対応**） | ProjectForm, TradingPartnerSelect, ProjectDetailPage | GET /api/trading-partners | - |
 
 ## Components and Interfaces
 
@@ -252,30 +293,356 @@ sequenceDiagram
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
-| ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート | 2, 3, 4, 5, 6 | ProjectService (P0), useAuth (P0) | State |
-| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除 | 7, 8, 9, 10, 11 | ProjectService (P0), ProjectStatusService (P1) | State |
-| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17 | CustomerNameInput (P1), UserSelect (P1) | Service |
-| CustomerNameInput | UI/Component | 顧客名フリー入力（将来オートコンプリート連携予定） | 16 | - | - |
+| ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず | 2, 3, 4, 5, 6, 21.14 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
+| ProjectListTable | UI/Component | **一覧テーブル（ID列削除、営業担当者・工事担当者列追加）** | 2.2 | ProjectListPage (P0) | - |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず | 7, 8, 9, 10, 11, 21.15, 21.17, 22 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1) | State |
+| ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
+| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
+| TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応**） | 16, 22 | TradingPartnerAPI (P1) | API |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
-| ProjectService | Backend/Service | プロジェクトCRUDビジネスロジック | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
+| Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
+| ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック** | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
 | ProjectRoutes | Backend/Route | RESTful APIエンドポイント | 14 | ProjectService (P0), authorize (P0) | API |
 
-### Backend / Services
+---
 
-#### ProjectService
+## 要件変更対応の差分設計
+
+以下のセクションでは、2025-12-13の要件更新に対応するための差分設計を記述します。
+
+### 差分1: 一覧表示の列構成変更（2.2）
+
+**変更内容**:
+- ID列を削除
+- 営業担当者列を追加
+- 工事担当者列を追加
+
+**影響ファイル**:
+- `frontend/src/components/projects/ProjectListTable.tsx`
+
+**現在の列構成**:
+```typescript
+const COLUMNS = [
+  { key: 'id', label: 'ID', sortable: true },
+  { key: 'name', label: 'プロジェクト名', sortable: true },
+  { key: 'customerName', label: '顧客名', sortable: true },
+  { key: 'status', label: 'ステータス', sortable: true },
+  { key: 'createdAt', label: '作成日', sortable: true },
+  { key: 'updatedAt', label: '更新日', sortable: true },
+];
+```
+
+**変更後の列構成**:
+```typescript
+const COLUMNS = [
+  { key: 'name', label: 'プロジェクト名', sortable: true },
+  { key: 'customerName', label: '顧客名', sortable: true },
+  { key: 'salesPersonName', label: '営業担当者', sortable: true },
+  { key: 'constructionPersonName', label: '工事担当者', sortable: true },
+  { key: 'status', label: 'ステータス', sortable: true },
+  { key: 'createdAt', label: '作成日', sortable: true },
+  { key: 'updatedAt', label: '更新日', sortable: true },
+];
+```
+
+**SortFieldの変更**:
+```typescript
+// 変更前
+export type SortField = 'id' | 'name' | 'customerName' | 'status' | 'createdAt' | 'updatedAt';
+
+// 変更後
+export type SortField = 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'createdAt' | 'updatedAt';
+```
+
+---
+
+### 差分2: 検索対象の拡張（4.1a, 4.1b）
+
+**変更内容**:
+- 検索対象に営業担当者の表示名を追加
+- 検索対象に工事担当者の表示名を追加
+
+**影響ファイル**:
+- `backend/src/services/project.service.ts`
+- `backend/src/schemas/project.schema.ts`
+
+**現在の検索ロジック**:
+```typescript
+// プロジェクト名・顧客名（取引先名）の部分一致
+where: {
+  OR: [
+    { name: { contains: search, mode: 'insensitive' } },
+    { tradingPartner: { name: { contains: search, mode: 'insensitive' } } },
+  ]
+}
+```
+
+**変更後の検索ロジック**:
+```typescript
+// プロジェクト名・顧客名・営業担当者・工事担当者の部分一致
+where: {
+  OR: [
+    { name: { contains: search, mode: 'insensitive' } },
+    { tradingPartner: { name: { contains: search, mode: 'insensitive' } } },
+    { salesPerson: { displayName: { contains: search, mode: 'insensitive' } } },
+    { constructionPerson: { displayName: { contains: search, mode: 'insensitive' } } },
+  ]
+}
+```
+
+---
+
+### 差分3: フリガナ検索のひらがな・カタカナ両対応（16.3, 22.5）
+
+**変更内容**:
+- 取引先検索時、ひらがな入力をカタカナに変換して検索
+- カタカナ入力をひらがなに変換して検索
+
+**影響ファイル**:
+- `backend/src/services/trading-partner.service.ts`（既存実装済み）
+- `frontend/src/components/projects/TradingPartnerSelect.tsx`
+
+**バックエンドのひらがな・カタカナ変換ロジック**（既存実装を確認）:
+```typescript
+/**
+ * ひらがなをカタカナに変換
+ */
+function hiraganaToKatakana(str: string): string {
+  return str.replace(/[\u3041-\u3096]/g, (match) =>
+    String.fromCharCode(match.charCodeAt(0) + 0x60)
+  );
+}
+
+/**
+ * カタカナをひらがなに変換
+ */
+function katakanaToHiragana(str: string): string {
+  return str.replace(/[\u30A1-\u30F6]/g, (match) =>
+    String.fromCharCode(match.charCodeAt(0) - 0x60)
+  );
+}
+
+// 検索時の処理
+const searchKatakana = hiraganaToKatakana(search);
+const searchHiragana = katakanaToHiragana(search);
+
+where: {
+  OR: [
+    { name: { contains: search, mode: 'insensitive' } },
+    { nameKana: { contains: searchKatakana, mode: 'insensitive' } },
+    { nameKana: { contains: searchHiragana, mode: 'insensitive' } },
+  ]
+}
+```
+
+---
+
+### 差分4: プロジェクト名一意性チェック（1.15, 1.16, 8.7, 8.8）
+
+**変更内容**:
+- プロジェクト作成時にプロジェクト名の重複チェックを実行
+- プロジェクト更新時にプロジェクト名の重複チェックを実行（自身を除外）
+
+**影響ファイル**:
+- `backend/src/services/project.service.ts`
+- `backend/src/errors/projectError.ts`
+- `backend/src/routes/projects.routes.ts`
+
+**新規エラークラス**:
+```typescript
+// backend/src/errors/projectError.ts に追加
+
+/**
+ * プロジェクト名重複エラー
+ * Requirements: 1.15, 8.7
+ */
+export class DuplicateProjectNameError extends ApiError {
+  public readonly projectName: string;
+  public readonly problemType = PROBLEM_TYPES.PROJECT_NAME_DUPLICATE;
+  public readonly code = ERROR_CODES.PROJECT_NAME_DUPLICATE;
+
+  constructor(projectName: string) {
+    super(`このプロジェクト名は既に使用されています: ${projectName}`, 409);
+    this.projectName = projectName;
+  }
+}
+```
+
+**PROBLEM_TYPES/ERROR_CODESへの追加**:
+```typescript
+// backend/src/types/problem-details.ts に追加
+export const PROBLEM_TYPES = {
+  // ... 既存のエントリ
+  PROJECT_NAME_DUPLICATE: 'https://architrack.example.com/problems/project-name-duplicate',
+};
+
+export const ERROR_CODES = {
+  // ... 既存のエントリ
+  PROJECT_NAME_DUPLICATE: 'PROJECT_NAME_DUPLICATE',
+};
+```
+
+**ProjectServiceへの追加**:
+```typescript
+// backend/src/services/project.service.ts
+
+/**
+ * プロジェクト名の重複チェック
+ * @param name プロジェクト名
+ * @param excludeId 除外するプロジェクトID（更新時に自身を除外）
+ * @throws DuplicateProjectNameError 重複する場合
+ */
+private async checkProjectNameUniqueness(
+  tx: PrismaTransactionClient,
+  name: string,
+  excludeId?: string
+): Promise<void> {
+  const existingProject = await tx.project.findFirst({
+    where: {
+      name: name,
+      deletedAt: null,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+  });
+
+  if (existingProject) {
+    throw new DuplicateProjectNameError(name);
+  }
+}
+
+// createProject メソッド内で呼び出し
+async createProject(input: CreateProjectInput, actorId: string): Promise<ProjectInfo> {
+  return await this.prisma.$transaction(async (tx) => {
+    // 1. プロジェクト名の重複チェック
+    await this.checkProjectNameUniqueness(tx, input.name);
+
+    // 2. 担当者IDのバリデーション
+    await this.validateAssignableUser(tx, input.salesPersonId, 'salesPersonId');
+    // ... 既存の処理
+  });
+}
+
+// updateProject メソッド内で呼び出し
+async updateProject(
+  id: string,
+  input: UpdateProjectInput,
+  actorId: string,
+  expectedUpdatedAt: Date
+): Promise<ProjectInfo> {
+  return await this.prisma.$transaction(async (tx) => {
+    // 1. プロジェクト存在確認
+    const project = await tx.project.findUnique({ where: { id } });
+    if (!project || project.deletedAt) {
+      throw new ProjectNotFoundError(id);
+    }
+
+    // 2. プロジェクト名の重複チェック（名前が変更される場合のみ）
+    if (input.name && input.name !== project.name) {
+      await this.checkProjectNameUniqueness(tx, input.name, id);
+    }
+
+    // ... 既存の処理
+  });
+}
+```
+
+**ルートハンドラでのエラーレスポンス**:
+```typescript
+// backend/src/routes/projects.routes.ts
+
+import { DuplicateProjectNameError } from '../errors/projectError.js';
+
+// POST /api/projects ハンドラ内
+if (error instanceof DuplicateProjectNameError) {
+  res.status(409).json({
+    type: error.problemType,
+    title: 'Duplicate Project Name',
+    status: 409,
+    detail: error.message,
+    code: error.code,
+    projectName: error.projectName,
+  });
+  return;
+}
+
+// PUT /api/projects/:id ハンドラ内（同様）
+```
+
+---
+
+### 差分5: ソートフィールドの拡張（6.5）
+
+**変更内容**:
+- ソート可能フィールドに営業担当者・工事担当者を追加
+
+**影響ファイル**:
+- `backend/src/schemas/project.schema.ts`
+- `backend/src/services/project.service.ts`
+
+**現在のソートフィールド**:
+```typescript
+export const SORTABLE_FIELDS = [
+  'id',
+  'name',
+  'tradingPartnerId',
+  'status',
+  'createdAt',
+  'updatedAt',
+] as const;
+```
+
+**変更後のソートフィールド**:
+```typescript
+export const SORTABLE_FIELDS = [
+  'name',
+  'customerName',       // 顧客名（tradingPartner.name）
+  'salesPersonName',    // 営業担当者（salesPerson.displayName）
+  'constructionPersonName', // 工事担当者（constructionPerson.displayName）
+  'status',
+  'createdAt',
+  'updatedAt',
+] as const;
+```
+
+**ソートロジックの変更**:
+```typescript
+// backend/src/services/project.service.ts
+
+private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
+  const { field, order } = sort;
+
+  switch (field) {
+    case 'customerName':
+      return { tradingPartner: { name: order } };
+    case 'salesPersonName':
+      return { salesPerson: { displayName: order } };
+    case 'constructionPersonName':
+      return { constructionPerson: { displayName: order } };
+    default:
+      return { [field]: order };
+  }
+}
+```
+
+---
+
+## Backend / Services
+
+### ProjectService
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクトのCRUD操作とビジネスロジックを担当 |
-| Requirements | 1.1-1.15, 2.1-2.6, 3.1-3.5, 4.1-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.7, 8.1-8.6, 9.1-9.7, 11.1-11.6, 13.1-13.11 |
+| Intent | プロジェクトのCRUD操作とビジネスロジック + **プロジェクト名一意性チェック** |
+| Requirements | 1.1-1.16, 2.1-2.6, 3.1-3.5, 4.1a-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.6, 8.1-8.8, 9.1-9.7, 11.1-11.6, 13.1-13.11 |
 | Owner / Reviewers | Backend Team |
 
 **Responsibilities & Constraints**
 - プロジェクトの作成・取得・更新・削除のビジネスロジック
+- **プロジェクト名の一意性チェック（作成時・更新時）**（1.15, 1.16, 8.7, 8.8）
 - 論理削除の実装（`deletedAt`フィールドによる管理）
-- ページネーション、検索、フィルタリング、ソートのサポート
+- ページネーション、検索（**営業担当者・工事担当者含む**）、フィルタリング、ソートのサポート
 - 楽観的排他制御（`updatedAt`フィールドによる競合検出）
 - 関連データ（現場調査、見積書）の件数取得（機能フラグで制御）
 
@@ -314,10 +681,19 @@ class ProjectConflictError extends Error {
   }
 }
 
+// 新規追加（1.15, 8.7）
+class DuplicateProjectNameError extends Error {
+  constructor(public projectName: string) {
+    super(`このプロジェクト名は既に使用されています: ${projectName}`);
+    this.name = 'DuplicateProjectNameError';
+  }
+}
+
 interface IProjectService {
   /**
    * プロジェクト作成
    * @throws ProjectValidationError バリデーションエラー
+   * @throws DuplicateProjectNameError プロジェクト名重複（1.15）
    */
   createProject(
     input: CreateProjectInput,
@@ -326,6 +702,7 @@ interface IProjectService {
 
   /**
    * プロジェクト一覧取得
+   * 検索対象: プロジェクト名、顧客名、営業担当者、工事担当者（4.1a, 4.1b）
    */
   getProjects(
     filter: ProjectFilter,
@@ -344,6 +721,7 @@ interface IProjectService {
    * @throws ProjectNotFoundError プロジェクトが存在しない
    * @throws ProjectValidationError バリデーションエラー
    * @throws ProjectConflictError 楽観的排他制御エラー
+   * @throws DuplicateProjectNameError プロジェクト名重複（8.7）
    */
   updateProject(
     id: string,
@@ -370,7 +748,7 @@ interface IProjectService {
 
 interface CreateProjectInput {
   name: string;
-  customerName: string;
+  tradingPartnerId?: string | null;  // 取引先ID（外部キー）
   salesPersonId: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -379,7 +757,7 @@ interface CreateProjectInput {
 
 interface UpdateProjectInput {
   name?: string;
-  customerName?: string;
+  tradingPartnerId?: string | null;  // 取引先ID（外部キー）
   salesPersonId?: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -387,10 +765,11 @@ interface UpdateProjectInput {
 }
 
 interface ProjectFilter {
-  search?: string;           // プロジェクト名・顧客名の部分一致
+  search?: string;           // プロジェクト名・取引先名・営業担当者・工事担当者の部分一致（4.1a, 4.1b）
   status?: ProjectStatus[];  // ステータスフィルタ
   createdFrom?: Date;        // 作成日開始
   createdTo?: Date;          // 作成日終了
+  tradingPartnerId?: string; // 取引先ID（外部キー）
 }
 
 interface PaginationInput {
@@ -399,24 +778,24 @@ interface PaginationInput {
 }
 
 interface SortInput {
-  field: 'id' | 'name' | 'customerName' | 'status' | 'createdAt' | 'updatedAt';
+  field: 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'createdAt' | 'updatedAt';
   order: 'asc' | 'desc';
 }
-
 ```
 
 - Preconditions: 有効なユーザーIDが提供されること
 - Postconditions: 成功時はプロジェクトデータを返却、失敗時は例外をスロー
-- Invariants: 論理削除されたプロジェクトは一覧に表示されない
+- Invariants: 論理削除されたプロジェクトは一覧に表示されない。プロジェクト名は一意（deletedAt=nullの範囲内）
 
 **Implementation Notes**
 - Integration: 既存のPrisma Clientパターンを踏襲、N+1問題回避のためincludeを使用
 - Validation: Zodスキーマによるバリデーション、`validate.middleware.ts`と連携
+- **プロジェクト名一意性**: deletedAt=nullのプロジェクトに対して重複チェックを実行
 - Risks: 楽観的排他制御の競合エラー発生時のUX検討が必要
 
 ---
 
-#### ProjectStatusService
+### ProjectStatusService
 
 | Field | Detail |
 |-------|--------|
@@ -537,7 +916,6 @@ interface ProjectStatusHistory {
   changedBy: string;
   changedAt: Date;
 }
-
 ```
 
 - Preconditions: プロジェクトが存在し、現在のステータスからの遷移が許可されていること。差し戻し遷移時は理由が必須
@@ -551,7 +929,7 @@ interface ProjectStatusHistory {
 
 ---
 
-#### ProjectRoutes
+### ProjectRoutes
 
 | Field | Detail |
 |-------|--------|
@@ -579,8 +957,8 @@ interface ProjectStatusHistory {
 |--------|----------|---------|----------|--------|
 | GET | /api/projects | ProjectListQuery | PaginatedProjects | 400, 401, 403 |
 | GET | /api/projects/:id | - | ProjectDetail | 400, 401, 403, 404 |
-| POST | /api/projects | CreateProjectRequest | ProjectInfo | 400, 401, 403 |
-| PUT | /api/projects/:id | UpdateProjectRequest | ProjectInfo | 400, 401, 403, 404, 409 |
+| POST | /api/projects | CreateProjectRequest | ProjectInfo | 400, 401, 403, **409** |
+| PUT | /api/projects/:id | UpdateProjectRequest | ProjectInfo | 400, 401, 403, 404, **409** |
 | DELETE | /api/projects/:id | - | - | 400, 401, 403, 404 |
 | PATCH | /api/projects/:id/status | StatusChangeRequest | ProjectInfo | 400, 401, 403, 404, 422 |
 | GET | /api/projects/:id/status-history | - | StatusHistory[] | 400, 401, 403, 404 |
@@ -593,18 +971,18 @@ interface ProjectStatusHistory {
 interface ProjectListQuery {
   page?: number;        // デフォルト: 1
   limit?: number;       // デフォルト: 20, 最大: 100
-  search?: string;      // 最小2文字
+  search?: string;      // 最小2文字（プロジェクト名・顧客名・営業担当者・工事担当者）
   status?: string;      // カンマ区切り複数指定可
   createdFrom?: string; // ISO8601形式
   createdTo?: string;   // ISO8601形式
-  sort?: string;        // id|name|customerName|status|createdAt|updatedAt
+  sort?: string;        // name|customerName|salesPersonName|constructionPersonName|status|createdAt|updatedAt
   order?: string;       // asc|desc
 }
 
 // POST /api/projects リクエストボディ
 interface CreateProjectRequest {
-  name: string;                    // 1-255文字
-  customerName: string;            // 1-255文字
+  name: string;                    // 1-255文字（一意）
+  tradingPartnerId?: string | null; // UUID（任意、取引先外部キー）
   salesPersonId: string;           // UUID
   constructionPersonId?: string;   // UUID（任意）
   siteAddress?: string;            // 最大500文字
@@ -613,8 +991,8 @@ interface CreateProjectRequest {
 
 // PUT /api/projects/:id リクエストボディ
 interface UpdateProjectRequest {
-  name?: string;
-  customerName?: string;
+  name?: string;                   // 一意（自身を除く）
+  tradingPartnerId?: string | null; // UUID（任意、取引先外部キー）
   salesPersonId?: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -632,7 +1010,8 @@ interface StatusChangeRequest {
 interface ProjectInfo {
   id: string;
   name: string;
-  customerName: string;
+  tradingPartnerId: string | null;      // 取引先ID（外部キー）
+  tradingPartner: TradingPartnerSummary | null;  // 取引先情報
   salesPerson: UserSummary;
   constructionPerson?: UserSummary;
   siteAddress?: string;
@@ -641,6 +1020,13 @@ interface ProjectInfo {
   statusLabel: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// 取引先サマリー情報
+interface TradingPartnerSummary {
+  id: string;
+  name: string;
+  nameKana: string;
 }
 
 // レスポンス: ページネーション付き一覧
@@ -673,27 +1059,39 @@ interface AssignableUser {
   id: string;
   displayName: string;
 }
+
+// エラーレスポンス: プロジェクト名重複（409）
+interface DuplicateProjectNameErrorResponse {
+  type: string;       // "https://architrack.example.com/problems/project-name-duplicate"
+  title: string;      // "Duplicate Project Name"
+  status: 409;
+  detail: string;     // "このプロジェクト名は既に使用されています: {projectName}"
+  code: string;       // "PROJECT_NAME_DUPLICATE"
+  projectName: string;
+}
 ```
 
 **Implementation Notes**
 - Integration: 既存の`roles.routes.ts`パターンを踏襲、Swagger JSDocコメント付き
 - Validation: Zodスキーマを使用、`validate.middleware.ts`と連携
+- **409エラー**: プロジェクト名重複時はDuplicateProjectNameErrorResponse形式で返却
 - Risks: レート制限の設定が必要（既存の`express-rate-limit`を使用）
 
 ---
 
-### Frontend / Pages
+## Frontend / Pages
 
-#### ProjectListPage
+### ProjectListPage
 
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクト一覧の表示、検索、フィルタリング、ソート機能を提供 |
-| Requirements | 2.1-2.6, 3.1-3.5, 4.1-4.5, 5.1-5.6, 6.1-6.5, 15.1-15.5 |
+| Requirements | 2.1-2.6, 3.1-3.5, 4.1a-4.5, 5.1-5.6, 6.1-6.5, 15.1-15.5 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
 - プロジェクト一覧のテーブル/カード表示（レスポンシブ対応）
+- **ID列なし、営業担当者・工事担当者列あり**（2.2）
 - ページネーション、検索、フィルタリング、ソートのUI提供
 - URLパラメータによる状態管理
 - ローディング・エラー・空状態の表示
@@ -720,7 +1118,7 @@ interface ProjectListState {
     createdTo: Date | null;
   };
   sort: {
-    field: SortField;
+    field: SortField;  // 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'createdAt' | 'updatedAt'
     order: 'asc' | 'desc';
   };
 }
@@ -734,27 +1132,28 @@ interface ProjectListState {
 - Integration: 768px未満でカード表示に切り替え（`useMediaQuery`フック使用）
 - Validation: 検索キーワード2文字以上のバリデーション
 - Risks: 大量データ時のパフォーマンス（仮想スクロールの検討が必要な場合あり）
+- Breadcrumb: 既存の`Breadcrumb`コンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）を再利用し、「ダッシュボード > プロジェクト」のパンくずを表示（21.14）
 
 ---
 
-#### ProjectDetailPage
+### ProjectDetailPage
 
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクト詳細情報の表示、編集、削除、ステータス変更機能を提供 |
-| Requirements | 7.1-7.7, 8.1-8.6, 9.1-9.7, 10.1-10.16, 11.1-11.6 |
+| Requirements | 7.1-7.6, 8.1-8.8, 9.1-9.7, 10.1-10.16, 11.1-11.6 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
-- プロジェクト詳細情報の表示
-- 編集モード切り替え
+- プロジェクト詳細情報の表示（読み取り専用）
+- 編集ページへの遷移（編集ボタン押下で`/projects/:id/edit`へ遷移）
 - 削除確認ダイアログ
 - ステータス遷移UI（順方向・差し戻しの視覚的区別）
 - 関連データ（現場調査・見積書）の件数表示とリンク（機能フラグで制御）
 
 **Dependencies**
 - Inbound: Router — ページ遷移 (P0)
-- Outbound: ProjectService API — データ取得・更新・削除 (P0)
+- Outbound: ProjectService API — データ取得・削除 (P0)
 - Outbound: ProjectStatusService API — ステータス遷移 (P1)
 - Outbound: ToastNotification — 通知 (P1)
 
@@ -767,28 +1166,114 @@ interface ProjectDetailState {
   project: ProjectDetail | null;
   statusHistory: ProjectStatusHistory[];
   isLoading: boolean;
-  isEditing: boolean;
   isDeleting: boolean;
   error: string | null;
+}
+```
+
+**Implementation Notes**
+- Integration: 削除時の関連データ確認（警告ダイアログ表示）
+- Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
+- Breadcrumb: 「ダッシュボード > プロジェクト > [プロジェクト名]」のパンくずを表示（21.15）
+- 設計方針: 取引先管理機能と同様に、詳細ページは読み取り専用とし、編集は独立した`ProjectEditPage`（`/projects/:id/edit`）で行う
+
+---
+
+### ProjectEditPage
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト情報の編集機能を提供 |
+| Requirements | 8.1-8.8, 21.12, 21.17, 21.21 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 既存プロジェクトデータの編集フォーム表示
+- クライアントサイドバリデーション
+- 楽観的排他制御による競合検出
+- **プロジェクト名重複エラーの表示**（8.7）
+- 保存成功時の詳細ページへの遷移
+
+**Dependencies**
+- Inbound: Router — ページ遷移 (P0)
+- Outbound: ProjectService API — データ取得・更新 (P0)
+- Outbound: ProjectForm — フォームUI (P0)
+- Outbound: ToastNotification — 通知 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ProjectEditState {
+  project: ProjectDetail | null;
+  isLoading: boolean;
+  isSubmitting: boolean;
+  error: string | null;
   conflictError: ConflictError | null;
+  duplicateNameError: string | null;  // プロジェクト名重複エラー
 }
 ```
 
 **Implementation Notes**
 - Integration: 編集時の競合検出と再読み込み誘導
-- Validation: 削除時の関連データ確認（警告ダイアログ表示）
+- Validation: ProjectFormコンポーネントでクライアントサイドバリデーション実行
+- **409エラー処理**: プロジェクト名重複時は「このプロジェクト名は既に使用されています」を表示
 - Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
+- Breadcrumb: 「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」のパンくずを表示（21.17）
+- 設計方針: 取引先管理機能の`TradingPartnerEditPage`と同一パターン
 
 ---
 
-### Frontend / Components
+## Frontend / Components
 
-#### ProjectForm
+### ProjectListTable（差分設計）
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト一覧テーブルを表示（**ID列削除、営業担当者・工事担当者列追加**） |
+| Requirements | 2.2, 6.1-6.5 |
+| Owner / Reviewers | Frontend Team |
+
+**変更内容**:
+- 列構成の変更（ID列削除、営業担当者・工事担当者列追加）
+- SortField型の更新
+- テーブルセルのレンダリング変更
+
+**変更後の列定義**:
+```typescript
+const COLUMNS: Array<{
+  key: SortField;
+  label: string;
+  sortable: boolean;
+}> = [
+  { key: 'name', label: 'プロジェクト名', sortable: true },
+  { key: 'customerName', label: '顧客名', sortable: true },
+  { key: 'salesPersonName', label: '営業担当者', sortable: true },
+  { key: 'constructionPersonName', label: '工事担当者', sortable: true },
+  { key: 'status', label: 'ステータス', sortable: true },
+  { key: 'createdAt', label: '作成日', sortable: true },
+  { key: 'updatedAt', label: '更新日', sortable: true },
+];
+```
+
+**担当者列のレンダリング**:
+```typescript
+// 営業担当者列
+<td>{project.salesPerson.displayName}</td>
+
+// 工事担当者列（nullableなのでオプショナルチェイン）
+<td>{project.constructionPerson?.displayName ?? '-'}</td>
+```
+
+---
+
+### ProjectForm
 
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクト作成・編集フォームを提供 |
-| Requirements | 1.1-1.15, 8.1-8.6, 13.1-13.11, 16.1-16.10, 17.1-17.12 |
+| Requirements | 1.1-1.16, 8.1-8.8, 13.1-13.11, 16.1-16.13, 17.1-17.12 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
@@ -796,10 +1281,11 @@ interface ProjectDetailState {
 - クライアントサイドバリデーション
 - 担当者デフォルト値の設定
 - 送信処理とエラーハンドリング
+- **プロジェクト名重複エラーの表示**（1.15, 8.7）
 
 **Dependencies**
 - Inbound: ProjectListPage, ProjectDetailPage — フォーム表示 (P0)
-- Outbound: CustomerNameInput — 顧客名入力 (P1)
+- Outbound: TradingPartnerSelect — 取引先選択 (P1)
 - Outbound: UserSelect — 担当者選択 (P1)
 - Outbound: useAuth — ログインユーザー取得 (P0)
 
@@ -814,11 +1300,12 @@ interface ProjectFormProps {
   onSubmit: (data: ProjectFormData) => Promise<void>;
   onCancel: () => void;
   isSubmitting: boolean;
+  submitError?: string | null;  // サーバーエラー（409等）
 }
 
 interface ProjectFormData {
   name: string;
-  customerName: string;
+  tradingPartnerId?: string | null;  // 取引先ID（外部キー）
   salesPersonId: string;
   constructionPersonId?: string;
   siteAddress?: string;
@@ -829,36 +1316,54 @@ interface ProjectFormData {
 **Implementation Notes**
 - Integration: 既存のフォームパターン（React Hook Form等）の検討
 - Validation: Zodスキーマでクライアント・サーバー共通バリデーション
-- Future: 取引先管理機能実装後にCustomerNameInputをオートコンプリート対応に拡張予定
+- **409エラー処理**: プロジェクト名重複時はnameフィールドにエラーメッセージを表示
+- TradingPartner連携: TradingPartnerSelectで取引先選択機能を提供（外部キー連携実装済み）
 
 ---
 
-#### CustomerNameInput（顧客名入力フィールド）
+### TradingPartnerSelect（取引先選択コンポーネント）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 顧客名のフリー入力を提供（将来的に取引先オートコンプリート連携予定） |
-| Requirements | 16.1-16.10（本仕様ではフリー入力のみ、16.9に基づき取引先外も入力可能） |
+| Intent | 取引先の選択UIを提供（ドロップダウン + オートコンプリート、**ひらがな・カタカナ両対応**） |
+| Requirements | 16.1-16.13, 22.1-22.11 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
-- 顧客名のフリーテキスト入力
-- バリデーション（1-255文字）
-- 将来の取引先オートコンプリート連携に備えた拡張可能な設計
+- 取引先管理機能（`trading-partner-management`）との外部キー連携
+- 取引先種別に「顧客」を含む取引先一覧を候補として表示
+- 取引先名またはフリガナで部分一致検索（オートコンプリート）
+- **ひらがな入力でもカタカナフリガナを検索（16.3, 22.5）**
+- 入力文字列に部分一致する取引先を最大10件まで候補表示
+- 任意選択（null許容）
+- キーボード操作（上下キー選択、Enter確定）とマウス操作の両方に対応
 
 **Dependencies**
-- Inbound: ProjectForm — 顧客名入力 (P0)
+- Inbound: ProjectForm — 取引先選択 (P0)
+- Outbound: TradingPartnerAPI — 取引先検索（オートコンプリート候補取得）(P1)
 
-**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+**Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/trading-partners | ?search=string&types=CUSTOMER | TradingPartner[] | 400, 401, 403 |
 
 **Implementation Notes**
-- Integration: 標準的なテキスト入力コンポーネントとして実装
-- Validation: Zodスキーマによる文字数バリデーション
-- Future: 取引先管理機能（別仕様）実装後にオートコンプリート機能を追加予定
+- Integration: 取引先管理機能と連携、取引先IDを外部キーとして保存
+- Validation: 選択された取引先IDの存在確認（サーバーサイド）
+- **ひらがな・カタカナ変換**: バックエンドで変換処理（既存実装済み）
+- UX: 500ミリ秒以内のレスポンス、ローディングインジケータ表示、候補なし時のメッセージ表示
+
+**アーキテクチャ決定（2025-12-12）**:
+- `customerName`フリーテキストフィールドから`tradingPartnerId`外部キーへ移行完了
+- 取引先未選択時は`null`を許容（任意フィールド）
+- Prismaスキーマ: `tradingPartnerId String?`、`@relation(fields: [tradingPartnerId], references: [id])`
 
 ---
 
-#### UserSelect
+### UserSelect
 
 | Field | Detail |
 |-------|--------|
@@ -890,7 +1395,7 @@ interface ProjectFormData {
 
 ---
 
-#### StatusTransitionUI
+### StatusTransitionUI
 
 | Field | Detail |
 |-------|--------|
@@ -980,6 +1485,115 @@ const STATUS_COLORS: Record<ProjectStatus, { bg: string; text: string }> = {
 
 ---
 
+### Breadcrumb Integration
+
+#### Breadcrumb（パンくずナビゲーション - 既存コンポーネント再利用）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 階層構造を示すナビゲーションを提供し、ユーザーが現在位置を把握・任意の階層へ遷移できるようにする |
+| Requirements | 21.14, 21.15, 21.16, 21.17, 21.18 |
+| Owner / Reviewers | Frontend Team |
+
+**既存コンポーネントの再利用**
+
+プロジェクト管理機能では、取引先管理機能（`trading-partner-management`）で実装済みの`Breadcrumb`コンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）をそのまま再利用します。
+
+**既存Breadcrumbコンポーネントの仕様**:
+
+```typescript
+// frontend/src/components/common/Breadcrumb.tsx
+
+/**
+ * パンくずナビゲーションの項目
+ */
+interface BreadcrumbItem {
+  /** 表示テキスト */
+  label: string;
+  /** リンク先パス（省略時はリンクなし） */
+  path?: string;
+}
+
+/**
+ * Breadcrumbコンポーネントのprops
+ */
+interface BreadcrumbProps {
+  /** パンくず項目の配列 */
+  items: BreadcrumbItem[];
+}
+```
+
+**アクセシビリティ対応**（既存実装済み）:
+- `aria-label="パンくずナビゲーション"`: スクリーンリーダー対応
+- `aria-current="page"`: 現在ページの識別
+- `aria-hidden="true"`: 区切り文字の非読み上げ
+
+**プロジェクト管理ページでの使用パターン**:
+
+```typescript
+// 1. プロジェクト一覧ページ（21.14）
+const listBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト' }  // 現在ページ（リンクなし）
+];
+
+// 2. プロジェクト詳細ページ（21.15）
+const detailBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name }  // 現在ページ（リンクなし）
+];
+
+// 3. プロジェクト新規作成ページ（21.16）
+const createBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: '新規作成' }  // 現在ページ（リンクなし）
+];
+
+// 4. プロジェクト編集ページ（21.17） - 独立ページ方式
+// ProjectEditPage.tsx で使用
+const editBreadcrumb: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name, path: `/projects/${project.id}` },  // 詳細ページへのリンク
+  { label: '編集' }  // 現在ページ（リンクなし）
+];
+```
+
+**設計方針：独立ページ方式（パターンB）**
+
+取引先管理機能との一貫性を重視し、詳細ページと編集ページを独立したページコンポーネントとして分離します：
+
+| ページ | URL | コンポーネント | パンくず |
+|--------|-----|---------------|---------|
+| 詳細 | `/projects/:id` | `ProjectDetailPage` | ダッシュボード > プロジェクト > [プロジェクト名] |
+| 編集 | `/projects/:id/edit` | `ProjectEditPage` | ダッシュボード > プロジェクト > [プロジェクト名] > 編集 |
+
+```typescript
+// ProjectDetailPage.tsx - 詳細ページ（読み取り専用）
+const detailBreadcrumbItems: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name }  // 現在ページ（リンクなし）
+];
+
+// ProjectEditPage.tsx - 編集ページ
+const editBreadcrumbItems: BreadcrumbItem[] = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト', path: '/projects' },
+  { label: project.name, path: `/projects/${project.id}` },  // 詳細ページへのリンク
+  { label: '編集' }  // 現在ページ（リンクなし）
+];
+```
+
+**Implementation Notes**
+- Integration: 既存の`Breadcrumb`コンポーネントをインポートして使用（`import { Breadcrumb } from '../components/common'`）
+- 取引先管理機能と同一パターン: `TradingPartnerListPage`, `TradingPartnerDetailPage`, `TradingPartnerEditPage`の実装を参照
+- ルーティング: `routes.tsx`に`/projects/:id/edit`ルートを追加し、`ProjectEditPage`にマッピング
+
+---
+
 ### Navigation Integration
 
 #### AppHeader Extension (Summary Only)
@@ -1014,11 +1628,12 @@ erDiagram
     Project }o--|| User : salesPerson
     Project }o--o| User : constructionPerson
     Project }o--|| User : createdBy
+    Project }o--o| TradingPartner : tradingPartner
 
     Project {
         string id PK
-        string name
-        string customerName
+        string name UK
+        string tradingPartnerId FK
         string salesPersonId FK
         string constructionPersonId FK
         string siteAddress
@@ -1028,6 +1643,12 @@ erDiagram
         datetime updatedAt
         datetime deletedAt
         string createdById FK
+    }
+
+    TradingPartner {
+        string id PK
+        string name
+        string nameKana
     }
 
     ProjectStatusHistory {
@@ -1047,8 +1668,8 @@ erDiagram
 - `ProjectStatusHistory`は`Project`に従属するエンティティ（プロジェクトなしでは存在しない）
 
 **Business Rules & Invariants**:
-- プロジェクト名は必須かつ1-255文字
-- 顧客名は必須かつ1-255文字
+- プロジェクト名は必須かつ1-255文字、**削除されていないプロジェクト内で一意**（1.15, 1.16, 8.7, 8.8）
+- 取引先ID（tradingPartnerId）は任意、指定時は有効な取引先への参照
 - 営業担当者は必須
 - ステータスは定義された12種類のいずれか
 - 遷移種別は4種類: initial, forward, backward, terminate
@@ -1063,8 +1684,8 @@ erDiagram
 | Entity | Attribute | Type | Constraints |
 |--------|-----------|------|-------------|
 | Project | id | UUID | PK, auto-generated |
-| Project | name | VARCHAR(255) | NOT NULL |
-| Project | customerName | VARCHAR(255) | NOT NULL |
+| Project | name | VARCHAR(255) | NOT NULL, **UNIQUE (deletedAt=null)** |
+| Project | tradingPartnerId | UUID | FK → trading_partners.id, NULLABLE |
 | Project | salesPersonId | UUID | FK → users.id, NOT NULL |
 | Project | constructionPersonId | UUID | FK → users.id, NULLABLE |
 | Project | siteAddress | VARCHAR(500) | NULLABLE |
@@ -1088,6 +1709,8 @@ erDiagram
 - ステータス変更時に履歴を同時に作成（遷移種別と差し戻し理由を含む、トランザクション）
 - 論理削除時はdeletedAtを設定（物理削除は行わない）
 - 差し戻し遷移時はreason必須、その他の遷移時はreason任意
+- 取引先ID（tradingPartnerId）は外部キー制約で参照整合性を保証
+- **プロジェクト名の一意性はサービス層で検証（deletedAt=nullの範囲内）**
 
 ### Physical Data Model
 
@@ -1095,26 +1718,28 @@ erDiagram
 
 ```prisma
 model Project {
-  id                   String    @id @default(uuid())
-  name                 String
-  customerName         String
+  id                   String        @id @default(uuid())
+  name                 String        // 一意（deletedAt=nullの範囲内、サービス層で検証）
+  tradingPartnerId     String?       // 取引先ID（任意、外部キー）
   salesPersonId        String
   constructionPersonId String?
   siteAddress          String?
   description          String?
   status               ProjectStatus @default(PREPARING)
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
   deletedAt            DateTime?
   createdById          String
 
-  salesPerson          User      @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
-  constructionPerson   User?     @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
-  createdBy            User      @relation("CreatedProjects", fields: [createdById], references: [id])
-  statusHistory        ProjectStatusHistory[]
+  // リレーション
+  tradingPartner     TradingPartner? @relation(fields: [tradingPartnerId], references: [id])
+  salesPerson        User            @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
+  constructionPerson User?           @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
+  createdBy          User            @relation("CreatedProjects", fields: [createdById], references: [id])
+  statusHistory      ProjectStatusHistory[]
 
   @@index([name])
-  @@index([customerName])
+  @@index([tradingPartnerId])
   @@index([status])
   @@index([salesPersonId])
   @@index([createdAt])
@@ -1166,10 +1791,10 @@ enum TransitionType {
 ```
 
 **Indexes**:
-- 検索用: `name`, `customerName`（部分一致検索）
+- 検索用: `name`（部分一致検索）、取引先名は`tradingPartner`リレーション経由で検索、営業担当者・工事担当者は`salesPerson`/`constructionPerson`リレーション経由で検索
+- 外部キー用: `tradingPartnerId`, `salesPersonId`
 - フィルタリング用: `status`, `createdAt`
 - ソート用: `createdAt`, `updatedAt`
-- 外部キー用: `salesPersonId`
 - 論理削除確認用: `deletedAt`
 - 履歴フィルタリング用: `transitionType`
 
@@ -1182,7 +1807,7 @@ enum TransitionType {
 - 401 Unauthorized: 未認証アクセス → ログインページへリダイレクト
 - 403 Forbidden: 権限不足 → 権限エラーメッセージ表示
 - 404 Not Found: プロジェクト不存在 → 404ページ表示
-- 409 Conflict: 楽観的排他制御エラー → 最新データ確認を促すメッセージ表示
+- **409 Conflict**: 楽観的排他制御エラー → 最新データ確認を促すメッセージ表示、**プロジェクト名重複エラー → 「このプロジェクト名は既に使用されています」（1.15, 8.7）**
 - 422 Unprocessable Entity: 無効なステータス遷移、差し戻し理由未入力 → 許可された遷移先を表示
 
 **System Errors (5xx)**:
@@ -1204,29 +1829,37 @@ enum TransitionType {
 
 ### Unit Tests
 
-- ProjectService: CRUD操作、バリデーション、エラーハンドリング
+- ProjectService: CRUD操作、バリデーション、エラーハンドリング、**プロジェクト名一意性チェック**（1.15, 1.16, 8.7, 8.8）
 - ProjectStatusService: ステータス遷移ロジック（順方向・差し戻し・終端）、遷移種別判定、履歴記録、差し戻し理由検証
-- ProjectForm: フォームバリデーション、送信処理
-- CustomerAutocomplete: 検索ロジック、候補表示
+- ProjectForm: フォームバリデーション、送信処理、**プロジェクト名重複エラー表示**
+- TradingPartnerSelect: 取引先検索ロジック、候補表示、**ひらがな・カタカナ変換**
 - UserSelect: ユーザー一覧取得、フィルタリング
 - StatusTransitionUI: 遷移種別の視覚的区別、差し戻し理由入力ダイアログ
+- **ProjectListTable: 列構成変更（ID列削除、営業担当者・工事担当者列追加）**
 
 ### Integration Tests
 
-- POST /api/projects: プロジェクト作成フロー（認証、権限、バリデーション、DB保存）
-- GET /api/projects: 一覧取得（ページネーション、検索、フィルタ、ソート）
-- PUT /api/projects/:id: 更新フロー（楽観的排他制御、監査ログ）
+- POST /api/projects: プロジェクト作成フロー（認証、権限、バリデーション、DB保存、**一意性チェック**）
+- GET /api/projects: 一覧取得（ページネーション、**営業担当者・工事担当者検索**、フィルタ、ソート）
+- PUT /api/projects/:id: 更新フロー（楽観的排他制御、監査ログ、**一意性チェック**）
 - PATCH /api/projects/:id/status: ステータス遷移（順方向・差し戻し・終端遷移ルール、差し戻し理由必須チェック、履歴記録）
 - DELETE /api/projects/:id: 削除フロー（論理削除、関連データ確認）
 - GET /api/projects/:id/status-history: ステータス変更履歴取得（遷移種別・差し戻し理由表示）
 
 ### E2E/UI Tests
 
-- プロジェクト作成フロー: フォーム入力 → 送信 → 詳細画面遷移
-- プロジェクト一覧操作: 検索 → フィルタ → ソート → ページ遷移
+- プロジェクト作成フロー: フォーム入力 → 送信 → 詳細画面遷移、**重複名でのエラー表示**
+- プロジェクト一覧操作: 検索（**営業担当者・工事担当者含む**） → フィルタ → ソート → ページ遷移
+- **一覧表示列確認**: ID列なし、営業担当者・工事担当者列あり
 - ステータス順方向遷移: ステータスボタン → 順方向遷移選択 → 確認
 - ステータス差し戻し遷移: ステータスボタン → 差し戻し遷移選択 → 理由入力 → 確認
 - ステータス遷移UIの視覚的区別: 順方向（緑）、差し戻し（オレンジ）、終端（赤）の表示確認
+- パンくずナビゲーション（21.14-21.18）:
+  - 一覧ページ: 「ダッシュボード > プロジェクト」の表示確認
+  - 詳細ページ: 「ダッシュボード > プロジェクト > [プロジェクト名]」の表示確認
+  - 新規作成ページ: 「ダッシュボード > プロジェクト > 新規作成」の表示確認
+  - 編集モード時: 「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」の動的表示確認
+  - パンくずクリック遷移: 各階層クリックで該当ページへ遷移確認
 - レスポンシブ表示: デスクトップ → タブレット → モバイル
 - キーボードナビゲーション: Tab, Enter, Escape操作
 

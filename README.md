@@ -39,8 +39,11 @@ ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテク�
 # 1. 環境を自動セットアップ（初回のみ）
 ./scripts/setup-local-env.sh
 
-# 2. 開発環境を起動
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+# 2. 開発環境を起動（npm scriptsを使用、推奨）
+npm run dev:docker
+
+# または直接コマンドを使用する場合
+# docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
 ```
 
 **アクセス先:**

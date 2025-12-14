@@ -7,7 +7,7 @@
  * - 1.7, 1.8, 1.14, 1.15: プロジェクト作成（初期ステータス履歴含む）
  * - 2.1, 2.2, 2.6: プロジェクト一覧表示
  * - 3.1, 3.2, 3.3, 3.4, 3.5: ページネーション
- * - 4.1: 検索
+ * - 4.1, 4.1a, 4.1b: 検索（プロジェクト名・顧客名・営業担当者・工事担当者）
  * - 5.1, 5.2, 5.3, 5.4: フィルタリング
  * - 6.1, 6.2, 6.5: ソート
  * - 7.1: プロジェクト詳細取得
@@ -30,6 +30,7 @@ import {
   ProjectNotFoundError,
   ProjectConflictError,
   ProjectValidationError,
+  DuplicateProjectNameError,
 } from '../../../errors/projectError.js';
 
 // テスト用モック
@@ -96,10 +97,17 @@ const mockAdminUser = {
   userRoles: [{ role: { name: 'admin' } }],
 };
 
+const mockTradingPartner = {
+  id: 'trading-partner-123',
+  name: 'テスト取引先',
+  nameKana: 'テストトリヒキサキ',
+};
+
 const mockProject = {
   id: 'project-123',
   name: 'テストプロジェクト',
-  customerName: 'テスト顧客',
+  tradingPartnerId: 'trading-partner-123',
+  tradingPartner: mockTradingPartner,
   salesPersonId: 'user-123',
   constructionPersonId: null,
   siteAddress: '東京都渋谷区1-1-1',
@@ -134,7 +142,7 @@ describe('ProjectService', () => {
   describe('createProject', () => {
     const validInput: CreateProjectInput = {
       name: 'テストプロジェクト',
-      customerName: 'テスト顧客',
+      tradingPartnerId: 'trading-partner-123',
       salesPersonId: 'user-123',
       constructionPersonId: 'user-456',
       siteAddress: '東京都渋谷区1-1-1',
@@ -161,6 +169,7 @@ describe('ProjectService', () => {
               .mockResolvedValueOnce({ ...mockUser, id: 'user-456', userRoles: [] }), // constructionPerson
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -202,7 +211,7 @@ describe('ProjectService', () => {
               userRoles: [{ role: { name: 'admin' } }],
             }),
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -223,7 +232,7 @@ describe('ProjectService', () => {
           user: {
             findUnique: vi.fn().mockResolvedValue(null),
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -254,7 +263,7 @@ describe('ProjectService', () => {
                 userRoles: [{ role: { name: 'admin' } }],
               }), // constructionPerson is admin
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -282,7 +291,7 @@ describe('ProjectService', () => {
               .mockResolvedValueOnce({ ...mockUser, userRoles: [] }) // salesPerson exists
               .mockResolvedValueOnce(null), // constructionPerson does not exist
           },
-          project: { create: vi.fn() },
+          project: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
           projectStatusHistory: { create: vi.fn() },
         };
         return fn(tx);
@@ -313,6 +322,7 @@ describe('ProjectService', () => {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -332,6 +342,116 @@ describe('ProjectService', () => {
   });
 
   describe('getProjects', () => {
+    /**
+     * 検索対象拡張のテスト（Requirements: 4.1a, 4.1b）
+     *
+     * 検索対象:
+     * - プロジェクト名
+     * - 顧客名（取引先名）
+     * - 顧客名フリガナ（取引先フリガナ）
+     * - 営業担当者の表示名 (4.1a)
+     * - 工事担当者の表示名 (4.1b)
+     */
+    describe('検索対象拡張 (4.1a, 4.1b)', () => {
+      it('営業担当者名で検索できる', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          { search: 'テストユーザー' },
+          { page: 1, limit: 20 },
+          { sort: 'updatedAt', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: expect.arrayContaining([
+                {
+                  salesPerson: { displayName: { contains: 'テストユーザー', mode: 'insensitive' } },
+                },
+              ]),
+            }),
+          })
+        );
+      });
+
+      it('工事担当者名で検索できる', async () => {
+        // Arrange
+        const projectWithConstruction = {
+          ...mockProject,
+          constructionPersonId: 'user-456',
+          constructionPerson: { id: 'user-456', displayName: '工事担当者' },
+        };
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([projectWithConstruction]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          { search: '工事担当者' },
+          { page: 1, limit: 20 },
+          { sort: 'updatedAt', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: expect.arrayContaining([
+                {
+                  constructionPerson: {
+                    displayName: { contains: '工事担当者', mode: 'insensitive' },
+                  },
+                },
+              ]),
+            }),
+          })
+        );
+      });
+
+      it('検索キーワードがプロジェクト名、顧客名、営業担当者、工事担当者のいずれかにマッチする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          { search: '検索キーワード' },
+          { page: 1, limit: 20 },
+          { sort: 'updatedAt', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              OR: [
+                { name: { contains: '検索キーワード', mode: 'insensitive' } },
+                { tradingPartner: { name: { contains: '検索キーワード', mode: 'insensitive' } } },
+                {
+                  tradingPartner: { nameKana: { contains: '検索キーワード', mode: 'insensitive' } },
+                },
+                {
+                  salesPerson: { displayName: { contains: '検索キーワード', mode: 'insensitive' } },
+                },
+                {
+                  constructionPerson: {
+                    displayName: { contains: '検索キーワード', mode: 'insensitive' },
+                  },
+                },
+              ],
+            }),
+          })
+        );
+      });
+    });
+
     it('ページネーション付きでプロジェクト一覧を取得する', async () => {
       // Arrange
       const projects = [mockProject];
@@ -373,7 +493,10 @@ describe('ProjectService', () => {
             deletedAt: null,
             OR: expect.arrayContaining([
               { name: { contains: 'テスト', mode: 'insensitive' } },
-              { customerName: { contains: 'テスト', mode: 'insensitive' } },
+              { tradingPartner: { name: { contains: 'テスト', mode: 'insensitive' } } },
+              { tradingPartner: { nameKana: { contains: 'テスト', mode: 'insensitive' } } },
+              { salesPerson: { displayName: { contains: 'テスト', mode: 'insensitive' } } },
+              { constructionPerson: { displayName: { contains: 'テスト', mode: 'insensitive' } } },
             ]),
           }),
         })
@@ -443,6 +566,184 @@ describe('ProjectService', () => {
           orderBy: { name: 'asc' },
         })
       );
+    });
+
+    /**
+     * ソートロジック拡張のテスト（Task 21.5, Requirements: 6.5）
+     *
+     * リレーションフィールドでのソート対応:
+     * - customerName -> tradingPartner.name
+     * - salesPersonName -> salesPerson.displayName
+     * - constructionPersonName -> constructionPerson.displayName
+     */
+    describe('ソートロジック拡張 (Task 21.5, 6.5)', () => {
+      it('customerNameでソートする場合はtradingPartner.nameでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'customerName', order: 'asc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { tradingPartner: { name: 'asc' } },
+          })
+        );
+      });
+
+      it('customerNameで降順ソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'customerName', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { tradingPartner: { name: 'desc' } },
+          })
+        );
+      });
+
+      it('salesPersonNameでソートする場合はsalesPerson.displayNameでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'salesPersonName', order: 'asc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { salesPerson: { displayName: 'asc' } },
+          })
+        );
+      });
+
+      it('salesPersonNameで降順ソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'salesPersonName', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { salesPerson: { displayName: 'desc' } },
+          })
+        );
+      });
+
+      it('constructionPersonNameでソートする場合はconstructionPerson.displayNameでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'constructionPersonName', order: 'asc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { constructionPerson: { displayName: 'asc' } },
+          })
+        );
+      });
+
+      it('constructionPersonNameで降順ソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects(
+          {},
+          { page: 1, limit: 20 },
+          { sort: 'constructionPersonName', order: 'desc' }
+        );
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { constructionPerson: { displayName: 'desc' } },
+          })
+        );
+      });
+
+      it('statusでソートする場合は従来通りstatusフィールドでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects({}, { page: 1, limit: 20 }, { sort: 'status', order: 'asc' });
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { status: 'asc' },
+          })
+        );
+      });
+
+      it('createdAtでソートする場合は従来通りcreatedAtフィールドでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects({}, { page: 1, limit: 20 }, { sort: 'createdAt', order: 'desc' });
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { createdAt: 'desc' },
+          })
+        );
+      });
+
+      it('updatedAtでソートする場合は従来通りupdatedAtフィールドでソートする', async () => {
+        // Arrange
+        mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+        mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+
+        // Act
+        await service.getProjects({}, { page: 1, limit: 20 }, { sort: 'updatedAt', order: 'asc' });
+
+        // Assert
+        expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { updatedAt: 'asc' },
+          })
+        );
+      });
     });
 
     it('論理削除されたプロジェクトを除外する', async () => {
@@ -523,7 +824,7 @@ describe('ProjectService', () => {
   describe('updateProject', () => {
     const updateInput: UpdateProjectInput = {
       name: '更新後プロジェクト名',
-      customerName: '更新後顧客名',
+      tradingPartnerId: 'trading-partner-456',
     };
     const expectedUpdatedAt = new Date('2024-01-02');
 
@@ -540,6 +841,7 @@ describe('ProjectService', () => {
         const tx = {
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             update: vi.fn().mockResolvedValue(updatedProject),
           },
           user: {
@@ -799,6 +1101,7 @@ describe('ProjectService', () => {
             }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -810,7 +1113,7 @@ describe('ProjectService', () => {
 
       const input: CreateProjectInput = {
         name: 'テストプロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: 'trading-partner-123',
         salesPersonId: 'user-123',
       };
 
@@ -828,7 +1131,7 @@ describe('ProjectService', () => {
       const actorId = 'actor-123';
       const validInput: CreateProjectInput = {
         name: 'テストプロジェクト',
-        customerName: 'テスト顧客',
+        tradingPartnerId: 'trading-partner-123',
         salesPersonId: 'user-123',
       };
       const createdProject = {
@@ -845,6 +1148,7 @@ describe('ProjectService', () => {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -877,7 +1181,7 @@ describe('ProjectService', () => {
       const actorId = 'actor-123';
       const validInput: CreateProjectInput = {
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'trading-partner-new',
         salesPersonId: 'user-123',
         siteAddress: '東京都新宿区',
         description: '詳細説明',
@@ -885,7 +1189,12 @@ describe('ProjectService', () => {
       const createdProject = {
         id: 'new-project-id',
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'trading-partner-new',
+        tradingPartner: {
+          id: 'trading-partner-new',
+          name: '新規取引先',
+          nameKana: 'シンキトリヒキサキ',
+        },
         salesPersonId: 'user-123',
         constructionPersonId: null,
         siteAddress: '東京都新宿区',
@@ -906,6 +1215,7 @@ describe('ProjectService', () => {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
           project: {
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             create: vi.fn().mockResolvedValue(createdProject),
           },
           projectStatusHistory: {
@@ -925,7 +1235,7 @@ describe('ProjectService', () => {
           before: null,
           after: expect.objectContaining({
             name: '新規プロジェクト',
-            customerName: '新規顧客',
+            tradingPartnerId: 'trading-partner-new',
             status: 'PREPARING',
           }),
         })
@@ -1277,6 +1587,7 @@ describe('ProjectService', () => {
         const tx = {
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
             update: vi.fn().mockResolvedValue(updatedProject),
           },
           user: {
@@ -1337,7 +1648,7 @@ describe('ProjectService', () => {
           action: 'PROJECT_DELETED',
           before: expect.objectContaining({
             name: 'テストプロジェクト',
-            customerName: 'テスト顧客',
+            tradingPartnerId: 'trading-partner-123',
             status: 'PREPARING',
           }),
           after: null,
@@ -1356,6 +1667,324 @@ describe('ProjectService', () => {
 
       // Act & Assert
       await expect(service.getRelatedCounts('project-123')).rejects.toThrow(ProjectNotFoundError);
+    });
+  });
+
+  /**
+   * プロジェクト名一意性チェックのテスト
+   *
+   * Requirements:
+   * - 1.15: プロジェクト作成時にプロジェクト名の重複チェックを実行
+   * - 1.16: プロジェクト名の一意性チェックを作成時に実行
+   * - 8.7: プロジェクト更新時に重複プロジェクト名でエラー表示
+   * - 8.8: プロジェクト名の一意性チェックを更新時に実行（自身を除外）
+   */
+  describe('createProject - プロジェクト名一意性チェック (1.15, 1.16)', () => {
+    const validInput: CreateProjectInput = {
+      name: '新規プロジェクト',
+      tradingPartnerId: 'trading-partner-123',
+      salesPersonId: 'user-123',
+    };
+
+    it('同一プロジェクト名が既に存在する場合はDuplicateProjectNameErrorを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const existingProject = {
+        id: 'existing-project-id',
+        name: '新規プロジェクト',
+        deletedAt: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findFirst: vi.fn().mockResolvedValue(existingProject),
+            create: vi.fn(),
+          },
+          projectStatusHistory: {
+            create: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(service.createProject(validInput, actorId)).rejects.toThrow(
+        DuplicateProjectNameError
+      );
+    });
+
+    it('同一プロジェクト名が存在しない場合は正常に作成される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const createdProject = {
+        ...mockProject,
+        name: '新規プロジェクト',
+        salesPerson: mockUser,
+        constructionPerson: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findFirst: vi.fn().mockResolvedValue(null), // 重複なし
+            create: vi.fn().mockResolvedValue(createdProject),
+          },
+          projectStatusHistory: {
+            create: vi.fn().mockResolvedValue({ id: 'history-1' }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.createProject(validInput, actorId);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('新規プロジェクト');
+    });
+
+    it('論理削除されたプロジェクトと同名の場合は正常に作成される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const createdProject = {
+        ...mockProject,
+        name: '新規プロジェクト',
+        salesPerson: mockUser,
+        constructionPerson: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            // findFirstは論理削除されていないプロジェクトのみ検索するため、nullを返す
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue(createdProject),
+          },
+          projectStatusHistory: {
+            create: vi.fn().mockResolvedValue({ id: 'history-1' }),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.createProject(validInput, actorId);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('新規プロジェクト');
+    });
+  });
+
+  describe('updateProject - プロジェクト名一意性チェック (8.7, 8.8)', () => {
+    const expectedUpdatedAt = new Date('2024-01-02');
+
+    it('別のプロジェクトと重複するプロジェクト名に変更しようとした場合はDuplicateProjectNameErrorを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: '既存のプロジェクト名',
+      };
+      const existingProject = {
+        id: 'another-project-id',
+        name: '既存のプロジェクト名',
+        deletedAt: null,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject), // 更新対象のプロジェクト
+            findFirst: vi.fn().mockResolvedValue(existingProject), // 重複チェック：他のプロジェクトが存在
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      await expect(
+        service.updateProject('project-123', updateInput, actorId, expectedUpdatedAt)
+      ).rejects.toThrow(DuplicateProjectNameError);
+    });
+
+    it('同名でも自身のプロジェクトの場合はエラーなしで更新される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: 'テストプロジェクト', // 現在の名前と同じ
+      };
+      const updatedProject = {
+        ...mockProject,
+        name: 'テストプロジェクト',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            // findFirst は呼ばれない（名前が変更されていないため）
+            findFirst: vi.fn(),
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('テストプロジェクト');
+    });
+
+    it('プロジェクト名を変更して重複がない場合は正常に更新される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: '新しいプロジェクト名',
+      };
+      const updatedProject = {
+        ...mockProject,
+        name: '新しいプロジェクト名',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null), // 重複なし
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('新しいプロジェクト名');
+    });
+
+    it('論理削除されたプロジェクトと同名への変更は許可される', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        name: '削除済みプロジェクト名',
+      };
+      const updatedProject = {
+        ...mockProject,
+        name: '削除済みプロジェクト名',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            // findFirst は deletedAt: null の条件で検索するため、論理削除されたプロジェクトは返さない
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('削除済みプロジェクト名');
+    });
+
+    it('名前以外のフィールドのみ更新する場合は重複チェックをスキップする', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput: UpdateProjectInput = {
+        description: '新しい説明文',
+      };
+      const updatedProject = {
+        ...mockProject,
+        description: '新しい説明文',
+        updatedAt: new Date('2024-01-03'),
+      };
+
+      let findFirstCalled = false;
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockImplementation(() => {
+              findFirstCalled = true;
+              return Promise.resolve(null);
+            }),
+            update: vi.fn().mockResolvedValue(updatedProject),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateProject(
+        'project-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.description).toBe('新しい説明文');
+      // 名前が変更されていないので findFirst は呼ばれない
+      expect(findFirstCalled).toBe(false);
     });
   });
 });

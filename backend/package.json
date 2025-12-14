@@ -25,6 +25,7 @@
     "test:perf": "tsx performance/health-check.perf.ts",
     "test:perf:login": "tsx performance/login.perf.ts",
     "test:perf:project": "tsx performance/project-crud.perf.ts",
+    "test:perf:trading-partner": "tsx performance/trading-partner-crud.perf.ts",
     "test:perf:report": "autocannon -c 10 -d 30 http://localhost:3000/health",
     "docs:generate": "tsx src/generate-swagger.ts",
     "lint": "eslint src/**/*.{js,ts} vitest.*.ts performance/**/*.ts scripts/**/*.ts prisma/**/*.ts",

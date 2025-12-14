@@ -113,7 +113,6 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
         const projectName = `アクセシビリティテスト_${Date.now()}`;
         await page.getByLabel(/プロジェクト名/i).fill(projectName);
-        await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
         // 営業担当者を確認・選択
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -170,10 +169,48 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
     test('プロジェクト編集画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // テスト用プロジェクトが存在することを確認
+      // テスト用プロジェクトが存在しない場合は作成
       if (!testProjectId) {
-        test.skip();
-        return;
+        await page.goto('/projects/new');
+        await page.waitForLoadState('networkidle');
+
+        // ユーザー一覧の読み込み完了を待機
+        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+          timeout: getTimeout(15000),
+        });
+
+        const projectName = `アクセシビリティ編集テスト_${Date.now()}`;
+        await page.getByLabel(/プロジェクト名/i).fill(projectName);
+
+        // 営業担当者を確認・選択
+        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+        const salesPersonValue = await salesPersonSelect.inputValue();
+        if (!salesPersonValue) {
+          const options = await salesPersonSelect.locator('option').all();
+          if (options.length > 1 && options[1]) {
+            const firstUserOption = await options[1].getAttribute('value');
+            if (firstUserOption) {
+              await salesPersonSelect.selectOption(firstUserOption);
+            }
+          }
+        }
+
+        const createPromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/projects') &&
+            response.request().method() === 'POST' &&
+            response.status() === 201,
+          { timeout: getTimeout(30000) }
+        );
+
+        await page.getByRole('button', { name: /^作成$/i }).click();
+        await createPromise;
+
+        // URLからプロジェクトIDを取得
+        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
+        const url = page.url();
+        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
+        testProjectId = match?.[1] ?? null;
       }
 
       // 詳細ページに移動して編集ボタンをクリック
@@ -228,10 +265,10 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await projectNameInput.focus();
       await expect(projectNameInput).toBeFocused();
 
-      // Tab: 顧客名フィールドへ
+      // Tab: 取引先コンボボックスへ
       await page.keyboard.press('Tab');
-      const customerNameInput = page.getByLabel(/顧客名/i);
-      await expect(customerNameInput).toBeFocused();
+      const tradingPartnerCombobox = page.locator('[role="combobox"][aria-label="取引先"]');
+      await expect(tradingPartnerCombobox).toBeFocused();
 
       // Tab: 営業担当者セレクトへ
       await page.keyboard.press('Tab');
@@ -307,7 +344,6 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
         const projectName = `Escapeテスト_${Date.now()}`;
         await page.getByLabel(/プロジェクト名/i).fill(projectName);
-        await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
         const salesPersonValue = await salesPersonSelect.inputValue();
@@ -501,7 +537,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
       // 各フィールドのaria-label属性を確認
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible();
-      await expect(page.locator('input[aria-label="顧客名"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();
@@ -526,11 +562,12 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       const projectNameInput = page.locator('input[aria-label="プロジェクト名"]');
       await expect(projectNameInput).toHaveAttribute('aria-required', 'true');
 
-      const customerNameInput = page.locator('input[aria-label="顧客名"]');
-      await expect(customerNameInput).toHaveAttribute('aria-required', 'true');
-
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       await expect(salesPersonSelect).toHaveAttribute('aria-required', 'true');
+
+      // 取引先は任意フィールドなのでaria-required="false"
+      const tradingPartnerSelect = page.locator('[role="combobox"][aria-label="取引先"]');
+      await expect(tradingPartnerSelect).toHaveAttribute('aria-required', 'false');
     });
 
     /**
@@ -609,7 +646,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible({
         timeout: getTimeout(10000),
       });
-      await expect(page.locator('input[aria-label="顧客名"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();

@@ -134,8 +134,9 @@ test.describe('プロジェクト管理 追加要件', () => {
 
     /**
      * @requirement project-management/REQ-13.9
+     * 概要を任意かつ最大5000文字とする
      */
-    test('顧客名に取引先として登録されていない名前を入力できる (project-management/REQ-13.9)', async ({
+    test('概要フィールドが任意かつ最大5000文字である (project-management/REQ-13.9)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -148,40 +149,33 @@ test.describe('プロジェクト管理 追加要件', () => {
         timeout: getTimeout(15000),
       });
 
-      // 取引先として登録されていない顧客名を入力
-      const customerName = `未登録顧客_${Date.now()}`;
-      await page.getByLabel(/プロジェクト名/i).fill('未登録顧客テスト');
-      await page.getByLabel(/顧客名/i).fill(customerName);
+      // 概要フィールドが存在することを確認
+      const descriptionField = page.getByLabel(/概要/i);
+      await expect(descriptionField).toBeVisible();
 
-      // 営業担当者を確認・選択
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      // 概要フィールドが任意であることを確認（必須マークがない）
+      const descriptionLabel = page.locator('label', { hasText: /概要/ });
+      const requiredMark = descriptionLabel.locator('span', { hasText: '*' });
+      await expect(requiredMark).not.toBeVisible();
 
-      // プロジェクト作成
-      const createPromise = page.waitForResponse(
-        (response: Response) =>
-          response.url().includes('/api/projects') && response.request().method() === 'POST',
-        { timeout: getTimeout(30000) }
-      );
+      // 5001文字の文字列を入力して最大文字数バリデーションを確認
+      const overLimitText = 'あ'.repeat(5001);
+      await descriptionField.fill(overLimitText);
+      await descriptionField.blur();
 
-      await page.getByRole('button', { name: /^作成$/i }).click();
+      // バリデーションエラーが表示されることを確認
+      await expect(page.getByText(/概要は5000文字以内で入力してください/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // APIレスポンスを確認
-      const response = await createPromise;
-      expect(response.status()).toBe(201);
+      // 5000文字の文字列に修正
+      const validText = 'あ'.repeat(5000);
+      await descriptionField.fill(validText);
+      await descriptionField.blur();
 
-      // 詳細画面で顧客名が表示されることを確認
-      await expect(page.getByText(customerName, { exact: true })).toBeVisible({
-        timeout: getTimeout(10000),
+      // バリデーションエラーが消えることを確認
+      await expect(page.getByText(/概要は5000文字以内で入力してください/i)).not.toBeVisible({
+        timeout: getTimeout(5000),
       });
     });
 
@@ -203,9 +197,6 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // エラーメッセージが即座に表示されることを確認
       await expect(page.getByText(/プロジェクト名は必須です/i)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-      await expect(page.getByText(/顧客名は必須です/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
@@ -231,7 +222,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       // バックエンドバリデーションエラーを引き起こす入力（例: 超長文）
       const veryLongName = 'あ'.repeat(256);
       await page.getByLabel(/プロジェクト名/i).fill(veryLongName);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -319,7 +309,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`APIテスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -383,7 +372,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`POSTテスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -778,7 +766,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`監査ログテスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -833,7 +820,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`更新テスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('更新テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -905,7 +891,6 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       await page.getByLabel(/プロジェクト名/i).fill(`削除テスト_${Date.now()}`);
-      await page.getByLabel(/顧客名/i).fill('削除テスト顧客');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();

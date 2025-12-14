@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth';
  *
  * ## 機能
  * - プロジェクト管理へのリンク（クイックアクセスセクション先頭）
+ * - 取引先管理へのリンク（プロジェクト管理の次に配置）
  * - プロフィールへのリンク
  * - セッション管理へのリンク
  * - 2FA設定へのリンク
@@ -20,6 +21,10 @@ import { useAuth } from '../hooks/useAuth';
  * - REQ-21.6: プロジェクト管理カードをクリックするとプロジェクト一覧ページに遷移する
  * - REQ-21.7: プロジェクト管理カードには「工事案件の作成・管理」という説明が表示される
  * - REQ-21.8: プロジェクト管理カードはクイックアクセスセクションの先頭に配置される
+ * - REQ-12.5: ダッシュボードのクイックアクセスセクションに「取引先管理」カードを表示する
+ * - REQ-12.6: 取引先管理カードをクリックすると取引先一覧ページ（/trading-partners）に遷移する
+ * - REQ-12.7: 取引先管理カードには「顧客・協力業者の登録・管理」という説明を表示する
+ * - REQ-12.8: 取引先管理カードを「プロジェクト管理」カードの次に配置する
  * - REQ-28.26: ダッシュボード画面は主要機能へのクイックアクセスリンクを提供する
  * - REQ-28.27: プロフィールリンククリック → プロフィール画面遷移
  */
@@ -49,6 +54,16 @@ export function Dashboard(): ReactElement {
           >
             <h3 className="text-lg font-medium text-gray-900">プロジェクト管理</h3>
             <p className="mt-2 text-gray-600">工事案件の作成・管理</p>
+          </Link>
+
+          {/* 取引先管理 - REQ 12.5, 12.6, 12.7, 12.8: プロジェクト管理の次に配置 */}
+          <Link
+            to="/trading-partners"
+            className="block p-6 bg-white rounded-lg shadow hover:shadow-md transition-shadow"
+            data-testid="quick-link-trading-partners"
+          >
+            <h3 className="text-lg font-medium text-gray-900">取引先管理</h3>
+            <p className="mt-2 text-gray-600">顧客・協力業者の登録・管理</p>
           </Link>
 
           {/* プロフィール */}

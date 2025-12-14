@@ -63,7 +63,8 @@ const mockProjects: ProjectInfo[] = [
   {
     id: 'project-1',
     name: 'テストプロジェクト1',
-    customerName: 'テスト顧客1',
+    tradingPartnerId: 'partner-1',
+    tradingPartner: { id: 'partner-1', name: 'テスト顧客1', nameKana: 'テストコキャク1' },
     salesPerson: { id: 'user-1', displayName: 'ユーザー1' },
     status: 'PREPARING',
     statusLabel: '準備中',
@@ -124,7 +125,10 @@ describe('ProjectForm スクリーンリーダー対応', () => {
         'aria-label',
         'プロジェクト名'
       );
-      expect(screen.getByLabelText(/顧客名/)).toHaveAttribute('aria-label', '顧客名');
+      expect(screen.getByRole('combobox', { name: '取引先' })).toHaveAttribute(
+        'aria-label',
+        '取引先'
+      );
       expect(screen.getByLabelText(/営業担当者/)).toHaveAttribute('aria-label', '営業担当者');
       expect(screen.getByLabelText(/工事担当者/)).toHaveAttribute('aria-label', '工事担当者');
       expect(screen.getByLabelText(/現場住所/)).toHaveAttribute('aria-label', '現場住所');
@@ -147,7 +151,6 @@ describe('ProjectForm スクリーンリーダー対応', () => {
 
       // 必須フィールドにaria-required="true"が設定されている
       expect(screen.getByLabelText(/プロジェクト名/)).toHaveAttribute('aria-required', 'true');
-      expect(screen.getByLabelText(/顧客名/)).toHaveAttribute('aria-required', 'true');
       expect(screen.getByLabelText(/営業担当者/)).toHaveAttribute('aria-required', 'true');
     });
   });

@@ -9,6 +9,10 @@ import {
   CreateAuditLogInput,
   AuditLogFilter,
   AuditLogInfo,
+  AuditLogAction,
+  TRADING_PARTNER_AUDIT_ACTIONS,
+  TradingPartnerAuditAction,
+  TRADING_PARTNER_TARGET_TYPE,
 } from '../../../types/audit-log.types.js';
 
 // PrismaClientのモック
@@ -486,6 +490,212 @@ describe('AuditLogService', () => {
       const result = await service.exportLogs();
 
       expect(result).toBe('[]');
+    });
+  });
+
+  describe('取引先監査ログアクション', () => {
+    it('TRADING_PARTNER_CREATEDがAuditLogAction型に含まれること', () => {
+      const action: AuditLogAction = 'TRADING_PARTNER_CREATED';
+      expect(action).toBe('TRADING_PARTNER_CREATED');
+    });
+
+    it('TRADING_PARTNER_UPDATEDがAuditLogAction型に含まれること', () => {
+      const action: AuditLogAction = 'TRADING_PARTNER_UPDATED';
+      expect(action).toBe('TRADING_PARTNER_UPDATED');
+    });
+
+    it('TRADING_PARTNER_DELETEDがAuditLogAction型に含まれること', () => {
+      const action: AuditLogAction = 'TRADING_PARTNER_DELETED';
+      expect(action).toBe('TRADING_PARTNER_DELETED');
+    });
+
+    it('TRADING_PARTNER_AUDIT_ACTIONSに3つのアクションが含まれること', () => {
+      expect(TRADING_PARTNER_AUDIT_ACTIONS).toContain('TRADING_PARTNER_CREATED');
+      expect(TRADING_PARTNER_AUDIT_ACTIONS).toContain('TRADING_PARTNER_UPDATED');
+      expect(TRADING_PARTNER_AUDIT_ACTIONS).toContain('TRADING_PARTNER_DELETED');
+      expect(TRADING_PARTNER_AUDIT_ACTIONS.length).toBe(3);
+    });
+
+    it('TradingPartnerAuditAction型がAuditLogActionのサブセットであること', () => {
+      // 型の互換性テスト（コンパイル時チェック）
+      const created: TradingPartnerAuditAction = 'TRADING_PARTNER_CREATED';
+      const updated: TradingPartnerAuditAction = 'TRADING_PARTNER_UPDATED';
+      const deleted: TradingPartnerAuditAction = 'TRADING_PARTNER_DELETED';
+
+      // TradingPartnerAuditActionはAuditLogActionに代入可能
+      const asAuditLogAction: AuditLogAction = created;
+      expect(asAuditLogAction).toBe('TRADING_PARTNER_CREATED');
+      expect(updated).toBe('TRADING_PARTNER_UPDATED');
+      expect(deleted).toBe('TRADING_PARTNER_DELETED');
+    });
+
+    it('TRADING_PARTNER_TARGET_TYPEが正しい定数であること', () => {
+      expect(TRADING_PARTNER_TARGET_TYPE).toBe('TradingPartner');
+    });
+
+    it('取引先作成の監査ログを記録できること', async () => {
+      const input: CreateAuditLogInput = {
+        action: 'TRADING_PARTNER_CREATED',
+        actorId: 'user-123',
+        targetType: 'TradingPartner',
+        targetId: 'partner-456',
+        before: null,
+        after: {
+          name: '株式会社テスト',
+          nameKana: 'カブシキガイシャテスト',
+          types: ['CUSTOMER'],
+          address: '東京都渋谷区',
+        },
+        metadata: { ip: '127.0.0.1', userAgent: 'Test Browser' },
+      };
+
+      const mockCreatedLog = {
+        id: 'log-tp-1',
+        action: 'TRADING_PARTNER_CREATED',
+        actorId: 'user-123',
+        targetType: 'TradingPartner',
+        targetId: 'partner-456',
+        before: null,
+        after: {
+          name: '株式会社テスト',
+          nameKana: 'カブシキガイシャテスト',
+          types: ['CUSTOMER'],
+          address: '東京都渋谷区',
+        },
+        metadata: { ip: '127.0.0.1', userAgent: 'Test Browser' },
+        createdAt: new Date('2025-12-10T00:00:00Z'),
+      };
+
+      (mockPrisma.auditLog.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockCreatedLog);
+
+      const result = await service.createLog(input);
+
+      expect(result.action).toBe('TRADING_PARTNER_CREATED');
+      expect(result.targetType).toBe('TradingPartner');
+    });
+
+    it('取引先更新の監査ログを記録できること', async () => {
+      const input: CreateAuditLogInput = {
+        action: 'TRADING_PARTNER_UPDATED',
+        actorId: 'user-123',
+        targetType: 'TradingPartner',
+        targetId: 'partner-456',
+        before: {
+          name: '株式会社テスト',
+          phoneNumber: null,
+        },
+        after: {
+          name: '株式会社テスト',
+          phoneNumber: '03-1234-5678',
+        },
+        metadata: { ip: '127.0.0.1' },
+      };
+
+      const mockCreatedLog = {
+        id: 'log-tp-2',
+        action: 'TRADING_PARTNER_UPDATED',
+        actorId: 'user-123',
+        targetType: 'TradingPartner',
+        targetId: 'partner-456',
+        before: {
+          name: '株式会社テスト',
+          phoneNumber: null,
+        },
+        after: {
+          name: '株式会社テスト',
+          phoneNumber: '03-1234-5678',
+        },
+        metadata: { ip: '127.0.0.1' },
+        createdAt: new Date('2025-12-10T01:00:00Z'),
+      };
+
+      (mockPrisma.auditLog.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockCreatedLog);
+
+      const result = await service.createLog(input);
+
+      expect(result.action).toBe('TRADING_PARTNER_UPDATED');
+      expect(result.before).toEqual({ name: '株式会社テスト', phoneNumber: null });
+      expect(result.after).toEqual({ name: '株式会社テスト', phoneNumber: '03-1234-5678' });
+    });
+
+    it('取引先削除の監査ログを記録できること', async () => {
+      const input: CreateAuditLogInput = {
+        action: 'TRADING_PARTNER_DELETED',
+        actorId: 'user-123',
+        targetType: 'TradingPartner',
+        targetId: 'partner-456',
+        before: {
+          name: '株式会社テスト',
+          nameKana: 'カブシキガイシャテスト',
+        },
+        after: null,
+        metadata: { ip: '127.0.0.1' },
+      };
+
+      const mockCreatedLog = {
+        id: 'log-tp-3',
+        action: 'TRADING_PARTNER_DELETED',
+        actorId: 'user-123',
+        targetType: 'TradingPartner',
+        targetId: 'partner-456',
+        before: {
+          name: '株式会社テスト',
+          nameKana: 'カブシキガイシャテスト',
+        },
+        after: null,
+        metadata: { ip: '127.0.0.1' },
+        createdAt: new Date('2025-12-10T02:00:00Z'),
+      };
+
+      (mockPrisma.auditLog.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockCreatedLog);
+
+      const result = await service.createLog(input);
+
+      expect(result.action).toBe('TRADING_PARTNER_DELETED');
+      expect(result.before).toEqual({
+        name: '株式会社テスト',
+        nameKana: 'カブシキガイシャテスト',
+      });
+      expect(result.after).toBeNull();
+    });
+
+    it('取引先アクションでフィルタリングできること', async () => {
+      const filter: AuditLogFilter = { action: 'TRADING_PARTNER_CREATED' };
+      const mockLogs: AuditLogInfo[] = [
+        {
+          id: 'log-tp-1',
+          action: 'TRADING_PARTNER_CREATED',
+          actorId: 'user-123',
+          targetType: 'TradingPartner',
+          targetId: 'partner-456',
+          before: null,
+          after: { name: '株式会社テスト' },
+          metadata: null,
+          createdAt: new Date('2025-12-10T00:00:00Z'),
+        },
+      ];
+
+      (mockPrisma.auditLog.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(mockLogs);
+
+      const result = await service.getLogs(filter);
+
+      expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith({
+        where: { action: 'TRADING_PARTNER_CREATED' },
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+          before: true,
+          after: true,
+          metadata: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]?.action).toBe('TRADING_PARTNER_CREATED');
     });
   });
 });

@@ -28,11 +28,14 @@ cd ArchiTrack
 ```
 
 **このスクリプトが行うこと:**
-- Git Hooksの設定
-- JWT鍵・2FA暗号化キーの生成
-- 開発環境用の `.env.dev` ファイル作成
-- テスト環境用の `.env.test` ファイル作成
-- 各ディレクトリの `.env` ファイル作成
+- Backend用の `.env` ファイル作成（`.env.example` からコピー）
+- JWT鍵（Ed25519）の自動生成
+- 2FA暗号化キーの自動生成
+- 環境変数の検証
+
+**注意:**
+- `.env.dev` と `.env.test` はリポジトリに含まれており、スクリプトによる作成は不要です
+- Git Hooksは `git config core.hooksPath .husky` で手動で有効化してください
 
 ---
 

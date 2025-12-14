@@ -4,14 +4,16 @@
  * プロジェクトのCRUD操作とビジネスロジックを担当します。
  *
  * Requirements:
- * - 1.7, 1.8, 1.14, 1.15: プロジェクト作成（初期ステータス履歴含む）
+ * - 1.7, 1.8, 1.14: プロジェクト作成（初期ステータス履歴含む）
+ * - 1.15, 1.16: プロジェクト名の一意性チェック（作成時）
  * - 2.1, 2.2, 2.6: プロジェクト一覧表示
  * - 3.1, 3.2, 3.3, 3.4, 3.5: ページネーション
- * - 4.1: 検索（プロジェクト名・顧客名の部分一致）
+ * - 4.1, 4.1a, 4.1b: 検索（プロジェクト名・顧客名・営業担当者・工事担当者の部分一致）
  * - 5.1, 5.2, 5.3, 5.4: フィルタリング（ステータス、作成日範囲）
  * - 6.1, 6.2, 6.5: ソート
  * - 7.1: プロジェクト詳細取得
  * - 8.2, 8.3, 8.6: プロジェクト更新（楽観的排他制御）
+ * - 8.7, 8.8: プロジェクト名の一意性チェック（更新時、自身を除外）
  * - 9.2, 9.6: プロジェクト論理削除
  * - 11.5, 11.6: 関連データ件数取得（機能フラグ対応）
  * - 12.4, 12.6: 監査ログ連携（PROJECT_CREATED, PROJECT_UPDATED, PROJECT_DELETED）
@@ -34,6 +36,7 @@ import {
   ProjectNotFoundError,
   ProjectValidationError,
   ProjectConflictError,
+  DuplicateProjectNameError,
 } from '../errors/projectError.js';
 
 /**
@@ -53,12 +56,22 @@ export interface UserSummary {
 }
 
 /**
+ * 取引先情報（表示用）
+ */
+export interface TradingPartnerSummary {
+  id: string;
+  name: string;
+  nameKana: string;
+}
+
+/**
  * プロジェクト情報（一覧・作成・更新用）
  */
 export interface ProjectInfo {
   id: string;
   name: string;
-  customerName: string;
+  tradingPartnerId: string | null;
+  tradingPartner: TradingPartnerSummary | null;
   salesPerson: UserSummary;
   constructionPerson?: UserSummary;
   siteAddress?: string;
@@ -85,6 +98,7 @@ export interface ProjectFilter {
   status?: ProjectStatus[];
   createdFrom?: string;
   createdTo?: string;
+  tradingPartnerId?: string;
 }
 
 /**
@@ -155,30 +169,35 @@ export class ProjectService {
    * プロジェクト作成
    *
    * トランザクション内で以下を実行:
-   * 1. 担当者IDのバリデーション（admin以外の有効ユーザー確認）
-   * 2. プロジェクト作成
-   * 3. 初期ステータス履歴の記録（transitionType='initial'）
-   * 4. 監査ログの記録
+   * 1. プロジェクト名の一意性チェック (Requirements: 1.15, 1.16)
+   * 2. 担当者IDのバリデーション（admin以外の有効ユーザー確認）
+   * 3. プロジェクト作成
+   * 4. 初期ステータス履歴の記録（transitionType='initial'）
+   * 5. 監査ログの記録
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
    * @returns 作成されたプロジェクト情報
+   * @throws DuplicateProjectNameError プロジェクト名が重複する場合
    * @throws ProjectValidationError 担当者IDが無効な場合
    */
   async createProject(input: CreateProjectInput, actorId: string): Promise<ProjectInfo> {
     return await this.prisma.$transaction(async (tx) => {
-      // 1. 担当者IDのバリデーション
+      // 1. プロジェクト名の一意性チェック (Requirements: 1.15, 1.16)
+      await this.checkProjectNameUniqueness(tx, input.name);
+
+      // 2. 担当者IDのバリデーション
       await this.validateAssignableUser(tx, input.salesPersonId, 'salesPersonId');
 
       if (input.constructionPersonId) {
         await this.validateAssignableUser(tx, input.constructionPersonId, 'constructionPersonId');
       }
 
-      // 2. プロジェクト作成
+      // 3. プロジェクト作成
       const project = await tx.project.create({
         data: {
           name: input.name,
-          customerName: input.customerName,
+          tradingPartnerId: input.tradingPartnerId || null,
           salesPersonId: input.salesPersonId,
           constructionPersonId: input.constructionPersonId || null,
           siteAddress: input.siteAddress || null,
@@ -187,6 +206,13 @@ export class ProjectService {
           createdById: actorId,
         },
         include: {
+          tradingPartner: {
+            select: {
+              id: true,
+              name: true,
+              nameKana: true,
+            },
+          },
           salesPerson: {
             select: {
               id: true,
@@ -208,7 +234,7 @@ export class ProjectService {
         },
       });
 
-      // 3. 初期ステータス履歴の記録
+      // 4. 初期ステータス履歴の記録
       await tx.projectStatusHistory.create({
         data: {
           projectId: project.id,
@@ -220,7 +246,7 @@ export class ProjectService {
         },
       });
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'PROJECT_CREATED',
         actorId,
@@ -229,7 +255,7 @@ export class ProjectService {
         before: null,
         after: {
           name: project.name,
-          customerName: project.customerName,
+          tradingPartnerId: project.tradingPartnerId,
           salesPersonId: project.salesPersonId,
           constructionPersonId: project.constructionPersonId,
           siteAddress: project.siteAddress,
@@ -263,11 +289,19 @@ export class ProjectService {
       deletedAt: null,
     };
 
-    // 検索キーワード（プロジェクト名・顧客名の部分一致）
+    // 検索キーワード（プロジェクト名・取引先名・営業担当者・工事担当者の部分一致）
+    // Requirements: 4.1a, 4.1b - 検索対象に営業担当者・工事担当者を追加
     if (filter.search) {
       where.OR = [
         { name: { contains: filter.search, mode: 'insensitive' as const } },
-        { customerName: { contains: filter.search, mode: 'insensitive' as const } },
+        { tradingPartner: { name: { contains: filter.search, mode: 'insensitive' as const } } },
+        { tradingPartner: { nameKana: { contains: filter.search, mode: 'insensitive' as const } } },
+        { salesPerson: { displayName: { contains: filter.search, mode: 'insensitive' as const } } },
+        {
+          constructionPerson: {
+            displayName: { contains: filter.search, mode: 'insensitive' as const },
+          },
+        },
       ];
     }
 
@@ -287,6 +321,11 @@ export class ProjectService {
       }
     }
 
+    // 取引先IDフィルター
+    if (filter.tradingPartnerId) {
+      where.tradingPartnerId = filter.tradingPartnerId;
+    }
+
     // 総件数取得
     const total = await this.prisma.project.count({ where });
 
@@ -294,6 +333,13 @@ export class ProjectService {
     const projects = await this.prisma.project.findMany({
       where,
       include: {
+        tradingPartner: {
+          select: {
+            id: true,
+            name: true,
+            nameKana: true,
+          },
+        },
         salesPerson: {
           select: {
             id: true,
@@ -307,7 +353,7 @@ export class ProjectService {
           },
         },
       },
-      orderBy: { [sort.sort]: sort.order },
+      orderBy: this.buildOrderBy(sort),
       skip: (pagination.page - 1) * pagination.limit,
       take: pagination.limit,
     });
@@ -334,6 +380,13 @@ export class ProjectService {
     const project = await this.prisma.project.findUnique({
       where: { id },
       include: {
+        tradingPartner: {
+          select: {
+            id: true,
+            name: true,
+            nameKana: true,
+          },
+        },
         salesPerson: {
           select: {
             id: true,
@@ -370,9 +423,10 @@ export class ProjectService {
    *
    * トランザクション内で以下を実行:
    * 1. プロジェクトの存在確認・楽観的排他制御
-   * 2. 担当者IDのバリデーション（更新対象の場合のみ）
-   * 3. プロジェクト更新
-   * 4. 監査ログの記録
+   * 2. プロジェクト名の一意性チェック（名前変更時のみ）(Requirements: 8.7, 8.8)
+   * 3. 担当者IDのバリデーション（更新対象の場合のみ）
+   * 4. プロジェクト更新
+   * 5. 監査ログの記録
    *
    * @param id - プロジェクトID
    * @param input - 更新入力
@@ -381,6 +435,7 @@ export class ProjectService {
    * @returns 更新されたプロジェクト情報
    * @throws ProjectNotFoundError プロジェクトが存在しない場合
    * @throws ProjectConflictError 楽観的排他制御エラー
+   * @throws DuplicateProjectNameError プロジェクト名が重複する場合
    * @throws ProjectValidationError 担当者IDが無効な場合
    */
   async updateProject(
@@ -394,6 +449,13 @@ export class ProjectService {
       const project = await tx.project.findUnique({
         where: { id },
         include: {
+          tradingPartner: {
+            select: {
+              id: true,
+              name: true,
+              nameKana: true,
+            },
+          },
           salesPerson: {
             select: {
               id: true,
@@ -424,7 +486,12 @@ export class ProjectService {
         );
       }
 
-      // 2. 担当者IDのバリデーション（更新対象の場合のみ）
+      // 2. プロジェクト名の一意性チェック（名前が変更される場合のみ）(Requirements: 8.7, 8.8)
+      if (input.name !== undefined && input.name !== project.name) {
+        await this.checkProjectNameUniqueness(tx, input.name, id);
+      }
+
+      // 3. 担当者IDのバリデーション（更新対象の場合のみ）
       if (input.salesPersonId) {
         await this.validateAssignableUser(tx, input.salesPersonId, 'salesPersonId');
       }
@@ -433,14 +500,18 @@ export class ProjectService {
         await this.validateAssignableUser(tx, input.constructionPersonId, 'constructionPersonId');
       }
 
-      // 3. プロジェクト更新
+      // 4. プロジェクト更新
       const updateData: Prisma.ProjectUpdateInput = {};
 
       if (input.name !== undefined) {
         updateData.name = input.name;
       }
-      if (input.customerName !== undefined) {
-        updateData.customerName = input.customerName;
+      if (input.tradingPartnerId !== undefined) {
+        if (input.tradingPartnerId === null) {
+          updateData.tradingPartner = { disconnect: true };
+        } else {
+          updateData.tradingPartner = { connect: { id: input.tradingPartnerId } };
+        }
       }
       if (input.salesPersonId !== undefined) {
         updateData.salesPerson = { connect: { id: input.salesPersonId } };
@@ -463,6 +534,13 @@ export class ProjectService {
         where: { id },
         data: updateData,
         include: {
+          tradingPartner: {
+            select: {
+              id: true,
+              name: true,
+              nameKana: true,
+            },
+          },
           salesPerson: {
             select: {
               id: true,
@@ -478,7 +556,7 @@ export class ProjectService {
         },
       });
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'PROJECT_UPDATED',
         actorId,
@@ -486,7 +564,7 @@ export class ProjectService {
         targetId: id,
         before: {
           name: project.name,
-          customerName: project.customerName,
+          tradingPartnerId: project.tradingPartnerId,
           salesPersonId: project.salesPersonId,
           constructionPersonId: project.constructionPersonId,
           siteAddress: project.siteAddress,
@@ -494,7 +572,7 @@ export class ProjectService {
         },
         after: {
           name: updatedProject.name,
-          customerName: updatedProject.customerName,
+          tradingPartnerId: updatedProject.tradingPartnerId,
           salesPersonId: updatedProject.salesPersonId,
           constructionPersonId: updatedProject.constructionPersonId,
           siteAddress: updatedProject.siteAddress,
@@ -523,7 +601,7 @@ export class ProjectService {
         select: {
           id: true,
           name: true,
-          customerName: true,
+          tradingPartnerId: true,
           status: true,
           deletedAt: true,
         },
@@ -547,7 +625,7 @@ export class ProjectService {
         targetId: id,
         before: {
           name: project.name,
-          customerName: project.customerName,
+          tradingPartnerId: project.tradingPartnerId,
           status: project.status,
         },
         after: null,
@@ -635,12 +713,77 @@ export class ProjectService {
   }
 
   /**
+   * ソートフィールドに基づいてPrisma orderByオブジェクトを構築
+   *
+   * リレーションフィールドへのエイリアスを解決:
+   * - customerName -> tradingPartner.name
+   * - salesPersonName -> salesPerson.displayName
+   * - constructionPersonName -> constructionPerson.displayName
+   *
+   * Requirements:
+   * - 6.5: ソート可能フィールドに営業担当者・工事担当者を追加
+   * - Task 21.5: buildOrderByメソッドにリレーションソートケースを追加
+   *
+   * @param sort - ソート入力（フィールドとオーダー）
+   * @returns Prisma orderByオブジェクト
+   */
+  private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
+    const { sort: field, order } = sort;
+
+    switch (field) {
+      case 'customerName':
+        return { tradingPartner: { name: order } };
+      case 'salesPersonName':
+        return { salesPerson: { displayName: order } };
+      case 'constructionPersonName':
+        return { constructionPerson: { displayName: order } };
+      default:
+        return { [field]: order };
+    }
+  }
+
+  /**
+   * プロジェクト名の一意性チェック
+   *
+   * 論理削除されていないプロジェクトの中に同名のプロジェクトが存在しないことを確認する。
+   * 更新時は自身のプロジェクトを除外してチェックする。
+   *
+   * Requirements:
+   * - 1.15, 1.16: プロジェクト作成時にプロジェクト名の重複チェックを実行
+   * - 8.7, 8.8: プロジェクト更新時にプロジェクト名の重複チェックを実行（自身を除外）
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param name - チェックするプロジェクト名
+   * @param excludeId - 除外するプロジェクトID（更新時に自身を除外）
+   * @throws DuplicateProjectNameError 同名のプロジェクトが存在する場合
+   */
+  private async checkProjectNameUniqueness(
+    tx: PrismaTransactionClient,
+    name: string,
+    excludeId?: string
+  ): Promise<void> {
+    const existingProject = await tx.project.findFirst({
+      where: {
+        name: name,
+        deletedAt: null,
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+
+    if (existingProject) {
+      throw new DuplicateProjectNameError(name);
+    }
+  }
+
+  /**
    * データベースの結果をProjectInfoに変換
    */
   private toProjectInfo(project: {
     id: string;
     name: string;
-    customerName: string;
+    tradingPartnerId: string | null;
+    tradingPartner: { id: string; name: string; nameKana: string } | null;
     salesPersonId: string;
     constructionPersonId: string | null;
     siteAddress: string | null;
@@ -655,7 +798,14 @@ export class ProjectService {
     const result: ProjectInfo = {
       id: project.id,
       name: project.name,
-      customerName: project.customerName,
+      tradingPartnerId: project.tradingPartnerId,
+      tradingPartner: project.tradingPartner
+        ? {
+            id: project.tradingPartner.id,
+            name: project.tradingPartner.name,
+            nameKana: project.tradingPartner.nameKana,
+          }
+        : null,
       salesPerson: {
         id: project.salesPerson.id,
         displayName: project.salesPerson.displayName,
@@ -691,7 +841,8 @@ export class ProjectService {
   private toProjectDetail(project: {
     id: string;
     name: string;
-    customerName: string;
+    tradingPartnerId: string | null;
+    tradingPartner: { id: string; name: string; nameKana: string } | null;
     salesPersonId: string;
     constructionPersonId: string | null;
     siteAddress: string | null;

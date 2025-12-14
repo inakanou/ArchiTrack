@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-09（Steering Sync: users.routes.ts追加確認）_
+_最終更新: 2025-12-14（Steering Sync: テストケース数・サービス数の整合性確認）_
 
 ## アーキテクチャ
 
@@ -25,7 +25,7 @@ ArchiTrack/
 
 - **言語**: TypeScript 5.9.3
 - **フレームワーク**: React 19.2.0
-- **ビルドツール**: Vite 7.2.6
+- **ビルドツール**: Vite 7.2.7
 - **開発サーバー**: Vite Dev Server
 - **Webサーバー（本番）**: nginx
 - **パッケージマネージャ**: npm
@@ -36,8 +36,8 @@ ArchiTrack/
 - `react-dom` ^19.2.0 - React DOM操作
 - `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
-- `@types/react` ^19.2.6 - React型定義
-- `@types/react-dom` ^19.2.2 - React DOM型定義
+- `@types/react` ^19.2.7 - React型定義
+- `@types/react-dom` ^19.2.3 - React DOM型定義
 - `@vitejs/plugin-react` ^5.1.1 - Vite React プラグイン
 - `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.47.0 - TypeScript ESLintパーサー
@@ -47,20 +47,20 @@ ArchiTrack/
 - `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
 - `tailwindcss` ^4.1.17 - ユーティリティファーストCSSフレームワーク
 - `@tailwindcss/postcss` ^4.1.17 - Tailwind CSS PostCSSプラグイン
-- `vitest` ^4.0.14 - 単体テストフレームワーク
-- `@vitest/ui` ^4.0.14 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.14 - Vitestカバレッジ（V8プロバイダー）
-- `@vitest/coverage-istanbul` ^4.0.14 - Vitestカバレッジ（Istanbulプロバイダー）
+- `vitest` ^4.0.15 - 単体テストフレームワーク
+- `@vitest/ui` ^4.0.15 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.0.15 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-istanbul` ^4.0.15 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
 - `jsdom` ^27.2.0 - ブラウザ環境シミュレーション
-- `@sentry/react` ^10.22.0 - Sentryエラートラッキング（Frontend）
+- `@sentry/react` ^10.27.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
-- `storybook` ^10.1.3 - コンポーネントドキュメント・開発環境（Storybook 10.x）
+- `storybook` ^10.1.5 - コンポーネントドキュメント・開発環境（Storybook 10.x）
 - `@storybook/react` ^10.0.8 - Storybook React統合（10.x系）
-- `@storybook/react-vite` ^10.1.3 - Storybook React + Vite統合（10.x系）
-- `@storybook/test-runner` ^0.24.1 - Storybookインタラクションテスト
+- `@storybook/react-vite` ^10.1.5 - Storybook React + Vite統合（10.x系）
+- `@storybook/test-runner` ^0.24.2 - Storybookインタラクションテスト
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
 ### 設定ファイル
@@ -143,15 +143,15 @@ ArchiTrack/
 - `@types/pg` ^8.15.6 - PostgreSQL型定義
 - `@types/swagger-jsdoc` ^6.0.4 - swagger-jsdoc型定義
 - `@types/swagger-ui-express` ^4.1.8 - swagger-ui-express型定義
-- `@typescript-eslint/eslint-plugin` ^8.46.2 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.47.0 - TypeScript ESLintパーサー
+- `@typescript-eslint/eslint-plugin` ^8.49.0 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.49.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `prettier` ^3.6.2 - コードフォーマッター
 - `husky` ^9.1.7 - Git フックマネージャー
-- `lint-staged` ^16.2.6 - ステージングファイルへのリンター実行
+- `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.8 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.10 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-v8` ^4.0.15 - Vitestカバレッジ（V8プロバイダー）
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
@@ -268,7 +268,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 1011+テストケース（単体）+ 68テスト（統合）
+**テスト合計:** 1800+テストケース（単体）+ 70+テスト（統合）
 
 **実行方法:**
 ```bash
@@ -294,12 +294,12 @@ npm --prefix backend run test:unit:coverage  # ユニットテストカバレッ
 ### Frontend単体テスト
 
 **主要な依存関係:**
-- `vitest` ^4.0.6 - テストランナー
+- `vitest` ^4.0.15 - テストランナー
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
-- `jsdom` ^27.1.0 - ブラウザ環境エミュレーション
-- `@vitest/ui` ^4.0.6 - 対話的UIツール
+- `jsdom` ^27.2.0 - ブラウザ環境エミュレーション
+- `@vitest/ui` ^4.0.15 - 対話的UIツール
 
 **設定ファイル:**
 - `frontend/vitest.config.ts` - jsdom環境、React プラグイン設定
@@ -324,7 +324,7 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 667+テストケース（包括的なユニットテスト群）
+- 合計: 700+テストケース（包括的なユニットテスト群、83テストファイル）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
@@ -357,9 +357,9 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/node` ^24.10.1 - Node.js型定義
 - `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.46.4 - TypeScript ESLintパーサー
-- `@prisma/client` ^6.19.0 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
-- `prisma` ^6.19.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
+- `@typescript-eslint/parser` ^8.48.1 - TypeScript ESLintパーサー
+- `@prisma/client` ^7.0.1 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
+- `prisma` ^7.1.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
 - `cross-env` ^10.1.0 - クロスプラットフォーム環境変数設定
 - Chromium - Playwright経由で自動インストール
 
@@ -376,7 +376,11 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - `e2e/specs/ui/` - UIコンポーネントとページのテスト
 - `e2e/specs/integration/` - システム統合テスト
 - `e2e/specs/auth/` - 認証フローテスト（ログイン、登録、2FA、パスワードリセット、招待）
-- `e2e/specs/performance/` - パフォーマンステスト（ページロード時間）
+- `e2e/specs/admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
+- `e2e/specs/security/` - セキュリティテスト（CSRF、XSS対策等）
+- `e2e/specs/navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
+- `e2e/specs/projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作等）
+- `e2e/specs/performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作）
 - `e2e/helpers/` - テストヘルパー・ユーティリティ
   - `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
   - `auth-actions.ts` - 認証アクション（ログイン、ログアウト、2FA）
@@ -592,9 +596,9 @@ npm run dev:docker:build     # 再ビルドして起動
 npm run dev:docker:down      # 停止
 npm run dev:docker:logs      # ログ確認
 
-# 直接コマンドを使用する場合
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
-docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev down
+# 直接コマンドを使用する場合（-p オプションでプロジェクト名を指定）
+docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up
+docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev down
 ```
 
 #### テスト環境（自動テスト用）
@@ -611,9 +615,9 @@ npm run test:e2e             # テスト実行
 npm run test:e2e:headed      # ブラウザ表示モード
 npm run test:e2e:ui          # UIモード
 
-# 直接コマンドを使用する場合
-docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
-docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down -v
+# 直接コマンドを使用する場合（-p オプションでプロジェクト名を指定）
+docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d
+docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down -v
 ```
 
 #### 同時実行（開発＋テスト）
@@ -761,11 +765,14 @@ npm --prefix frontend run build-storybook
 ### バックエンド開発ツール
 
 ```bash
-# Swagger仕様生成
-npm --prefix backend run swagger:generate
+# OpenAPI仕様生成
+npm --prefix backend run docs:generate
 
 # パフォーマンステスト実行
-npm --prefix backend run perf:health
+npm --prefix backend run test:perf             # ヘルスチェック
+npm --prefix backend run test:perf:login       # ログイン
+npm --prefix backend run test:perf:project     # プロジェクトCRUD
+npm --prefix backend run test:perf:trading-partner  # 取引先CRUD
 ```
 
 ### Kiroスラッシュコマンド

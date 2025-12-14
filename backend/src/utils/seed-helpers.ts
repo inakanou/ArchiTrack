@@ -5,6 +5,13 @@
  * - REQ-3.1-3.5: 初期管理者アカウントのセットアップ
  * - REQ-17: 動的ロール管理（事前定義ロール）
  * - REQ-18: 権限管理（事前定義権限）
+ *
+ * Requirements (project-management):
+ * - REQ-12.5: プロジェクト権限の定義
+ *
+ * Requirements (trading-partner-management):
+ * - REQ-7.5: 取引先管理権限の定義
+ *   - trading-partner:create, trading-partner:read, trading-partner:update, trading-partner:delete
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -226,22 +233,40 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: 'プロジェクトの削除',
     },
+
+    // 取引先関連権限（trading-partner-management/REQ-7.5）
+    {
+      resource: 'trading-partner',
+      action: 'create',
+      description: '取引先の作成',
+    },
+    {
+      resource: 'trading-partner',
+      action: 'read',
+      description: '取引先の閲覧',
+    },
+    {
+      resource: 'trading-partner',
+      action: 'update',
+      description: '取引先の更新',
+    },
+    {
+      resource: 'trading-partner',
+      action: 'delete',
+      description: '取引先の削除',
+    },
   ];
 
-  for (const permission of permissions) {
-    await prisma.permission.upsert({
-      where: {
-        resource_action: {
-          resource: permission.resource,
-          action: permission.action,
-        },
-      },
-      update: {},
-      create: permission,
-    });
-  }
+  // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
+  // PostgreSQLのON CONFLICT DO NOTHINGを使用するため、重複時はスキップされる
+  const result = await prisma.permission.createMany({
+    data: permissions,
+    skipDuplicates: true,
+  });
 
-  logger.info(`${permissions.length} permissions seeded successfully`);
+  logger.info(
+    `${result.count} permissions seeded successfully (${permissions.length - result.count} already existed)`
+  );
 }
 
 /**
@@ -304,6 +329,11 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'project', action: 'create' },
     { resource: 'project', action: 'read' },
     { resource: 'project', action: 'update' },
+    // 取引先関連権限（trading-partner-management/REQ-7.5）
+    // 一般ユーザーは取引先の作成・閲覧・更新が可能（削除は管理者のみ）
+    { resource: 'trading-partner', action: 'create' },
+    { resource: 'trading-partner', action: 'read' },
+    { resource: 'trading-partner', action: 'update' },
   ];
 
   for (const { resource, action } of basicPermissions) {

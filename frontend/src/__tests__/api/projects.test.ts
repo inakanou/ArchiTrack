@@ -26,16 +26,17 @@ import {
   getStatusHistory,
   getAssignableUsers,
 } from '../../api/projects';
-import type {
-  PaginatedProjects,
-  ProjectDetail,
-  ProjectInfo,
-  StatusHistoryResponse,
-  AssignableUser,
-  CreateProjectInput,
-  UpdateProjectInput,
-  ProjectFilter,
-  StatusChangeInput,
+import {
+  isDuplicateProjectNameErrorResponse,
+  type PaginatedProjects,
+  type ProjectDetail,
+  type ProjectInfo,
+  type StatusHistoryResponse,
+  type AssignableUser,
+  type CreateProjectInput,
+  type UpdateProjectInput,
+  type ProjectFilter,
+  type StatusChangeInput,
 } from '../../types/project.types';
 
 // モック設定
@@ -71,7 +72,8 @@ describe('projects API client', () => {
         {
           id: 'project-1',
           name: 'テストプロジェクト1',
-          customerName: 'テスト顧客1',
+          tradingPartnerId: 'partner-1',
+          tradingPartner: { id: 'partner-1', name: 'テスト顧客1', nameKana: 'テストコキャク1' },
           salesPerson: { id: 'user-1', displayName: '営業太郎' },
           constructionPerson: { id: 'user-2', displayName: '工事花子' },
           status: 'PREPARING',
@@ -213,7 +215,8 @@ describe('projects API client', () => {
     const mockProjectDetail: ProjectDetail = {
       id: 'project-1',
       name: 'テストプロジェクト1',
-      customerName: 'テスト顧客1',
+      tradingPartnerId: 'partner-1',
+      tradingPartner: { id: 'partner-1', name: 'テスト顧客1', nameKana: 'テストコキャク1' },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       constructionPerson: { id: 'user-2', displayName: '工事花子' },
       siteAddress: '東京都千代田区1-1-1',
@@ -254,7 +257,8 @@ describe('projects API client', () => {
     const mockProjectInfo: ProjectInfo = {
       id: 'project-new',
       name: '新規プロジェクト',
-      customerName: '新規顧客',
+      tradingPartnerId: 'partner-new',
+      tradingPartner: { id: 'partner-new', name: '新規顧客', nameKana: 'シンキコキャク' },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       status: 'PREPARING',
       statusLabel: '準備中',
@@ -267,7 +271,7 @@ describe('projects API client', () => {
 
       const input: CreateProjectInput = {
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'partner-new',
         salesPersonId: 'user-1',
       };
       const result = await createProject(input);
@@ -281,7 +285,7 @@ describe('projects API client', () => {
 
       const input: CreateProjectInput = {
         name: '新規プロジェクト',
-        customerName: '新規顧客',
+        tradingPartnerId: 'partner-new',
         salesPersonId: 'user-1',
         constructionPersonId: 'user-2',
         siteAddress: '東京都千代田区1-1-1',
@@ -299,7 +303,6 @@ describe('projects API client', () => {
 
       const input: CreateProjectInput = {
         name: '',
-        customerName: '顧客名',
         salesPersonId: 'user-1',
       };
 
@@ -320,7 +323,12 @@ describe('projects API client', () => {
     const mockProjectInfo: ProjectInfo = {
       id: 'project-1',
       name: '更新されたプロジェクト',
-      customerName: '更新された顧客',
+      tradingPartnerId: 'partner-updated',
+      tradingPartner: {
+        id: 'partner-updated',
+        name: '更新された顧客',
+        nameKana: 'コウシンサレタコキャク',
+      },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       status: 'PREPARING',
       statusLabel: '準備中',
@@ -349,7 +357,7 @@ describe('projects API client', () => {
 
       const input: UpdateProjectInput = {
         name: '更新されたプロジェクト',
-        customerName: '更新された顧客',
+        tradingPartnerId: 'partner-updated',
         siteAddress: '新しい住所',
       };
       const expectedUpdatedAt = '2025-01-02T00:00:00.000Z';
@@ -428,7 +436,8 @@ describe('projects API client', () => {
     const mockProjectInfo: ProjectInfo = {
       id: 'project-1',
       name: 'テストプロジェクト',
-      customerName: 'テスト顧客',
+      tradingPartnerId: 'partner-1',
+      tradingPartner: { id: 'partner-1', name: 'テスト顧客', nameKana: 'テストコキャク' },
       salesPerson: { id: 'user-1', displayName: '営業太郎' },
       status: 'SURVEYING',
       statusLabel: '調査中',
@@ -587,6 +596,116 @@ describe('projects API client', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(401);
+      }
+    });
+  });
+
+  // ==========================================================================
+  // 409エラーハンドリング（プロジェクト名重複）
+  // Task 22.4: プロジェクトAPIクライアントに409エラーハンドリング追加
+  // Requirements: 1.15, 8.7
+  // ==========================================================================
+  describe('プロジェクト名重複エラー（409）', () => {
+    it('createProjectでプロジェクト名重複エラー（409）を識別できること', async () => {
+      const duplicateErrorResponse = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: 既存プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '既存プロジェクト',
+      };
+      const mockError = new ApiError(409, duplicateErrorResponse.detail, duplicateErrorResponse);
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      const input: CreateProjectInput = {
+        name: '既存プロジェクト',
+        salesPersonId: 'user-1',
+      };
+
+      try {
+        await createProject(input);
+        expect.fail('エラーがスローされるべきです');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        const apiError = error as ApiError;
+        expect(apiError.statusCode).toBe(409);
+        expect(apiError.message).toBe('このプロジェクト名は既に使用されています: 既存プロジェクト');
+        expect(apiError.response).toBeDefined();
+        // 型ガードを使用してresponseの内容を検証
+        expect(isDuplicateProjectNameErrorResponse(apiError.response)).toBe(true);
+        if (isDuplicateProjectNameErrorResponse(apiError.response)) {
+          expect(apiError.response.code).toBe('PROJECT_NAME_DUPLICATE');
+          expect(apiError.response.projectName).toBe('既存プロジェクト');
+        }
+      }
+    });
+
+    it('updateProjectでプロジェクト名重複エラー（409）を識別できること', async () => {
+      const duplicateErrorResponse = {
+        type: 'https://architrack.example.com/problems/project-name-duplicate',
+        title: 'Duplicate Project Name',
+        status: 409,
+        detail: 'このプロジェクト名は既に使用されています: 別の既存プロジェクト',
+        code: 'PROJECT_NAME_DUPLICATE',
+        projectName: '別の既存プロジェクト',
+      };
+      const mockError = new ApiError(409, duplicateErrorResponse.detail, duplicateErrorResponse);
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
+
+      const input: UpdateProjectInput = {
+        name: '別の既存プロジェクト',
+      };
+      const expectedUpdatedAt = '2025-01-02T00:00:00.000Z';
+
+      try {
+        await updateProject('project-1', input, expectedUpdatedAt);
+        expect.fail('エラーがスローされるべきです');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        const apiError = error as ApiError;
+        expect(apiError.statusCode).toBe(409);
+        expect(apiError.message).toBe(
+          'このプロジェクト名は既に使用されています: 別の既存プロジェクト'
+        );
+        expect(apiError.response).toBeDefined();
+        // 型ガードを使用してresponseの内容を検証
+        expect(isDuplicateProjectNameErrorResponse(apiError.response)).toBe(true);
+        if (isDuplicateProjectNameErrorResponse(apiError.response)) {
+          expect(apiError.response.code).toBe('PROJECT_NAME_DUPLICATE');
+          expect(apiError.response.projectName).toBe('別の既存プロジェクト');
+        }
+      }
+    });
+
+    it('updateProjectで409エラーが楽観的排他制御エラーかプロジェクト名重複エラーかを区別できること', async () => {
+      // 楽観的排他制御エラー（競合エラー）
+      const conflictErrorResponse = {
+        type: 'https://architrack.example.com/problems/conflict',
+        title: 'Conflict',
+        status: 409,
+        detail: 'プロジェクトは他のユーザーによって更新されました',
+        code: 'CONFLICT',
+      };
+      const mockConflictError = new ApiError(
+        409,
+        conflictErrorResponse.detail,
+        conflictErrorResponse
+      );
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockConflictError);
+
+      const input: UpdateProjectInput = { name: '更新' };
+      const expectedUpdatedAt = '2025-01-01T00:00:00.000Z';
+
+      try {
+        await updateProject('project-1', input, expectedUpdatedAt);
+        expect.fail('エラーがスローされるべきです');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        const apiError = error as ApiError;
+        expect(apiError.statusCode).toBe(409);
+        // プロジェクト名重複エラーではない
+        expect(isDuplicateProjectNameErrorResponse(apiError.response)).toBe(false);
       }
     });
   });

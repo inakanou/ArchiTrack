@@ -108,9 +108,14 @@ class ApiClient {
           }
         } catch {
           // リフレッシュ失敗時は401エラーをそのままスロー
+          // RFC 7807 Problem Details形式のdetailフィールド、または従来のerrorフィールドを優先的に使用
           const errorMessage =
-            (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
-              ? data.error
+            (data && typeof data === 'object'
+              ? 'detail' in data && typeof data.detail === 'string'
+                ? data.detail
+                : 'error' in data && typeof data.error === 'string'
+                  ? data.error
+                  : null
               : null) || response.statusText;
           throw new ApiError(response.status, errorMessage, data);
         }
@@ -118,10 +123,14 @@ class ApiClient {
 
       // エラーレスポンスの処理
       if (!response.ok) {
-        // レスポンスボディのerrorフィールドを優先的に使用
+        // RFC 7807 Problem Details形式のdetailフィールド、または従来のerrorフィールドを優先的に使用
         const errorMessage =
-          (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
-            ? data.error
+          (data && typeof data === 'object'
+            ? 'detail' in data && typeof data.detail === 'string'
+              ? data.detail
+              : 'error' in data && typeof data.error === 'string'
+                ? data.error
+                : null
             : null) || response.statusText;
         throw new ApiError(response.status, errorMessage, data);
       }

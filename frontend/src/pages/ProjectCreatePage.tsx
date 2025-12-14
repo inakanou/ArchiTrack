@@ -2,13 +2,17 @@
  * @fileoverview プロジェクト作成ページ
  *
  * Task 10.3: ルーティング設定
+ * Task 19.3: パンくずナビゲーション追加
+ * Task 22.6: 409エラーハンドリング追加
  *
  * Requirements:
  * - 1.1: 「新規作成」ボタンでプロジェクト作成フォームを表示する
  * - 1.7: 「作成」ボタンをクリックした場合、プロジェクトが作成され、詳細画面に遷移
  * - 1.8: 作成成功時に成功メッセージを表示
+ * - 1.15: プロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
  * - 13.9: サーバーサイドバリデーションエラー発生時、エラーメッセージを該当フィールドに表示
  * - 18.1: APIエラーが発生した場合、エラーダイアログを表示
+ * - 21.16, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト > 新規作成）
  */
 
 import { useState, useCallback } from 'react';
@@ -18,6 +22,7 @@ import { ApiError } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
+import { Breadcrumb } from '../components/common';
 
 // ============================================================================
 // スタイル定義
@@ -28,6 +33,9 @@ const styles = {
     maxWidth: '768px',
     margin: '0 auto',
     padding: '32px 16px',
+  } as React.CSSProperties,
+  breadcrumbWrapper: {
+    marginBottom: '16px',
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',
@@ -82,6 +90,12 @@ export default function ProjectCreatePage() {
   // UI状態
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * サーバーからのエラーレスポンス
+   * Task 22.6: ProjectFormに渡してプロジェクト名重複エラーをフィールドに表示
+   * Requirements: 1.15
+   */
+  const [submitError, setSubmitError] = useState<unknown | null>(null);
 
   /**
    * プロジェクト作成
@@ -90,11 +104,13 @@ export default function ProjectCreatePage() {
     async (data: ProjectFormData) => {
       setIsSubmitting(true);
       setError(null);
+      // 再送信時にsubmitErrorをクリア（Task 22.6）
+      setSubmitError(null);
 
       try {
         const created = await createProject({
           name: data.name,
-          customerName: data.customerName,
+          tradingPartnerId: data.tradingPartnerId,
           salesPersonId: data.salesPersonId,
           constructionPersonId: data.constructionPersonId,
           siteAddress: data.siteAddress,
@@ -111,6 +127,12 @@ export default function ProjectCreatePage() {
           setError(errorMessage);
           // トースト通知でエラーメッセージを表示
           toast.operationFailed(errorMessage);
+
+          // Task 22.6: 409エラー時、サーバーレスポンスをProjectFormに渡す
+          // これにより、ProjectFormがプロジェクト名重複エラーをフィールドに表示できる
+          if (err.statusCode === 409) {
+            setSubmitError(err.response);
+          }
         } else {
           const defaultErrorMessage = '作成中にエラーが発生しました';
           setError(defaultErrorMessage);
@@ -132,6 +154,17 @@ export default function ProjectCreatePage() {
 
   return (
     <main role="main" style={styles.container}>
+      {/* パンくずナビゲーション */}
+      <div style={styles.breadcrumbWrapper}>
+        <Breadcrumb
+          items={[
+            { label: 'ダッシュボード', path: '/' },
+            { label: 'プロジェクト', path: '/projects' },
+            { label: '新規作成' },
+          ]}
+        />
+      </div>
+
       {/* ヘッダー */}
       <div style={styles.header}>
         <Link to="/projects" style={styles.backLink}>
@@ -154,6 +187,7 @@ export default function ProjectCreatePage() {
           onSubmit={handleSubmit}
           onCancel={handleCancel}
           isSubmitting={isSubmitting}
+          submitError={submitError}
         />
       </div>
     </main>

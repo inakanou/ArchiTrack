@@ -825,14 +825,14 @@ router.post(
         if (error.type === 'INVALID_2FA_CODE') {
           res.status(401).json({
             error: '認証コードが正しくありません',
-            detail: 'Invalid 2FA code',
+            detail: '認証コードが正しくありません',
             code: error.type,
           });
           return;
         } else if (error.type === 'ACCOUNT_LOCKED') {
           res.status(429).json({
             error: 'アカウントが一時的にロックされました。5分後に再試行してください',
-            detail: 'Account locked due to too many failed 2FA attempts',
+            detail: 'アカウントがロックされています',
             code: error.type,
             unlockAt: error.unlockAt,
           });
@@ -945,7 +945,7 @@ router.post(
         } else if (error.type === 'ACCOUNT_LOCKED') {
           res.status(429).json({
             error: 'アカウントが一時的にロックされました。5分後に再試行してください',
-            detail: 'Account locked due to too many failed 2FA attempts',
+            detail: 'アカウントがロックされています',
             code: error.type,
             unlockAt: error.unlockAt,
           });
