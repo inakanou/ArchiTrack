@@ -26,7 +26,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
@@ -101,7 +101,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
@@ -143,7 +143,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
@@ -196,7 +196,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
@@ -254,7 +254,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
@@ -293,7 +293,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
@@ -514,7 +514,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
@@ -696,7 +696,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/prisma
