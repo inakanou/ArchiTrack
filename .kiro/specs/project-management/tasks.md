@@ -774,12 +774,13 @@
 
 ## Task 28: プロジェクト検索のひらがな・カタカナ両対応
 
-- [ ] 28.1 ProjectServiceの検索ロジックにかな変換を追加
+- [x] 28.1 ProjectServiceの検索ロジックにかな変換を追加
   - 既存のkana-converter.ts（toKatakana、toHiragana）をインポート
   - 検索キーワードをひらがな・カタカナ両方に変換
   - 取引先名・フリガナ検索でカタカナ変換後のキーワードを適用
   - 取引先管理機能（trading-partner.service.ts）と同一パターンを採用
   - _Requirements: 8.4, 16.3, 22.5_
+  - _Completed: 2025-12-15_
 
 ## Task 29: 差分実装のテスト
 
