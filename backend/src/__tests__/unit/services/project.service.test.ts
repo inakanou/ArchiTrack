@@ -414,32 +414,40 @@ describe('ProjectService', () => {
         );
       });
 
-      it('検索キーワードがプロジェクト名、顧客名、営業担当者、工事担当者のいずれかにマッチする', async () => {
+      it('検索キーワードがプロジェクト名、顧客名、営業担当者、工事担当者のいずれかにマッチする（かな変換含む）', async () => {
         // Arrange
         mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
         mockPrisma.project.count = vi.fn().mockResolvedValue(1);
 
-        // Act
+        // Act: 漢字検索（かな変換しても同じ文字列）
         await service.getProjects(
           { search: '検索キーワード' },
           { page: 1, limit: 20 },
           { sort: 'updatedAt', order: 'desc' }
         );
 
-        // Assert
+        // Assert: かな変換後も漢字はそのまま（変換対象外）
+        // Requirements: 16.3, 22.5 - ひらがな・カタカナ両対応検索が適用される
         expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
               deletedAt: null,
               OR: [
+                // プロジェクト名（元のキーワード）
                 { name: { contains: '検索キーワード', mode: 'insensitive' } },
+                // 取引先名（カタカナ変換後 = 漢字なのでそのまま）
                 { tradingPartner: { name: { contains: '検索キーワード', mode: 'insensitive' } } },
+                // 取引先名（ひらがな変換後 = 漢字なのでそのまま）
+                { tradingPartner: { name: { contains: '検索きーわーど', mode: 'insensitive' } } },
+                // 取引先フリガナ（カタカナ変換後 = 漢字なのでそのまま）
                 {
                   tradingPartner: { nameKana: { contains: '検索キーワード', mode: 'insensitive' } },
                 },
+                // 営業担当者（元のキーワード）
                 {
                   salesPerson: { displayName: { contains: '検索キーワード', mode: 'insensitive' } },
                 },
+                // 工事担当者（元のキーワード）
                 {
                   constructionPerson: {
                     displayName: { contains: '検索キーワード', mode: 'insensitive' },
@@ -1985,6 +1993,167 @@ describe('ProjectService', () => {
       expect(result.description).toBe('新しい説明文');
       // 名前が変更されていないので findFirst は呼ばれない
       expect(findFirstCalled).toBe(false);
+    });
+  });
+
+  /**
+   * ひらがな・カタカナ両対応検索テスト
+   *
+   * Requirements:
+   * - 16.3, 22.5: フリガナ検索でひらがな・カタカナどちらの入力でも検索可能
+   * - Task 28.1: プロジェクト検索でのひらがな・カタカナ両対応
+   *
+   * 取引先管理機能（trading-partner.service.ts）と同一パターンを採用
+   */
+  describe('getProjects - ひらがな・カタカナ両対応検索 (16.3, 22.5)', () => {
+    it('ひらがな入力で取引先（カタカナフリガナ）が検索される', async () => {
+      // Arrange: ひらがなで検索するケース
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+
+      // Act: ひらがな「やまだ」で検索
+      await service.getProjects(
+        { search: 'やまだ' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert: カタカナ変換とひらがなの両方で検索される
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              // プロジェクト名は元の検索キーワード
+              { name: { contains: 'やまだ', mode: 'insensitive' } },
+              // 取引先名はカタカナ変換後
+              { tradingPartner: { name: { contains: 'ヤマダ', mode: 'insensitive' } } },
+              // 取引先名はひらがなでも検索
+              { tradingPartner: { name: { contains: 'やまだ', mode: 'insensitive' } } },
+              // フリガナはカタカナ変換後
+              { tradingPartner: { nameKana: { contains: 'ヤマダ', mode: 'insensitive' } } },
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('カタカナ入力で取引先（ひらがな名）が検索される', async () => {
+      // Arrange: カタカナで検索するケース
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+
+      // Act: カタカナ「ヤマダ」で検索
+      await service.getProjects(
+        { search: 'ヤマダ' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert: ひらがな変換後とカタカナの両方で検索される
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              // プロジェクト名は元の検索キーワード
+              { name: { contains: 'ヤマダ', mode: 'insensitive' } },
+              // 取引先名はカタカナ（変換不要）
+              { tradingPartner: { name: { contains: 'ヤマダ', mode: 'insensitive' } } },
+              // 取引先名はひらがな変換後
+              { tradingPartner: { name: { contains: 'やまだ', mode: 'insensitive' } } },
+              // フリガナはカタカナ（変換不要）
+              { tradingPartner: { nameKana: { contains: 'ヤマダ', mode: 'insensitive' } } },
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('混合かな入力（ひらがな＋カタカナ）でも検索される', async () => {
+      // Arrange: 混合かな入力のケース
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+
+      // Act: 混合「やまダ」で検索（ひらがな＋カタカナ混合）
+      await service.getProjects(
+        { search: 'やまダ' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert: カタカナ変換後「ヤマダ」とひらがな変換後「やまだ」で検索される
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              // プロジェクト名は元の検索キーワード
+              { name: { contains: 'やまダ', mode: 'insensitive' } },
+              // 取引先名はカタカナ変換後
+              { tradingPartner: { name: { contains: 'ヤマダ', mode: 'insensitive' } } },
+              // 取引先名はひらがな変換後
+              { tradingPartner: { name: { contains: 'やまだ', mode: 'insensitive' } } },
+              // フリガナはカタカナ変換後
+              { tradingPartner: { nameKana: { contains: 'ヤマダ', mode: 'insensitive' } } },
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('漢字入力では変換なしでそのまま検索される', async () => {
+      // Arrange: 漢字で検索するケース（変換対象外）
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+
+      // Act: 漢字「山田」で検索
+      await service.getProjects(
+        { search: '山田' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert: 漢字は変換されないのでそのまま
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              // プロジェクト名は元の検索キーワード
+              { name: { contains: '山田', mode: 'insensitive' } },
+              // 取引先名も変換なし（漢字はそのまま）
+              { tradingPartner: { name: { contains: '山田', mode: 'insensitive' } } },
+              { tradingPartner: { name: { contains: '山田', mode: 'insensitive' } } },
+              // フリガナも変換なし
+              { tradingPartner: { nameKana: { contains: '山田', mode: 'insensitive' } } },
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('営業担当者・工事担当者の検索はかな変換なしで行われる', async () => {
+      // Arrange: 担当者名の検索（かな変換対象外）
+      mockPrisma.project.count = vi.fn().mockResolvedValue(1);
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([mockProject]);
+
+      // Act: ひらがなで検索
+      await service.getProjects(
+        { search: 'たなか' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert: 担当者検索は元のキーワードのまま
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              // 営業担当者は元のキーワード
+              { salesPerson: { displayName: { contains: 'たなか', mode: 'insensitive' } } },
+              // 工事担当者も元のキーワード
+              { constructionPerson: { displayName: { contains: 'たなか', mode: 'insensitive' } } },
+            ]),
+          }),
+        })
+      );
     });
   });
 });

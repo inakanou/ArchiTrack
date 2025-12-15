@@ -39,7 +39,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
 
       // 取引先フィールドの検索入力（コンボボックスを明示的に指定）
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // 取引先がセレクトボックスの場合、オートコンプリート検索は別途入力欄が必要
       // 現在の実装はセレクトボックスのため、オートコンプリート機能は未実装
@@ -75,7 +75,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
       const isSelect = await tradingPartnerInput
@@ -124,7 +124,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
       const isSelect = await tradingPartnerInput
@@ -158,7 +158,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
       const isSelect = await tradingPartnerInput
@@ -190,7 +190,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
       const isSelect = await tradingPartnerInput
@@ -223,7 +223,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
       const isSelect = await tradingPartnerInput
@@ -256,7 +256,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       // コンボボックスを明示的に指定（listboxと区別するため）
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
       const isSelect = await tradingPartnerInput
@@ -295,7 +295,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
       const isSelect = await tradingPartnerInput
@@ -330,7 +330,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // 取引先フィールドがセレクトボックスであることを確認
       // セレクトボックスは自由入力を許可しないため、REQ-16.10を満たす
@@ -397,7 +397,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       // 取引先フィールドを確認
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
       // ドロップダウンを開く
@@ -437,7 +437,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       // 取引先フィールドを確認
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
       // ドロップダウンを開く
@@ -477,7 +477,7 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       // 取引先フィールドを確認
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
       // APIリクエストが「顧客」種別でフィルタリングされていることを確認
@@ -516,7 +516,7 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // 取引先データの取得APIのレスポンス時間を計測
       // セレクトボックスの場合、ページ読み込み時にデータを取得する
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
       const isSelect = await tradingPartnerInput

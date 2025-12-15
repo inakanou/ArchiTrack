@@ -18,6 +18,7 @@
  * - 11.5, 11.6: 関連データ件数取得（機能フラグ対応）
  * - 12.4, 12.6: 監査ログ連携（PROJECT_CREATED, PROJECT_UPDATED, PROJECT_DELETED）
  * - 13.4, 13.6: 担当者IDバリデーション（admin以外の有効ユーザー確認）
+ * - 16.3, 22.5: フリガナ検索でひらがな・カタカナ両対応（kana-converter使用）
  *
  * @module services/project
  */
@@ -38,6 +39,7 @@ import {
   ProjectConflictError,
   DuplicateProjectNameError,
 } from '../errors/projectError.js';
+import { toKatakana, toHiragana } from '../utils/kana-converter.js';
 
 /**
  * ProjectService依存関係
@@ -291,12 +293,28 @@ export class ProjectService {
 
     // 検索キーワード（プロジェクト名・取引先名・営業担当者・工事担当者の部分一致）
     // Requirements: 4.1a, 4.1b - 検索対象に営業担当者・工事担当者を追加
+    // Requirements: 16.3, 22.5 - ひらがな・カタカナ両対応検索
+    // - ひらがな入力: カタカナに変換してnameKana/name検索、元のひらがなでname検索
+    // - カタカナ入力: ひらがなに変換してname検索、元のカタカナでnameKana検索
+    // Note: 取引先管理機能（trading-partner.service.ts）と同一パターンを採用
     if (filter.search) {
+      const searchKatakana = toKatakana(filter.search);
+      const searchHiragana = toHiragana(filter.search);
+
       where.OR = [
+        // プロジェクト名（元の検索キーワード）
         { name: { contains: filter.search, mode: 'insensitive' as const } },
-        { tradingPartner: { name: { contains: filter.search, mode: 'insensitive' as const } } },
-        { tradingPartner: { nameKana: { contains: filter.search, mode: 'insensitive' as const } } },
+        // 取引先名（カタカナ変換後）
+        { tradingPartner: { name: { contains: searchKatakana, mode: 'insensitive' as const } } },
+        // 取引先名（ひらがな変換後）
+        { tradingPartner: { name: { contains: searchHiragana, mode: 'insensitive' as const } } },
+        // 取引先フリガナ（カタカナ変換後）
+        {
+          tradingPartner: { nameKana: { contains: searchKatakana, mode: 'insensitive' as const } },
+        },
+        // 営業担当者（元の検索キーワード）
         { salesPerson: { displayName: { contains: filter.search, mode: 'insensitive' as const } } },
+        // 工事担当者（元の検索キーワード）
         {
           constructionPerson: {
             displayName: { contains: filter.search, mode: 'insensitive' as const },

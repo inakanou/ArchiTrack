@@ -265,9 +265,9 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await projectNameInput.focus();
       await expect(projectNameInput).toBeFocused();
 
-      // Tab: 取引先コンボボックスへ
+      // Tab: 顧客名コンボボックスへ
       await page.keyboard.press('Tab');
-      const tradingPartnerCombobox = page.locator('[role="combobox"][aria-label="取引先"]');
+      const tradingPartnerCombobox = page.locator('[role="combobox"][aria-label="顧客名"]');
       await expect(tradingPartnerCombobox).toBeFocused();
 
       // Tab: 営業担当者セレクトへ
@@ -537,7 +537,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
 
       // 各フィールドのaria-label属性を確認
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible();
-      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="顧客名"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();
@@ -565,8 +565,8 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       await expect(salesPersonSelect).toHaveAttribute('aria-required', 'true');
 
-      // 取引先は任意フィールドなのでaria-required="false"
-      const tradingPartnerSelect = page.locator('[role="combobox"][aria-label="取引先"]');
+      // 顧客名は任意フィールドなのでaria-required="false"
+      const tradingPartnerSelect = page.locator('[role="combobox"][aria-label="顧客名"]');
       await expect(tradingPartnerSelect).toHaveAttribute('aria-required', 'false');
     });
 
@@ -646,7 +646,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await expect(page.locator('input[aria-label="プロジェクト名"]')).toBeVisible({
         timeout: getTimeout(10000),
       });
-      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="顧客名"]')).toBeVisible();
       await expect(page.locator('select[aria-label="営業担当者"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.locator('input[aria-label="現場住所"]')).toBeVisible();

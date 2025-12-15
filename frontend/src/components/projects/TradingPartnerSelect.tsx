@@ -20,6 +20,7 @@
 import { useState, useEffect, useId, useRef, useCallback, KeyboardEvent, FocusEvent } from 'react';
 import { getTradingPartners } from '../../api/trading-partners';
 import type { TradingPartnerInfo } from '../../types/trading-partner.types';
+import { toKatakana, toHiragana } from '../../utils/kana-converter';
 
 // ============================================================================
 // 型定義
@@ -92,16 +93,46 @@ function formatTradingPartnerDisplay(partner: TradingPartnerInfo): string {
 /**
  * 検索クエリに一致するかどうか判定
  * 名前、フリガナ、部課名、代表者名で部分一致
+ *
+ * Requirements: 16.3, 22.5 - ひらがな・カタカナ両対応検索
+ * 入力をカタカナとひらがなの両方に変換して検索することで、
+ * ひらがな入力でカタカナフリガナを検索可能に
  */
 function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean {
   const lowerQuery = query.toLowerCase();
-  return (
+  // ひらがな・カタカナ両対応: 入力をカタカナとひらがなの両方に変換して検索
+  const queryKatakana = toKatakana(query).toLowerCase();
+  const queryHiragana = toHiragana(query).toLowerCase();
+
+  // 名前（元のクエリ、カタカナ変換後、ひらがな変換後で検索）
+  const nameMatches =
     partner.name.toLowerCase().includes(lowerQuery) ||
-    partner.nameKana.toLowerCase().includes(lowerQuery) ||
-    (partner.branchName?.toLowerCase().includes(lowerQuery) ?? false) ||
-    (partner.branchNameKana?.toLowerCase().includes(lowerQuery) ?? false) ||
-    (partner.representativeName?.toLowerCase().includes(lowerQuery) ?? false) ||
-    (partner.representativeNameKana?.toLowerCase().includes(lowerQuery) ?? false)
+    partner.name.toLowerCase().includes(queryKatakana) ||
+    partner.name.toLowerCase().includes(queryHiragana);
+
+  // フリガナ（カタカナで登録されているため、カタカナ変換後で検索）
+  const nameKanaMatches = partner.nameKana.toLowerCase().includes(queryKatakana);
+
+  // 部課名
+  const branchMatches = partner.branchName?.toLowerCase().includes(lowerQuery) ?? false;
+
+  // 部課名フリガナ（カタカナで登録されているため、カタカナ変換後で検索）
+  const branchKanaMatches = partner.branchNameKana?.toLowerCase().includes(queryKatakana) ?? false;
+
+  // 代表者名
+  const repMatches = partner.representativeName?.toLowerCase().includes(lowerQuery) ?? false;
+
+  // 代表者名フリガナ（カタカナで登録されているため、カタカナ変換後で検索）
+  const repKanaMatches =
+    partner.representativeNameKana?.toLowerCase().includes(queryKatakana) ?? false;
+
+  return (
+    nameMatches ||
+    nameKanaMatches ||
+    branchMatches ||
+    branchKanaMatches ||
+    repMatches ||
+    repKanaMatches
   );
 }
 
@@ -359,7 +390,7 @@ export default function TradingPartnerSelect({
           color: error ? STYLES.colors.error : STYLES.colors.label,
         }}
       >
-        取引先
+        顧客名
       </label>
 
       {/* 入力フィールドコンテナ */}
@@ -378,7 +409,7 @@ export default function TradingPartnerSelect({
             isLoading ? '読み込み中...' : fetchError ? fetchError : '取引先を検索または選択（任意）'
           }
           role="combobox"
-          aria-label="取引先"
+          aria-label="顧客名"
           aria-required="false"
           aria-expanded={isOpen}
           aria-haspopup="listbox"

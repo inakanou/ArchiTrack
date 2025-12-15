@@ -10,6 +10,8 @@
  * - 8.1: プロジェクト詳細画面で「編集」ボタンをクリックすると編集フォームを表示
  * - 8.2: 編集フォームには現在のプロジェクト情報がプリセット表示される
  * - 8.3: 編集を保存すると成功メッセージを表示し、詳細画面に戻る
+ * - 8.9: キャンセルボタンクリック時の動作
+ * - 8.10: 編集中に他のユーザーがプロジェクトを更新した場合の楽観的排他制御
  * - 9.1: 「削除」ボタンをクリックすると削除確認ダイアログを表示
  * - 9.2: 削除確認ダイアログで「削除」を選択すると削除される
  * - 9.3: 削除後、一覧画面に遷移する
@@ -66,7 +68,7 @@ test.describe('プロジェクトCRUD操作', () => {
       // フォームが表示されることを確認
       await expect(page.getByRole('heading', { name: /新規プロジェクト/i })).toBeVisible();
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible();
-      await expect(page.getByLabel(/取引先/i)).toBeVisible();
+      await expect(page.getByLabel(/顧客名/i)).toBeVisible();
     });
 
     /**
@@ -208,7 +210,7 @@ test.describe('プロジェクトCRUD操作', () => {
       ).toBeVisible();
 
       // 任意フィールドの確認
-      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="顧客名"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.getByLabel(/現場住所/i)).toBeVisible();
       await expect(page.getByLabel(/概要/i)).toBeVisible();
@@ -527,8 +529,11 @@ test.describe('プロジェクトCRUD操作', () => {
 
     /**
      * @requirement project-management/REQ-8.5
+     * @requirement project-management/REQ-8.9
      */
-    test('編集キャンセル時は変更が破棄される (project-management/REQ-8.5)', async ({ page }) => {
+    test('編集キャンセル時は変更が破棄される (project-management/REQ-8.5, REQ-8.9)', async ({
+      page,
+    }) => {
       // 一般ユーザーでログイン
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -602,8 +607,9 @@ test.describe('プロジェクトCRUD操作', () => {
 
     /**
      * @requirement project-management/REQ-8.6
+     * @requirement project-management/REQ-8.10
      */
-    test('編集中に他のユーザーがプロジェクトを更新した場合、競合エラーが表示される (project-management/REQ-8.6)', async ({
+    test('編集中に他のユーザーがプロジェクトを更新した場合、競合エラーが表示される (project-management/REQ-8.6, REQ-8.10)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

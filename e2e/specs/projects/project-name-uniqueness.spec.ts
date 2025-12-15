@@ -10,8 +10,11 @@
  * Requirements:
  * - 1.15: 既に同じプロジェクト名が登録されている場合のエラー表示
  * - 1.16: プロジェクト名の一意性チェックを作成時に実行
+ * - 1.17: プロジェクト名の一意性チェックを作成時に実行する
  * - 8.7: プロジェクト名を変更して既に同じプロジェクト名が登録されている場合のエラー表示
  * - 8.8: プロジェクト名の一意性チェックを更新時に実行（自身のプロジェクトは除外）
+ * - 8.11: プロジェクト名を変更して既に同じプロジェクト名が登録されている場合のエラー表示
+ * - 8.12: プロジェクト名の一意性チェックを更新時に実行（自身のプロジェクトは除外）
  */
 
 import { test, expect } from '@playwright/test';
@@ -43,9 +46,10 @@ test.describe('プロジェクト名一意性チェック（Task 25.1）', () =>
     /**
      * @requirement project-management/REQ-1.15
      * @requirement project-management/REQ-1.16
+     * @requirement project-management/REQ-1.17
      * 既存のプロジェクトと同一のプロジェクト名で作成を試みた際のエラーメッセージ表示を検証
      */
-    test('同一のプロジェクト名で作成するとエラーが表示される (project-management/REQ-1.15, REQ-1.16)', async ({
+    test('同一のプロジェクト名で作成するとエラーが表示される (project-management/REQ-1.15, REQ-1.16, REQ-1.17)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -279,9 +283,11 @@ test.describe('プロジェクト名一意性チェック（Task 25.1）', () =>
     /**
      * @requirement project-management/REQ-8.7
      * @requirement project-management/REQ-8.8
+     * @requirement project-management/REQ-8.11
+     * @requirement project-management/REQ-8.12
      * 他のプロジェクトと同一のプロジェクト名に変更しようとした際のエラーメッセージ表示を検証
      */
-    test('他のプロジェクトと同一のプロジェクト名に変更するとエラーが表示される (project-management/REQ-8.7, REQ-8.8)', async ({
+    test('他のプロジェクトと同一のプロジェクト名に変更するとエラーが表示される (project-management/REQ-8.7, REQ-8.8, REQ-8.11, REQ-8.12)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -410,9 +416,10 @@ test.describe('プロジェクト名一意性チェック（Task 25.1）', () =>
 
     /**
      * @requirement project-management/REQ-8.8
+     * @requirement project-management/REQ-8.12
      * 自分自身のプロジェクト名を変更しない場合はエラーにならないことを検証
      */
-    test('自分自身のプロジェクト名を変更しない場合はエラーにならない (project-management/REQ-8.8)', async ({
+    test('自分自身のプロジェクト名を変更しない場合はエラーにならない (project-management/REQ-8.8, REQ-8.12)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
