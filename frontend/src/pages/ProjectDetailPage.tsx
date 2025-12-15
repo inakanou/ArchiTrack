@@ -5,17 +5,18 @@
  * Task 18.3: 取引先情報表示拡張
  * Task 19.2: パンくずナビゲーション追加
  * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
+ * Task 27.2: フィールドラベル変更（「取引先」→「顧客名」）
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
- * - 8.1, 8.2, 8.3, 8.5, 8.6: プロジェクト編集
+ * - 8.1, 8.2, 8.3, 8.4, 8.5, 8.6: プロジェクト編集
  * - 9.2, 9.3, 9.4, 9.7: プロジェクト削除
  * - 11.1, 11.2, 11.3, 11.4, 11.5, 11.6: 関連データ参照（機能フラグ対応）
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
  * - 21.15, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト > [プロジェクト名]）
  * - 21.21: 編集ボタンクリックで編集ページへ遷移
- * - 22.5: プロジェクトが取引先と紐付いている場合に取引先情報（名前）を表示
+ * - 22: 顧客情報表示（ラベル「顧客名」）
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -516,7 +517,7 @@ export default function ProjectDetailPage() {
             <div style={styles.fieldValue}>{project.name}</div>
           </div>
           <div style={styles.field}>
-            <div style={styles.fieldLabel}>取引先</div>
+            <div style={styles.fieldLabel}>顧客名</div>
             <div style={styles.fieldValue}>{project.tradingPartner?.name ?? '-'}</div>
           </div>
           <div style={styles.field}>

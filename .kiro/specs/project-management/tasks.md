@@ -766,10 +766,11 @@
   - _Requirements: 8.4, 16_
   - _Completed: 2025-12-15_
 
-- [ ] 27.2 (P) ProjectDetailPageのフィールドラベル変更
+- [x] 27.2 (P) ProjectDetailPageのフィールドラベル変更
   - 詳細表示セクションの「取引先」ラベルを「顧客名」に変更
   - スタイル定義のfieldLabelは既存を維持
   - _Requirements: 8.4, 22_
+  - _Completed: 2025-12-15_
 
 ## Task 28: プロジェクト検索のひらがな・カタカナ両対応
 

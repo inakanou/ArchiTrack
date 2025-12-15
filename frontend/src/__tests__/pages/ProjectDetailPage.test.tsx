@@ -5,16 +5,18 @@
  * Task 15.3: 一覧・詳細ページのユニットテスト追加
  * Task 19.2: パンくずナビゲーション追加
  * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
+ * Task 27.2: フィールドラベル変更（「取引先」→「顧客名」）
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
- * - 8.1, 8.2, 8.3, 8.5, 8.6: プロジェクト編集
+ * - 8.1, 8.2, 8.3, 8.4, 8.5, 8.6: プロジェクト編集
  * - 9.1, 9.2, 9.3, 9.4, 9.7: プロジェクト削除
  * - 11.1, 11.2, 11.3, 11.4, 11.5, 11.6: 関連データ参照
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
  * - 21.15, 21.18: パンくずナビゲーション
  * - 21.21: 編集ボタンクリックで編集ページへ遷移
+ * - 22: 顧客情報表示（ラベル「顧客名」）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1053,27 +1055,28 @@ describe('ProjectDetailPage', () => {
   });
 
   // ==========================================================================
-  // 22.5: 取引先情報表示（Task 18.3）
+  // 22.5: 顧客情報表示（Task 18.3, Task 27.2）
   // 注: 現在の実装では取引先情報はproject.tradingPartnerから取得され、
-  // 基本情報セクション内の「取引先」フィールドとして表示されます
+  // 基本情報セクション内の「顧客名」フィールドとして表示されます
+  // Task 27.2: ラベルを「取引先」から「顧客名」に変更
   // ==========================================================================
 
-  describe('取引先情報表示（Task 18.3, Requirements 22.5）', () => {
-    it('プロジェクトに取引先が設定されている場合、取引先名が表示される', async () => {
+  describe('顧客情報表示（Task 18.3, Task 27.2, Requirements 22.5）', () => {
+    it('プロジェクトに顧客が設定されている場合、顧客名が表示される', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 取引先フィールドのラベルが表示される
-      expect(screen.getByText('取引先')).toBeInTheDocument();
-      // 取引先名が表示される
+      // 顧客名フィールドのラベルが表示される（Task 27.2: 「取引先」から「顧客名」に変更）
+      expect(screen.getByText('顧客名')).toBeInTheDocument();
+      // 顧客名が表示される
       expect(screen.getAllByText('テスト顧客').length).toBeGreaterThanOrEqual(1);
     });
 
-    it('取引先未設定時はハイフンを表示する', async () => {
-      // 取引先がnullのプロジェクト
+    it('顧客未設定時はハイフンを表示する', async () => {
+      // 顧客（取引先）がnullのプロジェクト
       const projectWithoutTradingPartner = {
         ...mockProject,
         tradingPartner: null,
@@ -1086,8 +1089,8 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 取引先フィールドのラベルが表示される
-      expect(screen.getByText('取引先')).toBeInTheDocument();
+      // 顧客名フィールドのラベルが表示される（Task 27.2: 「取引先」から「顧客名」に変更）
+      expect(screen.getByText('顧客名')).toBeInTheDocument();
     });
   });
 });
