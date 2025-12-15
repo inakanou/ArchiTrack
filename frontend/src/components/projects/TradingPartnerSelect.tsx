@@ -359,7 +359,7 @@ export default function TradingPartnerSelect({
           color: error ? STYLES.colors.error : STYLES.colors.label,
         }}
       >
-        取引先
+        顧客名
       </label>
 
       {/* 入力フィールドコンテナ */}
@@ -378,7 +378,7 @@ export default function TradingPartnerSelect({
             isLoading ? '読み込み中...' : fetchError ? fetchError : '取引先を検索または選択（任意）'
           }
           role="combobox"
-          aria-label="取引先"
+          aria-label="顧客名"
           aria-required="false"
           aria-expanded={isOpen}
           aria-haspopup="listbox"

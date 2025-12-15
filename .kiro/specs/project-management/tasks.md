@@ -758,11 +758,13 @@
 
 ## Task 27: UIラベル変更
 
-- [ ] 27.1 (P) TradingPartnerSelectコンポーネントのラベル変更
+- [x] 27.1 (P) TradingPartnerSelectコンポーネントのラベル変更
   - labelタグのテキストを「取引先」から「顧客名」に変更
   - aria-label属性を「取引先」から「顧客名」に変更
   - 候補リスト関連のaria-label（「取引先候補」等）は内部的な取引先マスタを指すため維持
+  - 関連テストファイル（screenreader.test.tsx, ProjectCreatePage.test.tsx, ProjectEditPage.test.tsx, ProjectForm.test.tsx）を更新
   - _Requirements: 8.4, 16_
+  - _Completed: 2025-12-15_
 
 - [ ] 27.2 (P) ProjectDetailPageのフィールドラベル変更
   - 詳細表示セクションの「取引先」ラベルを「顧客名」に変更

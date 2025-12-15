@@ -122,7 +122,7 @@ describe('ProjectCreatePage', () => {
         expect(screen.getByLabelText(/プロジェクト名/i)).toBeInTheDocument();
       });
 
-      expect(screen.getByLabelText(/取引先/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/顧客名/i)).toBeInTheDocument();
 
       // UserSelectのローディング完了を待つ
       await waitFor(() => {

@@ -87,7 +87,7 @@ describe('ProjectForm', () => {
       expect(screen.getByLabelText(/営業担当者/)).toBeInTheDocument();
 
       // 任意フィールド
-      expect(screen.getByRole('combobox', { name: '取引先' })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: '顧客名' })).toBeInTheDocument();
       expect(screen.getByLabelText(/工事担当者/)).toBeInTheDocument();
       expect(screen.getByLabelText(/現場住所/)).toBeInTheDocument();
       expect(screen.getByLabelText(/概要/)).toBeInTheDocument();
@@ -505,8 +505,8 @@ describe('ProjectForm', () => {
       await user.tab(); // プロジェクト名にフォーカス
       expect(screen.getByLabelText(/プロジェクト名/)).toHaveFocus();
 
-      await user.tab(); // 取引先フィールドにフォーカス（comboboxの正確なラベル）
-      expect(screen.getByRole('combobox', { name: '取引先' })).toHaveFocus();
+      await user.tab(); // 顧客名フィールドにフォーカス（comboboxの正確なラベル）
+      expect(screen.getByRole('combobox', { name: '顧客名' })).toHaveFocus();
 
       await user.tab(); // 営業担当者にフォーカス
       expect(screen.getByLabelText(/営業担当者/)).toHaveFocus();

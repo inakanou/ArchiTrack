@@ -236,10 +236,10 @@ describe('ProjectEditPage', () => {
         expect(nameInput).toHaveValue('テストプロジェクト');
       });
 
-      // 取引先入力フィールド（選択済みの取引先名を表示）
-      // TradingPartnerSelectコンポーネントは「取引先」ラベルを使用
+      // 顧客名入力フィールド（選択済みの取引先名を表示）
+      // TradingPartnerSelectコンポーネントは「顧客名」ラベルを使用
       // 選択値はテキストではなく、選択されたIDで表示される
-      const tradingPartnerField = screen.getByLabelText(/取引先/);
+      const tradingPartnerField = screen.getByLabelText(/顧客名/);
       expect(tradingPartnerField).toBeInTheDocument();
 
       // 現場住所入力フィールド
