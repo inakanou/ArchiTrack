@@ -837,3 +837,74 @@
     - _Customer label E2E tests: 7 passed (project-customer-label.spec.ts)_
     - _Kana search E2E tests: 7 passed (project-kana-search.spec.ts)_
   - _Verified: UIラベル変更「取引先」→「顧客名」が全画面で一貫、かな検索がひらがな・カタカナ両対応で正常動作、既存機能への影響なし_
+
+---
+
+## 差分実装タスク（2025-12-15 gap analysis追加対応）
+
+以下のタスクは、2025-12-15のgap analysis結果で特定された残りの未実装項目への対応です。
+
+### 変更概要
+
+1. **TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応**（16.3）
+   - フロントエンドに`kana-converter.ts`を新規作成（バックエンドから移植）
+   - `matchesSearchQuery`関数にかな変換ロジックを追加
+
+---
+
+## Task 32: フロントエンドかな変換ユーティリティ追加
+
+- [ ] 32.1 (P) フロントエンド用kana-converter.tsの作成
+  - `frontend/src/utils/kana-converter.ts`を新規作成
+  - バックエンドの`backend/src/utils/kana-converter.ts`と同一ロジックを移植
+  - `toKatakana`関数を実装（ひらがな→カタカナ変換）
+  - `toHiragana`関数を実装（カタカナ→ひらがな変換）
+  - Unicode code point定数を定義（HIRAGANA_START, HIRAGANA_END, KATAKANA_START, KATAKANA_END, KANA_OFFSET）
+  - JSDocコメントを追加し、Requirement 16.3への対応を明記
+  - _Requirements: 16.3_
+
+- [ ] 32.2 (P) kana-converter.tsのユニットテスト
+  - `frontend/src/__tests__/utils/kana-converter.test.ts`を新規作成
+  - ひらがな→カタカナ変換のテストケースを追加
+  - カタカナ→ひらがな変換のテストケースを追加
+  - 混合文字列（漢字、数字、英字、記号を含む）のテストケースを追加
+  - 空文字列の処理テストを追加
+  - _Requirements: 16.3_
+
+## Task 33: TradingPartnerSelectコンポーネントの修正
+
+- [ ] 33.1 matchesSearchQuery関数にかな変換ロジックを追加
+  - `frontend/src/components/projects/TradingPartnerSelect.tsx`を修正
+  - `kana-converter.ts`から`toKatakana`、`toHiragana`をインポート
+  - 検索クエリをカタカナとひらがなの両方に変換
+  - 名前フィールドで元のクエリ、カタカナ変換後、ひらがな変換後で検索
+  - フリガナフィールド（`nameKana`）でカタカナ変換後で検索
+  - 部課名、代表者名の検索にも同様にかな変換を適用
+  - 32.1の完了が必要
+  - _Requirements: 1.4, 8.4, 16.3, 22.5_
+
+- [ ] 33.2 TradingPartnerSelectのユニットテスト更新
+  - `frontend/src/__tests__/components/projects/TradingPartnerSelect.test.tsx`を更新
+  - ひらがな入力で取引先（カタカナフリガナ）が検索されることを検証
+  - カタカナ入力で取引先（ひらがなフリガナ）が検索されることを検証
+  - 混合かな入力での検索動作を検証
+  - 33.1完了後に実施
+  - _Requirements: 16.3, 22.5_
+
+## Task 34: E2Eテスト
+
+- [ ] 34.1 TradingPartnerSelectのひらがな・カタカナ検索E2Eテスト
+  - プロジェクト作成画面で取引先選択時、ひらがな入力で候補がフィルタリングされることを確認
+  - プロジェクト作成画面で取引先選択時、カタカナ入力で候補がフィルタリングされることを確認
+  - プロジェクト編集画面でも同様に動作することを確認
+  - 33.1、33.2完了後に実施
+  - _Requirements: 1.4, 8.4, 16.3, 22.5_
+
+## Task 35: 統合テストと動作確認
+
+- [ ] 35.1 差分実装の統合テスト
+  - TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応が動作することを確認
+  - 既存機能への影響がないことを確認
+  - 全テストスイートの実行と合格を確認
+  - 34.1完了後に実施
+  - _Requirements: 1.4, 8.4, 16.3, 22.5_
