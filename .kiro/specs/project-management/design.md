@@ -32,8 +32,12 @@
 
 ---
 
-**実装状態（2025-12-13更新）**:
+**実装状態（2025-12-15更新）**:
 - フェーズ: **要件更新対応** - 既存実装は完了済み、要件変更に対応するための差分設計
+- 主要変更（2025-12-15 gap analysis結果）:
+  - フィールドラベル変更:「取引先」→「顧客名」（TradingPartnerSelect、ProjectDetailPage）
+  - プロジェクト検索でのひらがな・カタカナ両対応（project.service.ts）
+  - 既存のkana-converter.tsを再利用
 - 主要変更（2025-12-13要件更新）:
   - 一覧画面からID列を削除、営業担当者・工事担当者列を追加（2.2）
   - 検索対象に営業担当者・工事担当者を追加（4.1a, 4.1b）
@@ -278,14 +282,14 @@ sequenceDiagram
 | 13.1-13.11 | バリデーション | ProjectSchema, ProjectService | - | - |
 | 14.1-14.7 | API | ProjectRoutes | RESTful API全般 | - |
 | 15.1-15.5 | レスポンシブ | 全UIコンポーネント | - | - |
-| 16.1-16.13 | 取引先オートコンプリート（**ひらがな・カタカナ両対応**） | TradingPartnerSelect | GET /api/trading-partners | - |
+| 16.1-16.13 | 取引先オートコンプリート（**ひらがな・カタカナ両対応、ラベル「顧客名」**） | TradingPartnerSelect | GET /api/trading-partners | - |
 | 17.1-17.12 | 担当者選択 | UserSelect | GET /api/users/assignable | - |
 | 18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification | - | - |
 | 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
 | 20.1-20.6 | アクセシビリティ | 全UIコンポーネント | - | - |
 | 21.1-21.13 | ナビゲーション | AppHeader, Dashboard | - | - |
 | 21.14-21.18 | パンくずナビゲーション | Breadcrumb, ProjectListPage, ProjectDetailPage, ProjectCreatePage, ProjectEditPage | - | - |
-| 22.1-22.11 | 取引先連携（**ひらがな・カタカナ両対応**） | ProjectForm, TradingPartnerSelect, ProjectDetailPage | GET /api/trading-partners | - |
+| 22.1-22.11 | 取引先連携（**ひらがな・カタカナ両対応、ラベル「顧客名」**） | ProjectForm, TradingPartnerSelect, ProjectDetailPage, ProjectService | GET /api/trading-partners, GET /api/projects | - |
 
 ## Components and Interfaces
 
@@ -298,11 +302,11 @@ sequenceDiagram
 | ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず | 7, 8, 9, 10, 11, 21.15, 21.17, 22 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
 | ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
-| TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応**） | 16, 22 | TradingPartnerAPI (P1) | API |
+| TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応、ラベル「顧客名」**） | 16, 22 | TradingPartnerAPI (P1) | API |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
 | Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
-| ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック** | 1-9, 11, 13, 14 | Prisma (P0), AuditLogService (P1) | Service, API |
+| ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック + かな検索両対応** | 1-9, 11, 13, 14, 16.3, 22.5 | Prisma (P0), AuditLogService (P1), kana-converter (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
 | ProjectRoutes | Backend/Route | RESTful APIエンドポイント | 14 | ProjectService (P0), authorize (P0) | API |
 
@@ -628,21 +632,130 @@ private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
 
 ---
 
+### 差分6: フィールドラベル変更「取引先」→「顧客名」（2025-12-15 gap analysis結果）
+
+**変更内容**:
+- UIラベルを「取引先」から「顧客名」に統一
+- 3箇所のラベル変更が必要
+
+**影響ファイル**:
+1. `frontend/src/components/projects/TradingPartnerSelect.tsx` (362行目)
+2. `frontend/src/pages/ProjectDetailPage.tsx` (519行目)
+
+**TradingPartnerSelect.tsx の変更**:
+```typescript
+// 変更前（362行目）
+<label ...>
+  取引先
+</label>
+
+// 変更後
+<label ...>
+  顧客名
+</label>
+```
+
+**ProjectDetailPage.tsx の変更**:
+```typescript
+// 変更前（519行目）
+<div style={styles.fieldLabel}>取引先</div>
+
+// 変更後
+<div style={styles.fieldLabel}>顧客名</div>
+```
+
+**aria-label属性の変更**:
+```typescript
+// TradingPartnerSelect.tsx
+
+// 変更前
+aria-label="取引先"
+
+// 変更後
+aria-label="顧客名"
+```
+
+**注記**: `aria-label="取引先候補"`など候補リストに関するラベルはそのまま維持（内部的な取引先マスタを指すため）
+
+---
+
+### 差分7: プロジェクト検索でのひらがな・カタカナ両対応（2025-12-15 gap analysis結果）
+
+**変更内容**:
+- プロジェクト検索時、取引先名（フリガナ）検索でひらがな・カタカナを区別しない
+- 既存の`kana-converter.ts`を再利用
+- 取引先管理機能（`trading-partner.service.ts`）と同じパターンを適用
+
+**影響ファイル**:
+- `backend/src/services/project.service.ts`
+
+**現在の検索ロジック**（286-306行目付近）:
+```typescript
+// 検索キーワード（プロジェクト名・取引先名・営業担当者・工事担当者の部分一致）
+if (filter.search) {
+  where.OR = [
+    { name: { contains: filter.search, mode: 'insensitive' as const } },
+    { tradingPartner: { name: { contains: filter.search, mode: 'insensitive' as const } } },
+    { tradingPartner: { nameKana: { contains: filter.search, mode: 'insensitive' as const } } },
+    { salesPerson: { displayName: { contains: filter.search, mode: 'insensitive' as const } } },
+    { constructionPerson: { displayName: { contains: filter.search, mode: 'insensitive' as const } } },
+  ];
+}
+```
+
+**変更後の検索ロジック**:
+```typescript
+import { toKatakana, toHiragana } from '../utils/kana-converter.js';
+
+// 検索キーワード（プロジェクト名・取引先名・営業担当者・工事担当者の部分一致）
+// Requirements: 16.3, 22.5 - ひらがな・カタカナ両対応検索
+if (filter.search) {
+  const searchKatakana = toKatakana(filter.search);
+  const searchHiragana = toHiragana(filter.search);
+
+  where.OR = [
+    // プロジェクト名
+    { name: { contains: filter.search, mode: 'insensitive' as const } },
+    // 取引先名（ひらがな・カタカナ両対応）
+    { tradingPartner: { name: { contains: searchKatakana, mode: 'insensitive' as const } } },
+    { tradingPartner: { name: { contains: searchHiragana, mode: 'insensitive' as const } } },
+    { tradingPartner: { nameKana: { contains: searchKatakana, mode: 'insensitive' as const } } },
+    // 営業担当者
+    { salesPerson: { displayName: { contains: filter.search, mode: 'insensitive' as const } } },
+    // 工事担当者
+    { constructionPerson: { displayName: { contains: filter.search, mode: 'insensitive' as const } } },
+  ];
+}
+```
+
+**kana-converter.tsの再利用**:
+既存の`backend/src/utils/kana-converter.ts`をインポートして使用します。このユーティリティは取引先管理機能で実装済みで、以下の関数を提供します：
+- `toKatakana(str: string): string` - ひらがなをカタカナに変換
+- `toHiragana(str: string): string` - カタカナをひらがなに変換
+
+**設計根拠**:
+- 取引先管理機能（`trading-partner.service.ts`）と同一パターンを採用
+- 日本語入力では、ユーザーがひらがなで検索しても、カタカナで登録されたフリガナにマッチするべき
+- 既存のユーティリティを再利用することで、コードの重複を避け、保守性を向上
+
+---
+
 ## Backend / Services
 
 ### ProjectService
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクトのCRUD操作とビジネスロジック + **プロジェクト名一意性チェック** |
-| Requirements | 1.1-1.16, 2.1-2.6, 3.1-3.5, 4.1a-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.6, 8.1-8.8, 9.1-9.7, 11.1-11.6, 13.1-13.11 |
+| Intent | プロジェクトのCRUD操作とビジネスロジック + **プロジェクト名一意性チェック + かな検索両対応** |
+| Requirements | 1.1-1.16, 2.1-2.6, 3.1-3.5, 4.1a-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.6, 8.1-8.8, 9.1-9.7, 11.1-11.6, 13.1-13.11, 16.3, 22.5 |
 | Owner / Reviewers | Backend Team |
 
 **Responsibilities & Constraints**
 - プロジェクトの作成・取得・更新・削除のビジネスロジック
 - **プロジェクト名の一意性チェック（作成時・更新時）**（1.15, 1.16, 8.7, 8.8）
+- **検索時のひらがな・カタカナ両対応**（16.3, 22.5）- 取引先名/フリガナ検索でかな変換を適用
 - 論理削除の実装（`deletedAt`フィールドによる管理）
-- ページネーション、検索（**営業担当者・工事担当者含む**）、フィルタリング、ソートのサポート
+- ページネーション、検索（**営業担当者・工事担当者含む、かな両対応**）、フィルタリング、ソートのサポート
 - 楽観的排他制御（`updatedAt`フィールドによる競合検出）
 - 関連データ（現場調査、見積書）の件数取得（機能フラグで制御）
 
@@ -651,6 +764,7 @@ private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
 - Outbound: Prisma — データアクセス (P0)
 - Outbound: AuditLogService — 監査ログ記録 (P1)
 - Outbound: ProjectStatusService — ステータス遷移 (P1)
+- Outbound: kana-converter — ひらがな・カタカナ変換 (P1)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
@@ -1325,11 +1439,12 @@ interface ProjectFormData {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 取引先の選択UIを提供（ドロップダウン + オートコンプリート、**ひらがな・カタカナ両対応**） |
+| Intent | 取引先の選択UIを提供（ドロップダウン + オートコンプリート、**ひらがな・カタカナ両対応、ラベル「顧客名」**） |
 | Requirements | 16.1-16.13, 22.1-22.11 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
+- **UIラベル「顧客名」**（「取引先」から変更）
 - 取引先管理機能（`trading-partner-management`）との外部キー連携
 - 取引先種別に「顧客」を含む取引先一覧を候補として表示
 - 取引先名またはフリガナで部分一致検索（オートコンプリート）
@@ -1832,7 +1947,7 @@ enum TransitionType {
 - ProjectService: CRUD操作、バリデーション、エラーハンドリング、**プロジェクト名一意性チェック**（1.15, 1.16, 8.7, 8.8）
 - ProjectStatusService: ステータス遷移ロジック（順方向・差し戻し・終端）、遷移種別判定、履歴記録、差し戻し理由検証
 - ProjectForm: フォームバリデーション、送信処理、**プロジェクト名重複エラー表示**
-- TradingPartnerSelect: 取引先検索ロジック、候補表示、**ひらがな・カタカナ変換**
+- TradingPartnerSelect: 取引先検索ロジック、候補表示、**ひらがな・カタカナ変換、ラベル「顧客名」**
 - UserSelect: ユーザー一覧取得、フィルタリング
 - StatusTransitionUI: 遷移種別の視覚的区別、差し戻し理由入力ダイアログ
 - **ProjectListTable: 列構成変更（ID列削除、営業担当者・工事担当者列追加）**
@@ -1840,7 +1955,7 @@ enum TransitionType {
 ### Integration Tests
 
 - POST /api/projects: プロジェクト作成フロー（認証、権限、バリデーション、DB保存、**一意性チェック**）
-- GET /api/projects: 一覧取得（ページネーション、**営業担当者・工事担当者検索**、フィルタ、ソート）
+- GET /api/projects: 一覧取得（ページネーション、**営業担当者・工事担当者検索、かな検索両対応**、フィルタ、ソート）
 - PUT /api/projects/:id: 更新フロー（楽観的排他制御、監査ログ、**一意性チェック**）
 - PATCH /api/projects/:id/status: ステータス遷移（順方向・差し戻し・終端遷移ルール、差し戻し理由必須チェック、履歴記録）
 - DELETE /api/projects/:id: 削除フロー（論理削除、関連データ確認）
@@ -1849,8 +1964,9 @@ enum TransitionType {
 ### E2E/UI Tests
 
 - プロジェクト作成フロー: フォーム入力 → 送信 → 詳細画面遷移、**重複名でのエラー表示**
-- プロジェクト一覧操作: 検索（**営業担当者・工事担当者含む**） → フィルタ → ソート → ページ遷移
+- プロジェクト一覧操作: 検索（**営業担当者・工事担当者含む、ひらがな・カタカナ両対応**） → フィルタ → ソート → ページ遷移
 - **一覧表示列確認**: ID列なし、営業担当者・工事担当者列あり
+- **ラベル表示確認**: TradingPartnerSelectとProjectDetailPageで「顧客名」ラベル表示
 - ステータス順方向遷移: ステータスボタン → 順方向遷移選択 → 確認
 - ステータス差し戻し遷移: ステータスボタン → 差し戻し遷移選択 → 理由入力 → 確認
 - ステータス遷移UIの視覚的区別: 順方向（緑）、差し戻し（オレンジ）、終端（赤）の表示確認
