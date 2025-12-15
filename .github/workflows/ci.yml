@@ -539,6 +539,8 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       - name: Pre-deployment notification
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           echo "========================================="
           echo "Staging Deployment Information"
@@ -546,7 +548,7 @@ jobs:
           echo "Environment: staging"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit SHA: ${{ github.sha }}"
-          echo "Commit Message: ${{ github.event.head_commit.message }}"
+          echo "Commit Message: ${COMMIT_MSG%%$'\n'*}"
           echo "Triggered by: ${{ github.actor }}"
           echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
           echo "========================================="
@@ -719,6 +721,8 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       - name: Pre-deployment notification
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           echo "========================================="
           echo "Production Deployment Information"
@@ -726,7 +730,7 @@ jobs:
           echo "Environment: production"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit SHA: ${{ github.sha }}"
-          echo "Commit Message: ${{ github.event.head_commit.message }}"
+          echo "Commit Message: ${COMMIT_MSG%%$'\n'*}"
           echo "Triggered by: ${{ github.actor }}"
           echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
           echo "========================================="
