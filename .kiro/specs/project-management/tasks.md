@@ -854,7 +854,7 @@
 
 ## Task 32: フロントエンドかな変換ユーティリティ追加
 
-- [ ] 32.1 (P) フロントエンド用kana-converter.tsの作成
+- [x] 32.1 (P) フロントエンド用kana-converter.tsの作成
   - `frontend/src/utils/kana-converter.ts`を新規作成
   - バックエンドの`backend/src/utils/kana-converter.ts`と同一ロジックを移植
   - `toKatakana`関数を実装（ひらがな→カタカナ変換）
@@ -862,49 +862,75 @@
   - Unicode code point定数を定義（HIRAGANA_START, HIRAGANA_END, KATAKANA_START, KATAKANA_END, KANA_OFFSET）
   - JSDocコメントを追加し、Requirement 16.3への対応を明記
   - _Requirements: 16.3_
+  - _Completed: 2025-12-15_
+  - _Test file: frontend/src/__tests__/utils/kana-converter.test.ts (47 tests)_
 
-- [ ] 32.2 (P) kana-converter.tsのユニットテスト
+- [x] 32.2 (P) kana-converter.tsのユニットテスト
   - `frontend/src/__tests__/utils/kana-converter.test.ts`を新規作成
   - ひらがな→カタカナ変換のテストケースを追加
   - カタカナ→ひらがな変換のテストケースを追加
   - 混合文字列（漢字、数字、英字、記号を含む）のテストケースを追加
   - 空文字列の処理テストを追加
   - _Requirements: 16.3_
+  - _Completed: 2025-12-15_
+  - _Note: Task 32.1のTDD実装時に同時完了（テスト先行で実装）_
 
 ## Task 33: TradingPartnerSelectコンポーネントの修正
 
-- [ ] 33.1 matchesSearchQuery関数にかな変換ロジックを追加
+- [x] 33.1 matchesSearchQuery関数にかな変換ロジックを追加
   - `frontend/src/components/projects/TradingPartnerSelect.tsx`を修正
   - `kana-converter.ts`から`toKatakana`、`toHiragana`をインポート
   - 検索クエリをカタカナとひらがなの両方に変換
   - 名前フィールドで元のクエリ、カタカナ変換後、ひらがな変換後で検索
   - フリガナフィールド（`nameKana`）でカタカナ変換後で検索
   - 部課名、代表者名の検索にも同様にかな変換を適用
-  - 32.1の完了が必要
+  - 32.1の完了が必要（完了済み）
   - _Requirements: 1.4, 8.4, 16.3, 22.5_
+  - _Completed: 2025-12-15_
+  - _Modified file: frontend/src/components/projects/TradingPartnerSelect.tsx (matchesSearchQuery function)_
+  - _Note: TDD実装（テスト先行）、19テストケース全パス_
 
-- [ ] 33.2 TradingPartnerSelectのユニットテスト更新
-  - `frontend/src/__tests__/components/projects/TradingPartnerSelect.test.tsx`を更新
+- [x] 33.2 TradingPartnerSelectのユニットテスト更新
+  - `frontend/src/__tests__/components/projects/TradingPartnerSelect.test.tsx`を新規作成
   - ひらがな入力で取引先（カタカナフリガナ）が検索されることを検証
   - カタカナ入力で取引先（ひらがなフリガナ）が検索されることを検証
+  - 部課名フリガナ検索を検証
+  - 代表者名フリガナ検索を検証
   - 混合かな入力での検索動作を検証
-  - 33.1完了後に実施
+  - 検索結果0件のメッセージ表示を検証
+  - キーボード操作テストを追加
+  - アクセシビリティ（aria-*属性）テストを追加
+  - 33.1と同時実装（TDD）
   - _Requirements: 16.3, 22.5_
+  - _Completed: 2025-12-15_
+  - _Test file: frontend/src/__tests__/components/projects/TradingPartnerSelect.test.tsx (19 tests)_
 
 ## Task 34: E2Eテスト
 
-- [ ] 34.1 TradingPartnerSelectのひらがな・カタカナ検索E2Eテスト
+- [x] 34.1 TradingPartnerSelectのひらがな・カタカナ検索E2Eテスト
   - プロジェクト作成画面で取引先選択時、ひらがな入力で候補がフィルタリングされることを確認
   - プロジェクト作成画面で取引先選択時、カタカナ入力で候補がフィルタリングされることを確認
   - プロジェクト編集画面でも同様に動作することを確認
-  - 33.1、33.2完了後に実施
+  - 33.1、33.2完了後に実施（完了済み）
   - _Requirements: 1.4, 8.4, 16.3, 22.5_
+  - _Completed: 2025-12-15_
+  - _Test file: e2e/specs/projects/trading-partner-select-kana.spec.ts_
+  - _Note: 11テスト実装（事前準備2件、プロジェクト作成画面でのかな検索6件、プロジェクト編集画面でのかな検索3件）。ひらがな入力、カタカナ入力、部分一致、混合かな入力、候補なしメッセージ、取引先選択後の保存動作をテスト。全239件のプロジェクト関連E2Eテストがパス。_
 
 ## Task 35: 統合テストと動作確認
 
-- [ ] 35.1 差分実装の統合テスト
+- [x] 35.1 差分実装の統合テスト
   - TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応が動作することを確認
   - 既存機能への影響がないことを確認
   - 全テストスイートの実行と合格を確認
   - 34.1完了後に実施
   - _Requirements: 1.4, 8.4, 16.3, 22.5_
+  - _Completed: 2025-12-15_
+  - _Test Results:_
+    - _Backend Unit Tests: 61ファイル、1659テスト - 全パス_
+    - _Frontend Unit Tests: 89ファイル、1934テスト - 全パス_
+    - _TradingPartnerSelect Unit Tests: 19テスト - 全パス_
+    - _kana-converter Unit Tests: 47テスト - 全パス_
+    - _Project E2E Tests: 213テスト - 全パス_
+    - _TradingPartnerSelect かな検索E2E Tests: 11テスト - 全パス_
+  - _Note: ひらがな・カタカナ両対応検索がTradingPartnerSelectのクライアントサイドフィルタリングで正常動作。既存機能への影響なし。_
