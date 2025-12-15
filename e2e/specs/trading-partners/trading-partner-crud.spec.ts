@@ -1201,8 +1201,8 @@ test.describe('取引先CRUD操作', () => {
       const projectName = `紐付きプロジェクト_${Date.now()}`;
       await page.getByLabel('プロジェクト名').fill(projectName);
 
-      // 取引先を選択（セレクトボックスから選択）
-      const tradingPartnerSelect = page.getByLabel(/取引先/i);
+      // 顧客名を選択（セレクトボックスから選択）
+      const tradingPartnerSelect = page.getByLabel(/顧客名/i);
       await tradingPartnerSelect.click();
       await page.getByRole('option', { name: new RegExp(partnerName) }).click();
 

@@ -93,8 +93,8 @@ test.describe('プロジェクト取引先連携', () => {
       // プロジェクトフォームが表示されることを確認
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 取引先フィールドに作成した取引先の一部を入力
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      // 顧客名フィールドに作成した取引先の一部を入力
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await tradingPartnerInput.fill('E2Eテスト');
 
       // オートコンプリート候補が表示されることを確認
@@ -120,7 +120,7 @@ test.describe('プロジェクト取引先連携', () => {
 
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // 取引先名での検索
       await tradingPartnerInput.fill(testTradingPartnerName.substring(0, 10));
@@ -150,7 +150,7 @@ test.describe('プロジェクト取引先連携', () => {
 
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
 
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // API呼び出しをモニタリング
       let apiCallCount = 0;
@@ -257,7 +257,7 @@ test.describe('プロジェクト取引先連携', () => {
       });
 
       // 取引先フィールドをクリアして新しい検索を行う
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await tradingPartnerInput.clear();
       await tradingPartnerInput.fill('E2Eテスト');
 
@@ -283,7 +283,7 @@ test.describe('プロジェクト取引先連携', () => {
       await page.waitForLoadState('networkidle');
 
       // 取引先フィールドを確認
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
       // ドロップダウンを開く
@@ -314,7 +314,7 @@ test.describe('プロジェクト取引先連携', () => {
       await page.waitForLoadState('networkidle');
 
       // 取引先フィールドを確認
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
       // ドロップダウンを開く
@@ -345,7 +345,7 @@ test.describe('プロジェクト取引先連携', () => {
       await page.waitForLoadState('networkidle');
 
       // 取引先フィールドを確認
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
       // 存在しない取引先名を入力
@@ -392,7 +392,7 @@ test.describe('プロジェクト取引先連携', () => {
       await page.getByLabel(/プロジェクト名/i).fill(projectName);
 
       // 取引先フィールドで取引先を検索
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await tradingPartnerInput.fill('E2Eテスト');
 
       // オートコンプリート候補から取引先を選択
@@ -467,7 +467,7 @@ test.describe('プロジェクト取引先連携', () => {
       await page.getByLabel(/プロジェクト名/i).fill(projectName);
 
       // 取引先フィールドで取引先を検索して選択
-      const tradingPartnerInput = page.getByRole('combobox', { name: /取引先/i });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await tradingPartnerInput.click();
       await tradingPartnerInput.fill('E2Eテスト');
 

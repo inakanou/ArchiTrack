@@ -784,26 +784,33 @@
 
 ## Task 29: 差分実装のテスト
 
-- [ ] 29.1 (P) UIラベル変更のユニットテスト
+- [x] 29.1 (P) UIラベル変更のユニットテスト
   - TradingPartnerSelectコンポーネントのラベルが「顧客名」であることを検証
   - ProjectDetailPageの詳細表示ラベルが「顧客名」であることを検証
   - aria-label属性の変更を検証
   - _Requirements: 8.4, 16, 22_
+  - _Completed: 2025-12-15_
+  - _Note: Task 27.1, 27.2のTDD実装時に関連テストは既に更新済み。screenreader.test.tsx, ProjectForm.test.tsx, ProjectCreatePage.test.tsx, ProjectEditPage.test.tsx, ProjectDetailPage.test.tsxで「顧客名」ラベルの検証を実施。全176テストがパス。_
 
-- [ ] 29.2 (P) かな検索のユニットテスト
+- [x] 29.2 (P) かな検索のユニットテスト
   - ひらがな入力で取引先（カタカナフリガナ）が検索されることを検証
   - カタカナ入力で取引先（ひらがなフリガナ）が検索されることを検証
   - 混合かな入力での検索動作を検証
   - _Requirements: 8.4, 16.3, 22.5_
+  - _Completed: 2025-12-15_
+  - _Note: Task 28.1のTDD実装時に関連テストは既に追加済み。project.service.test.tsの「getProjects - ひらがな・カタカナ両対応検索 (16.3, 22.5)」describeブロックに5つのテストケース（ひらがな入力検索、カタカナ入力検索、混合かな入力検索、漢字入力検索、担当者検索かな変換なし）を実装。全1659テストがパス。_
 
 ## Task 30: E2Eテスト
 
-- [ ] 30.1 ラベル変更E2Eテスト
+- [x] 30.1 ラベル変更E2Eテスト
   - プロジェクト作成画面で「顧客名」ラベルが表示されることを確認
   - プロジェクト詳細画面で「顧客名」ラベルが表示されることを確認
   - プロジェクト編集画面で「顧客名」ラベルが表示されることを確認
   - 29.1完了後に実施
   - _Requirements: 8.4, 16, 22_
+  - _Completed: 2025-12-15_
+  - _Test file: e2e/specs/projects/project-customer-label.spec.ts_
+  - _Note: 7テスト実装（作成・編集・詳細画面での「顧客名」ラベル表示確認、「取引先」ラベル非表示確認）_
 
 - [ ] 30.2 かな検索E2Eテスト
   - ひらがな入力で取引先が検索されることを確認

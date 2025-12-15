@@ -66,7 +66,7 @@ test.describe('プロジェクトCRUD操作', () => {
       // フォームが表示されることを確認
       await expect(page.getByRole('heading', { name: /新規プロジェクト/i })).toBeVisible();
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible();
-      await expect(page.getByLabel(/取引先/i)).toBeVisible();
+      await expect(page.getByLabel(/顧客名/i)).toBeVisible();
     });
 
     /**
@@ -208,7 +208,7 @@ test.describe('プロジェクトCRUD操作', () => {
       ).toBeVisible();
 
       // 任意フィールドの確認
-      await expect(page.locator('[role="combobox"][aria-label="取引先"]')).toBeVisible();
+      await expect(page.locator('[role="combobox"][aria-label="顧客名"]')).toBeVisible();
       await expect(page.locator('select[aria-label="工事担当者"]')).toBeVisible();
       await expect(page.getByLabel(/現場住所/i)).toBeVisible();
       await expect(page.getByLabel(/概要/i)).toBeVisible();
