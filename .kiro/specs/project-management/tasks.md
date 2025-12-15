@@ -824,9 +824,16 @@
 
 ## Task 31: 統合テストと動作確認
 
-- [ ] 31.1 差分実装の統合テスト
+- [x] 31.1 差分実装の統合テスト
   - UIラベル変更の一貫性を確認
   - かな検索機能の動作確認
   - 既存機能への影響がないことを確認
   - 30.1、30.2完了後に実施
   - _Requirements: 8.4, 16, 16.3, 22, 22.5_
+  - _Completed: 2025-12-15_
+  - _Test results:_
+    - _Backend unit tests: 1659 passed (61 files)_
+    - _Frontend unit tests: 1868 passed (87 files)_
+    - _Customer label E2E tests: 7 passed (project-customer-label.spec.ts)_
+    - _Kana search E2E tests: 7 passed (project-kana-search.spec.ts)_
+  - _Verified: UIラベル変更「取引先」→「顧客名」が全画面で一貫、かな検索がひらがな・カタカナ両対応で正常動作、既存機能への影響なし_
