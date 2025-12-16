@@ -2,6 +2,8 @@
  * 現場調査機能関連のエラークラス
  *
  * Requirements:
+ * - 1.5: 同時編集による競合エラー（SiteSurveyConflictError）
+ * - 1.6: プロジェクトが存在しない場合の現場調査作成不可エラー（ProjectNotFoundForSurveyError）
  * - 4.1: 画像ファイルの一時的なアクセスURL生成
  * - 12.4: 署名付きURLの有効期限とアクセス権限を検証
  *
@@ -79,5 +81,48 @@ export class ImageValidationError extends ApiError {
   constructor(message: string, details?: unknown) {
     super(400, message, 'IMAGE_VALIDATION_ERROR', details, PROBLEM_TYPES.VALIDATION_ERROR);
     this.name = 'ImageValidationError';
+  }
+}
+
+/**
+ * 現場調査バリデーションエラー
+ * 400 Bad Request
+ */
+export class SiteSurveyValidationError extends ApiError {
+  constructor(public readonly validationErrors: Record<string, string>) {
+    super(
+      400,
+      'Validation failed',
+      'SITE_SURVEY_VALIDATION_ERROR',
+      validationErrors,
+      PROBLEM_TYPES.VALIDATION_ERROR
+    );
+    this.name = 'SiteSurveyValidationError';
+  }
+}
+
+/**
+ * 現場調査競合エラー（楽観的排他制御エラー）
+ * 409 Conflict
+ *
+ * Requirements: 1.5
+ */
+export class SiteSurveyConflictError extends ApiError {
+  constructor(message: string, conflictDetails?: Record<string, unknown>) {
+    super(409, message, 'SITE_SURVEY_CONFLICT', conflictDetails, PROBLEM_TYPES.CONFLICT);
+    this.name = 'SiteSurveyConflictError';
+  }
+}
+
+/**
+ * プロジェクトが見つからない場合のエラー（現場調査作成時）
+ * 404 Not Found
+ *
+ * Requirements: 1.6
+ */
+export class ProjectNotFoundForSurveyError extends NotFoundError {
+  constructor(public readonly projectId: string) {
+    super(`Project not found: ${projectId}`, 'PROJECT_NOT_FOUND');
+    this.name = 'ProjectNotFoundForSurveyError';
   }
 }

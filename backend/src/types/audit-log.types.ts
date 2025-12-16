@@ -137,7 +137,11 @@ export type AuditLogAction =
   // 取引先管理
   | 'TRADING_PARTNER_CREATED'
   | 'TRADING_PARTNER_UPDATED'
-  | 'TRADING_PARTNER_DELETED';
+  | 'TRADING_PARTNER_DELETED'
+  // 現場調査管理
+  | 'SITE_SURVEY_CREATED'
+  | 'SITE_SURVEY_UPDATED'
+  | 'SITE_SURVEY_DELETED';
 
 /**
  * 取引先管理の監査ログアクション一覧
@@ -158,6 +162,26 @@ export type TradingPartnerAuditAction = (typeof TRADING_PARTNER_AUDIT_ACTIONS)[n
  * 取引先監査ログのターゲットタイプ定数
  */
 export const TRADING_PARTNER_TARGET_TYPE = 'TradingPartner' as const;
+
+/**
+ * 現場調査管理の監査ログアクション一覧
+ * SiteSurveyServiceとの連携で使用
+ */
+export const SITE_SURVEY_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'SITE_SURVEY_CREATED',
+  'SITE_SURVEY_UPDATED',
+  'SITE_SURVEY_DELETED',
+] as const;
+
+/**
+ * 現場調査監査ログアクション型（サブセット）
+ */
+export type SiteSurveyAuditAction = (typeof SITE_SURVEY_AUDIT_ACTIONS)[number];
+
+/**
+ * 現場調査監査ログのターゲットタイプ定数
+ */
+export const SITE_SURVEY_TARGET_TYPE = 'SiteSurvey' as const;
 
 /**
  * 監査ログエラー種別
