@@ -12,6 +12,10 @@
  * Requirements (trading-partner-management):
  * - REQ-7.5: 取引先管理権限の定義
  *   - trading-partner:create, trading-partner:read, trading-partner:update, trading-partner:delete
+ *
+ * Requirements (site-survey):
+ * - REQ-12.1, 12.2, 12.3: 現場調査管理権限の定義
+ *   - site_survey:create, site_survey:read, site_survey:update, site_survey:delete
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -255,6 +259,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '取引先の削除',
     },
+
+    // 現場調査関連権限（site-survey/REQ-12.1, 12.2, 12.3）
+    {
+      resource: 'site_survey',
+      action: 'create',
+      description: '現場調査の作成',
+    },
+    {
+      resource: 'site_survey',
+      action: 'read',
+      description: '現場調査の閲覧',
+    },
+    {
+      resource: 'site_survey',
+      action: 'update',
+      description: '現場調査の更新',
+    },
+    {
+      resource: 'site_survey',
+      action: 'delete',
+      description: '現場調査の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -334,6 +360,11 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'trading-partner', action: 'create' },
     { resource: 'trading-partner', action: 'read' },
     { resource: 'trading-partner', action: 'update' },
+    // 現場調査関連権限（site-survey/REQ-12.1, 12.2, 12.3）
+    // 一般ユーザーは現場調査の作成・閲覧・更新が可能（削除は管理者のみ）
+    { resource: 'site_survey', action: 'create' },
+    { resource: 'site_survey', action: 'read' },
+    { resource: 'site_survey', action: 'update' },
   ];
 
   for (const { resource, action } of basicPermissions) {

@@ -128,7 +128,7 @@
 
 ### Phase 4: バックエンドAPI層
 
-- [ ] 6. APIルーティングの実装
+- [x] 6. APIルーティングの実装
 - [x] 6.1 (P) 現場調査CRUDエンドポイントを実装する
   - POST /api/projects/:projectId/site-surveys（作成）
   - GET /api/projects/:projectId/site-surveys（一覧）
@@ -151,7 +151,7 @@
   - GET /api/site-surveys/images/:imageId/annotations/export（JSONエクスポート）
   - _Requirements: 9.1, 9.2, 9.6_
 
-- [ ] 6.4 アクセス制御ミドルウェアを適用する
+- [x] 6.4 アクセス制御ミドルウェアを適用する
   - 認証ミドルウェアの適用
   - プロジェクト単位の権限チェック
   - site_survey:create、site_survey:read、site_survey:update、site_survey:delete権限の確認
