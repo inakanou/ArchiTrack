@@ -3139,6 +3139,348 @@
         }
       }
     },
+    "/api/projects/{projectId}/site-surveys": {
+      "post": {
+        "summary": "現場調査作成",
+        "description": "新しい現場調査を作成",
+        "tags": [
+          "Site Surveys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "surveyDate"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "surveyDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "現場調査作成成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない"
+          }
+        }
+      },
+      "get": {
+        "summary": "現場調査一覧取得",
+        "description": "プロジェクトに紐付く現場調査の一覧を取得（ページネーション、検索、フィルタリング、ソート対応）",
+        "tags": [
+          "Site Surveys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "ページ番号（1以上）"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            },
+            "description": "1ページあたりの表示件数（1〜100）"
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            },
+            "description": "検索キーワード（名前・メモの部分一致、2文字以上）"
+          },
+          {
+            "in": "query",
+            "name": "surveyDateFrom",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "調査日開始（YYYY-MM-DD形式）"
+          },
+          {
+            "in": "query",
+            "name": "surveyDateTo",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "調査日終了（YYYY-MM-DD形式）"
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "surveyDate",
+                "createdAt",
+                "updatedAt"
+              ],
+              "default": "surveyDate"
+            },
+            "description": "ソートフィールド"
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "ソート順序"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "現場調査一覧"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/site-surveys/{id}": {
+      "get": {
+        "summary": "現場調査詳細取得",
+        "description": "現場調査の基本情報と関連する画像一覧を取得",
+        "tags": [
+          "Site Surveys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "現場調査ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "現場調査詳細"
+          },
+          "400": {
+            "description": "無効な現場調査ID形式"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "現場調査が見つからない"
+          }
+        }
+      },
+      "put": {
+        "summary": "現場調査更新",
+        "description": "既存の現場調査情報を更新（楽観的排他制御）",
+        "tags": [
+          "Site Surveys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "現場調査ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expectedUpdatedAt"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "surveyDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "現場調査更新成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "現場調査が見つからない"
+          },
+          "409": {
+            "description": "楽観的排他制御エラー（競合）"
+          }
+        }
+      },
+      "delete": {
+        "summary": "現場調査削除",
+        "description": "現場調査と関連する画像データを論理削除",
+        "tags": [
+          "Site Surveys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "現場調査ID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "現場調査削除成功"
+          },
+          "400": {
+            "description": "無効な現場調査ID形式"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "現場調査が見つからない"
+          }
+        }
+      }
+    },
     "/api/trading-partners": {
       "get": {
         "summary": "取引先一覧取得",
