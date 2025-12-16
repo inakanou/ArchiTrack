@@ -324,6 +324,415 @@ describe('SiteSurveyService', () => {
   });
 
   /**
+   * Task 3.3: 現場調査の更新機能を実装する
+   *
+   * Requirements:
+   * - 1.3: 楽観的排他制御を用いて現場調査レコードを更新する
+   * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+   * - 12.5: 現場調査の更新時に監査ログを記録する
+   *
+   * - 楽観的排他制御（expectedUpdatedAt）の実装
+   * - 競合時のエラーレスポンス
+   * - 監査ログへの記録
+   */
+  describe('updateSiteSurvey', () => {
+    const existingSurvey = {
+      id: 'survey-123',
+      projectId: 'project-123',
+      name: '第1回現場調査',
+      surveyDate: new Date('2024-01-15'),
+      memo: '調査メモ',
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-02T10:00:00.000Z'),
+      deletedAt: null,
+      project: mockProject,
+    };
+
+    it('正常に現場調査を更新する（Requirements: 1.3）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {
+        name: '第1回現場調査（更新）',
+        memo: '更新されたメモ',
+      };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const updatedSurvey = {
+        ...existingSurvey,
+        name: updateInput.name,
+        memo: updateInput.memo,
+        updatedAt: new Date('2024-01-03T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn().mockResolvedValue(updatedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateSiteSurvey(
+        'survey-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.name).toBe('第1回現場調査（更新）');
+      expect(result.memo).toBe('更新されたメモ');
+    });
+
+    it('名前のみ更新できる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '新しい調査名' };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const updatedSurvey = {
+        ...existingSurvey,
+        name: updateInput.name,
+        updatedAt: new Date('2024-01-03T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn().mockResolvedValue(updatedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateSiteSurvey(
+        'survey-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result.name).toBe('新しい調査名');
+      expect(result.memo).toBe('調査メモ'); // 変更されていない
+    });
+
+    it('調査日のみ更新できる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { surveyDate: '2024-02-20' };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const updatedSurvey = {
+        ...existingSurvey,
+        surveyDate: new Date('2024-02-20'),
+        updatedAt: new Date('2024-01-03T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn().mockResolvedValue(updatedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateSiteSurvey(
+        'survey-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result.surveyDate).toEqual(new Date('2024-02-20'));
+    });
+
+    it('メモをnullに更新できる', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { memo: null };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const updatedSurvey = {
+        ...existingSurvey,
+        memo: null,
+        updatedAt: new Date('2024-01-03T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn().mockResolvedValue(updatedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateSiteSurvey(
+        'survey-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result.memo).toBeNull();
+    });
+
+    it('存在しない現場調査を更新しようとするとエラーを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '更新名' };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      const { SiteSurveyNotFoundError } = await import('../../../errors/siteSurveyError.js');
+      await expect(
+        service.updateSiteSurvey('non-existent', updateInput, actorId, expectedUpdatedAt)
+      ).rejects.toThrow(SiteSurveyNotFoundError);
+    });
+
+    it('論理削除された現場調査を更新しようとするとエラーを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '更新名' };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-01-10'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(deletedSurvey),
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      const { SiteSurveyNotFoundError } = await import('../../../errors/siteSurveyError.js');
+      await expect(
+        service.updateSiteSurvey('survey-123', updateInput, actorId, expectedUpdatedAt)
+      ).rejects.toThrow(SiteSurveyNotFoundError);
+    });
+
+    it('楽観的排他制御: expectedUpdatedAtが一致しない場合はコンフリクトエラーを返す（Requirements: 1.5）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '更新名' };
+      // 期待値と実際の値が異なる
+      const expectedUpdatedAt = new Date('2024-01-01T10:00:00.000Z'); // 古い値
+      // existingSurvey.updatedAtは2024-01-02T10:00:00.000Z
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      const { SiteSurveyConflictError } = await import('../../../errors/siteSurveyError.js');
+      await expect(
+        service.updateSiteSurvey('survey-123', updateInput, actorId, expectedUpdatedAt)
+      ).rejects.toThrow(SiteSurveyConflictError);
+    });
+
+    it('楽観的排他制御: コンフリクトエラーに詳細情報を含める', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '更新名' };
+      const expectedUpdatedAt = new Date('2024-01-01T10:00:00.000Z');
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      try {
+        await service.updateSiteSurvey('survey-123', updateInput, actorId, expectedUpdatedAt);
+        expect.fail('Should have thrown SiteSurveyConflictError');
+      } catch (error: unknown) {
+        const { SiteSurveyConflictError } = await import('../../../errors/siteSurveyError.js');
+        expect(error).toBeInstanceOf(SiteSurveyConflictError);
+        // エラーメッセージに再読み込みを促す内容が含まれる
+        expect((error as Error).message).toContain('他のユーザー');
+      }
+    });
+
+    it('監査ログを記録する（Requirements: 12.5）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '第1回現場調査（更新）' };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const updatedSurvey = {
+        ...existingSurvey,
+        name: updateInput.name,
+        updatedAt: new Date('2024-01-03T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn().mockResolvedValue(updatedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.updateSiteSurvey('survey-123', updateInput, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'SITE_SURVEY_UPDATED',
+          actorId,
+          targetType: 'SiteSurvey',
+          targetId: 'survey-123',
+        })
+      );
+    });
+
+    it('監査ログにbefore/after情報を含める', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '第1回現場調査（更新）', memo: '新しいメモ' };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const updatedSurvey = {
+        ...existingSurvey,
+        name: updateInput.name,
+        memo: updateInput.memo,
+        updatedAt: new Date('2024-01-03T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn().mockResolvedValue(updatedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.updateSiteSurvey('survey-123', updateInput, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          before: expect.objectContaining({
+            name: '第1回現場調査',
+            memo: '調査メモ',
+          }),
+          after: expect.objectContaining({
+            name: '第1回現場調査（更新）',
+            memo: '新しいメモ',
+          }),
+        })
+      );
+    });
+
+    it('Prismaのupdateに正しいパラメータを渡す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = { name: '更新名', surveyDate: '2024-03-01', memo: '更新メモ' };
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+      const updatedSurvey = {
+        ...existingSurvey,
+        ...updateInput,
+        surveyDate: new Date('2024-03-01'),
+        updatedAt: new Date('2024-01-03T10:00:00.000Z'),
+      };
+
+      const mockUpdate = vi.fn().mockResolvedValue(updatedSurvey);
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: mockUpdate,
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.updateSiteSurvey('survey-123', updateInput, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'survey-123' },
+        data: expect.objectContaining({
+          name: '更新名',
+          surveyDate: new Date('2024-03-01'),
+          memo: '更新メモ',
+        }),
+      });
+    });
+
+    it('空の更新入力でも正常に処理する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const updateInput = {}; // 何も更新しない
+      const expectedUpdatedAt = new Date('2024-01-02T10:00:00.000Z');
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(existingSurvey),
+            update: vi.fn().mockResolvedValue(existingSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      const result = await service.updateSiteSurvey(
+        'survey-123',
+        updateInput,
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.id).toBe('survey-123');
+    });
+  });
+
+  /**
    * Task 3.2: 現場調査の詳細取得機能を実装する
    *
    * Requirements:

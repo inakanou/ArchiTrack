@@ -6,16 +6,25 @@
  * Requirements:
  * - 1.1: プロジェクトに紐付く新規現場調査レコードを作成する
  * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
+ * - 1.3: 楽観的排他制御を用いて現場調査レコードを更新する
+ * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
  * - 1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
- * - 12.5: 現場調査の作成時に監査ログを記録する
+ * - 12.5: 現場調査の作成・更新時に監査ログを記録する
  *
  * @module services/site-survey
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
-import type { CreateSiteSurveyInput } from '../schemas/site-survey.schema.js';
-import { ProjectNotFoundForSurveyError } from '../errors/siteSurveyError.js';
+import type {
+  CreateSiteSurveyInput,
+  UpdateSiteSurveyInput,
+} from '../schemas/site-survey.schema.js';
+import {
+  ProjectNotFoundForSurveyError,
+  SiteSurveyNotFoundError,
+  SiteSurveyConflictError,
+} from '../errors/siteSurveyError.js';
 import { SITE_SURVEY_TARGET_TYPE } from '../types/audit-log.types.js';
 
 /**
@@ -164,6 +173,112 @@ export class SiteSurveyService {
     if (!project || project.deletedAt !== null) {
       throw new ProjectNotFoundForSurveyError(projectId);
     }
+  }
+
+  /**
+   * 現場調査更新
+   *
+   * 楽観的排他制御を実装。expectedUpdatedAtと実際のupdatedAtが一致しない場合は
+   * SiteSurveyConflictErrorをスロー。
+   *
+   * トランザクション内で以下を実行:
+   * 1. 現場調査の存在確認・楽観的排他制御 (Requirements: 1.3, 1.5)
+   * 2. 現場調査更新
+   * 3. 監査ログの記録 (Requirements: 12.5)
+   *
+   * Requirements:
+   * - 1.3: 楽観的排他制御を用いて現場調査レコードを更新する
+   * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+   * - 12.5: 現場調査の更新時に監査ログを記録する
+   *
+   * @param id - 現場調査ID
+   * @param input - 更新入力
+   * @param actorId - 実行者ID
+   * @param expectedUpdatedAt - 期待される更新日時（楽観的排他制御用）
+   * @returns 更新された現場調査情報
+   * @throws SiteSurveyNotFoundError 現場調査が存在しない、または論理削除済みの場合
+   * @throws SiteSurveyConflictError 楽観的排他制御エラー（他のユーザーによる更新との競合）
+   */
+  async updateSiteSurvey(
+    id: string,
+    input: UpdateSiteSurveyInput,
+    actorId: string,
+    expectedUpdatedAt: Date
+  ): Promise<SiteSurveyInfo> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. 現場調査の存在確認
+      const siteSurvey = await tx.siteSurvey.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          projectId: true,
+          name: true,
+          surveyDate: true,
+          memo: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+        },
+      });
+
+      if (!siteSurvey || siteSurvey.deletedAt !== null) {
+        throw new SiteSurveyNotFoundError(id);
+      }
+
+      // 楽観的排他制御: updatedAtの比較 (Requirements: 1.5)
+      if (siteSurvey.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+        throw new SiteSurveyConflictError(
+          '現場調査は他のユーザーによって更新されました。最新データを確認してください。',
+          {
+            expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+            actualUpdatedAt: siteSurvey.updatedAt.toISOString(),
+          }
+        );
+      }
+
+      // 2. 更新データの構築
+      const updateData: {
+        name?: string;
+        surveyDate?: Date;
+        memo?: string | null;
+      } = {};
+
+      if (input.name !== undefined) {
+        updateData.name = input.name;
+      }
+      if (input.surveyDate !== undefined) {
+        updateData.surveyDate = new Date(input.surveyDate);
+      }
+      if (input.memo !== undefined) {
+        updateData.memo = input.memo;
+      }
+
+      // 3. 現場調査更新
+      const updatedSurvey = await tx.siteSurvey.update({
+        where: { id },
+        data: updateData,
+      });
+
+      // 4. 監査ログの記録 (Requirements: 12.5)
+      await this.auditLogService.createLog({
+        action: 'SITE_SURVEY_UPDATED',
+        actorId,
+        targetType: SITE_SURVEY_TARGET_TYPE,
+        targetId: id,
+        before: {
+          name: siteSurvey.name,
+          surveyDate: siteSurvey.surveyDate.toISOString(),
+          memo: siteSurvey.memo,
+        },
+        after: {
+          name: updatedSurvey.name,
+          surveyDate: updatedSurvey.surveyDate.toISOString(),
+          memo: updatedSurvey.memo,
+        },
+      });
+
+      return this.toSiteSurveyInfo(updatedSurvey);
+    });
   }
 
   /**
