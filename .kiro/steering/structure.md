@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-14（Steering Sync: テストファイル数・サービス数の整合性確認）_
+_最終更新: 2025-12-16（Steering Sync: テストファイル数・Storybookファイル数の整合性確認）_
 
 ## ルートディレクトリ構成
 
@@ -440,7 +440,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（9ファイル）:**
+**Storybookストーリーファイル（11ファイル）:**
 
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
 - `LoginForm.stories.tsx` - ログインフォーム
@@ -449,8 +449,10 @@ frontend/
 - `PasswordStrengthIndicator.stories.tsx` - パスワード強度インジケーター
 - `RolePermissionManager.stories.tsx` - ロール権限管理
 - `SessionManagement.stories.tsx` - セッション管理
-- `TwoFactorSetup.stories.tsx` - 2FA初期設定（追加）
-- `TwoFactorVerification.stories.tsx` - 2FA検証（追加）
+- `TwoFactorSetupForm.stories.tsx` - 2FA初期設定
+- `TwoFactorVerificationForm.stories.tsx` - 2FA検証
+- `common/Breadcrumb.stories.tsx` - パンくずナビゲーション
+- `common/ResourceNotFound.stories.tsx` - リソース未発見表示
 
 **実装済み拡張ディレクトリ:**
 
@@ -487,7 +489,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（73テストファイル、1800+テストケース）
+│   │   └── unit/          # ユニットテスト（61テストファイル、1800+テストケース）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -981,8 +983,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 1800+テストケース（単体、73ファイル）+ 70+テスト（統合）
-- Frontend: 700+テストケース（単体、83ファイル）
+- Backend: 1800+テストケース（単体、61ファイル）+ 70+テスト（統合、12ファイル）
+- Frontend: 700+テストケース（単体、87ファイル）
 
 ### .gitignore
 

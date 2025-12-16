@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-14（Steering Sync: テストケース数・サービス数の整合性確認）_
+_最終更新: 2025-12-16（Steering Sync: 依存関係バージョンの整合性確認）_
 
 ## アーキテクチャ
 
@@ -45,7 +45,7 @@ ArchiTrack/
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.6.2 - コードフォーマッター
 - `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
-- `tailwindcss` ^4.1.17 - ユーティリティファーストCSSフレームワーク
+- `tailwindcss` ^4.1.18 - ユーティリティファーストCSSフレームワーク
 - `@tailwindcss/postcss` ^4.1.17 - Tailwind CSS PostCSSプラグイン
 - `vitest` ^4.0.15 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.15 - Vitest UIツール
@@ -58,7 +58,7 @@ ArchiTrack/
 - `@sentry/react` ^10.27.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
 - `storybook` ^10.1.5 - コンポーネントドキュメント・開発環境（Storybook 10.x）
-- `@storybook/react` ^10.0.8 - Storybook React統合（10.x系）
+- `@storybook/react` ^10.1.8 - Storybook React統合（10.x系）
 - `@storybook/react-vite` ^10.1.5 - Storybook React + Vite統合（10.x系）
 - `@storybook/test-runner` ^0.24.2 - Storybookインタラクションテスト
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
@@ -128,8 +128,8 @@ ArchiTrack/
 - `express-rate-limit` ^8.2.1 - レート制限
 - `zod` ^4.1.12 - スキーマバリデーション
 - `dotenv` ^17.2.3 - 環境変数管理
-- `@sentry/node` ^10.22.0 - Sentryエラートラッキング（Backend）
-- `@sentry/profiling-node` ^10.25.0 - Sentryプロファイリング
+- `@sentry/node` ^10.30.0 - Sentryエラートラッキング（Backend）
+- `@sentry/profiling-node` ^10.30.0 - Sentryプロファイリング
 - `pino` ^10.1.0 - ロガー
 - `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
 - `pino-pretty` ^13.1.2 - ログの整形出力（開発環境）
@@ -268,7 +268,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 1800+テストケース（単体）+ 70+テスト（統合）
+**テスト合計:** 1800+テストケース（単体、61ファイル）+ 70+テスト（統合、12ファイル）
 
 **実行方法:**
 ```bash
@@ -324,7 +324,7 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 700+テストケース（包括的なユニットテスト群、83テストファイル）
+- 合計: 700+テストケース（包括的なユニットテスト群、87テストファイル）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
