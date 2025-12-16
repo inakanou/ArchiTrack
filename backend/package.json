@@ -45,6 +45,8 @@
     "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.952.0",
+    "@aws-sdk/s3-request-presigner": "^3.952.0",
     "@node-rs/argon2": "^2.0.2",
     "@prisma/adapter-pg": "^7.0.1",
     "@prisma/client": "^7.0.0",

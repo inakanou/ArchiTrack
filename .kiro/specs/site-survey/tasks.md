@@ -27,7 +27,7 @@
 ### Phase 2: ストレージ基盤
 
 - [ ] 2. Cloudflare R2ストレージ統合
-- [ ] 2.1 (P) R2クライアント設定を実装する
+- [x] 2.1 (P) R2クライアント設定を実装する
   - S3Clientのシングルトン初期化を実装
   - 環境変数（R2_ENDPOINT、R2_ACCESS_KEY_ID、R2_SECRET_ACCESS_KEY、R2_BUCKET_NAME）の設定
   - 接続テストユーティリティを追加
