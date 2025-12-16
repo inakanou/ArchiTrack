@@ -10,12 +10,17 @@
  * - 1.4: 現場調査と関連する画像データを論理削除する
  * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
  * - 1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
+ * - 3.1: プロジェクト単位でのページネーション
+ * - 3.2: キーワード検索（名前・メモの部分一致）
+ * - 3.3: 調査日によるフィルタリング
+ * - 3.4: ソート機能（調査日・作成日・更新日）
+ * - 3.5: サムネイル画像URLの取得
  * - 12.5: 現場調査の作成・更新・削除時に監査ログを記録する
  *
  * @module services/site-survey
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import type {
   CreateSiteSurveyInput,
@@ -74,6 +79,59 @@ export interface SurveyImageInfo {
 export interface SiteSurveyDetail extends SiteSurveyInfo {
   project: { id: string; name: string };
   images: SurveyImageInfo[];
+}
+
+/**
+ * フィルター条件（Requirements: 3.2, 3.3）
+ */
+export interface SiteSurveyFilter {
+  search?: string;
+  surveyDateFrom?: string;
+  surveyDateTo?: string;
+}
+
+/**
+ * ページネーション入力（Requirements: 3.1）
+ */
+export interface SiteSurveyPaginationInput {
+  page: number;
+  limit: number;
+}
+
+/**
+ * ソート可能フィールド（Requirements: 3.4）
+ */
+export type SiteSurveySortableField = 'surveyDate' | 'createdAt' | 'updatedAt';
+
+/**
+ * ソート順序
+ */
+export type SiteSurveySortOrder = 'asc' | 'desc';
+
+/**
+ * ソート入力（Requirements: 3.4）
+ */
+export interface SiteSurveySortInput {
+  sort: SiteSurveySortableField;
+  order: SiteSurveySortOrder;
+}
+
+/**
+ * ページネーション情報
+ */
+export interface SiteSurveyPaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+/**
+ * ページネーション付き現場調査一覧
+ */
+export interface PaginatedSiteSurveys {
+  data: SiteSurveyInfo[];
+  pagination: SiteSurveyPaginationInfo;
 }
 
 /**
@@ -467,6 +525,135 @@ export class SiteSurveyService {
       ...this.toSiteSurveyInfo(siteSurvey, images),
       project: siteSurvey.project,
       images,
+    };
+  }
+
+  /**
+   * プロジェクトIDによる現場調査一覧取得
+   *
+   * 指定されたプロジェクトに属する現場調査の一覧を、
+   * ページネーション、検索、フィルタリング、ソートに対応して取得する。
+   *
+   * Requirements:
+   * - 3.1: プロジェクト単位でのページネーション
+   * - 3.2: キーワード検索（名前・メモの部分一致）
+   * - 3.3: 調査日によるフィルタリング
+   * - 3.4: ソート機能（調査日・作成日・更新日）
+   * - 3.5: サムネイル画像URLの取得
+   *
+   * @param projectId - プロジェクトID
+   * @param filter - フィルタ条件
+   * @param pagination - ページネーション入力
+   * @param sort - ソート入力
+   * @returns ページネーション付き現場調査一覧
+   */
+  async findByProjectId(
+    projectId: string,
+    filter: SiteSurveyFilter,
+    pagination: SiteSurveyPaginationInput,
+    sort: SiteSurveySortInput
+  ): Promise<PaginatedSiteSurveys> {
+    // WHERE条件の構築
+    const where: Prisma.SiteSurveyWhereInput = {
+      projectId,
+      deletedAt: null,
+    };
+
+    // キーワード検索（Requirements: 3.2）
+    if (filter.search && filter.search.trim() !== '') {
+      where.OR = [
+        { name: { contains: filter.search, mode: 'insensitive' } },
+        { memo: { contains: filter.search, mode: 'insensitive' } },
+      ];
+    }
+
+    // 調査日フィルタリング（Requirements: 3.3）
+    if (filter.surveyDateFrom || filter.surveyDateTo) {
+      const surveyDateFilter: { gte?: Date; lte?: Date } = {};
+      if (filter.surveyDateFrom) {
+        surveyDateFilter.gte = new Date(filter.surveyDateFrom);
+      }
+      if (filter.surveyDateTo) {
+        surveyDateFilter.lte = new Date(filter.surveyDateTo);
+      }
+      where.surveyDate = surveyDateFilter;
+    }
+
+    // ソート条件の構築（Requirements: 3.4）
+    const orderBy: Prisma.SiteSurveyOrderByWithRelationInput = {
+      [sort.sort]: sort.order,
+    };
+
+    // ページネーション計算（Requirements: 3.1）
+    const skip = (pagination.page - 1) * pagination.limit;
+    const take = pagination.limit;
+
+    // データ取得と件数カウントを並行実行
+    const [surveys, total] = await Promise.all([
+      this.prisma.siteSurvey.findMany({
+        where,
+        orderBy,
+        skip,
+        take,
+        include: {
+          images: {
+            orderBy: { displayOrder: 'asc' },
+            take: 1, // サムネイル用に最初の1件のみ取得
+          },
+        },
+      }),
+      this.prisma.siteSurvey.count({ where }),
+    ]);
+
+    // 結果の変換（Requirements: 3.5）
+    const data: SiteSurveyInfo[] = surveys.map((survey) => {
+      const firstImage = survey.images[0];
+      return {
+        id: survey.id,
+        projectId: survey.projectId,
+        name: survey.name,
+        surveyDate: survey.surveyDate,
+        memo: survey.memo,
+        thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
+        imageCount: survey.images.length, // includeで取得した件数を使用
+        createdAt: survey.createdAt,
+        updatedAt: survey.updatedAt,
+      };
+    });
+
+    // 実際の画像件数を取得するため、_countを使用した再クエリが必要
+    // パフォーマンスのため、データベースから直接カウントを取得
+    const surveysWithCount = await this.prisma.siteSurvey.findMany({
+      where: {
+        id: { in: surveys.map((s) => s.id) },
+      },
+      select: {
+        id: true,
+        _count: {
+          select: { images: true },
+        },
+      },
+    });
+
+    // 画像件数をマッピング
+    const imageCountMap = new Map(surveysWithCount.map((s) => [s.id, s._count.images]));
+
+    // 画像件数を正確な値で更新
+    data.forEach((item) => {
+      item.imageCount = imageCountMap.get(item.id) ?? 0;
+    });
+
+    // ページネーション情報の計算
+    const totalPages = total > 0 ? Math.ceil(total / pagination.limit) : 0;
+
+    return {
+      data,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages,
+      },
     };
   }
 }

@@ -1287,4 +1287,519 @@ describe('SiteSurveyService', () => {
       );
     });
   });
+
+  /**
+   * Task 3.5: 現場調査の一覧・検索機能を実装する
+   *
+   * Requirements:
+   * - 3.1: プロジェクト単位でのページネーション
+   * - 3.2: キーワード検索（名前・メモの部分一致）
+   * - 3.3: 調査日によるフィルタリング
+   * - 3.4: ソート機能（調査日・作成日・更新日）
+   * - 3.5: サムネイル画像URLの取得
+   */
+  describe('findByProjectId', () => {
+    const mockSurveyImages = [
+      {
+        id: 'image-001',
+        surveyId: 'survey-123',
+        originalPath: 'surveys/survey-123/images/image-001.jpg',
+        thumbnailPath: 'surveys/survey-123/thumbnails/image-001.jpg',
+        fileName: 'photo1.jpg',
+        fileSize: 150000,
+        width: 1920,
+        height: 1080,
+        displayOrder: 1,
+        createdAt: new Date('2024-01-10'),
+      },
+    ];
+
+    const mockSurveys = [
+      {
+        id: 'survey-001',
+        projectId: 'project-123',
+        name: '第1回現場調査',
+        surveyDate: new Date('2024-01-15'),
+        memo: '調査メモ1',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-02'),
+        deletedAt: null,
+        images: mockSurveyImages,
+        _count: { images: 1 },
+      },
+      {
+        id: 'survey-002',
+        projectId: 'project-123',
+        name: '第2回現場調査',
+        surveyDate: new Date('2024-02-20'),
+        memo: '調査メモ2',
+        createdAt: new Date('2024-02-01'),
+        updatedAt: new Date('2024-02-02'),
+        deletedAt: null,
+        images: [],
+        _count: { images: 0 },
+      },
+    ];
+
+    const defaultPagination = { page: 1, limit: 10 };
+    const defaultSort = { sort: 'surveyDate' as const, order: 'desc' as const };
+
+    it('プロジェクトIDで現場調査一覧を取得する（Requirements: 3.1）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      // Act
+      const result = await service.findByProjectId(
+        'project-123',
+        {},
+        defaultPagination,
+        defaultSort
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0]!.id).toBe('survey-001');
+      expect(result.data[1]!.id).toBe('survey-002');
+    });
+
+    it('ページネーション情報を正しく返す（Requirements: 3.1）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(25);
+
+      const pagination = { page: 2, limit: 10 };
+
+      // Act
+      const result = await service.findByProjectId('project-123', {}, pagination, defaultSort);
+
+      // Assert
+      expect(result.pagination).toBeDefined();
+      expect(result.pagination.page).toBe(2);
+      expect(result.pagination.limit).toBe(10);
+      expect(result.pagination.total).toBe(25);
+      expect(result.pagination.totalPages).toBe(3);
+    });
+
+    it('ページネーションでskipとtakeを正しく計算する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      const pagination = { page: 3, limit: 20 };
+
+      // Act
+      await service.findByProjectId('project-123', {}, pagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skip: 40, // (page - 1) * limit = (3 - 1) * 20
+          take: 20,
+        })
+      );
+    });
+
+    it('キーワード検索：名前で部分一致検索する（Requirements: 3.2）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([mockSurveys[0]]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(1);
+
+      const filter = { search: '第1回' };
+
+      // Act
+      const result = await service.findByProjectId(
+        'project-123',
+        filter,
+        defaultPagination,
+        defaultSort
+      );
+
+      // Assert
+      expect(result.data).toHaveLength(1);
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              expect.objectContaining({
+                name: expect.objectContaining({ contains: '第1回' }),
+              }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('キーワード検索：メモで部分一致検索する（Requirements: 3.2）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([mockSurveys[1]]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(1);
+
+      const filter = { search: 'メモ2' };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              expect.objectContaining({
+                memo: expect.objectContaining({ contains: 'メモ2' }),
+              }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('調査日範囲でフィルタリングする - 開始日のみ（Requirements: 3.3）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([mockSurveys[1]]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(1);
+
+      const filter = { surveyDateFrom: '2024-02-01' };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            surveyDate: expect.objectContaining({
+              gte: new Date('2024-02-01'),
+            }),
+          }),
+        })
+      );
+    });
+
+    it('調査日範囲でフィルタリングする - 終了日のみ（Requirements: 3.3）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([mockSurveys[0]]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(1);
+
+      const filter = { surveyDateTo: '2024-01-31' };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            surveyDate: expect.objectContaining({
+              lte: new Date('2024-01-31'),
+            }),
+          }),
+        })
+      );
+    });
+
+    it('調査日範囲でフィルタリングする - 開始日と終了日両方（Requirements: 3.3）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      const filter = { surveyDateFrom: '2024-01-01', surveyDateTo: '2024-12-31' };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            surveyDate: {
+              gte: new Date('2024-01-01'),
+              lte: new Date('2024-12-31'),
+            },
+          }),
+        })
+      );
+    });
+
+    it('調査日でソートする（降順）（Requirements: 3.4）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      const sort = { sort: 'surveyDate' as const, order: 'desc' as const };
+
+      // Act
+      await service.findByProjectId('project-123', {}, defaultPagination, sort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { surveyDate: 'desc' },
+        })
+      );
+    });
+
+    it('作成日でソートする（昇順）（Requirements: 3.4）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      const sort = { sort: 'createdAt' as const, order: 'asc' as const };
+
+      // Act
+      await service.findByProjectId('project-123', {}, defaultPagination, sort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { createdAt: 'asc' },
+        })
+      );
+    });
+
+    it('更新日でソートする（Requirements: 3.4）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      const sort = { sort: 'updatedAt' as const, order: 'desc' as const };
+
+      // Act
+      await service.findByProjectId('project-123', {}, defaultPagination, sort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { updatedAt: 'desc' },
+        })
+      );
+    });
+
+    it('サムネイル画像URLを取得する（Requirements: 3.5）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      // Act
+      const result = await service.findByProjectId(
+        'project-123',
+        {},
+        defaultPagination,
+        defaultSort
+      );
+
+      // Assert
+      expect(result.data[0]!.thumbnailUrl).toBe('surveys/survey-123/thumbnails/image-001.jpg');
+      expect(result.data[1]!.thumbnailUrl).toBeNull(); // 画像がない場合はnull
+    });
+
+    it('画像件数を返す（Requirements: 3.5）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      // Act
+      const result = await service.findByProjectId(
+        'project-123',
+        {},
+        defaultPagination,
+        defaultSort
+      );
+
+      // Assert
+      expect(result.data[0]!.imageCount).toBe(1);
+      expect(result.data[1]!.imageCount).toBe(0);
+    });
+
+    it('論理削除されたレコードを除外する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      // Act
+      await service.findByProjectId('project-123', {}, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+          }),
+        })
+      );
+    });
+
+    it('プロジェクトIDでフィルタリングする', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      // Act
+      await service.findByProjectId('project-abc', {}, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            projectId: 'project-abc',
+          }),
+        })
+      );
+    });
+
+    it('結果が0件の場合も正常に返す', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      // Act
+      const result = await service.findByProjectId(
+        'project-123',
+        {},
+        defaultPagination,
+        defaultSort
+      );
+
+      // Assert
+      expect(result.data).toHaveLength(0);
+      expect(result.pagination.total).toBe(0);
+      expect(result.pagination.totalPages).toBe(0);
+    });
+
+    it('検索とフィルタリングを同時に適用する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([mockSurveys[0]]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(1);
+
+      const filter = {
+        search: '第1回',
+        surveyDateFrom: '2024-01-01',
+        surveyDateTo: '2024-01-31',
+      };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            projectId: 'project-123',
+            deletedAt: null,
+            OR: expect.any(Array),
+            surveyDate: expect.objectContaining({
+              gte: expect.any(Date),
+              lte: expect.any(Date),
+            }),
+          }),
+        })
+      );
+    });
+
+    it('検索が空文字の場合は検索条件を追加しない', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      const filter = { search: '' };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.not.objectContaining({
+            OR: expect.any(Array),
+          }),
+        })
+      );
+    });
+
+    it('case insensitiveな検索を行う', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      const filter = { search: 'TEST' };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              expect.objectContaining({
+                name: expect.objectContaining({
+                  contains: 'TEST',
+                  mode: 'insensitive',
+                }),
+              }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('countクエリにも同じフィルタ条件を適用する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      const filter = { search: '検索文字列', surveyDateFrom: '2024-01-01' };
+
+      // Act
+      await service.findByProjectId('project-123', filter, defaultPagination, defaultSort);
+
+      // Assert
+      expect(mockPrisma.siteSurvey.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            projectId: 'project-123',
+            deletedAt: null,
+            OR: expect.any(Array),
+            surveyDate: expect.objectContaining({
+              gte: new Date('2024-01-01'),
+            }),
+          }),
+        })
+      );
+    });
+
+    it('代表画像（displayOrder=1）のサムネイルを返す', async () => {
+      // Arrange
+      const surveyWithMultipleImages = {
+        ...mockSurveys[0],
+        images: [
+          {
+            ...mockSurveyImages[0],
+            displayOrder: 1,
+            thumbnailPath: 'first-thumbnail.jpg',
+          },
+          {
+            ...mockSurveyImages[0],
+            id: 'image-002',
+            displayOrder: 2,
+            thumbnailPath: 'second-thumbnail.jpg',
+          },
+        ],
+      };
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([surveyWithMultipleImages]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(1);
+
+      // Act
+      const result = await service.findByProjectId(
+        'project-123',
+        {},
+        defaultPagination,
+        defaultSort
+      );
+
+      // Assert
+      expect(result.data[0]!.thumbnailUrl).toBe('first-thumbnail.jpg');
+    });
+  });
 });
