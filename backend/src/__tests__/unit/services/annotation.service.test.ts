@@ -412,6 +412,158 @@ describe('AnnotationService', () => {
     });
   });
 
+  /**
+   * Task 5.2: 注釈データの取得・復元機能を実装する
+   *
+   * Requirements:
+   * - 9.2: 保存された注釈データを復元して表示する
+   */
+  describe('getAnnotationWithValidation (Task 5.2)', () => {
+    it('画像IDで注釈データを取得し、JSONデータを検証する（Requirements: 9.2）', async () => {
+      // Arrange
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue({
+        ...mockImageAnnotation,
+        image: mockSurveyImage,
+      });
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+
+      // Act
+      const result = await service.getAnnotationWithValidation('image-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result?.imageId).toBe('image-123');
+      expect(result?.data.version).toBe('1.0');
+      expect(result?.data.objects).toHaveLength(2);
+    });
+
+    it('注釈データが存在しない場合はnullを返す（Requirements: 9.2）', async () => {
+      // Arrange
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(null);
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+
+      // Act
+      const result = await service.getAnnotationWithValidation('image-123');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('画像が存在しない場合はAnnotationImageNotFoundErrorをスローする', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.getAnnotationWithValidation('non-existent-image')).rejects.toThrow(
+        AnnotationImageNotFoundError
+      );
+    });
+
+    it('現場調査が論理削除されている場合はAnnotationImageNotFoundErrorをスローする', async () => {
+      // Arrange
+      const deletedSurveyImage = {
+        ...mockSurveyImage,
+        survey: {
+          id: 'survey-123',
+          deletedAt: new Date('2024-01-10'),
+        },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(deletedSurveyImage);
+
+      // Act & Assert
+      await expect(service.getAnnotationWithValidation('image-123')).rejects.toThrow(
+        AnnotationImageNotFoundError
+      );
+    });
+
+    it('不正なJSONデータの場合はInvalidAnnotationDataErrorをスローする', async () => {
+      // Arrange
+      const invalidAnnotation = {
+        ...mockImageAnnotation,
+        data: { invalid: 'data' }, // objectsプロパティがない
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(invalidAnnotation);
+
+      // Act & Assert
+      await expect(service.getAnnotationWithValidation('image-123')).rejects.toThrow(
+        InvalidAnnotationDataError
+      );
+    });
+
+    it('objectsが配列でない場合はInvalidAnnotationDataErrorをスローする', async () => {
+      // Arrange
+      const invalidAnnotation = {
+        ...mockImageAnnotation,
+        data: { version: '1.0', objects: 'not-an-array' },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(invalidAnnotation);
+
+      // Act & Assert
+      await expect(service.getAnnotationWithValidation('image-123')).rejects.toThrow(
+        InvalidAnnotationDataError
+      );
+    });
+
+    it('空のオブジェクト配列でも正常に取得できる', async () => {
+      // Arrange
+      const emptyAnnotation = {
+        ...mockImageAnnotation,
+        data: { version: '1.0', objects: [] },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(emptyAnnotation);
+
+      // Act
+      const result = await service.getAnnotationWithValidation('image-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result?.data.objects).toHaveLength(0);
+    });
+
+    it('viewportTransformプロパティを含むデータも正常に取得できる', async () => {
+      // Arrange
+      const annotationWithViewport = {
+        ...mockImageAnnotation,
+        data: {
+          ...mockAnnotationData,
+          viewportTransform: [1, 0, 0, 1, 0, 0],
+        },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(annotationWithViewport);
+
+      // Act
+      const result = await service.getAnnotationWithValidation('image-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result?.data.viewportTransform).toEqual([1, 0, 0, 1, 0, 0]);
+    });
+
+    it('backgroundプロパティを含むデータも正常に取得できる', async () => {
+      // Arrange
+      const annotationWithBackground = {
+        ...mockImageAnnotation,
+        data: {
+          ...mockAnnotationData,
+          background: '#ffffff',
+        },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(annotationWithBackground);
+
+      // Act
+      const result = await service.getAnnotationWithValidation('image-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result?.data.background).toBe('#ffffff');
+    });
+  });
+
   describe('delete', () => {
     it('注釈データを削除する', async () => {
       // Arrange

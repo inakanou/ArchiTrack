@@ -8,8 +8,13 @@
  * - バージョン管理（スキーマバージョン1.0）
  * - 楽観的排他制御の実装
  *
+ * Task 5.2: 注釈データの取得・復元機能を実装する
+ * - 画像IDによる注釈データ取得
+ * - JSONデータの検証
+ *
  * Requirements:
  * - 9.1: 全ての注釈データをデータベースに保存する
+ * - 9.2: 保存された注釈データを復元して表示する
  * - 9.4: 保存中インジケーターを表示する（バックエンドは保存処理を提供）
  *
  * @module services/annotation
@@ -329,6 +334,54 @@ export class AnnotationService {
     if (!annotation) {
       return null;
     }
+
+    return this.toAnnotationInfo(annotation);
+  }
+
+  /**
+   * 画像IDで注釈データを取得し、検証する（Task 5.2）
+   *
+   * 画像の存在確認とJSONデータの検証を行います。
+   * フロントエンドでの注釈データ復元に使用されます。
+   *
+   * Requirements:
+   * - 9.2: 保存された注釈データを復元して表示する
+   *
+   * @param imageId - 画像ID
+   * @returns 検証済みの注釈情報、注釈データが存在しない場合はnull
+   * @throws {AnnotationImageNotFoundError} 画像が存在しない、または論理削除されている場合
+   * @throws {InvalidAnnotationDataError} 保存されているJSONデータが無効な場合
+   */
+  async getAnnotationWithValidation(imageId: string): Promise<AnnotationInfo | null> {
+    // 1. 画像の存在確認（論理削除チェックを含む）
+    const image = await this.prisma.surveyImage.findUnique({
+      where: { id: imageId },
+      include: {
+        survey: {
+          select: {
+            id: true,
+            deletedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!image || image.survey.deletedAt !== null) {
+      throw new AnnotationImageNotFoundError(imageId);
+    }
+
+    // 2. 注釈データの取得
+    const annotation = await this.prisma.imageAnnotation.findUnique({
+      where: { imageId },
+    });
+
+    if (!annotation) {
+      return null;
+    }
+
+    // 3. JSONデータの検証
+    const data = annotation.data as unknown as AnnotationData;
+    this.validateAnnotationData(data);
 
     return this.toAnnotationInfo(annotation);
   }
