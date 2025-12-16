@@ -34,9 +34,9 @@
 2. When ユーザーが複数の画像を同時に選択する, the Site Survey Service shall バッチアップロードを実行する
 3. When 画像アップロードが完了する, the Site Survey Service shall サムネイルを自動生成する
 4. If アップロードされたファイルが許可された形式でない, then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する
-5. If ファイルサイズが上限（200KB）を超える, then the Site Survey Service shall 画像を圧縮して200KB以下に調整した上で登録する
+5. If ファイルサイズが上限（300KB）を超える, then the Site Survey Service shall 画像サイズと品質を段階的に下げて目標サイズ（300KB）前後に圧縮した上で登録する
 6. When ユーザーが画像を削除する, the Site Survey Service shall 画像と関連する注釈データを削除する
-7. The Site Survey Service shall JPEG、PNG、WEBP、PDF形式の画像ファイルをサポートする
+7. The Site Survey Service shall JPEG、PNG、WEBP形式の画像ファイルをサポートする
 8. The Site Survey Service shall 画像一覧を固定の表示順序で表示する
 9. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更して保存する
 
@@ -105,12 +105,13 @@
 **Objective:** As a 現場調査担当者, I want 注釈を含めた画像をエクスポートできること, so that 報告書や数量表作成に利用できる
 
 #### Acceptance Criteria
-1. When ユーザーがエクスポートボタンを押す, the Site Survey Service shall 注釈をレンダリングした画像を生成する
-2. When ユーザーがエクスポート形式を選択する, the Site Survey Service shall JPEG、PNG、PDF形式でのエクスポートをサポートする
-3. When PDFエクスポートが選択される, the Site Survey Service shall 複数画像を1つのPDFにまとめるオプションを提供する
-4. The Site Survey Service shall エクスポート画像の解像度（品質）を選択可能にする
-5. The Site Survey Service shall 注釈なしの元画像もダウンロード可能にする
-6. The Site Survey Service shall 日本語を含むテキスト注釈を正しくレンダリングしてエクスポートする
+1. When ユーザーが個別画像のエクスポートボタンを押す, the Site Survey Service shall 注釈をレンダリングした画像を生成する
+2. When ユーザーがエクスポート形式を選択する, the Site Survey Service shall JPEG、PNG形式でのエクスポートをサポートする
+3. The Site Survey Service shall エクスポート画像の解像度（品質）を選択可能にする
+4. The Site Survey Service shall 注釈なしの元画像もダウンロード可能にする
+5. The Site Survey Service shall 日本語を含むテキスト注釈を正しくレンダリングしてエクスポートする
+6. When ユーザーが調査報告書出力ボタンを押す, the Site Survey Service shall 注釈付き画像一覧を調査結果報告PDFドキュメントとして生成してダウンロードする
+7. The Site Survey Service shall 調査報告PDFに現場調査の基本情報（調査名、調査日、メモ等）を含める
 
 ### Requirement 10: Undo/Redo機能
 **Objective:** As a 現場調査担当者, I want 注釈編集操作を取り消し・やり直しできること, so that 誤操作を簡単に修正できる
@@ -139,3 +140,17 @@
 2. When タッチデバイスで操作する, the Site Survey Service shall タッチ操作に最適化された注釈ツールを提供する
 3. The Site Survey Service shall モバイル環境でのカメラ連携による直接撮影をサポートする
 4. While ネットワーク接続が不安定, the Site Survey Service shall ローカルに一時保存して接続回復時に同期する
+5. If オフライン時の変更とサーバー上の変更が競合する, then the Site Survey Service shall 両方の変更をマージして統合する
+
+### Requirement 13: 非機能要件
+**Objective:** As a システム管理者, I want 現場調査機能が高いパフォーマンスと信頼性を持つこと, so that ユーザーがストレスなく利用できる
+
+#### Acceptance Criteria
+1. The Site Survey Service shall 画像一覧の初期表示を2秒以内に完了する
+2. The Site Survey Service shall 注釈の描画・編集操作を60fps以上で応答する
+3. The Site Survey Service shall 画像アップロード処理を5秒以内に完了する（300KB以下の場合）
+4. The Site Survey Service shall 同時接続ユーザー100人以上をサポートする
+5. The Site Survey Service shall 99.9%の可用性を維持する
+6. The Site Survey Service shall 全ての通信をHTTPS/TLSで暗号化する
+7. The Site Survey Service shall 画像データを定期的にバックアップする
+8. The Site Survey Service shall エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する
