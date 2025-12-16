@@ -5,6 +5,7 @@
  *
  * Requirements:
  * - 1.1: プロジェクトに紐付く新規現場調査レコードを作成する
+ * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
  * - 1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
  * - 12.5: 現場調査の作成時に監査ログを記録する
  *
@@ -34,8 +35,35 @@ export interface SiteSurveyInfo {
   name: string;
   surveyDate: Date;
   memo: string | null;
+  thumbnailUrl: string | null;
+  imageCount: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * 画像情報
+ */
+export interface SurveyImageInfo {
+  id: string;
+  surveyId: string;
+  originalPath: string;
+  thumbnailPath: string;
+  fileName: string;
+  fileSize: number;
+  width: number;
+  height: number;
+  displayOrder: number;
+  createdAt: Date;
+}
+
+/**
+ * 現場調査詳細情報（Requirements: 1.2）
+ * 基本情報に加えて、プロジェクト情報と画像一覧を含む
+ */
+export interface SiteSurveyDetail extends SiteSurveyInfo {
+  project: { id: string; name: string };
+  images: SurveyImageInfo[];
 }
 
 /**
@@ -139,9 +167,77 @@ export class SiteSurveyService {
   }
 
   /**
+   * 現場調査詳細取得
+   *
+   * 現場調査の基本情報、プロジェクト情報、画像一覧を取得する。
+   * 論理削除されたレコードは除外される。
+   *
+   * Requirements:
+   * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
+   *
+   * @param id - 現場調査ID
+   * @returns 現場調査詳細情報、存在しない場合はnull
+   */
+  async findById(id: string): Promise<SiteSurveyDetail | null> {
+    const siteSurvey = await this.prisma.siteSurvey.findUnique({
+      where: {
+        id,
+        deletedAt: null, // 論理削除されたレコードを除外
+      },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        images: {
+          orderBy: {
+            displayOrder: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!siteSurvey) {
+      return null;
+    }
+
+    return this.toSiteSurveyDetail(siteSurvey);
+  }
+
+  /**
    * データベースの結果をSiteSurveyInfoに変換
    */
-  private toSiteSurveyInfo(siteSurvey: {
+  private toSiteSurveyInfo(
+    siteSurvey: {
+      id: string;
+      projectId: string;
+      name: string;
+      surveyDate: Date;
+      memo: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    },
+    images: SurveyImageInfo[] = []
+  ): SiteSurveyInfo {
+    return {
+      id: siteSurvey.id,
+      projectId: siteSurvey.projectId,
+      name: siteSurvey.name,
+      surveyDate: siteSurvey.surveyDate,
+      memo: siteSurvey.memo,
+      thumbnailUrl: images.length > 0 && images[0] ? images[0].thumbnailPath : null,
+      imageCount: images.length,
+      createdAt: siteSurvey.createdAt,
+      updatedAt: siteSurvey.updatedAt,
+    };
+  }
+
+  /**
+   * データベースの結果をSiteSurveyDetailに変換
+   */
+  private toSiteSurveyDetail(siteSurvey: {
     id: string;
     projectId: string;
     name: string;
@@ -149,15 +245,37 @@ export class SiteSurveyService {
     memo: string | null;
     createdAt: Date;
     updatedAt: Date;
-  }): SiteSurveyInfo {
+    project: { id: string; name: string };
+    images: Array<{
+      id: string;
+      surveyId: string;
+      originalPath: string;
+      thumbnailPath: string;
+      fileName: string;
+      fileSize: number;
+      width: number;
+      height: number;
+      displayOrder: number;
+      createdAt: Date;
+    }>;
+  }): SiteSurveyDetail {
+    const images: SurveyImageInfo[] = siteSurvey.images.map((img) => ({
+      id: img.id,
+      surveyId: img.surveyId,
+      originalPath: img.originalPath,
+      thumbnailPath: img.thumbnailPath,
+      fileName: img.fileName,
+      fileSize: img.fileSize,
+      width: img.width,
+      height: img.height,
+      displayOrder: img.displayOrder,
+      createdAt: img.createdAt,
+    }));
+
     return {
-      id: siteSurvey.id,
-      projectId: siteSurvey.projectId,
-      name: siteSurvey.name,
-      surveyDate: siteSurvey.surveyDate,
-      memo: siteSurvey.memo,
-      createdAt: siteSurvey.createdAt,
-      updatedAt: siteSurvey.updatedAt,
+      ...this.toSiteSurveyInfo(siteSurvey, images),
+      project: siteSurvey.project,
+      images,
     };
   }
 }

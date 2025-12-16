@@ -322,4 +322,221 @@ describe('SiteSurveyService', () => {
       );
     });
   });
+
+  /**
+   * Task 3.2: 現場調査の詳細取得機能を実装する
+   *
+   * Requirements:
+   * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
+   *
+   * - 関連する画像一覧の取得を含む
+   * - プロジェクト基本情報の取得
+   * - 論理削除されたレコードの除外
+   */
+  describe('findById', () => {
+    const mockSurveyImages = [
+      {
+        id: 'image-001',
+        surveyId: 'survey-123',
+        originalPath: 'surveys/survey-123/images/image-001.jpg',
+        thumbnailPath: 'surveys/survey-123/thumbnails/image-001.jpg',
+        fileName: 'photo1.jpg',
+        fileSize: 150000,
+        width: 1920,
+        height: 1080,
+        displayOrder: 1,
+        createdAt: new Date('2024-01-10'),
+      },
+      {
+        id: 'image-002',
+        surveyId: 'survey-123',
+        originalPath: 'surveys/survey-123/images/image-002.jpg',
+        thumbnailPath: 'surveys/survey-123/thumbnails/image-002.jpg',
+        fileName: 'photo2.jpg',
+        fileSize: 200000,
+        width: 1920,
+        height: 1080,
+        displayOrder: 2,
+        createdAt: new Date('2024-01-11'),
+      },
+    ];
+
+    const mockSurveyWithProjectAndImages = {
+      ...mockSiteSurvey,
+      project: {
+        id: 'project-123',
+        name: 'テストプロジェクト',
+      },
+      images: mockSurveyImages,
+    };
+
+    it('現場調査詳細を正常に取得する（Requirements: 1.2）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result?.id).toBe('survey-123');
+      expect(result?.name).toBe('第1回現場調査');
+      expect(result?.projectId).toBe('project-123');
+    });
+
+    it('プロジェクト基本情報を含めて取得する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      expect(result?.project).toBeDefined();
+      expect(result?.project.id).toBe('project-123');
+      expect(result?.project.name).toBe('テストプロジェクト');
+    });
+
+    it('関連する画像一覧を含めて取得する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.images).toBeDefined();
+      expect(result!.images.length).toBe(2);
+      expect(result!.images[0]!.id).toBe('image-001');
+      expect(result!.images[0]!.fileName).toBe('photo1.jpg');
+      expect(result!.images[1]!.id).toBe('image-002');
+    });
+
+    it('画像はdisplayOrder順でソートされて取得する（Prisma orderByで制御）', async () => {
+      // Arrange
+      // Prisma orderByがdisplayOrderで昇順ソートを行うことを検証
+      // 実際のソートはDB側で行われるため、モックは順序どおりのデータを返す
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      await service.findById('survey-123');
+
+      // Assert - orderByが正しく指定されていることを確認
+      expect(mockPrisma.siteSurvey.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            images: {
+              orderBy: {
+                displayOrder: 'asc',
+              },
+            },
+          }),
+        })
+      );
+    });
+
+    it('画像が存在しない場合も正常に取得する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue({
+        ...mockSurveyWithProjectAndImages,
+        images: [],
+      });
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result?.images).toEqual([]);
+    });
+
+    it('論理削除された現場調査は取得できない', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('存在しない現場調査IDの場合はnullを返す', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act
+      const result = await service.findById('non-existent-id');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('正しいクエリパラメータでfindUniqueを呼び出す', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      await service.findById('survey-123');
+
+      // Assert
+      expect(mockPrisma.siteSurvey.findUnique).toHaveBeenCalledWith({
+        where: {
+          id: 'survey-123',
+          deletedAt: null,
+        },
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          images: {
+            orderBy: {
+              displayOrder: 'asc',
+            },
+          },
+        },
+      });
+    });
+
+    it('画像件数を返す', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      expect(result?.imageCount).toBe(2);
+    });
+
+    it('サムネイルURLを代表画像から取得する', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      // 最初の画像のサムネイルパスを返す
+      expect(result?.thumbnailUrl).toBe('surveys/survey-123/thumbnails/image-001.jpg');
+    });
+
+    it('画像がない場合はサムネイルURLがnull', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue({
+        ...mockSurveyWithProjectAndImages,
+        images: [],
+      });
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert
+      expect(result?.thumbnailUrl).toBeNull();
+    });
+  });
 });
