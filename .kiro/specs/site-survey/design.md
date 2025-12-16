@@ -14,7 +14,7 @@
 - 画像アップロード、圧縮、サムネイル生成を実現する
 - Canvas上での注釈編集（寸法線、マーキング、コメント）を可能にする
 - 注釈付き画像のエクスポートおよびPDF報告書生成を実現する
-- オフライン環境での一時保存と同期機能を提供する
+- 自動保存と編集状態の一時保存機能を提供する
 
 ### Non-Goals
 
@@ -69,11 +69,11 @@ graph TB
 
     subgraph Storage
         PostgreSQL[(PostgreSQL)]
-        MinIO[(MinIO S3)]
+        R2[(Cloudflare R2)]
     end
 
     subgraph Client
-        IndexedDB[(IndexedDB)]
+        LocalStorage[(localStorage)]
     end
 
     SurveyListPage --> SurveyRoutes
@@ -88,10 +88,10 @@ graph TB
     SurveyRoutes --> ExportService
 
     SurveyService --> PostgreSQL
-    ImageService --> MinIO
+    ImageService --> R2
     AnnotationService --> PostgreSQL
 
-    AnnotationEditor --> IndexedDB
+    AnnotationEditor --> LocalStorage
 ```
 
 **Architecture Integration**:
@@ -110,12 +110,12 @@ graph TB
 |-------|------------------|-----------------|-------|
 | Frontend | React 19.2.0 + TypeScript 5.9.3 | UI/UXの実装 | 既存スタック継続 |
 | Canvas Library | Fabric.js 6.x | 注釈描画・編集 | TypeScript対応、豊富なオブジェクト操作 |
-| Offline Storage | Dexie.js 4.x | オフラインデータ永続化 | IndexedDBのReact-friendlyラッパー |
+| Local Storage | localStorage API | 編集状態の一時保存 | ブラウザ標準API、追加依存なし |
 | Backend | Express 5.2.0 + TypeScript | API実装 | 既存スタック継続 |
 | Image Processing | Sharp 0.33.x | 画像圧縮・サムネイル生成 | 高速、メモリ効率良好 |
 | File Upload | Multer 1.4.x | マルチパートファイル処理 | Express標準ミドルウェア |
 | PDF Generation | jsPDF 2.5.x | PDF報告書生成 | クライアントサイド生成 |
-| Object Storage | MinIO (S3互換) | 画像ファイル保存 | Railway対応、永続ボリューム |
+| Object Storage | Cloudflare R2 | 画像ファイル保存 | S3互換API、転送料金無料、10GB/月無料枠 |
 | Database | PostgreSQL 15 + Prisma 7 | メタデータ・注釈データ保存 | 既存スタック継続 |
 
 ## System Flows
@@ -128,7 +128,7 @@ sequenceDiagram
     participant Frontend
     participant Backend
     participant Sharp
-    participant MinIO
+    participant R2 as Cloudflare R2
     participant PostgreSQL
 
     User->>Frontend: 画像ファイル選択
@@ -138,8 +138,8 @@ sequenceDiagram
     Sharp-->>Backend: 圧縮済み画像
     Backend->>Sharp: サムネイル生成
     Sharp-->>Backend: サムネイル
-    Backend->>MinIO: 原画像・サムネイル保存
-    MinIO-->>Backend: ストレージURL
+    Backend->>R2: 原画像・サムネイル保存（S3 API）
+    R2-->>Backend: ストレージURL
     Backend->>PostgreSQL: 画像メタデータ保存
     PostgreSQL-->>Backend: 保存完了
     Backend-->>Frontend: 画像情報レスポンス
@@ -159,49 +159,60 @@ sequenceDiagram
     participant AnnotationEditor
     participant FabricCanvas
     participant UndoManager
-    participant IndexedDB
+    participant LocalStorage
     participant Backend
 
     User->>AnnotationEditor: 画像選択
-    AnnotationEditor->>Backend: GET /api/site-surveys/:id/images/:imageId/annotations
-    Backend-->>AnnotationEditor: 注釈データ(JSON)
-    AnnotationEditor->>FabricCanvas: 注釈オブジェクト復元
+    AnnotationEditor->>LocalStorage: 未保存データ確認
+    alt 未保存データあり
+        LocalStorage-->>AnnotationEditor: 復元データ
+        AnnotationEditor->>FabricCanvas: ローカルデータ復元
+    else 未保存データなし
+        AnnotationEditor->>Backend: GET /api/site-surveys/:id/images/:imageId/annotations
+        Backend-->>AnnotationEditor: 注釈データ(JSON)
+        AnnotationEditor->>FabricCanvas: 注釈オブジェクト復元
+    end
 
     User->>FabricCanvas: 注釈操作（追加/編集/削除）
     FabricCanvas->>UndoManager: 操作履歴記録
-    FabricCanvas->>IndexedDB: 自動保存（debounce）
+    FabricCanvas->>LocalStorage: 一時保存（debounce 30秒）
 
     User->>AnnotationEditor: 保存ボタン
     AnnotationEditor->>FabricCanvas: toJSON()
     FabricCanvas-->>AnnotationEditor: 注釈データ
     AnnotationEditor->>Backend: PUT /api/.../annotations
     Backend-->>AnnotationEditor: 保存完了
-    AnnotationEditor->>IndexedDB: ローカルキャッシュクリア
+    AnnotationEditor->>LocalStorage: ローカルキャッシュクリア
 ```
 
 **Key Decisions**:
 - 注釈データはFabric.js JSON形式で保存
 - Undo/Redo履歴は最大50件、保存時にクリア
-- オフライン時はIndexedDBに一時保存、オンライン復帰時に同期
+- 30秒間隔で自動的にlocalStorageに一時保存（debounce）
+- ページリロード時にlocalStorageから未保存データを復元
 
-### オフライン同期フロー
+### ネットワーク状態管理フロー
 
 ```mermaid
 stateDiagram-v2
     [*] --> Online
-    Online --> Offline: ネットワーク切断
-    Offline --> PendingSync: ローカル変更
-    PendingSync --> Syncing: ネットワーク復帰
-    Syncing --> ConflictDetected: サーバー変更あり
-    Syncing --> Online: 同期成功
-    ConflictDetected --> MergeDialog: ユーザー確認
-    MergeDialog --> Online: 解決完了
+    Online --> Editing: 注釈編集開始
+    Editing --> AutoSaving: 30秒経過
+    AutoSaving --> Editing: localStorage保存完了
+    Editing --> Saving: 保存ボタン押下
+    Saving --> Online: サーバー保存成功
+    Saving --> SaveFailed: サーバー保存失敗
+    SaveFailed --> Editing: リトライ
+    Online --> Offline: ネットワーク切断検出
+    Offline --> WarningShown: 警告表示
+    WarningShown --> Offline: 保存操作ブロック
+    Offline --> Online: ネットワーク復帰
 ```
 
 **Key Decisions**:
-- 競合検出はupdatedAtタイムスタンプで判定
-- 競合時はユーザーに選択肢を提示（ローカル優先/サーバー優先/マージ）
-- 注釈データのマージはオブジェクト単位で実行
+- ネットワーク切断時は警告を表示し、サーバー保存をブロック
+- localStorageへの一時保存は継続（データ損失防止）
+- オンライン復帰後に手動で保存操作を実行
 
 ## Requirements Traceability
 
@@ -214,11 +225,11 @@ stateDiagram-v2
 | 5.1-5.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 6.1-6.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 7.1-7.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
-| 8.1-8.6 | 注釈保存・復元 | AnnotationService, IndexedDB | AnnotationAPI | 注釈編集フロー |
+| 8.1-8.6 | 注釈保存・復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
 | 9.1-9.7 | エクスポート | ExportService, jsPDF | ExportAPI | - |
 | 10.1-10.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
 | 11.1-11.4 | アクセス制御 | AuthMiddleware, RBACService | - | - |
-| 12.1-12.5 | レスポンシブ・オフライン | OfflineSyncManager, Dexie | - | 同期フロー |
+| 12.1-12.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
 | 13.1-13.8 | 非機能要件 | 全コンポーネント | - | - |
 
 ## Components and Interfaces
@@ -228,16 +239,16 @@ stateDiagram-v2
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
 | SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2 | PrismaClient (P0), AuditLogService (P1) | Service, API |
-| ImageService | Backend/Service | 画像アップロード・処理 | 3 | Sharp (P0), MinIO (P0), Multer (P0) | Service, API |
+| ImageService | Backend/Service | 画像アップロード・処理 | 3 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
 | AnnotationService | Backend/Service | 注釈データ管理 | 5, 6, 7, 8 | PrismaClient (P0) | Service, API |
-| ExportService | Backend/Service | エクスポート処理 | 9 | jsPDF (P0), Sharp (P1) | Service, API |
+| ExportService | Frontend/Service | エクスポート処理 | 9 | jsPDF (P0), Fabric.js (P0) | State |
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-9 | All Services (P0) | API |
 | SurveyListPage | Frontend/Page | 一覧表示 | 2 | SurveyAPI (P0) | State |
 | SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 3, 4 | SurveyAPI (P0), ImageAPI (P0) | State |
 | AnnotationEditor | Frontend/Component | 注釈編集UI | 5, 6, 7, 8, 10 | Fabric.js (P0), UndoManager (P0) | State |
 | ImageViewer | Frontend/Component | 画像表示・操作 | 4 | Fabric.js (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 10 | - | State |
-| OfflineSyncManager | Frontend/Service | オフライン同期 | 12 | Dexie.js (P0) | State |
+| AutoSaveManager | Frontend/Service | 自動保存・状態復元 | 12 | localStorage (P0) | State |
 
 ### Backend / Service Layer
 
@@ -346,13 +357,13 @@ interface ISurveyService {
 - ファイル形式バリデーション（JPEG, PNG, WEBP）
 - 300KB超過時の段階的圧縮
 - 200x200pxサムネイル自動生成
-- MinIO S3互換ストレージへのアップロード
+- Cloudflare R2（S3互換API）へのアップロード
 - 画像表示順序の管理
 
 **Dependencies**
 - Inbound: SurveyRoutes — ファイルアップロード処理 (P0)
 - Outbound: Sharp — 画像処理 (P0)
-- Outbound: MinIO Client — S3ストレージ (P0)
+- Outbound: @aws-sdk/client-s3 — Cloudflare R2連携 (P0)
 - Outbound: PrismaClient — メタデータ保存 (P0)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
@@ -362,7 +373,7 @@ interface ISurveyService {
 ```typescript
 interface ImageServiceDependencies {
   prisma: PrismaClient;
-  minioClient: MinioClient;
+  s3Client: S3Client; // @aws-sdk/client-s3
   sharpProcessor: typeof sharp;
 }
 
@@ -401,9 +412,61 @@ interface IImageService {
 - Invariants: 元画像とサムネイルは同一トランザクションで管理
 
 **Implementation Notes**
-- Integration: MinIOクライアントはシングルトンで接続管理
+- Integration: S3Clientはシングルトンで接続管理、環境変数で設定切替
 - Validation: MIMEタイプとマジックバイトの二重検証
-- Risks: Railway環境でのMinIO永続ボリュームサイズ制限に注意
+- Risks: R2の無料枠（10GB/月、100万リクエスト/月）を超過時の課金に注意
+
+##### Cloudflare R2 設定詳細
+
+**選定理由**（MinIOとの比較）:
+| 観点 | MinIO (self-hosted) | Cloudflare R2 |
+|------|---------------------|---------------|
+| 運用負荷 | 高（永続ボリューム管理必要） | 低（マネージドサービス） |
+| 転送料金 | Railway内無料 | **完全無料**（エグレス課金なし） |
+| 無料枠 | なし（インフラコスト発生） | 10GB/月、100万リクエスト/月 |
+| 可用性 | Railway依存 | 99.999%（Cloudflareインフラ） |
+| Docker公式イメージ | 2025年10月廃止 | N/A（SaaS） |
+
+**結論**: 運用負荷の低さ、転送料金無料、高可用性からCloudflare R2を採用
+
+**環境変数設定**:
+```bash
+# Railway Environment Variables
+R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=<ACCESS_KEY_ID>
+R2_SECRET_ACCESS_KEY=<SECRET_ACCESS_KEY>
+R2_BUCKET_NAME=architrack-images
+R2_PUBLIC_URL=https://<CUSTOM_DOMAIN_OR_R2_DEV_URL>  # オプション: 公開URL
+```
+
+**S3Client初期化**:
+```typescript
+// backend/src/config/storage.ts
+import { S3Client } from '@aws-sdk/client-s3';
+
+export const s3Client = new S3Client({
+  region: 'auto',  // R2固有の設定
+  endpoint: process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+```
+
+**署名付きURL生成**:
+```typescript
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+
+export async function generateSignedUrl(key: string, expiresIn = 900): Promise<string> {
+  const command = new GetObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME,
+    Key: key,
+  });
+  return getSignedUrl(s3Client, command, { expiresIn });
+}
+```
 
 #### AnnotationService
 
@@ -464,56 +527,91 @@ interface IAnnotationService {
 - Validation: 注釈オブジェクトの型安全性を検証
 - Risks: 大量の注釈オブジェクトによるJSONサイズ肥大化
 
-#### ExportService
+#### ExportService (Frontend)
 
 | Field | Detail |
 |-------|--------|
-| Intent | 注釈付き画像およびPDF報告書のエクスポート処理を担当 |
+| Intent | 注釈付き画像およびPDF報告書のエクスポート処理を担当（クライアントサイド実行） |
 | Requirements | 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 |
 
 **Responsibilities & Constraints**
-- 注釈をラスタライズした画像生成
+- Fabric.js Canvas → 画像変換（toDataURL）
 - JPEG/PNG形式での画像エクスポート
-- PDF報告書の生成（現場調査基本情報 + 画像一覧）
-- 日本語フォントのPDFレンダリング
+- PDF報告書の生成（jsPDF、クライアントサイド完結）
+- Noto Sans JP フォント埋め込みによる日本語対応
 
 **Dependencies**
-- Inbound: SurveyRoutes — エクスポートリクエスト (P0)
-- Outbound: Sharp — 画像合成 (P1)
-- Outbound: ImageService — 元画像取得 (P0)
-- Outbound: AnnotationService — 注釈データ取得 (P0)
+- Inbound: AnnotationEditor — エクスポートトリガー (P0)
+- Outbound: jsPDF — PDF生成 (P0)
+- Outbound: Fabric.js — Canvas→画像変換 (P0)
 
-**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
 ##### Service Interface
 
 ```typescript
 interface ExportImageOptions {
   format: 'jpeg' | 'png';
-  quality: 'low' | 'medium' | 'high';
+  quality: number; // 0.1 - 1.0
   includeAnnotations: boolean;
 }
 
 interface ExportPdfOptions {
   title?: string;
   includeMetadata: boolean;
+  imageQuality: number; // 0.1 - 1.0
 }
 
 interface IExportService {
-  exportImage(imageId: string, options: ExportImageOptions): Promise<Buffer>;
-  exportPdf(surveyId: string, options: ExportPdfOptions): Promise<Buffer>;
-  exportAnnotationsJson(imageId: string): Promise<string>;
+  // 単一画像エクスポート（Fabric.js toDataURL使用）
+  exportImage(canvas: FabricCanvas, options: ExportImageOptions): string; // data URL
+
+  // PDF報告書生成（クライアントサイドjsPDF使用）
+  exportPdf(survey: SurveyDetail, images: AnnotatedImage[], options: ExportPdfOptions): Blob;
+
+  // 注釈データJSONエクスポート
+  exportAnnotationsJson(canvas: FabricCanvas): string;
+
+  // ダウンロードトリガー
+  downloadFile(data: string | Blob, filename: string): void;
 }
 ```
 
-- Preconditions: 対象の画像または現場調査が存在すること
-- Postconditions: エクスポート結果がバイナリデータとして返却されること
-- Invariants: 日本語テキストが正しくレンダリングされること
+- Preconditions: Fabric.js Canvasが初期化されていること
+- Postconditions: ブラウザのダウンロードが開始されること
+- Invariants: 日本語テキストが正しくレンダリングされること（Noto Sans JP埋め込み）
 
 **Implementation Notes**
-- Integration: PDF生成はjsPDFをサーバーサイドで使用（canvas依存解消のためpdfkitも検討）
-- Validation: エクスポート品質設定のバリデーション
-- Risks: 大量画像のPDF生成時のメモリ使用量
+- Integration: Noto Sans JPフォントはBase64エンコードして静的アセットとしてバンドル
+- Validation: 画像数が多い場合は処理中表示（20枚以上で数秒かかる）
+- Risks: フォントファイルサイズ（サブセット化で軽減、約500KB）
+
+##### 日本語フォント埋め込み詳細
+
+**フォント選定**: Noto Sans JP（Google Fonts、OFL-1.1ライセンス）
+
+**サブセット化プロセス**:
+1. [fonttools](https://github.com/fonttools/fonttools) を使用してサブセット化
+2. 対象文字: JIS第1水準漢字 + ひらがな + カタカナ + 英数字記号（約3,000文字）
+3. 目標サイズ: 500KB以下（フル版約16MB → サブセット版約500KB）
+
+**バンドル方法**:
+```typescript
+// frontend/src/services/export/fonts/noto-sans-jp.ts
+// ビルド時にBase64エンコードされたフォントデータを生成
+export const NotoSansJPBase64 = '/* Base64 encoded font data */';
+
+// frontend/src/services/export/ExportService.ts
+import { jsPDF } from 'jspdf';
+import { NotoSansJPBase64 } from './fonts/noto-sans-jp';
+
+export function initializePdfFonts(doc: jsPDF): void {
+  doc.addFileToVFS('NotoSansJP-Regular.ttf', NotoSansJPBase64);
+  doc.addFont('NotoSansJP-Regular.ttf', 'NotoSansJP', 'normal');
+}
+```
+
+**非同期ローディング**: 初回PDF生成時にフォントを遅延読み込みし、以降はメモリキャッシュを使用
 
 ### Backend / Routes Layer
 
@@ -541,8 +639,8 @@ interface IExportService {
 | DELETE | /api/site-surveys/images/:imageId | - | 204 No Content | 404 |
 | GET | /api/site-surveys/images/:imageId/annotations | - | AnnotationInfo | 404 |
 | PUT | /api/site-surveys/images/:imageId/annotations | AnnotationData | AnnotationInfo | 400, 404, 409 |
-| GET | /api/site-surveys/images/:imageId/export | ExportParams | Binary | 400, 404 |
-| GET | /api/site-surveys/:id/export/pdf | ExportPdfParams | Binary | 400, 404 |
+
+**Note**: 画像エクスポートおよびPDF生成はクライアントサイドで実行（Fabric.js toDataURL + jsPDF）
 
 ### Frontend / Component Layer
 
@@ -565,7 +663,7 @@ interface IExportService {
 - Outbound: Fabric.js — Canvas操作 (P0)
 - Outbound: UndoManager — 操作履歴 (P0)
 - Outbound: AnnotationAPI — データ永続化 (P0)
-- Outbound: IndexedDB — オフライン保存 (P1)
+- Outbound: localStorage — 一時保存 (P1)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
@@ -694,56 +792,126 @@ interface IUndoManager {
 - Validation: 履歴サイズ制限の自動適用
 - Risks: 複雑な操作のundo実装が困難な場合あり
 
-#### OfflineSyncManager
+#### AutoSaveManager
 
 | Field | Detail |
 |-------|--------|
-| Intent | オフライン時のデータ保存と同期処理を管理 |
-| Requirements | 12.4, 12.5 |
+| Intent | 注釈編集の自動保存とローカル状態の復元を管理 |
+| Requirements | 12.4, 12.5, 12.6 |
 
 **Responsibilities & Constraints**
-- IndexedDB（Dexie.js）によるローカルデータ保存
-- オンライン復帰時の自動同期
-- 競合検出と解決UI表示
-- 同期状態のインジケータ表示
+- localStorageによる編集状態の一時保存（30秒間隔）
+- ページリロード時の未保存データ復元
+- ネットワーク接続状態の監視と警告表示
+- 保存操作のブロック（オフライン時）
 
 **Dependencies**
-- Inbound: AnnotationEditor — オフライン保存要求 (P0)
-- Outbound: Dexie.js — IndexedDB操作 (P0)
-- Outbound: AnnotationAPI — サーバー同期 (P0)
+- Inbound: AnnotationEditor — 自動保存要求 (P0)
+- Outbound: localStorage — データ永続化 (P0)
+- Outbound: navigator.onLine — 接続状態監視 (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
 ##### State Management
 
 ```typescript
-interface SyncState {
+interface AutoSaveState {
   isOnline: boolean;
-  pendingChanges: number;
-  lastSyncedAt: Date | null;
-  syncStatus: 'idle' | 'syncing' | 'conflict' | 'error';
+  hasUnsavedChanges: boolean;
+  lastAutoSavedAt: Date | null;
+  autoSaveStatus: 'idle' | 'saving' | 'saved' | 'error';
 }
 
-interface PendingChange {
-  id: string;
+interface LocalStorageData {
   imageId: string;
-  data: AnnotationData;
-  localUpdatedAt: Date;
-  serverUpdatedAt: Date | null;
+  surveyId: string;
+  annotationData: AnnotationData;
+  savedAt: Date;
+  serverUpdatedAt: Date | null; // 最後にサーバーから取得した時点のupdatedAt
 }
 
-interface IOfflineSyncManager {
-  saveLocal(imageId: string, data: AnnotationData): Promise<void>;
-  getPendingChanges(): Promise<PendingChange[]>;
-  sync(): Promise<SyncResult>;
-  resolveConflict(changeId: string, resolution: 'local' | 'server' | 'merge'): Promise<void>;
+interface IAutoSaveManager {
+  saveToLocal(imageId: string, data: AnnotationData): void;
+  loadFromLocal(imageId: string): LocalStorageData | null;
+  clearLocal(imageId: string): void;
+  hasUnsavedData(imageId: string): boolean;
+  isOnline(): boolean;
+  onNetworkChange(callback: (isOnline: boolean) => void): void;
 }
 ```
 
 **Implementation Notes**
 - Integration: navigator.onLineイベントで接続状態を監視
-- Validation: サーバー側updatedAtとの比較で競合検出
-- Risks: 複雑なマージロジックの実装難易度
+- Validation: localStorageのデータサイズ制限（5MB）に注意
+- Risks: localStorageはブラウザごとに独立、デバイス間での共有不可
+
+##### localStorage容量管理
+
+**想定データサイズ**:
+- 注釈データ（Fabric.js JSON）: 50KB〜200KB/画像（注釈量による）
+- 現場調査1件あたり想定画像数: 10〜30枚
+- 同時編集保持: 現在編集中の1画像のみ（過去のキャッシュは保持）
+
+**容量管理戦略**:
+```typescript
+const STORAGE_KEY_PREFIX = 'architrack_annotation_';
+const MAX_CACHE_SIZE_BYTES = 4 * 1024 * 1024; // 4MB（5MB制限に対してバッファ確保）
+const MAX_CACHED_IMAGES = 10; // 最大キャッシュ画像数
+
+interface CacheEntry {
+  imageId: string;
+  surveyId: string;
+  data: string;
+  savedAt: number;
+  size: number;
+}
+
+function saveWithQuotaManagement(key: string, data: string): boolean {
+  const size = new Blob([data]).size;
+
+  // 1. サイズチェック（単一エントリが1MBを超える場合は警告）
+  if (size > 1024 * 1024) {
+    console.warn('Annotation data exceeds 1MB, consider reducing annotations');
+  }
+
+  // 2. 容量確保（LRU方式で古いキャッシュを削除）
+  ensureStorageSpace(size);
+
+  // 3. 保存試行
+  try {
+    localStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now(), size }));
+    return true;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+      // 緊急クリーンアップ後にリトライ
+      clearOldestEntries(3);
+      try {
+        localStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now(), size }));
+        return true;
+      } catch {
+        return false; // 保存失敗をUIに通知
+      }
+    }
+    throw e;
+  }
+}
+
+function ensureStorageSpace(requiredSize: number): void {
+  const entries = getAllCacheEntries().sort((a, b) => a.savedAt - b.savedAt);
+  let totalSize = entries.reduce((sum, e) => sum + e.size, 0);
+
+  while (totalSize + requiredSize > MAX_CACHE_SIZE_BYTES && entries.length > 0) {
+    const oldest = entries.shift()!;
+    localStorage.removeItem(STORAGE_KEY_PREFIX + oldest.imageId);
+    totalSize -= oldest.size;
+  }
+}
+```
+
+**フォールバック動作**:
+1. 保存成功: 通常動作
+2. 容量警告（3MB超過）: ステータスバーに「キャッシュ容量が少なくなっています」表示
+3. 保存失敗: エラーメッセージ「自動保存に失敗しました。手動で保存してください」表示
 
 ## Data Models
 
@@ -832,7 +1000,7 @@ model SiteSurvey {
 model SurveyImage {
   id            String   @id @default(uuid())
   surveyId      String
-  originalPath  String   // MinIOオブジェクトパス
+  originalPath  String   // R2オブジェクトパス
   thumbnailPath String   // サムネイルパス
   fileName      String   // 元ファイル名
   fileSize      Int      // ファイルサイズ（バイト）
@@ -902,9 +1070,9 @@ interface FabricSerializedObject {
 ```
 
 **Cross-Service Data Management**:
-- 画像ファイルはMinIOに保存、メタデータはPostgreSQLに保存
-- 削除時はPostgreSQLトランザクション内でメタデータを削除し、その後MinIOファイルを削除
-- MinIO削除失敗時は孤立ファイルとしてログに記録（後でクリーンアップジョブで処理）
+- 画像ファイルはCloudflare R2に保存、メタデータはPostgreSQLに保存
+- 削除時はPostgreSQLトランザクション内でメタデータを削除し、その後R2ファイルを削除
+- R2削除失敗時は孤立ファイルとしてログに記録（後でクリーンアップジョブで処理）
 
 ## Error Handling
 
@@ -929,7 +1097,7 @@ interface FabricSerializedObject {
 - 415: 非対応ファイル形式 → JPEG/PNG/WEBP形式への変換ガイド
 
 **System Errors (5xx)**:
-- MinIO接続失敗 → リトライ機構、一時的なローカル保存
+- R2接続失敗 → リトライ機構、エラーメッセージ表示
 - 画像処理失敗 → Sentry報告、元画像保持でリトライ
 - PDF生成失敗 → Sentry報告、個別画像エクスポートへのフォールバック
 
@@ -941,7 +1109,7 @@ interface FabricSerializedObject {
 
 - Sentryによるエラートラッキング（既存統合を活用）
 - Pinoロガーによる構造化ログ出力
-- ヘルスチェックエンドポイントでMinIO接続状態を含める
+- ヘルスチェックエンドポイントでR2接続状態を含める
 
 ## Testing Strategy
 
@@ -951,15 +1119,15 @@ interface FabricSerializedObject {
 - **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
-- **OfflineSyncManager**: ローカル保存、競合検出、マージ処理
+- **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視
 
 ### Integration Tests
 
-- **画像アップロードフロー**: Multer → Sharp → MinIO → PostgreSQL
+- **画像アップロードフロー**: Multer → Sharp → R2 → PostgreSQL
 - **注釈保存・復元**: Frontend ↔ Backend ↔ PostgreSQL
 - **PDFエクスポート**: 画像取得 → 注釈合成 → PDF生成
 - **認証・認可**: プロジェクト権限による現場調査アクセス制御
-- **オフライン同期**: IndexedDB ↔ Backend 競合解決
+- **自動保存・復元**: localStorage保存 → ページリロード → データ復元
 
 ### E2E Tests
 
@@ -990,7 +1158,7 @@ interface FabricSerializedObject {
 
 ### Data Protection
 
-- 画像ファイルはMinIOの署名付きURL経由でアクセス
+- 画像ファイルはR2の署名付きURL経由でアクセス
 - 署名付きURLは15分で期限切れ
 - 注釈データに機密情報を含める場合の警告表示
 
@@ -1039,9 +1207,9 @@ interface FabricSerializedObject {
 
 ### Phase 2: ストレージ設定
 
-1. MinIOサービスのRailwayへのデプロイ
-2. 環境変数の設定
-3. バケット作成とアクセスポリシー設定
+1. Cloudflare R2バケットの作成
+2. APIトークン（Access Key ID, Secret Access Key）の発行
+3. Railway環境変数の設定（R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME）
 
 ### Phase 3: バックエンド実装
 
@@ -1058,5 +1226,5 @@ interface FabricSerializedObject {
 ### Rollback Triggers
 
 - マイグレーション失敗時: Prisma rollback
-- MinIO接続失敗時: 画像アップロード機能の一時無効化
+- R2接続失敗時: 画像アップロード機能の一時無効化
 - 重大なバグ発見時: フィーチャーフラグによる機能無効化

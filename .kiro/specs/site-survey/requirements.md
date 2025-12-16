@@ -139,8 +139,9 @@
 1. The Site Survey Service shall デスクトップ・タブレット・スマートフォンの各画面サイズに対応したUIを提供する
 2. When タッチデバイスで操作する, the Site Survey Service shall タッチ操作に最適化された注釈ツールを提供する
 3. The Site Survey Service shall モバイル環境でのカメラ連携による直接撮影をサポートする
-4. While ネットワーク接続が不安定, the Site Survey Service shall ローカルに一時保存して接続回復時に同期する
-5. If オフライン時の変更とサーバー上の変更が競合する, then the Site Survey Service shall 両方の変更をマージして統合する
+4. While 注釈編集中, the Site Survey Service shall 一定間隔（30秒）で自動保存を実行する
+5. When ページをリロードまたは再訪問した場合, the Site Survey Service shall ブラウザのlocalStorageから未保存の編集状態を復元する
+6. If ネットワーク接続が切断される, then the Site Survey Service shall 警告を表示し保存操作をブロックする
 
 ### Requirement 13: 非機能要件
 **Objective:** As a システム管理者, I want 現場調査機能が高いパフォーマンスと信頼性を持つこと, so that ユーザーがストレスなく利用できる
