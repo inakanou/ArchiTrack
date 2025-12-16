@@ -26,14 +26,14 @@
 
 ### Phase 2: ストレージ基盤
 
-- [ ] 2. Cloudflare R2ストレージ統合
+- [x] 2. Cloudflare R2ストレージ統合
 - [x] 2.1 (P) R2クライアント設定を実装する
   - S3Clientのシングルトン初期化を実装
   - 環境変数（R2_ENDPOINT、R2_ACCESS_KEY_ID、R2_SECRET_ACCESS_KEY、R2_BUCKET_NAME）の設定
   - 接続テストユーティリティを追加
   - _Requirements: 4.1, 14.6_
 
-- [ ] 2.2 (P) 署名付きURL生成・検証機能を実装する
+- [x] 2.2 (P) 署名付きURL生成・検証機能を実装する
   - getSignedUrlによる一時的なアクセスURL生成（有効期限15分）
   - オリジナル画像用とサムネイル用の両方に対応
   - 署名付きURLの有効期限検証機能
