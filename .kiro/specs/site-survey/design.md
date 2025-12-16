@@ -1,0 +1,1062 @@
+# 技術設計書: 現場調査機能
+
+## Overview
+
+**Purpose**: 現場調査機能は、工事案件のプロジェクトに紐付く現場調査データを管理し、撮影した写真や図面に対して寸法・マーキング・コメント等の注釈を追加することで、工事計画の基礎資料を作成する機能を提供する。
+
+**Users**: プロジェクト担当者および現場調査担当者が、現場での情報収集から報告書作成までのワークフローで本機能を利用する。
+
+**Impact**: 既存のプロジェクト管理機能を拡張し、プロジェクト配下に現場調査エンティティを追加する。画像ストレージ、Canvas描画、PDFエクスポートなどの新規技術スタックを導入する。
+
+### Goals
+
+- プロジェクトに紐付く現場調査データのCRUD操作を提供する
+- 画像アップロード、圧縮、サムネイル生成を実現する
+- Canvas上での注釈編集（寸法線、マーキング、コメント）を可能にする
+- 注釈付き画像のエクスポートおよびPDF報告書生成を実現する
+- オフライン環境での一時保存と同期機能を提供する
+
+### Non-Goals
+
+- リアルタイム共同編集機能（将来の拡張として検討）
+- 3D/AR機能との連携
+- OCR（光学文字認識）による自動寸法読み取り
+- 動画ファイルのサポート
+
+## Architecture
+
+### Existing Architecture Analysis
+
+**現行アーキテクチャパターン**:
+- Backend: Express 5 + Prisma 7 + PostgreSQL (Driver Adapter Pattern)
+- Frontend: React 19 + Vite 7 + TailwindCSS 4
+- 認証: JWT (EdDSA) + RBAC
+- 監査: AuditLogServiceによる操作履歴記録
+- 楽観的排他制御: updatedAtフィールドによる競合検出
+
+**既存ドメイン境界**:
+- Project: 工事案件の管理（現場調査はProjectに紐付く）
+- User: 担当者情報の参照
+- TradingPartner: 取引先情報（現場調査では直接参照しない）
+
+**再利用可能なコンポーネント**:
+- 認証/認可ミドルウェア（authenticate, requirePermission）
+- バリデーションミドルウェア（Zodスキーマ）
+- 監査ログサービス（AuditLogService）
+- ページネーション/検索/フィルタリングパターン
+- 論理削除パターン（deletedAtフィールド）
+- 楽観的排他制御パターン（expectedUpdatedAt）
+
+### Architecture Pattern & Boundary Map
+
+```mermaid
+graph TB
+    subgraph Frontend
+        SurveyListPage[SurveyListPage]
+        SurveyDetailPage[SurveyDetailPage]
+        ImageViewer[ImageViewer]
+        AnnotationEditor[AnnotationEditor]
+        CanvasEngine[Fabric.js Canvas]
+    end
+
+    subgraph Backend
+        SurveyRoutes[survey.routes.ts]
+        SurveyService[SurveyService]
+        ImageService[ImageService]
+        AnnotationService[AnnotationService]
+        ExportService[ExportService]
+    end
+
+    subgraph Storage
+        PostgreSQL[(PostgreSQL)]
+        MinIO[(MinIO S3)]
+    end
+
+    subgraph Client
+        IndexedDB[(IndexedDB)]
+    end
+
+    SurveyListPage --> SurveyRoutes
+    SurveyDetailPage --> SurveyRoutes
+    ImageViewer --> SurveyRoutes
+    AnnotationEditor --> CanvasEngine
+    AnnotationEditor --> SurveyRoutes
+
+    SurveyRoutes --> SurveyService
+    SurveyRoutes --> ImageService
+    SurveyRoutes --> AnnotationService
+    SurveyRoutes --> ExportService
+
+    SurveyService --> PostgreSQL
+    ImageService --> MinIO
+    AnnotationService --> PostgreSQL
+
+    AnnotationEditor --> IndexedDB
+```
+
+**Architecture Integration**:
+- Selected pattern: Clean Architecture（サービス層によるビジネスロジック分離）
+- Domain boundaries: SiteSurveyドメインをProject配下の独立モジュールとして配置
+- Existing patterns preserved: 認証/認可、監査ログ、楽観的排他制御
+- New components rationale:
+  - ImageService: 画像処理と外部ストレージ連携の責務分離
+  - AnnotationService: 注釈データの永続化と復元
+  - ExportService: PDF/画像エクスポートのビジネスロジック
+- Steering compliance: TypeScript strict mode、ESLint、Prettier、Conventional Commits
+
+### Technology Stack
+
+| Layer | Choice / Version | Role in Feature | Notes |
+|-------|------------------|-----------------|-------|
+| Frontend | React 19.2.0 + TypeScript 5.9.3 | UI/UXの実装 | 既存スタック継続 |
+| Canvas Library | Fabric.js 6.x | 注釈描画・編集 | TypeScript対応、豊富なオブジェクト操作 |
+| Offline Storage | Dexie.js 4.x | オフラインデータ永続化 | IndexedDBのReact-friendlyラッパー |
+| Backend | Express 5.2.0 + TypeScript | API実装 | 既存スタック継続 |
+| Image Processing | Sharp 0.33.x | 画像圧縮・サムネイル生成 | 高速、メモリ効率良好 |
+| File Upload | Multer 1.4.x | マルチパートファイル処理 | Express標準ミドルウェア |
+| PDF Generation | jsPDF 2.5.x | PDF報告書生成 | クライアントサイド生成 |
+| Object Storage | MinIO (S3互換) | 画像ファイル保存 | Railway対応、永続ボリューム |
+| Database | PostgreSQL 15 + Prisma 7 | メタデータ・注釈データ保存 | 既存スタック継続 |
+
+## System Flows
+
+### 画像アップロードフロー
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant Backend
+    participant Sharp
+    participant MinIO
+    participant PostgreSQL
+
+    User->>Frontend: 画像ファイル選択
+    Frontend->>Frontend: クライアント側プレビュー
+    Frontend->>Backend: POST /api/site-surveys/:id/images
+    Backend->>Sharp: 画像検証・圧縮
+    Sharp-->>Backend: 圧縮済み画像
+    Backend->>Sharp: サムネイル生成
+    Sharp-->>Backend: サムネイル
+    Backend->>MinIO: 原画像・サムネイル保存
+    MinIO-->>Backend: ストレージURL
+    Backend->>PostgreSQL: 画像メタデータ保存
+    PostgreSQL-->>Backend: 保存完了
+    Backend-->>Frontend: 画像情報レスポンス
+    Frontend-->>User: アップロード完了表示
+```
+
+**Key Decisions**:
+- 画像は300KB超過時にサーバーサイドで段階的圧縮
+- サムネイルは200x200pxで自動生成
+- バッチアップロードは並列処理（最大5ファイル同時）
+
+### 注釈編集フロー
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant AnnotationEditor
+    participant FabricCanvas
+    participant UndoManager
+    participant IndexedDB
+    participant Backend
+
+    User->>AnnotationEditor: 画像選択
+    AnnotationEditor->>Backend: GET /api/site-surveys/:id/images/:imageId/annotations
+    Backend-->>AnnotationEditor: 注釈データ(JSON)
+    AnnotationEditor->>FabricCanvas: 注釈オブジェクト復元
+
+    User->>FabricCanvas: 注釈操作（追加/編集/削除）
+    FabricCanvas->>UndoManager: 操作履歴記録
+    FabricCanvas->>IndexedDB: 自動保存（debounce）
+
+    User->>AnnotationEditor: 保存ボタン
+    AnnotationEditor->>FabricCanvas: toJSON()
+    FabricCanvas-->>AnnotationEditor: 注釈データ
+    AnnotationEditor->>Backend: PUT /api/.../annotations
+    Backend-->>AnnotationEditor: 保存完了
+    AnnotationEditor->>IndexedDB: ローカルキャッシュクリア
+```
+
+**Key Decisions**:
+- 注釈データはFabric.js JSON形式で保存
+- Undo/Redo履歴は最大50件、保存時にクリア
+- オフライン時はIndexedDBに一時保存、オンライン復帰時に同期
+
+### オフライン同期フロー
+
+```mermaid
+stateDiagram-v2
+    [*] --> Online
+    Online --> Offline: ネットワーク切断
+    Offline --> PendingSync: ローカル変更
+    PendingSync --> Syncing: ネットワーク復帰
+    Syncing --> ConflictDetected: サーバー変更あり
+    Syncing --> Online: 同期成功
+    ConflictDetected --> MergeDialog: ユーザー確認
+    MergeDialog --> Online: 解決完了
+```
+
+**Key Decisions**:
+- 競合検出はupdatedAtタイムスタンプで判定
+- 競合時はユーザーに選択肢を提示（ローカル優先/サーバー優先/マージ）
+- 注釈データのマージはオブジェクト単位で実行
+
+## Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 1.1-1.6 | 現場調査CRUD | SurveyService, SurveyRoutes | SurveyAPI | - |
+| 2.1-2.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
+| 3.1-3.9 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
+| 4.1-4.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
+| 5.1-5.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 6.1-6.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 7.1-7.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 8.1-8.6 | 注釈保存・復元 | AnnotationService, IndexedDB | AnnotationAPI | 注釈編集フロー |
+| 9.1-9.7 | エクスポート | ExportService, jsPDF | ExportAPI | - |
+| 10.1-10.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
+| 11.1-11.4 | アクセス制御 | AuthMiddleware, RBACService | - | - |
+| 12.1-12.5 | レスポンシブ・オフライン | OfflineSyncManager, Dexie | - | 同期フロー |
+| 13.1-13.8 | 非機能要件 | 全コンポーネント | - | - |
+
+## Components and Interfaces
+
+### Component Summary
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|-----------|--------------|--------|--------------|------------------|-----------|
+| SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2 | PrismaClient (P0), AuditLogService (P1) | Service, API |
+| ImageService | Backend/Service | 画像アップロード・処理 | 3 | Sharp (P0), MinIO (P0), Multer (P0) | Service, API |
+| AnnotationService | Backend/Service | 注釈データ管理 | 5, 6, 7, 8 | PrismaClient (P0) | Service, API |
+| ExportService | Backend/Service | エクスポート処理 | 9 | jsPDF (P0), Sharp (P1) | Service, API |
+| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-9 | All Services (P0) | API |
+| SurveyListPage | Frontend/Page | 一覧表示 | 2 | SurveyAPI (P0) | State |
+| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 3, 4 | SurveyAPI (P0), ImageAPI (P0) | State |
+| AnnotationEditor | Frontend/Component | 注釈編集UI | 5, 6, 7, 8, 10 | Fabric.js (P0), UndoManager (P0) | State |
+| ImageViewer | Frontend/Component | 画像表示・操作 | 4 | Fabric.js (P0) | State |
+| UndoManager | Frontend/Utility | 操作履歴管理 | 10 | - | State |
+| OfflineSyncManager | Frontend/Service | オフライン同期 | 12 | Dexie.js (P0) | State |
+
+### Backend / Service Layer
+
+#### SurveyService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 現場調査エンティティのCRUD操作とビジネスロジックを管理 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 2.4, 2.5 |
+
+**Responsibilities & Constraints**
+- 現場調査の作成・読取・更新・削除を管理
+- プロジェクト存在確認の整合性を保証
+- 楽観的排他制御による同時編集競合を検出
+- 論理削除時に関連画像データを連動削除
+
+**Dependencies**
+- Inbound: SurveyRoutes — HTTPリクエスト処理 (P0)
+- Outbound: PrismaClient — データ永続化 (P0)
+- Outbound: AuditLogService — 操作履歴記録 (P1)
+- Outbound: ImageService — 画像削除連携 (P1)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface SurveyServiceDependencies {
+  prisma: PrismaClient;
+  auditLogService: IAuditLogService;
+  imageService: IImageService;
+}
+
+interface CreateSurveyInput {
+  projectId: string;
+  name: string;
+  surveyDate: Date;
+  memo?: string;
+}
+
+interface UpdateSurveyInput {
+  name?: string;
+  surveyDate?: Date;
+  memo?: string;
+}
+
+interface SurveyInfo {
+  id: string;
+  projectId: string;
+  name: string;
+  surveyDate: Date;
+  memo: string | null;
+  thumbnailUrl: string | null;
+  imageCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface SurveyDetail extends SurveyInfo {
+  project: { id: string; name: string };
+  images: SurveyImageInfo[];
+}
+
+interface SurveyFilter {
+  search?: string;
+  surveyDateFrom?: string;
+  surveyDateTo?: string;
+}
+
+interface ISurveyService {
+  create(input: CreateSurveyInput, actorId: string): Promise<SurveyInfo>;
+  findById(id: string): Promise<SurveyDetail | null>;
+  findByProjectId(
+    projectId: string,
+    filter: SurveyFilter,
+    pagination: PaginationInput,
+    sort: SortInput
+  ): Promise<PaginatedSurveys>;
+  update(
+    id: string,
+    input: UpdateSurveyInput,
+    expectedUpdatedAt: Date,
+    actorId: string
+  ): Promise<SurveyInfo>;
+  delete(id: string, actorId: string): Promise<void>;
+}
+```
+
+- Preconditions: projectIdが有効なプロジェクトを参照すること
+- Postconditions: 作成時に監査ログが記録されること
+- Invariants: 削除済みプロジェクトには現場調査を作成不可
+
+**Implementation Notes**
+- Integration: ProjectServiceと連携してプロジェクト存在確認を実行
+- Validation: Zodスキーマによる入力バリデーション
+- Risks: プロジェクト削除時のカスケード削除設計が必要
+
+#### ImageService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 画像のアップロード、圧縮、サムネイル生成、ストレージ管理を担当 |
+| Requirements | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9 |
+
+**Responsibilities & Constraints**
+- ファイル形式バリデーション（JPEG, PNG, WEBP）
+- 300KB超過時の段階的圧縮
+- 200x200pxサムネイル自動生成
+- MinIO S3互換ストレージへのアップロード
+- 画像表示順序の管理
+
+**Dependencies**
+- Inbound: SurveyRoutes — ファイルアップロード処理 (P0)
+- Outbound: Sharp — 画像処理 (P0)
+- Outbound: MinIO Client — S3ストレージ (P0)
+- Outbound: PrismaClient — メタデータ保存 (P0)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface ImageServiceDependencies {
+  prisma: PrismaClient;
+  minioClient: MinioClient;
+  sharpProcessor: typeof sharp;
+}
+
+interface UploadImageInput {
+  surveyId: string;
+  file: Express.Multer.File;
+  displayOrder?: number;
+}
+
+interface SurveyImageInfo {
+  id: string;
+  surveyId: string;
+  originalUrl: string;
+  thumbnailUrl: string;
+  fileName: string;
+  fileSize: number;
+  width: number;
+  height: number;
+  displayOrder: number;
+  createdAt: Date;
+}
+
+interface IImageService {
+  upload(input: UploadImageInput): Promise<SurveyImageInfo>;
+  uploadBatch(inputs: UploadImageInput[]): Promise<SurveyImageInfo[]>;
+  findBySurveyId(surveyId: string): Promise<SurveyImageInfo[]>;
+  updateOrder(surveyId: string, imageOrders: { id: string; order: number }[]): Promise<void>;
+  delete(imageId: string): Promise<void>;
+  deleteBySurveyId(surveyId: string): Promise<void>;
+  getSignedUrl(imageId: string, type: 'original' | 'thumbnail'): Promise<string>;
+}
+```
+
+- Preconditions: ファイルがJPEG/PNG/WEBP形式であること
+- Postconditions: サムネイルが生成されストレージに保存されること
+- Invariants: 元画像とサムネイルは同一トランザクションで管理
+
+**Implementation Notes**
+- Integration: MinIOクライアントはシングルトンで接続管理
+- Validation: MIMEタイプとマジックバイトの二重検証
+- Risks: Railway環境でのMinIO永続ボリュームサイズ制限に注意
+
+#### AnnotationService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 注釈データ（寸法線、マーキング、コメント）の永続化と復元を管理 |
+| Requirements | 5.1-5.7, 6.1-6.10, 7.1-7.7, 8.1-8.6 |
+
+**Responsibilities & Constraints**
+- Fabric.js JSON形式の注釈データを保存・復元
+- 画像単位での注釈バージョン管理
+- 注釈JSONのエクスポート機能
+- 楽観的排他制御による同時編集検出
+
+**Dependencies**
+- Inbound: SurveyRoutes — 注釈CRUD処理 (P0)
+- Outbound: PrismaClient — データ永続化 (P0)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface AnnotationData {
+  version: string;
+  objects: FabricObject[];
+  background?: string;
+}
+
+interface SaveAnnotationInput {
+  imageId: string;
+  data: AnnotationData;
+  expectedUpdatedAt?: Date;
+}
+
+interface AnnotationInfo {
+  id: string;
+  imageId: string;
+  data: AnnotationData;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface IAnnotationService {
+  save(input: SaveAnnotationInput): Promise<AnnotationInfo>;
+  findByImageId(imageId: string): Promise<AnnotationInfo | null>;
+  exportAsJson(imageId: string): Promise<string>;
+  delete(imageId: string): Promise<void>;
+}
+```
+
+- Preconditions: imageIdが有効な画像を参照すること
+- Postconditions: 保存後にupdatedAtが更新されること
+- Invariants: 注釈データのスキーマバージョンを維持
+
+**Implementation Notes**
+- Integration: Fabric.jsのserialize/deserializeフォーマットに準拠
+- Validation: 注釈オブジェクトの型安全性を検証
+- Risks: 大量の注釈オブジェクトによるJSONサイズ肥大化
+
+#### ExportService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 注釈付き画像およびPDF報告書のエクスポート処理を担当 |
+| Requirements | 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 |
+
+**Responsibilities & Constraints**
+- 注釈をラスタライズした画像生成
+- JPEG/PNG形式での画像エクスポート
+- PDF報告書の生成（現場調査基本情報 + 画像一覧）
+- 日本語フォントのPDFレンダリング
+
+**Dependencies**
+- Inbound: SurveyRoutes — エクスポートリクエスト (P0)
+- Outbound: Sharp — 画像合成 (P1)
+- Outbound: ImageService — 元画像取得 (P0)
+- Outbound: AnnotationService — 注釈データ取得 (P0)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface ExportImageOptions {
+  format: 'jpeg' | 'png';
+  quality: 'low' | 'medium' | 'high';
+  includeAnnotations: boolean;
+}
+
+interface ExportPdfOptions {
+  title?: string;
+  includeMetadata: boolean;
+}
+
+interface IExportService {
+  exportImage(imageId: string, options: ExportImageOptions): Promise<Buffer>;
+  exportPdf(surveyId: string, options: ExportPdfOptions): Promise<Buffer>;
+  exportAnnotationsJson(imageId: string): Promise<string>;
+}
+```
+
+- Preconditions: 対象の画像または現場調査が存在すること
+- Postconditions: エクスポート結果がバイナリデータとして返却されること
+- Invariants: 日本語テキストが正しくレンダリングされること
+
+**Implementation Notes**
+- Integration: PDF生成はjsPDFをサーバーサイドで使用（canvas依存解消のためpdfkitも検討）
+- Validation: エクスポート品質設定のバリデーション
+- Risks: 大量画像のPDF生成時のメモリ使用量
+
+### Backend / Routes Layer
+
+#### SurveyRoutes
+
+| Field | Detail |
+|-------|--------|
+| Intent | 現場調査関連のHTTPエンドポイントを定義 |
+| Requirements | 1-9, 11 |
+
+**Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| POST | /api/projects/:projectId/site-surveys | CreateSurveyRequest | SurveyInfo | 400, 404, 409 |
+| GET | /api/projects/:projectId/site-surveys | QueryParams | PaginatedSurveys | 400, 404 |
+| GET | /api/site-surveys/:id | - | SurveyDetail | 404 |
+| PUT | /api/site-surveys/:id | UpdateSurveyRequest | SurveyInfo | 400, 404, 409 |
+| DELETE | /api/site-surveys/:id | - | 204 No Content | 404 |
+| POST | /api/site-surveys/:id/images | multipart/form-data | SurveyImageInfo | 400, 413, 415 |
+| GET | /api/site-surveys/:id/images | - | SurveyImageInfo[] | 404 |
+| PUT | /api/site-surveys/:id/images/order | ImageOrderRequest | 204 No Content | 400, 404 |
+| DELETE | /api/site-surveys/images/:imageId | - | 204 No Content | 404 |
+| GET | /api/site-surveys/images/:imageId/annotations | - | AnnotationInfo | 404 |
+| PUT | /api/site-surveys/images/:imageId/annotations | AnnotationData | AnnotationInfo | 400, 404, 409 |
+| GET | /api/site-surveys/images/:imageId/export | ExportParams | Binary | 400, 404 |
+| GET | /api/site-surveys/:id/export/pdf | ExportPdfParams | Binary | 400, 404 |
+
+### Frontend / Component Layer
+
+#### AnnotationEditor
+
+| Field | Detail |
+|-------|--------|
+| Intent | 画像上での注釈編集インターフェースを提供 |
+| Requirements | 5.1-5.7, 6.1-6.10, 7.1-7.7, 8.1-8.6, 10.1-10.5 |
+
+**Responsibilities & Constraints**
+- Fabric.jsキャンバスの初期化と管理
+- 各種ツール（寸法線、図形、テキスト）の切り替え
+- オブジェクト選択・編集・削除の操作
+- Undo/Redo操作の管理
+- 未保存変更の検出と警告
+
+**Dependencies**
+- Inbound: SurveyDetailPage — 親コンポーネント (P0)
+- Outbound: Fabric.js — Canvas操作 (P0)
+- Outbound: UndoManager — 操作履歴 (P0)
+- Outbound: AnnotationAPI — データ永続化 (P0)
+- Outbound: IndexedDB — オフライン保存 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface AnnotationEditorState {
+  activeTool: ToolType;
+  selectedObjects: FabricObject[];
+  isDirty: boolean;
+  isSaving: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  toolOptions: ToolOptions;
+}
+
+type ToolType =
+  | 'select'
+  | 'dimension'
+  | 'arrow'
+  | 'circle'
+  | 'rectangle'
+  | 'polygon'
+  | 'polyline'
+  | 'freehand'
+  | 'text';
+
+interface ToolOptions {
+  strokeColor: string;
+  strokeWidth: number;
+  fillColor: string;
+  fontSize: number;
+  fontColor: string;
+}
+```
+
+**Implementation Notes**
+- Integration: useRefでFabric.js canvasインスタンスを管理
+- Validation: ツール切り替え時に未保存変更を確認
+- Risks: 大量オブジェクト時のパフォーマンス低下
+
+#### ImageViewer
+
+| Field | Detail |
+|-------|--------|
+| Intent | 画像のズーム、パン、回転操作を提供 |
+| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6 |
+
+**Responsibilities & Constraints**
+- 画像の拡大/縮小（ピンチ/ホイール対応）
+- パン操作（ドラッグ移動）
+- 90度単位の回転
+- タッチデバイス対応
+
+**Dependencies**
+- Inbound: SurveyDetailPage — 親コンポーネント (P0)
+- Outbound: Fabric.js — Canvas操作 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ImageViewerState {
+  zoom: number;
+  rotation: 0 | 90 | 180 | 270;
+  panX: number;
+  panY: number;
+  isAnnotationMode: boolean;
+}
+
+interface ImageViewerProps {
+  imageUrl: string;
+  onStateChange: (state: ImageViewerState) => void;
+  annotationEditor?: React.RefObject<AnnotationEditorRef>;
+}
+```
+
+**Implementation Notes**
+- Integration: AnnotationEditorと表示状態を共有
+- Validation: ズーム範囲制限（0.1x - 10x）
+- Risks: 高解像度画像でのメモリ使用量
+
+#### UndoManager
+
+| Field | Detail |
+|-------|--------|
+| Intent | 注釈編集操作のUndo/Redo履歴を管理 |
+| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5 |
+
+**Responsibilities & Constraints**
+- コマンドパターンによる操作履歴管理
+- 最大50件の履歴保持
+- 保存時の履歴クリア
+- キーボードショートカット対応
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface UndoCommand {
+  type: string;
+  execute: () => void;
+  undo: () => void;
+}
+
+interface UndoManagerState {
+  undoStack: UndoCommand[];
+  redoStack: UndoCommand[];
+  maxHistorySize: number;
+}
+
+interface IUndoManager {
+  execute(command: UndoCommand): void;
+  undo(): void;
+  redo(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
+  clear(): void;
+}
+```
+
+**Implementation Notes**
+- Integration: Fabric.jsのobject:added/modified/removedイベントと連携
+- Validation: 履歴サイズ制限の自動適用
+- Risks: 複雑な操作のundo実装が困難な場合あり
+
+#### OfflineSyncManager
+
+| Field | Detail |
+|-------|--------|
+| Intent | オフライン時のデータ保存と同期処理を管理 |
+| Requirements | 12.4, 12.5 |
+
+**Responsibilities & Constraints**
+- IndexedDB（Dexie.js）によるローカルデータ保存
+- オンライン復帰時の自動同期
+- 競合検出と解決UI表示
+- 同期状態のインジケータ表示
+
+**Dependencies**
+- Inbound: AnnotationEditor — オフライン保存要求 (P0)
+- Outbound: Dexie.js — IndexedDB操作 (P0)
+- Outbound: AnnotationAPI — サーバー同期 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface SyncState {
+  isOnline: boolean;
+  pendingChanges: number;
+  lastSyncedAt: Date | null;
+  syncStatus: 'idle' | 'syncing' | 'conflict' | 'error';
+}
+
+interface PendingChange {
+  id: string;
+  imageId: string;
+  data: AnnotationData;
+  localUpdatedAt: Date;
+  serverUpdatedAt: Date | null;
+}
+
+interface IOfflineSyncManager {
+  saveLocal(imageId: string, data: AnnotationData): Promise<void>;
+  getPendingChanges(): Promise<PendingChange[]>;
+  sync(): Promise<SyncResult>;
+  resolveConflict(changeId: string, resolution: 'local' | 'server' | 'merge'): Promise<void>;
+}
+```
+
+**Implementation Notes**
+- Integration: navigator.onLineイベントで接続状態を監視
+- Validation: サーバー側updatedAtとの比較で競合検出
+- Risks: 複雑なマージロジックの実装難易度
+
+## Data Models
+
+### Domain Model
+
+```mermaid
+erDiagram
+    Project ||--o{ SiteSurvey : contains
+    SiteSurvey ||--o{ SurveyImage : contains
+    SurveyImage ||--o| ImageAnnotation : has
+
+    Project {
+        uuid id PK
+        string name
+        ProjectStatus status
+    }
+
+    SiteSurvey {
+        uuid id PK
+        uuid projectId FK
+        string name
+        date surveyDate
+        string memo
+        datetime createdAt
+        datetime updatedAt
+        datetime deletedAt
+    }
+
+    SurveyImage {
+        uuid id PK
+        uuid surveyId FK
+        string originalPath
+        string thumbnailPath
+        string fileName
+        int fileSize
+        int width
+        int height
+        int displayOrder
+        datetime createdAt
+    }
+
+    ImageAnnotation {
+        uuid id PK
+        uuid imageId FK
+        json data
+        string version
+        datetime createdAt
+        datetime updatedAt
+    }
+```
+
+**Aggregates**:
+- SiteSurvey: 現場調査の集約ルート（SurveyImage, ImageAnnotationを含む）
+
+**Business Rules**:
+- プロジェクト削除時、配下の現場調査もカスケード論理削除
+- 現場調査削除時、関連画像・注釈も削除
+- 画像表示順序は1から始まる連番
+
+### Physical Data Model
+
+**For PostgreSQL (Prisma Schema)**:
+
+```prisma
+// Site Survey Models
+model SiteSurvey {
+  id          String    @id @default(uuid())
+  projectId   String
+  name        String    // 現場調査名（必須、最大200文字）
+  surveyDate  DateTime  @db.Date // 調査日
+  memo        String?   // メモ（最大2000文字）
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime? // 論理削除
+
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  images  SurveyImage[]
+
+  @@index([projectId])
+  @@index([surveyDate])
+  @@index([deletedAt])
+  @@index([name])
+  @@map("site_surveys")
+}
+
+model SurveyImage {
+  id            String   @id @default(uuid())
+  surveyId      String
+  originalPath  String   // MinIOオブジェクトパス
+  thumbnailPath String   // サムネイルパス
+  fileName      String   // 元ファイル名
+  fileSize      Int      // ファイルサイズ（バイト）
+  width         Int      // 画像幅
+  height        Int      // 画像高さ
+  displayOrder  Int      // 表示順序
+  createdAt     DateTime @default(now())
+
+  survey     SiteSurvey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  annotation ImageAnnotation?
+
+  @@index([surveyId])
+  @@index([displayOrder])
+  @@map("survey_images")
+}
+
+model ImageAnnotation {
+  id        String   @id @default(uuid())
+  imageId   String   @unique
+  data      Json     // Fabric.js JSON形式
+  version   String   @default("1.0") // スキーマバージョン
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  image SurveyImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@map("image_annotations")
+}
+```
+
+**Indexes**:
+- site_surveys: projectId, surveyDate, deletedAt, name
+- survey_images: surveyId, displayOrder
+- image_annotations: imageId (unique)
+
+### Data Contracts & Integration
+
+**Annotation JSON Schema**:
+
+```typescript
+interface AnnotationDataV1 {
+  version: "1.0";
+  objects: FabricSerializedObject[];
+  background?: string;
+  viewportTransform?: number[];
+}
+
+interface FabricSerializedObject {
+  type: string;
+  version: string;
+  originX: string;
+  originY: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  scaleX: number;
+  scaleY: number;
+  angle: number;
+  // ... Fabric.js標準プロパティ
+  customData?: {
+    dimensionValue?: string;
+    dimensionUnit?: string;
+    comment?: string;
+  };
+}
+```
+
+**Cross-Service Data Management**:
+- 画像ファイルはMinIOに保存、メタデータはPostgreSQLに保存
+- 削除時はPostgreSQLトランザクション内でメタデータを削除し、その後MinIOファイルを削除
+- MinIO削除失敗時は孤立ファイルとしてログに記録（後でクリーンアップジョブで処理）
+
+## Error Handling
+
+### Error Strategy
+
+| Error Category | HTTP Status | Response Format | Recovery Action |
+|----------------|-------------|-----------------|-----------------|
+| Validation Error | 400 | `{ error: string, details: FieldError[] }` | フィールド修正を促す |
+| Not Found | 404 | `{ error: string }` | 一覧への誘導 |
+| Conflict | 409 | `{ error: string, serverData: object }` | 再読み込みを促す |
+| File Too Large | 413 | `{ error: string, maxSize: number }` | 圧縮または分割を促す |
+| Unsupported Media | 415 | `{ error: string, allowedTypes: string[] }` | 対応形式への変換を促す |
+| Server Error | 500 | `{ error: string, requestId: string }` | Sentryにログ、リトライを促す |
+
+### Error Categories and Responses
+
+**User Errors (4xx)**:
+- 400: 入力バリデーション失敗 → フィールド単位のエラー表示
+- 404: リソース未発見 → 一覧ページへの遷移ガイド
+- 409: 楽観的排他制御競合 → 再読み込み確認ダイアログ
+- 413: ファイルサイズ超過 → 自動圧縮または手動圧縮のガイド
+- 415: 非対応ファイル形式 → JPEG/PNG/WEBP形式への変換ガイド
+
+**System Errors (5xx)**:
+- MinIO接続失敗 → リトライ機構、一時的なローカル保存
+- 画像処理失敗 → Sentry報告、元画像保持でリトライ
+- PDF生成失敗 → Sentry報告、個別画像エクスポートへのフォールバック
+
+**Business Logic Errors (422)**:
+- プロジェクト未存在での現場調査作成 → プロジェクト選択画面へ誘導
+- 削除済みリソースへの操作 → 削除済みステータス表示
+
+### Monitoring
+
+- Sentryによるエラートラッキング（既存統合を活用）
+- Pinoロガーによる構造化ログ出力
+- ヘルスチェックエンドポイントでMinIO接続状態を含める
+
+## Testing Strategy
+
+### Unit Tests
+
+- **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携
+- **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
+- **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート
+- **UndoManager**: コマンド実行、履歴制限、クリア処理
+- **OfflineSyncManager**: ローカル保存、競合検出、マージ処理
+
+### Integration Tests
+
+- **画像アップロードフロー**: Multer → Sharp → MinIO → PostgreSQL
+- **注釈保存・復元**: Frontend ↔ Backend ↔ PostgreSQL
+- **PDFエクスポート**: 画像取得 → 注釈合成 → PDF生成
+- **認証・認可**: プロジェクト権限による現場調査アクセス制御
+- **オフライン同期**: IndexedDB ↔ Backend 競合解決
+
+### E2E Tests
+
+- 現場調査作成・編集・削除フロー
+- 画像アップロード・削除・順序変更
+- 注釈編集（各ツール）とUndo/Redo
+- PDF報告書エクスポート
+- レスポンシブUIの動作確認
+
+### Performance Tests
+
+- 大量画像（50枚）のバッチアップロード
+- 大量注釈オブジェクト（100件）の描画パフォーマンス
+- PDF生成（20枚画像）の処理時間
+- 同時接続（100ユーザー）でのAPI応答時間
+
+## Security Considerations
+
+### Authentication & Authorization
+
+- 既存のJWT認証（EdDSA）を使用
+- プロジェクト単位でのアクセス制御（RBACと連携）
+- 新規権限の追加:
+  - `site_survey:create` - 現場調査作成
+  - `site_survey:read` - 現場調査閲覧
+  - `site_survey:update` - 現場調査編集
+  - `site_survey:delete` - 現場調査削除
+
+### Data Protection
+
+- 画像ファイルはMinIOの署名付きURL経由でアクセス
+- 署名付きURLは15分で期限切れ
+- 注釈データに機密情報を含める場合の警告表示
+
+### File Upload Security
+
+- ファイル形式の二重検証（MIMEタイプ + マジックバイト）
+- ファイルサイズ制限（単一ファイル50MB、バッチ合計100MB）
+- ファイル名のサニタイズ（パストラバーサル防止）
+- アップロード時のウイルススキャン（将来の拡張）
+
+## Performance & Scalability
+
+### Target Metrics
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| 画像一覧初期表示 | 2秒以内 | Lighthouse / Playwright |
+| 注釈操作レスポンス | 60fps | Chrome DevTools |
+| 画像アップロード（300KB以下） | 5秒以内 | E2Eテスト |
+| PDF生成（10枚） | 10秒以内 | Backend計測 |
+| 同時接続 | 100ユーザー | 負荷テスト |
+
+### Optimization Techniques
+
+**画像最適化**:
+- WebP形式への変換対応
+- 遅延読み込み（IntersectionObserver）
+- サムネイル優先表示
+
+**Canvas最適化**:
+- オブジェクトのキャッシング
+- 不要な再描画の抑制
+- Web Workerでの重い処理
+
+**API最適化**:
+- 注釈データの差分更新（将来）
+- 画像URLのプリサイン付きキャッシュ
+
+## Migration Strategy
+
+### Phase 1: データベーススキーマ
+
+1. Prismaスキーマに新モデルを追加
+2. マイグレーション作成・適用
+3. シードデータ（権限）の追加
+
+### Phase 2: ストレージ設定
+
+1. MinIOサービスのRailwayへのデプロイ
+2. 環境変数の設定
+3. バケット作成とアクセスポリシー設定
+
+### Phase 3: バックエンド実装
+
+1. サービス層の実装
+2. ルーティングの追加
+3. 単体テスト・統合テストの追加
+
+### Phase 4: フロントエンド実装
+
+1. API クライアントの追加
+2. ページ・コンポーネントの実装
+3. 単体テスト・E2Eテストの追加
+
+### Rollback Triggers
+
+- マイグレーション失敗時: Prisma rollback
+- MinIO接続失敗時: 画像アップロード機能の一時無効化
+- 重大なバグ発見時: フィーチャーフラグによる機能無効化
