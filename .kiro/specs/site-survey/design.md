@@ -149,7 +149,7 @@ sequenceDiagram
 **Key Decisions**:
 - 画像は300KB超過時にサーバーサイドで段階的圧縮
 - サムネイルは200x200pxで自動生成
-- バッチアップロードは並列処理（最大5ファイル同時）
+- バッチアップロードは5件ずつキュー処理して順次アップロード（並列アップロードによるサーバー負荷を防止）
 
 ### 注釈編集フロー
 
@@ -187,7 +187,7 @@ sequenceDiagram
 
 **Key Decisions**:
 - 注釈データはFabric.js JSON形式で保存
-- Undo/Redo履歴は最大50件、保存時にクリア
+- Undo/Redo履歴は最大50件保持し、超過時は最古の履歴から削除（FIFO）、保存時にクリア
 - 30秒間隔で自動的にlocalStorageに一時保存（debounce）
 - ページリロード時にlocalStorageから未保存データを復元
 
@@ -219,18 +219,19 @@ stateDiagram-v2
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
 | 1.1-1.6 | 現場調査CRUD | SurveyService, SurveyRoutes | SurveyAPI | - |
-| 2.1-2.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
-| 3.1-3.9 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
-| 4.1-4.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
-| 5.1-5.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
-| 6.1-6.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
-| 7.1-7.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
-| 8.1-8.6 | 注釈保存・復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
-| 9.1-9.7 | エクスポート | ExportService, jsPDF | ExportAPI | - |
-| 10.1-10.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
-| 11.1-11.4 | アクセス制御 | AuthMiddleware, RBACService | - | - |
-| 12.1-12.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
-| 13.1-13.8 | 非機能要件 | 全コンポーネント | - | - |
+| 2.1-2.7 | 画面遷移・ナビゲーション | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
+| 3.1-3.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
+| 4.1-4.10 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
+| 5.1-5.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
+| 6.1-6.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 9.1-9.6 | 注釈保存・復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
+| 10.1-10.7 | エクスポート | ExportService, jsPDF | ExportAPI | - |
+| 11.1-11.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
+| 12.1-12.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
+| 13.1-13.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
+| 14.1-14.8 | 非機能要件 | 全コンポーネント | - | - |
 
 ## Components and Interfaces
 
@@ -238,17 +239,17 @@ stateDiagram-v2
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2 | PrismaClient (P0), AuditLogService (P1) | Service, API |
-| ImageService | Backend/Service | 画像アップロード・処理 | 3 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
-| AnnotationService | Backend/Service | 注釈データ管理 | 5, 6, 7, 8 | PrismaClient (P0) | Service, API |
-| ExportService | Frontend/Service | エクスポート処理 | 9 | jsPDF (P0), Fabric.js (P0) | State |
-| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-9 | All Services (P0) | API |
-| SurveyListPage | Frontend/Page | 一覧表示 | 2 | SurveyAPI (P0) | State |
-| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 3, 4 | SurveyAPI (P0), ImageAPI (P0) | State |
-| AnnotationEditor | Frontend/Component | 注釈編集UI | 5, 6, 7, 8, 10 | Fabric.js (P0), UndoManager (P0) | State |
-| ImageViewer | Frontend/Component | 画像表示・操作 | 4 | Fabric.js (P0) | State |
-| UndoManager | Frontend/Utility | 操作履歴管理 | 10 | - | State |
-| AutoSaveManager | Frontend/Service | 自動保存・状態復元 | 12 | localStorage (P0) | State |
+| SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
+| ImageService | Backend/Service | 画像アップロード・処理 | 4 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
+| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9 | PrismaClient (P0) | Service, API |
+| ExportService | Frontend/Service | エクスポート処理 | 10 | jsPDF (P0), Fabric.js (P0) | State |
+| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-10, 12 | All Services (P0) | API |
+| SurveyListPage | Frontend/Page | 一覧表示 | 2, 3 | SurveyAPI (P0) | State |
+| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 4, 5 | SurveyAPI (P0), ImageAPI (P0) | State |
+| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 11 | Fabric.js (P0), UndoManager (P0) | State |
+| ImageViewer | Frontend/Component | 画像表示・操作 | 5 | Fabric.js (P0) | State |
+| UndoManager | Frontend/Utility | 操作履歴管理 | 11 | - | State |
+| AutoSaveManager | Frontend/Service | 自動保存・状態復元 | 13 | localStorage (P0) | State |
 
 ### Backend / Service Layer
 
@@ -257,7 +258,7 @@ stateDiagram-v2
 | Field | Detail |
 |-------|--------|
 | Intent | 現場調査エンティティのCRUD操作とビジネスロジックを管理 |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 2.4, 2.5 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 3.1, 3.2, 3.3, 3.4, 3.5 |
 
 **Responsibilities & Constraints**
 - 現場調査の作成・読取・更新・削除を管理
@@ -351,14 +352,15 @@ interface ISurveyService {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像のアップロード、圧縮、サムネイル生成、ストレージ管理を担当 |
-| Requirements | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9 |
+| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10 |
 
 **Responsibilities & Constraints**
 - ファイル形式バリデーション（JPEG, PNG, WEBP）
-- 300KB超過時の段階的圧縮
+- 300KB超過時の段階的圧縮（250KB〜350KBの範囲に収める）
 - 200x200pxサムネイル自動生成
 - Cloudflare R2（S3互換API）へのアップロード
 - 画像表示順序の管理
+- バッチアップロード時は5件ずつキュー処理して順次実行
 
 **Dependencies**
 - Inbound: SurveyRoutes — ファイルアップロード処理 (P0)
@@ -396,14 +398,26 @@ interface SurveyImageInfo {
   createdAt: Date;
 }
 
+interface BatchUploadProgress {
+  total: number;
+  completed: number;
+  current: number; // 現在処理中のファイルインデックス
+  results: SurveyImageInfo[];
+  errors: { index: number; error: string }[];
+}
+
 interface IImageService {
   upload(input: UploadImageInput): Promise<SurveyImageInfo>;
-  uploadBatch(inputs: UploadImageInput[]): Promise<SurveyImageInfo[]>;
+  uploadBatch(
+    inputs: UploadImageInput[],
+    onProgress?: (progress: BatchUploadProgress) => void
+  ): Promise<SurveyImageInfo[]>; // 5件ずつキュー処理
   findBySurveyId(surveyId: string): Promise<SurveyImageInfo[]>;
   updateOrder(surveyId: string, imageOrders: { id: string; order: number }[]): Promise<void>;
   delete(imageId: string): Promise<void>;
   deleteBySurveyId(surveyId: string): Promise<void>;
   getSignedUrl(imageId: string, type: 'original' | 'thumbnail'): Promise<string>;
+  validateSignedUrl(signedUrl: string, userId: string): Promise<boolean>; // 12.4対応
 }
 ```
 
@@ -473,7 +487,7 @@ export async function generateSignedUrl(key: string, expiresIn = 900): Promise<s
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈データ（寸法線、マーキング、コメント）の永続化と復元を管理 |
-| Requirements | 5.1-5.7, 6.1-6.10, 7.1-7.7, 8.1-8.6 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6 |
 
 **Responsibilities & Constraints**
 - Fabric.js JSON形式の注釈データを保存・復元
@@ -532,7 +546,7 @@ interface IAnnotationService {
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈付き画像およびPDF報告書のエクスポート処理を担当（クライアントサイド実行） |
-| Requirements | 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 |
+| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7 |
 
 **Responsibilities & Constraints**
 - Fabric.js Canvas → 画像変換（toDataURL）
@@ -649,7 +663,7 @@ export function initializePdfFonts(doc: jsPDF): void {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像上での注釈編集インターフェースを提供 |
-| Requirements | 5.1-5.7, 6.1-6.10, 7.1-7.7, 8.1-8.6, 10.1-10.5 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 11.1-11.5 |
 
 **Responsibilities & Constraints**
 - Fabric.jsキャンバスの初期化と管理
@@ -710,7 +724,7 @@ interface ToolOptions {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像のズーム、パン、回転操作を提供 |
-| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6 |
+| Requirements | 5.1, 5.2, 5.3, 5.4, 5.5, 5.6 |
 
 **Responsibilities & Constraints**
 - 画像の拡大/縮小（ピンチ/ホイール対応）
@@ -752,11 +766,11 @@ interface ImageViewerProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈編集操作のUndo/Redo履歴を管理 |
-| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5 |
+| Requirements | 11.1, 11.2, 11.3, 11.4, 11.5 |
 
 **Responsibilities & Constraints**
 - コマンドパターンによる操作履歴管理
-- 最大50件の履歴保持
+- 最大50件の履歴保持、超過時は最古の履歴から削除（FIFO）
 - 保存時の履歴クリア
 - キーボードショートカット対応
 
@@ -774,8 +788,13 @@ interface UndoCommand {
 interface UndoManagerState {
   undoStack: UndoCommand[];
   redoStack: UndoCommand[];
-  maxHistorySize: number;
+  maxHistorySize: number; // default: 50
 }
+
+// 履歴オーバーフロー時の動作
+// undoStackが50件を超えた場合、最古のコマンドを削除（FIFO）
+// 例: undoStack.length === 50 の状態で新規コマンド追加
+//     → undoStack.shift() で最古を削除してから push
 
 interface IUndoManager {
   execute(command: UndoCommand): void;
@@ -797,7 +816,7 @@ interface IUndoManager {
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈編集の自動保存とローカル状態の復元を管理 |
-| Requirements | 12.4, 12.5, 12.6 |
+| Requirements | 13.4, 13.5, 13.6 |
 
 **Responsibilities & Constraints**
 - localStorageによる編集状態の一時保存（30秒間隔）
@@ -1160,6 +1179,10 @@ interface FabricSerializedObject {
 
 - 画像ファイルはR2の署名付きURL経由でアクセス
 - 署名付きURLは15分で期限切れ
+- **画像URLアクセス時の権限検証**（12.4対応）:
+  - 署名付きURLの有効期限を検証
+  - リクエストユーザーのプロジェクトアクセス権限を検証
+  - 権限がない場合は403 Forbiddenを返却
 - 注釈データに機密情報を含める場合の警告表示
 
 ### File Upload Security
@@ -1180,6 +1203,7 @@ interface FabricSerializedObject {
 | 画像アップロード（300KB以下） | 5秒以内 | E2Eテスト |
 | PDF生成（10枚） | 10秒以内 | Backend計測 |
 | 同時接続 | 100ユーザー | 負荷テスト |
+| 月間可用性 | 99.9% | Railway/Cloudflare監視（計画メンテナンス除外）|
 
 ### Optimization Techniques
 
