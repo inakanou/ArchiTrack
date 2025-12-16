@@ -511,3 +511,305 @@ export function isUnsupportedFileTypeErrorResponse(
     Array.isArray(obj.allowedTypes)
   );
 }
+
+// ============================================================================
+// 注釈管理用型定義（Task 7.3）
+// ============================================================================
+
+/**
+ * Fabric.jsオブジェクト型（簡略化）
+ *
+ * 実際のFabric.jsのオブジェクトは多くのプロパティを持つため、
+ * 基本的なプロパティのみを定義し、その他はRecord型で許容する
+ */
+export interface FabricSerializedObject {
+  /** オブジェクトタイプ（rect, circle, path, textbox等） */
+  type: string;
+  /** その他のFabric.jsオブジェクトプロパティ */
+  [key: string]: unknown;
+}
+
+/**
+ * 注釈データ（Fabric.js JSON形式）
+ *
+ * Requirements: 9.1, 9.2
+ */
+export interface AnnotationData {
+  /** スキーマバージョン */
+  version?: string;
+  /** Fabric.jsオブジェクト配列 */
+  objects: FabricSerializedObject[];
+  /** 背景色または画像 */
+  background?: string;
+  /** ビューポート変換マトリックス */
+  viewportTransform?: number[];
+}
+
+/**
+ * 注釈情報（APIレスポンス）
+ *
+ * Requirements: 9.1, 9.2
+ */
+export interface AnnotationInfo {
+  /** 注釈ID */
+  id: string;
+  /** 画像ID */
+  imageId: string;
+  /** 注釈データ（Fabric.js JSON形式） */
+  data: AnnotationData;
+  /** スキーマバージョン */
+  version: string;
+  /** 作成日時（ISO8601形式） */
+  createdAt: string;
+  /** 更新日時（ISO8601形式） */
+  updatedAt: string;
+}
+
+/**
+ * 注釈データなしレスポンス
+ *
+ * 画像に注釈が存在しない場合のレスポンス形式
+ */
+export interface NoAnnotationResponse {
+  /** 注釈データ（null） */
+  data: null;
+}
+
+/**
+ * 注釈取得APIレスポンス型
+ *
+ * 注釈が存在する場合はAnnotationInfo、存在しない場合は{ data: null }を返す
+ */
+export type GetAnnotationResponse = AnnotationInfo | NoAnnotationResponse;
+
+/**
+ * 注釈保存入力
+ *
+ * Requirements: 9.1, 9.4
+ */
+export interface SaveAnnotationInput {
+  /** 注釈データ */
+  data: AnnotationData;
+  /** 楽観的排他制御用の期待される更新日時（ISO8601形式） */
+  expectedUpdatedAt?: string;
+}
+
+// ============================================================================
+// 注釈エラーレスポンス型定義
+// ============================================================================
+
+/**
+ * 注釈画像未発見エラーレスポンス
+ *
+ * 注釈操作対象の画像が見つからない場合に返されるエラーレスポンス
+ */
+export interface AnnotationImageNotFoundErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（404） */
+  status: 404;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'ANNOTATION_IMAGE_NOT_FOUND';
+  /** 画像ID */
+  imageId: string;
+}
+
+/**
+ * 注釈未発見エラーレスポンス
+ *
+ * 注釈データが存在しない場合に返されるエラーレスポンス（エクスポート時）
+ */
+export interface AnnotationNotFoundErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（404） */
+  status: 404;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'ANNOTATION_NOT_FOUND';
+  /** 画像ID */
+  imageId: string;
+}
+
+/**
+ * 注釈競合エラーレスポンス（楽観的排他制御エラー）
+ *
+ * Requirements: 9.4
+ *
+ * 注釈保存時に他のユーザーによって既に更新されている場合に返されるエラーレスポンス
+ */
+export interface AnnotationConflictErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（409） */
+  status: 409;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'ANNOTATION_CONFLICT';
+  /** 期待されていた更新日時（ISO8601形式） */
+  expectedUpdatedAt?: string;
+  /** 実際の更新日時（ISO8601形式） */
+  actualUpdatedAt?: string;
+}
+
+/**
+ * 無効な注釈データエラーレスポンス
+ *
+ * 注釈データの形式が無効な場合に返されるエラーレスポンス
+ */
+export interface InvalidAnnotationDataErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（400） */
+  status: 400;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'INVALID_ANNOTATION_DATA';
+}
+
+// ============================================================================
+// 注釈エラーレスポンス用タイプガード
+// ============================================================================
+
+/**
+ * 値がAnnotationImageNotFoundErrorResponseかどうかを判定するタイプガード
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがAnnotationImageNotFoundErrorResponseならtrue
+ */
+export function isAnnotationImageNotFoundErrorResponse(
+  value: unknown
+): value is AnnotationImageNotFoundErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 404 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'ANNOTATION_IMAGE_NOT_FOUND' &&
+    typeof obj.imageId === 'string'
+  );
+}
+
+/**
+ * 値がAnnotationNotFoundErrorResponseかどうかを判定するタイプガード
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがAnnotationNotFoundErrorResponseならtrue
+ */
+export function isAnnotationNotFoundErrorResponse(
+  value: unknown
+): value is AnnotationNotFoundErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 404 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'ANNOTATION_NOT_FOUND' &&
+    typeof obj.imageId === 'string'
+  );
+}
+
+/**
+ * 値がAnnotationConflictErrorResponseかどうかを判定するタイプガード
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがAnnotationConflictErrorResponseならtrue
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await saveAnnotation(imageId, input);
+ * } catch (error) {
+ *   if (error instanceof ApiError && error.statusCode === 409) {
+ *     if (isAnnotationConflictErrorResponse(error.response)) {
+ *       // 楽観的排他制御エラー
+ *       console.log('競合が発生しました。再読み込みしてください。');
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export function isAnnotationConflictErrorResponse(
+  value: unknown
+): value is AnnotationConflictErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 409 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'ANNOTATION_CONFLICT'
+  );
+}
+
+/**
+ * 値がInvalidAnnotationDataErrorResponseかどうかを判定するタイプガード
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがInvalidAnnotationDataErrorResponseならtrue
+ */
+export function isInvalidAnnotationDataErrorResponse(
+  value: unknown
+): value is InvalidAnnotationDataErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 400 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'INVALID_ANNOTATION_DATA'
+  );
+}
+
+/**
+ * 値がNoAnnotationResponseかどうかを判定するタイプガード
+ *
+ * 注釈が存在しない場合のレスポンスかどうかを判定します。
+ *
+ * @param value - 判定する値
+ * @returns valueがNoAnnotationResponseならtrue
+ */
+export function isNoAnnotationResponse(value: unknown): value is NoAnnotationResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return 'data' in obj && obj.data === null;
+}
