@@ -27,6 +27,7 @@ import jwksRoutes from './routes/jwks.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import projectsRoutes from './routes/projects.routes.js';
 import tradingPartnersRoutes from './routes/trading-partners.routes.js';
+import siteSurveysRoutes from './routes/site-surveys.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -299,6 +300,10 @@ app.use('/api/projects', projectsRoutes);
 
 // Trading partner management routes
 app.use('/api/trading-partners', tradingPartnersRoutes);
+
+// Site survey management routes
+app.use('/api/projects/:projectId/site-surveys', siteSurveysRoutes);
+app.use('/api/site-surveys', siteSurveysRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

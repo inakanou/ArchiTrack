@@ -135,3 +135,45 @@ export const projectIdParamSchema = z.object({
  * プロジェクトIDパラメータの型
  */
 export type ProjectIdParam = z.infer<typeof projectIdParamSchema>;
+
+/**
+ * ソート可能フィールド
+ */
+export const SITE_SURVEY_SORTABLE_FIELDS = ['surveyDate', 'createdAt', 'updatedAt'] as const;
+export type SiteSurveySortableField = (typeof SITE_SURVEY_SORTABLE_FIELDS)[number];
+
+/**
+ * 現場調査一覧取得用クエリスキーマ
+ *
+ * Requirements:
+ * - 3.1: プロジェクト単位でのページネーション
+ * - 3.2: キーワード検索（名前・メモの部分一致）
+ * - 3.3: 調査日によるフィルタリング
+ * - 3.4: ソート機能（調査日・作成日・更新日）
+ */
+export const siteSurveyListQuerySchema = z.object({
+  // ページネーション（Requirements: 3.1）
+  page: z.coerce.number().int().min(1, 'ページ番号は1以上を指定してください').default(1),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1, '表示件数は1以上を指定してください')
+    .max(100, '表示件数は100以下を指定してください')
+    .default(20),
+
+  // 検索（Requirements: 3.2）
+  search: z.string().min(2, '検索キーワードは2文字以上を指定してください').optional(),
+
+  // 調査日フィルタ（Requirements: 3.3）
+  surveyDateFrom: dateStringSchema.optional(),
+  surveyDateTo: dateStringSchema.optional(),
+
+  // ソート（Requirements: 3.4）
+  sort: z.enum(SITE_SURVEY_SORTABLE_FIELDS).default('surveyDate'),
+  order: z.enum(['asc', 'desc']).default('desc'),
+});
+
+/**
+ * 現場調査一覧クエリの型
+ */
+export type SiteSurveyListQuery = z.infer<typeof siteSurveyListQuerySchema>;

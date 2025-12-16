@@ -129,7 +129,7 @@
 ### Phase 4: バックエンドAPI層
 
 - [ ] 6. APIルーティングの実装
-- [ ] 6.1 (P) 現場調査CRUDエンドポイントを実装する
+- [x] 6.1 (P) 現場調査CRUDエンドポイントを実装する
   - POST /api/projects/:projectId/site-surveys（作成）
   - GET /api/projects/:projectId/site-surveys（一覧）
   - GET /api/site-surveys/:id（詳細）
