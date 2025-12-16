@@ -138,7 +138,7 @@
   - Zodスキーマによるリクエストバリデーション
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 3.1_
 
-- [ ] 6.2 (P) 画像管理エンドポイントを実装する
+- [x] 6.2 (P) 画像管理エンドポイントを実装する
   - POST /api/site-surveys/:id/images（アップロード、multipart/form-data）
   - GET /api/site-surveys/:id/images（一覧）
   - PUT /api/site-surveys/:id/images/order（順序変更）

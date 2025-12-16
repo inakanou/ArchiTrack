@@ -3481,6 +3481,230 @@
         }
       }
     },
+    "/api/site-surveys/{id}/images": {
+      "get": {
+        "summary": "画像一覧取得",
+        "description": "現場調査に紐付く画像の一覧を表示順序でソートして取得",
+        "tags": [
+          "Survey Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "現場調査ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "画像一覧"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "現場調査が見つからない"
+          }
+        }
+      },
+      "post": {
+        "summary": "画像アップロード",
+        "description": "現場調査に画像をアップロード（複数ファイル対応）",
+        "tags": [
+          "Survey Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "現場調査ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "images": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "アップロード成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "現場調査が見つからない"
+          },
+          "413": {
+            "description": "ファイルサイズ超過"
+          }
+        }
+      }
+    },
+    "/api/site-surveys/{id}/images/order": {
+      "put": {
+        "summary": "画像順序変更",
+        "description": "画像の表示順序を一括変更",
+        "tags": [
+          "Survey Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "現場調査ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "orders"
+                ],
+                "properties": {
+                  "orders": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "order"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "order": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "順序変更成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "現場調査または画像が見つからない"
+          }
+        }
+      }
+    },
+    "/api/site-surveys/images/{imageId}": {
+      "delete": {
+        "summary": "画像削除",
+        "description": "画像と関連する注釈データを削除",
+        "tags": [
+          "Survey Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "imageId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "画像ID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "削除成功"
+          },
+          "400": {
+            "description": "無効な画像ID"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "画像が見つからない"
+          }
+        }
+      }
+    },
     "/api/trading-partners": {
       "get": {
         "summary": "取引先一覧取得",
