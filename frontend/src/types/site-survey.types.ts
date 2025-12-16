@@ -352,3 +352,162 @@ export function isSiteSurveySortableField(value: unknown): value is SiteSurveySo
     (SITE_SURVEY_SORTABLE_FIELDS as readonly string[]).includes(value as string)
   );
 }
+
+// ============================================================================
+// 画像管理用型定義（Task 7.2）
+// ============================================================================
+
+/**
+ * 画像アップロードオプション
+ *
+ * Requirements: 4.1
+ */
+export interface UploadImageOptions {
+  /** 表示順序（省略時は自動設定） */
+  displayOrder?: number;
+}
+
+/**
+ * バッチアップロード進捗情報
+ *
+ * Requirements: 4.2, 4.3
+ */
+export interface BatchUploadProgress {
+  /** 総ファイル数 */
+  total: number;
+  /** 完了したファイル数 */
+  completed: number;
+  /** 現在処理中のファイルインデックス（0始まり） */
+  current: number;
+  /** 成功した画像情報 */
+  results: SurveyImageInfo[];
+  /** エラー情報 */
+  errors: BatchUploadError[];
+}
+
+/**
+ * バッチアップロードエラー情報
+ *
+ * Requirements: 4.2
+ */
+export interface BatchUploadError {
+  /** ファイルのインデックス（0始まり） */
+  index: number;
+  /** ファイル名 */
+  fileName: string;
+  /** エラーメッセージ */
+  error: string;
+}
+
+/**
+ * バッチアップロードオプション
+ *
+ * Requirements: 4.2, 4.3
+ */
+export interface BatchUploadOptions {
+  /** 進捗コールバック */
+  onProgress?: (progress: BatchUploadProgress) => void;
+  /** 一度に処理するファイル数（デフォルト: 5） */
+  batchSize?: number;
+  /** 開始表示順序（省略時は自動設定） */
+  startDisplayOrder?: number;
+}
+
+/**
+ * 画像順序変更リクエスト
+ *
+ * Requirements: 4.10
+ */
+export interface ImageOrderItem {
+  /** 画像ID */
+  id: string;
+  /** 新しい表示順序 */
+  order: number;
+}
+
+/**
+ * 画像未発見エラーレスポンス
+ *
+ * Requirements: 4.7
+ */
+export interface ImageNotFoundErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（404） */
+  status: 404;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'IMAGE_NOT_FOUND';
+  /** 画像ID（任意） */
+  imageId?: string;
+}
+
+/**
+ * ファイル形式エラーレスポンス
+ *
+ * Requirements: 4.5, 4.8
+ */
+export interface UnsupportedFileTypeErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（415） */
+  status: 415;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'UNSUPPORTED_FILE_TYPE';
+  /** 許可されたファイル形式 */
+  allowedTypes: string[];
+}
+
+/**
+ * 値がImageNotFoundErrorResponseかどうかを判定するタイプガード
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがImageNotFoundErrorResponseならtrue
+ */
+export function isImageNotFoundErrorResponse(value: unknown): value is ImageNotFoundErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 404 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'IMAGE_NOT_FOUND'
+  );
+}
+
+/**
+ * 値がUnsupportedFileTypeErrorResponseかどうかを判定するタイプガード
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがUnsupportedFileTypeErrorResponseならtrue
+ */
+export function isUnsupportedFileTypeErrorResponse(
+  value: unknown
+): value is UnsupportedFileTypeErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 415 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'UNSUPPORTED_FILE_TYPE' &&
+    Array.isArray(obj.allowedTypes)
+  );
+}
