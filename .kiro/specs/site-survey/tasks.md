@@ -11,7 +11,7 @@
 ### Phase 1: データベース基盤
 
 - [ ] 1. データベーススキーマの実装
-- [ ] 1.1 (P) 現場調査・画像・注釈のPrismaモデルを定義する
+- [x] 1.1 (P) 現場調査・画像・注釈のPrismaモデルを定義する
   - SiteSurvey、SurveyImage、ImageAnnotationの3モデルを追加
   - プロジェクトとの関連付け（外部キー制約）を設定
   - インデックス（projectId、surveyDate、deletedAt、displayOrder）を定義
