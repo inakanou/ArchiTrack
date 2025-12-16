@@ -22,6 +22,7 @@ import {
   AnnotationImageNotFoundError,
   AnnotationConflictError,
   InvalidAnnotationDataError,
+  AnnotationNotFoundError,
 } from '../../../services/annotation.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 
@@ -561,6 +562,157 @@ describe('AnnotationService', () => {
       // Assert
       expect(result).toBeDefined();
       expect(result?.data.background).toBe('#ffffff');
+    });
+  });
+
+  /**
+   * Task 5.3: 注釈データのJSONエクスポート機能を実装する
+   *
+   * Requirements:
+   * - 9.6: 注釈データをJSON形式でエクスポート可能にする
+   */
+  describe('exportAsJson (Task 5.3)', () => {
+    it('画像IDで注釈データをJSON文字列としてエクスポートする（Requirements: 9.6）', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(mockImageAnnotation);
+
+      // Act
+      const result = await service.exportAsJson('image-123');
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(typeof result).toBe('string');
+
+      // JSONとしてパース可能であることを確認
+      const parsed = JSON.parse(result);
+      expect(parsed.version).toBe('1.0');
+      expect(parsed.objects).toHaveLength(2);
+    });
+
+    it('エクスポートされたJSONはFabric.jsフォーマットに準拠する（Requirements: 9.6）', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(mockImageAnnotation);
+
+      // Act
+      const result = await service.exportAsJson('image-123');
+      const parsed = JSON.parse(result);
+
+      // Assert - Fabric.jsフォーマットの検証
+      expect(parsed).toHaveProperty('version');
+      expect(parsed).toHaveProperty('objects');
+      expect(Array.isArray(parsed.objects)).toBe(true);
+
+      // オブジェクトにFabric.js標準プロパティが含まれることを確認
+      if (parsed.objects.length > 0) {
+        const firstObject = parsed.objects[0];
+        expect(firstObject).toHaveProperty('type');
+      }
+    });
+
+    it('画像が存在しない場合はAnnotationImageNotFoundErrorをスローする（Requirements: 9.6）', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.exportAsJson('non-existent-image')).rejects.toThrow(
+        AnnotationImageNotFoundError
+      );
+    });
+
+    it('現場調査が論理削除されている場合はAnnotationImageNotFoundErrorをスローする', async () => {
+      // Arrange
+      const deletedSurveyImage = {
+        ...mockSurveyImage,
+        survey: {
+          id: 'survey-123',
+          deletedAt: new Date('2024-01-10'),
+        },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(deletedSurveyImage);
+
+      // Act & Assert
+      await expect(service.exportAsJson('image-123')).rejects.toThrow(AnnotationImageNotFoundError);
+    });
+
+    it('注釈データが存在しない場合はAnnotationNotFoundErrorをスローする', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.exportAsJson('image-123')).rejects.toThrow(AnnotationNotFoundError);
+    });
+
+    it('viewportTransformプロパティを含むデータも正常にエクスポートできる', async () => {
+      // Arrange
+      const annotationWithViewport = {
+        ...mockImageAnnotation,
+        data: {
+          ...mockAnnotationData,
+          viewportTransform: [1, 0, 0, 1, 100, 50],
+        },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(annotationWithViewport);
+
+      // Act
+      const result = await service.exportAsJson('image-123');
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.viewportTransform).toEqual([1, 0, 0, 1, 100, 50]);
+    });
+
+    it('backgroundプロパティを含むデータも正常にエクスポートできる', async () => {
+      // Arrange
+      const annotationWithBackground = {
+        ...mockImageAnnotation,
+        data: {
+          ...mockAnnotationData,
+          background: '#f0f0f0',
+        },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(annotationWithBackground);
+
+      // Act
+      const result = await service.exportAsJson('image-123');
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.background).toBe('#f0f0f0');
+    });
+
+    it('空のオブジェクト配列でも正常にエクスポートできる', async () => {
+      // Arrange
+      const emptyAnnotation = {
+        ...mockImageAnnotation,
+        data: { version: '1.0', objects: [] },
+      };
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(emptyAnnotation);
+
+      // Act
+      const result = await service.exportAsJson('image-123');
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.objects).toHaveLength(0);
+    });
+
+    it('エクスポートされたJSONは整形されたフォーマットである', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findUnique = vi.fn().mockResolvedValue(mockSurveyImage);
+      mockPrisma.imageAnnotation.findUnique = vi.fn().mockResolvedValue(mockImageAnnotation);
+
+      // Act
+      const result = await service.exportAsJson('image-123');
+
+      // Assert - 整形されたJSONは改行を含む
+      expect(result).toContain('\n');
+      expect(result).toContain('  '); // インデントを含む
     });
   });
 

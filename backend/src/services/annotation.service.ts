@@ -12,10 +12,15 @@
  * - 画像IDによる注釈データ取得
  * - JSONデータの検証
  *
+ * Task 5.3: 注釈データのJSONエクスポート機能を実装する
+ * - Fabric.jsフォーマット準拠のJSONエクスポート
+ * - ダウンロード用レスポンス生成
+ *
  * Requirements:
  * - 9.1: 全ての注釈データをデータベースに保存する
  * - 9.2: 保存された注釈データを復元して表示する
  * - 9.4: 保存中インジケーターを表示する（バックエンドは保存処理を提供）
+ * - 9.6: 注釈データをJSON形式でエクスポート可能にする
  *
  * @module services/annotation
  */
@@ -73,6 +78,23 @@ export class InvalidAnnotationDataError extends Error {
   constructor(reason: string) {
     super(`無効な注釈データです: ${reason}`);
     this.name = 'InvalidAnnotationDataError';
+  }
+}
+
+/**
+ * 注釈データが見つからないエラー
+ *
+ * 指定された画像に対する注釈データが存在しない場合にスローされます。
+ * エクスポート時に注釈データが必要な場合に使用します。
+ */
+export class AnnotationNotFoundError extends Error {
+  readonly code = 'ANNOTATION_NOT_FOUND';
+  readonly imageId: string;
+
+  constructor(imageId: string) {
+    super(`注釈データが見つかりません: ${imageId}`);
+    this.name = 'AnnotationNotFoundError';
+    this.imageId = imageId;
   }
 }
 
@@ -384,6 +406,55 @@ export class AnnotationService {
     this.validateAnnotationData(data);
 
     return this.toAnnotationInfo(annotation);
+  }
+
+  /**
+   * 注釈データをJSON文字列としてエクスポートする（Task 5.3）
+   *
+   * Fabric.jsフォーマットに準拠したJSON文字列を生成します。
+   * ダウンロード用のレスポンス生成に使用されます。
+   *
+   * Requirements:
+   * - 9.6: 注釈データをJSON形式でエクスポート可能にする
+   *
+   * @param imageId - 画像ID
+   * @returns Fabric.jsフォーマット準拠のJSON文字列（整形済み）
+   * @throws {AnnotationImageNotFoundError} 画像が存在しない、または論理削除されている場合
+   * @throws {AnnotationNotFoundError} 注釈データが存在しない場合
+   */
+  async exportAsJson(imageId: string): Promise<string> {
+    // 1. 画像の存在確認（論理削除チェックを含む）
+    const image = await this.prisma.surveyImage.findUnique({
+      where: { id: imageId },
+      include: {
+        survey: {
+          select: {
+            id: true,
+            deletedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!image || image.survey.deletedAt !== null) {
+      throw new AnnotationImageNotFoundError(imageId);
+    }
+
+    // 2. 注釈データの取得
+    const annotation = await this.prisma.imageAnnotation.findUnique({
+      where: { imageId },
+    });
+
+    if (!annotation) {
+      throw new AnnotationNotFoundError(imageId);
+    }
+
+    // 3. JSONデータの検証
+    const data = annotation.data as unknown as AnnotationData;
+    this.validateAnnotationData(data);
+
+    // 4. 整形されたJSON文字列を返す（インデント: 2スペース）
+    return JSON.stringify(data, null, 2);
   }
 
   /**
