@@ -145,10 +145,11 @@
   - DELETE /api/site-surveys/images/:imageId（削除）
   - _Requirements: 4.1, 4.2, 4.7, 4.9, 4.10_
 
-- [ ] 6.3 (P) 注釈管理エンドポイントを実装する
+- [x] 6.3 (P) 注釈管理エンドポイントを実装する
   - GET /api/site-surveys/images/:imageId/annotations（取得）
   - PUT /api/site-surveys/images/:imageId/annotations（保存）
-  - _Requirements: 9.1, 9.2_
+  - GET /api/site-surveys/images/:imageId/annotations/export（JSONエクスポート）
+  - _Requirements: 9.1, 9.2, 9.6_
 
 - [ ] 6.4 アクセス制御ミドルウェアを適用する
   - 認証ミドルウェアの適用
