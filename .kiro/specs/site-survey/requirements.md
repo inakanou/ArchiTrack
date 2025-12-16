@@ -34,9 +34,11 @@
 2. When ユーザーが複数の画像を同時に選択する, the Site Survey Service shall バッチアップロードを実行する
 3. When 画像アップロードが完了する, the Site Survey Service shall サムネイルを自動生成する
 4. If アップロードされたファイルが許可された形式でない, then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する
-5. If ファイルサイズが上限を超える, then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する
+5. If ファイルサイズが上限（200KB）を超える, then the Site Survey Service shall 画像を圧縮して200KB以下に調整した上で登録する
 6. When ユーザーが画像を削除する, the Site Survey Service shall 画像と関連する注釈データを削除する
 7. The Site Survey Service shall JPEG、PNG、WEBP、PDF形式の画像ファイルをサポートする
+8. The Site Survey Service shall 画像一覧を固定の表示順序で表示する
+9. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更して保存する
 
 ### Requirement 4: 画像ビューア
 **Objective:** As a 現場調査担当者, I want アップロードした画像を拡大・縮小・回転して閲覧できること, so that 画像の詳細を確認できる
@@ -62,17 +64,19 @@
 7. The Site Survey Service shall 寸法線の色・線の太さをカスタマイズ可能にする
 
 ### Requirement 6: 注釈機能 - マーキング（図形）
-**Objective:** As a 現場調査担当者, I want 画像上に図形（矢印・円・四角形等）を追加できること, so that 注目箇所を視覚的に示せる
+**Objective:** As a 現場調査担当者, I want 画像上に図形（矢印・円・四角形・多角形・折れ線・フリーハンド）を追加できること, so that 注目箇所を視覚的に示せる
 
 #### Acceptance Criteria
 1. When ユーザーが矢印ツールを選択してドラッグする, the Site Survey Service shall 開始点から終了点へ矢印を描画する
 2. When ユーザーが円ツールを選択してドラッグする, the Site Survey Service shall 円または楕円を描画する
 3. When ユーザーが四角形ツールを選択してドラッグする, the Site Survey Service shall 長方形を描画する
-4. When ユーザーがフリーハンドツールを選択して描画する, the Site Survey Service shall フリーハンドの線を描画する
-5. When ユーザーが既存の図形をクリックする, the Site Survey Service shall 図形を選択状態にして編集可能にする
-6. When ユーザーが選択中の図形をドラッグする, the Site Survey Service shall 図形の位置を移動する
-7. When ユーザーが選択中の図形のハンドルをドラッグする, the Site Survey Service shall 図形のサイズを変更する
-8. The Site Survey Service shall 図形の色・線の太さ・塗りつぶしをカスタマイズ可能にする
+4. When ユーザーが多角形ツールを選択して頂点をクリックする, the Site Survey Service shall 多角形を描画する
+5. When ユーザーが折れ線ツールを選択して点をクリックする, the Site Survey Service shall 折れ線を描画する
+6. When ユーザーがフリーハンドツールを選択して描画する, the Site Survey Service shall フリーハンドの線を描画する
+7. When ユーザーが既存の図形をクリックする, the Site Survey Service shall 図形を選択状態にして編集可能にする
+8. When ユーザーが選択中の図形をドラッグする, the Site Survey Service shall 図形の位置を移動する
+9. When ユーザーが選択中の図形のハンドルをドラッグする, the Site Survey Service shall 図形のサイズを変更する
+10. The Site Survey Service shall 図形の色・線の太さ・塗りつぶしをカスタマイズ可能にする
 
 ### Requirement 7: 注釈機能 - コメント（テキスト）
 **Objective:** As a 現場調査担当者, I want 画像上にテキストコメントを追加できること, so that 補足説明や注意事項を記録できる
@@ -84,6 +88,7 @@
 4. When ユーザーがテキストをドラッグする, the Site Survey Service shall テキストの配置位置を移動する
 5. The Site Survey Service shall テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
 6. Where 吹き出し形式が選択される, the Site Survey Service shall テキストを吹き出し形式で表示する
+7. The Site Survey Service shall 日本語を含むマルチバイト文字の入力・表示をサポートする
 
 ### Requirement 8: 注釈データの保存・復元
 **Objective:** As a 現場調査担当者, I want 追加した注釈を保存して後から編集できること, so that 作業を中断・再開できる
@@ -105,6 +110,7 @@
 3. When PDFエクスポートが選択される, the Site Survey Service shall 複数画像を1つのPDFにまとめるオプションを提供する
 4. The Site Survey Service shall エクスポート画像の解像度（品質）を選択可能にする
 5. The Site Survey Service shall 注釈なしの元画像もダウンロード可能にする
+6. The Site Survey Service shall 日本語を含むテキスト注釈を正しくレンダリングしてエクスポートする
 
 ### Requirement 10: Undo/Redo機能
 **Objective:** As a 現場調査担当者, I want 注釈編集操作を取り消し・やり直しできること, so that 誤操作を簡単に修正できる
