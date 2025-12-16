@@ -948,4 +948,343 @@ describe('SiteSurveyService', () => {
       expect(result?.thumbnailUrl).toBeNull();
     });
   });
+
+  /**
+   * Task 3.4: 現場調査の削除機能を実装する
+   *
+   * Requirements:
+   * - 1.4: 現場調査と関連する画像データを論理削除する
+   * - 12.5: 現場調査の削除時に監査ログを記録する
+   *
+   * - 論理削除（deletedAtの設定）
+   * - 関連画像の連動削除処理
+   * - 監査ログへの記録
+   */
+  describe('deleteSiteSurvey', () => {
+    const existingSurvey = {
+      id: 'survey-123',
+      projectId: 'project-123',
+      name: '第1回現場調査',
+      surveyDate: new Date('2024-01-15'),
+      memo: '調査メモ',
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-02T10:00:00.000Z'),
+      deletedAt: null,
+      project: mockProject,
+    };
+
+    const mockSurveyImages = [
+      {
+        id: 'image-001',
+        surveyId: 'survey-123',
+        originalPath: 'surveys/survey-123/images/image-001.jpg',
+        thumbnailPath: 'surveys/survey-123/thumbnails/image-001.jpg',
+        fileName: 'photo1.jpg',
+        fileSize: 150000,
+        width: 1920,
+        height: 1080,
+        displayOrder: 1,
+        createdAt: new Date('2024-01-10'),
+      },
+      {
+        id: 'image-002',
+        surveyId: 'survey-123',
+        originalPath: 'surveys/survey-123/images/image-002.jpg',
+        thumbnailPath: 'surveys/survey-123/thumbnails/image-002.jpg',
+        fileName: 'photo2.jpg',
+        fileSize: 200000,
+        width: 1920,
+        height: 1080,
+        displayOrder: 2,
+        createdAt: new Date('2024-01-11'),
+      },
+    ];
+
+    it('正常に現場調査を論理削除する（Requirements: 1.4）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const deletedAt = new Date('2024-02-01T10:00:00.000Z');
+      const surveyWithImages = {
+        ...existingSurvey,
+        images: mockSurveyImages,
+      };
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt,
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(surveyWithImages),
+            update: vi.fn().mockResolvedValue(deletedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteSiteSurvey('survey-123', actorId);
+
+      // Assert - エラーがスローされないことを確認
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('存在しない現場調査を削除しようとするとエラーを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      const { SiteSurveyNotFoundError } = await import('../../../errors/siteSurveyError.js');
+      await expect(service.deleteSiteSurvey('non-existent', actorId)).rejects.toThrow(
+        SiteSurveyNotFoundError
+      );
+    });
+
+    it('既に論理削除されている現場調査を削除しようとするとエラーを返す', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const alreadyDeletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-01-20'),
+        images: [],
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(alreadyDeletedSurvey),
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act & Assert
+      const { SiteSurveyNotFoundError } = await import('../../../errors/siteSurveyError.js');
+      await expect(service.deleteSiteSurvey('survey-123', actorId)).rejects.toThrow(
+        SiteSurveyNotFoundError
+      );
+    });
+
+    it('関連する画像がある現場調査を正常に論理削除する（Requirements: 1.4）', async () => {
+      // Arrange
+      // 注: SurveyImageにはdeletedAtフィールドがない設計
+      // 現場調査が論理削除されると、関連画像は親の削除状態により除外される
+      const actorId = 'actor-123';
+      const surveyWithImages = {
+        ...existingSurvey,
+        images: mockSurveyImages,
+      };
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-02-01T10:00:00.000Z'),
+      };
+
+      const mockSurveyUpdate = vi.fn().mockResolvedValue(deletedSurvey);
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(surveyWithImages),
+            update: mockSurveyUpdate,
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteSiteSurvey('survey-123', actorId);
+
+      // Assert - 現場調査が論理削除される
+      expect(mockSurveyUpdate).toHaveBeenCalledWith({
+        where: { id: 'survey-123' },
+        data: {
+          deletedAt: expect.any(Date),
+        },
+      });
+    });
+
+    it('画像がない場合でも正常に削除する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const surveyWithoutImages = {
+        ...existingSurvey,
+        images: [],
+      };
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-02-01T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(surveyWithoutImages),
+            update: vi.fn().mockResolvedValue(deletedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteSiteSurvey('survey-123', actorId);
+
+      // Assert - エラーがスローされないこと
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('監査ログを記録する（Requirements: 12.5）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const surveyWithImages = {
+        ...existingSurvey,
+        images: mockSurveyImages,
+      };
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-02-01T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(surveyWithImages),
+            update: vi.fn().mockResolvedValue(deletedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteSiteSurvey('survey-123', actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'SITE_SURVEY_DELETED',
+          actorId,
+          targetType: 'SiteSurvey',
+          targetId: 'survey-123',
+        })
+      );
+    });
+
+    it('監査ログにbefore情報を含める（削除されたデータの記録）', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const surveyWithImages = {
+        ...existingSurvey,
+        images: mockSurveyImages,
+      };
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-02-01T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(surveyWithImages),
+            update: vi.fn().mockResolvedValue(deletedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteSiteSurvey('survey-123', actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          before: expect.objectContaining({
+            name: '第1回現場調査',
+            projectId: 'project-123',
+            memo: '調査メモ',
+          }),
+          after: null,
+        })
+      );
+    });
+
+    it('トランザクション内でsiteSurveyにdeletedAtを設定する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const surveyWithImages = {
+        ...existingSurvey,
+        images: mockSurveyImages,
+      };
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-02-01T10:00:00.000Z'),
+      };
+
+      const mockSurveyUpdate = vi.fn().mockResolvedValue(deletedSurvey);
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(surveyWithImages),
+            update: mockSurveyUpdate,
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteSiteSurvey('survey-123', actorId);
+
+      // Assert
+      expect(mockSurveyUpdate).toHaveBeenCalledWith({
+        where: { id: 'survey-123' },
+        data: {
+          deletedAt: expect.any(Date),
+        },
+      });
+    });
+
+    it('監査ログに削除された画像の件数を含める', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      const surveyWithImages = {
+        ...existingSurvey,
+        images: mockSurveyImages,
+      };
+      const deletedSurvey = {
+        ...existingSurvey,
+        deletedAt: new Date('2024-02-01T10:00:00.000Z'),
+      };
+
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          siteSurvey: {
+            findUnique: vi.fn().mockResolvedValue(surveyWithImages),
+            update: vi.fn().mockResolvedValue(deletedSurvey),
+          },
+        };
+        return fn(tx);
+      });
+
+      // Act
+      await service.deleteSiteSurvey('survey-123', actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          before: expect.objectContaining({
+            imageCount: 2,
+          }),
+        })
+      );
+    });
+  });
 });
