@@ -1,0 +1,514 @@
+/**
+ * PdfReportService - PDF報告書レイアウトサービス
+ *
+ * Task 21.2: PDF報告書レイアウトを実装する
+ * - 表紙（調査名、調査日、プロジェクト名）
+ * - 基本情報セクション（メモ含む）
+ * - 画像一覧セクション（注釈付き画像）
+ * - ページ番号
+ *
+ * @see design.md - ExportService
+ * @see requirements.md - 要件10.6, 10.7
+ */
+
+import type { jsPDF } from 'jspdf';
+import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.types';
+import { initializePdfFonts, PDF_FONT_FAMILY } from './PdfFontService';
+
+// ============================================================================
+// 定数定義
+// ============================================================================
+
+/**
+ * PDF報告書のレイアウト設定
+ */
+export const PDF_REPORT_LAYOUT = {
+  /** ページマージン（mm） */
+  PAGE_MARGIN: 15,
+  /** タイトルフォントサイズ */
+  TITLE_FONT_SIZE: 24,
+  /** サブタイトルフォントサイズ */
+  SUBTITLE_FONT_SIZE: 14,
+  /** ヘッダーフォントサイズ */
+  HEADER_FONT_SIZE: 12,
+  /** 本文フォントサイズ */
+  BODY_FONT_SIZE: 10,
+  /** 小さいフォントサイズ（ページ番号等） */
+  SMALL_FONT_SIZE: 8,
+  /** 行間 */
+  LINE_HEIGHT: 1.4,
+  /** セクション間の余白 */
+  SECTION_MARGIN: 10,
+  /** 画像と画像の間の余白 */
+  IMAGE_MARGIN: 5,
+  /** 画像の最大幅（ページ幅に対する比率） */
+  IMAGE_MAX_WIDTH_RATIO: 0.9,
+  /** 画像の最大高さ（ページ高さに対する比率） */
+  IMAGE_MAX_HEIGHT_RATIO: 0.6,
+} as const;
+
+// ============================================================================
+// 型定義
+// ============================================================================
+
+/**
+ * 注釈付き画像データ
+ */
+export interface AnnotatedImage {
+  /** 画像情報 */
+  imageInfo: SurveyImageInfo;
+  /** 注釈付き画像のデータURL */
+  dataUrl: string;
+}
+
+/**
+ * PDF報告書生成オプション
+ */
+export interface PdfReportOptions {
+  /** 表紙を含める（デフォルト: true） */
+  includeCoverPage?: boolean;
+  /** 基本情報セクションを含める（デフォルト: true） */
+  includeInfoSection?: boolean;
+  /** 画像セクションを含める（デフォルト: true） */
+  includeImages?: boolean;
+  /** ページ番号を含める（デフォルト: true） */
+  includePageNumbers?: boolean;
+}
+
+/**
+ * 画像サイズ計算結果
+ */
+export interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
+// ============================================================================
+// ユーティリティ関数
+// ============================================================================
+
+/**
+ * 日付をPDF用にフォーマットする
+ *
+ * @param dateString ISO8601形式の日付文字列（YYYY-MM-DD）
+ * @returns 日本語形式の日付文字列（yyyy年mm月dd日）
+ */
+export function formatDateForPdf(dateString: string): string {
+  if (!dateString) return '';
+
+  const parts = dateString.split('-');
+  if (parts.length !== 3) return dateString;
+
+  const year = parts[0] ?? '';
+  const month = parts[1] ?? '';
+  const day = parts[2] ?? '';
+
+  return `${year}年${parseInt(month, 10)}月${parseInt(day, 10)}日`;
+}
+
+/**
+ * 画像のサイズを計算する
+ *
+ * アスペクト比を維持しながら、指定された最大サイズに収まるサイズを計算する。
+ *
+ * @param originalWidth 元の画像の幅
+ * @param originalHeight 元の画像の高さ
+ * @param maxWidth 最大幅
+ * @param maxHeight 最大高さ
+ * @returns 計算された幅と高さ
+ */
+export function calculateImageDimensions(
+  originalWidth: number,
+  originalHeight: number,
+  maxWidth: number,
+  maxHeight: number
+): ImageDimensions {
+  const aspectRatio = originalWidth / originalHeight;
+
+  let width = maxWidth;
+  let height = width / aspectRatio;
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspectRatio;
+  }
+
+  return { width, height };
+}
+
+// ============================================================================
+// PdfReportServiceクラス
+// ============================================================================
+
+/**
+ * PDF報告書サービスクラス
+ *
+ * 現場調査のPDF報告書を生成する。表紙、基本情報、画像一覧、
+ * ページ番号を含むレイアウトを実装。
+ *
+ * Requirements:
+ * - 10.6: PDF報告書生成（日本語対応）
+ * - 10.7: 調査報告PDFに基本情報を含める
+ */
+export class PdfReportService {
+  /**
+   * 表紙を描画する
+   *
+   * 調査名、調査日、プロジェクト名を含む表紙を描画する。
+   *
+   * @param doc jsPDFインスタンス
+   * @param survey 現場調査詳細
+   */
+  renderCoverPage(doc: jsPDF, survey: SiteSurveyDetail): void {
+    // フォントを初期化
+    initializePdfFonts(doc);
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const centerX = pageWidth / 2;
+
+    // 背景の装飾線（上部）
+    doc.setDrawColor(50, 100, 150);
+    doc.setLineWidth(2);
+    doc.line(PDF_REPORT_LAYOUT.PAGE_MARGIN, 30, pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN, 30);
+
+    // タイトル：「現場調査報告書」
+    doc.setFontSize(PDF_REPORT_LAYOUT.TITLE_FONT_SIZE);
+    doc.setTextColor(30, 30, 30);
+    doc.text('現場調査報告書', centerX, 60, { align: 'center' });
+
+    // 調査名
+    doc.setFontSize(PDF_REPORT_LAYOUT.SUBTITLE_FONT_SIZE + 4);
+    doc.text(survey.name, centerX, 90, { align: 'center' });
+
+    // 装飾線（中央）
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.5);
+    doc.line(
+      PDF_REPORT_LAYOUT.PAGE_MARGIN + 30,
+      110,
+      pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN - 30,
+      110
+    );
+
+    // 基本情報セクション
+    const infoStartY = 130;
+    const labelX = centerX - 50;
+    const valueX = centerX + 10;
+    doc.setFontSize(PDF_REPORT_LAYOUT.HEADER_FONT_SIZE);
+
+    // プロジェクト名
+    doc.setTextColor(80, 80, 80);
+    doc.text('プロジェクト：', labelX, infoStartY, { align: 'right' });
+    doc.setTextColor(30, 30, 30);
+    doc.text(survey.project.name, valueX, infoStartY);
+
+    // 調査日
+    doc.setTextColor(80, 80, 80);
+    doc.text('調査日：', labelX, infoStartY + 15, { align: 'right' });
+    doc.setTextColor(30, 30, 30);
+    doc.text(formatDateForPdf(survey.surveyDate), valueX, infoStartY + 15);
+
+    // 画像件数
+    doc.setTextColor(80, 80, 80);
+    doc.text('画像数：', labelX, infoStartY + 30, { align: 'right' });
+    doc.setTextColor(30, 30, 30);
+    doc.text(`${survey.imageCount}枚`, valueX, infoStartY + 30);
+
+    // 作成日
+    const createdDate = survey.createdAt.split('T')[0] ?? '';
+    doc.setTextColor(80, 80, 80);
+    doc.text('作成日：', labelX, infoStartY + 45, { align: 'right' });
+    doc.setTextColor(30, 30, 30);
+    doc.text(formatDateForPdf(createdDate), valueX, infoStartY + 45);
+
+    // 装飾線（下部）
+    doc.setDrawColor(50, 100, 150);
+    doc.setLineWidth(2);
+    doc.line(
+      PDF_REPORT_LAYOUT.PAGE_MARGIN,
+      pageHeight - 30,
+      pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN,
+      pageHeight - 30
+    );
+  }
+
+  /**
+   * 基本情報セクションを描画する
+   *
+   * メモを含む基本情報を描画する。
+   *
+   * @param doc jsPDFインスタンス
+   * @param survey 現場調査詳細
+   * @param startY 開始Y座標
+   * @returns 描画終了時のY座標
+   */
+  renderInfoSection(doc: jsPDF, survey: SiteSurveyDetail, startY: number): number {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const contentWidth = pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN * 2;
+    let currentY = startY;
+
+    // セクションヘッダー
+    doc.setFontSize(PDF_REPORT_LAYOUT.HEADER_FONT_SIZE);
+    doc.setTextColor(30, 30, 30);
+    doc.text('基本情報', PDF_REPORT_LAYOUT.PAGE_MARGIN, currentY);
+    currentY += 8;
+
+    // 下線
+    doc.setDrawColor(100, 100, 100);
+    doc.setLineWidth(0.3);
+    doc.line(
+      PDF_REPORT_LAYOUT.PAGE_MARGIN,
+      currentY,
+      pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN,
+      currentY
+    );
+    currentY += 8;
+
+    // メモ
+    doc.setFontSize(PDF_REPORT_LAYOUT.BODY_FONT_SIZE);
+    doc.setTextColor(60, 60, 60);
+    doc.text('メモ：', PDF_REPORT_LAYOUT.PAGE_MARGIN, currentY);
+    currentY += 6;
+
+    if (survey.memo) {
+      doc.setTextColor(30, 30, 30);
+      // 長いテキストを折り返す
+      const memoLines = doc.splitTextToSize(survey.memo, contentWidth - 5);
+      memoLines.forEach((line: string) => {
+        doc.text(line, PDF_REPORT_LAYOUT.PAGE_MARGIN + 5, currentY);
+        currentY += 5;
+      });
+    } else {
+      doc.setTextColor(120, 120, 120);
+      doc.text('（メモなし）', PDF_REPORT_LAYOUT.PAGE_MARGIN + 5, currentY);
+      currentY += 5;
+    }
+
+    return currentY + PDF_REPORT_LAYOUT.SECTION_MARGIN;
+  }
+
+  /**
+   * 画像一覧セクションを描画する
+   *
+   * 注釈付き画像を順番に描画する。ページをまたぐ場合は新しいページを追加する。
+   *
+   * @param doc jsPDFインスタンス
+   * @param images 注釈付き画像の配列
+   * @param startY 開始Y座標
+   * @returns 描画終了時のY座標
+   */
+  renderImagesSection(doc: jsPDF, images: AnnotatedImage[], startY: number): number {
+    if (images.length === 0) {
+      return startY;
+    }
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const contentWidth = pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN * 2;
+    const maxImageWidth = contentWidth * PDF_REPORT_LAYOUT.IMAGE_MAX_WIDTH_RATIO;
+    const maxImageHeight =
+      (pageHeight - PDF_REPORT_LAYOUT.PAGE_MARGIN * 2) * PDF_REPORT_LAYOUT.IMAGE_MAX_HEIGHT_RATIO;
+    let currentY = startY;
+
+    // セクションヘッダー
+    doc.setFontSize(PDF_REPORT_LAYOUT.HEADER_FONT_SIZE);
+    doc.setTextColor(30, 30, 30);
+    doc.text('画像一覧', PDF_REPORT_LAYOUT.PAGE_MARGIN, currentY);
+    currentY += 8;
+
+    // 下線
+    doc.setDrawColor(100, 100, 100);
+    doc.setLineWidth(0.3);
+    doc.line(
+      PDF_REPORT_LAYOUT.PAGE_MARGIN,
+      currentY,
+      pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN,
+      currentY
+    );
+    currentY += 10;
+
+    // 各画像を描画
+    images.forEach((image, index) => {
+      const { width, height } = calculateImageDimensions(
+        image.imageInfo.width,
+        image.imageInfo.height,
+        maxImageWidth,
+        maxImageHeight
+      );
+
+      // ページに収まるかチェック
+      const requiredHeight = height + 20; // 画像 + キャプション
+      if (currentY + requiredHeight > pageHeight - PDF_REPORT_LAYOUT.PAGE_MARGIN - 20) {
+        // 新しいページを追加
+        doc.addPage();
+        currentY = PDF_REPORT_LAYOUT.PAGE_MARGIN + 10;
+      }
+
+      // 画像を中央揃えで配置
+      const imageX = PDF_REPORT_LAYOUT.PAGE_MARGIN + (contentWidth - width) / 2;
+
+      try {
+        // 画像を追加
+        doc.addImage(image.dataUrl, 'JPEG', imageX, currentY, width, height);
+      } catch {
+        // 画像追加に失敗した場合はプレースホルダーを表示
+        doc.setDrawColor(200, 200, 200);
+        doc.setFillColor(240, 240, 240);
+        doc.rect(imageX, currentY, width, height, 'FD');
+        doc.setFontSize(PDF_REPORT_LAYOUT.BODY_FONT_SIZE);
+        doc.setTextColor(150, 150, 150);
+        doc.text('画像を読み込めませんでした', imageX + width / 2, currentY + height / 2, {
+          align: 'center',
+        });
+      }
+
+      currentY += height + 5;
+
+      // キャプション（ファイル名と番号）
+      doc.setFontSize(PDF_REPORT_LAYOUT.SMALL_FONT_SIZE);
+      doc.setTextColor(80, 80, 80);
+      const caption = `図${index + 1}: ${image.imageInfo.fileName}`;
+      doc.text(caption, pageWidth / 2, currentY, { align: 'center' });
+      currentY += PDF_REPORT_LAYOUT.IMAGE_MARGIN + 10;
+    });
+
+    return currentY;
+  }
+
+  /**
+   * ページ番号を描画する
+   *
+   * 全ページにページ番号（n / N 形式）を追加する。
+   *
+   * @param doc jsPDFインスタンス
+   */
+  renderPageNumbers(doc: jsPDF): void {
+    const totalPages = doc.getNumberOfPages();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(PDF_REPORT_LAYOUT.SMALL_FONT_SIZE);
+      doc.setTextColor(120, 120, 120);
+      const pageNumberText = `${i} / ${totalPages}`;
+      doc.text(pageNumberText, pageWidth / 2, pageHeight - 10, { align: 'center' });
+    }
+  }
+
+  /**
+   * PDF報告書を生成する
+   *
+   * 表紙、基本情報、画像一覧、ページ番号を含むPDF報告書を生成する。
+   *
+   * @param doc jsPDFインスタンス
+   * @param survey 現場調査詳細
+   * @param images 注釈付き画像の配列
+   * @param options 生成オプション
+   * @returns jsPDFインスタンス
+   */
+  generateReport(
+    doc: jsPDF,
+    survey: SiteSurveyDetail,
+    images: AnnotatedImage[],
+    options: PdfReportOptions = {}
+  ): jsPDF {
+    // バリデーション
+    if (!doc) {
+      throw new Error('jsPDF instance is required');
+    }
+    if (!survey) {
+      throw new Error('Survey detail is required');
+    }
+
+    // オプションのデフォルト値を設定
+    const opts = {
+      includeCoverPage: true,
+      includeInfoSection: true,
+      includeImages: true,
+      includePageNumbers: true,
+      ...options,
+    };
+
+    // フォントを初期化
+    initializePdfFonts(doc);
+    doc.setFont(PDF_FONT_FAMILY);
+
+    let currentY: number = PDF_REPORT_LAYOUT.PAGE_MARGIN;
+
+    // 表紙を描画
+    if (opts.includeCoverPage) {
+      this.renderCoverPage(doc, survey);
+      doc.addPage();
+      currentY = PDF_REPORT_LAYOUT.PAGE_MARGIN + 10;
+    }
+
+    // 基本情報セクションを描画
+    if (opts.includeInfoSection) {
+      currentY = this.renderInfoSection(doc, survey, currentY);
+    }
+
+    // 画像一覧セクションを描画
+    if (opts.includeImages) {
+      this.renderImagesSection(doc, images, currentY);
+    }
+
+    // ページ番号を追加
+    if (opts.includePageNumbers) {
+      this.renderPageNumbers(doc);
+    }
+
+    return doc;
+  }
+}
+
+// ============================================================================
+// シングルトンインスタンス
+// ============================================================================
+
+/**
+ * デフォルトのPdfReportServiceインスタンス
+ */
+let defaultService: PdfReportService | null = null;
+
+/**
+ * デフォルトのサービスインスタンスを取得
+ */
+function getDefaultService(): PdfReportService {
+  if (!defaultService) {
+    defaultService = new PdfReportService();
+  }
+  return defaultService;
+}
+
+/**
+ * シングルトンインスタンスをリセットする（テスト用）
+ */
+export function resetPdfReportService(): void {
+  defaultService = null;
+}
+
+// ============================================================================
+// スタンドアロン関数
+// ============================================================================
+
+/**
+ * PDF報告書を生成する（スタンドアロン関数）
+ *
+ * @param doc jsPDFインスタンス
+ * @param survey 現場調査詳細
+ * @param images 注釈付き画像の配列
+ * @param options 生成オプション
+ * @returns jsPDFインスタンス
+ */
+export function generatePdfReport(
+  doc: jsPDF,
+  survey: SiteSurveyDetail,
+  images: AnnotatedImage[],
+  options?: PdfReportOptions
+): jsPDF {
+  return getDefaultService().generateReport(doc, survey, images, options);
+}
+
+export default PdfReportService;
