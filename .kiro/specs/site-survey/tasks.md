@@ -390,7 +390,7 @@
 ### Phase 10: 編集支援機能の実装
 
 - [ ] 17. Undo/Redo機能の実装
-- [ ] 17.1 UndoManagerを実装する
+- [x] 17.1 UndoManagerを実装する
   - コマンドパターンによる操作履歴管理
   - 最大50件の履歴保持、超過時は最古の履歴から削除（FIFO）
   - execute/undo/redoメソッド
