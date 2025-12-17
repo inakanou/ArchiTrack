@@ -148,9 +148,9 @@ export function LazyImage({
   const containerRef = useRef<HTMLDivElement>(null);
   const [loadState, setLoadState] = useState<ImageLoadState>('idle');
   const [currentSrc, setCurrentSrc] = useState<string | null>(null);
-  const [isInView, setIsInView] = useState(false);
+  const isInViewRef = useRef(false);
 
-  // IntersectionObserver設定
+  // IntersectionObserver設定 - ビューポートに入ったら画像読み込み開始
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -158,8 +158,16 @@ export function LazyImage({
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry && entry.isIntersecting && !isInView) {
-          setIsInView(true);
+        if (entry && entry.isIntersecting && !isInViewRef.current) {
+          isInViewRef.current = true;
+          // IntersectionObserverコールバック内で直接読み込み開始
+          if (thumbnailSrc) {
+            setLoadState('loading-thumbnail');
+            setCurrentSrc(thumbnailSrc);
+          } else {
+            setLoadState('loading-original');
+            setCurrentSrc(src);
+          }
         }
       },
       {
@@ -173,21 +181,7 @@ export function LazyImage({
     return () => {
       observer.disconnect();
     };
-  }, [rootMargin, isInView]);
-
-  // ビューポートに入ったら画像読み込み開始
-  useEffect(() => {
-    if (!isInView) return;
-
-    // サムネイルがある場合はサムネイルから読み込み
-    if (thumbnailSrc) {
-      setLoadState('loading-thumbnail');
-      setCurrentSrc(thumbnailSrc);
-    } else {
-      setLoadState('loading-original');
-      setCurrentSrc(src);
-    }
-  }, [isInView, thumbnailSrc, src]);
+  }, [rootMargin, thumbnailSrc, src]);
 
   // 画像読み込み完了ハンドラ
   const handleLoad = useCallback(() => {
