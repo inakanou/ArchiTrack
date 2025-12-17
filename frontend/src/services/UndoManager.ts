@@ -45,6 +45,13 @@ export type OnChangeCallback = (state: UndoManagerState) => void;
 export interface IUndoManager {
   /** コマンドを実行してUndoスタックに追加する */
   execute(command: UndoCommand): void;
+  /**
+   * コマンドを実行せずにUndoスタックに追加する
+   *
+   * Fabric.jsなど外部ライブラリのイベントに連携する際、
+   * 既に操作が実行された後にコマンドを履歴に追加するために使用します。
+   */
+  pushWithoutExecute(command: UndoCommand): void;
   /** 直前のコマンドを取り消す */
   undo(): void;
   /** 取り消したコマンドを再実行する */
@@ -108,6 +115,34 @@ export class UndoManager implements IUndoManager {
     this.undoStack.push(command);
 
     // Redoスタックをクリア（新しいコマンド実行後はRedoできない）
+    this.redoStack = [];
+
+    // 状態変更を通知
+    this.notifyChange();
+  }
+
+  /**
+   * コマンドを実行せずにUndoスタックに追加する
+   *
+   * Fabric.jsなど外部ライブラリのイベントに連携する際、
+   * 既に操作が実行された後にコマンドを履歴に追加するために使用します。
+   *
+   * - execute()を呼び出さずにUndoスタックに追加
+   * - Redoスタックをクリア
+   * - 履歴が最大数を超えた場合、最古のコマンドを削除（FIFO）
+   *
+   * @param command 追加するコマンド
+   */
+  pushWithoutExecute(command: UndoCommand): void {
+    // 履歴が最大数に達している場合、最古のコマンドを削除（FIFO）
+    if (this.undoStack.length >= this.maxHistorySize) {
+      this.undoStack.shift();
+    }
+
+    // Undoスタックに追加（execute()は呼び出さない）
+    this.undoStack.push(command);
+
+    // Redoスタックをクリア（新しいコマンド追加後はRedoできない）
     this.redoStack = [];
 
     // 状態変更を通知

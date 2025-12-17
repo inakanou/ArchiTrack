@@ -396,7 +396,7 @@
   - execute/undo/redoメソッド
   - _Requirements: 11.1, 11.2, 11.4_
 
-- [ ] 17.2 Fabric.jsイベント連携を実装する
+- [x] 17.2 Fabric.jsイベント連携を実装する
   - object:added、object:modified、object:removedイベントのキャプチャ
   - コマンドオブジェクトの生成
   - _Requirements: 11.1, 11.2_

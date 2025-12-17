@@ -469,4 +469,114 @@ describe('UndoManager', () => {
       expect(manager.getUndoStackSize()).toBe(50);
     });
   });
+
+  describe('pushWithoutExecute', () => {
+    it('should add command to undo stack without calling execute', () => {
+      const executeFn = vi.fn();
+      const undoFn = vi.fn();
+      const command: UndoCommand = {
+        type: 'test',
+        execute: executeFn,
+        undo: undoFn,
+      };
+
+      undoManager.pushWithoutExecute(command);
+
+      // execute should NOT be called
+      expect(executeFn).not.toHaveBeenCalled();
+      // Command should be in the undo stack
+      expect(undoManager.canUndo()).toBe(true);
+    });
+
+    it('should clear the redo stack when pushing a new command', () => {
+      const command1: UndoCommand = {
+        type: 'test1',
+        execute: vi.fn(),
+        undo: vi.fn(),
+      };
+      const command2: UndoCommand = {
+        type: 'test2',
+        execute: vi.fn(),
+        undo: vi.fn(),
+      };
+
+      undoManager.execute(command1);
+      undoManager.undo();
+      expect(undoManager.canRedo()).toBe(true);
+
+      undoManager.pushWithoutExecute(command2);
+      expect(undoManager.canRedo()).toBe(false);
+    });
+
+    it('should enforce max history size (FIFO)', () => {
+      const manager = new UndoManager(3);
+      const commands: UndoCommand[] = [];
+
+      // Push 4 commands to a manager with max size of 3
+      for (let i = 0; i < 4; i++) {
+        const command: UndoCommand = {
+          type: `test${i}`,
+          execute: vi.fn(),
+          undo: vi.fn(),
+        };
+        commands.push(command);
+        manager.pushWithoutExecute(command);
+      }
+
+      // Stack should have only 3 commands
+      expect(manager.getUndoStackSize()).toBe(3);
+
+      // We should be able to undo 3 times
+      manager.undo();
+      manager.undo();
+      manager.undo();
+      expect(manager.canUndo()).toBe(false);
+
+      // The first command's undo should not have been called (it was removed)
+      expect(commands[0]!.undo).not.toHaveBeenCalled();
+      // The newer commands' undo were called
+      expect(commands[1]!.undo).toHaveBeenCalled();
+      expect(commands[2]!.undo).toHaveBeenCalled();
+      expect(commands[3]!.undo).toHaveBeenCalled();
+    });
+
+    it('should call onChange callback when pushing a command', () => {
+      const onChange = vi.fn();
+      undoManager.setOnChange(onChange);
+
+      const command: UndoCommand = {
+        type: 'test',
+        execute: vi.fn(),
+        undo: vi.fn(),
+      };
+
+      undoManager.pushWithoutExecute(command);
+      expect(onChange).toHaveBeenCalledWith({
+        canUndo: true,
+        canRedo: false,
+      });
+    });
+
+    it('should allow undo and then redo with correct behavior', () => {
+      const executeFn = vi.fn();
+      const undoFn = vi.fn();
+      const command: UndoCommand = {
+        type: 'test',
+        execute: executeFn,
+        undo: undoFn,
+      };
+
+      // Push without execute
+      undoManager.pushWithoutExecute(command);
+      expect(executeFn).not.toHaveBeenCalled();
+
+      // Undo should call undo()
+      undoManager.undo();
+      expect(undoFn).toHaveBeenCalledTimes(1);
+
+      // Redo should call execute()
+      undoManager.redo();
+      expect(executeFn).toHaveBeenCalledTimes(1);
+    });
+  });
 });
