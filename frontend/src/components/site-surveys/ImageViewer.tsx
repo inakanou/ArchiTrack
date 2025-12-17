@@ -6,6 +6,7 @@
  * Task 12.3: 回転機能を実装する
  * Task 12.4: パン機能を実装する
  * Task 12.5: タッチ操作対応を実装する
+ * Task 12.6: 表示状態の共有機能を実装する
  *
  * モーダル/専用画面での画像表示、Fabric.js Canvasの初期化、
  * 画像の読み込みと表示、ズーム機能、回転機能、パン機能、
@@ -17,10 +18,11 @@
  * - 5.3: 回転ボタンを押すと画像を90度単位で回転表示
  * - 5.4: パン操作を行うと拡大時の表示領域を移動する
  * - 5.5: ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
+ * - 5.6: 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
  * - 13.2: タッチ操作に最適化された注釈ツールを提供する
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { Canvas as FabricCanvas, FabricImage } from 'fabric';
 
 // ============================================================================
@@ -85,7 +87,32 @@ export const TOUCH_CONSTANTS = {
 // ============================================================================
 
 /**
- * ImageViewerの状態
+ * 外部公開用の表示状態（注釈エディタとの共有用）
+ * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+ */
+export interface ImageViewerViewState {
+  /** 現在のズーム倍率 */
+  zoom: number;
+  /** 現在の回転角度（度） */
+  rotation: RotationAngle;
+  /** パン位置X */
+  panX: number;
+  /** パン位置Y */
+  panY: number;
+}
+
+/**
+ * ImageViewerのref経由で公開するメソッド
+ */
+export interface ImageViewerRef {
+  /** 現在の表示状態を取得 */
+  getViewState: () => ImageViewerViewState;
+  /** 表示状態を設定 */
+  setViewState: (state: Partial<ImageViewerViewState>) => void;
+}
+
+/**
+ * ImageViewerの内部状態
  */
 interface ImageViewerState {
   /** 読み込み中フラグ */
@@ -130,6 +157,16 @@ export interface ImageViewerProps {
   onClose: () => void;
   /** 画像名（タイトル表示用、省略時はデフォルトタイトル） */
   imageName?: string;
+  /**
+   * 表示状態変更時のコールバック（注釈エディタとの同期用）
+   * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+   */
+  onViewStateChange?: (state: ImageViewerViewState) => void;
+  /**
+   * 初期表示状態（注釈エディタから復元する際に使用）
+   * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+   */
+  initialViewState?: ImageViewerViewState;
 }
 
 // ============================================================================
@@ -364,8 +401,14 @@ function formatRotationDegree(rotation: RotationAngle): string {
  *
  * Fabric.js Canvasを使用して画像を表示するモーダルコンポーネントです。
  * ズーム機能（ボタン、マウスホイール、キーボードショートカット）を提供します。
+ *
+ * Task 12.6: forwardRefで表示状態の共有機能を提供
+ * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
  */
-export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: ImageViewerProps) {
+const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageViewer(
+  { imageUrl, isOpen, onClose, imageName, onViewStateChange, initialViewState },
+  ref
+) {
   // DOM参照
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -373,17 +416,20 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   // Fabric.js Canvas参照
   const fabricCanvasRef = useRef<FabricCanvas | null>(null);
 
-  // 状態管理
-  const [state, setState] = useState<ImageViewerState>({
+  // 初期状態の決定（initialViewStateがあれば使用、なければデフォルト）
+  const getInitialState = (): ImageViewerState => ({
     isLoading: true,
     error: null,
-    zoom: 1,
-    rotation: 0,
+    zoom: initialViewState?.zoom ?? 1,
+    rotation: initialViewState?.rotation ?? 0,
     isPanning: false,
-    panX: 0,
-    panY: 0,
+    panX: initialViewState?.panX ?? 0,
+    panY: initialViewState?.panY ?? 0,
     isTouching: false,
   });
+
+  // 状態管理
+  const [state, setState] = useState<ImageViewerState>(getInitialState);
 
   // 前回のimageUrl参照（変更検知用）
   const prevImageUrlRef = useRef<string | null>(null);
@@ -393,37 +439,151 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
 
   // パン操作用の参照
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
-  const lastPanPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastPanPositionRef = useRef<{ x: number; y: number }>({
+    x: initialViewState?.panX ?? 0,
+    y: initialViewState?.panY ?? 0,
+  });
 
   // タッチ操作用の参照
   const touchStartPointsRef = useRef<TouchPoint[]>([]);
   const initialPinchDistanceRef = useRef<number | null>(null);
-  const initialZoomRef = useRef<number>(1);
+  const initialZoomRef = useRef<number>(initialViewState?.zoom ?? 1);
   const touchPanStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // onViewStateChange参照（useCallbackで最新の値を参照するため）
+  const onViewStateChangeRef = useRef(onViewStateChange);
+  onViewStateChangeRef.current = onViewStateChange;
+
+  // 状態のrefを保持（コールバックで最新の状態を参照するため）
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  /**
+   * 表示状態変更を通知
+   * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+   */
+  const notifyViewStateChange = useCallback(
+    (newState: Partial<ImageViewerViewState>) => {
+      if (onViewStateChangeRef.current) {
+        // refから最新の状態を取得してマージ
+        const currentState = stateRef.current;
+        onViewStateChangeRef.current({
+          zoom: newState.zoom ?? currentState.zoom,
+          rotation: newState.rotation ?? currentState.rotation,
+          panX: newState.panX ?? currentState.panX,
+          panY: newState.panY ?? currentState.panY,
+        });
+      }
+    },
+    [] // 依存配列を空にしてメモ化を安定させる
+  );
+
+  /**
+   * 外部から表示状態を設定
+   * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+   */
+  const setViewState = useCallback(
+    (newState: Partial<ImageViewerViewState>) => {
+      const canvas = fabricCanvasRef.current;
+      const img = backgroundImageRef.current;
+
+      // ズームとパン位置を設定
+      if (canvas) {
+        const newZoom = newState.zoom !== undefined ? clampZoom(newState.zoom) : state.zoom;
+        const newPanX = newState.panX ?? state.panX;
+        const newPanY = newState.panY ?? state.panY;
+
+        canvas.setViewportTransform([newZoom, 0, 0, newZoom, newPanX, newPanY]);
+        lastPanPositionRef.current = { x: newPanX, y: newPanY };
+        canvas.renderAll();
+      }
+
+      // 回転を設定
+      if (img && newState.rotation !== undefined) {
+        const newRotation = normalizeRotation(newState.rotation);
+        const imgWidth = img.width || 1;
+        const imgHeight = img.height || 1;
+
+        img.set({
+          angle: newRotation,
+          originX: 'center',
+          originY: 'center',
+          left: (imgWidth * (img.scaleX || 1)) / 2,
+          top: (imgHeight * (img.scaleY || 1)) / 2,
+        });
+
+        if (canvas) {
+          canvas.renderAll();
+        }
+      }
+
+      // 状態を更新
+      setState((prev) => ({
+        ...prev,
+        zoom: newState.zoom !== undefined ? clampZoom(newState.zoom) : prev.zoom,
+        rotation:
+          newState.rotation !== undefined ? normalizeRotation(newState.rotation) : prev.rotation,
+        panX: newState.panX ?? prev.panX,
+        panY: newState.panY ?? prev.panY,
+      }));
+    },
+    [state.zoom, state.panX, state.panY]
+  );
+
+  /**
+   * 現在の表示状態を取得
+   * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+   */
+  const getViewState = useCallback((): ImageViewerViewState => {
+    return {
+      zoom: state.zoom,
+      rotation: state.rotation,
+      panX: state.panX,
+      panY: state.panY,
+    };
+  }, [state.zoom, state.rotation, state.panX, state.panY]);
+
+  /**
+   * refを通じてメソッドを公開
+   * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      getViewState,
+      setViewState,
+    }),
+    [getViewState, setViewState]
+  );
 
   /**
    * ズームレベルを設定
    */
-  const setZoom = useCallback((newZoom: number) => {
-    const canvas = fabricCanvasRef.current;
-    if (!canvas) return;
+  const setZoom = useCallback(
+    (newZoom: number) => {
+      const canvas = fabricCanvasRef.current;
+      if (!canvas) return;
 
-    const clampedZoom = clampZoom(newZoom);
+      const clampedZoom = clampZoom(newZoom);
 
-    // ズームが1.0以下になったらパン位置もリセット
-    if (clampedZoom <= 1) {
-      canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, 0, 0]);
-      lastPanPositionRef.current = { x: 0, y: 0 };
-      setState((prev) => ({ ...prev, zoom: clampedZoom, panX: 0, panY: 0 }));
-    } else {
-      // ズームが1より大きい場合、現在のパン位置を維持
-      const currentPanX = lastPanPositionRef.current.x;
-      const currentPanY = lastPanPositionRef.current.y;
-      canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, currentPanX, currentPanY]);
-      setState((prev) => ({ ...prev, zoom: clampedZoom }));
-    }
-    canvas.renderAll();
-  }, []);
+      // ズームが1.0以下になったらパン位置もリセット
+      if (clampedZoom <= 1) {
+        canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, 0, 0]);
+        lastPanPositionRef.current = { x: 0, y: 0 };
+        setState((prev) => ({ ...prev, zoom: clampedZoom, panX: 0, panY: 0 }));
+        notifyViewStateChange({ zoom: clampedZoom, panX: 0, panY: 0 });
+      } else {
+        // ズームが1より大きい場合、現在のパン位置を維持
+        const currentPanX = lastPanPositionRef.current.x;
+        const currentPanY = lastPanPositionRef.current.y;
+        canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, currentPanX, currentPanY]);
+        setState((prev) => ({ ...prev, zoom: clampedZoom }));
+        notifyViewStateChange({ zoom: clampedZoom });
+      }
+      canvas.renderAll();
+    },
+    [notifyViewStateChange]
+  );
 
   /**
    * ズームイン
@@ -459,26 +619,30 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   /**
    * 回転を適用
    */
-  const applyRotation = useCallback((newRotation: RotationAngle) => {
-    const canvas = fabricCanvasRef.current;
-    const img = backgroundImageRef.current;
-    if (!canvas || !img) return;
+  const applyRotation = useCallback(
+    (newRotation: RotationAngle) => {
+      const canvas = fabricCanvasRef.current;
+      const img = backgroundImageRef.current;
+      if (!canvas || !img) return;
 
-    // 画像の中心を基準に回転を設定
-    const imgWidth = img.width || 1;
-    const imgHeight = img.height || 1;
+      // 画像の中心を基準に回転を設定
+      const imgWidth = img.width || 1;
+      const imgHeight = img.height || 1;
 
-    img.set({
-      angle: newRotation,
-      originX: 'center',
-      originY: 'center',
-      left: (imgWidth * (img.scaleX || 1)) / 2,
-      top: (imgHeight * (img.scaleY || 1)) / 2,
-    });
+      img.set({
+        angle: newRotation,
+        originX: 'center',
+        originY: 'center',
+        left: (imgWidth * (img.scaleX || 1)) / 2,
+        top: (imgHeight * (img.scaleY || 1)) / 2,
+      });
 
-    canvas.renderAll();
-    setState((prev) => ({ ...prev, rotation: newRotation }));
-  }, []);
+      canvas.renderAll();
+      setState((prev) => ({ ...prev, rotation: newRotation }));
+      notifyViewStateChange({ rotation: newRotation });
+    },
+    [notifyViewStateChange]
+  );
 
   /**
    * 右回転（時計回り90度）
@@ -600,8 +764,9 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
       panStartRef.current = null;
 
       setState((prev) => ({ ...prev, isPanning: false, panX: newPanX, panY: newPanY }));
+      notifyViewStateChange({ panX: newPanX, panY: newPanY });
     },
-    [state.isPanning]
+    [state.isPanning, notifyViewStateChange]
   );
 
   /**
@@ -922,69 +1087,107 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   /**
    * 画像を読み込んでCanvasに表示
    */
-  const loadImage = useCallback(async (canvas: FabricCanvas, url: string) => {
-    setState((prev) => ({ ...prev, isLoading: true, error: null }));
+  const loadImage = useCallback(
+    async (canvas: FabricCanvas, url: string) => {
+      setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
-    try {
-      // 画像を読み込み
-      const img = await FabricImage.fromURL(url, {
-        crossOrigin: 'anonymous',
-      });
+      try {
+        // 画像を読み込み
+        const img = await FabricImage.fromURL(url, {
+          crossOrigin: 'anonymous',
+        });
 
-      // コンテナサイズを取得
-      const containerWidth = containerRef.current?.clientWidth || 800;
-      const containerHeight = containerRef.current?.clientHeight || 600;
+        // コンテナサイズを取得
+        const containerWidth = containerRef.current?.clientWidth || 800;
+        const containerHeight = containerRef.current?.clientHeight || 600;
 
-      // パディングを考慮
-      const padding = 48;
-      const maxWidth = containerWidth - padding;
-      const maxHeight = containerHeight - padding;
+        // パディングを考慮
+        const padding = 48;
+        const maxWidth = containerWidth - padding;
+        const maxHeight = containerHeight - padding;
 
-      // 画像サイズを計算
-      const imgWidth = img.width || 1;
-      const imgHeight = img.height || 1;
-      const scale = Math.min(maxWidth / imgWidth, maxHeight / imgHeight, 1);
+        // 画像サイズを計算
+        const imgWidth = img.width || 1;
+        const imgHeight = img.height || 1;
+        const scale = Math.min(maxWidth / imgWidth, maxHeight / imgHeight, 1);
 
-      // スケールを設定
-      img.scale(scale);
+        // スケールを設定
+        img.scale(scale);
 
-      // Canvasサイズを設定
-      const scaledWidth = imgWidth * scale;
-      const scaledHeight = imgHeight * scale;
-      canvas.setWidth(scaledWidth);
-      canvas.setHeight(scaledHeight);
+        // Canvasサイズを設定
+        const scaledWidth = imgWidth * scale;
+        const scaledHeight = imgHeight * scale;
+        canvas.setWidth(scaledWidth);
+        canvas.setHeight(scaledHeight);
 
-      // 背景画像として設定（Fabric.js v6 API）
-      canvas.backgroundImage = img;
-      // 背景画像の参照を保存
-      backgroundImageRef.current = img;
-      canvas.setZoom(1); // ズームをリセット
-      canvas.renderAll();
+        // 背景画像として設定（Fabric.js v6 API）
+        canvas.backgroundImage = img;
+        // 背景画像の参照を保存
+        backgroundImageRef.current = img;
 
-      setState({
-        isLoading: false,
-        error: null,
-        zoom: 1,
-        rotation: 0,
-        isPanning: false,
-        panX: 0,
-        panY: 0,
-        isTouching: false,
-      });
-      lastPanPositionRef.current = { x: 0, y: 0 };
-      touchStartPointsRef.current = [];
-      initialPinchDistanceRef.current = null;
-      initialZoomRef.current = 1;
-      touchPanStartRef.current = null;
-    } catch (err) {
-      console.error('画像の読み込みに失敗しました:', err);
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-        error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
-      }));
-    }
-  }, []);
+        // 初期状態を適用（initialViewStateがある場合）
+        const initZoom = initialViewState?.zoom ?? 1;
+        const initRotation = initialViewState?.rotation ?? 0;
+        const initPanX = initialViewState?.panX ?? 0;
+        const initPanY = initialViewState?.panY ?? 0;
+
+        // ズームとパン位置を設定
+        if (initialViewState) {
+          // initialViewStateが指定されている場合のみviewportTransformで設定
+          canvas.setViewportTransform([initZoom, 0, 0, initZoom, initPanX, initPanY]);
+        } else {
+          // デフォルトの場合はsetZoom(1)を使用（既存のテストとの互換性）
+          canvas.setZoom(1);
+        }
+
+        // 回転を適用
+        if (initRotation !== 0) {
+          img.set({
+            angle: initRotation,
+            originX: 'center',
+            originY: 'center',
+            left: (imgWidth * scale) / 2,
+            top: (imgHeight * scale) / 2,
+          });
+        }
+
+        canvas.renderAll();
+
+        const newState = {
+          isLoading: false,
+          error: null,
+          zoom: initZoom,
+          rotation: initRotation,
+          isPanning: false,
+          panX: initPanX,
+          panY: initPanY,
+          isTouching: false,
+        };
+        setState(newState);
+        lastPanPositionRef.current = { x: initPanX, y: initPanY };
+        touchStartPointsRef.current = [];
+        initialPinchDistanceRef.current = null;
+        initialZoomRef.current = initZoom;
+        touchPanStartRef.current = null;
+
+        // 初期状態を通知
+        notifyViewStateChange({
+          zoom: initZoom,
+          rotation: initRotation,
+          panX: initPanX,
+          panY: initPanY,
+        });
+      } catch (err) {
+        console.error('画像の読み込みに失敗しました:', err);
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
+        }));
+      }
+    },
+    [initialViewState, notifyViewStateChange]
+  );
 
   /**
    * Fabric.js Canvasの初期化
@@ -1324,4 +1527,6 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
       </div>
     </>
   );
-}
+});
+
+export default ImageViewer;

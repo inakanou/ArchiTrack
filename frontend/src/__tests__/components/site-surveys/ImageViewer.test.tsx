@@ -5,12 +5,14 @@
  * Task 12.2: ズーム機能を実装する（TDD）
  * Task 12.3: 回転機能を実装する（TDD）
  * Task 12.4: パン機能を実装する（TDD）
+ * Task 12.6: 表示状態の共有機能を実装する（TDD）
  *
  * Requirements:
  * - 5.1: 画像をクリックすると画像ビューアをモーダルまたは専用画面で開く
  * - 5.2: ズームイン/ズームアウト操作で画像を拡大/縮小表示
  * - 5.3: 回転ボタンを押すと画像を90度単位で回転表示
  * - 5.4: パン操作を行うと拡大時の表示領域を移動する
+ * - 5.6: 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
  *
  * テスト対象:
  * - モーダル/専用画面での画像表示
@@ -23,12 +25,18 @@
  * - 回転状態の保持
  * - ドラッグによる表示領域移動
  * - 拡大時のスクロール対応
+ * - 表示状態の共有（onViewStateChange, initialViewState, ref）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ZOOM_CONSTANTS, ROTATION_CONSTANTS } from '../../../components/site-surveys/ImageViewer';
+import {
+  ZOOM_CONSTANTS,
+  ROTATION_CONSTANTS,
+  type ImageViewerRef,
+  type ImageViewerViewState,
+} from '../../../components/site-surveys/ImageViewer';
 
 // vi.hoistedでモックインスタンスを定義（ホイスティング対応）
 const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
@@ -1863,6 +1871,396 @@ describe('ImageViewer', () => {
         // パン操作のためのsetViewportTransformは呼ばれない
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 12.6: 表示状態の共有機能のテスト
+  // Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+  // ============================================================================
+  describe('表示状態の共有機能', () => {
+    describe('onViewStateChangeコールバック', () => {
+      it('ズーム変更時にonViewStateChangeが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        onViewStateChange.mockClear();
+
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const lastCall = onViewStateChange.mock.calls[onViewStateChange.mock.calls.length - 1];
+        expect(lastCall).toBeDefined();
+        expect(lastCall![0]).toHaveProperty('zoom');
+      });
+
+      it('回転変更時にonViewStateChangeが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        onViewStateChange.mockClear();
+
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const calls = onViewStateChange.mock.calls;
+          const hasRotation90 = calls.some((call) => call[0] && call[0].rotation === 90);
+          expect(hasRotation90).toBe(true);
+        });
+      });
+
+      it('パン操作時にonViewStateChangeが呼ばれる', async () => {
+        const onViewStateChange = vi.fn();
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        onViewStateChange.mockClear();
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        fireEvent.mouseDown(canvasContainer, {
+          clientX: 100,
+          clientY: 100,
+          button: 0,
+        });
+        fireEvent.mouseMove(canvasContainer, {
+          clientX: 150,
+          clientY: 150,
+        });
+        fireEvent.mouseUp(canvasContainer);
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const lastCall = onViewStateChange.mock.calls[onViewStateChange.mock.calls.length - 1];
+        expect(lastCall).toBeDefined();
+        expect(lastCall![0]).toHaveProperty('panX');
+        expect(lastCall![0]).toHaveProperty('panY');
+      });
+
+      it('onViewStateChangeは省略可能', async () => {
+        const user = userEvent.setup();
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        expect(screen.getByTestId('zoom-display')).toBeInTheDocument();
+      });
+    });
+
+    describe('ImageViewerState型の構造', () => {
+      it('コールバックで渡される状態にはzoom, rotation, panX, panYが含まれる', async () => {
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const call = onViewStateChange.mock.calls[0];
+        expect(call).toBeDefined();
+        const state = call![0] as ImageViewerViewState;
+        expect(state).toHaveProperty('zoom');
+        expect(state).toHaveProperty('rotation');
+        expect(state).toHaveProperty('panX');
+        expect(state).toHaveProperty('panY');
+        expect(typeof state.zoom).toBe('number');
+        expect(typeof state.rotation).toBe('number');
+        expect(typeof state.panX).toBe('number');
+        expect(typeof state.panY).toBe('number');
+      });
+
+      it('初期状態はzoom=1, rotation=0, panX=0, panY=0', async () => {
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const call = onViewStateChange.mock.calls[0];
+        expect(call).toBeDefined();
+        const state = call![0] as ImageViewerViewState;
+        expect(state.zoom).toBe(1);
+        expect(state.rotation).toBe(0);
+        expect(state.panX).toBe(0);
+        expect(state.panY).toBe(0);
+      });
+    });
+
+    describe('initialViewState propsによる初期状態の設定', () => {
+      it('initialViewStateでズームの初期値を設定できる', async () => {
+        const onViewStateChange = vi.fn();
+        const initialViewState = {
+          zoom: 2.0,
+          rotation: 0 as const,
+          panX: 0,
+          panY: 0,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            onViewStateChange={onViewStateChange}
+            initialViewState={initialViewState}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const zoomDisplay = screen.getByTestId('zoom-display');
+          expect(zoomDisplay).toHaveTextContent('200%');
+        });
+      });
+
+      it('initialViewStateで回転の初期値を設定できる', async () => {
+        const onViewStateChange = vi.fn();
+        const initialViewState = {
+          zoom: 1,
+          rotation: 90 as const,
+          panX: 0,
+          panY: 0,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            onViewStateChange={onViewStateChange}
+            initialViewState={initialViewState}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+
+      it('initialViewStateは省略可能', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const zoomDisplay = screen.getByTestId('zoom-display');
+          expect(zoomDisplay).toHaveTextContent('100%');
+        });
+      });
+    });
+
+    describe('getViewState関数による現在の状態取得', () => {
+      it('refを通じて現在の表示状態を取得できる', async () => {
+        const viewerRef = { current: null as ImageViewerRef | null };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        if (viewerRef.current) {
+          const state = viewerRef.current.getViewState();
+          expect(state).toHaveProperty('zoom');
+          expect(state).toHaveProperty('rotation');
+          expect(state).toHaveProperty('panX');
+          expect(state).toHaveProperty('panY');
+        }
+      });
+    });
+
+    describe('setViewState関数による状態の設定', () => {
+      it('refを通じてsetViewStateメソッドが公開される', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        expect(viewerRef.current?.setViewState).toBeDefined();
+        expect(typeof viewerRef.current?.setViewState).toBe('function');
+      });
+
+      it('setViewStateを呼び出してもエラーが発生しない', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        if (viewerRef.current) {
+          await act(async () => {
+            viewerRef.current!.setViewState({
+              zoom: 1.5,
+              rotation: 90,
+              panX: 10,
+              panY: 20,
+            });
+          });
+
+          expect(viewerRef.current).not.toBeNull();
+        }
+      });
+    });
+
+    describe('注釈エディタとの状態同期', () => {
+      it('setViewStateとgetViewStateが公開される', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(screen.queryByRole('status')).not.toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        expect(viewerRef.current?.getViewState).toBeDefined();
+        expect(viewerRef.current?.setViewState).toBeDefined();
+      });
+
+      it('getViewStateは現在の表示状態を含むオブジェクトを返す', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        if (viewerRef.current) {
+          const initialState = viewerRef.current.getViewState();
+          expect(initialState).toHaveProperty('zoom');
+          expect(initialState).toHaveProperty('rotation');
+          expect(initialState).toHaveProperty('panX');
+          expect(initialState).toHaveProperty('panY');
+          expect(typeof initialState.zoom).toBe('number');
+          expect(typeof initialState.rotation).toBe('number');
+          expect(typeof initialState.panX).toBe('number');
+          expect(typeof initialState.panY).toBe('number');
+        }
       });
     });
   });
