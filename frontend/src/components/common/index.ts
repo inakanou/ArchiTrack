@@ -9,3 +9,6 @@ export type { BreadcrumbItem, BreadcrumbProps } from './Breadcrumb';
 
 export { ResourceNotFound } from './ResourceNotFound';
 export type { ResourceNotFoundProps } from './ResourceNotFound';
+
+export { default as ConflictDialog } from './ConflictDialog';
+export type { ConflictDialogProps } from './ConflictDialog';
