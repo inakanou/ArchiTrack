@@ -5,15 +5,19 @@
  * Task 12.2: ズーム機能を実装する
  * Task 12.3: 回転機能を実装する
  * Task 12.4: パン機能を実装する
+ * Task 12.5: タッチ操作対応を実装する
  *
  * モーダル/専用画面での画像表示、Fabric.js Canvasの初期化、
- * 画像の読み込みと表示、ズーム機能、回転機能、パン機能を提供するコンポーネントです。
+ * 画像の読み込みと表示、ズーム機能、回転機能、パン機能、
+ * タッチ操作（ピンチズーム、2本指パン）を提供するコンポーネントです。
  *
  * Requirements:
  * - 5.1: 画像をクリックすると画像ビューアをモーダルまたは専用画面で開く
  * - 5.2: ズームイン/ズームアウト操作で画像を拡大/縮小表示
  * - 5.3: 回転ボタンを押すと画像を90度単位で回転表示
  * - 5.4: パン操作を行うと拡大時の表示領域を移動する
+ * - 5.5: ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
+ * - 13.2: タッチ操作に最適化された注釈ツールを提供する
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -63,6 +67,19 @@ export const PAN_CONSTANTS = {
   KEYBOARD_PAN_STEP: 50,
 } as const;
 
+/**
+ * タッチ操作関連の定数
+ * @description ピンチズームと2本指パン操作の設定を定義
+ * Requirements: 5.5 - ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
+ * Requirements: 13.2 - タッチ操作に最適化された注釈ツールを提供する
+ */
+export const TOUCH_CONSTANTS = {
+  /** ピンチズームの最小距離閾値（ピクセル） */
+  PINCH_THRESHOLD: 10,
+  /** ピンチズームの感度係数 */
+  PINCH_ZOOM_FACTOR: 0.01,
+} as const;
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -85,6 +102,20 @@ interface ImageViewerState {
   panX: number;
   /** パン位置Y */
   panY: number;
+  /** タッチ操作中フラグ */
+  isTouching: boolean;
+}
+
+/**
+ * タッチポイントの型
+ */
+interface TouchPoint {
+  /** X座標 */
+  x: number;
+  /** Y座標 */
+  y: number;
+  /** タッチ識別子 */
+  identifier: number;
 }
 
 /**
@@ -351,6 +382,7 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
     isPanning: false,
     panX: 0,
     panY: 0,
+    isTouching: false,
   });
 
   // 前回のimageUrl参照（変更検知用）
@@ -362,6 +394,12 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   // パン操作用の参照
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const lastPanPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // タッチ操作用の参照
+  const touchStartPointsRef = useRef<TouchPoint[]>([]);
+  const initialPinchDistanceRef = useRef<number | null>(null);
+  const initialZoomRef = useRef<number>(1);
+  const touchPanStartRef = useRef<{ x: number; y: number } | null>(null);
 
   /**
    * ズームレベルを設定
@@ -643,6 +681,224 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
     ]
   );
 
+  // ============================================================================
+  // タッチ操作関連
+  // ============================================================================
+
+  /**
+   * 2点間の距離を計算
+   */
+  const getDistance = useCallback((p1: TouchPoint, p2: TouchPoint): number => {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }, []);
+
+  /**
+   * 2点の中心点を計算
+   */
+  const getMidpoint = useCallback((p1: TouchPoint, p2: TouchPoint): { x: number; y: number } => {
+    return {
+      x: (p1.x + p2.x) / 2,
+      y: (p1.y + p2.y) / 2,
+    };
+  }, []);
+
+  /**
+   * TouchListからTouchPoint配列を生成
+   */
+  const getTouchPoints = useCallback((touches: React.TouchList): TouchPoint[] => {
+    const points: TouchPoint[] = [];
+    for (let i = 0; i < touches.length; i++) {
+      const touch = touches.item(i);
+      if (touch) {
+        points.push({
+          x: touch.clientX,
+          y: touch.clientY,
+          identifier: touch.identifier,
+        });
+      }
+    }
+    return points;
+  }, []);
+
+  /**
+   * ピンチズームを適用
+   */
+  const applyPinchZoom = useCallback((newZoom: number, centerX: number, centerY: number) => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) return;
+
+    // ズーム範囲を制限
+    const clampedZoom = clampZoom(newZoom);
+
+    // ズームの中心点を基準にビューポートトランスフォームを計算
+    const currentPanX = lastPanPositionRef.current.x;
+    const currentPanY = lastPanPositionRef.current.y;
+
+    // 新しいパン位置を計算（ズーム中心点を維持）
+    const zoomRatio = clampedZoom / initialZoomRef.current;
+    const newPanX = centerX - (centerX - currentPanX) * zoomRatio;
+    const newPanY = centerY - (centerY - currentPanY) * zoomRatio;
+
+    // ビューポートトランスフォームを適用
+    canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, newPanX, newPanY]);
+    canvas.renderAll();
+
+    lastPanPositionRef.current = { x: newPanX, y: newPanY };
+    setState((prev) => ({ ...prev, zoom: clampedZoom, panX: newPanX, panY: newPanY }));
+  }, []);
+
+  /**
+   * タッチ開始ハンドラ
+   */
+  const handleTouchStart = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const touches = getTouchPoints(event.touches);
+      touchStartPointsRef.current = touches;
+
+      if (touches.length === 2) {
+        // 2本指：ピンチズームまたはパン操作の開始
+        const touch0 = touches[0];
+        const touch1 = touches[1];
+        if (touch0 && touch1) {
+          const distance = getDistance(touch0, touch1);
+          const midpoint = getMidpoint(touch0, touch1);
+
+          initialPinchDistanceRef.current = distance;
+          initialZoomRef.current = fabricCanvasRef.current?.getZoom() || 1;
+          touchPanStartRef.current = midpoint;
+        }
+      } else if (touches.length === 1) {
+        // 1本指：パン操作の開始（ズーム状態の時のみ）
+        const touch0 = touches[0];
+        if (isPanEnabled() && touch0) {
+          touchPanStartRef.current = { x: touch0.x, y: touch0.y };
+        }
+      }
+
+      setState((prev) => ({ ...prev, isTouching: true }));
+    },
+    [getTouchPoints, getDistance, getMidpoint, isPanEnabled]
+  );
+
+  /**
+   * タッチ移動ハンドラ
+   */
+  const handleTouchMove = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const touches = getTouchPoints(event.touches);
+
+      if (touches.length === 2 && initialPinchDistanceRef.current !== null) {
+        // 2本指：ピンチズーム処理
+        const touch0 = touches[0];
+        const touch1 = touches[1];
+        if (touch0 && touch1) {
+          const currentDistance = getDistance(touch0, touch1);
+          const distanceDelta = currentDistance - initialPinchDistanceRef.current;
+
+          // 距離の変化量が閾値を超えた場合のみズーム
+          if (Math.abs(distanceDelta) >= TOUCH_CONSTANTS.PINCH_THRESHOLD) {
+            const zoomDelta = distanceDelta * TOUCH_CONSTANTS.PINCH_ZOOM_FACTOR;
+            const newZoom = initialZoomRef.current + zoomDelta;
+            const midpoint = getMidpoint(touch0, touch1);
+
+            applyPinchZoom(newZoom, midpoint.x, midpoint.y);
+          }
+
+          // 2本指パン操作（ズーム状態の時）
+          if (isPanEnabled() && touchPanStartRef.current) {
+            const currentMidpoint = getMidpoint(touch0, touch1);
+            const deltaX = currentMidpoint.x - touchPanStartRef.current.x;
+            const deltaY = currentMidpoint.y - touchPanStartRef.current.y;
+
+            const canvas = fabricCanvasRef.current;
+            if (canvas) {
+              const zoom = canvas.getZoom();
+              const newPanX = lastPanPositionRef.current.x + deltaX;
+              const newPanY = lastPanPositionRef.current.y + deltaY;
+
+              canvas.setViewportTransform([zoom, 0, 0, zoom, newPanX, newPanY]);
+              canvas.renderAll();
+
+              // 一時的なパン位置（touchendで確定）
+            }
+          }
+        }
+      } else if (touches.length === 1 && isPanEnabled() && touchPanStartRef.current) {
+        // 1本指パン操作（ズーム状態の時のみ）
+        const touch0 = touches[0];
+        if (touch0) {
+          const deltaX = touch0.x - touchPanStartRef.current.x;
+          const deltaY = touch0.y - touchPanStartRef.current.y;
+
+          const canvas = fabricCanvasRef.current;
+          if (canvas) {
+            const zoom = canvas.getZoom();
+            const newPanX = lastPanPositionRef.current.x + deltaX;
+            const newPanY = lastPanPositionRef.current.y + deltaY;
+
+            canvas.setViewportTransform([zoom, 0, 0, zoom, newPanX, newPanY]);
+            canvas.renderAll();
+          }
+        }
+      }
+    },
+    [getTouchPoints, getDistance, getMidpoint, applyPinchZoom, isPanEnabled]
+  );
+
+  /**
+   * タッチ終了ハンドラ
+   */
+  const handleTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const touches = getTouchPoints(event.touches);
+
+      // 最後のパン位置を確定
+      if (touchPanStartRef.current && touchStartPointsRef.current.length >= 1) {
+        const canvas = fabricCanvasRef.current;
+        if (canvas) {
+          const vpt = canvas.viewportTransform;
+          if (vpt) {
+            lastPanPositionRef.current = { x: vpt[4], y: vpt[5] };
+            setState((prev) => ({ ...prev, panX: vpt[4], panY: vpt[5] }));
+          }
+        }
+      }
+
+      // タッチがすべて離れた場合はリセット
+      if (touches.length === 0) {
+        touchStartPointsRef.current = [];
+        initialPinchDistanceRef.current = null;
+        touchPanStartRef.current = null;
+        setState((prev) => ({ ...prev, isTouching: false }));
+      } else {
+        // まだタッチが残っている場合は更新
+        touchStartPointsRef.current = touches;
+        if (touches.length === 1) {
+          // 1本指に戻った場合、パン開始位置を更新
+          const touch0 = touches[0];
+          if (touch0) {
+            touchPanStartRef.current = { x: touch0.x, y: touch0.y };
+          }
+          initialPinchDistanceRef.current = null;
+        }
+      }
+    },
+    [getTouchPoints]
+  );
+
+  /**
+   * タッチキャンセルハンドラ
+   */
+  const handleTouchCancel = useCallback(() => {
+    touchStartPointsRef.current = [];
+    initialPinchDistanceRef.current = null;
+    touchPanStartRef.current = null;
+    setState((prev) => ({ ...prev, isTouching: false }));
+  }, []);
+
   /**
    * オーバーレイクリックハンドラ
    */
@@ -713,8 +969,13 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
         isPanning: false,
         panX: 0,
         panY: 0,
+        isTouching: false,
       });
       lastPanPositionRef.current = { x: 0, y: 0 };
+      touchStartPointsRef.current = [];
+      initialPinchDistanceRef.current = null;
+      initialZoomRef.current = 1;
+      touchPanStartRef.current = null;
     } catch (err) {
       console.error('画像の読み込みに失敗しました:', err);
       setState((prev) => ({
@@ -864,7 +1125,13 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
             ref={containerRef}
             style={{
               ...STYLES.canvasContainer,
-              cursor: state.isPanning ? 'grabbing' : state.zoom > 1 ? 'grab' : 'default',
+              cursor:
+                state.isPanning || state.isTouching
+                  ? 'grabbing'
+                  : state.zoom > 1
+                    ? 'grab'
+                    : 'default',
+              touchAction: 'none', // タッチ操作のデフォルト動作を無効化
             }}
             data-testid="canvas-container"
             onWheel={handleWheel}
@@ -872,6 +1139,10 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
             onMouseMove={handlePanMove}
             onMouseUp={handlePanEnd}
             onMouseLeave={handlePanEnd}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
           >
             <canvas ref={canvasRef} style={STYLES.canvas} />
 

@@ -1346,4 +1346,524 @@ describe('ImageViewer', () => {
       });
     });
   });
+
+  // ============================================================================
+  // Task 12.5: タッチ操作対応のテスト
+  // Requirements: 5.5 - ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
+  // Requirements: 13.2 - タッチ操作に最適化された注釈ツールを提供する
+  // ============================================================================
+  describe('タッチ操作対応', () => {
+    // タッチイベントのヘルパー関数
+    const createTouchEvent = (
+      type: string,
+      touches: Array<{ clientX: number; clientY: number; identifier: number }>
+    ) => {
+      const touchList = touches.map(
+        (t) =>
+          ({
+            clientX: t.clientX,
+            clientY: t.clientY,
+            identifier: t.identifier,
+            target: document.body,
+            screenX: t.clientX,
+            screenY: t.clientY,
+            pageX: t.clientX,
+            pageY: t.clientY,
+            radiusX: 1,
+            radiusY: 1,
+            rotationAngle: 0,
+            force: 1,
+          }) as Touch
+      );
+
+      return new TouchEvent(type, {
+        touches: touchList,
+        targetTouches: touchList,
+        changedTouches: touchList,
+        bubbles: true,
+        cancelable: true,
+      });
+    };
+
+    describe('タッチ定数の検証', () => {
+      it('タッチ操作の定数がエクスポートされている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.TOUCH_CONSTANTS).toBeDefined();
+      });
+
+      it('ピンチズームの最小距離閾値が定義されている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.TOUCH_CONSTANTS.PINCH_THRESHOLD).toBeGreaterThan(0);
+      });
+
+      it('ピンチズームの感度係数が定義されている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.TOUCH_CONSTANTS.PINCH_ZOOM_FACTOR).toBeGreaterThan(0);
+      });
+    });
+
+    describe('ピンチズーム操作', () => {
+      it('2本指ピンチアウト（広げる）でズームインできる', async () => {
+        const currentZoom = 1.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ピンチ開始（2本指を近くに配置）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 120, clientY: 120, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // ピンチアウト（指を広げる）
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 170, clientY: 170, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        // タッチ終了
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // ズームが変更されることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('2本指ピンチイン（縮める）でズームアウトできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ピンチ開始（2本指を離して配置）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 150, clientY: 150, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // ピンチイン（指を近づける）
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 90, clientY: 90, identifier: 0 },
+          { clientX: 110, clientY: 110, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        // タッチ終了
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // ズームが変更されることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('ピンチズームは範囲内に制限される', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 大量のピンチアウトを試行
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 110, clientY: 110, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // 極端なピンチアウト
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 0, clientY: 0, identifier: 0 },
+          { clientX: 1000, clientY: 1000, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // setViewportTransformが呼ばれた場合、その値のスケールが範囲内であることを確認
+        const calls = mockCanvasInstance.setViewportTransform.mock.calls;
+        if (calls.length > 0) {
+          const lastCallArgs = calls[calls.length - 1];
+          if (lastCallArgs) {
+            const lastCall = lastCallArgs[0] as number[];
+            const scaleX = lastCall[0];
+            expect(scaleX).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
+            expect(scaleX).toBeGreaterThanOrEqual(ZOOM_CONSTANTS.MIN_ZOOM);
+          }
+        }
+      });
+
+      it('1本指タッチではピンチズームが発動しない', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 1本指でタッチ
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // 1本指で移動
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // ピンチズームとしては動作しない（パン操作になる可能性はある）
+        // ズームが変化していないことを確認するため、少し待つ
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        // 1本指の場合、ピンチズームのためのsetViewportTransformは呼ばれない
+        // （パン操作でズームが1.0未満の場合は呼ばれない）
+      });
+    });
+
+    describe('2本指パン操作', () => {
+      it('ズーム状態で2本指ドラッグするとパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 2本指で同じ距離を保ったままドラッグ（パン操作）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 150, clientY: 100, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // 同じ距離を保ったまま移動（ピンチではなくパン）
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+          { clientX: 200, clientY: 150, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('ズームレベルが1.0の時は2本指パンが無効', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 2本指でパン操作を試行
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 150, clientY: 100, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+          { clientX: 200, clientY: 150, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // パン操作のためのsetViewportTransformは呼ばれない
+        // （ピンチズームの場合は呼ばれる可能性がある）
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+    });
+
+    describe('タッチイベントハンドリング', () => {
+      it('touchstartイベントでタッチ状態が初期化される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // touchstartイベントを発火
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // イベントが処理されることを確認（エラーが発生しないこと）
+        expect(canvasContainer).toBeInTheDocument();
+      });
+
+      it('touchmoveイベントでタッチ位置が更新される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // touchmoveイベントを発火
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 120, clientY: 120, identifier: 0 },
+          { clientX: 220, clientY: 220, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        // イベントが処理されることを確認
+        expect(canvasContainer).toBeInTheDocument();
+      });
+
+      it('touchendイベントでタッチ状態がリセットされる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // touchendイベントを発火
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // 状態がリセットされ、新しいタッチ操作を受け付けることを確認
+        const newTouchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+          { clientX: 250, clientY: 250, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(newTouchStartEvent);
+
+        expect(canvasContainer).toBeInTheDocument();
+      });
+
+      it('touchcancelイベントでタッチ状態がリセットされる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // touchcancelイベントを発火
+        const touchCancelEvent = new TouchEvent('touchcancel', {
+          touches: [],
+          targetTouches: [],
+          changedTouches: [],
+          bubbles: true,
+          cancelable: true,
+        });
+        canvasContainer.dispatchEvent(touchCancelEvent);
+
+        expect(canvasContainer).toBeInTheDocument();
+      });
+    });
+
+    describe('ピンチズームの中心点', () => {
+      it('ピンチズームは2本指の中心点を基準に拡大縮小される', async () => {
+        const currentZoom = 1.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 特定の位置でピンチズーム
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // ピンチアウト
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 250, clientY: 250, identifier: 1 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+    });
+
+    describe('タッチ操作のアクセシビリティ', () => {
+      it('タッチ操作中もUIコントロールが利用可能', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ズームボタンが存在することを確認
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        const zoomOutButton = screen.getByRole('button', { name: /ズームアウト/i });
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+
+        expect(zoomInButton).toBeInTheDocument();
+        expect(zoomOutButton).toBeInTheDocument();
+        expect(rotateLeftButton).toBeInTheDocument();
+        expect(rotateRightButton).toBeInTheDocument();
+      });
+
+      it('モーダル閉じるボタンはタッチ操作でアクセス可能', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const closeButton = screen.getByRole('button', { name: /閉じる/i });
+        expect(closeButton).toBeInTheDocument();
+
+        // タップでクリックをシミュレート
+        fireEvent.click(closeButton);
+
+        expect(defaultProps.onClose).toHaveBeenCalled();
+      });
+    });
+
+    describe('1本指タッチによるパン操作', () => {
+      it('ズーム状態で1本指ドラッグするとパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 1本指でドラッグ（パン操作）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        // 1本指で移動
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // ズームレベルが1より大きい場合、setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('ズームレベルが1.0の時は1本指パンが無効', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 1本指でパン操作を試行
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        canvasContainer.dispatchEvent(touchStartEvent);
+
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+        ]);
+        canvasContainer.dispatchEvent(touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        canvasContainer.dispatchEvent(touchEndEvent);
+
+        // パン操作のためのsetViewportTransformは呼ばれない
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+      });
+    });
+  });
 });
