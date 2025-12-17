@@ -56,6 +56,68 @@ vi.mock('fabric', () => {
     }
   }
 
+  // FabricTextモック
+  class MockFabricText {
+    text: string;
+    fontSize?: number;
+    fill?: string;
+    fontFamily?: string;
+    left?: number;
+    top?: number;
+    width: number;
+    height: number;
+    selectable?: boolean;
+    evented?: boolean;
+
+    constructor(text: string, options?: Record<string, unknown>) {
+      this.text = text;
+      this.width = text.length * 7; // 概算幅
+      this.height = 14; // 概算高さ
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+        // textが更新された場合は幅も更新
+        if (options.text) {
+          this.width = (options.text as string).length * 7;
+        }
+      }
+      return this;
+    }
+  }
+
+  // Rectモック
+  class MockRect {
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    fill?: string;
+    selectable?: boolean;
+    evented?: boolean;
+
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
   // Groupモック - 継承可能なクラス
   class MockGroup {
     _objects: unknown[];
@@ -84,11 +146,24 @@ vi.mock('fabric', () => {
     toObject(): Record<string, unknown> {
       return {};
     }
+
+    add(object: unknown): void {
+      this._objects.push(object);
+    }
+
+    remove(object: unknown): void {
+      const index = this._objects.indexOf(object);
+      if (index > -1) {
+        this._objects.splice(index, 1);
+      }
+    }
   }
 
   return {
     Line: MockLine,
     Group: MockGroup,
+    FabricText: MockFabricText,
+    Rect: MockRect,
   };
 });
 
@@ -600,6 +675,111 @@ describe('DimensionTool', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
         expect(dimensionLine.getFormattedDimension()).toBe('');
+      });
+    });
+
+    // ========================================================================
+    // Task 14.2: 寸法値入力機能テスト
+    // ========================================================================
+    describe('寸法線上への値表示（Task 14.2）', () => {
+      it('寸法値を設定するとテキストラベルが作成される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+        expect(dimensionLine.hasLabel()).toBe(true);
+      });
+
+      it('テキストラベルは寸法線の中央に配置される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+        const labelPosition = dimensionLine.getLabelPosition();
+        expect(labelPosition.x).toBe(200); // 中央: (100 + 300) / 2
+        expect(labelPosition.y).toBe(100); // 同じy座標
+      });
+
+      it('テキストラベルには寸法値と単位が表示される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+        expect(dimensionLine.getLabelText()).toBe('1500 mm');
+      });
+
+      it('単位なしで寸法値を設定できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', '');
+
+        expect(dimensionLine.getLabelText()).toBe('1500');
+      });
+
+      it('寸法値を更新するとラベルテキストも更新される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel('2000', 'cm');
+
+        expect(dimensionLine.getLabelText()).toBe('2000 cm');
+      });
+
+      it('空の寸法値を設定するとラベルが削除される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        expect(dimensionLine.hasLabel()).toBe(true);
+
+        dimensionLine.setDimensionWithLabel('', '');
+        expect(dimensionLine.hasLabel()).toBe(false);
+      });
+
+      it('端点を移動するとラベル位置も更新される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+        dimensionLine.setEndPoint({ x: 500, y: 100 });
+
+        const labelPosition = dimensionLine.getLabelPosition();
+        expect(labelPosition.x).toBe(300); // 中央: (100 + 500) / 2
+      });
+
+      it('テキストラベルのスタイルを設定できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm', {
+          fontSize: 14,
+          fontColor: '#ff0000',
+          backgroundColor: '#ffffff',
+        });
+
+        const labelStyle = dimensionLine.getLabelStyle();
+        expect(labelStyle.fontSize).toBe(14);
+        expect(labelStyle.fontColor).toBe('#ff0000');
+        expect(labelStyle.backgroundColor).toBe('#ffffff');
+      });
+
+      it('デフォルトのラベルスタイルが適用される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+        const labelStyle = dimensionLine.getLabelStyle();
+        expect(labelStyle.fontSize).toBe(12);
+        expect(labelStyle.fontColor).toBe('#000000');
+        expect(labelStyle.backgroundColor).toBe('#ffffff');
+      });
+
+      it('toObject()にラベル情報が含まれる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+        const jsonObject = dimensionLine.toObject();
+        expect(jsonObject.customData.dimensionValue).toBe('1500');
+        expect(jsonObject.customData.dimensionUnit).toBe('mm');
+        expect(jsonObject.labelStyle).toBeDefined();
       });
     });
   });

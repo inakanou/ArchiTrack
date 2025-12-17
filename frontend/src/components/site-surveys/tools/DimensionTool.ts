@@ -2,15 +2,18 @@
  * @fileoverview 寸法線ツール
  *
  * Task 14.1: 寸法線描画機能を実装する
+ * Task 14.2: 寸法値入力機能を実装する
  *
  * 2点クリックによる寸法線描画、端点間の直線と垂直線（エンドキャップ）、
- * カスタムFabric.jsオブジェクト実装を行うモジュールです。
+ * カスタムFabric.jsオブジェクト実装、寸法値ラベル表示を行うモジュールです。
  *
  * Requirements:
  * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
+ * - 6.2: 寸法線が描画されると寸法値入力用のテキストフィールドを表示する
+ * - 6.3: ユーザーが寸法値を入力すると寸法線上に数値とオプションの単位を表示する
  */
 
-import { Group, Line } from 'fabric';
+import { Group, Line, FabricText, Rect } from 'fabric';
 
 // ============================================================================
 // 型定義
@@ -57,6 +60,18 @@ export interface DimensionLineOptions {
 }
 
 /**
+ * 寸法線ラベルのスタイルオプション
+ */
+export interface DimensionLabelStyle {
+  /** フォントサイズ */
+  fontSize: number;
+  /** フォント色 */
+  fontColor: string;
+  /** 背景色 */
+  backgroundColor: string;
+}
+
+/**
  * 寸法線のシリアライズ形式
  */
 export interface DimensionLineJSON {
@@ -67,6 +82,7 @@ export interface DimensionLineJSON {
   strokeWidth: number;
   capLength: number;
   customData: DimensionCustomData;
+  labelStyle?: DimensionLabelStyle;
 }
 
 // ============================================================================
@@ -80,6 +96,15 @@ export const DEFAULT_DIMENSION_OPTIONS: DimensionLineOptions = {
   stroke: '#000000',
   strokeWidth: 2,
   capLength: 10,
+};
+
+/**
+ * デフォルトのラベルスタイル
+ */
+export const DEFAULT_LABEL_STYLE: DimensionLabelStyle = {
+  fontSize: 12,
+  fontColor: '#000000',
+  backgroundColor: '#ffffff',
 };
 
 /**
@@ -191,6 +216,15 @@ export class DimensionLine extends Group {
 
   /** カスタムデータ */
   declare customData: DimensionCustomData;
+
+  /** ラベルテキスト */
+  private _labelText: FabricText | null = null;
+
+  /** ラベル背景 */
+  private _labelBackground: Rect | null = null;
+
+  /** ラベルスタイル */
+  private _labelStyle: DimensionLabelStyle = { ...DEFAULT_LABEL_STYLE };
 
   /** コントロール表示フラグ */
   declare hasControls: boolean;
@@ -425,8 +459,47 @@ export class DimensionLine extends Group {
       y2: endCapPoints.end.y,
     });
 
+    // ラベル位置を更新
+    this._updateLabelPosition();
+
     // 座標を更新
     this.setCoords();
+  }
+
+  /**
+   * ラベル位置を更新（端点変更時）
+   */
+  private _updateLabelPosition(): void {
+    if (this._labelText && this._labelBackground) {
+      const centerPos = this._calculateCenterPosition();
+      const textWidth = this._labelText.width || 0;
+      const textHeight = this._labelText.height || 0;
+      const padding = 4;
+
+      // ラベルテキストを中央に配置
+      this._labelText.set({
+        left: centerPos.x - textWidth / 2,
+        top: centerPos.y - textHeight / 2,
+      });
+
+      // 背景も更新
+      this._labelBackground.set({
+        left: centerPos.x - textWidth / 2 - padding,
+        top: centerPos.y - textHeight / 2 - padding,
+        width: textWidth + padding * 2,
+        height: textHeight + padding * 2,
+      });
+    }
+  }
+
+  /**
+   * 中央位置を計算
+   */
+  private _calculateCenterPosition(): Point {
+    return {
+      x: (this._startPoint.x + this._endPoint.x) / 2,
+      y: (this._startPoint.y + this._endPoint.y) / 2,
+    };
   }
 
   // ==========================================================================
@@ -493,6 +566,164 @@ export class DimensionLine extends Group {
   }
 
   // ==========================================================================
+  // ラベル機能（Task 14.2）
+  // ==========================================================================
+
+  /**
+   * 寸法値とラベルを設定
+   *
+   * @param value 寸法値
+   * @param unit 単位
+   * @param style ラベルスタイル（オプション）
+   */
+  setDimensionWithLabel(value: string, unit: string, style?: Partial<DimensionLabelStyle>): void {
+    // customDataを更新
+    this.customData.dimensionValue = value;
+    this.customData.dimensionUnit = unit;
+
+    // スタイルをマージ
+    if (style) {
+      this._labelStyle = { ...this._labelStyle, ...style };
+    }
+
+    // 空の値の場合はラベルを削除
+    if (!value) {
+      this._removeLabel();
+      return;
+    }
+
+    // ラベルテキストを生成
+    const labelText = unit ? `${value} ${unit}` : value;
+
+    // 既存のラベルがある場合は更新、なければ作成
+    if (this._labelText) {
+      this._updateLabelText(labelText);
+    } else {
+      this._createLabel(labelText);
+    }
+  }
+
+  /**
+   * ラベルを作成
+   */
+  private _createLabel(text: string): void {
+    const centerPos = this._calculateCenterPosition();
+    const padding = 4;
+
+    // テキストを作成
+    this._labelText = new FabricText(text, {
+      fontSize: this._labelStyle.fontSize,
+      fill: this._labelStyle.fontColor,
+      fontFamily: 'Arial, sans-serif',
+      selectable: false,
+      evented: false,
+    });
+
+    // テキストサイズを取得
+    const textWidth = this._labelText.width || 0;
+    const textHeight = this._labelText.height || 0;
+
+    // テキストを中央に配置
+    this._labelText.set({
+      left: centerPos.x - textWidth / 2,
+      top: centerPos.y - textHeight / 2,
+    });
+
+    // 背景を作成
+    this._labelBackground = new Rect({
+      left: centerPos.x - textWidth / 2 - padding,
+      top: centerPos.y - textHeight / 2 - padding,
+      width: textWidth + padding * 2,
+      height: textHeight + padding * 2,
+      fill: this._labelStyle.backgroundColor,
+      selectable: false,
+      evented: false,
+    });
+
+    // グループに追加（背景を先に追加）
+    this.add(this._labelBackground);
+    this.add(this._labelText);
+  }
+
+  /**
+   * ラベルテキストを更新
+   */
+  private _updateLabelText(text: string): void {
+    if (this._labelText && this._labelBackground) {
+      const centerPos = this._calculateCenterPosition();
+      const padding = 4;
+
+      // テキストを更新
+      this._labelText.set({
+        text: text,
+        fontSize: this._labelStyle.fontSize,
+        fill: this._labelStyle.fontColor,
+      });
+
+      // テキストサイズを再計得
+      const textWidth = this._labelText.width || 0;
+      const textHeight = this._labelText.height || 0;
+
+      // テキストを中央に配置
+      this._labelText.set({
+        left: centerPos.x - textWidth / 2,
+        top: centerPos.y - textHeight / 2,
+      });
+
+      // 背景を更新
+      this._labelBackground.set({
+        left: centerPos.x - textWidth / 2 - padding,
+        top: centerPos.y - textHeight / 2 - padding,
+        width: textWidth + padding * 2,
+        height: textHeight + padding * 2,
+        fill: this._labelStyle.backgroundColor,
+      });
+    }
+  }
+
+  /**
+   * ラベルを削除
+   */
+  private _removeLabel(): void {
+    if (this._labelText) {
+      this.remove(this._labelText);
+      this._labelText = null;
+    }
+    if (this._labelBackground) {
+      this.remove(this._labelBackground);
+      this._labelBackground = null;
+    }
+  }
+
+  /**
+   * ラベルが存在するかどうか
+   */
+  hasLabel(): boolean {
+    return this._labelText !== null;
+  }
+
+  /**
+   * ラベル位置を取得
+   */
+  getLabelPosition(): Point {
+    return this._calculateCenterPosition();
+  }
+
+  /**
+   * ラベルテキストを取得
+   */
+  getLabelText(): string {
+    return this.getFormattedDimension();
+  }
+
+  /**
+   * ラベルスタイルを取得
+   */
+  getLabelStyle(): DimensionLabelStyle {
+    return { ...this._labelStyle };
+  }
+
+  // ==========================================================================
   // シリアライズ
   // ==========================================================================
 
@@ -501,7 +732,7 @@ export class DimensionLine extends Group {
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): DimensionLineJSON {
-    return {
+    const result: DimensionLineJSON = {
       type: 'dimensionLine' as const,
       startPoint: this.startPoint,
       endPoint: this.endPoint,
@@ -510,6 +741,13 @@ export class DimensionLine extends Group {
       capLength: this._capLength,
       customData: { ...this.customData },
     };
+
+    // ラベルがある場合はスタイルも含める
+    if (this.hasLabel()) {
+      result.labelStyle = { ...this._labelStyle };
+    }
+
+    return result;
   }
 }
 
