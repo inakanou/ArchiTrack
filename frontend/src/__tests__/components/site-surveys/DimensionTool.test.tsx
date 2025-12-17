@@ -1,0 +1,606 @@
+/**
+ * @fileoverview 寸法線ツールのテスト
+ *
+ * Task 14.1: 寸法線描画機能を実装する（TDD）
+ *
+ * Requirements:
+ * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
+ *
+ * テスト対象:
+ * - 2点クリックによる寸法線描画
+ * - 端点間の直線と垂直線（エンドキャップ）
+ * - カスタムFabric.jsオブジェクト実装
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// vi.hoistedでモック関数を定義（ホイスティング対応）
+const { mockSetCoords, mockSet } = vi.hoisted(() => {
+  return {
+    mockSetCoords: vi.fn(),
+    mockSet: vi.fn(),
+  };
+});
+
+// Fabric.jsのモック - Groupクラスを継承可能にする
+vi.mock('fabric', () => {
+  // 基本的なLineモック
+  class MockLine {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    stroke?: string;
+    strokeWidth?: number;
+    selectable?: boolean;
+    evented?: boolean;
+
+    constructor(points?: number[], options?: Record<string, unknown>) {
+      this.x1 = points?.[0] || 0;
+      this.y1 = points?.[1] || 0;
+      this.x2 = points?.[2] || 0;
+      this.y2 = points?.[3] || 0;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+  }
+
+  // Groupモック - 継承可能なクラス
+  class MockGroup {
+    _objects: unknown[];
+    hasControls: boolean;
+    hasBorders: boolean;
+    lockMovementX: boolean;
+    lockMovementY: boolean;
+    subTargetCheck: boolean;
+
+    constructor(objects?: unknown[], options?: Record<string, unknown>) {
+      this._objects = objects || [];
+      this.hasControls = true;
+      this.hasBorders = true;
+      this.lockMovementX = false;
+      this.lockMovementY = false;
+      this.subTargetCheck = false;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {
+      mockSetCoords();
+    }
+
+    toObject(): Record<string, unknown> {
+      return {};
+    }
+  }
+
+  return {
+    Line: MockLine,
+    Group: MockGroup,
+  };
+});
+
+import {
+  DimensionLine,
+  createDimensionLine,
+  type DimensionLineOptions,
+  DEFAULT_DIMENSION_OPTIONS,
+} from '../../../components/site-surveys/tools/DimensionTool';
+
+// ============================================================================
+// テストスイート
+// ============================================================================
+
+describe('DimensionTool', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // ==========================================================================
+  // Task 14.1: 寸法線描画機能テスト
+  // ==========================================================================
+  describe('寸法線描画機能', () => {
+    describe('2点クリックによる寸法線描画', () => {
+      it('2点の座標から寸法線オブジェクトが作成される', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).toBeDefined();
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.startPoint).toEqual(startPoint);
+        expect(dimensionLine!.endPoint).toEqual(endPoint);
+      });
+
+      it('水平な寸法線が作成される（y座標が同じ場合）', () => {
+        const startPoint = { x: 100, y: 200 };
+        const endPoint = { x: 400, y: 200 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.isHorizontal).toBe(true);
+        expect(dimensionLine!.isVertical).toBe(false);
+      });
+
+      it('垂直な寸法線が作成される（x座標が同じ場合）', () => {
+        const startPoint = { x: 150, y: 100 };
+        const endPoint = { x: 150, y: 400 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.isHorizontal).toBe(false);
+        expect(dimensionLine!.isVertical).toBe(true);
+      });
+
+      it('斜めの寸法線が作成される', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 250 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.isHorizontal).toBe(false);
+        expect(dimensionLine!.isVertical).toBe(false);
+      });
+
+      it('始点と終点が同じ場合は寸法線が作成されない', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 100, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).toBeNull();
+      });
+
+      it('非常に近い2点の場合でも寸法線が作成される（5px以上）', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 106, y: 100 }; // 6px離れている
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+      });
+
+      it('近すぎる2点の場合は寸法線が作成されない（5px未満）', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 103, y: 100 }; // 3px離れている
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).toBeNull();
+      });
+    });
+
+    describe('端点間の直線と垂直線（エンドキャップ）', () => {
+      it('寸法線はメインライン（端点間の直線）を含む', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.mainLine).toBeDefined();
+        expect(dimensionLine!.mainLine.x1).toBe(100);
+        expect(dimensionLine!.mainLine.y1).toBe(100);
+        expect(dimensionLine!.mainLine.x2).toBe(300);
+        expect(dimensionLine!.mainLine.y2).toBe(100);
+      });
+
+      it('寸法線は始点のエンドキャップ（垂直線）を含む', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.startCap).toBeDefined();
+        // 始点キャップは始点から垂直に伸びる（水平線なのでx座標は同じ）
+        expect(dimensionLine!.startCap.x1).toBe(100);
+        expect(dimensionLine!.startCap.x2).toBe(100);
+      });
+
+      it('寸法線は終点のエンドキャップ（垂直線）を含む', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.endCap).toBeDefined();
+        // 終点キャップは終点から垂直に伸びる（水平線なのでx座標は同じ）
+        expect(dimensionLine!.endCap.x1).toBe(300);
+        expect(dimensionLine!.endCap.x2).toBe(300);
+      });
+
+      it('エンドキャップの長さはデフォルトで10pxである', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        // 水平線の場合、キャップは垂直に伸びる
+        const capLength = Math.abs(dimensionLine!.startCap.y2 - dimensionLine!.startCap.y1);
+        expect(capLength).toBe(DEFAULT_DIMENSION_OPTIONS.capLength);
+      });
+
+      it('エンドキャップの長さをカスタマイズできる', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+        const options: Partial<DimensionLineOptions> = { capLength: 20 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint, options);
+
+        expect(dimensionLine).not.toBeNull();
+        const capLength = Math.abs(dimensionLine!.startCap.y2 - dimensionLine!.startCap.y1);
+        expect(capLength).toBe(20);
+      });
+
+      it('垂直な寸法線の場合、エンドキャップは水平に伸びる', () => {
+        const startPoint = { x: 150, y: 100 };
+        const endPoint = { x: 150, y: 300 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        // 垂直線の場合、キャップは水平に伸びる（y座標は同じ）
+        expect(dimensionLine!.startCap.y1).toBe(100);
+        expect(dimensionLine!.startCap.y2).toBe(100);
+      });
+
+      it('斜めの寸法線の場合、エンドキャップは寸法線に垂直に伸びる', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 200, y: 200 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        // 斜め線の場合、キャップも斜めに配置される
+        expect(dimensionLine!.startCap).toBeDefined();
+        expect(dimensionLine!.endCap).toBeDefined();
+      });
+    });
+
+    describe('カスタムFabric.jsオブジェクト実装', () => {
+      it('DimensionLineクラスはFabric.js Groupを拡張している', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.type).toBe('dimensionLine');
+      });
+
+      it('寸法線オブジェクトはtypeプロパティを持つ', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.type).toBe('dimensionLine');
+      });
+
+      it('寸法線オブジェクトはcustomDataを持つ', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.customData).toBeDefined();
+        expect(dimensionLine!.customData.dimensionValue).toBe('');
+        expect(dimensionLine!.customData.dimensionUnit).toBe('');
+      });
+
+      it('toObject()は寸法線の情報を含むJSONを返す', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        const jsonObject = dimensionLine!.toObject();
+
+        expect(jsonObject.type).toBe('dimensionLine');
+        expect(jsonObject.startPoint).toEqual(startPoint);
+        expect(jsonObject.endPoint).toEqual(endPoint);
+        expect(jsonObject.customData).toBeDefined();
+      });
+
+      it('寸法線はFabric.js標準のコントロールを持つ', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.hasControls).toBe(true);
+        expect(dimensionLine!.hasBorders).toBe(true);
+      });
+
+      it('寸法線はドラッグで移動可能', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.lockMovementX).toBe(false);
+        expect(dimensionLine!.lockMovementY).toBe(false);
+      });
+    });
+
+    describe('スタイルオプション', () => {
+      it('デフォルトの線色は黒（#000000）である', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.stroke).toBe(DEFAULT_DIMENSION_OPTIONS.stroke);
+      });
+
+      it('デフォルトの線の太さは2pxである', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.strokeWidth).toBe(DEFAULT_DIMENSION_OPTIONS.strokeWidth);
+      });
+
+      it('線色をカスタマイズできる', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+        const options: Partial<DimensionLineOptions> = { stroke: '#ff0000' };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint, options);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.stroke).toBe('#ff0000');
+      });
+
+      it('線の太さをカスタマイズできる', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+        const options: Partial<DimensionLineOptions> = { strokeWidth: 4 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint, options);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.strokeWidth).toBe(4);
+      });
+    });
+
+    describe('寸法線の計算', () => {
+      it('2点間の距離（ピクセル）が計算される', () => {
+        const startPoint = { x: 0, y: 0 };
+        const endPoint = { x: 300, y: 400 }; // 3-4-5の直角三角形 -> 距離500
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.length).toBe(500);
+      });
+
+      it('水平線の距離が正しく計算される', () => {
+        const startPoint = { x: 100, y: 200 };
+        const endPoint = { x: 400, y: 200 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.length).toBe(300);
+      });
+
+      it('垂直線の距離が正しく計算される', () => {
+        const startPoint = { x: 150, y: 100 };
+        const endPoint = { x: 150, y: 350 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.length).toBe(250);
+      });
+
+      it('寸法線の角度（度）が計算される', () => {
+        const startPoint = { x: 0, y: 0 };
+        const endPoint = { x: 100, y: 100 }; // 45度
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.angle).toBeCloseTo(45);
+      });
+
+      it('水平線の角度は0度', () => {
+        const startPoint = { x: 100, y: 200 };
+        const endPoint = { x: 400, y: 200 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.angle).toBe(0);
+      });
+
+      it('垂直線の角度は90度', () => {
+        const startPoint = { x: 150, y: 100 };
+        const endPoint = { x: 150, y: 350 };
+
+        const dimensionLine = createDimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine).not.toBeNull();
+        expect(dimensionLine!.angle).toBe(90);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // DimensionLineクラスの詳細テスト
+  // ==========================================================================
+  describe('DimensionLineクラス', () => {
+    describe('インスタンス作成', () => {
+      it('DimensionLineクラスのインスタンスが作成できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        expect(dimensionLine).toBeInstanceOf(DimensionLine);
+      });
+
+      it('始点と終点のプロパティが設定される', () => {
+        const startPoint = { x: 100, y: 100 };
+        const endPoint = { x: 300, y: 100 };
+        const dimensionLine = new DimensionLine(startPoint, endPoint);
+
+        expect(dimensionLine.startPoint).toEqual(startPoint);
+        expect(dimensionLine.endPoint).toEqual(endPoint);
+      });
+
+      it('オプションを指定してインスタンスが作成できる', () => {
+        const options: Partial<DimensionLineOptions> = {
+          stroke: '#ff0000',
+          strokeWidth: 4,
+          capLength: 15,
+        };
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 }, options);
+
+        expect(dimensionLine.stroke).toBe('#ff0000');
+        expect(dimensionLine.strokeWidth).toBe(4);
+      });
+    });
+
+    describe('端点の更新', () => {
+      it('始点を更新できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setStartPoint({ x: 50, y: 50 });
+
+        expect(dimensionLine.startPoint).toEqual({ x: 50, y: 50 });
+      });
+
+      it('終点を更新できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setEndPoint({ x: 400, y: 200 });
+
+        expect(dimensionLine.endPoint).toEqual({ x: 400, y: 200 });
+      });
+
+      it('端点の更新後、メインラインが再計算される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setEndPoint({ x: 500, y: 100 });
+
+        expect(dimensionLine.mainLine.x2).toBe(500);
+      });
+
+      it('端点の更新後、エンドキャップが再計算される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setEndPoint({ x: 500, y: 100 });
+
+        expect(dimensionLine.endCap.x1).toBe(500);
+        expect(dimensionLine.endCap.x2).toBe(500);
+      });
+
+      it('端点の更新後、距離が再計算される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        expect(dimensionLine.length).toBe(200);
+
+        dimensionLine.setEndPoint({ x: 500, y: 100 });
+
+        expect(dimensionLine.length).toBe(400);
+      });
+    });
+
+    describe('スタイルの更新', () => {
+      it('線色を更新できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setStroke('#00ff00');
+
+        expect(dimensionLine.stroke).toBe('#00ff00');
+      });
+
+      it('線の太さを更新できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setStrokeWidth(6);
+
+        expect(dimensionLine.strokeWidth).toBe(6);
+      });
+    });
+
+    describe('寸法値の管理', () => {
+      it('寸法値を設定できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionValue('1500');
+
+        expect(dimensionLine.customData.dimensionValue).toBe('1500');
+      });
+
+      it('寸法の単位を設定できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionUnit('mm');
+
+        expect(dimensionLine.customData.dimensionUnit).toBe('mm');
+      });
+
+      it('寸法値と単位を同時に設定できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimension('2500', 'cm');
+
+        expect(dimensionLine.customData.dimensionValue).toBe('2500');
+        expect(dimensionLine.customData.dimensionUnit).toBe('cm');
+      });
+
+      it('寸法のフォーマット済み文字列を取得できる', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimension('1500', 'mm');
+
+        expect(dimensionLine.getFormattedDimension()).toBe('1500 mm');
+      });
+
+      it('単位がない場合はフォーマット済み文字列に単位が含まれない', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        dimensionLine.setDimensionValue('1500');
+
+        expect(dimensionLine.getFormattedDimension()).toBe('1500');
+      });
+
+      it('寸法値がない場合は空文字列が返される', () => {
+        const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        expect(dimensionLine.getFormattedDimension()).toBe('');
+      });
+    });
+  });
+});

@@ -10,6 +10,7 @@
  * Task 11.2: エラー表示の実装
  * Task 12.1: 基本ビューア機能の実装
  * Task 13.1: Fabric.js Canvas統合を実装する
+ * Task 14.1: 寸法線描画機能を実装する
  */
 
 export { default as SiteSurveyListTable } from './SiteSurveyListTable';
@@ -41,3 +42,14 @@ export {
   MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_MB,
 } from './ImageUploader';
+
+// 注釈ツール
+export { DimensionLine, createDimensionLine, DEFAULT_DIMENSION_OPTIONS } from './tools';
+
+export type {
+  Point,
+  LineInfo,
+  DimensionCustomData,
+  DimensionLineOptions,
+  DimensionLineJSON,
+} from './tools';
