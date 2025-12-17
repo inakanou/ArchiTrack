@@ -3,13 +3,20 @@
  *
  * Task 13.1: Fabric.js Canvas統合を実装する
  * Task 13.2: ツール切り替えUIを実装する
+ * Task 13.3: オブジェクト選択・操作機能を実装する
  *
  * useRef + useEffectによるCanvas初期化、dispose処理の実装（クリーンアップ）、
- * 背景画像の設定、ツールバー統合を行うコンポーネントです。
+ * 背景画像の設定、ツールバー統合、オブジェクト選択・移動・リサイズ・削除機能を行うコンポーネントです。
  *
  * Requirements:
  * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
+ * - 6.4: 既存の寸法線をクリックすると寸法線を選択状態にして編集可能にする
+ * - 6.5: 寸法線の端点をドラッグすると寸法線の位置を調整する
+ * - 6.6: 選択中の寸法線を削除すると寸法線を画像から除去する
  * - 7.1: 矢印ツールを選択してドラッグすると開始点から終了点へ矢印を描画する
+ * - 7.7: 既存の図形をクリックすると図形を選択状態にして編集可能にする
+ * - 7.8: 選択中の図形をドラッグすると図形の位置を移動する
+ * - 7.9: 選択中の図形のハンドルをドラッグすると図形のサイズを変更する
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
  */
 
@@ -130,6 +137,14 @@ const STYLES = {
  * - ツールバーコンポーネント統合
  * - 選択ツール、寸法線、矢印、円、四角形、多角形、折れ線、フリーハンド、テキストの切り替え
  * - アクティブツールの視覚的フィードバック
+ *
+ * Task 13.3: オブジェクト選択・操作機能
+ * - クリックによるオブジェクト選択
+ * - 選択オブジェクトのハイライト表示（コントロール、ボーダー）
+ * - ドラッグによる移動
+ * - ハンドルによるリサイズ
+ * - Delete/Backspaceキーによる削除
+ * - Escapeキーによる選択解除
  */
 function AnnotationEditor({
   imageUrl,
@@ -158,9 +173,24 @@ function AnnotationEditor({
 
   /**
    * ツール変更ハンドラ
+   *
+   * Task 13.3: ツール切り替え時にオブジェクト選択を解除
    */
   const handleToolChange = useCallback((tool: ToolType) => {
+    // ツールを変更
     setState((prev) => ({ ...prev, activeTool: tool }));
+
+    // Task 13.3: 選択ツール以外に切り替える場合、現在の選択を解除
+    if (tool !== 'select' && fabricCanvasRef.current) {
+      fabricCanvasRef.current.discardActiveObject();
+      fabricCanvasRef.current.renderAll();
+    }
+
+    // Task 13.3: Canvasの選択モードを設定
+    if (fabricCanvasRef.current) {
+      // selectツールの場合は選択を有効化、それ以外は無効化
+      fabricCanvasRef.current.selection = tool === 'select';
+    }
   }, []);
 
   /**
@@ -224,10 +254,13 @@ function AnnotationEditor({
 
   /**
    * Canvasイベントリスナーを設定
+   *
+   * Task 13.3: オブジェクト選択・操作機能のイベント
+   * - selection:created/updated/cleared: オブジェクト選択の変更
+   * - object:moving/modified/scaling: オブジェクトの移動・変更・リサイズ
    */
   const setupEventListeners = useCallback((canvas: FabricCanvas) => {
-    // 基本的なイベントリスナーを設定
-    // Task 13.3以降で具体的なツール操作イベントを追加予定
+    // 基本的なマウスイベント
     canvas.on('mouse:down', () => {
       // マウスダウンイベント
     });
@@ -239,15 +272,52 @@ function AnnotationEditor({
     canvas.on('mouse:up', () => {
       // マウスアップイベント
     });
+
+    // Task 13.3: オブジェクト選択イベント
+    canvas.on('selection:created', () => {
+      // オブジェクト選択時
+    });
+
+    canvas.on('selection:updated', () => {
+      // 選択オブジェクト変更時
+    });
+
+    canvas.on('selection:cleared', () => {
+      // 選択解除時
+    });
+
+    // Task 13.3: オブジェクト操作イベント
+    canvas.on('object:moving', () => {
+      // オブジェクト移動中
+    });
+
+    canvas.on('object:scaling', () => {
+      // オブジェクトリサイズ中
+    });
+
+    canvas.on('object:modified', () => {
+      // オブジェクト変更完了（移動・リサイズ完了後）
+    });
   }, []);
 
   /**
    * Canvasイベントリスナーを解除
    */
   const removeEventListeners = useCallback((canvas: FabricCanvas) => {
+    // 基本マウスイベント
     canvas.off('mouse:down');
     canvas.off('mouse:move');
     canvas.off('mouse:up');
+
+    // Task 13.3: オブジェクト選択イベント
+    canvas.off('selection:created');
+    canvas.off('selection:updated');
+    canvas.off('selection:cleared');
+
+    // Task 13.3: オブジェクト操作イベント
+    canvas.off('object:moving');
+    canvas.off('object:scaling');
+    canvas.off('object:modified');
   }, []);
 
   /**
@@ -313,6 +383,43 @@ function AnnotationEditor({
   void imageId;
   void surveyId;
 
+  /**
+   * キーボードイベントハンドラ
+   *
+   * Task 13.3: Delete/Backspace/Escapeキーによるオブジェクト操作
+   * - Delete/Backspace: 選択中のオブジェクトを削除
+   * - Escape: 選択を解除
+   */
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!fabricCanvasRef.current) return;
+
+    const canvas = fabricCanvasRef.current;
+    const activeObject = canvas.getActiveObject();
+
+    switch (event.key) {
+      case 'Delete':
+      case 'Backspace':
+        // 選択中のオブジェクトを削除
+        if (activeObject) {
+          canvas.remove(activeObject);
+          canvas.discardActiveObject();
+          canvas.renderAll();
+        }
+        break;
+
+      case 'Escape':
+        // 選択を解除
+        if (activeObject) {
+          canvas.discardActiveObject();
+          canvas.renderAll();
+        }
+        break;
+
+      default:
+        break;
+    }
+  }, []);
+
   return (
     <>
       {/* スピナーアニメーション用CSS */}
@@ -343,6 +450,8 @@ function AnnotationEditor({
           data-testid="annotation-editor-container"
           role="application"
           aria-label="注釈エディタ"
+          tabIndex={0}
+          onKeyDown={handleKeyDown}
         >
           {/* Canvas */}
           <div style={STYLES.canvasWrapper}>
