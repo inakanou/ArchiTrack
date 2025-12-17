@@ -530,7 +530,7 @@
   - バッチアップロードのキュー処理テスト
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8_
 
-- [ ] 24.3 (P) AnnotationServiceの単体テストを実装する
+- [x] 24.3 (P) AnnotationServiceの単体テストを実装する
   - 注釈保存・取得のテスト
   - JSONエクスポートのテスト
   - _Requirements: 9.1, 9.2, 9.6_

@@ -1,16 +1,32 @@
 /**
  * @fileoverview AnnotationService ユニットテスト
  *
- * TDD: RED phase - テストを先に書く
+ * TDD: AnnotationServiceの単体テスト
+ *
+ * Task 24.3: AnnotationServiceの単体テストを実装する
+ * - 注釈保存・取得のテスト
+ * - JSONエクスポートのテスト
  *
  * Task 5.1: 注釈データの保存機能を実装する
  * - Fabric.js JSON形式での保存
  * - バージョン管理（スキーマバージョン1.0）
  * - 楽観的排他制御の実装
  *
+ * Task 5.2: 注釈データの取得・復元機能を実装する
+ * - 画像IDによる注釈データ取得
+ * - JSONデータの検証
+ *
+ * Task 5.3: 注釈データのJSONエクスポート機能を実装する
+ * - Fabric.jsフォーマット準拠のJSONエクスポート
+ * - ダウンロード用レスポンス生成
+ *
  * Requirements:
  * - 9.1: 全ての注釈データをデータベースに保存する
+ * - 9.2: 保存された注釈データを復元して表示する
  * - 9.4: 保存中インジケーターを表示する（バックエンドは保存処理を提供）
+ * - 9.6: 注釈データをJSON形式でエクスポート可能にする
+ *
+ * @module __tests__/unit/services/annotation.service.test
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
