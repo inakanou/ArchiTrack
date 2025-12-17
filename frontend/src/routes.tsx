@@ -22,6 +22,7 @@ import TradingPartnerDetailPage from './pages/TradingPartnerDetailPage';
 import TradingPartnerCreatePage from './pages/TradingPartnerCreatePage';
 import TradingPartnerEditPage from './pages/TradingPartnerEditPage';
 import SiteSurveyListPage from './pages/SiteSurveyListPage';
+import SiteSurveyDetailPage from './pages/SiteSurveyDetailPage';
 
 /**
  * アプリケーションのルート設定
@@ -134,6 +135,14 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/site-surveys',
         element: <SiteSurveyListPage />,
+      },
+      // 現場調査詳細
+      // REQ-2.3: 現場調査一覧から詳細画面への遷移
+      // REQ-2.4: 詳細画面から画像ビューア/エディタへの遷移
+      // Task 10.3: 現場調査詳細から画像ビューアへの導線を実装する
+      {
+        path: '/site-surveys/:id',
+        element: <SiteSurveyDetailPage />,
       },
 
       // 取引先一覧
