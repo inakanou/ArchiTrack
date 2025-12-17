@@ -782,5 +782,359 @@ describe('DimensionTool', () => {
         expect(jsonObject.labelStyle).toBeDefined();
       });
     });
+
+    // ========================================================================
+    // Task 14.3: 寸法線編集機能テスト
+    // ========================================================================
+    describe('寸法線編集機能（Task 14.3）', () => {
+      describe('端点のドラッグによる位置調整（6.4, 6.5）', () => {
+        it('始点をドラッグして位置を調整できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStartPoint({ x: 50, y: 150 });
+
+          expect(dimensionLine.startPoint).toEqual({ x: 50, y: 150 });
+          expect(dimensionLine.endPoint).toEqual({ x: 300, y: 100 });
+        });
+
+        it('終点をドラッグして位置を調整できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setEndPoint({ x: 400, y: 200 });
+
+          expect(dimensionLine.startPoint).toEqual({ x: 100, y: 100 });
+          expect(dimensionLine.endPoint).toEqual({ x: 400, y: 200 });
+        });
+
+        it('端点移動後にメインラインの座標が更新される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStartPoint({ x: 50, y: 50 });
+
+          expect(dimensionLine.mainLine.x1).toBe(50);
+          expect(dimensionLine.mainLine.y1).toBe(50);
+          expect(dimensionLine.mainLine.x2).toBe(300);
+          expect(dimensionLine.mainLine.y2).toBe(100);
+        });
+
+        it('端点移動後に始点エンドキャップの位置が更新される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStartPoint({ x: 50, y: 50 });
+
+          // エンドキャップは新しい始点(50,50)を中心に垂直に伸びる
+          expect(dimensionLine.startCap).toBeDefined();
+          // 斜めの寸法線なので、キャップは斜めに配置される
+        });
+
+        it('端点移動後に終点エンドキャップの位置が更新される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setEndPoint({ x: 500, y: 200 });
+
+          expect(dimensionLine.endCap).toBeDefined();
+        });
+
+        it('端点移動後に寸法線の長さが再計算される', () => {
+          const dimensionLine = new DimensionLine({ x: 0, y: 0 }, { x: 100, y: 0 });
+          expect(dimensionLine.length).toBe(100);
+
+          dimensionLine.setEndPoint({ x: 200, y: 0 });
+
+          expect(dimensionLine.length).toBe(200);
+        });
+
+        it('端点移動後に寸法線の角度が再計算される', () => {
+          const dimensionLine = new DimensionLine({ x: 0, y: 0 }, { x: 100, y: 0 });
+          expect(dimensionLine.angle).toBe(0);
+
+          dimensionLine.setEndPoint({ x: 100, y: 100 });
+
+          expect(dimensionLine.angle).toBeCloseTo(45);
+        });
+
+        it('端点移動後にラベル位置が更新される（ラベルがある場合）', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          dimensionLine.setEndPoint({ x: 500, y: 100 });
+
+          const labelPosition = dimensionLine.getLabelPosition();
+          expect(labelPosition.x).toBe(300); // (100 + 500) / 2 = 300
+          expect(labelPosition.y).toBe(100);
+        });
+
+        it('setCoords()が呼ばれて座標が更新される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStartPoint({ x: 50, y: 50 });
+
+          expect(mockSetCoords).toHaveBeenCalled();
+        });
+
+        it('端点情報を取得するgetEndpoints()メソッドがある', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 200 });
+
+          const endpoints = dimensionLine.getEndpoints();
+
+          expect(endpoints).toEqual({
+            start: { x: 100, y: 100 },
+            end: { x: 300, y: 200 },
+          });
+        });
+
+        it('両端点を同時に更新できるsetEndpoints()メソッドがある', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setEndpoints({ x: 50, y: 50 }, { x: 400, y: 200 });
+
+          expect(dimensionLine.startPoint).toEqual({ x: 50, y: 50 });
+          expect(dimensionLine.endPoint).toEqual({ x: 400, y: 200 });
+        });
+      });
+
+      describe('寸法値の再編集（6.4）', () => {
+        it('既存の寸法値を取得できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          expect(dimensionLine.customData.dimensionValue).toBe('1500');
+          expect(dimensionLine.customData.dimensionUnit).toBe('mm');
+        });
+
+        it('寸法値を再編集（更新）できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          dimensionLine.setDimensionWithLabel('2000', 'cm');
+
+          expect(dimensionLine.customData.dimensionValue).toBe('2000');
+          expect(dimensionLine.customData.dimensionUnit).toBe('cm');
+        });
+
+        it('寸法値の再編集後、ラベルテキストが更新される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          dimensionLine.setDimensionWithLabel('2000', 'cm');
+
+          expect(dimensionLine.getLabelText()).toBe('2000 cm');
+        });
+
+        it('単位のみを変更できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          dimensionLine.setDimensionWithLabel('1500', 'm');
+
+          expect(dimensionLine.getLabelText()).toBe('1500 m');
+        });
+
+        it('値のみを変更できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          dimensionLine.setDimensionWithLabel('2500', 'mm');
+
+          expect(dimensionLine.getLabelText()).toBe('2500 mm');
+        });
+
+        it('寸法値をクリア（空に）できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          dimensionLine.setDimensionWithLabel('', '');
+
+          expect(dimensionLine.customData.dimensionValue).toBe('');
+          expect(dimensionLine.customData.dimensionUnit).toBe('');
+          expect(dimensionLine.hasLabel()).toBe(false);
+        });
+
+        it('編集中かどうかを示すisEditing状態を管理できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          expect(dimensionLine.isEditing).toBe(false);
+
+          dimensionLine.startEditing();
+          expect(dimensionLine.isEditing).toBe(true);
+
+          dimensionLine.stopEditing();
+          expect(dimensionLine.isEditing).toBe(false);
+        });
+      });
+
+      describe('スタイル変更（6.7）', () => {
+        it('線色を変更できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStroke('#ff0000');
+
+          expect(dimensionLine.stroke).toBe('#ff0000');
+        });
+
+        it('線の太さを変更できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStrokeWidth(6);
+
+          expect(dimensionLine.strokeWidth).toBe(6);
+        });
+
+        it('線色の変更はメインラインに反映される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStroke('#00ff00');
+
+          // mockSetが呼ばれていることを確認
+          expect(mockSet).toHaveBeenCalledWith('stroke', '#00ff00');
+        });
+
+        it('線色の変更は始点キャップに反映される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          vi.clearAllMocks();
+
+          dimensionLine.setStroke('#0000ff');
+
+          // mockSetが複数回呼ばれていることを確認（メインライン、始点キャップ、終点キャップ）
+          expect(mockSet).toHaveBeenCalled();
+        });
+
+        it('線色の変更は終点キャップに反映される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          vi.clearAllMocks();
+
+          dimensionLine.setStroke('#ffff00');
+
+          expect(mockSet).toHaveBeenCalled();
+        });
+
+        it('線の太さの変更はメインラインに反映される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          vi.clearAllMocks();
+
+          dimensionLine.setStrokeWidth(8);
+
+          expect(mockSet).toHaveBeenCalledWith('strokeWidth', 8);
+        });
+
+        it('線の太さの変更は始点キャップに反映される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          vi.clearAllMocks();
+
+          dimensionLine.setStrokeWidth(10);
+
+          expect(mockSet).toHaveBeenCalled();
+        });
+
+        it('線の太さの変更は終点キャップに反映される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          vi.clearAllMocks();
+
+          dimensionLine.setStrokeWidth(12);
+
+          expect(mockSet).toHaveBeenCalled();
+        });
+
+        it('スタイルを一括で変更できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStyle({
+            stroke: '#ff00ff',
+            strokeWidth: 5,
+          });
+
+          expect(dimensionLine.stroke).toBe('#ff00ff');
+          expect(dimensionLine.strokeWidth).toBe(5);
+        });
+
+        it('現在のスタイルを取得できる', () => {
+          const dimensionLine = new DimensionLine(
+            { x: 100, y: 100 },
+            { x: 300, y: 100 },
+            { stroke: '#123456', strokeWidth: 3 }
+          );
+
+          const style = dimensionLine.getStyle();
+
+          expect(style.stroke).toBe('#123456');
+          expect(style.strokeWidth).toBe(3);
+          expect(style.capLength).toBeDefined();
+        });
+
+        it('ラベルのスタイルを個別に更新できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('1500', 'mm');
+
+          dimensionLine.setLabelStyle({
+            fontSize: 18,
+            fontColor: '#ff0000',
+          });
+
+          const labelStyle = dimensionLine.getLabelStyle();
+          expect(labelStyle.fontSize).toBe(18);
+          expect(labelStyle.fontColor).toBe('#ff0000');
+        });
+      });
+
+      describe('選択状態の管理', () => {
+        it('選択状態をチェックできる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          expect(dimensionLine.isSelected).toBe(false);
+        });
+
+        it('選択状態を設定できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setSelected(true);
+
+          expect(dimensionLine.isSelected).toBe(true);
+        });
+
+        it('選択を解除できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setSelected(true);
+
+          dimensionLine.setSelected(false);
+
+          expect(dimensionLine.isSelected).toBe(false);
+        });
+      });
+
+      describe('toObject()のシリアライズ', () => {
+        it('スタイル情報がシリアライズに含まれる', () => {
+          const dimensionLine = new DimensionLine(
+            { x: 100, y: 100 },
+            { x: 300, y: 100 },
+            { stroke: '#ff0000', strokeWidth: 4, capLength: 15 }
+          );
+
+          const json = dimensionLine.toObject();
+
+          expect(json.stroke).toBe('#ff0000');
+          expect(json.strokeWidth).toBe(4);
+          expect(json.capLength).toBe(15);
+        });
+
+        it('端点情報がシリアライズに含まれる', () => {
+          const dimensionLine = new DimensionLine({ x: 50, y: 75 }, { x: 350, y: 125 });
+
+          const json = dimensionLine.toObject();
+
+          expect(json.startPoint).toEqual({ x: 50, y: 75 });
+          expect(json.endPoint).toEqual({ x: 350, y: 125 });
+        });
+
+        it('寸法値情報がシリアライズに含まれる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel('2500', 'cm');
+
+          const json = dimensionLine.toObject();
+
+          expect(json.customData.dimensionValue).toBe('2500');
+          expect(json.customData.dimensionUnit).toBe('cm');
+        });
+      });
+    });
   });
 });

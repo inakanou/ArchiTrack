@@ -3,6 +3,7 @@
  *
  * Task 14.1: 寸法線描画機能を実装する
  * Task 14.2: 寸法値入力機能を実装する
+ * Task 14.3: 寸法線編集機能を実装する
  *
  * 2点クリックによる寸法線描画、端点間の直線と垂直線（エンドキャップ）、
  * カスタムFabric.jsオブジェクト実装、寸法値ラベル表示を行うモジュールです。
@@ -11,6 +12,9 @@
  * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
  * - 6.2: 寸法線が描画されると寸法値入力用のテキストフィールドを表示する
  * - 6.3: ユーザーが寸法値を入力すると寸法線上に数値とオプションの単位を表示する
+ * - 6.4: 既存の寸法線をクリックすると寸法線を選択状態にして編集可能にする
+ * - 6.5: 寸法線の端点をドラッグすると寸法線の位置を調整する
+ * - 6.7: 寸法線の色・線の太さをカスタマイズ可能にする
  */
 
 import { Group, Line, FabricText, Rect } from 'fabric';
@@ -226,6 +230,12 @@ export class DimensionLine extends Group {
   /** ラベルスタイル */
   private _labelStyle: DimensionLabelStyle = { ...DEFAULT_LABEL_STYLE };
 
+  /** 編集中フラグ（Task 14.3） */
+  private _isEditing = false;
+
+  /** 選択状態フラグ（Task 14.3） */
+  private _isSelected = false;
+
   /** コントロール表示フラグ */
   declare hasControls: boolean;
 
@@ -418,6 +428,25 @@ export class DimensionLine extends Group {
   }
 
   /**
+   * 両端点を取得（Task 14.3）
+   */
+  getEndpoints(): { start: Point; end: Point } {
+    return {
+      start: { ...this._startPoint },
+      end: { ...this._endPoint },
+    };
+  }
+
+  /**
+   * 両端点を同時に更新（Task 14.3）
+   */
+  setEndpoints(start: Point, end: Point): void {
+    this._startPoint = { ...start };
+    this._endPoint = { ...end };
+    this._updateGeometry();
+  }
+
+  /**
    * ジオメトリを更新（端点変更時）
    */
   private _updateGeometry(): void {
@@ -524,6 +553,34 @@ export class DimensionLine extends Group {
     this._mainLine.set('strokeWidth', width);
     this._startCap.set('strokeWidth', width);
     this._endCap.set('strokeWidth', width);
+  }
+
+  /**
+   * スタイルを一括で更新（Task 14.3）
+   */
+  setStyle(options: Partial<DimensionLineOptions>): void {
+    if (options.stroke !== undefined) {
+      this.setStroke(options.stroke);
+    }
+    if (options.strokeWidth !== undefined) {
+      this.setStrokeWidth(options.strokeWidth);
+    }
+    if (options.capLength !== undefined) {
+      this._capLength = options.capLength;
+      // エンドキャップを再計算
+      this._updateGeometry();
+    }
+  }
+
+  /**
+   * 現在のスタイルを取得（Task 14.3）
+   */
+  getStyle(): DimensionLineOptions {
+    return {
+      stroke: this.stroke,
+      strokeWidth: this.strokeWidth,
+      capLength: this._capLength,
+    };
   }
 
   // ==========================================================================
@@ -721,6 +778,69 @@ export class DimensionLine extends Group {
    */
   getLabelStyle(): DimensionLabelStyle {
     return { ...this._labelStyle };
+  }
+
+  /**
+   * ラベルスタイルを個別に更新（Task 14.3）
+   */
+  setLabelStyle(style: Partial<DimensionLabelStyle>): void {
+    this._labelStyle = { ...this._labelStyle, ...style };
+
+    // ラベルが存在する場合は更新を反映
+    if (this._labelText) {
+      if (style.fontSize !== undefined) {
+        this._labelText.set('fontSize', style.fontSize);
+      }
+      if (style.fontColor !== undefined) {
+        this._labelText.set('fill', style.fontColor);
+      }
+    }
+    if (this._labelBackground && style.backgroundColor !== undefined) {
+      this._labelBackground.set('fill', style.backgroundColor);
+    }
+  }
+
+  // ==========================================================================
+  // 編集状態管理（Task 14.3）
+  // ==========================================================================
+
+  /**
+   * 編集中かどうかを取得
+   */
+  get isEditing(): boolean {
+    return this._isEditing;
+  }
+
+  /**
+   * 編集を開始
+   */
+  startEditing(): void {
+    this._isEditing = true;
+  }
+
+  /**
+   * 編集を終了
+   */
+  stopEditing(): void {
+    this._isEditing = false;
+  }
+
+  // ==========================================================================
+  // 選択状態管理（Task 14.3）
+  // ==========================================================================
+
+  /**
+   * 選択状態かどうかを取得
+   */
+  get isSelected(): boolean {
+    return this._isSelected;
+  }
+
+  /**
+   * 選択状態を設定
+   */
+  setSelected(selected: boolean): void {
+    this._isSelected = selected;
   }
 
   // ==========================================================================
