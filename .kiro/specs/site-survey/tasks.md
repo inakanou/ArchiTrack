@@ -401,7 +401,7 @@
   - コマンドオブジェクトの生成
   - _Requirements: 11.1, 11.2_
 
-- [ ] 17.3 キーボードショートカットを実装する
+- [x] 17.3 キーボードショートカットを実装する
   - Ctrl/Cmd+Z（Undo）
   - Ctrl/Cmd+Shift+Z（Redo）
   - _Requirements: 11.3_
