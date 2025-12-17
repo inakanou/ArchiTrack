@@ -2,6 +2,7 @@
  * @fileoverview テキストツール
  *
  * Task 16.1: テキスト入力機能を実装する
+ * Task 16.2: テキスト編集機能を実装する
  *
  * クリック位置へのテキストフィールド表示、
  * 日本語を含むマルチバイト文字対応、
@@ -9,10 +10,13 @@
  *
  * Requirements:
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
+ * - 8.2: 既存のテキストをダブルクリックするとテキストを編集モードにする
+ * - 8.3: テキスト入力中にフォントサイズを変更するとテキストのフォントサイズをリアルタイムで反映する
+ * - 8.5: テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
  * - 8.7: 日本語を含むマルチバイト文字の入力・表示をサポートする
  */
 
-import { IText } from 'fabric';
+import { IText, type Canvas as FabricCanvas } from 'fabric';
 
 // ============================================================================
 // 型定義
@@ -93,6 +97,9 @@ export const DEFAULT_TEXT_OPTIONS: TextAnnotationOptions = {
 export class TextAnnotation extends IText {
   /** 位置 */
   private _position: Point;
+
+  /** キャンバス参照（編集モード用） */
+  private _canvas: FabricCanvas | null = null;
 
   /** フォントサイズ */
   declare fontSize: number;
@@ -300,10 +307,34 @@ export class TextAnnotation extends IText {
   // ==========================================================================
 
   /**
+   * ダブルクリック編集モードを設定
+   *
+   * Task 16.2: ダブルクリックによる編集モード
+   *
+   * @param canvas Fabric.jsキャンバス
+   */
+  setupDoubleClickEditing(canvas: FabricCanvas): void {
+    this._canvas = canvas;
+
+    // ダブルクリックイベントを登録
+    this.on('mousedblclick', () => {
+      this.enterEditing();
+      // 編集モード中はキャンバスの選択を無効化
+      if (this._canvas) {
+        this._canvas.selection = false;
+      }
+    });
+  }
+
+  /**
    * 編集モードに入る
    */
   override enterEditing(): this {
     this.isEditing = true;
+    // キャンバスの選択を無効化
+    if (this._canvas) {
+      this._canvas.selection = false;
+    }
     super.enterEditing();
     return this;
   }
@@ -313,6 +344,10 @@ export class TextAnnotation extends IText {
    */
   override exitEditing(): this {
     this.isEditing = false;
+    // キャンバスの選択を再有効化
+    if (this._canvas) {
+      this._canvas.selection = true;
+    }
     super.exitEditing();
     return this;
   }

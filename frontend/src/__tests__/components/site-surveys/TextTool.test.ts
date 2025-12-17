@@ -179,6 +179,7 @@ import {
   type Point,
   DEFAULT_TEXT_OPTIONS,
 } from '../../../components/site-surveys/tools/TextTool';
+import type { Canvas as FabricCanvas } from 'fabric';
 
 // ============================================================================
 // テストスイート
@@ -661,6 +662,260 @@ describe('TextTool', () => {
         const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
 
         expect(textAnnotation.isEditing).toBe(false);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Task 16.2: テキスト編集機能テスト
+  // ==========================================================================
+  describe('テキスト編集機能', () => {
+    describe('ダブルクリックによる編集モード（Requirements 8.2）', () => {
+      it('ダブルクリックイベントを登録できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        const callback = vi.fn();
+
+        textAnnotation.on('mousedblclick', callback);
+
+        expect(mockOnCallbacks.has('mousedblclick')).toBe(true);
+      });
+
+      it('ダブルクリックで編集モードに入る', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 }, { initialText: 'テスト' });
+        const mockCanvas = { selection: true };
+        textAnnotation.setupDoubleClickEditing(mockCanvas as unknown as FabricCanvas);
+
+        // ダブルクリックイベントをシミュレート
+        textAnnotation.fire('mousedblclick');
+
+        expect(textAnnotation.isEditing).toBe(true);
+      });
+
+      it('編集モード中はキャンバスの選択が無効化される', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 }, { initialText: 'テスト' });
+        const mockCanvas = { selection: true };
+        textAnnotation.setupDoubleClickEditing(mockCanvas as unknown as FabricCanvas);
+
+        textAnnotation.fire('mousedblclick');
+
+        expect(mockCanvas.selection).toBe(false);
+      });
+
+      it('編集終了時にキャンバスの選択が再有効化される', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 }, { initialText: 'テスト' });
+        const mockCanvas = { selection: true };
+        textAnnotation.setupDoubleClickEditing(mockCanvas as unknown as FabricCanvas);
+        textAnnotation.fire('mousedblclick');
+
+        textAnnotation.exitEditing();
+
+        expect(mockCanvas.selection).toBe(true);
+      });
+
+      it('テキストが空の場合も編集モードに入れる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        const mockCanvas = { selection: true };
+        textAnnotation.setupDoubleClickEditing(mockCanvas as unknown as FabricCanvas);
+
+        textAnnotation.fire('mousedblclick');
+
+        expect(textAnnotation.isEditing).toBe(true);
+      });
+    });
+
+    describe('フォントサイズ変更（Requirements 8.3, 8.5）', () => {
+      it('フォントサイズを変更するとすぐに反映される', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setFontSize(24);
+
+        expect(textAnnotation.fontSize).toBe(24);
+        expect(mockSet).toHaveBeenCalledWith('fontSize', 24);
+      });
+
+      it('フォントサイズの最小値は8pxである', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setFontSize(8);
+
+        expect(textAnnotation.fontSize).toBe(8);
+      });
+
+      it('フォントサイズの最大値は72pxである', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setFontSize(72);
+
+        expect(textAnnotation.fontSize).toBe(72);
+      });
+
+      it('複数のプリセットサイズが設定可能', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        const presetSizes = [12, 14, 16, 18, 24, 32, 48, 64];
+
+        presetSizes.forEach((size) => {
+          textAnnotation.setFontSize(size);
+          expect(textAnnotation.fontSize).toBe(size);
+        });
+      });
+    });
+
+    describe('文字色変更（Requirements 8.5）', () => {
+      it('文字色を変更するとすぐに反映される', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setFill('#ff0000');
+
+        expect(textAnnotation.fill).toBe('#ff0000');
+        expect(mockSet).toHaveBeenCalledWith('fill', '#ff0000');
+      });
+
+      it('HEXカラーコードで文字色を設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setFill('#00ff00');
+
+        expect(textAnnotation.fill).toBe('#00ff00');
+      });
+
+      it('複数のプリセット色が設定可能', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        const presetColors = ['#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff'];
+
+        presetColors.forEach((color) => {
+          textAnnotation.setFill(color);
+          expect(textAnnotation.fill).toBe(color);
+        });
+      });
+    });
+
+    describe('背景色変更（Requirements 8.5）', () => {
+      it('背景色を変更するとすぐに反映される', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setBackgroundColor('#ffff00');
+
+        expect(textAnnotation.backgroundColor).toBe('#ffff00');
+        expect(mockSet).toHaveBeenCalledWith('backgroundColor', '#ffff00');
+      });
+
+      it('透明な背景色を設定できる', () => {
+        const textAnnotation = new TextAnnotation(
+          { x: 100, y: 200 },
+          { backgroundColor: '#ffffff' }
+        );
+
+        textAnnotation.setBackgroundColor('transparent');
+
+        expect(textAnnotation.backgroundColor).toBe('');
+      });
+
+      it('背景色を透明からカラーに変更できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setBackgroundColor('#cccccc');
+
+        expect(textAnnotation.backgroundColor).toBe('#cccccc');
+      });
+
+      it('複数のプリセット背景色が設定可能', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        const presetColors = ['#ffffff', '#ffff00', '#ff00ff', '#00ffff'];
+
+        presetColors.forEach((color) => {
+          textAnnotation.setBackgroundColor(color);
+          expect(textAnnotation.backgroundColor).toBe(color);
+        });
+      });
+    });
+
+    describe('スタイル一括変更', () => {
+      it('フォントサイズ、文字色、背景色を一度に変更できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setStyle({
+          fontSize: 24,
+          fill: '#ff0000',
+          backgroundColor: '#ffff00',
+        });
+
+        expect(textAnnotation.fontSize).toBe(24);
+        expect(textAnnotation.fill).toBe('#ff0000');
+        expect(textAnnotation.backgroundColor).toBe('#ffff00');
+      });
+
+      it('一部のスタイルのみ変更できる', () => {
+        const textAnnotation = new TextAnnotation(
+          { x: 100, y: 200 },
+          { fontSize: 16, fill: '#000000', backgroundColor: 'transparent' }
+        );
+
+        textAnnotation.setStyle({ fontSize: 20 });
+
+        expect(textAnnotation.fontSize).toBe(20);
+        expect(textAnnotation.fill).toBe('#000000'); // 変更なし
+        expect(textAnnotation.backgroundColor).toBe(''); // 変更なし
+      });
+    });
+
+    describe('編集中のスタイル変更', () => {
+      it('編集モード中でもフォントサイズを変更できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.enterEditing();
+
+        textAnnotation.setFontSize(32);
+
+        expect(textAnnotation.fontSize).toBe(32);
+        expect(textAnnotation.isEditing).toBe(true);
+      });
+
+      it('編集モード中でも文字色を変更できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.enterEditing();
+
+        textAnnotation.setFill('#0000ff');
+
+        expect(textAnnotation.fill).toBe('#0000ff');
+        expect(textAnnotation.isEditing).toBe(true);
+      });
+
+      it('編集モード中でも背景色を変更できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.enterEditing();
+
+        textAnnotation.setBackgroundColor('#eeeeee');
+
+        expect(textAnnotation.backgroundColor).toBe('#eeeeee');
+        expect(textAnnotation.isEditing).toBe(true);
+      });
+    });
+
+    describe('toObject()のシリアライズ（編集機能対応）', () => {
+      it('変更後のフォントサイズがシリアライズに含まれる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setFontSize(28);
+
+        const json = textAnnotation.toObject();
+
+        expect(json.fontSize).toBe(28);
+      });
+
+      it('変更後の文字色がシリアライズに含まれる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setFill('#ff6600');
+
+        const json = textAnnotation.toObject();
+
+        expect(json.fill).toBe('#ff6600');
+      });
+
+      it('変更後の背景色がシリアライズに含まれる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBackgroundColor('#99ccff');
+
+        const json = textAnnotation.toObject();
+
+        expect(json.backgroundColor).toBe('#99ccff');
       });
     });
   });
