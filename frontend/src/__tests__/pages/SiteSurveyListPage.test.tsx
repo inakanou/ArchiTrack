@@ -2,11 +2,13 @@
  * @fileoverview 現場調査一覧ページテスト
  *
  * Task 10.2: ブレッドクラムナビゲーションを実装する
+ * Task 22.3: アクセス権限によるUI制御を実装する
  *
  * Requirements:
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
  * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
  * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
+ * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,10 +17,12 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import SiteSurveyListPage from '../../pages/SiteSurveyListPage';
 import * as projectsApi from '../../api/projects';
 import * as siteSurveysApi from '../../api/site-surveys';
+import * as useSiteSurveyPermissionModule from '../../hooks/useSiteSurveyPermission';
 
 // APIモック
 vi.mock('../../api/projects');
 vi.mock('../../api/site-surveys');
+vi.mock('../../hooks/useSiteSurveyPermission');
 
 // モックデータ
 const mockProject = {
@@ -69,11 +73,24 @@ const renderWithRouter = (initialEntry: string) => {
   );
 };
 
+// デフォルトの権限モック
+const mockPermission = {
+  canView: true,
+  canCreate: true,
+  canEdit: true,
+  canDelete: true,
+  isLoading: false,
+  getPermissionError: vi.fn().mockReturnValue(null),
+};
+
 describe('SiteSurveyListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
     vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockSiteSurveys);
+    vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(
+      mockPermission
+    );
     // window.matchMediaのモック
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -197,6 +214,62 @@ describe('SiteSurveyListPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('権限によるUI制御 (Requirement 12.2)', () => {
+    it('作成権限がある場合、新規作成ボタンが表示されること', async () => {
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canCreate: true,
+      });
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /新規作成/i })).toBeInTheDocument();
+      });
+    });
+
+    it('作成権限がない場合、新規作成ボタンが非表示になること', async () => {
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canCreate: false,
+      });
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /現場調査/i })).toBeInTheDocument();
+      });
+
+      // 新規作成ボタンが表示されないことを確認
+      expect(screen.queryByRole('link', { name: /新規作成/i })).not.toBeInTheDocument();
+    });
+
+    it('作成権限がない場合、空状態の新規作成ボタンも非表示になること', async () => {
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canCreate: false,
+      });
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue({
+        data: [],
+        pagination: {
+          page: 1,
+          limit: 20,
+          total: 0,
+          totalPages: 0,
+        },
+      });
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByText('現場調査がありません')).toBeInTheDocument();
+      });
+
+      // 空状態の新規作成ボタンも表示されないことを確認
+      expect(screen.queryByRole('link', { name: /新規作成/i })).not.toBeInTheDocument();
     });
   });
 });

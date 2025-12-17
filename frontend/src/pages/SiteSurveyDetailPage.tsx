@@ -2,6 +2,7 @@
  * @fileoverview 現場調査詳細ページ
  *
  * Task 10.3: 現場調査詳細から画像ビューアへの導線を実装する
+ * Task 22.3: アクセス権限によるUI制御を実装する
  *
  * 現場調査の詳細情報と画像一覧を表示するページコンポーネントです。
  * 画像グリッドから画像ビューア/エディタへの遷移機能を提供します。
@@ -12,6 +13,7 @@
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
  * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
  * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
+ * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -19,6 +21,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/common';
 import { buildSiteSurveyDetailBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getSiteSurvey, deleteSiteSurvey } from '../api/site-surveys';
+import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import SiteSurveyDetailInfo from '../components/site-surveys/SiteSurveyDetailInfo';
 import SurveyImageGrid from '../components/site-surveys/SurveyImageGrid';
 import type { SiteSurveyDetail, SurveyImageInfo, ImageOrderItem } from '../types/site-survey.types';
@@ -209,6 +212,9 @@ export default function SiteSurveyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
+  // 権限チェック (Requirement 12.2)
+  const { canEdit, canDelete } = useSiteSurveyPermission();
+
   // データ状態
   const [survey, setSurvey] = useState<SiteSurveyDetail | null>(null);
 
@@ -358,12 +364,14 @@ export default function SiteSurveyDetailPage() {
         <Breadcrumb items={breadcrumbItems} />
       </div>
 
-      {/* 基本情報表示 */}
+      {/* 基本情報表示 (Requirement 12.2: 権限に基づくボタン表示制御) */}
       <SiteSurveyDetailInfo
         survey={survey}
         onEdit={handleEdit}
         onDelete={handleDeleteClick}
         isDeleting={isDeleting}
+        canEdit={canEdit}
+        canDelete={canDelete}
       />
 
       {/* 画像一覧セクション (Requirement 2.4) */}

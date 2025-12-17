@@ -2,14 +2,19 @@
  * @fileoverview SiteSurveyDetailInfo コンポーネントのテスト
  *
  * Task 9.1: 現場調査基本情報表示コンポーネントの実装
+ * Task 22.3: アクセス権限によるUI制御を実装する
  *
  * Requirements:
  * - 1.2: 現場調査詳細画面を表示する際、現場調査の基本情報と関連する画像一覧を表示する
+ * - 12.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
+ * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 12.3: 適切な権限を持たない場合、操作を拒否してエラーメッセージを表示
  *
  * テスト対象:
  * - 調査名、調査日、メモの表示
  * - 編集ボタン・削除ボタン
  * - プロジェクトへの戻り導線
+ * - 権限に基づくボタン表示制御
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -58,6 +63,8 @@ function renderComponent(
     onEdit?: () => void;
     onDelete?: () => void;
     isDeleting?: boolean;
+    canEdit?: boolean;
+    canDelete?: boolean;
   } = {}
 ) {
   const defaultProps = {
@@ -65,6 +72,8 @@ function renderComponent(
     onEdit: vi.fn(),
     onDelete: vi.fn(),
     isDeleting: false,
+    canEdit: true,
+    canDelete: true,
   };
 
   const mergedProps = { ...defaultProps, ...props };
@@ -294,6 +303,67 @@ describe('SiteSurveyDetailInfo', () => {
       // 日付と時刻が含まれる
       const dateTimeElements = screen.getAllByText(/2025\/01\/10/);
       expect(dateTimeElements.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ==========================================================================
+  // 権限によるUI制御 (Requirements 12.1, 12.2, 12.3)
+  // ==========================================================================
+
+  describe('権限によるUI制御', () => {
+    describe('編集権限がない場合 (Requirement 12.2)', () => {
+      it('編集ボタンが非表示になる', () => {
+        renderComponent({ canEdit: false });
+
+        expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      });
+
+      it('削除ボタンは表示される（canDeleteがtrueの場合）', () => {
+        renderComponent({ canEdit: false, canDelete: true });
+
+        expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
+      });
+    });
+
+    describe('削除権限がない場合 (Requirement 12.2)', () => {
+      it('削除ボタンが非表示になる', () => {
+        renderComponent({ canDelete: false });
+
+        expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+      });
+
+      it('編集ボタンは表示される（canEditがtrueの場合）', () => {
+        renderComponent({ canEdit: true, canDelete: false });
+
+        expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
+      });
+    });
+
+    describe('編集・削除両方の権限がない場合 (Requirement 12.2)', () => {
+      it('編集ボタンと削除ボタンの両方が非表示になる', () => {
+        renderComponent({ canEdit: false, canDelete: false });
+
+        expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+      });
+
+      it('基本情報は引き続き表示される (Requirement 12.1)', () => {
+        renderComponent({ canEdit: false, canDelete: false });
+
+        // 調査名、調査日、プロジェクト名は表示される
+        expect(
+          screen.getByRole('heading', { level: 2, name: 'テスト現場調査' })
+        ).toBeInTheDocument();
+        expect(screen.getByText('2025/01/15')).toBeInTheDocument();
+        expect(screen.getByText('テストプロジェクト')).toBeInTheDocument();
+      });
+
+      it('ナビゲーションリンクは表示される', () => {
+        renderComponent({ canEdit: false, canDelete: false });
+
+        expect(screen.getByRole('link', { name: /プロジェクトに戻る/ })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: /現場調査一覧に戻る/ })).toBeInTheDocument();
+      });
     });
   });
 });

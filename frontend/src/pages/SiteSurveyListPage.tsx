@@ -2,6 +2,7 @@
  * @fileoverview 現場調査一覧ページ
  *
  * Task 10.2: ブレッドクラムナビゲーションを実装する
+ * Task 22.3: アクセス権限によるUI制御を実装する
  *
  * プロジェクトに紐づく現場調査の一覧を表示するページコンポーネントです。
  * ブレッドクラムナビゲーションによる階層構造の把握と遷移機能を提供します。
@@ -10,6 +11,7 @@
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
  * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
  * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
+ * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -18,6 +20,7 @@ import { Breadcrumb } from '../components/common';
 import { buildSiteSurveyListBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getProject } from '../api/projects';
 import { getSiteSurveys } from '../api/site-surveys';
+import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import type { ProjectDetail } from '../types/project.types';
 import type { PaginatedSiteSurveys, SiteSurveySortableField } from '../types/site-survey.types';
 import SiteSurveyResponsiveView from '../components/site-surveys/SiteSurveyResponsiveView';
@@ -126,6 +129,9 @@ const STYLES = {
 export default function SiteSurveyListPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+
+  // 権限チェック (Requirement 12.2)
+  const { canCreate } = useSiteSurveyPermission();
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -252,9 +258,11 @@ export default function SiteSurveyListPage() {
       {/* ヘッダー */}
       <div style={STYLES.header}>
         <h1 style={STYLES.title}>現場調査</h1>
-        <Link to={`/projects/${projectId}/site-surveys/new`} style={STYLES.createButton}>
-          + 新規作成
-        </Link>
+        {canCreate && (
+          <Link to={`/projects/${projectId}/site-surveys/new`} style={STYLES.createButton}>
+            + 新規作成
+          </Link>
+        )}
       </div>
 
       {/* コンテンツ */}
@@ -269,12 +277,18 @@ export default function SiteSurveyListPage() {
       ) : (
         <div style={STYLES.emptyState}>
           <p style={STYLES.emptyStateTitle}>現場調査がありません</p>
-          <p style={STYLES.emptyStateText}>
-            「新規作成」ボタンをクリックして、最初の現場調査を作成しましょう。
-          </p>
-          <Link to={`/projects/${projectId}/site-surveys/new`} style={STYLES.createButton}>
-            + 新規作成
-          </Link>
+          {canCreate ? (
+            <>
+              <p style={STYLES.emptyStateText}>
+                「新規作成」ボタンをクリックして、最初の現場調査を作成しましょう。
+              </p>
+              <Link to={`/projects/${projectId}/site-surveys/new`} style={STYLES.createButton}>
+                + 新規作成
+              </Link>
+            </>
+          ) : (
+            <p style={STYLES.emptyStateText}>このプロジェクトにはまだ現場調査がありません。</p>
+          )}
         </div>
       )}
 

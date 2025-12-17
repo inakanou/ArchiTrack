@@ -2,13 +2,16 @@
  * @fileoverview 現場調査基本情報表示コンポーネント
  *
  * Task 9.1: 現場調査基本情報表示を実装する
+ * Task 22.3: アクセス権限によるUI制御を実装する
  *
  * Requirements:
  * - 1.2: 現場調査詳細画面を表示する際、現場調査の基本情報と関連する画像一覧を表示する
+ * - 12.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
+ * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  *
  * 機能:
  * - 調査名、調査日、メモの表示
- * - 編集ボタン・削除ボタン
+ * - 編集ボタン・削除ボタン（権限に基づいて表示/非表示）
  * - プロジェクトへの戻り導線
  */
 
@@ -31,6 +34,10 @@ export interface SiteSurveyDetailInfoProps {
   onDelete: () => void;
   /** 削除処理中フラグ */
   isDeleting?: boolean;
+  /** 編集権限があるか（デフォルト: true） */
+  canEdit?: boolean;
+  /** 削除権限があるか（デフォルト: true） */
+  canDelete?: boolean;
 }
 
 // ============================================================================
@@ -196,7 +203,12 @@ export default function SiteSurveyDetailInfo({
   onEdit,
   onDelete,
   isDeleting = false,
+  canEdit = true,
+  canDelete = true,
 }: SiteSurveyDetailInfoProps) {
+  // アクションボタンが1つ以上表示されるかどうか
+  const hasActions = canEdit || canDelete;
+
   return (
     <div style={styles.container}>
       {/* ヘッダー: タイトルとアクションボタン */}
@@ -209,22 +221,32 @@ export default function SiteSurveyDetailInfo({
           </div>
         </div>
 
-        <div style={styles.actionsContainer}>
-          <button type="button" onClick={onEdit} style={{ ...styles.button, ...styles.editButton }}>
-            編集
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={isDeleting}
-            style={{
-              ...styles.button,
-              ...(isDeleting ? styles.deleteButtonDisabled : styles.deleteButton),
-            }}
-          >
-            {isDeleting ? '削除中...' : '削除'}
-          </button>
-        </div>
+        {hasActions && (
+          <div style={styles.actionsContainer}>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={onEdit}
+                style={{ ...styles.button, ...styles.editButton }}
+              >
+                編集
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={isDeleting}
+                style={{
+                  ...styles.button,
+                  ...(isDeleting ? styles.deleteButtonDisabled : styles.deleteButton),
+                }}
+              >
+                {isDeleting ? '削除中...' : '削除'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 基本情報グリッド */}

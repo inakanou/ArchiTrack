@@ -2,12 +2,14 @@
  * @fileoverview 現場調査詳細ページテスト
  *
  * Task 10.3: 現場調査詳細から画像ビューアへの導線を実装する
+ * Task 22.3: アクセス権限によるUI制御を実装する
  *
  * Requirements:
  * - 2.3: 現場調査一覧の項目クリックで詳細画面に遷移する
  * - 2.4: 詳細画面の画像クリックで画像ビューア/エディタに遷移する
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
  * - 2.6: ブレッドクラムで階層を表示する
+ * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,6 +17,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import SiteSurveyDetailPage from '../../pages/SiteSurveyDetailPage';
 import * as siteSurveysApi from '../../api/site-surveys';
+import * as useSiteSurveyPermissionModule from '../../hooks/useSiteSurveyPermission';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.types';
 
 // モックナビゲート
@@ -31,6 +34,17 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../api/site-surveys');
+vi.mock('../../hooks/useSiteSurveyPermission');
+
+// デフォルトの権限モック
+const mockPermission = {
+  canView: true,
+  canCreate: true,
+  canEdit: true,
+  canDelete: true,
+  isLoading: false,
+  getPermissionError: vi.fn().mockReturnValue(null),
+};
 
 // テストデータ
 const mockImages: SurveyImageInfo[] = [
@@ -89,6 +103,9 @@ function renderComponent() {
 describe('SiteSurveyDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(
+      mockPermission
+    );
   });
 
   describe('表示', () => {
@@ -273,6 +290,103 @@ describe('SiteSurveyDetailPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('現場調査を削除しますか？')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('権限によるUI制御 (Requirement 12.2)', () => {
+    it('編集権限がある場合、編集ボタンが表示される', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canEdit: true,
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
+      });
+    });
+
+    it('編集権限がない場合、編集ボタンが非表示になる', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canEdit: false,
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+    });
+
+    it('削除権限がある場合、削除ボタンが表示される', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canDelete: true,
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
+      });
+    });
+
+    it('削除権限がない場合、削除ボタンが非表示になる', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canDelete: false,
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    });
+
+    it('編集・削除権限がない場合、両方のボタンが非表示になる', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canEdit: false,
+        canDelete: false,
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    });
+
+    it('権限がなくても基本情報は表示される (Requirement 12.1)', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canEdit: false,
+        canDelete: false,
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        // 基本情報が表示される
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        expect(screen.getByText('調査メモです')).toBeInTheDocument();
       });
     });
   });
