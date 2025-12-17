@@ -11,6 +11,7 @@
  * Task 12.1: 基本ビューア機能の実装
  * Task 13.1: Fabric.js Canvas統合を実装する
  * Task 14.1: 寸法線描画機能を実装する
+ * Task 23.1: 画像遅延読み込みを実装する
  */
 
 export { default as SiteSurveyListTable } from './SiteSurveyListTable';
@@ -24,6 +25,7 @@ export { ImageUploader } from './ImageUploader';
 export { default as SiteSurveyErrorDisplay } from './SiteSurveyErrorDisplay';
 export { default as ImageViewer } from './ImageViewer';
 export { default as AnnotationEditor } from './AnnotationEditor';
+export { LazyImage } from './LazyImage';
 
 export type { SiteSurveyListTableProps } from './SiteSurveyListTable';
 export type { SiteSurveyListCardProps } from './SiteSurveyListCard';
@@ -36,6 +38,7 @@ export type { ImageUploaderProps, UploadProgress, ValidationError } from './Imag
 export type { SiteSurveyErrorDisplayProps } from './SiteSurveyErrorDisplay';
 export type { ImageViewerProps } from './ImageViewer';
 export type { AnnotationEditorProps } from './AnnotationEditor';
+export type { LazyImageProps } from './LazyImage';
 export {
   ALLOWED_FILE_TYPES,
   ALLOWED_MIME_TYPES,
