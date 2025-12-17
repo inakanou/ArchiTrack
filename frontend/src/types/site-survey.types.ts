@@ -813,3 +813,17 @@ export function isNoAnnotationResponse(value: unknown): value is NoAnnotationRes
 
   return 'data' in obj && obj.data === null;
 }
+
+// ============================================================================
+// 元画像ダウンロード用型定義（Task 20.2）
+// ============================================================================
+
+/**
+ * 元画像ダウンロードオプション
+ *
+ * Requirements: 10.4
+ */
+export interface DownloadOriginalImageOptions {
+  /** ダウンロード時のファイル名（省略時はサーバーから取得したファイル名を使用） */
+  filename?: string;
+}

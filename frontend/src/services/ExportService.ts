@@ -11,6 +11,7 @@
  */
 
 import type { Canvas as FabricCanvas } from 'fabric';
+import type { DownloadOriginalImageOptions } from '../types/site-survey.types';
 
 /**
  * 画像エクスポートオプション
@@ -27,6 +28,9 @@ export interface ExportImageOptions {
   /** 注釈を含めるかどうか（デフォルト: true） */
   includeAnnotations?: boolean;
 }
+
+// 型の再エクスポート
+export type { DownloadOriginalImageOptions };
 
 /**
  * ExportServiceインターフェース
@@ -48,6 +52,19 @@ export interface IExportService {
    * @param filename ダウンロードファイル名
    */
   downloadFile(data: string | Blob, filename: string): void;
+
+  /**
+   * 元画像をダウンロードする（Task 20.2）
+   *
+   * 署名付きURLから元画像（注釈なし）をダウンロードする。
+   * クロスオリジンの場合はfetchでBlobとして取得してからダウンロード。
+   *
+   * @param signedUrl 署名付きURL
+   * @param options ダウンロードオプション
+   *
+   * Requirements: 10.4
+   */
+  downloadOriginalImage(signedUrl: string, options?: DownloadOriginalImageOptions): Promise<void>;
 }
 
 /**
@@ -154,6 +171,90 @@ export class ExportService implements IExportService {
       document.body.removeChild(link);
     }
   }
+
+  /**
+   * 元画像をダウンロードする（Task 20.2）
+   *
+   * 署名付きURLから元画像（注釈なし）をダウンロードする。
+   * クロスオリジンのURLの場合はfetchでBlobとして取得してからダウンロード。
+   *
+   * Requirements: 10.4
+   *
+   * @param signedUrl 署名付きURL
+   * @param options ダウンロードオプション
+   * @throws Error URLが空または無効な場合
+   * @throws Error ダウンロードに失敗した場合
+   */
+  async downloadOriginalImage(
+    signedUrl: string,
+    options: DownloadOriginalImageOptions = {}
+  ): Promise<void> {
+    // バリデーション: URLが空の場合
+    if (!signedUrl) {
+      throw new Error('URL is required for download');
+    }
+
+    // URLの解析とバリデーション
+    let url: URL;
+    try {
+      url = new URL(signedUrl);
+    } catch {
+      throw new Error('Invalid URL provided');
+    }
+
+    // ファイル名の決定
+    const filename = options.filename || this.extractFilenameFromUrl(url);
+
+    // クロスオリジンURLの場合はfetchでBlobとして取得
+    // 署名付きURLは通常クロスオリジンなので、fetchで取得する
+    const response = await fetch(signedUrl, {
+      mode: 'cors',
+      credentials: 'omit', // 署名付きURLは認証不要
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+    }
+
+    const blob = await response.blob();
+
+    // Blobからダウンロード
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Object URLを解放
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  /**
+   * URLからファイル名を抽出するヘルパーメソッド
+   *
+   * @param url URLオブジェクト
+   * @returns ファイル名（拡張子含む）またはデフォルト値
+   */
+  private extractFilenameFromUrl(url: URL): string {
+    const pathname = url.pathname;
+    const segments = pathname.split('/').filter((s) => s.length > 0);
+
+    if (segments.length === 0) {
+      return 'image';
+    }
+
+    const lastSegment = segments[segments.length - 1];
+
+    // ファイル名らしいもの（拡張子を含む）を返す
+    if (lastSegment && /\.[a-zA-Z0-9]+$/.test(lastSegment)) {
+      return lastSegment;
+    }
+
+    return 'image';
+  }
 }
 
 /**
@@ -180,6 +281,23 @@ export function exportImage(canvas: FabricCanvas, options: ExportImageOptions): 
  */
 export function downloadFile(data: string | Blob, filename: string): void {
   defaultExportService.downloadFile(data, filename);
+}
+
+/**
+ * 元画像をダウンロードする（スタンドアロン関数）
+ *
+ * 署名付きURLから元画像（注釈なし）をダウンロードする。
+ *
+ * Requirements: 10.4
+ *
+ * @param signedUrl 署名付きURL
+ * @param options ダウンロードオプション
+ */
+export function downloadOriginalImage(
+  signedUrl: string,
+  options?: DownloadOriginalImageOptions
+): Promise<void> {
+  return defaultExportService.downloadOriginalImage(signedUrl, options);
 }
 
 export default ExportService;

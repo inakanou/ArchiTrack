@@ -372,3 +372,241 @@ describe('downloadFile function (standalone)', () => {
     expect(mockAnchor.click).toHaveBeenCalled();
   });
 });
+
+/**
+ * Task 20.2: 元画像ダウンロード機能のテスト
+ *
+ * Requirements: 10.4
+ * - 注釈なしの原画像ダウンロード
+ * - 署名付きURLからのダウンロード
+ */
+describe('downloadOriginalImage', () => {
+  let exportService: ExportService;
+  let mockAnchor: {
+    href: string;
+    download: string;
+    click: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    exportService = new ExportService();
+    mockAnchor = {
+      href: '',
+      download: '',
+      click: vi.fn(),
+    };
+
+    vi.stubGlobal('document', {
+      createElement: vi.fn().mockReturnValue(mockAnchor),
+      body: {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe('Requirements 10.4: 注釈なしの元画像もダウンロード可能にする', () => {
+    // 元のURLクラスの静的メソッドを保存
+    const originalCreateObjectURL = globalThis.URL.createObjectURL;
+    const originalRevokeObjectURL = globalThis.URL.revokeObjectURL;
+
+    beforeEach(() => {
+      // Mock fetch for cross-origin handling (always used for signed URLs)
+      const mockBlob = new Blob(['test image'], { type: 'image/jpeg' });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          blob: vi.fn().mockResolvedValue(mockBlob),
+        })
+      );
+
+      // URL静的メソッドのみモック（クラス自体は変更しない）
+      globalThis.URL.createObjectURL = vi
+        .fn()
+        .mockReturnValue('blob:http://localhost/mock-object-url');
+      globalThis.URL.revokeObjectURL = vi.fn();
+    });
+
+    afterEach(() => {
+      // 元のURLメソッドを復元
+      globalThis.URL.createObjectURL = originalCreateObjectURL;
+      globalThis.URL.revokeObjectURL = originalRevokeObjectURL;
+    });
+
+    it('should download original image from signed URL', async () => {
+      const signedUrl = 'https://example.com/signed-url?token=abc123';
+      const filename = 'original-image.jpg';
+
+      await exportService.downloadOriginalImage(signedUrl, { filename });
+
+      expect(fetch).toHaveBeenCalledWith(signedUrl, expect.any(Object));
+      expect(mockAnchor.download).toBe(filename);
+      expect(mockAnchor.click).toHaveBeenCalled();
+    });
+
+    it('should use default filename when not provided', async () => {
+      const signedUrl = 'https://example.com/images/my-photo.jpg?token=abc123';
+
+      await exportService.downloadOriginalImage(signedUrl);
+
+      expect(mockAnchor.download).toBe('my-photo.jpg');
+      expect(mockAnchor.click).toHaveBeenCalled();
+    });
+
+    it('should extract filename from URL path', async () => {
+      const signedUrl = 'https://example.com/bucket/path/to/image-2024-01.png?X-Amz-Signature=xyz';
+
+      await exportService.downloadOriginalImage(signedUrl);
+
+      expect(mockAnchor.download).toBe('image-2024-01.png');
+    });
+
+    it('should use fallback filename when URL has no filename', async () => {
+      const signedUrl = 'https://example.com/?token=abc123';
+
+      await exportService.downloadOriginalImage(signedUrl);
+
+      expect(mockAnchor.download).toBe('image');
+    });
+
+    it('should throw error when URL is empty', async () => {
+      await expect(exportService.downloadOriginalImage('')).rejects.toThrow(
+        'URL is required for download'
+      );
+    });
+
+    it('should throw error when URL is invalid', async () => {
+      await expect(exportService.downloadOriginalImage('not-a-valid-url')).rejects.toThrow(
+        'Invalid URL provided'
+      );
+    });
+  });
+
+  describe('cross-origin download handling', () => {
+    // 元のURLクラスの静的メソッドを保存
+    const originalCreateObjectURL = globalThis.URL.createObjectURL;
+    const originalRevokeObjectURL = globalThis.URL.revokeObjectURL;
+
+    it('should handle cross-origin URLs by fetching as blob', async () => {
+      const signedUrl = 'https://r2.cloudflarestorage.com/bucket/image.jpg?token=abc';
+      const mockBlob = new Blob(['image data'], { type: 'image/jpeg' });
+      const mockObjectUrl = 'blob:http://localhost/blob-123';
+
+      // Mock fetch
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: vi.fn().mockResolvedValue(mockBlob),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      // URL静的メソッドのみモック
+      const mockCreateObjectURL = vi.fn().mockReturnValue(mockObjectUrl);
+      const mockRevokeObjectURL = vi.fn();
+      globalThis.URL.createObjectURL = mockCreateObjectURL;
+      globalThis.URL.revokeObjectURL = mockRevokeObjectURL;
+
+      await exportService.downloadOriginalImage(signedUrl, {
+        filename: 'downloaded.jpg',
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(signedUrl, expect.any(Object));
+      expect(mockCreateObjectURL).toHaveBeenCalledWith(mockBlob);
+      expect(mockAnchor.href).toBe(mockObjectUrl);
+      expect(mockAnchor.download).toBe('downloaded.jpg');
+      expect(mockAnchor.click).toHaveBeenCalled();
+      expect(mockRevokeObjectURL).toHaveBeenCalledWith(mockObjectUrl);
+
+      // 元のURLを復元
+      globalThis.URL.createObjectURL = originalCreateObjectURL;
+      globalThis.URL.revokeObjectURL = originalRevokeObjectURL;
+    });
+
+    it('should throw error when fetch fails', async () => {
+      const signedUrl = 'https://r2.cloudflarestorage.com/bucket/image.jpg?token=abc';
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      await expect(
+        exportService.downloadOriginalImage(signedUrl, { filename: 'test.jpg' })
+      ).rejects.toThrow('Failed to download image: 403 Forbidden');
+    });
+
+    it('should handle network errors gracefully', async () => {
+      const signedUrl = 'https://r2.cloudflarestorage.com/bucket/image.jpg?token=abc';
+
+      const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
+      vi.stubGlobal('fetch', mockFetch);
+
+      await expect(
+        exportService.downloadOriginalImage(signedUrl, { filename: 'test.jpg' })
+      ).rejects.toThrow('Network error');
+    });
+  });
+});
+
+describe('downloadOriginalImage function (standalone)', () => {
+  let mockAnchor: {
+    href: string;
+    download: string;
+    click: ReturnType<typeof vi.fn>;
+  };
+  // 元のURLクラスの静的メソッドを保存
+  const originalCreateObjectURL = globalThis.URL.createObjectURL;
+  const originalRevokeObjectURL = globalThis.URL.revokeObjectURL;
+
+  beforeEach(async () => {
+    mockAnchor = {
+      href: '',
+      download: '',
+      click: vi.fn(),
+    };
+
+    vi.stubGlobal('document', {
+      createElement: vi.fn().mockReturnValue(mockAnchor),
+      body: {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      },
+    });
+
+    // Mock fetch for cross-origin handling
+    const mockBlob = new Blob(['test'], { type: 'image/jpeg' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        blob: vi.fn().mockResolvedValue(mockBlob),
+      })
+    );
+
+    // URL静的メソッドのみモック
+    globalThis.URL.createObjectURL = vi.fn().mockReturnValue('blob:http://localhost/test');
+    globalThis.URL.revokeObjectURL = vi.fn();
+  });
+
+  afterEach(() => {
+    globalThis.URL.createObjectURL = originalCreateObjectURL;
+    globalThis.URL.revokeObjectURL = originalRevokeObjectURL;
+    vi.unstubAllGlobals();
+  });
+
+  it('should download original image using standalone function', async () => {
+    const { downloadOriginalImage } = await import('../../services/ExportService');
+    const signedUrl = 'https://example.com/image.jpg?token=abc';
+
+    await downloadOriginalImage(signedUrl, { filename: 'test.jpg' });
+
+    expect(mockAnchor.download).toBe('test.jpg');
+    expect(mockAnchor.click).toHaveBeenCalled();
+  });
+});
