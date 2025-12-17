@@ -875,7 +875,8 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
   const getTouchPoints = useCallback((touches: React.TouchList): TouchPoint[] => {
     const points: TouchPoint[] = [];
     for (let i = 0; i < touches.length; i++) {
-      const touch = touches.item(i);
+      // 配列インデックスアクセスを使用（テスト環境との互換性のため）
+      const touch = touches[i];
       if (touch) {
         points.push({
           x: touch.clientX,
