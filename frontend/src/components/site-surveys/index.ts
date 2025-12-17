@@ -7,6 +7,7 @@
  * Task 9.1: 現場調査基本情報表示コンポーネントの実装
  * Task 9.2: 画像一覧グリッド表示コンポーネントの実装
  * Task 9.3: 画像アップロードUIの実装
+ * Task 11.2: エラー表示の実装
  */
 
 export { default as SiteSurveyListTable } from './SiteSurveyListTable';
@@ -17,6 +18,7 @@ export { default as SiteSurveyResponsiveView } from './SiteSurveyResponsiveView'
 export { default as SiteSurveyDetailInfo } from './SiteSurveyDetailInfo';
 export { SurveyImageGrid } from './SurveyImageGrid';
 export { ImageUploader } from './ImageUploader';
+export { default as SiteSurveyErrorDisplay } from './SiteSurveyErrorDisplay';
 
 export type { SiteSurveyListTableProps } from './SiteSurveyListTable';
 export type { SiteSurveyListCardProps } from './SiteSurveyListCard';
@@ -26,6 +28,7 @@ export type { SiteSurveyResponsiveViewProps, ViewMode } from './SiteSurveyRespon
 export type { SiteSurveyDetailInfoProps } from './SiteSurveyDetailInfo';
 export type { SurveyImageGridProps } from './SurveyImageGrid';
 export type { ImageUploaderProps, UploadProgress, ValidationError } from './ImageUploader';
+export type { SiteSurveyErrorDisplayProps } from './SiteSurveyErrorDisplay';
 export {
   ALLOWED_FILE_TYPES,
   ALLOWED_MIME_TYPES,
