@@ -2,16 +2,37 @@
  * @fileoverview 画像ビューアコンポーネント
  *
  * Task 12.1: 基本ビューア機能を実装する
+ * Task 12.2: ズーム機能を実装する
  *
  * モーダル/専用画面での画像表示、Fabric.js Canvasの初期化、
- * 画像の読み込みと表示を行うコンポーネントです。
+ * 画像の読み込みと表示、ズーム機能を提供するコンポーネントです。
  *
  * Requirements:
  * - 5.1: 画像をクリックすると画像ビューアをモーダルまたは専用画面で開く
+ * - 5.2: ズームイン/ズームアウト操作で画像を拡大/縮小表示
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Canvas as FabricCanvas, FabricImage } from 'fabric';
+
+// ============================================================================
+// 定数定義
+// ============================================================================
+
+/**
+ * ズーム関連の定数
+ * @description ズーム範囲制限（0.1x-10x）とズームステップを定義
+ */
+export const ZOOM_CONSTANTS = {
+  /** 最小ズーム倍率 */
+  MIN_ZOOM: 0.1,
+  /** 最大ズーム倍率 */
+  MAX_ZOOM: 10,
+  /** ズームステップ（ボタン・キーボード操作時） */
+  ZOOM_STEP: 0.1,
+  /** マウスホイールズームの感度 */
+  WHEEL_ZOOM_FACTOR: 0.001,
+} as const;
 
 // ============================================================================
 // 型定義
@@ -25,6 +46,8 @@ interface ImageViewerState {
   isLoading: boolean;
   /** エラーメッセージ */
   error: string | null;
+  /** 現在のズーム倍率 */
+  zoom: number;
 }
 
 /**
@@ -136,7 +159,77 @@ const STYLES = {
     color: '#991b1b',
     textAlign: 'center' as const,
   },
+  // ズームコントロール用スタイル
+  zoomControls: {
+    position: 'absolute' as const,
+    bottom: '24px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: '8px',
+    padding: '8px 16px',
+  },
+  zoomButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '36px',
+    height: '36px',
+    backgroundColor: 'transparent',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    color: '#ffffff',
+    transition: 'background-color 0.2s, border-color 0.2s',
+    fontSize: '18px',
+    fontWeight: 'bold',
+  },
+  zoomButtonDisabled: {
+    opacity: 0.4,
+    cursor: 'not-allowed',
+  },
+  zoomDisplay: {
+    minWidth: '60px',
+    textAlign: 'center' as const,
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: '500',
+  },
+  resetButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '6px 12px',
+    backgroundColor: 'transparent',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    color: '#ffffff',
+    transition: 'background-color 0.2s, border-color 0.2s',
+    fontSize: '12px',
+  },
 };
+
+// ============================================================================
+// ヘルパー関数
+// ============================================================================
+
+/**
+ * ズーム倍率を範囲内に制限する
+ */
+function clampZoom(zoom: number): number {
+  return Math.max(ZOOM_CONSTANTS.MIN_ZOOM, Math.min(ZOOM_CONSTANTS.MAX_ZOOM, zoom));
+}
+
+/**
+ * ズーム倍率をパーセント表示に変換
+ */
+function formatZoomPercent(zoom: number): string {
+  return `${Math.round(zoom * 100)}%`;
+}
 
 // ============================================================================
 // コンポーネント
@@ -146,7 +239,7 @@ const STYLES = {
  * 画像ビューアコンポーネント
  *
  * Fabric.js Canvasを使用して画像を表示するモーダルコンポーネントです。
- * 将来的にズーム、回転、パン機能を追加予定です（Task 12.2-12.6）。
+ * ズーム機能（ボタン、マウスホイール、キーボードショートカット）を提供します。
  */
 export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: ImageViewerProps) {
   // DOM参照
@@ -160,21 +253,99 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   const [state, setState] = useState<ImageViewerState>({
     isLoading: true,
     error: null,
+    zoom: 1,
   });
 
   // 前回のimageUrl参照（変更検知用）
   const prevImageUrlRef = useRef<string | null>(null);
 
   /**
-   * キーボードイベントハンドラ
+   * ズームレベルを設定
+   */
+  const setZoom = useCallback((newZoom: number) => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) return;
+
+    const clampedZoom = clampZoom(newZoom);
+    canvas.setZoom(clampedZoom);
+    canvas.renderAll();
+    setState((prev) => ({ ...prev, zoom: clampedZoom }));
+  }, []);
+
+  /**
+   * ズームイン
+   */
+  const handleZoomIn = useCallback(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) return;
+
+    const currentZoom = canvas.getZoom();
+    const newZoom = currentZoom + ZOOM_CONSTANTS.ZOOM_STEP;
+    setZoom(newZoom);
+  }, [setZoom]);
+
+  /**
+   * ズームアウト
+   */
+  const handleZoomOut = useCallback(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) return;
+
+    const currentZoom = canvas.getZoom();
+    const newZoom = currentZoom - ZOOM_CONSTANTS.ZOOM_STEP;
+    setZoom(newZoom);
+  }, [setZoom]);
+
+  /**
+   * ズームリセット（100%に戻す）
+   */
+  const handleZoomReset = useCallback(() => {
+    setZoom(1);
+  }, [setZoom]);
+
+  /**
+   * マウスホイールによるズーム
+   */
+  const handleWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const canvas = fabricCanvasRef.current;
+      if (!canvas) return;
+
+      const currentZoom = canvas.getZoom();
+      // deltaYが負（上にスクロール）= ズームイン、正（下にスクロール）= ズームアウト
+      const delta = -event.deltaY * ZOOM_CONSTANTS.WHEEL_ZOOM_FACTOR;
+      const newZoom = currentZoom + delta;
+      setZoom(newZoom);
+    },
+    [setZoom]
+  );
+
+  /**
+   * キーボードイベントハンドラ（ESC、ズームショートカット含む）
    */
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
+        return;
+      }
+
+      // ズームショートカット
+      switch (event.key) {
+        case '+':
+        case '=': // Shift+= も + として扱う
+          handleZoomIn();
+          break;
+        case '-':
+          handleZoomOut();
+          break;
+        case '0':
+          handleZoomReset();
+          break;
       }
     },
-    [onClose]
+    [onClose, handleZoomIn, handleZoomOut, handleZoomReset]
   );
 
   /**
@@ -201,7 +372,7 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
    * 画像を読み込んでCanvasに表示
    */
   const loadImage = useCallback(async (canvas: FabricCanvas, url: string) => {
-    setState({ isLoading: true, error: null });
+    setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
       // 画像を読み込み
@@ -234,15 +405,17 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
 
       // 背景画像として設定（Fabric.js v6 API）
       canvas.backgroundImage = img;
+      canvas.setZoom(1); // ズームをリセット
       canvas.renderAll();
 
-      setState({ isLoading: false, error: null });
+      setState({ isLoading: false, error: null, zoom: 1 });
     } catch (err) {
       console.error('画像の読み込みに失敗しました:', err);
-      setState({
+      setState((prev) => ({
+        ...prev,
         isLoading: false,
         error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
-      });
+      }));
     }
   }, []);
 
@@ -319,6 +492,10 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   const displayTitle = imageName || '画像ビューア';
   const titleId = 'image-viewer-title';
 
+  // ズームボタンの無効化状態
+  const isZoomInDisabled = state.zoom >= ZOOM_CONSTANTS.MAX_ZOOM;
+  const isZoomOutDisabled = state.zoom <= ZOOM_CONSTANTS.MIN_ZOOM;
+
   return (
     <>
       {/* スピナーアニメーション用CSS */}
@@ -376,7 +553,12 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
           </div>
 
           {/* Canvasコンテナ */}
-          <div ref={containerRef} style={STYLES.canvasContainer}>
+          <div
+            ref={containerRef}
+            style={STYLES.canvasContainer}
+            data-testid="canvas-container"
+            onWheel={handleWheel}
+          >
             <canvas ref={canvasRef} style={STYLES.canvas} />
 
             {/* ローディング表示 */}
@@ -392,6 +574,79 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
                 <div role="alert" style={STYLES.errorMessage}>
                   {state.error}
                 </div>
+              </div>
+            )}
+
+            {/* ズームコントロール */}
+            {!state.isLoading && !state.error && (
+              <div style={STYLES.zoomControls}>
+                {/* ズームアウトボタン */}
+                <button
+                  type="button"
+                  style={{
+                    ...STYLES.zoomButton,
+                    ...(isZoomOutDisabled ? STYLES.zoomButtonDisabled : {}),
+                  }}
+                  onClick={handleZoomOut}
+                  disabled={isZoomOutDisabled}
+                  aria-label="ズームアウト"
+                  onMouseEnter={(e) => {
+                    if (!isZoomOutDisabled) {
+                      (e.target as HTMLButtonElement).style.backgroundColor =
+                        'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor = 'transparent';
+                  }}
+                >
+                  -
+                </button>
+
+                {/* ズーム倍率表示 */}
+                <span style={STYLES.zoomDisplay} data-testid="zoom-display">
+                  {formatZoomPercent(state.zoom)}
+                </span>
+
+                {/* ズームインボタン */}
+                <button
+                  type="button"
+                  style={{
+                    ...STYLES.zoomButton,
+                    ...(isZoomInDisabled ? STYLES.zoomButtonDisabled : {}),
+                  }}
+                  onClick={handleZoomIn}
+                  disabled={isZoomInDisabled}
+                  aria-label="ズームイン"
+                  onMouseEnter={(e) => {
+                    if (!isZoomInDisabled) {
+                      (e.target as HTMLButtonElement).style.backgroundColor =
+                        'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor = 'transparent';
+                  }}
+                >
+                  +
+                </button>
+
+                {/* リセットボタン */}
+                <button
+                  type="button"
+                  style={STYLES.resetButton}
+                  onClick={handleZoomReset}
+                  aria-label="100%"
+                  onMouseEnter={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor =
+                      'rgba(255, 255, 255, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor = 'transparent';
+                  }}
+                >
+                  100%
+                </button>
               </div>
             )}
           </div>
