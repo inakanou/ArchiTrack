@@ -72,17 +72,13 @@ describe('RestoreAnnotationDialog', () => {
     it('should show conflict warning when hasServerConflict is true', () => {
       render(<RestoreAnnotationDialog {...defaultProps} hasServerConflict={true} />);
 
-      expect(
-        screen.getByText(/サーバー側のデータが更新されています/)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/サーバー側のデータが更新されています/)).toBeInTheDocument();
     });
 
     it('should not show conflict warning when hasServerConflict is false', () => {
       render(<RestoreAnnotationDialog {...defaultProps} hasServerConflict={false} />);
 
-      expect(
-        screen.queryByText(/サーバー側のデータが更新されています/)
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/サーバー側のデータが更新されています/)).not.toBeInTheDocument();
     });
   });
 
