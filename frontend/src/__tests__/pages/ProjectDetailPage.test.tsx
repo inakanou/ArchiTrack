@@ -6,6 +6,7 @@
  * Task 19.2: パンくずナビゲーション追加
  * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
  * Task 27.2: フィールドラベル変更（「取引先」→「顧客名」）
+ * Task 10.1 (site-survey): 現場調査への導線追加
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -17,6 +18,7 @@
  * - 21.15, 21.18: パンくずナビゲーション
  * - 21.21: 編集ボタンクリックで編集ページへ遷移
  * - 22: 顧客情報表示（ラベル「顧客名」）
+ * - 2.1, 2.2: 現場調査タブ/セクション表示と遷移
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1051,6 +1053,89 @@ describe('ProjectDetailPage', () => {
       expect(
         screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
       ).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 10.1 (site-survey): 現場調査への導線
+  // プロジェクト詳細画面に「現場調査」セクションを追加し、現場調査一覧への遷移を実装
+  // Requirements: 2.1, 2.2
+  // ==========================================================================
+
+  describe('現場調査への導線（Task 10.1, Requirements 2.1, 2.2）', () => {
+    it('「現場調査」セクションが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 現場調査セクションの見出しが表示される
+      expect(screen.getByRole('heading', { level: 2, name: '現場調査' })).toBeInTheDocument();
+    });
+
+    it('「現場調査一覧」へのリンクが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 現場調査一覧へのリンクが存在する
+      const link = screen.getByRole('link', { name: /現場調査一覧/ });
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', '/projects/project-1/site-surveys');
+    });
+
+    it('現場調査一覧リンクをクリックすると現場調査一覧ページへ遷移する', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const link = screen.getByRole('link', { name: /現場調査一覧/ });
+      await user.click(link);
+
+      // MemoryRouterを使用しているため、実際のナビゲーションはリンクのhref属性で確認
+      expect(link).toHaveAttribute('href', '/projects/project-1/site-surveys');
+    });
+
+    it('「新規作成」ボタンが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 現場調査の新規作成リンクが存在する
+      const createLink = screen.getByRole('link', { name: /新規作成/ });
+      expect(createLink).toBeInTheDocument();
+      expect(createLink).toHaveAttribute('href', '/projects/project-1/site-surveys/new');
+    });
+
+    it('現場調査セクションにプロジェクトIDが正しく反映される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // URLにproject-1のIDが含まれている
+      const link = screen.getByRole('link', { name: /現場調査一覧/ });
+      expect(link.getAttribute('href')).toContain('project-1');
+    });
+
+    it('現場調査セクションの説明テキストが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 説明テキストが表示される
+      expect(screen.getByText(/現場調査を管理します/)).toBeInTheDocument();
     });
   });
 
