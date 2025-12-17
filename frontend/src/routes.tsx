@@ -21,6 +21,7 @@ import TradingPartnerListPage from './pages/TradingPartnerListPage';
 import TradingPartnerDetailPage from './pages/TradingPartnerDetailPage';
 import TradingPartnerCreatePage from './pages/TradingPartnerCreatePage';
 import TradingPartnerEditPage from './pages/TradingPartnerEditPage';
+import SiteSurveyListPage from './pages/SiteSurveyListPage';
 
 /**
  * アプリケーションのルート設定
@@ -125,6 +126,14 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:id',
         element: <ProjectDetailPage />,
+      },
+
+      // 現場調査一覧
+      // REQ-2.5, 2.6, 2.7: ブレッドクラムナビゲーション対応
+      // Task 10.2: ブレッドクラムナビゲーションを実装する
+      {
+        path: '/projects/:projectId/site-surveys',
+        element: <SiteSurveyListPage />,
       },
 
       // 取引先一覧
