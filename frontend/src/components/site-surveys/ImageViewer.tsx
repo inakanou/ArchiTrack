@@ -4,14 +4,16 @@
  * Task 12.1: 基本ビューア機能を実装する
  * Task 12.2: ズーム機能を実装する
  * Task 12.3: 回転機能を実装する
+ * Task 12.4: パン機能を実装する
  *
  * モーダル/専用画面での画像表示、Fabric.js Canvasの初期化、
- * 画像の読み込みと表示、ズーム機能、回転機能を提供するコンポーネントです。
+ * 画像の読み込みと表示、ズーム機能、回転機能、パン機能を提供するコンポーネントです。
  *
  * Requirements:
  * - 5.1: 画像をクリックすると画像ビューアをモーダルまたは専用画面で開く
  * - 5.2: ズームイン/ズームアウト操作で画像を拡大/縮小表示
  * - 5.3: 回転ボタンを押すと画像を90度単位で回転表示
+ * - 5.4: パン操作を行うと拡大時の表示領域を移動する
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -50,6 +52,17 @@ export const ROTATION_CONSTANTS = {
 /** 回転角度の型 */
 export type RotationAngle = (typeof ROTATION_CONSTANTS.ROTATION_VALUES)[number];
 
+/**
+ * パン関連の定数
+ * @description ドラッグによる表示領域移動の設定を定義
+ */
+export const PAN_CONSTANTS = {
+  /** パン機能が有効になる最小ズームレベル */
+  MIN_PAN_ZOOM: 1.01,
+  /** キーボードパン操作のステップ（ピクセル） */
+  KEYBOARD_PAN_STEP: 50,
+} as const;
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -66,6 +79,12 @@ interface ImageViewerState {
   zoom: number;
   /** 現在の回転角度（度） */
   rotation: RotationAngle;
+  /** パン中フラグ */
+  isPanning: boolean;
+  /** パン位置X */
+  panX: number;
+  /** パン位置Y */
+  panY: number;
 }
 
 /**
@@ -329,6 +348,9 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
     error: null,
     zoom: 1,
     rotation: 0,
+    isPanning: false,
+    panX: 0,
+    panY: 0,
   });
 
   // 前回のimageUrl参照（変更検知用）
@@ -336,6 +358,10 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
 
   // 背景画像への参照
   const backgroundImageRef = useRef<FabricImage | null>(null);
+
+  // パン操作用の参照
+  const panStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPanPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   /**
    * ズームレベルを設定
@@ -345,9 +371,20 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
     if (!canvas) return;
 
     const clampedZoom = clampZoom(newZoom);
-    canvas.setZoom(clampedZoom);
+
+    // ズームが1.0以下になったらパン位置もリセット
+    if (clampedZoom <= 1) {
+      canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, 0, 0]);
+      lastPanPositionRef.current = { x: 0, y: 0 };
+      setState((prev) => ({ ...prev, zoom: clampedZoom, panX: 0, panY: 0 }));
+    } else {
+      // ズームが1より大きい場合、現在のパン位置を維持
+      const currentPanX = lastPanPositionRef.current.x;
+      const currentPanY = lastPanPositionRef.current.y;
+      canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, currentPanX, currentPanY]);
+      setState((prev) => ({ ...prev, zoom: clampedZoom }));
+    }
     canvas.renderAll();
-    setState((prev) => ({ ...prev, zoom: clampedZoom }));
   }, []);
 
   /**
@@ -428,6 +465,107 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
     applyRotation(0);
   }, [applyRotation]);
 
+  // ============================================================================
+  // パン操作関連
+  // ============================================================================
+
+  /**
+   * パン操作が有効かどうかをチェック
+   */
+  const isPanEnabled = useCallback(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) return false;
+    return canvas.getZoom() >= PAN_CONSTANTS.MIN_PAN_ZOOM;
+  }, []);
+
+  /**
+   * ビューポートトランスフォームを適用
+   */
+  const applyPan = useCallback(
+    (deltaX: number, deltaY: number) => {
+      const canvas = fabricCanvasRef.current;
+      if (!canvas || !isPanEnabled()) return;
+
+      const newPanX = lastPanPositionRef.current.x + deltaX;
+      const newPanY = lastPanPositionRef.current.y + deltaY;
+
+      // ビューポートトランスフォームを更新
+      // [scaleX, skewY, skewX, scaleY, translateX, translateY]
+      const zoom = canvas.getZoom();
+      canvas.setViewportTransform([zoom, 0, 0, zoom, newPanX, newPanY]);
+      canvas.renderAll();
+
+      lastPanPositionRef.current = { x: newPanX, y: newPanY };
+      setState((prev) => ({ ...prev, panX: newPanX, panY: newPanY }));
+    },
+    [isPanEnabled]
+  );
+
+  /**
+   * ドラッグによるパン操作開始
+   */
+  const handlePanStart = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // 左クリックのみ（button === 0）
+      if (event.button !== 0) return;
+      if (!isPanEnabled()) return;
+
+      panStartRef.current = { x: event.clientX, y: event.clientY };
+      setState((prev) => ({ ...prev, isPanning: true }));
+    },
+    [isPanEnabled]
+  );
+
+  /**
+   * ドラッグによるパン操作中
+   */
+  const handlePanMove = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!state.isPanning || !panStartRef.current) return;
+
+      const deltaX = event.clientX - panStartRef.current.x;
+      const deltaY = event.clientY - panStartRef.current.y;
+
+      // 一時的なパン位置を計算（ドラッグ開始時からの差分 + 保存済みの位置）
+      const canvas = fabricCanvasRef.current;
+      if (!canvas) return;
+
+      const tempPanX = lastPanPositionRef.current.x + deltaX;
+      const tempPanY = lastPanPositionRef.current.y + deltaY;
+
+      const zoom = canvas.getZoom();
+      canvas.setViewportTransform([zoom, 0, 0, zoom, tempPanX, tempPanY]);
+      canvas.renderAll();
+    },
+    [state.isPanning]
+  );
+
+  /**
+   * ドラッグによるパン操作終了
+   */
+  const handlePanEnd = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!state.isPanning || !panStartRef.current) {
+        panStartRef.current = null;
+        setState((prev) => ({ ...prev, isPanning: false }));
+        return;
+      }
+
+      const deltaX = event.clientX - panStartRef.current.x;
+      const deltaY = event.clientY - panStartRef.current.y;
+
+      // 最終的なパン位置を保存
+      const newPanX = lastPanPositionRef.current.x + deltaX;
+      const newPanY = lastPanPositionRef.current.y + deltaY;
+
+      lastPanPositionRef.current = { x: newPanX, y: newPanY };
+      panStartRef.current = null;
+
+      setState((prev) => ({ ...prev, isPanning: false, panX: newPanX, panY: newPanY }));
+    },
+    [state.isPanning]
+  );
+
   /**
    * マウスホイールによるズーム
    */
@@ -447,7 +585,7 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   );
 
   /**
-   * キーボードイベントハンドラ（ESC、ズームショートカット、回転ショートカット含む）
+   * キーボードイベントハンドラ（ESC、ズームショートカット、回転ショートカット、パンショートカット含む）
    */
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -475,9 +613,34 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
         case ']':
           handleRotateRight();
           break;
+        // パンショートカット（矢印キー）
+        case 'ArrowUp':
+          event.preventDefault();
+          applyPan(0, PAN_CONSTANTS.KEYBOARD_PAN_STEP);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          applyPan(0, -PAN_CONSTANTS.KEYBOARD_PAN_STEP);
+          break;
+        case 'ArrowLeft':
+          event.preventDefault();
+          applyPan(PAN_CONSTANTS.KEYBOARD_PAN_STEP, 0);
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          applyPan(-PAN_CONSTANTS.KEYBOARD_PAN_STEP, 0);
+          break;
       }
     },
-    [onClose, handleZoomIn, handleZoomOut, handleZoomReset, handleRotateLeft, handleRotateRight]
+    [
+      onClose,
+      handleZoomIn,
+      handleZoomOut,
+      handleZoomReset,
+      handleRotateLeft,
+      handleRotateRight,
+      applyPan,
+    ]
   );
 
   /**
@@ -542,7 +705,16 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
       canvas.setZoom(1); // ズームをリセット
       canvas.renderAll();
 
-      setState({ isLoading: false, error: null, zoom: 1, rotation: 0 });
+      setState({
+        isLoading: false,
+        error: null,
+        zoom: 1,
+        rotation: 0,
+        isPanning: false,
+        panX: 0,
+        panY: 0,
+      });
+      lastPanPositionRef.current = { x: 0, y: 0 };
     } catch (err) {
       console.error('画像の読み込みに失敗しました:', err);
       setState((prev) => ({
@@ -690,9 +862,16 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
           {/* Canvasコンテナ */}
           <div
             ref={containerRef}
-            style={STYLES.canvasContainer}
+            style={{
+              ...STYLES.canvasContainer,
+              cursor: state.isPanning ? 'grabbing' : state.zoom > 1 ? 'grab' : 'default',
+            }}
             data-testid="canvas-container"
             onWheel={handleWheel}
+            onMouseDown={handlePanStart}
+            onMouseMove={handlePanMove}
+            onMouseUp={handlePanEnd}
+            onMouseLeave={handlePanEnd}
           >
             <canvas ref={canvasRef} style={STYLES.canvas} />
 
