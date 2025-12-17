@@ -919,4 +919,264 @@ describe('TextTool', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 16.3: 吹き出し形式テスト
+  // ==========================================================================
+  describe('吹き出し形式（Task 16.3）', () => {
+    describe('吹き出しスタイルの種類（Requirements 8.6）', () => {
+      it('デフォルトでは吹き出しなし（none）である', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        expect(textAnnotation.getBalloonStyle()).toBe('none');
+      });
+
+      it('四角形の吹き出しスタイルを設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setBalloonStyle('rectangle');
+
+        expect(textAnnotation.getBalloonStyle()).toBe('rectangle');
+      });
+
+      it('角丸四角形の吹き出しスタイルを設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setBalloonStyle('rounded');
+
+        expect(textAnnotation.getBalloonStyle()).toBe('rounded');
+      });
+
+      it('楕円形の吹き出しスタイルを設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setBalloonStyle('ellipse');
+
+        expect(textAnnotation.getBalloonStyle()).toBe('ellipse');
+      });
+
+      it('雲形の吹き出しスタイルを設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setBalloonStyle('cloud');
+
+        expect(textAnnotation.getBalloonStyle()).toBe('cloud');
+      });
+
+      it('吹き出しスタイルをnoneに戻せる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        textAnnotation.setBalloonStyle('none');
+
+        expect(textAnnotation.getBalloonStyle()).toBe('none');
+      });
+
+      it('初期化時に吹き出しスタイルを指定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 }, { balloonStyle: 'rounded' });
+
+        expect(textAnnotation.getBalloonStyle()).toBe('rounded');
+      });
+    });
+
+    describe('吹き出しの外観設定', () => {
+      it('吹き出しの背景色を設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        textAnnotation.setBalloonBackgroundColor('#ffff00');
+
+        expect(textAnnotation.getBalloonBackgroundColor()).toBe('#ffff00');
+      });
+
+      it('吹き出しの枠線色を設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        textAnnotation.setBalloonStrokeColor('#000000');
+
+        expect(textAnnotation.getBalloonStrokeColor()).toBe('#000000');
+      });
+
+      it('吹き出しの枠線の太さを設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        textAnnotation.setBalloonStrokeWidth(2);
+
+        expect(textAnnotation.getBalloonStrokeWidth()).toBe(2);
+      });
+
+      it('吹き出しのパディングを設定できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        textAnnotation.setBalloonPadding(10);
+
+        expect(textAnnotation.getBalloonPadding()).toBe(10);
+      });
+
+      it('デフォルトの吹き出し背景色は白である', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        expect(textAnnotation.getBalloonBackgroundColor()).toBe('#ffffff');
+      });
+
+      it('デフォルトの吹き出し枠線色は黒である', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        expect(textAnnotation.getBalloonStrokeColor()).toBe('#000000');
+      });
+
+      it('デフォルトの吹き出し枠線の太さは1である', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        expect(textAnnotation.getBalloonStrokeWidth()).toBe(1);
+      });
+
+      it('デフォルトの吹き出しパディングは8である', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        expect(textAnnotation.getBalloonPadding()).toBe(8);
+      });
+    });
+
+    describe('吹き出しオプションの一括設定', () => {
+      it('setBalloonOptionsで吹き出し設定を一括変更できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        textAnnotation.setBalloonOptions({
+          style: 'rounded',
+          backgroundColor: '#ffffcc',
+          strokeColor: '#333333',
+          strokeWidth: 2,
+          padding: 12,
+        });
+
+        expect(textAnnotation.getBalloonStyle()).toBe('rounded');
+        expect(textAnnotation.getBalloonBackgroundColor()).toBe('#ffffcc');
+        expect(textAnnotation.getBalloonStrokeColor()).toBe('#333333');
+        expect(textAnnotation.getBalloonStrokeWidth()).toBe(2);
+        expect(textAnnotation.getBalloonPadding()).toBe(12);
+      });
+
+      it('getBalloonOptionsで吹き出し設定を一括取得できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('ellipse');
+        textAnnotation.setBalloonBackgroundColor('#ccffcc');
+
+        const options = textAnnotation.getBalloonOptions();
+
+        expect(options.style).toBe('ellipse');
+        expect(options.backgroundColor).toBe('#ccffcc');
+        expect(options.strokeColor).toBe('#000000');
+        expect(options.strokeWidth).toBe(1);
+        expect(options.padding).toBe(8);
+      });
+
+      it('一部のオプションのみ変更できる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rectangle');
+
+        textAnnotation.setBalloonOptions({
+          backgroundColor: '#ff0000',
+        });
+
+        expect(textAnnotation.getBalloonStyle()).toBe('rectangle');
+        expect(textAnnotation.getBalloonBackgroundColor()).toBe('#ff0000');
+        expect(textAnnotation.getBalloonStrokeWidth()).toBe(1); // 変更なし
+      });
+    });
+
+    describe('吹き出しのシリアライズ', () => {
+      it('吹き出しスタイルがシリアライズに含まれる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonStyle('rounded');
+
+        const json = textAnnotation.toObject();
+
+        expect(json.balloonStyle).toBe('rounded');
+      });
+
+      it('吹き出し設定がシリアライズに含まれる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBalloonOptions({
+          style: 'ellipse',
+          backgroundColor: '#ffcccc',
+          strokeColor: '#cc0000',
+          strokeWidth: 3,
+          padding: 15,
+        });
+
+        const json = textAnnotation.toObject();
+
+        expect(json.balloonStyle).toBe('ellipse');
+        expect(json.balloonBackgroundColor).toBe('#ffcccc');
+        expect(json.balloonStrokeColor).toBe('#cc0000');
+        expect(json.balloonStrokeWidth).toBe(3);
+        expect(json.balloonPadding).toBe(15);
+      });
+
+      it('吹き出しなしの場合もシリアライズに含まれる', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+        const json = textAnnotation.toObject();
+
+        expect(json.balloonStyle).toBe('none');
+      });
+    });
+
+    describe('吹き出しとテキストスタイルの独立性', () => {
+      it('吹き出し設定がテキスト色に影響しない', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setFill('#ff0000');
+        textAnnotation.setBalloonStyle('rectangle');
+        textAnnotation.setBalloonBackgroundColor('#0000ff');
+
+        expect(textAnnotation.fill).toBe('#ff0000');
+        expect(textAnnotation.getBalloonBackgroundColor()).toBe('#0000ff');
+      });
+
+      it('テキストの背景色と吹き出しの背景色は別々に管理される', () => {
+        const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+        textAnnotation.setBackgroundColor('#ffff00');
+        textAnnotation.setBalloonStyle('rounded');
+        textAnnotation.setBalloonBackgroundColor('#cccccc');
+
+        expect(textAnnotation.backgroundColor).toBe('#ffff00');
+        expect(textAnnotation.getBalloonBackgroundColor()).toBe('#cccccc');
+      });
+    });
+
+    describe('吹き出しスタイル定数', () => {
+      it('BALLOON_STYLES定数が利用可能である', async () => {
+        const { BALLOON_STYLES } = await import('../../../components/site-surveys/tools/TextTool');
+
+        expect(BALLOON_STYLES).toBeDefined();
+        expect(BALLOON_STYLES.NONE).toBe('none');
+        expect(BALLOON_STYLES.RECTANGLE).toBe('rectangle');
+        expect(BALLOON_STYLES.ROUNDED).toBe('rounded');
+        expect(BALLOON_STYLES.ELLIPSE).toBe('ellipse');
+        expect(BALLOON_STYLES.CLOUD).toBe('cloud');
+      });
+    });
+
+    describe('デフォルト吹き出しオプション定数', () => {
+      it('DEFAULT_BALLOON_OPTIONS定数が利用可能である', async () => {
+        const { DEFAULT_BALLOON_OPTIONS } =
+          await import('../../../components/site-surveys/tools/TextTool');
+
+        expect(DEFAULT_BALLOON_OPTIONS).toBeDefined();
+        expect(DEFAULT_BALLOON_OPTIONS.style).toBe('none');
+        expect(DEFAULT_BALLOON_OPTIONS.backgroundColor).toBe('#ffffff');
+        expect(DEFAULT_BALLOON_OPTIONS.strokeColor).toBe('#000000');
+        expect(DEFAULT_BALLOON_OPTIONS.strokeWidth).toBe(1);
+        expect(DEFAULT_BALLOON_OPTIONS.padding).toBe(8);
+      });
+    });
+  });
 });

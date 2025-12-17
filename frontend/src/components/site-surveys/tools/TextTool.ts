@@ -3,6 +3,7 @@
  *
  * Task 16.1: テキスト入力機能を実装する
  * Task 16.2: テキスト編集機能を実装する
+ * Task 16.3: 吹き出し形式を実装する
  *
  * クリック位置へのテキストフィールド表示、
  * 日本語を含むマルチバイト文字対応、
@@ -13,6 +14,7 @@
  * - 8.2: 既存のテキストをダブルクリックするとテキストを編集モードにする
  * - 8.3: テキスト入力中にフォントサイズを変更するとテキストのフォントサイズをリアルタイムで反映する
  * - 8.5: テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
+ * - 8.6: テキストに吹き出し形式（四角・角丸・楕円・雲など）を適用可能にする
  * - 8.7: 日本語を含むマルチバイト文字の入力・表示をサポートする
  */
 
@@ -31,6 +33,28 @@ export interface Point {
 }
 
 /**
+ * 吹き出しスタイルの種類
+ * Task 16.3: 吹き出し形式
+ */
+export type BalloonStyleType = 'none' | 'rectangle' | 'rounded' | 'ellipse' | 'cloud';
+
+/**
+ * 吹き出しオプション
+ */
+export interface BalloonOptions {
+  /** 吹き出しスタイル */
+  style?: BalloonStyleType;
+  /** 吹き出し背景色 */
+  backgroundColor?: string;
+  /** 吹き出し枠線色 */
+  strokeColor?: string;
+  /** 吹き出し枠線の太さ */
+  strokeWidth?: number;
+  /** 吹き出しのパディング */
+  padding?: number;
+}
+
+/**
  * テキストアノテーションのオプション
  */
 export interface TextAnnotationOptions {
@@ -44,6 +68,8 @@ export interface TextAnnotationOptions {
   fill: string;
   /** 背景色（HEXカラーコード） */
   backgroundColor: string;
+  /** 吹き出しスタイル（Task 16.3） */
+  balloonStyle?: BalloonStyleType;
 }
 
 /**
@@ -67,11 +93,45 @@ export interface TextAnnotationJSON {
   fontFamily: string;
   fill: string;
   backgroundColor: string;
+  /** 吹き出しスタイル（Task 16.3） */
+  balloonStyle: BalloonStyleType;
+  /** 吹き出し背景色 */
+  balloonBackgroundColor: string;
+  /** 吹き出し枠線色 */
+  balloonStrokeColor: string;
+  /** 吹き出し枠線の太さ */
+  balloonStrokeWidth: number;
+  /** 吹き出しのパディング */
+  balloonPadding: number;
 }
 
 // ============================================================================
 // 定数定義
 // ============================================================================
+
+/**
+ * 吹き出しスタイル定数
+ * Task 16.3: 吹き出し形式
+ */
+export const BALLOON_STYLES = {
+  NONE: 'none' as const,
+  RECTANGLE: 'rectangle' as const,
+  ROUNDED: 'rounded' as const,
+  ELLIPSE: 'ellipse' as const,
+  CLOUD: 'cloud' as const,
+};
+
+/**
+ * デフォルトの吹き出しオプション
+ * Task 16.3: 吹き出し形式
+ */
+export const DEFAULT_BALLOON_OPTIONS: Required<BalloonOptions> = {
+  style: 'none',
+  backgroundColor: '#ffffff',
+  strokeColor: '#000000',
+  strokeWidth: 1,
+  padding: 8,
+};
 
 /**
  * デフォルトのテキストオプション
@@ -100,6 +160,21 @@ export class TextAnnotation extends IText {
 
   /** キャンバス参照（編集モード用） */
   private _canvas: FabricCanvas | null = null;
+
+  /** 吹き出しスタイル（Task 16.3） */
+  private _balloonStyle: BalloonStyleType = 'none';
+
+  /** 吹き出し背景色 */
+  private _balloonBackgroundColor: string = DEFAULT_BALLOON_OPTIONS.backgroundColor;
+
+  /** 吹き出し枠線色 */
+  private _balloonStrokeColor: string = DEFAULT_BALLOON_OPTIONS.strokeColor;
+
+  /** 吹き出し枠線の太さ */
+  private _balloonStrokeWidth: number = DEFAULT_BALLOON_OPTIONS.strokeWidth;
+
+  /** 吹き出しのパディング */
+  private _balloonPadding: number = DEFAULT_BALLOON_OPTIONS.padding;
 
   /** フォントサイズ */
   declare fontSize: number;
@@ -180,6 +255,11 @@ export class TextAnnotation extends IText {
     this.lockMovementY = false;
     this.editable = true;
     this.isEditing = false;
+
+    // 吹き出しスタイルの初期化（Task 16.3）
+    if (mergedOptions.balloonStyle) {
+      this._balloonStyle = mergedOptions.balloonStyle;
+    }
   }
 
   // ==========================================================================
@@ -303,6 +383,114 @@ export class TextAnnotation extends IText {
   }
 
   // ==========================================================================
+  // 吹き出し操作（Task 16.3）
+  // ==========================================================================
+
+  /**
+   * 吹き出しスタイルを取得
+   */
+  getBalloonStyle(): BalloonStyleType {
+    return this._balloonStyle;
+  }
+
+  /**
+   * 吹き出しスタイルを設定
+   */
+  setBalloonStyle(style: BalloonStyleType): void {
+    this._balloonStyle = style;
+  }
+
+  /**
+   * 吹き出し背景色を取得
+   */
+  getBalloonBackgroundColor(): string {
+    return this._balloonBackgroundColor;
+  }
+
+  /**
+   * 吹き出し背景色を設定
+   */
+  setBalloonBackgroundColor(color: string): void {
+    this._balloonBackgroundColor = color;
+  }
+
+  /**
+   * 吹き出し枠線色を取得
+   */
+  getBalloonStrokeColor(): string {
+    return this._balloonStrokeColor;
+  }
+
+  /**
+   * 吹き出し枠線色を設定
+   */
+  setBalloonStrokeColor(color: string): void {
+    this._balloonStrokeColor = color;
+  }
+
+  /**
+   * 吹き出し枠線の太さを取得
+   */
+  getBalloonStrokeWidth(): number {
+    return this._balloonStrokeWidth;
+  }
+
+  /**
+   * 吹き出し枠線の太さを設定
+   */
+  setBalloonStrokeWidth(width: number): void {
+    this._balloonStrokeWidth = width;
+  }
+
+  /**
+   * 吹き出しのパディングを取得
+   */
+  getBalloonPadding(): number {
+    return this._balloonPadding;
+  }
+
+  /**
+   * 吹き出しのパディングを設定
+   */
+  setBalloonPadding(padding: number): void {
+    this._balloonPadding = padding;
+  }
+
+  /**
+   * 吹き出しオプションを一括で取得
+   */
+  getBalloonOptions(): Required<BalloonOptions> {
+    return {
+      style: this._balloonStyle,
+      backgroundColor: this._balloonBackgroundColor,
+      strokeColor: this._balloonStrokeColor,
+      strokeWidth: this._balloonStrokeWidth,
+      padding: this._balloonPadding,
+    };
+  }
+
+  /**
+   * 吹き出しオプションを一括で設定
+   */
+  setBalloonOptions(options: BalloonOptions): void {
+    if (options.style !== undefined) {
+      this._balloonStyle = options.style;
+    }
+    if (options.backgroundColor !== undefined) {
+      this._balloonBackgroundColor = options.backgroundColor;
+    }
+    if (options.strokeColor !== undefined) {
+      this._balloonStrokeColor = options.strokeColor;
+    }
+    if (options.strokeWidth !== undefined) {
+      this._balloonStrokeWidth = options.strokeWidth;
+    }
+    if (options.padding !== undefined) {
+      this._balloonPadding = options.padding;
+    }
+  }
+
+  // ==========================================================================
   // 編集モード
   // ==========================================================================
 
@@ -369,6 +557,12 @@ export class TextAnnotation extends IText {
       fontFamily: this.fontFamily,
       fill: this.fill,
       backgroundColor: this.backgroundColor || 'transparent',
+      // 吹き出し情報（Task 16.3）
+      balloonStyle: this._balloonStyle,
+      balloonBackgroundColor: this._balloonBackgroundColor,
+      balloonStrokeColor: this._balloonStrokeColor,
+      balloonStrokeWidth: this._balloonStrokeWidth,
+      balloonPadding: this._balloonPadding,
     };
   }
 }
