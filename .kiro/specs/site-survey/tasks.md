@@ -484,7 +484,7 @@
 ### Phase 12: 統合と最適化
 
 - [ ] 22. フロントエンド統合
-- [ ] 22.1 ルーティング設定を実装する
+- [x] 22.1 ルーティング設定を実装する
   - /projects/:projectId/site-surveys（一覧）
   - /projects/:projectId/site-surveys/new（作成）
   - /site-surveys/:id（詳細）
