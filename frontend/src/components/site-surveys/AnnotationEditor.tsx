@@ -2,9 +2,10 @@
  * @fileoverview 注釈エディタ基盤コンポーネント
  *
  * Task 13.1: Fabric.js Canvas統合を実装する
+ * Task 13.2: ツール切り替えUIを実装する
  *
  * useRef + useEffectによるCanvas初期化、dispose処理の実装（クリーンアップ）、
- * 背景画像の設定を行うコンポーネントです。
+ * 背景画像の設定、ツールバー統合を行うコンポーネントです。
  *
  * Requirements:
  * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
@@ -14,6 +15,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Canvas as FabricCanvas, FabricImage } from 'fabric';
+import AnnotationToolbar, { type ToolType } from './AnnotationToolbar';
 
 // ============================================================================
 // 型定義
@@ -27,6 +29,8 @@ interface AnnotationEditorState {
   isLoading: boolean;
   /** エラーメッセージ */
   error: string | null;
+  /** 現在選択中のツール */
+  activeTool: ToolType;
 }
 
 /**
@@ -46,10 +50,22 @@ export interface AnnotationEditorProps {
 // ============================================================================
 
 const STYLES = {
-  container: {
-    position: 'relative' as const,
+  wrapper: {
+    display: 'flex',
+    flexDirection: 'column' as const,
     width: '100%',
     height: '100%',
+  },
+  toolbarContainer: {
+    padding: '8px',
+    backgroundColor: '#ffffff',
+    borderBottom: '1px solid #e5e7eb',
+    zIndex: 20,
+  },
+  container: {
+    position: 'relative' as const,
+    flex: 1,
+    width: '100%',
     minHeight: '400px',
     backgroundColor: '#f5f5f5',
     display: 'flex',
@@ -109,6 +125,11 @@ const STYLES = {
  * - useRef + useEffectによるCanvas初期化
  * - dispose処理の実装（クリーンアップ）
  * - 背景画像の設定
+ *
+ * Task 13.2: ツール切り替えUI
+ * - ツールバーコンポーネント統合
+ * - 選択ツール、寸法線、矢印、円、四角形、多角形、折れ線、フリーハンド、テキストの切り替え
+ * - アクティブツールの視覚的フィードバック
  */
 function AnnotationEditor({
   imageUrl,
@@ -129,10 +150,18 @@ function AnnotationEditor({
   const [state, setState] = useState<AnnotationEditorState>({
     isLoading: true,
     error: null,
+    activeTool: 'select',
   });
 
   // 前回のimageUrl参照（変更検知用）
   const prevImageUrlRef = useRef<string | null>(null);
+
+  /**
+   * ツール変更ハンドラ
+   */
+  const handleToolChange = useCallback((tool: ToolType) => {
+    setState((prev) => ({ ...prev, activeTool: tool }));
+  }, []);
 
   /**
    * 画像を読み込んでCanvasに表示
@@ -182,13 +211,14 @@ function AnnotationEditor({
 
       canvas.renderAll();
 
-      setState({ isLoading: false, error: null });
+      setState((prev) => ({ ...prev, isLoading: false, error: null }));
     } catch (err) {
       console.error('画像の読み込みに失敗しました:', err);
-      setState({
+      setState((prev) => ({
+        ...prev,
         isLoading: false,
         error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
-      });
+      }));
     }
   }, []);
 
@@ -197,7 +227,7 @@ function AnnotationEditor({
    */
   const setupEventListeners = useCallback((canvas: FabricCanvas) => {
     // 基本的なイベントリスナーを設定
-    // Task 13.2以降で具体的なツール操作イベントを追加予定
+    // Task 13.3以降で具体的なツール操作イベントを追加予定
     canvas.on('mouse:down', () => {
       // マウスダウンイベント
     });
@@ -295,34 +325,46 @@ function AnnotationEditor({
         `}
       </style>
 
-      {/* コンテナ */}
-      <div
-        ref={containerRef}
-        style={STYLES.container}
-        data-testid="annotation-editor-container"
-        role="application"
-        aria-label="注釈エディタ"
-      >
-        {/* Canvas */}
-        <div style={STYLES.canvasWrapper}>
-          <canvas ref={canvasRef} />
+      {/* 全体ラッパー */}
+      <div style={STYLES.wrapper}>
+        {/* ツールバー */}
+        <div style={STYLES.toolbarContainer}>
+          <AnnotationToolbar
+            activeTool={state.activeTool}
+            onToolChange={handleToolChange}
+            disabled={state.isLoading}
+          />
         </div>
 
-        {/* ローディング表示 */}
-        {state.isLoading && (
-          <div style={STYLES.loadingOverlay}>
-            <div role="status" aria-label="読み込み中" style={STYLES.spinner} />
+        {/* コンテナ */}
+        <div
+          ref={containerRef}
+          style={STYLES.container}
+          data-testid="annotation-editor-container"
+          role="application"
+          aria-label="注釈エディタ"
+        >
+          {/* Canvas */}
+          <div style={STYLES.canvasWrapper}>
+            <canvas ref={canvasRef} />
           </div>
-        )}
 
-        {/* エラー表示 */}
-        {state.error && (
-          <div style={STYLES.errorContainer}>
-            <div role="alert" style={STYLES.errorMessage}>
-              画像の読み込みに失敗しました: {state.error}
+          {/* ローディング表示 */}
+          {state.isLoading && (
+            <div style={STYLES.loadingOverlay}>
+              <div role="status" aria-label="読み込み中" style={STYLES.spinner} />
             </div>
-          </div>
-        )}
+          )}
+
+          {/* エラー表示 */}
+          {state.error && (
+            <div style={STYLES.errorContainer}>
+              <div role="alert" style={STYLES.errorMessage}>
+                画像の読み込みに失敗しました: {state.error}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

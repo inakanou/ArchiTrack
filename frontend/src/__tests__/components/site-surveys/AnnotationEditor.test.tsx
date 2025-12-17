@@ -476,4 +476,146 @@ describe('AnnotationEditor', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 13.2: ツール切り替えUI統合テスト
+  // ==========================================================================
+  describe('ツール切り替えUI統合', () => {
+    describe('ツールバーの表示', () => {
+      it('AnnotationEditorにツールバーが表示される', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          const toolbar = screen.getByRole('toolbar', { name: /注釈ツール/i });
+          expect(toolbar).toBeInTheDocument();
+        });
+      });
+
+      it('ツールバーには全てのツールボタンが表示される', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: /選択/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /寸法線/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /矢印/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /円/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /四角形/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /多角形/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /折れ線/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /フリーハンド/i })).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /テキスト/i })).toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('ツール切り替え動作', () => {
+      it('初期状態では選択ツールがアクティブ', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          const selectButton = screen.getByRole('button', { name: /選択/i });
+          expect(selectButton).toHaveAttribute('aria-pressed', 'true');
+        });
+      });
+
+      it('寸法線ツールをクリックするとアクティブになる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('toolbar')).toBeInTheDocument();
+        });
+
+        const dimensionButton = screen.getByRole('button', { name: /寸法線/i });
+        await user.click(dimensionButton);
+
+        await waitFor(() => {
+          expect(dimensionButton).toHaveAttribute('aria-pressed', 'true');
+        });
+      });
+
+      it('矢印ツールをクリックするとアクティブになる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('toolbar')).toBeInTheDocument();
+        });
+
+        const arrowButton = screen.getByRole('button', { name: /矢印/i });
+        await user.click(arrowButton);
+
+        await waitFor(() => {
+          expect(arrowButton).toHaveAttribute('aria-pressed', 'true');
+        });
+      });
+
+      it('テキストツールをクリックするとアクティブになる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('toolbar')).toBeInTheDocument();
+        });
+
+        const textButton = screen.getByRole('button', { name: /テキスト/i });
+        await user.click(textButton);
+
+        await waitFor(() => {
+          expect(textButton).toHaveAttribute('aria-pressed', 'true');
+        });
+      });
+
+      it('ツールを切り替えると以前のツールが非アクティブになる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('toolbar')).toBeInTheDocument();
+        });
+
+        const selectButton = screen.getByRole('button', { name: /選択/i });
+        const arrowButton = screen.getByRole('button', { name: /矢印/i });
+
+        // 初期状態: 選択ツールがアクティブ
+        expect(selectButton).toHaveAttribute('aria-pressed', 'true');
+
+        // 矢印ツールに切り替え
+        await user.click(arrowButton);
+
+        await waitFor(() => {
+          expect(arrowButton).toHaveAttribute('aria-pressed', 'true');
+          expect(selectButton).toHaveAttribute('aria-pressed', 'false');
+        });
+      });
+    });
+
+    describe('画像読み込み中のツールバー状態', () => {
+      it('画像読み込み中はツールバーが無効化される', () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        // 読み込み中はツールバーが表示されるが無効化されている
+        const buttons = screen.getAllByRole('button');
+        buttons.forEach((button) => {
+          expect(button).toBeDisabled();
+        });
+      });
+
+      it('画像読み込み完了後はツールバーが有効化される', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        // 読み込み完了を待つ
+        await waitFor(() => {
+          const loadingIndicator = screen.queryByRole('status', { name: /読み込み中/i });
+          expect(loadingIndicator).not.toBeInTheDocument();
+        });
+
+        // ツールバーが有効化されていることを確認
+        const buttons = screen.getAllByRole('button');
+        buttons.forEach((button) => {
+          expect(button).not.toBeDisabled();
+        });
+      });
+    });
+  });
 });
