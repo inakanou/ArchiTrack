@@ -412,7 +412,7 @@
   - _Requirements: 11.5_
 
 - [ ] 18. 自動保存・状態復元機能の実装
-- [ ] 18.1 AutoSaveManagerを実装する
+- [x] 18.1 AutoSaveManagerを実装する
   - 30秒間隔のdebounce自動保存
   - localStorageへの注釈データ保存
   - 画像ID・調査ID・保存時刻の管理
