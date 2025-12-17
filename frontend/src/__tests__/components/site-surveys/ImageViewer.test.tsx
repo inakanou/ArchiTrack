@@ -3,10 +3,12 @@
  *
  * Task 12.1: 基本ビューア機能を実装する（TDD）
  * Task 12.2: ズーム機能を実装する（TDD）
+ * Task 12.3: 回転機能を実装する（TDD）
  *
  * Requirements:
  * - 5.1: 画像をクリックすると画像ビューアをモーダルまたは専用画面で開く
  * - 5.2: ズームイン/ズームアウト操作で画像を拡大/縮小表示
+ * - 5.3: 回転ボタンを押すと画像を90度単位で回転表示
  *
  * テスト対象:
  * - モーダル/専用画面での画像表示
@@ -15,12 +17,14 @@
  * - マウスホイールによるズームイン/ズームアウト
  * - ズームボタンUI
  * - ズーム範囲制限（0.1x-10x）
+ * - 90度単位の回転ボタン
+ * - 回転状態の保持
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ZOOM_CONSTANTS } from '../../../components/site-surveys/ImageViewer';
+import { ZOOM_CONSTANTS, ROTATION_CONSTANTS } from '../../../components/site-surveys/ImageViewer';
 
 // vi.hoistedでモックインスタンスを定義（ホイスティング対応）
 const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
@@ -717,6 +721,280 @@ describe('ImageViewer', () => {
         await waitFor(() => {
           expect(screen.getByRole('button', { name: /ズームアウト/i })).toBeDisabled();
         });
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 12.3: 回転機能のテスト
+  // Requirements: 5.3 - 回転ボタンを押すと画像を90度単位で回転表示
+  // ============================================================================
+  describe('回転機能', () => {
+    describe('回転定数の検証', () => {
+      it('回転ステップは90度', () => {
+        expect(ROTATION_CONSTANTS.ROTATION_STEP).toBe(90);
+      });
+
+      it('回転値の選択肢は0, 90, 180, 270の4つ', () => {
+        expect(ROTATION_CONSTANTS.ROTATION_VALUES).toEqual([0, 90, 180, 270]);
+      });
+    });
+
+    describe('回転ボタンUI', () => {
+      it('左回転ボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+          expect(rotateLeftButton).toBeInTheDocument();
+        });
+      });
+
+      it('右回転ボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+          expect(rotateRightButton).toBeInTheDocument();
+        });
+      });
+
+      it('現在の回転角度が表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          // 初期値は0度
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('0°');
+        });
+      });
+    });
+
+    describe('回転ボタンによる回転操作', () => {
+      it('右回転ボタンをクリックすると90度右に回転する', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        // 回転角度の表示が90°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+
+      it('左回転ボタンをクリックすると90度左に回転する', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 左回転ボタンをクリック
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        await user.click(rotateLeftButton);
+
+        // 回転角度の表示が270°になることを確認（0から90を引いて360を足す）
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('270°');
+        });
+      });
+
+      it('右回転を4回クリックすると元に戻る（360度 = 0度）', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンを4回クリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton); // 0 -> 90
+        await user.click(rotateRightButton); // 90 -> 180
+        await user.click(rotateRightButton); // 180 -> 270
+        await user.click(rotateRightButton); // 270 -> 0
+
+        // 回転角度の表示が0°に戻ることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('0°');
+        });
+      });
+
+      it('左回転を4回クリックすると元に戻る', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 左回転ボタンを4回クリック
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        await user.click(rotateLeftButton); // 0 -> 270
+        await user.click(rotateLeftButton); // 270 -> 180
+        await user.click(rotateLeftButton); // 180 -> 90
+        await user.click(rotateLeftButton); // 90 -> 0
+
+        // 回転角度の表示が0°に戻ることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('0°');
+        });
+      });
+    });
+
+    describe('回転状態の保持', () => {
+      it('回転後もズーム操作で回転状態が保持される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        // 回転角度が90°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+
+        // ズームインボタンをクリック
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        // 回転状態が保持されていることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+
+      it('Canvasの背景画像に回転が適用される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        // Fabric.js画像の回転が設定されることを確認
+        await waitFor(() => {
+          expect(mockFabricImageInstance.set).toHaveBeenCalledWith(
+            expect.objectContaining({
+              angle: 90,
+            })
+          );
+        });
+      });
+    });
+
+    describe('キーボードショートカット', () => {
+      it('[キーで左回転できる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // [キーを押す（fireEventでkeydownイベントを発火）
+        fireEvent.keyDown(window, { key: '[' });
+
+        // 回転角度の表示が270°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('270°');
+        });
+      });
+
+      it(']キーで右回転できる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ]キーを押す（fireEventでkeydownイベントを発火）
+        fireEvent.keyDown(window, { key: ']' });
+
+        // 回転角度の表示が90°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+    });
+
+    describe('回転リセット', () => {
+      it('回転リセットボタンをクリックすると0度に戻る', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリックして90度にする
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+
+        // 回転リセットボタンをクリック
+        const resetRotationButton = screen.getByRole('button', { name: /回転をリセット/i });
+        await user.click(resetRotationButton);
+
+        // 回転角度が0°に戻ることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('0°');
+        });
+      });
+    });
+
+    describe('アクセシビリティ', () => {
+      it('回転ボタンにはaria-label属性が設定されている', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+
+        expect(rotateLeftButton).toHaveAccessibleName();
+        expect(rotateRightButton).toHaveAccessibleName();
       });
     });
   });

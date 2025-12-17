@@ -3,13 +3,15 @@
  *
  * Task 12.1: 基本ビューア機能を実装する
  * Task 12.2: ズーム機能を実装する
+ * Task 12.3: 回転機能を実装する
  *
  * モーダル/専用画面での画像表示、Fabric.js Canvasの初期化、
- * 画像の読み込みと表示、ズーム機能を提供するコンポーネントです。
+ * 画像の読み込みと表示、ズーム機能、回転機能を提供するコンポーネントです。
  *
  * Requirements:
  * - 5.1: 画像をクリックすると画像ビューアをモーダルまたは専用画面で開く
  * - 5.2: ズームイン/ズームアウト操作で画像を拡大/縮小表示
+ * - 5.3: 回転ボタンを押すと画像を90度単位で回転表示
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -34,6 +36,20 @@ export const ZOOM_CONSTANTS = {
   WHEEL_ZOOM_FACTOR: 0.001,
 } as const;
 
+/**
+ * 回転関連の定数
+ * @description 90度単位の回転ステップと許可される回転値を定義
+ */
+export const ROTATION_CONSTANTS = {
+  /** 回転ステップ（度） */
+  ROTATION_STEP: 90,
+  /** 許可される回転値 */
+  ROTATION_VALUES: [0, 90, 180, 270] as const,
+} as const;
+
+/** 回転角度の型 */
+export type RotationAngle = (typeof ROTATION_CONSTANTS.ROTATION_VALUES)[number];
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -48,6 +64,8 @@ interface ImageViewerState {
   error: string | null;
   /** 現在のズーム倍率 */
   zoom: number;
+  /** 現在の回転角度（度） */
+  rotation: RotationAngle;
 }
 
 /**
@@ -211,6 +229,39 @@ const STYLES = {
     transition: 'background-color 0.2s, border-color 0.2s',
     fontSize: '12px',
   },
+  // 回転コントロール用スタイル
+  rotationControls: {
+    position: 'absolute' as const,
+    bottom: '24px',
+    right: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: '8px',
+    padding: '8px 16px',
+  },
+  rotationButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '36px',
+    height: '36px',
+    backgroundColor: 'transparent',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    color: '#ffffff',
+    transition: 'background-color 0.2s, border-color 0.2s',
+    fontSize: '16px',
+  },
+  rotationDisplay: {
+    minWidth: '40px',
+    textAlign: 'center' as const,
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: '500',
+  },
 };
 
 // ============================================================================
@@ -229,6 +280,29 @@ function clampZoom(zoom: number): number {
  */
 function formatZoomPercent(zoom: number): string {
   return `${Math.round(zoom * 100)}%`;
+}
+
+/**
+ * 回転角度を正規化（0-359度の範囲に収める）
+ */
+function normalizeRotation(angle: number): RotationAngle {
+  // 負の角度を正の角度に変換し、360で割った余りを取る
+  const normalized = ((angle % 360) + 360) % 360;
+  // 許可された値のみを返す
+  if (ROTATION_CONSTANTS.ROTATION_VALUES.includes(normalized as RotationAngle)) {
+    return normalized as RotationAngle;
+  }
+  // 念のため最も近い許可値を返す
+  return ROTATION_CONSTANTS.ROTATION_VALUES.reduce((prev, curr) =>
+    Math.abs(curr - normalized) < Math.abs(prev - normalized) ? curr : prev
+  );
+}
+
+/**
+ * 回転角度を度表示に変換
+ */
+function formatRotationDegree(rotation: RotationAngle): string {
+  return `${rotation}\u00B0`;
 }
 
 // ============================================================================
@@ -254,10 +328,14 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
     isLoading: true,
     error: null,
     zoom: 1,
+    rotation: 0,
   });
 
   // 前回のimageUrl参照（変更検知用）
   const prevImageUrlRef = useRef<string | null>(null);
+
+  // 背景画像への参照
+  const backgroundImageRef = useRef<FabricImage | null>(null);
 
   /**
    * ズームレベルを設定
@@ -304,6 +382,53 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   }, [setZoom]);
 
   /**
+   * 回転を適用
+   */
+  const applyRotation = useCallback((newRotation: RotationAngle) => {
+    const canvas = fabricCanvasRef.current;
+    const img = backgroundImageRef.current;
+    if (!canvas || !img) return;
+
+    // 画像の中心を基準に回転を設定
+    const imgWidth = img.width || 1;
+    const imgHeight = img.height || 1;
+
+    img.set({
+      angle: newRotation,
+      originX: 'center',
+      originY: 'center',
+      left: (imgWidth * (img.scaleX || 1)) / 2,
+      top: (imgHeight * (img.scaleY || 1)) / 2,
+    });
+
+    canvas.renderAll();
+    setState((prev) => ({ ...prev, rotation: newRotation }));
+  }, []);
+
+  /**
+   * 右回転（時計回り90度）
+   */
+  const handleRotateRight = useCallback(() => {
+    const newRotation = normalizeRotation(state.rotation + ROTATION_CONSTANTS.ROTATION_STEP);
+    applyRotation(newRotation);
+  }, [state.rotation, applyRotation]);
+
+  /**
+   * 左回転（反時計回り90度）
+   */
+  const handleRotateLeft = useCallback(() => {
+    const newRotation = normalizeRotation(state.rotation - ROTATION_CONSTANTS.ROTATION_STEP);
+    applyRotation(newRotation);
+  }, [state.rotation, applyRotation]);
+
+  /**
+   * 回転リセット（0度に戻す）
+   */
+  const handleRotationReset = useCallback(() => {
+    applyRotation(0);
+  }, [applyRotation]);
+
+  /**
    * マウスホイールによるズーム
    */
   const handleWheel = useCallback(
@@ -322,7 +447,7 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
   );
 
   /**
-   * キーボードイベントハンドラ（ESC、ズームショートカット含む）
+   * キーボードイベントハンドラ（ESC、ズームショートカット、回転ショートカット含む）
    */
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -343,9 +468,16 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
         case '0':
           handleZoomReset();
           break;
+        // 回転ショートカット
+        case '[':
+          handleRotateLeft();
+          break;
+        case ']':
+          handleRotateRight();
+          break;
       }
     },
-    [onClose, handleZoomIn, handleZoomOut, handleZoomReset]
+    [onClose, handleZoomIn, handleZoomOut, handleZoomReset, handleRotateLeft, handleRotateRight]
   );
 
   /**
@@ -405,10 +537,12 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
 
       // 背景画像として設定（Fabric.js v6 API）
       canvas.backgroundImage = img;
+      // 背景画像の参照を保存
+      backgroundImageRef.current = img;
       canvas.setZoom(1); // ズームをリセット
       canvas.renderAll();
 
-      setState({ isLoading: false, error: null, zoom: 1 });
+      setState({ isLoading: false, error: null, zoom: 1, rotation: 0 });
     } catch (err) {
       console.error('画像の読み込みに失敗しました:', err);
       setState((prev) => ({
@@ -451,6 +585,7 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
     return () => {
       canvas.dispose();
       fabricCanvasRef.current = null;
+      backgroundImageRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- imageUrlの変更は別のuseEffectで対応
   }, [isOpen, loadImage]);
@@ -646,6 +781,91 @@ export default function ImageViewer({ imageUrl, isOpen, onClose, imageName }: Im
                   }}
                 >
                   100%
+                </button>
+              </div>
+            )}
+
+            {/* 回転コントロール */}
+            {!state.isLoading && !state.error && (
+              <div style={STYLES.rotationControls}>
+                {/* 左回転ボタン（反時計回り） */}
+                <button
+                  type="button"
+                  style={STYLES.rotationButton}
+                  onClick={handleRotateLeft}
+                  aria-label="左に回転"
+                  onMouseEnter={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor =
+                      'rgba(255, 255, 255, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor = 'transparent';
+                  }}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M2.5 2v6h6" />
+                    <path d="M2.5 8a10 10 0 1 1 3.1-4.2" />
+                  </svg>
+                </button>
+
+                {/* 回転角度表示 */}
+                <span style={STYLES.rotationDisplay} data-testid="rotation-display">
+                  {formatRotationDegree(state.rotation)}
+                </span>
+
+                {/* 右回転ボタン（時計回り） */}
+                <button
+                  type="button"
+                  style={STYLES.rotationButton}
+                  onClick={handleRotateRight}
+                  aria-label="右に回転"
+                  onMouseEnter={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor =
+                      'rgba(255, 255, 255, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor = 'transparent';
+                  }}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21.5 2v6h-6" />
+                    <path d="M21.5 8a10 10 0 1 0-3.1-4.2" />
+                  </svg>
+                </button>
+
+                {/* 回転リセットボタン */}
+                <button
+                  type="button"
+                  style={STYLES.resetButton}
+                  onClick={handleRotationReset}
+                  aria-label="回転をリセット"
+                  onMouseEnter={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor =
+                      'rgba(255, 255, 255, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor = 'transparent';
+                  }}
+                >
+                  0°
                 </button>
               </div>
             )}
