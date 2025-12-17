@@ -24,6 +24,7 @@ function createMockUndoManager(overrides?: Partial<IUndoManager>): IUndoManager 
     canUndo: vi.fn().mockReturnValue(true),
     canRedo: vi.fn().mockReturnValue(true),
     clear: vi.fn(),
+    setOnChange: vi.fn(),
     ...overrides,
   };
 }

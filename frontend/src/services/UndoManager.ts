@@ -62,6 +62,11 @@ export interface IUndoManager {
   canRedo(): boolean;
   /** UndoスタックとRedoスタックをクリアする */
   clear(): void;
+  /**
+   * 状態変更時のコールバックを設定する
+   * @param callback 状態変更時に呼び出されるコールバック関数（nullで解除）
+   */
+  setOnChange(callback: OnChangeCallback | null): void;
 }
 
 /**
