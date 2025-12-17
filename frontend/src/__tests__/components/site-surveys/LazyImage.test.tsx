@@ -132,12 +132,7 @@ describe('LazyImage', () => {
   describe('基本表示', () => {
     it('初期状態ではプレースホルダーが表示される', () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       // プレースホルダーが表示されていることを確認
@@ -147,12 +142,7 @@ describe('LazyImage', () => {
 
     it('alt属性が正しく設定される', () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       // 画像がロードされた後、alt属性が設定されていることを確認
@@ -162,12 +152,7 @@ describe('LazyImage', () => {
 
     it('width と height が正しく設定される', () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={300}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={300} height={200} />
       );
 
       const container = screen.getByTestId('lazy-image-container');
@@ -182,12 +167,7 @@ describe('LazyImage', () => {
   describe('IntersectionObserverによる遅延読み込み', () => {
     it('ビューポートに入ると画像が読み込まれる', async () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       // 初期状態では画像は非表示
@@ -207,12 +187,7 @@ describe('LazyImage', () => {
 
     it('ビューポートに入る前は画像が読み込まれない', () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       // 画像がまだ読み込まれていないことを確認
@@ -221,12 +196,7 @@ describe('LazyImage', () => {
 
     it('一度読み込まれた後はビューポートから出ても画像は維持される', async () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       const container = screen.getByTestId('lazy-image-container');
@@ -362,12 +332,7 @@ describe('LazyImage', () => {
   describe('ローディング状態', () => {
     it('読み込み中はスピナーが表示される', async () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       const container = screen.getByTestId('lazy-image-container');
@@ -382,12 +347,7 @@ describe('LazyImage', () => {
 
     it('画像読み込み完了後、スピナーが非表示になる', async () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       const container = screen.getByTestId('lazy-image-container');
@@ -489,12 +449,7 @@ describe('LazyImage', () => {
   describe('アクセシビリティ', () => {
     it('適切なaria属性が設定される', () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       const container = screen.getByTestId('lazy-image-container');
@@ -504,12 +459,7 @@ describe('LazyImage', () => {
 
     it('読み込み中のaria-busy属性', async () => {
       render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       const container = screen.getByTestId('lazy-image-container');
@@ -604,12 +554,7 @@ describe('LazyImage', () => {
   describe('クリーンアップ', () => {
     it('アンマウント時にIntersectionObserverがdisconnectされる', () => {
       const { unmount } = render(
-        <LazyImage
-          src="https://example.com/image.jpg"
-          alt="テスト画像"
-          width={200}
-          height={200}
-        />
+        <LazyImage src="https://example.com/image.jpg" alt="テスト画像" width={200} height={200} />
       );
 
       const observer = MockIntersectionObserver.instances[0];
