@@ -418,7 +418,7 @@
   - 画像ID・調査ID・保存時刻の管理
   - _Requirements: 13.4_
 
-- [ ] 18.2 localStorage容量管理を実装する
+- [x] 18.2 localStorage容量管理を実装する
   - LRU方式での古いキャッシュ削除
   - 最大4MBの容量制限
   - QuotaExceededError時のエラーハンドリング

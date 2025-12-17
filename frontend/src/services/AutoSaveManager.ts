@@ -85,6 +85,52 @@ export type OnStatusChangeCallback = (state: AutoSaveState) => void;
 export interface AutoSaveManagerOptions {
   /** debounce間隔（ミリ秒、デフォルト: 30000ms = 30秒） */
   debounceInterval?: number;
+  /** 最大キャッシュサイズ（バイト、デフォルト: 4MB） */
+  maxCacheSizeBytes?: number;
+  /** 最大キャッシュ画像数（デフォルト: 10） */
+  maxCachedImages?: number;
+}
+
+/**
+ * キャッシュエントリ情報
+ *
+ * @see design.md - CacheEntry
+ */
+export interface CacheEntry {
+  /** 画像ID */
+  imageId: string;
+  /** 現場調査ID */
+  surveyId: string;
+  /** JSON文字列データ */
+  data: string;
+  /** 保存時刻（タイムスタンプ） */
+  savedAt: number;
+  /** データサイズ（バイト） */
+  size: number;
+}
+
+/**
+ * ストレージ統計情報
+ */
+export interface StorageStats {
+  /** 総使用サイズ（バイト） */
+  totalSize: number;
+  /** エントリ数 */
+  entryCount: number;
+  /** 最大サイズ（バイト） */
+  maxSize: number;
+  /** 使用率（パーセント） */
+  usagePercent: number;
+}
+
+/**
+ * 保存結果
+ */
+export interface SaveResult {
+  /** 保存成功フラグ */
+  success: boolean;
+  /** エラーメッセージ（失敗時） */
+  error?: string;
 }
 
 /**
@@ -95,6 +141,13 @@ export interface AutoSaveManagerOptions {
 export interface IAutoSaveManager {
   /** 注釈データをlocalStorageに保存する */
   saveToLocal(imageId: string, surveyId: string, data: AnnotationData, force?: boolean): void;
+  /** 注釈データをlocalStorageに保存し、結果を返す */
+  saveToLocalWithResult(
+    imageId: string,
+    surveyId: string,
+    data: AnnotationData,
+    force?: boolean
+  ): SaveResult;
   /** localStorageから注釈データを取得する */
   loadFromLocal(imageId: string): LocalStorageData | null;
   /** 指定した画像のローカルデータを削除する */
@@ -109,6 +162,16 @@ export interface IAutoSaveManager {
   setOnStatusChange(callback: OnStatusChangeCallback | null): void;
   /** マネージャーを破棄する（タイマークリア等） */
   destroy(): void;
+  /** 全キャッシュエントリを取得する（LRU順、古い順） */
+  getAllCacheEntries(): CacheEntry[];
+  /** 最大キャッシュサイズを取得する */
+  getMaxCacheSizeBytes(): number;
+  /** 総キャッシュサイズを取得する */
+  getTotalCacheSize(): number;
+  /** ストレージ統計を取得する */
+  getStorageStats(): StorageStats;
+  /** 最も古いエントリを削除する */
+  clearOldestEntries(count: number): void;
 }
 
 /**
@@ -122,17 +185,46 @@ const STORAGE_KEY_PREFIX = 'architrack_annotation_';
 const DEFAULT_DEBOUNCE_INTERVAL = 30000;
 
 /**
+ * デフォルトの最大キャッシュサイズ（4MB）
+ *
+ * @see design.md - MAX_CACHE_SIZE_BYTES
+ */
+const DEFAULT_MAX_CACHE_SIZE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * デフォルトの最大キャッシュ画像数
+ *
+ * @see design.md - MAX_CACHED_IMAGES
+ */
+const DEFAULT_MAX_CACHED_IMAGES = 10;
+
+/**
+ * 単一エントリの警告サイズ（1MB）
+ */
+const SINGLE_ENTRY_WARNING_SIZE = 1 * 1024 * 1024;
+
+/**
  * AutoSaveManagerクラス
  *
  * - 30秒間隔のdebounce自動保存
  * - localStorageへの注釈データ保存
  * - 画像ID・調査ID・保存時刻の管理
+ * - LRU方式での古いキャッシュ削除
+ * - 最大4MBの容量制限
+ * - QuotaExceededError時のエラーハンドリング
  *
  * @see design.md - AutoSaveManager
+ * @see requirements.md - 要件13.4, 13.5
  */
 export class AutoSaveManager implements IAutoSaveManager {
   /** debounce間隔（ミリ秒） */
   private debounceInterval: number;
+
+  /** 最大キャッシュサイズ（バイト） */
+  private maxCacheSizeBytes: number;
+
+  /** 最大キャッシュ画像数 */
+  private maxCachedImages: number;
 
   /** 画像IDごとの保存タイマー */
   private saveTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
@@ -156,6 +248,8 @@ export class AutoSaveManager implements IAutoSaveManager {
    */
   constructor(options: AutoSaveManagerOptions = {}) {
     this.debounceInterval = options.debounceInterval ?? DEFAULT_DEBOUNCE_INTERVAL;
+    this.maxCacheSizeBytes = options.maxCacheSizeBytes ?? DEFAULT_MAX_CACHE_SIZE_BYTES;
+    this.maxCachedImages = options.maxCachedImages ?? DEFAULT_MAX_CACHED_IMAGES;
   }
 
   /**
@@ -172,6 +266,14 @@ export class AutoSaveManager implements IAutoSaveManager {
    */
   getStatus(): AutoSaveState['autoSaveStatus'] {
     return this.status;
+  }
+
+  /**
+   * 最大キャッシュサイズを取得する
+   * @returns 最大キャッシュサイズ（バイト）
+   */
+  getMaxCacheSizeBytes(): number {
+    return this.maxCacheSizeBytes;
   }
 
   /**
@@ -212,6 +314,46 @@ export class AutoSaveManager implements IAutoSaveManager {
       }, this.debounceInterval);
 
       this.saveTimers.set(imageId, timer);
+    }
+  }
+
+  /**
+   * 注釈データをlocalStorageに保存し、結果を返す
+   *
+   * @param imageId 画像ID
+   * @param surveyId 現場調査ID
+   * @param data 注釈データ
+   * @param force 即座に保存するかどうか（デフォルト: false）
+   * @returns 保存結果
+   */
+  saveToLocalWithResult(
+    imageId: string,
+    surveyId: string,
+    data: AnnotationData,
+    force: boolean = false
+  ): SaveResult {
+    // 既存のタイマーをクリア
+    this.cancelPendingSave(imageId);
+
+    if (force) {
+      // 即座に保存し、結果を返す
+      return this.performSaveWithResult(imageId, surveyId, data);
+    } else {
+      // debounce付きで保存（非同期なので常に成功を返す）
+      this.pendingData.set(imageId, { surveyId, annotationData: data });
+      this.updateStatus('saving');
+
+      const timer = setTimeout(() => {
+        const pending = this.pendingData.get(imageId);
+        if (pending) {
+          this.performSave(imageId, pending.surveyId, pending.annotationData);
+          this.pendingData.delete(imageId);
+        }
+        this.saveTimers.delete(imageId);
+      }, this.debounceInterval);
+
+      this.saveTimers.set(imageId, timer);
+      return { success: true };
     }
   }
 
@@ -320,9 +462,101 @@ export class AutoSaveManager implements IAutoSaveManager {
   }
 
   /**
+   * 全キャッシュエントリを取得する（LRU順、古い順）
+   *
+   * @returns キャッシュエントリの配列（savedAtでソート、古い順）
+   */
+  getAllCacheEntries(): CacheEntry[] {
+    const entries: CacheEntry[] = [];
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(STORAGE_KEY_PREFIX)) {
+        const value = localStorage.getItem(key);
+        if (value) {
+          try {
+            const data = JSON.parse(value) as LocalStorageData;
+            entries.push({
+              imageId: data.imageId,
+              surveyId: data.surveyId,
+              data: value,
+              savedAt: new Date(data.savedAt).getTime(),
+              size: new Blob([value]).size,
+            });
+          } catch {
+            // 不正なJSONは無視
+          }
+        }
+      }
+    }
+
+    // savedAtでソート（古い順）
+    entries.sort((a, b) => a.savedAt - b.savedAt);
+    return entries;
+  }
+
+  /**
+   * 総キャッシュサイズを取得する
+   *
+   * @returns 総サイズ（バイト）
+   */
+  getTotalCacheSize(): number {
+    const entries = this.getAllCacheEntries();
+    return entries.reduce((sum, entry) => sum + entry.size, 0);
+  }
+
+  /**
+   * ストレージ統計を取得する
+   *
+   * @returns ストレージ統計情報
+   */
+  getStorageStats(): StorageStats {
+    const entries = this.getAllCacheEntries();
+    const totalSize = entries.reduce((sum, entry) => sum + entry.size, 0);
+
+    return {
+      totalSize,
+      entryCount: entries.length,
+      maxSize: this.maxCacheSizeBytes,
+      usagePercent: (totalSize / this.maxCacheSizeBytes) * 100,
+    };
+  }
+
+  /**
+   * 最も古いエントリを削除する
+   *
+   * @param count 削除するエントリ数
+   */
+  clearOldestEntries(count: number): void {
+    const entries = this.getAllCacheEntries(); // 既にsavedAtでソート済み（古い順）
+
+    const toDelete = entries.slice(0, count);
+    for (const entry of toDelete) {
+      const key = this.getStorageKey(entry.imageId);
+      localStorage.removeItem(key);
+    }
+  }
+
+  /**
    * 保存を実行する（内部メソッド）
    */
   private performSave(imageId: string, surveyId: string, data: AnnotationData): void {
+    const result = this.performSaveWithResult(imageId, surveyId, data);
+    if (!result.success) {
+      this.updateStatus('error');
+    }
+  }
+
+  /**
+   * 保存を実行し、結果を返す（内部メソッド）
+   *
+   * @see design.md - saveWithQuotaManagement
+   */
+  private performSaveWithResult(
+    imageId: string,
+    surveyId: string,
+    data: AnnotationData
+  ): SaveResult {
     const storageData: LocalStorageData = {
       imageId,
       surveyId,
@@ -331,11 +565,80 @@ export class AutoSaveManager implements IAutoSaveManager {
       serverUpdatedAt: null,
     };
 
-    const key = this.getStorageKey(imageId);
-    localStorage.setItem(key, JSON.stringify(storageData));
+    const jsonString = JSON.stringify(storageData);
+    const size = new Blob([jsonString]).size;
 
-    this.lastAutoSavedAt = storageData.savedAt;
-    this.updateStatus('saved');
+    // 単一エントリが1MBを超える場合は警告
+    if (size > SINGLE_ENTRY_WARNING_SIZE) {
+      console.warn(
+        `Annotation data for image ${imageId} exceeds 1MB (${(size / 1024 / 1024).toFixed(2)}MB), consider reducing annotations`
+      );
+    }
+
+    // 容量確保（LRU方式で古いキャッシュを削除）
+    this.ensureStorageSpace(size);
+
+    // 保存試行
+    const key = this.getStorageKey(imageId);
+    try {
+      localStorage.setItem(key, jsonString);
+      this.lastAutoSavedAt = storageData.savedAt;
+      this.updateStatus('saved');
+      return { success: true };
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        // 緊急クリーンアップ後にリトライ
+        this.clearOldestEntries(3);
+        try {
+          localStorage.setItem(key, jsonString);
+          this.lastAutoSavedAt = storageData.savedAt;
+          this.updateStatus('saved');
+          return { success: true };
+        } catch {
+          // 保存失敗
+          this.updateStatus('error');
+          return { success: false, error: 'Storage quota exceeded, cannot free enough space' };
+        }
+      }
+      // その他のエラー
+      this.updateStatus('error');
+      return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
+    }
+  }
+
+  /**
+   * 必要な容量を確保する（内部メソッド）
+   *
+   * LRU方式で古いエントリを削除して容量を確保する。
+   * また、最大キャッシュ画像数も考慮する。
+   *
+   * @param requiredSize 必要なサイズ（バイト）
+   */
+  private ensureStorageSpace(requiredSize: number): void {
+    const entries = this.getAllCacheEntries(); // 既にsavedAtでソート済み（古い順）
+    let totalSize = entries.reduce((sum, e) => sum + e.size, 0);
+    const entriesToDelete: CacheEntry[] = [];
+
+    // 容量が不足している場合、古いエントリを削除予定に追加
+    let currentEntryCount = entries.length;
+    for (const entry of entries) {
+      const needsCapacitySpace = totalSize + requiredSize > this.maxCacheSizeBytes;
+      const needsCountSpace = currentEntryCount >= this.maxCachedImages;
+
+      if (!needsCapacitySpace && !needsCountSpace) {
+        break;
+      }
+
+      entriesToDelete.push(entry);
+      totalSize -= entry.size;
+      currentEntryCount--;
+    }
+
+    // 削除実行
+    for (const entry of entriesToDelete) {
+      const key = this.getStorageKey(entry.imageId);
+      localStorage.removeItem(key);
+    }
   }
 
   /**

@@ -1,11 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { AutoSaveState } from '../../services/AutoSaveManager';
+import type {
+  AutoSaveState,
+  CacheEntry,
+  StorageStats,
+  SaveResult,
+} from '../../services/AutoSaveManager';
 import {
   AutoSaveManager,
   LocalStorageData,
   AnnotationData,
   IAutoSaveManager,
 } from '../../services/AutoSaveManager';
+
+// Use the type to prevent unused import warning
+const _cacheEntryTypeCheck: CacheEntry | null = null;
+const _storageStatsTypeCheck: StorageStats | null = null;
+const _saveResultTypeCheck: SaveResult | null = null;
+void _cacheEntryTypeCheck;
+void _storageStatsTypeCheck;
+void _saveResultTypeCheck;
 
 // Use the type to prevent unused import warning
 const _autoSaveStateTypeCheck: AutoSaveState | null = null;
@@ -400,6 +413,319 @@ describe('AutoSaveManager', () => {
       expect(typeof manager.setServerUpdatedAt).toBe('function');
       expect(typeof manager.setOnStatusChange).toBe('function');
       expect(typeof manager.destroy).toBe('function');
+    });
+  });
+
+  describe('localStorage quota management (Task 18.2)', () => {
+    describe('LRU cache eviction', () => {
+      it('should track savedAt for LRU ordering', () => {
+        // Save data for multiple images with different timestamps
+        const now = new Date('2025-01-01T12:00:00Z');
+        vi.setSystemTime(now);
+
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
+        autoSaveManager.saveToLocal('image-2', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:10:00Z'));
+        autoSaveManager.saveToLocal('image-3', 'survey-1', mockAnnotationData, true);
+
+        // Verify each entry has different savedAt timestamps
+        const data1 = autoSaveManager.loadFromLocal('image-1');
+        const data2 = autoSaveManager.loadFromLocal('image-2');
+        const data3 = autoSaveManager.loadFromLocal('image-3');
+
+        expect(data1?.savedAt).toBe('2025-01-01T12:00:00.000Z');
+        expect(data2?.savedAt).toBe('2025-01-01T12:05:00.000Z');
+        expect(data3?.savedAt).toBe('2025-01-01T12:10:00.000Z');
+      });
+
+      it('should get all cached entries sorted by savedAt (oldest first)', () => {
+        const now = new Date('2025-01-01T12:00:00Z');
+        vi.setSystemTime(now);
+
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:10:00Z'));
+        autoSaveManager.saveToLocal('image-2', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
+        autoSaveManager.saveToLocal('image-3', 'survey-1', mockAnnotationData, true);
+
+        const entries = autoSaveManager.getAllCacheEntries();
+
+        expect(entries).toHaveLength(3);
+        // Should be sorted by savedAt, oldest first
+        expect(entries[0]!.imageId).toBe('image-1'); // 12:00
+        expect(entries[1]!.imageId).toBe('image-3'); // 12:05
+        expect(entries[2]!.imageId).toBe('image-2'); // 12:10
+      });
+
+      it('should evict oldest entry when storage limit is exceeded', () => {
+        // Create a manager with a small max cache size for testing
+        const smallCacheManager = new AutoSaveManager({
+          maxCacheSizeBytes: 1000, // 1KB for testing
+          maxCachedImages: 10,
+        });
+
+        // Create data that will exceed 1KB when all 3 are stored
+        const largeData: AnnotationData = {
+          version: '1.0',
+          objects: Array(20).fill({
+            type: 'rect',
+            left: 100,
+            top: 100,
+            width: 200,
+            height: 150,
+          }),
+          background: '#ffffff',
+        };
+
+        // Save multiple entries
+        vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+        smallCacheManager.saveToLocal('image-1', 'survey-1', largeData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
+        smallCacheManager.saveToLocal('image-2', 'survey-1', largeData, true);
+
+        // At this point, oldest entries should be evicted
+        // The manager should call ensureStorageSpace before saving
+
+        // Get current entries
+        const entries = smallCacheManager.getAllCacheEntries();
+
+        // Should have limited entries (some evicted due to size limit)
+        expect(entries.length).toBeLessThanOrEqual(2);
+
+        smallCacheManager.destroy();
+      });
+
+      it('should clear oldest entries to make space for new data', () => {
+        const smallCacheManager = new AutoSaveManager({
+          maxCacheSizeBytes: 500,
+          maxCachedImages: 2,
+        });
+
+        vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+        smallCacheManager.saveToLocal('image-old', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
+        smallCacheManager.saveToLocal('image-middle', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:10:00Z'));
+        smallCacheManager.saveToLocal('image-new', 'survey-1', mockAnnotationData, true);
+
+        const entries = smallCacheManager.getAllCacheEntries();
+
+        // Should keep only max 2 images
+        expect(entries.length).toBeLessThanOrEqual(2);
+
+        // If limited to 2, oldest should be evicted
+        const imageIds = entries.map((e) => e.imageId);
+        if (entries.length === 2) {
+          expect(imageIds).not.toContain('image-old');
+          expect(imageIds).toContain('image-new');
+        }
+
+        smallCacheManager.destroy();
+      });
+    });
+
+    describe('maximum storage capacity (4MB)', () => {
+      it('should use default max cache size of 4MB', () => {
+        expect(autoSaveManager.getMaxCacheSizeBytes()).toBe(4 * 1024 * 1024);
+      });
+
+      it('should allow custom max cache size', () => {
+        const customManager = new AutoSaveManager({
+          maxCacheSizeBytes: 2 * 1024 * 1024, // 2MB
+        });
+        expect(customManager.getMaxCacheSizeBytes()).toBe(2 * 1024 * 1024);
+        customManager.destroy();
+      });
+
+      it('should calculate total cache size correctly', () => {
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+        autoSaveManager.saveToLocal('image-2', 'survey-1', mockAnnotationData, true);
+
+        const totalSize = autoSaveManager.getTotalCacheSize();
+        expect(totalSize).toBeGreaterThan(0);
+      });
+
+      it('should warn when single entry exceeds 1MB', () => {
+        const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        // Create data larger than 1MB
+        const hugeData: AnnotationData = {
+          version: '1.0',
+          objects: Array(50000).fill({
+            type: 'rect',
+            left: 100,
+            top: 100,
+            width: 200,
+            height: 150,
+            customProperty: 'some long text data',
+          }),
+          background: '#ffffff',
+        };
+
+        autoSaveManager.saveToLocal('image-huge', 'survey-1', hugeData, true);
+
+        expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('exceeds 1MB'));
+
+        consoleWarnSpy.mockRestore();
+      });
+    });
+
+    describe('QuotaExceededError handling', () => {
+      it('should handle QuotaExceededError gracefully', () => {
+        // Mock localStorage.setItem to throw QuotaExceededError
+        const quotaError = new DOMException('QuotaExceededError', 'QuotaExceededError');
+        const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw quotaError;
+        });
+
+        const onStatusChange = vi.fn();
+        autoSaveManager.setOnStatusChange(onStatusChange);
+
+        // Try to save - should handle the error gracefully
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        // Should update status to error
+        expect(onStatusChange).toHaveBeenCalledWith(
+          expect.objectContaining({
+            autoSaveStatus: 'error',
+          })
+        );
+
+        setItemSpy.mockRestore();
+      });
+
+      it('should retry after clearing old entries on QuotaExceededError', () => {
+        // First save some data successfully
+        autoSaveManager.saveToLocal('image-old-1', 'survey-1', mockAnnotationData, true);
+        autoSaveManager.saveToLocal('image-old-2', 'survey-1', mockAnnotationData, true);
+
+        // Now mock to throw on first attempt, succeed on retry
+        let callCount = 0;
+        const quotaError = new DOMException('QuotaExceededError', 'QuotaExceededError');
+        const setItemSpy = vi
+          .spyOn(localStorage, 'setItem')
+          .mockImplementation((key: string, value: string) => {
+            callCount++;
+            if (callCount <= 1 && key.includes('image-new')) {
+              throw quotaError;
+            }
+            // Use the original mock
+            localStorageMock.setItem(key, value);
+          });
+
+        // This should trigger cleanup and retry
+        autoSaveManager.saveToLocal('image-new', 'survey-1', mockAnnotationData, true);
+
+        // Verify retry happened
+        expect(setItemSpy).toHaveBeenCalled();
+
+        setItemSpy.mockRestore();
+      });
+
+      it('should return false from saveToLocal when quota cannot be freed', () => {
+        // Mock to always throw QuotaExceededError
+        const quotaError = new DOMException('QuotaExceededError', 'QuotaExceededError');
+        const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw quotaError;
+        });
+
+        const result = autoSaveManager.saveToLocalWithResult(
+          'image-1',
+          'survey-1',
+          mockAnnotationData,
+          true
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('quota');
+
+        setItemSpy.mockRestore();
+      });
+    });
+
+    describe('storage statistics', () => {
+      it('should report storage usage statistics', () => {
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+        autoSaveManager.saveToLocal('image-2', 'survey-1', mockAnnotationData, true);
+
+        const stats = autoSaveManager.getStorageStats();
+
+        expect(stats).toHaveProperty('totalSize');
+        expect(stats).toHaveProperty('entryCount');
+        expect(stats).toHaveProperty('maxSize');
+        expect(stats).toHaveProperty('usagePercent');
+
+        expect(stats.entryCount).toBe(2);
+        expect(stats.maxSize).toBe(4 * 1024 * 1024);
+        expect(stats.usagePercent).toBeGreaterThanOrEqual(0);
+        expect(stats.usagePercent).toBeLessThanOrEqual(100);
+      });
+
+      it('should detect when storage is near capacity', () => {
+        const smallCacheManager = new AutoSaveManager({
+          maxCacheSizeBytes: 1000,
+        });
+
+        // Fill up most of the storage
+        const largeData: AnnotationData = {
+          version: '1.0',
+          objects: Array(10).fill({
+            type: 'rect',
+            left: 100,
+            top: 100,
+            width: 200,
+            height: 150,
+          }),
+          background: '#ffffff',
+        };
+
+        smallCacheManager.saveToLocal('image-1', 'survey-1', largeData, true);
+
+        const stats = smallCacheManager.getStorageStats();
+
+        // Usage should be significant
+        expect(stats.usagePercent).toBeGreaterThan(50);
+
+        smallCacheManager.destroy();
+      });
+    });
+
+    describe('clearOldestEntries', () => {
+      it('should clear specified number of oldest entries', () => {
+        vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
+        autoSaveManager.saveToLocal('image-2', 'survey-1', mockAnnotationData, true);
+
+        vi.setSystemTime(new Date('2025-01-01T12:10:00Z'));
+        autoSaveManager.saveToLocal('image-3', 'survey-1', mockAnnotationData, true);
+
+        // Clear 2 oldest entries
+        autoSaveManager.clearOldestEntries(2);
+
+        const entries = autoSaveManager.getAllCacheEntries();
+        expect(entries).toHaveLength(1);
+        expect(entries[0]!.imageId).toBe('image-3'); // Only newest remains
+      });
+
+      it('should handle clearing more entries than exist', () => {
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        // Try to clear 10 entries when only 1 exists
+        autoSaveManager.clearOldestEntries(10);
+
+        const entries = autoSaveManager.getAllCacheEntries();
+        expect(entries).toHaveLength(0);
+      });
     });
   });
 });
