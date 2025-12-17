@@ -9,6 +9,7 @@
  * Task 9.3: 画像アップロードUIの実装
  * Task 11.2: エラー表示の実装
  * Task 12.1: 基本ビューア機能の実装
+ * Task 13.1: Fabric.js Canvas統合を実装する
  */
 
 export { default as SiteSurveyListTable } from './SiteSurveyListTable';
@@ -21,6 +22,7 @@ export { SurveyImageGrid } from './SurveyImageGrid';
 export { ImageUploader } from './ImageUploader';
 export { default as SiteSurveyErrorDisplay } from './SiteSurveyErrorDisplay';
 export { default as ImageViewer } from './ImageViewer';
+export { default as AnnotationEditor } from './AnnotationEditor';
 
 export type { SiteSurveyListTableProps } from './SiteSurveyListTable';
 export type { SiteSurveyListCardProps } from './SiteSurveyListCard';
@@ -32,6 +34,7 @@ export type { SurveyImageGridProps } from './SurveyImageGrid';
 export type { ImageUploaderProps, UploadProgress, ValidationError } from './ImageUploader';
 export type { SiteSurveyErrorDisplayProps } from './SiteSurveyErrorDisplay';
 export type { ImageViewerProps } from './ImageViewer';
+export type { AnnotationEditorProps } from './AnnotationEditor';
 export {
   ALLOWED_FILE_TYPES,
   ALLOWED_MIME_TYPES,

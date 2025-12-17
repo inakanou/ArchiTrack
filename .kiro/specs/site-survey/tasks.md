@@ -294,7 +294,7 @@
 ### Phase 8: 注釈エディタ基盤の実装
 
 - [ ] 13. 注釈エディタ基盤コンポーネントの実装
-- [ ] 13.1 Fabric.js Canvas統合を実装する
+- [x] 13.1 Fabric.js Canvas統合を実装する
   - useRef + useEffectによるCanvas初期化
   - dispose処理の実装（クリーンアップ）
   - 背景画像の設定
