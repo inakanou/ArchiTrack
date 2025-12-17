@@ -31,3 +31,14 @@ export {
   resetPdfReportService,
 } from './PdfReportService';
 export type { AnnotatedImage, PdfReportOptions, ImageDimensions } from './PdfReportService';
+
+// PDFエクスポートサービス（Task 21.3）
+export {
+  PdfExportService,
+  PDF_EXPORT_PHASES,
+  exportPdf,
+  downloadPdf,
+  exportAndDownloadPdf,
+  resetPdfExportService,
+} from './PdfExportService';
+export type { PdfExportPhase, PdfExportProgress, PdfExportOptions } from './PdfExportService';
