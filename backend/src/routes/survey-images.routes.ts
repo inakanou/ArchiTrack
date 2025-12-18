@@ -22,7 +22,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import multer from 'multer';
 import { z } from 'zod';
 import getPrismaClient from '../db.js';
-import { getS3Client, getStorageConfig, isStorageConfigured } from '../config/storage.js';
+import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -65,34 +65,65 @@ const imageListService = new ImageListService({ prisma, signedUrlService });
 // ストレージ関連サービス（ストレージが設定されている場合のみ初期化）
 let imageUploadService: ImageUploadService | null = null;
 let imageDeleteService: ImageDeleteService | null = null;
+let servicesInitialized = false;
 
-if (isStorageConfigured()) {
-  const s3Client = getS3Client();
-  const { bucketName } = getStorageConfig();
-  const surveyImageService = new SurveyImageService({ prisma, s3Client, bucketName });
+/**
+ * ストレージサービスの初期化を行う
+ * サーバー起動時に呼び出される
+ */
+export async function initializeStorageServices(): Promise<void> {
+  if (servicesInitialized) {
+    return;
+  }
 
-  // Sharp をダイナミックインポート
-  import('sharp').then((sharpModule) => {
+  if (!isStorageConfigured()) {
+    logger.warn('Storage is not configured. Image upload/delete features will be disabled.');
+    servicesInitialized = true;
+    return;
+  }
+
+  const storageProvider = getStorageProvider();
+  if (!storageProvider) {
+    logger.warn('Storage provider not available. Image upload/delete features will be disabled.');
+    servicesInitialized = true;
+    return;
+  }
+
+  try {
+    const surveyImageService = new SurveyImageService({ prisma, storageProvider });
+
+    // Sharp をダイナミックインポート
+    const sharpModule = await import('sharp');
     const sharp = sharpModule.default;
+
     // SharpStaticインターフェースにキャスト
     const imageProcessorService = new ImageProcessorService(((input: Buffer) =>
       sharp(input)) as import('../services/image-processor.service.js').SharpStatic);
 
     imageUploadService = new ImageUploadService({
       prisma,
-      s3Client,
-      bucketName,
+      storageProvider,
       surveyImageService,
       imageProcessorService,
     });
 
     imageDeleteService = new ImageDeleteService({
       prisma,
-      s3Client,
-      bucketName,
+      storageProvider,
     });
-  });
+
+    logger.info({ storageType: storageProvider.type }, 'Storage services initialized successfully');
+  } catch (error) {
+    logger.error({ error }, 'Failed to initialize storage services');
+  }
+
+  servicesInitialized = true;
 }
+
+// 後方互換性のため、モジュール読み込み時にも初期化を試みる（非同期）
+initializeStorageServices().catch((error) => {
+  logger.error({ error }, 'Failed to initialize storage services on module load');
+});
 
 const imageOrderService = new ImageOrderService({ prisma });
 

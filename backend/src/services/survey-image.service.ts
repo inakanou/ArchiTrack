@@ -19,6 +19,7 @@
 
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { S3Client } from '@aws-sdk/client-s3';
+import type { StorageProvider } from '../storage/storage-provider.interface.js';
 
 /**
  * ファイル形式エラー
@@ -105,11 +106,18 @@ export interface SurveyImageInfo {
 
 /**
  * サービス依存関係
+ *
+ * storageProviderを指定した場合、s3ClientとbucketNameは無視されます。
+ * 後方互換性のため、s3ClientとbucketNameも引き続きサポートしています。
  */
 export interface SurveyImageServiceDependencies {
   prisma: PrismaClient;
-  s3Client: S3Client;
-  bucketName: string;
+  /** @deprecated storageProviderを使用してください */
+  s3Client?: S3Client;
+  /** @deprecated storageProviderを使用してください */
+  bucketName?: string;
+  /** ストレージプロバイダー（推奨） */
+  storageProvider?: StorageProvider;
 }
 
 /**
@@ -182,36 +190,54 @@ export class SurveyImageService {
 
   /**
    * S3クライアント
-   * @internal Used in subsequent tasks (4.2+) for storage operations
+   * @internal 後方互換性のため維持
+   * @deprecated storageProviderを使用してください
    */
-  protected readonly s3Client: S3Client;
+  protected readonly s3Client: S3Client | null;
 
   /**
    * バケット名
-   * @internal Used in subsequent tasks (4.2+) for storage operations
+   * @internal 後方互換性のため維持
+   * @deprecated storageProviderを使用してください
    */
-  protected readonly bucketName: string;
+  protected readonly bucketName: string | null;
+
+  /**
+   * ストレージプロバイダー
+   */
+  protected readonly storageProvider: StorageProvider | null;
 
   constructor(deps: SurveyImageServiceDependencies) {
     this.prisma = deps.prisma;
-    this.s3Client = deps.s3Client;
-    this.bucketName = deps.bucketName;
+    this.storageProvider = deps.storageProvider || null;
+    this.s3Client = deps.s3Client || null;
+    this.bucketName = deps.bucketName || null;
   }
 
   /**
    * バケット名を取得
    * @returns バケット名
+   * @deprecated storageProviderを使用してください
    */
-  getBucketName(): string {
+  getBucketName(): string | null {
     return this.bucketName;
   }
 
   /**
    * S3クライアントを取得
    * @returns S3クライアント
+   * @deprecated storageProviderを使用してください
    */
-  getS3Client(): S3Client {
+  getS3Client(): S3Client | null {
     return this.s3Client;
+  }
+
+  /**
+   * ストレージプロバイダーを取得
+   * @returns ストレージプロバイダー
+   */
+  getStorageProvider(): StorageProvider | null {
+    return this.storageProvider;
   }
 
   /**

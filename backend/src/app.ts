@@ -15,6 +15,7 @@ import { validateEnv } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
+import { getStorageType } from './storage/index.js';
 import adminRoutes from './routes/admin.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import { createInvitationRoutes } from './routes/invitation.routes.js';
@@ -313,6 +314,18 @@ app.use('/api/site-surveys/images', surveyImagesRoutes);
 
 // Annotation management routes
 app.use('/api/site-surveys/images', annotationRoutes);
+
+// Local storage static file serving (development/test only)
+if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {
+  const storagePath = process.env.LOCAL_STORAGE_PATH;
+  app.use(
+    '/storage',
+    express.static(storagePath, {
+      maxAge: '1d', // Cache for 1 day
+      immutable: true,
+    })
+  );
+}
 
 // 404 handler
 app.use(notFoundHandler);

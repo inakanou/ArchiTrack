@@ -5,6 +5,8 @@ import { disconnectPrisma } from './db.js';
 import redis, { initRedis } from './redis.js';
 import logger from './utils/logger.js';
 import { validateEnv } from './config/env.js';
+import { initializeStorage, disconnectStorage, isStorageConfigured } from './storage/index.js';
+import { initializeStorageServices } from './routes/survey-images.routes.js';
 
 // Initialize Sentry (must run first)
 initSentry();
@@ -18,6 +20,7 @@ const gracefulShutdown = async (): Promise<void> => {
   logger.info('Shutting down gracefully...');
 
   try {
+    await disconnectStorage();
     await disconnectPrisma();
     await redis.disconnect();
     logger.info('Connections closed');
@@ -37,6 +40,20 @@ async function startServer(): Promise<void> {
   try {
     // Initialize Redis (application starts even if Redis initialization fails)
     await initRedis();
+
+    // Initialize Storage (application starts even if storage initialization fails)
+    if (isStorageConfigured()) {
+      const storageInitialized = await initializeStorage();
+      if (storageInitialized) {
+        logger.info('Storage initialized successfully');
+        // Initialize storage-related services
+        await initializeStorageServices();
+      } else {
+        logger.warn('Storage initialization failed. Image features will be disabled.');
+      }
+    } else {
+      logger.info('Storage is not configured. Image features are disabled.');
+    }
 
     // Start server
     // Listen on 0.0.0.0 to accept external connections in container environments (e.g., Railway)

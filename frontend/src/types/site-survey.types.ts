@@ -54,10 +54,14 @@ export interface SurveyImageInfo {
   id: string;
   /** 現場調査ID */
   surveyId: string;
-  /** オリジナル画像パス */
+  /** オリジナル画像パス（ストレージキー） */
   originalPath: string;
-  /** サムネイル画像パス */
+  /** サムネイル画像パス（ストレージキー） */
   thumbnailPath: string;
+  /** オリジナル画像URL（署名付きURL） */
+  originalUrl?: string | null;
+  /** サムネイル画像URL（署名付きURL） */
+  thumbnailUrl?: string | null;
   /** ファイル名 */
   fileName: string;
   /** ファイルサイズ（バイト） */

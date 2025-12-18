@@ -18,6 +18,7 @@
 
 import { DeleteObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -55,11 +56,18 @@ export class StorageDeletionFailedError extends Error {
 
 /**
  * サービス依存関係
+ *
+ * storageProviderを指定した場合、s3ClientとbucketNameは無視されます。
+ * 後方互換性のため、s3ClientとbucketNameも引き続きサポートしています。
  */
 export interface ImageDeleteServiceDependencies {
   prisma: PrismaClient;
-  s3Client: S3Client;
-  bucketName: string;
+  /** @deprecated storageProviderを使用してください */
+  s3Client?: S3Client;
+  /** @deprecated storageProviderを使用してください */
+  bucketName?: string;
+  /** ストレージプロバイダー（推奨） */
+  storageProvider?: StorageProvider;
 }
 
 /**
@@ -81,13 +89,20 @@ export interface DeleteResult {
  */
 export class ImageDeleteService {
   private readonly prisma: PrismaClient;
-  private readonly s3Client: S3Client;
-  private readonly bucketName: string;
+  private readonly s3Client: S3Client | null;
+  private readonly bucketName: string | null;
+  private readonly storageProvider: StorageProvider | null;
 
   constructor(deps: ImageDeleteServiceDependencies) {
     this.prisma = deps.prisma;
-    this.s3Client = deps.s3Client;
-    this.bucketName = deps.bucketName;
+    this.storageProvider = deps.storageProvider || null;
+    this.s3Client = deps.s3Client || null;
+    this.bucketName = deps.bucketName || null;
+
+    // どちらかのストレージ設定が必要
+    if (!this.storageProvider && (!this.s3Client || !this.bucketName)) {
+      throw new Error('Either storageProvider or s3Client+bucketName is required');
+    }
   }
 
   /**
@@ -211,7 +226,10 @@ export class ImageDeleteService {
   }
 
   /**
-   * R2ストレージからファイルを削除
+   * ストレージからファイルを削除
+   *
+   * StorageProviderが設定されている場合はそちらを使用し、
+   * そうでない場合は従来のS3Clientを使用します。
    *
    * 削除に失敗した場合は孤立ファイルとしてログに記録し、
    * falseを返します（エラーはスローしません）。
@@ -221,6 +239,16 @@ export class ImageDeleteService {
    */
   private async deleteFromStorage(path: string): Promise<boolean> {
     try {
+      if (this.storageProvider) {
+        await this.storageProvider.delete(path);
+        return true;
+      }
+
+      // 従来のS3Client方式（後方互換性）
+      if (!this.s3Client || !this.bucketName) {
+        throw new Error('No storage provider configured');
+      }
+
       const command = new DeleteObjectCommand({
         Bucket: this.bucketName,
         Key: path,
@@ -235,7 +263,7 @@ export class ImageDeleteService {
           path,
           error: error instanceof Error ? error.message : 'Unknown error',
         },
-        '孤立ファイル: R2からのファイル削除に失敗しました。手動での削除が必要です。'
+        '孤立ファイル: ストレージからのファイル削除に失敗しました。手動での削除が必要です。'
       );
       return false;
     }

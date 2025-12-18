@@ -18,6 +18,7 @@ import { ApiError } from '../api/client';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import type { BreadcrumbItem } from '../components/common';
+import AnnotationEditor from '../components/site-surveys/AnnotationEditor';
 
 // ============================================================================
 // スタイル定義
@@ -132,6 +133,30 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
   } as React.CSSProperties,
+  editButton: {
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    border: 'none',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: '500',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+  } as React.CSSProperties,
+  editButtonActive: {
+    backgroundColor: '#16a34a',
+  } as React.CSSProperties,
+  editorContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+    overflow: 'hidden',
+    height: 'calc(100vh - 200px)',
+    minHeight: '500px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -180,6 +205,7 @@ export default function SiteSurveyImageViewerPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   /**
    * 現場調査と画像データを取得
@@ -309,42 +335,59 @@ export default function SiteSurveyImageViewerPage() {
           </Link>
           <h1 style={styles.title}>{image.fileName || '画像'}</h1>
         </div>
+        <button
+          type="button"
+          style={{
+            ...styles.editButton,
+            ...(isEditMode ? styles.editButtonActive : {}),
+          }}
+          onClick={() => setIsEditMode(!isEditMode)}
+          aria-pressed={isEditMode}
+        >
+          {isEditMode ? '編集終了' : '編集モード'}
+        </button>
       </div>
 
-      {/* 画像表示 */}
-      <div style={styles.imageContainer}>
-        {image.originalPath ? (
-          <>
-            <img
-              src={image.originalPath}
-              alt={image.fileName || '現場調査画像'}
-              style={styles.image}
-            />
-            <div style={styles.imageInfo}>
-              <p>
-                <strong>ファイル名:</strong> {image.fileName}
+      {/* 画像表示 / 注釈エディタ */}
+      {isEditMode && image.originalUrl ? (
+        <div style={styles.editorContainer}>
+          <AnnotationEditor imageUrl={image.originalUrl} imageId={image.id} surveyId={id} />
+        </div>
+      ) : (
+        <div style={styles.imageContainer}>
+          {image.originalUrl ? (
+            <>
+              <img
+                src={image.originalUrl}
+                alt={image.fileName || '現場調査画像'}
+                style={styles.image}
+              />
+              <div style={styles.imageInfo}>
+                <p>
+                  <strong>ファイル名:</strong> {image.fileName}
+                </p>
+                {image.width && image.height && (
+                  <p>
+                    <strong>サイズ:</strong> {image.width} x {image.height} px
+                  </p>
+                )}
+                {image.displayOrder !== undefined && (
+                  <p>
+                    <strong>表示順:</strong> {image.displayOrder + 1}
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={styles.placeholderContainer}>
+              <p style={styles.placeholderText}>画像が読み込めません</p>
+              <p style={styles.placeholderSubText}>
+                画像編集機能は今後のアップデートで追加されます。
               </p>
-              {image.width && image.height && (
-                <p>
-                  <strong>サイズ:</strong> {image.width} x {image.height} px
-                </p>
-              )}
-              {image.displayOrder !== undefined && (
-                <p>
-                  <strong>表示順:</strong> {image.displayOrder + 1}
-                </p>
-              )}
             </div>
-          </>
-        ) : (
-          <div style={styles.placeholderContainer}>
-            <p style={styles.placeholderText}>画像が読み込めません</p>
-            <p style={styles.placeholderSubText}>
-              画像編集機能は今後のアップデートで追加されます。
-            </p>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       <style>
         {`

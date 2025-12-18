@@ -358,7 +358,7 @@ export function SurveyImageGrid({
               aria-label={`画像: ${image.fileName}`}
             >
               <img
-                src={image.thumbnailPath}
+                src={image.thumbnailUrl || image.thumbnailPath}
                 alt={image.fileName}
                 style={styles.image}
                 loading="lazy"

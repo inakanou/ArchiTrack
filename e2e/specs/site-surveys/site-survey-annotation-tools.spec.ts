@@ -35,9 +35,15 @@
  * - REQ-11.3: キーボードショートカット
  */
 
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('現場調査注釈ツール', () => {
   test.describe.configure({ mode: 'serial' });
@@ -122,6 +128,39 @@ test.describe('現場調査注釈ツール', () => {
       const surveyMatch = surveyUrl.match(/\/site-surveys\/([0-9a-f-]+)$/);
       createdSurveyId = surveyMatch?.[1] ?? null;
       expect(createdSurveyId).toBeTruthy();
+
+      // 画像をAPIで直接アップロード
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+
+      // テスト画像が存在することを確認
+      expect(fs.existsSync(testImagePath)).toBeTruthy();
+
+      // ブラウザのlocalStorageからアクセストークンを取得
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+
+      // APIを使って画像をアップロード（バックエンドに直接アクセス）
+      const apiBaseUrl = process.env.API_URL || 'http://localhost:3100';
+      const uploadResponse = await page.request.post(
+        `${apiBaseUrl}/api/site-surveys/${createdSurveyId}/images`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          multipart: {
+            images: {
+              name: 'test-image.jpg',
+              mimeType: 'image/jpeg',
+              buffer: fs.readFileSync(testImagePath),
+            },
+          },
+        }
+      );
+
+      expect(uploadResponse.ok()).toBeTruthy();
+
+      // ページをリロードして画像が表示されることを確認
+      await page.reload();
+      await page.waitForLoadState('networkidle');
     });
   });
 
@@ -129,33 +168,69 @@ test.describe('現場調査注釈ツール', () => {
    * 注釈エディタへのナビゲーションヘルパー
    */
   async function navigateToAnnotationEditor(page: import('@playwright/test').Page) {
-    if (!createdSurveyId) return false;
-
-    await page.goto(`/site-surveys/${createdSurveyId}`);
-    await page.waitForLoadState('networkidle');
-
-    const imageElement = page
-      .locator('[data-testid="survey-image"], .survey-image img, .image-item')
-      .first();
-
-    if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+    console.log(`[DEBUG] navigateToAnnotationEditor called, createdSurveyId=${createdSurveyId}`);
+    if (!createdSurveyId) {
+      console.log('[DEBUG] createdSurveyId is null, returning false');
       return false;
     }
 
-    await imageElement.click();
+    console.log(`[DEBUG] Navigating to /site-surveys/${createdSurveyId}`);
+    await page.goto(`/site-surveys/${createdSurveyId}`);
+    await page.waitForLoadState('networkidle');
 
-    await page
-      .waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      })
-      .catch(() => {});
+    // 画像ボタンを取得（aria-labelを使用）
+    const imageElement = page.getByRole('button', { name: /^画像:/i }).first();
 
-    // 編集モードに入る（必要な場合）
-    const editModeButton = page.getByRole('button', { name: /編集モード|編集開始/i });
-    if (await editModeButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await editModeButton.click();
+    console.log('[DEBUG] Checking if image button is visible');
+    if (!(await imageElement.isVisible({ timeout: 5000 }).catch(() => false))) {
+      console.log('[DEBUG] Image button not visible, returning false');
+      return false;
     }
 
+    console.log('[DEBUG] Clicking image button');
+    await imageElement.click();
+
+    // 画像ビューアページへの遷移を待つ
+    console.log('[DEBUG] Waiting for URL navigation');
+    try {
+      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+        timeout: getTimeout(10000),
+      });
+      console.log(`[DEBUG] URL navigated successfully: ${page.url()}`);
+    } catch (e) {
+      console.log(`[DEBUG] URL navigation failed: ${e}`);
+      return false;
+    }
+
+    // ページの読み込みを待つ
+    await page.waitForLoadState('networkidle');
+
+    // 編集モードに入る
+    console.log('[DEBUG] Looking for edit mode button');
+    // デバッグ: ページのスナップショットを取得
+    await page.screenshot({ path: '/tmp/debug-image-viewer.png' });
+    console.log('[DEBUG] Screenshot saved to /tmp/debug-image-viewer.png');
+    const editModeButton = page.getByRole('button', { name: /編集モード/i });
+    if (await editModeButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[DEBUG] Edit mode button visible, clicking');
+      await editModeButton.click();
+      // 注釈ツールバーが表示されるのを待つ
+      console.log('[DEBUG] Waiting for annotation toolbar');
+      try {
+        await page
+          .locator('[data-testid="annotation-toolbar"]')
+          .waitFor({ state: 'visible', timeout: 10000 });
+        console.log('[DEBUG] Annotation toolbar visible');
+      } catch (e) {
+        console.log(`[DEBUG] Annotation toolbar not visible: ${e}`);
+        return false;
+      }
+    } else {
+      console.log('[DEBUG] Edit mode button not visible, returning false');
+      return false;
+    }
+
+    console.log('[DEBUG] Navigation successful, returning true');
     return true;
   }
 
@@ -550,6 +625,8 @@ test.describe('現場調査注釈ツール', () => {
 
   test.describe('クリーンアップ', () => {
     test('作成したデータを削除する', async ({ page, context }) => {
+      // localStorageにアクセスする前に、まずアプリのオリジンに移動する
+      await page.goto('/');
       await context.clearCookies();
       await page.evaluate(() => {
         localStorage.removeItem('refreshToken');
@@ -565,7 +642,7 @@ test.describe('現場調査注釈ツール', () => {
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
         if (await deleteButton.isVisible()) {
           await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: /^削除する$|^削除$/i });
+          const confirmButton = page.getByRole('dialog').getByRole('button', { name: '削除する' });
           if (await confirmButton.isVisible()) {
             await confirmButton.click();
             await page

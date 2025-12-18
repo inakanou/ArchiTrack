@@ -39,6 +39,8 @@ import {
   SiteSurveyConflictError,
   ProjectNotFoundForSurveyError,
 } from '../errors/siteSurveyError.js';
+import { ImageListService } from '../services/image-list.service.js';
+import { SignedUrlService } from '../services/signed-url.service.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
 const router = Router({ mergeParams: true });
@@ -48,6 +50,8 @@ const siteSurveyService = new SiteSurveyService({
   prisma,
   auditLogService,
 });
+const signedUrlService = new SignedUrlService({ prisma });
+const imageListService = new ImageListService({ prisma, signedUrlService });
 
 /**
  * 更新リクエストボディ用スキーマ（expectedUpdatedAt必須）
@@ -312,6 +316,7 @@ router.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
+      const userId = req.user!.userId;
 
       const siteSurvey = await siteSurveyService.findById(id);
 
@@ -327,9 +332,28 @@ router.get(
         return;
       }
 
+      // 署名付きURL付きの画像一覧を取得してマージ
+      const imagesWithUrls = await imageListService.findBySurveyIdWithUrls(id, userId);
+
+      // 画像情報にURLを追加
+      const imagesMap = new Map(imagesWithUrls.map((img) => [img.id, img]));
+      const enrichedImages = siteSurvey.images.map((img) => {
+        const withUrls = imagesMap.get(img.id);
+        return {
+          ...img,
+          originalUrl: withUrls?.originalUrl ?? null,
+          thumbnailUrl: withUrls?.thumbnailUrl ?? null,
+        };
+      });
+
+      const response = {
+        ...siteSurvey,
+        images: enrichedImages,
+      };
+
       logger.debug({ userId: req.user?.userId, siteSurveyId: id }, 'Site survey detail retrieved');
 
-      res.json(siteSurvey);
+      res.json(response);
     } catch (error) {
       next(error);
     }

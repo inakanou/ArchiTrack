@@ -17,6 +17,7 @@ import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { SurveyImageService, UploadFile } from './survey-image.service.js';
 import type { ImageProcessorService } from './image-processor.service.js';
+import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -87,11 +88,18 @@ export interface BatchUploadResult {
 
 /**
  * サービス依存関係
+ *
+ * storageProviderを指定した場合、s3ClientとbucketNameは無視されます。
+ * 後方互換性のため、s3ClientとbucketNameも引き続きサポートしています。
  */
 export interface ImageUploadServiceDependencies {
   prisma: PrismaClient;
-  s3Client: S3Client;
-  bucketName: string;
+  /** @deprecated storageProviderを使用してください */
+  s3Client?: S3Client;
+  /** @deprecated storageProviderを使用してください */
+  bucketName?: string;
+  /** ストレージプロバイダー（推奨） */
+  storageProvider?: StorageProvider;
   surveyImageService: SurveyImageService;
   imageProcessorService: ImageProcessorService;
 }
@@ -108,17 +116,24 @@ export class ImageUploadService {
   static readonly MAX_IMAGES_PER_SURVEY = 50;
 
   private readonly prisma: PrismaClient;
-  private readonly s3Client: S3Client;
-  private readonly bucketName: string;
+  private readonly s3Client: S3Client | null;
+  private readonly bucketName: string | null;
+  private readonly storageProvider: StorageProvider | null;
   private readonly surveyImageService: SurveyImageService;
   private readonly imageProcessorService: ImageProcessorService;
 
   constructor(deps: ImageUploadServiceDependencies) {
     this.prisma = deps.prisma;
-    this.s3Client = deps.s3Client;
-    this.bucketName = deps.bucketName;
+    this.storageProvider = deps.storageProvider || null;
+    this.s3Client = deps.s3Client || null;
+    this.bucketName = deps.bucketName || null;
     this.surveyImageService = deps.surveyImageService;
     this.imageProcessorService = deps.imageProcessorService;
+
+    // どちらかのストレージ設定が必要
+    if (!this.storageProvider && (!this.s3Client || !this.bucketName)) {
+      throw new Error('Either storageProvider or s3Client+bucketName is required');
+    }
   }
 
   /**
@@ -304,13 +319,26 @@ export class ImageUploadService {
   }
 
   /**
-   * S3にファイルをアップロード
+   * ストレージにファイルをアップロード
+   *
+   * StorageProviderが設定されている場合はそちらを使用し、
+   * そうでない場合は従来のS3Clientを使用します。
    *
    * @param key - オブジェクトキー
    * @param buffer - ファイルバッファ
    * @param contentType - コンテントタイプ
    */
   private async uploadToStorage(key: string, buffer: Buffer, contentType: string): Promise<void> {
+    if (this.storageProvider) {
+      await this.storageProvider.upload(key, buffer, { contentType });
+      return;
+    }
+
+    // 従来のS3Client方式（後方互換性）
+    if (!this.s3Client || !this.bucketName) {
+      throw new Error('No storage provider configured');
+    }
+
     const command = new PutObjectCommand({
       Bucket: this.bucketName,
       Key: key,

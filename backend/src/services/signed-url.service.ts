@@ -1,8 +1,11 @@
 /**
  * 署名付きURL生成・検証サービス
  *
- * Cloudflare R2ストレージの署名付きURL生成と、
+ * ストレージの署名付きURL生成と、
  * ユーザーのプロジェクトアクセス権限検証を担当する。
+ *
+ * ローカルストレージの場合は公開URLを返し、
+ * R2/S3の場合は署名付きURLを生成する。
  *
  * @module services/signed-url
  *
@@ -11,10 +14,8 @@
  * - 12.4: 署名付きURLの有効期限とアクセス権限を検証
  * - 14.6: 全ての通信をHTTPS/TLSで暗号化
  */
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { getS3Client, getStorageConfig } from '../config/storage.js';
+import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -76,19 +77,23 @@ export class SignedUrlService {
   /**
    * 署名付きURLを生成する
    *
-   * 画像IDから対応するR2オブジェクトパスを取得し、
-   * 有効期限付きの署名付きURLを生成する。
+   * 画像IDから対応するストレージパスを取得し、
+   * ストレージプロバイダーに応じたURLを生成する。
+   *
+   * - R2/S3: 有効期限付きの署名付きURL
+   * - ローカル: 公開URL（署名なし）
    *
    * @param imageId - 画像ID
    * @param type - 画像タイプ（'original' | 'thumbnail'）
-   * @param expiresIn - 有効期限（秒）、デフォルト15分
-   * @returns 署名付きURL
-   * @throws Error 画像が存在しない場合
+   * @param expiresIn - 有効期限（秒）、デフォルト15分（ローカルストレージでは無視）
+   * @returns 署名付きURLまたは公開URL
+   * @throws Error 画像が存在しない場合またはストレージが設定されていない場合
    *
    * @example
    * ```typescript
    * const url = await signedUrlService.generateSignedUrl('image-id', 'original');
-   * // => 'https://bucket.r2.cloudflarestorage.com/path/image.jpg?X-Amz-Signature=...'
+   * // R2: 'https://bucket.r2.cloudflarestorage.com/path/image.jpg?X-Amz-Signature=...'
+   * // Local: 'http://localhost:3100/storage/surveys/xxx/image.jpg'
    * ```
    */
   async generateSignedUrl(
@@ -96,6 +101,16 @@ export class SignedUrlService {
     type: 'original' | 'thumbnail',
     expiresIn: number = DEFAULT_EXPIRES_IN
   ): Promise<string> {
+    // ストレージプロバイダーを取得
+    if (!isStorageConfigured()) {
+      throw new Error('Storage is not configured');
+    }
+
+    const storageProvider = getStorageProvider();
+    if (!storageProvider) {
+      throw new Error('Storage provider not available');
+    }
+
     // 画像情報を取得
     const image = await this.prisma.surveyImage.findUnique({
       where: { id: imageId },
@@ -114,16 +129,8 @@ export class SignedUrlService {
     // タイプに応じてパスを選択
     const objectKey = type === 'original' ? image.originalPath : image.thumbnailPath;
 
-    // 署名付きURLを生成
-    const s3Client = getS3Client();
-    const config = getStorageConfig();
-
-    const command = new GetObjectCommand({
-      Bucket: config.bucketName,
-      Key: objectKey,
-    });
-
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn });
+    // ストレージプロバイダーから署名付きURLを取得
+    const signedUrl = await storageProvider.getSignedUrl(objectKey, { expiresIn });
 
     logger.debug(
       {
@@ -131,6 +138,7 @@ export class SignedUrlService {
         type,
         expiresIn,
         objectKey,
+        storageType: storageProvider.type,
       },
       'Generated signed URL for image'
     );
