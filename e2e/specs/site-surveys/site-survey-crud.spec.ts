@@ -335,15 +335,18 @@ test.describe('現場調査CRUD操作', () => {
       const updatePromise = page.waitForResponse(
         (response) =>
           response.url().includes(`/api/site-surveys/${createdSurveyId}`) &&
-          response.request().method() === 'PUT',
+          response.request().method() === 'PUT' &&
+          response.status() >= 200 &&
+          response.status() < 300,
         { timeout: getTimeout(30000) }
       );
 
       const saveButton = page.getByRole('button', { name: /^保存$/ });
       await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
       await saveButton.click();
 
-      // APIレスポンスを待機
+      // APIレスポンスを待機（成功レスポンスのみ）
       await updatePromise;
 
       // 詳細画面に戻ることを確認（成功の主要な検証）
