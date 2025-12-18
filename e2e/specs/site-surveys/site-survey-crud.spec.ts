@@ -442,12 +442,12 @@ test.describe('現場調査CRUD操作', () => {
       const surveyIdToDelete = match?.[1];
 
       // 削除ボタンをクリック
-      const deleteButton = page.getByRole('button', { name: /削除/i });
+      const deleteButton = page.getByRole('button', { name: /^削除$/ });
       await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
       await deleteButton.click();
 
-      // 確認ダイアログが表示されることを確認
-      await expect(page.getByText(/削除しますか|この操作は取り消せません/i)).toBeVisible({
+      // 確認ダイアログが表示されることを確認（見出しを使用）
+      await expect(page.getByRole('heading', { name: /現場調査を削除しますか/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
