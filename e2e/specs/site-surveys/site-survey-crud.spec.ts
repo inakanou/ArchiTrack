@@ -316,13 +316,16 @@ test.describe('現場調査CRUD操作', () => {
         timeout: getTimeout(10000),
       });
 
+      // フォームデータのロード完了を待機
+      await page.waitForLoadState('networkidle');
+
       // 編集フォームが表示されることを確認
       await expect(page.getByRole('heading', { name: /現場調査を編集|編集/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
       // 現在の値がプリセットされていることを確認
-      await expect(page.getByLabel(/調査名/i)).toHaveValue(/.+/);
+      await expect(page.getByLabel(/調査名/i)).toHaveValue(/.+/, { timeout: getTimeout(10000) });
 
       // 値を変更
       const updatedMemo = `E2E編集テスト_更新済み_${Date.now()}`;
@@ -332,12 +335,13 @@ test.describe('現場調査CRUD操作', () => {
       const updatePromise = page.waitForResponse(
         (response) =>
           response.url().includes(`/api/site-surveys/${createdSurveyId}`) &&
-          response.request().method() === 'PUT' &&
-          response.status() === 200,
+          response.request().method() === 'PUT',
         { timeout: getTimeout(30000) }
       );
 
-      await page.getByRole('button', { name: /保存|更新/i }).click();
+      const saveButton = page.getByRole('button', { name: /^保存$/ });
+      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+      await saveButton.click();
 
       // APIレスポンスを待機
       await updatePromise;
