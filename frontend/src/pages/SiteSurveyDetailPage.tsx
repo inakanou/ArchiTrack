@@ -21,9 +21,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/common';
 import { buildSiteSurveyDetailBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getSiteSurvey, deleteSiteSurvey } from '../api/site-surveys';
+import { uploadSurveyImages } from '../api/survey-images';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import SiteSurveyDetailInfo from '../components/site-surveys/SiteSurveyDetailInfo';
 import SurveyImageGrid from '../components/site-surveys/SurveyImageGrid';
+import {
+  ImageUploader,
+  type UploadProgress,
+  type ValidationError,
+} from '../components/site-surveys/ImageUploader';
 import type { SiteSurveyDetail, SurveyImageInfo, ImageOrderItem } from '../types/site-survey.types';
 
 // ============================================================================
@@ -224,6 +230,10 @@ export default function SiteSurveyDetailPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // 画像アップロード状態
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | undefined>(undefined);
+
   /**
    * 現場調査詳細データを取得
    */
@@ -310,6 +320,48 @@ export default function SiteSurveyDetailPage() {
     setShowDeleteDialog(false);
   }, []);
 
+  /**
+   * 画像アップロードハンドラ
+   *
+   * ImageUploaderからバリデーション済みファイルを受け取り、
+   * 現場調査に画像をアップロードします。
+   */
+  const handleImageUpload = useCallback(
+    async (files: File[]) => {
+      if (!id) return;
+
+      setIsUploading(true);
+      setUploadProgress({ completed: 0, total: files.length, current: 0 });
+
+      try {
+        await uploadSurveyImages(id, files, {
+          onProgress: (progress) => {
+            setUploadProgress({
+              completed: progress.completed,
+              total: progress.total,
+              current: progress.current,
+            });
+          },
+        });
+
+        // アップロード完了後、データを再取得して画像一覧を更新
+        await fetchData();
+      } finally {
+        setIsUploading(false);
+        setUploadProgress(undefined);
+      }
+    },
+    [id, fetchData]
+  );
+
+  /**
+   * バリデーションエラーハンドラ
+   */
+  const handleValidationError = useCallback((_errors: ValidationError[]) => {
+    // バリデーションエラーはImageUploader内で表示されるため、
+    // ここでは追加の処理は不要
+  }, []);
+
   // ローディング表示
   if (isLoading && !survey) {
     return (
@@ -377,6 +429,20 @@ export default function SiteSurveyDetailPage() {
       {/* 画像一覧セクション (Requirement 2.4) */}
       <div style={STYLES.imageSection}>
         <h3 style={STYLES.sectionTitle}>画像一覧</h3>
+
+        {/* 画像アップロードUI (Requirement 4.1) */}
+        {canEdit && (
+          <div style={{ marginBottom: '24px' }}>
+            <ImageUploader
+              onUpload={handleImageUpload}
+              onValidationError={handleValidationError}
+              isUploading={isUploading}
+              uploadProgress={uploadProgress}
+              compact={true}
+            />
+          </div>
+        )}
+
         <SurveyImageGrid
           images={survey.images}
           onImageClick={handleImageClick}

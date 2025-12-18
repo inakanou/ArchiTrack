@@ -10,8 +10,13 @@
 
 import { test, expect } from '@playwright/test';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+
+// ESモジュールでの__dirname代替
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * 現場調査画像管理のE2Eテスト
@@ -155,6 +160,15 @@ test.describe('現場調査画像管理', () => {
       // e2e/fixturesにテスト画像を配置する
       const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
 
+      // アップロードレスポンスのPromiseを先に作成
+      const uploadPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/') &&
+          response.url().includes('/images') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+
       // ファイルが存在しない場合はスキップ
       try {
         await input.setInputFiles(testImagePath);
@@ -164,19 +178,16 @@ test.describe('現場調査画像管理', () => {
         return;
       }
 
-      // アップロード進捗またはアップロード完了を待機
-      await page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/site-surveys/') &&
-          response.url().includes('/images') &&
-          response.request().method() === 'POST',
-        { timeout: getTimeout(60000) }
-      );
+      // アップロード完了を待機
+      await uploadPromise;
+
+      // ページをリロードして画像が保存されていることを確認
+      await page.reload();
+      await page.waitForLoadState('networkidle');
 
       // アップロードされた画像が表示されることを確認
-      const uploadedImage = page.locator(
-        '[data-testid="survey-image"], img[alt*="調査"], .survey-image'
-      );
+      // SurveyImageGridでは data-testid="image-grid" 内にimg要素が配置される
+      const uploadedImage = page.locator('[data-testid="image-grid"] img');
       await expect(uploadedImage.first()).toBeVisible({ timeout: getTimeout(15000) });
 
       // 画像IDを取得（詳細リンクやdata属性から）
@@ -254,43 +265,28 @@ test.describe('現場調査画像管理', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像が存在する場合のみテスト
-      const imageElement = page
-        .locator('[data-testid="survey-image"], .survey-image, .image-item')
-        .first();
+      // 画像グリッド内の画像が存在するか確認
+      const imageGrid = page.locator('[data-testid="image-grid"]');
+      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (!(await imageElement.isVisible())) {
-        // 画像がない場合はスキップ
-        test.skip();
-        return;
+      const imageButton = imageGrid.locator('button').first();
+      const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
+
+      if (!hasImages) {
+        throw new Error(
+          '画像が見つかりません。アップロードテストが正しく実行されていない可能性があります。'
+        );
       }
 
-      // 画像の削除ボタンをクリック
-      // 実装によって異なる - 画像をホバーして削除アイコンが表示される場合もある
-      const deleteImageButton = imageElement.getByRole('button', { name: /削除|×/i });
+      // 画像が表示されていることを確認（UIテスト）
+      const imageElement = imageButton.locator('img');
+      await expect(imageElement).toBeVisible();
 
-      if (await deleteImageButton.isVisible()) {
-        await deleteImageButton.click();
-
-        // 確認ダイアログが表示される場合
-        const confirmDelete = page.getByRole('button', { name: /^削除$|^削除する$|^はい$/i });
-        if (await confirmDelete.isVisible({ timeout: 2000 })) {
-          // APIレスポンスを待機しながら削除確認
-          const deletePromise = page.waitForResponse(
-            (response) =>
-              response.url().includes('/api/site-surveys/images/') &&
-              response.request().method() === 'DELETE' &&
-              response.status() === 204,
-            { timeout: getTimeout(30000) }
-          );
-
-          await confirmDelete.click();
-          await deletePromise;
-
-          // 画像が削除されたことを確認
-          await expect(imageElement).not.toBeVisible({ timeout: getTimeout(10000) });
-        }
-      }
+      // 注: 現在のUIでは画像削除機能は詳細ページに実装されていない
+      // 削除機能のUIが実装されたら、以下のテストを追加:
+      // 1. 削除ボタンをクリック
+      // 2. 確認ダイアログで削除を確認
+      // 3. 画像が削除されることを確認
     });
   });
 
@@ -300,8 +296,7 @@ test.describe('現場調査画像管理', () => {
   test.describe('画像ビューア', () => {
     test('画像をクリックするとビューアに遷移する', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -309,27 +304,30 @@ test.describe('現場調査画像管理', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像が存在する場合のみテスト
-      const imageElement = page
-        .locator('[data-testid="survey-image"], .survey-image img, .image-item img')
-        .first();
+      // 画像グリッド内の画像ボタンを取得
+      const imageGrid = page.locator('[data-testid="image-grid"]');
+      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (!(await imageElement.isVisible())) {
-        test.skip();
-        return;
+      const imageButton = imageGrid.locator('button').first();
+      const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
+
+      if (!hasImages) {
+        throw new Error(
+          '画像が見つかりません。アップロードテストが正しく実行されていない可能性があります。'
+        );
       }
 
-      // 画像をクリック
-      await imageElement.click();
+      // 画像ボタンをクリック
+      await imageButton.click();
 
-      // ビューアページに遷移するか、モーダルが開くことを確認
+      // ビューアページに遷移することを確認
       await expect(page).toHaveURL(
         new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`),
         { timeout: getTimeout(10000) }
       );
 
-      // ビューアの画像が表示されることを確認
-      const viewerImage = page.locator('[data-testid="viewer-image"], .viewer-image, img').first();
+      // ビューアページで画像が表示されることを確認
+      const viewerImage = page.locator('img').first();
       await expect(viewerImage).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
@@ -340,6 +338,8 @@ test.describe('現場調査画像管理', () => {
   test.describe('クリーンアップ', () => {
     test('作成したデータを削除する', async ({ page, context }) => {
       await context.clearCookies();
+      // localStorageクリア前にアプリにナビゲートする必要がある
+      await page.goto('/');
       await page.evaluate(() => {
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('accessToken');
@@ -353,15 +353,15 @@ test.describe('現場調査画像管理', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
+        if (await deleteButton.isVisible({ timeout: 5000 }).catch(() => false)) {
           await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: /^削除する$|^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
+          // 削除確認ダイアログが表示されるのを待機
+          const confirmButton = page.getByRole('button', { name: '削除する' });
+          await expect(confirmButton).toBeVisible({ timeout: 5000 });
+          await confirmButton.click();
+          await page
+            .waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) })
+            .catch(() => {});
         }
       }
 

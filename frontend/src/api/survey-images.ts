@@ -136,7 +136,8 @@ export async function uploadSurveyImage(
   options: UploadImageOptions = {}
 ): Promise<SurveyImageInfo> {
   const formData = new FormData();
-  formData.append('file', file);
+  // バックエンドは 'images' フィールドを期待している
+  formData.append('images', file);
 
   if (options.displayOrder !== undefined) {
     formData.append('displayOrder', String(options.displayOrder));
