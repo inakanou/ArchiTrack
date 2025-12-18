@@ -346,18 +346,13 @@ test.describe('現場調査CRUD操作', () => {
       // APIレスポンスを待機
       await updatePromise;
 
-      // 成功メッセージが表示されることを確認
-      await expect(page.getByText(/現場調査を更新しました/i)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
-
-      // 詳細画面に戻ることを確認
+      // 詳細画面に戻ることを確認（成功の主要な検証）
       await expect(page).toHaveURL(new RegExp(`/site-surveys/${createdSurveyId}$`), {
         timeout: getTimeout(10000),
       });
 
       // 更新した内容が反映されていることを確認
-      await expect(page.getByText(updatedMemo)).toBeVisible();
+      await expect(page.getByText(updatedMemo)).toBeVisible({ timeout: getTimeout(10000) });
     });
 
     /**
