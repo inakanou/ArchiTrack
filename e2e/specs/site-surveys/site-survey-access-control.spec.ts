@@ -331,6 +331,8 @@ test.describe('現場調査アクセス制御', () => {
 
   test.describe('クリーンアップ', () => {
     test('作成したデータを削除する', async ({ page, context }) => {
+      // まずアプリのオリジンに移動してからlocalStorageをクリア
+      await page.goto('/');
       await context.clearCookies();
       await page.evaluate(() => {
         localStorage.removeItem('refreshToken');
