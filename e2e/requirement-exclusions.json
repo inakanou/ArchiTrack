@@ -330,84 +330,6 @@
       }
     },
     {
-      "id": "REQ-26.1",
-      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
-      "title": "SQLインジェクション対策",
-      "reason": "SQLインジェクション対策はORMの使用とコードレビューで検証",
-      "category": "security",
-      "alternativeVerification": {
-        "method": "code-review",
-        "tool": "Prisma ORM / Static analysis",
-        "description": "全てのデータベースクエリがPrismaのパラメータ化クエリを使用していることを確認",
-        "threshold": "parameterized_queries: true"
-      }
-    },
-    {
-      "id": "REQ-26.2",
-      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
-      "title": "XSS対策（自動エスケープ）",
-      "reason": "XSS対策はReactの自動エスケープ機能とコードレビューで検証",
-      "category": "security",
-      "alternativeVerification": {
-        "method": "code-review",
-        "tool": "React auto-escape / ESLint",
-        "description": "Reactの自動エスケープ機能が使用され、dangerouslySetInnerHTMLが適切に制限されていることを確認",
-        "threshold": "auto_escape: enabled"
-      }
-    },
-    {
-      "id": "REQ-26.4",
-      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
-      "title": "ブルートフォース攻撃対策（レート制限）",
-      "reason": "レート制限の検証はE2E範囲外。統合テストまたはセキュリティテストで検証",
-      "category": "security",
-      "alternativeVerification": {
-        "method": "security-audit",
-        "tool": "OWASP ZAP / Custom test script",
-        "description": "短時間に複数回のログイン試行があった場合、レート制限が適用されることを確認",
-        "threshold": "rate_limit: enabled"
-      }
-    },
-    {
-      "id": "REQ-26.6",
-      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
-      "title": "認証が必要なAPIエンドポイントの保護",
-      "reason": "APIエンドポイント保護の網羅的検証はセキュリティ監査で検証",
-      "category": "security",
-      "alternativeVerification": {
-        "method": "security-audit",
-        "tool": "API security scanner",
-        "description": "全ての保護されたAPIエンドポイントが認証チェックを実装していることを確認",
-        "threshold": "authentication_required: true"
-      }
-    },
-    {
-      "id": "REQ-26.7",
-      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
-      "title": "HttpOnly Cookieの使用",
-      "reason": "Cookie設定の検証はコードレビューで確認",
-      "category": "security",
-      "alternativeVerification": {
-        "method": "code-review",
-        "tool": "Code review / Browser DevTools",
-        "description": "リフレッシュトークンがHttpOnly Cookieで送信されることを確認",
-        "threshold": "http_only: true"
-      }
-    },
-    {
-      "id": "REQ-26.10",
-      "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
-      "title": "セキュリティヘッダーの設定",
-      "reason": "セキュリティヘッダーの検証はコードレビューで確認",
-      "category": "security",
-      "alternativeVerification": {
-        "method": "code-review",
-        "tool": "Security headers check",
-        "description": "X-Frame-Options, X-Content-Type-Options等のセキュリティヘッダーが設定されていることを確認",
-        "threshold": "security_headers: enabled"
-      }
-    },
-    {
       "id": "project-management/REQ-18.1",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "ネットワークエラー時のメッセージ表示",
@@ -990,13 +912,14 @@
     }
   },
   "summary": {
-    "totalExclusions": 77,
+    "totalExclusions": 71,
     "byCategory": {
       "performance": 18,
       "infrastructure": 21,
       "fault-tolerance": 21,
       "data-integrity": 11,
-      "security": 10
-    }
+      "security": 4
+    },
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除"
   }
 }

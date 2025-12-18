@@ -7,7 +7,7 @@ import { API_BASE_URL } from '../../config';
 /**
  * セキュリティ対策（脅威モデリング）のE2Eテスト
  *
- * @REQ-26 セキュリティ対策（脅威モデリング）
+ * @requirement user-authentication/REQ-26
  *
  * このテストスイートは、一般的なWeb攻撃からの保護機能を
  * End-to-Endで検証します。
@@ -23,7 +23,7 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * 要件26.1: SQLインジェクション対策
-   * @REQ-26.1
+   * @requirement user-authentication/REQ-26.1
    */
   test('SQLインジェクションが無害化される', async ({ request }) => {
     // SQLインジェクションを含むリクエスト
@@ -41,9 +41,9 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * 要件26.4: ブルートフォース攻撃対策（レート制限）
-   * @REQ-26.4
-   * @REQ-26.9
-   * @REQ-26.12
+   * @requirement user-authentication/REQ-26.4
+   * @requirement user-authentication/REQ-26.9
+   * @requirement user-authentication/REQ-26.12
    */
   test('連続ログイン失敗でアカウントがロックされる', async ({ request }) => {
     // 6回連続でログイン失敗
@@ -71,8 +71,8 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * 要件26.5: CookieのHttpOnly、Secure、SameSite属性
-   * @REQ-26.5
-   * @REQ-26.7
+   * @requirement user-authentication/REQ-26.5
+   * @requirement user-authentication/REQ-26.7
    */
   test('認証CookieにはHttpOnly属性が設定される', async ({ request }) => {
     const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -94,7 +94,7 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * 要件26.6: CORSヘッダーの設定
-   * @REQ-26.6
+   * @requirement user-authentication/REQ-26.6
    */
   test('APIエンドポイントに適切なCORSヘッダーが設定される', async ({ request }) => {
     const response = await request.get(`${API_BASE_URL}/health`);
@@ -111,7 +111,7 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * 要件26.10: セキュリティヘッダーの設定
-   * @REQ-26.10
+   * @requirement user-authentication/REQ-26.10
    */
   test('セキュリティ関連ヘッダーが設定される', async ({ request }) => {
     const response = await request.get(`${API_BASE_URL}/health`);
@@ -133,8 +133,8 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * 認証なしでの保護リソースアクセス拒否
-   * @REQ-5.4
-   * @REQ-28.45 未認証状態で保護URL直接アクセス → ログイン画面リダイレクト
+   * @requirement user-authentication/REQ-5.4
+   * @requirement user-authentication/REQ-28.45
    */
   test('認証なしで保護リソースにアクセスできない', async ({ request }) => {
     // 認証なしでユーザー一覧にアクセス
@@ -146,7 +146,9 @@ test.describe('セキュリティ対策', () => {
   /**
    * 無効なトークンでのアクセス拒否
    * 要件10.7: トークン生成の暗号学的安全性
-   * @REQ-5.4 @REQ-5.5 @REQ-10.7
+   * @requirement user-authentication/REQ-5.4
+   * @requirement user-authentication/REQ-5.5
+   * @requirement user-authentication/REQ-10.7
    */
   test('無効なトークンでアクセスが拒否される', async ({ request }) => {
     const response = await request.get(`${API_BASE_URL}/api/v1/users`, {
@@ -161,7 +163,8 @@ test.describe('セキュリティ対策', () => {
   /**
    * 改ざんされたトークンでのアクセス拒否
    * 要件10.7: トークン生成の暗号学的安全性
-   * @REQ-5.5 @REQ-10.7
+   * @requirement user-authentication/REQ-5.5
+   * @requirement user-authentication/REQ-10.7
    */
   test('改ざんされたトークンでアクセスが拒否される', async ({ request }) => {
     // 正規のログインでトークンを取得
@@ -204,7 +207,7 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * パスワード漏洩防止（レスポンスにパスワードが含まれない）
-   * @REQ-26.11
+   * @requirement user-authentication/REQ-26.11
    */
   test('APIレスポンスにパスワードが含まれない', async ({ request }) => {
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -232,7 +235,7 @@ test.describe('セキュリティ対策', () => {
 
   /**
    * 期限切れトークンでのアクセス拒否
-   * @REQ-5.2
+   * @requirement user-authentication/REQ-5.2
    */
   test('期限切れのリフレッシュトークンでリフレッシュできない', async ({ request }) => {
     // 無効なリフレッシュトークンでリフレッシュを試みる
@@ -249,7 +252,7 @@ test.describe('セキュリティ対策', () => {
 /**
  * XSS対策テスト
  *
- * @REQ-26 セキュリティ対策（脅威モデリング）
+ * @requirement user-authentication/REQ-26
  */
 test.describe('XSS対策', () => {
   test.beforeEach(async ({ context }) => {
@@ -258,7 +261,7 @@ test.describe('XSS対策', () => {
 
   /**
    * 要件26.2: XSS対策（入力のエスケープ）
-   * @REQ-26.2
+   * @requirement user-authentication/REQ-26.2
    */
   test('XSSペイロードがエスケープされる', async ({ page }) => {
     // ログインページに移動
