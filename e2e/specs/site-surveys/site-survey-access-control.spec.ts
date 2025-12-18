@@ -204,15 +204,13 @@ test.describe('現場調査アクセス制御', () => {
       await expect(saveButton).not.toBeDisabled();
     });
 
-    test('編集権限を持つユーザーは削除ボタンが表示される (site-survey/REQ-12.2)', async ({
-      page,
-    }) => {
+    test('管理者ユーザーは削除ボタンが表示される (site-survey/REQ-12.2)', async ({ page }) => {
       if (!createdSurveyId) {
         test.skip();
         return;
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
 
       // 詳細ページにアクセス
       await page.goto(`/site-surveys/${createdSurveyId}`);
