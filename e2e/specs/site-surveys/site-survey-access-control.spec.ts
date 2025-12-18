@@ -105,8 +105,9 @@ test.describe('現場調査アクセス制御', () => {
       page,
     }) => {
       if (!createdProjectId || !createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error(
+          'createdProjectIdまたはcreatedSurveyIdが未設定です。事前準備テストが正しく実行されていません。'
+        );
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -132,8 +133,7 @@ test.describe('現場調査アクセス制御', () => {
       page,
     }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -162,8 +162,7 @@ test.describe('現場調査アクセス制御', () => {
       page,
     }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -185,8 +184,7 @@ test.describe('現場調査アクセス制御', () => {
       page,
     }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -206,8 +204,7 @@ test.describe('現場調査アクセス制御', () => {
 
     test('管理者ユーザーは削除ボタンが表示される (site-survey/REQ-12.2)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'ADMIN_USER');
@@ -231,8 +228,7 @@ test.describe('現場調査アクセス制御', () => {
       context,
     }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // ログアウト状態にする（まずアプリのオリジンに移動してからlocalStorageをクリア）
@@ -265,8 +261,7 @@ test.describe('現場調査アクセス制御', () => {
       context,
     }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // ログアウト状態にする（まずアプリのオリジンに移動してからlocalStorageをクリア）
@@ -299,8 +294,7 @@ test.describe('現場調査アクセス制御', () => {
       context,
     }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // ログアウト状態にする（まずアプリのオリジンに移動してからlocalStorageをクリア）

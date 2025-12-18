@@ -104,8 +104,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('プロジェクト詳細から現場調査一覧へ遷移できる', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -135,8 +134,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('新規作成ボタンから作成フォームへ遷移できる', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -168,8 +166,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('現場調査を作成できる', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -229,8 +226,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('必須項目未入力時にバリデーションエラーが表示される', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -260,8 +256,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('現場調査詳細を表示できる', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -296,8 +291,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('編集ボタン→フォーム表示→保存が正常に行われる', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -363,8 +357,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('編集キャンセル時は変更が破棄される', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -403,8 +396,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('削除ボタン→確認ダイアログ→削除→一覧遷移が正常に行われる', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // 削除権限はadminロールのみが持つ
@@ -484,8 +476,7 @@ test.describe('現場調査CRUD操作', () => {
      */
     test('削除確認ダイアログでキャンセルすると詳細画面に留まる', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // 削除権限はadminロールのみが持つ

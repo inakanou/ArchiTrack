@@ -539,9 +539,7 @@ test.describe('プロジェクトCRUD操作', () => {
 
       // 詳細ページに移動
       if (!createdProjectId) {
-        // プロジェクトがない場合はスキップ
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await page.goto(`/projects/${createdProjectId}`);
@@ -583,8 +581,7 @@ test.describe('プロジェクトCRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await page.goto(`/projects/${createdProjectId}`);
@@ -615,8 +612,7 @@ test.describe('プロジェクトCRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // Note: 楽観的ロックの競合をE2Eテストで再現するのは困難なため、

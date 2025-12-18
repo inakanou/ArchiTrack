@@ -174,8 +174,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('複数画像アップロード', () => {
     test('複数の画像を同時に選択してアップロードできる (site-survey/REQ-4.2)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -211,8 +210,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('ファイル形式バリデーション', () => {
     test('accept属性でサポート形式が制限されている (site-survey/REQ-4.5)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -253,8 +251,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('サポートファイル形式', () => {
     test('JPEG、PNG、WEBP形式がサポートされている (site-survey/REQ-4.8)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -294,8 +291,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('画像表示順序', () => {
     test('画像一覧が一定の順序で表示される (site-survey/REQ-4.9)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -328,8 +324,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('画像並び替え', () => {
     test('ドラッグアンドドロップUIが存在する (site-survey/REQ-4.10)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -342,9 +337,7 @@ test.describe('現場調査画像ビューア', () => {
       const imageCount = await imageItems.count();
 
       if (imageCount < 2) {
-        // 画像が複数ない場合は並び替え機能を検証できないのでスキップ
-        test.skip();
-        return;
+        throw new Error('画像が2枚未満です。並び替え機能を検証するには2枚以上の画像が必要です。');
       }
 
       // 画像グリッドのbutton要素がdraggable属性を持っていることを確認
@@ -366,8 +359,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('画像ビューア起動', () => {
     test('画像をクリックするとビューアが開く (site-survey/REQ-5.1)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -381,9 +373,7 @@ test.describe('現場調査画像ビューア', () => {
         .first();
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        // 画像がない場合はスキップ
-        test.skip();
-        return;
+        throw new Error('画像が見つかりません。事前準備テストで画像がアップロードされていません。');
       }
 
       await imageElement.click();
@@ -410,8 +400,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('ズーム機能', () => {
     test('ズームイン/ズームアウトボタンが存在する (site-survey/REQ-5.2)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -425,8 +414,7 @@ test.describe('現場調査画像ビューア', () => {
         .first();
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        test.skip();
-        return;
+        throw new Error('画像が見つかりません。事前準備テストで画像がアップロードされていません。');
       }
 
       await imageElement.click();
@@ -458,8 +446,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('回転機能', () => {
     test('回転ボタンが存在する (site-survey/REQ-5.3)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -472,8 +459,7 @@ test.describe('現場調査画像ビューア', () => {
         .first();
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        test.skip();
-        return;
+        throw new Error('画像が見つかりません。事前準備テストで画像がアップロードされていません。');
       }
 
       await imageElement.click();
@@ -505,8 +491,7 @@ test.describe('現場調査画像ビューア', () => {
   test.describe('パン操作', () => {
     test('画像キャンバスがパン操作可能な状態である (site-survey/REQ-5.4)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -519,8 +504,7 @@ test.describe('現場調査画像ビューア', () => {
         .first();
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        test.skip();
-        return;
+        throw new Error('画像が見つかりません。事前準備テストで画像がアップロードされていません。');
       }
 
       await imageElement.click();
@@ -555,8 +539,7 @@ test.describe('現場調査画像ビューア', () => {
       page,
     }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -569,8 +552,7 @@ test.describe('現場調査画像ビューア', () => {
         .first();
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        test.skip();
-        return;
+        throw new Error('画像が見つかりません。事前準備テストで画像がアップロードされていません。');
       }
 
       await imageElement.click();

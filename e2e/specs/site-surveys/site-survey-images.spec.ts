@@ -124,8 +124,7 @@ test.describe('現場調査画像管理', () => {
      */
     test('画像をアップロードできる', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -169,14 +168,8 @@ test.describe('現場調査画像管理', () => {
         { timeout: getTimeout(60000) }
       );
 
-      // ファイルが存在しない場合はスキップ
-      try {
-        await input.setInputFiles(testImagePath);
-      } catch {
-        // テスト画像ファイルが存在しない場合は、このテストをスキップ
-        test.skip();
-        return;
-      }
+      // テスト用画像ファイルをセット
+      await input.setInputFiles(testImagePath);
 
       // アップロード完了を待機
       await uploadPromise;
@@ -201,8 +194,7 @@ test.describe('現場調査画像管理', () => {
       page,
     }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -229,13 +221,8 @@ test.describe('現場調査画像管理', () => {
       // サポートされていない形式のファイルパス
       const unsupportedFilePath = path.join(__dirname, '../../fixtures/test-document.txt');
 
-      try {
-        await input.setInputFiles(unsupportedFilePath);
-      } catch {
-        // テストファイルが存在しない場合はスキップ
-        test.skip();
-        return;
-      }
+      // テストファイルをセット
+      await input.setInputFiles(unsupportedFilePath);
 
       // エラーメッセージが表示されることを確認
       await expect(
@@ -255,8 +242,7 @@ test.describe('現場調査画像管理', () => {
      */
     test('画像を削除できる', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');

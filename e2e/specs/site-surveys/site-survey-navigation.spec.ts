@@ -161,8 +161,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       page,
     }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -184,8 +183,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
 
     test('現場調査タブをクリックすると一覧が表示される (site-survey/REQ-2.2)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -220,8 +218,9 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
   test.describe('現場調査一覧から詳細へのナビゲーション', () => {
     test('一覧で項目をクリックすると詳細画面に遷移する (site-survey/REQ-2.3)', async ({ page }) => {
       if (!createdProjectId || !createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error(
+          'createdProjectIdまたはcreatedSurveyIdが未設定です。事前準備テストが正しく実行されていません。'
+        );
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -292,8 +291,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
   test.describe('ブレッドクラムナビゲーション', () => {
     test('現場調査詳細画面にブレッドクラムが表示される (site-survey/REQ-2.5)', async ({ page }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -310,8 +308,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       page,
     }) => {
       if (!createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -344,8 +341,9 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       page,
     }) => {
       if (!createdProjectId || !createdSurveyId) {
-        test.skip();
-        return;
+        throw new Error(
+          'createdProjectIdまたはcreatedSurveyIdが未設定です。事前準備テストが正しく実行されていません。'
+        );
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -372,8 +370,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
 
     test('現場調査一覧画面にブレッドクラムが表示される (site-survey/REQ-2.5)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');

@@ -244,8 +244,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const dimensionTool = page.getByRole('button', { name: /寸法線|dimension|ruler/i });
@@ -259,8 +260,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       // 寸法線ツールを選択
@@ -300,8 +302,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const arrowTool = page.getByRole('button', { name: /矢印|arrow/i });
@@ -314,8 +317,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const circleTool = page.getByRole('button', { name: /円|circle|ellipse/i });
@@ -328,8 +332,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const rectTool = page.getByRole('button', { name: /四角形|rectangle|rect|square/i });
@@ -342,8 +347,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const polygonTool = page.getByRole('button', { name: /多角形|polygon/i });
@@ -356,8 +362,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const polylineTool = page.getByRole('button', { name: /折れ線|polyline|line/i });
@@ -370,8 +377,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const freehandTool = page.getByRole('button', { name: /フリーハンド|pencil|pen|freehand/i });
@@ -384,8 +392,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       // 任意のツールを選択
@@ -421,8 +430,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const textTool = page.getByRole('button', { name: /テキスト|text|文字/i });
@@ -435,8 +445,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const textTool = page.getByRole('button', { name: /テキスト|text|文字/i });
@@ -467,8 +478,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const textTool = page.getByRole('button', { name: /テキスト|text|文字/i });
@@ -503,8 +515,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const saveButton = page.getByRole('button', { name: /保存|save/i });
@@ -525,8 +538,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const exportButton = page.getByRole('button', {
@@ -541,8 +555,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const exportButton = page.getByRole('button', { name: /エクスポート|export|ダウンロード/i });
@@ -574,8 +589,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const undoButton = page.getByRole('button', { name: /元に戻す|undo|取り消し/i });
@@ -588,8 +604,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const redoButton = page.getByRole('button', { name: /やり直し|redo/i });
@@ -602,8 +619,9 @@ test.describe('現場調査注釈ツール', () => {
 
       const success = await navigateToAnnotationEditor(page);
       if (!success) {
-        test.skip();
-        return;
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
       }
 
       // Ctrl+Zを押してUndoが反応するか確認（実際の操作履歴がなくてもOK）

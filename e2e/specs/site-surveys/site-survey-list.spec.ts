@@ -122,8 +122,7 @@ test.describe('現場調査一覧・検索', () => {
       page,
     }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -161,8 +160,7 @@ test.describe('現場調査一覧・検索', () => {
   test.describe('検索機能', () => {
     test('現場調査名で部分一致検索ができる (site-survey/REQ-3.2)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -174,9 +172,7 @@ test.describe('現場調査一覧・検索', () => {
       const searchInput = page.getByRole('searchbox').or(page.getByPlaceholder(/検索/i)).first();
 
       if (!(await searchInput.isVisible({ timeout: 5000 }).catch(() => false))) {
-        // 検索機能がない場合はスキップ
-        test.skip();
-        return;
+        throw new Error('検索入力フィールドが見つかりません');
       }
 
       // 「検索テスト」で検索
@@ -201,8 +197,7 @@ test.describe('現場調査一覧・検索', () => {
 
     test('メモで部分一致検索ができる (site-survey/REQ-3.2)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -213,8 +208,7 @@ test.describe('現場調査一覧・検索', () => {
       const searchInput = page.getByRole('searchbox').or(page.getByPlaceholder(/検索/i)).first();
 
       if (!(await searchInput.isVisible({ timeout: 5000 }).catch(() => false))) {
-        test.skip();
-        return;
+        throw new Error('検索入力フィールドが見つかりません');
       }
 
       // 「東棟」で検索
@@ -237,8 +231,7 @@ test.describe('現場調査一覧・検索', () => {
   test.describe('日付フィルタリング', () => {
     test('調査日でフィルタリングができる (site-survey/REQ-3.3)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -276,8 +269,7 @@ test.describe('現場調査一覧・検索', () => {
   test.describe('並び替え', () => {
     test('調査日でソートができる (site-survey/REQ-3.4)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -295,9 +287,7 @@ test.describe('現場調査一覧・検索', () => {
       const hasSortSelect = await sortSelect.isVisible({ timeout: 3000 }).catch(() => false);
 
       if (!hasSortByDate && !hasSortHeader && !hasSortSelect) {
-        // ソート機能がない場合はスキップ
-        test.skip();
-        return;
+        throw new Error('ソート機能が見つかりません');
       }
 
       // ソートを実行
@@ -324,8 +314,7 @@ test.describe('現場調査一覧・検索', () => {
 
     test('作成日でソートができる (site-survey/REQ-3.4)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -354,8 +343,7 @@ test.describe('現場調査一覧・検索', () => {
   test.describe('サムネイル表示', () => {
     test('一覧画面でサムネイル画像エリアが表示される (site-survey/REQ-3.5)', async ({ page }) => {
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await loginAsUser(page, 'REGULAR_USER');
