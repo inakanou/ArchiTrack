@@ -333,31 +333,12 @@ test.describe('現場調査一覧・検索', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys`);
       await page.waitForLoadState('networkidle');
 
-      const sortByCreated = page.getByRole('button', { name: /作成日/i });
-      const sortHeader = page.getByRole('columnheader', { name: /作成日/i });
-      const sortSelect = page.getByRole('combobox', { name: /並び替え|ソート/i });
+      // ソート項目選択ドロップダウンを探す
+      const sortSelect = page.locator('select[aria-label="ソート項目"]');
+      await expect(sortSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-      const hasSortByCreated = await sortByCreated.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasSortHeader = await sortHeader.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasSortSelect = await sortSelect.isVisible({ timeout: 3000 }).catch(() => false);
-
-      if (!hasSortByCreated && !hasSortHeader && !hasSortSelect) {
-        test.skip();
-        return;
-      }
-
-      if (hasSortHeader) {
-        await sortHeader.click();
-      } else if (hasSortByCreated) {
-        await sortByCreated.click();
-      } else if (hasSortSelect) {
-        // ソートオプションから作成日を探して選択
-        const options = await sortSelect.locator('option').allTextContents();
-        const createdOption = options.find((opt) => opt.includes('作成日'));
-        if (createdOption) {
-          await sortSelect.selectOption({ label: createdOption });
-        }
-      }
+      // 「作成日」オプションを選択
+      await sortSelect.selectOption('createdAt');
 
       await page.waitForLoadState('networkidle');
 
