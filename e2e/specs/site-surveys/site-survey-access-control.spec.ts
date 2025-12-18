@@ -235,7 +235,8 @@ test.describe('現場調査アクセス制御', () => {
         return;
       }
 
-      // ログアウト状態（Cookieクリア済み）
+      // ログアウト状態にする（まずアプリのオリジンに移動してからlocalStorageをクリア）
+      await page.goto('/');
       await context.clearCookies();
       await page.evaluate(() => {
         localStorage.removeItem('refreshToken');
@@ -268,7 +269,8 @@ test.describe('現場調査アクセス制御', () => {
         return;
       }
 
-      // ログアウト状態
+      // ログアウト状態にする（まずアプリのオリジンに移動してからlocalStorageをクリア）
+      await page.goto('/');
       await context.clearCookies();
       await page.evaluate(() => {
         localStorage.removeItem('refreshToken');
@@ -301,7 +303,8 @@ test.describe('現場調査アクセス制御', () => {
         return;
       }
 
-      // ログアウト状態
+      // ログアウト状態にする（まずアプリのオリジンに移動してからlocalStorageをクリア）
+      await page.goto('/');
       await context.clearCookies();
       await page.evaluate(() => {
         localStorage.removeItem('refreshToken');
