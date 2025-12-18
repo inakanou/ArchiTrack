@@ -270,8 +270,8 @@ test.describe('現場調査CRUD操作', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 詳細情報が表示されることを確認
-      await expect(page.getByText(/E2Eテスト現場調査/i)).toBeVisible({
+      // 詳細情報が表示されることを確認（見出しを使用）
+      await expect(page.getByRole('heading', { name: /E2Eテスト現場調査/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
