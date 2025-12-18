@@ -488,19 +488,20 @@ test.describe('現場調査CRUD操作', () => {
         return;
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
+      // 削除権限はadminロールのみが持つ
+      await loginAsUser(page, 'ADMIN_USER');
 
       // 詳細ページに移動
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 削除ボタンをクリック
-      const deleteButton = page.getByRole('button', { name: /削除/i });
+      // 削除ボタンをクリック（「削除」を正確にマッチ）
+      const deleteButton = page.getByRole('button', { name: /^削除$/ });
       await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
       await deleteButton.click();
 
-      // 確認ダイアログが表示されることを確認
-      await expect(page.getByText(/削除しますか|この操作は取り消せません/i)).toBeVisible({
+      // 確認ダイアログが表示されることを確認（見出しを使用）
+      await expect(page.getByRole('heading', { name: /現場調査を削除しますか/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -508,7 +509,7 @@ test.describe('現場調査CRUD操作', () => {
       await page.getByRole('button', { name: /キャンセル/i }).click();
 
       // ダイアログが閉じることを確認
-      await expect(page.getByText(/削除しますか|この操作は取り消せません/i)).not.toBeVisible({
+      await expect(page.getByRole('heading', { name: /現場調査を削除しますか/i })).not.toBeVisible({
         timeout: getTimeout(5000),
       });
 
