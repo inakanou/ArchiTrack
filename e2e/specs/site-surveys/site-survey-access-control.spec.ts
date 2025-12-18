@@ -115,8 +115,10 @@ test.describe('現場調査アクセス制御', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 現場調査情報が表示されることを確認
-      await expect(page.getByText(/アクセス制御テスト用現場調査/i)).toBeVisible({
+      // 現場調査情報が表示されることを確認（見出しで特定）
+      await expect(
+        page.getByRole('heading', { name: /アクセス制御テスト用現場調査/i })
+      ).toBeVisible({
         timeout: getTimeout(10000),
       });
 
