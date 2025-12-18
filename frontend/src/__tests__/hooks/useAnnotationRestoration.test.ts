@@ -90,7 +90,7 @@ describe('useAnnotationRestoration', () => {
   });
 
   describe('initialization', () => {
-    it('should check for unsaved local data on mount', () => {
+    it('should check for unsaved local data on mount', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(false);
 
       renderHook(() =>
@@ -102,7 +102,10 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
-      expect(mockAutoSaveManager.hasUnsavedData).toHaveBeenCalledWith('image-123');
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(mockAutoSaveManager.hasUnsavedData).toHaveBeenCalledWith('image-123');
+      });
     });
 
     it('should return initial state correctly when no local data exists', () => {
@@ -123,7 +126,7 @@ describe('useAnnotationRestoration', () => {
       expect(result.current.localData).toBeNull();
     });
 
-    it('should detect local data and show restore dialog', () => {
+    it('should detect local data and show restore dialog', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue(mockLocalStorageData);
 
@@ -136,14 +139,17 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
-      expect(result.current.hasLocalData).toBe(true);
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
       expect(result.current.showRestoreDialog).toBe(true);
       expect(result.current.localData).toEqual(mockLocalStorageData);
     });
   });
 
   describe('local data comparison with server data', () => {
-    it('should identify when local data is newer than server data', () => {
+    it('should identify when local data is newer than server data', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue({
         ...mockLocalStorageData,
@@ -160,10 +166,13 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
       expect(result.current.isLocalNewer).toBe(true);
     });
 
-    it('should identify when server data is newer than local data', () => {
+    it('should identify when server data is newer than local data', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue({
         ...mockLocalStorageData,
@@ -180,10 +189,13 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
       expect(result.current.isLocalNewer).toBe(false);
     });
 
-    it('should detect server data changes since last local save', () => {
+    it('should detect server data changes since last local save', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue({
         ...mockLocalStorageData,
@@ -200,11 +212,14 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
       // Server changed since user's local save - conflict situation
       expect(result.current.hasServerConflict).toBe(true);
     });
 
-    it('should not show conflict when server has not changed since local save', () => {
+    it('should not show conflict when server has not changed since local save', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue({
         ...mockLocalStorageData,
@@ -221,6 +236,9 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
       expect(result.current.hasServerConflict).toBe(false);
     });
   });
@@ -241,6 +259,10 @@ describe('useAnnotationRestoration', () => {
           onRestore,
         })
       );
+
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
 
       act(() => {
         result.current.confirmRestore();
@@ -266,6 +288,10 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
+
       act(() => {
         result.current.discardLocal();
       });
@@ -276,7 +302,7 @@ describe('useAnnotationRestoration', () => {
       expect(result.current.hasLocalData).toBe(false);
     });
 
-    it('should dismiss dialog without action when user cancels', () => {
+    it('should dismiss dialog without action when user cancels', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue(mockLocalStorageData);
 
@@ -289,8 +315,10 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
-      // Initially showing dialog
-      expect(result.current.showRestoreDialog).toBe(true);
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(result.current.showRestoreDialog).toBe(true);
+      });
 
       act(() => {
         result.current.dismissDialog();
@@ -303,7 +331,7 @@ describe('useAnnotationRestoration', () => {
   });
 
   describe('edge cases', () => {
-    it('should handle case when server data is null (new image)', () => {
+    it('should handle case when server data is null (new image)', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue(mockLocalStorageData);
 
@@ -316,12 +344,17 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
+
       // Should still show restore dialog for new images with local data
       expect(result.current.showRestoreDialog).toBe(true);
       expect(result.current.hasServerConflict).toBe(false);
     });
 
-    it('should handle case when local savedAt is invalid', () => {
+    it('should handle case when local savedAt is invalid', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue({
         ...mockLocalStorageData,
@@ -337,12 +370,16 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
+
       // Should handle gracefully - assume local data is older
-      expect(result.current.hasLocalData).toBe(true);
       expect(result.current.isLocalNewer).toBe(false);
     });
 
-    it('should not show restore dialog if local data matches server data timestamp', () => {
+    it('should not show restore dialog if local data matches server data timestamp', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue({
         ...mockLocalStorageData,
@@ -358,6 +395,11 @@ describe('useAnnotationRestoration', () => {
           autoSaveManager: mockAutoSaveManager as unknown as AutoSaveManager,
         })
       );
+
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
 
       // No need to show dialog if server already has this version
       expect(result.current.showRestoreDialog).toBe(false);
@@ -378,7 +420,10 @@ describe('useAnnotationRestoration', () => {
         { initialProps: { imageId: 'image-123' } }
       );
 
-      expect(mockAutoSaveManager.hasUnsavedData).toHaveBeenCalledWith('image-123');
+      // Wait for initial queueMicrotask to complete
+      await waitFor(() => {
+        expect(mockAutoSaveManager.hasUnsavedData).toHaveBeenCalledWith('image-123');
+      });
 
       // Change imageId
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
@@ -393,12 +438,14 @@ describe('useAnnotationRestoration', () => {
         expect(mockAutoSaveManager.hasUnsavedData).toHaveBeenCalledWith('image-456');
       });
 
-      expect(result.current.hasLocalData).toBe(true);
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
     });
   });
 
   describe('restore dialog state', () => {
-    it('should provide formatted timestamps for display', () => {
+    it('should provide formatted timestamps for display', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue(mockLocalStorageData);
 
@@ -411,12 +458,17 @@ describe('useAnnotationRestoration', () => {
         })
       );
 
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
+
       // Should provide human-readable timestamps
       expect(result.current.localSavedAtFormatted).toBeDefined();
       expect(result.current.serverUpdatedAtFormatted).toBeDefined();
     });
 
-    it('should return annotation data comparison info', () => {
+    it('should return annotation data comparison info', async () => {
       mockAutoSaveManager.hasUnsavedData.mockReturnValue(true);
       mockAutoSaveManager.loadFromLocal.mockReturnValue(mockLocalStorageData);
 
@@ -428,6 +480,11 @@ describe('useAnnotationRestoration', () => {
           autoSaveManager: mockAutoSaveManager as unknown as AutoSaveManager,
         })
       );
+
+      // Wait for queueMicrotask to complete
+      await waitFor(() => {
+        expect(result.current.hasLocalData).toBe(true);
+      });
 
       expect(result.current.localObjectCount).toBe(1);
       expect(result.current.serverObjectCount).toBe(1);
