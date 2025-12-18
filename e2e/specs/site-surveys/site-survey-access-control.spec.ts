@@ -348,7 +348,8 @@ test.describe('現場調査アクセス制御', () => {
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
         if (await deleteButton.isVisible()) {
           await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: /^削除する$|^削除$/i });
+          // 確認ダイアログの「削除する」ボタンを正確に指定
+          const confirmButton = page.getByRole('button', { name: '削除する' });
           if (await confirmButton.isVisible()) {
             await confirmButton.click();
             await page
