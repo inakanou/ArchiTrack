@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-16（Steering Sync: site-survey仕様の追加）_
+_最終更新: 2025-12-18（Steering Sync: site-survey機能の実装完了を反映）_
 
 ## ルートディレクトリ構成
 
@@ -218,11 +218,9 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全15タスク完了）
   - 内容: 取引先CRUD、種別管理（顧客/協力業者）、請求締日・支払日管理、検索・フィルタリング・ページネーション
 
-**定義中の仕様:**
-
-- `.kiro/specs/site-survey/` - 現場調査機能 (仕様定義中)
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、実装待ち
-  - 内容: 現場調査CRUD、画像アップロード・管理、Canvas注釈編集（寸法線・マーキング・コメント）、PDF報告書エクスポート
+- `.kiro/specs/site-survey/` - 現場調査機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全26タスク完了）
+  - 内容: 現場調査CRUD、画像アップロード・管理（R2）、Canvas注釈編集（寸法線・矢印・図形・テキスト）、PDF報告書エクスポート
 
 ### `e2e/`
 
@@ -251,7 +249,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── projects/         # プロジェクト管理テスト
 │   │   └── *.spec.ts
-│   └── trading-partners/ # 取引先管理テスト
+│   ├── trading-partners/ # 取引先管理テスト
+│   │   └── *.spec.ts
+│   └── site-surveys/     # 現場調査テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -278,6 +278,7 @@ e2e/
 - `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
+- `site-surveys/` - 現場調査テスト（CRUD、画像アップロード、注釈編集、アクセス制御等）
 
 **テストヘルパー:**
 
@@ -383,6 +384,24 @@ frontend/
 │   │       ├── TradingPartnerTypeSelect.tsx # 取引先種別選択
 │   │       ├── BillingClosingDaySelect.tsx # 請求締日選択
 │   │       └── PaymentDateSelect.tsx # 支払日選択
+│   │   ├── site-surveys/            # 現場調査コンポーネント
+│   │       ├── SiteSurveyForm.tsx   # 現場調査作成・編集フォーム
+│   │       ├── SiteSurveyListTable.tsx # 現場調査一覧テーブル
+│   │       ├── SiteSurveyListCard.tsx # 現場調査一覧カード（モバイル）
+│   │       ├── SiteSurveyListView.tsx # 現場調査一覧ビュー
+│   │       ├── SiteSurveySearchFilter.tsx # 検索・フィルタUI
+│   │       ├── SiteSurveyResponsiveView.tsx # レスポンシブビュー切り替え
+│   │       ├── SiteSurveyDetailInfo.tsx # 現場調査詳細情報表示
+│   │       ├── SiteSurveyErrorDisplay.tsx # エラー表示
+│   │       ├── ImageUploader.tsx    # 画像アップロードUI
+│   │       ├── SurveyImageGrid.tsx  # 画像グリッド表示
+│   │       ├── ImageViewer.tsx      # 画像ビューア（Fabric.js）
+│   │       ├── LazyImage.tsx        # 遅延読み込み画像
+│   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
+│   │       ├── AnnotationToolbar.tsx # 注釈ツールバー
+│   │       ├── StylePanel.tsx       # スタイル設定パネル
+│   │       └── tools/               # 注釈ツール
+│   │           └── DimensionValueInput.tsx # 寸法値入力
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
 │   │       └── ResourceNotFound.tsx # リソース未発見表示
@@ -408,7 +427,12 @@ frontend/
 │   │   ├── TradingPartnerListPage.tsx # 取引先一覧ページ
 │   │   ├── TradingPartnerDetailPage.tsx # 取引先詳細ページ
 │   │   ├── TradingPartnerCreatePage.tsx # 取引先作成ページ
-│   │   └── TradingPartnerEditPage.tsx # 取引先編集ページ
+│   │   ├── TradingPartnerEditPage.tsx # 取引先編集ページ
+│   │   ├── SiteSurveyListPage.tsx # 現場調査一覧ページ
+│   │   ├── SiteSurveyDetailPage.tsx # 現場調査詳細ページ
+│   │   ├── SiteSurveyCreatePage.tsx # 現場調査作成ページ
+│   │   ├── SiteSurveyEditPage.tsx # 現場調査編集ページ
+│   │   └── SiteSurveyImageViewerPage.tsx # 画像ビューア/注釈エディタページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -551,13 +575,16 @@ backend/
 │   │   ├── user-roles.routes.ts # ユーザーロール管理ルート
 │   │   ├── users.routes.ts  # ユーザー管理ルート（担当者候補取得）
 │   │   ├── projects.routes.ts # プロジェクト管理ルート（CRUD、ステータス遷移）
-│   │   └── trading-partners.routes.ts # 取引先管理ルート（CRUD、検索）
+│   │   ├── trading-partners.routes.ts # 取引先管理ルート（CRUD、検索）
+│   │   ├── site-surveys.routes.ts # 現場調査ルート（CRUD）
+│   │   ├── survey-images.routes.ts # 調査画像ルート（アップロード、削除、順序変更）
+│   │   └── annotation.routes.ts # 注釈ルート（保存、取得、エクスポート）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
 │   ├── schemas/           # Zodバリデーションスキーマ
 │   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
-│   ├── services/          # ビジネスロジック（17サービス）
+│   ├── services/          # ビジネスロジック（27サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -574,7 +601,16 @@ backend/
 │   │   ├── email.service.ts # メール送信（Bull非同期キュー、Handlebars）
 │   │   ├── project.service.ts # プロジェクト管理（CRUD、楽観的排他制御）
 │   │   ├── project-status.service.ts # プロジェクトステータス遷移（12種類のステータス）
-│   │   └── trading-partner.service.ts # 取引先管理（CRUD、種別管理、楽観的排他制御）
+│   │   ├── trading-partner.service.ts # 取引先管理（CRUD、種別管理、楽観的排他制御）
+│   │   ├── site-survey.service.ts # 現場調査管理（CRUD、楽観的排他制御）
+│   │   ├── survey-image.service.ts # 調査画像管理（メタデータ管理）
+│   │   ├── image-upload.service.ts # 画像アップロード（R2連携）
+│   │   ├── image-processor.service.ts # 画像処理（圧縮、サムネイル生成）
+│   │   ├── batch-upload.service.ts # バッチアップロード（キュー処理）
+│   │   ├── image-order.service.ts # 画像順序管理
+│   │   ├── image-delete.service.ts # 画像削除（R2連携）
+│   │   ├── signed-url.service.ts # 署名付きURL生成（R2）
+│   │   └── annotation.service.ts # 注釈管理（Fabric.js JSON保存）
 │   ├── templates/         # メールテンプレート
 │   │   └── （Handlebarsテンプレート）
 │   ├── types/             # カスタム型定義
@@ -710,6 +746,24 @@ backend/src/
 - `PUT /api/trading-partners/:id`: 取引先更新（楽観的排他制御）
 - `DELETE /api/trading-partners/:id`: 取引先論理削除
 - `GET /api/trading-partners/search`: 取引先検索（オートコンプリート用）
+
+**現場調査管理API（site-surveys.routes.ts）:**
+- `POST /api/projects/:projectId/site-surveys`: 現場調査作成
+- `GET /api/projects/:projectId/site-surveys`: 現場調査一覧取得（ページネーション、検索、フィルタリング）
+- `GET /api/site-surveys/:id`: 現場調査詳細取得
+- `PUT /api/site-surveys/:id`: 現場調査更新（楽観的排他制御）
+- `DELETE /api/site-surveys/:id`: 現場調査論理削除
+
+**調査画像API（survey-images.routes.ts）:**
+- `POST /api/site-surveys/:id/images`: 画像アップロード（multipart/form-data）
+- `GET /api/site-surveys/:id/images`: 画像一覧取得
+- `PUT /api/site-surveys/:id/images/order`: 画像順序変更
+- `DELETE /api/site-surveys/images/:imageId`: 画像削除
+
+**注釈API（annotation.routes.ts）:**
+- `GET /api/site-surveys/images/:imageId/annotations`: 注釈データ取得
+- `PUT /api/site-surveys/images/:imageId/annotations`: 注釈データ保存（Fabric.js JSON）
+- `GET /api/site-surveys/images/:imageId/annotations/export`: 注釈JSONエクスポート
 
 **実装済みミドルウェア:**
 
