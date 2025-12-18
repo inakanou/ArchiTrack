@@ -145,8 +145,8 @@ test.describe('現場調査CRUD操作', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys`);
       await page.waitForLoadState('networkidle');
 
-      // 「新規作成」ボタンまたはリンクをクリック
-      const createButton = page.getByRole('link', { name: /新規作成/i });
+      // 「新規作成」ボタンまたはリンクをクリック（ヘッダーの最初のリンクを使用）
+      const createButton = page.getByRole('link', { name: /新規作成/i }).first();
       await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
       await createButton.click();
 
