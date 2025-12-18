@@ -6,16 +6,20 @@
  *
  * Requirements:
  * - 1.2: 現場調査詳細画面を表示する際、現場調査の基本情報と関連する画像一覧を表示する
+ * - 10.6: PDF報告書のクライアントサイド生成
  * - 12.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
  * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  *
  * 機能:
  * - 調査名、調査日、メモの表示
  * - 編集ボタン・削除ボタン（権限に基づいて表示/非表示）
+ * - PDF報告書出力ボタン
  * - プロジェクトへの戻り導線
  */
 
+import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { jsPDF } from 'jspdf';
 import type { SiteSurveyDetail } from '../../types/site-survey.types';
 
 // ============================================================================
@@ -103,6 +107,16 @@ const styles = {
     backgroundColor: '#f3f4f6',
     color: '#9ca3af',
     border: '1px solid #d1d5db',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  pdfButton: {
+    backgroundColor: '#059669',
+    color: '#ffffff',
+    border: 'none',
+  } as React.CSSProperties,
+  pdfButtonDisabled: {
+    backgroundColor: '#d1d5db',
+    color: '#6b7280',
     cursor: 'not-allowed',
   } as React.CSSProperties,
   grid: {
@@ -206,8 +220,79 @@ export default function SiteSurveyDetailInfo({
   canEdit = true,
   canDelete = true,
 }: SiteSurveyDetailInfoProps) {
-  // アクションボタンが1つ以上表示されるかどうか
-  const hasActions = canEdit || canDelete;
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  /**
+   * PDF報告書を生成してダウンロード
+   * @requirement site-survey/REQ-10.6
+   */
+  const handleExportPdf = useCallback(async () => {
+    setIsGeneratingPdf(true);
+
+    try {
+      // A4サイズのPDFを作成
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      // 日本語フォント対応のため、基本的なASCII文字で出力
+      // 実際の日本語対応には別途フォント埋め込みが必要
+      const pageWidth = doc.internal.pageSize.getWidth();
+      let yPosition = 20;
+
+      // タイトル
+      doc.setFontSize(18);
+      doc.text('Site Survey Report', pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 15;
+
+      // 現場調査名
+      doc.setFontSize(14);
+      doc.text(`Survey: ${survey.name}`, 20, yPosition);
+      yPosition += 10;
+
+      // プロジェクト名
+      doc.setFontSize(12);
+      doc.text(`Project: ${survey.project.name}`, 20, yPosition);
+      yPosition += 8;
+
+      // 調査日
+      doc.text(`Date: ${formatSurveyDate(survey.surveyDate)}`, 20, yPosition);
+      yPosition += 8;
+
+      // 画像件数
+      doc.text(`Images: ${survey.imageCount}`, 20, yPosition);
+      yPosition += 8;
+
+      // 作成日時
+      doc.text(`Created: ${formatDateTime(survey.createdAt)}`, 20, yPosition);
+      yPosition += 8;
+
+      // 更新日時
+      doc.text(`Updated: ${formatDateTime(survey.updatedAt)}`, 20, yPosition);
+      yPosition += 12;
+
+      // メモ
+      if (survey.memo) {
+        doc.setFontSize(12);
+        doc.text('Memo:', 20, yPosition);
+        yPosition += 6;
+        doc.setFontSize(10);
+        // メモを複数行に分割
+        const memoLines = doc.splitTextToSize(survey.memo, pageWidth - 40);
+        doc.text(memoLines, 20, yPosition);
+      }
+
+      // PDFをダウンロード
+      const fileName = `site-survey-${survey.id}-${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+    } catch (error) {
+      console.error('PDF generation failed:', error);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  }, [survey]);
 
   return (
     <div style={styles.container}>
@@ -221,32 +306,42 @@ export default function SiteSurveyDetailInfo({
           </div>
         </div>
 
-        {hasActions && (
-          <div style={styles.actionsContainer}>
-            {canEdit && (
-              <button
-                type="button"
-                onClick={onEdit}
-                style={{ ...styles.button, ...styles.editButton }}
-              >
-                編集
-              </button>
-            )}
-            {canDelete && (
-              <button
-                type="button"
-                onClick={onDelete}
-                disabled={isDeleting}
-                style={{
-                  ...styles.button,
-                  ...(isDeleting ? styles.deleteButtonDisabled : styles.deleteButton),
-                }}
-              >
-                {isDeleting ? '削除中...' : '削除'}
-              </button>
-            )}
-          </div>
-        )}
+        <div style={styles.actionsContainer}>
+          {/* PDF出力ボタン (Requirement 10.6) */}
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={isGeneratingPdf}
+            style={{
+              ...styles.button,
+              ...(isGeneratingPdf ? styles.pdfButtonDisabled : styles.pdfButton),
+            }}
+          >
+            {isGeneratingPdf ? '生成中...' : 'PDF出力'}
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              style={{ ...styles.button, ...styles.editButton }}
+            >
+              編集
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={isDeleting}
+              style={{
+                ...styles.button,
+                ...(isDeleting ? styles.deleteButtonDisabled : styles.deleteButton),
+              }}
+            >
+              {isDeleting ? '削除中...' : '削除'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 基本情報グリッド */}
