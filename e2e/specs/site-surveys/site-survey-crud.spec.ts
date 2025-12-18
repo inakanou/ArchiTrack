@@ -215,8 +215,8 @@ test.describe('現場調査CRUD操作', () => {
         timeout: getTimeout(10000),
       });
 
-      // 詳細画面に作成した情報が表示されることを確認
-      await expect(page.getByText(surveyName)).toBeVisible();
+      // 詳細画面に作成した情報が表示されることを確認（見出しを使用）
+      await expect(page.getByRole('heading', { name: surveyName })).toBeVisible();
 
       // 作成した現場調査のIDを保存
       const url = page.url();
