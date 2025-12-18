@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-18（Steering Sync: site-survey機能の技術スタックを追加）_
+_最終更新: 2025-12-18（Steering Sync: ストレージ抽象化レイヤーを追加）_
 
 ## アーキテクチャ
 
@@ -106,6 +106,9 @@ ArchiTrack/
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）
 - **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）
+- **ストレージ抽象化**: StorageProvider インターフェースによる環境別バックエンド切り替え
+  - LocalStorageProvider（開発・テスト環境）
+  - R2StorageProvider（本番環境、Cloudflare R2）
 - **クラウドストレージ**: @aws-sdk/client-s3、@aws-sdk/s3-request-presigner（Cloudflare R2連携）
 - **パッケージマネージャ**: npm
 - **設定管理**: dotenv (.envファイル)

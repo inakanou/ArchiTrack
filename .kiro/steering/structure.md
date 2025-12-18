@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-18（Steering Sync: site-survey機能の実装完了を反映）_
+_最終更新: 2025-12-18（Steering Sync: ストレージ抽象化レイヤーを追加）_
 
 ## ルートディレクトリ構成
 
@@ -611,6 +611,12 @@ backend/
 │   │   ├── image-delete.service.ts # 画像削除（R2連携）
 │   │   ├── signed-url.service.ts # 署名付きURL生成（R2）
 │   │   └── annotation.service.ts # 注釈管理（Fabric.js JSON保存）
+│   ├── storage/           # ストレージ抽象化レイヤー
+│   │   ├── index.ts       # エクスポート集約
+│   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
+│   │   ├── storage-factory.ts # ストレージファクトリー（環境別自動判定）
+│   │   ├── local-storage.provider.ts # ローカルストレージ（開発・テスト用）
+│   │   └── r2-storage.provider.ts # R2ストレージ（本番用）
 │   ├── templates/         # メールテンプレート
 │   │   └── （Handlebarsテンプレート）
 │   ├── types/             # カスタム型定義
@@ -839,6 +845,7 @@ ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔�
 3. **高凝集**: 関連する機能を同じモジュールに配置
 4. **階層化**: プレゼンテーション層・ビジネスロジック層・データ層を分離
 5. **Lazy Initialization**: データベース・キャッシュ接続は初回アクセス時に確立
+6. **ストレージ抽象化**: StorageProviderインターフェースによる環境別バックエンド切り替え（Factory Pattern）
 
 ### ディレクトリ命名規則
 
