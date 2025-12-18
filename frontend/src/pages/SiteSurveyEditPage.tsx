@@ -277,9 +277,10 @@ export default function SiteSurveyEditPage() {
   );
 
   // フォーム初期データ
+  // surveyDateはISO形式（2025-01-15T00:00:00.000Z）で返されるため、YYYY-MM-DD形式に変換
   const initialData: Partial<SiteSurveyFormData> = {
     name: survey.name,
-    surveyDate: survey.surveyDate,
+    surveyDate: survey.surveyDate.split('T')[0],
     memo: survey.memo,
   };
 
