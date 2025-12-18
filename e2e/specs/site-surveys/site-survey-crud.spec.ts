@@ -407,7 +407,8 @@ test.describe('現場調査CRUD操作', () => {
         return;
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
+      // 削除権限はadminロールのみが持つ
+      await loginAsUser(page, 'ADMIN_USER');
 
       // まず新しい現場調査を作成（削除テスト用）
       await page.goto(`/projects/${createdProjectId}/site-surveys/new`);
