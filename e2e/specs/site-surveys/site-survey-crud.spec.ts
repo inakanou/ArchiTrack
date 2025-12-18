@@ -524,6 +524,8 @@ test.describe('現場調査CRUD操作', () => {
   test.describe('クリーンアップ', () => {
     test('作成したデータを削除する', async ({ page, context }) => {
       // 管理者ユーザーに切り替えて削除
+      // localStorageにアクセスする前にアプリケーションのページに移動
+      await page.goto('/');
       await context.clearCookies();
       await page.evaluate(() => {
         localStorage.removeItem('refreshToken');
@@ -537,10 +539,10 @@ test.describe('現場調査CRUD操作', () => {
         await page.goto(`/site-surveys/${createdSurveyId}`);
         await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i });
+        const deleteButton = page.getByRole('button', { name: /^削除$/ });
         if (await deleteButton.isVisible()) {
           await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: /^削除する$|^削除$/i });
+          const confirmButton = page.getByRole('button', { name: '削除する' });
           if (await confirmButton.isVisible()) {
             await confirmButton.click();
             await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
