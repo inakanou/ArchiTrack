@@ -108,21 +108,22 @@ test.describe('現場調査画像ビューア', () => {
       createdSurveyId = surveyMatch?.[1] ?? null;
       expect(createdSurveyId).toBeTruthy();
 
-      // 後続のテストのために画像をアップロード
+      // 後続のテストのために画像を2枚アップロード（REQ-4.10のドラッグ並び替えテストに必要）
       const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
-      const fileInput = page.locator('input[type="file"]').first();
 
-      if ((await fileInput.count()) === 0) {
+      // ファイル入力を取得
+      let input = page.locator('input[type="file"]').first();
+      if ((await input.count()) === 0) {
         const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
         if (await uploadButton.isVisible()) {
           await uploadButton.click();
         }
+        input = page.locator('input[type="file"]').first();
       }
 
-      const input = page.locator('input[type="file"]').first();
       if ((await input.count()) > 0) {
-        // 2枚の画像をアップロード（並び替えテスト用）
-        await input.setInputFiles([testImagePath, testImagePath]);
+        // 1枚目の画像をアップロード
+        await input.setInputFiles(testImagePath);
 
         // アップロード完了を待機
         await page
@@ -130,13 +131,39 @@ test.describe('現場調査画像ビューア', () => {
             (response) =>
               response.url().includes('/api/') &&
               response.url().includes('images') &&
-              response.request().method() === 'POST',
+              response.request().method() === 'POST' &&
+              response.status() === 201,
             { timeout: getTimeout(30000) }
           )
           .catch(() => {});
 
-        // 画像が表示されるまで待機
-        await page.waitForTimeout(2000);
+        // 2枚目の画像をアップロード（ドラッグ並び替えテスト用）
+        await page.waitForTimeout(500);
+        input = page.locator('input[type="file"]').first();
+        if ((await input.count()) > 0) {
+          await input.setInputFiles(testImagePath);
+
+          await page
+            .waitForResponse(
+              (response) =>
+                response.url().includes('/api/') &&
+                response.url().includes('images') &&
+                response.request().method() === 'POST' &&
+                response.status() === 201,
+              { timeout: getTimeout(30000) }
+            )
+            .catch(() => {});
+        }
+
+        // ページを再読み込みして画像が表示されることを確認
+        await page.reload({ waitUntil: 'networkidle' });
+
+        // 画像グリッドに画像が表示されていることを確認
+        const imageGrid = page.locator('[data-testid="image-grid"]');
+        await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
+        const imageItems = imageGrid.locator('button[aria-label^="画像:"]');
+        const imageCount = await imageItems.count();
+        expect(imageCount).toBeGreaterThanOrEqual(2);
       }
     });
   });
@@ -405,22 +432,23 @@ test.describe('現場調査画像ビューア', () => {
       await imageElement.click();
 
       // ビューアページへの遷移を待機
-      await page
-        .waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-          timeout: getTimeout(10000),
-        })
-        .catch(() => {});
+      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+        timeout: getTimeout(10000),
+      });
+      await page.waitForLoadState('networkidle');
 
-      // ズームコントロールを探す
-      const zoomIn = page.getByRole('button', { name: /ズームイン|拡大|\+/i });
-      const zoomOut = page.getByRole('button', { name: /ズームアウト|縮小|-/i });
-      const zoomSlider = page.locator('[data-testid="zoom-slider"], input[type="range"]');
+      // ツールバーが表示されるまで待機
+      const toolbar = page.getByRole('toolbar', { name: /画像操作ツールバー/i });
+      await expect(toolbar).toBeVisible({ timeout: getTimeout(10000) });
 
-      const hasZoomIn = await zoomIn.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasZoomOut = await zoomOut.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasZoomSlider = await zoomSlider.isVisible({ timeout: 3000 }).catch(() => false);
+      // ズームコントロールを確認
+      const zoomIn = page.getByRole('button', { name: 'ズームイン' });
+      const zoomOut = page.getByRole('button', { name: 'ズームアウト' });
 
-      expect(hasZoomIn || hasZoomOut || hasZoomSlider).toBeTruthy();
+      const hasZoomIn = await zoomIn.isVisible();
+      const hasZoomOut = await zoomOut.isVisible();
+
+      expect(hasZoomIn || hasZoomOut).toBeTruthy();
     });
   });
 
@@ -450,22 +478,24 @@ test.describe('現場調査画像ビューア', () => {
 
       await imageElement.click();
 
-      await page
-        .waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-          timeout: getTimeout(10000),
-        })
-        .catch(() => {});
+      // ビューアページへの遷移を待機
+      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+        timeout: getTimeout(10000),
+      });
+      await page.waitForLoadState('networkidle');
 
-      // 回転ボタンを探す
-      const rotateLeft = page.getByRole('button', { name: /左回転|反時計回り/i });
-      const rotateRight = page.getByRole('button', { name: /右回転|時計回り|回転/i });
-      const rotateButton = page.locator('[data-testid="rotate-button"], .rotate-button');
+      // ツールバーが表示されるまで待機
+      const toolbar = page.getByRole('toolbar', { name: /画像操作ツールバー/i });
+      await expect(toolbar).toBeVisible({ timeout: getTimeout(10000) });
 
-      const hasRotateLeft = await rotateLeft.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasRotateRight = await rotateRight.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasRotateButton = await rotateButton.isVisible({ timeout: 3000 }).catch(() => false);
+      // 回転ボタンを確認
+      const rotateLeft = page.getByRole('button', { name: '左回転' });
+      const rotateRight = page.getByRole('button', { name: '右回転' });
 
-      expect(hasRotateLeft || hasRotateRight || hasRotateButton).toBeTruthy();
+      const hasRotateLeft = await rotateLeft.isVisible();
+      const hasRotateRight = await rotateRight.isVisible();
+
+      expect(hasRotateLeft || hasRotateRight).toBeTruthy();
     });
   });
 
@@ -495,23 +525,25 @@ test.describe('現場調査画像ビューア', () => {
 
       await imageElement.click();
 
-      await page
-        .waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-          timeout: getTimeout(10000),
-        })
-        .catch(() => {});
+      // ビューアページへの遷移を待機
+      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+        timeout: getTimeout(10000),
+      });
+      await page.waitForLoadState('networkidle');
 
-      // キャンバスまたは画像ビューア要素を確認
-      const canvas = page.locator('canvas, [data-testid="viewer-canvas"], .viewer-canvas');
-      const viewerImage = page.locator(
-        '[data-testid="viewer-image"], .viewer-image, .pan-container'
-      );
+      // ツールバーが表示されるまで待機（UIが読み込まれた証拠）
+      const toolbar = page.getByRole('toolbar', { name: /画像操作ツールバー/i });
+      await expect(toolbar).toBeVisible({ timeout: getTimeout(10000) });
 
-      const hasCanvas = await canvas.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasViewerImage = await viewerImage.isVisible({ timeout: 3000 }).catch(() => false);
+      // 画像がパン操作可能なコンテナ内に存在することを確認
+      const panContainer = page.locator('[data-testid="pan-container"]');
+      const viewerImage = page.locator('img[alt="test-image.jpg"]');
+
+      const hasPanContainer = await panContainer.isVisible();
+      const hasViewerImage = await viewerImage.isVisible();
 
       // パン操作可能な要素が存在することを確認
-      expect(hasCanvas || hasViewerImage).toBeTruthy();
+      expect(hasPanContainer || hasViewerImage).toBeTruthy();
     });
   });
 
@@ -543,31 +575,25 @@ test.describe('現場調査画像ビューア', () => {
 
       await imageElement.click();
 
-      await page
-        .waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-          timeout: getTimeout(10000),
-        })
-        .catch(() => {});
+      // ビューアページへの遷移を待機
+      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+        timeout: getTimeout(10000),
+      });
+      await page.waitForLoadState('networkidle');
 
-      // ビューアと注釈エディタが同じ画面に存在することを確認
-      const viewerElement = page.locator(
-        '[data-testid="viewer-image"], .viewer-image, canvas, img.viewer'
-      );
-      const annotationTools = page.locator(
-        '[data-testid="annotation-toolbar"], .annotation-toolbar, [role="toolbar"]'
-      );
+      // ツールバーが表示されるまで待機
+      const toolbar = page.getByRole('toolbar', { name: /画像操作ツールバー/i });
+      await expect(toolbar).toBeVisible({ timeout: getTimeout(10000) });
 
-      const hasViewer = await viewerElement.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasAnnotationTools = await annotationTools
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+      // ビューアと編集モードが同じ画面に存在することを確認
+      const viewerImage = page.locator('img[alt="test-image.jpg"]');
+      const editModeButton = page.getByRole('button', { name: /編集モード/i });
 
-      // 編集モードボタンがある場合
-      const editModeButton = page.getByRole('button', { name: /編集モード|注釈|描画/i });
-      const hasEditMode = await editModeButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasViewer = await viewerImage.isVisible();
+      const hasEditMode = await editModeButton.isVisible();
 
-      // ビューアが存在し、注釈ツールか編集モードボタンのいずれかがあることを確認
-      expect(hasViewer && (hasAnnotationTools || hasEditMode)).toBeTruthy();
+      // ビューアが存在し、編集モードボタンがあることを確認
+      expect(hasViewer && hasEditMode).toBeTruthy();
     });
   });
 
@@ -590,7 +616,7 @@ test.describe('現場調査画像ビューア', () => {
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
         if (await deleteButton.isVisible()) {
           await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: /^削除する$|^削除$/i });
+          const confirmButton = page.getByRole('button', { name: '削除する' });
           if (await confirmButton.isVisible()) {
             await confirmButton.click();
             await page

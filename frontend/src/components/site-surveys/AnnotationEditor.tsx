@@ -50,6 +50,12 @@ export interface AnnotationEditorProps {
   imageId: string;
   /** 調査ID */
   surveyId: string;
+  /** 初期ズーム値（REQ-5.6: ビューアとの状態共有用） */
+  initialZoom?: number;
+  /** 初期回転角度（REQ-5.6: ビューアとの状態共有用） */
+  initialRotation?: number;
+  /** 初期パン位置（REQ-5.6: ビューアとの状態共有用） */
+  initialPan?: { x: number; y: number };
 }
 
 // ============================================================================
