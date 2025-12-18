@@ -460,8 +460,8 @@ test.describe('現場調査CRUD操作', () => {
         { timeout: getTimeout(30000) }
       );
 
-      // ダイアログ内の「削除する」または「削除」ボタンをクリック
-      const confirmDeleteButton = page.getByRole('button', { name: /^削除する$|^削除$/i });
+      // ダイアログ内の「削除する」ボタンをクリック（詳細ページの「削除」ボタンと区別）
+      const confirmDeleteButton = page.getByRole('button', { name: '削除する' });
       await confirmDeleteButton.click();
 
       // APIレスポンスを待機
