@@ -18,6 +18,8 @@
 | | Zod | 4.x | バリデーション |
 | **Database** | PostgreSQL | 15 | リレーショナルデータベース |
 | | Redis | 7 | キャッシュ・セッション |
+| **Storage** | Cloudflare R2 | - | 本番画像ストレージ（S3互換） |
+| | Local Filesystem | - | 開発・テスト用ストレージ |
 | **Authentication** | JWT | - | トークンベース認証（EdDSA署名） |
 | | Argon2 | - | パスワードハッシュ |
 | | TOTP | - | 二段階認証 |
@@ -168,6 +170,47 @@ const prisma = new PrismaClient({ adapter });
 - セッション管理
 - レートリミット
 - 一時データキャッシュ
+
+---
+
+## Storage
+
+### ストレージ抽象化レイヤー
+
+ArchiTrackは、環境に応じて異なるストレージバックエンドを使用できるよう、ストレージ抽象化レイヤーを採用しています。
+
+**設計パターン:**
+- Strategy Pattern + Factory Pattern
+- StorageProviderインターフェースによる抽象化
+- シングルトンでプロバイダーを管理
+
+### Cloudflare R2（本番環境）
+
+**選定理由:**
+- S3互換API
+- Egress費用なし（転送料無料）
+- グローバルCDN統合
+- 署名付きURLによるセキュアなアクセス
+
+**特徴:**
+- AWS SDK互換
+- 高可用性
+- 従量課金
+- Workers統合可能
+
+### Local Filesystem（開発・テスト環境）
+
+**選定理由:**
+- セットアップ不要
+- 外部依存なし
+- CI環境でtmpfs利用可能
+
+**用途:**
+- ローカル開発
+- 自動テスト
+- CI/CD
+
+> 詳細は[ストレージ構成](storage-configuration.md)を参照してください。
 
 ---
 

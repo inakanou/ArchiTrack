@@ -26,6 +26,21 @@
 | `DISABLE_RATE_LIMIT` | レート制限無効化（開発・テスト用） | 任意 | `false` | `true`（ローカルのみ推奨） |
 | `SENTRY_DSN` | Sentryエラートラッキング | 推奨 | なし | Sentry Project設定 |
 
+### Storage Configuration
+
+| 変数名 | 説明 | 必須度 | デフォルト値 | 備考 |
+|--------|------|--------|--------------|------|
+| `STORAGE_TYPE` | ストレージタイプ | 任意 | 自動判定 | `local` / `r2` |
+| `LOCAL_STORAGE_PATH` | ローカルストレージのベースパス | **必須**（local） | なし | 例: `./storage` |
+| `LOCAL_STORAGE_URL` | ローカルストレージの公開URL | 推奨（local） | なし | 例: `http://localhost:3000/storage` |
+| `R2_ENDPOINT` | R2エンドポイントURL | **必須**（r2） | なし | Cloudflareアカウント設定で確認 |
+| `R2_ACCESS_KEY_ID` | R2アクセスキーID | **必須**（r2） | なし | R2 APIトークンで生成 |
+| `R2_SECRET_ACCESS_KEY` | R2シークレットアクセスキー | **必須**（r2） | なし | R2 APIトークンで生成 |
+| `R2_BUCKET_NAME` | R2バケット名 | **必須**（r2） | なし | 例: `architrack-images` |
+| `R2_PUBLIC_URL` | R2公開URL（CDN） | 任意 | なし | パブリックバケットの場合 |
+
+> 詳細は[ストレージ構成](../architecture/storage-configuration.md)を参照してください。
+
 ### Frontend Service
 
 | 変数名 | 説明 | 必須度 | デフォルト値 |
@@ -76,6 +91,11 @@ LOG_LEVEL="debug"
 
 # レート制限（開発・テスト用）
 DISABLE_RATE_LIMIT="true"
+
+# ストレージ設定（ローカル開発用）
+STORAGE_TYPE="local"
+LOCAL_STORAGE_PATH="./storage"
+LOCAL_STORAGE_URL="http://localhost:3000/storage"
 
 # 初期管理者アカウント（任意）
 INITIAL_ADMIN_EMAIL="admin@example.com"
@@ -131,6 +151,14 @@ LOG_LEVEL=info
 
 # レート制限（本番環境では必ず有効化）
 # DISABLE_RATE_LIMIT=false  # デフォルトfalse、設定不要（ローカル開発のみtrue推奨）
+
+# ストレージ設定（Cloudflare R2）
+STORAGE_TYPE=r2
+R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=<your-access-key-id>
+R2_SECRET_ACCESS_KEY=<your-secret-access-key>
+R2_BUCKET_NAME=architrack-images
+# R2_PUBLIC_URL=https://images.your-domain.com  # パブリックバケットの場合（オプション）
 
 # 初期管理者アカウント
 INITIAL_ADMIN_EMAIL=admin@example.com

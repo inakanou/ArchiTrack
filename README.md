@@ -89,6 +89,7 @@ npm run dev:docker
 - [システム構成](docs/architecture/system-overview.md) - システム全体像
 - [データフロー](docs/architecture/data-flow.md) - データの流れ
 - [セキュリティ設計](docs/architecture/security-design.md) - セキュリティ層
+- [ストレージ構成](docs/architecture/storage-configuration.md) - 画像ストレージ（Local/R2）
 - [技術スタック](docs/architecture/tech-stack.md) - 技術選定理由
 - [プロジェクト構造](docs/architecture/project-structure.md) - ディレクトリ構成とファイル構成
 
