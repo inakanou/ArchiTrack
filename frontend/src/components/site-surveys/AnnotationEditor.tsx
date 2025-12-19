@@ -428,6 +428,27 @@ function AnnotationEditor({
         return;
       }
 
+      // 既存のオブジェクト上でクリックした場合は描画を開始しない
+      // これにより、オブジェクト変形中に新規図形が作成されることを防ぐ
+      // 注意: evented: falseのオブジェクトではoptions.targetがnullになるため、
+      // すべてのオブジェクトの位置を直接チェックする
+      const objects = canvas.getObjects();
+      for (const obj of objects) {
+        // 背景画像はスキップ
+        if (obj === backgroundImageRef.current) continue;
+        // ポインターがオブジェクトの範囲内にあるかチェック
+        if (obj.containsPoint(pointer)) {
+          return; // 既存オブジェクト上では描画を開始しない
+        }
+      }
+
+      // アクティブなオブジェクト（選択中のオブジェクト）がある場合も描画を開始しない
+      // これにより、選択状態が残っている場合の意図しない描画を防ぐ
+      const activeObject = canvas.getActiveObject();
+      if (activeObject) {
+        return;
+      }
+
       // 多角形ツール - 頂点を追加
       if (activeTool === 'polygon') {
         if (!polygonBuilderRef.current) {
@@ -469,13 +490,28 @@ function AnnotationEditor({
         return;
       }
 
+      // オブジェクト上でマウスアップした場合は図形を作成しない
+      // これにより、既存オブジェクトの操作時に新規図形が作成されることを防ぐ
+      // 注意: evented: falseのオブジェクトではoptions.targetがnullになるため、
+      // すべてのオブジェクトの位置を直接チェックする
+      const pointer = options.pointer;
+      if (pointer) {
+        const objects = canvas.getObjects();
+        for (const obj of objects) {
+          if (obj === backgroundImageRef.current) continue;
+          if (obj.containsPoint(pointer)) {
+            dragStateRef.current = { isDragging: false, startPoint: null };
+            return; // 既存オブジェクト上では図形を作成しない
+          }
+        }
+      }
+
       // ドラッグ中でなければ何もしない
       if (!dragState.isDragging || !dragState.startPoint) {
         return;
       }
 
-      // Fabric.js v6ではoptions.pointerを使用（キャンバス座標）
-      const pointer = options.pointer;
+      // pointerがない場合は何もしない（上で既にチェック済みだが念のため）
       if (!pointer) {
         dragStateRef.current = { isDragging: false, startPoint: null };
         return;
