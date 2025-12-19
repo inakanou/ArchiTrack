@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-18（Steering Sync: ストレージ抽象化レイヤーを追加）_
+_最終更新: 2025-12-19（Steering Sync: サービス・ルート・テストファイル数を更新）_
 
 ## アーキテクチャ
 
@@ -275,7 +275,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 1800+テストケース（単体、61ファイル）+ 70+テスト（統合、12ファイル）
+**テスト合計:** 1800+テストケース（単体、92ファイル）+ 70+テスト（統合、12ファイル）
 
 **実行方法:**
 ```bash
@@ -331,7 +331,7 @@ npm --prefix frontend run test:coverage  # カバレッジレポート
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 700+テストケース（包括的なユニットテスト群、87テストファイル）
+- 合計: 800+テストケース（包括的なユニットテスト群、145テストファイル）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用

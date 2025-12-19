@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-18（Steering Sync: ストレージ抽象化レイヤーを追加）_
+_最終更新: 2025-12-19（Steering Sync: 現場調査機能完全実装、E2Eテスト拡充を反映）_
 
 ## ルートディレクトリ構成
 
@@ -278,7 +278,7 @@ e2e/
 - `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
-- `site-surveys/` - 現場調査テスト（CRUD、画像アップロード、注釈編集、アクセス制御等）
+- `site-surveys/` - 現場調査テスト（10ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス）
 
 **テストヘルパー:**
 
@@ -400,8 +400,17 @@ frontend/
 │   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
 │   │       ├── AnnotationToolbar.tsx # 注釈ツールバー
 │   │       ├── StylePanel.tsx       # スタイル設定パネル
-│   │       └── tools/               # 注釈ツール
-│   │           └── DimensionValueInput.tsx # 寸法値入力
+│   │       └── tools/               # 注釈ツール（9ファイル）
+│   │           ├── ArrowTool.ts     # 矢印ツール
+│   │           ├── CircleTool.ts    # 円・楕円ツール
+│   │           ├── DimensionTool.ts # 寸法線ツール
+│   │           ├── DimensionValueInput.tsx # 寸法値入力コンポーネント
+│   │           ├── FreehandTool.ts  # フリーハンドツール
+│   │           ├── PolygonTool.ts   # 多角形ツール
+│   │           ├── PolylineTool.ts  # 折れ線ツール
+│   │           ├── RectangleTool.ts # 四角形ツール
+│   │           ├── TextTool.ts      # テキストツール
+│   │           └── index.ts         # エクスポート集約
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
 │   │       └── ResourceNotFound.tsx # リソース未発見表示
@@ -519,7 +528,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（61テストファイル、1800+テストケース）
+│   │   └── unit/          # ユニットテスト（92テストファイル、1800+テストケース）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -563,7 +572,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（12ファイル）
+│   ├── routes/            # ルート定義（15ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -609,6 +618,7 @@ backend/
 │   │   ├── batch-upload.service.ts # バッチアップロード（キュー処理）
 │   │   ├── image-order.service.ts # 画像順序管理
 │   │   ├── image-delete.service.ts # 画像削除（R2連携）
+│   │   ├── image-list.service.ts # 画像一覧取得（署名付きURL付き）
 │   │   ├── signed-url.service.ts # 署名付きURL生成（R2）
 │   │   └── annotation.service.ts # 注釈管理（Fabric.js JSON保存）
 │   ├── storage/           # ストレージ抽象化レイヤー
@@ -1050,8 +1060,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 1800+テストケース（単体、61ファイル）+ 70+テスト（統合、12ファイル）
-- Frontend: 700+テストケース（単体、87ファイル）
+- Backend: 1800+テストケース（単体、92ファイル）+ 70+テスト（統合、12ファイル）
+- Frontend: 800+テストケース（単体、145ファイル）
 
 ### .gitignore
 
