@@ -22,6 +22,7 @@ const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(
   const mockCanvasInstance = {
     setWidth: vi.fn(),
     setHeight: vi.fn(),
+    setDimensions: vi.fn(),
     backgroundImage: null as unknown,
     renderAll: vi.fn(),
     dispose: vi.fn(),
@@ -43,6 +44,7 @@ const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(
     toJSON: vi.fn(() => ({ version: '6.0.0', objects: [] })),
     loadFromJSON: vi.fn(),
     viewportTransform: [1, 0, 0, 1, 0, 0],
+    selection: false,
   };
 
   const mockFabricImageInstance = {
@@ -128,7 +130,7 @@ describe('AnnotationEditor', () => {
 
         // Canvasのメソッドが呼ばれることを確認
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
       });
 
@@ -147,8 +149,8 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
-          expect(mockCanvasInstance.setHeight).toHaveBeenCalled();
+          // setDimensionsでwidthとheightが一度に設定される
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
       });
 
@@ -158,7 +160,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // Canvas初期化が完了していることを確認
@@ -172,7 +174,7 @@ describe('AnnotationEditor', () => {
 
         // Canvasが初期化されるのを待つ
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // コンポーネントをアンマウント
@@ -207,7 +209,7 @@ describe('AnnotationEditor', () => {
         const { unmount } = render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         unmount();
@@ -315,7 +317,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // Canvas操作が正常に行われることで参照が有効であることを確認
@@ -327,7 +329,7 @@ describe('AnnotationEditor', () => {
 
         // useEffectの実行によりCanvasが初期化される
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
       });
 
@@ -335,7 +337,7 @@ describe('AnnotationEditor', () => {
         const { unmount } = render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // アンマウント
@@ -351,7 +353,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // イベントリスナー設定のためにonメソッドが呼ばれることを確認
@@ -364,7 +366,7 @@ describe('AnnotationEditor', () => {
         const { unmount } = render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         unmount();
@@ -628,7 +630,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // 選択ツールがアクティブな状態でCanvasがクリック可能であることを確認
@@ -643,7 +645,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // getActiveObjectが呼び出し可能であることを確認
@@ -674,7 +676,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // selectツールではオブジェクトのコントロールが表示される設定
@@ -685,7 +687,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // selectツールではオブジェクトのボーダーが表示される
@@ -695,7 +697,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // コントロールの色設定はFabric.jsのデフォルト設定を使用
@@ -707,7 +709,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // 選択ツールがアクティブであることを確認
@@ -752,7 +754,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // selectツールがアクティブ状態でハンドルが表示される
@@ -793,7 +795,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // Deleteキーを押下
@@ -812,7 +814,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // Backspaceキーを押下
@@ -829,7 +831,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // Deleteキーを押下
@@ -848,7 +850,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // Deleteキーを押下
@@ -866,7 +868,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // 矢印ツールに切り替え
@@ -884,7 +886,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // 最初に矢印ツールに切り替え
@@ -908,7 +910,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // Escキーを押下
@@ -923,7 +925,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         const container = screen.getByTestId('annotation-editor-container');
@@ -937,7 +939,7 @@ describe('AnnotationEditor', () => {
         render(<AnnotationEditor {...defaultProps} />);
 
         await waitFor(() => {
-          expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
         // selection:createdイベントがリスナー登録されていることを確認

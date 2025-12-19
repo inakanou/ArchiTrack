@@ -157,8 +157,8 @@ function AnnotationEditor({
   imageId,
   surveyId,
 }: AnnotationEditorProps): React.JSX.Element {
-  // DOM参照
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // DOM参照 - Canvas要素を動的に挿入するコンテナ
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Fabric.js Canvas参照
@@ -166,6 +166,12 @@ function AnnotationEditor({
 
   // 背景画像参照
   const backgroundImageRef = useRef<FabricImage | null>(null);
+
+  // Canvas dispose状態を追跡（React StrictModeでの二重マウント対応）
+  const isDisposedRef = useRef(false);
+
+  // Canvas要素参照（動的に生成）
+  const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
 
   // 状態管理
   const [state, setState] = useState<AnnotationEditorState>({
@@ -211,6 +217,14 @@ function AnnotationEditor({
         crossOrigin: 'anonymous',
       });
 
+      // 非同期処理後、Canvasがdisposeされていないか確認
+      // また、渡されたcanvasインスタンスが現在のcanvasと同じかも確認
+      // （React StrictModeで古いcanvasインスタンスのクロージャが実行される可能性がある）
+      if (isDisposedRef.current || !fabricCanvasRef.current || fabricCanvasRef.current !== canvas) {
+        console.warn('Canvas has been disposed or replaced during image loading');
+        return;
+      }
+
       // コンテナサイズを取得
       const containerWidth = containerRef.current?.clientWidth || 800;
       const containerHeight = containerRef.current?.clientHeight || 600;
@@ -234,11 +248,17 @@ function AnnotationEditor({
         evented: false,
       });
 
-      // Canvasサイズを設定
+      // Canvasサイズを設定（Fabric.js v6互換）
       const scaledWidth = imgWidth * scale;
       const scaledHeight = imgHeight * scale;
-      canvas.setWidth(scaledWidth);
-      canvas.setHeight(scaledHeight);
+
+      // 再度disposeチェック（React StrictModeでのcanvas置換も考慮）
+      if (isDisposedRef.current || !fabricCanvasRef.current || fabricCanvasRef.current !== canvas) {
+        console.warn('Canvas has been disposed or replaced during image processing');
+        return;
+      }
+
+      canvas.setDimensions({ width: scaledWidth, height: scaledHeight });
 
       // 背景画像として設定（Fabric.js v6 API）
       canvas.backgroundImage = img;
@@ -250,11 +270,14 @@ function AnnotationEditor({
       setState((prev) => ({ ...prev, isLoading: false, error: null }));
     } catch (err) {
       console.error('画像の読み込みに失敗しました:', err);
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-        error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
-      }));
+      // disposeされていない場合のみstate更新
+      if (!isDisposedRef.current) {
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
+        }));
+      }
     }
   }, []);
 
@@ -328,43 +351,85 @@ function AnnotationEditor({
 
   /**
    * Fabric.js Canvasの初期化
+   *
+   * React StrictModeでの二重マウント対応:
+   * Canvas要素を動的に生成することで、dispose後の再初期化問題を回避する。
+   * Fabric.jsはdispose時にCanvas要素を内部的に変更するため、
+   * 同じDOM要素を再利用するとエラーが発生する。
    */
   useEffect(() => {
-    if (!canvasRef.current) {
+    if (!canvasWrapperRef.current) {
       return;
     }
 
-    // Canvasを初期化
-    const canvas = new FabricCanvas(canvasRef.current, {
-      selection: false, // 背景画像が選択されないように
-      renderOnAddRemove: true,
-    });
+    // dispose状態をリセット
+    isDisposedRef.current = false;
 
-    fabricCanvasRef.current = canvas;
+    let canvas: FabricCanvas | null = null;
+    let canvasElement: HTMLCanvasElement | null = null;
 
-    // 初期サイズを設定
-    const containerWidth = containerRef.current?.clientWidth || 800;
-    const containerHeight = containerRef.current?.clientHeight || 600;
-    canvas.setWidth(containerWidth);
-    canvas.setHeight(containerHeight);
+    try {
+      // コンテナサイズを取得（初期化時に指定）
+      const containerWidth = containerRef.current?.clientWidth || 800;
+      const containerHeight = containerRef.current?.clientHeight || 600;
 
-    // イベントリスナーを設定
-    setupEventListeners(canvas);
+      // Canvas要素を動的に生成（React StrictMode対応）
+      // 既存のCanvas要素をクリア（React StrictModeでの二重マウント対応）
+      while (canvasWrapperRef.current.firstChild) {
+        canvasWrapperRef.current.removeChild(canvasWrapperRef.current.firstChild);
+      }
+      canvasElement = document.createElement('canvas');
+      canvasWrapperRef.current.appendChild(canvasElement);
+      canvasElementRef.current = canvasElement;
 
-    // 画像を読み込み
-    if (imageUrl) {
-      loadImage(canvas, imageUrl);
-      prevImageUrlRef.current = imageUrl;
+      // Canvasを初期化（サイズを初期化時に指定）
+      canvas = new FabricCanvas(canvasElement, {
+        selection: false, // 背景画像が選択されないように
+        renderOnAddRemove: true,
+        width: containerWidth,
+        height: containerHeight,
+      });
+
+      fabricCanvasRef.current = canvas;
+
+      // イベントリスナーを設定
+      setupEventListeners(canvas);
+
+      // 画像を読み込み
+      if (imageUrl) {
+        loadImage(canvas, imageUrl);
+        prevImageUrlRef.current = imageUrl;
+      }
+    } catch (err) {
+      console.error('Failed to initialize Fabric.js canvas:', err);
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: err instanceof Error ? err.message : 'キャンバスの初期化に失敗しました',
+      }));
     }
 
     // クリーンアップ（dispose処理）
     return () => {
-      // イベントリスナーを解除
-      removeEventListeners(canvas);
-      // Canvasをdispose
-      canvas.dispose();
+      // dispose状態を設定（非同期処理をキャンセル）
+      isDisposedRef.current = true;
+      if (canvas) {
+        try {
+          // イベントリスナーを解除
+          removeEventListeners(canvas);
+          // Canvasをdispose
+          canvas.dispose();
+        } catch (err) {
+          console.warn('Error during canvas cleanup:', err);
+        }
+      }
+      // 動的に生成したCanvas要素をDOMから削除
+      if (canvasElement && canvasElement.parentNode) {
+        canvasElement.parentNode.removeChild(canvasElement);
+      }
       fabricCanvasRef.current = null;
       backgroundImageRef.current = null;
+      canvasElementRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- imageUrlの変更は別のuseEffectで対応
   }, [loadImage, setupEventListeners, removeEventListeners]);
@@ -459,10 +524,8 @@ function AnnotationEditor({
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >
-          {/* Canvas */}
-          <div style={STYLES.canvasWrapper}>
-            <canvas ref={canvasRef} />
-          </div>
+          {/* Canvas - 動的に生成されるCanvas要素のコンテナ */}
+          <div ref={canvasWrapperRef} style={STYLES.canvasWrapper} />
 
           {/* ローディング表示 */}
           {state.isLoading && (

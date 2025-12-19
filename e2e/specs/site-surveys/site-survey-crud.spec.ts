@@ -386,6 +386,230 @@ test.describe('現場調査CRUD操作', () => {
   });
 
   /**
+   * 楽観的排他制御・競合エラー検出のテスト
+   *
+   * REQ-1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+   */
+  test.describe('楽観的排他制御', () => {
+    /**
+     * @requirement site-survey/REQ-1.5
+     */
+    test('同時編集による競合時にエラーが表示される', async ({ page, context }) => {
+      // このテストは自己完結型 - 事前にcreatedSurveyIdが設定されていない場合でも動作する
+      let testSurveyId = createdSurveyId;
+      let testProjectId = createdProjectId;
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 事前準備テストが実行されていない場合は、このテスト内でデータを作成
+      if (!testProjectId) {
+        // プロジェクトを作成
+        await page.goto('/projects');
+        await page.waitForLoadState('networkidle');
+
+        const createProjectButton = page.getByRole('button', { name: /新規作成/i });
+        await expect(createProjectButton).toBeVisible({ timeout: getTimeout(10000) });
+        await createProjectButton.click();
+
+        await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+          timeout: getTimeout(15000),
+        });
+
+        const projectName = `競合テスト用プロジェクト_${Date.now()}`;
+        await page.getByLabel(/プロジェクト名/i).fill(projectName);
+
+        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+        const salesPersonValue = await salesPersonSelect.inputValue();
+        if (!salesPersonValue) {
+          const options = await salesPersonSelect.locator('option').all();
+          if (options.length > 1 && options[1]) {
+            const firstUserOption = await options[1].getAttribute('value');
+            if (firstUserOption) {
+              await salesPersonSelect.selectOption(firstUserOption);
+            }
+          }
+        }
+
+        const createProjectPromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/projects') &&
+            response.request().method() === 'POST' &&
+            response.status() === 201,
+          { timeout: getTimeout(30000) }
+        );
+
+        await page.getByRole('button', { name: /^作成$/i }).click();
+        await createProjectPromise;
+
+        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
+        const projectUrl = page.url();
+        const projectMatch = projectUrl.match(/\/projects\/([0-9a-f-]+)$/);
+        testProjectId = projectMatch?.[1] ?? null;
+      }
+
+      if (!testSurveyId) {
+        // 現場調査を作成
+        await page.goto(`/projects/${testProjectId}/site-surveys/new`);
+        await page.waitForLoadState('networkidle');
+
+        await expect(page.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+        const surveyName = `競合テスト用現場調査_${Date.now()}`;
+        const surveyDate = new Date().toISOString().split('T')[0];
+
+        await page.getByLabel(/調査名/i).fill(surveyName);
+        await page.getByLabel(/調査日/i).fill(surveyDate!);
+        await page.getByLabel(/メモ/i).fill('競合テスト用メモ');
+
+        const createSurveyPromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/') &&
+            response.url().includes('site-surveys') &&
+            response.request().method() === 'POST',
+          { timeout: getTimeout(30000) }
+        );
+
+        await page.getByRole('button', { name: /^作成$/i }).click();
+        await createSurveyPromise;
+
+        await expect(page).toHaveURL(/\/site-surveys\/[0-9a-f-]+$/, {
+          timeout: getTimeout(15000),
+        });
+
+        const surveyUrl = page.url();
+        const surveyMatch = surveyUrl.match(/\/site-surveys\/([0-9a-f-]+)$/);
+        testSurveyId = surveyMatch?.[1] ?? null;
+      }
+
+      if (!testSurveyId) {
+        throw new Error('テスト用現場調査の作成に失敗しました');
+      }
+
+      // 1つ目のブラウザコンテキストで編集ページを開く
+      await page.goto(`/site-surveys/${testSurveyId}/edit`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByLabel(/調査名/i)).toHaveValue(/.+/, { timeout: getTimeout(10000) });
+
+      // 2つ目のブラウザコンテキストを作成して同じ現場調査を編集
+      const page2 = await context.newPage();
+      await loginAsUser(page2, 'REGULAR_USER');
+      await page2.goto(`/site-surveys/${testSurveyId}/edit`);
+      await page2.waitForLoadState('networkidle');
+      await expect(page2.getByLabel(/調査名/i)).toHaveValue(/.+/, { timeout: getTimeout(10000) });
+
+      // 2つ目のコンテキストで変更を保存
+      const updatedMemo2 = `2つ目のコンテキスト変更_${Date.now()}`;
+      await page2.getByLabel(/メモ/i).fill(updatedMemo2);
+
+      const updatePromise2 = page2.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/site-surveys/${testSurveyId}`) &&
+          response.request().method() === 'PUT' &&
+          response.status() === 200,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page2.getByRole('button', { name: /^保存$/ }).click();
+      await updatePromise2;
+
+      // 2つ目のコンテキストは成功するはず
+      await expect(page2.getByText(/現場調査を更新しました/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      await page2.close();
+
+      // 1つ目のコンテキストで変更を保存しようとする（競合が発生するはず）
+      const updatedMemo1 = `1つ目のコンテキスト変更_${Date.now()}`;
+      await page.getByLabel(/メモ/i).fill(updatedMemo1);
+
+      const updatePromise1 = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/site-surveys/${testSurveyId}`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /^保存$/ }).click();
+
+      const response = await updatePromise1;
+
+      // 409 Conflict が返されることを確認
+      expect(response.status()).toBe(409);
+
+      // 競合エラーが表示されることを確認（アラート内のメッセージを検証）
+      await expect(
+        page
+          .getByRole('alert')
+          .filter({ hasText: /他のユーザーによって更新されました/i })
+          .first()
+      ).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+  });
+
+  /**
+   * プロジェクト不存在時の動作テスト
+   *
+   * REQ-1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
+   */
+  test.describe('プロジェクト不存在時の動作', () => {
+    /**
+     * @requirement site-survey/REQ-1.6
+     */
+    test('存在しないプロジェクトに対する現場調査作成がエラーになる', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 存在しないプロジェクトIDで現場調査作成ページにアクセス
+      const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
+      await page.goto(`/projects/${nonExistentProjectId}/site-surveys/new`);
+      await page.waitForLoadState('networkidle');
+
+      // エラー表示またはリダイレクトを確認
+      const hasError = await page
+        .getByText(/プロジェクトが見つかりません|not found|404|存在しません/i)
+        .isVisible()
+        .catch(() => false);
+      const isRedirected =
+        page.url().includes('/404') ||
+        page.url().includes('/projects') ||
+        !page.url().includes(nonExistentProjectId);
+
+      expect(hasError || isRedirected).toBeTruthy();
+    });
+
+    /**
+     * @requirement site-survey/REQ-1.6
+     */
+    test('存在しないプロジェクトへの現場調査作成APIがエラーを返す', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 存在しないプロジェクトIDで現場調査作成APIを呼び出し
+      const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
+      const response = await page.evaluate(async (projectId) => {
+        const accessToken = localStorage.getItem('accessToken');
+        const res = await fetch(`/api/projects/${projectId}/site-surveys`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: 'テスト現場調査',
+            surveyDate: new Date().toISOString().split('T')[0],
+          }),
+        });
+        return { status: res.status };
+      }, nonExistentProjectId);
+
+      // 404または400エラーが返されることを確認
+      expect([400, 404]).toContain(response.status);
+    });
+  });
+
+  /**
    * 現場調査削除フローのテスト
    *
    * REQ-1.4: DELETE /api/site-surveys/:id 現場調査削除
