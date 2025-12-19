@@ -285,7 +285,7 @@ test.describe('現場調査非機能要件', () => {
       await page.waitForLoadState('networkidle');
 
       // エラーメッセージまたは404ページが表示されることを確認
-      const errorMessage = page.getByText(/見つかりません|存在しません|404|not found|エラー/i);
+      const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
       const errorPage = page.locator('[data-testid="error-page"], .error-container');
 
       const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 }).catch(() => false);
@@ -307,14 +307,14 @@ test.describe('現場調査非機能要件', () => {
       await page.waitForLoadState('networkidle');
 
       // エラーメッセージまたはリダイレクトを確認
-      const errorMessage = page.getByText(
-        /見つかりません|存在しません|404|not found|エラー|プロジェクト/i
-      );
+      const errorAlert = page.getByRole('alert');
+      const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
+      const hasErrorAlert = await errorAlert.isVisible({ timeout: 5000 }).catch(() => false);
       const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 }).catch(() => false);
       const isRedirected = !page.url().includes(nonExistentProjectId);
 
       // エラー表示またはリダイレクトがあることを確認
-      expect(hasErrorMessage || isRedirected).toBeTruthy();
+      expect(hasErrorAlert || hasErrorMessage || isRedirected).toBeTruthy();
     });
 
     test('APIエラー発生時にユーザーフレンドリーなメッセージが表示される (site-survey/REQ-14.8)', async ({

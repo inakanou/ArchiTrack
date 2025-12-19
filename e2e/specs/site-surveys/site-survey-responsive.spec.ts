@@ -144,7 +144,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.waitForLoadState('networkidle');
 
       // 一覧が表示されることを確認
-      await expect(page.getByRole('heading', { name: /現場調査/i })).toBeVisible({
+      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -168,7 +168,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.waitForLoadState('networkidle');
 
       // 一覧が表示されることを確認
-      await expect(page.getByRole('heading', { name: /現場調査/i })).toBeVisible({
+      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -192,7 +192,9 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.waitForLoadState('networkidle');
 
       // 詳細が表示されることを確認
-      await expect(page.getByText(/レスポンシブテスト用現場調査/i)).toBeVisible({
+      await expect(
+        page.getByRole('heading', { name: /レスポンシブテスト用現場調査/i })
+      ).toBeVisible({
         timeout: getTimeout(10000),
       });
 
