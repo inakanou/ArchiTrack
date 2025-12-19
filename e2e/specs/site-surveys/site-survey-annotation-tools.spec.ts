@@ -130,7 +130,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(createdSurveyId).toBeTruthy();
 
       // 画像をAPIで直接アップロード
-      const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
 
       // テスト画像が存在することを確認
       expect(fs.existsSync(testImagePath)).toBeTruthy();
@@ -148,8 +148,8 @@ test.describe('現場調査注釈ツール', () => {
           },
           multipart: {
             images: {
-              name: 'test-image.jpg',
-              mimeType: 'image/jpeg',
+              name: 'test-image.png',
+              mimeType: 'image/png',
               buffer: fs.readFileSync(testImagePath),
             },
           },
@@ -502,11 +502,42 @@ test.describe('現場調査注釈ツール', () => {
   async function getCanvasCenter(
     page: import('@playwright/test').Page
   ): Promise<{ x: number; y: number }> {
-    const container = page.locator('[data-testid="annotation-editor-container"]');
-    const box = await container.boundingBox();
-    if (!box) {
-      throw new Error('キャンバスコンテナが見つかりません');
+    // キャンバスが適切なサイズになるまで待機（画像読み込み完了を待つ）
+    const upperCanvas = page.locator('.upper-canvas');
+    let box = null;
+
+    // キャンバスサイズが10px以上になるまで最大10秒待機
+    for (let i = 0; i < 20; i++) {
+      box = await upperCanvas.boundingBox().catch(() => null);
+      if (box && box.width > 10 && box.height > 10) {
+        break;
+      }
+      console.log(
+        `[DEBUG] Waiting for canvas to load... attempt ${i + 1}, current size: ${box?.width}x${box?.height}`
+      );
+      await page.waitForTimeout(500);
     }
+
+    // それでも見つからない場合はcanvas要素を試す
+    if (!box || box.width <= 10 || box.height <= 10) {
+      const canvas = page.locator('[data-testid="annotation-editor-container"] canvas').first();
+      box = await canvas.boundingBox().catch(() => null);
+    }
+
+    // それでも見つからない場合はコンテナを使用
+    if (!box || box.width <= 10 || box.height <= 10) {
+      const container = page.locator('[data-testid="annotation-editor-container"]');
+      box = await container.boundingBox();
+    }
+
+    if (!box) {
+      throw new Error('キャンバス要素が見つかりません');
+    }
+
+    console.log(
+      `[DEBUG] Canvas bounding box: x=${box.x}, y=${box.y}, width=${box.width}, height=${box.height}`
+    );
+
     return {
       x: box.x + box.width / 2,
       y: box.y + box.height / 2,
@@ -530,6 +561,23 @@ test.describe('現場調査注釈ツール', () => {
   }
 
   /**
+   * Fabric.jsキャンバスのオブジェクト数を取得するヘルパー関数
+   *
+   * フロントエンドで window.__fabricCanvas としてキャンバスインスタンスが公開されている必要があります。
+   */
+  async function getCanvasObjectCount(page: import('@playwright/test').Page): Promise<number> {
+    return await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const canvas = (window as any).__fabricCanvas;
+      if (!canvas) {
+        return -1; // キャンバスが見つからない場合
+      }
+      // 背景画像を除くオブジェクト数を返す
+      return canvas.getObjects().length;
+    });
+  }
+
+  /**
    * @requirement site-survey/REQ-7.1
    * @requirement site-survey/REQ-7.2
    * @requirement site-survey/REQ-7.3
@@ -542,7 +590,18 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-7.10
    */
   test.describe('マーキングツール', () => {
-    test('矢印ツールを選択してドラッグ操作ができる (site-survey/REQ-7.1)', async ({ page }) => {
+    test('矢印ツールを選択してドラッグすると矢印が描画される (site-survey/REQ-7.1)', async ({
+      page,
+    }) => {
+      // ブラウザコンソールメッセージをキャプチャ
+      const consoleMessages: string[] = [];
+      page.on('console', (msg) => {
+        if (msg.text().includes('[DEBUG]')) {
+          consoleMessages.push(`[${msg.type()}] ${msg.text()}`);
+          console.log(`[BROWSER] ${msg.text()}`);
+        }
+      });
+
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -559,16 +618,36 @@ test.describe('現場調査注釈ツール', () => {
 
       // ツールが選択状態になることを確認
       await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
+      console.log('[TEST] Arrow tool selected and aria-pressed=true');
+
+      // ドラッグ操作前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count before: ${objectCountBefore}`);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
+      console.log(`[TEST] Canvas center: x=${center.x}, y=${center.y}`);
+      console.log(
+        `[TEST] Performing drag from (${center.x - 50}, ${center.y - 50}) to (${center.x + 50}, ${center.y + 50})`
+      );
       await performDrag(page, center.x - 50, center.y - 50, center.x + 50, center.y + 50);
 
-      // ツールが引き続き選択状態であることを確認
-      await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
+      // ドラッグ操作後に少し待機
+      await page.waitForTimeout(500);
+
+      // ドラッグ操作後のオブジェクト数を確認 - 矢印が追加されているはず
+      const objectCountAfter = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after: ${objectCountAfter}`);
+      console.log(`[TEST] Console messages captured: ${consoleMessages.length}`);
+      consoleMessages.forEach((msg) => console.log(msg));
+
+      expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
-    test('円ツールを選択してドラッグ操作ができる (site-survey/REQ-7.2)', async ({ page }) => {
+    test('円ツールを選択してドラッグすると円が描画される (site-survey/REQ-7.2)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -586,15 +665,22 @@ test.describe('現場調査注釈ツール', () => {
       // ツールが選択状態になることを確認
       await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
 
+      // ドラッグ操作前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
-      // ツールが引き続き選択状態であることを確認
-      await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
+      // ドラッグ操作後のオブジェクト数を確認 - 円が追加されているはず
+      const objectCountAfter = await getCanvasObjectCount(page);
+      expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
-    test('四角形ツールを選択してドラッグ操作ができる (site-survey/REQ-7.3)', async ({ page }) => {
+    test('四角形ツールを選択してドラッグすると四角形が描画される (site-survey/REQ-7.3)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -612,15 +698,22 @@ test.describe('現場調査注釈ツール', () => {
       // ツールが選択状態になることを確認
       await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
+      // ドラッグ操作前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 40, center.y - 30, center.x + 40, center.y + 30);
 
-      // ツールが引き続き選択状態であることを確認
-      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+      // ドラッグ操作後のオブジェクト数を確認 - 四角形が追加されているはず
+      const objectCountAfter = await getCanvasObjectCount(page);
+      expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
-    test('多角形ツールを選択してクリック操作ができる (site-survey/REQ-7.4)', async ({ page }) => {
+    test('多角形ツールを選択してクリックで頂点を追加し多角形が描画される (site-survey/REQ-7.4)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -638,6 +731,10 @@ test.describe('現場調査注釈ツール', () => {
       // ツールが選択状態になることを確認
       await expect(polygonTool).toHaveAttribute('aria-pressed', 'true');
 
+      // クリック操作前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // キャンバス上で複数の頂点をクリック（三角形を描画）
       const center = await getCanvasCenter(page);
 
@@ -647,12 +744,17 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.click(center.x + 40, center.y + 40);
       // 頂点3
       await page.mouse.click(center.x - 40, center.y + 40);
+      // ダブルクリックで多角形を閉じる
+      await page.mouse.dblclick(center.x, center.y - 40);
 
-      // ツールが引き続き選択状態であることを確認
-      await expect(polygonTool).toHaveAttribute('aria-pressed', 'true');
+      // クリック操作後のオブジェクト数を確認 - 多角形が追加されているはず
+      const objectCountAfter = await getCanvasObjectCount(page);
+      expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
-    test('折れ線ツールを選択してクリック操作ができる (site-survey/REQ-7.5)', async ({ page }) => {
+    test('折れ線ツールを選択してクリックで点を追加し折れ線が描画される (site-survey/REQ-7.5)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -670,6 +772,10 @@ test.describe('現場調査注釈ツール', () => {
       // ツールが選択状態になることを確認
       await expect(polylineTool).toHaveAttribute('aria-pressed', 'true');
 
+      // クリック操作前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // キャンバス上で複数の点をクリック
       const center = await getCanvasCenter(page);
 
@@ -679,12 +785,15 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.click(center.x, center.y - 30);
       // 点3
       await page.mouse.click(center.x + 50, center.y);
+      // ダブルクリックで折れ線を終了（最初の点の位置でダブルクリック、多角形テストと同様のパターン）
+      await page.mouse.dblclick(center.x - 50, center.y);
 
-      // ツールが引き続き選択状態であることを確認
-      await expect(polylineTool).toHaveAttribute('aria-pressed', 'true');
+      // クリック操作後のオブジェクト数を確認 - 折れ線が追加されているはず
+      const objectCountAfter = await getCanvasObjectCount(page);
+      expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
-    test('フリーハンドツールを選択してドラッグ操作ができる (site-survey/REQ-7.6)', async ({
+    test('フリーハンドツールを選択してドラッグするとフリーハンド線が描画される (site-survey/REQ-7.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -704,6 +813,10 @@ test.describe('現場調査注釈ツール', () => {
       // ツールが選択状態になることを確認
       await expect(freehandTool).toHaveAttribute('aria-pressed', 'true');
 
+      // ドラッグ操作前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // キャンバス上でフリーハンド描画を実行
       const center = await getCanvasCenter(page);
 
@@ -716,8 +829,9 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.move(center.x + 50, center.y, { steps: 5 });
       await page.mouse.up();
 
-      // ツールが引き続き選択状態であることを確認
-      await expect(freehandTool).toHaveAttribute('aria-pressed', 'true');
+      // ドラッグ操作後のオブジェクト数を確認 - フリーハンド線が追加されているはず
+      const objectCountAfter = await getCanvasObjectCount(page);
+      expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
     test('選択ツールで図形をクリックできる (site-survey/REQ-7.7)', async ({ page }) => {

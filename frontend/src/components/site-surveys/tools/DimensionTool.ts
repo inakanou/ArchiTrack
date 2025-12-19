@@ -357,6 +357,13 @@ export class DimensionLine extends Group {
     return this._dimensionAngle;
   }
 
+  /** 寸法線の角度を設定（度） */
+  // @ts-expect-error - Fabric.js v6互換性のため
+  override set angle(value: number) {
+    // 寸法線の角度は端点から計算されるため、外部からの設定は無視
+    // ただしFabric.jsの内部処理で呼ばれる場合があるため、セッターは必要
+  }
+
   /** メインラインの情報を取得 */
   get mainLine(): LineInfo {
     return {

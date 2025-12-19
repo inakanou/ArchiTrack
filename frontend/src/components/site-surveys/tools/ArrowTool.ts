@@ -249,6 +249,13 @@ export class Arrow extends Group {
     return this._arrowAngle;
   }
 
+  /** 矢印の角度を設定（度） */
+  // @ts-expect-error - Fabric.js v6互換性のため
+  override set angle(value: number) {
+    // 矢印の角度は端点から計算されるため、外部からの設定は無視
+    // ただしFabric.jsの内部処理で呼ばれる場合があるため、セッターは必要
+  }
+
   /** 矢じりのサイズを取得 */
   get arrowheadSize(): number {
     return this._arrowheadSize;

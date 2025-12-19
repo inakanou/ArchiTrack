@@ -21,8 +21,35 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Canvas as FabricCanvas, FabricImage } from 'fabric';
+import {
+  Canvas as FabricCanvas,
+  FabricImage,
+  PencilBrush,
+  type TPointerEventInfo,
+  type TPointerEvent,
+} from 'fabric';
 import AnnotationToolbar, { type ToolType } from './AnnotationToolbar';
+import { createArrow } from './tools/ArrowTool';
+import { createCircle } from './tools/CircleTool';
+import { createRectangle } from './tools/RectangleTool';
+import { PolygonBuilder, createPolygon } from './tools/PolygonTool';
+import { PolylineBuilder, createPolyline } from './tools/PolylineTool';
+import { DEFAULT_FREEHAND_OPTIONS } from './tools/FreehandTool';
+
+// windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
+declare global {
+  interface Window {
+    __fabricCanvas?: FabricCanvas | null;
+  }
+}
+
+/**
+ * ドラッグ状態を管理する型
+ */
+interface DragState {
+  isDragging: boolean;
+  startPoint: { x: number; y: number } | null;
+}
 
 // ============================================================================
 // 型定義
@@ -183,14 +210,31 @@ function AnnotationEditor({
   // 前回のimageUrl参照（変更検知用）
   const prevImageUrlRef = useRef<string | null>(null);
 
+  // ドラッグ状態管理（描画ツール用）
+  const dragStateRef = useRef<DragState>({
+    isDragging: false,
+    startPoint: null,
+  });
+
+  // 現在のアクティブツールを追跡（イベントハンドラ内でアクセスするため）
+  const activeToolRef = useRef<ToolType>('select');
+
+  // 多角形ビルダー（多角形ツール用）
+  const polygonBuilderRef = useRef<PolygonBuilder | null>(null);
+
+  // 折れ線ビルダー（折れ線ツール用）
+  const polylineBuilderRef = useRef<PolylineBuilder | null>(null);
+
   /**
    * ツール変更ハンドラ
    *
    * Task 13.3: ツール切り替え時にオブジェクト選択を解除
+   * Task 15: 各描画ツールの設定
    */
   const handleToolChange = useCallback((tool: ToolType) => {
     // ツールを変更
     setState((prev) => ({ ...prev, activeTool: tool }));
+    activeToolRef.current = tool;
 
     // Task 13.3: 選択ツール以外に切り替える場合、現在の選択を解除
     if (tool !== 'select' && fabricCanvasRef.current) {
@@ -202,7 +246,32 @@ function AnnotationEditor({
     if (fabricCanvasRef.current) {
       // selectツールの場合は選択を有効化、それ以外は無効化
       fabricCanvasRef.current.selection = tool === 'select';
+
+      // フリーハンドモードの設定
+      if (tool === 'freehand') {
+        // PencilBrushを設定してフリーハンドモードを有効化
+        fabricCanvasRef.current.isDrawingMode = true;
+        const brush = new PencilBrush(fabricCanvasRef.current);
+        brush.color = DEFAULT_FREEHAND_OPTIONS.stroke;
+        brush.width = DEFAULT_FREEHAND_OPTIONS.strokeWidth;
+        brush.decimate = DEFAULT_FREEHAND_OPTIONS.decimate;
+        fabricCanvasRef.current.freeDrawingBrush = brush;
+      } else {
+        // フリーハンドモードを無効化
+        fabricCanvasRef.current.isDrawingMode = false;
+      }
     }
+
+    // 多角形・折れ線ビルダーをリセット
+    if (tool !== 'polygon') {
+      polygonBuilderRef.current = null;
+    }
+    if (tool !== 'polyline') {
+      polylineBuilderRef.current = null;
+    }
+
+    // ドラッグ状態をリセット
+    dragStateRef.current = { isDragging: false, startPoint: null };
   }, []);
 
   /**
@@ -285,21 +354,128 @@ function AnnotationEditor({
    * Canvasイベントリスナーを設定
    *
    * Task 13.3: オブジェクト選択・操作機能のイベント
+   * Task 15: 各描画ツールのマウスイベント処理
+   * - mouse:down/move/up: 描画ツールの操作
+   * - mouse:dblclick: 多角形・折れ線の完了
    * - selection:created/updated/cleared: オブジェクト選択の変更
    * - object:moving/modified/scaling: オブジェクトの移動・変更・リサイズ
    */
   const setupEventListeners = useCallback((canvas: FabricCanvas) => {
-    // 基本的なマウスイベント
-    canvas.on('mouse:down', () => {
-      // マウスダウンイベント
+    // マウスダウンイベント - ドラッグ開始または多角形/折れ線の頂点追加
+    canvas.on('mouse:down', (options: TPointerEventInfo<TPointerEvent>) => {
+      // Fabric.js v6ではoptions.pointerを使用（キャンバス座標）
+      const pointer = options.pointer;
+      const activeTool = activeToolRef.current;
+      if (!pointer) {
+        return;
+      }
+
+      // 選択ツールまたはフリーハンドの場合は何もしない
+      if (activeTool === 'select' || activeTool === 'freehand') {
+        return;
+      }
+
+      // 多角形ツール - 頂点を追加
+      if (activeTool === 'polygon') {
+        if (!polygonBuilderRef.current) {
+          polygonBuilderRef.current = new PolygonBuilder();
+        }
+        polygonBuilderRef.current.addVertex({ x: pointer.x, y: pointer.y });
+        return;
+      }
+
+      // 折れ線ツール - 頂点を追加
+      if (activeTool === 'polyline') {
+        if (!polylineBuilderRef.current) {
+          polylineBuilderRef.current = new PolylineBuilder();
+        }
+        polylineBuilderRef.current.addPoint({ x: pointer.x, y: pointer.y });
+        return;
+      }
+
+      // その他の描画ツール - ドラッグ開始
+      dragStateRef.current = {
+        isDragging: true,
+        startPoint: { x: pointer.x, y: pointer.y },
+      };
     });
 
+    // マウス移動イベント - ドラッグ中のプレビュー（将来的にはプレビュー表示を追加可能）
     canvas.on('mouse:move', () => {
-      // マウス移動イベント
+      // プレビュー描画は将来的に追加可能
     });
 
-    canvas.on('mouse:up', () => {
-      // マウスアップイベント
+    // マウスアップイベント - 図形の作成
+    canvas.on('mouse:up', (options: TPointerEventInfo<TPointerEvent>) => {
+      const dragState = dragStateRef.current;
+      const activeTool = activeToolRef.current;
+
+      // ドラッグ中でなければ何もしない
+      if (!dragState.isDragging || !dragState.startPoint) {
+        return;
+      }
+
+      // Fabric.js v6ではoptions.pointerを使用（キャンバス座標）
+      const pointer = options.pointer;
+      if (!pointer) {
+        dragStateRef.current = { isDragging: false, startPoint: null };
+        return;
+      }
+      const startPoint = dragState.startPoint;
+      const endPoint = { x: pointer.x, y: pointer.y };
+
+      // ドラッグ状態をリセット
+      dragStateRef.current = { isDragging: false, startPoint: null };
+
+      // ツールに応じて図形を作成
+      let shape = null;
+      switch (activeTool) {
+        case 'arrow':
+          shape = createArrow(startPoint, endPoint);
+          break;
+        case 'circle':
+          shape = createCircle(startPoint, endPoint);
+          break;
+        case 'rectangle':
+          shape = createRectangle(startPoint, endPoint);
+          break;
+        default:
+          // 寸法線、テキストなどは別途実装
+          break;
+      }
+
+      // 図形が作成されたらCanvasに追加
+      if (shape) {
+        canvas.add(shape);
+        canvas.renderAll();
+      }
+    });
+
+    // ダブルクリックイベント - 多角形・折れ線の完了
+    canvas.on('mouse:dblclick', () => {
+      const activeTool = activeToolRef.current;
+
+      // 多角形ツール - 多角形を完了
+      if (activeTool === 'polygon' && polygonBuilderRef.current) {
+        const polygon = createPolygon(polygonBuilderRef.current.getVertices());
+        if (polygon) {
+          canvas.add(polygon);
+          canvas.renderAll();
+        }
+        polygonBuilderRef.current = null;
+        return;
+      }
+
+      // 折れ線ツール - 折れ線を完了
+      if (activeTool === 'polyline' && polylineBuilderRef.current) {
+        const polyline = createPolyline(polylineBuilderRef.current.getPoints());
+        if (polyline) {
+          canvas.add(polyline);
+          canvas.renderAll();
+        }
+        polylineBuilderRef.current = null;
+        return;
+      }
     });
 
     // Task 13.3: オブジェクト選択イベント
@@ -337,6 +513,7 @@ function AnnotationEditor({
     canvas.off('mouse:down');
     canvas.off('mouse:move');
     canvas.off('mouse:up');
+    canvas.off('mouse:dblclick');
 
     // Task 13.3: オブジェクト選択イベント
     canvas.off('selection:created');
@@ -392,6 +569,11 @@ function AnnotationEditor({
 
       fabricCanvasRef.current = canvas;
 
+      // E2Eテスト用にwindowオブジェクトにキャンバスを公開
+      if (typeof window !== 'undefined') {
+        window.__fabricCanvas = canvas;
+      }
+
       // イベントリスナーを設定
       setupEventListeners(canvas);
 
@@ -430,6 +612,11 @@ function AnnotationEditor({
       fabricCanvasRef.current = null;
       backgroundImageRef.current = null;
       canvasElementRef.current = null;
+
+      // E2Eテスト用のwindowオブジェクトをクリア
+      if (typeof window !== 'undefined') {
+        window.__fabricCanvas = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- imageUrlの変更は別のuseEffectで対応
   }, [loadImage, setupEventListeners, removeEventListeners]);
