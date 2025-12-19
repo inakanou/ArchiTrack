@@ -35,6 +35,8 @@ import { createRectangle } from './tools/RectangleTool';
 import { PolygonBuilder, createPolygon } from './tools/PolygonTool';
 import { PolylineBuilder, createPolyline } from './tools/PolylineTool';
 import { DEFAULT_FREEHAND_OPTIONS } from './tools/FreehandTool';
+import { createDimensionLine } from './tools/DimensionTool';
+import { createTextAnnotation } from './tools/TextTool';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -241,6 +243,9 @@ function AnnotationEditor({
   // 折れ線ビルダー（折れ線ツール用）
   const polylineBuilderRef = useRef<PolylineBuilder | null>(null);
 
+  // 寸法線ツールの最初のクリック点（2クリックパターン）
+  const dimensionStartPointRef = useRef<{ x: number; y: number } | null>(null);
+
   /**
    * ツール変更ハンドラ
    *
@@ -296,6 +301,10 @@ function AnnotationEditor({
     }
     if (tool !== 'polyline') {
       polylineBuilderRef.current = null;
+    }
+    // 寸法線の開始点をリセット
+    if (tool !== 'dimension') {
+      dimensionStartPointRef.current = null;
     }
 
     // ドラッグ状態をリセット
@@ -464,6 +473,53 @@ function AnnotationEditor({
           polylineBuilderRef.current = new PolylineBuilder();
         }
         polylineBuilderRef.current.addPoint({ x: pointer.x, y: pointer.y });
+        return;
+      }
+
+      // 寸法線ツール - 2クリックパターン
+      if (activeTool === 'dimension') {
+        const currentStyle = styleOptionsRef.current;
+        if (!dimensionStartPointRef.current) {
+          // 最初のクリック - 開始点を記録
+          dimensionStartPointRef.current = { x: pointer.x, y: pointer.y };
+        } else {
+          // 2回目のクリック - 寸法線を作成
+          const dimensionLine = createDimensionLine(
+            dimensionStartPointRef.current,
+            { x: pointer.x, y: pointer.y },
+            {
+              stroke: currentStyle.strokeColor,
+              strokeWidth: currentStyle.strokeWidth,
+            }
+          );
+          if (dimensionLine) {
+            canvas.add(dimensionLine);
+            canvas.renderAll();
+          }
+          dimensionStartPointRef.current = null;
+        }
+        return;
+      }
+
+      // テキストツール - シングルクリックで配置
+      if (activeTool === 'text') {
+        const currentStyle = styleOptionsRef.current;
+        const textAnnotation = createTextAnnotation(
+          { x: pointer.x, y: pointer.y },
+          {
+            initialText: 'テキスト',
+            fontSize: currentStyle.fontSize,
+            fill: currentStyle.strokeColor,
+          }
+        );
+        canvas.add(textAnnotation);
+        // ダブルクリック編集モードを設定
+        textAnnotation.setupDoubleClickEditing(canvas);
+        canvas.renderAll();
+        // テキストを選択状態にして編集モードに入る
+        canvas.setActiveObject(textAnnotation);
+        textAnnotation.enterEditing();
+        textAnnotation.selectAll();
         return;
       }
 
