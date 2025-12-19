@@ -174,7 +174,7 @@ export class Arrow extends Group {
     const arrowAngle = calculateAngle(startPoint, endPoint);
     const length = calculateDistance(startPoint, endPoint);
 
-    // シャフトラインを作成
+    // シャフトラインを作成（絶対座標）
     const shaftLine = new Line([startPoint.x, startPoint.y, endPoint.x, endPoint.y], {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
@@ -182,7 +182,7 @@ export class Arrow extends Group {
       evented: false,
     });
 
-    // 矢じり（三角形）を作成
+    // 矢じり（三角形）を作成（絶対座標）
     const arrowhead = new Triangle({
       left: endPoint.x,
       top: endPoint.y,
@@ -198,8 +198,10 @@ export class Arrow extends Group {
       evented: false,
     });
 
-    // Groupを初期化
+    // Groupを初期化（子オブジェクトから自動的に位置を計算）
     super([shaftLine, arrowhead], {
+      selectable: true,
+      evented: true,
       hasControls: true,
       hasBorders: true,
       lockMovementX: false,
@@ -349,23 +351,37 @@ export class Arrow extends Group {
    * ジオメトリを更新（端点変更時）
    */
   private _updateGeometry(): void {
+    // 中心点を再計算
+    const centerX = (this._startPoint.x + this._endPoint.x) / 2;
+    const centerY = (this._startPoint.y + this._endPoint.y) / 2;
+
+    // 相対座標を計算
+    const relativeStart = { x: this._startPoint.x - centerX, y: this._startPoint.y - centerY };
+    const relativeEnd = { x: this._endPoint.x - centerX, y: this._endPoint.y - centerY };
+
     // 角度と距離を再計算
     this._arrowAngle = normalizeAngle(calculateAngle(this._startPoint, this._endPoint));
     this._length = calculateDistance(this._startPoint, this._endPoint);
 
-    // シャフトラインを更新
+    // シャフトラインを更新（相対座標）
     this._shaftLine.set({
-      x1: this._startPoint.x,
-      y1: this._startPoint.y,
-      x2: this._endPoint.x,
-      y2: this._endPoint.y,
+      x1: relativeStart.x,
+      y1: relativeStart.y,
+      x2: relativeEnd.x,
+      y2: relativeEnd.y,
     });
 
-    // 矢じりを更新
+    // 矢じりを更新（相対座標）
     this._arrowhead.set({
-      left: this._endPoint.x,
-      top: this._endPoint.y,
+      left: relativeEnd.x,
+      top: relativeEnd.y,
       angle: this._arrowAngle + 90,
+    });
+
+    // Groupの位置を更新
+    this.set({
+      left: centerX,
+      top: centerY,
     });
 
     // 座標を更新

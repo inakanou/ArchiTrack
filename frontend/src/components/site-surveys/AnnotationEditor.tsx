@@ -28,7 +28,7 @@ import {
   type TPointerEventInfo,
   type TPointerEvent,
 } from 'fabric';
-import AnnotationToolbar, { type ToolType } from './AnnotationToolbar';
+import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
 import { createArrow } from './tools/ArrowTool';
 import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
@@ -56,6 +56,16 @@ interface DragState {
 // ============================================================================
 
 /**
+ * デフォルトのスタイルオプション
+ */
+const DEFAULT_STYLE_OPTIONS: StyleOptions = {
+  strokeColor: '#ff0000',
+  strokeWidth: 2,
+  fillColor: '',
+  fontSize: 16,
+};
+
+/**
  * AnnotationEditorの状態
  */
 interface AnnotationEditorState {
@@ -65,6 +75,8 @@ interface AnnotationEditorState {
   error: string | null;
   /** 現在選択中のツール */
   activeTool: ToolType;
+  /** スタイルオプション */
+  styleOptions: StyleOptions;
 }
 
 /**
@@ -205,6 +217,7 @@ function AnnotationEditor({
     isLoading: true,
     error: null,
     activeTool: 'select',
+    styleOptions: DEFAULT_STYLE_OPTIONS,
   });
 
   // 前回のimageUrl参照（変更検知用）
@@ -218,6 +231,9 @@ function AnnotationEditor({
 
   // 現在のアクティブツールを追跡（イベントハンドラ内でアクセスするため）
   const activeToolRef = useRef<ToolType>('select');
+
+  // 現在のスタイルオプションを追跡（イベントハンドラ内でアクセスするため）
+  const styleOptionsRef = useRef<StyleOptions>(DEFAULT_STYLE_OPTIONS);
 
   // 多角形ビルダー（多角形ツール用）
   const polygonBuilderRef = useRef<PolygonBuilder | null>(null);
@@ -244,21 +260,33 @@ function AnnotationEditor({
 
     // Task 13.3: Canvasの選択モードを設定
     if (fabricCanvasRef.current) {
+      const canvas = fabricCanvasRef.current;
       // selectツールの場合は選択を有効化、それ以外は無効化
-      fabricCanvasRef.current.selection = tool === 'select';
+      canvas.selection = tool === 'select';
+
+      // すべてのオブジェクトの選択可否を設定（背景画像を除く）
+      canvas.getObjects().forEach((obj) => {
+        // 背景画像はスキップ
+        if (obj === backgroundImageRef.current) return;
+        obj.set({
+          selectable: tool === 'select',
+          evented: tool === 'select',
+        });
+      });
+      canvas.renderAll();
 
       // フリーハンドモードの設定
       if (tool === 'freehand') {
         // PencilBrushを設定してフリーハンドモードを有効化
-        fabricCanvasRef.current.isDrawingMode = true;
-        const brush = new PencilBrush(fabricCanvasRef.current);
-        brush.color = DEFAULT_FREEHAND_OPTIONS.stroke;
-        brush.width = DEFAULT_FREEHAND_OPTIONS.strokeWidth;
+        canvas.isDrawingMode = true;
+        const brush = new PencilBrush(canvas);
+        brush.color = styleOptionsRef.current.strokeColor;
+        brush.width = styleOptionsRef.current.strokeWidth;
         brush.decimate = DEFAULT_FREEHAND_OPTIONS.decimate;
-        fabricCanvasRef.current.freeDrawingBrush = brush;
+        canvas.freeDrawingBrush = brush;
       } else {
         // フリーハンドモードを無効化
-        fabricCanvasRef.current.isDrawingMode = false;
+        canvas.isDrawingMode = false;
       }
     }
 
@@ -272,6 +300,31 @@ function AnnotationEditor({
 
     // ドラッグ状態をリセット
     dragStateRef.current = { isDragging: false, startPoint: null };
+  }, []);
+
+  /**
+   * スタイル変更ハンドラ
+   */
+  const handleStyleChange = useCallback((options: Partial<StyleOptions>) => {
+    setState((prev) => ({
+      ...prev,
+      styleOptions: { ...prev.styleOptions, ...options },
+    }));
+    styleOptionsRef.current = { ...styleOptionsRef.current, ...options };
+
+    // フリーハンドモードの場合はブラシの設定も更新
+    if (
+      fabricCanvasRef.current &&
+      activeToolRef.current === 'freehand' &&
+      fabricCanvasRef.current.freeDrawingBrush
+    ) {
+      if (options.strokeColor !== undefined) {
+        fabricCanvasRef.current.freeDrawingBrush.color = options.strokeColor;
+      }
+      if (options.strokeWidth !== undefined) {
+        fabricCanvasRef.current.freeDrawingBrush.width = options.strokeWidth;
+      }
+    }
   }, []);
 
   /**
@@ -410,6 +463,12 @@ function AnnotationEditor({
       const dragState = dragStateRef.current;
       const activeTool = activeToolRef.current;
 
+      // 選択ツールまたはフリーハンドの場合は図形を作成しない
+      if (activeTool === 'select' || activeTool === 'freehand') {
+        dragStateRef.current = { isDragging: false, startPoint: null };
+        return;
+      }
+
       // ドラッグ中でなければ何もしない
       if (!dragState.isDragging || !dragState.startPoint) {
         return;
@@ -427,17 +486,31 @@ function AnnotationEditor({
       // ドラッグ状態をリセット
       dragStateRef.current = { isDragging: false, startPoint: null };
 
+      // スタイルオプションを取得
+      const currentStyle = styleOptionsRef.current;
+
       // ツールに応じて図形を作成
       let shape = null;
       switch (activeTool) {
         case 'arrow':
-          shape = createArrow(startPoint, endPoint);
+          shape = createArrow(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+          });
           break;
         case 'circle':
-          shape = createCircle(startPoint, endPoint);
+          shape = createCircle(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+            fill: currentStyle.fillColor || 'transparent',
+          });
           break;
         case 'rectangle':
-          shape = createRectangle(startPoint, endPoint);
+          shape = createRectangle(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+            fill: currentStyle.fillColor || 'transparent',
+          });
           break;
         default:
           // 寸法線、テキストなどは別途実装
@@ -698,6 +771,8 @@ function AnnotationEditor({
             activeTool={state.activeTool}
             onToolChange={handleToolChange}
             disabled={state.isLoading}
+            styleOptions={state.styleOptions}
+            onStyleChange={handleStyleChange}
           />
         </div>
 
