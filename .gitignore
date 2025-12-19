@@ -48,6 +48,10 @@ storybook-static/
 *.swo
 *~
 
+# Storage (user-uploaded files)
+storage-dev/
+backend/storage/
+
 # OS
 .DS_Store
 Thumbs.db

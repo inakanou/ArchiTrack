@@ -99,6 +99,11 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.d
 - **Backend**: Node.js/Express（ポート: 3000、デバッグ: 9229）
 - **Frontend**: Vite/React（ポート: 5173）
 
+**ストレージ:**
+- 画像ファイルは `./storage-dev/` ディレクトリに保存されます
+- このディレクトリはDockerコンテナ起動時に自動作成されます
+- `.gitignore` に含まれているため、リポジトリにはコミットされません
+
 ### アクセス先
 
 - **Frontend**: http://localhost:5173
@@ -271,6 +276,25 @@ id
 # 明示的に指定して起動
 UID=$(id -u) GID=$(id -g) docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
 ```
+
+### 画像アップロードが503エラーになる場合
+
+ストレージが正しく初期化されていない可能性があります。
+
+```bash
+# バックエンドのログを確認
+docker compose -f docker-compose.yml -f docker-compose.dev.yml logs backend | grep -i storage
+
+# 正常な場合のログ:
+# Storage directory ensured
+# Local storage connection test successful
+# Storage initialized successfully
+```
+
+**解決方法:**
+1. `./storage-dev/` ディレクトリが存在することを確認
+2. バックエンドコンテナを再起動: `docker compose -f docker-compose.yml -f docker-compose.dev.yml restart backend`
+3. 詳細は[ストレージ構成](../architecture/storage-configuration.md)を参照
 
 ---
 

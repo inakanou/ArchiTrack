@@ -66,11 +66,48 @@ ArchiTrackは、ストレージ抽象化レイヤーを採用しており、環�
 
 ## 環境別設定
 
-### 1. ローカル開発環境
+### 1. ローカル開発環境（Docker Compose）
 
 **使用プロバイダー:** `LocalStorageProvider`
 
-#### 設定例（`backend/.env`）
+#### 設定（`docker-compose.dev.yml`）
+
+```yaml
+backend:
+  environment:
+    STORAGE_TYPE: local
+    LOCAL_STORAGE_PATH: /app/storage
+    LOCAL_STORAGE_URL: http://localhost:3000/storage
+  volumes:
+    - ./storage-dev:/app/storage  # ホストディレクトリにマウント
+```
+
+#### 特徴
+
+- ファイルはプロジェクトルートの `./storage-dev/` ディレクトリに保存
+- ホストディレクトリをマウントするため、コンテナ再起動後もデータが保持される
+- メタデータは `.meta.json` ファイルで管理
+- 開発用のため本番では使用不可
+- サーバー起動時にディレクトリが自動作成される
+- `storage-dev/` は `.gitignore` に含まれており、リポジトリにはコミットされない
+
+#### ディレクトリ構造
+
+```
+ArchiTrack/
+├── storage-dev/           # 開発環境用ストレージ（ホストマウント）
+│   └── surveys/
+│       └── {surveyId}/
+│           ├── original/
+│           │   └── {imageId}.jpg
+│           └── thumbnail/
+│               └── {imageId}.jpg
+└── ...
+```
+
+#### ローカル直接実行の場合（`backend/.env`）
+
+Docker Composeを使わずにローカルで直接実行する場合：
 
 ```bash
 # ストレージ設定
@@ -79,25 +116,7 @@ LOCAL_STORAGE_PATH=./storage
 LOCAL_STORAGE_URL=http://localhost:3000/storage
 ```
 
-#### 特徴
-
-- ファイルは `./storage/` ディレクトリに保存
-- メタデータは `.meta.json` ファイルで管理
-- 開発用のため本番では使用不可
-- サーバー起動時にディレクトリが自動作成される
-
-#### ディレクトリ構造
-
-```
-backend/
-└── storage/
-    └── surveys/
-        └── {surveyId}/
-            ├── original/
-            │   └── {imageId}.jpg
-            └── thumbnail/
-                └── {imageId}.jpg
-```
+この場合、ファイルは `backend/storage/` に保存されます。
 
 ---
 
@@ -234,11 +253,12 @@ R2_PUBLIC_URL=https://images.your-domain.com  # オプション
 
 ## 環境別設定まとめ
 
-| 項目 | ローカル開発 | CI/テスト | 本番 |
-|------|------------|----------|------|
+| 項目 | ローカル開発（Docker） | CI/テスト | 本番 |
+|------|----------------------|----------|------|
 | プロバイダー | Local | Local (tmpfs) | R2 |
 | STORAGE_TYPE | `local` | `local` | `r2` |
-| データ永続性 | あり | なし（自動削除） | あり |
+| ストレージパス | `./storage-dev` (ホストマウント) | `/app/storage` (tmpfs) | R2バケット |
+| データ永続性 | あり（コンテナ再起動後も保持） | なし（自動削除） | あり |
 | 署名付きURL | 簡易URL | 簡易URL | AWS署名V4 |
 | セキュリティ | 低（開発用） | 低（テスト用） | 高 |
 | スケーラビリティ | 低 | 低 | 高 |
