@@ -243,9 +243,6 @@ function AnnotationEditor({
   // 折れ線ビルダー（折れ線ツール用）
   const polylineBuilderRef = useRef<PolylineBuilder | null>(null);
 
-  // 寸法線ツールの最初のクリック点（2クリックパターン）
-  const dimensionStartPointRef = useRef<{ x: number; y: number } | null>(null);
-
   /**
    * ツール変更ハンドラ
    *
@@ -301,10 +298,6 @@ function AnnotationEditor({
     }
     if (tool !== 'polyline') {
       polylineBuilderRef.current = null;
-    }
-    // 寸法線の開始点をリセット
-    if (tool !== 'dimension') {
-      dimensionStartPointRef.current = null;
     }
 
     // ドラッグ状態をリセット
@@ -476,31 +469,6 @@ function AnnotationEditor({
         return;
       }
 
-      // 寸法線ツール - 2クリックパターン
-      if (activeTool === 'dimension') {
-        const currentStyle = styleOptionsRef.current;
-        if (!dimensionStartPointRef.current) {
-          // 最初のクリック - 開始点を記録
-          dimensionStartPointRef.current = { x: pointer.x, y: pointer.y };
-        } else {
-          // 2回目のクリック - 寸法線を作成
-          const dimensionLine = createDimensionLine(
-            dimensionStartPointRef.current,
-            { x: pointer.x, y: pointer.y },
-            {
-              stroke: currentStyle.strokeColor,
-              strokeWidth: currentStyle.strokeWidth,
-            }
-          );
-          if (dimensionLine) {
-            canvas.add(dimensionLine);
-            canvas.renderAll();
-          }
-          dimensionStartPointRef.current = null;
-        }
-        return;
-      }
-
       // テキストツール - シングルクリックで配置
       if (activeTool === 'text') {
         const currentStyle = styleOptionsRef.current;
@@ -604,8 +572,14 @@ function AnnotationEditor({
             fill: currentStyle.fillColor || 'transparent',
           });
           break;
+        case 'dimension':
+          shape = createDimensionLine(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+          });
+          break;
         default:
-          // 寸法線、テキストなどは別途実装
+          // テキストなどは別途実装
           break;
       }
 
@@ -818,6 +792,12 @@ function AnnotationEditor({
 
     const canvas = fabricCanvasRef.current;
     const activeObject = canvas.getActiveObject();
+
+    // テキスト編集中の場合はキー入力を処理しない（ITextに任せる）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (activeObject && (activeObject as any).isEditing) {
+      return;
+    }
 
     switch (event.key) {
       case 'Delete':
