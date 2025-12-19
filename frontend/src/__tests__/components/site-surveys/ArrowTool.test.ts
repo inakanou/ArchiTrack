@@ -22,8 +22,51 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
   };
 });
 
-// Fabric.jsのモック - Groupクラスを継承可能にする
+// Fabric.jsのモック - Pathクラスを継承可能にする
 vi.mock('fabric', () => {
+  // Pathモック（矢印用）
+  class MockPath {
+    path?: string;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    selectable?: boolean;
+    evented?: boolean;
+    hasControls?: boolean;
+    hasBorders?: boolean;
+    lockMovementX?: boolean;
+    lockMovementY?: boolean;
+
+    constructor(path?: string, options?: Record<string, unknown>) {
+      this.path = path;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {
+      mockSetCoords();
+    }
+
+    _setPath(pathData: string): void {
+      this.path = pathData;
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+
+    toObject(): Record<string, unknown> {
+      return {};
+    }
+  }
+
   // 基本的なLineモック
   class MockLine {
     x1: number;
@@ -132,6 +175,7 @@ vi.mock('fabric', () => {
   }
 
   return {
+    Path: MockPath,
     Line: MockLine,
     Group: MockGroup,
     Triangle: MockTriangle,
@@ -483,7 +527,7 @@ describe('ArrowTool', () => {
         const arrow = createArrow(startPoint, endPoint);
 
         expect(arrow).not.toBeNull();
-        expect(arrow!.angle).toBeCloseTo(45);
+        expect(arrow!.arrowAngle).toBeCloseTo(45);
       });
 
       it('水平線の角度は0度', () => {
@@ -493,7 +537,7 @@ describe('ArrowTool', () => {
         const arrow = createArrow(startPoint, endPoint);
 
         expect(arrow).not.toBeNull();
-        expect(arrow!.angle).toBe(0);
+        expect(arrow!.arrowAngle).toBe(0);
       });
 
       it('垂直線の角度は90度', () => {
@@ -503,7 +547,7 @@ describe('ArrowTool', () => {
         const arrow = createArrow(startPoint, endPoint);
 
         expect(arrow).not.toBeNull();
-        expect(arrow!.angle).toBe(90);
+        expect(arrow!.arrowAngle).toBe(90);
       });
     });
   });

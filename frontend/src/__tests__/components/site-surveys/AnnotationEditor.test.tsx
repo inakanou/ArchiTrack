@@ -75,11 +75,244 @@ vi.mock('fabric', () => {
     return mockCanvasInstance;
   }
 
+  // Pathモック（矢印用）
+  class MockPath {
+    path?: string;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    selectable?: boolean;
+    evented?: boolean;
+    hasControls?: boolean;
+    hasBorders?: boolean;
+    lockMovementX?: boolean;
+    lockMovementY?: boolean;
+
+    constructor(path?: string, options?: Record<string, unknown>) {
+      this.path = path;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    _setPath(pathData: string): void {
+      this.path = pathData;
+    }
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+    toObject(): Record<string, unknown> {
+      return {};
+    }
+  }
+
+  // Ellipseモック（円ツール用）
+  class MockEllipse {
+    left?: number;
+    top?: number;
+    rx?: number;
+    ry?: number;
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
+  // Rectモック（四角形ツール用）
+  class MockRect {
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
+  // Polygonモック（多角形ツール用）
+  class MockPolygon {
+    points?: Array<{ x: number; y: number }>;
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+
+    constructor(points?: Array<{ x: number; y: number }>, options?: Record<string, unknown>) {
+      this.points = points;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
+  // Polylineモック（折れ線ツール用）
+  class MockPolyline {
+    points?: Array<{ x: number; y: number }>;
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+
+    constructor(points?: Array<{ x: number; y: number }>, options?: Record<string, unknown>) {
+      this.points = points;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
+  // Lineモック（寸法線ツール用）
+  class MockLine {
+    x1?: number;
+    y1?: number;
+    x2?: number;
+    y2?: number;
+    stroke?: string;
+    strokeWidth?: number;
+
+    constructor(points?: number[], options?: Record<string, unknown>) {
+      if (points) {
+        this.x1 = points[0];
+        this.y1 = points[1];
+        this.x2 = points[2];
+        this.y2 = points[3];
+      }
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
+  // Textモック（テキストツール用）
+  class MockText {
+    text?: string;
+    left?: number;
+    top?: number;
+    fontSize?: number;
+    fill?: string;
+
+    constructor(text?: string, options?: Record<string, unknown>) {
+      this.text = text;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
+  // Groupモック
+  class MockGroup {
+    _objects: unknown[];
+
+    constructor(objects?: unknown[], options?: Record<string, unknown>) {
+      this._objects = objects || [];
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    add(obj: unknown): void {
+      this._objects.push(obj);
+    }
+  }
+
+  // PencilBrushモック（フリーハンドツール用）
+  class MockPencilBrush {
+    color?: string;
+    width?: number;
+
+    constructor(_canvas?: unknown) {}
+  }
+
   return {
     Canvas: MockCanvas,
     FabricImage: {
       fromURL: mockFromURL,
     },
+    Path: MockPath,
+    Ellipse: MockEllipse,
+    Rect: MockRect,
+    Polygon: MockPolygon,
+    Polyline: MockPolyline,
+    Line: MockLine,
+    Text: MockText,
+    Group: MockGroup,
+    PencilBrush: MockPencilBrush,
   };
 });
 

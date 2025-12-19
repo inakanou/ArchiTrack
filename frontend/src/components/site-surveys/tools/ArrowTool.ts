@@ -10,7 +10,7 @@
  * - 7.1: 矢印ツールを選択してドラッグすると開始点から終了点へ矢印を描画する
  */
 
-import { Group, Line, Triangle } from 'fabric';
+import { Path } from 'fabric';
 
 // ============================================================================
 // 型定義
@@ -90,12 +90,19 @@ function calculateDistance(p1: Point, p2: Point): number {
 }
 
 /**
+ * 2点間の角度を計算する（ラジアン）
+ */
+function calculateAngleRad(p1: Point, p2: Point): number {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  return Math.atan2(dy, dx);
+}
+
+/**
  * 2点間の角度を計算する（度）
  */
 function calculateAngle(p1: Point, p2: Point): number {
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
-  return Math.atan2(dy, dx) * (180 / Math.PI);
+  return calculateAngleRad(p1, p2) * (180 / Math.PI);
 }
 
 /**
@@ -109,6 +116,48 @@ function normalizeAngle(deg: number): number {
   return normalized;
 }
 
+/**
+ * 矢印のSVGパスデータを生成
+ *
+ * @param startPoint 始点
+ * @param endPoint 終点
+ * @param arrowheadSize 矢じりのサイズ
+ * @returns SVGパスデータ文字列
+ */
+function generateArrowPath(startPoint: Point, endPoint: Point, arrowheadSize: number): string {
+  // 矢印の方向（ラジアン）
+  const angle = calculateAngleRad(startPoint, endPoint);
+
+  // 矢じりの両側の角度（30度 = π/6）
+  const arrowAngle = Math.PI / 6;
+
+  // 矢じりの頂点を計算
+  const arrowPoint1 = {
+    x: endPoint.x - arrowheadSize * Math.cos(angle - arrowAngle),
+    y: endPoint.y - arrowheadSize * Math.sin(angle - arrowAngle),
+  };
+  const arrowPoint2 = {
+    x: endPoint.x - arrowheadSize * Math.cos(angle + arrowAngle),
+    y: endPoint.y - arrowheadSize * Math.sin(angle + arrowAngle),
+  };
+
+  // SVGパスを生成
+  // M: 始点に移動
+  // L: 終点まで線を引く
+  // M: 矢じりの頂点1に移動
+  // L: 終点まで線
+  // L: 矢じりの頂点2まで線
+  const pathData = [
+    `M ${startPoint.x} ${startPoint.y}`,
+    `L ${endPoint.x} ${endPoint.y}`,
+    `M ${arrowPoint1.x} ${arrowPoint1.y}`,
+    `L ${endPoint.x} ${endPoint.y}`,
+    `L ${arrowPoint2.x} ${arrowPoint2.y}`,
+  ].join(' ');
+
+  return pathData;
+}
+
 // ============================================================================
 // Arrowクラス
 // ============================================================================
@@ -116,48 +165,24 @@ function normalizeAngle(deg: number): number {
 /**
  * 矢印クラス
  *
- * Fabric.js Groupを拡張した矢印オブジェクト。
- * シャフトライン（始点から終点への直線）と矢じり（三角形）で構成される。
+ * Fabric.js Pathを拡張した矢印オブジェクト。
+ * シャフトライン（始点から終点への直線）と矢じりで構成される。
  */
-export class Arrow extends Group {
+export class Arrow extends Path {
   /** 始点 */
   private _startPoint: Point;
 
   /** 終点 */
   private _endPoint: Point;
 
-  /** 線色 */
-  declare stroke: string;
-
-  /** 線の太さ */
-  declare strokeWidth: number;
-
   /** 矢じりのサイズ */
   private _arrowheadSize: number;
-
-  /** シャフトライン */
-  private _shaftLine: Line;
-
-  /** 矢じり（三角形） */
-  private _arrowhead: Triangle;
 
   /** 矢印の長さ（ピクセル） */
   private _length: number;
 
   /** 矢印の角度（度） */
   private _arrowAngle: number;
-
-  /** コントロール表示フラグ */
-  declare hasControls: boolean;
-
-  /** ボーダー表示フラグ */
-  declare hasBorders: boolean;
-
-  /** X軸移動ロック */
-  declare lockMovementX: boolean;
-
-  /** Y軸移動ロック */
-  declare lockMovementY: boolean;
 
   /**
    * Arrowコンストラクタ
@@ -174,49 +199,26 @@ export class Arrow extends Group {
     const arrowAngle = calculateAngle(startPoint, endPoint);
     const length = calculateDistance(startPoint, endPoint);
 
-    // シャフトラインを作成（絶対座標）
-    const shaftLine = new Line([startPoint.x, startPoint.y, endPoint.x, endPoint.y], {
+    // 矢印のSVGパスを生成
+    const pathData = generateArrowPath(startPoint, endPoint, mergedOptions.arrowheadSize);
+
+    // Pathを初期化
+    super(pathData, {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
-      selectable: false,
-      evented: false,
-    });
-
-    // 矢じり（三角形）を作成（絶対座標）
-    const arrowhead = new Triangle({
-      left: endPoint.x,
-      top: endPoint.y,
-      width: mergedOptions.arrowheadSize,
-      height: mergedOptions.arrowheadSize * 1.5,
-      fill: mergedOptions.stroke,
-      stroke: mergedOptions.stroke,
-      strokeWidth: 0,
-      angle: arrowAngle + 90, // 三角形は上向きがデフォルトなので90度回転
-      originX: 'center',
-      originY: 'center',
-      selectable: false,
-      evented: false,
-    });
-
-    // Groupを初期化（子オブジェクトから自動的に位置を計算）
-    super([shaftLine, arrowhead], {
+      fill: '',
       selectable: true,
       evented: true,
       hasControls: true,
       hasBorders: true,
       lockMovementX: false,
       lockMovementY: false,
-      subTargetCheck: false,
     });
 
     // プロパティを設定
     this._startPoint = { ...startPoint };
     this._endPoint = { ...endPoint };
-    this.stroke = mergedOptions.stroke;
-    this.strokeWidth = mergedOptions.strokeWidth;
     this._arrowheadSize = mergedOptions.arrowheadSize;
-    this._shaftLine = shaftLine;
-    this._arrowhead = arrowhead;
     this._length = length;
     this._arrowAngle = normalizeAngle(arrowAngle);
   }
@@ -246,16 +248,8 @@ export class Arrow extends Group {
   }
 
   /** 矢印の角度を取得（度） */
-  // @ts-expect-error - Fabric.js v6ではangleがプロパティとして定義されているが、計算済みの値を返す
-  override get angle(): number {
+  get arrowAngle(): number {
     return this._arrowAngle;
-  }
-
-  /** 矢印の角度を設定（度） */
-  // @ts-expect-error - Fabric.js v6互換性のため
-  override set angle(value: number) {
-    // 矢印の角度は端点から計算されるため、外部からの設定は無視
-    // ただしFabric.jsの内部処理で呼ばれる場合があるため、セッターは必要
   }
 
   /** 矢じりのサイズを取得 */
@@ -275,7 +269,7 @@ export class Arrow extends Group {
 
   /** 矢じりが存在するかどうか */
   get hasArrowhead(): boolean {
-    return this._arrowhead !== null;
+    return true;
   }
 
   /** 水平な矢印かどうか */
@@ -351,38 +345,15 @@ export class Arrow extends Group {
    * ジオメトリを更新（端点変更時）
    */
   private _updateGeometry(): void {
-    // 中心点を再計算
-    const centerX = (this._startPoint.x + this._endPoint.x) / 2;
-    const centerY = (this._startPoint.y + this._endPoint.y) / 2;
-
-    // 相対座標を計算
-    const relativeStart = { x: this._startPoint.x - centerX, y: this._startPoint.y - centerY };
-    const relativeEnd = { x: this._endPoint.x - centerX, y: this._endPoint.y - centerY };
-
     // 角度と距離を再計算
     this._arrowAngle = normalizeAngle(calculateAngle(this._startPoint, this._endPoint));
     this._length = calculateDistance(this._startPoint, this._endPoint);
 
-    // シャフトラインを更新（相対座標）
-    this._shaftLine.set({
-      x1: relativeStart.x,
-      y1: relativeStart.y,
-      x2: relativeEnd.x,
-      y2: relativeEnd.y,
-    });
+    // 新しいパスデータを生成
+    const pathData = generateArrowPath(this._startPoint, this._endPoint, this._arrowheadSize);
 
-    // 矢じりを更新（相対座標）
-    this._arrowhead.set({
-      left: relativeEnd.x,
-      top: relativeEnd.y,
-      angle: this._arrowAngle + 90,
-    });
-
-    // Groupの位置を更新
-    this.set({
-      left: centerX,
-      top: centerY,
-    });
+    // パスを更新（Fabric.js v6のAPIを使用）
+    this._setPath(pathData);
 
     // 座標を更新
     this.setCoords();
@@ -396,18 +367,14 @@ export class Arrow extends Group {
    * 線色を更新
    */
   setStroke(color: string): void {
-    this.stroke = color;
-    this._shaftLine.set('stroke', color);
-    this._arrowhead.set('fill', color);
-    this._arrowhead.set('stroke', color);
+    this.set('stroke', color);
   }
 
   /**
    * 線の太さを更新
    */
   setStrokeWidth(width: number): void {
-    this.strokeWidth = width;
-    this._shaftLine.set('strokeWidth', width);
+    this.set('strokeWidth', width);
   }
 
   /**
@@ -415,10 +382,7 @@ export class Arrow extends Group {
    */
   setArrowheadSize(size: number): void {
     this._arrowheadSize = size;
-    this._arrowhead.set({
-      width: size,
-      height: size * 1.5,
-    });
+    this._updateGeometry();
   }
 
   /**
@@ -441,8 +405,8 @@ export class Arrow extends Group {
    */
   getStyle(): ArrowOptions {
     return {
-      stroke: this.stroke,
-      strokeWidth: this.strokeWidth,
+      stroke: this.stroke as string,
+      strokeWidth: this.strokeWidth as number,
       arrowheadSize: this._arrowheadSize,
     };
   }
@@ -460,8 +424,8 @@ export class Arrow extends Group {
       type: 'arrow' as const,
       startPoint: this.startPoint,
       endPoint: this.endPoint,
-      stroke: this.stroke,
-      strokeWidth: this.strokeWidth,
+      stroke: this.stroke as string,
+      strokeWidth: this.strokeWidth as number,
       arrowheadSize: this._arrowheadSize,
     };
   }
