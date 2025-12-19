@@ -22,40 +22,8 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
   };
 });
 
-// Fabric.jsのモック - Groupクラスを継承可能にする
+// Fabric.jsのモック - Pathクラスを継承可能にする
 vi.mock('fabric', () => {
-  // 基本的なLineモック
-  class MockLine {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-    stroke?: string;
-    strokeWidth?: number;
-    selectable?: boolean;
-    evented?: boolean;
-
-    constructor(points?: number[], options?: Record<string, unknown>) {
-      this.x1 = points?.[0] || 0;
-      this.y1 = points?.[1] || 0;
-      this.x2 = points?.[2] || 0;
-      this.y2 = points?.[3] || 0;
-      if (options) {
-        Object.assign(this, options);
-      }
-    }
-
-    set(options: Record<string, unknown> | string, value?: unknown): this {
-      if (typeof options === 'string') {
-        (this as Record<string, unknown>)[options] = value;
-      } else {
-        Object.assign(this, options);
-      }
-      mockSet(options, value);
-      return this;
-    }
-  }
-
   // FabricTextモック
   class MockFabricText {
     text: string;
@@ -118,22 +86,25 @@ vi.mock('fabric', () => {
     }
   }
 
-  // Groupモック - 継承可能なクラス
-  class MockGroup {
-    _objects: unknown[];
+  // Pathモック - 継承可能なクラス
+  class MockPath {
+    path: string;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    selectable?: boolean;
+    evented?: boolean;
     hasControls: boolean;
     hasBorders: boolean;
     lockMovementX: boolean;
     lockMovementY: boolean;
-    subTargetCheck: boolean;
 
-    constructor(objects?: unknown[], options?: Record<string, unknown>) {
-      this._objects = objects || [];
+    constructor(pathData?: string, options?: Record<string, unknown>) {
+      this.path = pathData || '';
       this.hasControls = true;
       this.hasBorders = true;
       this.lockMovementX = false;
       this.lockMovementY = false;
-      this.subTargetCheck = false;
       if (options) {
         Object.assign(this, options);
       }
@@ -147,6 +118,25 @@ vi.mock('fabric', () => {
       return {};
     }
 
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+
+    _setPath(pathData: string): void {
+      this.path = pathData;
+    }
+  }
+
+  // Canvasモック
+  class MockCanvas {
+    _objects: unknown[] = [];
+
     add(object: unknown): void {
       this._objects.push(object);
     }
@@ -157,13 +147,17 @@ vi.mock('fabric', () => {
         this._objects.splice(index, 1);
       }
     }
+
+    renderAll(): void {
+      // no-op
+    }
   }
 
   return {
-    Line: MockLine,
-    Group: MockGroup,
+    Path: MockPath,
     FabricText: MockFabricText,
     Rect: MockRect,
+    Canvas: MockCanvas,
   };
 });
 
@@ -173,6 +167,7 @@ import {
   type DimensionLineOptions,
   DEFAULT_DIMENSION_OPTIONS,
 } from '../../../components/site-surveys/tools/DimensionTool';
+import { Canvas } from 'fabric';
 
 // ============================================================================
 // テストスイート
@@ -356,7 +351,7 @@ describe('DimensionTool', () => {
     });
 
     describe('カスタムFabric.jsオブジェクト実装', () => {
-      it('DimensionLineクラスはFabric.js Groupを拡張している', () => {
+      it('DimensionLineクラスはFabric.js Pathを拡張している', () => {
         const startPoint = { x: 100, y: 100 };
         const endPoint = { x: 300, y: 100 };
 
@@ -508,7 +503,7 @@ describe('DimensionTool', () => {
         const dimensionLine = createDimensionLine(startPoint, endPoint);
 
         expect(dimensionLine).not.toBeNull();
-        expect(dimensionLine!.angle).toBeCloseTo(45);
+        expect(dimensionLine!.dimensionAngle).toBeCloseTo(45);
       });
 
       it('水平線の角度は0度', () => {
@@ -518,7 +513,7 @@ describe('DimensionTool', () => {
         const dimensionLine = createDimensionLine(startPoint, endPoint);
 
         expect(dimensionLine).not.toBeNull();
-        expect(dimensionLine!.angle).toBe(0);
+        expect(dimensionLine!.dimensionAngle).toBe(0);
       });
 
       it('垂直線の角度は90度', () => {
@@ -528,7 +523,7 @@ describe('DimensionTool', () => {
         const dimensionLine = createDimensionLine(startPoint, endPoint);
 
         expect(dimensionLine).not.toBeNull();
-        expect(dimensionLine!.angle).toBe(90);
+        expect(dimensionLine!.dimensionAngle).toBe(90);
       });
     });
   });
@@ -682,10 +677,16 @@ describe('DimensionTool', () => {
     // Task 14.2: 寸法値入力機能テスト
     // ========================================================================
     describe('寸法線上への値表示（Task 14.2）', () => {
+      let mockCanvas: Canvas;
+
+      beforeEach(() => {
+        mockCanvas = new Canvas();
+      });
+
       it('寸法値を設定するとテキストラベルが作成される', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
         expect(dimensionLine.hasLabel()).toBe(true);
       });
@@ -693,7 +694,7 @@ describe('DimensionTool', () => {
       it('テキストラベルは寸法線の中央に配置される', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
         const labelPosition = dimensionLine.getLabelPosition();
         expect(labelPosition.x).toBe(200); // 中央: (100 + 300) / 2
@@ -703,7 +704,7 @@ describe('DimensionTool', () => {
       it('テキストラベルには寸法値と単位が表示される', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
         expect(dimensionLine.getLabelText()).toBe('1500 mm');
       });
@@ -711,7 +712,7 @@ describe('DimensionTool', () => {
       it('単位なしで寸法値を設定できる', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', '');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', '');
 
         expect(dimensionLine.getLabelText()).toBe('1500');
       });
@@ -719,8 +720,8 @@ describe('DimensionTool', () => {
       it('寸法値を更新するとラベルテキストも更新される', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
-        dimensionLine.setDimensionWithLabel('2000', 'cm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '2000', 'cm');
 
         expect(dimensionLine.getLabelText()).toBe('2000 cm');
       });
@@ -728,18 +729,19 @@ describe('DimensionTool', () => {
       it('空の寸法値を設定するとラベルが削除される', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
         expect(dimensionLine.hasLabel()).toBe(true);
 
-        dimensionLine.setDimensionWithLabel('', '');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '', '');
         expect(dimensionLine.hasLabel()).toBe(false);
       });
 
       it('端点を移動するとラベル位置も更新される', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
         dimensionLine.setEndPoint({ x: 500, y: 100 });
+        dimensionLine.updateLabelPosition();
 
         const labelPosition = dimensionLine.getLabelPosition();
         expect(labelPosition.x).toBe(300); // 中央: (100 + 500) / 2
@@ -748,7 +750,7 @@ describe('DimensionTool', () => {
       it('テキストラベルのスタイルを設定できる', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm', {
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm', {
           fontSize: 14,
           fontColor: '#ff0000',
           backgroundColor: '#ffffff',
@@ -763,7 +765,7 @@ describe('DimensionTool', () => {
       it('デフォルトのラベルスタイルが適用される', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
         const labelStyle = dimensionLine.getLabelStyle();
         expect(labelStyle.fontSize).toBe(12);
@@ -774,7 +776,7 @@ describe('DimensionTool', () => {
       it('toObject()にラベル情報が含まれる', () => {
         const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
 
-        dimensionLine.setDimensionWithLabel('1500', 'mm');
+        dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
         const jsonObject = dimensionLine.toObject();
         expect(jsonObject.customData.dimensionValue).toBe('1500');
@@ -846,18 +848,20 @@ describe('DimensionTool', () => {
 
         it('端点移動後に寸法線の角度が再計算される', () => {
           const dimensionLine = new DimensionLine({ x: 0, y: 0 }, { x: 100, y: 0 });
-          expect(dimensionLine.angle).toBe(0);
+          expect(dimensionLine.dimensionAngle).toBe(0);
 
           dimensionLine.setEndPoint({ x: 100, y: 100 });
 
-          expect(dimensionLine.angle).toBeCloseTo(45);
+          expect(dimensionLine.dimensionAngle).toBeCloseTo(45);
         });
 
         it('端点移動後にラベル位置が更新される（ラベルがある場合）', () => {
+          const mockCanvas = new Canvas();
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
           dimensionLine.setEndPoint({ x: 500, y: 100 });
+          dimensionLine.updateLabelPosition();
 
           const labelPosition = dimensionLine.getLabelPosition();
           expect(labelPosition.x).toBe(300); // (100 + 500) / 2 = 300
@@ -894,9 +898,15 @@ describe('DimensionTool', () => {
       });
 
       describe('寸法値の再編集（6.4）', () => {
+        let mockCanvas: Canvas;
+
+        beforeEach(() => {
+          mockCanvas = new Canvas();
+        });
+
         it('既存の寸法値を取得できる', () => {
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
           expect(dimensionLine.customData.dimensionValue).toBe('1500');
           expect(dimensionLine.customData.dimensionUnit).toBe('mm');
@@ -904,9 +914,9 @@ describe('DimensionTool', () => {
 
         it('寸法値を再編集（更新）できる', () => {
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
-          dimensionLine.setDimensionWithLabel('2000', 'cm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '2000', 'cm');
 
           expect(dimensionLine.customData.dimensionValue).toBe('2000');
           expect(dimensionLine.customData.dimensionUnit).toBe('cm');
@@ -914,36 +924,36 @@ describe('DimensionTool', () => {
 
         it('寸法値の再編集後、ラベルテキストが更新される', () => {
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
-          dimensionLine.setDimensionWithLabel('2000', 'cm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '2000', 'cm');
 
           expect(dimensionLine.getLabelText()).toBe('2000 cm');
         });
 
         it('単位のみを変更できる', () => {
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
-          dimensionLine.setDimensionWithLabel('1500', 'm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'm');
 
           expect(dimensionLine.getLabelText()).toBe('1500 m');
         });
 
         it('値のみを変更できる', () => {
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
-          dimensionLine.setDimensionWithLabel('2500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '2500', 'mm');
 
           expect(dimensionLine.getLabelText()).toBe('2500 mm');
         });
 
         it('寸法値をクリア（空に）できる', () => {
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
-          dimensionLine.setDimensionWithLabel('', '');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '', '');
 
           expect(dimensionLine.customData.dimensionValue).toBe('');
           expect(dimensionLine.customData.dimensionUnit).toBe('');
@@ -1062,8 +1072,9 @@ describe('DimensionTool', () => {
         });
 
         it('ラベルのスタイルを個別に更新できる', () => {
+          const mockCanvas = new Canvas();
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('1500', 'mm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
 
           dimensionLine.setLabelStyle({
             fontSize: 18,
@@ -1126,8 +1137,9 @@ describe('DimensionTool', () => {
         });
 
         it('寸法値情報がシリアライズに含まれる', () => {
+          const mockCanvas = new Canvas();
           const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
-          dimensionLine.setDimensionWithLabel('2500', 'cm');
+          dimensionLine.setDimensionWithLabel(mockCanvas, '2500', 'cm');
 
           const json = dimensionLine.toObject();
 

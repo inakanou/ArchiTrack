@@ -17,7 +17,7 @@
  * - 6.7: 寸法線の色・線の太さをカスタマイズ可能にする
  */
 
-import { Group, Line, FabricText, Rect } from 'fabric';
+import { Path, FabricText, Rect, type Canvas } from 'fabric';
 
 // ============================================================================
 // 型定義
@@ -157,24 +157,69 @@ function normalizeAngle(deg: number): number {
  */
 function calculateCapEndpoints(
   point: Point,
-  deg: number,
+  angleRad: number,
   capLength: number
 ): { start: Point; end: Point } {
   // メインラインに垂直な方向（90度回転）
-  const perpAngle = deg + 90;
-  const radians = perpAngle * (Math.PI / 180);
+  const perpAngle = angleRad + Math.PI / 2;
   const halfLength = capLength / 2;
 
   return {
     start: {
-      x: point.x + halfLength * Math.cos(radians),
-      y: point.y + halfLength * Math.sin(radians),
+      x: point.x + halfLength * Math.cos(perpAngle),
+      y: point.y + halfLength * Math.sin(perpAngle),
     },
     end: {
-      x: point.x - halfLength * Math.cos(radians),
-      y: point.y - halfLength * Math.sin(radians),
+      x: point.x - halfLength * Math.cos(perpAngle),
+      y: point.y - halfLength * Math.sin(perpAngle),
     },
   };
+}
+
+/**
+ * 2点間の角度を計算する（ラジアン）
+ */
+function calculateAngleRad(p1: Point, p2: Point): number {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  return Math.atan2(dy, dx);
+}
+
+/**
+ * 寸法線のSVGパスデータを生成
+ *
+ * @param startPoint 始点
+ * @param endPoint 終点
+ * @param capLength エンドキャップの長さ
+ * @returns SVGパスデータ文字列
+ */
+function generateDimensionLinePath(startPoint: Point, endPoint: Point, capLength: number): string {
+  // 角度（ラジアン）
+  const angle = calculateAngleRad(startPoint, endPoint);
+
+  // 始点のエンドキャップ端点を計算
+  const startCap = calculateCapEndpoints(startPoint, angle, capLength);
+
+  // 終点のエンドキャップ端点を計算
+  const endCap = calculateCapEndpoints(endPoint, angle, capLength);
+
+  // SVGパスを生成
+  // メインライン: 始点から終点
+  // 始点キャップ: 垂直線
+  // 終点キャップ: 垂直線
+  const pathData = [
+    // メインライン
+    `M ${startPoint.x} ${startPoint.y}`,
+    `L ${endPoint.x} ${endPoint.y}`,
+    // 始点のエンドキャップ
+    `M ${startCap.start.x} ${startCap.start.y}`,
+    `L ${startCap.end.x} ${startCap.end.y}`,
+    // 終点のエンドキャップ
+    `M ${endCap.start.x} ${endCap.start.y}`,
+    `L ${endCap.end.x} ${endCap.end.y}`,
+  ].join(' ');
+
+  return pathData;
 }
 
 // ============================================================================
@@ -184,33 +229,21 @@ function calculateCapEndpoints(
 /**
  * 寸法線クラス
  *
- * Fabric.js Groupを拡張した寸法線オブジェクト。
+ * Fabric.js Pathを拡張した寸法線オブジェクト。
  * メインライン（端点間の直線）と2つのエンドキャップ（垂直線）で構成される。
+ *
+ * Note: ラベル機能は外部のCanvas上で別オブジェクトとして管理する。
+ * addLabelToCanvas() / removeLabelFromCanvas() を使用。
  */
-export class DimensionLine extends Group {
+export class DimensionLine extends Path {
   /** 始点 */
   private _startPoint: Point;
 
   /** 終点 */
   private _endPoint: Point;
 
-  /** 線色 */
-  declare stroke: string;
-
-  /** 線の太さ */
-  declare strokeWidth: number;
-
   /** エンドキャップの長さ */
   private _capLength: number;
-
-  /** メインライン */
-  private _mainLine: Line;
-
-  /** 始点のエンドキャップ */
-  private _startCap: Line;
-
-  /** 終点のエンドキャップ */
-  private _endCap: Line;
 
   /** 寸法線の長さ（ピクセル） */
   private _length: number;
@@ -219,12 +252,12 @@ export class DimensionLine extends Group {
   private _dimensionAngle: number;
 
   /** カスタムデータ */
-  declare customData: DimensionCustomData;
+  customData: DimensionCustomData;
 
-  /** ラベルテキスト */
+  /** ラベルテキスト（Canvas上に別途追加される） */
   private _labelText: FabricText | null = null;
 
-  /** ラベル背景 */
+  /** ラベル背景（Canvas上に別途追加される） */
   private _labelBackground: Rect | null = null;
 
   /** ラベルスタイル */
@@ -235,18 +268,6 @@ export class DimensionLine extends Group {
 
   /** 選択状態フラグ（Task 14.3） */
   private _isSelected = false;
-
-  /** コントロール表示フラグ */
-  declare hasControls: boolean;
-
-  /** ボーダー表示フラグ */
-  declare hasBorders: boolean;
-
-  /** X軸移動ロック */
-  declare lockMovementX: boolean;
-
-  /** Y軸移動ロック */
-  declare lockMovementY: boolean;
 
   /**
    * DimensionLineコンストラクタ
@@ -263,60 +284,26 @@ export class DimensionLine extends Group {
     const dimensionAngle = calculateAngle(startPoint, endPoint);
     const length = calculateDistance(startPoint, endPoint);
 
-    // メインラインを作成
-    const mainLine = new Line([startPoint.x, startPoint.y, endPoint.x, endPoint.y], {
+    // SVGパスデータを生成
+    const pathData = generateDimensionLinePath(startPoint, endPoint, mergedOptions.capLength);
+
+    // Pathを初期化
+    super(pathData, {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
-      selectable: false,
-      evented: false,
-    });
-
-    // 始点のエンドキャップを計算・作成
-    const startCapPoints = calculateCapEndpoints(
-      startPoint,
-      dimensionAngle,
-      mergedOptions.capLength
-    );
-    const startCap = new Line(
-      [startCapPoints.start.x, startCapPoints.start.y, startCapPoints.end.x, startCapPoints.end.y],
-      {
-        stroke: mergedOptions.stroke,
-        strokeWidth: mergedOptions.strokeWidth,
-        selectable: false,
-        evented: false,
-      }
-    );
-
-    // 終点のエンドキャップを計算・作成
-    const endCapPoints = calculateCapEndpoints(endPoint, dimensionAngle, mergedOptions.capLength);
-    const endCap = new Line(
-      [endCapPoints.start.x, endCapPoints.start.y, endCapPoints.end.x, endCapPoints.end.y],
-      {
-        stroke: mergedOptions.stroke,
-        strokeWidth: mergedOptions.strokeWidth,
-        selectable: false,
-        evented: false,
-      }
-    );
-
-    // Groupを初期化
-    super([mainLine, startCap, endCap], {
+      fill: '',
+      selectable: true,
+      evented: true,
       hasControls: true,
       hasBorders: true,
       lockMovementX: false,
       lockMovementY: false,
-      subTargetCheck: false,
     });
 
     // プロパティを設定
     this._startPoint = { ...startPoint };
     this._endPoint = { ...endPoint };
-    this.stroke = mergedOptions.stroke;
-    this.strokeWidth = mergedOptions.strokeWidth;
     this._capLength = mergedOptions.capLength;
-    this._mainLine = mainLine;
-    this._startCap = startCap;
-    this._endCap = endCap;
     this._length = length;
     this._dimensionAngle = normalizeAngle(dimensionAngle);
 
@@ -352,16 +339,8 @@ export class DimensionLine extends Group {
   }
 
   /** 寸法線の角度を取得（度） */
-  // @ts-expect-error - Fabric.js v6ではangleがプロパティとして定義されているが、計算済みの値を返す
-  override get angle(): number {
+  get dimensionAngle(): number {
     return this._dimensionAngle;
-  }
-
-  /** 寸法線の角度を設定（度） */
-  // @ts-expect-error - Fabric.js v6互換性のため
-  override set angle(value: number) {
-    // 寸法線の角度は端点から計算されるため、外部からの設定は無視
-    // ただしFabric.jsの内部処理で呼ばれる場合があるため、セッターは必要
   }
 
   /** メインラインの情報を取得 */
@@ -376,11 +355,8 @@ export class DimensionLine extends Group {
 
   /** 始点エンドキャップの情報を取得 */
   get startCap(): LineInfo {
-    const capPoints = calculateCapEndpoints(
-      this._startPoint,
-      calculateAngle(this._startPoint, this._endPoint),
-      this._capLength
-    );
+    const angleRad = calculateAngleRad(this._startPoint, this._endPoint);
+    const capPoints = calculateCapEndpoints(this._startPoint, angleRad, this._capLength);
     return {
       x1: capPoints.start.x,
       y1: capPoints.start.y,
@@ -391,11 +367,8 @@ export class DimensionLine extends Group {
 
   /** 終点エンドキャップの情報を取得 */
   get endCap(): LineInfo {
-    const capPoints = calculateCapEndpoints(
-      this._endPoint,
-      calculateAngle(this._startPoint, this._endPoint),
-      this._capLength
-    );
+    const angleRad = calculateAngleRad(this._startPoint, this._endPoint);
+    const capPoints = calculateCapEndpoints(this._endPoint, angleRad, this._capLength);
     return {
       x1: capPoints.start.x,
       y1: capPoints.start.y,
@@ -461,71 +434,14 @@ export class DimensionLine extends Group {
     this._dimensionAngle = normalizeAngle(calculateAngle(this._startPoint, this._endPoint));
     this._length = calculateDistance(this._startPoint, this._endPoint);
 
-    // メインラインを更新
-    this._mainLine.set({
-      x1: this._startPoint.x,
-      y1: this._startPoint.y,
-      x2: this._endPoint.x,
-      y2: this._endPoint.y,
-    });
+    // 新しいパスデータを生成
+    const pathData = generateDimensionLinePath(this._startPoint, this._endPoint, this._capLength);
 
-    // 始点キャップを更新
-    const startCapPoints = calculateCapEndpoints(
-      this._startPoint,
-      calculateAngle(this._startPoint, this._endPoint),
-      this._capLength
-    );
-    this._startCap.set({
-      x1: startCapPoints.start.x,
-      y1: startCapPoints.start.y,
-      x2: startCapPoints.end.x,
-      y2: startCapPoints.end.y,
-    });
-
-    // 終点キャップを更新
-    const endCapPoints = calculateCapEndpoints(
-      this._endPoint,
-      calculateAngle(this._startPoint, this._endPoint),
-      this._capLength
-    );
-    this._endCap.set({
-      x1: endCapPoints.start.x,
-      y1: endCapPoints.start.y,
-      x2: endCapPoints.end.x,
-      y2: endCapPoints.end.y,
-    });
-
-    // ラベル位置を更新
-    this._updateLabelPosition();
+    // パスを更新（Fabric.js v6のAPIを使用）
+    this._setPath(pathData);
 
     // 座標を更新
     this.setCoords();
-  }
-
-  /**
-   * ラベル位置を更新（端点変更時）
-   */
-  private _updateLabelPosition(): void {
-    if (this._labelText && this._labelBackground) {
-      const centerPos = this._calculateCenterPosition();
-      const textWidth = this._labelText.width || 0;
-      const textHeight = this._labelText.height || 0;
-      const padding = 4;
-
-      // ラベルテキストを中央に配置
-      this._labelText.set({
-        left: centerPos.x - textWidth / 2,
-        top: centerPos.y - textHeight / 2,
-      });
-
-      // 背景も更新
-      this._labelBackground.set({
-        left: centerPos.x - textWidth / 2 - padding,
-        top: centerPos.y - textHeight / 2 - padding,
-        width: textWidth + padding * 2,
-        height: textHeight + padding * 2,
-      });
-    }
   }
 
   /**
@@ -546,20 +462,14 @@ export class DimensionLine extends Group {
    * 線色を更新
    */
   setStroke(color: string): void {
-    this.stroke = color;
-    this._mainLine.set('stroke', color);
-    this._startCap.set('stroke', color);
-    this._endCap.set('stroke', color);
+    this.set('stroke', color);
   }
 
   /**
    * 線の太さを更新
    */
   setStrokeWidth(width: number): void {
-    this.strokeWidth = width;
-    this._mainLine.set('strokeWidth', width);
-    this._startCap.set('strokeWidth', width);
-    this._endCap.set('strokeWidth', width);
+    this.set('strokeWidth', width);
   }
 
   /**
@@ -584,8 +494,8 @@ export class DimensionLine extends Group {
    */
   getStyle(): DimensionLineOptions {
     return {
-      stroke: this.stroke,
-      strokeWidth: this.strokeWidth,
+      stroke: this.stroke as string,
+      strokeWidth: this.strokeWidth as number,
       capLength: this._capLength,
     };
   }
@@ -630,17 +540,23 @@ export class DimensionLine extends Group {
   }
 
   // ==========================================================================
-  // ラベル機能（Task 14.2）
+  // ラベル機能（Task 14.2）- 外部Canvas管理方式
   // ==========================================================================
 
   /**
-   * 寸法値とラベルを設定
+   * 寸法値とラベルを設定してCanvasに追加
    *
+   * @param canvas Fabric.js Canvas
    * @param value 寸法値
    * @param unit 単位
    * @param style ラベルスタイル（オプション）
    */
-  setDimensionWithLabel(value: string, unit: string, style?: Partial<DimensionLabelStyle>): void {
+  setDimensionWithLabel(
+    canvas: Canvas,
+    value: string,
+    unit: string,
+    style?: Partial<DimensionLabelStyle>
+  ): void {
     // customDataを更新
     this.customData.dimensionValue = value;
     this.customData.dimensionUnit = unit;
@@ -652,7 +568,7 @@ export class DimensionLine extends Group {
 
     // 空の値の場合はラベルを削除
     if (!value) {
-      this._removeLabel();
+      this.removeLabelFromCanvas(canvas);
       return;
     }
 
@@ -662,15 +578,16 @@ export class DimensionLine extends Group {
     // 既存のラベルがある場合は更新、なければ作成
     if (this._labelText) {
       this._updateLabelText(labelText);
+      canvas.renderAll();
     } else {
-      this._createLabel(labelText);
+      this._createLabelOnCanvas(canvas, labelText);
     }
   }
 
   /**
-   * ラベルを作成
+   * ラベルをCanvasに作成
    */
-  private _createLabel(text: string): void {
+  private _createLabelOnCanvas(canvas: Canvas, text: string): void {
     const centerPos = this._calculateCenterPosition();
     const padding = 4;
 
@@ -704,9 +621,10 @@ export class DimensionLine extends Group {
       evented: false,
     });
 
-    // グループに追加（背景を先に追加）
-    this.add(this._labelBackground);
-    this.add(this._labelText);
+    // Canvasに追加（背景を先に追加）
+    canvas.add(this._labelBackground);
+    canvas.add(this._labelText);
+    canvas.renderAll();
   }
 
   /**
@@ -724,7 +642,7 @@ export class DimensionLine extends Group {
         fill: this._labelStyle.fontColor,
       });
 
-      // テキストサイズを再計得
+      // テキストサイズを再取得
       const textWidth = this._labelText.width || 0;
       const textHeight = this._labelText.height || 0;
 
@@ -746,16 +664,43 @@ export class DimensionLine extends Group {
   }
 
   /**
-   * ラベルを削除
+   * ラベルをCanvasから削除
    */
-  private _removeLabel(): void {
+  removeLabelFromCanvas(canvas: Canvas): void {
     if (this._labelText) {
-      this.remove(this._labelText);
+      canvas.remove(this._labelText);
       this._labelText = null;
     }
     if (this._labelBackground) {
-      this.remove(this._labelBackground);
+      canvas.remove(this._labelBackground);
       this._labelBackground = null;
+    }
+    canvas.renderAll();
+  }
+
+  /**
+   * ラベル位置を更新（DimensionLine移動時に呼び出す）
+   */
+  updateLabelPosition(): void {
+    if (this._labelText && this._labelBackground) {
+      const centerPos = this._calculateCenterPosition();
+      const textWidth = this._labelText.width || 0;
+      const textHeight = this._labelText.height || 0;
+      const padding = 4;
+
+      // ラベルテキストを中央に配置
+      this._labelText.set({
+        left: centerPos.x - textWidth / 2,
+        top: centerPos.y - textHeight / 2,
+      });
+
+      // 背景も更新
+      this._labelBackground.set({
+        left: centerPos.x - textWidth / 2 - padding,
+        top: centerPos.y - textHeight / 2 - padding,
+        width: textWidth + padding * 2,
+        height: textHeight + padding * 2,
+      });
     }
   }
 
@@ -863,8 +808,8 @@ export class DimensionLine extends Group {
       type: 'dimensionLine' as const,
       startPoint: this.startPoint,
       endPoint: this.endPoint,
-      stroke: this.stroke,
-      strokeWidth: this.strokeWidth,
+      stroke: this.stroke as string,
+      strokeWidth: this.strokeWidth as number,
       capLength: this._capLength,
       customData: { ...this.customData },
     };
