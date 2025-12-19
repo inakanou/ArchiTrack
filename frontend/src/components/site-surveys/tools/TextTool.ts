@@ -518,12 +518,17 @@ export class TextAnnotation extends IText {
    * 編集モードに入る
    */
   override enterEditing(): this {
-    this.isEditing = true;
     // キャンバスの選択を無効化
     if (this._canvas) {
       this._canvas.selection = false;
     }
+    // 親クラスのenterEditingを呼び出す（isEditingの設定と隠しtextareaの初期化を行う）
     super.enterEditing();
+    // 隠しtextareaが作成されていない場合は明示的に初期化
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!(this as any).hiddenTextarea && typeof this.initHiddenTextarea === 'function') {
+      this.initHiddenTextarea();
+    }
     return this;
   }
 
