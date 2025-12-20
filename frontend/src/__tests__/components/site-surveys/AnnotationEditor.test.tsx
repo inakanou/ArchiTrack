@@ -299,11 +299,64 @@ vi.mock('fabric', () => {
     constructor(_canvas?: unknown) {}
   }
 
+  // ITextモック（テキストツール用）
+  class MockIText {
+    text?: string;
+    left?: number;
+    top?: number;
+    fontSize?: number;
+    fill?: string;
+    isEditing?: boolean;
+
+    constructor(text?: string, options?: Record<string, unknown>) {
+      this.text = text;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {}
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+    enterEditing(): void {
+      this.isEditing = true;
+    }
+    exitEditing(): void {
+      this.isEditing = false;
+    }
+    selectAll(): void {}
+  }
+
+  // FabricObjectモック
+  class MockFabricObject {
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      return this;
+    }
+  }
+
   return {
     Canvas: MockCanvas,
     FabricImage: {
       fromURL: mockFromURL,
     },
+    FabricObject: MockFabricObject,
     Path: MockPath,
     Ellipse: MockEllipse,
     Rect: MockRect,
@@ -311,6 +364,7 @@ vi.mock('fabric', () => {
     Polyline: MockPolyline,
     Line: MockLine,
     Text: MockText,
+    IText: MockIText,
     Group: MockGroup,
     PencilBrush: MockPencilBrush,
   };

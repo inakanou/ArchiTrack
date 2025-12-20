@@ -24,7 +24,9 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Canvas as FabricCanvas,
   FabricImage,
+  FabricObject,
   PencilBrush,
+  Polyline,
   type TPointerEventInfo,
   type TPointerEvent,
 } from 'fabric';
@@ -246,6 +248,9 @@ function AnnotationEditor({
   // 編集中のテキスト参照（テキストツールの編集解除用）
   const editingTextRef = useRef<boolean>(false);
 
+  // プレビュー用オブジェクト参照（描画途中のプレビュー表示用）
+  const previewShapeRef = useRef<FabricObject | null>(null);
+
   /**
    * ツール変更ハンドラ
    *
@@ -310,6 +315,13 @@ function AnnotationEditor({
 
     // ドラッグ状態をリセット
     dragStateRef.current = { isDragging: false, startPoint: null };
+
+    // プレビューオブジェクトをクリア
+    if (previewShapeRef.current && fabricCanvasRef.current) {
+      fabricCanvasRef.current.remove(previewShapeRef.current);
+      previewShapeRef.current = null;
+      fabricCanvasRef.current.renderAll();
+    }
   }, []);
 
   /**
@@ -526,15 +538,156 @@ function AnnotationEditor({
       };
     });
 
-    // マウス移動イベント - ドラッグ中のプレビュー（将来的にはプレビュー表示を追加可能）
-    canvas.on('mouse:move', () => {
-      // プレビュー描画は将来的に追加可能
+    // マウス移動イベント - ドラッグ中のプレビュー表示
+    canvas.on('mouse:move', (options: TPointerEventInfo<TPointerEvent>) => {
+      const pointer = options.pointer;
+      const activeTool = activeToolRef.current;
+      const dragState = dragStateRef.current;
+      const currentStyle = styleOptionsRef.current;
+
+      if (!pointer) {
+        return;
+      }
+
+      // 選択ツールまたはフリーハンド、テキストの場合はプレビュー不要
+      if (activeTool === 'select' || activeTool === 'freehand' || activeTool === 'text') {
+        return;
+      }
+
+      // 多角形ツールのプレビュー（クリックベース）
+      if (activeTool === 'polygon' && polygonBuilderRef.current) {
+        const vertices = polygonBuilderRef.current.getVertices();
+        if (vertices.length > 0) {
+          // 既存のプレビューを削除
+          if (previewShapeRef.current) {
+            canvas.remove(previewShapeRef.current);
+          }
+          // 最後の頂点からマウス位置への線をプレビュー
+          const lastVertex = vertices[vertices.length - 1];
+          if (!lastVertex) return;
+          const previewLine = new Polyline(
+            [
+              { x: lastVertex.x, y: lastVertex.y },
+              { x: pointer.x, y: pointer.y },
+            ],
+            {
+              stroke: currentStyle.strokeColor,
+              strokeWidth: currentStyle.strokeWidth,
+              fill: 'transparent',
+              opacity: 0.5,
+              selectable: false,
+              evented: false,
+            }
+          );
+          previewShapeRef.current = previewLine;
+          canvas.add(previewLine);
+          canvas.renderAll();
+        }
+        return;
+      }
+
+      // 折れ線ツールのプレビュー（クリックベース）
+      if (activeTool === 'polyline' && polylineBuilderRef.current) {
+        const points = polylineBuilderRef.current.getPoints();
+        if (points.length > 0) {
+          // 既存のプレビューを削除
+          if (previewShapeRef.current) {
+            canvas.remove(previewShapeRef.current);
+          }
+          // 最後のポイントからマウス位置への線をプレビュー
+          const lastPoint = points[points.length - 1];
+          if (!lastPoint) return;
+          const previewLine = new Polyline(
+            [
+              { x: lastPoint.x, y: lastPoint.y },
+              { x: pointer.x, y: pointer.y },
+            ],
+            {
+              stroke: currentStyle.strokeColor,
+              strokeWidth: currentStyle.strokeWidth,
+              fill: 'transparent',
+              opacity: 0.5,
+              selectable: false,
+              evented: false,
+            }
+          );
+          previewShapeRef.current = previewLine;
+          canvas.add(previewLine);
+          canvas.renderAll();
+        }
+        return;
+      }
+
+      // ドラッグ中でなければプレビュー不要
+      if (!dragState.isDragging || !dragState.startPoint) {
+        return;
+      }
+
+      const startPoint = dragState.startPoint;
+      const endPoint = { x: pointer.x, y: pointer.y };
+
+      // 既存のプレビューを削除
+      if (previewShapeRef.current) {
+        canvas.remove(previewShapeRef.current);
+        previewShapeRef.current = null;
+      }
+
+      // ツールに応じてプレビュー図形を作成
+      let previewShape: FabricObject | null = null;
+      switch (activeTool) {
+        case 'arrow':
+          previewShape = createArrow(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+          });
+          break;
+        case 'circle':
+          previewShape = createCircle(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+            fill: currentStyle.fillColor || 'transparent',
+          });
+          break;
+        case 'rectangle':
+          previewShape = createRectangle(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+            fill: currentStyle.fillColor || 'transparent',
+          });
+          break;
+        case 'dimension':
+          previewShape = createDimensionLine(startPoint, endPoint, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+          });
+          break;
+        default:
+          break;
+      }
+
+      // プレビュー図形を表示（半透明で表示）
+      if (previewShape) {
+        previewShape.set({
+          opacity: 0.5,
+          selectable: false,
+          evented: false,
+        });
+        previewShapeRef.current = previewShape;
+        canvas.add(previewShape);
+        canvas.renderAll();
+      }
     });
 
     // マウスアップイベント - 図形の作成
     canvas.on('mouse:up', (options: TPointerEventInfo<TPointerEvent>) => {
       const dragState = dragStateRef.current;
       const activeTool = activeToolRef.current;
+
+      // プレビューオブジェクトを削除
+      if (previewShapeRef.current) {
+        canvas.remove(previewShapeRef.current);
+        previewShapeRef.current = null;
+      }
 
       // 選択ツールまたはフリーハンドの場合は図形を作成しない
       if (activeTool === 'select' || activeTool === 'freehand') {
@@ -621,6 +774,12 @@ function AnnotationEditor({
     // ダブルクリックイベント - 多角形・折れ線の完了
     canvas.on('mouse:dblclick', () => {
       const activeTool = activeToolRef.current;
+
+      // プレビューオブジェクトを削除
+      if (previewShapeRef.current) {
+        canvas.remove(previewShapeRef.current);
+        previewShapeRef.current = null;
+      }
 
       // 多角形ツール - 多角形を完了
       if (activeTool === 'polygon' && polygonBuilderRef.current) {
