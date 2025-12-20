@@ -327,8 +327,9 @@ export class RectangleShape extends Rect {
   override toObject(): RectangleJSON {
     return {
       type: 'rectangleShape' as const,
-      left: this._positionX,
-      top: this._positionY,
+      // Fabric.jsの移動操作でleft/topが更新されるため、現在の位置を使用
+      left: this.left ?? this._positionX,
+      top: this.top ?? this._positionY,
       width: this._shapeWidth,
       height: this._shapeHeight,
       stroke: this.stroke,

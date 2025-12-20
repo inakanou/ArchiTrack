@@ -55,6 +55,10 @@ export interface PolygonJSON {
   stroke: string;
   strokeWidth: number;
   fill: string;
+  /** 移動後の位置X（オプション、後方互換性のため） */
+  left?: number;
+  /** 移動後の位置Y（オプション、後方互換性のため） */
+  top?: number;
 }
 
 // ============================================================================
@@ -317,6 +321,8 @@ export class PolygonShape extends Polygon {
       stroke: this.stroke,
       strokeWidth: this.strokeWidth,
       fill: this.fill,
+      left: this.left,
+      top: this.top,
     };
   }
 
@@ -334,6 +340,16 @@ export class PolygonShape extends Polygon {
       strokeWidth: object.strokeWidth,
       fill: object.fill,
     });
+
+    // 移動後の位置を復元（後方互換性のためオプション）
+    if (object.left !== undefined) {
+      polygon.set('left', object.left);
+    }
+    if (object.top !== undefined) {
+      polygon.set('top', object.top);
+    }
+    polygon.setCoords();
+
     return Promise.resolve(polygon);
   }
 }

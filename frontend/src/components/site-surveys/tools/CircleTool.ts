@@ -343,8 +343,10 @@ export class CircleShape extends Ellipse {
   override toObject(): CircleJSON {
     return {
       type: 'circleShape' as const,
-      centerX: this._centerX,
-      centerY: this._centerY,
+      // Fabric.jsの移動操作でleft/topが更新されるため、現在の位置を使用
+      // CircleShapeはoriginX/Y='center'なのでleft/topが中心座標
+      centerX: this.left ?? this._centerX,
+      centerY: this.top ?? this._centerY,
       rx: this.rx,
       ry: this.ry,
       stroke: this.stroke,

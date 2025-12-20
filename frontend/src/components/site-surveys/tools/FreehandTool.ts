@@ -54,6 +54,10 @@ export interface FreehandJSON {
   fill: string;
   strokeLineCap: string;
   strokeLineJoin: string;
+  /** 移動後の位置X（オプション、後方互換性のため） */
+  left?: number;
+  /** 移動後の位置Y（オプション、後方互換性のため） */
+  top?: number;
 }
 
 // ============================================================================
@@ -235,6 +239,8 @@ export class FreehandPath extends Path {
       fill: this.fill,
       strokeLineCap: this.strokeLineCap,
       strokeLineJoin: this.strokeLineJoin,
+      left: this.left,
+      top: this.top,
     };
   }
 
@@ -254,6 +260,16 @@ export class FreehandPath extends Path {
       strokeLineCap: object.strokeLineCap as 'butt' | 'round' | 'square',
       strokeLineJoin: object.strokeLineJoin as 'bevel' | 'round' | 'miter',
     });
+
+    // 移動後の位置を復元（後方互換性のためオプション）
+    if (object.left !== undefined) {
+      freehand.set('left', object.left);
+    }
+    if (object.top !== undefined) {
+      freehand.set('top', object.top);
+    }
+    freehand.setCoords();
+
     return Promise.resolve(freehand);
   }
 }
