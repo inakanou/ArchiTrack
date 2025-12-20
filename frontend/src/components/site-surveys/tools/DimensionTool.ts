@@ -821,6 +821,34 @@ export class DimensionLine extends Path {
 
     return result;
   }
+
+  /**
+   * JSONオブジェクトからDimensionLineを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたDimensionLineインスタンス
+   */
+  static override fromObject(object: DimensionLineJSON): Promise<DimensionLine> {
+    const dimensionLine = new DimensionLine(object.startPoint, object.endPoint, {
+      stroke: object.stroke,
+      strokeWidth: object.strokeWidth,
+      capLength: object.capLength,
+    });
+
+    // カスタムデータを復元
+    if (object.customData) {
+      dimensionLine.customData = { ...object.customData };
+    }
+
+    // ラベルスタイルを復元
+    if (object.labelStyle) {
+      dimensionLine.setLabelStyle(object.labelStyle);
+    }
+
+    return Promise.resolve(dimensionLine);
+  }
 }
 
 // ============================================================================

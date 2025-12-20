@@ -429,6 +429,23 @@ export class Arrow extends Path {
       arrowheadSize: this._arrowheadSize,
     };
   }
+
+  /**
+   * JSONオブジェクトからArrowを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたArrowインスタンス
+   */
+  static override fromObject(object: ArrowJSON): Promise<Arrow> {
+    const arrow = new Arrow(object.startPoint, object.endPoint, {
+      stroke: object.stroke,
+      strokeWidth: object.strokeWidth,
+      arrowheadSize: object.arrowheadSize,
+    });
+    return Promise.resolve(arrow);
+  }
 }
 
 // ============================================================================

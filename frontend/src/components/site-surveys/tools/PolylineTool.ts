@@ -314,6 +314,23 @@ export class PolylineShape extends Polyline {
       fill: this.fill,
     };
   }
+
+  /**
+   * JSONオブジェクトからPolylineShapeを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたPolylineShapeインスタンス
+   */
+  static override fromObject(object: PolylineJSON): Promise<PolylineShape> {
+    const polyline = new PolylineShape(object.points, {
+      stroke: object.stroke,
+      strokeWidth: object.strokeWidth,
+      fill: object.fill,
+    });
+    return Promise.resolve(polyline);
+  }
 }
 
 // ============================================================================

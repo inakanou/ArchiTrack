@@ -319,6 +319,23 @@ export class PolygonShape extends Polygon {
       fill: this.fill,
     };
   }
+
+  /**
+   * JSONオブジェクトからPolygonShapeを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたPolygonShapeインスタンス
+   */
+  static override fromObject(object: PolygonJSON): Promise<PolygonShape> {
+    const polygon = new PolygonShape(object.points, {
+      stroke: object.stroke,
+      strokeWidth: object.strokeWidth,
+      fill: object.fill,
+    });
+    return Promise.resolve(polygon);
+  }
 }
 
 // ============================================================================

@@ -352,6 +352,23 @@ export class CircleShape extends Ellipse {
       fill: this.fill,
     };
   }
+
+  /**
+   * JSONオブジェクトからCircleShapeを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたCircleShapeインスタンス
+   */
+  static override fromObject(object: CircleJSON): Promise<CircleShape> {
+    const circle = new CircleShape(object.centerX, object.centerY, object.rx, object.ry, {
+      stroke: object.stroke,
+      strokeWidth: object.strokeWidth,
+      fill: object.fill,
+    });
+    return Promise.resolve(circle);
+  }
 }
 
 // ============================================================================

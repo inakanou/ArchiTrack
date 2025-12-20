@@ -237,6 +237,25 @@ export class FreehandPath extends Path {
       strokeLineJoin: this.strokeLineJoin,
     };
   }
+
+  /**
+   * JSONオブジェクトからFreehandPathを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたFreehandPathインスタンス
+   */
+  static override fromObject(object: FreehandJSON): Promise<FreehandPath> {
+    const freehand = new FreehandPath(object.pathData, {
+      stroke: object.stroke,
+      strokeWidth: object.strokeWidth,
+      fill: object.fill,
+      strokeLineCap: object.strokeLineCap as 'butt' | 'round' | 'square',
+      strokeLineJoin: object.strokeLineJoin as 'bevel' | 'round' | 'miter',
+    });
+    return Promise.resolve(freehand);
+  }
 }
 
 // ============================================================================

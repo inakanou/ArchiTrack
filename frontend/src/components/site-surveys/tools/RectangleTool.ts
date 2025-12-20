@@ -336,6 +336,23 @@ export class RectangleShape extends Rect {
       fill: this.fill,
     };
   }
+
+  /**
+   * JSONオブジェクトからRectangleShapeを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたRectangleShapeインスタンス
+   */
+  static override fromObject(object: RectangleJSON): Promise<RectangleShape> {
+    const rectangle = new RectangleShape(object.left, object.top, object.width, object.height, {
+      stroke: object.stroke,
+      strokeWidth: object.strokeWidth,
+      fill: object.fill,
+    });
+    return Promise.resolve(rectangle);
+  }
 }
 
 // ============================================================================

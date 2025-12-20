@@ -570,6 +570,42 @@ export class TextAnnotation extends IText {
       balloonPadding: this._balloonPadding,
     };
   }
+
+  /**
+   * JSONオブジェクトからTextAnnotationを復元する
+   *
+   * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
+   * classRegistryに登録されたクラスはこのメソッドを通じて復元される。
+   *
+   * @param object シリアライズされたJSONオブジェクト
+   * @returns 復元されたTextAnnotationインスタンス
+   */
+  static override fromObject(object: TextAnnotationJSON): Promise<TextAnnotation> {
+    const textAnnotation = new TextAnnotation(object.position, {
+      initialText: object.text,
+      fontSize: object.fontSize,
+      fontFamily: object.fontFamily,
+      fill: object.fill,
+      backgroundColor: object.backgroundColor,
+      balloonStyle: object.balloonStyle,
+    });
+
+    // 吹き出し設定を復元
+    if (object.balloonBackgroundColor) {
+      textAnnotation.setBalloonBackgroundColor(object.balloonBackgroundColor);
+    }
+    if (object.balloonStrokeColor) {
+      textAnnotation.setBalloonStrokeColor(object.balloonStrokeColor);
+    }
+    if (object.balloonStrokeWidth !== undefined) {
+      textAnnotation.setBalloonStrokeWidth(object.balloonStrokeWidth);
+    }
+    if (object.balloonPadding !== undefined) {
+      textAnnotation.setBalloonPadding(object.balloonPadding);
+    }
+
+    return Promise.resolve(textAnnotation);
+  }
 }
 
 // ============================================================================
