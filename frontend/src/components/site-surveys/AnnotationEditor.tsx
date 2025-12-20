@@ -39,6 +39,8 @@ import { PolylineBuilder, createPolyline } from './tools/PolylineTool';
 import { DEFAULT_FREEHAND_OPTIONS } from './tools/FreehandTool';
 import { createDimensionLine } from './tools/DimensionTool';
 import { createTextAnnotation } from './tools/TextTool';
+import { UndoManager } from '../../services/UndoManager';
+import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -81,6 +83,10 @@ interface AnnotationEditorState {
   activeTool: ToolType;
   /** スタイルオプション */
   styleOptions: StyleOptions;
+  /** Undo可能かどうか */
+  canUndo: boolean;
+  /** Redo可能かどうか */
+  canRedo: boolean;
 }
 
 /**
@@ -222,7 +228,16 @@ function AnnotationEditor({
     error: null,
     activeTool: 'select',
     styleOptions: DEFAULT_STYLE_OPTIONS,
+    canUndo: false,
+    canRedo: false,
   });
+
+  // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
+  const undoManagerRef = useRef<UndoManager | null>(null);
+  if (!undoManagerRef.current) {
+    undoManagerRef.current = new UndoManager(50);
+  }
+  const undoManager = undoManagerRef.current;
 
   // 前回のimageUrl参照（変更検知用）
   const prevImageUrlRef = useRef<string | null>(null);
@@ -250,6 +265,30 @@ function AnnotationEditor({
 
   // プレビュー用オブジェクト参照（描画途中のプレビュー表示用）
   const previewShapeRef = useRef<FabricObject | null>(null);
+
+  // Fabric.js と UndoManager の連携フック
+  // fabricCanvasRef.currentを使用（Canvasがない場合はnull）
+  const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
+  useFabricUndoIntegration({
+    canvas: fabricCanvas,
+    undoManager,
+    enabled: !state.isLoading,
+  });
+
+  // UndoManager状態変更コールバック設定
+  useEffect(() => {
+    undoManager.setOnChange((undoState) => {
+      setState((prev) => ({
+        ...prev,
+        canUndo: undoState.canUndo,
+        canRedo: undoState.canRedo,
+      }));
+    });
+
+    return () => {
+      undoManager.setOnChange(null);
+    };
+  }, [undoManager]);
 
   /**
    * ツール変更ハンドラ
@@ -902,6 +941,9 @@ function AnnotationEditor({
 
       fabricCanvasRef.current = canvas;
 
+      // Fabric.js と UndoManager の連携用にCanvasを状態に設定
+      setFabricCanvas(canvas);
+
       // E2Eテスト用にwindowオブジェクトにキャンバスを公開
       if (typeof window !== 'undefined') {
         window.__fabricCanvas = canvas;
@@ -946,6 +988,9 @@ function AnnotationEditor({
       backgroundImageRef.current = null;
       canvasElementRef.current = null;
 
+      // Fabric.js と UndoManager の連携をクリア
+      setFabricCanvas(null);
+
       // E2Eテスト用のwindowオブジェクトをクリア
       if (typeof window !== 'undefined') {
         window.__fabricCanvas = null;
@@ -975,47 +1020,87 @@ function AnnotationEditor({
   void surveyId;
 
   /**
+   * Undo操作ハンドラ
+   */
+  const handleUndo = useCallback(() => {
+    if (undoManager.canUndo()) {
+      undoManager.undo();
+    }
+  }, [undoManager]);
+
+  /**
+   * Redo操作ハンドラ
+   */
+  const handleRedo = useCallback(() => {
+    if (undoManager.canRedo()) {
+      undoManager.redo();
+    }
+  }, [undoManager]);
+
+  /**
    * キーボードイベントハンドラ
    *
    * Task 13.3: Delete/Backspace/Escapeキーによるオブジェクト操作
    * - Delete/Backspace: 選択中のオブジェクトを削除
    * - Escape: 選択を解除
+   * - Ctrl+Z: Undo操作
+   * - Ctrl+Shift+Z / Ctrl+Y: Redo操作
    */
-  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!fabricCanvasRef.current) return;
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!fabricCanvasRef.current) return;
 
-    const canvas = fabricCanvasRef.current;
-    const activeObject = canvas.getActiveObject();
+      const canvas = fabricCanvasRef.current;
+      const activeObject = canvas.getActiveObject();
 
-    // テキスト編集中の場合はキー入力を処理しない（ITextに任せる）
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (activeObject && (activeObject as any).isEditing) {
-      return;
-    }
+      // テキスト編集中の場合はキー入力を処理しない（ITextに任せる）
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (activeObject && (activeObject as any).isEditing) {
+        return;
+      }
 
-    switch (event.key) {
-      case 'Delete':
-      case 'Backspace':
-        // 選択中のオブジェクトを削除
-        if (activeObject) {
-          canvas.remove(activeObject);
-          canvas.discardActiveObject();
-          canvas.renderAll();
-        }
-        break;
+      // Ctrl+Z: Undo (Shiftなし)
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
 
-      case 'Escape':
-        // 選択を解除
-        if (activeObject) {
-          canvas.discardActiveObject();
-          canvas.renderAll();
-        }
-        break;
+      // Ctrl+Shift+Z または Ctrl+Y: Redo
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        ((event.key.toLowerCase() === 'z' && event.shiftKey) || event.key.toLowerCase() === 'y')
+      ) {
+        event.preventDefault();
+        handleRedo();
+        return;
+      }
 
-      default:
-        break;
-    }
-  }, []);
+      switch (event.key) {
+        case 'Delete':
+        case 'Backspace':
+          // 選択中のオブジェクトを削除
+          if (activeObject) {
+            canvas.remove(activeObject);
+            canvas.discardActiveObject();
+            canvas.renderAll();
+          }
+          break;
+
+        case 'Escape':
+          // 選択を解除
+          if (activeObject) {
+            canvas.discardActiveObject();
+            canvas.renderAll();
+          }
+          break;
+
+        default:
+          break;
+      }
+    },
+    [handleUndo, handleRedo]
+  );
 
   return (
     <>
@@ -1039,6 +1124,10 @@ function AnnotationEditor({
             disabled={state.isLoading}
             styleOptions={state.styleOptions}
             onStyleChange={handleStyleChange}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={state.canUndo}
+            canRedo={state.canRedo}
           />
         </div>
 

@@ -1549,6 +1549,11 @@ test.describe('現場調査注釈ツール', () => {
         );
       }
 
+      // 描画前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count before drawing: ${objectCountBefore}`);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
       await expect(rectTool).toBeVisible({ timeout: 5000 });
@@ -1556,14 +1561,23 @@ test.describe('現場調査注釈ツール', () => {
 
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+      await page.waitForTimeout(300);
+
+      // 描画後のオブジェクト数を確認（1つ増えているはず）
+      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after drawing: ${objectCountAfterDraw}`);
+      expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undoボタンをクリック
       const undoButton = page.getByRole('button', { name: /元に戻す|undo|取り消し/i });
       await expect(undoButton).toBeVisible({ timeout: 5000 });
       await undoButton.click();
+      await page.waitForTimeout(300);
 
-      // Undo操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // Undo後のオブジェクト数を確認（元に戻っているはず）
+      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after undo: ${objectCountAfterUndo}`);
+      expect(objectCountAfterUndo).toBe(objectCountBefore);
     });
 
     test('Redo操作を実行すると取り消した操作が再実行される (site-survey/REQ-11.2)', async ({
@@ -1578,6 +1592,11 @@ test.describe('現場調査注釈ツール', () => {
         );
       }
 
+      // 描画前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count before drawing: ${objectCountBefore}`);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
       await expect(rectTool).toBeVisible({ timeout: 5000 });
@@ -1585,6 +1604,12 @@ test.describe('現場調査注釈ツール', () => {
 
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+      await page.waitForTimeout(300);
+
+      // 描画後のオブジェクト数を確認
+      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after drawing: ${objectCountAfterDraw}`);
+      expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undo
       const undoButton = page.getByRole('button', { name: /元に戻す|undo|取り消し/i });
@@ -1592,13 +1617,21 @@ test.describe('現場調査注釈ツール', () => {
       await undoButton.click();
       await page.waitForTimeout(300);
 
+      // Undo後のオブジェクト数を確認
+      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after undo: ${objectCountAfterUndo}`);
+      expect(objectCountAfterUndo).toBe(objectCountBefore);
+
       // Redo
       const redoButton = page.getByRole('button', { name: /やり直し|redo/i });
       await expect(redoButton).toBeVisible({ timeout: 5000 });
       await redoButton.click();
+      await page.waitForTimeout(300);
 
-      // Redo操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // Redo後のオブジェクト数を確認（再び1つ増えているはず）
+      const objectCountAfterRedo = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after redo: ${objectCountAfterRedo}`);
+      expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
     test('キーボードショートカット（Ctrl+Z、Ctrl+Shift+Z）でUndo/Redoを実行できる (site-survey/REQ-11.3)', async ({
@@ -1613,6 +1646,11 @@ test.describe('現場調査注釈ツール', () => {
         );
       }
 
+      // 描画前のオブジェクト数を取得
+      const objectCountBefore = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count before drawing: ${objectCountBefore}`);
+      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
       await expect(rectTool).toBeVisible({ timeout: 5000 });
@@ -1620,17 +1658,34 @@ test.describe('現場調査注釈ツール', () => {
 
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+      await page.waitForTimeout(300);
+
+      // 描画後のオブジェクト数を確認
+      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after drawing: ${objectCountAfterDraw}`);
+      expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
+
+      // キャンバスコンテナにフォーカス（キーボードイベントを受け取るため）
+      const container = page.locator('[data-testid="annotation-editor-container"]');
+      await container.focus();
 
       // Ctrl+ZでUndo
       await page.keyboard.press('Control+z');
       await page.waitForTimeout(300);
 
+      // Undo後のオブジェクト数を確認
+      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after Ctrl+Z: ${objectCountAfterUndo}`);
+      expect(objectCountAfterUndo).toBe(objectCountBefore);
+
       // Ctrl+Shift+ZでRedo
       await page.keyboard.press('Control+Shift+z');
       await page.waitForTimeout(300);
 
-      // ショートカット操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // Redo後のオブジェクト数を確認
+      const objectCountAfterRedo = await getCanvasObjectCount(page);
+      console.log(`[TEST] Object count after Ctrl+Shift+Z: ${objectCountAfterRedo}`);
+      expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
     test('操作履歴を最大50件まで保持する (site-survey/REQ-11.4)', async ({ page }) => {
