@@ -41,6 +41,11 @@ import { createDimensionLine } from './tools/DimensionTool';
 import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
 import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
+import { saveAnnotation, getAnnotation } from '../../api/survey-annotations';
+import { exportImage, downloadFile } from '../../services/ExportService';
+import { util } from 'fabric';
+// カスタムシェイプをFabric.jsクラスレジストリに登録（enlivenObjectsで復元するために必要）
+import './tools/registerCustomShapes';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -87,6 +92,10 @@ interface AnnotationEditorState {
   canUndo: boolean;
   /** Redo可能かどうか */
   canRedo: boolean;
+  /** 保存中フラグ */
+  isSaving: boolean;
+  /** 保存成功メッセージ */
+  saveSuccess: boolean;
 }
 
 /**
@@ -172,6 +181,49 @@ const STYLES = {
     textAlign: 'center' as const,
     maxWidth: '400px',
   },
+  savingOverlay: {
+    position: 'absolute' as const,
+    top: '16px',
+    right: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+    zIndex: 20,
+  },
+  savingSpinner: {
+    width: '16px',
+    height: '16px',
+    border: '2px solid rgba(59, 130, 246, 0.3)',
+    borderTop: '2px solid #3b82f6',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+  },
+  savingText: {
+    fontSize: '14px',
+    color: '#374151',
+  },
+  successMessage: {
+    position: 'absolute' as const,
+    top: '16px',
+    right: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+    borderRadius: '8px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+    zIndex: 20,
+  },
+  successText: {
+    fontSize: '14px',
+    color: '#065f46',
+  },
 };
 
 // ============================================================================
@@ -230,6 +282,8 @@ function AnnotationEditor({
     styleOptions: DEFAULT_STYLE_OPTIONS,
     canUndo: false,
     canRedo: false,
+    isSaving: false,
+    saveSuccess: false,
   });
 
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
@@ -394,78 +448,141 @@ function AnnotationEditor({
   /**
    * 画像を読み込んでCanvasに表示
    */
-  const loadImage = useCallback(async (canvas: FabricCanvas, url: string) => {
-    setState((prev) => ({ ...prev, isLoading: true, error: null }));
+  const loadImage = useCallback(
+    async (canvas: FabricCanvas, url: string) => {
+      setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
-    try {
-      // 画像を読み込み
-      const img = await FabricImage.fromURL(url, {
-        crossOrigin: 'anonymous',
-      });
+      try {
+        // 画像を読み込み
+        const img = await FabricImage.fromURL(url, {
+          crossOrigin: 'anonymous',
+        });
 
-      // 非同期処理後、Canvasがdisposeされていないか確認
-      // また、渡されたcanvasインスタンスが現在のcanvasと同じかも確認
-      // （React StrictModeで古いcanvasインスタンスのクロージャが実行される可能性がある）
-      if (isDisposedRef.current || !fabricCanvasRef.current || fabricCanvasRef.current !== canvas) {
-        console.warn('Canvas has been disposed or replaced during image loading');
-        return;
+        // 非同期処理後、Canvasがdisposeされていないか確認
+        // また、渡されたcanvasインスタンスが現在のcanvasと同じかも確認
+        // （React StrictModeで古いcanvasインスタンスのクロージャが実行される可能性がある）
+        if (
+          isDisposedRef.current ||
+          !fabricCanvasRef.current ||
+          fabricCanvasRef.current !== canvas
+        ) {
+          console.warn('Canvas has been disposed or replaced during image loading');
+          return;
+        }
+
+        // コンテナサイズを取得
+        const containerWidth = containerRef.current?.clientWidth || 800;
+        const containerHeight = containerRef.current?.clientHeight || 600;
+
+        // パディングを考慮
+        const padding = 48;
+        const maxWidth = containerWidth - padding;
+        const maxHeight = containerHeight - padding;
+
+        // 画像サイズを計算
+        const imgWidth = img.width || 1;
+        const imgHeight = img.height || 1;
+        const scale = Math.min(maxWidth / imgWidth, maxHeight / imgHeight, 1);
+
+        // スケールを設定
+        img.scale(scale);
+
+        // 背景画像として設定する前に選択不可・移動不可に設定
+        img.set({
+          selectable: false,
+          evented: false,
+        });
+
+        // Canvasサイズを設定（Fabric.js v6互換）
+        const scaledWidth = imgWidth * scale;
+        const scaledHeight = imgHeight * scale;
+
+        // 再度disposeチェック（React StrictModeでのcanvas置換も考慮）
+        if (
+          isDisposedRef.current ||
+          !fabricCanvasRef.current ||
+          fabricCanvasRef.current !== canvas
+        ) {
+          console.warn('Canvas has been disposed or replaced during image processing');
+          return;
+        }
+
+        canvas.setDimensions({ width: scaledWidth, height: scaledHeight });
+
+        // 背景画像として設定（Fabric.js v6 API）
+        canvas.backgroundImage = img;
+        // 背景画像の参照を保存
+        backgroundImageRef.current = img;
+
+        canvas.renderAll();
+
+        // REQ-9.2: 保存された注釈データを復元
+        try {
+          const annotationData = await getAnnotation(imageId);
+          if (annotationData && annotationData.data && annotationData.data.objects) {
+            // 再度disposeチェック
+            if (
+              isDisposedRef.current ||
+              !fabricCanvasRef.current ||
+              fabricCanvasRef.current !== canvas
+            ) {
+              console.warn('Canvas has been disposed or replaced during annotation loading');
+              return;
+            }
+
+            // 注釈オブジェクトを復元
+            const objects = annotationData.data.objects;
+            if (objects.length > 0) {
+              // Fabric.js v6 の enlivenObjects を使用してオブジェクトを復元
+              const enlivenedObjects = await util.enlivenObjects(objects);
+
+              // 再度disposeチェック
+              if (
+                isDisposedRef.current ||
+                !fabricCanvasRef.current ||
+                fabricCanvasRef.current !== canvas
+              ) {
+                console.warn('Canvas has been disposed or replaced during object restoration');
+                return;
+              }
+
+              // 復元したオブジェクトをキャンバスに追加
+              enlivenedObjects.forEach((obj) => {
+                // FabricObjectであることを確認
+                if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
+                  const fabricObj = obj as FabricObject;
+                  // 選択ツールの場合のみ選択可能に設定
+                  fabricObj.set({
+                    selectable: activeToolRef.current === 'select',
+                    evented: activeToolRef.current === 'select',
+                  });
+                  canvas.add(fabricObj);
+                }
+              });
+              canvas.renderAll();
+              console.log(`Restored ${enlivenedObjects.length} annotation objects`);
+            }
+          }
+        } catch (annotationErr) {
+          // 注釈データの読み込みに失敗してもエラーにはしない（画像は表示する）
+          console.warn('注釈データの読み込みに失敗しました:', annotationErr);
+        }
+
+        setState((prev) => ({ ...prev, isLoading: false, error: null }));
+      } catch (err) {
+        console.error('画像の読み込みに失敗しました:', err);
+        // disposeされていない場合のみstate更新
+        if (!isDisposedRef.current) {
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+            error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
+          }));
+        }
       }
-
-      // コンテナサイズを取得
-      const containerWidth = containerRef.current?.clientWidth || 800;
-      const containerHeight = containerRef.current?.clientHeight || 600;
-
-      // パディングを考慮
-      const padding = 48;
-      const maxWidth = containerWidth - padding;
-      const maxHeight = containerHeight - padding;
-
-      // 画像サイズを計算
-      const imgWidth = img.width || 1;
-      const imgHeight = img.height || 1;
-      const scale = Math.min(maxWidth / imgWidth, maxHeight / imgHeight, 1);
-
-      // スケールを設定
-      img.scale(scale);
-
-      // 背景画像として設定する前に選択不可・移動不可に設定
-      img.set({
-        selectable: false,
-        evented: false,
-      });
-
-      // Canvasサイズを設定（Fabric.js v6互換）
-      const scaledWidth = imgWidth * scale;
-      const scaledHeight = imgHeight * scale;
-
-      // 再度disposeチェック（React StrictModeでのcanvas置換も考慮）
-      if (isDisposedRef.current || !fabricCanvasRef.current || fabricCanvasRef.current !== canvas) {
-        console.warn('Canvas has been disposed or replaced during image processing');
-        return;
-      }
-
-      canvas.setDimensions({ width: scaledWidth, height: scaledHeight });
-
-      // 背景画像として設定（Fabric.js v6 API）
-      canvas.backgroundImage = img;
-      // 背景画像の参照を保存
-      backgroundImageRef.current = img;
-
-      canvas.renderAll();
-
-      setState((prev) => ({ ...prev, isLoading: false, error: null }));
-    } catch (err) {
-      console.error('画像の読み込みに失敗しました:', err);
-      // disposeされていない場合のみstate更新
-      if (!isDisposedRef.current) {
-        setState((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: err instanceof Error ? err.message : '画像の読み込みに失敗しました',
-        }));
-      }
-    }
-  }, []);
+    },
+    [imageId]
+  );
 
   /**
    * Canvasイベントリスナーを設定
@@ -1034,9 +1151,7 @@ function AnnotationEditor({
     }
   }, [imageUrl, loadImage]);
 
-  // imageIdとsurveyIdは将来の注釈データ保存・取得で使用予定
-  // 現時点ではコンポーネントのpropsとして受け取るのみ
-  void imageId;
+  // surveyIdは将来の機能拡張で使用予定
   void surveyId;
 
   /**
@@ -1056,6 +1171,81 @@ function AnnotationEditor({
       undoManager.redo();
     }
   }, [undoManager]);
+
+  /**
+   * 保存操作ハンドラ
+   *
+   * REQ-9.1: 全ての注釈データをデータベースに保存する
+   * REQ-9.4: 保存中インジケーターを表示する
+   * REQ-9.5: エラーメッセージを表示してリトライを促す
+   */
+  const handleSave = useCallback(async () => {
+    if (!fabricCanvasRef.current || state.isSaving) return;
+
+    const canvas = fabricCanvasRef.current;
+
+    // 保存中状態に設定
+    setState((prev) => ({ ...prev, isSaving: true, error: null, saveSuccess: false }));
+
+    try {
+      // Canvasからオブジェクトを取得（背景画像を除く）
+      const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
+
+      // 注釈データを構築
+      const annotationData = {
+        version: '1.0',
+        objects: objects.map((obj) => obj.toObject()),
+      };
+
+      // APIを呼び出して保存
+      await saveAnnotation(imageId, { data: annotationData });
+
+      // 保存成功
+      setState((prev) => ({ ...prev, isSaving: false, saveSuccess: true }));
+
+      // 3秒後に成功メッセージを消す
+      setTimeout(() => {
+        setState((prev) => ({ ...prev, saveSuccess: false }));
+      }, 3000);
+    } catch (err) {
+      console.error('注釈の保存に失敗しました:', err);
+      setState((prev) => ({
+        ...prev,
+        isSaving: false,
+        error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
+      }));
+    }
+  }, [imageId, state.isSaving]);
+
+  /**
+   * エクスポート操作ハンドラ
+   *
+   * REQ-10.1: 注釈をレンダリングした画像を生成する
+   * REQ-10.2: JPEG、PNG形式でのエクスポートをサポート
+   */
+  const handleExport = useCallback(() => {
+    if (!fabricCanvasRef.current) return;
+
+    const canvas = fabricCanvasRef.current;
+
+    try {
+      // 画像をエクスポート（PNG形式）
+      const dataUrl = exportImage(canvas, { format: 'png', quality: 1.0 });
+
+      // ファイル名を生成
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `annotation_${imageId}_${timestamp}.png`;
+
+      // ダウンロード
+      downloadFile(dataUrl, filename);
+    } catch (err) {
+      console.error('画像のエクスポートに失敗しました:', err);
+      setState((prev) => ({
+        ...prev,
+        error: err instanceof Error ? err.message : '画像のエクスポートに失敗しました',
+      }));
+    }
+  }, [imageId]);
 
   /**
    * キーボードイベントハンドラ
@@ -1141,11 +1331,13 @@ function AnnotationEditor({
           <AnnotationToolbar
             activeTool={state.activeTool}
             onToolChange={handleToolChange}
-            disabled={state.isLoading}
+            disabled={state.isLoading || state.isSaving}
             styleOptions={state.styleOptions}
             onStyleChange={handleStyleChange}
             onUndo={handleUndo}
             onRedo={handleRedo}
+            onSave={handleSave}
+            onExport={handleExport}
             canUndo={state.canUndo}
             canRedo={state.canRedo}
           />
@@ -1171,11 +1363,26 @@ function AnnotationEditor({
             </div>
           )}
 
+          {/* 保存中表示 */}
+          {state.isSaving && (
+            <div style={STYLES.savingOverlay} role="status" aria-label="保存中">
+              <div style={STYLES.savingSpinner} />
+              <span style={STYLES.savingText}>保存中...</span>
+            </div>
+          )}
+
+          {/* 保存成功表示 */}
+          {state.saveSuccess && (
+            <div style={STYLES.successMessage} role="status" aria-label="保存完了">
+              <span style={STYLES.successText}>✓ 保存しました</span>
+            </div>
+          )}
+
           {/* エラー表示 */}
           {state.error && (
             <div style={STYLES.errorContainer}>
               <div role="alert" style={STYLES.errorMessage}>
-                画像の読み込みに失敗しました: {state.error}
+                {state.error}
               </div>
             </div>
           )}
