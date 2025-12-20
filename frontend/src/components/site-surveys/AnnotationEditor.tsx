@@ -243,6 +243,9 @@ function AnnotationEditor({
   // 折れ線ビルダー（折れ線ツール用）
   const polylineBuilderRef = useRef<PolylineBuilder | null>(null);
 
+  // 編集中のテキスト参照（テキストツールの編集解除用）
+  const editingTextRef = useRef<boolean>(false);
+
   /**
    * ツール変更ハンドラ
    *
@@ -298,6 +301,11 @@ function AnnotationEditor({
     }
     if (tool !== 'polyline') {
       polylineBuilderRef.current = null;
+    }
+
+    // テキスト編集フラグをリセット
+    if (tool !== 'text') {
+      editingTextRef.current = false;
     }
 
     // ドラッグ状態をリセット
@@ -440,6 +448,10 @@ function AnnotationEditor({
         if (obj === backgroundImageRef.current) continue;
         // ポインターがオブジェクトの範囲内にあるかチェック
         if (obj.containsPoint(pointer)) {
+          // テキストツールの場合、編集フラグをリセット
+          if (activeTool === 'text') {
+            editingTextRef.current = false;
+          }
           return; // 既存オブジェクト上では描画を開始しない
         }
       }
@@ -448,6 +460,10 @@ function AnnotationEditor({
       // これにより、選択状態が残っている場合の意図しない描画を防ぐ
       const activeObject = canvas.getActiveObject();
       if (activeObject) {
+        // テキストツールの場合、編集フラグをリセット
+        if (activeTool === 'text') {
+          editingTextRef.current = false;
+        }
         return;
       }
 
@@ -471,6 +487,16 @@ function AnnotationEditor({
 
       // テキストツール - シングルクリックで配置
       if (activeTool === 'text') {
+        // 編集中のテキストがある場合は編集を終了するだけで、新しいテキストを作成しない
+        // editingTextRefがtrueの場合、前回テキストを作成して編集モードに入っている
+        if (editingTextRef.current) {
+          // 編集フラグをリセット
+          editingTextRef.current = false;
+          // Fabric.jsが自動的に編集を終了するので、ここでは何もしない
+          // 新しいテキストを作成せずにreturn
+          return;
+        }
+
         const currentStyle = styleOptionsRef.current;
         const textAnnotation = createTextAnnotation(
           { x: pointer.x, y: pointer.y },
@@ -488,6 +514,8 @@ function AnnotationEditor({
         canvas.setActiveObject(textAnnotation);
         textAnnotation.enterEditing();
         textAnnotation.selectAll();
+        // 編集モードに入ったことを記録
+        editingTextRef.current = true;
         return;
       }
 
@@ -596,7 +624,12 @@ function AnnotationEditor({
 
       // 多角形ツール - 多角形を完了
       if (activeTool === 'polygon' && polygonBuilderRef.current) {
-        const polygon = createPolygon(polygonBuilderRef.current.getVertices());
+        const currentStyle = styleOptionsRef.current;
+        const polygon = createPolygon(polygonBuilderRef.current.getVertices(), {
+          stroke: currentStyle.strokeColor,
+          strokeWidth: currentStyle.strokeWidth,
+          fill: currentStyle.fillColor || 'transparent',
+        });
         if (polygon) {
           canvas.add(polygon);
           canvas.renderAll();
@@ -607,7 +640,12 @@ function AnnotationEditor({
 
       // 折れ線ツール - 折れ線を完了
       if (activeTool === 'polyline' && polylineBuilderRef.current) {
-        const polyline = createPolyline(polylineBuilderRef.current.getPoints());
+        const currentStyle = styleOptionsRef.current;
+        const polyline = createPolyline(polylineBuilderRef.current.getPoints(), {
+          stroke: currentStyle.strokeColor,
+          strokeWidth: currentStyle.strokeWidth,
+          fill: 'transparent',
+        });
         if (polyline) {
           canvas.add(polyline);
           canvas.renderAll();
