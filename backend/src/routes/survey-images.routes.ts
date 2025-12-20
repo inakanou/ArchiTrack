@@ -149,6 +149,16 @@ const imageOrderBodySchema = z.object({
     .min(1, '順序情報が指定されていません'),
 });
 
+const thumbnailUpdateBodySchema = z.object({
+  imageData: z
+    .string()
+    .min(1, '画像データが指定されていません')
+    .refine(
+      (data) => data.startsWith('data:image/'),
+      '無効な画像データ形式です。data:image/で始まるBase64形式である必要があります。'
+    ),
+});
+
 /**
  * @swagger
  * /api/site-surveys/{id}/images:
@@ -506,6 +516,159 @@ router.delete(
         });
         return;
       }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/site-surveys/images/{imageId}/thumbnail:
+ *   patch:
+ *     summary: サムネイル更新
+ *     description: 注釈付き画像からサムネイルを再生成して更新
+ *     tags:
+ *       - Survey Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: imageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 画像ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - imageData
+ *             properties:
+ *               imageData:
+ *                 type: string
+ *                 description: Base64エンコードされた画像データ（data:image/...形式）
+ *     responses:
+ *       200:
+ *         description: サムネイル更新成功
+ *       400:
+ *         description: 無効な画像データ
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 画像が見つからない
+ */
+router.patch(
+  '/:imageId/thumbnail',
+  authenticate,
+  requirePermission('site_survey:update'),
+  validate(imageIdParamSchema, 'params'),
+  validate(thumbnailUpdateBodySchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageId } = req.validatedParams as { imageId: string };
+      const { imageData } = req.validatedBody as { imageData: string };
+
+      // ストレージサービスが利用可能か確認
+      if (!imageUploadService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      // 画像の存在確認
+      const image = await prisma.surveyImage.findUnique({
+        where: { id: imageId },
+        select: {
+          id: true,
+          surveyId: true,
+          thumbnailPath: true,
+          fileName: true,
+        },
+      });
+
+      if (!image) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/image-not-found',
+          title: 'Image Not Found',
+          status: 404,
+          detail: `画像が見つかりません: ${imageId}`,
+          code: 'IMAGE_NOT_FOUND',
+          imageId,
+        });
+        return;
+      }
+
+      // Base64データをバッファに変換
+      const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+      const imageBuffer = Buffer.from(base64Data, 'base64');
+
+      // ストレージプロバイダーを取得
+      const storageProvider = getStorageProvider();
+      if (!storageProvider) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージプロバイダーが利用できません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      // Sharpをダイナミックインポートしてサムネイル生成
+      const sharpModule = await import('sharp');
+      const sharp = sharpModule.default;
+      const imageProcessorService = new ImageProcessorService(((input: Buffer) =>
+        sharp(input)) as import('../services/image-processor.service.js').SharpStatic);
+
+      const thumbnailBuffer = await imageProcessorService.generateThumbnail(imageBuffer);
+
+      // 新しいサムネイルパスを生成（既存パスを上書き）
+      const timestamp = Date.now();
+      const newThumbnailPath = `surveys/${image.surveyId}/${timestamp}_thumb_annotated_${image.fileName}`;
+
+      // サムネイルをストレージにアップロード
+      await storageProvider.upload(newThumbnailPath, thumbnailBuffer, {
+        contentType: 'image/jpeg',
+      });
+
+      // 古いサムネイルを削除（エラーは無視）
+      if (image.thumbnailPath && image.thumbnailPath !== newThumbnailPath) {
+        try {
+          await storageProvider.delete(image.thumbnailPath);
+        } catch {
+          logger.warn({ oldPath: image.thumbnailPath }, 'Failed to delete old thumbnail');
+        }
+      }
+
+      // データベースのサムネイルパスを更新
+      await prisma.surveyImage.update({
+        where: { id: imageId },
+        data: { thumbnailPath: newThumbnailPath },
+      });
+
+      logger.info(
+        { userId: req.user!.userId, imageId, newThumbnailPath },
+        'Thumbnail updated with annotations'
+      );
+
+      res.status(200).json({
+        success: true,
+        thumbnailPath: newThumbnailPath,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to update thumbnail');
       next(error);
     }
   }

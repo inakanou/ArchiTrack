@@ -41,7 +41,7 @@ import { createDimensionLine } from './tools/DimensionTool';
 import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
 import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
-import { saveAnnotation, getAnnotation } from '../../api/survey-annotations';
+import { saveAnnotation, getAnnotation, updateThumbnail } from '../../api/survey-annotations';
 import { exportImage, downloadFile } from '../../services/ExportService';
 import { util } from 'fabric';
 // カスタムシェイプをFabric.jsクラスレジストリに登録（enlivenObjectsで復元するために必要）
@@ -114,6 +114,8 @@ export interface AnnotationEditorProps {
   initialRotation?: number;
   /** 初期パン位置（REQ-5.6: ビューアとの状態共有用） */
   initialPan?: { x: number; y: number };
+  /** 閲覧専用モード（REQ-9.2: 注釈を表示するが編集は不可） */
+  readOnly?: boolean;
 }
 
 // ============================================================================
@@ -257,6 +259,7 @@ function AnnotationEditor({
   imageUrl,
   imageId,
   surveyId,
+  readOnly = false,
 }: AnnotationEditorProps): React.JSX.Element {
   // DOM参照 - Canvas要素を動的に挿入するコンテナ
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -551,10 +554,10 @@ function AnnotationEditor({
                 // FabricObjectであることを確認
                 if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
                   const fabricObj = obj as FabricObject;
-                  // 選択ツールの場合のみ選択可能に設定
+                  // readOnlyモードでは選択不可、それ以外は選択ツールの場合のみ選択可能
                   fabricObj.set({
-                    selectable: activeToolRef.current === 'select',
-                    evented: activeToolRef.current === 'select',
+                    selectable: !readOnly && activeToolRef.current === 'select',
+                    evented: !readOnly && activeToolRef.current === 'select',
                   });
                   canvas.add(fabricObj);
                 }
@@ -581,7 +584,7 @@ function AnnotationEditor({
         }
       }
     },
-    [imageId]
+    [imageId, readOnly]
   );
 
   /**
@@ -1086,8 +1089,10 @@ function AnnotationEditor({
         window.__fabricCanvas = canvas;
       }
 
-      // イベントリスナーを設定
-      setupEventListeners(canvas);
+      // readOnlyモードでなければイベントリスナーを設定
+      if (!readOnly) {
+        setupEventListeners(canvas);
+      }
 
       // 画像を読み込み
       if (imageUrl) {
@@ -1109,8 +1114,10 @@ function AnnotationEditor({
       isDisposedRef.current = true;
       if (canvas) {
         try {
-          // イベントリスナーを解除
-          removeEventListeners(canvas);
+          // readOnlyモードでなければイベントリスナーを解除
+          if (!readOnly) {
+            removeEventListeners(canvas);
+          }
           // Canvasをdispose
           canvas.dispose();
         } catch (err) {
@@ -1134,7 +1141,7 @@ function AnnotationEditor({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- imageUrlの変更は別のuseEffectで対応
-  }, [loadImage, setupEventListeners, removeEventListeners]);
+  }, [loadImage, setupEventListeners, removeEventListeners, readOnly]);
 
   /**
    * 画像URLが変更された場合の再読み込み
@@ -1178,6 +1185,7 @@ function AnnotationEditor({
    * REQ-9.1: 全ての注釈データをデータベースに保存する
    * REQ-9.4: 保存中インジケーターを表示する
    * REQ-9.5: エラーメッセージを表示してリトライを促す
+   * 注釈保存後、サムネイルも更新する（注釈付き画像をサムネイルに反映）
    */
   const handleSave = useCallback(async () => {
     if (!fabricCanvasRef.current || state.isSaving) return;
@@ -1199,6 +1207,21 @@ function AnnotationEditor({
 
       // APIを呼び出して保存
       await saveAnnotation(imageId, { data: annotationData });
+
+      // サムネイルを更新（注釈付き画像を反映）
+      try {
+        // キャンバスを画像としてエクスポート（JPEG形式、品質0.9）
+        const imageData = canvas.toDataURL({
+          format: 'jpeg',
+          quality: 0.9,
+          multiplier: 1,
+        });
+        await updateThumbnail(imageId, imageData);
+        console.log('Thumbnail updated with annotations');
+      } catch (thumbnailErr) {
+        // サムネイル更新に失敗しても注釈保存は成功しているので警告のみ
+        console.warn('サムネイルの更新に失敗しました:', thumbnailErr);
+      }
 
       // 保存成功
       setState((prev) => ({ ...prev, isSaving: false, saveSuccess: true }));
@@ -1326,22 +1349,24 @@ function AnnotationEditor({
 
       {/* 全体ラッパー */}
       <div style={STYLES.wrapper}>
-        {/* ツールバー */}
-        <div style={STYLES.toolbarContainer}>
-          <AnnotationToolbar
-            activeTool={state.activeTool}
-            onToolChange={handleToolChange}
-            disabled={state.isLoading || state.isSaving}
-            styleOptions={state.styleOptions}
-            onStyleChange={handleStyleChange}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            onSave={handleSave}
-            onExport={handleExport}
-            canUndo={state.canUndo}
-            canRedo={state.canRedo}
-          />
-        </div>
+        {/* ツールバー（readOnlyモードでは非表示） */}
+        {!readOnly && (
+          <div style={STYLES.toolbarContainer}>
+            <AnnotationToolbar
+              activeTool={state.activeTool}
+              onToolChange={handleToolChange}
+              disabled={state.isLoading || state.isSaving}
+              styleOptions={state.styleOptions}
+              onStyleChange={handleStyleChange}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              onSave={handleSave}
+              onExport={handleExport}
+              canUndo={state.canUndo}
+              canRedo={state.canRedo}
+            />
+          </div>
+        )}
 
         {/* コンテナ */}
         <div
@@ -1349,9 +1374,9 @@ function AnnotationEditor({
           style={STYLES.container}
           data-testid="annotation-editor-container"
           role="application"
-          aria-label="注釈エディタ"
-          tabIndex={0}
-          onKeyDown={handleKeyDown}
+          aria-label={readOnly ? '注釈ビューア' : '注釈エディタ'}
+          tabIndex={readOnly ? -1 : 0}
+          onKeyDown={readOnly ? undefined : handleKeyDown}
         >
           {/* Canvas - 動的に生成されるCanvas要素のコンテナ */}
           <div ref={canvasWrapperRef} style={STYLES.canvasWrapper} />
@@ -1363,16 +1388,16 @@ function AnnotationEditor({
             </div>
           )}
 
-          {/* 保存中表示 */}
-          {state.isSaving && (
+          {/* 保存中表示（readOnlyモードでは非表示） */}
+          {!readOnly && state.isSaving && (
             <div style={STYLES.savingOverlay} role="status" aria-label="保存中">
               <div style={STYLES.savingSpinner} />
               <span style={STYLES.savingText}>保存中...</span>
             </div>
           )}
 
-          {/* 保存成功表示 */}
-          {state.saveSuccess && (
+          {/* 保存成功表示（readOnlyモードでは非表示） */}
+          {!readOnly && state.saveSuccess && (
             <div style={STYLES.successMessage} role="status" aria-label="保存完了">
               <span style={STYLES.successText}>✓ 保存しました</span>
             </div>

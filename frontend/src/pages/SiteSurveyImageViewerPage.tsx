@@ -12,7 +12,7 @@
  * - 5.6: 表示状態を注釈編集モードと共有
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getSiteSurvey } from '../api/site-surveys';
 import { ApiError } from '../api/client';
@@ -62,20 +62,6 @@ const styles = {
     boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
     padding: '24px',
     textAlign: 'center' as const,
-  } as React.CSSProperties,
-  image: {
-    maxWidth: '100%',
-    maxHeight: '70vh',
-    objectFit: 'contain' as const,
-    borderRadius: '4px',
-  } as React.CSSProperties,
-  imageInfo: {
-    marginTop: '16px',
-    padding: '16px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '8px',
-    fontSize: '14px',
-    color: '#6b7280',
   } as React.CSSProperties,
   placeholderContainer: {
     display: 'flex',
@@ -158,71 +144,6 @@ const styles = {
     height: 'calc(100vh - 200px)',
     minHeight: '500px',
   } as React.CSSProperties,
-  toolbar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '8px',
-    padding: '12px',
-    backgroundColor: '#f9fafb',
-    borderBottom: '1px solid #e5e7eb',
-    borderRadius: '8px 8px 0 0',
-  } as React.CSSProperties,
-  toolbarButton: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '40px',
-    height: '40px',
-    backgroundColor: '#ffffff',
-    border: '1px solid #d1d5db',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '16px',
-    color: '#374151',
-    transition: 'all 0.2s',
-  } as React.CSSProperties,
-  toolbarButtonHover: {
-    backgroundColor: '#f3f4f6',
-    borderColor: '#9ca3af',
-  } as React.CSSProperties,
-  toolbarDivider: {
-    width: '1px',
-    height: '24px',
-    backgroundColor: '#d1d5db',
-    margin: '0 4px',
-  } as React.CSSProperties,
-  zoomLabel: {
-    fontSize: '14px',
-    color: '#6b7280',
-    minWidth: '50px',
-    textAlign: 'center' as const,
-  } as React.CSSProperties,
-  viewerWrapper: {
-    position: 'relative' as const,
-    backgroundColor: '#1f2937',
-    borderRadius: '0 0 8px 8px',
-    overflow: 'hidden',
-    height: 'calc(100vh - 350px)',
-    minHeight: '400px',
-    cursor: 'grab',
-  } as React.CSSProperties,
-  viewerWrapperGrabbing: {
-    cursor: 'grabbing',
-  } as React.CSSProperties,
-  viewerCanvas: {
-    position: 'absolute' as const,
-    top: '50%',
-    left: '50%',
-    transformOrigin: 'center center',
-    transition: 'transform 0.1s ease-out',
-    userSelect: 'none' as const,
-    pointerEvents: 'none' as const,
-  } as React.CSSProperties,
-  viewerImage: {
-    maxWidth: 'none',
-    display: 'block',
-  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -273,13 +194,10 @@ export default function SiteSurveyImageViewerPage() {
   const [isNotFound, setIsNotFound] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // ビューア状態（REQ-5.2, REQ-5.3, REQ-5.4, REQ-5.6）
-  const [zoom, setZoom] = useState(1);
-  const [rotation, setRotation] = useState(0);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const panStartRef = useRef({ x: 0, y: 0 });
-  const viewerRef = useRef<HTMLDivElement>(null);
+  // ビューア状態（REQ-5.6: 将来的にAnnotationEditorと状態共有用）
+  const [zoom] = useState(1);
+  const [rotation] = useState(0);
+  const [pan] = useState({ x: 0, y: 0 });
 
   /**
    * 現場調査と画像データを取得
@@ -332,75 +250,6 @@ export default function SiteSurveyImageViewerPage() {
       navigate(-1);
     }
   }, [id, navigate]);
-
-  /**
-   * ズームイン（REQ-5.2）
-   */
-  const handleZoomIn = useCallback(() => {
-    setZoom((prev) => Math.min(prev + 0.25, 4));
-  }, []);
-
-  /**
-   * ズームアウト（REQ-5.2）
-   */
-  const handleZoomOut = useCallback(() => {
-    setZoom((prev) => Math.max(prev - 0.25, 0.25));
-  }, []);
-
-  /**
-   * ズームリセット
-   */
-  const handleZoomReset = useCallback(() => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  }, []);
-
-  /**
-   * 左回転（REQ-5.3）
-   */
-  const handleRotateLeft = useCallback(() => {
-    setRotation((prev) => (prev - 90) % 360);
-  }, []);
-
-  /**
-   * 右回転（REQ-5.3）
-   */
-  const handleRotateRight = useCallback(() => {
-    setRotation((prev) => (prev + 90) % 360);
-  }, []);
-
-  /**
-   * パン開始（REQ-5.4）
-   */
-  const handlePanStart = useCallback(
-    (e: React.MouseEvent) => {
-      if (isEditMode) return;
-      setIsPanning(true);
-      panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
-    },
-    [isEditMode, pan]
-  );
-
-  /**
-   * パン中（REQ-5.4）
-   */
-  const handlePanMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isPanning || isEditMode) return;
-      setPan({
-        x: e.clientX - panStartRef.current.x,
-        y: e.clientY - panStartRef.current.y,
-      });
-    },
-    [isPanning, isEditMode]
-  );
-
-  /**
-   * パン終了（REQ-5.4）
-   */
-  const handlePanEnd = useCallback(() => {
-    setIsPanning(false);
-  }, []);
 
   // 存在しないリソースの表示
   if (isNotFound) {
@@ -491,8 +340,8 @@ export default function SiteSurveyImageViewerPage() {
         </button>
       </div>
 
-      {/* 画像表示 / 注釈エディタ */}
-      {isEditMode && image.originalUrl ? (
+      {/* 画像表示 / 注釈エディタ（REQ-9.2: 閲覧モードでも注釈を表示） */}
+      {image.originalUrl ? (
         <div style={styles.editorContainer}>
           <AnnotationEditor
             imageUrl={image.originalUrl}
@@ -501,119 +350,15 @@ export default function SiteSurveyImageViewerPage() {
             initialZoom={zoom}
             initialRotation={rotation}
             initialPan={pan}
+            readOnly={!isEditMode}
           />
         </div>
       ) : (
         <div style={styles.imageContainer}>
-          {image.originalUrl ? (
-            <>
-              {/* ツールバー（REQ-5.2, REQ-5.3） */}
-              <div style={styles.toolbar} role="toolbar" aria-label="画像操作ツールバー">
-                {/* ズームコントロール */}
-                <button
-                  type="button"
-                  style={styles.toolbarButton}
-                  onClick={handleZoomOut}
-                  aria-label="ズームアウト"
-                  title="ズームアウト"
-                >
-                  −
-                </button>
-                <span style={styles.zoomLabel}>{Math.round(zoom * 100)}%</span>
-                <button
-                  type="button"
-                  style={styles.toolbarButton}
-                  onClick={handleZoomIn}
-                  aria-label="ズームイン"
-                  title="ズームイン"
-                >
-                  +
-                </button>
-                <button
-                  type="button"
-                  style={styles.toolbarButton}
-                  onClick={handleZoomReset}
-                  aria-label="リセット"
-                  title="表示をリセット"
-                >
-                  ⟲
-                </button>
-
-                <div style={styles.toolbarDivider} />
-
-                {/* 回転コントロール */}
-                <button
-                  type="button"
-                  style={styles.toolbarButton}
-                  onClick={handleRotateLeft}
-                  aria-label="左回転"
-                  title="左に90度回転"
-                >
-                  ↺
-                </button>
-                <button
-                  type="button"
-                  style={styles.toolbarButton}
-                  onClick={handleRotateRight}
-                  aria-label="右回転"
-                  title="右に90度回転"
-                >
-                  ↻
-                </button>
-              </div>
-
-              {/* 画像ビューア（REQ-5.4 パン操作） */}
-              <div
-                ref={viewerRef}
-                style={{
-                  ...styles.viewerWrapper,
-                  ...(isPanning ? styles.viewerWrapperGrabbing : {}),
-                }}
-                onMouseDown={handlePanStart}
-                onMouseMove={handlePanMove}
-                onMouseUp={handlePanEnd}
-                onMouseLeave={handlePanEnd}
-                data-testid="viewer-canvas"
-              >
-                <div
-                  style={{
-                    ...styles.viewerCanvas,
-                    transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
-                  }}
-                  data-testid="viewer-image"
-                >
-                  <img
-                    src={image.originalUrl}
-                    alt={image.fileName || '現場調査画像'}
-                    style={styles.viewerImage}
-                    draggable={false}
-                  />
-                </div>
-              </div>
-
-              {/* 画像情報 */}
-              <div style={styles.imageInfo}>
-                <p>
-                  <strong>ファイル名:</strong> {image.fileName}
-                </p>
-                {image.width && image.height && (
-                  <p>
-                    <strong>サイズ:</strong> {image.width} x {image.height} px
-                  </p>
-                )}
-                {image.displayOrder !== undefined && (
-                  <p>
-                    <strong>表示順:</strong> {image.displayOrder + 1}
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <div style={styles.placeholderContainer}>
-              <p style={styles.placeholderText}>画像が読み込めません</p>
-              <p style={styles.placeholderSubText}>画像が存在しないか、読み込みに失敗しました。</p>
-            </div>
-          )}
+          <div style={styles.placeholderContainer}>
+            <p style={styles.placeholderText}>画像が読み込めません</p>
+            <p style={styles.placeholderSubText}>画像が存在しないか、読み込みに失敗しました。</p>
+          </div>
         </div>
       )}
 

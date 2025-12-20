@@ -155,3 +155,41 @@ export async function saveAnnotation(
 export async function exportAnnotationJson(imageId: string): Promise<string> {
   return apiClient.get<string>(`/api/site-surveys/images/${imageId}/annotations/export`);
 }
+
+/**
+ * サムネイル更新レスポンス
+ */
+export interface UpdateThumbnailResponse {
+  success: boolean;
+  thumbnailPath: string;
+}
+
+/**
+ * 注釈付き画像からサムネイルを更新する
+ *
+ * キャンバスからエクスポートした画像データを使用してサムネイルを再生成します。
+ * 注釈が保存された後に呼び出すことで、サムネイルに注釈を反映できます。
+ *
+ * @param imageId - 画像ID（UUID）
+ * @param imageData - Base64エンコードされた画像データ（data:image/...形式）
+ * @returns サムネイル更新結果
+ * @throws ApiError
+ *   - バリデーションエラー（400）
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - 画像が見つからない（404）
+ *
+ * @example
+ * // キャンバスからサムネイルを更新
+ * const canvas = fabricCanvas;
+ * const imageData = canvas.toDataURL({ format: 'jpeg', quality: 0.9 });
+ * await updateThumbnail('image-id', imageData);
+ */
+export async function updateThumbnail(
+  imageId: string,
+  imageData: string
+): Promise<UpdateThumbnailResponse> {
+  return apiClient.patch<UpdateThumbnailResponse>(`/api/site-surveys/images/${imageId}/thumbnail`, {
+    imageData,
+  });
+}
