@@ -3847,6 +3847,68 @@
         }
       }
     },
+    "/api/site-surveys/images/{imageId}/thumbnail": {
+      "patch": {
+        "summary": "サムネイル更新",
+        "description": "注釈付き画像からサムネイルを再生成して更新",
+        "tags": [
+          "Survey Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "imageId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "画像ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "imageData"
+                ],
+                "properties": {
+                  "imageData": {
+                    "type": "string",
+                    "description": "Base64エンコードされた画像データ（data:image/...形式）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "サムネイル更新成功"
+          },
+          "400": {
+            "description": "無効な画像データ"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "画像が見つからない"
+          }
+        }
+      }
+    },
     "/api/trading-partners": {
       "get": {
         "summary": "取引先一覧取得",
