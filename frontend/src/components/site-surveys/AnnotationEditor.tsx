@@ -458,6 +458,8 @@ function AnnotationEditor({
       for (const obj of objects) {
         // 背景画像はスキップ
         if (obj === backgroundImageRef.current) continue;
+        // プレビュー図形はスキップ（多角形・折れ線の描画中プレビュー）
+        if (obj === previewShapeRef.current) continue;
         // ポインターがオブジェクトの範囲内にあるかチェック
         if (obj.containsPoint(pointer)) {
           // テキストツールの場合、編集フラグをリセット
