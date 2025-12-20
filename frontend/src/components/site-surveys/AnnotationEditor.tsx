@@ -269,11 +269,14 @@ function AnnotationEditor({
   // Fabric.js と UndoManager の連携フック
   // fabricCanvasRef.currentを使用（Canvasがない場合はnull）
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
-  useFabricUndoIntegration({
+  const { setProgrammaticOperation } = useFabricUndoIntegration({
     canvas: fabricCanvas,
     undoManager,
     enabled: !state.isLoading,
   });
+  // プログラム的操作フラグをrefに保存（イベントハンドラ内で使用）
+  const setProgrammaticRef = useRef(setProgrammaticOperation);
+  setProgrammaticRef.current = setProgrammaticOperation;
 
   // UndoManager状態変更コールバック設定
   useEffect(() => {
@@ -600,9 +603,11 @@ function AnnotationEditor({
         const vertices = polygonBuilderRef.current.getVertices();
         const firstVertex = vertices[0];
         if (vertices.length > 0 && firstVertex) {
-          // 既存のプレビューを削除
+          // 既存のプレビューを削除（Undo履歴に記録しない）
           if (previewShapeRef.current) {
+            setProgrammaticRef.current(true);
             canvas.remove(previewShapeRef.current);
+            setProgrammaticRef.current(false);
           }
           // 全ての頂点 + マウス位置を含むPolylineでプレビュー表示
           // 多角形なので最後に始点への線も追加して閉じる
@@ -620,7 +625,9 @@ function AnnotationEditor({
             evented: false,
           });
           previewShapeRef.current = previewLine;
+          setProgrammaticRef.current(true);
           canvas.add(previewLine);
+          setProgrammaticRef.current(false);
           canvas.renderAll();
         }
         return;
@@ -630,9 +637,11 @@ function AnnotationEditor({
       if (activeTool === 'polyline' && polylineBuilderRef.current) {
         const points = polylineBuilderRef.current.getPoints();
         if (points.length > 0) {
-          // 既存のプレビューを削除
+          // 既存のプレビューを削除（Undo履歴に記録しない）
           if (previewShapeRef.current) {
+            setProgrammaticRef.current(true);
             canvas.remove(previewShapeRef.current);
+            setProgrammaticRef.current(false);
           }
           // 全てのポイント + マウス位置を含むPolylineでプレビュー表示
           const previewPoints = [
@@ -648,7 +657,9 @@ function AnnotationEditor({
             evented: false,
           });
           previewShapeRef.current = previewLine;
+          setProgrammaticRef.current(true);
           canvas.add(previewLine);
+          setProgrammaticRef.current(false);
           canvas.renderAll();
         }
         return;
@@ -662,9 +673,11 @@ function AnnotationEditor({
       const startPoint = dragState.startPoint;
       const endPoint = { x: pointer.x, y: pointer.y };
 
-      // 既存のプレビューを削除
+      // 既存のプレビューを削除（Undo履歴に記録しない）
       if (previewShapeRef.current) {
+        setProgrammaticRef.current(true);
         canvas.remove(previewShapeRef.current);
+        setProgrammaticRef.current(false);
         previewShapeRef.current = null;
       }
 
@@ -702,6 +715,7 @@ function AnnotationEditor({
       }
 
       // プレビュー図形を表示（半透明で表示）
+      // プレビュー操作はUndo履歴に記録しない
       if (previewShape) {
         previewShape.set({
           opacity: 0.5,
@@ -709,7 +723,9 @@ function AnnotationEditor({
           evented: false,
         });
         previewShapeRef.current = previewShape;
+        setProgrammaticRef.current(true);
         canvas.add(previewShape);
+        setProgrammaticRef.current(false);
         canvas.renderAll();
       }
     });
@@ -719,9 +735,11 @@ function AnnotationEditor({
       const dragState = dragStateRef.current;
       const activeTool = activeToolRef.current;
 
-      // プレビューオブジェクトを削除
+      // プレビューオブジェクトを削除（Undo履歴に記録しない）
       if (previewShapeRef.current) {
+        setProgrammaticRef.current(true);
         canvas.remove(previewShapeRef.current);
+        setProgrammaticRef.current(false);
         previewShapeRef.current = null;
       }
 
@@ -811,9 +829,11 @@ function AnnotationEditor({
     canvas.on('mouse:dblclick', () => {
       const activeTool = activeToolRef.current;
 
-      // プレビューオブジェクトを削除
+      // プレビューオブジェクトを削除（Undo履歴に記録しない）
       if (previewShapeRef.current) {
+        setProgrammaticRef.current(true);
         canvas.remove(previewShapeRef.current);
+        setProgrammaticRef.current(false);
         previewShapeRef.current = null;
       }
 

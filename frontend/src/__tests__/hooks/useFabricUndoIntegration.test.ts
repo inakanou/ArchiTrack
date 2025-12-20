@@ -8,6 +8,8 @@
  * Requirements:
  * - 11.1: Undo操作で直前の注釈操作を取り消す
  * - 11.2: Redo操作で取り消した操作を再実行する
+ *
+ * @vitest-environment jsdom
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

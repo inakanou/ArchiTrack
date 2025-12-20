@@ -7,6 +7,8 @@
  *
  * Requirements:
  * - 11.3: キーボードショートカット（Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z）でUndo/Redoを実行する
+ *
+ * @vitest-environment jsdom
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -25,6 +27,7 @@ function createMockUndoManager(overrides?: Partial<IUndoManager>): IUndoManager 
     canRedo: vi.fn().mockReturnValue(true),
     clear: vi.fn(),
     setOnChange: vi.fn(),
+    isPerformingOperation: vi.fn().mockReturnValue(false),
     ...overrides,
   };
 }

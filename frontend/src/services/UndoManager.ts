@@ -67,6 +67,8 @@ export interface IUndoManager {
    * @param callback 状態変更時に呼び出されるコールバック関数（nullで解除）
    */
   setOnChange(callback: OnChangeCallback | null): void;
+  /** Undo/Redo操作中かどうかを返す */
+  isPerformingOperation(): boolean;
 }
 
 /**
@@ -88,6 +90,9 @@ export class UndoManager implements IUndoManager {
 
   /** 状態変更時のコールバック */
   private onChange: OnChangeCallback | null = null;
+
+  /** Undo/Redo操作中フラグ */
+  private performingOperation: boolean = false;
 
   /**
    * コンストラクタ
@@ -135,10 +140,16 @@ export class UndoManager implements IUndoManager {
    * - execute()を呼び出さずにUndoスタックに追加
    * - Redoスタックをクリア
    * - 履歴が最大数を超えた場合、最古のコマンドを削除（FIFO）
+   * - Undo/Redo操作中は追加しない（イベント連鎖による重複防止）
    *
    * @param command 追加するコマンド
    */
   pushWithoutExecute(command: UndoCommand): void {
+    // Undo/Redo操作中は追加しない（イベント連鎖による重複防止）
+    if (this.performingOperation) {
+      return;
+    }
+
     // 履歴が最大数に達している場合、最古のコマンドを削除（FIFO）
     if (this.undoStack.length >= this.maxHistorySize) {
       this.undoStack.shift();
@@ -160,6 +171,7 @@ export class UndoManager implements IUndoManager {
    * - Undoスタックから最新のコマンドを取り出し
    * - コマンドのundo()を呼び出し
    * - Redoスタックに追加
+   * - 操作中はperformingOperationフラグをtrueに設定（イベント連鎖防止）
    */
   undo(): void {
     const command = this.undoStack.pop();
@@ -167,8 +179,14 @@ export class UndoManager implements IUndoManager {
       return;
     }
 
+    // 操作中フラグをON（イベント連鎖による重複コマンド追加を防止）
+    this.performingOperation = true;
+
     // コマンドを取り消し
     command.undo();
+
+    // 操作中フラグをOFF
+    this.performingOperation = false;
 
     // Redoスタックに追加
     this.redoStack.push(command);
@@ -183,6 +201,7 @@ export class UndoManager implements IUndoManager {
    * - Redoスタックから最新のコマンドを取り出し
    * - コマンドのexecute()を呼び出し
    * - Undoスタックに追加
+   * - 操作中はperformingOperationフラグをtrueに設定（イベント連鎖防止）
    */
   redo(): void {
     const command = this.redoStack.pop();
@@ -190,8 +209,14 @@ export class UndoManager implements IUndoManager {
       return;
     }
 
+    // 操作中フラグをON（イベント連鎖による重複コマンド追加を防止）
+    this.performingOperation = true;
+
     // コマンドを再実行
     command.execute();
+
+    // 操作中フラグをOFF
+    this.performingOperation = false;
 
     // Undoスタックに追加
     this.undoStack.push(command);
@@ -251,6 +276,14 @@ export class UndoManager implements IUndoManager {
    */
   getMaxHistorySize(): number {
     return this.maxHistorySize;
+  }
+
+  /**
+   * Undo/Redo操作中かどうかを返す
+   * @returns 操作中の場合true
+   */
+  isPerformingOperation(): boolean {
+    return this.performingOperation;
   }
 
   /**

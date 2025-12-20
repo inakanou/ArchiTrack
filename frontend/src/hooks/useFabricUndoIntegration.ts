@@ -223,8 +223,8 @@ export function useFabricUndoIntegration({
      * AddObjectCommandを生成してUndoManagerに登録します。
      */
     const handleObjectAdded = (event: ObjectAddedRemovedEvent) => {
-      // プログラム的操作の場合は無視
-      if (isProgrammaticRef.current) {
+      // プログラム的操作またはUndo/Redo操作中の場合は無視
+      if (isProgrammaticRef.current || undoManager.isPerformingOperation()) {
         return;
       }
 
@@ -269,8 +269,8 @@ export function useFabricUndoIntegration({
      * ModifyObjectCommandを生成してUndoManagerに登録します。
      */
     const handleObjectModified = (event: ModifiedEvent<TPointerEvent>) => {
-      // プログラム的操作の場合は無視
-      if (isProgrammaticRef.current) {
+      // プログラム的操作またはUndo/Redo操作中の場合は無視
+      if (isProgrammaticRef.current || undoManager.isPerformingOperation()) {
         return;
       }
 
@@ -315,8 +315,8 @@ export function useFabricUndoIntegration({
      * RemoveObjectCommandを生成してUndoManagerに登録します。
      */
     const handleObjectRemoved = (event: ObjectAddedRemovedEvent) => {
-      // プログラム的操作の場合は無視
-      if (isProgrammaticRef.current) {
+      // プログラム的操作またはUndo/Redo操作中の場合は無視
+      if (isProgrammaticRef.current || undoManager.isPerformingOperation()) {
         return;
       }
 
