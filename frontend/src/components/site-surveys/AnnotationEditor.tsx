@@ -557,28 +557,27 @@ function AnnotationEditor({
       // 多角形ツールのプレビュー（クリックベース）
       if (activeTool === 'polygon' && polygonBuilderRef.current) {
         const vertices = polygonBuilderRef.current.getVertices();
-        if (vertices.length > 0) {
+        const firstVertex = vertices[0];
+        if (vertices.length > 0 && firstVertex) {
           // 既存のプレビューを削除
           if (previewShapeRef.current) {
             canvas.remove(previewShapeRef.current);
           }
-          // 最後の頂点からマウス位置への線をプレビュー
-          const lastVertex = vertices[vertices.length - 1];
-          if (!lastVertex) return;
-          const previewLine = new Polyline(
-            [
-              { x: lastVertex.x, y: lastVertex.y },
-              { x: pointer.x, y: pointer.y },
-            ],
-            {
-              stroke: currentStyle.strokeColor,
-              strokeWidth: currentStyle.strokeWidth,
-              fill: 'transparent',
-              opacity: 0.5,
-              selectable: false,
-              evented: false,
-            }
-          );
+          // 全ての頂点 + マウス位置を含むPolylineでプレビュー表示
+          // 多角形なので最後に始点への線も追加して閉じる
+          const previewPoints = [
+            ...vertices.map((v) => ({ x: v.x, y: v.y })),
+            { x: pointer.x, y: pointer.y },
+            { x: firstVertex.x, y: firstVertex.y }, // 始点に戻って閉じる
+          ];
+          const previewLine = new Polyline(previewPoints, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+            fill: 'transparent',
+            opacity: 0.5,
+            selectable: false,
+            evented: false,
+          });
           previewShapeRef.current = previewLine;
           canvas.add(previewLine);
           canvas.renderAll();
@@ -594,23 +593,19 @@ function AnnotationEditor({
           if (previewShapeRef.current) {
             canvas.remove(previewShapeRef.current);
           }
-          // 最後のポイントからマウス位置への線をプレビュー
-          const lastPoint = points[points.length - 1];
-          if (!lastPoint) return;
-          const previewLine = new Polyline(
-            [
-              { x: lastPoint.x, y: lastPoint.y },
-              { x: pointer.x, y: pointer.y },
-            ],
-            {
-              stroke: currentStyle.strokeColor,
-              strokeWidth: currentStyle.strokeWidth,
-              fill: 'transparent',
-              opacity: 0.5,
-              selectable: false,
-              evented: false,
-            }
-          );
+          // 全てのポイント + マウス位置を含むPolylineでプレビュー表示
+          const previewPoints = [
+            ...points.map((p) => ({ x: p.x, y: p.y })),
+            { x: pointer.x, y: pointer.y },
+          ];
+          const previewLine = new Polyline(previewPoints, {
+            stroke: currentStyle.strokeColor,
+            strokeWidth: currentStyle.strokeWidth,
+            fill: 'transparent',
+            opacity: 0.5,
+            selectable: false,
+            evented: false,
+          });
           previewShapeRef.current = previewLine;
           canvas.add(previewLine);
           canvas.renderAll();
