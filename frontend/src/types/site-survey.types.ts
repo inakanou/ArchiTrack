@@ -74,6 +74,12 @@ export interface SurveyImageInfo {
   displayOrder: number;
   /** 作成日時（ISO8601形式） */
   createdAt: string;
+  /** コメント（最大2000文字） */
+  comment?: string | null;
+  /** 報告書出力フラグ */
+  includeInReport?: boolean;
+  /** 中解像度画像URL（署名付きURL、800x600程度） */
+  mediumUrl?: string | null;
 }
 
 /**

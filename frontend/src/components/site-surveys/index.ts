@@ -12,6 +12,7 @@
  * Task 13.1: Fabric.js Canvas統合を実装する
  * Task 14.1: 寸法線描画機能を実装する
  * Task 23.1: 画像遅延読み込みを実装する
+ * Task 27.4: 写真一覧管理パネルコンポーネントを実装する
  */
 
 export { default as SiteSurveyListTable } from './SiteSurveyListTable';
@@ -26,6 +27,7 @@ export { default as SiteSurveyErrorDisplay } from './SiteSurveyErrorDisplay';
 export { default as ImageViewer } from './ImageViewer';
 export { default as AnnotationEditor } from './AnnotationEditor';
 export { LazyImage } from './LazyImage';
+export { PhotoManagementPanel } from './PhotoManagementPanel';
 
 export type { SiteSurveyListTableProps } from './SiteSurveyListTable';
 export type { SiteSurveyListCardProps } from './SiteSurveyListCard';
@@ -39,6 +41,7 @@ export type { SiteSurveyErrorDisplayProps } from './SiteSurveyErrorDisplay';
 export type { ImageViewerProps } from './ImageViewer';
 export type { AnnotationEditorProps } from './AnnotationEditor';
 export type { LazyImageProps } from './LazyImage';
+export type { PhotoManagementPanelProps } from './PhotoManagementPanel';
 export {
   ALLOWED_FILE_TYPES,
   ALLOWED_MIME_TYPES,
