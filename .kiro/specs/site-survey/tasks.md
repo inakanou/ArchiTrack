@@ -613,7 +613,7 @@
 
 ### Phase 15: 調査報告書PDF出力の実装（要件11対応）
 
-- [ ] 28. 調査報告書PDF出力機能の実装
+- [x] 28. 調査報告書PDF出力機能の実装
 - [x] 28.1 報告書出力対象画像の取得機能を実装する
   - includeInReport=trueの画像のみを取得するサービスメソッドを追加
   - 表示順序（displayOrder）の昇順でソート
@@ -634,7 +634,7 @@
   - PDF生成完了後のダウンロードトリガー
   - _Requirements: 11.1, 11.8_
 
-- [ ] 28.4 (P) AnnotationRendererServiceを拡張して報告書用画像をレンダリングする
+- [x] 28.4 (P) AnnotationRendererServiceを拡張して報告書用画像をレンダリングする
   - 各画像の注釈をFabric.js Canvasでレンダリング
   - 注釈付き画像をdataURL形式で取得
   - 日本語を含むテキスト注釈の正しいレンダリング

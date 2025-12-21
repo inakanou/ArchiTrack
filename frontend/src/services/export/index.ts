@@ -55,6 +55,7 @@ export type { PdfExportPhase, PdfExportProgress, PdfExportOptions } from './PdfE
 export {
   AnnotationRendererService,
   renderImagesWithAnnotations,
+  renderImagesForReport,
   resetAnnotationRendererService,
 } from './AnnotationRendererService';
 export type { RenderedImage, RenderOptions } from './AnnotationRendererService';
