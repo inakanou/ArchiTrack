@@ -3,9 +3,12 @@
  *
  * Task 9.1: 現場調査基本情報表示コンポーネントの実装
  * Task 22.3: アクセス権限によるUI制御を実装する
+ * Task 28.3: 調査報告書出力UIを実装する
  *
  * Requirements:
  * - 1.2: 現場調査詳細画面を表示する際、現場調査の基本情報と関連する画像一覧を表示する
+ * - 11.1: 報告書出力対象写真の選択
+ * - 11.8: 調査報告書出力UIを実装する
  * - 12.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
  * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  * - 12.3: 適切な権限を持たない場合、操作を拒否してエラーメッセージを表示
@@ -13,6 +16,7 @@
  * テスト対象:
  * - 調査名、調査日、メモの表示
  * - 編集ボタン・削除ボタン
+ * - 調査報告書出力ボタンとプログレス表示
  * - プロジェクトへの戻り導線
  * - 権限に基づくボタン表示制御
  */
@@ -42,7 +46,23 @@ const mockSurveyDetail: SiteSurveyDetail = {
     id: 'project-1',
     name: 'テストプロジェクト',
   },
-  images: [],
+  images: [
+    {
+      id: 'img-1',
+      surveyId: 'survey-1',
+      originalPath: '/uploads/original/img1.jpg',
+      thumbnailPath: '/uploads/thumbnails/img1.jpg',
+      mediumUrl: '/uploads/medium/img1.jpg',
+      fileName: 'image1.jpg',
+      fileSize: 1024000,
+      width: 1920,
+      height: 1080,
+      displayOrder: 1,
+      includeInReport: true,
+      comment: '施工箇所A',
+      createdAt: '2025-01-01T00:00:00.000Z',
+    },
+  ],
 };
 
 const mockSurveyDetailWithoutMemo: SiteSurveyDetail = {
@@ -363,6 +383,61 @@ describe('SiteSurveyDetailInfo', () => {
 
         expect(screen.getByRole('link', { name: /プロジェクトに戻る/ })).toBeInTheDocument();
         expect(screen.getByRole('link', { name: /現場調査一覧に戻る/ })).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 調査報告書出力UI (Task 28.3)
+  // ==========================================================================
+
+  describe('調査報告書出力UI (Task 28.3)', () => {
+    describe('出力ボタン表示 (Requirement 11.8)', () => {
+      it('調査報告書出力ボタンが表示される', () => {
+        renderComponent();
+
+        expect(screen.getByRole('button', { name: '調査報告書出力' })).toBeInTheDocument();
+      });
+
+      it('権限がなくても調査報告書出力ボタンは表示される', () => {
+        renderComponent({ canEdit: false, canDelete: false });
+
+        expect(screen.getByRole('button', { name: '調査報告書出力' })).toBeInTheDocument();
+      });
+    });
+
+    describe('報告書出力対象の検証 (Requirement 11.1)', () => {
+      it('報告書出力対象の写真が0件の場合、エラーメッセージを表示する', async () => {
+        const user = userEvent.setup();
+        const surveyNoExportImages = {
+          ...mockSurveyDetail,
+          images: mockSurveyDetail.images.map((img) => ({ ...img, includeInReport: false })),
+        };
+        renderComponent({ survey: surveyNoExportImages });
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        await user.click(exportButton);
+
+        // エラーメッセージが表示される
+        expect(
+          screen.getByText(
+            '報告書出力対象の写真がありません。写真管理で出力対象を選択してください。'
+          )
+        ).toBeInTheDocument();
+      });
+
+      it('画像がない場合もエラーメッセージを表示する', async () => {
+        const user = userEvent.setup();
+        renderComponent({ survey: { ...mockSurveyDetail, images: [] } });
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        await user.click(exportButton);
+
+        expect(
+          screen.getByText(
+            '報告書出力対象の写真がありません。写真管理で出力対象を選択してください。'
+          )
+        ).toBeInTheDocument();
       });
     });
   });

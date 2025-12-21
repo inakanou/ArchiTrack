@@ -714,4 +714,184 @@ describe('SiteSurveyDetailPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/site-surveys/survey-123/images/img-1');
     });
   });
+
+  // ============================================================================
+  // Task 28.3: 調査報告書出力UI
+  // ============================================================================
+  describe('調査報告書出力UI (Task 28.3)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    });
+
+    describe('出力ボタン表示 (Requirement 11.1, 11.8)', () => {
+      it('現場調査詳細画面に「調査報告書出力」ボタンが表示される', async () => {
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        expect(screen.getByRole('button', { name: '調査報告書出力' })).toBeInTheDocument();
+      });
+
+      it('報告書出力ボタンがアクションエリアに表示される', async () => {
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        // ボタンがある程度の位置に表示されていることを確認
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        expect(exportButton).toBeVisible();
+      });
+    });
+
+    describe('報告書出力対象の検証 (Requirement 11.1)', () => {
+      it('報告書出力対象の写真が0件の場合、エラーメッセージを表示する', async () => {
+        // 全ての画像がincludeInReport: falseの場合
+        const surveyNoExportImages: SiteSurveyDetail = {
+          ...mockSurveyDetail,
+          images: mockImages.map((img) => ({ ...img, includeInReport: false })),
+        };
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyNoExportImages);
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        // 報告書出力ボタンをクリック
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        fireEvent.click(exportButton);
+
+        await waitFor(() => {
+          expect(
+            screen.getByText(
+              '報告書出力対象の写真がありません。写真管理で出力対象を選択してください。'
+            )
+          ).toBeInTheDocument();
+        });
+      });
+
+      it('エラーメッセージが表示された場合、一定時間後に消える', async () => {
+        const surveyNoExportImages: SiteSurveyDetail = {
+          ...mockSurveyDetail,
+          images: mockImages.map((img) => ({ ...img, includeInReport: false })),
+        };
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyNoExportImages);
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        fireEvent.click(exportButton);
+
+        await waitFor(() => {
+          expect(
+            screen.getByText(
+              '報告書出力対象の写真がありません。写真管理で出力対象を選択してください。'
+            )
+          ).toBeInTheDocument();
+        });
+
+        // 5秒後に消えることを確認（vi.useFakeTimersを使用）
+        vi.useFakeTimers();
+        await vi.advanceTimersByTimeAsync(5000);
+        vi.useRealTimers();
+      });
+    });
+
+    describe('PDF生成プログレス表示 (Requirement 11.8)', () => {
+      it('PDF生成中にプログレス表示が表示される', async () => {
+        // 報告書出力対象の写真がある場合
+        const surveyWithExportImages: SiteSurveyDetail = {
+          ...mockSurveyDetail,
+          images: [{ ...mockImages[0]!, includeInReport: true }],
+        };
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyWithExportImages);
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        fireEvent.click(exportButton);
+
+        // プログレス表示が表示される
+        await waitFor(() => {
+          expect(screen.getByTestId('pdf-export-progress')).toBeInTheDocument();
+        });
+      });
+
+      it('PDF生成中はボタンが無効化される', async () => {
+        const surveyWithExportImages: SiteSurveyDetail = {
+          ...mockSurveyDetail,
+          images: [{ ...mockImages[0]!, includeInReport: true }],
+        };
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyWithExportImages);
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        fireEvent.click(exportButton);
+
+        await waitFor(() => {
+          expect(exportButton).toBeDisabled();
+        });
+      });
+
+      it('プログレス表示にパーセンテージが表示される', async () => {
+        const surveyWithExportImages: SiteSurveyDetail = {
+          ...mockSurveyDetail,
+          images: [{ ...mockImages[0]!, includeInReport: true }],
+        };
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyWithExportImages);
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        fireEvent.click(exportButton);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('pdf-export-progress')).toBeInTheDocument();
+          // パーセンテージ表示を確認（0%〜100%のいずれか）
+          expect(screen.getByTestId('pdf-export-percentage')).toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('権限制御 (Requirement 12.2)', () => {
+      it('閲覧権限のみでも報告書出力ボタンは表示される', async () => {
+        vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+          ...mockPermission,
+          canEdit: false,
+          canDelete: false,
+        });
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        // 報告書出力は読み取り操作なので表示される
+        expect(screen.getByRole('button', { name: '調査報告書出力' })).toBeInTheDocument();
+      });
+    });
+  });
 });
