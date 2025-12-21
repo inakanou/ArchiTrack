@@ -3,6 +3,7 @@
  *
  * Task 10.3: 現場調査詳細から画像ビューアへの導線を実装する
  * Task 22.3: アクセス権限によるUI制御を実装する
+ * Task 27.6: 現場調査詳細画面への写真一覧管理パネル統合
  *
  * 現場調査の詳細情報と画像一覧を表示するページコンポーネントです。
  * 画像グリッドから画像ビューア/エディタへの遷移機能を提供します。
@@ -13,6 +14,8 @@
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
  * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
  * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
+ * - 10.1: 報告書出力対象写真の選択
+ * - 10.5: ドラッグアンドドロップによる写真順序変更
  * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
@@ -21,16 +24,33 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/common';
 import { buildSiteSurveyDetailBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getSiteSurvey, deleteSiteSurvey } from '../api/site-surveys';
-import { uploadSurveyImages } from '../api/survey-images';
+import {
+  uploadSurveyImages,
+  updateImageMetadata,
+  updateSurveyImageOrder,
+} from '../api/survey-images';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import SiteSurveyDetailInfo from '../components/site-surveys/SiteSurveyDetailInfo';
 import SurveyImageGrid from '../components/site-surveys/SurveyImageGrid';
+import { PhotoManagementPanel } from '../components/site-surveys/PhotoManagementPanel';
 import {
   ImageUploader,
   type UploadProgress,
   type ValidationError,
 } from '../components/site-surveys/ImageUploader';
-import type { SiteSurveyDetail, SurveyImageInfo, ImageOrderItem } from '../types/site-survey.types';
+import type {
+  SiteSurveyDetail,
+  SurveyImageInfo,
+  ImageOrderItem,
+  UpdateImageMetadataInput,
+} from '../types/site-survey.types';
+
+// ============================================================================
+// 型定義
+// ============================================================================
+
+/** タブの種類 */
+type ImageViewTab = 'thumbnail' | 'management';
 
 // ============================================================================
 // スタイル定義
@@ -93,6 +113,34 @@ const STYLES = {
     borderRadius: '8px',
     border: '1px solid #e5e7eb',
     padding: '24px',
+  } as React.CSSProperties,
+  tabList: {
+    display: 'flex',
+    borderBottom: '1px solid #e5e7eb',
+    marginBottom: '16px',
+    gap: '4px',
+  } as React.CSSProperties,
+  tab: {
+    padding: '12px 20px',
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#6b7280',
+    backgroundColor: 'transparent',
+    border: 'none',
+    borderBottomWidth: '2px',
+    borderBottomStyle: 'solid',
+    borderBottomColor: 'transparent',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    marginBottom: '-1px',
+  } as React.CSSProperties,
+  tabActive: {
+    color: '#2563eb',
+    borderBottomColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+  } as React.CSSProperties,
+  tabPanel: {
+    minHeight: '200px',
   } as React.CSSProperties,
   dialogOverlay: {
     position: 'fixed' as const,
@@ -234,6 +282,9 @@ export default function SiteSurveyDetailPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | undefined>(undefined);
 
+  // タブ状態 (Task 27.6)
+  const [activeTab, setActiveTab] = useState<ImageViewTab>('thumbnail');
+
   /**
    * 現場調査詳細データを取得
    */
@@ -271,14 +322,59 @@ export default function SiteSurveyDetailPage() {
   );
 
   /**
-   * 画像順序変更ハンドラ
+   * 画像順序変更ハンドラ (Requirement 10.5, 10.6)
    *
-   * 現在は読み取り専用のため、順序変更は行わない
+   * ドラッグアンドドロップで順序が変更された時に呼び出され、
+   * APIを呼び出して順序を保存します。
    */
-  const handleOrderChange = useCallback((_newOrders: ImageOrderItem[]) => {
-    // TODO: 画像順序変更APIの呼び出し
-    // 今回のタスクでは実装対象外
-  }, []);
+  const handleOrderChange = useCallback(
+    async (newOrders: ImageOrderItem[]) => {
+      if (!id || !survey) return;
+
+      try {
+        await updateSurveyImageOrder(id, newOrders);
+        // 順序変更後、データを再取得して表示を更新
+        await fetchData();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '順序の保存に失敗しました');
+      }
+    },
+    [id, survey, fetchData]
+  );
+
+  /**
+   * 画像メタデータ変更ハンドラ (Task 27.6)
+   *
+   * 報告書出力フラグやコメントが変更された時にAPIを呼び出します。
+   */
+  const handleImageMetadataChange = useCallback(
+    async (imageId: string, metadata: UpdateImageMetadataInput) => {
+      try {
+        await updateImageMetadata(imageId, metadata);
+        // 状態を即座に更新（楽観的UI更新）
+        setSurvey((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            images: prev.images.map((img) =>
+              img.id === imageId
+                ? {
+                    ...img,
+                    ...(metadata.includeInReport !== undefined && {
+                      includeInReport: metadata.includeInReport,
+                    }),
+                    ...(metadata.comment !== undefined && { comment: metadata.comment }),
+                  }
+                : img
+            ),
+          };
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'メタデータの保存に失敗しました');
+      }
+    },
+    []
+  );
 
   /**
    * 編集ボタンクリックハンドラ
@@ -426,7 +522,7 @@ export default function SiteSurveyDetailPage() {
         canDelete={canDelete}
       />
 
-      {/* 画像一覧セクション (Requirement 2.4) */}
+      {/* 画像一覧セクション (Requirement 2.4, Task 27.6) */}
       <div style={STYLES.imageSection}>
         <h3 style={STYLES.sectionTitle}>画像一覧</h3>
 
@@ -443,13 +539,75 @@ export default function SiteSurveyDetailPage() {
           </div>
         )}
 
-        <SurveyImageGrid
-          images={survey.images}
-          onImageClick={handleImageClick}
-          onOrderChange={handleOrderChange}
-          readOnly={true}
-          showOrderNumbers={false}
-        />
+        {/* タブリスト (Task 27.6) */}
+        <div role="tablist" style={STYLES.tabList} aria-label="画像表示切り替え">
+          <button
+            role="tab"
+            id="tab-thumbnail"
+            aria-selected={activeTab === 'thumbnail'}
+            aria-controls="tabpanel-thumbnail"
+            tabIndex={activeTab === 'thumbnail' ? 0 : -1}
+            onClick={() => setActiveTab('thumbnail')}
+            style={{
+              ...STYLES.tab,
+              ...(activeTab === 'thumbnail' ? STYLES.tabActive : {}),
+            }}
+          >
+            サムネイル一覧
+          </button>
+          <button
+            role="tab"
+            id="tab-management"
+            aria-selected={activeTab === 'management'}
+            aria-controls="tabpanel-management"
+            tabIndex={activeTab === 'management' ? 0 : -1}
+            onClick={() => setActiveTab('management')}
+            style={{
+              ...STYLES.tab,
+              ...(activeTab === 'management' ? STYLES.tabActive : {}),
+            }}
+          >
+            写真管理
+          </button>
+        </div>
+
+        {/* サムネイル一覧タブパネル */}
+        {activeTab === 'thumbnail' && (
+          <div
+            role="tabpanel"
+            id="tabpanel-thumbnail"
+            aria-labelledby="tab-thumbnail"
+            style={STYLES.tabPanel}
+          >
+            <SurveyImageGrid
+              images={survey.images}
+              onImageClick={handleImageClick}
+              onOrderChange={handleOrderChange}
+              readOnly={true}
+              showOrderNumbers={false}
+            />
+          </div>
+        )}
+
+        {/* 写真管理タブパネル (Task 27.6) */}
+        {activeTab === 'management' && (
+          <div
+            role="tabpanel"
+            id="tabpanel-management"
+            aria-labelledby="tab-management"
+            style={STYLES.tabPanel}
+          >
+            <PhotoManagementPanel
+              images={survey.images}
+              onImageMetadataChange={handleImageMetadataChange}
+              onImageClick={handleImageClick}
+              onOrderChange={canEdit ? handleOrderChange : undefined}
+              isLoading={isLoading}
+              readOnly={!canEdit}
+              showOrderNumbers={true}
+            />
+          </div>
+        )}
       </div>
 
       {/* 削除確認ダイアログ */}
