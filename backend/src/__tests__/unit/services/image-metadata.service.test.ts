@@ -9,7 +9,12 @@
  * - コメント最大2000文字のバリデーション
  * - includeInReportのデフォルト値をfalseに設定
  *
- * Requirements: 10.4, 10.8
+ * Task 28.1: 報告書出力対象画像の取得機能を実装する
+ * - includeInReport=trueの画像のみを取得するサービスメソッドを追加
+ * - 表示順序（displayOrder）の昇順でソート
+ * - 画像に紐付けられたコメントを取得
+ *
+ * Requirements: 10.4, 10.8, 11.2, 11.3
  *
  * @module tests/unit/services/image-metadata.service
  */
@@ -272,10 +277,14 @@ describe('ImageMetadataService', () => {
     });
   });
 
+  /**
+   * Task 28.1: 報告書出力対象画像の取得機能を実装する
+   * Requirements: 11.2, 11.3
+   */
   describe('findForReport', () => {
     const mockSurveyId = 'test-survey-id';
 
-    it('報告書出力対象の画像のみを取得する', async () => {
+    it('報告書出力対象の画像のみを取得する（Req 11.2）', async () => {
       const mockImages = [
         {
           id: 'image-1',
@@ -333,7 +342,7 @@ describe('ImageMetadataService', () => {
       expect(result).toHaveLength(0);
     });
 
-    it('表示順序（displayOrder）の昇順でソートされる', async () => {
+    it('表示順序（displayOrder）の昇順でソートされる（Req 11.3）', async () => {
       const mockImages = [
         {
           id: 'image-3',
@@ -376,6 +385,62 @@ describe('ImageMetadataService', () => {
           },
         })
       );
+    });
+
+    it('画像に紐付けられたコメントを取得できる（Task 28.1）', async () => {
+      const mockImages = [
+        {
+          id: 'image-1',
+          surveyId: mockSurveyId,
+          originalPath: 'path/1.jpg',
+          thumbnailPath: 'path/thumb1.jpg',
+          fileName: 'image1.jpg',
+          fileSize: 1024,
+          width: 800,
+          height: 600,
+          displayOrder: 1,
+          comment: 'これは写真1のコメントです',
+          includeInReport: true,
+          createdAt: new Date('2025-01-01'),
+        },
+        {
+          id: 'image-2',
+          surveyId: mockSurveyId,
+          originalPath: 'path/2.jpg',
+          thumbnailPath: 'path/thumb2.jpg',
+          fileName: 'image2.jpg',
+          fileSize: 2048,
+          width: 1200,
+          height: 900,
+          displayOrder: 2,
+          comment: null, // コメントなし
+          includeInReport: true,
+          createdAt: new Date('2025-01-02'),
+        },
+        {
+          id: 'image-3',
+          surveyId: mockSurveyId,
+          originalPath: 'path/3.jpg',
+          thumbnailPath: 'path/thumb3.jpg',
+          fileName: 'image3.jpg',
+          fileSize: 3072,
+          width: 1600,
+          height: 1200,
+          displayOrder: 3,
+          comment: '日本語コメントも正しく取得できる：現場状況確認用写真です。',
+          includeInReport: true,
+          createdAt: new Date('2025-01-03'),
+        },
+      ];
+
+      (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(mockImages);
+
+      const result = await service.findForReport(mockSurveyId);
+
+      expect(result).toHaveLength(3);
+      expect(result[0]?.comment).toBe('これは写真1のコメントです');
+      expect(result[1]?.comment).toBeNull();
+      expect(result[2]?.comment).toBe('日本語コメントも正しく取得できる：現場状況確認用写真です。');
     });
   });
 

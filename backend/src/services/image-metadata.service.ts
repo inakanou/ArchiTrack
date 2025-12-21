@@ -160,6 +160,15 @@ export class ImageMetadataService {
   /**
    * 報告書出力対象の画像を取得する
    *
+   * Task 28.1: 報告書出力対象画像の取得機能を実装する
+   * - includeInReport=trueの画像のみを取得
+   * - 表示順序（displayOrder）の昇順でソート
+   * - 画像に紐付けられたコメントを取得
+   *
+   * Requirements:
+   * - 11.2: PDF出力対象として報告書出力フラグがONの写真のみを含める
+   * - 11.3: PDF出力時に写真を表示順序の通りに配置する
+   *
    * @param surveyId - 現場調査ID
    * @returns 報告書出力対象の画像リスト（表示順序でソート）
    */
