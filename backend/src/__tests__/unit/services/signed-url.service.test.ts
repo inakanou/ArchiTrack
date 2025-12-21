@@ -8,31 +8,27 @@
  * - リクエストユーザーのプロジェクトアクセス権限検証
  */
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 
-// AWS SDKのモック
-vi.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: vi.fn(),
-}));
+// ストレージモジュールのモック
+const mockStorageProvider = {
+  type: 'r2' as const,
+  getSignedUrl: vi
+    .fn()
+    .mockResolvedValue(
+      'https://test-bucket.r2.cloudflarestorage.com/images/test.jpg?X-Amz-Signature=abc123&X-Amz-Expires=900'
+    ),
+  upload: vi.fn(),
+  delete: vi.fn(),
+  exists: vi.fn(),
+  testConnection: vi.fn().mockResolvedValue(true),
+  disconnect: vi.fn(),
+};
 
-vi.mock('@aws-sdk/client-s3', () => ({
-  GetObjectCommand: vi.fn(),
-  S3Client: vi.fn(),
-}));
-
-// S3Clientのモック
-vi.mock('../../../config/storage.js', () => ({
-  getS3Client: vi.fn(() => ({
-    send: vi.fn(),
-  })),
-  getStorageConfig: vi.fn(() => ({
-    bucketName: 'test-bucket',
-    endpoint: 'https://test.r2.cloudflarestorage.com',
-    publicUrl: null,
-    region: 'auto',
-  })),
+vi.mock('../../../storage/index.js', () => ({
+  isStorageConfigured: vi.fn(() => true),
+  getStorageProvider: vi.fn(() => mockStorageProvider),
+  getStorageType: vi.fn(() => 'r2'),
 }));
 
 // loggerのモック
@@ -65,6 +61,12 @@ describe('SignedUrlService', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
 
+    // mockStorageProviderのモックをリセット
+    mockStorageProvider.getSignedUrl.mockClear();
+    mockStorageProvider.getSignedUrl.mockResolvedValue(
+      'https://test-bucket.r2.cloudflarestorage.com/images/test.jpg?X-Amz-Signature=abc123&X-Amz-Expires=900'
+    );
+
     // Prismaモックの作成
     mockPrisma = {
       surveyImage: {
@@ -80,19 +82,6 @@ describe('SignedUrlService', () => {
         findMany: vi.fn(),
       },
     };
-
-    // getSignedUrlのモック
-    (getSignedUrl as Mock).mockResolvedValue(
-      'https://test-bucket.r2.cloudflarestorage.com/images/test.jpg?X-Amz-Signature=abc123&X-Amz-Expires=900'
-    );
-
-    // GetObjectCommandのモック
-    (GetObjectCommand as unknown as Mock).mockImplementation(function (
-      this: unknown,
-      params: unknown
-    ) {
-      return { input: params };
-    });
 
     // サービスをインポート
     const { SignedUrlService } = await import('../../../services/signed-url.service.js');
@@ -119,12 +108,9 @@ describe('SignedUrlService', () => {
 
       // Assert
       expect(result).toContain('https://');
-      expect(getSignedUrl).toHaveBeenCalled();
-      expect(GetObjectCommand).toHaveBeenCalledWith(
-        expect.objectContaining({
-          Bucket: 'test-bucket',
-          Key: 'surveys/test-survey-id/images/test.jpg',
-        })
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+        'surveys/test-survey-id/images/test.jpg',
+        expect.objectContaining({ expiresIn: 900 })
       );
     });
 
@@ -145,11 +131,9 @@ describe('SignedUrlService', () => {
 
       // Assert
       expect(result).toContain('https://');
-      expect(GetObjectCommand).toHaveBeenCalledWith(
-        expect.objectContaining({
-          Bucket: 'test-bucket',
-          Key: 'surveys/test-survey-id/thumbnails/test_thumb.jpg',
-        })
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+        'surveys/test-survey-id/thumbnails/test_thumb.jpg',
+        expect.objectContaining({ expiresIn: 900 })
       );
     });
 
@@ -168,9 +152,8 @@ describe('SignedUrlService', () => {
       await signedUrlService.generateSignedUrl(imageId, 'original');
 
       // Assert
-      expect(getSignedUrl).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+        'surveys/test-survey-id/images/test.jpg',
         expect.objectContaining({ expiresIn: 900 }) // 15 minutes = 900 seconds
       );
     });
@@ -203,9 +186,8 @@ describe('SignedUrlService', () => {
       await signedUrlService.generateSignedUrl(imageId, 'original', customExpiresIn);
 
       // Assert
-      expect(getSignedUrl).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+        'surveys/test-survey-id/images/test.jpg',
         expect.objectContaining({ expiresIn: 3600 })
       );
     });

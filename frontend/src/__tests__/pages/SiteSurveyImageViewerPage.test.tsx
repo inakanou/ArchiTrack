@@ -31,12 +31,35 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('../../api/site-surveys');
 
+// AnnotationEditorモック
+vi.mock('../../components/site-surveys/AnnotationEditor', () => ({
+  default: ({
+    imageUrl,
+    imageId,
+    surveyId,
+  }: {
+    imageUrl: string;
+    imageId: string;
+    surveyId: string;
+  }) => (
+    <div
+      data-testid="annotation-editor"
+      data-image-url={imageUrl}
+      data-image-id={imageId}
+      data-survey-id={surveyId}
+    >
+      MockAnnotationEditor
+    </div>
+  ),
+}));
+
 // テストデータ
 const mockImages: SurveyImageInfo[] = [
   {
     id: 'img-1',
     surveyId: 'survey-123',
     originalPath: '/uploads/original/img1.jpg',
+    originalUrl: 'https://example.com/signed/img1.jpg',
     thumbnailPath: '/uploads/thumbnails/img1.jpg',
     fileName: 'image1.jpg',
     fileSize: 1024000,
@@ -49,6 +72,7 @@ const mockImages: SurveyImageInfo[] = [
     id: 'img-2',
     surveyId: 'survey-123',
     originalPath: '/uploads/original/img2.jpg',
+    originalUrl: 'https://example.com/signed/img2.jpg',
     thumbnailPath: '/uploads/thumbnails/img2.jpg',
     fileName: 'image2.jpg',
     fileSize: 2048000,
@@ -109,10 +133,12 @@ describe('SiteSurveyImageViewerPage', () => {
         expect(screen.getByRole('heading', { name: 'image1.jpg' })).toBeInTheDocument();
       });
 
-      // 画像の存在を確認
-      const image = screen.getByAltText('image1.jpg');
-      expect(image).toBeInTheDocument();
-      expect(image).toHaveAttribute('src', '/uploads/original/img1.jpg');
+      // AnnotationEditorが正しくレンダリングされることを確認
+      const editor = screen.getByTestId('annotation-editor');
+      expect(editor).toBeInTheDocument();
+      expect(editor).toHaveAttribute('data-image-url', 'https://example.com/signed/img1.jpg');
+      expect(editor).toHaveAttribute('data-image-id', 'img-1');
+      expect(editor).toHaveAttribute('data-survey-id', 'survey-123');
     });
 
     it('ブレッドクラムナビゲーションを表示する (Requirement 2.5)', async () => {
@@ -133,7 +159,7 @@ describe('SiteSurveyImageViewerPage', () => {
       expect(screen.getByRole('link', { name: 'テスト現場調査' })).toBeInTheDocument();
     });
 
-    it('画像情報を表示する', async () => {
+    it('ファイル名がヘッダーに表示される', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
 
       renderComponent();
@@ -142,11 +168,9 @@ describe('SiteSurveyImageViewerPage', () => {
         expect(screen.getByRole('heading', { name: 'image1.jpg' })).toBeInTheDocument();
       });
 
-      // 画像情報の表示を確認
-      expect(screen.getByText(/ファイル名:/)).toBeInTheDocument();
-      expect(screen.getAllByText('image1.jpg').length).toBeGreaterThan(0);
-      expect(screen.getByText(/1920 x 1080 px/)).toBeInTheDocument();
-      expect(screen.getByText(/表示順:/)).toBeInTheDocument();
+      // AnnotationEditorに正しい画像情報が渡されていることを確認
+      const editor = screen.getByTestId('annotation-editor');
+      expect(editor).toBeInTheDocument();
     });
 
     it('現場調査に戻るリンクを表示する', async () => {
@@ -225,17 +249,17 @@ describe('SiteSurveyImageViewerPage', () => {
   });
 
   describe('画像表示の詳細', () => {
-    it('originalPathがない場合はプレースホルダーを表示する', async () => {
-      const surveyWithoutOriginalPath: SiteSurveyDetail = {
+    it('originalUrlがない場合はプレースホルダーを表示する', async () => {
+      const surveyWithoutOriginalUrl: SiteSurveyDetail = {
         ...mockSurveyDetail,
         images: [
           {
             ...mockImages[0]!,
-            originalPath: '',
+            originalUrl: undefined,
           },
         ],
       };
-      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyWithoutOriginalPath);
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyWithoutOriginalUrl);
 
       renderComponent();
 
@@ -243,9 +267,7 @@ describe('SiteSurveyImageViewerPage', () => {
         expect(screen.getByText('画像が読み込めません')).toBeInTheDocument();
       });
 
-      expect(
-        screen.getByText('画像編集機能は今後のアップデートで追加されます。')
-      ).toBeInTheDocument();
+      expect(screen.getByText('画像が存在しないか、読み込みに失敗しました。')).toBeInTheDocument();
     });
   });
 

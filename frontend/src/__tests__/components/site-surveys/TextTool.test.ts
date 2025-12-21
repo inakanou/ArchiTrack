@@ -77,15 +77,23 @@ vi.mock('fabric', () => {
       this.text = text;
     }
 
-    enterEditing(): void {
+    enterEditing(): this {
       // 編集モードに入る
+      this.isEditing = true;
+      return this;
     }
 
-    exitEditing(): void {
+    exitEditing(): this {
       // 編集モードを終了
+      this.isEditing = false;
+      return this;
     }
 
     isEditing: boolean = false;
+
+    initHiddenTextarea(): void {
+      // モック: 隠しtextareaの初期化
+    }
 
     on(event: string, callback: (...args: unknown[]) => void): void {
       mockOnCallbacks.set(event, callback);

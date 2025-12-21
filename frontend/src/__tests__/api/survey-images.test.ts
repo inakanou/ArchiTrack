@@ -80,7 +80,7 @@ describe('Survey Images API Client', () => {
       expect(options.body).toBeInstanceOf(FormData);
 
       const formData = options.body as FormData;
-      expect(formData.get('file')).toBeInstanceOf(File);
+      expect(formData.get('images')).toBeInstanceOf(File);
     });
 
     it('表示順序を指定してアップロードできること', async () => {

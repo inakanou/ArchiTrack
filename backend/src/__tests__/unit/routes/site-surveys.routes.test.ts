@@ -28,6 +28,17 @@ const mockAuditLogService = vi.hoisted(() => ({
   createLog: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockImageListService = vi.hoisted(() => ({
+  findBySurveyIdWithUrls: vi.fn().mockResolvedValue([]),
+}));
+
+const mockSignedUrlService = vi.hoisted(() => ({
+  generateSignedUrl: vi.fn().mockResolvedValue('https://example.com/signed-url'),
+  getSignedUrlWithValidation: vi
+    .fn()
+    .mockResolvedValue({ success: true, url: 'https://example.com/signed-url' }),
+}));
+
 // モック: データベースとRedis
 vi.mock('../../../db', () => ({
   default: vi.fn(() => ({})),
@@ -52,6 +63,22 @@ vi.mock('../../../services/audit-log.service', () => ({
   AuditLogService: class {
     constructor() {
       return mockAuditLogService;
+    }
+  },
+}));
+
+vi.mock('../../../services/image-list.service', () => ({
+  ImageListService: class {
+    constructor() {
+      return mockImageListService;
+    }
+  },
+}));
+
+vi.mock('../../../services/signed-url.service', () => ({
+  SignedUrlService: class {
+    constructor() {
+      return mockSignedUrlService;
     }
   },
 }));

@@ -351,6 +351,12 @@ vi.mock('fabric', () => {
     }
   }
 
+  // classRegistryのモック
+  const mockClassRegistry = {
+    setClass: vi.fn(),
+    getClass: vi.fn(),
+  };
+
   return {
     Canvas: MockCanvas,
     FabricImage: {
@@ -367,6 +373,7 @@ vi.mock('fabric', () => {
     IText: MockIText,
     Group: MockGroup,
     PencilBrush: MockPencilBrush,
+    classRegistry: mockClassRegistry,
   };
 });
 
@@ -899,9 +906,15 @@ describe('AnnotationEditor', () => {
           expect(loadingIndicator).not.toBeInTheDocument();
         });
 
-        // ツールバーが有効化されていることを確認
+        // ツールバーが有効化されていることを確認（ツールボタンのみ）
+        // Undo/Redoボタンは履歴がない場合は無効なので除外
         const buttons = screen.getAllByRole('button');
-        buttons.forEach((button) => {
+        const toolButtons = buttons.filter(
+          (button) =>
+            !button.getAttribute('aria-label')?.includes('元に戻す') &&
+            !button.getAttribute('aria-label')?.includes('やり直し')
+        );
+        toolButtons.forEach((button) => {
           expect(button).not.toBeDisabled();
         });
       });

@@ -137,11 +137,12 @@ describe('AnnotationToolbar', () => {
         expect(textButton).toBeInTheDocument();
       });
 
-      it('すべてのツールボタンが表示される（9種類）', () => {
+      it('すべてのツールボタンとアクションボタンが表示される', () => {
         render(<AnnotationToolbar {...defaultProps} />);
 
         const buttons = screen.getAllByRole('button');
-        expect(buttons).toHaveLength(9);
+        // 9種類のツールボタン + 4種類のアクションボタン（元に戻す、やり直し、保存、エクスポート）= 13個
+        expect(buttons).toHaveLength(13);
       });
     });
   });
