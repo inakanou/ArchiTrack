@@ -7,8 +7,14 @@
  * - 画像一覧セクション（注釈付き画像）
  * - ページ番号
  *
+ * Task 28.2: PDF報告書1ページ3組レイアウトを実装する
+ * - 1ページ目に現場調査の基本情報（調査名、調査日、メモ等）を配置
+ * - 2ページ目以降に写真とコメントの組み合わせを1ページあたり3組で配置
+ * - 画像の左側配置、コメントの右側配置レイアウト
+ * - コメント最大行数制限とオーバーフロー処理
+ *
  * @see design.md - ExportService
- * @see requirements.md - 要件10.6, 10.7
+ * @see requirements.md - 要件10.6, 10.7, 11.4, 11.5, 11.6
  */
 
 import type { jsPDF } from 'jspdf';
@@ -47,6 +53,49 @@ export const PDF_REPORT_LAYOUT = {
   IMAGE_MAX_HEIGHT_RATIO: 0.6,
 } as const;
 
+/**
+ * PDF報告書の3組レイアウト設定（Task 28.2用）
+ *
+ * 要件11.5: 1ページあたり3組の写真+コメント配置
+ */
+export const PDF_REPORT_LAYOUT_V2 = {
+  // ページ設定
+  /** ページマージン（mm） */
+  PAGE_MARGIN: 15,
+  /** ヘッダー高さ（mm） */
+  HEADER_HEIGHT: 20,
+  /** フッター高さ（mm） */
+  FOOTER_HEIGHT: 15,
+
+  // 画像+コメント組の設定
+  /** 1ページあたりの画像数 */
+  IMAGES_PER_PAGE: 3,
+  /** 1組あたりの高さ（mm） */
+  ROW_HEIGHT: 85,
+  /** 行間（mm） */
+  ROW_GAP: 5,
+
+  // 画像設定
+  /** ページ幅に対する画像幅の比率 */
+  IMAGE_WIDTH_RATIO: 0.45,
+  /** 画像の最大高さ（mm） */
+  IMAGE_MAX_HEIGHT: 75,
+
+  // コメント設定
+  /** ページ幅に対するコメント幅の比率 */
+  COMMENT_WIDTH_RATIO: 0.45,
+  /** コメントフォントサイズ（pt） */
+  COMMENT_FONT_SIZE: 10,
+  /** コメント行間 */
+  COMMENT_LINE_HEIGHT: 1.4,
+  /** コメント最大行数 */
+  COMMENT_MAX_LINES: 5,
+
+  // フォント
+  /** フォントファミリー */
+  FONT_FAMILY: 'NotoSansJP',
+} as const;
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -59,6 +108,16 @@ export interface AnnotatedImage {
   imageInfo: SurveyImageInfo;
   /** 注釈付き画像のデータURL */
   dataUrl: string;
+}
+
+/**
+ * コメント付き注釈画像データ（Task 28.2用）
+ *
+ * 要件11.6: 各写真に紐付けられたコメントをPDFに含める
+ */
+export interface AnnotatedImageWithComment extends AnnotatedImage {
+  /** 画像に紐付けられたコメント */
+  comment: string | null;
 }
 
 /**
@@ -134,6 +193,32 @@ export function calculateImageDimensions(
   }
 
   return { width, height };
+}
+
+/**
+ * コメント行を最大行数で切り捨てる（Task 28.2用）
+ *
+ * 要件11.6: コメント最大行数制限とオーバーフロー処理
+ *
+ * @param lines 元の行配列
+ * @param maxLines 最大行数
+ * @returns 切り捨て後の行配列（最後の行に「...」を追加）
+ */
+export function truncateCommentLines(lines: string[], maxLines: number): string[] {
+  if (lines.length === 0) {
+    return [];
+  }
+
+  if (lines.length <= maxLines) {
+    return lines;
+  }
+
+  // 最大行数で切り捨て、最後の行に「...」を追加
+  const truncated = lines.slice(0, maxLines);
+  const lastLine = truncated[maxLines - 1] ?? '';
+  truncated[maxLines - 1] = lastLine + '...';
+
+  return truncated;
 }
 
 // ============================================================================
@@ -401,6 +486,209 @@ export class PdfReportService {
     }
   }
 
+  // ==========================================================================
+  // Task 28.2: 3組レイアウト用メソッド
+  // ==========================================================================
+
+  /**
+   * コメントを描画する（Task 28.2用）
+   *
+   * 要件11.6: 各写真に紐付けられたコメントをPDFに含める
+   * コメント最大行数制限とオーバーフロー処理を行う。
+   *
+   * @param doc jsPDFインスタンス
+   * @param comment コメント文字列（nullまたは空の場合は何も描画しない）
+   * @param x X座標
+   * @param y Y座標
+   * @param maxWidth 最大幅
+   */
+  renderComment(doc: jsPDF, comment: string | null, x: number, y: number, maxWidth: number): void {
+    if (!comment || comment.trim() === '') {
+      return;
+    }
+
+    doc.setFontSize(PDF_REPORT_LAYOUT_V2.COMMENT_FONT_SIZE);
+    doc.setTextColor(30, 30, 30);
+
+    // テキストを折り返して行配列を取得
+    const lines: string[] = doc.splitTextToSize(comment, maxWidth);
+
+    // 最大行数で切り捨て
+    const truncatedLines = truncateCommentLines(lines, PDF_REPORT_LAYOUT_V2.COMMENT_MAX_LINES);
+
+    // 各行を描画
+    let currentY = y;
+    const lineHeight =
+      PDF_REPORT_LAYOUT_V2.COMMENT_FONT_SIZE * PDF_REPORT_LAYOUT_V2.COMMENT_LINE_HEIGHT * 0.352778; // pt to mm
+
+    for (const line of truncatedLines) {
+      doc.text(line, x, currentY);
+      currentY += lineHeight;
+    }
+  }
+
+  /**
+   * 3組レイアウトで画像セクションを描画する（Task 28.2用）
+   *
+   * 要件11.5: 1ページあたり3組の写真+コメント配置
+   * 画像を左側に配置し、コメントを右側に配置する。
+   *
+   * @param doc jsPDFインスタンス
+   * @param images コメント付き注釈画像の配列
+   * @param startY 開始Y座標
+   * @returns 描画終了時のY座標
+   */
+  renderImagesSection3PerPage(
+    doc: jsPDF,
+    images: AnnotatedImageWithComment[],
+    startY: number
+  ): number {
+    if (images.length === 0) {
+      return startY;
+    }
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const contentWidth = pageWidth - PDF_REPORT_LAYOUT_V2.PAGE_MARGIN * 2;
+    const imageWidth = contentWidth * PDF_REPORT_LAYOUT_V2.IMAGE_WIDTH_RATIO;
+    const commentWidth = contentWidth * PDF_REPORT_LAYOUT_V2.COMMENT_WIDTH_RATIO;
+
+    let currentY = startY;
+
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      if (!image) continue;
+
+      // 3組ごとに新しいページ
+      if (i > 0 && i % PDF_REPORT_LAYOUT_V2.IMAGES_PER_PAGE === 0) {
+        doc.addPage();
+        currentY = PDF_REPORT_LAYOUT_V2.PAGE_MARGIN + PDF_REPORT_LAYOUT_V2.HEADER_HEIGHT;
+      }
+
+      // 画像のX座標（左側配置）
+      const imageX = PDF_REPORT_LAYOUT_V2.PAGE_MARGIN;
+
+      // 画像サイズを計算
+      const { width, height } = calculateImageDimensions(
+        image.imageInfo.width,
+        image.imageInfo.height,
+        imageWidth,
+        PDF_REPORT_LAYOUT_V2.IMAGE_MAX_HEIGHT
+      );
+
+      try {
+        // 画像を追加
+        doc.addImage(image.dataUrl, 'JPEG', imageX, currentY, width, height);
+      } catch {
+        // 画像追加に失敗した場合はプレースホルダーを表示
+        doc.setDrawColor(200, 200, 200);
+        doc.setFillColor(240, 240, 240);
+        doc.rect(imageX, currentY, width, height, 'FD');
+        doc.setFontSize(PDF_REPORT_LAYOUT.BODY_FONT_SIZE);
+        doc.setTextColor(150, 150, 150);
+        doc.text('画像を読み込めませんでした', imageX + width / 2, currentY + height / 2, {
+          align: 'center',
+        });
+      }
+
+      // コメントのX座標（右側配置）
+      const commentX = imageX + imageWidth + 10;
+
+      // コメントを描画
+      this.renderComment(doc, image.comment, commentX, currentY + 5, commentWidth);
+
+      // 次の行へ
+      currentY += PDF_REPORT_LAYOUT_V2.ROW_HEIGHT + PDF_REPORT_LAYOUT_V2.ROW_GAP;
+    }
+
+    return currentY;
+  }
+
+  /**
+   * 調査報告書を3組レイアウトで生成する（Task 28.2用）
+   *
+   * 要件11.4: 1ページ目に基本情報、2ページ目以降に画像+コメント3組
+   *
+   * @param doc jsPDFインスタンス
+   * @param survey 現場調査詳細
+   * @param images コメント付き注釈画像の配列
+   * @param options 生成オプション
+   * @returns jsPDFインスタンス
+   */
+  generateSurveyReport(
+    doc: jsPDF,
+    survey: SiteSurveyDetail,
+    images: AnnotatedImageWithComment[],
+    options: PdfReportOptions = {}
+  ): jsPDF {
+    // バリデーション
+    if (!doc) {
+      throw new Error('jsPDF instance is required');
+    }
+    if (!survey) {
+      throw new Error('Survey detail is required');
+    }
+
+    // オプションのデフォルト値を設定
+    const opts = {
+      includeCoverPage: false, // 3組レイアウトでは表紙なしで基本情報を1ページ目に
+      includeInfoSection: true,
+      includeImages: true,
+      includePageNumbers: true,
+      ...options,
+    };
+
+    // フォントを初期化（失敗時はデフォルトフォントを使用）
+    try {
+      initializePdfFonts(doc);
+      doc.setFont(PDF_FONT_FAMILY);
+    } catch (fontError) {
+      console.warn('Failed to load Japanese font, using default font:', fontError);
+      doc.setFont('helvetica');
+    }
+
+    let currentY: number = PDF_REPORT_LAYOUT_V2.PAGE_MARGIN;
+
+    // 1ページ目: 基本情報を描画
+    if (opts.includeInfoSection) {
+      // タイトル
+      doc.setFontSize(PDF_REPORT_LAYOUT.TITLE_FONT_SIZE);
+      doc.setTextColor(30, 30, 30);
+      doc.text(survey.name, PDF_REPORT_LAYOUT_V2.PAGE_MARGIN, currentY + 10);
+      currentY += 20;
+
+      // 調査日
+      doc.setFontSize(PDF_REPORT_LAYOUT.HEADER_FONT_SIZE);
+      doc.setTextColor(80, 80, 80);
+      doc.text(
+        `調査日: ${formatDateForPdf(survey.surveyDate)}`,
+        PDF_REPORT_LAYOUT_V2.PAGE_MARGIN,
+        currentY
+      );
+      currentY += 10;
+
+      // プロジェクト名
+      doc.text(`プロジェクト: ${survey.project.name}`, PDF_REPORT_LAYOUT_V2.PAGE_MARGIN, currentY);
+      currentY += 15;
+
+      // メモ
+      currentY = this.renderInfoSection(doc, survey, currentY);
+    }
+
+    // 2ページ目以降: 画像+コメントを3組ずつ配置
+    if (opts.includeImages && images.length > 0) {
+      doc.addPage();
+      currentY = PDF_REPORT_LAYOUT_V2.PAGE_MARGIN + PDF_REPORT_LAYOUT_V2.HEADER_HEIGHT;
+      this.renderImagesSection3PerPage(doc, images, currentY);
+    }
+
+    // ページ番号を追加
+    if (opts.includePageNumbers) {
+      this.renderPageNumbers(doc);
+    }
+
+    return doc;
+  }
+
   /**
    * PDF報告書を生成する
    *
@@ -519,6 +807,26 @@ export function generatePdfReport(
   options?: PdfReportOptions
 ): jsPDF {
   return getDefaultService().generateReport(doc, survey, images, options);
+}
+
+/**
+ * 調査報告書を3組レイアウトで生成する（スタンドアロン関数、Task 28.2用）
+ *
+ * 要件11.4: 1ページ目に基本情報、2ページ目以降に画像+コメント3組
+ *
+ * @param doc jsPDFインスタンス
+ * @param survey 現場調査詳細
+ * @param images コメント付き注釈画像の配列
+ * @param options 生成オプション
+ * @returns jsPDFインスタンス
+ */
+export function generateSurveyReport(
+  doc: jsPDF,
+  survey: SiteSurveyDetail,
+  images: AnnotatedImageWithComment[],
+  options?: PdfReportOptions
+): jsPDF {
+  return getDefaultService().generateSurveyReport(doc, survey, images, options);
 }
 
 export default PdfReportService;

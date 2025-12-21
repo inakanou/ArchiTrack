@@ -25,12 +25,20 @@ export { NotoSansJPBase64, FONT_INFO } from './fonts/noto-sans-jp-base64';
 export {
   PdfReportService,
   PDF_REPORT_LAYOUT,
+  PDF_REPORT_LAYOUT_V2,
   formatDateForPdf,
   calculateImageDimensions,
+  truncateCommentLines,
   generatePdfReport,
+  generateSurveyReport,
   resetPdfReportService,
 } from './PdfReportService';
-export type { AnnotatedImage, PdfReportOptions, ImageDimensions } from './PdfReportService';
+export type {
+  AnnotatedImage,
+  AnnotatedImageWithComment,
+  PdfReportOptions,
+  ImageDimensions,
+} from './PdfReportService';
 
 // PDFエクスポートサービス（Task 21.3）
 export {

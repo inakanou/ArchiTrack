@@ -7,8 +7,14 @@
  * - 画像一覧セクション（注釈付き画像）
  * - ページ番号
  *
+ * Task 28.2: PDF報告書1ページ3組レイアウトを実装する
+ * - 1ページ目に現場調査の基本情報（調査名、調査日、メモ等）を配置
+ * - 2ページ目以降に写真とコメントの組み合わせを1ページあたり3組で配置
+ * - 画像の左側配置、コメントの右側配置レイアウト
+ * - コメント最大行数制限とオーバーフロー処理
+ *
  * @see design.md - ExportService
- * @see requirements.md - 要件10.6, 10.7
+ * @see requirements.md - 要件10.6, 10.7, 11.4, 11.5, 11.6
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -153,6 +159,14 @@ interface AnnotatedImage {
   dataUrl: string;
 }
 
+/**
+ * コメント付き注釈画像データ（Task 28.2用）
+ */
+interface AnnotatedImageWithComment extends AnnotatedImage {
+  /** 画像に紐付けられたコメント */
+  comment: string | null;
+}
+
 function createTestAnnotatedImages(count: number = 3): AnnotatedImage[] {
   const images: AnnotatedImage[] = [];
   for (let i = 0; i < count; i++) {
@@ -170,6 +184,34 @@ function createTestAnnotatedImages(count: number = 3): AnnotatedImage[] {
         createdAt: `2025-12-15T10:0${i + 1}:00Z`,
       },
       dataUrl: `data:image/jpeg;base64,/9j/test-image-${i + 1}`,
+    });
+  }
+  return images;
+}
+
+/**
+ * コメント付きテスト画像を作成（Task 28.2用）
+ */
+function createTestAnnotatedImagesWithComments(count: number = 3): AnnotatedImageWithComment[] {
+  const images: AnnotatedImageWithComment[] = [];
+  for (let i = 0; i < count; i++) {
+    images.push({
+      imageInfo: {
+        id: `img-${i + 1}`,
+        surveyId: 'survey-123',
+        originalPath: `/images/img${i + 1}.jpg`,
+        thumbnailPath: `/thumbnails/img${i + 1}.jpg`,
+        fileName: `photo${i + 1}.jpg`,
+        fileSize: 102400 * (i + 1),
+        width: 1920,
+        height: 1080,
+        displayOrder: i + 1,
+        createdAt: `2025-12-15T10:0${i + 1}:00Z`,
+        comment: `テストコメント${i + 1}です。これは画像${i + 1}の説明文です。`,
+        includeInReport: true,
+      },
+      dataUrl: `data:image/jpeg;base64,/9j/test-image-${i + 1}`,
+      comment: `テストコメント${i + 1}です。これは画像${i + 1}の説明文です。`,
     });
   }
   return images;
@@ -539,6 +581,298 @@ describe('スタンドアロン関数', () => {
       const images = createTestAnnotatedImages(2);
 
       const result = generatePdfReport(mockJsPDF as unknown as jsPDF, survey, images);
+
+      expect(result).toBeDefined();
+      expect(mockJsPDF.text).toHaveBeenCalled();
+    });
+  });
+});
+
+// ============================================================================
+// Task 28.2: PDF報告書1ページ3組レイアウトテスト
+// Requirements: 11.4, 11.5, 11.6
+// ============================================================================
+
+describe('PDF報告書1ページ3組レイアウト（Task 28.2）', () => {
+  let mockJsPDF: MockJsPDF;
+
+  beforeEach(() => {
+    mockJsPDF = createMockJsPDF();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('PDF_REPORT_LAYOUT_V2定数', () => {
+    it('3組レイアウト用の定数が定義されている', async () => {
+      const { PDF_REPORT_LAYOUT_V2 } = await import('../../../services/export/PdfReportService');
+
+      expect(PDF_REPORT_LAYOUT_V2).toBeDefined();
+      expect(PDF_REPORT_LAYOUT_V2.IMAGES_PER_PAGE).toBe(3);
+      expect(PDF_REPORT_LAYOUT_V2.PAGE_MARGIN).toBeGreaterThan(0);
+      expect(PDF_REPORT_LAYOUT_V2.HEADER_HEIGHT).toBeGreaterThan(0);
+      expect(PDF_REPORT_LAYOUT_V2.FOOTER_HEIGHT).toBeGreaterThan(0);
+    });
+
+    it('画像+コメント組の設定が定義されている', async () => {
+      const { PDF_REPORT_LAYOUT_V2 } = await import('../../../services/export/PdfReportService');
+
+      expect(PDF_REPORT_LAYOUT_V2.ROW_HEIGHT).toBeGreaterThan(0);
+      expect(PDF_REPORT_LAYOUT_V2.ROW_GAP).toBeGreaterThanOrEqual(0);
+      expect(PDF_REPORT_LAYOUT_V2.IMAGE_WIDTH_RATIO).toBeGreaterThan(0);
+      expect(PDF_REPORT_LAYOUT_V2.IMAGE_WIDTH_RATIO).toBeLessThanOrEqual(1);
+    });
+
+    it('コメント表示設定が定義されている', async () => {
+      const { PDF_REPORT_LAYOUT_V2 } = await import('../../../services/export/PdfReportService');
+
+      expect(PDF_REPORT_LAYOUT_V2.COMMENT_WIDTH_RATIO).toBeGreaterThan(0);
+      expect(PDF_REPORT_LAYOUT_V2.COMMENT_FONT_SIZE).toBeGreaterThan(0);
+      expect(PDF_REPORT_LAYOUT_V2.COMMENT_LINE_HEIGHT).toBeGreaterThan(0);
+      expect(PDF_REPORT_LAYOUT_V2.COMMENT_MAX_LINES).toBeGreaterThan(0);
+    });
+  });
+
+  describe('renderImagesSection3PerPage()（Requirement 11.5）', () => {
+    it('3組レイアウトで画像セクションを描画する', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const images = createTestAnnotatedImagesWithComments(3);
+
+      service.renderImagesSection3PerPage(mockJsPDF as unknown as jsPDF, images, 50);
+
+      // 3つの画像が追加されていることを確認
+      expect(mockJsPDF.addImage).toHaveBeenCalledTimes(3);
+    });
+
+    it('画像が左側に配置される', async () => {
+      const { PdfReportService, PDF_REPORT_LAYOUT_V2 } =
+        await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const images = createTestAnnotatedImagesWithComments(1);
+
+      service.renderImagesSection3PerPage(mockJsPDF as unknown as jsPDF, images, 50);
+
+      // addImageの呼び出しを確認
+      expect(mockJsPDF.addImage).toHaveBeenCalled();
+      const addImageCall = mockJsPDF.addImage.mock.calls[0];
+      // X座標がページマージン付近であることを確認（左側配置）
+      expect(addImageCall?.[2]).toBe(PDF_REPORT_LAYOUT_V2.PAGE_MARGIN);
+    });
+
+    it('コメントが右側に配置される', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const images = createTestAnnotatedImagesWithComments(1);
+
+      service.renderImagesSection3PerPage(mockJsPDF as unknown as jsPDF, images, 50);
+
+      // textの呼び出しでコメントが含まれていることを確認
+      const textCalls = mockJsPDF.text.mock.calls;
+      const hasComment = textCalls.some(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' && (call[0] as string).includes('テストコメント')
+      );
+      expect(hasComment).toBe(true);
+    });
+
+    it('3組を超える画像で新しいページが追加される', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const images = createTestAnnotatedImagesWithComments(5);
+
+      service.renderImagesSection3PerPage(mockJsPDF as unknown as jsPDF, images, 50);
+
+      // 3組を超えた時点で新しいページが追加される
+      expect(mockJsPDF.addPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('6組の画像で2回新しいページが追加される', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const images = createTestAnnotatedImagesWithComments(7);
+
+      service.renderImagesSection3PerPage(mockJsPDF as unknown as jsPDF, images, 50);
+
+      // 3, 6組目で新しいページが追加される
+      expect(mockJsPDF.addPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('画像がない場合でもエラーにならない', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+
+      expect(() => {
+        service.renderImagesSection3PerPage(mockJsPDF as unknown as jsPDF, [], 50);
+      }).not.toThrow();
+    });
+  });
+
+  describe('renderComment()（Requirement 11.6）', () => {
+    it('コメントを描画する', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+
+      service.renderComment(mockJsPDF as unknown as jsPDF, 'テストコメント', 100, 50, 80);
+
+      expect(mockJsPDF.text).toHaveBeenCalled();
+      expect(mockJsPDF.splitTextToSize).toHaveBeenCalled();
+    });
+
+    it('nullコメントでもエラーにならない', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+
+      expect(() => {
+        service.renderComment(mockJsPDF as unknown as jsPDF, null, 100, 50, 80);
+      }).not.toThrow();
+    });
+
+    it('空文字コメントでもエラーにならない', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+
+      expect(() => {
+        service.renderComment(mockJsPDF as unknown as jsPDF, '', 100, 50, 80);
+      }).not.toThrow();
+    });
+
+    it('長いコメントは最大行数で切り捨てられる', async () => {
+      const { PdfReportService, PDF_REPORT_LAYOUT_V2 } =
+        await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+
+      // 長いコメント（複数行に分割される想定）
+      const longComment = '長いコメント。'.repeat(50);
+      const mockLines = longComment.split('。').filter((s) => s);
+      mockJsPDF.splitTextToSize.mockReturnValue(mockLines);
+
+      service.renderComment(mockJsPDF as unknown as jsPDF, longComment, 100, 50, 80);
+
+      // テキスト描画回数がCOMMENT_MAX_LINES以下であることを確認
+      expect(mockJsPDF.text.mock.calls.length).toBeLessThanOrEqual(
+        PDF_REPORT_LAYOUT_V2.COMMENT_MAX_LINES
+      );
+    });
+  });
+
+  describe('truncateCommentLines()（Requirement 11.6）', () => {
+    it('行数制限内のコメントはそのまま返す', async () => {
+      const { truncateCommentLines } = await import('../../../services/export/PdfReportService');
+
+      const lines = ['行1', '行2', '行3'];
+      const result = truncateCommentLines(lines, 5);
+
+      expect(result).toEqual(lines);
+    });
+
+    it('行数制限を超えるコメントは切り捨てられる', async () => {
+      const { truncateCommentLines } = await import('../../../services/export/PdfReportService');
+
+      const lines = ['行1', '行2', '行3', '行4', '行5', '行6'];
+      const result = truncateCommentLines(lines, 3);
+
+      expect(result.length).toBe(3);
+      expect(result[2]).toContain('...');
+    });
+
+    it('空の配列はそのまま返す', async () => {
+      const { truncateCommentLines } = await import('../../../services/export/PdfReportService');
+
+      const result = truncateCommentLines([], 5);
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('generateSurveyReport()（Requirement 11.4）', () => {
+    it('調査報告書を3組レイアウトで生成する', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const survey = createTestSurveyDetail();
+      const images = createTestAnnotatedImagesWithComments(3);
+
+      const result = service.generateSurveyReport(
+        mockJsPDF as unknown as jsPDF,
+        survey,
+        images,
+        {}
+      );
+
+      expect(result).toBe(mockJsPDF);
+      // 画像が3組レイアウトで追加されている
+      expect(mockJsPDF.addImage).toHaveBeenCalled();
+    });
+
+    it('1ページ目に基本情報が含まれる', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const survey = createTestSurveyDetail({
+        name: '現場調査テスト',
+        surveyDate: '2025-12-22',
+        memo: 'テストメモ内容',
+      });
+      const images = createTestAnnotatedImagesWithComments(1);
+
+      service.generateSurveyReport(mockJsPDF as unknown as jsPDF, survey, images, {});
+
+      const textCalls = mockJsPDF.text.mock.calls;
+      // 調査名が含まれる
+      const hasName = textCalls.some(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' && (call[0] as string).includes('現場調査テスト')
+      );
+      expect(hasName).toBe(true);
+    });
+
+    it('2ページ目以降に画像+コメントが3組ずつ配置される', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const survey = createTestSurveyDetail();
+      const images = createTestAnnotatedImagesWithComments(5);
+
+      service.generateSurveyReport(mockJsPDF as unknown as jsPDF, survey, images, {});
+
+      // 5枚の画像があるので、ページ追加が発生する（基本情報ページ後 + 画像ページ）
+      expect(mockJsPDF.addPage).toHaveBeenCalled();
+    });
+
+    it('jsPDFインスタンスがnullの場合はエラーをスローする', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const survey = createTestSurveyDetail();
+      const images = createTestAnnotatedImagesWithComments(1);
+
+      expect(() => {
+        service.generateSurveyReport(null as unknown as jsPDF, survey, images, {});
+      }).toThrow('jsPDF instance is required');
+    });
+
+    it('surveyがnullの場合はエラーをスローする', async () => {
+      const { PdfReportService } = await import('../../../services/export/PdfReportService');
+      const service = new PdfReportService();
+      const images = createTestAnnotatedImagesWithComments(1);
+
+      expect(() => {
+        service.generateSurveyReport(
+          mockJsPDF as unknown as jsPDF,
+          null as unknown as SiteSurveyDetail,
+          images,
+          {}
+        );
+      }).toThrow('Survey detail is required');
+    });
+  });
+
+  describe('generateSurveyReportスタンドアロン関数', () => {
+    it('調査報告書を生成する', async () => {
+      const { generateSurveyReport } = await import('../../../services/export/PdfReportService');
+      const survey = createTestSurveyDetail();
+      const images = createTestAnnotatedImagesWithComments(2);
+
+      const result = generateSurveyReport(mockJsPDF as unknown as jsPDF, survey, images);
 
       expect(result).toBeDefined();
       expect(mockJsPDF.text).toHaveBeenCalled();
