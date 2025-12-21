@@ -2,9 +2,12 @@
  * @fileoverview 写真一覧管理パネルコンポーネント
  *
  * Task 27.4: 写真一覧管理パネルコンポーネントを実装する
+ * Task 27.5: ドラッグアンドドロップによる写真順序変更を実装する
  *
  * Requirements:
  * - 10.1: 報告書出力対象写真の選択
+ * - 10.5: ドラッグアンドドロップによる写真順序変更
+ * - 10.6: 順序変更完了時のデータベース保存
  * - 10.7: 保存された表示順序で写真一覧を表示
  *
  * 機能:
@@ -12,10 +15,15 @@
  * - 中解像度画像（800x600px程度）でサムネイルではない実際の写真を表示
  * - コメント入力用テキストエリアを各写真に配置
  * - 保存された表示順序で写真一覧を表示
+ * - ドラッグアンドドロップによる写真順序変更
  */
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import type { SurveyImageInfo, UpdateImageMetadataInput } from '../../types/site-survey.types';
+import type {
+  SurveyImageInfo,
+  UpdateImageMetadataInput,
+  ImageOrderItem,
+} from '../../types/site-survey.types';
 
 // ============================================================================
 // 型定義
@@ -31,6 +39,8 @@ export interface PhotoManagementPanelProps {
   onImageMetadataChange: (imageId: string, metadata: UpdateImageMetadataInput) => void;
   /** 画像クリック時のハンドラ */
   onImageClick?: (image: SurveyImageInfo) => void;
+  /** 順序変更時のハンドラ（Task 27.5） */
+  onOrderChange?: (newOrders: ImageOrderItem[]) => void;
   /** ローディング状態 */
   isLoading?: boolean;
   /** 読み取り専用モード */
@@ -211,6 +221,32 @@ const styles = {
     backgroundColor: '#e5e7eb',
     borderRadius: '6px',
   } as React.CSSProperties,
+  // ドラッグアンドドロップ用スタイル（Task 27.5）
+  dragHandle: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    cursor: 'grab',
+    color: '#9ca3af',
+    borderRadius: '4px',
+    transition: 'all 0.2s ease',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  dragHandleHover: {
+    backgroundColor: '#f3f4f6',
+    color: '#6b7280',
+  } as React.CSSProperties,
+  panelItemDragging: {
+    opacity: 0.5,
+    border: '2px dashed #6b7280',
+    backgroundColor: '#f9fafb',
+  } as React.CSSProperties,
+  panelItemDragOver: {
+    border: '2px solid #10b981',
+    backgroundColor: '#ecfdf5',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -224,6 +260,16 @@ interface PhotoItemProps {
   readOnly: boolean;
   onMetadataChange: (imageId: string, metadata: UpdateImageMetadataInput) => void;
   onImageClick?: (image: SurveyImageInfo) => void;
+  // ドラッグアンドドロップ用props（Task 27.5）
+  enableDrag: boolean;
+  isDragging: boolean;
+  isDragOver: boolean;
+  onDragStart: (e: React.DragEvent<HTMLDivElement>, imageId: string) => void;
+  onDragOver: (e: React.DragEvent<HTMLElement>) => void;
+  onDragEnter: (e: React.DragEvent<HTMLElement>, imageId: string) => void;
+  onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
+  onDrop: (e: React.DragEvent<HTMLElement>, targetId: string) => void;
+  onDragEnd: () => void;
 }
 
 function PhotoItem({
@@ -233,6 +279,15 @@ function PhotoItem({
   readOnly,
   onMetadataChange,
   onImageClick,
+  enableDrag,
+  isDragging,
+  isDragOver,
+  onDragStart,
+  onDragOver,
+  onDragEnter,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }: PhotoItemProps) {
   const [comment, setComment] = useState(image.comment ?? '');
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -340,13 +395,42 @@ function PhotoItem({
     };
   }, []);
 
+  // パネルアイテムのスタイル計算
+  const panelItemStyle: React.CSSProperties = {
+    ...styles.panelItem,
+    ...(isDragging ? styles.panelItemDragging : {}),
+    ...(isDragOver ? styles.panelItemDragOver : {}),
+  };
+
   return (
     <article
-      style={styles.panelItem}
+      style={panelItemStyle}
       data-testid="photo-panel-item"
       data-image-id={image.id}
+      data-dragging={isDragging ? 'true' : undefined}
+      data-drag-over={isDragOver ? 'true' : undefined}
       aria-labelledby={fileNameId}
+      onDragOver={enableDrag ? onDragOver : undefined}
+      onDragEnter={enableDrag ? (e) => onDragEnter(e, image.id) : undefined}
+      onDragLeave={enableDrag ? onDragLeave : undefined}
+      onDrop={enableDrag ? (e) => onDrop(e, image.id) : undefined}
     >
+      {/* ドラッグハンドル（Task 27.5） */}
+      {enableDrag && (
+        <div
+          draggable
+          onDragStart={(e) => onDragStart(e, image.id)}
+          onDragEnd={onDragEnd}
+          style={styles.dragHandle}
+          data-testid="photo-drag-handle"
+          aria-label="ドラッグして順序を変更"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3 4h2v2H3V4zm4 0h2v2H7V4zm4 0h2v2h-2V4zM3 7h2v2H3V7zm4 0h2v2H7V7zm4 0h2v2h-2V7zM3 10h2v2H3v-2zm4 0h2v2H7v-2zm4 0h2v2h-2v-2z" />
+          </svg>
+        </div>
+      )}
+
       {/* 画像セクション */}
       <div style={styles.imageSection}>
         {showOrderNumber && (
@@ -444,15 +528,109 @@ export function PhotoManagementPanel({
   images,
   onImageMetadataChange,
   onImageClick,
+  onOrderChange,
   isLoading = false,
   readOnly = false,
   showOrderNumbers = false,
 }: PhotoManagementPanelProps) {
+  // ドラッグ状態の管理（Task 27.5）
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
   // displayOrder順にソートした画像リスト
   const sortedImages = useMemo(
     () => [...images].sort((a, b) => a.displayOrder - b.displayOrder),
     [images]
   );
+
+  // ドラッグ有効かどうか（Task 27.5）
+  const enableDrag = !!onOrderChange && !readOnly;
+
+  // ドラッグ開始ハンドラ（Task 27.5）
+  const handleDragStart = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, imageId: string) => {
+      if (!enableDrag) return;
+      e.dataTransfer.setData('text/plain', imageId);
+      e.dataTransfer.effectAllowed = 'move';
+      setDraggingId(imageId);
+    },
+    [enableDrag]
+  );
+
+  // ドラッグオーバーハンドラ（Task 27.5）
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  }, []);
+
+  // ドラッグエンターハンドラ（Task 27.5）
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent<HTMLElement>, imageId: string) => {
+      e.preventDefault();
+      if (draggingId && draggingId !== imageId) {
+        setDragOverId(imageId);
+      }
+    },
+    [draggingId]
+  );
+
+  // ドラッグリーブハンドラ（Task 27.5）
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    setDragOverId(null);
+  }, []);
+
+  // ドロップハンドラ（Task 27.5）
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLElement>, targetId: string) => {
+      e.preventDefault();
+      const sourceId = e.dataTransfer.getData('text/plain');
+
+      if (!sourceId || sourceId === targetId) {
+        setDraggingId(null);
+        setDragOverId(null);
+        return;
+      }
+
+      // 新しい順序を計算
+      const sourceIndex = sortedImages.findIndex((img) => img.id === sourceId);
+      const targetIndex = sortedImages.findIndex((img) => img.id === targetId);
+
+      if (sourceIndex === -1 || targetIndex === -1) {
+        setDraggingId(null);
+        setDragOverId(null);
+        return;
+      }
+
+      // 配列を再構築して新しい順序を計算
+      const newImages = [...sortedImages];
+      const [removed] = newImages.splice(sourceIndex, 1);
+      if (removed) {
+        newImages.splice(targetIndex, 0, removed);
+      }
+
+      // 新しいorder配列を生成
+      const newOrders: ImageOrderItem[] = newImages.map((img, index) => ({
+        id: img.id,
+        order: index + 1,
+      }));
+
+      if (onOrderChange) {
+        onOrderChange(newOrders);
+      }
+      setDraggingId(null);
+      setDragOverId(null);
+    },
+    [sortedImages, onOrderChange]
+  );
+
+  // ドラッグ終了ハンドラ（Task 27.5）
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null);
+    setDragOverId(null);
+  }, []);
 
   // ローディング中でデータがない場合のスケルトン表示
   if (isLoading && images.length === 0) {
@@ -505,6 +683,16 @@ export function PhotoManagementPanel({
             readOnly={readOnly}
             onMetadataChange={onImageMetadataChange}
             onImageClick={onImageClick}
+            // ドラッグアンドドロップ用props（Task 27.5）
+            enableDrag={enableDrag}
+            isDragging={draggingId === image.id}
+            isDragOver={dragOverId === image.id}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onDragEnd={handleDragEnd}
           />
         ))}
       </div>

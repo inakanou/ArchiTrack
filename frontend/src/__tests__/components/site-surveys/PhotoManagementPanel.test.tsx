@@ -328,9 +328,7 @@ describe('PhotoManagementPanel', () => {
       const firstImage = images[0]!;
       await user.click(firstImage);
 
-      expect(onImageClick).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'img-1' })
-      );
+      expect(onImageClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'img-1' }));
     });
 
     it('画像にキーボードでフォーカスしてEnterを押すとonImageClickが呼ばれること', async () => {
@@ -344,9 +342,7 @@ describe('PhotoManagementPanel', () => {
       firstButton.focus();
       await user.keyboard('{Enter}');
 
-      expect(onImageClick).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'img-1' })
-      );
+      expect(onImageClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'img-1' }));
     });
   });
 
@@ -453,6 +449,224 @@ describe('PhotoManagementPanel', () => {
       await waitFor(() => {
         expect(onMetadataChange).toHaveBeenCalledWith('img-2', { comment: 'テスト' });
       });
+    });
+  });
+
+  // ==========================================================================
+  // ドラッグアンドドロップ順序変更テスト（Task 27.5）
+  // ==========================================================================
+
+  describe('ドラッグアンドドロップによる順序変更', () => {
+    it('ドラッグハンドルが各画像アイテムに表示されること', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const dragHandles = screen.getAllByTestId('photo-drag-handle');
+      expect(dragHandles).toHaveLength(3);
+    });
+
+    it('readOnlyモードではドラッグハンドルが表示されないこと', () => {
+      const onOrderChange = vi.fn();
+      render(
+        <PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} readOnly={true} />
+      );
+
+      const dragHandles = screen.queryAllByTestId('photo-drag-handle');
+      expect(dragHandles).toHaveLength(0);
+    });
+
+    it('ドラッグ開始時にドラッグ中スタイルが適用されること', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const items = screen.getAllByTestId('photo-panel-item');
+      const firstItem = items[0]!;
+      const dragHandle = within(firstItem).getByTestId('photo-drag-handle');
+
+      // ドラッグ開始イベントをシミュレート
+      fireEvent.dragStart(dragHandle, {
+        dataTransfer: {
+          setData: vi.fn(),
+          effectAllowed: 'move',
+        },
+      });
+
+      // ドラッグ中のスタイルが適用される
+      expect(firstItem).toHaveAttribute('data-dragging', 'true');
+    });
+
+    it('ドロップ時にonOrderChangeが新しい順序で呼ばれること', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const items = screen.getAllByTestId('photo-panel-item');
+      const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+      const thirdItem = items[2]!;
+
+      // ドラッグ開始
+      fireEvent.dragStart(firstDragHandle, {
+        dataTransfer: {
+          setData: vi.fn(),
+          effectAllowed: 'move',
+          getData: () => 'img-1',
+        },
+      });
+
+      // ドラッグオーバー
+      fireEvent.dragOver(thirdItem, {
+        preventDefault: vi.fn(),
+        dataTransfer: { dropEffect: 'move' },
+      });
+
+      // ドラッグエンター
+      fireEvent.dragEnter(thirdItem, {
+        preventDefault: vi.fn(),
+      });
+
+      // ドロップ
+      fireEvent.drop(thirdItem, {
+        preventDefault: vi.fn(),
+        dataTransfer: {
+          getData: () => 'img-1',
+        },
+      });
+
+      expect(onOrderChange).toHaveBeenCalledWith([
+        { id: 'img-2', order: 1 },
+        { id: 'img-3', order: 2 },
+        { id: 'img-1', order: 3 },
+      ]);
+    });
+
+    it('同じ位置へのドロップではonOrderChangeが呼ばれないこと', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const items = screen.getAllByTestId('photo-panel-item');
+      const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+      const firstItem = items[0]!;
+
+      // ドラッグ開始
+      fireEvent.dragStart(firstDragHandle, {
+        dataTransfer: {
+          setData: vi.fn(),
+          effectAllowed: 'move',
+          getData: () => 'img-1',
+        },
+      });
+
+      // 同じアイテムにドロップ
+      fireEvent.drop(firstItem, {
+        preventDefault: vi.fn(),
+        dataTransfer: {
+          getData: () => 'img-1',
+        },
+      });
+
+      expect(onOrderChange).not.toHaveBeenCalled();
+    });
+
+    it('ドラッグオーバー時にドロップ先アイテムにハイライトスタイルが適用されること', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const items = screen.getAllByTestId('photo-panel-item');
+      const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+      const secondItem = items[1]!;
+
+      // ドラッグ開始
+      fireEvent.dragStart(firstDragHandle, {
+        dataTransfer: {
+          setData: vi.fn(),
+          effectAllowed: 'move',
+          getData: () => 'img-1',
+        },
+      });
+
+      // 2番目のアイテムにドラッグエンター
+      fireEvent.dragEnter(secondItem, {
+        preventDefault: vi.fn(),
+      });
+
+      expect(secondItem).toHaveAttribute('data-drag-over', 'true');
+    });
+
+    it('ドラッグリーブ時にドロップ先ハイライトが解除されること', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const items = screen.getAllByTestId('photo-panel-item');
+      const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+      const secondItem = items[1]!;
+
+      // ドラッグ開始
+      fireEvent.dragStart(firstDragHandle, {
+        dataTransfer: {
+          setData: vi.fn(),
+          effectAllowed: 'move',
+        },
+      });
+
+      // ドラッグエンター
+      fireEvent.dragEnter(secondItem, {
+        preventDefault: vi.fn(),
+      });
+
+      // ドラッグリーブ
+      fireEvent.dragLeave(secondItem, {
+        preventDefault: vi.fn(),
+      });
+
+      expect(secondItem).not.toHaveAttribute('data-drag-over', 'true');
+    });
+
+    it('ドラッグ終了時にすべてのドラッグ状態がリセットされること', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const items = screen.getAllByTestId('photo-panel-item');
+      const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+
+      // ドラッグ開始
+      fireEvent.dragStart(firstDragHandle, {
+        dataTransfer: {
+          setData: vi.fn(),
+          effectAllowed: 'move',
+        },
+      });
+
+      expect(items[0]).toHaveAttribute('data-dragging', 'true');
+
+      // ドラッグ終了
+      fireEvent.dragEnd(firstDragHandle);
+
+      expect(items[0]).not.toHaveAttribute('data-dragging', 'true');
+    });
+
+    it('onOrderChangeが未定義の場合、ドラッグハンドルは表示されないこと', () => {
+      render(<PhotoManagementPanel {...defaultProps} />);
+
+      const dragHandles = screen.queryAllByTestId('photo-drag-handle');
+      expect(dragHandles).toHaveLength(0);
+    });
+
+    it('ドラッグ中のアイテムには視覚的なフィードバックスタイルが適用されること', () => {
+      const onOrderChange = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+      const items = screen.getAllByTestId('photo-panel-item');
+      const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+
+      // ドラッグ開始
+      fireEvent.dragStart(firstDragHandle, {
+        dataTransfer: {
+          setData: vi.fn(),
+          effectAllowed: 'move',
+        },
+      });
+
+      // ドラッグ中のアイテムにスタイルが適用されていることを確認
+      expect(items[0]).toHaveAttribute('data-dragging', 'true');
     });
   });
 });
