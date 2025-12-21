@@ -579,7 +579,7 @@
   - 既存のImageServiceと連携して画像メタデータを管理
   - _Requirements: 10.4, 10.8_
 
-- [ ] 27.2 画像メタデータ更新エンドポイントを実装する
+- [x] 27.2 画像メタデータ更新エンドポイントを実装する
   - PATCH /api/site-surveys/images/:imageId エンドポイントを追加
   - comment（string | null）とincludeInReport（boolean）の更新対応
   - Zodスキーマによるリクエストバリデーション

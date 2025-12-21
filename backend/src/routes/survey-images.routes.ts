@@ -42,6 +42,11 @@ import { ImageDeleteService, ImageNotFoundError } from '../services/image-delete
 import { SurveyImageService } from '../services/survey-image.service.js';
 import { ImageProcessorService } from '../services/image-processor.service.js';
 import { SignedUrlService } from '../services/signed-url.service.js';
+import {
+  ImageMetadataService,
+  ImageNotFoundError as MetadataImageNotFoundError,
+  CommentTooLongError,
+} from '../services/image-metadata.service.js';
 
 // mergeParams: true を設定して親ルーターからパラメータを引き継ぐ
 const router = Router({ mergeParams: true });
@@ -126,6 +131,7 @@ initializeStorageServices().catch((error) => {
 });
 
 const imageOrderService = new ImageOrderService({ prisma });
+const imageMetadataService = new ImageMetadataService({ prisma });
 
 /**
  * バリデーションスキーマ
@@ -158,6 +164,18 @@ const thumbnailUpdateBodySchema = z.object({
       '無効な画像データ形式です。data:image/で始まるBase64形式である必要があります。'
     ),
 });
+
+/**
+ * 画像メタデータ更新スキーマ
+ */
+const imageMetadataUpdateBodySchema = z
+  .object({
+    comment: z.string().max(2000, 'コメントは2000文字以内で入力してください').nullable().optional(),
+    includeInReport: z.boolean().optional(),
+  })
+  .refine((data) => data.comment !== undefined || data.includeInReport !== undefined, {
+    message: 'commentまたはincludeInReportのいずれかを指定してください',
+  });
 
 /**
  * @swagger
@@ -513,6 +531,125 @@ router.delete(
           detail: error.message,
           code: 'IMAGE_NOT_FOUND',
           imageId: error.imageId,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/site-surveys/images/{imageId}:
+ *   patch:
+ *     summary: 画像メタデータ更新
+ *     description: 画像のコメントと報告書出力フラグを更新
+ *     tags:
+ *       - Survey Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: imageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 画像ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               comment:
+ *                 type: string
+ *                 nullable: true
+ *                 maxLength: 2000
+ *                 description: 写真コメント（最大2000文字、nullでクリア）
+ *               includeInReport:
+ *                 type: boolean
+ *                 description: 報告書出力フラグ
+ *     responses:
+ *       200:
+ *         description: 更新成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                   format: uuid
+ *                 comment:
+ *                   type: string
+ *                   nullable: true
+ *                 includeInReport:
+ *                   type: boolean
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 画像が見つからない
+ */
+router.patch(
+  '/:imageId',
+  authenticate,
+  requirePermission('site_survey:update'),
+  validate(imageIdParamSchema, 'params'),
+  validate(imageMetadataUpdateBodySchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageId } = req.validatedParams as { imageId: string };
+      const { comment, includeInReport } = req.validatedBody as {
+        comment?: string | null;
+        includeInReport?: boolean;
+      };
+
+      const updatedImage = await imageMetadataService.updateMetadata(imageId, {
+        comment,
+        includeInReport,
+      });
+
+      logger.info(
+        { userId: req.user!.userId, imageId, comment: !!comment, includeInReport },
+        'Image metadata updated'
+      );
+
+      res.json({
+        id: updatedImage.id,
+        surveyId: updatedImage.surveyId,
+        fileName: updatedImage.fileName,
+        comment: updatedImage.comment,
+        includeInReport: updatedImage.includeInReport,
+        displayOrder: updatedImage.displayOrder,
+      });
+    } catch (error) {
+      if (error instanceof MetadataImageNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/image-not-found',
+          title: 'Image Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'IMAGE_NOT_FOUND',
+          imageId: error.imageId,
+        });
+        return;
+      }
+      if (error instanceof CommentTooLongError) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error.message,
+          code: 'COMMENT_TOO_LONG',
+          length: error.length,
+          maxLength: error.maxLength,
         });
         return;
       }

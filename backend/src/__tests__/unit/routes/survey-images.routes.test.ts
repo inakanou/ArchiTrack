@@ -108,6 +108,33 @@ vi.mock('../../../services/image-processor.service.js', () => ({
   },
 }));
 
+vi.mock('../../../services/image-metadata.service.js', () => ({
+  ImageMetadataService: class {
+    constructor() {}
+    updateMetadata = vi.fn();
+    getMetadata = vi.fn();
+    findForReport = vi.fn();
+  },
+  ImageNotFoundError: class extends Error {
+    code = 'IMAGE_NOT_FOUND';
+    imageId: string;
+    constructor(imageId: string) {
+      super(`画像が見つかりません: ${imageId}`);
+      this.imageId = imageId;
+    }
+  },
+  CommentTooLongError: class extends Error {
+    code = 'COMMENT_TOO_LONG';
+    length: number;
+    maxLength: number;
+    constructor(length: number, maxLength: number) {
+      super(`コメントが長すぎます。最大${maxLength}文字までです（現在: ${length}文字）`);
+      this.length = length;
+      this.maxLength = maxLength;
+    }
+  },
+}));
+
 vi.mock('../../../services/image-upload.service.js', () => ({
   ImageUploadService: class {
     constructor() {}
@@ -189,6 +216,22 @@ describe('survey-images.routes', () => {
         .map((layer: RouterLayer) => layer.route.path);
 
       expect(postRoutes).toContain('/');
+    });
+
+    it('PATCH /:imageId (メタデータ更新) が登録されていること', () => {
+      const patchRoutes = router.stack
+        .filter((layer: RouterLayer) => layer.route && layer.route.methods?.patch)
+        .map((layer: RouterLayer) => layer.route.path);
+
+      expect(patchRoutes).toContain('/:imageId');
+    });
+
+    it('PATCH /:imageId/thumbnail (サムネイル更新) が登録されていること', () => {
+      const patchRoutes = router.stack
+        .filter((layer: RouterLayer) => layer.route && layer.route.methods?.patch)
+        .map((layer: RouterLayer) => layer.route.path);
+
+      expect(patchRoutes).toContain('/:imageId/thumbnail');
     });
   });
 });
