@@ -41,6 +41,7 @@ import {
 } from '../errors/siteSurveyError.js';
 import { ImageListService } from '../services/image-list.service.js';
 import { SignedUrlService } from '../services/signed-url.service.js';
+import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
 const router = Router({ mergeParams: true });
@@ -266,12 +267,38 @@ router.get(
         { sort, order }
       );
 
+      // thumbnailUrlを署名付きURLまたは公開URLに変換
+      let enrichedData = result.data;
+      if (isStorageConfigured()) {
+        const storageProvider = getStorageProvider();
+        if (storageProvider) {
+          enrichedData = await Promise.all(
+            result.data.map(async (survey) => {
+              if (survey.thumbnailUrl) {
+                try {
+                  // thumbnailUrlはthumbnailPathが入っているので、署名付きURLに変換
+                  const signedUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl);
+                  return { ...survey, thumbnailUrl: signedUrl };
+                } catch (error) {
+                  logger.warn(
+                    { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
+                    'Failed to generate signed URL for thumbnail'
+                  );
+                  return { ...survey, thumbnailUrl: null };
+                }
+              }
+              return survey;
+            })
+          );
+        }
+      }
+
       logger.debug(
         { userId: req.user?.userId, projectId, page, limit, total: result.pagination.total },
         'Site surveys list retrieved'
       );
 
-      res.json(result);
+      res.json({ ...result, data: enrichedData });
     } catch (error) {
       next(error);
     }
