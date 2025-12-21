@@ -19,8 +19,9 @@
 
 import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { jsPDF } from 'jspdf';
 import type { SiteSurveyDetail } from '../../types/site-survey.types';
+import { exportAndDownloadPdf, type AnnotatedImage } from '../../services/export';
+import { renderImagesWithAnnotations } from '../../services/export/AnnotationRendererService';
 
 // ============================================================================
 // 型定義
@@ -224,69 +225,30 @@ export default function SiteSurveyDetailInfo({
 
   /**
    * PDF報告書を生成してダウンロード
+   *
+   * 各画像の注釈データを取得し、元画像に注釈をレンダリングしてからPDFに埋め込む。
+   *
    * @requirement site-survey/REQ-10.6
    */
   const handleExportPdf = useCallback(async () => {
     setIsGeneratingPdf(true);
 
     try {
-      // A4サイズのPDFを作成
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
+      // 画像に注釈をレンダリングしてdataURLを取得
+      const renderedImages = await renderImagesWithAnnotations(survey.images, {
+        format: 'jpeg',
+        quality: 0.9,
       });
 
-      // 日本語フォント対応のため、基本的なASCII文字で出力
-      // 実際の日本語対応には別途フォント埋め込みが必要
-      const pageWidth = doc.internal.pageSize.getWidth();
-      let yPosition = 20;
+      // AnnotatedImage形式に変換
+      const annotatedImages: AnnotatedImage[] = renderedImages.map((img) => ({
+        imageInfo: img.imageInfo,
+        dataUrl: img.dataUrl,
+      }));
 
-      // タイトル
-      doc.setFontSize(18);
-      doc.text('Site Survey Report', pageWidth / 2, yPosition, { align: 'center' });
-      yPosition += 15;
-
-      // 現場調査名
-      doc.setFontSize(14);
-      doc.text(`Survey: ${survey.name}`, 20, yPosition);
-      yPosition += 10;
-
-      // プロジェクト名
-      doc.setFontSize(12);
-      doc.text(`Project: ${survey.project.name}`, 20, yPosition);
-      yPosition += 8;
-
-      // 調査日
-      doc.text(`Date: ${formatSurveyDate(survey.surveyDate)}`, 20, yPosition);
-      yPosition += 8;
-
-      // 画像件数
-      doc.text(`Images: ${survey.imageCount}`, 20, yPosition);
-      yPosition += 8;
-
-      // 作成日時
-      doc.text(`Created: ${formatDateTime(survey.createdAt)}`, 20, yPosition);
-      yPosition += 8;
-
-      // 更新日時
-      doc.text(`Updated: ${formatDateTime(survey.updatedAt)}`, 20, yPosition);
-      yPosition += 12;
-
-      // メモ
-      if (survey.memo) {
-        doc.setFontSize(12);
-        doc.text('Memo:', 20, yPosition);
-        yPosition += 6;
-        doc.setFontSize(10);
-        // メモを複数行に分割
-        const memoLines = doc.splitTextToSize(survey.memo, pageWidth - 40);
-        doc.text(memoLines, 20, yPosition);
-      }
-
-      // PDFをダウンロード
+      // PdfExportServiceを使用してPDFを生成・ダウンロード
       const fileName = `site-survey-${survey.id}-${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(fileName);
+      await exportAndDownloadPdf(survey, annotatedImages, { filename: fileName });
     } catch (error) {
       console.error('PDF generation failed:', error);
     } finally {

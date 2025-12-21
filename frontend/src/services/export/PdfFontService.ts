@@ -108,6 +108,19 @@ export class PdfFontService {
       return;
     }
 
+    // 既に初期化失敗済みの場合はスキップ
+    if (this.status === FontLoadStatus.FAILED) {
+      return;
+    }
+
+    // フォントデータの簡易バリデーション（最小サイズチェック）
+    // 実際のフォントデータは数百KB以上あるはず
+    if (!NotoSansJPBase64 || NotoSansJPBase64.length < 10000) {
+      console.warn('Font data is placeholder or too small, skipping font initialization');
+      this.status = FontLoadStatus.FAILED;
+      return;
+    }
+
     try {
       // 1. フォントファイルをVFS（Virtual File System）に追加
       doc.addFileToVFS(PDF_FONT_NAME, NotoSansJPBase64);

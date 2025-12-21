@@ -160,8 +160,12 @@ export class PdfReportService {
    * @param survey 現場調査詳細
    */
   renderCoverPage(doc: jsPDF, survey: SiteSurveyDetail): void {
-    // フォントを初期化
-    initializePdfFonts(doc);
+    // フォントを初期化（失敗時は無視してデフォルトフォントを使用）
+    try {
+      initializePdfFonts(doc);
+    } catch {
+      // generateReportで既にフォールバック済みのため、ここではログ出力のみ
+    }
 
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -431,9 +435,15 @@ export class PdfReportService {
       ...options,
     };
 
-    // フォントを初期化
-    initializePdfFonts(doc);
-    doc.setFont(PDF_FONT_FAMILY);
+    // フォントを初期化（失敗時はデフォルトフォントを使用）
+    try {
+      initializePdfFonts(doc);
+      doc.setFont(PDF_FONT_FAMILY);
+    } catch (fontError) {
+      console.warn('Failed to load Japanese font, using default font:', fontError);
+      // デフォルトフォント（Helvetica）を使用
+      doc.setFont('helvetica');
+    }
 
     let currentY: number = PDF_REPORT_LAYOUT.PAGE_MARGIN;
 

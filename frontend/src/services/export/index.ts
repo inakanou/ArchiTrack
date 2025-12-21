@@ -42,3 +42,11 @@ export {
   resetPdfExportService,
 } from './PdfExportService';
 export type { PdfExportPhase, PdfExportProgress, PdfExportOptions } from './PdfExportService';
+
+// 注釈レンダリングサービス
+export {
+  AnnotationRendererService,
+  renderImagesWithAnnotations,
+  resetAnnotationRendererService,
+} from './AnnotationRendererService';
+export type { RenderedImage, RenderOptions } from './AnnotationRendererService';
