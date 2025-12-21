@@ -831,3 +831,93 @@ export interface DownloadOriginalImageOptions {
   /** ダウンロード時のファイル名（省略時はサーバーから取得したファイル名を使用） */
   filename?: string;
 }
+
+// ============================================================================
+// 画像メタデータ用型定義（Task 27.3）
+// ============================================================================
+
+/**
+ * 画像メタデータ更新入力
+ *
+ * 写真のコメントや報告書出力フラグを更新するための入力型
+ *
+ * Requirements: 10.4, 10.8
+ */
+export interface UpdateImageMetadataInput {
+  /** コメント（最大2000文字、nullでクリア） */
+  comment?: string | null;
+  /** 報告書出力フラグ */
+  includeInReport?: boolean;
+}
+
+/**
+ * 画像メタデータ更新レスポンス
+ *
+ * PATCH /api/site-surveys/images/:imageId のレスポンス型
+ *
+ * Requirements: 10.4, 10.8
+ */
+export interface UpdateImageMetadataResponse {
+  /** 画像ID */
+  id: string;
+  /** 現場調査ID */
+  surveyId: string;
+  /** ファイル名 */
+  fileName: string;
+  /** コメント */
+  comment: string | null;
+  /** 報告書出力フラグ */
+  includeInReport: boolean;
+  /** 表示順序 */
+  displayOrder: number;
+}
+
+/**
+ * コメント長すぎエラーレスポンス
+ *
+ * コメントが最大文字数（2000文字）を超えた場合のエラーレスポンス
+ *
+ * Requirements: 10.4
+ */
+export interface CommentTooLongErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード（400） */
+  status: 400;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: 'COMMENT_TOO_LONG';
+  /** 実際の文字数 */
+  length: number;
+  /** 最大文字数 */
+  maxLength: number;
+}
+
+/**
+ * 値がCommentTooLongErrorResponseかどうかを判定するタイプガード
+ *
+ * @param value - 判定する値（通常はApiError.response）
+ * @returns valueがCommentTooLongErrorResponseならtrue
+ */
+export function isCommentTooLongErrorResponse(
+  value: unknown
+): value is CommentTooLongErrorResponse {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.type === 'string' &&
+    typeof obj.title === 'string' &&
+    obj.status === 400 &&
+    typeof obj.detail === 'string' &&
+    obj.code === 'COMMENT_TOO_LONG' &&
+    typeof obj.length === 'number' &&
+    typeof obj.maxLength === 'number'
+  );
+}

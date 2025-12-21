@@ -459,4 +459,190 @@ describe('Survey Images API Client', () => {
       await expect(updateSurveyImageOrder(surveyId, imageOrders)).rejects.toThrow(ApiError);
     });
   });
+
+  // ==========================================================================
+  // updateImageMetadata Tests (Task 27.3)
+  // ==========================================================================
+  describe('updateImageMetadata', () => {
+    it('コメントを更新できること', async () => {
+      // Arrange
+      const imageId = 'image-1';
+      const updateData = { comment: 'テストコメント' };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          id: imageId,
+          surveyId: 'survey-1',
+          fileName: 'photo.jpg',
+          comment: 'テストコメント',
+          includeInReport: false,
+          displayOrder: 1,
+        }),
+      });
+
+      // 動的インポートを使用して updateImageMetadata を取得
+      const { updateImageMetadata } = await import('../../api/survey-images');
+
+      // Act
+      const result = await updateImageMetadata(imageId, updateData);
+
+      // Assert
+      expect(result.comment).toBe('テストコメント');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain(`/api/site-surveys/images/${imageId}`);
+      expect(options.method).toBe('PATCH');
+
+      const body = JSON.parse(options.body as string) as typeof updateData;
+      expect(body.comment).toBe('テストコメント');
+    });
+
+    it('報告書出力フラグを更新できること', async () => {
+      // Arrange
+      const imageId = 'image-1';
+      const updateData = { includeInReport: true };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          id: imageId,
+          surveyId: 'survey-1',
+          fileName: 'photo.jpg',
+          comment: null,
+          includeInReport: true,
+          displayOrder: 1,
+        }),
+      });
+
+      const { updateImageMetadata } = await import('../../api/survey-images');
+
+      // Act
+      const result = await updateImageMetadata(imageId, updateData);
+
+      // Assert
+      expect(result.includeInReport).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(options.body as string) as typeof updateData;
+      expect(body.includeInReport).toBe(true);
+    });
+
+    it('コメントと報告書出力フラグを同時に更新できること', async () => {
+      // Arrange
+      const imageId = 'image-1';
+      const updateData = { comment: '新しいコメント', includeInReport: true };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          id: imageId,
+          surveyId: 'survey-1',
+          fileName: 'photo.jpg',
+          comment: '新しいコメント',
+          includeInReport: true,
+          displayOrder: 1,
+        }),
+      });
+
+      const { updateImageMetadata } = await import('../../api/survey-images');
+
+      // Act
+      const result = await updateImageMetadata(imageId, updateData);
+
+      // Assert
+      expect(result.comment).toBe('新しいコメント');
+      expect(result.includeInReport).toBe(true);
+    });
+
+    it('コメントをnullでクリアできること', async () => {
+      // Arrange
+      const imageId = 'image-1';
+      const updateData = { comment: null };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          id: imageId,
+          surveyId: 'survey-1',
+          fileName: 'photo.jpg',
+          comment: null,
+          includeInReport: false,
+          displayOrder: 1,
+        }),
+      });
+
+      const { updateImageMetadata } = await import('../../api/survey-images');
+
+      // Act
+      const result = await updateImageMetadata(imageId, updateData);
+
+      // Assert
+      expect(result.comment).toBeNull();
+    });
+
+    it('存在しない画像を更新しようとすると404エラーを返すこと', async () => {
+      // Arrange
+      const imageId = 'non-existent';
+      const updateData = { comment: 'テスト' };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          type: 'https://architrack.example.com/problems/image-not-found',
+          title: 'Image Not Found',
+          status: 404,
+          detail: '画像が見つかりません。',
+          code: 'IMAGE_NOT_FOUND',
+          imageId: imageId,
+        }),
+      });
+
+      const { updateImageMetadata } = await import('../../api/survey-images');
+
+      // Act & Assert
+      await expect(updateImageMetadata(imageId, updateData)).rejects.toThrow(ApiError);
+    });
+
+    it('コメントが2000文字を超える場合、400エラーを返すこと', async () => {
+      // Arrange
+      const imageId = 'image-1';
+      const longComment = 'あ'.repeat(2001);
+      const updateData = { comment: longComment };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: 'コメントは2000文字以内で入力してください。',
+          code: 'COMMENT_TOO_LONG',
+          length: 2001,
+          maxLength: 2000,
+        }),
+      });
+
+      const { updateImageMetadata } = await import('../../api/survey-images');
+
+      // Act & Assert
+      await expect(updateImageMetadata(imageId, updateData)).rejects.toThrow(ApiError);
+    });
+  });
 });

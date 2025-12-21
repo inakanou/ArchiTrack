@@ -2,12 +2,15 @@
  * @fileoverview 画像管理用APIクライアント
  *
  * Task 7.2: 画像管理APIクライアントの実装
+ * Task 27.3: 画像メタデータAPIクライアントの実装
  *
  * Requirements:
  * - 4.1: POST /api/site-surveys/:id/images 画像アップロード（FormData対応）
  * - 4.2: バッチアップロード対応
  * - 4.7: DELETE /api/site-surveys/images/:imageId 画像削除
  * - 4.10: PUT /api/site-surveys/:id/images/order 画像順序変更
+ * - 10.4: PATCH /api/site-surveys/images/:imageId 画像メタデータ更新（コメント・報告書出力フラグ）
+ * - 10.8: 報告書出力フラグの永続化
  */
 
 import { ApiError, apiClient } from './client';
@@ -18,6 +21,8 @@ import type {
   BatchUploadOptions,
   BatchUploadError,
   ImageOrderItem,
+  UpdateImageMetadataInput,
+  UpdateImageMetadataResponse,
 } from '../types/site-survey.types';
 
 // ============================================================================
@@ -320,4 +325,50 @@ export async function updateSurveyImageOrder(
   imageOrders: ImageOrderItem[]
 ): Promise<void> {
   return apiClient.put<void>(`/api/site-surveys/${surveyId}/images/order`, { imageOrders });
+}
+
+// ============================================================================
+// 画像メタデータ更新API（Task 27.3）
+// ============================================================================
+
+/**
+ * 画像メタデータを更新する
+ *
+ * 写真のコメントや報告書出力フラグを更新します。
+ *
+ * @param imageId - 画像ID（UUID）
+ * @param input - 更新するメタデータ
+ * @returns 更新された画像メタデータ
+ * @throws ApiError
+ *   - バリデーションエラー（400）- コメントが2000文字を超えた場合
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - 画像が見つからない（404）- `isImageNotFoundErrorResponse(error.response)`で識別可能
+ *
+ * Requirements: 10.4, 10.8
+ *
+ * @example
+ * // コメントのみ更新
+ * const updated = await updateImageMetadata('image-id', { comment: '施工箇所A' });
+ *
+ * @example
+ * // 報告書出力フラグをON
+ * const updated = await updateImageMetadata('image-id', { includeInReport: true });
+ *
+ * @example
+ * // 両方を同時に更新
+ * const updated = await updateImageMetadata('image-id', {
+ *   comment: '施工箇所A',
+ *   includeInReport: true,
+ * });
+ *
+ * @example
+ * // コメントをクリア
+ * const updated = await updateImageMetadata('image-id', { comment: null });
+ */
+export async function updateImageMetadata(
+  imageId: string,
+  input: UpdateImageMetadataInput
+): Promise<UpdateImageMetadataResponse> {
+  return apiClient.patch<UpdateImageMetadataResponse>(`/api/site-surveys/images/${imageId}`, input);
 }
