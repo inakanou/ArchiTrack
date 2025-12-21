@@ -114,8 +114,34 @@
 5. If 注釈データの保存に失敗する, then the Site Survey Service shall エラーメッセージを表示してリトライを促す
 6. The Site Survey Service shall 注釈データをJSON形式でエクスポート可能にする
 
-### Requirement 10: 注釈付き画像のエクスポート
-**Objective:** As a 現場調査担当者, I want 注釈を含めた画像をエクスポートできること, so that 報告書や数量表作成に利用できる
+### Requirement 10: 写真一覧管理とPDF出力設定
+**Objective:** As a 現場調査担当者, I want 現場調査詳細画面で写真ごとに報告書出力対象を選択しコメントを管理できること, so that 必要な写真とコメントを選択的に報告書に含められる
+
+#### Acceptance Criteria
+1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各写真について報告書出力フラグ（チェックボックス）、サムネイルではない実際の写真、コメント入力用テキストエリアを表示する
+2. When ユーザーが報告書出力フラグのチェックボックスをONにする, the Site Survey Service shall 当該写真をPDF出力対象として設定する
+3. When ユーザーが報告書出力フラグのチェックボックスをOFFにする, the Site Survey Service shall 当該写真をPDF出力対象から除外する
+4. When ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付けて保存する
+5. When ユーザーが写真をマウスドラッグで移動する, the Site Survey Service shall 写真の表示順序を変更する
+6. When ユーザーが写真の並び替え操作を完了する, the Site Survey Service shall 変更された表示順序をデータベースに保存する
+7. The Site Survey Service shall 写真一覧を保存された表示順序の通りに表示する
+8. The Site Survey Service shall 各写真のコメントと報告書出力フラグの状態を永続化する
+
+### Requirement 11: 調査報告書PDF出力
+**Objective:** As a 現場調査担当者, I want 注釈を含めた画像を選択的にPDF報告書としてエクスポートできること, so that 報告書や数量表作成に利用できる
+
+#### Acceptance Criteria
+1. When ユーザーが調査報告書出力ボタンを押す, the Site Survey Service shall 注釈付き画像一覧を調査結果報告PDFドキュメントとして生成する
+2. The Site Survey Service shall PDF出力対象として報告書出力フラグがONの写真のみを含める
+3. The Site Survey Service shall PDF出力時に写真を表示順序の通りに配置する
+4. The Site Survey Service shall PDFの1ページ目に現場調査の基本情報（調査名、調査日、メモ等）を含める
+5. The Site Survey Service shall PDFの2ページ目以降に写真とコメントの組み合わせを1ページあたり3組の形式で配置する
+6. The Site Survey Service shall 各写真に紐付けられたコメントを当該写真と共にPDFに含める
+7. The Site Survey Service shall 日本語を含むテキスト注釈を正しくレンダリングしてPDF出力する
+8. When ユーザーがPDF生成完了後, the Site Survey Service shall PDFファイルをダウンロード可能にする
+
+### Requirement 12: 個別画像エクスポート
+**Objective:** As a 現場調査担当者, I want 個別の注釈付き画像をエクスポートできること, so that 報告書以外の用途にも利用できる
 
 #### Acceptance Criteria
 1. When ユーザーが個別画像のエクスポートボタンを押す, the Site Survey Service shall 注釈をレンダリングした画像を生成する
@@ -123,10 +149,8 @@
 3. The Site Survey Service shall エクスポート画像の解像度（品質）を選択可能にする
 4. The Site Survey Service shall 注釈なしの元画像もダウンロード可能にする
 5. The Site Survey Service shall 日本語を含むテキスト注釈を正しくレンダリングしてエクスポートする
-6. When ユーザーが調査報告書出力ボタンを押す, the Site Survey Service shall 注釈付き画像一覧を調査結果報告PDFドキュメントとして生成してダウンロードする
-7. The Site Survey Service shall 調査報告PDFに現場調査の基本情報（調査名、調査日、メモ等）を含める
 
-### Requirement 11: Undo/Redo機能
+### Requirement 13: Undo/Redo機能
 **Objective:** As a 現場調査担当者, I want 注釈編集操作を取り消し・やり直しできること, so that 誤操作を簡単に修正できる
 
 #### Acceptance Criteria
@@ -136,7 +160,7 @@
 4. The Site Survey Service shall 操作履歴を最大50件まで保持し、超過時は最古の履歴から削除する
 5. When 注釈データを保存する, the Site Survey Service shall 操作履歴をクリアする
 
-### Requirement 12: アクセス制御
+### Requirement 14: アクセス制御
 **Objective:** As a システム管理者, I want 現場調査機能へのアクセスを制御できること, so that 適切な権限を持つユーザーのみが操作できる
 
 #### Acceptance Criteria
@@ -146,7 +170,7 @@
 4. When 画像URLへのアクセスリクエストがある, the Site Survey Service shall 署名付きURLの有効期限とアクセス権限を検証する
 5. The Site Survey Service shall 現場調査の操作履歴を監査ログに記録する
 
-### Requirement 13: レスポンシブ対応
+### Requirement 15: レスポンシブ対応
 **Objective:** As a 現場担当者, I want スマートフォンやタブレットでも現場調査機能を利用できること, so that 現場で直接操作できる
 
 #### Acceptance Criteria
@@ -157,7 +181,7 @@
 5. When ページをリロードまたは再訪問した場合, the Site Survey Service shall ブラウザのlocalStorageから未保存の編集状態を復元する
 6. If ネットワーク接続が切断される, then the Site Survey Service shall 警告を表示し保存操作をブロックする
 
-### Requirement 14: 非機能要件
+### Requirement 16: 非機能要件
 **Objective:** As a システム管理者, I want 現場調査機能が高いパフォーマンスと信頼性を持つこと, so that ユーザーがストレスなく利用できる
 
 #### Acceptance Criteria
