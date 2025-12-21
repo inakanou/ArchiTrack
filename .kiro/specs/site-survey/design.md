@@ -15,6 +15,7 @@
 - Canvas上での注釈編集（寸法線、マーキング、コメント）を可能にする
 - 注釈付き画像のエクスポートおよびPDF報告書生成を実現する
 - 自動保存と編集状態の一時保存機能を提供する
+- **写真ごとのコメント管理と報告書出力フラグによる選択的PDF出力を実現する**
 
 ### Non-Goals
 
@@ -47,6 +48,12 @@
 - 論理削除パターン（deletedAtフィールド）
 - 楽観的排他制御パターン（expectedUpdatedAt）
 
+**既存実装の活用**（要件10〜12向け）:
+- PdfExportService: クライアントサイドPDF生成（jsPDF 2.5.x）
+- PdfReportService: PDF報告書レイアウト（表紙、基本情報、画像一覧）
+- PdfFontService: 日本語フォント埋め込み（Noto Sans JP）
+- AnnotationRendererService: 注釈付き画像レンダリング（Fabric.js → dataURL）
+
 ### Architecture Pattern & Boundary Map
 
 ```mermaid
@@ -57,6 +64,8 @@ graph TB
         ImageViewer[ImageViewer]
         AnnotationEditor[AnnotationEditor]
         CanvasEngine[Fabric.js Canvas]
+        PhotoManagementPanel[PhotoManagementPanel]
+        ImageExportDialog[ImageExportDialog]
     end
 
     subgraph Backend
@@ -65,6 +74,7 @@ graph TB
         ImageService[ImageService]
         AnnotationService[AnnotationService]
         ExportService[ExportService]
+        ImageMetadataService[ImageMetadataService]
     end
 
     subgraph Storage
@@ -81,14 +91,18 @@ graph TB
     ImageViewer --> SurveyRoutes
     AnnotationEditor --> CanvasEngine
     AnnotationEditor --> SurveyRoutes
+    PhotoManagementPanel --> SurveyRoutes
+    ImageExportDialog --> ExportService
 
     SurveyRoutes --> SurveyService
     SurveyRoutes --> ImageService
     SurveyRoutes --> AnnotationService
     SurveyRoutes --> ExportService
+    SurveyRoutes --> ImageMetadataService
 
     SurveyService --> PostgreSQL
     ImageService --> R2
+    ImageMetadataService --> PostgreSQL
     AnnotationService --> PostgreSQL
 
     AnnotationEditor --> LocalStorage
@@ -102,6 +116,9 @@ graph TB
   - ImageService: 画像処理と外部ストレージ連携の責務分離
   - AnnotationService: 注釈データの永続化と復元
   - ExportService: PDF/画像エクスポートのビジネスロジック
+  - **ImageMetadataService**: 写真コメント・報告書出力フラグの管理（要件10対応）
+  - **PhotoManagementPanel**: 写真一覧管理UI（要件10対応）
+  - **ImageExportDialog**: 個別画像エクスポートUI（要件12対応）
 - Steering compliance: TypeScript strict mode、ESLint、Prettier、Conventional Commits
 
 ### Technology Stack
@@ -214,6 +231,119 @@ stateDiagram-v2
 - localStorageへの一時保存は継続（データ損失防止）
 - オンライン復帰後に手動で保存操作を実行
 
+### 写真メタデータ更新フロー（要件10対応）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant PhotoManagementPanel
+    participant Backend
+    participant PostgreSQL
+
+    User->>PhotoManagementPanel: 写真一覧画面を開く
+    PhotoManagementPanel->>Backend: GET /api/site-surveys/:id/images
+    Backend->>PostgreSQL: 画像一覧取得（comment, includeInReport含む）
+    PostgreSQL-->>Backend: 画像データ
+    Backend-->>PhotoManagementPanel: 画像一覧（署名付きURL付き）
+    PhotoManagementPanel-->>User: 写真一覧表示（実画像、コメント、チェックボックス）
+
+    User->>PhotoManagementPanel: コメント入力
+    PhotoManagementPanel->>PhotoManagementPanel: デバウンス（500ms）
+    PhotoManagementPanel->>Backend: PATCH /api/site-surveys/images/:imageId
+    Backend->>PostgreSQL: comment更新
+    PostgreSQL-->>Backend: 更新完了
+    Backend-->>PhotoManagementPanel: 更新結果
+
+    User->>PhotoManagementPanel: 報告書出力フラグ変更
+    PhotoManagementPanel->>Backend: PATCH /api/site-surveys/images/:imageId
+    Backend->>PostgreSQL: includeInReport更新
+    PostgreSQL-->>Backend: 更新完了
+    Backend-->>PhotoManagementPanel: 更新結果
+```
+
+**Key Decisions**:
+- コメント入力は500msデバウンスで自動保存
+- 報告書出力フラグは即時保存
+- 画像一覧表示では中解像度画像（800x600px程度）を使用してパフォーマンスを確保
+
+### PDF報告書生成フロー（要件11対応）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant SurveyDetailPage
+    participant PdfReportService
+    participant AnnotationRendererService
+    participant jsPDF
+    participant Backend
+
+    User->>SurveyDetailPage: 調査報告書出力ボタン押下
+    SurveyDetailPage->>Backend: GET /api/site-surveys/:id/images
+    Backend-->>SurveyDetailPage: 画像一覧（includeInReport=true のみフィルタ）
+
+    loop 各画像
+        SurveyDetailPage->>AnnotationRendererService: renderImage(imageInfo)
+        AnnotationRendererService->>Backend: GET /.../annotations
+        Backend-->>AnnotationRendererService: 注釈データ
+        AnnotationRendererService->>AnnotationRendererService: Fabric.js Canvas生成・レンダリング
+        AnnotationRendererService-->>SurveyDetailPage: 注釈付きdataURL
+    end
+
+    SurveyDetailPage->>PdfReportService: generateReport(survey, images)
+    PdfReportService->>jsPDF: PDF初期化（A4縦）
+    PdfReportService->>jsPDF: 表紙描画（調査名、調査日、プロジェクト名）
+    PdfReportService->>jsPDF: 基本情報セクション描画
+
+    loop 3組ずつ
+        PdfReportService->>jsPDF: 新規ページ追加
+        PdfReportService->>jsPDF: 画像3組レイアウト（画像+コメント）
+    end
+
+    PdfReportService->>jsPDF: ページ番号追加
+    jsPDF-->>SurveyDetailPage: PDF Blob
+    SurveyDetailPage-->>User: PDFダウンロード開始
+```
+
+**Key Decisions**:
+- 報告書出力フラグ（includeInReport）がONの画像のみをPDFに含める
+- 1ページあたり3組の画像+コメントを配置
+- 画像は表示順序（displayOrder）の昇順で配置
+- 注釈付き画像はAnnotationRendererServiceでレンダリング（既存実装を拡張）
+
+### 個別画像エクスポートフロー（要件12対応）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ImageViewer
+    participant ImageExportDialog
+    participant AnnotationRendererService
+    participant FabricCanvas
+
+    User->>ImageViewer: エクスポートボタン押下
+    ImageViewer->>ImageExportDialog: ダイアログ表示
+    ImageExportDialog-->>User: オプション選択（形式、品質、注釈含む/含まない）
+
+    User->>ImageExportDialog: エクスポート実行
+    alt 注釈あり
+        ImageExportDialog->>AnnotationRendererService: renderImage(imageInfo, options)
+        AnnotationRendererService->>FabricCanvas: Canvas生成・レンダリング
+        FabricCanvas-->>AnnotationRendererService: 注釈付きdataURL
+        AnnotationRendererService-->>ImageExportDialog: dataURL
+    else 注釈なし
+        ImageExportDialog->>ImageExportDialog: 元画像URLからBlobを取得
+    end
+
+    ImageExportDialog->>ImageExportDialog: ダウンロードトリガー
+    ImageExportDialog-->>User: 画像ダウンロード開始
+```
+
+**Key Decisions**:
+- JPEG/PNG形式を選択可能
+- 品質（解像度）を3段階で選択可能（低/中/高）
+- 注釈あり/なしを選択可能
+- クライアントサイドで完結（サーバー負荷なし）
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -227,11 +357,13 @@ stateDiagram-v2
 | 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 9.1-9.6 | 注釈保存・復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
-| 10.1-10.7 | エクスポート | ExportService, jsPDF | ExportAPI | - |
-| 11.1-11.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
-| 12.1-12.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
-| 13.1-13.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
-| 14.1-14.8 | 非機能要件 | 全コンポーネント | - | - |
+| **10.1-10.8** | **写真一覧管理・PDF出力設定** | **PhotoManagementPanel, ImageMetadataService** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
+| **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService** | **ExportAPI** | **PDF報告書生成フロー** |
+| **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService** | **ExportAPI** | **個別画像エクスポートフロー** |
+| 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
+| 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
+| 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
+| 16.1-16.8 | 非機能要件 | 全コンポーネント | - | - |
 
 ## Components and Interfaces
 
@@ -242,14 +374,17 @@ stateDiagram-v2
 | SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | ImageService | Backend/Service | 画像アップロード・処理 | 4 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
 | AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9 | PrismaClient (P0) | Service, API |
-| ExportService | Frontend/Service | エクスポート処理 | 10 | jsPDF (P0), Fabric.js (P0) | State |
-| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-10, 12 | All Services (P0) | API |
+| **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
+| ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
+| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14 | All Services (P0) | API |
 | SurveyListPage | Frontend/Page | 一覧表示 | 2, 3 | SurveyAPI (P0) | State |
-| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 4, 5 | SurveyAPI (P0), ImageAPI (P0) | State |
-| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 11 | Fabric.js (P0), UndoManager (P0) | State |
-| ImageViewer | Frontend/Component | 画像表示・操作 | 5 | Fabric.js (P0) | State |
-| UndoManager | Frontend/Utility | 操作履歴管理 | 11 | - | State |
-| AutoSaveManager | Frontend/Service | 自動保存・状態復元 | 13 | localStorage (P0) | State |
+| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 4, 5, 10, 11 | SurveyAPI (P0), ImageAPI (P0) | State |
+| **PhotoManagementPanel** | Frontend/Component | 写真一覧管理UI | 10 | ImageMetadataAPI (P0) | State |
+| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13 | Fabric.js (P0), UndoManager (P0) | State |
+| ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12 | Fabric.js (P0) | State |
+| **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
+| UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
+| AutoSaveManager | Frontend/Service | 自動保存・状態復元 | 15 | localStorage (P0) | State |
 
 ### Backend / Service Layer
 
@@ -395,6 +530,8 @@ interface SurveyImageInfo {
   width: number;
   height: number;
   displayOrder: number;
+  comment: string | null;        // 要件10対応: 写真コメント
+  includeInReport: boolean;       // 要件10対応: 報告書出力フラグ
   createdAt: Date;
 }
 
@@ -417,7 +554,7 @@ interface IImageService {
   delete(imageId: string): Promise<void>;
   deleteBySurveyId(surveyId: string): Promise<void>;
   getSignedUrl(imageId: string, type: 'original' | 'thumbnail'): Promise<string>;
-  validateSignedUrl(signedUrl: string, userId: string): Promise<boolean>; // 12.4対応
+  validateSignedUrl(signedUrl: string, userId: string): Promise<boolean>; // 14.4対応
 }
 ```
 
@@ -481,6 +618,68 @@ export async function generateSignedUrl(key: string, expiresIn = 900): Promise<s
   return getSignedUrl(s3Client, command, { expiresIn });
 }
 ```
+
+#### ImageMetadataService（要件10対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 画像のコメントと報告書出力フラグを管理 |
+| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8 |
+
+**Responsibilities & Constraints**
+- 画像単位でのコメント保存・取得
+- 報告書出力フラグ（includeInReport）の管理
+- 複数画像の一括更新サポート
+- 既存のImageServiceと連携（画像自体の操作はImageServiceに委譲）
+
+**Dependencies**
+- Inbound: SurveyRoutes — HTTPリクエスト処理 (P0)
+- Outbound: PrismaClient — データ永続化 (P0)
+
+**Contracts**: Service [x] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface UpdateImageMetadataInput {
+  comment?: string | null;
+  includeInReport?: boolean;
+}
+
+interface IImageMetadataService {
+  updateMetadata(
+    imageId: string,
+    input: UpdateImageMetadataInput
+  ): Promise<SurveyImageInfo>;
+
+  // 報告書出力対象の画像のみを取得
+  findForReport(surveyId: string): Promise<SurveyImageInfo[]>;
+}
+```
+
+- Preconditions: imageIdが有効な画像を参照すること
+- Postconditions: 更新後にデータベースに永続化されること
+- Invariants: コメントは最大2000文字
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| PATCH | /api/site-surveys/images/:imageId | UpdateImageMetadataInput | SurveyImageInfo | 400, 404 |
+
+**Request Schema**:
+```typescript
+// Zodスキーマ
+const updateImageMetadataSchema = z.object({
+  comment: z.string().max(2000).nullable().optional(),
+  includeInReport: z.boolean().optional(),
+});
+```
+
+**Implementation Notes**
+- Integration: 既存のsurvey-images.routes.tsにエンドポイントを追加
+- Validation: コメント最大長2000文字
+- Risks: 大量の同時更新時のデータベース負荷
 
 #### AnnotationService
 
@@ -546,18 +745,22 @@ interface IAnnotationService {
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈付き画像およびPDF報告書のエクスポート処理を担当（クライアントサイド実行） |
-| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7 |
+| Requirements | 11.1-11.8, 12.1-12.5 |
 
 **Responsibilities & Constraints**
 - Fabric.js Canvas → 画像変換（toDataURL）
 - JPEG/PNG形式での画像エクスポート
 - PDF報告書の生成（jsPDF、クライアントサイド完結）
 - Noto Sans JP フォント埋め込みによる日本語対応
+- **1ページ3組レイアウトでの画像+コメント配置（要件11.5対応）**
+- **報告書出力フラグに基づく選択的出力（要件11.2対応）**
 
 **Dependencies**
-- Inbound: AnnotationEditor — エクスポートトリガー (P0)
+- Inbound: SurveyDetailPage — PDF報告書エクスポートトリガー (P0)
+- Inbound: ImageViewer — 個別画像エクスポートトリガー (P0)
 - Outbound: jsPDF — PDF生成 (P0)
 - Outbound: Fabric.js — Canvas→画像変換 (P0)
+- Outbound: AnnotationRendererService — 注釈付き画像レンダリング (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
@@ -566,7 +769,7 @@ interface IAnnotationService {
 ```typescript
 interface ExportImageOptions {
   format: 'jpeg' | 'png';
-  quality: number; // 0.1 - 1.0
+  quality: 'low' | 'medium' | 'high'; // 0.5, 0.75, 0.95
   includeAnnotations: boolean;
 }
 
@@ -576,12 +779,31 @@ interface ExportPdfOptions {
   imageQuality: number; // 0.1 - 1.0
 }
 
+// PDF報告書レイアウト設定（要件11.5対応）
+interface PdfReportLayoutConfig {
+  imagesPerPage: 3;  // 1ページあたり3組
+  imageMaxWidthRatio: 0.45;  // ページ幅に対する比率
+  imageMaxHeightRatio: 0.28; // ページ高さに対する比率
+  commentMaxLines: 3;        // コメント最大行数
+}
+
+// 注釈付き画像（コメント含む）
+interface AnnotatedImageWithComment {
+  imageInfo: SurveyImageInfo;
+  dataUrl: string;  // 注釈付き画像のdataURL
+  comment: string | null;
+}
+
 interface IExportService {
   // 単一画像エクスポート（Fabric.js toDataURL使用）
-  exportImage(canvas: FabricCanvas, options: ExportImageOptions): string; // data URL
+  exportImage(imageInfo: SurveyImageInfo, options: ExportImageOptions): Promise<string>; // data URL
 
-  // PDF報告書生成（クライアントサイドjsPDF使用）
-  exportPdf(survey: SurveyDetail, images: AnnotatedImage[], options: ExportPdfOptions): Blob;
+  // PDF報告書生成（クライアントサイドjsPDF使用、要件11対応）
+  exportPdf(
+    survey: SurveyDetail,
+    images: AnnotatedImageWithComment[],
+    options: ExportPdfOptions
+  ): Promise<Blob>;
 
   // 注釈データJSONエクスポート
   exportAnnotationsJson(canvas: FabricCanvas): string;
@@ -591,14 +813,122 @@ interface IExportService {
 }
 ```
 
-- Preconditions: Fabric.js Canvasが初期化されていること
+- Preconditions: 画像情報が有効であること
 - Postconditions: ブラウザのダウンロードが開始されること
 - Invariants: 日本語テキストが正しくレンダリングされること（Noto Sans JP埋め込み）
 
 **Implementation Notes**
-- Integration: Noto Sans JPフォントはBase64エンコードして静的アセットとしてバンドル
+- Integration: 既存のPdfReportService/PdfExportServiceを拡張
 - Validation: 画像数が多い場合は処理中表示（20枚以上で数秒かかる）
 - Risks: フォントファイルサイズ（サブセット化で軽減、約500KB）
+
+##### PDF 1ページ3組レイアウト詳細（要件11.5対応）
+
+**レイアウト構成**:
+```
+┌─────────────────────────────────────────────────┐
+│                    ヘッダー                       │
+├─────────────────────────────────────────────────┤
+│  ┌──────────────┐   ┌────────────────────────┐  │
+│  │              │   │ コメント1               │  │
+│  │   画像1      │   │ テキストテキスト...     │  │
+│  │              │   │                        │  │
+│  └──────────────┘   └────────────────────────┘  │
+├─────────────────────────────────────────────────┤
+│  ┌──────────────┐   ┌────────────────────────┐  │
+│  │              │   │ コメント2               │  │
+│  │   画像2      │   │ テキストテキスト...     │  │
+│  │              │   │                        │  │
+│  └──────────────┘   └────────────────────────┘  │
+├─────────────────────────────────────────────────┤
+│  ┌──────────────┐   ┌────────────────────────┐  │
+│  │              │   │ コメント3               │  │
+│  │   画像3      │   │ テキストテキスト...     │  │
+│  │              │   │                        │  │
+│  └──────────────┘   └────────────────────────┘  │
+├─────────────────────────────────────────────────┤
+│                   ページ番号                     │
+└─────────────────────────────────────────────────┘
+```
+
+**レイアウトパラメータ**:
+```typescript
+const PDF_REPORT_LAYOUT_V2 = {
+  // ページ設定
+  PAGE_MARGIN: 15, // mm
+  HEADER_HEIGHT: 20, // mm
+  FOOTER_HEIGHT: 15, // mm
+
+  // 画像+コメント組の設定
+  IMAGES_PER_PAGE: 3,
+  ROW_HEIGHT: 85, // mm（1組あたりの高さ）
+  ROW_GAP: 5, // mm（行間）
+
+  // 画像設定
+  IMAGE_WIDTH_RATIO: 0.45, // ページ幅に対する比率
+  IMAGE_MAX_HEIGHT: 75, // mm
+
+  // コメント設定
+  COMMENT_WIDTH_RATIO: 0.45, // ページ幅に対する比率
+  COMMENT_FONT_SIZE: 10, // pt
+  COMMENT_LINE_HEIGHT: 1.4,
+  COMMENT_MAX_LINES: 5,
+
+  // フォント
+  FONT_FAMILY: 'NotoSansJP',
+} as const;
+```
+
+**レンダリング実装**:
+```typescript
+// frontend/src/services/export/PdfReportService.ts (拡張)
+
+/**
+ * 3組レイアウトで画像セクションを描画
+ * @requirement 11.5
+ */
+renderImagesSection3PerPage(
+  doc: jsPDF,
+  images: AnnotatedImageWithComment[],
+  startY: number
+): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - PDF_REPORT_LAYOUT_V2.PAGE_MARGIN * 2;
+
+  let currentY = startY;
+
+  for (let i = 0; i < images.length; i++) {
+    // 3組ごとに新しいページ
+    if (i > 0 && i % PDF_REPORT_LAYOUT_V2.IMAGES_PER_PAGE === 0) {
+      doc.addPage();
+      currentY = PDF_REPORT_LAYOUT_V2.PAGE_MARGIN + PDF_REPORT_LAYOUT_V2.HEADER_HEIGHT;
+    }
+
+    const image = images[i];
+    const imageX = PDF_REPORT_LAYOUT_V2.PAGE_MARGIN;
+    const imageWidth = contentWidth * PDF_REPORT_LAYOUT_V2.IMAGE_WIDTH_RATIO;
+    const { width, height } = this.calculateImageDimensions(
+      image.imageInfo.width,
+      image.imageInfo.height,
+      imageWidth,
+      PDF_REPORT_LAYOUT_V2.IMAGE_MAX_HEIGHT
+    );
+
+    // 画像描画
+    doc.addImage(image.dataUrl, 'JPEG', imageX, currentY, width, height);
+
+    // コメント描画
+    const commentX = imageX + imageWidth + 10;
+    const commentWidth = contentWidth * PDF_REPORT_LAYOUT_V2.COMMENT_WIDTH_RATIO;
+    this.renderComment(doc, image.comment, commentX, currentY, commentWidth);
+
+    currentY += PDF_REPORT_LAYOUT_V2.ROW_HEIGHT + PDF_REPORT_LAYOUT_V2.ROW_GAP;
+  }
+
+  return currentY;
+}
+```
 
 ##### 日本語フォント埋め込み詳細
 
@@ -634,7 +964,7 @@ export function initializePdfFonts(doc: jsPDF): void {
 | Field | Detail |
 |-------|--------|
 | Intent | 現場調査関連のHTTPエンドポイントを定義 |
-| Requirements | 1-9, 11 |
+| Requirements | 1-16 |
 
 **Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
 
@@ -651,6 +981,7 @@ export function initializePdfFonts(doc: jsPDF): void {
 | GET | /api/site-surveys/:id/images | - | SurveyImageInfo[] | 404 |
 | PUT | /api/site-surveys/:id/images/order | ImageOrderRequest | 204 No Content | 400, 404 |
 | DELETE | /api/site-surveys/images/:imageId | - | 204 No Content | 404 |
+| **PATCH** | **/api/site-surveys/images/:imageId** | **UpdateImageMetadataInput** | **SurveyImageInfo** | **400, 404** |
 | GET | /api/site-surveys/images/:imageId/annotations | - | AnnotationInfo | 404 |
 | PUT | /api/site-surveys/images/:imageId/annotations | AnnotationData | AnnotationInfo | 400, 404, 409 |
 
@@ -658,12 +989,145 @@ export function initializePdfFonts(doc: jsPDF): void {
 
 ### Frontend / Component Layer
 
+#### PhotoManagementPanel（要件10対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 写真一覧管理UIを提供（コメント入力、報告書出力フラグ、ドラッグ&ドロップ並び替え） |
+| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8 |
+
+**Responsibilities & Constraints**
+- 写真一覧の表示（サムネイルではなく実画像を表示）
+- 写真ごとのコメント入力テキストエリア
+- 報告書出力フラグ（チェックボックス）の管理
+- ドラッグ&ドロップによる順序変更
+- 変更の自動保存（デバウンス500ms）
+
+**Dependencies**
+- Inbound: SurveyDetailPage — 親コンポーネント (P0)
+- Outbound: ImageMetadataAPI — コメント・フラグ更新 (P0)
+- Outbound: ImageOrderAPI — 順序変更 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface PhotoManagementState {
+  images: SurveyImageInfo[];
+  isLoading: boolean;
+  isSaving: Record<string, boolean>; // imageId -> saving status
+  errors: Record<string, string | null>; // imageId -> error message
+  draggedImageId: string | null;
+}
+
+interface PhotoManagementPanelProps {
+  surveyId: string;
+  images: SurveyImageInfo[];
+  onImagesChange: (images: SurveyImageInfo[]) => void;
+  readOnly?: boolean;
+}
+```
+
+**Implementation Notes**
+- Integration: 既存のSurveyImageGridを拡張または置き換え
+- Validation: コメント最大2000文字、debounce 500ms
+- Risks: 大量画像時のレンダリングパフォーマンス（仮想スクロール検討）
+
+##### UI仕様
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 写真一覧（表示順序でドラッグ可能）                               │
+├─────────────────────────────────────────────────────────────────┤
+│ ┌───┐ ┌──────────────────────────────────────────────────────┐ │
+│ │ ☐ │ │ ┌─────────────────┐  ┌──────────────────────────┐ │ │
+│ │   │ │ │                 │  │ コメント                   │ │ │
+│ │   │ │ │   [実画像]      │  │ ┌──────────────────────┐ │ │ │
+│ │   │ │ │                 │  │ │                      │ │ │ │
+│ │   │ │ │                 │  │ │                      │ │ │ │
+│ │   │ │ └─────────────────┘  │ └──────────────────────┘ │ │ │
+│ └───┘ └──────────────────────────────────────────────────────┘ │
+│   ↑                                                             │
+│ 報告書出力フラグ                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ （繰り返し）                                                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### ImageExportDialog（要件12対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 個別画像エクスポートのオプション選択UI |
+| Requirements | 12.1, 12.2, 12.3, 12.4, 12.5 |
+
+**Responsibilities & Constraints**
+- エクスポート形式の選択（JPEG/PNG）
+- 画質/解像度の選択（低/中/高）
+- 注釈あり/なしの選択
+- エクスポート実行とダウンロードトリガー
+
+**Dependencies**
+- Inbound: ImageViewer — ダイアログ表示トリガー (P0)
+- Outbound: AnnotationRendererService — 注釈付き画像レンダリング (P0)
+- Outbound: ExportService — ダウンロード (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ImageExportDialogState {
+  isOpen: boolean;
+  format: 'jpeg' | 'png';
+  quality: 'low' | 'medium' | 'high';
+  includeAnnotations: boolean;
+  isExporting: boolean;
+  error: string | null;
+}
+
+interface ImageExportDialogProps {
+  imageInfo: SurveyImageInfo;
+  isOpen: boolean;
+  onClose: () => void;
+}
+```
+
+**Implementation Notes**
+- Integration: ImageViewerのツールバーから呼び出し
+- Validation: 形式に応じた品質オプションの動的制御
+- Risks: 大きい画像のエクスポート時のメモリ使用量
+
+##### UI仕様
+
+```
+┌───────────────────────────────────────────┐
+│ 画像エクスポート                    [×]  │
+├───────────────────────────────────────────┤
+│                                           │
+│ 形式:                                     │
+│   ◉ JPEG    ○ PNG                         │
+│                                           │
+│ 品質:                                     │
+│   ○ 低（ファイルサイズ小）                │
+│   ◉ 中（標準）                            │
+│   ○ 高（最高品質）                        │
+│                                           │
+│ オプション:                               │
+│   ☑ 注釈を含める                          │
+│                                           │
+├───────────────────────────────────────────┤
+│            [キャンセル] [エクスポート]    │
+└───────────────────────────────────────────┘
+```
+
 #### AnnotationEditor
 
 | Field | Detail |
 |-------|--------|
 | Intent | 画像上での注釈編集インターフェースを提供 |
-| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 11.1-11.5 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 13.1-13.5 |
 
 **Responsibilities & Constraints**
 - Fabric.jsキャンバスの初期化と管理
@@ -766,7 +1230,7 @@ interface ImageViewerProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈編集操作のUndo/Redo履歴を管理 |
-| Requirements | 11.1, 11.2, 11.3, 11.4, 11.5 |
+| Requirements | 13.1, 13.2, 13.3, 13.4, 13.5 |
 
 **Responsibilities & Constraints**
 - コマンドパターンによる操作履歴管理
@@ -816,7 +1280,7 @@ interface IUndoManager {
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈編集の自動保存とローカル状態の復元を管理 |
-| Requirements | 13.4, 13.5, 13.6 |
+| Requirements | 15.4, 15.5, 15.6 |
 
 **Responsibilities & Constraints**
 - localStorageによる編集状態の一時保存（30秒間隔）
@@ -969,6 +1433,8 @@ erDiagram
         int width
         int height
         int displayOrder
+        string comment
+        boolean includeInReport
         datetime createdAt
     }
 
@@ -989,6 +1455,8 @@ erDiagram
 - プロジェクト削除時、配下の現場調査もカスケード論理削除
 - 現場調査削除時、関連画像・注釈も削除
 - 画像表示順序は1から始まる連番
+- **画像のコメントは最大2000文字**
+- **報告書出力フラグのデフォルトはtrue**
 
 ### Physical Data Model
 
@@ -1017,16 +1485,18 @@ model SiteSurvey {
 }
 
 model SurveyImage {
-  id            String   @id @default(uuid())
-  surveyId      String
-  originalPath  String   // R2オブジェクトパス
-  thumbnailPath String   // サムネイルパス
-  fileName      String   // 元ファイル名
-  fileSize      Int      // ファイルサイズ（バイト）
-  width         Int      // 画像幅
-  height        Int      // 画像高さ
-  displayOrder  Int      // 表示順序
-  createdAt     DateTime @default(now())
+  id              String   @id @default(uuid())
+  surveyId        String
+  originalPath    String   // R2オブジェクトパス
+  thumbnailPath   String   // サムネイルパス
+  fileName        String   // 元ファイル名
+  fileSize        Int      // ファイルサイズ（バイト）
+  width           Int      // 画像幅
+  height          Int      // 画像高さ
+  displayOrder    Int      // 表示順序
+  comment         String?  // 写真コメント（最大2000文字）【要件10対応】
+  includeInReport Boolean  @default(false) // 報告書出力フラグ【要件10対応】デフォルトは報告書出力無し
+  createdAt       DateTime @default(now())
 
   survey     SiteSurvey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   annotation ImageAnnotation?
@@ -1136,15 +1606,18 @@ interface FabricSerializedObject {
 
 - **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携
 - **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
+- **ImageMetadataService**: コメント更新、報告書フラグ更新、バリデーション
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート
+- **PdfReportService**: 3組レイアウト、コメント表示、ページ分割
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
 - **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視
 
 ### Integration Tests
 
 - **画像アップロードフロー**: Multer → Sharp → R2 → PostgreSQL
+- **画像メタデータ更新フロー**: PATCH API → PostgreSQL → レスポンス
 - **注釈保存・復元**: Frontend ↔ Backend ↔ PostgreSQL
-- **PDFエクスポート**: 画像取得 → 注釈合成 → PDF生成
+- **PDFエクスポート**: 画像取得 → 注釈合成 → 3組レイアウト → PDF生成
 - **認証・認可**: プロジェクト権限による現場調査アクセス制御
 - **自動保存・復元**: localStorage保存 → ページリロード → データ復元
 
@@ -1152,8 +1625,10 @@ interface FabricSerializedObject {
 
 - 現場調査作成・編集・削除フロー
 - 画像アップロード・削除・順序変更
+- **写真コメント入力・報告書フラグ切り替え**
 - 注釈編集（各ツール）とUndo/Redo
-- PDF報告書エクスポート
+- **PDF報告書エクスポート（3組レイアウト確認）**
+- **個別画像エクスポート（形式・品質・注釈オプション）**
 - レスポンシブUIの動作確認
 
 ### Performance Tests
@@ -1179,7 +1654,7 @@ interface FabricSerializedObject {
 
 - 画像ファイルはR2の署名付きURL経由でアクセス
 - 署名付きURLは15分で期限切れ
-- **画像URLアクセス時の権限検証**（12.4対応）:
+- **画像URLアクセス時の権限検証**（14.4対応）:
   - 署名付きURLの有効期限を検証
   - リクエストユーザーのプロジェクトアクセス権限を検証
   - 権限がない場合は403 Forbiddenを返却
@@ -1225,27 +1700,24 @@ interface FabricSerializedObject {
 
 ### Phase 1: データベーススキーマ
 
-1. Prismaスキーマに新モデルを追加
+1. Prismaスキーマに新フィールド（comment, includeInReport）を追加
 2. マイグレーション作成・適用
-3. シードデータ（権限）の追加
+3. 既存データのデフォルト値設定（includeInReport: false）※既存データは無い想定
 
-### Phase 2: ストレージ設定
+### Phase 2: バックエンド実装
 
-1. Cloudflare R2バケットの作成
-2. APIトークン（Access Key ID, Secret Access Key）の発行
-3. Railway環境変数の設定（R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME）
+1. ImageMetadataServiceの実装
+2. PATCH /api/site-surveys/images/:imageId エンドポイントの追加
+3. 画像一覧APIのレスポンスに新フィールドを追加
+4. 単体テスト・統合テストの追加
 
-### Phase 3: バックエンド実装
+### Phase 3: フロントエンド実装
 
-1. サービス層の実装
-2. ルーティングの追加
-3. 単体テスト・統合テストの追加
-
-### Phase 4: フロントエンド実装
-
-1. API クライアントの追加
-2. ページ・コンポーネントの実装
-3. 単体テスト・E2Eテストの追加
+1. PhotoManagementPanelコンポーネントの実装
+2. SurveyDetailPageへの統合
+3. PdfReportServiceの3組レイアウト対応
+4. ImageExportDialogコンポーネントの実装
+5. 単体テスト・E2Eテストの追加
 
 ### Rollback Triggers
 
