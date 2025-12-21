@@ -464,32 +464,40 @@ model SiteSurvey {
  * - width: 画像幅
  * - height: 画像高さ
  * - displayOrder: 表示順序
+ * - comment: 写真コメント（最大2000文字）
+ * - includeInReport: 報告書出力フラグ
  * - createdAt: 作成日時
  * インデックス:
  * - surveyId: 現場調査単位での画像検索用
  * - displayOrder: 表示順序によるソート用
+ * - includeInReport: 報告書出力対象画像のフィルタリング用
  * Requirements:
  * - 4.1: 画像をストレージに保存し現場調査に紐付ける
  * - 4.4: サムネイルを自動生成する
  * - 4.9: 画像一覧を固定の表示順序で表示する
+ * - 10.4: 写真コメント（最大2000文字）
+ * - 10.8: 報告書出力対象画像の選択
  */
 model SurveyImage {
-  id            String   @id @default(uuid())
-  surveyId      String
-  originalPath  String // R2オブジェクトパス
-  thumbnailPath String // サムネイルパス
-  fileName      String // 元ファイル名
-  fileSize      Int // ファイルサイズ（バイト）
-  width         Int // 画像幅
-  height        Int // 画像高さ
-  displayOrder  Int // 表示順序
-  createdAt     DateTime @default(now())
+  id              String   @id @default(uuid())
+  surveyId        String
+  originalPath    String // R2オブジェクトパス
+  thumbnailPath   String // サムネイルパス
+  fileName        String // 元ファイル名
+  fileSize        Int // ファイルサイズ（バイト）
+  width           Int // 画像幅
+  height          Int // 画像高さ
+  displayOrder    Int // 表示順序
+  comment         String? // 写真コメント（最大2000文字）
+  includeInReport Boolean  @default(false) // 報告書出力フラグ
+  createdAt       DateTime @default(now())
 
   survey     SiteSurvey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   annotation ImageAnnotation?
 
   @@index([surveyId])
   @@index([displayOrder])
+  @@index([includeInReport])
   @@map("survey_images")
 }
 

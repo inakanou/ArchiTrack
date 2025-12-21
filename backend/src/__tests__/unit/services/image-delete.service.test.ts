@@ -65,6 +65,8 @@ describe('ImageDeleteService', () => {
     width: 1920,
     height: 1080,
     displayOrder: 1,
+    comment: null,
+    includeInReport: false,
     createdAt: new Date('2025-01-01'),
   };
 
@@ -315,6 +317,8 @@ describe('ImageDeleteService', () => {
         width: 800,
         height: 600,
         displayOrder: 1,
+        comment: null,
+        includeInReport: false,
         createdAt: new Date('2025-01-01'),
       },
       {
@@ -327,6 +331,8 @@ describe('ImageDeleteService', () => {
         width: 1024,
         height: 768,
         displayOrder: 2,
+        comment: null,
+        includeInReport: false,
         createdAt: new Date('2025-01-02'),
       },
     ];
