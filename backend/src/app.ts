@@ -91,7 +91,7 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' })); // サムネイル更新のBase64画像データ用に制限を増加
 app.use(cookieParser());
 
 // Swagger UI setup (development環境のみ有効)
