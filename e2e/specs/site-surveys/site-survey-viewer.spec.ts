@@ -576,10 +576,11 @@ test.describe('現場調査画像ビューア', () => {
 
       // マウスホイールでズームイン操作をシミュレート
       // 現在の実装ではズームボタンがないため、マウスホイールでテスト
-      const canvas = page.locator('canvas').first();
-      if (await canvas.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // Fabric.jsはupper-canvas（イベント処理用）とlower-canvas（描画用）の2層構造
+      const upperCanvas = page.locator('canvas.upper-canvas');
+      if (await upperCanvas.isVisible({ timeout: 3000 }).catch(() => false)) {
         // マウスホイールでズームイン（負のdeltaY = ズームイン）
-        await canvas.hover();
+        await upperCanvas.hover();
         await page.mouse.wheel(0, -100);
         await page.waitForTimeout(500);
 
@@ -767,10 +768,10 @@ test.describe('現場調査画像ビューア', () => {
       const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
       await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
 
-      // canvasの位置を取得
-      const canvas = page.locator('canvas').first();
-      if (await canvas.isVisible({ timeout: 3000 }).catch(() => false)) {
-        const box = await canvas.boundingBox();
+      // Fabric.jsのupper-canvas（イベント処理用）の位置を取得
+      const upperCanvas = page.locator('canvas.upper-canvas');
+      if (await upperCanvas.isVisible({ timeout: 3000 }).catch(() => false)) {
+        const box = await upperCanvas.boundingBox();
         if (box) {
           // 中央からドラッグ操作を実行
           const startX = box.x + box.width / 2;
