@@ -168,37 +168,28 @@ test.describe('現場調査注釈ツール', () => {
    * 注釈エディタへのナビゲーションヘルパー
    */
   async function navigateToAnnotationEditor(page: import('@playwright/test').Page) {
-    console.log(`[DEBUG] navigateToAnnotationEditor called, createdSurveyId=${createdSurveyId}`);
     if (!createdSurveyId) {
-      console.log('[DEBUG] createdSurveyId is null, returning false');
       return false;
     }
 
-    console.log(`[DEBUG] Navigating to /site-surveys/${createdSurveyId}`);
     await page.goto(`/site-surveys/${createdSurveyId}`);
     await page.waitForLoadState('networkidle');
 
     // 画像ボタンを取得（aria-labelを使用）
     const imageElement = page.getByRole('button', { name: /^画像:/i }).first();
 
-    console.log('[DEBUG] Checking if image button is visible');
     if (!(await imageElement.isVisible({ timeout: 5000 }).catch(() => false))) {
-      console.log('[DEBUG] Image button not visible, returning false');
       return false;
     }
 
-    console.log('[DEBUG] Clicking image button');
     await imageElement.click();
 
     // 画像ビューアページへの遷移を待つ
-    console.log('[DEBUG] Waiting for URL navigation');
     try {
       await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
         timeout: getTimeout(10000),
       });
-      console.log(`[DEBUG] URL navigated successfully: ${page.url()}`);
-    } catch (e) {
-      console.log(`[DEBUG] URL navigation failed: ${e}`);
+    } catch {
       return false;
     }
 
@@ -206,47 +197,26 @@ test.describe('現場調査注釈ツール', () => {
     await page.waitForLoadState('networkidle');
 
     // 編集モードに入る
-    console.log('[DEBUG] Looking for edit mode button');
-    // デバッグ: ページのスナップショットを取得
-    await page.screenshot({ path: '/tmp/debug-image-viewer.png' });
-    console.log('[DEBUG] Screenshot saved to /tmp/debug-image-viewer.png');
+    // ページの安定化を待つ
+    await page.waitForTimeout(100);
     const editModeButton = page.getByRole('button', { name: /編集モード/i });
     if (await editModeButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      console.log('[DEBUG] Edit mode button visible, clicking');
       await editModeButton.click();
       // 注釈ツールバーが表示されるのを待つ
-      console.log('[DEBUG] Waiting for annotation toolbar');
       try {
         await page
           .locator('[data-testid="annotation-toolbar"]')
           .waitFor({ state: 'visible', timeout: 10000 });
-        console.log('[DEBUG] Annotation toolbar visible');
-      } catch (e) {
-        console.log(`[DEBUG] Annotation toolbar not visible: ${e}`);
+      } catch {
         return false;
       }
     } else {
-      console.log('[DEBUG] Edit mode button not visible, returning false');
       return false;
     }
 
-    // 編集モードに入った後のスクリーンショットを撮影
-    await page.screenshot({ path: '/tmp/debug-annotation-editor.png' });
-    console.log('[DEBUG] Screenshot saved to /tmp/debug-annotation-editor.png');
+    // 注釈エディタの初期化を待つ
+    await page.waitForTimeout(100);
 
-    // 画像読み込みエラーの有無を確認（警告としてログ出力）
-    const errorMessage = page.locator('[role="alert"]');
-    const hasError = await errorMessage.isVisible({ timeout: 1000 }).catch(() => false);
-    if (hasError) {
-      const errorText = await errorMessage.textContent();
-      console.warn(`[DEBUG] Warning: Error found in annotation editor: ${errorText}`);
-      // エラーがあっても、ツールバーが表示されていればテストを続行
-      // フロントエンドのFabric.js初期化タイミングの問題（React StrictMode関連）
-    } else {
-      console.log('[DEBUG] No error message found in annotation editor');
-    }
-
-    console.log('[DEBUG] Navigation successful, returning true');
     return true;
   }
 
@@ -512,9 +482,6 @@ test.describe('現場調査注釈ツール', () => {
       if (box && box.width > 10 && box.height > 10) {
         break;
       }
-      console.log(
-        `[DEBUG] Waiting for canvas to load... attempt ${i + 1}, current size: ${box?.width}x${box?.height}`
-      );
       await page.waitForTimeout(500);
     }
 
@@ -533,10 +500,6 @@ test.describe('現場調査注釈ツール', () => {
     if (!box) {
       throw new Error('キャンバス要素が見つかりません');
     }
-
-    console.log(
-      `[DEBUG] Canvas bounding box: x=${box.x}, y=${box.y}, width=${box.width}, height=${box.height}`
-    );
 
     return {
       x: box.x + box.width / 2,
@@ -593,15 +556,6 @@ test.describe('現場調査注釈ツール', () => {
     test('矢印ツールを選択してドラッグすると矢印が描画される (site-survey/REQ-7.1)', async ({
       page,
     }) => {
-      // ブラウザコンソールメッセージをキャプチャ
-      const consoleMessages: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.text().includes('[DEBUG]')) {
-          consoleMessages.push(`[${msg.type()}] ${msg.text()}`);
-          console.log(`[BROWSER] ${msg.text()}`);
-        }
-      });
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -618,19 +572,13 @@ test.describe('現場調査注釈ツール', () => {
 
       // ツールが選択状態になることを確認
       await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
-      console.log('[TEST] Arrow tool selected and aria-pressed=true');
 
       // ドラッグ操作前のオブジェクト数を取得
       const objectCountBefore = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count before: ${objectCountBefore}`);
       expect(objectCountBefore).toBeGreaterThanOrEqual(0);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
-      console.log(`[TEST] Canvas center: x=${center.x}, y=${center.y}`);
-      console.log(
-        `[TEST] Performing drag from (${center.x - 50}, ${center.y - 50}) to (${center.x + 50}, ${center.y + 50})`
-      );
       await performDrag(page, center.x - 50, center.y - 50, center.x + 50, center.y + 50);
 
       // ドラッグ操作後に少し待機
@@ -638,9 +586,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // ドラッグ操作後のオブジェクト数を確認 - 矢印が追加されているはず
       const objectCountAfter = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after: ${objectCountAfter}`);
-      console.log(`[TEST] Console messages captured: ${consoleMessages.length}`);
-      consoleMessages.forEach((msg) => console.log(msg));
 
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
