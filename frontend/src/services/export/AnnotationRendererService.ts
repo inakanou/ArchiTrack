@@ -14,10 +14,7 @@
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import { getAnnotation } from '../../api/survey-annotations';
 import type { SurveyImageInfo, AnnotationInfo } from '../../types/site-survey.types';
-import {
-  loadJapaneseFont,
-  applyJapaneseFontToCanvas,
-} from '../JapaneseFontRenderer';
+import { loadJapaneseFont, applyJapaneseFontToCanvas } from '../JapaneseFontRenderer';
 // カスタムシェイプをFabric.jsクラスレジストリに登録（enlivenObjectsで復元するために必要）
 import '../../components/site-surveys/tools/registerCustomShapes';
 

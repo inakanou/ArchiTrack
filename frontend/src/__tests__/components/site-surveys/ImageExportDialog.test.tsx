@@ -7,7 +7,11 @@
  * - 注釈あり/なし選択オプション
  * - エクスポート実行ボタンとキャンセルボタン
  *
- * @see requirements.md - 要件12.1, 12.2, 12.3
+ * Task 29.2: 元画像ダウンロード機能のテスト
+ * - 元画像ダウンロードボタンの表示
+ * - 署名付きURLからのダウンロードトリガー
+ *
+ * @see requirements.md - 要件12.1, 12.2, 12.3, 12.4
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -524,6 +528,159 @@ describe('ImageExportDialog', () => {
       expect(screen.getByLabelText(/中/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/高/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/注釈を含める/i)).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // 元画像ダウンロード機能テスト (要件12.4, Task 29.2)
+  // ============================================================================
+
+  describe('元画像ダウンロード機能', () => {
+    const mockOnDownloadOriginal = vi.fn();
+
+    beforeEach(() => {
+      mockOnDownloadOriginal.mockClear();
+    });
+
+    it('元画像ダウンロードボタンが表示される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /元画像をダウンロード/i })).toBeInTheDocument();
+    });
+
+    it('onDownloadOriginalが渡されていない場合は元画像ダウンロードボタンが表示されない', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      expect(
+        screen.queryByRole('button', { name: /元画像をダウンロード/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it('元画像ダウンロードボタンをクリックするとonDownloadOriginalが呼ばれる', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /元画像をダウンロード/i }));
+
+      expect(mockOnDownloadOriginal).toHaveBeenCalledTimes(1);
+    });
+
+    it('exporting=trueのとき元画像ダウンロードボタンが無効化される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+          exporting={true}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /元画像をダウンロード/i })).toBeDisabled();
+    });
+
+    it('downloading=trueのとき元画像ダウンロードボタンが無効化される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+          downloading={true}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /元画像をダウンロード/i })).toBeDisabled();
+    });
+
+    it('downloading=trueのときダウンロード中インジケータが表示される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+          downloading={true}
+        />
+      );
+
+      // ダウンロード中のローディングインジケータが表示される
+      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    });
+
+    it('downloading=trueのときエクスポートボタンが無効化される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+          downloading={true}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /エクスポート/i })).toBeDisabled();
+    });
+
+    it('downloading=trueのときキャンセルボタンが無効化される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+          downloading={true}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /キャンセル/i })).toBeDisabled();
+    });
+
+    it('元画像ダウンロードボタンはオプション選択領域の下、エクスポートボタンの上に表示される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+        />
+      );
+
+      // ボタンが存在することを確認
+      const downloadButton = screen.getByRole('button', { name: /元画像をダウンロード/i });
+      const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+
+      expect(downloadButton).toBeInTheDocument();
+      expect(exportButton).toBeInTheDocument();
     });
   });
 });

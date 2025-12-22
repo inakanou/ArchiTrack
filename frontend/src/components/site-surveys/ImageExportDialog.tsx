@@ -6,10 +6,12 @@
  * - 品質（解像度）選択UI（低/中/高の3段階）
  * - 注釈あり/なし選択オプション
  * - エクスポート実行ボタンとキャンセルボタン
+ * - 元画像ダウンロードボタン（注釈なし）
  *
  * Task 29.1: ImageExportDialogコンポーネントを実装する
+ * Task 29.2: 元画像ダウンロード機能を実装する
  *
- * @see requirements.md - 要件12.1, 12.2, 12.3
+ * @see requirements.md - 要件12.1, 12.2, 12.3, 12.4
  */
 
 import React, { useState, useId, useEffect, useCallback } from 'react';
@@ -55,6 +57,10 @@ export interface ImageExportDialogProps {
   onClose: () => void;
   /** エクスポート処理中フラグ */
   exporting?: boolean;
+  /** 元画像ダウンロード時のコールバック（Task 29.2） */
+  onDownloadOriginal?: () => void;
+  /** ダウンロード処理中フラグ（Task 29.2） */
+  downloading?: boolean;
 }
 
 // ============================================================================
@@ -229,6 +235,26 @@ const styles = {
     borderColor: '#93c5fd',
     cursor: 'not-allowed',
   },
+  downloadOriginalButton: {
+    backgroundColor: '#ffffff',
+    border: '1px solid #3b82f6',
+    color: '#3b82f6',
+    width: '100%',
+  },
+  downloadOriginalButtonHover: {
+    backgroundColor: '#eff6ff',
+  },
+  downloadOriginalButtonDisabled: {
+    backgroundColor: '#f3f4f6',
+    border: '1px solid #d1d5db',
+    color: '#9ca3af',
+    cursor: 'not-allowed',
+  },
+  downloadSection: {
+    marginTop: '20px',
+    paddingTop: '20px',
+    borderTop: '1px solid #e5e7eb',
+  },
 };
 
 // ============================================================================
@@ -257,6 +283,8 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
   onExport,
   onClose,
   exporting = false,
+  onDownloadOriginal,
+  downloading = false,
 }) => {
   // フォーム状態
   const [format, setFormat] = useState<ExportFormat>('jpeg');
@@ -266,6 +294,10 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
   // ホバー状態
   const [cancelHovered, setCancelHovered] = useState(false);
   const [exportHovered, setExportHovered] = useState(false);
+  const [downloadOriginalHovered, setDownloadOriginalHovered] = useState(false);
+
+  // 処理中状態の統合（エクスポートまたはダウンロード中）
+  const isProcessing = exporting || downloading;
 
   // アクセシビリティ用ID
   const titleId = useId();
@@ -278,11 +310,11 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
    */
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !exporting) {
+      if (event.key === 'Escape' && !isProcessing) {
         onClose();
       }
     },
-    [onClose, exporting]
+    [onClose, isProcessing]
   );
 
   useEffect(() => {
@@ -310,8 +342,17 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
    * オーバーレイクリックでダイアログを閉じる
    */
   const handleOverlayClick = (event: React.MouseEvent) => {
-    if (event.target === event.currentTarget && !exporting) {
+    if (event.target === event.currentTarget && !isProcessing) {
       onClose();
+    }
+  };
+
+  /**
+   * 元画像ダウンロードハンドラ（Task 29.2）
+   */
+  const handleDownloadOriginal = () => {
+    if (onDownloadOriginal) {
+      onDownloadOriginal();
     }
   };
 
@@ -509,10 +550,38 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
               </label>
             </div>
 
+            {/* 元画像ダウンロードセクション（Task 29.2） */}
+            {onDownloadOriginal && (
+              <div style={styles.downloadSection}>
+                <button
+                  type="button"
+                  onClick={handleDownloadOriginal}
+                  disabled={isProcessing}
+                  style={{
+                    ...styles.button,
+                    ...styles.downloadOriginalButton,
+                    ...(isProcessing
+                      ? styles.downloadOriginalButtonDisabled
+                      : downloadOriginalHovered
+                        ? styles.downloadOriginalButtonHover
+                        : {}),
+                  }}
+                  onMouseEnter={() => setDownloadOriginalHovered(true)}
+                  onMouseLeave={() => setDownloadOriginalHovered(false)}
+                >
+                  元画像をダウンロード
+                </button>
+              </div>
+            )}
+
             {/* ローディングインジケータ */}
-            {exporting && (
+            {isProcessing && (
               <div style={styles.loadingContainer}>
-                <div style={styles.spinner} role="progressbar" aria-label="エクスポート中" />
+                <div
+                  style={styles.spinner}
+                  role="progressbar"
+                  aria-label={downloading ? 'ダウンロード中' : 'エクスポート中'}
+                />
               </div>
             )}
           </div>
@@ -522,11 +591,11 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
             <button
               type="button"
               onClick={onClose}
-              disabled={exporting}
+              disabled={isProcessing}
               style={{
                 ...styles.button,
                 ...styles.cancelButton,
-                ...(exporting
+                ...(isProcessing
                   ? styles.cancelButtonDisabled
                   : cancelHovered
                     ? styles.cancelButtonHover
@@ -540,11 +609,11 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
             <button
               type="button"
               onClick={handleExport}
-              disabled={exporting}
+              disabled={isProcessing}
               style={{
                 ...styles.button,
                 ...styles.exportButton,
-                ...(exporting
+                ...(isProcessing
                   ? styles.exportButtonDisabled
                   : exportHovered
                     ? styles.exportButtonHover
