@@ -723,9 +723,10 @@ test.describe('現場調査画像管理', () => {
         { timeout: getTimeout(10000) }
       );
 
-      // ビューアページで画像が表示されることを確認
-      const viewerImage = page.locator('img').first();
-      await expect(viewerImage).toBeVisible({ timeout: getTimeout(10000) });
+      // ビューアページで注釈エディタ（Canvas）が表示されることを確認
+      // 画像はFabric.jsのcanvasで描画されるため、imgタグではなくdata-testidを使用
+      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
+      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
 
