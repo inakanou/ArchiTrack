@@ -1187,6 +1187,9 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
@@ -1235,6 +1238,9 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
@@ -1279,6 +1285,9 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
@@ -1312,6 +1321,9 @@ test.describe('現場調査注釈ツール', () => {
       const rectTool = page.getByRole('button', { name: /四角形/i });
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
+
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
@@ -1381,6 +1393,9 @@ test.describe('現場調査注釈ツール', () => {
       const rectTool = page.getByRole('button', { name: /四角形/i });
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
+
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
@@ -1551,7 +1566,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // 描画前のオブジェクト数を取得
       const objectCountBefore = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count before drawing: ${objectCountBefore}`);
       expect(objectCountBefore).toBeGreaterThanOrEqual(0);
 
       // 図形を描画
@@ -1559,13 +1573,22 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+      // キャンバス中心を取得し、クリックでフォーカスを当ててからドラッグ
       const center = await getCanvasCenter(page);
-      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
-      await page.waitForTimeout(300);
+
+      // キャンバス上をクリックしてフォーカスを確保
+      await page.mouse.click(center.x, center.y);
+      await page.waitForTimeout(100);
+
+      // ドラッグ操作で四角形を描画（より大きな領域で）
+      await performDrag(page, center.x - 50, center.y - 50, center.x + 50, center.y + 50);
+      await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認（1つ増えているはず）
       const objectCountAfterDraw = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after drawing: ${objectCountAfterDraw}`);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undoボタンをクリック
@@ -1576,7 +1599,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // Undo後のオブジェクト数を確認（元に戻っているはず）
       const objectCountAfterUndo = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after undo: ${objectCountAfterUndo}`);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
     });
 
@@ -1594,7 +1616,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // 描画前のオブジェクト数を取得
       const objectCountBefore = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count before drawing: ${objectCountBefore}`);
       expect(objectCountBefore).toBeGreaterThanOrEqual(0);
 
       // 図形を描画
@@ -1602,13 +1623,22 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+      // キャンバス中心を取得し、クリックでフォーカスを当ててからドラッグ
       const center = await getCanvasCenter(page);
-      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
-      await page.waitForTimeout(300);
+
+      // キャンバス上をクリックしてフォーカスを確保
+      await page.mouse.click(center.x, center.y);
+      await page.waitForTimeout(100);
+
+      // ドラッグ操作で四角形を描画（より大きな領域で）
+      await performDrag(page, center.x - 50, center.y - 50, center.x + 50, center.y + 50);
+      await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認
       const objectCountAfterDraw = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after drawing: ${objectCountAfterDraw}`);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undo
@@ -1619,7 +1649,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // Undo後のオブジェクト数を確認
       const objectCountAfterUndo = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after undo: ${objectCountAfterUndo}`);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
 
       // Redo
@@ -1630,7 +1659,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // Redo後のオブジェクト数を確認（再び1つ増えているはず）
       const objectCountAfterRedo = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after redo: ${objectCountAfterRedo}`);
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
@@ -1648,7 +1676,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // 描画前のオブジェクト数を取得
       const objectCountBefore = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count before drawing: ${objectCountBefore}`);
       expect(objectCountBefore).toBeGreaterThanOrEqual(0);
 
       // 図形を描画
@@ -1656,13 +1683,22 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+      // キャンバス中心を取得し、クリックでフォーカスを当ててからドラッグ
       const center = await getCanvasCenter(page);
-      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
-      await page.waitForTimeout(300);
+
+      // キャンバス上をクリックしてフォーカスを確保
+      await page.mouse.click(center.x, center.y);
+      await page.waitForTimeout(100);
+
+      // ドラッグ操作で四角形を描画（より大きな領域で）
+      await performDrag(page, center.x - 50, center.y - 50, center.x + 50, center.y + 50);
+      await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認
       const objectCountAfterDraw = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after drawing: ${objectCountAfterDraw}`);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // キャンバスコンテナにフォーカス（キーボードイベントを受け取るため）
@@ -1675,7 +1711,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // Undo後のオブジェクト数を確認
       const objectCountAfterUndo = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after Ctrl+Z: ${objectCountAfterUndo}`);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
 
       // Ctrl+Shift+ZでRedo
@@ -1684,7 +1719,6 @@ test.describe('現場調査注釈ツール', () => {
 
       // Redo後のオブジェクト数を確認
       const objectCountAfterRedo = await getCanvasObjectCount(page);
-      console.log(`[TEST] Object count after Ctrl+Shift+Z: ${objectCountAfterRedo}`);
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
@@ -1703,7 +1737,14 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
       const center = await getCanvasCenter(page);
+
+      // キャンバス上をクリックしてフォーカスを確保
+      await page.mouse.click(center.x, center.y);
+      await page.waitForTimeout(100);
 
       // 5つの図形を描画
       for (let i = 0; i < 5; i++) {
@@ -1714,6 +1755,7 @@ test.describe('現場調査注釈ツール', () => {
           center.x - 30 + i * 20,
           center.y + 30
         );
+        await page.waitForTimeout(200);
       }
 
       // 5回Undoを実行
@@ -1747,8 +1789,18 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toBeVisible({ timeout: 5000 });
       await rectTool.click();
 
+      // ツールが選択状態になることを確認
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
       const center = await getCanvasCenter(page);
-      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+
+      // キャンバス上をクリックしてフォーカスを確保
+      await page.mouse.click(center.x, center.y);
+      await page.waitForTimeout(100);
+
+      // ドラッグ操作で四角形を描画（より大きな領域で）
+      await performDrag(page, center.x - 50, center.y - 50, center.x + 50, center.y + 50);
+      await page.waitForTimeout(500);
 
       // 保存
       const saveButton = page.getByRole('button', { name: /保存/i });
