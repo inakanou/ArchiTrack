@@ -225,8 +225,11 @@ test.describe('現場調査エクスポート機能', () => {
     /**
      * @requirement site-survey/REQ-10.1
      * @requirement site-survey/REQ-10.2
+     * @requirement site-survey/REQ-10.8
      */
-    test('写真管理パネルで報告書出力フラグを切り替えられる', async ({ page }) => {
+    test('写真管理パネルで報告書出力フラグを切り替えられる (site-survey/REQ-10.8)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 現場調査詳細ページに移動
@@ -300,8 +303,9 @@ test.describe('現場調査エクスポート機能', () => {
     /**
      * @requirement site-survey/REQ-10.3
      * @requirement site-survey/REQ-10.4
+     * @requirement site-survey/REQ-10.8
      */
-    test('写真管理パネルでコメントを入力・保存できる', async ({ page }) => {
+    test('写真管理パネルでコメントを入力・保存できる (site-survey/REQ-10.8)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto(`/site-surveys/${createdSurveyId}`);

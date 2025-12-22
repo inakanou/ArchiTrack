@@ -551,8 +551,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-12.4",
-      "requirement": "REQ-12: アクセス制御",
+      "id": "site-survey/REQ-14.4",
+      "requirement": "REQ-14: アクセス制御",
       "title": "署名付きURLの有効期限とアクセス権限検証",
       "reason": "署名付きURLの検証はセキュリティ監査とAPIテストで検証",
       "category": "security",
@@ -564,8 +564,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-12.5",
-      "requirement": "REQ-12: アクセス制御",
+      "id": "site-survey/REQ-14.5",
+      "requirement": "REQ-14: アクセス制御",
       "title": "監査ログ記録",
       "reason": "監査ログの記録はE2E範囲外。統合テストでDB状態を検証",
       "category": "data-integrity",
@@ -577,8 +577,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-13.1",
-      "requirement": "REQ-13: レスポンシブ対応",
+      "id": "site-survey/REQ-15.1",
+      "requirement": "REQ-15: レスポンシブ対応",
       "title": "マルチデバイス対応UI",
       "reason": "レスポンシブUIの検証はE2E範囲外。Visual Regressionテストで検証",
       "category": "infrastructure",
@@ -590,8 +590,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-13.2",
-      "requirement": "REQ-13: レスポンシブ対応",
+      "id": "site-survey/REQ-15.2",
+      "requirement": "REQ-15: レスポンシブ対応",
       "title": "タッチ操作に最適化された注釈ツール",
       "reason": "タッチ操作の検証はE2E範囲外。デバイステストで検証",
       "category": "infrastructure",
@@ -603,8 +603,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-13.3",
-      "requirement": "REQ-13: レスポンシブ対応",
+      "id": "site-survey/REQ-15.3",
+      "requirement": "REQ-15: レスポンシブ対応",
       "title": "モバイル環境でのカメラ連携",
       "reason": "モバイルカメラ連携はE2E範囲外。デバイステストで検証",
       "category": "infrastructure",
@@ -616,8 +616,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-13.4",
-      "requirement": "REQ-13: レスポンシブ対応",
+      "id": "site-survey/REQ-15.4",
+      "requirement": "REQ-15: レスポンシブ対応",
       "title": "自動保存機能",
       "reason": "自動保存のタイミング検証はE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
@@ -629,8 +629,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-13.5",
-      "requirement": "REQ-13: レスポンシブ対応",
+      "id": "site-survey/REQ-15.5",
+      "requirement": "REQ-15: レスポンシブ対応",
       "title": "localStorageからの編集状態復元",
       "reason": "localStorage復元の検証はE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
@@ -642,8 +642,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-13.6",
-      "requirement": "REQ-13: レスポンシブ対応",
+      "id": "site-survey/REQ-15.6",
+      "requirement": "REQ-15: レスポンシブ対応",
       "title": "ネットワーク切断時の警告",
       "reason": "ネットワーク切断のシミュレーションはE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
@@ -655,8 +655,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.1",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.1",
+      "requirement": "REQ-16: 非機能要件",
       "title": "画像一覧の初期表示時間",
       "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
@@ -668,8 +668,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.2",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.2",
+      "requirement": "REQ-16: 非機能要件",
       "title": "注釈の描画・編集操作のフレームレート",
       "reason": "フレームレートの計測はE2E範囲外。パフォーマンステストで検証",
       "category": "performance",
@@ -681,8 +681,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.3",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.3",
+      "requirement": "REQ-16: 非機能要件",
       "title": "画像アップロード処理時間",
       "reason": "アップロード時間の計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
@@ -694,8 +694,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.4",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.4",
+      "requirement": "REQ-16: 非機能要件",
       "title": "同時接続ユーザー数",
       "reason": "同時接続の検証はE2E範囲外。負荷テストで検証",
       "category": "performance",
@@ -707,8 +707,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.5",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.5",
+      "requirement": "REQ-16: 非機能要件",
       "title": "月間稼働率",
       "reason": "稼働率の検証はE2E範囲外。モニタリングで検証",
       "category": "infrastructure",
@@ -720,8 +720,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.6",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.6",
+      "requirement": "REQ-16: 非機能要件",
       "title": "HTTPS/TLS暗号化",
       "reason": "通信暗号化の検証はE2E範囲外。設定レビューで検証",
       "category": "security",
@@ -733,8 +733,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.7",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.7",
+      "requirement": "REQ-16: 非機能要件",
       "title": "画像データのバックアップ",
       "reason": "バックアップの検証はE2E範囲外。インフラ設定レビューで検証",
       "category": "infrastructure",
@@ -746,8 +746,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-14.8",
-      "requirement": "REQ-14: 非機能要件",
+      "id": "site-survey/REQ-16.8",
+      "requirement": "REQ-16: 非機能要件",
       "title": "エラー時のSentry送信",
       "reason": "エラーログ送信の検証はE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
@@ -863,8 +863,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-11.4",
-      "requirement": "REQ-11: Undo/Redo機能",
+      "id": "site-survey/REQ-13.4",
+      "requirement": "REQ-13: Undo/Redo機能",
       "title": "操作履歴の最大保持数",
       "reason": "操作履歴の最大保持数検証はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
@@ -876,8 +876,8 @@
       }
     },
     {
-      "id": "site-survey/REQ-11.5",
-      "requirement": "REQ-11: Undo/Redo機能",
+      "id": "site-survey/REQ-13.5",
+      "requirement": "REQ-13: Undo/Redo機能",
       "title": "保存時の履歴クリア",
       "reason": "保存時の履歴クリア検証はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
@@ -886,6 +886,227 @@
         "tool": "Jest / Unit test",
         "description": "注釈データ保存時に操作履歴がクリアされることを確認",
         "threshold": "history_clear_on_save: true"
+      }
+    },
+    {
+      "id": "site-survey/REQ-6.2",
+      "requirement": "REQ-6: 注釈機能 - 寸法線",
+      "title": "寸法値入力テキストフィールド",
+      "reason": "キャンバス上のテキスト入力はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "寸法線描画後にテキストフィールドが表示され入力できることを確認",
+        "threshold": "text_input: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-6.3",
+      "requirement": "REQ-6: 注釈機能 - 寸法線",
+      "title": "寸法線上の値表示",
+      "reason": "キャンバス上のレンダリングはE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "入力された寸法値が寸法線上に表示されることを確認",
+        "threshold": "value_display: visible"
+      }
+    },
+    {
+      "id": "site-survey/REQ-6.4",
+      "requirement": "REQ-6: 注釈機能 - 寸法線",
+      "title": "寸法線のオブジェクト選択",
+      "reason": "キャンバス上のクリック選択はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "クリックで寸法線オブジェクトを選択できることを確認",
+        "threshold": "click_select: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-6.6",
+      "requirement": "REQ-6: 注釈機能 - 寸法線",
+      "title": "寸法線のDelete削除",
+      "reason": "キャンバス上のキー操作はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "Deleteキーで選択中の寸法線を削除できることを確認",
+        "threshold": "delete_key: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-6.7",
+      "requirement": "REQ-6: 注釈機能 - 寸法線",
+      "title": "寸法線の色・線幅変更",
+      "reason": "キャンバス上のスタイル変更はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "選択中の寸法線の色・線の太さを変更できることを確認",
+        "threshold": "style_change: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-7.3",
+      "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
+      "title": "長方形ツールによる描画",
+      "reason": "キャンバス上のドラッグ描画はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "ドラッグによる長方形の描画が機能することを確認",
+        "threshold": "rectangle_draw: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-7.4",
+      "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
+      "title": "多角形ツールによる描画",
+      "reason": "キャンバス上のクリック描画はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "クリックで頂点を追加、ダブルクリックで閉じることを確認",
+        "threshold": "polygon_draw: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-7.5",
+      "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
+      "title": "折れ線ツールによる描画",
+      "reason": "キャンバス上のクリック描画はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "クリックで点を追加、ダブルクリックで終了することを確認",
+        "threshold": "polyline_draw: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-8.2",
+      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
+      "title": "テキストのダブルクリック編集",
+      "reason": "キャンバス上のダブルクリック編集はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "ダブルクリックでテキストを編集モードにできることを確認",
+        "threshold": "double_click_edit: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-8.3",
+      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
+      "title": "テキストのフォントサイズ変更",
+      "reason": "キャンバス上のスタイル変更はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "フォントサイズを変更できることを確認",
+        "threshold": "font_size_change: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-8.5",
+      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
+      "title": "テキストの背景色設定",
+      "reason": "キャンバス上のスタイル変更はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "テキストの背景色を設定できることを確認",
+        "threshold": "background_color: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-8.6",
+      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
+      "title": "吹き出し形式のテキスト表示",
+      "reason": "キャンバス上の吹き出し描画はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "吹き出し形式でテキストを表示できることを確認",
+        "threshold": "callout_style: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-10.5",
+      "requirement": "REQ-10: 写真一覧管理とPDF出力設定",
+      "title": "高解像度選択時の画像品質",
+      "reason": "画像品質の検証はパフォーマンス/品質テストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "visual-regression-test",
+        "tool": "Chromatic / Percy",
+        "description": "高解像度選択時に高品質な画像が出力されることを確認",
+        "threshold": "image_quality: high"
+      }
+    },
+    {
+      "id": "site-survey/REQ-10.6",
+      "requirement": "REQ-10: 写真一覧管理とPDF出力設定",
+      "title": "低解像度選択時のファイルサイズ削減",
+      "reason": "ファイルサイズの検証はパフォーマンステストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "performance-test",
+        "tool": "File size measurement",
+        "description": "低解像度選択時にファイルサイズが削減されることを確認",
+        "threshold": "file_size: reduced"
+      }
+    },
+    {
+      "id": "site-survey/REQ-10.7",
+      "requirement": "REQ-10: 写真一覧管理とPDF出力設定",
+      "title": "2回目以降のPDF生成の高速化",
+      "reason": "キャッシュ効果の検証はパフォーマンステストで検証",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "performance-test",
+        "tool": "Timing measurement",
+        "description": "2回目以降のPDF生成がキャッシュにより高速化されることを確認",
+        "threshold": "cache_speedup: true"
+      }
+    },
+    {
+      "id": "site-survey/REQ-13.2",
+      "requirement": "REQ-13: Undo/Redo機能",
+      "title": "操作のRedo（やり直し）",
+      "reason": "キャンバス上のRedo操作はE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "Undo後にRedoで操作をやり直せることを確認",
+        "threshold": "redo: functional"
+      }
+    },
+    {
+      "id": "site-survey/REQ-13.3",
+      "requirement": "REQ-13: Undo/Redo機能",
+      "title": "Undo/Redoショートカット",
+      "reason": "キャンバス上のキーボードショートカットはE2E範囲外。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "Ctrl+Z/Ctrl+Shift+Zでundo/redoが実行されることを確認",
+        "threshold": "keyboard_shortcuts: functional"
       }
     }
   ],
@@ -912,14 +1133,14 @@
     }
   },
   "summary": {
-    "totalExclusions": 71,
+    "totalExclusions": 89,
     "byCategory": {
-      "performance": 18,
-      "infrastructure": 21,
+      "performance": 21,
+      "infrastructure": 36,
       "fault-tolerance": 21,
       "data-integrity": 11,
       "security": 4
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証"
   }
 }
