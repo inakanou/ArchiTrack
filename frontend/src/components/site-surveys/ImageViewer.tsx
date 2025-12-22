@@ -7,6 +7,7 @@
  * Task 12.4: パン機能を実装する
  * Task 12.5: タッチ操作対応を実装する
  * Task 12.6: 表示状態の共有機能を実装する
+ * Task 29.3: 画像ビューアへのエクスポートボタン統合
  *
  * モーダル/専用画面での画像表示、Fabric.js Canvasの初期化、
  * 画像の読み込みと表示、ズーム機能、回転機能、パン機能、
@@ -19,11 +20,15 @@
  * - 5.4: パン操作を行うと拡大時の表示領域を移動する
  * - 5.5: ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
  * - 5.6: 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+ * - 12.1: 個別画像のエクスポートオプションダイアログを表示する
  * - 13.2: タッチ操作に最適化された注釈ツールを提供する
  */
 
 import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { Canvas as FabricCanvas, FabricImage } from 'fabric';
+import ImageExportDialog from './ImageExportDialog';
+import type { ExportOptions } from './ImageExportDialog';
+import type { SurveyImageInfo } from '../../types/site-survey.types';
 
 // ============================================================================
 // 定数定義
@@ -167,6 +172,31 @@ export interface ImageViewerProps {
    * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
    */
   initialViewState?: ImageViewerViewState;
+  /**
+   * 画像情報（エクスポート機能を有効にするために必要）
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  imageInfo?: SurveyImageInfo;
+  /**
+   * エクスポート実行時のコールバック
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  onExport?: (options: ExportOptions) => void;
+  /**
+   * 元画像ダウンロード時のコールバック
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  onDownloadOriginal?: () => void;
+  /**
+   * エクスポート処理中フラグ
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  exporting?: boolean;
+  /**
+   * ダウンロード処理中フラグ
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  downloading?: boolean;
 }
 
 // ============================================================================
@@ -349,6 +379,33 @@ const STYLES = {
     fontSize: '14px',
     fontWeight: '500',
   },
+  // エクスポートコントロール用スタイル
+  exportControls: {
+    position: 'absolute' as const,
+    bottom: '24px',
+    left: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: '8px',
+    padding: '8px 16px',
+  },
+  exportButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    backgroundColor: 'transparent',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    color: '#ffffff',
+    transition: 'background-color 0.2s, border-color 0.2s',
+    fontSize: '14px',
+    fontWeight: '500',
+  },
 };
 
 // ============================================================================
@@ -406,7 +463,19 @@ function formatRotationDegree(rotation: RotationAngle): string {
  * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
  */
 const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageViewer(
-  { imageUrl, isOpen, onClose, imageName, onViewStateChange, initialViewState },
+  {
+    imageUrl,
+    isOpen,
+    onClose,
+    imageName,
+    onViewStateChange,
+    initialViewState,
+    imageInfo,
+    onExport,
+    onDownloadOriginal,
+    exporting = false,
+    downloading = false,
+  },
   ref
 ) {
   // DOM参照
@@ -430,6 +499,9 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   // 状態管理
   const [state, setState] = useState<ImageViewerState>(getInitialState);
+
+  // エクスポートダイアログの開閉状態
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
   // 前回のimageUrl参照（変更検知用）
   const prevImageUrlRef = useRef<string | null>(null);
@@ -1065,6 +1137,49 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
     setState((prev) => ({ ...prev, isTouching: false }));
   }, []);
 
+  // ============================================================================
+  // エクスポートダイアログ関連
+  // ============================================================================
+
+  /**
+   * エクスポートダイアログを開く
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  const handleOpenExportDialog = useCallback(() => {
+    setIsExportDialogOpen(true);
+  }, []);
+
+  /**
+   * エクスポートダイアログを閉じる
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  const handleCloseExportDialog = useCallback(() => {
+    setIsExportDialogOpen(false);
+  }, []);
+
+  /**
+   * エクスポート実行
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  const handleExport = useCallback(
+    (options: ExportOptions) => {
+      if (onExport) {
+        onExport(options);
+      }
+    },
+    [onExport]
+  );
+
+  /**
+   * 元画像ダウンロード実行
+   * Task 29.3: 画像ビューアへのエクスポートボタン統合
+   */
+  const handleDownloadOriginal = useCallback(() => {
+    if (onDownloadOriginal) {
+      onDownloadOriginal();
+    }
+  }, [onDownloadOriginal]);
+
   /**
    * オーバーレイクリックハンドラ
    */
@@ -1523,9 +1638,57 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
                 </button>
               </div>
             )}
+
+            {/* エクスポートボタン - imageInfoが提供されている場合のみ表示 */}
+            {!state.isLoading && !state.error && imageInfo && (
+              <div style={STYLES.exportControls}>
+                <button
+                  type="button"
+                  style={STYLES.exportButton}
+                  onClick={handleOpenExportDialog}
+                  aria-label="エクスポート"
+                  onMouseEnter={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor =
+                      'rgba(255, 255, 255, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLButtonElement).style.backgroundColor = 'transparent';
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  エクスポート
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* エクスポートダイアログ */}
+      {imageInfo && (
+        <ImageExportDialog
+          open={isExportDialogOpen}
+          imageInfo={imageInfo}
+          onExport={handleExport}
+          onClose={handleCloseExportDialog}
+          onDownloadOriginal={onDownloadOriginal ? handleDownloadOriginal : undefined}
+          exporting={exporting}
+          downloading={downloading}
+        />
+      )}
     </>
   );
 });

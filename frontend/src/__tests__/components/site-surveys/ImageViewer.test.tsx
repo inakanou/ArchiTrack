@@ -37,6 +37,7 @@ import {
   type ImageViewerRef,
   type ImageViewerViewState,
 } from '../../../components/site-surveys/ImageViewer';
+import type { SurveyImageInfo } from '../../../types/site-survey.types';
 
 // vi.hoistedでモックインスタンスを定義（ホイスティング対応）
 const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
@@ -105,6 +106,24 @@ const defaultProps = {
   imageUrl: 'https://example.com/test-image.jpg',
   isOpen: true,
   onClose: vi.fn(),
+};
+
+// エクスポート機能テスト用のモックデータ
+const mockImageInfo: SurveyImageInfo = {
+  id: 'image-1',
+  surveyId: 'survey-1',
+  fileName: 'test-image.jpg',
+  originalPath: 'images/test-image.jpg',
+  thumbnailPath: 'thumbnails/test-image-thumb.jpg',
+  originalUrl: 'https://example.com/test-image.jpg',
+  thumbnailUrl: 'https://example.com/test-image-thumb.jpg',
+  fileSize: 1024000,
+  width: 1920,
+  height: 1080,
+  displayOrder: 1,
+  comment: null,
+  includeInReport: false,
+  createdAt: new Date().toISOString(),
 };
 
 // ============================================================================
@@ -2261,6 +2280,269 @@ describe('ImageViewer', () => {
           expect(typeof initialState.panX).toBe('number');
           expect(typeof initialState.panY).toBe('number');
         }
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 29.3: エクスポートボタン統合のテスト
+  // Requirements: 12.1 - 画像ビューアからエクスポートダイアログを表示する
+  // ============================================================================
+  describe('エクスポートボタン統合', () => {
+    describe('エクスポートボタンUI', () => {
+      it('imageInfoが提供されている場合、エクスポートボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+          expect(exportButton).toBeInTheDocument();
+        });
+      });
+
+      it('imageInfoが提供されていない場合、エクスポートボタンが表示されない', async () => {
+        render(<ImageViewer {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンが表示されないことを確認
+        const exportButton = screen.queryByRole('button', { name: /エクスポート/i });
+        expect(exportButton).not.toBeInTheDocument();
+      });
+
+      it('エクスポートボタンにはアクセシブルな名前が設定されている', async () => {
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+          expect(exportButton).toHaveAccessibleName();
+        });
+      });
+    });
+
+    describe('エクスポートダイアログ表示', () => {
+      it('エクスポートボタンをクリックするとImageExportDialogが表示される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ImageExportDialogが表示されることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+      });
+
+      it('ダイアログが開いている間はダイアログが表示される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // エクスポートダイアログが開いていることを確認（画像エクスポートタイトルで識別）
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // 2つのダイアログ（ImageViewerとImageExportDialog）が存在することを確認
+        const dialogs = screen.getAllByRole('dialog');
+        expect(dialogs.length).toBe(2);
+      });
+    });
+
+    describe('エクスポートダイアログのキャンセル', () => {
+      it('キャンセルボタンをクリックするとダイアログが閉じる', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // キャンセルボタンをクリック
+        const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+        await user.click(cancelButton);
+
+        // ダイアログが閉じたことを確認
+        await waitFor(() => {
+          expect(screen.queryByText('画像エクスポート')).not.toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('エクスポート実行コールバック', () => {
+      it('onExportが提供されている場合、エクスポート実行時にコールバックが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onExport = vi.fn();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} onExport={onExport} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // エクスポート実行ボタンをクリック
+        const allExportButtons = screen.getAllByRole('button', { name: /エクスポート/i });
+        const dialogExportButton = allExportButtons[1];
+        expect(dialogExportButton).toBeDefined();
+        await user.click(dialogExportButton!);
+
+        // コールバックが呼ばれることを確認
+        await waitFor(() => {
+          expect(onExport).toHaveBeenCalledTimes(1);
+        });
+
+        // オプションが渡されていることを確認
+        expect(onExport).toHaveBeenCalledWith(
+          expect.objectContaining({
+            format: expect.any(String),
+            quality: expect.any(String),
+            includeAnnotations: expect.any(Boolean),
+          })
+        );
+      });
+    });
+
+    describe('元画像ダウンロード', () => {
+      it('onDownloadOriginalが提供されている場合、ダウンロードボタンが表示される', async () => {
+        const user = userEvent.setup();
+        const onDownloadOriginal = vi.fn();
+        render(
+          <ImageViewer
+            {...defaultProps}
+            imageInfo={mockImageInfo}
+            onDownloadOriginal={onDownloadOriginal}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // 元画像ダウンロードボタンが表示されることを確認
+        expect(screen.getByRole('button', { name: /元画像をダウンロード/i })).toBeInTheDocument();
+      });
+
+      it('元画像ダウンロードボタンをクリックするとonDownloadOriginalが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onDownloadOriginal = vi.fn();
+        render(
+          <ImageViewer
+            {...defaultProps}
+            imageInfo={mockImageInfo}
+            onDownloadOriginal={onDownloadOriginal}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // 元画像ダウンロードボタンをクリック
+        const downloadButton = screen.getByRole('button', { name: /元画像をダウンロード/i });
+        await user.click(downloadButton);
+
+        // コールバックが呼ばれることを確認
+        expect(onDownloadOriginal).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('エクスポート中の状態管理', () => {
+      it('exporting=trueのとき、ダイアログ内のエクスポートボタンが無効化される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} exporting={true} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // ダイアログ内のエクスポートボタンが無効化されることを確認
+        // ダイアログ内のエクスポートボタンはツールバーのボタンの後に表示される（2番目）
+        const allExportButtons = screen.getAllByRole('button', { name: /エクスポート/i });
+        // ダイアログ内のエクスポートボタン（2番目）が無効化されていることを確認
+        const dialogExportButton = allExportButtons[1];
+        expect(dialogExportButton).toBeDisabled();
+      });
+    });
+
+    describe('エクスポートボタンの位置', () => {
+      it('エクスポートボタンはツールバー領域に配置される', async () => {
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンが存在することを確認
+        await waitFor(() => {
+          const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+          expect(exportButton).toBeInTheDocument();
+        });
       });
     });
   });
