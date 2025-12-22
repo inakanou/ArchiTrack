@@ -58,6 +58,8 @@ export interface SiteSurveyInfo {
 
 /**
  * 画像情報
+ *
+ * Task 27.1: コメントと報告書出力フラグを追加
  */
 export interface SurveyImageInfo {
   id: string;
@@ -69,6 +71,8 @@ export interface SurveyImageInfo {
   width: number;
   height: number;
   displayOrder: number;
+  comment: string | null;
+  includeInReport: boolean;
   createdAt: Date;
 }
 
@@ -505,6 +509,8 @@ export class SiteSurveyService {
       width: number;
       height: number;
       displayOrder: number;
+      comment: string | null;
+      includeInReport: boolean;
       createdAt: Date;
     }>;
   }): SiteSurveyDetail {
@@ -518,6 +524,8 @@ export class SiteSurveyService {
       width: img.width,
       height: img.height,
       displayOrder: img.displayOrder,
+      comment: img.comment,
+      includeInReport: img.includeInReport,
       createdAt: img.createdAt,
     }));
 
