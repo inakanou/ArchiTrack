@@ -324,7 +324,7 @@ export async function updateSurveyImageOrder(
   surveyId: string,
   imageOrders: ImageOrderItem[]
 ): Promise<void> {
-  return apiClient.put<void>(`/api/site-surveys/${surveyId}/images/order`, { imageOrders });
+  return apiClient.put<void>(`/api/site-surveys/${surveyId}/images/order`, { orders: imageOrders });
 }
 
 // ============================================================================

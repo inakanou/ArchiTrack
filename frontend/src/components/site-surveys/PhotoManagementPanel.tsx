@@ -59,6 +59,12 @@ const MAX_COMMENT_LENGTH = 2000;
 /** デバウンス待機時間（ミリ秒） */
 const DEBOUNCE_DELAY = 500;
 
+/** 自動スクロールのしきい値（ピクセル） */
+const AUTO_SCROLL_THRESHOLD = 100;
+
+/** 自動スクロールの速度（ピクセル/フレーム） */
+const AUTO_SCROLL_SPEED = 15;
+
 // ============================================================================
 // スタイル定義
 // ============================================================================
@@ -537,6 +543,64 @@ export function PhotoManagementPanel({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
+  // 自動スクロール用の参照
+  const autoScrollAnimationRef = useRef<number | null>(null);
+  const mousePositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // ドラッグ中の自動スクロール処理
+  useEffect(() => {
+    if (!draggingId) {
+      // ドラッグ終了時にアニメーションをクリア
+      if (autoScrollAnimationRef.current) {
+        cancelAnimationFrame(autoScrollAnimationRef.current);
+        autoScrollAnimationRef.current = null;
+      }
+      return;
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      mousePositionRef.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const autoScroll = () => {
+      const { y } = mousePositionRef.current;
+      const viewportHeight = window.innerHeight;
+
+      // 画面上部に近い場合は上にスクロール
+      if (y < AUTO_SCROLL_THRESHOLD) {
+        const speed = Math.max(1, AUTO_SCROLL_SPEED * (1 - y / AUTO_SCROLL_THRESHOLD));
+        window.scrollBy(0, -speed);
+      }
+      // 画面下部に近い場合は下にスクロール
+      else if (y > viewportHeight - AUTO_SCROLL_THRESHOLD) {
+        const speed = Math.max(
+          1,
+          AUTO_SCROLL_SPEED * (1 - (viewportHeight - y) / AUTO_SCROLL_THRESHOLD)
+        );
+        window.scrollBy(0, speed);
+      }
+
+      // 次のフレームで再実行
+      autoScrollAnimationRef.current = requestAnimationFrame(autoScroll);
+    };
+
+    // イベントリスナーを追加
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('dragover', handleMouseMove as EventListener);
+
+    // 自動スクロールを開始
+    autoScrollAnimationRef.current = requestAnimationFrame(autoScroll);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('dragover', handleMouseMove as EventListener);
+      if (autoScrollAnimationRef.current) {
+        cancelAnimationFrame(autoScrollAnimationRef.current);
+        autoScrollAnimationRef.current = null;
+      }
+    };
+  }, [draggingId]);
+
   // displayOrder順にソートした画像リスト
   const sortedImages = useMemo(
     () => [...images].sort((a, b) => a.displayOrder - b.displayOrder),
@@ -579,6 +643,11 @@ export function PhotoManagementPanel({
   // ドラッグリーブハンドラ（Task 27.5）
   const handleDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault();
+    // 子要素への移動の場合はdragOverIdをリセットしない
+    const relatedTarget = e.relatedTarget as Node | null;
+    if (relatedTarget && e.currentTarget.contains(relatedTarget)) {
+      return;
+    }
     setDragOverId(null);
   }, []);
 

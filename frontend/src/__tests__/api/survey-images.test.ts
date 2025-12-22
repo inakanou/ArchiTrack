@@ -432,8 +432,8 @@ describe('Survey Images API Client', () => {
       expect(url).toContain(`/api/site-surveys/${surveyId}/images/order`);
       expect(options.method).toBe('PUT');
 
-      const body = JSON.parse(options.body as string) as { imageOrders: typeof imageOrders };
-      expect(body.imageOrders).toEqual(imageOrders);
+      const body = JSON.parse(options.body as string) as { orders: typeof imageOrders };
+      expect(body.orders).toEqual(imageOrders);
     });
 
     it('現場調査が見つからない場合、404エラーを返すこと', async () => {
