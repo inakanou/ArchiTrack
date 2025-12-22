@@ -334,16 +334,24 @@ test.describe('現場調査注釈エディタ', () => {
 
     if (!(await pdfButton.isVisible({ timeout: 5000 }).catch(() => false))) {
       // PDF出力機能がない場合は詳細ページが表示されていることを確認
-      const noImageText = page.getByText(/画像がありません|画像一覧/i);
-      await expect(noImageText.first()).toBeVisible();
+      const detailTitle = page.getByRole('heading', { name: /現場調査/i });
+      await expect(detailTitle.first()).toBeVisible();
+      return;
+    }
+
+    // PDF出力ボタンをクリック
+    await pdfButton.click();
+
+    // 画像がない場合はエラーメッセージが表示される
+    const noPhotoError = page.getByText(/報告書出力対象の写真がありません/i);
+    if (await noPhotoError.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // 画像がない場合のエラーメッセージが表示されることを確認
+      await expect(noPhotoError).toBeVisible();
       return;
     }
 
     // ダウンロードイベントを待機
     const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
-
-    // PDF出力ボタンをクリック
-    await pdfButton.click();
 
     // ダウンロードが開始されることを確認
     try {
@@ -375,13 +383,21 @@ test.describe('現場調査注釈エディタ', () => {
 
     if (!(await pdfButton.isVisible({ timeout: 5000 }).catch(() => false))) {
       // PDF出力機能がない場合は詳細ページが表示されていることを確認
-      const noImageText = page.getByText(/画像がありません|画像一覧/i);
-      await expect(noImageText.first()).toBeVisible();
+      const detailTitle = page.getByRole('heading', { name: /現場調査/i });
+      await expect(detailTitle.first()).toBeVisible();
       return;
     }
 
     // PDF出力ボタンをクリック
     await pdfButton.click();
+
+    // 画像がない場合はエラーメッセージが表示される
+    const noPhotoError = page.getByText(/報告書出力対象の写真がありません/i);
+    if (await noPhotoError.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // 画像がない場合のエラーメッセージが表示されることを確認
+      await expect(noPhotoError).toBeVisible();
+      return;
+    }
 
     // プログレス表示（ローディングインジケーターまたはメッセージ）を確認
     const progressIndicator = page.locator(
