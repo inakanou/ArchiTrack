@@ -11,6 +11,15 @@
  * - 元画像ダウンロードボタンの表示
  * - 署名付きURLからのダウンロードトリガー
  *
+ * Task 30.4: ImageExportDialogの単体テスト（Phase 17）
+ * - 形式選択のテスト
+ * - 品質選択のテスト
+ * - 注釈有無選択のテスト
+ * - エクスポート実行のテスト
+ * - キーボード操作テスト（Escapeキー）
+ * - オーバーレイクリックテスト
+ * - 処理中のフォーム入力無効化テスト
+ *
  * @see requirements.md - 要件12.1, 12.2, 12.3, 12.4
  */
 
@@ -681,6 +690,437 @@ describe('ImageExportDialog', () => {
 
       expect(downloadButton).toBeInTheDocument();
       expect(exportButton).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // キーボード操作テスト (Task 30.4)
+  // ============================================================================
+
+  describe('キーボード操作', () => {
+    it('Escapeキーを押すとダイアログが閉じる', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      await user.keyboard('{Escape}');
+
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('exporting=trueのときEscapeキーでダイアログが閉じない', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          exporting={true}
+        />
+      );
+
+      await user.keyboard('{Escape}');
+
+      expect(mockOnClose).not.toHaveBeenCalled();
+    });
+
+    it('downloading=trueのときEscapeキーでダイアログが閉じない', async () => {
+      const user = userEvent.setup();
+      const mockOnDownloadOriginal = vi.fn();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+          downloading={true}
+        />
+      );
+
+      await user.keyboard('{Escape}');
+
+      expect(mockOnClose).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================================
+  // オーバーレイクリックテスト (Task 30.4)
+  // ============================================================================
+
+  describe('オーバーレイクリック', () => {
+    it('オーバーレイをクリックするとダイアログが閉じる', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      // オーバーレイ（role="dialog"が設定された要素自体）をクリック
+      // コンポーネントの実装では、handleOverlayClickがevent.target === event.currentTargetをチェック
+      const dialog = screen.getByRole('dialog');
+      await user.click(dialog);
+
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('ダイアログ内をクリックしてもダイアログは閉じない', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      // ダイアログ内の要素をクリック
+      await user.click(screen.getByText('画像エクスポート'));
+
+      // onCloseが呼ばれていないことを確認（ボタンクリック以外では閉じない）
+      expect(mockOnClose).not.toHaveBeenCalled();
+    });
+
+    it('exporting=trueのときオーバーレイをクリックしてもダイアログが閉じない', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          exporting={true}
+        />
+      );
+
+      const dialog = screen.getByRole('dialog');
+      await user.click(dialog);
+
+      expect(mockOnClose).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================================
+  // 処理中のフォーム入力無効化テスト (Task 30.4)
+  // ============================================================================
+
+  describe('処理中のフォーム入力無効化', () => {
+    it('exporting=trueのときエクスポート形式の選択が無効化される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          exporting={true}
+        />
+      );
+
+      // export-formatのラジオボタンを直接取得
+      const formatRadios = screen.getAllByRole('radio');
+      const jpegRadio = formatRadios.find(
+        (r) => r.getAttribute('value') === 'jpeg' && r.getAttribute('name') === 'export-format'
+      );
+      const pngRadio = formatRadios.find(
+        (r) => r.getAttribute('value') === 'png' && r.getAttribute('name') === 'export-format'
+      );
+
+      expect(jpegRadio).toBeDisabled();
+      expect(pngRadio).toBeDisabled();
+    });
+
+    it('exporting=trueのとき品質選択が無効化される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          exporting={true}
+        />
+      );
+
+      // export-qualityのラジオボタンを直接取得
+      const qualityRadios = screen.getAllByRole('radio');
+      const lowRadio = qualityRadios.find(
+        (r) => r.getAttribute('value') === 'low' && r.getAttribute('name') === 'export-quality'
+      );
+      const mediumRadio = qualityRadios.find(
+        (r) => r.getAttribute('value') === 'medium' && r.getAttribute('name') === 'export-quality'
+      );
+      const highRadio = qualityRadios.find(
+        (r) => r.getAttribute('value') === 'high' && r.getAttribute('name') === 'export-quality'
+      );
+
+      expect(lowRadio).toBeDisabled();
+      expect(mediumRadio).toBeDisabled();
+      expect(highRadio).toBeDisabled();
+    });
+
+    it('exporting=trueのとき注釈オプションが無効化される', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          exporting={true}
+        />
+      );
+
+      expect(screen.getByLabelText(/注釈を含める/i)).toBeDisabled();
+    });
+  });
+
+  // ============================================================================
+  // ファイルサイズフォーマットテスト (Task 30.4)
+  // ============================================================================
+
+  describe('ファイルサイズフォーマット', () => {
+    it('バイト単位のファイルサイズが正しく表示される', () => {
+      const smallImageInfo: SurveyImageInfo = {
+        ...mockImageInfo,
+        fileSize: 500, // 500 B
+      };
+
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={smallImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      expect(screen.getByText(/500 B/)).toBeInTheDocument();
+    });
+
+    it('キロバイト単位のファイルサイズが正しく表示される', () => {
+      const kbImageInfo: SurveyImageInfo = {
+        ...mockImageInfo,
+        fileSize: 5120, // 5 KB
+      };
+
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={kbImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      expect(screen.getByText(/5\.0 KB/)).toBeInTheDocument();
+    });
+
+    it('メガバイト単位のファイルサイズが正しく表示される', () => {
+      const mbImageInfo: SurveyImageInfo = {
+        ...mockImageInfo,
+        fileSize: 5242880, // 5 MB
+      };
+
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mbImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      expect(screen.getByText(/5\.0 MB/)).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // 様々なオプション組み合わせテスト (Task 30.4)
+  // ============================================================================
+
+  describe('オプション組み合わせテスト', () => {
+    it('PNG形式 + 低品質 + 注釈なしのオプションが正しく渡される', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      await user.click(screen.getByLabelText(/PNG/i));
+      await user.click(screen.getByLabelText(/低/i));
+      await user.click(screen.getByLabelText(/注釈を含める/i));
+      await user.click(screen.getByRole('button', { name: /エクスポート/i }));
+
+      expect(mockOnExport).toHaveBeenCalledWith({
+        format: 'png',
+        quality: 'low',
+        includeAnnotations: false,
+      });
+    });
+
+    it('JPEG形式 + 高品質 + 注釈ありのオプションが正しく渡される', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      // JPEGはデフォルトで選択されているため選択不要
+      await user.click(screen.getByLabelText(/高/i));
+      // 注釈を含めるはデフォルトでオンのため選択不要
+      await user.click(screen.getByRole('button', { name: /エクスポート/i }));
+
+      expect(mockOnExport).toHaveBeenCalledWith({
+        format: 'jpeg',
+        quality: 'high',
+        includeAnnotations: true,
+      });
+    });
+
+    it('PNG形式 + 中品質 + 注釈ありのオプションが正しく渡される', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      await user.click(screen.getByLabelText(/PNG/i));
+      // 中品質はデフォルトで選択されているため選択不要
+      // 注釈を含めるはデフォルトでオンのため選択不要
+      await user.click(screen.getByRole('button', { name: /エクスポート/i }));
+
+      expect(mockOnExport).toHaveBeenCalledWith({
+        format: 'png',
+        quality: 'medium',
+        includeAnnotations: true,
+      });
+    });
+
+    it('複数回オプションを変更しても最終的な選択が正しく渡される', async () => {
+      const user = userEvent.setup();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      // 形式を複数回変更
+      await user.click(screen.getByLabelText(/PNG/i));
+      await user.click(screen.getByLabelText(/JPEG/i));
+      await user.click(screen.getByLabelText(/PNG/i));
+
+      // 品質を複数回変更
+      await user.click(screen.getByLabelText(/低/i));
+      await user.click(screen.getByLabelText(/高/i));
+
+      // 注釈を複数回変更
+      await user.click(screen.getByLabelText(/注釈を含める/i)); // オフ
+      await user.click(screen.getByLabelText(/注釈を含める/i)); // オン
+
+      await user.click(screen.getByRole('button', { name: /エクスポート/i }));
+
+      expect(mockOnExport).toHaveBeenCalledWith({
+        format: 'png',
+        quality: 'high',
+        includeAnnotations: true,
+      });
+    });
+  });
+
+  // ============================================================================
+  // aria-modal属性テスト (Task 30.4)
+  // ============================================================================
+
+  describe('モーダルアクセシビリティ', () => {
+    it('ダイアログにaria-modal属性が設定されている', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+    });
+
+    it('ローディングインジケータにaria-label属性が設定されている（エクスポート中）', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          exporting={true}
+        />
+      );
+
+      const progressbar = screen.getByRole('progressbar');
+      expect(progressbar).toHaveAttribute('aria-label', 'エクスポート中');
+    });
+
+    it('ローディングインジケータにaria-label属性が設定されている（ダウンロード中）', () => {
+      const mockOnDownloadOriginal = vi.fn();
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+          onDownloadOriginal={mockOnDownloadOriginal}
+          downloading={true}
+        />
+      );
+
+      const progressbar = screen.getByRole('progressbar');
+      expect(progressbar).toHaveAttribute('aria-label', 'ダウンロード中');
+    });
+  });
+
+  // ============================================================================
+  // ラジオグループのrole属性テスト (Task 30.4)
+  // ============================================================================
+
+  describe('ラジオグループアクセシビリティ', () => {
+    it('エクスポート形式のラジオグループにrole属性が設定されている', () => {
+      render(
+        <ImageExportDialog
+          open={true}
+          imageInfo={mockImageInfo}
+          onExport={mockOnExport}
+          onClose={mockOnClose}
+        />
+      );
+
+      const radiogroups = screen.getAllByRole('radiogroup');
+      expect(radiogroups.length).toBeGreaterThanOrEqual(2);
     });
   });
 });
