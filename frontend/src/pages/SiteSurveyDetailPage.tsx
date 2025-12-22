@@ -31,7 +31,6 @@ import {
 } from '../api/survey-images';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import SiteSurveyDetailInfo from '../components/site-surveys/SiteSurveyDetailInfo';
-import SurveyImageGrid from '../components/site-surveys/SurveyImageGrid';
 import { PhotoManagementPanel } from '../components/site-surveys/PhotoManagementPanel';
 import {
   ImageUploader,
@@ -44,13 +43,6 @@ import type {
   ImageOrderItem,
   UpdateImageMetadataInput,
 } from '../types/site-survey.types';
-
-// ============================================================================
-// 型定義
-// ============================================================================
-
-/** タブの種類 */
-type ImageViewTab = 'thumbnail' | 'management';
 
 // ============================================================================
 // スタイル定義
@@ -113,34 +105,6 @@ const STYLES = {
     borderRadius: '8px',
     border: '1px solid #e5e7eb',
     padding: '24px',
-  } as React.CSSProperties,
-  tabList: {
-    display: 'flex',
-    borderBottom: '1px solid #e5e7eb',
-    marginBottom: '16px',
-    gap: '4px',
-  } as React.CSSProperties,
-  tab: {
-    padding: '12px 20px',
-    fontSize: '14px',
-    fontWeight: '500',
-    color: '#6b7280',
-    backgroundColor: 'transparent',
-    border: 'none',
-    borderBottomWidth: '2px',
-    borderBottomStyle: 'solid',
-    borderBottomColor: 'transparent',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    marginBottom: '-1px',
-  } as React.CSSProperties,
-  tabActive: {
-    color: '#2563eb',
-    borderBottomColor: '#2563eb',
-    backgroundColor: '#eff6ff',
-  } as React.CSSProperties,
-  tabPanel: {
-    minHeight: '200px',
   } as React.CSSProperties,
   dialogOverlay: {
     position: 'fixed' as const,
@@ -281,9 +245,6 @@ export default function SiteSurveyDetailPage() {
   // 画像アップロード状態
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | undefined>(undefined);
-
-  // タブ状態 (Task 27.6)
-  const [activeTab, setActiveTab] = useState<ImageViewTab>('thumbnail');
 
   /**
    * 現場調査詳細データを取得
@@ -539,75 +500,16 @@ export default function SiteSurveyDetailPage() {
           </div>
         )}
 
-        {/* タブリスト (Task 27.6) */}
-        <div role="tablist" style={STYLES.tabList} aria-label="画像表示切り替え">
-          <button
-            role="tab"
-            id="tab-thumbnail"
-            aria-selected={activeTab === 'thumbnail'}
-            aria-controls="tabpanel-thumbnail"
-            tabIndex={activeTab === 'thumbnail' ? 0 : -1}
-            onClick={() => setActiveTab('thumbnail')}
-            style={{
-              ...STYLES.tab,
-              ...(activeTab === 'thumbnail' ? STYLES.tabActive : {}),
-            }}
-          >
-            サムネイル一覧
-          </button>
-          <button
-            role="tab"
-            id="tab-management"
-            aria-selected={activeTab === 'management'}
-            aria-controls="tabpanel-management"
-            tabIndex={activeTab === 'management' ? 0 : -1}
-            onClick={() => setActiveTab('management')}
-            style={{
-              ...STYLES.tab,
-              ...(activeTab === 'management' ? STYLES.tabActive : {}),
-            }}
-          >
-            写真管理
-          </button>
-        </div>
-
-        {/* サムネイル一覧タブパネル */}
-        {activeTab === 'thumbnail' && (
-          <div
-            role="tabpanel"
-            id="tabpanel-thumbnail"
-            aria-labelledby="tab-thumbnail"
-            style={STYLES.tabPanel}
-          >
-            <SurveyImageGrid
-              images={survey.images}
-              onImageClick={handleImageClick}
-              onOrderChange={handleOrderChange}
-              readOnly={true}
-              showOrderNumbers={false}
-            />
-          </div>
-        )}
-
-        {/* 写真管理タブパネル (Task 27.6) */}
-        {activeTab === 'management' && (
-          <div
-            role="tabpanel"
-            id="tabpanel-management"
-            aria-labelledby="tab-management"
-            style={STYLES.tabPanel}
-          >
-            <PhotoManagementPanel
-              images={survey.images}
-              onImageMetadataChange={handleImageMetadataChange}
-              onImageClick={handleImageClick}
-              onOrderChange={canEdit ? handleOrderChange : undefined}
-              isLoading={isLoading}
-              readOnly={!canEdit}
-              showOrderNumbers={true}
-            />
-          </div>
-        )}
+        {/* 写真管理パネル (Requirement 10.1: サムネイル一覧は表示せず、フルサイズ写真のみを表示) */}
+        <PhotoManagementPanel
+          images={survey.images}
+          onImageMetadataChange={handleImageMetadataChange}
+          onImageClick={handleImageClick}
+          onOrderChange={canEdit ? handleOrderChange : undefined}
+          isLoading={isLoading}
+          readOnly={!canEdit}
+          showOrderNumbers={true}
+        />
       </div>
 
       {/* 削除確認ダイアログ */}

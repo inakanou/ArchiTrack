@@ -161,17 +161,17 @@ describe('SiteSurveyDetailPage', () => {
       expect(screen.getByRole('link', { name: '現場調査' })).toBeInTheDocument();
     });
 
-    it('画像グリッドを表示する', async () => {
+    it('写真管理パネルを表示する', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
 
       renderComponent();
 
       await waitFor(() => {
-        expect(screen.getByTestId('image-grid')).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
       });
 
       // 画像が表示されていることを確認
-      expect(screen.getAllByRole('button', { name: /画像:/ })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /画像を拡大表示:/ })).toHaveLength(2);
     });
 
     it('画像がない場合は空状態を表示する', async () => {
@@ -232,11 +232,11 @@ describe('SiteSurveyDetailPage', () => {
       renderComponent();
 
       await waitFor(() => {
-        expect(screen.getByTestId('image-grid')).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
       });
 
       // 最初の画像をクリック
-      const imageButtons = screen.getAllByRole('button', { name: /画像:/ });
+      const imageButtons = screen.getAllByRole('button', { name: /画像を拡大表示:/ });
       expect(imageButtons[0]).toBeDefined();
       fireEvent.click(imageButtons[0] as HTMLElement);
 
@@ -404,8 +404,9 @@ describe('SiteSurveyDetailPage', () => {
 
   // ============================================================================
   // Task 27.6: 写真一覧管理パネル統合テスト
+  // Requirement 10.1: サムネイル一覧タブは表示せず、写真管理パネルのみを直接表示
   // ============================================================================
-  describe('写真管理タブ切り替え (Task 27.6)', () => {
+  describe('写真管理パネル表示 (Task 27.6, Requirement 10.1)', () => {
     beforeEach(() => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
       vi.mocked(surveyImagesApi.updateImageMetadata).mockResolvedValue({
@@ -419,85 +420,19 @@ describe('SiteSurveyDetailPage', () => {
       vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
     });
 
-    it('サムネイル一覧と写真管理タブが表示される', async () => {
+    it('写真管理パネルが直接表示される（サムネイル一覧タブなし）', async () => {
       renderComponent();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
 
-      // タブが表示されることを確認
-      expect(screen.getByRole('tab', { name: 'サムネイル一覧' })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: '写真管理' })).toBeInTheDocument();
-    });
+      // タブは存在しない
+      expect(screen.queryByRole('tab', { name: 'サムネイル一覧' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: '写真管理' })).not.toBeInTheDocument();
 
-    it('初期状態ではサムネイル一覧タブがアクティブになる', async () => {
-      renderComponent();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
-      });
-
-      const thumbnailTab = screen.getByRole('tab', { name: 'サムネイル一覧' });
-      expect(thumbnailTab).toHaveAttribute('aria-selected', 'true');
-      // サムネイルグリッドが表示されている
-      expect(screen.getByTestId('image-grid')).toBeInTheDocument();
-    });
-
-    it('写真管理タブをクリックすると写真管理パネルに切り替わる', async () => {
-      renderComponent();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
-      });
-
-      // 写真管理タブをクリック
-      const photoManagementTab = screen.getByRole('tab', { name: '写真管理' });
-      fireEvent.click(photoManagementTab);
-
-      await waitFor(() => {
-        // 写真管理パネルが表示される
-        expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
-      });
-      // サムネイルグリッドは非表示
-      expect(screen.queryByTestId('image-grid')).not.toBeInTheDocument();
-    });
-
-    it('サムネイル一覧タブに戻るとサムネイルグリッドが表示される', async () => {
-      renderComponent();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
-      });
-
-      // 写真管理タブをクリック
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
-      await waitFor(() => {
-        expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
-      });
-
-      // サムネイル一覧タブをクリック
-      fireEvent.click(screen.getByRole('tab', { name: 'サムネイル一覧' }));
-      await waitFor(() => {
-        expect(screen.getByTestId('image-grid')).toBeInTheDocument();
-      });
-      // 写真管理パネルは非表示
-      expect(screen.queryByRole('region', { name: '写真管理パネル' })).not.toBeInTheDocument();
-    });
-  });
-
-  describe('写真管理パネル表示 (Task 27.6)', () => {
-    beforeEach(() => {
-      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
-      vi.mocked(surveyImagesApi.updateImageMetadata).mockResolvedValue({
-        id: 'img-1',
-        surveyId: 'survey-123',
-        fileName: 'image1.jpg',
-        includeInReport: true,
-        comment: 'updated',
-        displayOrder: 1,
-      });
-      vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
+      // 写真管理パネルが直接表示される
+      expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
     });
 
     it('写真管理パネルに画像情報が表示される (Requirement 10.1)', async () => {
@@ -507,9 +442,7 @@ describe('SiteSurveyDetailPage', () => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
 
-      // 写真管理タブをクリック
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
-
+      // 写真管理パネルが直接表示される
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
       });
@@ -533,8 +466,6 @@ describe('SiteSurveyDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
-
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
 
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
@@ -573,8 +504,6 @@ describe('SiteSurveyDetailPage', () => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
-
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
       });
@@ -594,8 +523,6 @@ describe('SiteSurveyDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
-
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
 
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
@@ -617,8 +544,6 @@ describe('SiteSurveyDetailPage', () => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
-
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
       });
@@ -639,8 +564,6 @@ describe('SiteSurveyDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
-
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
 
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
@@ -677,8 +600,6 @@ describe('SiteSurveyDetailPage', () => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
-
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
       });
@@ -700,8 +621,6 @@ describe('SiteSurveyDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
-
-      fireEvent.click(screen.getByRole('tab', { name: '写真管理' }));
 
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();

@@ -118,7 +118,7 @@
 **Objective:** As a 現場調査担当者, I want 現場調査詳細画面で写真ごとに報告書出力対象を選択しコメントを管理できること, so that 必要な写真とコメントを選択的に報告書に含められる
 
 #### Acceptance Criteria
-1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各写真について報告書出力フラグ（チェックボックス）、サムネイルではない実際の写真、コメント入力用テキストエリアを表示する
+1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各写真について報告書出力フラグ（チェックボックス）、フルサイズの写真（サムネイル一覧は表示しない）、コメント入力用テキストエリアを表示する
 2. When ユーザーが報告書出力フラグのチェックボックスをONにする, the Site Survey Service shall 当該写真をPDF出力対象として設定する
 3. When ユーザーが報告書出力フラグのチェックボックスをOFFにする, the Site Survey Service shall 当該写真をPDF出力対象から除外する
 4. When ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付けて保存する

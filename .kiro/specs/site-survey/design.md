@@ -117,7 +117,7 @@ graph TB
   - AnnotationService: 注釈データの永続化と復元
   - ExportService: PDF/画像エクスポートのビジネスロジック
   - **ImageMetadataService**: 写真コメント・報告書出力フラグの管理（要件10対応）
-  - **PhotoManagementPanel**: 写真一覧管理UI（要件10対応）
+  - **PhotoManagementPanel**: フルサイズ写真一覧管理UI（サムネイル一覧なし、要件10対応）
   - **ImageExportDialog**: 個別画像エクスポートUI（要件12対応）
 - Steering compliance: TypeScript strict mode、ESLint、Prettier、Conventional Commits
 
@@ -240,12 +240,12 @@ sequenceDiagram
     participant Backend
     participant PostgreSQL
 
-    User->>PhotoManagementPanel: 写真一覧画面を開く
+    User->>PhotoManagementPanel: 現場調査詳細画面を開く
     PhotoManagementPanel->>Backend: GET /api/site-surveys/:id/images
     Backend->>PostgreSQL: 画像一覧取得（comment, includeInReport含む）
     PostgreSQL-->>Backend: 画像データ
     Backend-->>PhotoManagementPanel: 画像一覧（署名付きURL付き）
-    PhotoManagementPanel-->>User: 写真一覧表示（実画像、コメント、チェックボックス）
+    PhotoManagementPanel-->>User: フルサイズ写真一覧表示（コメント、チェックボックス）
 
     User->>PhotoManagementPanel: コメント入力
     PhotoManagementPanel->>PhotoManagementPanel: デバウンス（500ms）
@@ -264,7 +264,8 @@ sequenceDiagram
 **Key Decisions**:
 - コメント入力は500msデバウンスで自動保存
 - 報告書出力フラグは即時保存
-- 画像一覧表示では中解像度画像（800x600px程度）を使用してパフォーマンスを確保
+- 現場調査詳細画面ではサムネイル一覧タブを設けず、フルサイズ写真を直接表示（要件10.1準拠）
+- パフォーマンス最適化のため、一覧表示用に中解像度画像（800x600px程度）を使用し、クリック時に元画像を表示
 
 ### PDF報告書生成フロー（要件11対応）
 
@@ -357,7 +358,7 @@ sequenceDiagram
 | 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 9.1-9.6 | 注釈保存・復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
-| **10.1-10.8** | **写真一覧管理・PDF出力設定** | **PhotoManagementPanel, ImageMetadataService** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
+| **10.1-10.8** | **写真一覧管理・PDF出力設定（フルサイズ写真表示、サムネイル一覧なし）** | **PhotoManagementPanel, ImageMetadataService** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
 | **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService** | **ExportAPI** | **PDF報告書生成フロー** |
 | **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService** | **ExportAPI** | **個別画像エクスポートフロー** |
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
@@ -379,7 +380,7 @@ sequenceDiagram
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14 | All Services (P0) | API |
 | SurveyListPage | Frontend/Page | 一覧表示 | 2, 3 | SurveyAPI (P0) | State |
 | SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 4, 5, 10, 11 | SurveyAPI (P0), ImageAPI (P0) | State |
-| **PhotoManagementPanel** | Frontend/Component | 写真一覧管理UI | 10 | ImageMetadataAPI (P0) | State |
+| **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（サムネイル一覧なし） | 10 | ImageMetadataAPI (P0) | State |
 | AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13 | Fabric.js (P0), UndoManager (P0) | State |
 | ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12 | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
@@ -993,15 +994,16 @@ export function initializePdfFonts(doc: jsPDF): void {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 写真一覧管理UIを提供（コメント入力、報告書出力フラグ、ドラッグ&ドロップ並び替え） |
+| Intent | 現場調査詳細画面の写真一覧管理UIを提供（フルサイズ写真表示、コメント入力、報告書出力フラグ、ドラッグ&ドロップ並び替え） |
 | Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8 |
 
 **Responsibilities & Constraints**
-- 写真一覧の表示（サムネイルではなく実画像を表示）
+- **フルサイズの写真を直接表示**（サムネイル一覧タブは表示しない、要件10.1準拠）
 - 写真ごとのコメント入力テキストエリア
 - 報告書出力フラグ（チェックボックス）の管理
 - ドラッグ&ドロップによる順序変更
 - 変更の自動保存（デバウンス500ms）
+- 現場調査詳細画面のメイン表示コンポーネントとして機能
 
 **Dependencies**
 - Inbound: SurveyDetailPage — 親コンポーネント (P0)
@@ -1025,34 +1027,56 @@ interface PhotoManagementPanelProps {
   surveyId: string;
   images: SurveyImageInfo[];
   onImagesChange: (images: SurveyImageInfo[]) => void;
+  onImageClick: (imageId: string) => void; // 画像クリック時にビューア/エディタを開く
   readOnly?: boolean;
 }
 ```
 
 **Implementation Notes**
-- Integration: 既存のSurveyImageGridを拡張または置き換え
+- Integration: 現場調査詳細画面のメインコンテンツとして統合（サムネイル一覧タブとの切り替えなし）
 - Validation: コメント最大2000文字、debounce 500ms
-- Risks: 大量画像時のレンダリングパフォーマンス（仮想スクロール検討）
+- Risks: 大量画像時のレンダリングパフォーマンス（遅延読み込み、仮想スクロール検討）
+- **UI設計の注意点**: サムネイル一覧は別タブとして用意せず、フルサイズ写真のみを表示する単一ビュー構成
 
 ##### UI仕様
 
+現場調査詳細画面では、サムネイル一覧タブを設けず、フルサイズの写真を直接表示する。
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ 写真一覧（表示順序でドラッグ可能）                               │
+│ 現場調査詳細: [調査名]                                           │
+│ 調査日: YYYY-MM-DD  |  画像数: N枚                               │
+├─────────────────────────────────────────────────────────────────┤
+│ 写真一覧（フルサイズ表示、表示順序でドラッグ可能）                 │
 ├─────────────────────────────────────────────────────────────────┤
 │ ┌───┐ ┌──────────────────────────────────────────────────────┐ │
-│ │ ☐ │ │ ┌─────────────────┐  ┌──────────────────────────┐ │ │
-│ │   │ │ │                 │  │ コメント                   │ │ │
-│ │   │ │ │   [実画像]      │  │ ┌──────────────────────┐ │ │ │
-│ │   │ │ │                 │  │ │                      │ │ │ │
-│ │   │ │ │                 │  │ │                      │ │ │ │
-│ │   │ │ └─────────────────┘  │ └──────────────────────┘ │ │ │
+│ │ ☐ │ │ ┌─────────────────────┐  ┌────────────────────────┐ │ │
+│ │   │ │ │                     │  │ コメント                 │ │ │
+│ │   │ │ │  [フルサイズ写真]   │  │ ┌────────────────────┐ │ │ │
+│ │   │ │ │  (クリックで        │  │ │                    │ │ │ │
+│ │   │ │ │   ビューア/エディタ) │  │ │                    │ │ │ │
+│ │   │ │ │                     │  │ └────────────────────┘ │ │ │
+│ │   │ │ └─────────────────────┘  └────────────────────────┘ │ │
 │ └───┘ └──────────────────────────────────────────────────────┘ │
 │   ↑                                                             │
 │ 報告書出力フラグ                                                 │
 ├─────────────────────────────────────────────────────────────────┤
-│ （繰り返し）                                                     │
+│ ┌───┐ ┌──────────────────────────────────────────────────────┐ │
+│ │ ☐ │ │ ┌─────────────────────┐  ┌────────────────────────┐ │ │
+│ │   │ │ │                     │  │ コメント                 │ │ │
+│ │   │ │ │  [フルサイズ写真]   │  │ ┌────────────────────┐ │ │ │
+│ │   │ │ │                     │  │ │                    │ │ │ │
+│ │   │ │ │                     │  │ │                    │ │ │ │
+│ │   │ │ └─────────────────────┘  └────────────────────────┘ │ │
+│ └───┘ └──────────────────────────────────────────────────────┘ │
+│   ↑                                                             │
+│ 報告書出力フラグ                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ （繰り返し...）                                                   │
 └─────────────────────────────────────────────────────────────────┘
+
+※ サムネイル一覧タブは表示しない（要件10.1準拠）
+※ フルサイズ写真をクリックすると画像ビューア/注釈エディタが開く
 ```
 
 #### ImageExportDialog（要件12対応）
