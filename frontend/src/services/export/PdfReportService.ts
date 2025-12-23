@@ -532,6 +532,7 @@ export class PdfReportService {
    *
    * 要件11.5: 1ページあたり3組の写真+コメント配置
    * 画像を左側に配置し、コメントを右側に配置する。
+   * サンプルPDFの書式に準拠：No.通番、下線、点線罫線
    *
    * @param doc jsPDFインスタンス
    * @param images コメント付き注釈画像の配列
@@ -550,7 +551,11 @@ export class PdfReportService {
     const pageWidth = doc.internal.pageSize.getWidth();
     const contentWidth = pageWidth - PDF_REPORT_LAYOUT_V2.PAGE_MARGIN * 2;
     const imageWidth = contentWidth * PDF_REPORT_LAYOUT_V2.IMAGE_WIDTH_RATIO;
-    const commentWidth = contentWidth * PDF_REPORT_LAYOUT_V2.COMMENT_WIDTH_RATIO;
+    const commentAreaWidth = contentWidth * PDF_REPORT_LAYOUT_V2.COMMENT_WIDTH_RATIO;
+
+    // 罫線設定
+    const DOTTED_LINE_COUNT = 10; // 点線罫線の行数
+    const DOTTED_LINE_SPACING = 6.5; // 点線罫線の行間（mm）
 
     let currentY = startY;
 
@@ -590,17 +595,82 @@ export class PdfReportService {
         });
       }
 
-      // コメントのX座標（右側配置）
+      // コメントエリアのX座標（右側配置）
       const commentX = imageX + imageWidth + 10;
+      let commentY = currentY;
 
-      // コメントを描画
-      this.renderComment(doc, image.comment, commentX, currentY + 5, commentWidth);
+      // No.通番を描画（太字）
+      doc.setFontSize(11);
+      doc.setTextColor(30, 30, 30);
+      doc.text(`No.${i + 1}`, commentX, commentY + 4);
+
+      // 通番の下に実線を描画
+      commentY += 6;
+      doc.setDrawColor(30, 30, 30);
+      doc.setLineWidth(0.5);
+      doc.line(commentX, commentY, commentX + commentAreaWidth - 10, commentY);
+
+      // 点線罫線を描画
+      commentY += 4;
+      doc.setDrawColor(100, 100, 100);
+      doc.setLineWidth(0.2);
+
+      // コメントを行に分割
+      const commentLines: string[] = image.comment
+        ? doc.splitTextToSize(image.comment, commentAreaWidth - 15)
+        : [];
+
+      for (let lineIdx = 0; lineIdx < DOTTED_LINE_COUNT; lineIdx++) {
+        const lineY = commentY + lineIdx * DOTTED_LINE_SPACING;
+
+        // コメントテキストを罫線の上に描画（罫線より少し上）
+        if (lineIdx < commentLines.length) {
+          const commentText = commentLines[lineIdx];
+          if (commentText) {
+            doc.setFontSize(PDF_REPORT_LAYOUT_V2.COMMENT_FONT_SIZE);
+            doc.setTextColor(30, 30, 30);
+            doc.text(commentText, commentX, lineY - 1);
+          }
+        }
+
+        // 点線罫線を描画
+        this.drawDottedLine(doc, commentX, lineY, commentX + commentAreaWidth - 10, lineY);
+      }
 
       // 次の行へ
       currentY += PDF_REPORT_LAYOUT_V2.ROW_HEIGHT + PDF_REPORT_LAYOUT_V2.ROW_GAP;
     }
 
     return currentY;
+  }
+
+  /**
+   * 点線を描画する
+   *
+   * @param doc jsPDFインスタンス
+   * @param x1 開始X座標
+   * @param y1 開始Y座標
+   * @param x2 終了X座標
+   * @param y2 終了Y座標
+   */
+  private drawDottedLine(doc: jsPDF, x1: number, y1: number, x2: number, y2: number): void {
+    const dotLength = 0.5; // 点の長さ
+    const gapLength = 1.5; // 間隔
+    const totalLength = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    const dx = (x2 - x1) / totalLength;
+    const dy = (y2 - y1) / totalLength;
+
+    let currentPos = 0;
+    while (currentPos < totalLength) {
+      const startX = x1 + dx * currentPos;
+      const startY = y1 + dy * currentPos;
+      const endPos = Math.min(currentPos + dotLength, totalLength);
+      const endX = x1 + dx * endPos;
+      const endY = y1 + dy * endPos;
+
+      doc.line(startX, startY, endX, endY);
+      currentPos += dotLength + gapLength;
+    }
   }
 
   /**
