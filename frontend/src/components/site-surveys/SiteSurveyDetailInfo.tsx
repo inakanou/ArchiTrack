@@ -23,7 +23,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import type { SiteSurveyDetail } from '../../types/site-survey.types';
-import { exportAndDownloadPdf, type AnnotatedImage } from '../../services/export';
+import { exportAndDownloadPdf, type AnnotatedImageWithComment } from '../../services/export';
 import { renderImagesWithAnnotations } from '../../services/export/AnnotationRendererService';
 import type { PdfExportProgress } from '../../services/export/PdfExportService';
 
@@ -316,10 +316,11 @@ export default function SiteSurveyDetailInfo({
         quality: 0.9,
       });
 
-      // AnnotatedImage形式に変換
-      const annotatedImages: AnnotatedImage[] = renderedImages.map((img) => ({
+      // AnnotatedImageWithComment形式に変換（コメント情報を含める）
+      const annotatedImages: AnnotatedImageWithComment[] = renderedImages.map((img) => ({
         imageInfo: img.imageInfo,
         dataUrl: img.dataUrl,
+        comment: img.imageInfo.comment ?? null,
       }));
 
       // PdfExportServiceを使用してPDFを生成・ダウンロード

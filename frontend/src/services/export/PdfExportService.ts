@@ -12,8 +12,8 @@
 
 import { jsPDF } from 'jspdf';
 import type { SiteSurveyDetail } from '../../types/site-survey.types';
-import type { AnnotatedImage, PdfReportOptions } from './PdfReportService';
-import { generatePdfReport } from './PdfReportService';
+import type { AnnotatedImageWithComment, PdfReportOptions } from './PdfReportService';
+import { generateSurveyReport } from './PdfReportService';
 
 // ============================================================================
 // 定数定義
@@ -95,14 +95,14 @@ export class PdfExportService {
    * 大量画像の処理時は進捗コールバックで進捗を報告する。
    *
    * @param survey 現場調査詳細
-   * @param images 注釈付き画像の配列
+   * @param images コメント付き注釈画像の配列
    * @param options エクスポートオプション
    * @returns PDF Blob
    * @throws Error surveyがnullの場合
    */
   async exportPdf(
     survey: SiteSurveyDetail,
-    images: AnnotatedImage[],
+    images: AnnotatedImageWithComment[],
     options: PdfExportOptions = {}
   ): Promise<Blob> {
     // バリデーション
@@ -137,8 +137,8 @@ export class PdfExportService {
       message: 'PDF報告書を生成中...',
     });
 
-    // PdfReportServiceを使用してPDFを生成
-    generatePdfReport(doc, survey, images, reportOptions);
+    // PdfReportServiceを使用してPDFを生成（3組レイアウト）
+    generateSurveyReport(doc, survey, images, reportOptions);
 
     // 画像ごとの進捗報告（大量画像対応）
     if (images.length > 0 && onProgress) {
@@ -213,12 +213,12 @@ export class PdfExportService {
    * エクスポートとダウンロードを一括で実行する便利メソッド。
    *
    * @param survey 現場調査詳細
-   * @param images 注釈付き画像の配列
+   * @param images コメント付き注釈画像の配列
    * @param options エクスポートオプション
    */
   async exportAndDownloadPdf(
     survey: SiteSurveyDetail,
-    images: AnnotatedImage[],
+    images: AnnotatedImageWithComment[],
     options: PdfExportOptions = {}
   ): Promise<void> {
     const blob = await this.exportPdf(survey, images, options);
@@ -327,13 +327,13 @@ export function resetPdfExportService(): void {
  * PDF報告書をエクスポートする（スタンドアロン関数）
  *
  * @param survey 現場調査詳細
- * @param images 注釈付き画像の配列
+ * @param images コメント付き注釈画像の配列
  * @param options エクスポートオプション
  * @returns PDF Blob
  */
 export function exportPdf(
   survey: SiteSurveyDetail,
-  images: AnnotatedImage[],
+  images: AnnotatedImageWithComment[],
   options?: PdfExportOptions
 ): Promise<Blob> {
   return getDefaultService().exportPdf(survey, images, options);
@@ -353,18 +353,18 @@ export function downloadPdf(blob: Blob, filename?: string): void {
  * PDF報告書を生成してダウンロードする（スタンドアロン関数）
  *
  * @param survey 現場調査詳細
- * @param images 注釈付き画像の配列
+ * @param images コメント付き注釈画像の配列
  * @param options エクスポートオプション
  */
 export function exportAndDownloadPdf(
   survey: SiteSurveyDetail,
-  images: AnnotatedImage[],
+  images: AnnotatedImageWithComment[],
   options?: PdfExportOptions
 ): Promise<void> {
   return getDefaultService().exportAndDownloadPdf(survey, images, options);
 }
 
 // Re-export for convenience
-export { generatePdfReport } from './PdfReportService';
+export { generateSurveyReport } from './PdfReportService';
 
 export default PdfExportService;

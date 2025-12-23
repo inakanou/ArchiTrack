@@ -63,12 +63,15 @@ vi.mock('../../../services/export/PdfFontService', () => ({
 vi.mock('../../../services/export/PdfReportService', () => ({
   PdfReportService: vi.fn().mockImplementation(() => ({
     generateReport: vi.fn().mockImplementation((doc) => doc),
+    generateSurveyReport: vi.fn().mockImplementation((doc) => doc),
     renderCoverPage: vi.fn(),
     renderInfoSection: vi.fn().mockReturnValue(50),
     renderImagesSection: vi.fn().mockReturnValue(100),
+    renderImagesSection3PerPage: vi.fn().mockReturnValue(100),
     renderPageNumbers: vi.fn(),
   })),
   generatePdfReport: vi.fn().mockImplementation((doc) => doc),
+  generateSurveyReport: vi.fn().mockImplementation((doc) => doc),
 }));
 
 // ============================================================================
@@ -121,11 +124,12 @@ function createTestImageInfo(id: string, order: number): SurveyImageInfo {
 }
 
 /**
- * 注釈付き画像データを作成
+ * 注釈付き画像データを作成（コメント付き）
  */
 interface AnnotatedImageForTest {
   imageInfo: SurveyImageInfo;
   dataUrl: string;
+  comment: string | null;
 }
 
 function createTestAnnotatedImages(count: number = 3): AnnotatedImageForTest[] {
@@ -134,6 +138,7 @@ function createTestAnnotatedImages(count: number = 3): AnnotatedImageForTest[] {
     images.push({
       imageInfo: createTestImageInfo(`img-${i + 1}`, i + 1),
       dataUrl: `data:image/jpeg;base64,/9j/test-image-${i + 1}`,
+      comment: `テストコメント${i + 1}`,
     });
   }
   return images;
@@ -374,11 +379,11 @@ describe('PdfExportService', () => {
 
     describe('エラーハンドリング', () => {
       it('PDF生成中のエラーが適切にスローされる', async () => {
-        const { PdfExportService, generatePdfReport } =
+        const { PdfExportService, generateSurveyReport } =
           await import('../../../services/export/PdfExportService');
 
-        // generatePdfReportをエラーを投げるようにモック
-        vi.mocked(generatePdfReport).mockImplementationOnce(() => {
+        // generateSurveyReportをエラーを投げるようにモック
+        vi.mocked(generateSurveyReport).mockImplementationOnce(() => {
           throw new Error('PDF generation failed');
         });
 
