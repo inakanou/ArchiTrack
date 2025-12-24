@@ -179,8 +179,8 @@ test.describe('現場調査画像管理', () => {
       await page.waitForLoadState('networkidle');
 
       // アップロードされた画像が表示されることを確認
-      // SurveyImageGridでは data-testid="image-grid" 内にimg要素が配置される
-      const uploadedImage = page.locator('[data-testid="image-grid"] img');
+      // PhotoManagementPanelでは data-testid="photo-panel-item" 内にimg要素が配置される
+      const uploadedImage = page.locator('[data-testid="photo-panel-item"] img');
       await expect(uploadedImage.first()).toBeVisible({ timeout: getTimeout(15000) });
 
       // 画像IDを取得（詳細リンクやdata属性から）
@@ -282,11 +282,11 @@ test.describe('現場調査画像管理', () => {
       await page.waitForLoadState('networkidle');
 
       // アップロードされた画像が表示されることを確認
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      const uploadedImages = imageGrid.locator('img');
+      // PhotoManagementPanelでは各画像がphoto-panel-item要素として表示される
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
 
       // 少なくとも2つの画像が追加されていることを確認（既存のJPG + PNG + WEBP）
-      const imageCount = await uploadedImages.count();
+      const imageCount = await photoPanelItems.count();
       expect(imageCount).toBeGreaterThanOrEqual(2);
     });
 
@@ -304,9 +304,9 @@ test.describe('現場調査画像管理', () => {
       await page.waitForLoadState('networkidle');
 
       // 現在の画像数を取得
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
-      const initialCount = await imageGrid.locator('img').count();
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const initialCount = await photoPanelItems.count();
 
       // ファイル入力を取得
       let input = page.locator('input[type="file"]').first();
@@ -339,8 +339,8 @@ test.describe('現場調査画像管理', () => {
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      const newImageGrid = page.locator('[data-testid="image-grid"]');
-      const newCount = await newImageGrid.locator('img').count();
+      const newPhotoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      const newCount = await newPhotoPanelItems.count();
       expect(newCount).toBeGreaterThan(initialCount);
     });
 
@@ -435,9 +435,8 @@ test.describe('現場調査画像管理', () => {
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      const images = imageGrid.locator('img');
-      expect(await images.count()).toBeGreaterThan(0);
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      expect(await photoPanelItems.count()).toBeGreaterThan(0);
     });
 
     /**
@@ -551,11 +550,10 @@ test.describe('現場調査画像管理', () => {
 
       // UIに表示される画像の順序を取得
       await page.waitForLoadState('networkidle');
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      const displayedImages = imageGrid.locator('img');
-      const displayedCount = await displayedImages.count();
+      const displayedCount = await photoPanelItems.count();
 
       // 表示されている画像数がAPI結果と一致することを確認
       expect(displayedCount).toBe(sortedByOrder.length);
@@ -574,24 +572,25 @@ test.describe('現場調査画像管理', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 画像ボタン（ドラッグ可能な要素）を取得
-      const imageButtons = imageGrid.locator('button');
-      const imageCount = await imageButtons.count();
+      // ドラッグハンドルを取得（PhotoManagementPanelのドラッグ要素）
+      const dragHandles = page.locator('[data-testid="photo-drag-handle"]');
+      const imageCount = await dragHandles.count();
 
       if (imageCount < 2) {
         // 画像が2枚未満の場合は並び替えテスト不可
         return;
       }
 
-      // 最初と2番目の画像の位置を取得
-      const firstImage = imageButtons.nth(0);
-      const secondImage = imageButtons.nth(1);
+      // 最初と2番目のドラッグハンドルを取得
+      const firstHandle = dragHandles.nth(0);
+      const secondHandle = dragHandles.nth(1);
 
-      const firstImageSrc = await firstImage.locator('img').getAttribute('src');
-      const secondImageSrc = await secondImage.locator('img').getAttribute('src');
+      // 画像のsrcを取得して順序確認用に保存
+      const firstImageSrc = await photoPanelItems.nth(0).locator('img').getAttribute('src');
+      const secondImageSrc = await photoPanelItems.nth(1).locator('img').getAttribute('src');
 
       // ドラッグ＆ドロップを実行
       // 並び替えAPIのレスポンスを待機
@@ -606,7 +605,7 @@ test.describe('現場調査画像管理', () => {
         .catch(() => null); // 並び替えAPIがない場合もテストを続行
 
       // ドラッグ＆ドロップ操作
-      await firstImage.dragTo(secondImage);
+      await firstHandle.dragTo(secondHandle);
 
       // 並び替えAPIが呼ばれた場合はレスポンスを待機
       await reorderPromise;
@@ -616,12 +615,11 @@ test.describe('現場調査画像管理', () => {
       await page.waitForLoadState('networkidle');
 
       // 順序が変更されたことを確認
-      const newImageGrid = page.locator('[data-testid="image-grid"]');
-      await expect(newImageGrid).toBeVisible({ timeout: getTimeout(10000) });
+      const newPhotoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(newPhotoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      const newImageButtons = newImageGrid.locator('button');
-      const newFirstImageSrc = await newImageButtons.nth(0).locator('img').getAttribute('src');
-      const newSecondImageSrc = await newImageButtons.nth(1).locator('img').getAttribute('src');
+      const newFirstImageSrc = await newPhotoPanelItems.nth(0).locator('img').getAttribute('src');
+      const newSecondImageSrc = await newPhotoPanelItems.nth(1).locator('img').getAttribute('src');
 
       // 順序が入れ替わったか、少なくとも操作が完了したことを確認
       // 注: ドラッグ＆ドロップの結果は実装に依存する
@@ -662,11 +660,11 @@ test.describe('現場調査画像管理', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像グリッド内の画像が存在するか確認
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
+      // 画像パネルアイテムが存在するか確認
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      const imageButton = imageGrid.locator('button').first();
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
       const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
 
       if (!hasImages) {
@@ -676,7 +674,7 @@ test.describe('現場調査画像管理', () => {
       }
 
       // 画像が表示されていることを確認（UIテスト）
-      const imageElement = imageButton.locator('img');
+      const imageElement = photoPanelItems.first().locator('img');
       await expect(imageElement).toBeVisible();
 
       // 注: 現在のUIでは画像削除機能は詳細ページに実装されていない
@@ -701,11 +699,11 @@ test.describe('現場調査画像管理', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像グリッド内の画像ボタンを取得
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
+      // 画像パネルアイテム内の画像ボタンを取得
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      const imageButton = imageGrid.locator('button').first();
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
       const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
 
       if (!hasImages) {
