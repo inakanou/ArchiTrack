@@ -91,21 +91,13 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     });
 
     if (userRole && projectPermissions.length > 0) {
-      for (const permission of projectPermissions) {
-        await prisma.rolePermission.upsert({
-          where: {
-            roleId_permissionId: {
-              roleId: userRole.id,
-              permissionId: permission.id,
-            },
-          },
-          update: {},
-          create: {
-            roleId: userRole.id,
-            permissionId: permission.id,
-          },
-        });
-      }
+      await prisma.rolePermission.createMany({
+        data: projectPermissions.map((permission) => ({
+          roleId: userRole.id,
+          permissionId: permission.id,
+        })),
+        skipDuplicates: true,
+      });
     }
 
     // ログイン
