@@ -24,6 +24,7 @@ import type {
   UpdateImageMetadataInput,
   ImageOrderItem,
 } from '../../types/site-survey.types';
+import { AnnotatedImageThumbnail } from './AnnotatedImageThumbnail';
 
 // ============================================================================
 // 型定義
@@ -309,8 +310,8 @@ function PhotoItem({
     setLastSavedComment(newComment);
   }
 
-  // 画像のURLを取得（中解像度画像 > オリジナル画像の順でフォールバック）
-  const imageUrl = image.mediumUrl ?? image.originalUrl ?? image.originalPath;
+  // 注釈付き画像サムネイルのキー（画像IDを使用してリマウントを制御）
+  const imageKey = `annotated-${image.id}`;
 
   // チェックボックスID（アクセシビリティ用）
   const checkboxId = `include-in-report-${image.id}`;
@@ -452,7 +453,13 @@ function PhotoItem({
           data-testid="photo-image-button"
           aria-label={`画像を拡大表示: ${image.fileName}`}
         >
-          <img src={imageUrl} alt={image.fileName} style={styles.image} loading="lazy" />
+          <AnnotatedImageThumbnail
+            key={imageKey}
+            image={image}
+            alt={image.fileName}
+            style={styles.image}
+            loading="lazy"
+          />
         </button>
       </div>
 
