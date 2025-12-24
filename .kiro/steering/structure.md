@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-22（Steering Sync: 新コンポーネント追加を確認、既存パターン準拠）_
+_最終更新: 2025-12-24（Steering Sync: 現場調査機能拡張を確認、パターン準拠）_
 
 ## ルートディレクトリ構成
 
@@ -251,7 +251,7 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── trading-partners/ # 取引先管理テスト
 │   │   └── *.spec.ts
-│   └── site-surveys/     # 現場調査テスト
+│   └── site-surveys/     # 現場調査テスト（11ファイル）
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -278,7 +278,7 @@ e2e/
 - `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
-- `site-surveys/` - 現場調査テスト（10ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス）
+- `site-surveys/` - 現場調査テスト（11ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈）
 
 **テストヘルパー:**
 
@@ -400,7 +400,10 @@ frontend/
 │   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
 │   │       ├── AnnotationToolbar.tsx # 注釈ツールバー
 │   │       ├── StylePanel.tsx       # スタイル設定パネル
-│   │       └── tools/               # 注釈ツール（9ファイル）
+│   │       ├── PhotoManagementPanel.tsx # 写真管理パネル
+│   │       ├── AnnotatedImageThumbnail.tsx # 注釈付き画像サムネイル
+│   │       ├── ImageExportDialog.tsx # 画像エクスポートダイアログ
+│   │       └── tools/               # 注釈ツール（10ファイル）
 │   │           ├── ArrowTool.ts     # 矢印ツール
 │   │           ├── CircleTool.ts    # 円・楕円ツール
 │   │           ├── DimensionTool.ts # 寸法線ツール
@@ -410,6 +413,7 @@ frontend/
 │   │           ├── PolylineTool.ts  # 折れ線ツール
 │   │           ├── RectangleTool.ts # 四角形ツール
 │   │           ├── TextTool.ts      # テキストツール
+│   │           ├── registerCustomShapes.ts # カスタムシェイプ登録
 │   │           └── index.ts         # エクスポート集約
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
@@ -593,7 +597,7 @@ backend/
 │   │   └── security.constants.ts # セキュリティ定数
 │   ├── schemas/           # Zodバリデーションスキーマ
 │   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
-│   ├── services/          # ビジネスロジック（27サービス）
+│   ├── services/          # ビジネスロジック（28サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -619,6 +623,7 @@ backend/
 │   │   ├── image-order.service.ts # 画像順序管理
 │   │   ├── image-delete.service.ts # 画像削除（R2連携）
 │   │   ├── image-list.service.ts # 画像一覧取得（署名付きURL付き）
+│   │   ├── image-metadata.service.ts # 画像メタデータ管理
 │   │   ├── signed-url.service.ts # 署名付きURL生成（R2）
 │   │   └── annotation.service.ts # 注釈管理（Fabric.js JSON保存）
 │   ├── storage/           # ストレージ抽象化レイヤー
