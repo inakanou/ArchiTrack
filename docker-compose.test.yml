@@ -10,11 +10,30 @@
 #   Mailhog:    1026/8026 (dev: 1025/8025)
 #
 # Data is ephemeral (tmpfs) for clean test runs
+#
+# Autoheal: Automatically restarts unhealthy containers during long test runs
 
 services:
+  # Autoheal - Monitors and restarts unhealthy containers
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: architrack-autoheal-test
+    restart: always
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: all
+      AUTOHEAL_INTERVAL: 10
+      AUTOHEAL_START_PERIOD: 60
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: 10
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Run with minimal privileges
+    security_opt:
+      - no-new-privileges:true
+
   # PostgreSQL Database (Test) - Ephemeral
   postgres:
     container_name: architrack-postgres-test
+    restart: unless-stopped
     environment:
       POSTGRES_DB: architrack_test
       POSTGRES_PASSWORD: test
@@ -22,25 +41,56 @@ services:
       - "5433:5432"
     tmpfs:
       - /var/lib/postgresql/data
+    # Strengthened healthcheck for long test runs
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   # Redis (Test) - Ephemeral
   redis:
     container_name: architrack-redis-test
+    restart: unless-stopped
     ports:
       - "6380:6379"
     tmpfs:
       - /data
+    # Strengthened healthcheck for long test runs
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   # Mailhog (Test)
   mailhog:
     container_name: architrack-mailhog-test
+    restart: unless-stopped
     ports:
       - "1026:1025"  # SMTP port
       - "8026:8025"  # Web UI port
+    # Strengthened healthcheck for long test runs
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   # Backend API (Test)
   backend:
     container_name: architrack-backend-test
+    restart: unless-stopped
+    # Strengthened healthcheck for long test runs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
     environment:
       NODE_ENV: test
       PORT: 3000
@@ -85,6 +135,14 @@ services:
   # Frontend (Test)
   frontend:
     container_name: architrack-frontend-test
+    restart: unless-stopped
+    # Strengthened healthcheck for long test runs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 45s
     environment:
       VITE_API_URL: http://localhost:3100
     ports:
