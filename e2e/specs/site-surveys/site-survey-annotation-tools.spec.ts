@@ -176,7 +176,7 @@ test.describe('現場調査注釈ツール', () => {
     await page.waitForLoadState('networkidle');
 
     // 画像ボタンを取得（aria-labelを使用）
-    const imageElement = page.getByRole('button', { name: /^画像:/i }).first();
+    const imageElement = page.getByRole('button', { name: /画像を拡大表示/i }).first();
 
     if (!(await imageElement.isVisible({ timeout: 5000 }).catch(() => false))) {
       return false;
