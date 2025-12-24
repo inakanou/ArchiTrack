@@ -334,7 +334,7 @@ test.describe('現場調査注釈エディタ', () => {
 
     if (!(await pdfButton.isVisible({ timeout: 5000 }).catch(() => false))) {
       // PDF出力機能がない場合は詳細ページが表示されていることを確認
-      const detailTitle = page.getByRole('heading', { name: /現場調査/i });
+      const detailTitle = page.getByRole('heading', { name: '現場調査', exact: true });
       await expect(detailTitle.first()).toBeVisible();
       return;
     }
@@ -383,7 +383,7 @@ test.describe('現場調査注釈エディタ', () => {
 
     if (!(await pdfButton.isVisible({ timeout: 5000 }).catch(() => false))) {
       // PDF出力機能がない場合は詳細ページが表示されていることを確認
-      const detailTitle = page.getByRole('heading', { name: /現場調査/i });
+      const detailTitle = page.getByRole('heading', { name: '現場調査', exact: true });
       await expect(detailTitle.first()).toBeVisible();
       return;
     }

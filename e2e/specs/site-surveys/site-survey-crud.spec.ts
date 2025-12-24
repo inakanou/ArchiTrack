@@ -123,8 +123,8 @@ test.describe('現場調査CRUD操作', () => {
         timeout: getTimeout(10000),
       });
 
-      // 一覧ページが表示されることを確認
-      await expect(page.getByRole('heading', { name: /現場調査/i })).toBeVisible({
+      // 一覧ページが表示されることを確認（h2の「現場調査」見出しを正確にマッチ）
+      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
     });

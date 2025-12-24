@@ -172,7 +172,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       // 現場調査タブまたはリンクが表示されることを確認
       const surveyLink = page.getByRole('link', { name: /現場調査/i });
       const surveyTab = page.getByRole('tab', { name: /現場調査/i });
-      const surveySection = page.getByRole('heading', { name: /現場調査/i });
+      const surveySection = page.getByRole('heading', { name: '現場調査', exact: true });
 
       const hasLink = await surveyLink.isVisible({ timeout: 5000 }).catch(() => false);
       const hasTab = await surveyTab.isVisible({ timeout: 2000 }).catch(() => false);
@@ -202,8 +202,8 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
         timeout: getTimeout(10000),
       });
 
-      // 一覧が表示されることを確認
-      await expect(page.getByRole('heading', { name: /現場調査/i })).toBeVisible({
+      // 一覧が表示されることを確認（h2の「現場調査」見出しを正確にマッチ）
+      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
