@@ -217,10 +217,15 @@ const styles = {
 
 /**
  * 調査日をYYYY/MM/DD形式にフォーマット
+ * ISO 8601形式（例: 2025-12-20T00:00:00.000Z）にも対応
  */
 function formatSurveyDate(dateString: string): string {
-  const [year, month, day] = dateString.split('-');
-  return `${year}/${month}/${day}`;
+  const date = new Date(dateString);
+  return date.toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
 }
 
 /**
