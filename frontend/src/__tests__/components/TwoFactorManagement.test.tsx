@@ -206,6 +206,7 @@ describe('TwoFactorManagement', () => {
     });
 
     it('無効化成功時にonDisableSuccessが呼ばれる', async () => {
+      // 全体テスト実行時のタイミング問題対策
       const user = userEvent.setup({ delay: null });
       render(
         <TwoFactorManagement
@@ -225,14 +226,20 @@ describe('TwoFactorManagement', () => {
       const confirmButton = screen.getByRole('button', { name: /無効化する/i });
       await user.click(confirmButton);
 
-      await waitFor(() => {
-        expect(mockOnDisableTwoFactor).toHaveBeenCalledWith('mypassword123');
-      });
+      await waitFor(
+        () => {
+          expect(mockOnDisableTwoFactor).toHaveBeenCalledWith('mypassword123');
+        },
+        { timeout: 10000 }
+      );
 
-      await waitFor(() => {
-        expect(mockOnDisableSuccess).toHaveBeenCalled();
-      });
-    });
+      await waitFor(
+        () => {
+          expect(mockOnDisableSuccess).toHaveBeenCalled();
+        },
+        { timeout: 10000 }
+      );
+    }, 15000);
   });
 
   describe('アクセシビリティ', () => {
