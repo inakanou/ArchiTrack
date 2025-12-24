@@ -228,8 +228,8 @@ test.describe('現場調査レスポンシブ対応', () => {
         Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 });
       });
 
-      // 画像があればビューアを開く
-      const imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      // 画像があればビューアを開く（PhotoManagementPanel内）
+      const imageElement = page.locator('[data-testid="photo-image-button"]').first();
       if (await imageElement.isVisible({ timeout: 3000 }).catch(() => false)) {
         await imageElement.click();
         await page.waitForLoadState('networkidle');
@@ -312,8 +312,8 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像があればビューアを開く
-      const imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      // 画像があればビューアを開く（PhotoManagementPanel内）
+      const imageElement = page.locator('[data-testid="photo-image-button"]').first();
       if (await imageElement.isVisible({ timeout: 3000 }).catch(() => false)) {
         await imageElement.click();
         await page.waitForLoadState('networkidle');

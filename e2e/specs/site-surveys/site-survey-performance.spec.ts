@@ -124,8 +124,8 @@ test.describe('現場調査非機能要件', () => {
 
       await page.goto(`/site-surveys/${createdSurveyId}`);
 
-      // 画像一覧またはコンテンツが表示されるまで待機
-      await page.waitForSelector('[data-testid="image-grid"], .image-list, .survey-content', {
+      // 画像一覧またはコンテンツが表示されるまで待機（PhotoManagementPanel）
+      await page.waitForSelector('[aria-label="写真管理パネル"], .image-list, .survey-content', {
         timeout: getTimeout(10000),
       });
 

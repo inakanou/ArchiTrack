@@ -146,8 +146,8 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      // アップロードされた画像が表示されることを確認
-      const uploadedImage = page.locator('[data-testid="image-grid"] img');
+      // アップロードされた画像が表示されることを確認（PhotoManagementPanel内）
+      const uploadedImage = page.locator('[data-testid="photo-panel-item"] img');
       await expect(uploadedImage.first()).toBeVisible({ timeout: getTimeout(15000) });
     });
   });
@@ -260,11 +260,11 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像グリッド内の画像ボタンを取得
-      const imageGrid = page.locator('[data-testid="image-grid"]');
-      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
+      // 画像グリッド内の画像ボタンを取得（PhotoManagementPanel内）
+      const photoPanel = page.locator('[aria-label="写真管理パネル"]');
+      await expect(photoPanel).toBeVisible({ timeout: getTimeout(10000) });
 
-      const imageButton = imageGrid.locator('button').first();
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
       const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
 
       if (!hasImages) {

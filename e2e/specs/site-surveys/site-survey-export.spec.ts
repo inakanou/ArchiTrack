@@ -538,22 +538,10 @@ test.describe('現場調査エクスポート機能', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像グリッドから画像をクリックしてビューアを開く
-      const imageButton = page.locator('[data-testid="image-grid"] button').first();
-      const photoPanelImageButton = page.locator('[data-testid="photo-image-button"]').first();
-
-      // どちらかのボタンで画像にアクセスする（beforeAllでアップロード済み）
-      const imageButtonVisible = await imageButton
-        .isVisible({ timeout: getTimeout(10000) })
-        .catch(() => false);
-
-      if (imageButtonVisible) {
-        await imageButton.click();
-      } else {
-        // 写真管理パネルの画像ボタンを試す
-        await expect(photoPanelImageButton).toBeVisible({ timeout: getTimeout(10000) });
-        await photoPanelImageButton.click();
-      }
+      // 画像グリッドから画像をクリックしてビューアを開く（PhotoManagementPanel内）
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
+      await imageButton.click();
 
       // ビューアページに遷移
       await expect(page).toHaveURL(
@@ -587,22 +575,10 @@ test.describe('現場調査エクスポート機能', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像をクリックしてビューアを開く
-      const imageButton = page.locator('[data-testid="image-grid"] button').first();
-      const photoPanelImageButton = page.locator('[data-testid="photo-image-button"]').first();
-
-      // どちらかのボタンで画像にアクセスする（beforeAllでアップロード済み）
-      const imageButtonVisible = await imageButton
-        .isVisible({ timeout: getTimeout(10000) })
-        .catch(() => false);
-
-      if (imageButtonVisible) {
-        await imageButton.click();
-      } else {
-        // 写真管理パネルの画像ボタンを試す
-        await expect(photoPanelImageButton).toBeVisible({ timeout: getTimeout(10000) });
-        await photoPanelImageButton.click();
-      }
+      // 画像をクリックしてビューアを開く（PhotoManagementPanel内）
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
+      await imageButton.click();
 
       await expect(page).toHaveURL(
         new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`),

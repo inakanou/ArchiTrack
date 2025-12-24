@@ -31,7 +31,7 @@ async function ensureImageExists(
   page: import('@playwright/test').Page,
   _surveyId: string
 ): Promise<boolean> {
-  const imageGrid = page.locator('[data-testid="image-grid"]');
+  const imageGrid = page.locator('[aria-label="写真管理パネル"]');
   if (!(await imageGrid.isVisible({ timeout: 5000 }).catch(() => false))) {
     return false;
   }
@@ -212,9 +212,9 @@ test.describe('現場調査画像ビューア', () => {
         await page.reload({ waitUntil: 'networkidle' });
 
         // 画像グリッドに画像が表示されていることを確認
-        const imageGrid = page.locator('[data-testid="image-grid"]');
+        const imageGrid = page.locator('[aria-label="写真管理パネル"]');
         await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
-        const imageItems = imageGrid.locator('button[aria-label^="画像:"]');
+        const imageItems = imageGrid.locator('[data-testid="photo-image-button"]');
         const imageCount = await imageItems.count();
         expect(imageCount).toBeGreaterThanOrEqual(2);
       }
@@ -353,12 +353,12 @@ test.describe('現場調査画像ビューア', () => {
       await page.waitForLoadState('networkidle');
 
       // 画像一覧コンテナを確認
-      const imageContainer = page.locator('[data-testid="image-grid"]');
+      const imageContainer = page.locator('[aria-label="写真管理パネル"]');
 
       // 画像コンテナが存在する場合、順序付きで表示されていることを確認
       if (await imageContainer.isVisible({ timeout: 3000 }).catch(() => false)) {
         // 画像アイテムを取得
-        const imageItems = imageContainer.locator('button[aria-label^="画像:"]');
+        const imageItems = imageContainer.locator('[data-testid="photo-image-button"]');
         const count = await imageItems.count();
 
         // 画像がある場合、表示順序が存在することを確認
@@ -386,23 +386,25 @@ test.describe('現場調査画像ビューア', () => {
       await page.waitForLoadState('networkidle');
 
       // 画像グリッドが存在することを確認
-      const imageGrid = page.locator('[data-testid="image-grid"]');
+      const imageGrid = page.locator('[aria-label="写真管理パネル"]');
       await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
 
       // 画像グリッド内のボタン要素を確認（複数画像がある場合に並び替え可能）
       // まず aria-label付きのボタンを探す
-      let imageItems = page.locator('[data-testid="image-grid"] button[aria-label^="画像:"]');
+      let imageItems = page.locator(
+        '[aria-label="写真管理パネル"] [data-testid="photo-image-button"]'
+      );
       let imageCount = await imageItems.count();
 
       // aria-labelがない場合は一般的なbutton内のimgを探す
       if (imageCount === 0) {
-        imageItems = page.locator('[data-testid="image-grid"] button:has(img)');
+        imageItems = page.locator('[aria-label="写真管理パネル"] button:has(img)');
         imageCount = await imageItems.count();
       }
 
       // それでもない場合は全てのbuttonを探す
       if (imageCount === 0) {
-        imageItems = page.locator('[data-testid="image-grid"] button');
+        imageItems = page.locator('[aria-label="写真管理パネル"] button');
         imageCount = await imageItems.count();
       }
 
@@ -445,13 +447,13 @@ test.describe('現場調査画像ビューア', () => {
 
       // 画像要素を探す（複数のセレクタを試す）
       let imageElement = page
-        .locator('[data-testid="image-grid"] button[aria-label^="画像:"]')
+        .locator('[aria-label="写真管理パネル"] [data-testid="photo-image-button"]')
         .first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       }
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -493,9 +495,9 @@ test.describe('現場調査画像ビューア', () => {
       // 画像が存在しない場合はアップロード
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -542,9 +544,9 @@ test.describe('現場調査画像ビューア', () => {
 
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -613,9 +615,9 @@ test.describe('現場調査画像ビューア', () => {
 
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -661,9 +663,9 @@ test.describe('現場調査画像ビューア', () => {
 
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -707,9 +709,9 @@ test.describe('現場調査画像ビューア', () => {
 
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -748,9 +750,9 @@ test.describe('現場調査画像ビューア', () => {
 
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -810,9 +812,9 @@ test.describe('現場調査画像ビューア', () => {
 
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
@@ -869,9 +871,9 @@ test.describe('現場調査画像ビューア', () => {
 
       await ensureImageExists(page, createdSurveyId);
 
-      let imageElement = page.locator('[data-testid="image-grid"] button:has(img)').first();
+      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
-        imageElement = page.locator('[data-testid="image-grid"] button').first();
+        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
       }
 
       if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
