@@ -40,6 +40,12 @@ import {
   ReasonRequiredError,
   DuplicateProjectNameError,
 } from '../errors/projectError.js';
+import {
+  PROJECT_STATUS_LABELS,
+  TRANSITION_TYPE_LABELS,
+  type ProjectStatus,
+  type TransitionType,
+} from '../types/project.types.js';
 import { z } from 'zod';
 
 const router = Router();
@@ -732,7 +738,15 @@ router.get(
         'Status history retrieved'
       );
 
-      res.json(histories);
+      // ラベルを追加してレスポンスを返す
+      const historiesWithLabels = histories.map((h) => ({
+        ...h,
+        fromStatusLabel: h.fromStatus ? PROJECT_STATUS_LABELS[h.fromStatus as ProjectStatus] : null,
+        toStatusLabel: PROJECT_STATUS_LABELS[h.toStatus as ProjectStatus],
+        transitionTypeLabel: TRANSITION_TYPE_LABELS[h.transitionType as TransitionType],
+      }));
+
+      res.json(historiesWithLabels);
     } catch (error) {
       if (error instanceof ProjectNotFoundError) {
         res.status(404).json({
