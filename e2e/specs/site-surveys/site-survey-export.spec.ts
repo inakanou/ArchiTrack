@@ -236,12 +236,7 @@ test.describe('現場調査エクスポート機能', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 「写真管理」タブをクリック
-      const photoManagementTab = page.getByRole('tab', { name: /写真管理/i });
-      await expect(photoManagementTab).toBeVisible({ timeout: getTimeout(10000) });
-      await photoManagementTab.click();
-
-      // 写真管理パネルが表示されるまで待機
+      // 写真管理パネルが表示されるまで待機（タブなしで直接表示される）
       const photoPanel = page.locator('[data-testid="photo-panel-item"]').first();
 
       // 画像がアップロードされていることを確認（beforeAllでアップロード済み）
@@ -288,10 +283,10 @@ test.describe('現場調査エクスポート機能', () => {
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      // 「写真管理」タブをクリック
-      const photoManagementTabReload = page.getByRole('tab', { name: /写真管理/i });
-      await expect(photoManagementTabReload).toBeVisible({ timeout: getTimeout(10000) });
-      await photoManagementTabReload.click();
+      // 写真管理パネルが表示されるまで待機
+      await expect(page.locator('[data-testid="photo-panel-item"]').first()).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       const checkboxAfterReload = page.getByRole('checkbox', { name: /報告書に含める/i });
 
@@ -311,11 +306,7 @@ test.describe('現場調査エクスポート機能', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 「写真管理」タブをクリック
-      const photoManagementTab = page.getByRole('tab', { name: /写真管理/i });
-      await expect(photoManagementTab).toBeVisible({ timeout: getTimeout(10000) });
-      await photoManagementTab.click();
-
+      // 写真管理パネルが表示されるまで待機（タブなしで直接表示される）
       const photoPanel = page.locator('[data-testid="photo-panel-item"]').first();
 
       // 画像がアップロードされていることを確認（beforeAllでアップロード済み）
@@ -351,10 +342,10 @@ test.describe('現場調査エクスポート機能', () => {
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      // 「写真管理」タブをクリック
-      const photoManagementTabReload = page.getByRole('tab', { name: /写真管理/i });
-      await expect(photoManagementTabReload).toBeVisible({ timeout: getTimeout(10000) });
-      await photoManagementTabReload.click();
+      // 写真管理パネルが表示されるまで待機
+      await expect(page.locator('[data-testid="photo-panel-item"]').first()).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       const textareaAfterReload = page
         .locator('[data-testid="photo-panel-item"]')
@@ -375,11 +366,7 @@ test.describe('現場調査エクスポート機能', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 「写真管理」タブをクリック
-      const photoManagementTab = page.getByRole('tab', { name: /写真管理/i });
-      await expect(photoManagementTab).toBeVisible({ timeout: getTimeout(10000) });
-      await photoManagementTab.click();
-
+      // 写真管理パネルが表示されるまで待機（タブなしで直接表示される）
       const photoPanel = page.locator('[data-testid="photo-panel-item"]').first();
 
       // 画像がアップロードされていることを確認（beforeAllでアップロード済み）
@@ -435,10 +422,10 @@ test.describe('現場調査エクスポート機能', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 「写真管理」タブをクリック
-      const photoManagementTab = page.getByRole('tab', { name: /写真管理/i });
-      await expect(photoManagementTab).toBeVisible({ timeout: getTimeout(10000) });
-      await photoManagementTab.click();
+      // 写真管理パネルが表示されるまで待機（タブなしで直接表示される）
+      await expect(page.locator('[data-testid="photo-panel-item"]').first()).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // まず全ての画像の報告書出力フラグをオフにする
       const checkboxes = page.locator(
@@ -487,10 +474,10 @@ test.describe('現場調査エクスポート機能', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 「写真管理」タブをクリック
-      const photoManagementTab = page.getByRole('tab', { name: /写真管理/i });
-      await expect(photoManagementTab).toBeVisible({ timeout: getTimeout(10000) });
-      await photoManagementTab.click();
+      // 写真管理パネルが表示されるまで待機（タブなしで直接表示される）
+      await expect(page.locator('[data-testid="photo-panel-item"]').first()).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 少なくとも1つの画像を報告書出力対象にする
       const checkbox = page.getByRole('checkbox', { name: /報告書に含める/i });
