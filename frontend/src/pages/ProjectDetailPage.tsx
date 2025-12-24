@@ -612,14 +612,14 @@ export default function ProjectDetailPage() {
         <div style={styles.siteSurveySection}>
           <p style={styles.siteSurveyDescription}>このプロジェクトの現場調査を管理します。</p>
           <div style={styles.siteSurveyActions}>
-            <Link to={`/projects/${project.id}/site-surveys`} style={styles.siteSurveyLink}>
-              現場調査一覧を見る
-            </Link>
             <Link
               to={`/projects/${project.id}/site-surveys/new`}
               style={styles.siteSurveyCreateLink}
             >
               新規作成
+            </Link>
+            <Link to={`/projects/${project.id}/site-surveys`} style={styles.siteSurveyLink}>
+              現場調査一覧を見る
             </Link>
           </div>
         </div>
