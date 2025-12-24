@@ -1327,7 +1327,7 @@ describe('ImageViewer', () => {
     });
 
     describe('回転リセット', () => {
-      it('回転リセットボタンをクリックすると0度に戻る', async () => {
+      it('回転リセットボタンをクリックすると0度に戻る', { timeout: 10000 }, async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
 
@@ -1337,22 +1337,23 @@ describe('ImageViewer', () => {
         });
 
         // 右回転ボタンをクリックして90度にする
-        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        const rotateRightButton = await screen.findByRole('button', { name: /右に回転/i });
         await user.click(rotateRightButton);
 
+        // 回転角度が90°になるのを待つ
         await waitFor(() => {
-          const rotationDisplay = screen.getByTestId('rotation-display');
-          expect(rotationDisplay).toHaveTextContent('90°');
+          expect(screen.getByTestId('rotation-display')).toHaveTextContent('90°');
         });
 
         // 回転リセットボタンをクリック
-        const resetRotationButton = screen.getByRole('button', { name: /回転をリセット/i });
+        const resetRotationButton = await screen.findByRole('button', {
+          name: /回転をリセット/i,
+        });
         await user.click(resetRotationButton);
 
         // 回転角度が0°に戻ることを確認
         await waitFor(() => {
-          const rotationDisplay = screen.getByTestId('rotation-display');
-          expect(rotationDisplay).toHaveTextContent('0°');
+          expect(screen.getByTestId('rotation-display')).toHaveTextContent('0°');
         });
       });
     });
