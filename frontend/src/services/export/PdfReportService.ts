@@ -63,7 +63,7 @@ export const PDF_REPORT_LAYOUT_V2 = {
   /** ページマージン（mm） */
   PAGE_MARGIN: 15,
   /** ヘッダー高さ（mm） */
-  HEADER_HEIGHT: 20,
+  HEADER_HEIGHT: 5,
   /** フッター高さ（mm） */
   FOOTER_HEIGHT: 15,
 
@@ -71,7 +71,7 @@ export const PDF_REPORT_LAYOUT_V2 = {
   /** 1ページあたりの画像数 */
   IMAGES_PER_PAGE: 3,
   /** 1組あたりの高さ（mm） */
-  ROW_HEIGHT: 85,
+  ROW_HEIGHT: 75,
   /** 行間（mm） */
   ROW_GAP: 5,
 
@@ -79,7 +79,7 @@ export const PDF_REPORT_LAYOUT_V2 = {
   /** ページ幅に対する画像幅の比率 */
   IMAGE_WIDTH_RATIO: 0.45,
   /** 画像の最大高さ（mm） */
-  IMAGE_MAX_HEIGHT: 75,
+  IMAGE_MAX_HEIGHT: 70,
 
   // コメント設定
   /** ページ幅に対するコメント幅の比率 */
@@ -239,12 +239,13 @@ export class PdfReportService {
   /**
    * 表紙を描画する
    *
-   * 調査名、調査日、プロジェクト名を含む表紙を描画する。
+   * 調査名、調査日、プロジェクト名、メモを含む表紙を描画する。
+   * サンプルPDFの書式に準拠：上下に青いバー、中央にタイトルと情報
    *
    * @param doc jsPDFインスタンス
    * @param survey 現場調査詳細
    */
-  renderCoverPage(doc: jsPDF, survey: SiteSurveyDetail): void {
+  renderCoverPage(doc: jsPDF, survey: SiteSurveyDetail, outputImageCount?: number): void {
     // フォントを初期化（失敗時は無視してデフォルトフォントを使用）
     try {
       initializePdfFonts(doc);
@@ -253,42 +254,36 @@ export class PdfReportService {
     }
 
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
     const centerX = pageWidth / 2;
-
-    // 背景の装飾線（上部）
-    doc.setDrawColor(50, 100, 150);
-    doc.setLineWidth(2);
-    doc.line(PDF_REPORT_LAYOUT.PAGE_MARGIN, 30, pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN, 30);
 
     // タイトル：「現場調査報告書」
     doc.setFontSize(PDF_REPORT_LAYOUT.TITLE_FONT_SIZE);
     doc.setTextColor(30, 30, 30);
-    doc.text('現場調査報告書', centerX, 60, { align: 'center' });
+    doc.text('現場調査報告書', centerX, 55, { align: 'center' });
 
     // 調査名
     doc.setFontSize(PDF_REPORT_LAYOUT.SUBTITLE_FONT_SIZE + 4);
-    doc.text(survey.name, centerX, 90, { align: 'center' });
+    doc.text(survey.name, centerX, 85, { align: 'center' });
 
     // 装飾線（中央）
-    doc.setDrawColor(150, 150, 150);
+    doc.setDrawColor(80, 80, 80);
     doc.setLineWidth(0.5);
     doc.line(
       PDF_REPORT_LAYOUT.PAGE_MARGIN + 30,
-      110,
+      105,
       pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN - 30,
-      110
+      105
     );
 
     // 基本情報セクション
-    const infoStartY = 130;
+    const infoStartY = 135;
     const labelX = centerX - 50;
     const valueX = centerX + 10;
     doc.setFontSize(PDF_REPORT_LAYOUT.HEADER_FONT_SIZE);
 
-    // プロジェクト名
+    // 工事名（プロジェクト名）
     doc.setTextColor(80, 80, 80);
-    doc.text('プロジェクト：', labelX, infoStartY, { align: 'right' });
+    doc.text('工事名：', labelX, infoStartY, { align: 'right' });
     doc.setTextColor(30, 30, 30);
     doc.text(survey.project.name, valueX, infoStartY);
 
@@ -298,11 +293,12 @@ export class PdfReportService {
     doc.setTextColor(30, 30, 30);
     doc.text(formatDateForPdf(survey.surveyDate), valueX, infoStartY + 15);
 
-    // 画像件数
+    // 画像件数（PDF出力対象の枚数を優先）
+    const imageCount = outputImageCount ?? survey.imageCount;
     doc.setTextColor(80, 80, 80);
     doc.text('画像数：', labelX, infoStartY + 30, { align: 'right' });
     doc.setTextColor(30, 30, 30);
-    doc.text(`${survey.imageCount}枚`, valueX, infoStartY + 30);
+    doc.text(`${imageCount}枚`, valueX, infoStartY + 30);
 
     // 作成日
     const createdDate = survey.createdAt.split('T')[0] ?? '';
@@ -311,15 +307,28 @@ export class PdfReportService {
     doc.setTextColor(30, 30, 30);
     doc.text(formatDateForPdf(createdDate), valueX, infoStartY + 45);
 
-    // 装飾線（下部）
-    doc.setDrawColor(50, 100, 150);
-    doc.setLineWidth(2);
-    doc.line(
-      PDF_REPORT_LAYOUT.PAGE_MARGIN,
-      pageHeight - 30,
-      pageWidth - PDF_REPORT_LAYOUT.PAGE_MARGIN,
-      pageHeight - 30
-    );
+    // メモ
+    doc.setTextColor(80, 80, 80);
+    doc.text('メモ：', labelX, infoStartY + 60, { align: 'right' });
+    doc.setTextColor(30, 30, 30);
+    if (survey.memo && survey.memo.trim() !== '') {
+      // メモを折り返して表示（最大幅を設定）
+      const memoMaxWidth = pageWidth - valueX - PDF_REPORT_LAYOUT.PAGE_MARGIN;
+      const memoLines: string[] = doc.splitTextToSize(survey.memo, memoMaxWidth);
+      let memoY = infoStartY + 60;
+      const maxMemoLines = 5; // 表紙では最大5行
+      const displayLines = memoLines.slice(0, maxMemoLines);
+      for (const line of displayLines) {
+        doc.text(line, valueX, memoY);
+        memoY += 6;
+      }
+      if (memoLines.length > maxMemoLines) {
+        doc.text('...', valueX, memoY);
+      }
+    } else {
+      doc.setTextColor(120, 120, 120);
+      doc.text('（なし）', valueX, infoStartY + 60);
+    }
   }
 
   /**
@@ -554,7 +563,7 @@ export class PdfReportService {
     const commentAreaWidth = contentWidth * PDF_REPORT_LAYOUT_V2.COMMENT_WIDTH_RATIO;
 
     // 罫線設定
-    const DOTTED_LINE_COUNT = 10; // 点線罫線の行数
+    const DOTTED_LINE_COUNT = 8; // 点線罫線の行数
     const DOTTED_LINE_SPACING = 6.5; // 点線罫線の行間（mm）
 
     let currentY = startY;
@@ -610,8 +619,8 @@ export class PdfReportService {
       doc.setLineWidth(0.5);
       doc.line(commentX, commentY, commentX + commentAreaWidth - 10, commentY);
 
-      // 点線罫線を描画
-      commentY += 4;
+      // 点線罫線を描画（No.行から離してバランスを整える）
+      commentY += 10;
       doc.setDrawColor(100, 100, 100);
       doc.setLineWidth(0.2);
 
@@ -676,7 +685,7 @@ export class PdfReportService {
   /**
    * 調査報告書を3組レイアウトで生成する（Task 28.2用）
    *
-   * 要件11.4: 1ページ目に基本情報、2ページ目以降に画像+コメント3組
+   * 要件11.4: 1ページ目に表紙（サンプルPDF準拠）、2ページ目以降に画像+コメント3組
    *
    * @param doc jsPDFインスタンス
    * @param survey 現場調査詳細
@@ -700,8 +709,8 @@ export class PdfReportService {
 
     // オプションのデフォルト値を設定
     const opts = {
-      includeCoverPage: false, // 3組レイアウトでは表紙なしで基本情報を1ページ目に
-      includeInfoSection: true,
+      includeCoverPage: true, // サンプルPDF準拠の表紙を使用
+      includeInfoSection: false, // 表紙に情報を含めるため基本情報セクションは不要
       includeImages: true,
       includePageNumbers: true,
       ...options,
@@ -718,30 +727,9 @@ export class PdfReportService {
 
     let currentY: number = PDF_REPORT_LAYOUT_V2.PAGE_MARGIN;
 
-    // 1ページ目: 基本情報を描画
-    if (opts.includeInfoSection) {
-      // タイトル
-      doc.setFontSize(PDF_REPORT_LAYOUT.TITLE_FONT_SIZE);
-      doc.setTextColor(30, 30, 30);
-      doc.text(survey.name, PDF_REPORT_LAYOUT_V2.PAGE_MARGIN, currentY + 10);
-      currentY += 20;
-
-      // 調査日
-      doc.setFontSize(PDF_REPORT_LAYOUT.HEADER_FONT_SIZE);
-      doc.setTextColor(80, 80, 80);
-      doc.text(
-        `調査日: ${formatDateForPdf(survey.surveyDate)}`,
-        PDF_REPORT_LAYOUT_V2.PAGE_MARGIN,
-        currentY
-      );
-      currentY += 10;
-
-      // プロジェクト名
-      doc.text(`プロジェクト: ${survey.project.name}`, PDF_REPORT_LAYOUT_V2.PAGE_MARGIN, currentY);
-      currentY += 15;
-
-      // メモ
-      currentY = this.renderInfoSection(doc, survey, currentY);
+    // 1ページ目: 表紙を描画（サンプルPDF準拠）
+    if (opts.includeCoverPage) {
+      this.renderCoverPage(doc, survey, images.length);
     }
 
     // 2ページ目以降: 画像+コメントを3組ずつ配置
