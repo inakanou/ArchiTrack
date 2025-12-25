@@ -589,40 +589,103 @@ done
 echo "   ✅ Containers refreshed successfully"
 echo ""
 
-# E2E tests
-echo "🧪 Running E2E tests..."
+# E2E tests with Sharding
+# ============================================================================
+# ベストプラクティス: テストシャーディングによるメモリ負荷軽減
+# - Playwright公式推奨: 長時間スイートを複数シャードに分割
+# - 各シャード間でコンテナを再起動してメモリをリフレッシュ
+# - WSL2環境でのOOMクラッシュを防止
+# 参考: https://playwright.dev/docs/test-sharding
+# ============================================================================
+echo "🧪 Running E2E tests with sharding (3 shards for memory optimization)..."
+echo ""
+echo "   シャーディング戦略:"
+echo "     - 3シャードに分割してメモリ累積を防止"
+echo "     - 各シャード間でコンテナをリフレッシュ"
+echo "     - 各シャードのタイムアウト: 15分"
+echo ""
 
-# E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
-# タイムアウト設定: 30分（1800秒）でハングアップを防止
-#   ベストプラクティス: タイムアウト = 通常実行時間の2-3倍
-#   37テスト × retry=2 → 最大111回実行、通常15-20分完了見込み
-#   --kill-after=10: TERMシグナル送信後、10秒以内に終了しなければKILLシグナルを送信
-#   --foreground: プロセスグループ全体にシグナルを送信（子プロセスも確実に停止）
-# CI=true: HTML Reportサーバーを起動せず、レポートのみ生成（ベストプラクティス）
-echo "   Note: E2E tests will run synchronously to ensure quality before push."
-echo "   HTML report will be generated but server will not start."
-echo "   Timeout: 30 minutes (with forced kill after grace period)"
-echo "   Progress: Playwright list reporter shows test execution in real-time"
+TOTAL_SHARDS=3
+E2E_FAILED=0
 
-# timeoutコマンドで確実にプロセスグループ全体を停止
-CI=true timeout --foreground --kill-after=10 1800 npm run test:e2e
-E2E_EXIT_CODE=$?
+for SHARD in $(seq 1 $TOTAL_SHARDS); do
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔄 Shard $SHARD/$TOTAL_SHARDS を実行中..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-if [ $E2E_EXIT_CODE -eq 124 ]; then
-  echo "❌ E2E tests timed out after 30 minutes. Push aborted."
-  echo "   This usually indicates a hanging test or infinite loop."
-  npm run test:docker:down > /dev/null 2>&1
-  exit 1
-elif [ $E2E_EXIT_CODE -eq 137 ]; then
-  echo "❌ E2E tests were forcibly killed (SIGKILL). Push aborted."
-  echo "   Tests did not respond to termination signal within grace period."
-  npm run test:docker:down > /dev/null 2>&1
-  exit 1
-elif [ $E2E_EXIT_CODE -ne 0 ]; then
-  echo "❌ E2E tests failed with exit code: $E2E_EXIT_CODE. Push aborted."
+  # 各シャードのタイムアウト: 15分（900秒）
+  CI=true timeout --foreground --kill-after=10 900 npx playwright test --shard=$SHARD/$TOTAL_SHARDS
+  SHARD_EXIT_CODE=$?
+
+  if [ $SHARD_EXIT_CODE -eq 124 ]; then
+    echo "❌ Shard $SHARD timed out after 15 minutes."
+    E2E_FAILED=1
+    break
+  elif [ $SHARD_EXIT_CODE -eq 137 ]; then
+    echo "❌ Shard $SHARD was forcibly killed (SIGKILL)."
+    E2E_FAILED=1
+    break
+  elif [ $SHARD_EXIT_CODE -ne 0 ]; then
+    echo "❌ Shard $SHARD failed with exit code: $SHARD_EXIT_CODE"
+    E2E_FAILED=1
+    break
+  fi
+
+  echo "✅ Shard $SHARD/$TOTAL_SHARDS 完了"
+
+  # 最後のシャード以外はコンテナをリフレッシュ
+  if [ $SHARD -lt $TOTAL_SHARDS ]; then
+    echo ""
+    echo "🔄 メモリリフレッシュのためコンテナを再起動..."
+    docker restart architrack-backend-test architrack-frontend-test > /dev/null 2>&1
+
+    # バックエンドのヘルスチェック
+    RETRY_COUNT=0
+    MAX_RETRIES=12
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+      if curl -s http://localhost:3100/health > /dev/null 2>&1; then
+        break
+      fi
+      RETRY_COUNT=$((RETRY_COUNT + 1))
+      sleep 5
+    done
+
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+      echo "❌ Backend failed to restart between shards."
+      E2E_FAILED=1
+      break
+    fi
+
+    # フロントエンドのヘルスチェック
+    RETRY_COUNT=0
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+      if curl -s http://localhost:5174 > /dev/null 2>&1; then
+        break
+      fi
+      RETRY_COUNT=$((RETRY_COUNT + 1))
+      sleep 5
+    done
+
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+      echo "❌ Frontend failed to restart between shards."
+      E2E_FAILED=1
+      break
+    fi
+
+    echo "   ✅ コンテナ再起動完了"
+    echo ""
+  fi
+done
+
+if [ $E2E_FAILED -ne 0 ]; then
+  echo ""
+  echo "❌ E2E tests failed. Push aborted."
   npm run test:docker:down > /dev/null 2>&1
   exit 1
 fi
+
+echo ""
+echo "✅ All $TOTAL_SHARDS shards completed successfully"
 
 # テスト環境のクリーンアップ（成功時）
 # tmpfsを使用しているため、データは自動的に破棄される

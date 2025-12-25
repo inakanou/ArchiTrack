@@ -34,6 +34,9 @@ services:
   postgres:
     container_name: architrack-postgres-test
     restart: unless-stopped
+    # OOMキラーからの保護（DBは最優先で保護）
+    # 参考: https://docs.docker.com/engine/containers/resource_constraints/
+    oom_score_adj: -900
     environment:
       POSTGRES_DB: architrack_test
       POSTGRES_PASSWORD: test
@@ -105,6 +108,9 @@ services:
   backend:
     container_name: architrack-backend-test
     restart: unless-stopped
+    # OOMキラーからの保護（-1000〜1000、低いほど保護される）
+    # 参考: https://docs.docker.com/engine/containers/resource_constraints/
+    oom_score_adj: -500
     # Memory limit to prevent OOM under WSL2 memory pressure
     deploy:
       resources:
@@ -164,6 +170,9 @@ services:
   frontend:
     container_name: architrack-frontend-test
     restart: unless-stopped
+    # OOMキラーからの保護（-1000〜1000、低いほど保護される）
+    # 参考: https://docs.docker.com/engine/containers/resource_constraints/
+    oom_score_adj: -500
     # Memory limit to prevent OOM under WSL2 memory pressure
     deploy:
       resources:
