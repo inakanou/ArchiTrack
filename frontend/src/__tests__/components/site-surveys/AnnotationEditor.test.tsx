@@ -14,8 +14,29 @@
  * - 背景画像の設定
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
+
+// act警告とエラーログを抑制
+const originalConsoleError = console.error;
+beforeAll(() => {
+  console.error = (...args: unknown[]) => {
+    const message = typeof args[0] === 'string' ? args[0] : '';
+    // act警告と画像読み込みエラーログを抑制
+    if (
+      message.includes('act(...)') ||
+      message.includes('画像の読み込みに失敗しました') ||
+      message.includes('注釈データの読み込みに失敗しました')
+    ) {
+      return;
+    }
+    originalConsoleError.apply(console, args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalConsoleError;
+});
 
 // vi.hoistedでモックインスタンスを定義（ホイスティング対応）
 const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
@@ -68,6 +89,14 @@ const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(
     mockFromURL,
   };
 });
+
+// survey-annotations APIのモック
+vi.mock('../../../api/survey-annotations', () => ({
+  getAnnotation: vi.fn().mockResolvedValue(null),
+  saveAnnotation: vi.fn().mockResolvedValue({ id: 'test-annotation-id' }),
+  exportAnnotationJson: vi.fn().mockResolvedValue('{}'),
+  updateThumbnail: vi.fn().mockResolvedValue({ success: true, thumbnailPath: '/test/path' }),
+}));
 
 // Fabric.jsのモック
 vi.mock('fabric', () => {
