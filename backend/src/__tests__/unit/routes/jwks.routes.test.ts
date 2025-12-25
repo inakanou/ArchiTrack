@@ -1,12 +1,31 @@
 // backend/src/__tests__/unit/routes/jwks.routes.test.ts
 import request from 'supertest';
 import express from 'express';
-import { describe, it, expect, beforeAll } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterEach,
+  vi,
+  type MockInstance,
+} from 'vitest';
 import * as jose from 'jose';
 import jwksRouter from '../../../routes/jwks.routes.js';
 
 describe('JWKS Endpoint', () => {
   let app: express.Application;
+  let consoleErrorSpy: MockInstance;
+
+  beforeEach(() => {
+    // console.errorをモックしてテスト出力をクリーンに保つ
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+  });
 
   beforeAll(async () => {
     // テスト用EdDSA鍵ペアを生成
