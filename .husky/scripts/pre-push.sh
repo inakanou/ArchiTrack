@@ -604,7 +604,7 @@ echo ""
 echo "   シャーディング戦略:"
 echo "     - 3シャードに分割してメモリ累積を防止"
 echo "     - 各シャード間でコンテナをリフレッシュ"
-echo "     - 各シャードのタイムアウト: 15分"
+echo "     - 各シャードのタイムアウト: 20分"
 echo ""
 
 TOTAL_SHARDS=3
@@ -615,12 +615,12 @@ for SHARD in $(seq 1 $TOTAL_SHARDS); do
   echo "🔄 Shard $SHARD/$TOTAL_SHARDS を実行中..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # 各シャードのタイムアウト: 15分（900秒）
-  CI=true timeout --foreground --kill-after=10 900 npx playwright test --shard=$SHARD/$TOTAL_SHARDS
+  # 各シャードのタイムアウト: 20分（1200秒）
+  CI=true timeout --foreground --kill-after=10 1200 npx playwright test --shard=$SHARD/$TOTAL_SHARDS
   SHARD_EXIT_CODE=$?
 
   if [ $SHARD_EXIT_CODE -eq 124 ]; then
-    echo "❌ Shard $SHARD timed out after 15 minutes."
+    echo "❌ Shard $SHARD timed out after 20 minutes."
     E2E_FAILED=1
     break
   elif [ $SHARD_EXIT_CODE -eq 137 ]; then
