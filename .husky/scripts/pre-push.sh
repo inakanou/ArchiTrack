@@ -535,6 +535,60 @@ fi
 echo "✅ Requirement coverage check passed"
 echo ""
 
+# ============================================================================
+# コンテナ再起動（E2Eテスト前のメモリリフレッシュ）
+# ============================================================================
+# ベストプラクティス: 長時間実行後のメモリ累積をリセット
+# - 統合テストまでの実行でメモリが累積している可能性
+# - コンテナを再起動してメモリ状態をクリーンに
+# - autohealに頼らず、予防的にリフレッシュ
+# ============================================================================
+
+echo "🔄 Refreshing Docker containers before E2E tests..."
+echo "   This ensures clean memory state after integration tests."
+
+# Backend と Frontend のみ再起動（DB/Redis/Mailhog はステートレスなので不要）
+docker restart architrack-backend-test architrack-frontend-test > /dev/null 2>&1
+
+# 再起動後のヘルスチェック（バックエンド）
+echo "   Waiting for backend to be ready after restart..."
+MAX_RETRIES=12
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s http://localhost:3100/health > /dev/null 2>&1; then
+    echo "   ✅ Backend is ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ Backend failed to restart. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
+    exit 1
+  fi
+  sleep 5
+done
+
+# 再起動後のヘルスチェック（フロントエンド）
+echo "   Waiting for frontend to be ready after restart..."
+MAX_RETRIES=12
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s http://localhost:5174 > /dev/null 2>&1; then
+    echo "   ✅ Frontend is ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ Frontend failed to restart. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
+    exit 1
+  fi
+  sleep 5
+done
+
+echo "   ✅ Containers refreshed successfully"
+echo ""
+
 # E2E tests
 echo "🧪 Running E2E tests..."
 

@@ -41,6 +41,13 @@ services:
       - "5433:5432"
     tmpfs:
       - /var/lib/postgresql/data
+    # Memory limit to prevent OOM under WSL2 memory pressure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -57,6 +64,13 @@ services:
       - "6380:6379"
     tmpfs:
       - /data
+    # Memory limit to prevent OOM under WSL2 memory pressure
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -72,6 +86,13 @@ services:
     ports:
       - "1026:1025"  # SMTP port
       - "8026:8025"  # Web UI port
+    # Memory limit to prevent OOM under WSL2 memory pressure
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+        reservations:
+          memory: 32M
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025"]
@@ -84,6 +105,13 @@ services:
   backend:
     container_name: architrack-backend-test
     restart: unless-stopped
+    # Memory limit to prevent OOM under WSL2 memory pressure
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
@@ -136,6 +164,13 @@ services:
   frontend:
     container_name: architrack-frontend-test
     restart: unless-stopped
+    # Memory limit to prevent OOM under WSL2 memory pressure
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5173"]
