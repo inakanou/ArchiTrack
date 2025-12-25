@@ -90,8 +90,7 @@ export function AnnotatedImageThumbnail({
       try {
         annotationData = await getAnnotation(image.id);
       } catch {
-        // 注釈取得に失敗した場合は元画像を表示
-        console.debug(`No annotation found for image ${image.id}`);
+        // 注釈取得に失敗した場合は元画像を表示（正常系のため無視）
       }
 
       // マウント解除されていたら処理を中止

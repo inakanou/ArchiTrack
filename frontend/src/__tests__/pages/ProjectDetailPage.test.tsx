@@ -93,6 +93,9 @@ function renderWithRouter(projectId: string = 'project-1') {
       <ToastProvider>
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          {/* 現場調査関連のルート（リンク遷移時の警告を防止） */}
+          <Route path="/projects/:id/site-surveys" element={<div>現場調査一覧</div>} />
+          <Route path="/projects/:id/site-surveys/new" element={<div>現場調査新規作成</div>} />
         </Routes>
       </ToastProvider>
     </MemoryRouter>
