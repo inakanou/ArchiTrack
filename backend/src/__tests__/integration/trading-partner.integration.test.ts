@@ -529,14 +529,27 @@ describe('TradingPartner Integration Tests', () => {
       });
 
       // 同じ取引先に同じ種別を追加しようとするとエラー
-      await expect(
-        prisma.tradingPartnerTypeMapping.create({
-          data: {
-            tradingPartnerId: partner.id,
-            type: TradingPartnerType.CUSTOMER,
-          },
-        })
-      ).rejects.toThrow();
+      // Prismaのエラーログを抑制（意図的にユニーク制約違反を発生させるため）
+      const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        const str = typeof chunk === 'string' ? chunk : chunk.toString();
+        if (str.includes('prisma:error') || str.includes('Unique constraint failed')) {
+          return true;
+        }
+        return originalStdoutWrite(chunk);
+      }) as typeof process.stdout.write;
+      try {
+        await expect(
+          prisma.tradingPartnerTypeMapping.create({
+            data: {
+              tradingPartnerId: partner.id,
+              type: TradingPartnerType.CUSTOMER,
+            },
+          })
+        ).rejects.toThrow();
+      } finally {
+        process.stdout.write = originalStdoutWrite;
+      }
     });
   });
 
