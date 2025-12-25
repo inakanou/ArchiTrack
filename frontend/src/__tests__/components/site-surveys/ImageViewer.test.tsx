@@ -318,6 +318,7 @@ describe('ImageViewer', () => {
     });
 
     it('画像読み込みエラー時はエラーメッセージが表示される', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       mockFromURL.mockRejectedValueOnce(new Error('画像の読み込みに失敗しました'));
 
       render(<ImageViewer {...defaultProps} />);
@@ -328,6 +329,8 @@ describe('ImageViewer', () => {
         expect(errorMessage).toBeInTheDocument();
         expect(errorMessage).toHaveTextContent(/画像の読み込み/i);
       });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 
