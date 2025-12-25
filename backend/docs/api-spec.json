@@ -749,6 +749,90 @@
       }
     },
     "/api/site-surveys/images/{imageId}/annotations": {
+      "get": {
+        "summary": "注釈データ取得",
+        "description": "画像に関連付けられた注釈データを取得する",
+        "tags": [
+          "Annotations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "imageId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "画像ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "注釈データ取得成功（注釈が存在しない場合はdata: nullを返す）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "imageId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "data": {
+                          "type": "object"
+                        },
+                        "version": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": null
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "無効な画像ID形式"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "画像が見つからない"
+          }
+        }
+      },
       "put": {
         "summary": "注釈データ保存",
         "description": "画像に注釈データを保存する（新規作成または更新）",

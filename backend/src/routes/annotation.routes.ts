@@ -58,7 +58,7 @@ const annotationService = new AnnotationService({ prisma });
  *         description: 画像ID
  *     responses:
  *       200:
- *         description: 注釈データ取得成功（注釈が存在しない場合はdata: nullを返す）
+ *         description: "注釈データ取得成功（注釈が存在しない場合はdata: nullを返す）"
  *         content:
  *           application/json:
  *             schema:
