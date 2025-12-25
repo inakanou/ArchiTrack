@@ -14,6 +14,24 @@ import { renderHook, act } from '@testing-library/react';
 import { AuthProvider } from '../../contexts/AuthContext';
 import { useAuth } from '../../hooks/useAuth';
 
+// loggerをモック（テスト出力をクリーンに保つため）
+vi.mock('../../utils/logger', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    exception: vi.fn(),
+  },
+  default: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    exception: vi.fn(),
+  },
+}));
+
 describe('AuthContext - 2FA機能', () => {
   let originalFetch: typeof globalThis.fetch;
 
