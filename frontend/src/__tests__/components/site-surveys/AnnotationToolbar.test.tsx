@@ -19,8 +19,8 @@ import { render, screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AnnotationToolbar, {
   type ToolType,
-  TOOL_DEFINITIONS,
 } from '../../../components/site-surveys/AnnotationToolbar';
+import { TOOL_DEFINITIONS } from '../../../components/site-surveys/annotation-toolbar.constants';
 
 // ============================================================================
 // テストヘルパー

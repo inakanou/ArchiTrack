@@ -13,7 +13,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ReactNode } from 'react';
-import { ToastProvider, useToast } from '../../hooks/useToast';
+import { ToastProvider } from '../../components/ToastProvider';
+import { useToast } from '../../hooks/useToast';
 import ToastNotification from '../../components/ToastNotification';
 import { AuthContext, AuthContextValue } from '../../contexts/AuthContext';
 

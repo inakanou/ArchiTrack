@@ -13,26 +13,12 @@
  */
 
 import React, { useCallback } from 'react';
+import { type StyleOptions, DEFAULT_STYLE_OPTIONS } from './style-panel.constants';
 
-// ============================================================================
-// 型定義
-// ============================================================================
-
-/**
- * スタイル設定オプション
- */
-export interface StyleOptions {
-  /** 線色（HEXカラーコード） */
-  strokeColor: string;
-  /** 塗りつぶし色（HEXカラーコードまたは'transparent'） */
-  fillColor: string;
-  /** 線の太さ（1-20） */
-  strokeWidth: number;
-  /** フォントサイズ（8-72） */
-  fontSize: number;
-  /** 文字色（HEXカラーコード） */
-  fontColor: string;
-}
+// 型と定数の再エクスポート（後方互換性のため）
+export type { StyleOptions };
+// eslint-disable-next-line react-refresh/only-export-components
+export { DEFAULT_STYLE_OPTIONS };
 
 /**
  * StylePanelのProps
@@ -49,17 +35,6 @@ export interface StylePanelProps {
 // ============================================================================
 // 定数定義
 // ============================================================================
-
-/**
- * デフォルトのスタイル設定
- */
-export const DEFAULT_STYLE_OPTIONS: StyleOptions = {
-  strokeColor: '#000000',
-  fillColor: 'transparent',
-  strokeWidth: 2,
-  fontSize: 16,
-  fontColor: '#000000',
-};
 
 /**
  * プリセットカラー（線色・塗りつぶし色用）

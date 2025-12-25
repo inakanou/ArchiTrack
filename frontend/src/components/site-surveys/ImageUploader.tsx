@@ -20,22 +20,16 @@
  */
 
 import { useState, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react';
+import {
+  ALLOWED_FILE_TYPES,
+  ALLOWED_MIME_TYPES,
+  MAX_FILE_SIZE_MB,
+  MAX_FILE_SIZE_BYTES,
+} from './image-uploader.constants';
 
-// ============================================================================
-// 定数
-// ============================================================================
-
-/** 許可されるファイル拡張子 */
-export const ALLOWED_FILE_TYPES = ['.jpg', '.jpeg', '.png', '.webp'];
-
-/** 許可されるMIMEタイプ */
-export const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-
-/** 最大ファイルサイズ（MB） */
-export const MAX_FILE_SIZE_MB = 50;
-
-/** 最大ファイルサイズ（バイト） */
-export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+// 定数の再エクスポート（後方互換性のため）
+// eslint-disable-next-line react-refresh/only-export-components
+export { ALLOWED_FILE_TYPES, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES };
 
 // ============================================================================
 // 型定義

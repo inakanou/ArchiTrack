@@ -24,7 +24,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '../../contexts/AuthContext';
-import { ToastProvider } from '../../hooks/useToast';
+import { ToastProvider } from '../../components/ToastProvider';
 import ProjectEditPage from '../../pages/ProjectEditPage';
 import * as projectsApi from '../../api/projects';
 import { ApiError } from '../../api/client';

@@ -216,6 +216,9 @@ export function useFabricUndoIntegration({
       return;
     }
 
+    // refの値をローカル変数にコピー（クリーンアップ時の警告を回避）
+    const objectSnapshots = objectSnapshotsRef.current;
+
     /**
      * object:added イベントハンドラ
      *
@@ -352,7 +355,7 @@ export function useFabricUndoIntegration({
       canvas.off('selection:updated', handleSelectionCreated);
       canvas.off('object:modified', handleObjectModified);
       canvas.off('object:removed', handleObjectRemoved);
-      objectSnapshotsRef.current.clear();
+      objectSnapshots.clear();
     };
   }, [canvas, enabled, undoManager, snapshotObjectState]);
 
