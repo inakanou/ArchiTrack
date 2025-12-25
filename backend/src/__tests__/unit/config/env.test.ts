@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 
 /**
  * env.ts のユニットテスト
@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 describe('env module', () => {
   let originalEnv: NodeJS.ProcessEnv;
+  let consoleErrorSpy: MockInstance;
 
   // モック用のJWK鍵（Base64エンコード）
   const mockPublicKeyJWK = {
@@ -33,11 +34,15 @@ describe('env module', () => {
     // 各テストの前に環境変数を保存
     originalEnv = { ...process.env };
     vi.resetModules();
+    // console.errorをモックしてテスト出力をクリーンに保つ
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     // 各テストの後に環境変数を復元
     process.env = originalEnv;
+    // console.errorのモックをリストア
+    consoleErrorSpy.mockRestore();
   });
 
   describe('validateEnv', () => {
