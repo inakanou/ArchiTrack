@@ -38,6 +38,10 @@ export default defineConfig({
         // データベースとRedis接続モジュールは統合テストでテストされるため除外
         'src/db.ts',
         'src/redis.ts',
+        // ストレージプロバイダーはS3/ローカル統合のため、統合テストでテストされる
+        'src/storage/**/*.ts',
+        // シードヘルパーは開発/テスト用ツールであり、本番コードではない
+        'src/utils/seed-helpers.ts',
       ],
       thresholds: {
         statements: 80,
