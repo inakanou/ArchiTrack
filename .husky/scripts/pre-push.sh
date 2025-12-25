@@ -448,12 +448,12 @@ if [ $? -ne 0 ]; then
 fi
 echo "   ✅ Migrations applied to test database"
 
-# バックエンドテストコンテナのヘルスチェック（最大180秒待機）
+# バックエンドテストコンテナのヘルスチェック（最大300秒待機）
 # テスト環境はポート3100を使用
-# 注意: 初回起動時はnpm install（約60秒）、Prisma生成、マイグレーション、シードが
+# 注意: 初回起動時はnpm install（WSL2環境で3-5分）、Prisma生成、マイグレーション、シードが
 #       実行されるため、十分な待機時間が必要
 echo "   Waiting for test backend to be ready..."
-MAX_RETRIES=36
+MAX_RETRIES=60
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
   if curl -s http://localhost:3100/health > /dev/null 2>&1; then
