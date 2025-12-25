@@ -72,7 +72,12 @@ const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(
     height: 800,
   };
 
-  const mockFromURL = vi.fn(() => Promise.resolve(mockFabricImageInstance));
+  // Note: 実際のFabricImage.fromURLは非同期だが、テストでは同期的に解決する
+  // これによりact警告を回避しつつ、テストを正確に実行できる
+  const mockFromURL = vi.fn().mockImplementation(() => {
+    // マイクロタスクキューで即座に解決するPromiseを返す
+    return Promise.resolve(mockFabricImageInstance);
+  });
 
   return {
     mockCanvasInstance,
@@ -101,6 +106,27 @@ import ImageViewer from '../../../components/site-surveys/ImageViewer';
 // ============================================================================
 // テストヘルパー
 // ============================================================================
+
+/**
+ * Fabric.jsの非同期画像読み込みによる状態更新を待機するヘルパー
+ * FabricImage.fromURLがPromiseを返すため、テスト中に非同期状態更新が発生する。
+ * この関数を使用してact警告を抑制する。
+ */
+const flushPromises = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+};
+
+/**
+ * タッチイベントをact()でラップして発火するヘルパー
+ * タッチイベントがReactの状態更新を引き起こすため、act()でラップする必要がある。
+ */
+const dispatchTouchEvent = async (element: Element, event: TouchEvent) => {
+  await act(async () => {
+    element.dispatchEvent(event);
+  });
+};
 
 const defaultProps = {
   imageUrl: 'https://example.com/test-image.jpg',
@@ -146,21 +172,30 @@ describe('ImageViewer', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Fabric.jsのFabricImage.fromURLは非同期でPromiseを返すため、
+    // テスト終了時に未処理の状態更新が残る場合がある。
+    // act()でラップして非同期更新を完了させ、act警告を抑制する。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     vi.clearAllMocks();
   });
 
   describe('モーダル表示', () => {
     it('isOpenがtrueの場合、モーダルが表示される', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+      await flushPromises();
 
       // モーダルが表示されていることを確認
       const modal = screen.getByRole('dialog');
       expect(modal).toBeInTheDocument();
     });
 
-    it('isOpenがfalseの場合、モーダルが表示されない', () => {
+    it('isOpenがfalseの場合、モーダルが表示されない', async () => {
       render(<ImageViewer {...defaultProps} isOpen={false} />);
+      await flushPromises();
 
       // モーダルが表示されていないことを確認
       const modal = screen.queryByRole('dialog');
@@ -171,6 +206,7 @@ describe('ImageViewer', () => {
       const user = userEvent.setup();
       const onClose = vi.fn();
       render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
 
       // 閉じるボタンをクリック
       const closeButton = screen.getByRole('button', { name: /閉じる/i });
@@ -183,6 +219,7 @@ describe('ImageViewer', () => {
       const user = userEvent.setup();
       const onClose = vi.fn();
       render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
 
       // ESCキーを押す
       await user.keyboard('{Escape}');
@@ -194,6 +231,7 @@ describe('ImageViewer', () => {
       const user = userEvent.setup();
       const onClose = vi.fn();
       render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
 
       // オーバーレイをクリック
       const overlay = screen.getByTestId('image-viewer-overlay');
@@ -206,6 +244,7 @@ describe('ImageViewer', () => {
       const user = userEvent.setup();
       const onClose = vi.fn();
       render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
 
       // コンテンツ部分をクリック
       const content = screen.getByTestId('image-viewer-content');
@@ -218,6 +257,7 @@ describe('ImageViewer', () => {
   describe('Fabric.js Canvas初期化', () => {
     it('モーダルが開くとCanvasが初期化される', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       // Canvasのメソッドが呼ばれることを確認
       await waitFor(() => {
@@ -227,6 +267,7 @@ describe('ImageViewer', () => {
 
     it('モーダルが閉じるとCanvasがdisposeされる', async () => {
       const { rerender } = render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       // Canvasが初期化されるのを待つ
       await waitFor(() => {
@@ -235,6 +276,7 @@ describe('ImageViewer', () => {
 
       // isOpenをfalseに変更
       rerender(<ImageViewer {...defaultProps} isOpen={false} />);
+      await flushPromises();
 
       // disposeが呼ばれることを確認
       await waitFor(() => {
@@ -246,6 +288,7 @@ describe('ImageViewer', () => {
   describe('画像読み込み', () => {
     it('画像URLが指定されると画像が読み込まれる', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       await waitFor(() => {
         expect(mockFromURL).toHaveBeenCalledWith(defaultProps.imageUrl, expect.any(Object));
@@ -255,13 +298,17 @@ describe('ImageViewer', () => {
     it('画像読み込み中はローディング表示される', async () => {
       render(<ImageViewer {...defaultProps} />);
 
-      // ローディング表示を確認
+      // ローディング表示を確認（Promiseが解決される前にチェック）
       const loadingIndicator = screen.getByRole('status', { name: /読み込み中/i });
       expect(loadingIndicator).toBeInTheDocument();
+
+      // テスト終了前に非同期更新を完了させる
+      await flushPromises();
     });
 
     it('画像読み込み完了後はローディングが非表示になる', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       // ローディングが非表示になるのを待つ
       await waitFor(() => {
@@ -274,6 +321,7 @@ describe('ImageViewer', () => {
       mockFromURL.mockRejectedValueOnce(new Error('画像の読み込みに失敗しました'));
 
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       await waitFor(() => {
         const errorMessage = screen.getByRole('alert');
@@ -286,6 +334,7 @@ describe('ImageViewer', () => {
   describe('Canvasサイズ設定', () => {
     it('コンテナサイズに合わせてCanvasサイズが設定される', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       await waitFor(() => {
         expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
@@ -295,22 +344,25 @@ describe('ImageViewer', () => {
   });
 
   describe('アクセシビリティ', () => {
-    it('モーダルにはaria-modal属性が設定されている', () => {
+    it('モーダルにはaria-modal属性が設定されている', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       const modal = screen.getByRole('dialog');
       expect(modal).toHaveAttribute('aria-modal', 'true');
     });
 
-    it('モーダルにはaria-labelledby属性が設定されている', () => {
+    it('モーダルにはaria-labelledby属性が設定されている', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       const modal = screen.getByRole('dialog');
       expect(modal).toHaveAttribute('aria-labelledby');
     });
 
-    it('閉じるボタンにはaria-label属性が設定されている', () => {
+    it('閉じるボタンにはaria-label属性が設定されている', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       const closeButton = screen.getByRole('button', { name: /閉じる/i });
       expect(closeButton).toHaveAccessibleName();
@@ -320,6 +372,7 @@ describe('ImageViewer', () => {
   describe('propsによる制御', () => {
     it('imageUrlが変更されると画像が再読み込みされる', async () => {
       const { rerender } = render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       // 最初の画像読み込みを待つ
       await waitFor(() => {
@@ -329,22 +382,25 @@ describe('ImageViewer', () => {
       // 新しい画像URLで再レンダリング
       const newImageUrl = 'https://example.com/new-image.jpg';
       rerender(<ImageViewer {...defaultProps} imageUrl={newImageUrl} />);
+      await flushPromises();
 
       await waitFor(() => {
         expect(mockFromURL).toHaveBeenCalledWith(newImageUrl, expect.any(Object));
       });
     });
 
-    it('imageNameが指定された場合、タイトルとして表示される', () => {
+    it('imageNameが指定された場合、タイトルとして表示される', async () => {
       const imageName = 'テスト画像.jpg';
       render(<ImageViewer {...defaultProps} imageName={imageName} />);
+      await flushPromises();
 
       const title = screen.getByText(imageName);
       expect(title).toBeInTheDocument();
     });
 
-    it('imageNameが未指定の場合、デフォルトタイトルが表示される', () => {
+    it('imageNameが未指定の場合、デフォルトタイトルが表示される', async () => {
       render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
 
       const title = screen.getByText(/画像ビューア/i);
       expect(title).toBeInTheDocument();
@@ -359,6 +415,7 @@ describe('ImageViewer', () => {
     describe('ズームボタンUI', () => {
       it('ズームインボタンが表示される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
@@ -368,6 +425,7 @@ describe('ImageViewer', () => {
 
       it('ズームアウトボタンが表示される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           const zoomOutButton = screen.getByRole('button', { name: /ズームアウト/i });
@@ -377,6 +435,7 @@ describe('ImageViewer', () => {
 
       it('ズームリセットボタンが表示される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           const resetButton = screen.getByRole('button', { name: /100%/i });
@@ -386,6 +445,7 @@ describe('ImageViewer', () => {
 
       it('現在のズーム倍率が表示される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           // 初期値は100%
@@ -399,6 +459,7 @@ describe('ImageViewer', () => {
       it('ズームインボタンをクリックするとズームレベルが上がる', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -420,6 +481,7 @@ describe('ImageViewer', () => {
         // 初期ズームレベルを1.5に設定
         mockCanvasInstance.getZoom.mockReturnValue(1.5);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -441,6 +503,7 @@ describe('ImageViewer', () => {
         // 初期ズームレベルを2.0に設定
         mockCanvasInstance.getZoom.mockReturnValue(2.0);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -459,15 +522,15 @@ describe('ImageViewer', () => {
     });
 
     describe('ズーム範囲制限', () => {
-      it('最小ズーム倍率は0.1x', () => {
+      it('最小ズーム倍率は0.1x', async () => {
         expect(ZOOM_CONSTANTS.MIN_ZOOM).toBe(0.1);
       });
 
-      it('最大ズーム倍率は10x', () => {
+      it('最大ズーム倍率は10x', async () => {
         expect(ZOOM_CONSTANTS.MAX_ZOOM).toBe(10);
       });
 
-      it('ズームステップは0.1', () => {
+      it('ズームステップは0.1', async () => {
         expect(ZOOM_CONSTANTS.ZOOM_STEP).toBe(0.1);
       });
 
@@ -476,6 +539,7 @@ describe('ImageViewer', () => {
         // 最小ズームレベルに設定
         mockCanvasInstance.getZoom.mockReturnValue(ZOOM_CONSTANTS.MIN_ZOOM);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -500,6 +564,7 @@ describe('ImageViewer', () => {
         // 最大ズームレベルに設定
         mockCanvasInstance.getZoom.mockReturnValue(ZOOM_CONSTANTS.MAX_ZOOM);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -522,6 +587,7 @@ describe('ImageViewer', () => {
     describe('マウスホイールによるズーム', () => {
       it('マウスホイールでズームインできる', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -546,6 +612,7 @@ describe('ImageViewer', () => {
       it('マウスホイールでズームアウトできる', async () => {
         mockCanvasInstance.getZoom.mockReturnValue(2.0);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -570,6 +637,7 @@ describe('ImageViewer', () => {
       it('ホイールズームは範囲内に制限される', async () => {
         mockCanvasInstance.getZoom.mockReturnValue(1.0);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -606,6 +674,7 @@ describe('ImageViewer', () => {
         });
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -631,6 +700,7 @@ describe('ImageViewer', () => {
       it('+キーでズームインできる', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -650,6 +720,7 @@ describe('ImageViewer', () => {
         const user = userEvent.setup();
         mockCanvasInstance.getZoom.mockReturnValue(2.0);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -669,6 +740,7 @@ describe('ImageViewer', () => {
         const user = userEvent.setup();
         mockCanvasInstance.getZoom.mockReturnValue(2.0);
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -697,6 +769,7 @@ describe('ImageViewer', () => {
         });
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -731,6 +804,7 @@ describe('ImageViewer', () => {
         });
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -781,6 +855,7 @@ describe('ImageViewer', () => {
     describe('パン状態の管理', () => {
       it('パン位置（panX, panY）が状態として保持される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -803,6 +878,7 @@ describe('ImageViewer', () => {
 
       it('ズームレベルが1.0より大きい場合のみパン操作が有効', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -829,6 +905,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -859,6 +936,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -887,6 +965,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -920,6 +999,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -960,6 +1040,7 @@ describe('ImageViewer', () => {
         });
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -997,6 +1078,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1016,6 +1098,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1034,6 +1117,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1052,6 +1136,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1070,6 +1155,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.setViewportTransform.mockClear();
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1091,6 +1177,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1106,11 +1193,11 @@ describe('ImageViewer', () => {
 
   describe('回転機能', () => {
     describe('回転定数の検証', () => {
-      it('回転ステップは90度', () => {
+      it('回転ステップは90度', async () => {
         expect(ROTATION_CONSTANTS.ROTATION_STEP).toBe(90);
       });
 
-      it('回転値の選択肢は0, 90, 180, 270の4つ', () => {
+      it('回転値の選択肢は0, 90, 180, 270の4つ', async () => {
         expect(ROTATION_CONSTANTS.ROTATION_VALUES).toEqual([0, 90, 180, 270]);
       });
     });
@@ -1118,6 +1205,7 @@ describe('ImageViewer', () => {
     describe('回転ボタンUI', () => {
       it('左回転ボタンが表示される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
@@ -1127,6 +1215,7 @@ describe('ImageViewer', () => {
 
       it('右回転ボタンが表示される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
@@ -1136,6 +1225,7 @@ describe('ImageViewer', () => {
 
       it('現在の回転角度が表示される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           // 初期値は0度
@@ -1149,6 +1239,7 @@ describe('ImageViewer', () => {
       it('右回転ボタンをクリックすると90度右に回転する', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1169,6 +1260,7 @@ describe('ImageViewer', () => {
       it('左回転ボタンをクリックすると90度左に回転する', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1189,6 +1281,7 @@ describe('ImageViewer', () => {
       it('右回転を4回クリックすると元に戻る（360度 = 0度）', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1212,6 +1305,7 @@ describe('ImageViewer', () => {
       it('左回転を4回クリックすると元に戻る', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1237,6 +1331,7 @@ describe('ImageViewer', () => {
       it('回転後もズーム操作で回転状態が保持される', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1267,6 +1362,7 @@ describe('ImageViewer', () => {
       it('Canvasの背景画像に回転が適用される', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1291,6 +1387,7 @@ describe('ImageViewer', () => {
     describe('キーボードショートカット', () => {
       it('[キーで左回転できる', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1309,6 +1406,7 @@ describe('ImageViewer', () => {
 
       it(']キーで右回転できる', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1330,6 +1428,7 @@ describe('ImageViewer', () => {
       it('回転リセットボタンをクリックすると0度に戻る', { timeout: 10000 }, async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         // 画像読み込み完了を待つ
         await waitFor(() => {
@@ -1361,6 +1460,7 @@ describe('ImageViewer', () => {
     describe('アクセシビリティ', () => {
       it('回転ボタンにはaria-label属性が設定されている', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1436,6 +1536,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1448,18 +1549,18 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 120, clientY: 120, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // ピンチアウト（指を広げる）
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 50, clientY: 50, identifier: 0 },
           { clientX: 170, clientY: 170, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         // タッチ終了
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // ズームが変更されることを確認
         await waitFor(() => {
@@ -1472,6 +1573,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1484,18 +1586,18 @@ describe('ImageViewer', () => {
           { clientX: 50, clientY: 50, identifier: 0 },
           { clientX: 150, clientY: 150, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // ピンチイン（指を近づける）
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 90, clientY: 90, identifier: 0 },
           { clientX: 110, clientY: 110, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         // タッチ終了
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // ズームが変更されることを確認
         await waitFor(() => {
@@ -1507,6 +1609,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockReturnValue(1.0);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1519,17 +1622,17 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 110, clientY: 110, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // 極端なピンチアウト
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 0, clientY: 0, identifier: 0 },
           { clientX: 1000, clientY: 1000, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // setViewportTransformが呼ばれた場合、その値のスケールが範囲内であることを確認
         const calls = mockCanvasInstance.setViewportTransform.mock.calls;
@@ -1549,6 +1652,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.setViewportTransform.mockClear();
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1560,16 +1664,16 @@ describe('ImageViewer', () => {
         const touchStartEvent = createTouchEvent('touchstart', [
           { clientX: 100, clientY: 100, identifier: 0 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // 1本指で移動
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 150, clientY: 150, identifier: 0 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // ピンチズームとしては動作しない（パン操作になる可能性はある）
         // ズームが変化していないことを確認するため、少し待つ
@@ -1585,6 +1689,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1597,17 +1702,17 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 150, clientY: 100, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // 同じ距離を保ったまま移動（ピンチではなくパン）
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 150, clientY: 150, identifier: 0 },
           { clientX: 200, clientY: 150, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // setViewportTransformが呼ばれることを確認
         await waitFor(() => {
@@ -1620,6 +1725,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.setViewportTransform.mockClear();
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1632,16 +1738,16 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 150, clientY: 100, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 150, clientY: 150, identifier: 0 },
           { clientX: 200, clientY: 150, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // パン操作のためのsetViewportTransformは呼ばれない
         // （ピンチズームの場合は呼ばれる可能性がある）
@@ -1652,6 +1758,7 @@ describe('ImageViewer', () => {
     describe('タッチイベントハンドリング', () => {
       it('touchstartイベントでタッチ状態が初期化される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1664,7 +1771,7 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 200, clientY: 200, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // イベントが処理されることを確認（エラーが発生しないこと）
         expect(canvasContainer).toBeInTheDocument();
@@ -1672,6 +1779,7 @@ describe('ImageViewer', () => {
 
       it('touchmoveイベントでタッチ位置が更新される', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1683,14 +1791,14 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 200, clientY: 200, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // touchmoveイベントを発火
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 120, clientY: 120, identifier: 0 },
           { clientX: 220, clientY: 220, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         // イベントが処理されることを確認
         expect(canvasContainer).toBeInTheDocument();
@@ -1698,6 +1806,7 @@ describe('ImageViewer', () => {
 
       it('touchendイベントでタッチ状態がリセットされる', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1709,24 +1818,25 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 200, clientY: 200, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // touchendイベントを発火
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // 状態がリセットされ、新しいタッチ操作を受け付けることを確認
         const newTouchStartEvent = createTouchEvent('touchstart', [
           { clientX: 150, clientY: 150, identifier: 0 },
           { clientX: 250, clientY: 250, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(newTouchStartEvent);
+        await dispatchTouchEvent(canvasContainer, newTouchStartEvent);
 
         expect(canvasContainer).toBeInTheDocument();
       });
 
       it('touchcancelイベントでタッチ状態がリセットされる', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1738,7 +1848,7 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 200, clientY: 200, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // touchcancelイベントを発火
         const touchCancelEvent = new TouchEvent('touchcancel', {
@@ -1748,7 +1858,7 @@ describe('ImageViewer', () => {
           bubbles: true,
           cancelable: true,
         });
-        canvasContainer.dispatchEvent(touchCancelEvent);
+        await dispatchTouchEvent(canvasContainer, touchCancelEvent);
 
         expect(canvasContainer).toBeInTheDocument();
       });
@@ -1760,6 +1870,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1772,17 +1883,17 @@ describe('ImageViewer', () => {
           { clientX: 100, clientY: 100, identifier: 0 },
           { clientX: 200, clientY: 200, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // ピンチアウト
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 50, clientY: 50, identifier: 0 },
           { clientX: 250, clientY: 250, identifier: 1 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // setViewportTransformが呼ばれることを確認
         await waitFor(() => {
@@ -1794,6 +1905,7 @@ describe('ImageViewer', () => {
     describe('タッチ操作のアクセシビリティ', () => {
       it('タッチ操作中もUIコントロールが利用可能', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1813,6 +1925,7 @@ describe('ImageViewer', () => {
 
       it('モーダル閉じるボタンはタッチ操作でアクセス可能', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1834,6 +1947,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1845,16 +1959,16 @@ describe('ImageViewer', () => {
         const touchStartEvent = createTouchEvent('touchstart', [
           { clientX: 100, clientY: 100, identifier: 0 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         // 1本指で移動
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 150, clientY: 150, identifier: 0 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // ズームレベルが1より大きい場合、setViewportTransformが呼ばれることを確認
         await waitFor(() => {
@@ -1867,6 +1981,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.setViewportTransform.mockClear();
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1878,15 +1993,15 @@ describe('ImageViewer', () => {
         const touchStartEvent = createTouchEvent('touchstart', [
           { clientX: 100, clientY: 100, identifier: 0 },
         ]);
-        canvasContainer.dispatchEvent(touchStartEvent);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
 
         const touchMoveEvent = createTouchEvent('touchmove', [
           { clientX: 150, clientY: 150, identifier: 0 },
         ]);
-        canvasContainer.dispatchEvent(touchMoveEvent);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
 
         const touchEndEvent = createTouchEvent('touchend', []);
-        canvasContainer.dispatchEvent(touchEndEvent);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
         // パン操作のためのsetViewportTransformは呼ばれない
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1906,6 +2021,7 @@ describe('ImageViewer', () => {
         const onViewStateChange = vi.fn();
 
         render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1930,6 +2046,7 @@ describe('ImageViewer', () => {
         const onViewStateChange = vi.fn();
 
         render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1957,6 +2074,7 @@ describe('ImageViewer', () => {
         mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
 
         render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -1991,6 +2109,7 @@ describe('ImageViewer', () => {
         const user = userEvent.setup();
 
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2008,6 +2127,7 @@ describe('ImageViewer', () => {
         const onViewStateChange = vi.fn();
 
         render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2034,6 +2154,7 @@ describe('ImageViewer', () => {
         const onViewStateChange = vi.fn();
 
         render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2110,6 +2231,7 @@ describe('ImageViewer', () => {
 
       it('initialViewStateは省略可能', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2293,6 +2415,7 @@ describe('ImageViewer', () => {
     describe('エクスポートボタンUI', () => {
       it('imageInfoが提供されている場合、エクスポートボタンが表示される', async () => {
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2306,6 +2429,7 @@ describe('ImageViewer', () => {
 
       it('imageInfoが提供されていない場合、エクスポートボタンが表示されない', async () => {
         render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2318,6 +2442,7 @@ describe('ImageViewer', () => {
 
       it('エクスポートボタンにはアクセシブルな名前が設定されている', async () => {
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2334,6 +2459,7 @@ describe('ImageViewer', () => {
       it('エクスポートボタンをクリックするとImageExportDialogが表示される', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2352,6 +2478,7 @@ describe('ImageViewer', () => {
       it('ダイアログが開いている間はダイアログが表示される', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2376,6 +2503,7 @@ describe('ImageViewer', () => {
       it('キャンセルボタンをクリックするとダイアログが閉じる', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2406,6 +2534,7 @@ describe('ImageViewer', () => {
         const user = userEvent.setup();
         const onExport = vi.fn();
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} onExport={onExport} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2508,6 +2637,7 @@ describe('ImageViewer', () => {
       it('exporting=trueのとき、ダイアログ内のエクスポートボタンが無効化される', async () => {
         const user = userEvent.setup();
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} exporting={true} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
@@ -2534,6 +2664,7 @@ describe('ImageViewer', () => {
     describe('エクスポートボタンの位置', () => {
       it('エクスポートボタンはツールバー領域に配置される', async () => {
         render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
 
         await waitFor(() => {
           expect(mockFromURL).toHaveBeenCalled();
