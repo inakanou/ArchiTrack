@@ -28,6 +28,9 @@
     "check:req-coverage": "npx tsx scripts/check-requirement-coverage.ts",
     "check:req-coverage:verbose": "npx tsx scripts/check-requirement-coverage.ts --verbose",
     "check:req-coverage:json": "npx tsx scripts/check-requirement-coverage.ts --json",
+    "audit:security": "node scripts/security-audit.mjs",
+    "audit:security:verbose": "node scripts/security-audit.mjs --verbose",
+    "audit:security:warn": "node scripts/security-audit.mjs --mode=warn",
     "prepare": "husky"
   },
   "devDependencies": {

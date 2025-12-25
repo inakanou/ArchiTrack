@@ -308,39 +308,36 @@ fi
 # ビルド完了後のメモリ解放（ビルドは大量のメモリを消費するため）
 release_memory "ビルド"
 
-echo "🔒 Running security scan before push..."
+# ============================================================================
+# セキュリティ監査（ベストプラクティス準拠）
+# ============================================================================
+# 設計方針:
+# - 本番依存のhigh以上: ブロック（許容リスト対応）
+# - 開発依存のhigh以上: 警告のみ（Storybookなど本番に影響しないもの）
+# - CIとローカルで同一ルールを適用
+# - 許容リストは .security-audit-allowlist.json で管理
+# ============================================================================
+echo "🔒 Running security audit before push..."
+echo ""
+echo "   ポリシー:"
+echo "     - 本番依存のhigh以上: ブロック（許容リスト対応）"
+echo "     - 開発依存のhigh以上: 警告のみ"
+echo ""
 
-# Backend security scan
-if [ -d "backend" ]; then
-  echo "🔍 Scanning backend dependencies for vulnerabilities..."
-  npm --prefix backend audit --audit-level=moderate
-  BACKEND_AUDIT_EXIT=$?
-  if [ $BACKEND_AUDIT_EXIT -ne 0 ]; then
-    echo "⚠️  Backend security vulnerabilities detected (moderate or higher)."
-    echo "   This is a WARNING - push will continue, but please address these issues."
-    echo "   Run 'npm --prefix backend audit' to see details."
-    echo "   Run 'npm --prefix backend audit fix' to attempt automatic fixes."
-    echo ""
-  else
-    echo "✅ Backend security scan passed."
-  fi
-fi
+node scripts/security-audit.mjs --mode=strict
+SECURITY_AUDIT_EXIT=$?
 
-# Frontend security scan
-if [ -d "frontend" ]; then
-  echo "🔍 Scanning frontend dependencies for vulnerabilities..."
-  npm --prefix frontend audit --audit-level=moderate
-  FRONTEND_AUDIT_EXIT=$?
-  if [ $FRONTEND_AUDIT_EXIT -ne 0 ]; then
-    echo "⚠️  Frontend security vulnerabilities detected (moderate or higher)."
-    echo "   This is a WARNING - push will continue, but please address these issues."
-    echo "   Run 'npm --prefix frontend audit' to see details."
-    echo "   Run 'npm --prefix frontend audit fix' to attempt automatic fixes."
-    echo ""
-  else
-    echo "✅ Frontend security scan passed."
-  fi
+if [ $SECURITY_AUDIT_EXIT -ne 0 ]; then
+  echo ""
+  echo "❌ Security audit failed. Push aborted."
+  echo ""
+  echo "   対処方法:"
+  echo "   1. npm audit fix で修正可能な場合は実行"
+  echo "   2. 修正版がない場合は .security-audit-allowlist.json に追加"
+  echo "   3. 詳細: node scripts/security-audit.mjs --verbose"
+  exit 1
 fi
+echo ""
 
 # Backend unit tests with coverage
 if [ -d "backend" ]; then

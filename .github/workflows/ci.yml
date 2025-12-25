@@ -439,25 +439,24 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        workspace: [backend, frontend]
     steps:
       - uses: actions/checkout@v6
-      - name: Run npm audit
-        # Note: Prisma 7 internal dependencies (hono, valibot in @prisma/dev) have known
-        # vulnerabilities that cannot be fixed without downgrading Prisma.
-        # These are dev tools and do not affect runtime. Using continue-on-error
-        # until Prisma team updates these dependencies.
-        continue-on-error: ${{ matrix.workspace == 'backend' }}
-        run: npm --prefix ${{ matrix.workspace }} audit --audit-level=moderate
-      - name: Security scan status
-        if: matrix.workspace == 'backend'
-        run: |
-          echo "⚠️ Backend security scan may have warnings due to Prisma 7 internal dependencies."
-          echo "   - hono and valibot are used by @prisma/dev (Prisma CLI internal)"
-          echo "   - These do not affect runtime and will be fixed when Prisma updates."
-          npm --prefix backend audit --audit-level=moderate || true
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+      - name: Install backend dependencies
+        run: npm --prefix backend ci --ignore-scripts
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci --ignore-scripts
+      - name: Run security audit
+        # Uses unified security audit script with allowlist support
+        # - Production deps with high+ severity: block (unless in allowlist)
+        # - Dev deps with high+ severity: warn only
+        # - Allowlist: .security-audit-allowlist.json
+        run: node scripts/security-audit.mjs --verbose
 
   ci-success:
     name: CI Success
