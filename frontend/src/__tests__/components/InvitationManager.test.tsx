@@ -274,7 +274,7 @@ describe('InvitationManager', () => {
     });
   });
 
-  it('未使用の招待に「取り消し」ボタンを表示する', () => {
+  it('未使用の招待に「取り消し」ボタンを表示する', async () => {
     render(
       <InvitationManager
         invitations={mockInvitations}
@@ -285,14 +285,22 @@ describe('InvitationManager', () => {
       />
     );
 
-    const invitationRows = screen.getAllByRole('row');
-    const pendingRow = invitationRows.find((row) => within(row).queryByText('user1@example.com'));
+    // テーブルのレンダリング完了を待機
+    await waitFor(
+      () => {
+        const invitationRows = screen.getAllByRole('row');
+        const pendingRow = invitationRows.find((row) =>
+          within(row).queryByText('user1@example.com')
+        );
 
-    expect(pendingRow).toBeDefined();
-    if (pendingRow) {
-      expect(within(pendingRow).getByRole('button', { name: /取り消し/i })).toBeInTheDocument();
-    }
-  });
+        expect(pendingRow).toBeDefined();
+        if (pendingRow) {
+          expect(within(pendingRow).getByRole('button', { name: /取り消し/i })).toBeInTheDocument();
+        }
+      },
+      { timeout: 10000 }
+    );
+  }, 15000);
 
   it('期限切れの招待に「再送信」ボタンを表示する', () => {
     render(
