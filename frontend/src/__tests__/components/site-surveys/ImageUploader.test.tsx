@@ -30,8 +30,15 @@ import ImageUploader, {
 
 // モックファイルを作成するヘルパー関数
 function createMockFile(name: string, size: number = 1024, type: string = 'image/jpeg'): File {
-  const blob = new Blob(['a'.repeat(size)], { type });
-  return new File([blob], name, { type });
+  // 大きなファイルサイズの場合は実際のBlobを作成せず、sizeプロパティをモックする
+  const actualSize = Math.min(size, 1024);
+  const blob = new Blob(['a'.repeat(actualSize)], { type });
+  const file = new File([blob], name, { type });
+  // sizeプロパティをオーバーライド（大きなファイルのテスト用）
+  if (size > actualSize) {
+    Object.defineProperty(file, 'size', { value: size, writable: false });
+  }
+  return file;
 }
 
 // DataTransferを作成するヘルパー（jsdom環境用）
