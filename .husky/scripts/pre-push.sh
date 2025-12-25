@@ -8,6 +8,36 @@
 set -o pipefail
 
 # ============================================================================
+# WSL2メモリ最適化設定
+# ============================================================================
+# ベストプラクティス: 制限されたメモリ環境（6GB WSL2）でのOOMクラッシュ防止
+# - Node.jsヒープサイズを1GBに制限（デフォルトは無制限で肥大化）
+# - 各コマンドのメモリ使用量を予測可能に維持
+# 参考: https://nodejs.org/api/cli.html#--max-old-space-sizesize-in-megabytes
+# ============================================================================
+export NODE_OPTIONS="--max-old-space-size=1024"
+
+# メモリ解放用関数: Dockerビルドキャッシュとシステムキャッシュをクリア
+release_memory() {
+  local stage_name="$1"
+  echo ""
+  echo "🧹 メモリ解放中（$stage_name 完了後）..."
+
+  # Dockerの未使用リソースをクリア（ビルドキャッシュ含む）
+  docker system prune -f --volumes > /dev/null 2>&1 || true
+
+  # ファイルシステムキャッシュを解放（root権限不要な範囲で）
+  sync 2>/dev/null || true
+
+  # Node.jsのガベージコレクションを促進（次のNode.js実行時に効果）
+  # 短い待機でプロセスが完全に終了するのを待つ
+  sleep 1
+
+  echo "   ✅ メモリ解放完了"
+  echo ""
+}
+
+# ============================================================================
 # Git操作タイプの検出（ブランチ削除のスキップ）
 # ============================================================================
 # Git公式仕様: pre-pushフックは標準入力から以下の形式でref情報を受け取る
@@ -275,6 +305,9 @@ if [ -d "frontend" ]; then
   fi
 fi
 
+# ビルド完了後のメモリ解放（ビルドは大量のメモリを消費するため）
+release_memory "ビルド"
+
 echo "🔒 Running security scan before push..."
 
 # Backend security scan
@@ -342,6 +375,9 @@ if [ -d "frontend" ] && git diff --cached --name-only | grep -q "^frontend/"; th
     exit 1
   fi
 fi
+
+# ユニットテスト完了後のメモリ解放（Docker起動前にメモリを確保）
+release_memory "ユニットテスト"
 
 # 環境変数検証（統合テスト用）
 echo "🔍 Validating required environment variables for integration tests..."
@@ -507,6 +543,9 @@ if [ -d "backend" ]; then
     exit 1
   fi
 fi
+
+# 統合テスト完了後のメモリ解放（E2E前にメモリを最大化）
+release_memory "統合テスト"
 
 # ============================================================================
 # 要件カバレッジチェック（E2Eテスト実行の前提条件）

@@ -44,13 +44,15 @@ services:
       - "5433:5432"
     tmpfs:
       - /var/lib/postgresql/data
-    # Memory limit to prevent OOM under WSL2 memory pressure
+    # リソース制限: WSL2 6GBメモリ環境でのOOMクラッシュ防止
     deploy:
       resources:
         limits:
           memory: 512M
+          cpus: '0.5'
         reservations:
           memory: 256M
+          cpus: '0.25'
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -67,13 +69,15 @@ services:
       - "6380:6379"
     tmpfs:
       - /data
-    # Memory limit to prevent OOM under WSL2 memory pressure
+    # リソース制限: WSL2 6GBメモリ環境でのOOMクラッシュ防止
     deploy:
       resources:
         limits:
           memory: 128M
+          cpus: '0.25'
         reservations:
           memory: 64M
+          cpus: '0.1'
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -111,13 +115,16 @@ services:
     # OOMキラーからの保護（-1000〜1000、低いほど保護される）
     # 参考: https://docs.docker.com/engine/containers/resource_constraints/
     oom_score_adj: -500
-    # Memory limit to prevent OOM under WSL2 memory pressure
+    # リソース制限: WSL2 6GBメモリ環境でのOOMクラッシュ防止
+    # CPU制限によりリソース競合を軽減し、全体の安定性を向上
     deploy:
       resources:
         limits:
           memory: 1G
+          cpus: '1.0'
         reservations:
           memory: 512M
+          cpus: '0.5'
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
@@ -173,13 +180,16 @@ services:
     # OOMキラーからの保護（-1000〜1000、低いほど保護される）
     # 参考: https://docs.docker.com/engine/containers/resource_constraints/
     oom_score_adj: -500
-    # Memory limit to prevent OOM under WSL2 memory pressure
+    # リソース制限: WSL2 6GBメモリ環境でのOOMクラッシュ防止
+    # CPU制限によりリソース競合を軽減し、全体の安定性を向上
     deploy:
       resources:
         limits:
           memory: 1G
+          cpus: '1.0'
         reservations:
           memory: 512M
+          cpus: '0.5'
     # Strengthened healthcheck for long test runs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5173"]
