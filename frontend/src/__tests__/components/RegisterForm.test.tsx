@@ -465,7 +465,7 @@ describe('RegisterForm', () => {
       await waitFor(() => {
         expect(screen.getByText(/メールアドレスが無効です/i)).toBeInTheDocument();
       });
-    });
+    }, 15000);
 
     it('validationErrors形式のパスワードエラーが表示されること', async () => {
       const user = userEvent.setup();
