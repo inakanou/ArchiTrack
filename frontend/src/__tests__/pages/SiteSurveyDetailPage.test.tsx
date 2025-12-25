@@ -41,6 +41,15 @@ vi.mock('../../api/site-surveys');
 vi.mock('../../api/survey-images');
 vi.mock('../../hooks/useSiteSurveyPermission');
 
+// PDF出力サービスのモック（ページテストではUI動作のみをテストし、実際のPDF生成は行わない）
+vi.mock('../../services/export', () => ({
+  exportAndDownloadPdf: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../services/export/AnnotationRendererService', () => ({
+  renderImagesWithAnnotations: vi.fn().mockResolvedValue([]),
+}));
+
 // デフォルトの権限モック
 const mockPermission = {
   canView: true,
@@ -58,6 +67,8 @@ const mockImages: SurveyImageInfo[] = [
     surveyId: 'survey-123',
     originalPath: '/uploads/original/img1.jpg',
     thumbnailPath: '/uploads/thumbnails/img1.jpg',
+    originalUrl: 'https://example.com/uploads/original/img1.jpg',
+    thumbnailUrl: 'https://example.com/uploads/thumbnails/img1.jpg',
     mediumUrl: '/uploads/medium/img1.jpg',
     fileName: 'image1.jpg',
     fileSize: 1024000,
@@ -73,6 +84,8 @@ const mockImages: SurveyImageInfo[] = [
     surveyId: 'survey-123',
     originalPath: '/uploads/original/img2.jpg',
     thumbnailPath: '/uploads/thumbnails/img2.jpg',
+    originalUrl: 'https://example.com/uploads/original/img2.jpg',
+    thumbnailUrl: 'https://example.com/uploads/thumbnails/img2.jpg',
     mediumUrl: '/uploads/medium/img2.jpg',
     fileName: 'image2.jpg',
     fileSize: 2048000,
