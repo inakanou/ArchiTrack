@@ -1,6 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiError, apiClient } from '../../api/client';
 
+// loggerをモック（テスト出力をクリーンに保つため）
+vi.mock('../../utils/logger', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    exception: vi.fn(),
+  },
+  default: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    exception: vi.fn(),
+  },
+}));
+
 describe('ApiError', () => {
   it('正しいプロパティを持つこと', () => {
     const error = new ApiError(404, 'Not found', { detail: 'User not found' });

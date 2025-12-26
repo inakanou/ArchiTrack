@@ -4,6 +4,24 @@ import { AuthProvider, AuthContext } from '../../contexts/AuthContext';
 import { useContext } from 'react';
 import { apiClient } from '../../api/client';
 
+// loggerをモック（テスト出力をクリーンに保つため）
+vi.mock('../../utils/logger', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    exception: vi.fn(),
+  },
+  default: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    exception: vi.fn(),
+  },
+}));
+
 // apiClientをモック化
 vi.mock('../../api/client', () => ({
   apiClient: {

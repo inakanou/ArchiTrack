@@ -509,6 +509,9 @@ describe('Task 29.4: 日本語テキスト注釈の正確なレンダリング�
 
     describe('エラーハンドリング', () => {
       it('日本語フォントロード失敗時もエクスポートが継続されること', async () => {
+        // 警告ログを抑制（テストで意図的にフォントロード失敗を発生させるため）
+        const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
         const service = new AnnotationRendererService();
         const imageInfo = createMockImageInfo();
         const annotation = createMockAnnotationWithJapaneseText();
@@ -524,6 +527,8 @@ describe('Task 29.4: 日本語テキスト注釈の正確なレンダリング�
 
         expect(result).not.toBeNull();
         expect(result?.dataUrl).toBeDefined();
+
+        consoleWarnSpy.mockRestore();
       });
 
       it('注釈がない画像でも正常にエクスポートされること', async () => {

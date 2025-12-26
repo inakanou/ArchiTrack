@@ -235,12 +235,17 @@ describe('AnnotationRendererService', () => {
 
   describe('renderImage', () => {
     it('should return null if image has no originalUrl', async () => {
+      // 警告ログを抑制（テストで意図的にoriginalUrl未設定を発生させるため）
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
       const service = new AnnotationRendererService();
       const imageInfo = createMockImageInfo({ originalUrl: null });
 
       const result = await service.renderImage(imageInfo);
 
       expect(result).toBeNull();
+
+      consoleWarnSpy.mockRestore();
     });
 
     it('should return original image as dataURL when no annotation exists', async () => {
@@ -290,6 +295,9 @@ describe('AnnotationRendererService', () => {
     });
 
     it('should handle annotation fetch error gracefully', async () => {
+      // 警告ログを抑制（テストで意図的にアノテーション取得エラーを発生させるため）
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
       const service = new AnnotationRendererService();
       const imageInfo = createMockImageInfo();
 
@@ -299,6 +307,8 @@ describe('AnnotationRendererService', () => {
 
       expect(result).not.toBeNull();
       expect(result?.dataUrl).toContain('data:image/jpeg');
+
+      consoleWarnSpy.mockRestore();
     });
 
     it('should support PNG format output', async () => {
@@ -351,6 +361,9 @@ describe('AnnotationRendererService', () => {
     });
 
     it('should skip images that fail to render', async () => {
+      // 警告ログを抑制（テストで意図的にoriginalUrl未設定の画像を含めるため）
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
       const service = new AnnotationRendererService();
       const images = [
         createMockImageInfo({ id: 'image-1' }),
@@ -363,6 +376,8 @@ describe('AnnotationRendererService', () => {
       const results = await service.renderImages(images);
 
       expect(results).toHaveLength(2);
+
+      consoleWarnSpy.mockRestore();
     });
 
     it('should return empty array for empty input', async () => {
@@ -447,12 +462,17 @@ describe('AnnotationRendererService', () => {
     });
 
     it('should return null for image without originalUrl', async () => {
+      // 警告ログを抑制（テストで意図的にoriginalUrl未設定を発生させるため）
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
       const service = new AnnotationRendererService();
       const imageInfo = createMockImageInfo({ originalUrl: null });
 
       const result = await service.renderImageForReport(imageInfo);
 
       expect(result).toBeNull();
+
+      consoleWarnSpy.mockRestore();
     });
   });
 
@@ -483,6 +503,9 @@ describe('AnnotationRendererService', () => {
     });
 
     it('should skip images that fail to render', async () => {
+      // 警告ログを抑制（テストで意図的にoriginalUrl未設定の画像を含めるため）
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
       const service = new AnnotationRendererService();
       const images = [
         createMockImageInfo({ id: 'image-1' }),
@@ -495,6 +518,8 @@ describe('AnnotationRendererService', () => {
       const results = await service.renderImagesForReport(images);
 
       expect(results).toHaveLength(2);
+
+      consoleWarnSpy.mockRestore();
     });
   });
 
