@@ -41,6 +41,7 @@ import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -139,9 +140,8 @@ test.describe('現場調査注釈ツール', () => {
       const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
 
       // APIを使って画像をアップロード（バックエンドに直接アクセス）
-      const apiBaseUrl = process.env.API_URL || 'http://localhost:3100';
       const uploadResponse = await page.request.post(
-        `${apiBaseUrl}/api/site-surveys/${createdSurveyId}/images`,
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
