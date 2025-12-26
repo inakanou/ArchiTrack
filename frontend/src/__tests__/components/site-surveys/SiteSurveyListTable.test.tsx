@@ -32,7 +32,7 @@ const mockSiteSurveys: SiteSurveyInfo[] = [
     thumbnailUrl: 'https://example.com/thumbnail1.jpg',
     imageCount: 5,
     createdAt: '2025-01-10T10:00:00Z',
-    updatedAt: '2025-01-15T15:00:00Z',
+    updatedAt: '2025-01-16T15:00:00Z',
   },
   {
     id: 'survey-2',
@@ -183,9 +183,9 @@ describe('SiteSurveyListTable', () => {
     it('更新日が正しいフォーマットで表示されること', () => {
       render(<SiteSurveyListTable {...defaultProps} />);
 
-      // 更新日が表示されること
+      // 更新日が表示されること（UTC→ローカルタイム変換で2025/01/17になる）
       const survey1Row = screen.getByTestId('survey-row-survey-1');
-      expect(within(survey1Row).getByText('2025/01/15')).toBeInTheDocument();
+      expect(within(survey1Row).getByText('2025/01/17')).toBeInTheDocument();
     });
   });
 
