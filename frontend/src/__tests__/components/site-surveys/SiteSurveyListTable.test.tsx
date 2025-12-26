@@ -54,7 +54,7 @@ const mockSiteSurveys: SiteSurveyInfo[] = [
     thumbnailUrl: 'https://example.com/thumbnail3.jpg',
     imageCount: 3,
     createdAt: '2025-01-22T11:00:00Z',
-    updatedAt: '2025-01-25T16:00:00Z',
+    updatedAt: '2025-01-26T16:00:00Z',
   },
 ];
 
@@ -163,10 +163,15 @@ describe('SiteSurveyListTable', () => {
     it('調査日が正しいフォーマットで表示されること', () => {
       render(<SiteSurveyListTable {...defaultProps} />);
 
-      // 日本語フォーマット（YYYY/MM/DD）で表示されること
-      expect(screen.getByText('2025/01/15')).toBeInTheDocument();
-      expect(screen.getByText('2025/01/20')).toBeInTheDocument();
-      expect(screen.getByText('2025/01/25')).toBeInTheDocument();
+      // 日本語フォーマット（YYYY/MM/DD）で各行に表示されること
+      const survey1Row = screen.getByTestId('survey-row-survey-1');
+      expect(within(survey1Row).getByText('2025/01/15')).toBeInTheDocument();
+
+      const survey2Row = screen.getByTestId('survey-row-survey-2');
+      expect(within(survey2Row).getByText('2025/01/20')).toBeInTheDocument();
+
+      const survey3Row = screen.getByTestId('survey-row-survey-3');
+      expect(within(survey3Row).getByText('2025/01/25')).toBeInTheDocument();
     });
 
     it('画像数が正しく表示されること', () => {
