@@ -56,7 +56,7 @@ test.describe('現場調査CRUD操作', () => {
 
       // プロジェクトを作成
       const projectName = `現場調査テスト用プロジェクト_${Date.now()}`;
-      await page.getByLabel(/プロジェクト名/i).fill(projectName);
+      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -417,7 +417,7 @@ test.describe('現場調査CRUD操作', () => {
         });
 
         const projectName = `競合テスト用プロジェクト_${Date.now()}`;
-        await page.getByLabel(/プロジェクト名/i).fill(projectName);
+        await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
         const salesPersonValue = await salesPersonSelect.inputValue();

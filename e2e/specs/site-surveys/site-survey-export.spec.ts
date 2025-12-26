@@ -55,7 +55,7 @@ test.describe('現場調査エクスポート機能', () => {
     });
 
     const projectName = `エクスポートテスト用プロジェクト_${Date.now()}`;
-    await sharedPage.getByLabel(/プロジェクト名/i).fill(projectName);
+    await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
     const salesPersonValue = await salesPersonSelect.inputValue();

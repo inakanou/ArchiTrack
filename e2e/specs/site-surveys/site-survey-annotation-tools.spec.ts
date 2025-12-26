@@ -72,7 +72,7 @@ test.describe('現場調査注釈ツール', () => {
       });
 
       const projectName = `注釈ツールテスト用プロジェクト_${Date.now()}`;
-      await page.getByLabel(/プロジェクト名/i).fill(projectName);
+      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();

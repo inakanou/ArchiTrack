@@ -50,7 +50,7 @@ test.describe('現場調査注釈エディタ', () => {
     });
 
     const projectName = `注釈テスト用プロジェクト_${Date.now()}`;
-    await sharedPage.getByLabel(/プロジェクト名/i).fill(projectName);
+    await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
     const salesPersonValue = await salesPersonSelect.inputValue();
