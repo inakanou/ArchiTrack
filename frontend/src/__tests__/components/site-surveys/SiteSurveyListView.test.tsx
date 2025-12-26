@@ -38,7 +38,8 @@ const mockSiteSurveys: SiteSurveyInfo[] = [
     thumbnailUrl: 'https://example.com/thumbnail1.jpg',
     imageCount: 5,
     createdAt: '2025-01-10T10:00:00Z',
-    updatedAt: '2025-01-15T15:00:00Z',
+    // タイムゾーン非依存: UTC 0:00 はどのタイムゾーンでも同日
+    updatedAt: '2025-01-16T00:00:00Z',
   },
   {
     id: 'survey-2',
@@ -49,7 +50,8 @@ const mockSiteSurveys: SiteSurveyInfo[] = [
     thumbnailUrl: null,
     imageCount: 0,
     createdAt: '2025-01-18T09:00:00Z',
-    updatedAt: '2025-01-21T14:00:00Z',
+    // タイムゾーン非依存: UTC 0:00 はどのタイムゾーンでも同日
+    updatedAt: '2025-01-22T00:00:00Z',
   },
 ];
 

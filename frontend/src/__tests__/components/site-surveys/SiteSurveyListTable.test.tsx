@@ -32,7 +32,8 @@ const mockSiteSurveys: SiteSurveyInfo[] = [
     thumbnailUrl: 'https://example.com/thumbnail1.jpg',
     imageCount: 5,
     createdAt: '2025-01-10T10:00:00Z',
-    updatedAt: '2025-01-16T15:00:00Z',
+    // タイムゾーン非依存: UTC 0:00 はどのタイムゾーンでも同日
+    updatedAt: '2025-01-17T00:00:00Z',
   },
   {
     id: 'survey-2',
@@ -43,7 +44,8 @@ const mockSiteSurveys: SiteSurveyInfo[] = [
     thumbnailUrl: null,
     imageCount: 0,
     createdAt: '2025-01-18T09:00:00Z',
-    updatedAt: '2025-01-21T14:00:00Z',
+    // タイムゾーン非依存: UTC 0:00 はどのタイムゾーンでも同日
+    updatedAt: '2025-01-22T00:00:00Z',
   },
   {
     id: 'survey-3',
@@ -54,7 +56,8 @@ const mockSiteSurveys: SiteSurveyInfo[] = [
     thumbnailUrl: 'https://example.com/thumbnail3.jpg',
     imageCount: 3,
     createdAt: '2025-01-22T11:00:00Z',
-    updatedAt: '2025-01-26T16:00:00Z',
+    // タイムゾーン非依存: UTC 0:00 はどのタイムゾーンでも同日
+    updatedAt: '2025-01-27T00:00:00Z',
   },
 ];
 
@@ -188,7 +191,7 @@ describe('SiteSurveyListTable', () => {
     it('更新日が正しいフォーマットで表示されること', () => {
       render(<SiteSurveyListTable {...defaultProps} />);
 
-      // 更新日が表示されること（UTC→ローカルタイム変換で2025/01/17になる）
+      // 更新日が表示されること（タイムゾーン非依存のテストデータを使用）
       const survey1Row = screen.getByTestId('survey-row-survey-1');
       expect(within(survey1Row).getByText('2025/01/17')).toBeInTheDocument();
     });
