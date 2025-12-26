@@ -6,6 +6,7 @@
  * Task 19.2: パンくずナビゲーション追加
  * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
  * Task 27.2: フィールドラベル変更（「取引先」→「顧客名」）
+ * Task 10.1 (site-survey): 現場調査への導線追加
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -17,6 +18,7 @@
  * - 21.15, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト > [プロジェクト名]）
  * - 21.21: 編集ボタンクリックで編集ページへ遷移
  * - 22: 顧客情報表示（ラベル「顧客名」）
+ * - 2.1, 2.2: 現場調査タブ/セクション表示と遷移
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -257,6 +259,42 @@ const styles = {
     color: '#6b7280',
     fontSize: '14px',
     textAlign: 'center' as const,
+  } as React.CSSProperties,
+  siteSurveySection: {
+    backgroundColor: '#f0f9ff',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  siteSurveyDescription: {
+    color: '#1e40af',
+    fontSize: '14px',
+    marginBottom: '12px',
+  } as React.CSSProperties,
+  siteSurveyActions: {
+    display: 'flex',
+    gap: '12px',
+  } as React.CSSProperties,
+  siteSurveyLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    color: '#2563eb',
+    textDecoration: 'none',
+    fontSize: '14px',
+    fontWeight: '500',
+  } as React.CSSProperties,
+  siteSurveyCreateLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    padding: '8px 16px',
+    borderRadius: '6px',
+    textDecoration: 'none',
+    fontSize: '14px',
+    fontWeight: '500',
   } as React.CSSProperties,
 };
 
@@ -568,11 +606,30 @@ export default function ProjectDetailPage() {
         />
       </section>
 
+      {/* 現場調査セクション (Task 10.1, Requirements 2.1, 2.2) */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>現場調査</h2>
+        <div style={styles.siteSurveySection}>
+          <p style={styles.siteSurveyDescription}>このプロジェクトの現場調査を管理します。</p>
+          <div style={styles.siteSurveyActions}>
+            <Link
+              to={`/projects/${project.id}/site-surveys/new`}
+              style={styles.siteSurveyCreateLink}
+            >
+              新規作成
+            </Link>
+            <Link to={`/projects/${project.id}/site-surveys`} style={styles.siteSurveyLink}>
+              現場調査一覧を見る
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* 関連データ（機能フラグ対応、将来実装予定） */}
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>関連データ</h2>
         <div style={styles.relatedDataSection}>
-          <p>現場調査・見積書などの関連データ機能は今後実装予定です。</p>
+          <p>見積書などの関連データ機能は今後実装予定です。</p>
         </div>
       </section>
 

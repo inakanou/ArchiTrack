@@ -330,6 +330,9 @@ describe('UserSelect', () => {
     });
 
     it('API呼び出しが失敗した場合、エラーを表示する', async () => {
+      // エラーログを抑制（テストで意図的にエラーを発生させるため）
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       vi.mocked(getAssignableUsers).mockRejectedValue(new Error('Network error'));
 
       const onChange = vi.fn();
@@ -339,6 +342,8 @@ describe('UserSelect', () => {
       await waitFor(() => {
         expect(screen.getByText(/ユーザー一覧の取得に失敗しました/)).toBeInTheDocument();
       });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 

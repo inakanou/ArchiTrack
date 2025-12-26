@@ -99,9 +99,27 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // WSL2環境用の設定
+        // WSL2環境用のメモリ最適化設定
+        // 参考: https://playwright.dev/docs/best-practices
         launchOptions: {
-          args: ['--disable-dev-shm-usage', '--no-sandbox', '--disable-setuid-sandbox'],
+          args: [
+            // 基本的なWSL2/Docker対応
+            '--disable-dev-shm-usage',
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            // メモリ使用量削減オプション
+            '--disable-gpu',
+            '--disable-extensions',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            // V8ヒープサイズ制限（512MB）
+            '--js-flags=--max-old-space-size=512',
+            // 追加のメモリ最適化
+            '--disable-features=TranslateUI',
+            '--disable-ipc-flooding-protection',
+            '--disable-default-apps',
+          ],
         },
       },
     },

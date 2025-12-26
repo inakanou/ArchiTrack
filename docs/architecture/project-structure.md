@@ -128,10 +128,16 @@ Playwrightによるブラウザベースのエンドツーエンドテスト。
 
 ```
 e2e/
-├── tests/                 # テストファイル
+├── specs/                 # テストファイル
+│   ├── api/               # APIエンドポイントテスト
 │   ├── auth/              # 認証関連テスト
 │   ├── admin/             # 管理者機能テスト
-│   └── ...
+│   ├── projects/          # プロジェクト管理テスト
+│   ├── trading-partners/  # 取引先管理テスト
+│   ├── site-surveys/      # 現場調査テスト
+│   ├── navigation/        # ナビゲーションテスト
+│   ├── performance/       # パフォーマンステスト
+│   └── security/          # セキュリティテスト
 ├── fixtures/              # テストフィクスチャ
 ├── helpers/               # ヘルパー関数
 ├── playwright.config.ts   # Playwright設定
@@ -189,12 +195,15 @@ AI支援開発のためのスペック管理。
 │   ├── tech.md            # 技術標準
 │   └── structure.md       # プロジェクト構造
 └── specs/                 # 機能ごとのスペック
-    ├── user-authentication/
+    ├── user-authentication/   # ユーザー認証機能 ✅
     │   ├── spec.json      # スペックメタデータ
     │   ├── requirements.md # 要件定義
     │   ├── design.md      # 技術設計
     │   ├── tasks.md       # 実装タスク
     │   └── validation/    # 検証レポート
+    ├── project-management/    # プロジェクト管理機能 ✅
+    ├── trading-partner-management/  # 取引先管理機能 ✅
+    ├── site-survey/           # 現場調査機能 ✅
     └── ...
 ```
 

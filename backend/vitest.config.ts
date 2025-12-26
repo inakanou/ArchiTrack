@@ -38,12 +38,26 @@ export default defineConfig({
         // データベースとRedis接続モジュールは統合テストでテストされるため除外
         'src/db.ts',
         'src/redis.ts',
+        // ストレージプロバイダーはS3/ローカル統合のため、統合テストでテストされる
+        'src/storage/**/*.ts',
+        // シードヘルパーは開発/テスト用ツールであり、本番コードではない
+        'src/utils/seed-helpers.ts',
+        // Prisma生成ファイルはORM自体のテストで担保されるため除外
+        'src/generated/**/*.ts',
       ],
       thresholds: {
+        // ===== グローバル閾値（全体平均で満たすべきカバレッジ）=====
         statements: 80,
         branches: 80,
         functions: 80,
         lines: 80,
+        // ===== perFile閾値 =====
+        // Vitestのperfile: trueはグローバル閾値を各ファイルに適用するため使用しない
+        // 代わりに、coverage:checkスクリプト（check-coverage-gaps.cjs）で
+        // 段階的な閾値チェックを実施:
+        //   - 緊急対応（≤30%）: CIエラー
+        //   - 警告（31-50%）: CI警告
+        //   - 目標（≥80%）: 推奨
       },
     },
   },

@@ -148,8 +148,7 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await page.goto(`/projects/${createdProjectId}`);
@@ -171,8 +170,7 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await page.goto(`/projects/${createdProjectId}`);
@@ -204,8 +202,7 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // 編集ページに直接遷移
@@ -233,8 +230,7 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!createdProjectId) {
-        test.skip();
-        return;
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       await page.goto(`/projects/${createdProjectId}/edit`);

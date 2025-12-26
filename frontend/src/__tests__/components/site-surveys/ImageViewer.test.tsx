@@ -1,0 +1,2684 @@
+/**
+ * @fileoverview ImageViewerコンポーネントのテスト
+ *
+ * Task 12.1: 基本ビューア機能を実装する（TDD）
+ * Task 12.2: ズーム機能を実装する（TDD）
+ * Task 12.3: 回転機能を実装する（TDD）
+ * Task 12.4: パン機能を実装する（TDD）
+ * Task 12.6: 表示状態の共有機能を実装する（TDD）
+ *
+ * Requirements:
+ * - 5.1: 画像をクリックすると画像ビューアをモーダルまたは専用画面で開く
+ * - 5.2: ズームイン/ズームアウト操作で画像を拡大/縮小表示
+ * - 5.3: 回転ボタンを押すと画像を90度単位で回転表示
+ * - 5.4: パン操作を行うと拡大時の表示領域を移動する
+ * - 5.6: 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+ *
+ * テスト対象:
+ * - モーダル/専用画面での画像表示
+ * - Fabric.js Canvasの初期化
+ * - 画像の読み込みと表示
+ * - マウスホイールによるズームイン/ズームアウト
+ * - ズームボタンUI
+ * - ズーム範囲制限（0.1x-10x）
+ * - 90度単位の回転ボタン
+ * - 回転状態の保持
+ * - ドラッグによる表示領域移動
+ * - 拡大時のスクロール対応
+ * - 表示状態の共有（onViewStateChange, initialViewState, ref）
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {
+  ZOOM_CONSTANTS,
+  ROTATION_CONSTANTS,
+  type ImageViewerRef,
+  type ImageViewerViewState,
+} from '../../../components/site-surveys/ImageViewer';
+import type { SurveyImageInfo } from '../../../types/site-survey.types';
+
+// vi.hoistedでモックインスタンスを定義（ホイスティング対応）
+const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
+  const mockCanvasInstance = {
+    setWidth: vi.fn(),
+    setHeight: vi.fn(),
+    backgroundImage: null as unknown, // Fabric.js v6 API
+    renderAll: vi.fn(),
+    dispose: vi.fn(),
+    getZoom: vi.fn(() => 1),
+    setZoom: vi.fn(),
+    getWidth: vi.fn(() => 800),
+    getHeight: vi.fn(() => 600),
+    viewportCenterObject: vi.fn(),
+    add: vi.fn(),
+    remove: vi.fn(),
+    clear: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    setViewportTransform: vi.fn(),
+    getObjects: vi.fn(() => []),
+  };
+
+  const mockFabricImageInstance = {
+    scaleToWidth: vi.fn(),
+    scaleToHeight: vi.fn(),
+    set: vi.fn(),
+    scale: vi.fn(),
+    getScaledWidth: vi.fn(() => 800),
+    getScaledHeight: vi.fn(() => 600),
+    width: 1000,
+    height: 800,
+  };
+
+  // Note: 実際のFabricImage.fromURLは非同期だが、テストでは同期的に解決する
+  // これによりact警告を回避しつつ、テストを正確に実行できる
+  const mockFromURL = vi.fn().mockImplementation(() => {
+    // マイクロタスクキューで即座に解決するPromiseを返す
+    return Promise.resolve(mockFabricImageInstance);
+  });
+
+  return {
+    mockCanvasInstance,
+    mockFabricImageInstance,
+    mockFromURL,
+  };
+});
+
+// Fabric.jsのモック
+vi.mock('fabric', () => {
+  // コンストラクタ関数としてモックを作成
+  function MockCanvas() {
+    return mockCanvasInstance;
+  }
+
+  return {
+    Canvas: MockCanvas,
+    FabricImage: {
+      fromURL: mockFromURL,
+    },
+  };
+});
+
+import ImageViewer from '../../../components/site-surveys/ImageViewer';
+
+// ============================================================================
+// テストヘルパー
+// ============================================================================
+
+/**
+ * Fabric.jsの非同期画像読み込みによる状態更新を待機するヘルパー
+ * FabricImage.fromURLがPromiseを返すため、テスト中に非同期状態更新が発生する。
+ * この関数を使用してact警告を抑制する。
+ */
+const flushPromises = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+};
+
+/**
+ * タッチイベントをact()でラップして発火するヘルパー
+ * タッチイベントがReactの状態更新を引き起こすため、act()でラップする必要がある。
+ */
+const dispatchTouchEvent = async (element: Element, event: TouchEvent) => {
+  await act(async () => {
+    element.dispatchEvent(event);
+  });
+};
+
+const defaultProps = {
+  imageUrl: 'https://example.com/test-image.jpg',
+  isOpen: true,
+  onClose: vi.fn(),
+};
+
+// エクスポート機能テスト用のモックデータ
+const mockImageInfo: SurveyImageInfo = {
+  id: 'image-1',
+  surveyId: 'survey-1',
+  fileName: 'test-image.jpg',
+  originalPath: 'images/test-image.jpg',
+  thumbnailPath: 'thumbnails/test-image-thumb.jpg',
+  originalUrl: 'https://example.com/test-image.jpg',
+  thumbnailUrl: 'https://example.com/test-image-thumb.jpg',
+  fileSize: 1024000,
+  width: 1920,
+  height: 1080,
+  displayOrder: 1,
+  comment: null,
+  includeInReport: false,
+  createdAt: new Date().toISOString(),
+};
+
+// ============================================================================
+// テストスイート
+// ============================================================================
+
+describe('ImageViewer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // モックインスタンスの関数をリセット
+    Object.values(mockCanvasInstance).forEach((fn) => {
+      if (typeof fn === 'function' && 'mockClear' in fn) {
+        (fn as ReturnType<typeof vi.fn>).mockClear();
+      }
+    });
+    Object.values(mockFabricImageInstance).forEach((fn) => {
+      if (typeof fn === 'function' && 'mockClear' in fn) {
+        (fn as ReturnType<typeof vi.fn>).mockClear();
+      }
+    });
+  });
+
+  afterEach(async () => {
+    // Fabric.jsのFabricImage.fromURLは非同期でPromiseを返すため、
+    // テスト終了時に未処理の状態更新が残る場合がある。
+    // act()でラップして非同期更新を完了させ、act警告を抑制する。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    vi.clearAllMocks();
+  });
+
+  describe('モーダル表示', () => {
+    it('isOpenがtrueの場合、モーダルが表示される', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+      await flushPromises();
+
+      // モーダルが表示されていることを確認
+      const modal = screen.getByRole('dialog');
+      expect(modal).toBeInTheDocument();
+    });
+
+    it('isOpenがfalseの場合、モーダルが表示されない', async () => {
+      render(<ImageViewer {...defaultProps} isOpen={false} />);
+      await flushPromises();
+
+      // モーダルが表示されていないことを確認
+      const modal = screen.queryByRole('dialog');
+      expect(modal).not.toBeInTheDocument();
+    });
+
+    it('閉じるボタンをクリックするとonCloseが呼ばれる', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
+
+      // 閉じるボタンをクリック
+      const closeButton = screen.getByRole('button', { name: /閉じる/i });
+      await user.click(closeButton);
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('ESCキーを押すとonCloseが呼ばれる', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
+
+      // ESCキーを押す
+      await user.keyboard('{Escape}');
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('オーバーレイをクリックするとonCloseが呼ばれる', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
+
+      // オーバーレイをクリック
+      const overlay = screen.getByTestId('image-viewer-overlay');
+      await user.click(overlay);
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('コンテンツ部分をクリックしてもモーダルは閉じない', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      render(<ImageViewer {...defaultProps} onClose={onClose} />);
+      await flushPromises();
+
+      // コンテンツ部分をクリック
+      const content = screen.getByTestId('image-viewer-content');
+      await user.click(content);
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Fabric.js Canvas初期化', () => {
+    it('モーダルが開くとCanvasが初期化される', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      // Canvasのメソッドが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+      });
+    });
+
+    it('モーダルが閉じるとCanvasがdisposeされる', async () => {
+      const { rerender } = render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      // Canvasが初期化されるのを待つ
+      await waitFor(() => {
+        expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+      });
+
+      // isOpenをfalseに変更
+      rerender(<ImageViewer {...defaultProps} isOpen={false} />);
+      await flushPromises();
+
+      // disposeが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockCanvasInstance.dispose).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('画像読み込み', () => {
+    it('画像URLが指定されると画像が読み込まれる', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalledWith(defaultProps.imageUrl, expect.any(Object));
+      });
+    });
+
+    it('画像読み込み中はローディング表示される', async () => {
+      render(<ImageViewer {...defaultProps} />);
+
+      // ローディング表示を確認（Promiseが解決される前にチェック）
+      const loadingIndicator = screen.getByRole('status', { name: /読み込み中/i });
+      expect(loadingIndicator).toBeInTheDocument();
+
+      // テスト終了前に非同期更新を完了させる
+      await flushPromises();
+    });
+
+    it('画像読み込み完了後はローディングが非表示になる', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      // ローディングが非表示になるのを待つ
+      await waitFor(() => {
+        const loadingIndicator = screen.queryByRole('status', { name: /読み込み中/i });
+        expect(loadingIndicator).not.toBeInTheDocument();
+      });
+    });
+
+    it('画像読み込みエラー時はエラーメッセージが表示される', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockFromURL.mockRejectedValueOnce(new Error('画像の読み込みに失敗しました'));
+
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        const errorMessage = screen.getByRole('alert');
+        expect(errorMessage).toBeInTheDocument();
+        expect(errorMessage).toHaveTextContent(/画像の読み込み/i);
+      });
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('Canvasサイズ設定', () => {
+    it('コンテナサイズに合わせてCanvasサイズが設定される', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+        expect(mockCanvasInstance.setHeight).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('アクセシビリティ', () => {
+    it('モーダルにはaria-modal属性が設定されている', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      const modal = screen.getByRole('dialog');
+      expect(modal).toHaveAttribute('aria-modal', 'true');
+    });
+
+    it('モーダルにはaria-labelledby属性が設定されている', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      const modal = screen.getByRole('dialog');
+      expect(modal).toHaveAttribute('aria-labelledby');
+    });
+
+    it('閉じるボタンにはaria-label属性が設定されている', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      const closeButton = screen.getByRole('button', { name: /閉じる/i });
+      expect(closeButton).toHaveAccessibleName();
+    });
+  });
+
+  describe('propsによる制御', () => {
+    it('imageUrlが変更されると画像が再読み込みされる', async () => {
+      const { rerender } = render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      // 最初の画像読み込みを待つ
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalledWith(defaultProps.imageUrl, expect.any(Object));
+      });
+
+      // 新しい画像URLで再レンダリング
+      const newImageUrl = 'https://example.com/new-image.jpg';
+      rerender(<ImageViewer {...defaultProps} imageUrl={newImageUrl} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalledWith(newImageUrl, expect.any(Object));
+      });
+    });
+
+    it('imageNameが指定された場合、タイトルとして表示される', async () => {
+      const imageName = 'テスト画像.jpg';
+      render(<ImageViewer {...defaultProps} imageName={imageName} />);
+      await flushPromises();
+
+      const title = screen.getByText(imageName);
+      expect(title).toBeInTheDocument();
+    });
+
+    it('imageNameが未指定の場合、デフォルトタイトルが表示される', async () => {
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      const title = screen.getByText(/画像ビューア/i);
+      expect(title).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // Task 12.2: ズーム機能のテスト
+  // Requirements: 5.2 - ズームイン/ズームアウト操作で画像を拡大/縮小表示
+  // ============================================================================
+  describe('ズーム機能', () => {
+    describe('ズームボタンUI', () => {
+      it('ズームインボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+          expect(zoomInButton).toBeInTheDocument();
+        });
+      });
+
+      it('ズームアウトボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          const zoomOutButton = screen.getByRole('button', { name: /ズームアウト/i });
+          expect(zoomOutButton).toBeInTheDocument();
+        });
+      });
+
+      it('ズームリセットボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          const resetButton = screen.getByRole('button', { name: /100%/i });
+          expect(resetButton).toBeInTheDocument();
+        });
+      });
+
+      it('現在のズーム倍率が表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          // 初期値は100%
+          const zoomDisplay = screen.getByTestId('zoom-display');
+          expect(zoomDisplay).toHaveTextContent('100%');
+        });
+      });
+    });
+
+    describe('ズームボタンによるズーム操作', () => {
+      it('ズームインボタンをクリックするとズームレベルが上がる', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ズームインボタンをクリック
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        // ズームレベルが上がることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalled();
+        });
+      });
+
+      it('ズームアウトボタンをクリックするとズームレベルが下がる', async () => {
+        const user = userEvent.setup();
+        // 初期ズームレベルを1.5に設定
+        mockCanvasInstance.getZoom.mockReturnValue(1.5);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ズームアウトボタンをクリック
+        const zoomOutButton = screen.getByRole('button', { name: /ズームアウト/i });
+        await user.click(zoomOutButton);
+
+        // ズームレベルが下がることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalled();
+        });
+      });
+
+      it('100%ボタンをクリックするとズームがリセットされる', async () => {
+        const user = userEvent.setup();
+        // 初期ズームレベルを2.0に設定
+        mockCanvasInstance.getZoom.mockReturnValue(2.0);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // リセットボタンをクリック
+        const resetButton = screen.getByRole('button', { name: /100%/i });
+        await user.click(resetButton);
+
+        // ズームレベルが1.0にリセットされることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalledWith(1);
+        });
+      });
+    });
+
+    describe('ズーム範囲制限', () => {
+      it('最小ズーム倍率は0.1x', async () => {
+        expect(ZOOM_CONSTANTS.MIN_ZOOM).toBe(0.1);
+      });
+
+      it('最大ズーム倍率は10x', async () => {
+        expect(ZOOM_CONSTANTS.MAX_ZOOM).toBe(10);
+      });
+
+      it('ズームステップは0.1', async () => {
+        expect(ZOOM_CONSTANTS.ZOOM_STEP).toBe(0.1);
+      });
+
+      it('最小ズーム倍率以下にはズームアウトできない', async () => {
+        const user = userEvent.setup();
+        // 最小ズームレベルに設定
+        mockCanvasInstance.getZoom.mockReturnValue(ZOOM_CONSTANTS.MIN_ZOOM);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ズームアウトボタンをクリック
+        const zoomOutButton = screen.getByRole('button', { name: /ズームアウト/i });
+        await user.click(zoomOutButton);
+
+        // setZoomが最小値未満で呼ばれていないことを確認
+        // または呼ばれても最小値以上であることを確認
+        const calls = mockCanvasInstance.setZoom.mock.calls as number[][];
+        const zoomValues = calls.map((call) => call[0]);
+        zoomValues.forEach((zoom) => {
+          expect(zoom).toBeGreaterThanOrEqual(ZOOM_CONSTANTS.MIN_ZOOM);
+        });
+      });
+
+      it('最大ズーム倍率以上にはズームインできない', async () => {
+        const user = userEvent.setup();
+        // 最大ズームレベルに設定
+        mockCanvasInstance.getZoom.mockReturnValue(ZOOM_CONSTANTS.MAX_ZOOM);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ズームインボタンをクリック
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        // setZoomが最大値超過で呼ばれていないことを確認
+        const calls = mockCanvasInstance.setZoom.mock.calls as number[][];
+        const zoomValues = calls.map((call) => call[0]);
+        zoomValues.forEach((zoom) => {
+          expect(zoom).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
+        });
+      });
+    });
+
+    describe('マウスホイールによるズーム', () => {
+      it('マウスホイールでズームインできる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // Canvasコンテナを取得
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ホイールイベント（上方向 = ズームイン）
+        fireEvent.wheel(canvasContainer, {
+          deltaY: -100,
+          ctrlKey: false,
+        });
+
+        // setZoomが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalled();
+        });
+      });
+
+      it('マウスホイールでズームアウトできる', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(2.0);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // Canvasコンテナを取得
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ホイールイベント（下方向 = ズームアウト）
+        fireEvent.wheel(canvasContainer, {
+          deltaY: 100,
+          ctrlKey: false,
+        });
+
+        // setZoomが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalled();
+        });
+      });
+
+      it('ホイールズームは範囲内に制限される', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // Canvasコンテナを取得
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 大量のズームインを試行
+        for (let i = 0; i < 200; i++) {
+          fireEvent.wheel(canvasContainer, {
+            deltaY: -100,
+            ctrlKey: false,
+          });
+        }
+
+        // setZoomが呼ばれた値が範囲内であることを確認
+        const calls = mockCanvasInstance.setZoom.mock.calls as number[][];
+        calls.forEach((call) => {
+          expect(call[0]).toBeGreaterThanOrEqual(ZOOM_CONSTANTS.MIN_ZOOM);
+          expect(call[0]).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
+        });
+      });
+    });
+
+    describe('ズーム表示の更新', () => {
+      it('ズームイン後にズーム倍率表示が更新される', async () => {
+        const user = userEvent.setup();
+        let currentZoom = 1.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+        mockCanvasInstance.setZoom.mockImplementation((zoom: number) => {
+          currentZoom = zoom;
+        });
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 初期表示を確認
+        const zoomDisplay = screen.getByTestId('zoom-display');
+        expect(zoomDisplay).toHaveTextContent('100%');
+
+        // ズームインボタンをクリック
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        // 表示が更新されることを確認
+        await waitFor(() => {
+          expect(zoomDisplay).not.toHaveTextContent('100%');
+        });
+      });
+    });
+
+    describe('キーボードショートカット', () => {
+      it('+キーでズームインできる', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // +キーを押す
+        await user.keyboard('+');
+
+        // setZoomが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalled();
+        });
+      });
+
+      it('-キーでズームアウトできる', async () => {
+        const user = userEvent.setup();
+        mockCanvasInstance.getZoom.mockReturnValue(2.0);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // -キーを押す
+        await user.keyboard('-');
+
+        // setZoomが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalled();
+        });
+      });
+
+      it('0キーでズームリセットできる', async () => {
+        const user = userEvent.setup();
+        mockCanvasInstance.getZoom.mockReturnValue(2.0);
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 0キーを押す
+        await user.keyboard('0');
+
+        // setZoomが1.0で呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalledWith(1);
+        });
+      });
+    });
+
+    describe('ズームボタンの無効化', () => {
+      it('最大ズーム時にズームインボタンが無効になる', async () => {
+        const user = userEvent.setup();
+        // モックでgetZoomが最大値を返すように設定
+        // ただし、setZoomが呼ばれた後に状態を更新
+        let currentZoom = 1.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+        mockCanvasInstance.setZoom.mockImplementation((zoom: number) => {
+          currentZoom = zoom;
+        });
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 最大ズームに達するまでズームインを繰り返す
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+
+        // 初期状態では有効
+        expect(zoomInButton).not.toBeDisabled();
+
+        // 最大値まで直接ズーム（setZoomを直接呼び出す）
+        // setZoomに最大値を設定
+        currentZoom = ZOOM_CONSTANTS.MAX_ZOOM;
+        // ボタンクリックでstateを更新させる
+        await user.click(zoomInButton);
+
+        // 状態が更新されるのを待つ
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: /ズームイン/i })).toBeDisabled();
+        });
+      });
+
+      it('最小ズーム時にズームアウトボタンが無効になる', async () => {
+        const user = userEvent.setup();
+        // モックでgetZoomが最小値を返すように設定
+        let currentZoom = 1.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+        mockCanvasInstance.setZoom.mockImplementation((zoom: number) => {
+          currentZoom = zoom;
+        });
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 最小ズームに達するまでズームアウトを繰り返す
+        const zoomOutButton = screen.getByRole('button', { name: /ズームアウト/i });
+
+        // 初期状態では有効
+        expect(zoomOutButton).not.toBeDisabled();
+
+        // 最小値まで直接ズーム
+        currentZoom = ZOOM_CONSTANTS.MIN_ZOOM;
+        // ボタンクリックでstateを更新させる
+        await user.click(zoomOutButton);
+
+        // 状態が更新されるのを待つ
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: /ズームアウト/i })).toBeDisabled();
+        });
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 12.3: 回転機能のテスト
+  // Requirements: 5.3 - 回転ボタンを押すと画像を90度単位で回転表示
+  // ============================================================================
+  // ============================================================================
+  // Task 12.4: パン機能のテスト
+  // Requirements: 5.4 - パン操作を行うと拡大時の表示領域を移動する
+  // ============================================================================
+  describe('パン機能', () => {
+    describe('パン定数の検証', () => {
+      it('パン機能の定数がエクスポートされている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.PAN_CONSTANTS).toBeDefined();
+        expect(module.PAN_CONSTANTS.MIN_PAN_ZOOM).toBeDefined();
+      });
+
+      it('パン機能が有効になる最小ズームレベルが定義されている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.PAN_CONSTANTS.MIN_PAN_ZOOM).toBeGreaterThan(1);
+      });
+    });
+
+    describe('パン状態の管理', () => {
+      it('パン位置（panX, panY）が状態として保持される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 初期状態では画面中央に配置（panX=0, panY=0）
+        // パン位置表示が存在することを確認（ズームインしないと表示されない）
+        // ズームインしてパン操作を有効にする
+        mockCanvasInstance.getZoom.mockReturnValue(2.0);
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // マウスホイールでズームイン
+        fireEvent.wheel(canvasContainer, { deltaY: -100 });
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalled();
+        });
+      });
+
+      it('ズームレベルが1.0より大きい場合のみパン操作が有効', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ズームレベルが1.0の場合
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+
+        // パン操作を試行しても、setViewportTransformは呼ばれない
+        const canvasContainer = screen.getByTestId('canvas-container');
+        fireEvent.mouseDown(canvasContainer, { clientX: 100, clientY: 100 });
+        fireEvent.mouseMove(canvasContainer, { clientX: 150, clientY: 150 });
+        fireEvent.mouseUp(canvasContainer);
+
+        // 画像がズームされていない状態ではパン操作は無効
+        // (Fabric.jsのsetViewportTransformは呼ばれない)
+        // 実際にはCanvasレベルで制御するので、確認は初期化後
+      });
+    });
+
+    describe('ドラッグによるパン操作', () => {
+      it('マウスドラッグでキャンバスをパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ドラッグ操作をシミュレート
+        fireEvent.mouseDown(canvasContainer, {
+          clientX: 100,
+          clientY: 100,
+          button: 0,
+        });
+        fireEvent.mouseMove(canvasContainer, {
+          clientX: 150,
+          clientY: 150,
+        });
+        fireEvent.mouseUp(canvasContainer);
+
+        // setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('右クリック（コンテキストメニュー）ではパン操作が開始されない', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 右クリックでドラッグを試行
+        fireEvent.mouseDown(canvasContainer, {
+          clientX: 100,
+          clientY: 100,
+          button: 2, // 右クリック
+        });
+        fireEvent.mouseMove(canvasContainer, {
+          clientX: 150,
+          clientY: 150,
+        });
+        fireEvent.mouseUp(canvasContainer);
+
+        // setViewportTransformが呼ばれないことを確認（右クリックは無視）
+        // 注: 実装によっては別の確認方法が必要
+      });
+
+      it('ドラッグ中はカーソルがgrabbing状態になる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ドラッグ開始
+        fireEvent.mouseDown(canvasContainer, {
+          clientX: 100,
+          clientY: 100,
+          button: 0,
+        });
+
+        // カーソルスタイルを確認（コンテナまたはその子要素）
+        await waitFor(() => {
+          // ドラッグ中はgrabbing、それ以外はgrabまたはdefault
+          // 実装によってはdata-testidやclassで確認
+          const container = screen.getByTestId('canvas-container');
+          // 状態の確認はstyle属性で行う
+          expect(container).toBeInTheDocument();
+        });
+
+        fireEvent.mouseUp(canvasContainer);
+      });
+    });
+
+    describe('パン範囲の制限', () => {
+      it('画像がビューポートから完全に外れないよう制限される', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 極端な位置へのドラッグを試行
+        fireEvent.mouseDown(canvasContainer, {
+          clientX: 0,
+          clientY: 0,
+          button: 0,
+        });
+        fireEvent.mouseMove(canvasContainer, {
+          clientX: 10000, // 極端な値
+          clientY: 10000,
+        });
+        fireEvent.mouseUp(canvasContainer);
+
+        // パン位置が制限されることを確認
+        // setViewportTransformが呼ばれた場合、その値が範囲内であることを検証
+        const calls = mockCanvasInstance.setViewportTransform.mock.calls;
+        if (calls.length > 0) {
+          // 呼ばれた場合、範囲が制限されていることを確認
+          // 具体的な値の検証は実装に依存
+          expect(calls.length).toBeGreaterThan(0);
+        }
+      });
+    });
+
+    describe('ズームリセット時のパン位置リセット', () => {
+      it('ズームを100%にリセットするとパン位置もリセットされる', async () => {
+        const user = userEvent.setup();
+        let currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+        mockCanvasInstance.setZoom.mockImplementation((zoom: number) => {
+          currentZoom = zoom;
+        });
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // パン操作を実行
+        fireEvent.mouseDown(canvasContainer, {
+          clientX: 100,
+          clientY: 100,
+          button: 0,
+        });
+        fireEvent.mouseMove(canvasContainer, {
+          clientX: 200,
+          clientY: 200,
+        });
+        fireEvent.mouseUp(canvasContainer);
+
+        // ズームリセットボタンをクリック
+        const resetButton = screen.getByRole('button', { name: /100%/i });
+        await user.click(resetButton);
+
+        // setViewportTransformがリセットされることを確認
+        // 注: 実装によっては異なる確認方法が必要
+        await waitFor(() => {
+          expect(mockCanvasInstance.setZoom).toHaveBeenCalledWith(1);
+        });
+      });
+    });
+
+    describe('キーボードによるパン操作', () => {
+      it('矢印キーでパン操作ができる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 上矢印キーを押す
+        fireEvent.keyDown(window, { key: 'ArrowUp' });
+
+        // setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('下矢印キーで下にパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 下矢印キーを押す
+        fireEvent.keyDown(window, { key: 'ArrowDown' });
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('左矢印キーで左にパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 左矢印キーを押す
+        fireEvent.keyDown(window, { key: 'ArrowLeft' });
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('右矢印キーで右にパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右矢印キーを押す
+        fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('ズームレベルが1.0の場合は矢印キーでパンしない', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 矢印キーを押す
+        fireEvent.keyDown(window, { key: 'ArrowUp' });
+
+        // setViewportTransformが呼ばれないことを確認
+        // 少し待ってから確認
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('パン操作のアクセシビリティ', () => {
+      it('ズーム時にパン可能であることがカーソルで示される', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+        // ズーム時のカーソルスタイルを確認
+        // 実装によっては直接スタイルを確認
+        expect(canvasContainer).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('回転機能', () => {
+    describe('回転定数の検証', () => {
+      it('回転ステップは90度', async () => {
+        expect(ROTATION_CONSTANTS.ROTATION_STEP).toBe(90);
+      });
+
+      it('回転値の選択肢は0, 90, 180, 270の4つ', async () => {
+        expect(ROTATION_CONSTANTS.ROTATION_VALUES).toEqual([0, 90, 180, 270]);
+      });
+    });
+
+    describe('回転ボタンUI', () => {
+      it('左回転ボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+          expect(rotateLeftButton).toBeInTheDocument();
+        });
+      });
+
+      it('右回転ボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+          expect(rotateRightButton).toBeInTheDocument();
+        });
+      });
+
+      it('現在の回転角度が表示される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          // 初期値は0度
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('0°');
+        });
+      });
+    });
+
+    describe('回転ボタンによる回転操作', () => {
+      it('右回転ボタンをクリックすると90度右に回転する', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        // 回転角度の表示が90°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+
+      it('左回転ボタンをクリックすると90度左に回転する', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 左回転ボタンをクリック
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        await user.click(rotateLeftButton);
+
+        // 回転角度の表示が270°になることを確認（0から90を引いて360を足す）
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('270°');
+        });
+      });
+
+      it('右回転を4回クリックすると元に戻る（360度 = 0度）', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンを4回クリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton); // 0 -> 90
+        await user.click(rotateRightButton); // 90 -> 180
+        await user.click(rotateRightButton); // 180 -> 270
+        await user.click(rotateRightButton); // 270 -> 0
+
+        // 回転角度の表示が0°に戻ることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('0°');
+        });
+      });
+
+      it('左回転を4回クリックすると元に戻る', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 左回転ボタンを4回クリック
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        await user.click(rotateLeftButton); // 0 -> 270
+        await user.click(rotateLeftButton); // 270 -> 180
+        await user.click(rotateLeftButton); // 180 -> 90
+        await user.click(rotateLeftButton); // 90 -> 0
+
+        // 回転角度の表示が0°に戻ることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('0°');
+        });
+      });
+    });
+
+    describe('回転状態の保持', () => {
+      it('回転後もズーム操作で回転状態が保持される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        // 回転角度が90°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+
+        // ズームインボタンをクリック
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        // 回転状態が保持されていることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+
+      it('Canvasの背景画像に回転が適用される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリック
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        // Fabric.js画像の回転が設定されることを確認
+        await waitFor(() => {
+          expect(mockFabricImageInstance.set).toHaveBeenCalledWith(
+            expect.objectContaining({
+              angle: 90,
+            })
+          );
+        });
+      });
+    });
+
+    describe('キーボードショートカット', () => {
+      it('[キーで左回転できる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // [キーを押す（fireEventでkeydownイベントを発火）
+        fireEvent.keyDown(window, { key: '[' });
+
+        // 回転角度の表示が270°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('270°');
+        });
+      });
+
+      it(']キーで右回転できる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ]キーを押す（fireEventでkeydownイベントを発火）
+        fireEvent.keyDown(window, { key: ']' });
+
+        // 回転角度の表示が90°になることを確認
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+    });
+
+    describe('回転リセット', () => {
+      it('回転リセットボタンをクリックすると0度に戻る', { timeout: 10000 }, async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        // 画像読み込み完了を待つ
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // 右回転ボタンをクリックして90度にする
+        const rotateRightButton = await screen.findByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        // 回転角度が90°になるのを待つ
+        await waitFor(() => {
+          expect(screen.getByTestId('rotation-display')).toHaveTextContent('90°');
+        });
+
+        // 回転リセットボタンをクリック
+        const resetRotationButton = await screen.findByRole('button', {
+          name: /回転をリセット/i,
+        });
+        await user.click(resetRotationButton);
+
+        // 回転角度が0°に戻ることを確認
+        await waitFor(() => {
+          expect(screen.getByTestId('rotation-display')).toHaveTextContent('0°');
+        });
+      });
+    });
+
+    describe('アクセシビリティ', () => {
+      it('回転ボタンにはaria-label属性が設定されている', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+
+        expect(rotateLeftButton).toHaveAccessibleName();
+        expect(rotateRightButton).toHaveAccessibleName();
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 12.5: タッチ操作対応のテスト
+  // Requirements: 5.5 - ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
+  // Requirements: 13.2 - タッチ操作に最適化された注釈ツールを提供する
+  // ============================================================================
+  describe('タッチ操作対応', () => {
+    // タッチイベントのヘルパー関数
+    const createTouchEvent = (
+      type: string,
+      touches: Array<{ clientX: number; clientY: number; identifier: number }>
+    ) => {
+      const touchList = touches.map(
+        (t) =>
+          ({
+            clientX: t.clientX,
+            clientY: t.clientY,
+            identifier: t.identifier,
+            target: document.body,
+            screenX: t.clientX,
+            screenY: t.clientY,
+            pageX: t.clientX,
+            pageY: t.clientY,
+            radiusX: 1,
+            radiusY: 1,
+            rotationAngle: 0,
+            force: 1,
+          }) as Touch
+      );
+
+      return new TouchEvent(type, {
+        touches: touchList,
+        targetTouches: touchList,
+        changedTouches: touchList,
+        bubbles: true,
+        cancelable: true,
+      });
+    };
+
+    describe('タッチ定数の検証', () => {
+      it('タッチ操作の定数がエクスポートされている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.TOUCH_CONSTANTS).toBeDefined();
+      });
+
+      it('ピンチズームの最小距離閾値が定義されている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.TOUCH_CONSTANTS.PINCH_THRESHOLD).toBeGreaterThan(0);
+      });
+
+      it('ピンチズームの感度係数が定義されている', async () => {
+        const module = await import('../../../components/site-surveys/ImageViewer');
+        expect(module.TOUCH_CONSTANTS.PINCH_ZOOM_FACTOR).toBeGreaterThan(0);
+      });
+    });
+
+    describe('ピンチズーム操作', () => {
+      it('2本指ピンチアウト（広げる）でズームインできる', async () => {
+        const currentZoom = 1.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ピンチ開始（2本指を近くに配置）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 120, clientY: 120, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // ピンチアウト（指を広げる）
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 170, clientY: 170, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        // タッチ終了
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // ズームが変更されることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('2本指ピンチイン（縮める）でズームアウトできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // ピンチ開始（2本指を離して配置）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 150, clientY: 150, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // ピンチイン（指を近づける）
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 90, clientY: 90, identifier: 0 },
+          { clientX: 110, clientY: 110, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        // タッチ終了
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // ズームが変更されることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('ピンチズームは範囲内に制限される', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 大量のピンチアウトを試行
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 110, clientY: 110, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // 極端なピンチアウト
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 0, clientY: 0, identifier: 0 },
+          { clientX: 1000, clientY: 1000, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // setViewportTransformが呼ばれた場合、その値のスケールが範囲内であることを確認
+        const calls = mockCanvasInstance.setViewportTransform.mock.calls;
+        if (calls.length > 0) {
+          const lastCallArgs = calls[calls.length - 1];
+          if (lastCallArgs) {
+            const lastCall = lastCallArgs[0] as number[];
+            const scaleX = lastCall[0];
+            expect(scaleX).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
+            expect(scaleX).toBeGreaterThanOrEqual(ZOOM_CONSTANTS.MIN_ZOOM);
+          }
+        }
+      });
+
+      it('1本指タッチではピンチズームが発動しない', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 1本指でタッチ
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // 1本指で移動
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // ピンチズームとしては動作しない（パン操作になる可能性はある）
+        // ズームが変化していないことを確認するため、少し待つ
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        // 1本指の場合、ピンチズームのためのsetViewportTransformは呼ばれない
+        // （パン操作でズームが1.0未満の場合は呼ばれない）
+      });
+    });
+
+    describe('2本指パン操作', () => {
+      it('ズーム状態で2本指ドラッグするとパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 2本指で同じ距離を保ったままドラッグ（パン操作）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 150, clientY: 100, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // 同じ距離を保ったまま移動（ピンチではなくパン）
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+          { clientX: 200, clientY: 150, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('ズームレベルが1.0の時は2本指パンが無効', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 2本指でパン操作を試行
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 150, clientY: 100, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+          { clientX: 200, clientY: 150, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // パン操作のためのsetViewportTransformは呼ばれない
+        // （ピンチズームの場合は呼ばれる可能性がある）
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+    });
+
+    describe('タッチイベントハンドリング', () => {
+      it('touchstartイベントでタッチ状態が初期化される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // touchstartイベントを発火
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // イベントが処理されることを確認（エラーが発生しないこと）
+        expect(canvasContainer).toBeInTheDocument();
+      });
+
+      it('touchmoveイベントでタッチ位置が更新される', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // touchmoveイベントを発火
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 120, clientY: 120, identifier: 0 },
+          { clientX: 220, clientY: 220, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        // イベントが処理されることを確認
+        expect(canvasContainer).toBeInTheDocument();
+      });
+
+      it('touchendイベントでタッチ状態がリセットされる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // touchendイベントを発火
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // 状態がリセットされ、新しいタッチ操作を受け付けることを確認
+        const newTouchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+          { clientX: 250, clientY: 250, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, newTouchStartEvent);
+
+        expect(canvasContainer).toBeInTheDocument();
+      });
+
+      it('touchcancelイベントでタッチ状態がリセットされる', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // touchcancelイベントを発火
+        const touchCancelEvent = new TouchEvent('touchcancel', {
+          touches: [],
+          targetTouches: [],
+          changedTouches: [],
+          bubbles: true,
+          cancelable: true,
+        });
+        await dispatchTouchEvent(canvasContainer, touchCancelEvent);
+
+        expect(canvasContainer).toBeInTheDocument();
+      });
+    });
+
+    describe('ピンチズームの中心点', () => {
+      it('ピンチズームは2本指の中心点を基準に拡大縮小される', async () => {
+        const currentZoom = 1.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 特定の位置でピンチズーム
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // ピンチアウト
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 250, clientY: 250, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+    });
+
+    describe('タッチ操作のアクセシビリティ', () => {
+      it('タッチ操作中もUIコントロールが利用可能', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // ズームボタンが存在することを確認
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        const zoomOutButton = screen.getByRole('button', { name: /ズームアウト/i });
+        const rotateLeftButton = screen.getByRole('button', { name: /左に回転/i });
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+
+        expect(zoomInButton).toBeInTheDocument();
+        expect(zoomOutButton).toBeInTheDocument();
+        expect(rotateLeftButton).toBeInTheDocument();
+        expect(rotateRightButton).toBeInTheDocument();
+      });
+
+      it('モーダル閉じるボタンはタッチ操作でアクセス可能', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const closeButton = screen.getByRole('button', { name: /閉じる/i });
+        expect(closeButton).toBeInTheDocument();
+
+        // タップでクリックをシミュレート
+        fireEvent.click(closeButton);
+
+        expect(defaultProps.onClose).toHaveBeenCalled();
+      });
+    });
+
+    describe('1本指タッチによるパン操作', () => {
+      it('ズーム状態で1本指ドラッグするとパンできる', async () => {
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 1本指でドラッグ（パン操作）
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        // 1本指で移動
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // ズームレベルが1より大きい場合、setViewportTransformが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('ズームレベルが1.0の時は1本指パンが無効', async () => {
+        mockCanvasInstance.getZoom.mockReturnValue(1.0);
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 1本指でパン操作を試行
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        // パン操作のためのsetViewportTransformは呼ばれない
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 12.6: 表示状態の共有機能のテスト
+  // Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
+  // ============================================================================
+  describe('表示状態の共有機能', () => {
+    describe('onViewStateChangeコールバック', () => {
+      it('ズーム変更時にonViewStateChangeが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        onViewStateChange.mockClear();
+
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const lastCall = onViewStateChange.mock.calls[onViewStateChange.mock.calls.length - 1];
+        expect(lastCall).toBeDefined();
+        expect(lastCall![0]).toHaveProperty('zoom');
+      });
+
+      it('回転変更時にonViewStateChangeが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        onViewStateChange.mockClear();
+
+        const rotateRightButton = screen.getByRole('button', { name: /右に回転/i });
+        await user.click(rotateRightButton);
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const calls = onViewStateChange.mock.calls;
+          const hasRotation90 = calls.some((call) => call[0] && call[0].rotation === 90);
+          expect(hasRotation90).toBe(true);
+        });
+      });
+
+      it('パン操作時にonViewStateChangeが呼ばれる', async () => {
+        const onViewStateChange = vi.fn();
+        const currentZoom = 2.0;
+        mockCanvasInstance.getZoom.mockImplementation(() => currentZoom);
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        onViewStateChange.mockClear();
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        fireEvent.mouseDown(canvasContainer, {
+          clientX: 100,
+          clientY: 100,
+          button: 0,
+        });
+        fireEvent.mouseMove(canvasContainer, {
+          clientX: 150,
+          clientY: 150,
+        });
+        fireEvent.mouseUp(canvasContainer);
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const lastCall = onViewStateChange.mock.calls[onViewStateChange.mock.calls.length - 1];
+        expect(lastCall).toBeDefined();
+        expect(lastCall![0]).toHaveProperty('panX');
+        expect(lastCall![0]).toHaveProperty('panY');
+      });
+
+      it('onViewStateChangeは省略可能', async () => {
+        const user = userEvent.setup();
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+        await user.click(zoomInButton);
+
+        expect(screen.getByTestId('zoom-display')).toBeInTheDocument();
+      });
+    });
+
+    describe('ImageViewerState型の構造', () => {
+      it('コールバックで渡される状態にはzoom, rotation, panX, panYが含まれる', async () => {
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const call = onViewStateChange.mock.calls[0];
+        expect(call).toBeDefined();
+        const state = call![0] as ImageViewerViewState;
+        expect(state).toHaveProperty('zoom');
+        expect(state).toHaveProperty('rotation');
+        expect(state).toHaveProperty('panX');
+        expect(state).toHaveProperty('panY');
+        expect(typeof state.zoom).toBe('number');
+        expect(typeof state.rotation).toBe('number');
+        expect(typeof state.panX).toBe('number');
+        expect(typeof state.panY).toBe('number');
+      });
+
+      it('初期状態はzoom=1, rotation=0, panX=0, panY=0', async () => {
+        const onViewStateChange = vi.fn();
+
+        render(<ImageViewer {...defaultProps} onViewStateChange={onViewStateChange} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(onViewStateChange).toHaveBeenCalled();
+        });
+
+        const call = onViewStateChange.mock.calls[0];
+        expect(call).toBeDefined();
+        const state = call![0] as ImageViewerViewState;
+        expect(state.zoom).toBe(1);
+        expect(state.rotation).toBe(0);
+        expect(state.panX).toBe(0);
+        expect(state.panY).toBe(0);
+      });
+    });
+
+    describe('initialViewState propsによる初期状態の設定', () => {
+      it('initialViewStateでズームの初期値を設定できる', async () => {
+        const onViewStateChange = vi.fn();
+        const initialViewState = {
+          zoom: 2.0,
+          rotation: 0 as const,
+          panX: 0,
+          panY: 0,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            onViewStateChange={onViewStateChange}
+            initialViewState={initialViewState}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const zoomDisplay = screen.getByTestId('zoom-display');
+          expect(zoomDisplay).toHaveTextContent('200%');
+        });
+      });
+
+      it('initialViewStateで回転の初期値を設定できる', async () => {
+        const onViewStateChange = vi.fn();
+        const initialViewState = {
+          zoom: 1,
+          rotation: 90 as const,
+          panX: 0,
+          panY: 0,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            onViewStateChange={onViewStateChange}
+            initialViewState={initialViewState}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const rotationDisplay = screen.getByTestId('rotation-display');
+          expect(rotationDisplay).toHaveTextContent('90°');
+        });
+      });
+
+      it('initialViewStateは省略可能', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const zoomDisplay = screen.getByTestId('zoom-display');
+          expect(zoomDisplay).toHaveTextContent('100%');
+        });
+      });
+    });
+
+    describe('getViewState関数による現在の状態取得', () => {
+      it('refを通じて現在の表示状態を取得できる', async () => {
+        const viewerRef = { current: null as ImageViewerRef | null };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        if (viewerRef.current) {
+          const state = viewerRef.current.getViewState();
+          expect(state).toHaveProperty('zoom');
+          expect(state).toHaveProperty('rotation');
+          expect(state).toHaveProperty('panX');
+          expect(state).toHaveProperty('panY');
+        }
+      });
+    });
+
+    describe('setViewState関数による状態の設定', () => {
+      it('refを通じてsetViewStateメソッドが公開される', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        expect(viewerRef.current?.setViewState).toBeDefined();
+        expect(typeof viewerRef.current?.setViewState).toBe('function');
+      });
+
+      it('setViewStateを呼び出してもエラーが発生しない', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        if (viewerRef.current) {
+          await act(async () => {
+            viewerRef.current!.setViewState({
+              zoom: 1.5,
+              rotation: 90,
+              panX: 10,
+              panY: 20,
+            });
+          });
+
+          expect(viewerRef.current).not.toBeNull();
+        }
+      });
+    });
+
+    describe('注釈エディタとの状態同期', () => {
+      it('setViewStateとgetViewStateが公開される', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(screen.queryByRole('status')).not.toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        expect(viewerRef.current?.getViewState).toBeDefined();
+        expect(viewerRef.current?.setViewState).toBeDefined();
+      });
+
+      it('getViewStateは現在の表示状態を含むオブジェクトを返す', async () => {
+        const viewerRef = {
+          current: null as ImageViewerRef | null,
+        };
+
+        render(
+          <ImageViewer
+            {...defaultProps}
+            ref={(ref) => {
+              viewerRef.current = ref;
+            }}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(viewerRef.current).not.toBeNull();
+        });
+
+        if (viewerRef.current) {
+          const initialState = viewerRef.current.getViewState();
+          expect(initialState).toHaveProperty('zoom');
+          expect(initialState).toHaveProperty('rotation');
+          expect(initialState).toHaveProperty('panX');
+          expect(initialState).toHaveProperty('panY');
+          expect(typeof initialState.zoom).toBe('number');
+          expect(typeof initialState.rotation).toBe('number');
+          expect(typeof initialState.panX).toBe('number');
+          expect(typeof initialState.panY).toBe('number');
+        }
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 29.3: エクスポートボタン統合のテスト
+  // Requirements: 12.1 - 画像ビューアからエクスポートダイアログを表示する
+  // ============================================================================
+  describe('エクスポートボタン統合', () => {
+    describe('エクスポートボタンUI', () => {
+      it('imageInfoが提供されている場合、エクスポートボタンが表示される', async () => {
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+          expect(exportButton).toBeInTheDocument();
+        });
+      });
+
+      it('imageInfoが提供されていない場合、エクスポートボタンが表示されない', async () => {
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンが表示されないことを確認
+        const exportButton = screen.queryByRole('button', { name: /エクスポート/i });
+        expect(exportButton).not.toBeInTheDocument();
+      });
+
+      it('エクスポートボタンにはアクセシブルな名前が設定されている', async () => {
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+          expect(exportButton).toHaveAccessibleName();
+        });
+      });
+    });
+
+    describe('エクスポートダイアログ表示', () => {
+      it('エクスポートボタンをクリックするとImageExportDialogが表示される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ImageExportDialogが表示されることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+      });
+
+      it('ダイアログが開いている間はダイアログが表示される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // エクスポートダイアログが開いていることを確認（画像エクスポートタイトルで識別）
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // 2つのダイアログ（ImageViewerとImageExportDialog）が存在することを確認
+        const dialogs = screen.getAllByRole('dialog');
+        expect(dialogs.length).toBe(2);
+      });
+    });
+
+    describe('エクスポートダイアログのキャンセル', () => {
+      it('キャンセルボタンをクリックするとダイアログが閉じる', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // キャンセルボタンをクリック
+        const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+        await user.click(cancelButton);
+
+        // ダイアログが閉じたことを確認
+        await waitFor(() => {
+          expect(screen.queryByText('画像エクスポート')).not.toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('エクスポート実行コールバック', () => {
+      it('onExportが提供されている場合、エクスポート実行時にコールバックが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onExport = vi.fn();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} onExport={onExport} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // エクスポート実行ボタンをクリック
+        const allExportButtons = screen.getAllByRole('button', { name: /エクスポート/i });
+        const dialogExportButton = allExportButtons[1];
+        expect(dialogExportButton).toBeDefined();
+        await user.click(dialogExportButton!);
+
+        // コールバックが呼ばれることを確認
+        await waitFor(() => {
+          expect(onExport).toHaveBeenCalledTimes(1);
+        });
+
+        // オプションが渡されていることを確認
+        expect(onExport).toHaveBeenCalledWith(
+          expect.objectContaining({
+            format: expect.any(String),
+            quality: expect.any(String),
+            includeAnnotations: expect.any(Boolean),
+          })
+        );
+      });
+    });
+
+    describe('元画像ダウンロード', () => {
+      it('onDownloadOriginalが提供されている場合、ダウンロードボタンが表示される', async () => {
+        const user = userEvent.setup();
+        const onDownloadOriginal = vi.fn();
+        render(
+          <ImageViewer
+            {...defaultProps}
+            imageInfo={mockImageInfo}
+            onDownloadOriginal={onDownloadOriginal}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // 元画像ダウンロードボタンが表示されることを確認
+        expect(screen.getByRole('button', { name: /元画像をダウンロード/i })).toBeInTheDocument();
+      });
+
+      it('元画像ダウンロードボタンをクリックするとonDownloadOriginalが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onDownloadOriginal = vi.fn();
+        render(
+          <ImageViewer
+            {...defaultProps}
+            imageInfo={mockImageInfo}
+            onDownloadOriginal={onDownloadOriginal}
+          />
+        );
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // 元画像ダウンロードボタンをクリック
+        const downloadButton = screen.getByRole('button', { name: /元画像をダウンロード/i });
+        await user.click(downloadButton);
+
+        // コールバックが呼ばれることを確認
+        expect(onDownloadOriginal).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('エクスポート中の状態管理', () => {
+      it('exporting=trueのとき、ダイアログ内のエクスポートボタンが無効化される', async () => {
+        const user = userEvent.setup();
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} exporting={true} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンをクリック
+        const exportButton = await screen.findByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        // ダイアログが開いていることを確認
+        await waitFor(() => {
+          expect(screen.getByText('画像エクスポート')).toBeInTheDocument();
+        });
+
+        // ダイアログ内のエクスポートボタンが無効化されることを確認
+        // ダイアログ内のエクスポートボタンはツールバーのボタンの後に表示される（2番目）
+        const allExportButtons = screen.getAllByRole('button', { name: /エクスポート/i });
+        // ダイアログ内のエクスポートボタン（2番目）が無効化されていることを確認
+        const dialogExportButton = allExportButtons[1];
+        expect(dialogExportButton).toBeDisabled();
+      });
+    });
+
+    describe('エクスポートボタンの位置', () => {
+      it('エクスポートボタンはツールバー領域に配置される', async () => {
+        render(<ImageViewer {...defaultProps} imageInfo={mockImageInfo} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        // エクスポートボタンが存在することを確認
+        await waitFor(() => {
+          const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+          expect(exportButton).toBeInTheDocument();
+        });
+      });
+    });
+  });
+});

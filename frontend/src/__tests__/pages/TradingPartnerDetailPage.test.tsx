@@ -20,7 +20,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import TradingPartnerDetailPage from '../../pages/TradingPartnerDetailPage';
-import { ToastProvider } from '../../hooks/useToast';
+import { ToastProvider } from '../../components/ToastProvider';
 import type { TradingPartnerDetail } from '../../types/trading-partner.types';
 
 // ============================================================================

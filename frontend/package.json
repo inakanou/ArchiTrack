@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "mkdir -p coverage/.tmp && vitest run --coverage",
+    "coverage:check": "node scripts/check-coverage-gaps.cjs",
     "lint": "eslint src/**/*.{js,jsx,ts,tsx} vitest.*.ts",
     "lint:fix": "eslint src/**/*.{js,jsx,ts,tsx} vitest.*.ts --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx}\" \"vitest.*.ts\"",
@@ -25,6 +26,8 @@
   },
   "dependencies": {
     "@sentry/react": "^10.27.0",
+    "fabric": "^6.9.1",
+    "jspdf": "^3.0.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6"

@@ -11,6 +11,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
 import { authenticator } from 'otplib';
 
+// $transactionのデフォルト実装
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const defaultTransactionImpl = async (callbackOrArray: any) => {
+  if (typeof callbackOrArray === 'function') {
+    return await callbackOrArray(mockPrismaClient);
+  }
+  // 配列版の場合は空配列を返す
+  return [];
+};
+
 // Prismaのモック
 const mockPrismaClient = {
   user: {
@@ -22,6 +32,7 @@ const mockPrismaClient = {
     updateMany: vi.fn(),
     deleteMany: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
   },
   refreshToken: {
     deleteMany: vi.fn(),
@@ -29,7 +40,8 @@ const mockPrismaClient = {
   auditLog: {
     create: vi.fn(),
   },
-  $transaction: vi.fn((callback) => callback(mockPrismaClient)),
+  // $transactionは配列版とコールバック版の両方をサポート
+  $transaction: vi.fn(defaultTransactionImpl),
 };
 
 vi.mock('../../../db', () => ({
@@ -47,6 +59,8 @@ describe('TwoFactorService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // $transactionのモックをデフォルト実装に復元
+    vi.mocked(mockPrismaClient.$transaction).mockImplementation(defaultTransactionImpl);
     // 暗号化鍵を設定（256ビット = 64文字の16進数）
     process.env.TWO_FACTOR_ENCRYPTION_KEY =
       'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
@@ -787,6 +801,436 @@ describe('TwoFactorService', () => {
     });
   });
 
-  // Note: 詳細なテストは今後のタスクで実装予定
-  // 現在は実装が完了し、型チェックがパスしていることを確認済み
+  describe('getBackupCodesStatus()', () => {
+    const mockUserId = 'user-status-123';
+
+    it('ユーザーが存在しない → USER_NOT_FOUND', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await twoFactorService.getBackupCodesStatus(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+
+    it('2FAが無効 → TWO_FACTOR_NOT_ENABLED', async () => {
+      // Arrange
+      const userWithout2FA = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithout2FA);
+
+      // Act
+      const result = await twoFactorService.getBackupCodesStatus(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('TWO_FACTOR_NOT_ENABLED');
+      }
+    });
+
+    it('バックアップコードステータス取得成功 → マスクされたコードと使用状況を返す', async () => {
+      // Arrange
+      const userWith2FA = {
+        id: mockUserId,
+        twoFactorEnabled: true,
+      };
+      const mockBackupCodes = [
+        { usedAt: null, createdAt: new Date('2025-01-01T00:00:00Z') },
+        { usedAt: new Date('2025-01-02T00:00:00Z'), createdAt: new Date('2025-01-01T00:00:00Z') },
+        { usedAt: null, createdAt: new Date('2025-01-01T00:00:00Z') },
+      ];
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.findMany).mockResolvedValue(mockBackupCodes);
+
+      // Act
+      const result = await twoFactorService.getBackupCodesStatus(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toHaveLength(3);
+        // マスクされたコード形式を確認
+        expect(result.value[0]?.code).toBe('****-0001');
+        expect(result.value[0]?.isUsed).toBe(false);
+        expect(result.value[0]?.usedAt).toBeNull();
+
+        expect(result.value[1]?.code).toBe('****-0002');
+        expect(result.value[1]?.isUsed).toBe(true);
+        expect(result.value[1]?.usedAt).toBe('2025-01-02T00:00:00.000Z');
+
+        expect(result.value[2]?.code).toBe('****-0003');
+        expect(result.value[2]?.isUsed).toBe(false);
+      }
+    });
+
+    it('DBエラー発生時 → USER_NOT_FOUND', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockRejectedValue(new Error('DB Error'));
+
+      // Act
+      const result = await twoFactorService.getBackupCodesStatus(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+  });
+
+  describe('disableTwoFactor() - 成功パス', () => {
+    const mockUserId = 'user-disable-success-123';
+    const mockUserWith2FA = {
+      id: mockUserId,
+      twoFactorEnabled: true,
+      passwordHash: 'hashed-password',
+    };
+
+    it('パスワード検証成功 → 2FA無効化、トランザクション実行', async () => {
+      // Arrange
+      const { verify } = await import('@node-rs/argon2');
+      vi.mocked(verify).mockResolvedValue(true);
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUserWith2FA);
+      // $transactionを配列版でモック
+      vi.mocked(mockPrismaClient.$transaction).mockResolvedValue([]);
+
+      // Act
+      const result = await twoFactorService.disableTwoFactor(mockUserId, 'correct-password');
+
+      // Assert
+      expect(result.ok).toBe(true);
+      expect(mockPrismaClient.$transaction).toHaveBeenCalled();
+    });
+
+    it('DBエラー発生時 → INVALID_PASSWORD', async () => {
+      // Arrange
+      const { verify } = await import('@node-rs/argon2');
+      vi.mocked(verify).mockResolvedValue(true);
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUserWith2FA);
+      vi.mocked(mockPrismaClient.$transaction).mockRejectedValue(new Error('DB Error'));
+
+      // Act
+      const result = await twoFactorService.disableTwoFactor(mockUserId, 'correct-password');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_PASSWORD');
+      }
+    });
+  });
+
+  describe('enableTwoFactor() - 成功パス', () => {
+    const mockUserId = 'user-enable-success-123';
+    const testSecret = 'JBSWY3DPEHPK3PXP';
+
+    it('テスト環境でTOTP検証成功 → 2FA有効化、バックアップコード返却', async () => {
+      // Arrange
+      // テスト環境では"123456"でバイパス可能
+      const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+      const userWithSecret = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+        twoFactorSecret: encryptedSecret,
+      };
+      const { hash } = await import('@node-rs/argon2');
+      vi.mocked(hash).mockResolvedValue('hashed-code');
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithSecret);
+      // $transaction内で使われるメソッドのモック
+      vi.mocked(mockPrismaClient.user.update).mockResolvedValue({ id: mockUserId });
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.deleteMany).mockResolvedValue({ count: 10 });
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.create).mockResolvedValue({
+        id: 'backup-id',
+        userId: mockUserId,
+        codeHash: 'hashed-code',
+        usedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      vi.mocked(mockPrismaClient.auditLog.create).mockResolvedValue({
+        id: 'audit-id',
+        userId: mockUserId,
+        action: 'TWO_FACTOR_ENABLED',
+        entityType: 'USER',
+        entityId: mockUserId,
+        createdAt: new Date(),
+      });
+
+      // Act - テスト環境では"123456"が成功する
+      const result = await twoFactorService.enableTwoFactor(mockUserId, '123456');
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.backupCodes).toHaveLength(10);
+        // XXXX-XXXX形式であることを確認
+        result.value.backupCodes.forEach((code) => {
+          expect(code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+        });
+      }
+    });
+
+    it('production環境で無効なTOTPコード → INVALID_TOTP_CODE', async () => {
+      // Arrange
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+      const userWithSecret = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+        twoFactorSecret: encryptedSecret,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithSecret);
+
+      // Act
+      const result = await twoFactorService.enableTwoFactor(mockUserId, '000000');
+
+      // Cleanup
+      process.env.NODE_ENV = originalEnv;
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_TOTP_CODE');
+      }
+    });
+
+    it('production環境で復号化失敗 → DECRYPTION_FAILED', async () => {
+      // Arrange
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const userWithInvalidSecret = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+        twoFactorSecret: 'invalid-encrypted-data',
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithInvalidSecret);
+
+      // Act
+      const result = await twoFactorService.enableTwoFactor(mockUserId, '654321');
+
+      // Cleanup
+      process.env.NODE_ENV = originalEnv;
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DECRYPTION_FAILED');
+      }
+    });
+
+    it('DBエラー発生時 → INVALID_TOTP_CODE', async () => {
+      // Arrange
+      const encryptedSecret = await twoFactorService.encryptSecret(testSecret);
+      const userWithSecret = {
+        id: mockUserId,
+        twoFactorEnabled: false,
+        twoFactorSecret: encryptedSecret,
+      };
+      const { hash } = await import('@node-rs/argon2');
+      vi.mocked(hash).mockResolvedValue('hashed-code');
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithSecret);
+      vi.mocked(mockPrismaClient.$transaction).mockRejectedValue(new Error('DB Error'));
+
+      // Act - テスト環境では"123456"でバイパス可能
+      const result = await twoFactorService.enableTwoFactor(mockUserId, '123456');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_TOTP_CODE');
+      }
+    });
+  });
+
+  describe('verifyBackupCode() - 成功パス', () => {
+    const mockUserId = 'user-verify-backup-123';
+
+    it('有効なバックアップコード → 検証成功、使用済みマーク', async () => {
+      // Arrange
+      // production環境をシミュレートしてテストコードのバイパスを避ける
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const userWith2FA = {
+        id: mockUserId,
+        twoFactorEnabled: true,
+      };
+      const mockBackupCodes = [
+        { id: 'code-1', userId: mockUserId, codeHash: 'hash1', usedAt: null },
+        { id: 'code-2', userId: mockUserId, codeHash: 'hash2', usedAt: null },
+      ];
+      const { verify } = await import('@node-rs/argon2');
+      vi.mocked(verify).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.findMany).mockResolvedValue(mockBackupCodes);
+      vi.mocked(mockPrismaClient.$transaction).mockResolvedValue([]);
+
+      // Act
+      const result = await twoFactorService.verifyBackupCode(mockUserId, 'VALIDCODE');
+
+      // Cleanup
+      process.env.NODE_ENV = originalEnv;
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(true);
+      }
+    });
+
+    it('無効なバックアップコード → false', async () => {
+      // Arrange
+      // production環境をシミュレートしてテストコードのバイパスを避ける
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const userWith2FA = {
+        id: mockUserId,
+        twoFactorEnabled: true,
+      };
+      const mockBackupCodes = [
+        { id: 'code-1', userId: mockUserId, codeHash: 'hash1', usedAt: null },
+      ];
+      const { verify } = await import('@node-rs/argon2');
+      vi.mocked(verify).mockResolvedValue(false);
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.findMany).mockResolvedValue(mockBackupCodes);
+
+      // Act
+      const result = await twoFactorService.verifyBackupCode(mockUserId, 'INVALIDCD');
+
+      // Cleanup
+      process.env.NODE_ENV = originalEnv;
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(false);
+      }
+    });
+
+    it('DBエラー発生時 → INVALID_BACKUP_CODE', async () => {
+      // Arrange
+      const userWith2FA = {
+        id: mockUserId,
+        twoFactorEnabled: true,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.findMany).mockRejectedValue(
+        new Error('DB Error')
+      );
+
+      // Act
+      const result = await twoFactorService.verifyBackupCode(mockUserId, 'ANYCODE1');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_BACKUP_CODE');
+      }
+    });
+  });
+
+  describe('verifyTOTP() - 追加テスト', () => {
+    const mockUserId = 'user-totp-extra-123';
+
+    it('復号化失敗 → DECRYPTION_FAILED', async () => {
+      // Arrange
+      // production環境をシミュレートしてテストコードのバイパスを避ける
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const userWith2FA = {
+        id: mockUserId,
+        twoFactorEnabled: true,
+        twoFactorSecret: 'invalid-encrypted-data',
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
+
+      // Act
+      const result = await twoFactorService.verifyTOTP(mockUserId, '654321');
+
+      // Cleanup
+      process.env.NODE_ENV = originalEnv;
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DECRYPTION_FAILED');
+      }
+    });
+
+    it('DBエラー発生時 → INVALID_TOTP_CODE', async () => {
+      // Arrange
+      vi.mocked(mockPrismaClient.user.findUnique).mockRejectedValue(new Error('DB Error'));
+
+      // Act
+      const result = await twoFactorService.verifyTOTP(mockUserId, '654321');
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('INVALID_TOTP_CODE');
+      }
+    });
+  });
+
+  describe('regenerateBackupCodes() - エラーハンドリング', () => {
+    const mockUserId = 'user-regen-error-123';
+
+    it('トランザクションエラー → USER_NOT_FOUND', async () => {
+      // Arrange
+      const mockUser = {
+        id: mockUserId,
+        twoFactorEnabled: true,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(mockPrismaClient.$transaction).mockRejectedValue(new Error('Transaction Error'));
+
+      // Act
+      const result = await twoFactorService.regenerateBackupCodes(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+  });
+
+  describe('setupTwoFactor() - エラーハンドリング', () => {
+    const mockUserId = 'user-setup-error-123';
+
+    it('トランザクションエラー → USER_NOT_FOUND', async () => {
+      // Arrange
+      const mockUser = {
+        id: mockUserId,
+        email: 'test@example.com',
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+      };
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(mockPrismaClient.$transaction).mockRejectedValue(new Error('Transaction Error'));
+
+      // Act
+      const result = await twoFactorService.setupTwoFactor(mockUserId);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('USER_NOT_FOUND');
+      }
+    });
+  });
 });

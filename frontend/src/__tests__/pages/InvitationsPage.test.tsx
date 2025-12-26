@@ -132,6 +132,9 @@ describe('InvitationsPage Component', () => {
     });
 
     it('招待取得エラー時にエラーメッセージを表示する', async () => {
+      // エラーログを抑制（テストで意図的にエラーを発生させるため）
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       vi.mocked(apiClient.get).mockRejectedValueOnce(new Error('Failed'));
 
       render(<InvitationsPage />);
@@ -139,6 +142,8 @@ describe('InvitationsPage Component', () => {
       await waitFor(() => {
         expect(screen.getByTestId('error')).toHaveTextContent('招待一覧を取得できませんでした');
       });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -174,6 +179,9 @@ describe('InvitationsPage Component', () => {
     });
 
     it('招待作成が失敗した場合、エラーを返す', async () => {
+      // エラーログを抑制（テストで意図的にエラーを発生させるため）
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       const user = userEvent.setup();
       vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Create failed'));
 
@@ -188,9 +196,14 @@ describe('InvitationsPage Component', () => {
       await waitFor(() => {
         expect(apiClient.post).toHaveBeenCalled();
       });
+
+      consoleErrorSpy.mockRestore();
     });
 
     it('既存メールアドレスの場合、適切なエラーメッセージを返す', async () => {
+      // エラーログを抑制（テストで意図的にエラーを発生させるため）
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       const user = userEvent.setup();
       const error = {
         response: { error: 'Email already registered' },
@@ -209,6 +222,8 @@ describe('InvitationsPage Component', () => {
       await waitFor(() => {
         expect(apiClient.post).toHaveBeenCalled();
       });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -232,6 +247,9 @@ describe('InvitationsPage Component', () => {
     });
 
     it('招待取消が失敗した場合、エラーを返す', async () => {
+      // エラーログを抑制（テストで意図的にエラーを発生させるため）
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       const user = userEvent.setup();
       vi.mocked(apiClient.delete).mockRejectedValueOnce(new Error('Cancel failed'));
 
@@ -246,6 +264,8 @@ describe('InvitationsPage Component', () => {
       await waitFor(() => {
         expect(apiClient.delete).toHaveBeenCalled();
       });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -303,6 +323,9 @@ describe('InvitationsPage Component', () => {
     });
 
     it('再送信が失敗した場合、エラーを返す', async () => {
+      // エラーログを抑制（テストで意図的にエラーを発生させるため）
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       const user = userEvent.setup();
       vi.mocked(apiClient.delete).mockRejectedValueOnce(new Error('Resend failed'));
 
@@ -317,6 +340,8 @@ describe('InvitationsPage Component', () => {
       await waitFor(() => {
         expect(apiClient.delete).toHaveBeenCalled();
       });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 });

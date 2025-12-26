@@ -529,14 +529,38 @@ describe('TradingPartner Integration Tests', () => {
       });
 
       // 同じ取引先に同じ種別を追加しようとするとエラー
-      await expect(
-        prisma.tradingPartnerTypeMapping.create({
-          data: {
-            tradingPartnerId: partner.id,
-            type: TradingPartnerType.CUSTOMER,
-          },
-        })
-      ).rejects.toThrow();
+      // Prismaのエラーログを抑制（意図的にユニーク制約違反を発生させるため）
+      const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+      const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+      const suppressPrismaError = (chunk: string | Uint8Array): boolean => {
+        const str = typeof chunk === 'string' ? chunk : chunk.toString();
+        return str.includes('prisma:error') || str.includes('Unique constraint failed');
+      };
+
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        if (suppressPrismaError(chunk)) return true;
+        return originalStdoutWrite(chunk);
+      }) as typeof process.stdout.write;
+
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        if (suppressPrismaError(chunk)) return true;
+        return originalStderrWrite(chunk);
+      }) as typeof process.stderr.write;
+
+      try {
+        await expect(
+          prisma.tradingPartnerTypeMapping.create({
+            data: {
+              tradingPartnerId: partner.id,
+              type: TradingPartnerType.CUSTOMER,
+            },
+          })
+        ).rejects.toThrow();
+      } finally {
+        process.stdout.write = originalStdoutWrite;
+        process.stderr.write = originalStderrWrite;
+      }
     });
   });
 

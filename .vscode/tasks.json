@@ -222,6 +222,644 @@
       },
       "problemMatcher": [],
       "detail": "開発環境のDockerボリュームを削除（データリセット）"
+    },
+
+    {
+      "label": "──────────────────────────────────────",
+      "type": "shell",
+      "command": "echo",
+      "args": ["Pre-Push Checks"],
+      "problemMatcher": [],
+      "detail": "=== Pre-Push チェック (Git Hook相当) ==="
+    },
+
+    {
+      "label": "Pre-Push: 1. Format Check (All)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🔍 Checking formatting...\" && npm --prefix backend run format:check && npm --prefix frontend run format:check && npm run format:check && echo \"✅ All format checks passed!\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "detail": "[Stage 1/8] Backend + Frontend + E2E のフォーマットチェック"
+    },
+    {
+      "label": "Pre-Push: 2. Type Check (All)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🔎 Running type checks...\" && npm --prefix backend run type-check && npm --prefix frontend run type-check && npm run type-check && echo \"✅ All type checks passed!\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": [],
+      "detail": "[Stage 2/8] Backend + Frontend + E2E の型チェック"
+    },
+    {
+      "label": "Pre-Push: 3. Lint (All)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🔍 Running linters...\" && npm --prefix backend run lint && npm --prefix frontend run lint && npm run lint && echo \"✅ All lint checks passed!\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "[Stage 3/8] Backend + Frontend + E2E のLintチェック"
+    },
+    {
+      "label": "Pre-Push: 4. Build (All)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🔨 Building projects...\" && npm --prefix backend run build && npm --prefix frontend run build && echo \"✅ All builds passed!\""
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "[Stage 4/8] Backend + Frontend のビルド"
+    },
+    {
+      "label": "Pre-Push: 5. Security Scan",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🔒 Running security scan...\" && echo \"--- Backend ---\" && npm --prefix backend audit --audit-level=moderate || true && echo \"--- Frontend ---\" && npm --prefix frontend audit --audit-level=moderate || true && echo \"⚠️  Security scan completed (warnings only, does not block push)\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": [],
+      "detail": "[Stage 5/8] npm audit (moderate以上の脆弱性を警告)"
+    },
+    {
+      "label": "Pre-Push: 6. Unit Tests with Coverage",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🧪 Running unit tests with coverage...\" && npm --prefix backend run test:unit:coverage && npm --prefix frontend run test:coverage && echo \"✅ All unit tests passed with coverage!\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": [],
+      "detail": "[Stage 6/8] Backend + Frontend のユニットテスト（カバレッジ付き）"
+    },
+    {
+      "label": "Pre-Push: 7. Integration Tests",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🔗 Running integration tests...\" && docker exec -e NODE_ENV=test architrack-backend-test npm run test:integration && echo \"✅ Integration tests passed!\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "dependsOn": ["Ensure Docker Ready for E2E"],
+      "problemMatcher": [],
+      "detail": "[Stage 7/8] バックエンド統合テスト (Docker環境で実行)"
+    },
+    {
+      "label": "Pre-Push: 8. E2E Tests",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"🧪 Running E2E tests...\" && npm run check:req-coverage && CI=true npx playwright test && echo \"✅ E2E tests passed!\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "dependsOn": ["Ensure Docker Ready for E2E"],
+      "problemMatcher": [],
+      "detail": "[Stage 8/8] E2Eテスト（要件カバレッジチェック含む）"
+    },
+
+    {
+      "label": "Pre-Push: Static Checks Only (1-4)",
+      "dependsOn": [
+        "Pre-Push: 1. Format Check (All)",
+        "Pre-Push: 2. Type Check (All)",
+        "Pre-Push: 3. Lint (All)",
+        "Pre-Push: 4. Build (All)"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "detail": "Docker不要: Format → Type → Lint → Build"
+    },
+    {
+      "label": "Pre-Push: Quick Checks (1-6, No Docker)",
+      "dependsOn": [
+        "Pre-Push: 1. Format Check (All)",
+        "Pre-Push: 2. Type Check (All)",
+        "Pre-Push: 3. Lint (All)",
+        "Pre-Push: 4. Build (All)",
+        "Pre-Push: 5. Security Scan",
+        "Pre-Push: 6. Unit Tests with Coverage"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "detail": "Docker不要の全チェック: Format → Type → Lint → Build → Security → Unit Tests"
+    },
+    {
+      "label": "Pre-Push: Full Checks (All Stages)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo \"\" | bash .husky/scripts/pre-push.sh"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "detail": "Git Pre-Push Hook相当の全チェック（ログ出力: .logs/pre-push-YYYY-MM-DD-HH-MM-SS.log）"
+    },
+    {
+      "label": "Pre-Push: Full Checks (Sub-tasks)",
+      "dependsOn": [
+        "Pre-Push: 1. Format Check (All)",
+        "Pre-Push: 2. Type Check (All)",
+        "Pre-Push: 3. Lint (All)",
+        "Pre-Push: 4. Build (All)",
+        "Pre-Push: 5. Security Scan",
+        "Pre-Push: 6. Unit Tests with Coverage",
+        "Pre-Push: 7. Integration Tests",
+        "Pre-Push: 8. E2E Tests"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "detail": "サブタスク形式（ログなし、個別タスク実行用）"
+    },
+
+    {
+      "label": "────────────────────────────────────────",
+      "type": "shell",
+      "command": "echo",
+      "args": ["Individual Checks"],
+      "problemMatcher": [],
+      "detail": "=== 個別チェック ==="
+    },
+
+    {
+      "label": "Check: Backend Format",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "format:check"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "バックエンドのフォーマットチェック"
+    },
+    {
+      "label": "Check: Frontend Format",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "format:check"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "フロントエンドのフォーマットチェック"
+    },
+    {
+      "label": "Check: E2E Format",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "format:check"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "E2Eテストのフォーマットチェック"
+    },
+    {
+      "label": "Check: Backend Type",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "type-check"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "バックエンドの型チェック"
+    },
+    {
+      "label": "Check: Frontend Type",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "type-check"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "フロントエンドの型チェック"
+    },
+    {
+      "label": "Check: E2E Type",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "type-check"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "E2Eテストの型チェック"
+    },
+    {
+      "label": "Check: Backend Lint",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "lint"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "バックエンドのLintチェック"
+    },
+    {
+      "label": "Check: Frontend Lint",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "lint"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "フロントエンドのLintチェック"
+    },
+    {
+      "label": "Check: E2E Lint",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "lint"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "E2EテストのLintチェック"
+    },
+    {
+      "label": "Build: Backend",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "build"],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "バックエンドのビルド"
+    },
+    {
+      "label": "Build: Frontend",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "build"],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"],
+      "detail": "フロントエンドのビルド"
+    },
+    {
+      "label": "Test: Backend Unit",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "test:unit"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "バックエンドのユニットテスト"
+    },
+    {
+      "label": "Test: Backend Unit (Coverage)",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "test:unit:coverage"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "バックエンドのユニットテスト（カバレッジ付き）"
+    },
+    {
+      "label": "Test: Frontend Unit",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "test"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "フロントエンドのユニットテスト"
+    },
+    {
+      "label": "Test: Frontend Unit (Coverage)",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "test:coverage"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "フロントエンドのユニットテスト（カバレッジ付き）"
+    },
+    {
+      "label": "Test: Storybook",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "test-storybook:ci"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Storybook Interaction + Accessibility テスト"
+    },
+    {
+      "label": "Test: Backend Integration",
+      "type": "shell",
+      "command": "docker",
+      "args": ["exec", "-e", "NODE_ENV=test", "architrack-backend-test", "npm", "run", "test:integration"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "dependsOn": ["Ensure Docker Ready for E2E"],
+      "problemMatcher": [],
+      "detail": "バックエンドの統合テスト（Docker環境で実行）"
+    },
+    {
+      "label": "Test: Requirement Coverage",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "check:req-coverage"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "E2Eテストの要件カバレッジチェック"
+    },
+
+    {
+      "label": "─────────────────────────────────────────",
+      "type": "shell",
+      "command": "echo",
+      "args": ["Fix Commands"],
+      "problemMatcher": [],
+      "detail": "=== 自動修正コマンド ==="
+    },
+
+    {
+      "label": "Fix: Backend Format",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "format"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "バックエンドのフォーマット自動修正"
+    },
+    {
+      "label": "Fix: Frontend Format",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "format"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "フロントエンドのフォーマット自動修正"
+    },
+    {
+      "label": "Fix: E2E Format",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "format"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "E2Eテストのフォーマット自動修正"
+    },
+    {
+      "label": "Fix: All Format",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "npm --prefix backend run format && npm --prefix frontend run format && npm run format && echo \"✅ All files formatted!\""
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "全プロジェクトのフォーマット自動修正"
+    },
+    {
+      "label": "Fix: Backend Lint",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "backend", "run", "lint:fix"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "バックエンドのLint自動修正"
+    },
+    {
+      "label": "Fix: Frontend Lint",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "frontend", "run", "lint:fix"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "フロントエンドのLint自動修正"
+    },
+    {
+      "label": "Fix: E2E Lint",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "lint:fix"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "E2EテストのLint自動修正"
+    },
+    {
+      "label": "Fix: All Lint",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix && npm run lint:fix && echo \"✅ All lint issues fixed!\""
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"],
+      "detail": "全プロジェクトのLint自動修正"
     }
   ]
 }

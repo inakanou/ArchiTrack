@@ -11,7 +11,13 @@
  *   - trading-partner:create, trading-partner:read, trading-partner:update, trading-partner:delete権限
  *   - 一般ユーザーロールへの取引先基本権限割り当て（削除権限は管理者のみ）
  *
+ * Requirements (site-survey):
+ * - REQ-12.1, 12.2, 12.3: 現場調査管理権限の定義
+ *   - site_survey:create, site_survey:read, site_survey:update, site_survey:delete権限
+ *   - 一般ユーザーロールへの現場調査基本権限割り当て（削除権限は管理者のみ）
+ *
  * Task 2.1: 取引先管理権限のシード登録テスト
+ * Task 6.4: 現場調査アクセス制御権限のシード登録テスト
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -678,6 +684,348 @@ describe('seedRolePermissions', () => {
 
       // 一般ユーザーロールにはproject:delete権限が割り当てられていないことを確認
       expect(projectDeleteAssignment).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * 現場調査権限のテスト（site-survey/REQ-12.1, 12.2, 12.3）
+ * Task 6.4: アクセス制御ミドルウェアを適用する
+ */
+describe('seedPermissions - 現場調査管理権限', () => {
+  let mockPrisma: Partial<PrismaClient>;
+  let createManyData: Array<{ resource: string; action: string; description: string }>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    createManyData = [];
+    mockPrisma = {
+      permission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
+        findFirst: vi.fn().mockResolvedValue(null),
+      } as unknown as PrismaClient['permission'],
+      role: {
+        upsert: vi.fn().mockResolvedValue({}),
+        findUnique: vi.fn().mockResolvedValue({ id: 'role-id', name: 'admin' }),
+      } as unknown as PrismaClient['role'],
+      rolePermission: {
+        upsert: vi.fn().mockResolvedValue({}),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  });
+
+  describe('現場調査権限の定義（site-survey/REQ-12.1, 12.2, 12.3）', () => {
+    it('site_survey:create権限が定義されている', async () => {
+      // Arrange
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const siteSurveyCreatePerm = createManyData.find(
+        (perm) => perm.resource === 'site_survey' && perm.action === 'create'
+      );
+
+      expect(siteSurveyCreatePerm).toBeDefined();
+      expect(siteSurveyCreatePerm!.description).toBe('現場調査の作成');
+    });
+
+    it('site_survey:read権限が定義されている', async () => {
+      // Arrange
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const siteSurveyReadPerm = createManyData.find(
+        (perm) => perm.resource === 'site_survey' && perm.action === 'read'
+      );
+
+      expect(siteSurveyReadPerm).toBeDefined();
+      expect(siteSurveyReadPerm!.description).toBe('現場調査の閲覧');
+    });
+
+    it('site_survey:update権限が定義されている', async () => {
+      // Arrange
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const siteSurveyUpdatePerm = createManyData.find(
+        (perm) => perm.resource === 'site_survey' && perm.action === 'update'
+      );
+
+      expect(siteSurveyUpdatePerm).toBeDefined();
+      expect(siteSurveyUpdatePerm!.description).toBe('現場調査の更新');
+    });
+
+    it('site_survey:delete権限が定義されている', async () => {
+      // Arrange
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const siteSurveyDeletePerm = createManyData.find(
+        (perm) => perm.resource === 'site_survey' && perm.action === 'delete'
+      );
+
+      expect(siteSurveyDeletePerm).toBeDefined();
+      expect(siteSurveyDeletePerm!.description).toBe('現場調査の削除');
+    });
+
+    it('全4つの現場調査権限が定義されている', async () => {
+      // Arrange
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const siteSurveyPermissions = createManyData.filter(
+        (perm) => perm.resource === 'site_survey'
+      );
+
+      expect(siteSurveyPermissions).toHaveLength(4);
+      const actions = siteSurveyPermissions.map((perm) => perm.action);
+      expect(actions).toContain('create');
+      expect(actions).toContain('read');
+      expect(actions).toContain('update');
+      expect(actions).toContain('delete');
+    });
+  });
+});
+
+describe('seedRolePermissions - 現場調査管理権限', () => {
+  let mockPrisma: Partial<PrismaClient>;
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  describe('一般ユーザーロールへの現場調査権限割り当て（site-survey/REQ-12.1, 12.2, 12.3）', () => {
+    it('一般ユーザーにsite_survey:create権限が割り当てられる', async () => {
+      // Arrange
+      const userRoleId = 'user-role-id';
+      const siteSurveyCreatePermissionId = 'site_survey-create-perm-id';
+
+      mockPrisma = {
+        role: {
+          findUnique: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+            if (where.name === 'user') return { id: userRoleId, name: 'user' };
+            return null;
+          }),
+        } as unknown as PrismaClient['role'],
+        permission: {
+          findFirst: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.resource === '*' && where.action === '*') {
+              return { id: 'all-perm-id', resource: '*', action: '*' };
+            }
+            if (where.resource === 'site_survey' && where.action === 'create') {
+              return {
+                id: siteSurveyCreatePermissionId,
+                resource: 'site_survey',
+                action: 'create',
+              };
+            }
+            // その他の権限
+            return {
+              id: `${where.resource}-${where.action}-perm-id`,
+              resource: where.resource,
+              action: where.action,
+            };
+          }),
+        } as unknown as PrismaClient['permission'],
+        rolePermission: {
+          upsert: vi.fn().mockResolvedValue({}),
+        } as unknown as PrismaClient['rolePermission'],
+      };
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
+      const siteSurveyCreateAssignment = upsertCalls.find(
+        (call) =>
+          call[0].create.roleId === userRoleId &&
+          call[0].create.permissionId === siteSurveyCreatePermissionId
+      );
+
+      expect(siteSurveyCreateAssignment).toBeDefined();
+    });
+
+    it('一般ユーザーにsite_survey:read権限が割り当てられる', async () => {
+      // Arrange
+      const userRoleId = 'user-role-id';
+      const siteSurveyReadPermissionId = 'site_survey-read-perm-id';
+
+      mockPrisma = {
+        role: {
+          findUnique: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+            if (where.name === 'user') return { id: userRoleId, name: 'user' };
+            return null;
+          }),
+        } as unknown as PrismaClient['role'],
+        permission: {
+          findFirst: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.resource === '*' && where.action === '*') {
+              return { id: 'all-perm-id', resource: '*', action: '*' };
+            }
+            if (where.resource === 'site_survey' && where.action === 'read') {
+              return {
+                id: siteSurveyReadPermissionId,
+                resource: 'site_survey',
+                action: 'read',
+              };
+            }
+            // その他の権限
+            return {
+              id: `${where.resource}-${where.action}-perm-id`,
+              resource: where.resource,
+              action: where.action,
+            };
+          }),
+        } as unknown as PrismaClient['permission'],
+        rolePermission: {
+          upsert: vi.fn().mockResolvedValue({}),
+        } as unknown as PrismaClient['rolePermission'],
+      };
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
+      const siteSurveyReadAssignment = upsertCalls.find(
+        (call) =>
+          call[0].create.roleId === userRoleId &&
+          call[0].create.permissionId === siteSurveyReadPermissionId
+      );
+
+      expect(siteSurveyReadAssignment).toBeDefined();
+    });
+
+    it('一般ユーザーにsite_survey:update権限が割り当てられる', async () => {
+      // Arrange
+      const userRoleId = 'user-role-id';
+      const siteSurveyUpdatePermissionId = 'site_survey-update-perm-id';
+
+      mockPrisma = {
+        role: {
+          findUnique: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+            if (where.name === 'user') return { id: userRoleId, name: 'user' };
+            return null;
+          }),
+        } as unknown as PrismaClient['role'],
+        permission: {
+          findFirst: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.resource === '*' && where.action === '*') {
+              return { id: 'all-perm-id', resource: '*', action: '*' };
+            }
+            if (where.resource === 'site_survey' && where.action === 'update') {
+              return {
+                id: siteSurveyUpdatePermissionId,
+                resource: 'site_survey',
+                action: 'update',
+              };
+            }
+            // その他の権限
+            return {
+              id: `${where.resource}-${where.action}-perm-id`,
+              resource: where.resource,
+              action: where.action,
+            };
+          }),
+        } as unknown as PrismaClient['permission'],
+        rolePermission: {
+          upsert: vi.fn().mockResolvedValue({}),
+        } as unknown as PrismaClient['rolePermission'],
+      };
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
+      const siteSurveyUpdateAssignment = upsertCalls.find(
+        (call) =>
+          call[0].create.roleId === userRoleId &&
+          call[0].create.permissionId === siteSurveyUpdatePermissionId
+      );
+
+      expect(siteSurveyUpdateAssignment).toBeDefined();
+    });
+
+    it('一般ユーザーにsite_survey:delete権限は割り当てられない（管理者のみ）', async () => {
+      // Arrange
+      const userRoleId = 'user-role-id';
+
+      mockPrisma = {
+        role: {
+          findUnique: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+            if (where.name === 'user') return { id: userRoleId, name: 'user' };
+            return null;
+          }),
+        } as unknown as PrismaClient['role'],
+        permission: {
+          findFirst: vi.fn().mockImplementation(async ({ where }) => {
+            if (where.resource === '*' && where.action === '*') {
+              return { id: 'all-perm-id', resource: '*', action: '*' };
+            }
+            if (where.resource === 'site_survey' && where.action === 'delete') {
+              return {
+                id: 'site_survey-delete-perm-id',
+                resource: 'site_survey',
+                action: 'delete',
+              };
+            }
+            // その他の権限
+            return {
+              id: `${where.resource}-${where.action}-perm-id`,
+              resource: where.resource,
+              action: where.action,
+            };
+          }),
+        } as unknown as PrismaClient['permission'],
+        rolePermission: {
+          upsert: vi.fn().mockResolvedValue({}),
+        } as unknown as PrismaClient['rolePermission'],
+      };
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+
+      // Act
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      // Assert
+      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
+      const siteSurveyDeleteAssignment = upsertCalls.find(
+        (call) =>
+          call[0].create.roleId === userRoleId &&
+          call[0].create.permissionId === 'site_survey-delete-perm-id'
+      );
+
+      // 一般ユーザーロールにはsite_survey:delete権限が割り当てられていないことを確認
+      expect(siteSurveyDeleteAssignment).toBeUndefined();
     });
   });
 });

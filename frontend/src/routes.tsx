@@ -21,6 +21,11 @@ import TradingPartnerListPage from './pages/TradingPartnerListPage';
 import TradingPartnerDetailPage from './pages/TradingPartnerDetailPage';
 import TradingPartnerCreatePage from './pages/TradingPartnerCreatePage';
 import TradingPartnerEditPage from './pages/TradingPartnerEditPage';
+import SiteSurveyListPage from './pages/SiteSurveyListPage';
+import SiteSurveyDetailPage from './pages/SiteSurveyDetailPage';
+import SiteSurveyCreatePage from './pages/SiteSurveyCreatePage';
+import SiteSurveyEditPage from './pages/SiteSurveyEditPage';
+import SiteSurveyImageViewerPage from './pages/SiteSurveyImageViewerPage';
 
 /**
  * アプリケーションのルート設定
@@ -125,6 +130,45 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:id',
         element: <ProjectDetailPage />,
+      },
+
+      // 現場調査新規作成（/projects/:projectId/site-surveys より先に定義する必要あり）
+      // REQ-1.1: 現場調査作成フォーム
+      // Task 22.1: ルーティング設定を実装する
+      {
+        path: '/projects/:projectId/site-surveys/new',
+        element: <SiteSurveyCreatePage />,
+      },
+      // 現場調査一覧
+      // REQ-2.5, 2.6, 2.7: ブレッドクラムナビゲーション対応
+      // REQ-3.1: 現場調査一覧画面
+      // Task 10.2: ブレッドクラムナビゲーションを実装する
+      {
+        path: '/projects/:projectId/site-surveys',
+        element: <SiteSurveyListPage />,
+      },
+      // 現場調査編集（/site-surveys/:id より先に定義する必要あり）
+      // REQ-1.3: 現場調査情報編集
+      // Task 22.1: ルーティング設定を実装する
+      {
+        path: '/site-surveys/:id/edit',
+        element: <SiteSurveyEditPage />,
+      },
+      // 画像ビューア/エディタ（/site-surveys/:id より先に定義する必要あり）
+      // REQ-2.4: 詳細画面から画像ビューア/エディタへの遷移
+      // Task 22.1: ルーティング設定を実装する
+      {
+        path: '/site-surveys/:id/images/:imageId',
+        element: <SiteSurveyImageViewerPage />,
+      },
+      // 現場調査詳細
+      // REQ-1.2: 現場調査詳細画面
+      // REQ-2.3: 現場調査一覧から詳細画面への遷移
+      // REQ-2.4: 詳細画面から画像ビューア/エディタへの遷移
+      // Task 10.3: 現場調査詳細から画像ビューアへの導線を実装する
+      {
+        path: '/site-surveys/:id',
+        element: <SiteSurveyDetailPage />,
       },
 
       // 取引先一覧

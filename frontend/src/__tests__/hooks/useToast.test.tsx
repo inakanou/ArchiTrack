@@ -11,7 +11,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { ReactNode } from 'react';
-import { ToastProvider, useToast } from '../../hooks/useToast';
+import { ToastProvider } from '../../components/ToastProvider';
+import { useToast } from '../../hooks/useToast';
 
 describe('useToast', () => {
   beforeEach(() => {

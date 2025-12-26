@@ -109,11 +109,30 @@ if check_all_containers_running && check_all_containers_healthy; then
   fi
 fi
 
-# Step 2: テストコンテナを起動
+# Step 2: Exitedコンテナをクリーンアップ
+cleanup_exited_containers() {
+  local exited_containers=""
+  for service in "${CONTAINERS[@]}"; do
+    local container="${CONTAINER_PREFIX}-${service}${CONTAINER_SUFFIX}"
+    local status=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "not_found")
+    if [ "$status" = "exited" ]; then
+      exited_containers="$exited_containers $container"
+    fi
+  done
+
+  if [ -n "$exited_containers" ]; then
+    echo -e "${YELLOW}🧹 Exited状態のテストコンテナを削除しています...${NC}"
+    docker rm $exited_containers > /dev/null 2>&1 || true
+  fi
+}
+
+cleanup_exited_containers
+
+# Step 3: テストコンテナを起動
 echo -e "${YELLOW}🚀 テストDockerコンテナを起動しています...${NC}"
 npm run test:docker
 
-# Step 3: ヘルスチェックを待機
+# Step 4: ヘルスチェックを待機
 echo ""
 echo -e "${YELLOW}⏳ コンテナのヘルスチェックを待機しています...${NC}"
 echo "   (最大${MAX_WAIT_SECONDS}秒)"

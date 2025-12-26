@@ -393,8 +393,9 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
     test('編集画面でひらがな入力により取引先候補がフィルタリングされる (project-management/REQ-8.4, REQ-16.3, REQ-22.5)', async ({
       page,
     }) => {
-      // テスト用プロジェクトが作成されていない場合はスキップ
-      test.skip(!testProjectId, 'テスト用プロジェクトが作成されていません');
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
 
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -434,8 +435,9 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
     test('編集画面でカタカナ入力により取引先候補がフィルタリングされる (project-management/REQ-8.4, REQ-16.3, REQ-22.5)', async ({
       page,
     }) => {
-      // テスト用プロジェクトが作成されていない場合はスキップ
-      test.skip(!testProjectId, 'テスト用プロジェクトが作成されていません');
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
 
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -474,8 +476,9 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
     test('編集画面でひらがな検索した取引先を選択して保存できる (project-management/REQ-8.4, REQ-22.5)', async ({
       page,
     }) => {
-      // テスト用プロジェクトが作成されていない場合はスキップ
-      test.skip(!testProjectId, 'テスト用プロジェクトが作成されていません');
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
 
       await loginAsUser(page, 'REGULAR_USER');
 

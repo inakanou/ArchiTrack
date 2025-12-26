@@ -416,8 +416,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!testProjectId) {
-        test.skip();
-        return;
+        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // 詳細ページに移動して編集モードに入る
@@ -601,8 +600,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await loginAsUser(page, 'ADMIN_USER');
 
       if (!testProjectId) {
-        test.skip();
-        return;
+        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
       // 詳細ページに移動

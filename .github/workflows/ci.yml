@@ -181,6 +181,24 @@ jobs:
           directory: ${{ matrix.workspace }}/coverage
           flags: ${{ matrix.workspace }}-unit
 
+      - name: Check coverage gaps
+        run: |
+          echo "========================================="
+          echo "Coverage Gap Check (${{ matrix.workspace }})"
+          echo "========================================="
+          EXIT_CODE=0
+          npm --prefix ${{ matrix.workspace }} run coverage:check || EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 2 ]; then
+            echo ""
+            echo "❌ Critical coverage gaps detected (≤30%) - blocking CI"
+            exit 1
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo ""
+            echo "⚠️  Warning: Low coverage files detected (31-50%)"
+            echo "   Run 'npm run coverage:check' locally for details"
+            exit 0
+          fi
+
   build:
     name: Build Test
     runs-on: ubuntu-latest
@@ -439,25 +457,24 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        workspace: [backend, frontend]
     steps:
       - uses: actions/checkout@v6
-      - name: Run npm audit
-        # Note: Prisma 7 internal dependencies (hono, valibot in @prisma/dev) have known
-        # vulnerabilities that cannot be fixed without downgrading Prisma.
-        # These are dev tools and do not affect runtime. Using continue-on-error
-        # until Prisma team updates these dependencies.
-        continue-on-error: ${{ matrix.workspace == 'backend' }}
-        run: npm --prefix ${{ matrix.workspace }} audit --audit-level=moderate
-      - name: Security scan status
-        if: matrix.workspace == 'backend'
-        run: |
-          echo "⚠️ Backend security scan may have warnings due to Prisma 7 internal dependencies."
-          echo "   - hono and valibot are used by @prisma/dev (Prisma CLI internal)"
-          echo "   - These do not affect runtime and will be fixed when Prisma updates."
-          npm --prefix backend audit --audit-level=moderate || true
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+      - name: Install backend dependencies
+        run: npm --prefix backend ci --ignore-scripts
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci --ignore-scripts
+      - name: Run security audit
+        # Uses unified security audit script with allowlist support
+        # - Production deps with high+ severity: block (unless in allowlist)
+        # - Dev deps with high+ severity: warn only
+        # - Allowlist: .security-audit-allowlist.json
+        run: node scripts/security-audit.mjs --verbose
 
   ci-success:
     name: CI Success

@@ -15,6 +15,7 @@ import { validateEnv } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
+import { getStorageType } from './storage/index.js';
 import adminRoutes from './routes/admin.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import { createInvitationRoutes } from './routes/invitation.routes.js';
@@ -27,6 +28,9 @@ import jwksRoutes from './routes/jwks.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import projectsRoutes from './routes/projects.routes.js';
 import tradingPartnersRoutes from './routes/trading-partners.routes.js';
+import siteSurveysRoutes from './routes/site-surveys.routes.js';
+import surveyImagesRoutes from './routes/survey-images.routes.js';
+import annotationRoutes from './routes/annotation.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -87,7 +91,7 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' })); // サムネイル更新のBase64画像データ用に制限を増加
 app.use(cookieParser());
 
 // Swagger UI setup (development環境のみ有効)
@@ -299,6 +303,29 @@ app.use('/api/projects', projectsRoutes);
 
 // Trading partner management routes
 app.use('/api/trading-partners', tradingPartnersRoutes);
+
+// Site survey management routes
+app.use('/api/projects/:projectId/site-surveys', siteSurveysRoutes);
+app.use('/api/site-surveys', siteSurveysRoutes);
+
+// Survey images management routes
+app.use('/api/site-surveys/:id/images', surveyImagesRoutes);
+app.use('/api/site-surveys/images', surveyImagesRoutes);
+
+// Annotation management routes
+app.use('/api/site-surveys/images', annotationRoutes);
+
+// Local storage static file serving (development/test only)
+if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {
+  const storagePath = process.env.LOCAL_STORAGE_PATH;
+  app.use(
+    '/storage',
+    express.static(storagePath, {
+      maxAge: '1d', // Cache for 1 day
+      immutable: true,
+    })
+  );
+}
 
 // 404 handler
 app.use(notFoundHandler);

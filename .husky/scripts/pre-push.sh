@@ -8,6 +8,36 @@
 set -o pipefail
 
 # ============================================================================
+# WSL2メモリ最適化設定
+# ============================================================================
+# ベストプラクティス: 制限されたメモリ環境（6GB WSL2）でのOOMクラッシュ防止
+# - Node.jsヒープサイズを1GBに制限（デフォルトは無制限で肥大化）
+# - 各コマンドのメモリ使用量を予測可能に維持
+# 参考: https://nodejs.org/api/cli.html#--max-old-space-sizesize-in-megabytes
+# ============================================================================
+export NODE_OPTIONS="--max-old-space-size=1024"
+
+# メモリ解放用関数: Dockerビルドキャッシュとシステムキャッシュをクリア
+release_memory() {
+  local stage_name="$1"
+  echo ""
+  echo "🧹 メモリ解放中（$stage_name 完了後）..."
+
+  # Dockerの未使用リソースをクリア（ビルドキャッシュ含む）
+  docker system prune -f --volumes > /dev/null 2>&1 || true
+
+  # ファイルシステムキャッシュを解放（root権限不要な範囲で）
+  sync 2>/dev/null || true
+
+  # Node.jsのガベージコレクションを促進（次のNode.js実行時に効果）
+  # 短い待機でプロセスが完全に終了するのを待つ
+  sleep 1
+
+  echo "   ✅ メモリ解放完了"
+  echo ""
+}
+
+# ============================================================================
 # Git操作タイプの検出（ブランチ削除のスキップ）
 # ============================================================================
 # Git公式仕様: pre-pushフックは標準入力から以下の形式でref情報を受け取る
@@ -275,39 +305,39 @@ if [ -d "frontend" ]; then
   fi
 fi
 
-echo "🔒 Running security scan before push..."
+# ビルド完了後のメモリ解放（ビルドは大量のメモリを消費するため）
+release_memory "ビルド"
 
-# Backend security scan
-if [ -d "backend" ]; then
-  echo "🔍 Scanning backend dependencies for vulnerabilities..."
-  npm --prefix backend audit --audit-level=moderate
-  BACKEND_AUDIT_EXIT=$?
-  if [ $BACKEND_AUDIT_EXIT -ne 0 ]; then
-    echo "⚠️  Backend security vulnerabilities detected (moderate or higher)."
-    echo "   This is a WARNING - push will continue, but please address these issues."
-    echo "   Run 'npm --prefix backend audit' to see details."
-    echo "   Run 'npm --prefix backend audit fix' to attempt automatic fixes."
-    echo ""
-  else
-    echo "✅ Backend security scan passed."
-  fi
-fi
+# ============================================================================
+# セキュリティ監査（ベストプラクティス準拠）
+# ============================================================================
+# 設計方針:
+# - 本番依存のhigh以上: ブロック（許容リスト対応）
+# - 開発依存のhigh以上: 警告のみ（Storybookなど本番に影響しないもの）
+# - CIとローカルで同一ルールを適用
+# - 許容リストは .security-audit-allowlist.json で管理
+# ============================================================================
+echo "🔒 Running security audit before push..."
+echo ""
+echo "   ポリシー:"
+echo "     - 本番依存のhigh以上: ブロック（許容リスト対応）"
+echo "     - 開発依存のhigh以上: 警告のみ"
+echo ""
 
-# Frontend security scan
-if [ -d "frontend" ]; then
-  echo "🔍 Scanning frontend dependencies for vulnerabilities..."
-  npm --prefix frontend audit --audit-level=moderate
-  FRONTEND_AUDIT_EXIT=$?
-  if [ $FRONTEND_AUDIT_EXIT -ne 0 ]; then
-    echo "⚠️  Frontend security vulnerabilities detected (moderate or higher)."
-    echo "   This is a WARNING - push will continue, but please address these issues."
-    echo "   Run 'npm --prefix frontend audit' to see details."
-    echo "   Run 'npm --prefix frontend audit fix' to attempt automatic fixes."
-    echo ""
-  else
-    echo "✅ Frontend security scan passed."
-  fi
+node scripts/security-audit.mjs --mode=strict
+SECURITY_AUDIT_EXIT=$?
+
+if [ $SECURITY_AUDIT_EXIT -ne 0 ]; then
+  echo ""
+  echo "❌ Security audit failed. Push aborted."
+  echo ""
+  echo "   対処方法:"
+  echo "   1. npm audit fix で修正可能な場合は実行"
+  echo "   2. 修正版がない場合は .security-audit-allowlist.json に追加"
+  echo "   3. 詳細: node scripts/security-audit.mjs --verbose"
+  exit 1
 fi
+echo ""
 
 # Backend unit tests with coverage
 if [ -d "backend" ]; then
@@ -342,6 +372,9 @@ if [ -d "frontend" ] && git diff --cached --name-only | grep -q "^frontend/"; th
     exit 1
   fi
 fi
+
+# ユニットテスト完了後のメモリ解放（Docker起動前にメモリを確保）
+release_memory "ユニットテスト"
 
 # 環境変数検証（統合テスト用）
 echo "🔍 Validating required environment variables for integration tests..."
@@ -448,10 +481,12 @@ if [ $? -ne 0 ]; then
 fi
 echo "   ✅ Migrations applied to test database"
 
-# バックエンドテストコンテナのヘルスチェック（最大60秒待機）
+# バックエンドテストコンテナのヘルスチェック（最大300秒待機）
 # テスト環境はポート3100を使用
+# 注意: 初回起動時はnpm install（WSL2環境で3-5分）、Prisma生成、マイグレーション、シードが
+#       実行されるため、十分な待機時間が必要
 echo "   Waiting for test backend to be ready..."
-MAX_RETRIES=12
+MAX_RETRIES=60
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
   if curl -s http://localhost:3100/health > /dev/null 2>&1; then
@@ -506,6 +541,9 @@ if [ -d "backend" ]; then
   fi
 fi
 
+# 統合テスト完了後のメモリ解放（E2E前にメモリを最大化）
+release_memory "統合テスト"
+
 # ============================================================================
 # 要件カバレッジチェック（E2Eテスト実行の前提条件）
 # ============================================================================
@@ -535,40 +573,157 @@ fi
 echo "✅ Requirement coverage check passed"
 echo ""
 
-# E2E tests
-echo "🧪 Running E2E tests..."
+# ============================================================================
+# コンテナ再起動（E2Eテスト前のメモリリフレッシュ）
+# ============================================================================
+# ベストプラクティス: 長時間実行後のメモリ累積をリセット
+# - 統合テストまでの実行でメモリが累積している可能性
+# - コンテナを再起動してメモリ状態をクリーンに
+# - autohealに頼らず、予防的にリフレッシュ
+# ============================================================================
 
-# E2Eテストを同期実行（Shift-Left原則: 品質ゲートとして機能）
-# タイムアウト設定: 30分（1800秒）でハングアップを防止
-#   ベストプラクティス: タイムアウト = 通常実行時間の2-3倍
-#   37テスト × retry=2 → 最大111回実行、通常15-20分完了見込み
-#   --kill-after=10: TERMシグナル送信後、10秒以内に終了しなければKILLシグナルを送信
-#   --foreground: プロセスグループ全体にシグナルを送信（子プロセスも確実に停止）
-# CI=true: HTML Reportサーバーを起動せず、レポートのみ生成（ベストプラクティス）
-echo "   Note: E2E tests will run synchronously to ensure quality before push."
-echo "   HTML report will be generated but server will not start."
-echo "   Timeout: 30 minutes (with forced kill after grace period)"
-echo "   Progress: Playwright list reporter shows test execution in real-time"
+echo "🔄 Refreshing Docker containers before E2E tests..."
+echo "   This ensures clean memory state after integration tests."
 
-# timeoutコマンドで確実にプロセスグループ全体を停止
-CI=true timeout --foreground --kill-after=10 1800 npm run test:e2e
-E2E_EXIT_CODE=$?
+# Backend と Frontend のみ再起動（DB/Redis/Mailhog はステートレスなので不要）
+docker restart architrack-backend-test architrack-frontend-test > /dev/null 2>&1
 
-if [ $E2E_EXIT_CODE -eq 124 ]; then
-  echo "❌ E2E tests timed out after 30 minutes. Push aborted."
-  echo "   This usually indicates a hanging test or infinite loop."
-  npm run test:docker:down > /dev/null 2>&1
-  exit 1
-elif [ $E2E_EXIT_CODE -eq 137 ]; then
-  echo "❌ E2E tests were forcibly killed (SIGKILL). Push aborted."
-  echo "   Tests did not respond to termination signal within grace period."
-  npm run test:docker:down > /dev/null 2>&1
-  exit 1
-elif [ $E2E_EXIT_CODE -ne 0 ]; then
-  echo "❌ E2E tests failed with exit code: $E2E_EXIT_CODE. Push aborted."
+# 再起動後のヘルスチェック（バックエンド）
+echo "   Waiting for backend to be ready after restart..."
+MAX_RETRIES=12
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s http://localhost:3100/health > /dev/null 2>&1; then
+    echo "   ✅ Backend is ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ Backend failed to restart. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
+    exit 1
+  fi
+  sleep 5
+done
+
+# 再起動後のヘルスチェック（フロントエンド）
+echo "   Waiting for frontend to be ready after restart..."
+MAX_RETRIES=12
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s http://localhost:5174 > /dev/null 2>&1; then
+    echo "   ✅ Frontend is ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ Frontend failed to restart. Push aborted."
+    npm run test:docker:down > /dev/null 2>&1
+    exit 1
+  fi
+  sleep 5
+done
+
+echo "   ✅ Containers refreshed successfully"
+echo ""
+
+# E2E tests with Sharding
+# ============================================================================
+# ベストプラクティス: テストシャーディングによるメモリ負荷軽減
+# - Playwright公式推奨: 長時間スイートを複数シャードに分割
+# - 各シャード間でコンテナを再起動してメモリをリフレッシュ
+# - WSL2環境でのOOMクラッシュを防止
+# 参考: https://playwright.dev/docs/test-sharding
+# ============================================================================
+echo "🧪 Running E2E tests with sharding (3 shards for memory optimization)..."
+echo ""
+echo "   シャーディング戦略:"
+echo "     - 3シャードに分割してメモリ累積を防止"
+echo "     - 各シャード間でコンテナをリフレッシュ"
+echo "     - 各シャードのタイムアウト: 20分"
+echo ""
+
+TOTAL_SHARDS=3
+E2E_FAILED=0
+
+for SHARD in $(seq 1 $TOTAL_SHARDS); do
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔄 Shard $SHARD/$TOTAL_SHARDS を実行中..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # 各シャードのタイムアウト: 20分（1200秒）
+  CI=true timeout --foreground --kill-after=10 1200 npx playwright test --shard=$SHARD/$TOTAL_SHARDS
+  SHARD_EXIT_CODE=$?
+
+  if [ $SHARD_EXIT_CODE -eq 124 ]; then
+    echo "❌ Shard $SHARD timed out after 20 minutes."
+    E2E_FAILED=1
+    break
+  elif [ $SHARD_EXIT_CODE -eq 137 ]; then
+    echo "❌ Shard $SHARD was forcibly killed (SIGKILL)."
+    E2E_FAILED=1
+    break
+  elif [ $SHARD_EXIT_CODE -ne 0 ]; then
+    echo "❌ Shard $SHARD failed with exit code: $SHARD_EXIT_CODE"
+    E2E_FAILED=1
+    break
+  fi
+
+  echo "✅ Shard $SHARD/$TOTAL_SHARDS 完了"
+
+  # 最後のシャード以外はコンテナをリフレッシュ
+  if [ $SHARD -lt $TOTAL_SHARDS ]; then
+    echo ""
+    echo "🔄 メモリリフレッシュのためコンテナを再起動..."
+    docker restart architrack-backend-test architrack-frontend-test > /dev/null 2>&1
+
+    # バックエンドのヘルスチェック
+    RETRY_COUNT=0
+    MAX_RETRIES=12
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+      if curl -s http://localhost:3100/health > /dev/null 2>&1; then
+        break
+      fi
+      RETRY_COUNT=$((RETRY_COUNT + 1))
+      sleep 5
+    done
+
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+      echo "❌ Backend failed to restart between shards."
+      E2E_FAILED=1
+      break
+    fi
+
+    # フロントエンドのヘルスチェック
+    RETRY_COUNT=0
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+      if curl -s http://localhost:5174 > /dev/null 2>&1; then
+        break
+      fi
+      RETRY_COUNT=$((RETRY_COUNT + 1))
+      sleep 5
+    done
+
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+      echo "❌ Frontend failed to restart between shards."
+      E2E_FAILED=1
+      break
+    fi
+
+    echo "   ✅ コンテナ再起動完了"
+    echo ""
+  fi
+done
+
+if [ $E2E_FAILED -ne 0 ]; then
+  echo ""
+  echo "❌ E2E tests failed. Push aborted."
   npm run test:docker:down > /dev/null 2>&1
   exit 1
 fi
+
+echo ""
+echo "✅ All $TOTAL_SHARDS shards completed successfully"
 
 # テスト環境のクリーンアップ（成功時）
 # tmpfsを使用しているため、データは自動的に破棄される

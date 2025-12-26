@@ -41,10 +41,12 @@ ArchiTrackでは、3層のテストアプローチを採用しています：
 # Backend
 npm --prefix backend run test:unit
 npm --prefix backend run test:unit:coverage
+npm --prefix backend run coverage:check    # カバレッジギャップ検出（0%カバレッジファイル検出）
 
 # Frontend
 npm --prefix frontend run test
 npm --prefix frontend run test:coverage
+npm --prefix frontend run coverage:check   # カバレッジギャップ検出（0%カバレッジファイル検出）
 ```
 
 ### テストファイル配置

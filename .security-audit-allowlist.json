@@ -1,0 +1,61 @@
+{
+  "$schema": "./schemas/security-audit-allowlist.schema.json",
+  "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
+  "version": "1.0.0",
+  "lastUpdated": "2025-12-25",
+  "allowlist": {
+    "backend": [
+      {
+        "package": "@prisma/dev",
+        "severity": "high",
+        "reason": "Prisma 7 internal dev tool. Contains hono/valibot as dependencies. No runtime impact.",
+        "reference": "https://github.com/prisma/prisma/issues",
+        "expires": "2026-06-01",
+        "addedBy": "system",
+        "addedDate": "2025-12-25"
+      },
+      {
+        "package": "hono",
+        "severity": "high",
+        "reason": "Prisma 7 internal dependency (@prisma/dev). No runtime impact - dev tool only.",
+        "reference": "https://github.com/prisma/prisma/issues",
+        "expires": "2026-06-01",
+        "addedBy": "system",
+        "addedDate": "2025-12-25"
+      },
+      {
+        "package": "valibot",
+        "severity": "high",
+        "reason": "Prisma 7 internal dependency (@prisma/dev). No runtime impact - dev tool only.",
+        "reference": "https://github.com/prisma/prisma/issues",
+        "expires": "2026-06-01",
+        "addedBy": "system",
+        "addedDate": "2025-12-25"
+      }
+    ],
+    "frontend": [
+      {
+        "package": "storybook",
+        "severity": "high",
+        "reason": "Storybook build-time environment variable exposure. Dev tool only, not shipped to production.",
+        "reference": "https://github.com/storybookjs/storybook/issues",
+        "expires": "2026-06-01",
+        "addedBy": "system",
+        "addedDate": "2025-12-25"
+      }
+    ],
+    "root": []
+  },
+  "policy": {
+    "production": {
+      "level": "high",
+      "action": "block",
+      "description": "本番依存でhigh以上の脆弱性は許容リストにない限りブロック"
+    },
+    "development": {
+      "level": "high",
+      "action": "warn",
+      "description": "開発依存でhigh以上の脆弱性は警告のみ（許容リストで管理）"
+    }
+  }
+}

@@ -272,6 +272,7 @@ model Project {
   constructionPerson User?                  @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
   createdBy          User                   @relation("CreatedProjects", fields: [createdById], references: [id])
   statusHistory      ProjectStatusHistory[]
+  siteSurveys        SiteSurvey[] // 現場調査リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -401,4 +402,129 @@ model TradingPartnerTypeMapping {
   @@index([tradingPartnerId])
   @@index([type])
   @@map("trading_partner_type_mappings")
+}
+
+// ===== Site Survey Management Data Models =====
+
+/**
+ * 現場調査モデル
+ * プロジェクトに紐付く現場調査データを管理する。
+ * 現場調査時に撮影した写真や図面に対して、寸法・マーキング・コメント等の注釈を追加し、
+ * 工事計画の基礎資料として活用する。
+ * フィールド:
+ * - id: 現場調査の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - name: 現場調査名（必須、最大200文字）
+ * - surveyDate: 調査日（必須）
+ * - memo: メモ（任意、最大2000文字）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位での現場調査検索用
+ * - surveyDate: 調査日による検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * - name: 現場調査名による検索用
+ * Requirements:
+ * - 1.1: プロジェクトに紐付く新規現場調査レコードを作成する
+ * - 1.4: 現場調査と関連する画像データを論理削除する
+ * - 1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
+ */
+model SiteSurvey {
+  id         String    @id @default(uuid())
+  projectId  String
+  name       String // 現場調査名（必須、最大200文字）
+  surveyDate DateTime  @db.Date // 調査日
+  memo       String? // メモ（最大2000文字）
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime? // 論理削除
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  images  SurveyImage[]
+
+  @@index([projectId])
+  @@index([surveyDate])
+  @@index([deletedAt])
+  @@index([name])
+  @@map("site_surveys")
+}
+
+/**
+ * 現場調査画像モデル
+ * 現場調査に紐付く画像ファイルの情報を管理する。
+ * 原画像とサムネイルはCloudflare R2に保存され、パスのみをデータベースに格納。
+ * フィールド:
+ * - id: 画像の一意ID（UUID）
+ * - surveyId: 現場調査ID（外部キー、カスケード削除）
+ * - originalPath: R2オブジェクトパス（原画像）
+ * - thumbnailPath: R2オブジェクトパス（サムネイル）
+ * - fileName: 元ファイル名
+ * - fileSize: ファイルサイズ（バイト）
+ * - width: 画像幅
+ * - height: 画像高さ
+ * - displayOrder: 表示順序
+ * - comment: 写真コメント（最大2000文字）
+ * - includeInReport: 報告書出力フラグ
+ * - createdAt: 作成日時
+ * インデックス:
+ * - surveyId: 現場調査単位での画像検索用
+ * - displayOrder: 表示順序によるソート用
+ * - includeInReport: 報告書出力対象画像のフィルタリング用
+ * Requirements:
+ * - 4.1: 画像をストレージに保存し現場調査に紐付ける
+ * - 4.4: サムネイルを自動生成する
+ * - 4.9: 画像一覧を固定の表示順序で表示する
+ * - 10.4: 写真コメント（最大2000文字）
+ * - 10.8: 報告書出力対象画像の選択
+ */
+model SurveyImage {
+  id              String   @id @default(uuid())
+  surveyId        String
+  originalPath    String // R2オブジェクトパス
+  thumbnailPath   String // サムネイルパス
+  fileName        String // 元ファイル名
+  fileSize        Int // ファイルサイズ（バイト）
+  width           Int // 画像幅
+  height          Int // 画像高さ
+  displayOrder    Int // 表示順序
+  comment         String? // 写真コメント（最大2000文字）
+  includeInReport Boolean  @default(false) // 報告書出力フラグ
+  createdAt       DateTime @default(now())
+
+  survey     SiteSurvey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  annotation ImageAnnotation?
+
+  @@index([surveyId])
+  @@index([displayOrder])
+  @@index([includeInReport])
+  @@map("survey_images")
+}
+
+/**
+ * 画像注釈モデル
+ * 画像に対する注釈データ（寸法線、マーキング、コメント）をFabric.js JSON形式で保存。
+ * 1つの画像につき1つの注釈データを持つ（1対1リレーション）。
+ * フィールド:
+ * - id: 注釈の一意ID（UUID）
+ * - imageId: 画像ID（外部キー、@unique、カスケード削除）
+ * - data: Fabric.js JSON形式の注釈データ
+ * - version: スキーマバージョン（デフォルト: "1.0"）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * Requirements:
+ * - 9.1: 全ての注釈データをデータベースに保存する
+ * - 9.2: 保存された注釈データを復元して表示する
+ */
+model ImageAnnotation {
+  id        String   @id @default(uuid())
+  imageId   String   @unique
+  data      Json // Fabric.js JSON形式
+  version   String   @default("1.0") // スキーマバージョン
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  image SurveyImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@map("image_annotations")
 }

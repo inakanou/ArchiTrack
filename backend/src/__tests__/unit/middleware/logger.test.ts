@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { httpLogger } from '../../../middleware/logger.middleware.js';
+
+// vitest.setup.tsのグローバルモックを解除してテスト独自のモックを使用
+vi.unmock('../../../middleware/logger.middleware.js');
 
 // pino-httpのモック
 vi.mock('pino-http', () => ({
@@ -16,6 +18,9 @@ vi.mock('../../../utils/logger.js', () => ({
     level: 'info',
   },
 }));
+
+// モック設定後にインポート
+const { httpLogger } = await import('../../../middleware/logger.middleware.js');
 
 describe('logger middleware', () => {
   describe('httpLogger configuration', () => {

@@ -85,9 +85,14 @@ const mockEmptyResponse: PaginatedProjects = {
 };
 
 describe('ProjectListPage', () => {
+  // fake timers対応のuserEventインスタンス
+  let user: ReturnType<typeof userEvent.setup>;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    // fake timersとuserEventを連携させる
+    user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     // デフォルトはデスクトップ表示
     mockUseMediaQuery.mockReturnValue(false);
   });
@@ -188,10 +193,10 @@ describe('ProjectListPage', () => {
 
       // 検索を実行
       const searchInput = screen.getByRole('searchbox');
-      await userEvent.type(searchInput, '存在しないプロジェクト');
+      await user.type(searchInput, '存在しないプロジェクト');
 
       const searchButton = screen.getByRole('button', { name: '検索' });
-      await userEvent.click(searchButton);
+      await user.click(searchButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -226,7 +231,7 @@ describe('ProjectListPage', () => {
       });
 
       const retryButton = screen.getByRole('button', { name: '再試行' });
-      await userEvent.click(retryButton);
+      await user.click(retryButton);
 
       await waitFor(() => {
         expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
@@ -248,7 +253,7 @@ describe('ProjectListPage', () => {
       });
 
       const createButton = screen.getByRole('button', { name: '新規作成' });
-      await userEvent.click(createButton);
+      await user.click(createButton);
 
       expect(mockNavigate).toHaveBeenCalledWith('/projects/new');
     });
@@ -266,7 +271,7 @@ describe('ProjectListPage', () => {
       // テーブル行をクリック（ProjectListViewが担当）
       const row = screen.getByText('テストプロジェクト1').closest('tr');
       if (row) {
-        await userEvent.click(row);
+        await user.click(row);
       }
 
       expect(mockNavigate).toHaveBeenCalledWith('/projects/1');
@@ -301,8 +306,8 @@ describe('ProjectListPage', () => {
 
       // 検索入力を素早く変更
       const searchInput = screen.getByRole('searchbox');
-      await userEvent.type(searchInput, 'テスト');
-      await userEvent.click(screen.getByRole('button', { name: '検索' }));
+      await user.type(searchInput, 'テスト');
+      await user.click(screen.getByRole('button', { name: '検索' }));
 
       // デバウンス時間内ではAPIが呼ばれない
       expect(getProjects).not.toHaveBeenCalled();
@@ -329,7 +334,7 @@ describe('ProjectListPage', () => {
 
       // プロジェクト名ヘッダーのソートボタンをクリック（ProjectListTableが担当）
       const sortButton = screen.getByRole('button', { name: 'プロジェクト名でソート' });
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -388,7 +393,7 @@ describe('ProjectListPage', () => {
 
       // ページ2をクリック
       const page2Button = screen.getByRole('button', { name: 'ページ 2' });
-      await userEvent.click(page2Button);
+      await user.click(page2Button);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -423,7 +428,7 @@ describe('ProjectListPage', () => {
 
       // 表示件数を50に変更
       const limitSelect = screen.getByLabelText('表示件数');
-      await userEvent.selectOptions(limitSelect, '50');
+      await user.selectOptions(limitSelect, '50');
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -472,7 +477,7 @@ describe('ProjectListPage', () => {
 
       // プロジェクト名ヘッダーのソートボタンをクリックしてソート変更
       const sortButton = screen.getByRole('button', { name: 'プロジェクト名でソート' });
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -586,7 +591,7 @@ describe('ProjectListPage', () => {
       });
 
       const card = screen.getByTestId('project-card-1');
-      await userEvent.click(card);
+      await user.click(card);
 
       expect(mockNavigate).toHaveBeenCalledWith('/projects/1');
     });
@@ -623,7 +628,7 @@ describe('ProjectListPage', () => {
 
       // ステータスフィルタを変更
       const statusSelect = screen.getByLabelText('ステータスフィルタ');
-      await userEvent.selectOptions(statusSelect, 'PREPARING');
+      await user.selectOptions(statusSelect, 'PREPARING');
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -665,11 +670,11 @@ describe('ProjectListPage', () => {
 
       // 1文字だけ入力
       const searchInput = screen.getByRole('searchbox');
-      await userEvent.type(searchInput, 'あ');
+      await user.type(searchInput, 'あ');
 
       // 検索ボタンをクリック
       const searchButton = screen.getByRole('button', { name: '検索' });
-      await userEvent.click(searchButton);
+      await user.click(searchButton);
 
       // バリデーションエラーが表示される
       await waitFor(() => {
@@ -690,7 +695,7 @@ describe('ProjectListPage', () => {
       });
 
       const sortButton = screen.getByRole('button', { name: '顧客名でソート' });
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -715,7 +720,7 @@ describe('ProjectListPage', () => {
       });
 
       const sortButton = screen.getByRole('button', { name: 'ステータスでソート' });
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -740,7 +745,7 @@ describe('ProjectListPage', () => {
       });
 
       const sortButton = screen.getByRole('button', { name: '作成日でソート' });
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -765,7 +770,7 @@ describe('ProjectListPage', () => {
       });
 
       const sortButton = screen.getByRole('button', { name: '更新日でソート' });
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -792,7 +797,7 @@ describe('ProjectListPage', () => {
 
       // 更新日列（デフォルト: desc）を再クリック
       const sortButton = screen.getByRole('button', { name: '更新日でソート' });
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 
@@ -810,7 +815,7 @@ describe('ProjectListPage', () => {
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
 
       // 再度クリック
-      await userEvent.click(sortButton);
+      await user.click(sortButton);
 
       await vi.advanceTimersByTimeAsync(300);
 

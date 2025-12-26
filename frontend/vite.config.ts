@@ -43,8 +43,10 @@ export default defineConfig(({ mode }) => {
             },
           }
         : undefined,
-      // チャンク分割の最適化
+      // WSL2 6GBメモリ環境でのOOM防止: 並列ファイル処理を制限
+      // 参考: https://rollupjs.org/configuration-options/#maxparallelfileops
       rollupOptions: {
+        maxParallelFileOps: 2,
         output: {
           manualChunks: isProduction
             ? {
@@ -54,6 +56,12 @@ export default defineConfig(({ mode }) => {
             : undefined,
         },
       },
+    },
+
+    // WSL2環境でのビルド最適化
+    esbuild: {
+      // ビルド時のメモリ使用量を制限
+      logLevel: 'warning',
     },
 
     // パスエイリアス

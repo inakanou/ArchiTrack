@@ -17,7 +17,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { ToastProvider } from '../../hooks/useToast';
+import { ToastProvider } from '../../components/ToastProvider';
 import ProjectCreatePage from '../../pages/ProjectCreatePage';
 import { ApiError } from '../../api/client';
 
