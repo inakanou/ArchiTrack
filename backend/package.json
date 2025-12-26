@@ -20,6 +20,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:unit:coverage": "vitest run --coverage src/__tests__/unit",
+    "coverage:check": "node scripts/check-coverage-gaps.cjs",
     "test:integration:coverage": "RUN_INTEGRATION_TESTS=true vitest run --coverage src/__tests__/integration",
     "test:all": "RUN_INTEGRATION_TESTS=true vitest run",
     "test:perf": "tsx performance/health-check.perf.ts",
