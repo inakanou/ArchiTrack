@@ -186,8 +186,8 @@ jobs:
           echo "========================================="
           echo "Coverage Gap Check (${{ matrix.workspace }})"
           echo "========================================="
-          npm --prefix ${{ matrix.workspace }} run coverage:check
-          EXIT_CODE=$?
+          EXIT_CODE=0
+          npm --prefix ${{ matrix.workspace }} run coverage:check || EXIT_CODE=$?
           if [ $EXIT_CODE -eq 2 ]; then
             echo ""
             echo "❌ Critical coverage gaps detected (≤30%) - blocking CI"
