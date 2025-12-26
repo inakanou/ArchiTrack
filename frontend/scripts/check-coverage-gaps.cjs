@@ -115,7 +115,9 @@ function categorizeFiles(coverageReport) {
       relativePath.includes('node_modules') ||
       relativePath.endsWith('.d.ts') ||
       relativePath.endsWith('.css') ||
-      relativePath.endsWith('index.ts')
+      relativePath.endsWith('index.ts') ||
+      // 複雑なCanvas/Fabric.js連携コンポーネント（E2Eテストでカバー）
+      relativePath.includes('AnnotationEditor.tsx')
     ) {
       return;
     }

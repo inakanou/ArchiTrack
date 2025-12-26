@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import SiteSurveyListPage from '../../pages/SiteSurveyListPage';
 import * as projectsApi from '../../api/projects';
@@ -270,6 +271,175 @@ describe('SiteSurveyListPage', () => {
 
       // 空状態の新規作成ボタンも表示されないことを確認
       expect(screen.queryByRole('link', { name: /新規作成/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('検索・フィルター機能 (Requirements 3.2, 3.3, 3.4)', () => {
+    it('検索フォーム送信時にフィルターパラメータが更新されること', async () => {
+      const user = userEvent.setup({ delay: null });
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /現場調査/i })).toBeInTheDocument();
+      });
+
+      // 検索入力
+      const searchInput = screen.getByRole('searchbox', { name: '検索' });
+      await user.type(searchInput, '調査A');
+
+      // 検索ボタンクリック
+      const searchButton = screen.getByRole('button', { name: '検索' });
+      await user.click(searchButton);
+
+      // APIが再度呼び出されること（フィルターが適用される）
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({
+            filter: { search: '調査A' },
+          })
+        );
+      });
+    });
+
+    it('日付フィルター変更時にAPIが再取得されること', async () => {
+      const user = userEvent.setup({ delay: null });
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /現場調査/i })).toBeInTheDocument();
+      });
+
+      // API呼び出し回数をリセット
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockClear();
+
+      // 日付フィルター入力
+      const dateFromInput = screen.getByLabelText('調査日開始');
+      await user.type(dateFromInput, '2024-01-01');
+
+      // APIが再取得されること
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({
+            filter: { surveyDateFrom: '2024-01-01' },
+          })
+        );
+      });
+    });
+
+    it('ソートフィールド変更時にAPIが再取得されること', async () => {
+      const user = userEvent.setup({ delay: null });
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /現場調査/i })).toBeInTheDocument();
+      });
+
+      // API呼び出し回数をリセット
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockClear();
+
+      // ソートフィールド変更
+      const sortFieldSelect = screen.getByLabelText('ソート項目');
+      await user.selectOptions(sortFieldSelect, 'createdAt');
+
+      // APIが再取得されること
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({
+            sort: 'createdAt',
+          })
+        );
+      });
+    });
+
+    it('ソート順序変更時にAPIが再取得されること', async () => {
+      const user = userEvent.setup({ delay: null });
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /現場調査/i })).toBeInTheDocument();
+      });
+
+      // API呼び出し回数をリセット
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockClear();
+
+      // ソート順序変更
+      const sortOrderSelect = screen.getByLabelText('ソート順序');
+      await user.selectOptions(sortOrderSelect, 'asc');
+
+      // APIが再取得されること
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({
+            order: 'asc',
+          })
+        );
+      });
+    });
+
+    it('クリアボタンクリック時にフィルターがリセットされること', async () => {
+      const user = userEvent.setup({ delay: null });
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /現場調査/i })).toBeInTheDocument();
+      });
+
+      // 検索入力
+      const searchInput = screen.getByRole('searchbox', { name: '検索' });
+      await user.type(searchInput, '調査A');
+
+      // クリアボタンクリック
+      const clearButton = screen.getByRole('button', { name: 'クリア' });
+      await user.click(clearButton);
+
+      // 検索入力がクリアされること
+      expect(searchInput).toHaveValue('');
+
+      // デフォルトのソート設定でAPIが呼び出されること
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({
+            filter: {},
+            sort: 'surveyDate',
+            order: 'desc',
+          })
+        );
+      });
+    });
+  });
+
+  describe('エラー状態からの再試行', () => {
+    it('再試行ボタンクリック時にデータが再取得されること', async () => {
+      const user = userEvent.setup({ delay: null });
+
+      // 初回はエラー
+      vi.mocked(projectsApi.getProject).mockRejectedValueOnce(
+        new Error('データ取得に失敗しました')
+      );
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      // エラー表示を待つ
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+
+      // 成功するようにモックを再設定
+      vi.mocked(projectsApi.getProject).mockResolvedValueOnce(mockProject);
+
+      // 再試行ボタンクリック
+      const retryButton = screen.getByRole('button', { name: '再試行' });
+      await user.click(retryButton);
+
+      // APIが再度呼び出されること
+      await waitFor(() => {
+        expect(projectsApi.getProject).toHaveBeenCalledTimes(2);
+      });
     });
   });
 });

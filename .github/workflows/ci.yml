@@ -181,17 +181,23 @@ jobs:
           directory: ${{ matrix.workspace }}/coverage
           flags: ${{ matrix.workspace }}-unit
 
-      - name: Check coverage gaps (warning mode)
-        continue-on-error: true
+      - name: Check coverage gaps
         run: |
           echo "========================================="
           echo "Coverage Gap Check (${{ matrix.workspace }})"
           echo "========================================="
-          npm --prefix ${{ matrix.workspace }} run coverage:check || {
+          npm --prefix ${{ matrix.workspace }} run coverage:check
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 2 ]; then
             echo ""
-            echo "⚠️  Coverage gaps detected (warning mode - not blocking)"
+            echo "❌ Critical coverage gaps detected (≤30%) - blocking CI"
+            exit 1
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo ""
+            echo "⚠️  Warning: Low coverage files detected (31-50%)"
             echo "   Run 'npm run coverage:check' locally for details"
-          }
+            exit 0
+          fi
 
   build:
     name: Build Test

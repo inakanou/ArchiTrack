@@ -29,10 +29,13 @@ export default defineConfig({
         branches: 80,
         functions: 80,
         lines: 80,
-        // ===== カバレッジ低下防止 =====
-        // カバレッジが現在値より下がった場合に失敗
-        // 注意: 初回実行時は閾値が自動設定される
-        // autoUpdate: true,  // 閾値を自動更新（本番では無効推奨）
+        // ===== perFile閾値 =====
+        // Vitestのperfile: trueはグローバル閾値を各ファイルに適用するため使用しない
+        // 代わりに、coverage:checkスクリプト（check-coverage-gaps.cjs）で
+        // 段階的な閾値チェックを実施:
+        //   - 緊急対応（≤30%）: CIエラー
+        //   - 警告（31-50%）: CI警告
+        //   - 目標（≥80%）: 推奨
       },
     },
   },
