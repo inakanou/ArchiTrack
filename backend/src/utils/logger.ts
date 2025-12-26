@@ -1,15 +1,18 @@
 import pino from 'pino';
 
 const isProduction = process.env.NODE_ENV === 'production';
+const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST !== undefined;
 const isRailway = process.env.RAILWAY_ENVIRONMENT !== undefined;
 
 const logger = pino({
   level: process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug'),
 
-  // Railway環境では常にJSON出力
-  // 開発環境ではpino-prettyで見やすく
+  // Railway環境・本番環境・テスト環境では常にJSON出力
+  // 開発環境のみpino-prettyで見やすく
+  // 注意: pino-prettyはpino-httpとの互換性問題があるため、
+  // pino-httpを使用する環境（テスト含む）ではtransportを無効にする必要がある
   transport:
-    !isRailway && !isProduction
+    !isRailway && !isProduction && !isTest
       ? {
           target: 'pino-pretty',
           options: {

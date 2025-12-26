@@ -19,6 +19,7 @@ vi.mock('./src/utils/logger.js', () => ({
     error: vi.fn(),
     fatal: vi.fn(),
     trace: vi.fn(),
+    level: 'info',
     child: vi.fn(() => ({
       info: vi.fn(),
       debug: vi.fn(),
@@ -28,6 +29,12 @@ vi.mock('./src/utils/logger.js', () => ({
       trace: vi.fn(),
     })),
   },
+}));
+
+// pino-httpミドルウェアをモック
+// pino-prettyトランスポートとpino-httpの互換性問題を回避
+vi.mock('./src/middleware/logger.middleware.js', () => ({
+  httpLogger: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 // 環境変数の検証
