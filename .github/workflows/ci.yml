@@ -181,6 +181,18 @@ jobs:
           directory: ${{ matrix.workspace }}/coverage
           flags: ${{ matrix.workspace }}-unit
 
+      - name: Check coverage gaps (warning mode)
+        continue-on-error: true
+        run: |
+          echo "========================================="
+          echo "Coverage Gap Check (${{ matrix.workspace }})"
+          echo "========================================="
+          npm --prefix ${{ matrix.workspace }} run coverage:check || {
+            echo ""
+            echo "⚠️  Coverage gaps detected (warning mode - not blocking)"
+            echo "   Run 'npm run coverage:check' locally for details"
+          }
+
   build:
     name: Build Test
     runs-on: ubuntu-latest
