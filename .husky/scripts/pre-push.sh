@@ -293,6 +293,40 @@ if [ -d "backend" ]; then
     echo "❌ Backend build failed. Push aborted."
     exit 1
   fi
+
+  # ============================================================================
+  # ES Module検証（CIと同一: ci.yml build job）
+  # ============================================================================
+  # ベストプラクティス: ビルド成果物のimport文を検証
+  # - Node.jsの--checkオプションでシンタックスエラーを検出
+  # - .js拡張子の欠落などESM固有のエラーを早期発見
+  # ============================================================================
+  echo "🔍 Validating ES Module imports with node..."
+
+  # エントリーポイントの検証
+  node --check backend/dist/src/index.js
+  if [ $? -ne 0 ]; then
+    echo "❌ ES Module error in entry point: backend/dist/src/index.js"
+    echo "💡 Hint: Check for missing .js extensions in imports"
+    exit 1
+  fi
+
+  # 全ビルド済みJavaScriptファイルの検証
+  ESM_ERROR=0
+  find backend/dist -name '*.js' -type f | while read file; do
+    node --check "$file" || {
+      echo "❌ ES Module error in: $file"
+      echo "💡 Hint: Check for missing .js extensions in imports"
+      ESM_ERROR=1
+      exit 1
+    }
+  done
+
+  if [ $ESM_ERROR -ne 0 ]; then
+    exit 1
+  fi
+
+  echo "✅ All ES modules are valid (no import errors detected)"
 fi
 
 # Frontend build
@@ -349,6 +383,27 @@ if [ -d "backend" ]; then
     echo "   Run 'npm --prefix backend run test:unit:coverage' to check coverage locally."
     exit 1
   fi
+
+  # ============================================================================
+  # Coverage Gap Check（CIと同一: ci.yml test-unit job）
+  # ============================================================================
+  # ベストプラクティス: カバレッジギャップの早期検出
+  # - EXIT_CODE 2: 30%以下のカバレッジ → ブロック
+  # - EXIT_CODE 1: 31-50%のカバレッジ → 警告のみ
+  # ============================================================================
+  echo "🔍 Checking backend coverage gaps..."
+  COVERAGE_EXIT=0
+  npm --prefix backend run coverage:check || COVERAGE_EXIT=$?
+  if [ $COVERAGE_EXIT -eq 2 ]; then
+    echo ""
+    echo "❌ Critical coverage gaps detected (≤30%) - blocking push"
+    echo "   Run 'npm --prefix backend run coverage:check' for details"
+    exit 1
+  elif [ $COVERAGE_EXIT -eq 1 ]; then
+    echo ""
+    echo "⚠️  Warning: Low coverage files detected (31-50%)"
+    echo "   Run 'npm --prefix backend run coverage:check' locally for details"
+  fi
 fi
 
 # Frontend unit tests with coverage
@@ -360,10 +415,33 @@ if [ -d "frontend" ]; then
     echo "   Run 'npm --prefix frontend run test:coverage' to check coverage locally."
     exit 1
   fi
+
+  # ============================================================================
+  # Coverage Gap Check（CIと同一: ci.yml test-unit job）
+  # ============================================================================
+  echo "🔍 Checking frontend coverage gaps..."
+  COVERAGE_EXIT=0
+  npm --prefix frontend run coverage:check || COVERAGE_EXIT=$?
+  if [ $COVERAGE_EXIT -eq 2 ]; then
+    echo ""
+    echo "❌ Critical coverage gaps detected (≤30%) - blocking push"
+    echo "   Run 'npm --prefix frontend run coverage:check' for details"
+    exit 1
+  elif [ $COVERAGE_EXIT -eq 1 ]; then
+    echo ""
+    echo "⚠️  Warning: Low coverage files detected (31-50%)"
+    echo "   Run 'npm --prefix frontend run coverage:check' locally for details"
+  fi
 fi
 
-# Storybook tests (Interaction + Accessibility)
-if [ -d "frontend" ] && git diff --cached --name-only | grep -q "^frontend/"; then
+# ============================================================================
+# Storybook Tests（CIと同一: ci.yml test-storybook job）
+# ============================================================================
+# ベストプラクティス: 常時実行（CIと同一の挙動）
+# - Interaction tests: コンポーネントの操作テスト
+# - Accessibility tests: アクセシビリティ検証
+# ============================================================================
+if [ -d "frontend" ]; then
   echo "📖 Running Storybook tests..."
   npm --prefix frontend run test-storybook:ci
   if [ $? -ne 0 ]; then
@@ -574,6 +652,90 @@ echo "✅ Requirement coverage check passed"
 echo ""
 
 # ============================================================================
+# CI環境変数整合性チェック（E2Eテスト実行の前提条件）
+# ============================================================================
+# ベストプラクティス: pre-pushを「正」としてCIとの整合性を検証
+# - pre-pushで使用する環境変数設定がCIでも正しく設定されているか確認
+# - 差異がある場合はCIの修正を促すエラーメッセージを出力
+# - 整合性がない場合、E2Eテストをスキップ
+# ============================================================================
+
+echo "🔍 Checking CI environment variable consistency..."
+echo "   This ensures CI configuration matches pre-push expectations."
+echo ""
+
+CI_CONFIG=".github/workflows/ci.yml"
+CI_CONSISTENCY_ERROR=0
+
+if [ ! -f "$CI_CONFIG" ]; then
+  echo "❌ CI configuration file not found: $CI_CONFIG"
+  echo "   E2E tests cannot proceed without CI configuration validation."
+  npm run test:docker:down > /dev/null 2>&1
+  exit 1
+fi
+
+# 1. CI=true が設定されているか確認
+if ! grep -q "CI: true" "$CI_CONFIG"; then
+  echo "❌ CI configuration error: 'CI: true' not found in test-integration job"
+  echo "   pre-push expects: CI=true"
+  echo "   Action: Add 'CI: true' to test-integration job environment variables in $CI_CONFIG"
+  CI_CONSISTENCY_ERROR=1
+fi
+
+# 2. NODE_ENV=test が設定されているか確認
+if ! grep -q "NODE_ENV: test" "$CI_CONFIG"; then
+  echo "❌ CI configuration error: 'NODE_ENV: test' not found in test-integration job"
+  echo "   pre-push expects: NODE_ENV=test"
+  echo "   Action: Add 'NODE_ENV: test' to test-integration job environment variables in $CI_CONFIG"
+  CI_CONSISTENCY_ERROR=1
+fi
+
+# 3. DISABLE_RATE_LIMIT が設定されているか確認（値はtrue/"true"のどちらでも可）
+if ! grep -qE 'DISABLE_RATE_LIMIT:\s*(true|"true")' "$CI_CONFIG"; then
+  echo "❌ CI configuration error: 'DISABLE_RATE_LIMIT: true' not found in test-integration job"
+  echo "   pre-push expects: DISABLE_RATE_LIMIT=true"
+  echo "   Action: Add 'DISABLE_RATE_LIMIT: true' to test-integration job environment variables in $CI_CONFIG"
+  CI_CONSISTENCY_ERROR=1
+fi
+
+# 4. DATABASE_URL パターンの確認（architrack_testデータベースを使用）
+if ! grep -q "DATABASE_URL:.*architrack_test" "$CI_CONFIG"; then
+  echo "❌ CI configuration error: DATABASE_URL does not reference 'architrack_test' database"
+  echo "   pre-push expects: DATABASE_URL=...architrack_test"
+  echo "   Action: Ensure DATABASE_URL in $CI_CONFIG uses 'architrack_test' database"
+  CI_CONSISTENCY_ERROR=1
+fi
+
+# 5. E2Eテスト用のBASE_URL/API_BASE_URLが設定されているか確認
+if ! grep -q "BASE_URL:" "$CI_CONFIG"; then
+  echo "⚠️  Warning: 'BASE_URL' not explicitly set in CI configuration"
+  echo "   pre-push uses: http://localhost:5174 (test environment)"
+  echo "   Note: CI may use different ports (5173 for standard environment)"
+fi
+
+if ! grep -q "API_BASE_URL:" "$CI_CONFIG"; then
+  echo "⚠️  Warning: 'API_BASE_URL' not explicitly set in CI configuration"
+  echo "   pre-push uses: http://localhost:3100 (test environment)"
+  echo "   Note: CI may use different ports (3000 for standard environment)"
+fi
+
+if [ $CI_CONSISTENCY_ERROR -ne 0 ]; then
+  echo ""
+  echo "❌ CI environment variable consistency check failed."
+  echo "   E2Eテストは実行されません（CI設定に問題があります）"
+  echo ""
+  echo "対応方法:"
+  echo "  1. 上記のエラーメッセージに従って $CI_CONFIG を修正してください"
+  echo "  2. pre-pushの設定が「正」であり、CIを合わせる必要があります"
+  echo "  3. 修正後、再度pushを試みてください"
+  npm run test:docker:down > /dev/null 2>&1
+  exit 1
+fi
+
+echo "✅ CI environment variable consistency check passed"
+echo ""
+
+# ============================================================================
 # コンテナ再起動（E2Eテスト前のメモリリフレッシュ）
 # ============================================================================
 # ベストプラクティス: 長時間実行後のメモリ累積をリセット
@@ -627,95 +789,19 @@ done
 echo "   ✅ Containers refreshed successfully"
 echo ""
 
-# E2E tests with Sharding
 # ============================================================================
-# ベストプラクティス: テストシャーディングによるメモリ負荷軽減
-# - Playwright公式推奨: 長時間スイートを複数シャードに分割
-# - 各シャード間でコンテナを再起動してメモリをリフレッシュ
-# - WSL2環境でのOOMクラッシュを防止
-# 参考: https://playwright.dev/docs/test-sharding
+# E2E Tests（CIと同一: ci.yml test-integration job）
 # ============================================================================
-echo "🧪 Running E2E tests with sharding (3 shards for memory optimization)..."
-echo ""
-echo "   シャーディング戦略:"
-echo "     - 3シャードに分割してメモリ累積を防止"
-echo "     - 各シャード間でコンテナをリフレッシュ"
-echo "     - 各シャードのタイムアウト: 20分"
-echo ""
+# ベストプラクティス: CIと同一のシンプルな構成
+# - シャーディングなし（CIと同様）
+# - CI=trueフラグを設定してPlaywright環境を明示
+# ============================================================================
+echo "🧪 Running E2E tests..."
 
-TOTAL_SHARDS=3
-E2E_FAILED=0
+CI=true npx playwright test
+E2E_EXIT_CODE=$?
 
-for SHARD in $(seq 1 $TOTAL_SHARDS); do
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "🔄 Shard $SHARD/$TOTAL_SHARDS を実行中..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # 各シャードのタイムアウト: 20分（1200秒）
-  CI=true timeout --foreground --kill-after=10 1200 npx playwright test --shard=$SHARD/$TOTAL_SHARDS
-  SHARD_EXIT_CODE=$?
-
-  if [ $SHARD_EXIT_CODE -eq 124 ]; then
-    echo "❌ Shard $SHARD timed out after 20 minutes."
-    E2E_FAILED=1
-    break
-  elif [ $SHARD_EXIT_CODE -eq 137 ]; then
-    echo "❌ Shard $SHARD was forcibly killed (SIGKILL)."
-    E2E_FAILED=1
-    break
-  elif [ $SHARD_EXIT_CODE -ne 0 ]; then
-    echo "❌ Shard $SHARD failed with exit code: $SHARD_EXIT_CODE"
-    E2E_FAILED=1
-    break
-  fi
-
-  echo "✅ Shard $SHARD/$TOTAL_SHARDS 完了"
-
-  # 最後のシャード以外はコンテナをリフレッシュ
-  if [ $SHARD -lt $TOTAL_SHARDS ]; then
-    echo ""
-    echo "🔄 メモリリフレッシュのためコンテナを再起動..."
-    docker restart architrack-backend-test architrack-frontend-test > /dev/null 2>&1
-
-    # バックエンドのヘルスチェック
-    RETRY_COUNT=0
-    MAX_RETRIES=12
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-      if curl -s http://localhost:3100/health > /dev/null 2>&1; then
-        break
-      fi
-      RETRY_COUNT=$((RETRY_COUNT + 1))
-      sleep 5
-    done
-
-    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-      echo "❌ Backend failed to restart between shards."
-      E2E_FAILED=1
-      break
-    fi
-
-    # フロントエンドのヘルスチェック
-    RETRY_COUNT=0
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-      if curl -s http://localhost:5174 > /dev/null 2>&1; then
-        break
-      fi
-      RETRY_COUNT=$((RETRY_COUNT + 1))
-      sleep 5
-    done
-
-    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-      echo "❌ Frontend failed to restart between shards."
-      E2E_FAILED=1
-      break
-    fi
-
-    echo "   ✅ コンテナ再起動完了"
-    echo ""
-  fi
-done
-
-if [ $E2E_FAILED -ne 0 ]; then
+if [ $E2E_EXIT_CODE -ne 0 ]; then
   echo ""
   echo "❌ E2E tests failed. Push aborted."
   npm run test:docker:down > /dev/null 2>&1
@@ -723,7 +809,7 @@ if [ $E2E_FAILED -ne 0 ]; then
 fi
 
 echo ""
-echo "✅ All $TOTAL_SHARDS shards completed successfully"
+echo "✅ E2E tests completed successfully"
 
 # テスト環境のクリーンアップ（成功時）
 # tmpfsを使用しているため、データは自動的に破棄される
