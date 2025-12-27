@@ -387,22 +387,22 @@ if [ -d "backend" ]; then
   # ============================================================================
   # Coverage Gap Check（CIと同一: ci.yml test-unit job）
   # ============================================================================
-  # ベストプラクティス: カバレッジギャップの早期検出
-  # - EXIT_CODE 2: 30%以下のカバレッジ → ブロック
-  # - EXIT_CODE 1: 31-50%のカバレッジ → 警告のみ
+  # ベストプラクティス: 目標（80%）未満のファイルがあればブロック
+  # - EXIT_CODE 2: 30%以下のカバレッジ → ブロック（緊急）
+  # - EXIT_CODE 1: 31-79%のカバレッジ → ブロック（目標未達）
   # ============================================================================
   echo "🔍 Checking backend coverage gaps..."
   COVERAGE_EXIT=0
   npm --prefix backend run coverage:check || COVERAGE_EXIT=$?
-  if [ $COVERAGE_EXIT -eq 2 ]; then
+  if [ $COVERAGE_EXIT -ne 0 ]; then
     echo ""
-    echo "❌ Critical coverage gaps detected (≤30%) - blocking push"
+    echo "❌ Coverage below target (80%) - blocking push"
     echo "   Run 'npm --prefix backend run coverage:check' for details"
-    exit 1
-  elif [ $COVERAGE_EXIT -eq 1 ]; then
     echo ""
-    echo "⚠️  Warning: Low coverage files detected (31-50%)"
-    echo "   Run 'npm --prefix backend run coverage:check' locally for details"
+    echo "対応方法:"
+    echo "  1. 該当ファイルのテストを追加してカバレッジを80%以上に改善してください"
+    echo "  2. 詳細は 'npm --prefix backend run coverage:check' で確認できます"
+    exit 1
   fi
 fi
 
@@ -422,15 +422,15 @@ if [ -d "frontend" ]; then
   echo "🔍 Checking frontend coverage gaps..."
   COVERAGE_EXIT=0
   npm --prefix frontend run coverage:check || COVERAGE_EXIT=$?
-  if [ $COVERAGE_EXIT -eq 2 ]; then
+  if [ $COVERAGE_EXIT -ne 0 ]; then
     echo ""
-    echo "❌ Critical coverage gaps detected (≤30%) - blocking push"
+    echo "❌ Coverage below target (80%) - blocking push"
     echo "   Run 'npm --prefix frontend run coverage:check' for details"
-    exit 1
-  elif [ $COVERAGE_EXIT -eq 1 ]; then
     echo ""
-    echo "⚠️  Warning: Low coverage files detected (31-50%)"
-    echo "   Run 'npm --prefix frontend run coverage:check' locally for details"
+    echo "対応方法:"
+    echo "  1. 該当ファイルのテストを追加してカバレッジを80%以上に改善してください"
+    echo "  2. 詳細は 'npm --prefix frontend run coverage:check' で確認できます"
+    exit 1
   fi
 fi
 

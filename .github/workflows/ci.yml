@@ -186,17 +186,18 @@ jobs:
           echo "========================================="
           echo "Coverage Gap Check (${{ matrix.workspace }})"
           echo "========================================="
+          echo "Target: 80% coverage for all files"
+          echo "========================================="
           EXIT_CODE=0
           npm --prefix ${{ matrix.workspace }} run coverage:check || EXIT_CODE=$?
-          if [ $EXIT_CODE -eq 2 ]; then
+          if [ $EXIT_CODE -ne 0 ]; then
             echo ""
-            echo "❌ Critical coverage gaps detected (≤30%) - blocking CI"
+            echo "❌ Coverage below target (80%) - blocking CI"
+            echo ""
+            echo "対応方法:"
+            echo "  1. 該当ファイルのテストを追加してカバレッジを80%以上に改善してください"
+            echo "  2. 詳細は 'npm --prefix ${{ matrix.workspace }} run coverage:check' で確認できます"
             exit 1
-          elif [ $EXIT_CODE -eq 1 ]; then
-            echo ""
-            echo "⚠️  Warning: Low coverage files detected (31-50%)"
-            echo "   Run 'npm run coverage:check' locally for details"
-            exit 0
           fi
 
   build:
