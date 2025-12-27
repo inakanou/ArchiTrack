@@ -449,6 +449,27 @@ if [ -d "frontend" ]; then
     echo "   Run 'npm --prefix frontend run test-storybook:ci' to check locally."
     exit 1
   fi
+
+  # ============================================================================
+  # Storybook網羅性チェック（CIと同一）
+  # ============================================================================
+  # ベストプラクティス: 目標（80%）未満のStorybookカバレッジでブロック
+  # - コンポーネントに対応するStoriesファイルの存在をチェック
+  # - UIテストの網羅性を保証
+  # ============================================================================
+  echo "📚 Checking Storybook coverage..."
+  STORYBOOK_COV_EXIT=0
+  npm --prefix frontend run storybook:coverage || STORYBOOK_COV_EXIT=$?
+  if [ $STORYBOOK_COV_EXIT -ne 0 ]; then
+    echo ""
+    echo "❌ Storybook coverage below target (80%) - blocking push"
+    echo "   Run 'npm --prefix frontend run storybook:coverage' for details"
+    echo ""
+    echo "対応方法:"
+    echo "  1. 該当コンポーネントに対応する *.stories.tsx を作成してください"
+    echo "  2. UIテストが不要な場合は除外パターンに追加を検討してください"
+    exit 1
+  fi
 fi
 
 # ユニットテスト完了後のメモリ解放（Docker起動前にメモリを確保）

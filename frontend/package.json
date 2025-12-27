@@ -13,6 +13,7 @@
     "build-storybook": "storybook build",
     "test-storybook": "test-storybook",
     "test-storybook:ci": "concurrently -k -s first -n \"SB,TEST\" -c \"magenta,blue\" \"npm run build-storybook --quiet && npx http-server storybook-static --port 6006 --silent\" \"wait-on tcp:127.0.0.1:6006 && npm run test-storybook\"",
+    "storybook:coverage": "node scripts/check-storybook-coverage.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

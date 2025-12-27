@@ -288,6 +288,16 @@ jobs:
         run: npx --prefix frontend playwright install chromium --with-deps
       - name: Run Storybook tests
         run: npm --prefix frontend run test-storybook:ci
+
+      - name: Check Storybook coverage
+        run: |
+          echo "========================================="
+          echo "Storybook Coverage Check"
+          echo "========================================="
+          echo "Target: 80% of components should have stories"
+          echo "========================================="
+          npm --prefix frontend run storybook:coverage
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v6
