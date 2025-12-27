@@ -652,4 +652,36 @@ describe('rateLimit middleware', () => {
       expect(limiter.max).toBe(60);
     });
   });
+
+  describe('RedisRateLimitStore設定', () => {
+    it('apiLimiterにstoreが設定されていること', async () => {
+      const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = apiLimiter as unknown as { store: unknown };
+      expect(limiter.store).toBeDefined();
+    });
+
+    it('loginLimiterにstoreが設定されていること', async () => {
+      const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = loginLimiter as unknown as { store: unknown };
+      expect(limiter.store).toBeDefined();
+    });
+
+    it('refreshLimiterにstoreが設定されていること', async () => {
+      const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = refreshLimiter as unknown as { store: unknown };
+      expect(limiter.store).toBeDefined();
+    });
+
+    it('invitationLimiterにstoreが設定されていること', async () => {
+      const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = invitationLimiter as unknown as { store: unknown };
+      expect(limiter.store).toBeDefined();
+    });
+
+    it('healthCheckLimiterにstoreが設定されていること', async () => {
+      const { healthCheckLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = healthCheckLimiter as unknown as { store: unknown };
+      expect(limiter.store).toBeDefined();
+    });
+  });
 });

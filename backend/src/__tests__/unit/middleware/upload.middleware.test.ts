@@ -8,8 +8,10 @@
  * Requirements: 4.1, 4.5, 4.6, 4.7, 4.8
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import multer from 'multer';
+import type { Request } from 'express';
+import type { FileFilterCallback } from 'multer';
 import {
   MAX_FILE_SIZE,
   MAX_FILES_PER_REQUEST,
@@ -18,6 +20,7 @@ import {
   handleMulterError,
   imageUpload,
 } from '../../../middleware/upload.middleware.js';
+import { InvalidFileTypeError } from '../../../services/survey-image.service.js';
 
 describe('upload.middleware', () => {
   describe('constants', () => {
@@ -178,6 +181,116 @@ describe('upload.middleware', () => {
     it('should be an instance of Error', () => {
       const error = new TooManyFilesError(10);
       expect(error).toBeInstanceOf(Error);
+    });
+  });
+
+  describe('fileFilter integration tests', () => {
+    // multerの内部fileFilterをテスト
+    // imageUploadの設定にアクセスしてfileFilterをテスト
+    const getFileFilter = () => {
+      // multerインスタンスの内部設定にアクセス
+      const multerInstance = imageUpload as unknown as {
+        fileFilter: (req: Request, file: Express.Multer.File, callback: FileFilterCallback) => void;
+      };
+      return multerInstance.fileFilter;
+    };
+
+    it('should accept JPEG files', () => {
+      const fileFilter = getFileFilter();
+      const mockReq = {} as Request;
+      const mockFile = {
+        mimetype: 'image/jpeg',
+        originalname: 'test.jpg',
+      } as Express.Multer.File;
+      const callback = vi.fn();
+
+      fileFilter(mockReq, mockFile, callback);
+
+      expect(callback).toHaveBeenCalledWith(null, true);
+    });
+
+    it('should accept PNG files', () => {
+      const fileFilter = getFileFilter();
+      const mockReq = {} as Request;
+      const mockFile = {
+        mimetype: 'image/png',
+        originalname: 'test.png',
+      } as Express.Multer.File;
+      const callback = vi.fn();
+
+      fileFilter(mockReq, mockFile, callback);
+
+      expect(callback).toHaveBeenCalledWith(null, true);
+    });
+
+    it('should accept WEBP files', () => {
+      const fileFilter = getFileFilter();
+      const mockReq = {} as Request;
+      const mockFile = {
+        mimetype: 'image/webp',
+        originalname: 'test.webp',
+      } as Express.Multer.File;
+      const callback = vi.fn();
+
+      fileFilter(mockReq, mockFile, callback);
+
+      expect(callback).toHaveBeenCalledWith(null, true);
+    });
+
+    it('should reject GIF files with InvalidFileTypeError', () => {
+      const fileFilter = getFileFilter();
+      const mockReq = {} as Request;
+      const mockFile = {
+        mimetype: 'image/gif',
+        originalname: 'test.gif',
+      } as Express.Multer.File;
+      const callback = vi.fn();
+
+      fileFilter(mockReq, mockFile, callback);
+
+      expect(callback).toHaveBeenCalledWith(expect.any(InvalidFileTypeError));
+    });
+
+    it('should reject BMP files with InvalidFileTypeError', () => {
+      const fileFilter = getFileFilter();
+      const mockReq = {} as Request;
+      const mockFile = {
+        mimetype: 'image/bmp',
+        originalname: 'test.bmp',
+      } as Express.Multer.File;
+      const callback = vi.fn();
+
+      fileFilter(mockReq, mockFile, callback);
+
+      expect(callback).toHaveBeenCalledWith(expect.any(InvalidFileTypeError));
+    });
+
+    it('should reject PDF files with InvalidFileTypeError', () => {
+      const fileFilter = getFileFilter();
+      const mockReq = {} as Request;
+      const mockFile = {
+        mimetype: 'application/pdf',
+        originalname: 'document.pdf',
+      } as Express.Multer.File;
+      const callback = vi.fn();
+
+      fileFilter(mockReq, mockFile, callback);
+
+      expect(callback).toHaveBeenCalledWith(expect.any(InvalidFileTypeError));
+    });
+
+    it('should reject text files with InvalidFileTypeError', () => {
+      const fileFilter = getFileFilter();
+      const mockReq = {} as Request;
+      const mockFile = {
+        mimetype: 'text/plain',
+        originalname: 'readme.txt',
+      } as Express.Multer.File;
+      const callback = vi.fn();
+
+      fileFilter(mockReq, mockFile, callback);
+
+      expect(callback).toHaveBeenCalledWith(expect.any(InvalidFileTypeError));
     });
   });
 });
