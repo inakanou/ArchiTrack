@@ -53,6 +53,7 @@ export class TokenService {
     this.keysInitialized = this.initializeKeys().catch((err) => {
       logger.error(
         {
+          // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: err instanceof Error ? err.message : String(err),
         },
         'Failed to initialize JWT keys'
@@ -86,6 +87,7 @@ export class TokenService {
     } catch (error) {
       logger.error(
         {
+          // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
         },
         'Failed to initialize JWT keys'
@@ -130,6 +132,7 @@ export class TokenService {
     } catch (error) {
       logger.error(
         {
+          // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
           userId: payload.userId,
         },
@@ -175,6 +178,7 @@ export class TokenService {
     } catch (error) {
       logger.error(
         {
+          // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
           userId: payload.userId,
         },
@@ -246,6 +250,7 @@ export class TokenService {
       logger.warn(
         {
           type,
+          // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
         },
         'Token malformed'
@@ -289,6 +294,7 @@ export class TokenService {
     } catch (error) {
       logger.debug(
         {
+          // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
         },
         'Failed to decode token'
@@ -323,6 +329,7 @@ export class TokenService {
     } catch (error) {
       logger.error(
         {
+          // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
         },
         'Failed to export public JWKS'
