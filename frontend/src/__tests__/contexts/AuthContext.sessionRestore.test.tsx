@@ -312,4 +312,66 @@ describe('AuthContext - セッション復元とUIチラつき防止', () => {
    * 現在の実装では未実装です。この機能は将来のタスクとして
    * tasks.mdに追加されています。
    */
+
+  /**
+   * 要件16A: 既存トークンでの認証も失敗する場合のテスト
+   *
+   * WHEN リフレッシュAPIが失敗する
+   * AND 既存トークンでもユーザー情報取得が失敗する
+   * THEN システムはセッションをクリアしなければならない
+   */
+  it('should clear session when refresh fails and existing token also fails', async () => {
+    // localStorageにリフレッシュトークンとアクセストークンが存在する状態をモック
+    vi.mocked(Storage.prototype.getItem).mockImplementation((key: string) => {
+      if (key === 'refreshToken') return 'invalid-refresh-token';
+      if (key === 'accessToken') return 'expired-access-token';
+      return null;
+    });
+
+    // リフレッシュAPIは失敗
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Token refresh failed'));
+
+    // 既存トークンでのユーザー情報取得も失敗（トークンが期限切れ）
+    vi.mocked(apiClient.get).mockRejectedValueOnce(new Error('401 Unauthorized'));
+
+    render(
+      <AuthProvider>
+        <TestComponent />
+      </AuthProvider>
+    );
+
+    // セッション復元完了後、isLoading=falseになることを確認
+    await waitFor(() => {
+      expect(screen.getByTestId('is-loading')).toHaveTextContent('not-loading');
+    });
+
+    // 未認証状態であることを確認
+    expect(screen.getByTestId('is-authenticated')).toHaveTextContent('not-authenticated');
+    expect(screen.getByTestId('user')).toHaveTextContent('no-user');
+
+    // localStorageからトークンが削除されていることを確認
+    expect(localStorage.removeItem).toHaveBeenCalledWith('refreshToken');
+    expect(localStorage.removeItem).toHaveBeenCalledWith('accessToken');
+  });
+
+  /**
+   * コンポーネントのアンマウント時にクリーンアップが呼ばれることをテスト
+   */
+  it('should cleanup on unmount', async () => {
+    vi.mocked(Storage.prototype.getItem).mockReturnValue(null);
+
+    const { unmount } = render(
+      <AuthProvider>
+        <TestComponent />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('is-loading')).toHaveTextContent('not-loading');
+    });
+
+    // アンマウント時にエラーが発生しないことを確認
+    unmount();
+    // クリーンアップ関数が正常に実行されれば成功
+  });
 });
