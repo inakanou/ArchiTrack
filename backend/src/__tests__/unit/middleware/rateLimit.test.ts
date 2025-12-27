@@ -1,15 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
 
-// RedisRateLimitStoreのモック
+// RedisRateLimitStoreのモック（clientGetterを保存して後でテスト可能にする）
+const clientGetterStore: Map<string, () => unknown> = new Map();
 vi.mock('../../../middleware/RedisRateLimitStore.js', () => {
   return {
     RedisRateLimitStore: class MockRedisRateLimitStore {
+      clientGetter: () => unknown;
+      prefix: string;
       init = vi.fn();
       increment = vi.fn();
       decrement = vi.fn();
       resetKey = vi.fn();
-      prefix = 'rl:';
+
+      constructor(clientGetter: () => unknown, prefix: string) {
+        this.clientGetter = clientGetter;
+        this.prefix = prefix;
+        clientGetterStore.set(prefix, clientGetter);
+      }
     },
   };
 });
@@ -682,6 +690,122 @@ describe('rateLimit middleware', () => {
       const { healthCheckLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = healthCheckLimiter as unknown as { store: unknown };
       expect(limiter.store).toBeDefined();
+    });
+  });
+
+  describe('invitationLimiter handler追加テスト', () => {
+    it('invitationLimiter handlerがユーザーなしでログを出力すること', async () => {
+      const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = invitationLimiter as unknown as {
+        handler: (req: Request, res: Response) => void;
+      };
+
+      // ユーザーなしのリクエスト
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      limiter.handler(req, res);
+
+      expect(req.log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: undefined,
+          ip: '127.0.0.1',
+          path: '/api/test',
+        }),
+        'Invitation rate limit exceeded'
+      );
+    });
+  });
+
+  describe('loginLimiter handler追加テスト', () => {
+    it('loginLimiter handlerがログを出力すること', async () => {
+      const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = loginLimiter as unknown as {
+        handler: (req: Request, res: Response) => void;
+      };
+
+      const req = createMockRequest({ path: '/api/auth/login' });
+      const res = createMockResponse();
+
+      limiter.handler(req, res);
+
+      expect(req.log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ ip: '127.0.0.1', path: '/api/auth/login' }),
+        'Login rate limit exceeded'
+      );
+    });
+  });
+
+  describe('refreshLimiter handler追加テスト', () => {
+    it('refreshLimiter handlerがログを出力すること', async () => {
+      const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = refreshLimiter as unknown as {
+        handler: (req: Request, res: Response) => void;
+      };
+
+      const req = createMockRequest({ path: '/api/auth/refresh' });
+      const res = createMockResponse();
+
+      limiter.handler(req, res);
+
+      expect(req.log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ ip: '127.0.0.1', path: '/api/auth/refresh' }),
+        'Token refresh rate limit exceeded'
+      );
+    });
+  });
+
+  describe('clientGetter callbacks', () => {
+    it('apiLimiter clientGetterがredis.getClient()を呼び出すこと', async () => {
+      // モジュールをインポートしてclientGetterを登録させる
+      await import('../../../middleware/rateLimit.middleware.js');
+
+      const clientGetter = clientGetterStore.get('rl:api:');
+      expect(clientGetter).toBeDefined();
+
+      // clientGetterを呼び出す（これで関数カバレッジが向上）
+      const result = clientGetter!();
+      expect(result).toBeNull(); // モックは null を返す
+    });
+
+    it('loginLimiter clientGetterがredis.getClient()を呼び出すこと', async () => {
+      await import('../../../middleware/rateLimit.middleware.js');
+
+      const clientGetter = clientGetterStore.get('rl:login:');
+      expect(clientGetter).toBeDefined();
+
+      const result = clientGetter!();
+      expect(result).toBeNull();
+    });
+
+    it('refreshLimiter clientGetterがredis.getClient()を呼び出すこと', async () => {
+      await import('../../../middleware/rateLimit.middleware.js');
+
+      const clientGetter = clientGetterStore.get('rl:refresh:');
+      expect(clientGetter).toBeDefined();
+
+      const result = clientGetter!();
+      expect(result).toBeNull();
+    });
+
+    it('invitationLimiter clientGetterがredis.getClient()を呼び出すこと', async () => {
+      await import('../../../middleware/rateLimit.middleware.js');
+
+      const clientGetter = clientGetterStore.get('rl:invitation:');
+      expect(clientGetter).toBeDefined();
+
+      const result = clientGetter!();
+      expect(result).toBeNull();
+    });
+
+    it('healthCheckLimiter clientGetterがredis.getClient()を呼び出すこと', async () => {
+      await import('../../../middleware/rateLimit.middleware.js');
+
+      const clientGetter = clientGetterStore.get('rl:health:');
+      expect(clientGetter).toBeDefined();
+
+      const result = clientGetter!();
+      expect(result).toBeNull();
     });
   });
 });
