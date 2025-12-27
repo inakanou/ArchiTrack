@@ -682,4 +682,130 @@ describe('ImageProcessorService', () => {
       expect(error.cause).toBe(originalError);
     });
   });
+
+  describe('applyFormatSettings edge cases', () => {
+    it('should handle unknown format as JPEG', async () => {
+      const buffer = createTestBuffer(400 * 1024);
+      const compressedBuffer = createTestBuffer(280 * 1024);
+
+      (mockSharpInstance.metadata as Mock)
+        .mockResolvedValueOnce({
+          width: 1920,
+          height: 1080,
+          format: 'unknown-format',
+          size: 400 * 1024,
+        })
+        .mockResolvedValueOnce({
+          width: 1920,
+          height: 1080,
+          format: 'unknown-format',
+          size: 280 * 1024,
+        });
+
+      (mockSharpInstance.toBuffer as Mock).mockResolvedValue(compressedBuffer);
+
+      const result = await service.compressImage(buffer);
+
+      expect(result.wasCompressed).toBe(true);
+      expect(mockSharpInstance.jpeg).toHaveBeenCalled();
+    });
+
+    it('should handle jpg format same as jpeg', async () => {
+      const buffer = createTestBuffer(400 * 1024);
+      const compressedBuffer = createTestBuffer(280 * 1024);
+
+      (mockSharpInstance.metadata as Mock)
+        .mockResolvedValueOnce({
+          width: 1920,
+          height: 1080,
+          format: 'jpg',
+          size: 400 * 1024,
+        })
+        .mockResolvedValueOnce({
+          width: 1920,
+          height: 1080,
+          format: 'jpg',
+          size: 280 * 1024,
+        });
+
+      (mockSharpInstance.toBuffer as Mock).mockResolvedValue(compressedBuffer);
+
+      const result = await service.compressImage(buffer);
+
+      expect(result.wasCompressed).toBe(true);
+      expect(mockSharpInstance.jpeg).toHaveBeenCalled();
+    });
+  });
+
+  describe('getMetadata edge cases', () => {
+    it('should handle missing format with fallback to unknown', async () => {
+      const buffer = createTestBuffer(1000);
+      (mockSharpInstance.metadata as Mock).mockResolvedValue({
+        width: 800,
+        height: 600,
+        // format is undefined
+        size: 1000,
+      });
+
+      const metadata = await service.getMetadata(buffer);
+
+      expect(metadata.format).toBe('unknown');
+    });
+
+    it('should handle missing size with fallback to buffer length', async () => {
+      const buffer = createTestBuffer(1000);
+      (mockSharpInstance.metadata as Mock).mockResolvedValue({
+        width: 800,
+        height: 600,
+        format: 'jpeg',
+        // size is undefined
+      });
+
+      const metadata = await service.getMetadata(buffer);
+
+      expect(metadata.size).toBe(1000);
+    });
+
+    it('should re-throw ImageProcessingError without wrapping', async () => {
+      const buffer = createTestBuffer(100);
+      const originalError = new ImageProcessingError('Original error', 'ORIGINAL_CODE');
+      (mockSharpInstance.metadata as Mock).mockRejectedValue(originalError);
+
+      await expect(service.getMetadata(buffer)).rejects.toThrow(originalError);
+    });
+  });
+
+  describe('generateThumbnail edge cases', () => {
+    it('should re-throw ImageProcessingError without wrapping', async () => {
+      const buffer = createTestBuffer(1000);
+      const originalError = new ImageProcessingError('Original error', 'ORIGINAL_CODE');
+      (mockSharpInstance.metadata as Mock).mockRejectedValue(originalError);
+
+      await expect(service.generateThumbnail(buffer)).rejects.toThrow(originalError);
+    });
+
+    it('should handle non-Error exceptions', async () => {
+      const buffer = createTestBuffer(1000);
+      (mockSharpInstance.metadata as Mock).mockRejectedValue('string error');
+
+      await expect(service.generateThumbnail(buffer)).rejects.toThrow(ImageProcessingError);
+    });
+  });
+
+  describe('compressImage edge cases', () => {
+    it('should re-throw ImageProcessingError without wrapping', async () => {
+      const buffer = createTestBuffer(400 * 1024);
+      const originalError = new ImageProcessingError('Original error', 'ORIGINAL_CODE');
+      (mockSharpInstance.metadata as Mock).mockRejectedValue(originalError);
+
+      await expect(service.compressImage(buffer)).rejects.toThrow(originalError);
+    });
+
+    it('should handle non-Error exceptions', async () => {
+      const buffer = createTestBuffer(400 * 1024);
+      (mockSharpInstance.metadata as Mock).mockRejectedValue('string error');
+
+      await expect(service.compressImage(buffer)).rejects.toThrow(ImageProcessingError);
+    });
+  });
 });

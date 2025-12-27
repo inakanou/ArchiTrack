@@ -335,4 +335,152 @@ describe('TokenService', () => {
       expect(jwks.d).toBeUndefined(); // Private key should not be present
     });
   });
+
+  describe('generateRefreshToken追加テスト', () => {
+    it('permissionsを含むリフレッシュトークンを生成できる', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['admin'],
+        permissions: ['user:manage', 'project:delete'],
+      };
+
+      const token = await tokenService.generateRefreshToken(payload);
+      const decoded = jose.decodeJwt(token);
+
+      expect(decoded.permissions).toEqual(payload.permissions);
+    });
+
+    it('リフレッシュトークンにjtiが設定される', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['user'],
+      };
+
+      const token = await tokenService.generateRefreshToken(payload);
+      const decoded = jose.decodeJwt(token);
+
+      expect(decoded.jti).toBeTruthy();
+      expect(typeof decoded.jti).toBe('string');
+    });
+
+    it('複数回生成すると異なるjtiが設定される', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['user'],
+      };
+
+      const token1 = await tokenService.generateRefreshToken(payload);
+      const token2 = await tokenService.generateRefreshToken(payload);
+
+      const decoded1 = jose.decodeJwt(token1);
+      const decoded2 = jose.decodeJwt(token2);
+
+      expect(decoded1.jti).not.toBe(decoded2.jti);
+    });
+  });
+
+  describe('generateAccessToken追加テスト', () => {
+    it('アクセストークンにjtiが設定される', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['user'],
+      };
+
+      const token = await tokenService.generateAccessToken(payload);
+      const decoded = jose.decodeJwt(token);
+
+      expect(decoded.jti).toBeTruthy();
+      expect(typeof decoded.jti).toBe('string');
+    });
+
+    it('複数回生成すると異なるjtiが設定される', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['user'],
+      };
+
+      const token1 = await tokenService.generateAccessToken(payload);
+      const token2 = await tokenService.generateAccessToken(payload);
+
+      const decoded1 = jose.decodeJwt(token1);
+      const decoded2 = jose.decodeJwt(token2);
+
+      expect(decoded1.jti).not.toBe(decoded2.jti);
+    });
+
+    it('空のrolesでも生成できる', async () => {
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: [],
+      };
+
+      const token = await tokenService.generateAccessToken(payload);
+      const decoded = jose.decodeJwt(token);
+
+      expect(decoded.roles).toEqual([]);
+    });
+  });
+
+  describe('verifyToken追加テスト', () => {
+    it('refresh typeで検証しても結果は同じ', async () => {
+      // access tokenをrefresh typeとして検証しても成功する（署名は同じ鍵）
+      const payload: TokenPayload = {
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['user'],
+      };
+
+      const token = await tokenService.generateAccessToken(payload);
+      const result = await tokenService.verifyToken(token, 'refresh');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.userId).toBe(payload.userId);
+      }
+    });
+
+    it('null文字を含むトークンを拒否する', async () => {
+      const malformedToken = 'eyJhbGciOiJFZERTQSJ9\0.eyJ1c2VySWQiOiJ0ZXN0In0.abc';
+      const result = await tokenService.verifyToken(malformedToken, 'access');
+
+      expect(result.ok).toBe(false);
+    });
+  });
+
+  describe('decodeToken追加テスト', () => {
+    it('期限切れトークンでもデコードできる（検証なし）', async () => {
+      const oneHourAgo = Math.floor(Date.now() / 1000) - 3600;
+      const expiredToken = await new jose.SignJWT({
+        userId: 'user123',
+        email: 'test@example.com',
+        roles: ['user'],
+      })
+        .setProtectedHeader({ alg: 'EdDSA' })
+        .setIssuedAt(oneHourAgo - 60)
+        .setExpirationTime(oneHourAgo)
+        .sign(privateKey);
+
+      const decoded = tokenService.decodeToken(expiredToken);
+
+      expect(decoded).toBeTruthy();
+      expect(decoded?.userId).toBe('user123');
+    });
+
+    it('空文字列に対してnullを返す', () => {
+      const decoded = tokenService.decodeToken('');
+      expect(decoded).toBeNull();
+    });
+
+    it('部分的に有効なJWT形式でもエラーにならない', () => {
+      // 3部分あるが中身が不正なケース
+      const decoded = tokenService.decodeToken('header.payload.signature');
+      expect(decoded).toBeNull();
+    });
+  });
 });

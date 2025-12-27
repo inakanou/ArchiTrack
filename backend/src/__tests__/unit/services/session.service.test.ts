@@ -387,6 +387,87 @@ describe('SessionService', () => {
     });
   });
 
+  describe('deleteSession() edge cases', () => {
+    it('非Errorオブジェクトの場合はString変換されたメッセージを返す', async () => {
+      // Arrange
+      const refreshToken = 'token-with-unknown-error';
+
+      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockRejectedValue(
+        'String error'
+      );
+
+      // Act
+      const result = await sessionService.deleteSession(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('String error');
+        }
+      }
+    });
+  });
+
+  describe('verifySession() edge cases', () => {
+    it('非Errorオブジェクトの場合はString変換されたメッセージを返す', async () => {
+      // Arrange
+      const refreshToken = 'token-verify-unknown-error';
+      const errorObj = { code: 'UNKNOWN' };
+
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(
+        errorObj
+      );
+
+      // Act
+      const result = await sessionService.verifySession(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('[object Object]');
+        }
+      }
+    });
+  });
+
+  describe('extendSession() edge cases', () => {
+    it('非Errorオブジェクトの場合はString変換されたメッセージを返す', async () => {
+      // Arrange
+      const refreshToken = 'token-extend-unknown-error';
+      const mockRefreshToken = {
+        id: 'session-extend-unknown',
+        userId: 'user-extend-unknown',
+        token: refreshToken,
+        deviceInfo: null,
+        expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        createdAt: new Date(),
+      };
+
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockRefreshToken
+      );
+      (mockPrismaClient.refreshToken.update as ReturnType<typeof vi.fn>).mockRejectedValue(
+        'String error'
+      );
+
+      // Act
+      const result = await sessionService.extendSession(refreshToken);
+
+      // Assert
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('DATABASE_ERROR');
+        if (result.error.type === 'DATABASE_ERROR') {
+          expect(result.error.message).toBe('String error');
+        }
+      }
+    });
+  });
+
   describe('extendSession()', () => {
     it('セッションの有効期限を延長できる', async () => {
       // Arrange

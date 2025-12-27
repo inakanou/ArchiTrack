@@ -334,5 +334,167 @@ describe('PermissionService', () => {
       // Assert
       expect(result).toEqual(Err({ type: 'PERMISSION_NOT_FOUND' }));
     });
+
+    it('データベースエラーが発生した場合DATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.permission.findUnique).mockRejectedValue(
+        new Error('DB Connection failed')
+      );
+
+      // Act
+      const result = await permissionService.getPermissionById(mockPermissionId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'DB Connection failed',
+        })
+      );
+    });
+
+    it('データベースエラー（非Errorオブジェクト）が発生した場合Unknown errorを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.permission.findUnique).mockRejectedValue('String error');
+
+      // Act
+      const result = await permissionService.getPermissionById(mockPermissionId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Unknown error',
+        })
+      );
+    });
+  });
+
+  describe('createPermission() エラーハンドリング', () => {
+    it('データベースエラーが発生した場合DATABASE_ERRORを返す', async () => {
+      // Arrange
+      const input = {
+        resource: 'adr',
+        action: 'read',
+        description: 'ADRの閲覧',
+      };
+
+      vi.mocked(prismaMock.permission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.permission.create).mockRejectedValue(new Error('DB Error'));
+
+      // Act
+      const result = await permissionService.createPermission(input);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'DB Error',
+        })
+      );
+    });
+
+    it('データベースエラー（非Errorオブジェクト）が発生した場合Unknown errorを返す', async () => {
+      // Arrange
+      const input = {
+        resource: 'adr',
+        action: 'read',
+        description: 'ADRの閲覧',
+      };
+
+      vi.mocked(prismaMock.permission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.permission.create).mockRejectedValue('String error');
+
+      // Act
+      const result = await permissionService.createPermission(input);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Unknown error',
+        })
+      );
+    });
+  });
+
+  describe('deletePermission() エラーハンドリング', () => {
+    it('データベースエラーが発生した場合DATABASE_ERRORを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.permission.delete).mockRejectedValue(new Error('Delete failed'));
+
+      // Act
+      const result = await permissionService.deletePermission(mockPermissionId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Delete failed',
+        })
+      );
+    });
+
+    it('データベースエラー（非Errorオブジェクト）が発生した場合Unknown errorを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.permission.delete).mockRejectedValue({ code: 'P2002' });
+
+      // Act
+      const result = await permissionService.deletePermission(mockPermissionId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Unknown error',
+        })
+      );
+    });
+  });
+
+  describe('validatePermissionFormat() edge cases', () => {
+    it('空白のみのリソースはINVALID_PERMISSION_FORMATエラーを返す', async () => {
+      // Arrange
+      const input = {
+        resource: '   ',
+        action: 'read',
+        description: '不正な権限',
+      };
+
+      // Act
+      const result = await permissionService.createPermission(input);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'INVALID_PERMISSION_FORMAT',
+          message: expect.stringContaining('リソースタイプ'),
+        })
+      );
+    });
+
+    it('空白のみのアクションはINVALID_PERMISSION_FORMATエラーを返す', async () => {
+      // Arrange
+      const input = {
+        resource: 'adr',
+        action: '   ',
+        description: '不正な権限',
+      };
+
+      // Act
+      const result = await permissionService.createPermission(input);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'INVALID_PERMISSION_FORMAT',
+          message: expect.stringContaining('アクション'),
+        })
+      );
+    });
   });
 });
