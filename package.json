@@ -31,6 +31,8 @@
     "audit:security": "node scripts/security-audit.mjs",
     "audit:security:verbose": "node scripts/security-audit.mjs --verbose",
     "audit:security:warn": "node scripts/security-audit.mjs --mode=warn",
+    "coverage:staged:backend": "node scripts/check-staged-coverage.cjs --project=backend",
+    "coverage:staged:frontend": "node scripts/check-staged-coverage.cjs --project=frontend",
     "prepare": "husky"
   },
   "devDependencies": {
