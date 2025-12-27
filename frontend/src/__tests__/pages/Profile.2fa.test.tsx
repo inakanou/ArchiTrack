@@ -421,4 +421,111 @@ describe('Profile - 2FA機能', () => {
       expect(screen.getByRole('link', { name: /二要素認証設定/i })).toBeInTheDocument();
     });
   });
+
+  describe('パスワード変更ダイアログ操作', () => {
+    beforeEach(() => {
+      mockUseAuth.mockReturnValue({
+        user: twoFactorDisabledUser,
+        logout: mockLogout,
+      });
+    });
+
+    it('パスワード変更ダイアログのキャンセルボタンで閉じる', async () => {
+      const user = userEvent.setup();
+      render(<Profile />);
+
+      const currentPasswordField = screen.getByLabelText('現在のパスワード');
+      const newPasswordField = screen.getByLabelText('新しいパスワード', { exact: true });
+      const confirmPasswordField = screen.getByLabelText('新しいパスワード（確認）');
+      const changePasswordButton = screen.getByRole('button', { name: /パスワードを変更/i });
+
+      await user.type(currentPasswordField, 'CurrentPassword123!');
+      await user.type(newPasswordField, 'NewPassword123!@');
+      await user.type(confirmPasswordField, 'NewPassword123!@');
+      await user.click(changePasswordButton);
+
+      // ダイアログが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/全デバイスからログアウトされます/i)).toBeInTheDocument();
+      });
+
+      // キャンセルボタンをクリック
+      const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+      await user.click(cancelButton);
+
+      // ダイアログが閉じる
+      await waitFor(() => {
+        expect(screen.queryByText(/全デバイスからログアウトされます/i)).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('2FA無効化ダイアログ操作', () => {
+    beforeEach(() => {
+      mockUseAuth.mockReturnValue({
+        user: twoFactorEnabledUser,
+        logout: mockLogout,
+      });
+    });
+
+    it('2FA無効化パスワードダイアログのキャンセルボタンで閉じる', async () => {
+      const user = userEvent.setup();
+      render(<Profile />);
+
+      // 2FA無効化ボタンをクリック
+      const disableButton = screen.getByRole('button', { name: '無効化' });
+      await user.click(disableButton);
+
+      // パスワードダイアログが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
+      });
+
+      // キャンセルボタンをクリック
+      const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+      await user.click(cancelButton);
+
+      // ダイアログが閉じる
+      await waitFor(() => {
+        expect(screen.queryByText(/パスワードを入力/i)).not.toBeInTheDocument();
+      });
+    });
+
+    it('2FA無効化確認ダイアログを表示してキャンセルする', async () => {
+      const user = userEvent.setup();
+      render(<Profile />);
+
+      // 2FA無効化ボタンをクリック
+      const disableButton = screen.getByRole('button', { name: '無効化' });
+      await user.click(disableButton);
+
+      // パスワードダイアログが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
+      });
+
+      // パスワード入力
+      const passwordInput = screen.getByLabelText('パスワード');
+      await user.type(passwordInput, 'CurrentPassword123!');
+
+      // 確認ボタンをクリック
+      const confirmButton = screen.getByRole('button', { name: '確認' });
+      await user.click(confirmButton);
+
+      // 確認ダイアログが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/二要素認証の無効化確認/i)).toBeInTheDocument();
+        expect(screen.getByText(/全デバイスからログアウトされます/i)).toBeInTheDocument();
+      });
+
+      // キャンセルボタンをクリック
+      const cancelConfirmButton = screen.getAllByRole('button', { name: /キャンセル/i })[0];
+      await user.click(cancelConfirmButton!);
+
+      // 確認ダイアログが閉じる
+      await waitFor(() => {
+        expect(screen.queryByText(/二要素認証の無効化確認/i)).not.toBeInTheDocument();
+      });
+    });
+  });
 });
