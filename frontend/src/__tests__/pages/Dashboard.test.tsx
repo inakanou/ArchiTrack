@@ -34,17 +34,36 @@ const mockUser: UserProfile = {
   updatedAt: '2025-01-01T00:00:00Z',
 };
 
+const mockAdminUser: UserProfile = {
+  id: 'admin-user-id',
+  email: 'admin@example.com',
+  displayName: '管理者ユーザー',
+  roles: ['admin', 'user'],
+  emailVerified: true,
+  twoFactorEnabled: true,
+  createdAt: '2025-01-01T00:00:00Z',
+  updatedAt: '2025-01-01T00:00:00Z',
+};
+
+const useAuthMock = vi.fn(() => ({
+  user: mockUser,
+  isLoading: false,
+  error: null,
+}));
+
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: vi.fn(() => ({
-    user: mockUser,
-    isLoading: false,
-    error: null,
-  })),
+  useAuth: () => useAuthMock(),
 }));
 
 describe('Dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // デフォルトは一般ユーザー
+    useAuthMock.mockReturnValue({
+      user: mockUser,
+      isLoading: false,
+      error: null,
+    });
   });
 
   // ヘルパー関数
@@ -186,6 +205,167 @@ describe('Dashboard', () => {
       await user.click(tradingPartnerCard);
 
       expect(screen.getByTestId('trading-partners-page')).toBeInTheDocument();
+    });
+  });
+
+  describe('管理者セクション', () => {
+    beforeEach(() => {
+      useAuthMock.mockReturnValue({
+        user: mockAdminUser,
+        isLoading: false,
+        error: null,
+      });
+    });
+
+    it('管理者の場合、管理機能セクションが表示される', () => {
+      renderWithRouter();
+
+      expect(screen.getByText('管理機能')).toBeInTheDocument();
+    });
+
+    it('管理者の場合、ユーザー管理カードが表示される', () => {
+      renderWithRouter();
+
+      expect(screen.getByTestId('quick-link-admin-users')).toBeInTheDocument();
+      expect(screen.getByText('ユーザー管理')).toBeInTheDocument();
+      expect(screen.getByText('ユーザーアカウントの管理')).toBeInTheDocument();
+    });
+
+    it('管理者の場合、招待管理カードが表示される', () => {
+      renderWithRouter();
+
+      expect(screen.getByTestId('quick-link-admin-invitations')).toBeInTheDocument();
+      expect(screen.getByText('招待管理')).toBeInTheDocument();
+      expect(screen.getByText('ユーザー招待の管理')).toBeInTheDocument();
+    });
+
+    it('管理者の場合、監査ログカードが表示される', () => {
+      renderWithRouter();
+
+      expect(screen.getByTestId('quick-link-admin-audit')).toBeInTheDocument();
+      expect(screen.getByText('監査ログ')).toBeInTheDocument();
+      expect(screen.getByText('システム操作ログの確認')).toBeInTheDocument();
+    });
+
+    it('ユーザー管理カードのリンク先が /admin/users に設定されている', () => {
+      renderWithRouter();
+
+      const userManagementCard = screen.getByTestId('quick-link-admin-users');
+      expect(userManagementCard).toHaveAttribute('href', '/admin/users');
+    });
+
+    it('招待管理カードのリンク先が /admin/invitations に設定されている', () => {
+      renderWithRouter();
+
+      const invitationCard = screen.getByTestId('quick-link-admin-invitations');
+      expect(invitationCard).toHaveAttribute('href', '/admin/invitations');
+    });
+
+    it('監査ログカードのリンク先が /admin/audit-logs に設定されている', () => {
+      renderWithRouter();
+
+      const auditLogCard = screen.getByTestId('quick-link-admin-audit');
+      expect(auditLogCard).toHaveAttribute('href', '/admin/audit-logs');
+    });
+  });
+
+  describe('一般ユーザーの場合', () => {
+    it('管理機能セクションが表示されない', () => {
+      renderWithRouter();
+
+      expect(screen.queryByText('管理機能')).not.toBeInTheDocument();
+    });
+
+    it('ユーザー管理カードが表示されない', () => {
+      renderWithRouter();
+
+      expect(screen.queryByTestId('quick-link-admin-users')).not.toBeInTheDocument();
+    });
+
+    it('招待管理カードが表示されない', () => {
+      renderWithRouter();
+
+      expect(screen.queryByTestId('quick-link-admin-invitations')).not.toBeInTheDocument();
+    });
+
+    it('監査ログカードが表示されない', () => {
+      renderWithRouter();
+
+      expect(screen.queryByTestId('quick-link-admin-audit')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('ウェルカムメッセージ', () => {
+    it('ユーザー名を含むウェルカムメッセージが表示される', () => {
+      renderWithRouter();
+
+      expect(screen.getByText('ようこそ、テストユーザーさん')).toBeInTheDocument();
+    });
+
+    it('ユーザーがnullの場合はデフォルト名が表示される', () => {
+      useAuthMock.mockReturnValue({
+        user: null as unknown as UserProfile,
+        isLoading: false,
+        error: null,
+      });
+
+      renderWithRouter();
+
+      expect(screen.getByText('ようこそ、ユーザーさん')).toBeInTheDocument();
+    });
+
+    it('displayNameがnullの場合はデフォルト名が表示される', () => {
+      useAuthMock.mockReturnValue({
+        user: {
+          ...mockUser,
+          displayName: undefined as unknown as string,
+        },
+        isLoading: false,
+        error: null,
+      });
+
+      renderWithRouter();
+
+      expect(screen.getByText('ようこそ、ユーザーさん')).toBeInTheDocument();
+    });
+
+    it('管理者のウェルカムメッセージが表示される', () => {
+      useAuthMock.mockReturnValue({
+        user: mockAdminUser,
+        isLoading: false,
+        error: null,
+      });
+
+      renderWithRouter();
+
+      expect(screen.getByText('ようこそ、管理者ユーザーさん')).toBeInTheDocument();
+    });
+  });
+
+  describe('アプリケーション説明', () => {
+    it('アプリケーションの説明が表示される', () => {
+      renderWithRouter();
+
+      expect(
+        screen.getByText('ArchiTrack - アーキテクチャ決定記録管理システム')
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe('rolesがundefinedの場合', () => {
+    it('管理機能セクションが表示されない', () => {
+      useAuthMock.mockReturnValue({
+        user: {
+          ...mockUser,
+          roles: undefined as unknown as string[],
+        },
+        isLoading: false,
+        error: null,
+      });
+
+      renderWithRouter();
+
+      expect(screen.queryByText('管理機能')).not.toBeInTheDocument();
     });
   });
 });
