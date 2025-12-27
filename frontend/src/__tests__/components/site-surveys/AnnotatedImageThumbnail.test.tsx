@@ -20,26 +20,36 @@ vi.mock('../../../api/survey-annotations', () => ({
 }));
 
 // Fabric.jsモック
-vi.mock('fabric', () => ({
-  Canvas: vi.fn().mockImplementation(() => ({
-    dispose: vi.fn(),
-    renderAll: vi.fn(),
-    toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,mockdataurl'),
-    add: vi.fn(),
-    backgroundImage: null,
-  })),
-  FabricImage: vi.fn().mockImplementation(() => ({
-    set: vi.fn(),
-  })),
-  util: {
-    enlivenObjects: vi.fn().mockResolvedValue([
-      {
-        set: vi.fn(),
-        type: 'rect',
-      },
-    ]),
-  },
-}));
+const createMockCanvas = () => ({
+  dispose: vi.fn(),
+  renderAll: vi.fn(),
+  toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,mockdataurl'),
+  add: vi.fn(),
+  backgroundImage: null,
+});
+
+vi.mock('fabric', () => {
+  const MockCanvas = vi.fn(function (this: ReturnType<typeof createMockCanvas>) {
+    Object.assign(this, createMockCanvas());
+  }) as unknown as new () => ReturnType<typeof createMockCanvas>;
+
+  const MockFabricImage = vi.fn(function (this: { set: ReturnType<typeof vi.fn> }) {
+    this.set = vi.fn();
+  }) as unknown as new () => { set: ReturnType<typeof vi.fn> };
+
+  return {
+    Canvas: MockCanvas,
+    FabricImage: MockFabricImage,
+    util: {
+      enlivenObjects: vi.fn().mockResolvedValue([
+        {
+          set: vi.fn(),
+          type: 'rect',
+        },
+      ]),
+    },
+  };
+});
 
 // カスタムシェイプ登録モック
 vi.mock('../../../components/site-surveys/tools/registerCustomShapes', () => ({}));
@@ -308,6 +318,180 @@ describe('AnnotatedImageThumbnail', () => {
       await waitFor(() => {
         const errorDiv = screen.getByRole('img');
         expect(errorDiv).toHaveAttribute('aria-label', 'エラー画像');
+      });
+    });
+  });
+
+  describe('画像ロードエラー', () => {
+    it('画像ロードエラー時は元画像URLを表示する', async () => {
+      // onerrorをトリガーするモック
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        set(src) {
+          if (src) {
+            setTimeout(() => {
+              this.onerror?.(new Error('Load failed'));
+            }, 0);
+          }
+        },
+        configurable: true,
+      });
+
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: mockImage.id,
+        data: {
+          objects: [{ type: 'rect', left: 100, top: 100, width: 200, height: 150 }],
+        },
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      // console.errorをモック
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      // エラー発生後、元画像URLが使用されることを確認
+      await waitFor(() => {
+        const img = screen.getByRole('img');
+        expect(img).toHaveAttribute('src', mockImage.mediumUrl);
+      });
+
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('注釈オブジェクトの処理', () => {
+    it('不正な注釈オブジェクトはスキップされる', async () => {
+      // 不正なオブジェクトを返すモック
+      const { util } = await import('fabric');
+      vi.mocked(util.enlivenObjects).mockResolvedValueOnce([
+        null, // nullオブジェクト
+        undefined, // undefinedオブジェクト
+        'string', // 文字列
+        { type: 'rect', set: vi.fn() }, // 正常なオブジェクト
+      ] as unknown as Awaited<ReturnType<typeof util.enlivenObjects>>);
+
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: mockImage.id,
+        data: {
+          objects: [{ type: 'rect', left: 100, top: 100, width: 200, height: 150 }],
+        },
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      // エラーなく処理されることを確認
+      await waitFor(() => {
+        expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalled();
+      });
+    });
+
+    it('objectsプロパティがないデータは元画像を表示', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: mockImage.id,
+        data: {} as unknown as { objects: [] }, // objectsがない
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      await waitFor(() => {
+        const img = screen.getByRole('img');
+        expect(img).toHaveAttribute('src', mockImage.mediumUrl);
+      });
+    });
+  });
+
+  describe('注釈レンダリング中のアンマウント', () => {
+    it('画像ロード中にアンマウントしてもエラーが発生しない', async () => {
+      // 長時間遅延するモック
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: mockImage.id,
+        data: {
+          objects: [{ type: 'rect', left: 100, top: 100, width: 200, height: 150 }],
+        },
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      // 画像ロードが遅延するモック
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        set(src) {
+          if (src) {
+            setTimeout(() => {
+              this.onload?.();
+            }, 200);
+          }
+        },
+        configurable: true,
+      });
+
+      const { unmount } = render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      // 画像ロード前にアンマウント
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      unmount();
+
+      // エラーが発生しないことを確認
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      });
+    });
+
+    it('enlivenObjects実行中にアンマウントしてもエラーが発生しない', async () => {
+      // enlivenObjectsが遅延するモック
+      const { util } = await import('fabric');
+      vi.mocked(util.enlivenObjects).mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve([
+                  {
+                    set: vi.fn(),
+                    type: 'rect',
+                  },
+                ] as unknown as Awaited<ReturnType<typeof util.enlivenObjects>>),
+              200
+            )
+          )
+      );
+
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: mockImage.id,
+        data: {
+          objects: [{ type: 'rect', left: 100, top: 100, width: 200, height: 150 }],
+        },
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      const { unmount } = render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      // enlivenObjects実行前にアンマウント
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      unmount();
+
+      // エラーが発生しないことを確認
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 250));
       });
     });
   });

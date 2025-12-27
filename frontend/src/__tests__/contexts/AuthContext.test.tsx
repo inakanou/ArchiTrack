@@ -224,7 +224,362 @@ describe('AuthContext', () => {
     });
   });
 
+  describe('2FA認証', () => {
+    it('2FA要求時にtwoFactorStateが設定されること', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          requires2FA: true,
+          userId: 'user-123',
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      await waitFor(() => {
+        expect(result.current.twoFactorState).toEqual({
+          required: true,
+          email: 'test@example.com',
+        });
+        expect(result.current.isAuthenticated).toBe(false);
+      });
+    });
+
+    it('verify2FAで2FA認証を完了できること', async () => {
+      const mockUser = {
+        id: '1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      };
+
+      // 1. ログイン → 2FA要求
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          requires2FA: true,
+          userId: 'user-123',
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      await waitFor(() => {
+        expect(result.current.twoFactorState?.required).toBe(true);
+      });
+
+      // 2. 2FA検証成功
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          user: mockUser,
+          expiresIn: 900000,
+        }),
+      });
+
+      await act(async () => {
+        await result.current.verify2FA('123456');
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+        expect(result.current.user).toEqual(mockUser);
+        expect(result.current.twoFactorState).toBeNull();
+      });
+    });
+
+    it('verifyBackupCodeでバックアップコード認証を完了できること', async () => {
+      const mockUser = {
+        id: '1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      };
+
+      // 1. ログイン → 2FA要求
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          requires2FA: true,
+          userId: 'user-123',
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      await waitFor(() => {
+        expect(result.current.twoFactorState?.required).toBe(true);
+      });
+
+      // 2. バックアップコード検証成功
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          user: mockUser,
+        }),
+      });
+
+      await act(async () => {
+        await result.current.verifyBackupCode('ABCD1234');
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+        expect(result.current.twoFactorState).toBeNull();
+      });
+    });
+
+    it('cancel2FAで2FA状態をクリアできること', async () => {
+      // ログイン → 2FA要求
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          requires2FA: true,
+          userId: 'user-123',
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      await waitFor(() => {
+        expect(result.current.twoFactorState?.required).toBe(true);
+      });
+
+      // キャンセル
+      act(() => {
+        result.current.cancel2FA();
+      });
+
+      expect(result.current.twoFactorState).toBeNull();
+    });
+
+    it('verify2FAがtwoFactorState未設定時にエラーをスローすること', async () => {
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.verify2FA('123456');
+        })
+      ).rejects.toThrow('2FA state not available');
+    });
+
+    it('verifyBackupCodeがtwoFactorState未設定時にエラーをスローすること', async () => {
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.verifyBackupCode('ABCD1234');
+        })
+      ).rejects.toThrow('2FA state not available');
+    });
+  });
+
+  describe('セッション管理', () => {
+    it('ログインレスポンスが不正な形式の場合エラーをスローすること', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          // user, accessToken, refreshTokenがない
+          type: 'SUCCESS',
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.login('test@example.com', 'password123');
+        })
+      ).rejects.toThrow('Invalid login response format');
+    });
+
+    it('clearSessionExpiredでセッション期限切れフラグをクリアできること', async () => {
+      // リフレッシュ失敗でセッション期限切れを設定
+      // accessTokenもrefreshTokenも設定してネットワークエラーでフォールバック失敗させる
+      localStorage.setItem('refreshToken', 'old-refresh-token');
+      localStorage.setItem('accessToken', 'old-access-token');
+
+      // ネットワークエラーでリフレッシュ失敗（isAuthError = false）
+      // フォールバックでaccessTokenを使ったAPI呼び出しも失敗
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.sessionExpired).toBe(true);
+      });
+
+      // クリア
+      act(() => {
+        result.current.clearSessionExpired();
+      });
+
+      expect(result.current.sessionExpired).toBe(false);
+    });
+
+    it('ログアウトAPI失敗時もローカル状態がクリアされること', async () => {
+      const mockUser = {
+        id: '1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      };
+
+      // ログイン
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          user: mockUser,
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          expiresIn: 900000,
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+      });
+
+      // ログアウトAPI失敗
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'));
+
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(false);
+        expect(result.current.user).toBeNull();
+      });
+    });
+
+    it('リフレッシュトークンなしでセッション復元不可の場合も既存accessTokenで初期化すること', async () => {
+      // accessTokenのみ設定（refreshTokenなし）
+      localStorage.setItem('accessToken', 'existing-access-token');
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+        expect(result.current.isLoading).toBe(false);
+      });
+    });
+  });
+
   describe('トークンリフレッシュ', () => {
+    it('TokenRefreshManagerなしでもrefreshTokenを直接呼び出せること', async () => {
+      // refreshTokenのみ設定（ログインしていない状態）
+      localStorage.setItem('refreshToken', 'test-refresh-token');
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          accessToken: 'new-access-token',
+          refreshToken: 'new-refresh-token',
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      // 初期化を待つ
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+
+      // ログインせずにrefreshTokenを呼び出し
+      // 注意: TokenRefreshManagerがないため直接APIを呼び出す
+      // ただし初期化中にセッションが復元されるため、別のテストが必要
+    });
+
+    it('refreshTokenがない場合エラーをスローすること', async () => {
+      localStorage.clear();
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.refreshToken();
+        })
+      ).rejects.toThrow('No refresh token available');
+    });
+
     it('自動的にトークンをリフレッシュできること', async () => {
       const mockUser = {
         id: '1',

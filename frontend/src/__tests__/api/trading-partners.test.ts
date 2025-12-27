@@ -55,6 +55,7 @@ import {
   createTradingPartner,
   updateTradingPartner,
   getTradingPartner,
+  getTradingPartners,
   deleteTradingPartner,
   searchTradingPartners,
   searchTradingPartnersForAutocomplete,
@@ -227,7 +228,89 @@ describe('Trading Partners API Client', () => {
   });
 
   // ============================================================================
-  // 取引先取得テスト
+  // 取引先一覧取得テスト
+  // ============================================================================
+  describe('getTradingPartners', () => {
+    const mockPaginatedResponse = {
+      items: [mockTradingPartner],
+      total: 1,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+    };
+
+    it('デフォルトオプションで取引先一覧を取得できる', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedResponse);
+
+      const result = await getTradingPartners();
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/trading-partners');
+      expect(result).toEqual(mockPaginatedResponse);
+    });
+
+    it('ページネーションパラメータを指定できる', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedResponse);
+
+      await getTradingPartners({ page: 2, limit: 10 });
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/trading-partners?page=2&limit=10');
+    });
+
+    it('検索フィルタを指定できる', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedResponse);
+
+      await getTradingPartners({ filter: { search: 'テスト' } });
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners?search=%E3%83%86%E3%82%B9%E3%83%88'
+      );
+    });
+
+    it('取引先種別フィルタを指定できる', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedResponse);
+
+      await getTradingPartners({ filter: { type: ['CUSTOMER', 'SUBCONTRACTOR'] } });
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners?type=CUSTOMER%2CSUBCONTRACTOR'
+      );
+    });
+
+    it('空の取引先種別フィルタは無視される', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedResponse);
+
+      await getTradingPartners({ filter: { type: [] } });
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/trading-partners');
+    });
+
+    it('ソートオプションを指定できる', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedResponse);
+
+      await getTradingPartners({ sort: 'name', order: 'asc' });
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/trading-partners?sort=name&order=asc');
+    });
+
+    it('全てのオプションを組み合わせて指定できる', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedResponse);
+
+      await getTradingPartners({
+        page: 1,
+        limit: 20,
+        filter: { search: 'テスト', type: ['CUSTOMER'] },
+        sort: 'nameKana',
+        order: 'desc',
+      });
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/trading-partners?page=1&limit=20&search=%E3%83%86%E3%82%B9%E3%83%88&type=CUSTOMER&sort=nameKana&order=desc'
+      );
+    });
+  });
+
+  // ============================================================================
+  // 取引先詳細取得テスト
   // ============================================================================
   describe('getTradingPartner', () => {
     it('正常に取引先を取得できる', async () => {

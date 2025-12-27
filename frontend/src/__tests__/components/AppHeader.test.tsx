@@ -877,4 +877,338 @@ describe('AppHeader - タスク23.2: ナビゲーションコンポーネント�
       expect(tradingPartnerIndex).toBe(2);
     });
   });
+
+  describe('イニシャル表示', () => {
+    /**
+     * displayNameがundefinedの場合「U」が表示される
+     */
+    it('should show "U" when displayName is undefined', () => {
+      const mockAuthValue = createMockAuthContextValue({
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          displayName: '',
+          roles: ['user'],
+        },
+      });
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      // イニシャル「U」が表示されることを確認
+      expect(screen.getByText('U')).toBeInTheDocument();
+    });
+
+    /**
+     * displayNameがundefinedの場合「ユーザー」が表示される
+     */
+    it('should show "ユーザー" when displayName is undefined', () => {
+      const mockAuthValue = createMockAuthContextValue({
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          displayName: '',
+          roles: ['user'],
+        },
+      });
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByText('ユーザー')).toBeInTheDocument();
+    });
+
+    /**
+     * 2単語の名前の場合、両方の頭文字が表示される
+     */
+    it('should show initials from two-word name', () => {
+      const mockAuthValue = createMockAuthContextValue({
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          displayName: 'John Doe',
+          roles: ['user'],
+        },
+      });
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByText('JD')).toBeInTheDocument();
+    });
+
+    /**
+     * 1単語の名前の場合、最初の2文字が表示される
+     */
+    it('should show first 2 characters for single-word name', () => {
+      const mockAuthValue = createMockAuthContextValue({
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          displayName: 'Admin',
+          roles: ['user'],
+        },
+      });
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByText('AD')).toBeInTheDocument();
+    });
+  });
+
+  describe('キーボードナビゲーション詳細', () => {
+    /**
+     * ArrowDownでメニューが開く
+     */
+    it('should open dropdown with ArrowDown key', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      userButton.focus();
+      await user.keyboard('{ArrowDown}');
+
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+    });
+
+    /**
+     * Spaceキーでメニューが開く
+     */
+    it('should open dropdown with Space key', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      userButton.focus();
+      await user.keyboard(' ');
+
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+    });
+
+    /**
+     * ArrowDown/ArrowUpでメニュー内をナビゲート
+     */
+    it('should navigate menu items with ArrowDown/ArrowUp', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      await user.click(userButton);
+
+      // ArrowDownで最初のアイテム（プロフィール）へ
+      await user.keyboard('{ArrowDown}');
+      const profileItem = screen.getByRole('menuitem', { name: /プロフィール/i });
+      expect(profileItem).toHaveClass('is-focused');
+
+      // さらにArrowDownで次のアイテム（ログアウト）へ
+      await user.keyboard('{ArrowDown}');
+      const logoutItem = screen.getByRole('menuitem', { name: /ログアウト/i });
+      expect(logoutItem).toHaveClass('is-focused');
+
+      // ArrowUpで前のアイテム（プロフィール）へ
+      await user.keyboard('{ArrowUp}');
+      expect(profileItem).toHaveClass('is-focused');
+    });
+
+    /**
+     * Enterキーでフォーカス中のアイテムを選択
+     */
+    it('should select focused item with Enter key', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      await user.click(userButton);
+
+      // ArrowDownで最初のアイテム（プロフィール）を選択
+      await user.keyboard('{ArrowDown}');
+      await user.keyboard('{Enter}');
+
+      expect(mockNavigate).toHaveBeenCalledWith('/profile');
+    });
+
+    /**
+     * マウスエンターでフォーカスが移動する
+     */
+    it('should focus item on mouse enter', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      await user.click(userButton);
+
+      const logoutItem = screen.getByRole('menuitem', { name: /ログアウト/i });
+      await user.hover(logoutItem);
+
+      expect(logoutItem).toHaveClass('is-focused');
+    });
+
+    /**
+     * 循環ナビゲーション：最後から最初へ
+     */
+    it('should wrap around from last to first item with ArrowDown', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      await user.click(userButton);
+
+      // 最後のアイテムまで移動
+      await user.keyboard('{ArrowDown}'); // プロフィール
+      await user.keyboard('{ArrowDown}'); // ログアウト
+      await user.keyboard('{ArrowDown}'); // 循環して最初へ
+
+      const profileItem = screen.getByRole('menuitem', { name: /プロフィール/i });
+      expect(profileItem).toHaveClass('is-focused');
+    });
+
+    /**
+     * 循環ナビゲーション：最初から最後へ
+     */
+    it('should wrap around from first to last item with ArrowUp', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      await user.click(userButton);
+
+      // ArrowUpで最後のアイテムへ循環
+      await user.keyboard('{ArrowUp}');
+
+      const logoutItem = screen.getByRole('menuitem', { name: /ログアウト/i });
+      expect(logoutItem).toHaveClass('is-focused');
+    });
+  });
+
+  describe('外部クリックでメニューを閉じる', () => {
+    /**
+     * メニュー外をクリックするとメニューが閉じる
+     */
+    it('should close menu when clicking outside', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const userButton = screen.getByRole('button', { name: /Test User/i });
+      await user.click(userButton);
+
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      // メニュー外をクリック
+      await user.click(document.body);
+
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('ユーザー情報エッジケース', () => {
+    /**
+     * rolesがundefinedの場合でもクラッシュしない
+     */
+    it('should handle undefined roles gracefully', () => {
+      const mockAuthValue = createMockAuthContextValue({
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          displayName: 'Test User',
+          roles: undefined,
+        },
+      });
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      // 管理メニューは表示されない
+      expect(screen.queryByRole('button', { name: /管理メニュー/i })).not.toBeInTheDocument();
+    });
+  });
 });

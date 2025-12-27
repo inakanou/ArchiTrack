@@ -808,5 +808,173 @@ describe('PolygonTool', () => {
         expect(json.points[2]).toEqual({ x: 150, y: 200 });
       });
     });
+
+    describe('fromObject() デシリアライズ', () => {
+      it('JSONオブジェクトからPolygonShapeを復元できる', async () => {
+        const json = {
+          type: 'polygonShape' as const,
+          points: [
+            { x: 100, y: 100 },
+            { x: 200, y: 100 },
+            { x: 150, y: 200 },
+          ],
+          stroke: '#ff0000',
+          strokeWidth: 4,
+          fill: '#00ff00',
+        };
+
+        const polygon = await PolygonShape.fromObject(json);
+
+        expect(polygon).toBeInstanceOf(PolygonShape);
+        expect(polygon.vertexCount).toBe(3);
+        expect(polygon.stroke).toBe('#ff0000');
+        expect(polygon.strokeWidth).toBe(4);
+        expect(polygon.fill).toBe('#00ff00');
+      });
+
+      it('left/topを含むJSONを復元できる', async () => {
+        const json = {
+          type: 'polygonShape' as const,
+          points: [
+            { x: 100, y: 100 },
+            { x: 200, y: 100 },
+            { x: 150, y: 200 },
+          ],
+          stroke: '#000000',
+          strokeWidth: 2,
+          fill: 'transparent',
+          left: 50,
+          top: 75,
+        };
+
+        const polygon = await PolygonShape.fromObject(json);
+
+        expect(polygon).toBeInstanceOf(PolygonShape);
+        expect(polygon.left).toBe(50);
+        expect(polygon.top).toBe(75);
+        expect(mockSetCoords).toHaveBeenCalled();
+      });
+
+      it('left/topなしでも復元できる（後方互換性）', async () => {
+        const json = {
+          type: 'polygonShape' as const,
+          points: [
+            { x: 100, y: 100 },
+            { x: 200, y: 100 },
+            { x: 150, y: 200 },
+          ],
+          stroke: '#000000',
+          strokeWidth: 2,
+          fill: 'transparent',
+        };
+
+        const polygon = await PolygonShape.fromObject(json);
+
+        expect(polygon).toBeInstanceOf(PolygonShape);
+        expect(polygon.vertexCount).toBe(3);
+      });
+
+      it('toObject()で出力したJSONをfromObject()で復元できる', async () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 200 },
+          { x: 50, y: 150 },
+        ];
+        const original = new PolygonShape(points, {
+          stroke: '#123456',
+          strokeWidth: 3,
+          fill: '#654321',
+        });
+
+        const json = original.toObject();
+        const restored = await PolygonShape.fromObject(json);
+
+        expect(restored.vertexCount).toBe(original.vertexCount);
+        expect(restored.stroke).toBe(original.stroke);
+        expect(restored.strokeWidth).toBe(original.strokeWidth);
+        expect(restored.fill).toBe(original.fill);
+      });
+    });
+
+    describe('setStyle() 部分更新', () => {
+      it('strokeのみ更新できる', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 200 },
+        ];
+        const polygon = new PolygonShape(points);
+
+        polygon.setStyle({ stroke: '#0000ff' });
+
+        expect(polygon.stroke).toBe('#0000ff');
+        expect(polygon.strokeWidth).toBe(DEFAULT_POLYGON_OPTIONS.strokeWidth);
+        expect(polygon.fill).toBe(DEFAULT_POLYGON_OPTIONS.fill);
+      });
+
+      it('strokeWidthのみ更新できる', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 200 },
+        ];
+        const polygon = new PolygonShape(points);
+
+        polygon.setStyle({ strokeWidth: 8 });
+
+        expect(polygon.stroke).toBe(DEFAULT_POLYGON_OPTIONS.stroke);
+        expect(polygon.strokeWidth).toBe(8);
+        expect(polygon.fill).toBe(DEFAULT_POLYGON_OPTIONS.fill);
+      });
+
+      it('fillのみ更新できる', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 200 },
+        ];
+        const polygon = new PolygonShape(points);
+
+        polygon.setStyle({ fill: '#ff00ff' });
+
+        expect(polygon.stroke).toBe(DEFAULT_POLYGON_OPTIONS.stroke);
+        expect(polygon.strokeWidth).toBe(DEFAULT_POLYGON_OPTIONS.strokeWidth);
+        expect(polygon.fill).toBe('#ff00ff');
+      });
+
+      it('空のオプションでも安全に処理される', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 200 },
+        ];
+        const polygon = new PolygonShape(points);
+
+        polygon.setStyle({});
+
+        expect(polygon.stroke).toBe(DEFAULT_POLYGON_OPTIONS.stroke);
+        expect(polygon.strokeWidth).toBe(DEFAULT_POLYGON_OPTIONS.strokeWidth);
+        expect(polygon.fill).toBe(DEFAULT_POLYGON_OPTIONS.fill);
+      });
+    });
+
+    describe('setVertex() 負のインデックス', () => {
+      it('負のインデックスに対する更新は無視される', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 200 },
+        ];
+        const polygon = new PolygonShape(points);
+
+        polygon.setVertex(-1, { x: 999, y: 999 });
+
+        // 頂点は変更されていない
+        expect(polygon.getVertex(0)).toEqual({ x: 100, y: 100 });
+        expect(polygon.getVertex(1)).toEqual({ x: 200, y: 100 });
+        expect(polygon.getVertex(2)).toEqual({ x: 150, y: 200 });
+      });
+    });
   });
 });

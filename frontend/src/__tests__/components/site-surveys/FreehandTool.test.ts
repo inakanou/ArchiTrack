@@ -617,5 +617,168 @@ describe('FreehandTool', () => {
         expect(brush.getPointCount()).toBe(0);
       });
     });
+
+    describe('エッジケース', () => {
+      it('描画開始前のonMouseMoveは無視される', () => {
+        const brush = new FreehandBrush();
+
+        brush.onMouseMove({ x: 150, y: 150 });
+
+        expect(brush.getPointCount()).toBe(0);
+        expect(brush.isDrawing).toBe(false);
+      });
+
+      it('描画終了後のonMouseMoveは無視される', () => {
+        const brush = new FreehandBrush();
+        brush.onMouseDown({ x: 100, y: 100 });
+        brush.onMouseMove({ x: 150, y: 150 });
+        brush.onMouseUp();
+
+        brush.onMouseMove({ x: 200, y: 200 });
+
+        // 描画終了後はポイントがリセットされている
+        expect(brush.getPointCount()).toBe(0);
+        expect(brush.isDrawing).toBe(false);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // FreehandPath.fromObject テスト
+  // ==========================================================================
+  describe('FreehandPath.fromObject', () => {
+    it('JSONからFreehandPathを復元できる', async () => {
+      const json = {
+        type: 'freehand' as const,
+        pathData: 'M 100 100 L 200 200',
+        stroke: '#ff0000',
+        strokeWidth: 3,
+        fill: '#00ff00',
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+      };
+
+      const path = await FreehandPath.fromObject(json);
+
+      expect(path).toBeInstanceOf(FreehandPath);
+      expect(path.pathData).toBe('M 100 100 L 200 200');
+      expect(path.stroke).toBe('#ff0000');
+      expect(path.strokeWidth).toBe(3);
+      expect(path.fill).toBe('#00ff00');
+    });
+
+    it('位置情報を含むJSONから復元できる', async () => {
+      const json = {
+        type: 'freehand' as const,
+        pathData: 'M 100 100 L 200 200',
+        stroke: '#000000',
+        strokeWidth: 2,
+        fill: 'transparent',
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        left: 50,
+        top: 50,
+      };
+
+      const path = await FreehandPath.fromObject(json);
+
+      expect(path).toBeInstanceOf(FreehandPath);
+      // 位置が設定されていることを確認
+      expect(mockSetCoords).toHaveBeenCalled();
+    });
+
+    it('位置情報がないJSONからも復元できる（後方互換性）', async () => {
+      const json = {
+        type: 'freehand' as const,
+        pathData: 'M 100 100 L 200 200',
+        stroke: '#000000',
+        strokeWidth: 2,
+        fill: 'transparent',
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+      };
+
+      const path = await FreehandPath.fromObject(json);
+
+      expect(path).toBeInstanceOf(FreehandPath);
+    });
+  });
+
+  // ==========================================================================
+  // ファクトリ関数の追加テスト
+  // ==========================================================================
+  describe('ファクトリ関数', () => {
+    describe('createFreehandPath', () => {
+      it('空白のみのパスデータはnullを返す', () => {
+        const path = createFreehandPath('   ');
+
+        expect(path).toBeNull();
+      });
+
+      it('有効なパスデータでFreehandPathを作成できる', () => {
+        const path = createFreehandPath('M 0 0 L 100 100 L 200 0');
+
+        expect(path).not.toBeNull();
+        expect(path).toBeInstanceOf(FreehandPath);
+      });
+    });
+
+    describe('createFreehandBrush', () => {
+      it('オプションなしでブラシを作成できる', () => {
+        const brush = createFreehandBrush();
+
+        expect(brush).toBeInstanceOf(FreehandBrush);
+      });
+
+      it('部分的なオプションでブラシを作成できる', () => {
+        const brush = createFreehandBrush({ stroke: '#ff0000' });
+
+        expect(brush.color).toBe('#ff0000');
+        expect(brush.width).toBe(DEFAULT_FREEHAND_OPTIONS.strokeWidth);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // スタイル部分更新テスト
+  // ==========================================================================
+  describe('FreehandPath スタイル部分更新', () => {
+    it('setStyleで一部のスタイルのみ更新できる', () => {
+      const path = new FreehandPath('M 0 0 L 100 100', {
+        stroke: '#000000',
+        strokeWidth: 2,
+        fill: 'transparent',
+      });
+
+      path.setStyle({ stroke: '#ff0000' });
+
+      expect(path.stroke).toBe('#ff0000');
+      expect(path.strokeWidth).toBe(2);
+      expect(path.fill).toBe('transparent');
+    });
+
+    it('setStyleで複数のスタイルを同時に更新できる', () => {
+      const path = new FreehandPath('M 0 0 L 100 100');
+
+      path.setStyle({
+        stroke: '#0000ff',
+        strokeWidth: 5,
+      });
+
+      expect(path.stroke).toBe('#0000ff');
+      expect(path.strokeWidth).toBe(5);
+    });
+
+    it('setStyleで空のオプションを渡しても問題ない', () => {
+      const path = new FreehandPath('M 0 0 L 100 100', {
+        stroke: '#000000',
+        strokeWidth: 2,
+      });
+
+      path.setStyle({});
+
+      expect(path.stroke).toBe('#000000');
+      expect(path.strokeWidth).toBe(2);
+    });
   });
 });

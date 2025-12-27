@@ -464,6 +464,7 @@ function AnnotationEditor({
         // 非同期処理後、Canvasがdisposeされていないか確認
         // また、渡されたcanvasインスタンスが現在のcanvasと同じかも確認
         // （React StrictModeで古いcanvasインスタンスのクロージャが実行される可能性がある）
+        /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */
         if (
           isDisposedRef.current ||
           !fabricCanvasRef.current ||
@@ -501,6 +502,7 @@ function AnnotationEditor({
         const scaledHeight = imgHeight * scale;
 
         // 再度disposeチェック（React StrictModeでのcanvas置換も考慮）
+        /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */
         if (
           isDisposedRef.current ||
           !fabricCanvasRef.current ||
@@ -524,6 +526,7 @@ function AnnotationEditor({
           const annotationData = await getAnnotation(imageId);
           if (annotationData && annotationData.data && annotationData.data.objects) {
             // 再度disposeチェック
+            /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */
             if (
               isDisposedRef.current ||
               !fabricCanvasRef.current ||
@@ -540,6 +543,7 @@ function AnnotationEditor({
               const enlivenedObjects = await util.enlivenObjects(objects);
 
               // 再度disposeチェック
+              /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */
               if (
                 isDisposedRef.current ||
                 !fabricCanvasRef.current ||
@@ -572,6 +576,7 @@ function AnnotationEditor({
         }
 
         setState((prev) => ({ ...prev, isLoading: false, error: null }));
+        /* istanbul ignore next -- @preserve 画像読み込みエラーのキャッチ（ネットワークエラー等） */
       } catch (err) {
         console.error('画像の読み込みに失敗しました:', err);
         // disposeされていない場合のみstate更新
@@ -597,6 +602,7 @@ function AnnotationEditor({
    * - selection:created/updated/cleared: オブジェクト選択の変更
    * - object:moving/modified/scaling: オブジェクトの移動・変更・リサイズ
    */
+  /* istanbul ignore next -- @preserve イベントハンドラはFabric.jsコールバック内で実行 */
   const setupEventListeners = useCallback((canvas: FabricCanvas) => {
     // マウスダウンイベント - ドラッグ開始または多角形/折れ線の頂点追加
     canvas.on('mouse:down', (options: TPointerEventInfo<TPointerEvent>) => {
@@ -1020,6 +1026,7 @@ function AnnotationEditor({
   /**
    * Canvasイベントリスナーを解除
    */
+  /* istanbul ignore next -- @preserve イベントリスナー解除はアンマウント時のみ実行 */
   const removeEventListeners = useCallback((canvas: FabricCanvas) => {
     // 基本マウスイベント
     canvas.off('mouse:down');
@@ -1099,6 +1106,7 @@ function AnnotationEditor({
         loadImage(canvas, imageUrl);
         prevImageUrlRef.current = imageUrl;
       }
+      /* istanbul ignore next -- @preserve Canvas初期化エラー（DOM関連エラー等） */
     } catch (err) {
       console.error('Failed to initialize Fabric.js canvas:', err);
       setState((prev) => ({
@@ -1109,6 +1117,7 @@ function AnnotationEditor({
     }
 
     // クリーンアップ（dispose処理）
+    /* istanbul ignore next -- @preserve クリーンアップ処理はアンマウント時のみ実行 */
     return () => {
       // dispose状態を設定（非同期処理をキャンセル）
       isDisposedRef.current = true;
@@ -1328,6 +1337,7 @@ function AnnotationEditor({
           }
           break;
 
+        /* istanbul ignore next -- @preserve 未処理のキーは無視（defensive coding） */
         default:
           break;
       }

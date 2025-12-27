@@ -275,4 +275,334 @@ describe('TwoFactorManagement', () => {
       });
     });
   });
+
+  describe('新規バックアップコードの操作', () => {
+    it('ダウンロードボタンでバックアップコードをダウンロードできる', async () => {
+      const user = userEvent.setup({ delay: null });
+      const mockCreateObjectURL = vi.fn().mockReturnValue('blob:test');
+      const mockRevokeObjectURL = vi.fn();
+      const mockAppendChild = vi.fn();
+      const mockRemoveChild = vi.fn();
+      const mockClick = vi.fn();
+
+      // URL.createObjectURLとrevokeObjectURLをモック
+      global.URL.createObjectURL = mockCreateObjectURL;
+      global.URL.revokeObjectURL = mockRevokeObjectURL;
+
+      // document.body.appendChildとremoveChildをモック
+      const originalAppendChild = document.body.appendChild.bind(document.body);
+      const originalRemoveChild = document.body.removeChild.bind(document.body);
+      document.body.appendChild = vi.fn((node) => {
+        if (node instanceof HTMLAnchorElement) {
+          node.click = mockClick;
+        }
+        mockAppendChild(node);
+        return originalAppendChild(node);
+      });
+      document.body.removeChild = vi.fn((node) => {
+        mockRemoveChild(node);
+        return originalRemoveChild(node);
+      });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      // 再生成ダイアログを開き、確認する
+      const regenerateButton = screen.getByRole('button', { name: /再生成/i });
+      await user.click(regenerateButton);
+
+      const confirmButton = screen.getByRole('button', { name: /確認/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('NEW1ABCD')).toBeInTheDocument();
+      });
+
+      // ダウンロードボタンをクリック
+      const downloadButton = screen.getByRole('button', { name: /ダウンロード/i });
+      await user.click(downloadButton);
+
+      expect(mockCreateObjectURL).toHaveBeenCalled();
+      expect(mockClick).toHaveBeenCalled();
+      expect(mockRevokeObjectURL).toHaveBeenCalled();
+    });
+
+    it('コピーボタンでバックアップコードをクリップボードにコピーできる', async () => {
+      const user = userEvent.setup({ delay: null });
+      const mockWriteText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: mockWriteText },
+        writable: true,
+        configurable: true,
+      });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      // 再生成ダイアログを開き、確認する
+      const regenerateButton = screen.getByRole('button', { name: /再生成/i });
+      await user.click(regenerateButton);
+
+      const confirmButton = screen.getByRole('button', { name: /確認/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('NEW1ABCD')).toBeInTheDocument();
+      });
+
+      // コピーボタンをクリック
+      const copyButton = screen.getByRole('button', { name: /コピー/i });
+      await user.click(copyButton);
+
+      expect(mockWriteText).toHaveBeenCalled();
+    });
+
+    it('コピー失敗時にエラーメッセージを表示する', async () => {
+      const user = userEvent.setup({ delay: null });
+      const mockWriteText = vi.fn().mockRejectedValue(new Error('Copy failed'));
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: mockWriteText },
+        writable: true,
+        configurable: true,
+      });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      // 再生成ダイアログを開き、確認する
+      const regenerateButton = screen.getByRole('button', { name: /再生成/i });
+      await user.click(regenerateButton);
+
+      const confirmButton = screen.getByRole('button', { name: /確認/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('NEW1ABCD')).toBeInTheDocument();
+      });
+
+      // コピーボタンをクリック
+      const copyButton = screen.getByRole('button', { name: /コピー/i });
+      await user.click(copyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/クリップボードへのコピーに失敗しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('閉じるボタンでバックアップコード表示を閉じる', async () => {
+      const user = userEvent.setup({ delay: null });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      // 再生成ダイアログを開き、確認する
+      const regenerateButton = screen.getByRole('button', { name: /再生成/i });
+      await user.click(regenerateButton);
+
+      const confirmButton = screen.getByRole('button', { name: /確認/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('NEW1ABCD')).toBeInTheDocument();
+      });
+
+      // 閉じるボタンをクリック
+      const closeButton = screen.getByRole('button', { name: /閉じる/i });
+      await user.click(closeButton);
+
+      // 元の表示に戻る
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /再生成/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('エラーハンドリング', () => {
+    it('再生成失敗時にエラーメッセージを表示する', async () => {
+      const user = userEvent.setup({ delay: null });
+      mockOnRegenerateBackupCodes.mockResolvedValue({
+        success: false,
+        error: '再生成に失敗しました',
+      });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      const regenerateButton = screen.getByRole('button', { name: /再生成/i });
+      await user.click(regenerateButton);
+
+      const confirmButton = screen.getByRole('button', { name: /確認/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('再生成に失敗しました')).toBeInTheDocument();
+      });
+    });
+
+    it('再生成で例外発生時にエラーメッセージを表示する', async () => {
+      const user = userEvent.setup({ delay: null });
+      mockOnRegenerateBackupCodes.mockRejectedValue(new Error('Network error'));
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      const regenerateButton = screen.getByRole('button', { name: /再生成/i });
+      await user.click(regenerateButton);
+
+      const confirmButton = screen.getByRole('button', { name: /確認/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/バックアップコードの再生成に失敗しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('無効化で例外発生時にエラーメッセージを表示する', async () => {
+      const user = userEvent.setup({ delay: null });
+      mockOnDisableTwoFactor.mockRejectedValue(new Error('Network error'));
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      const disableButton = screen.getByRole('button', { name: /2FAを無効化/i });
+      await user.click(disableButton);
+
+      const passwordInput = screen.getByLabelText(/パスワード/i);
+      await user.type(passwordInput, 'password');
+
+      const confirmButton = screen.getByRole('button', { name: /無効化する/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/2FAの無効化に失敗しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('パスワードなしで無効化しようとするとエラーを表示', async () => {
+      const user = userEvent.setup({ delay: null });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      const disableButton = screen.getByRole('button', { name: /2FAを無効化/i });
+      await user.click(disableButton);
+
+      // パスワードを入力せずにフォームをサブミット
+      const form = screen.getByLabelText(/パスワード/i).closest('form');
+      if (form) {
+        await user.click(screen.getByRole('button', { name: /無効化する/i }));
+      }
+
+      // パスワード必須のエラーメッセージは表示されない（ボタンがdisabledのため）
+      // 代わりにボタンがdisabledであることを確認
+      const confirmButton = screen.getByRole('button', { name: /無効化する/i });
+      expect(confirmButton).toBeDisabled();
+    });
+  });
+
+  describe('ダイアログのキャンセル', () => {
+    it('再生成ダイアログをキャンセルできる', async () => {
+      const user = userEvent.setup({ delay: null });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      const regenerateButton = screen.getByRole('button', { name: /再生成/i });
+      await user.click(regenerateButton);
+
+      expect(
+        screen.getByText(/既存のバックアップコードはすべて無効になります/i)
+      ).toBeInTheDocument();
+
+      const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+      await user.click(cancelButton);
+
+      // ダイアログが閉じる
+      await waitFor(() => {
+        expect(
+          screen.queryByText(/既存のバックアップコードはすべて無効になります/i)
+        ).not.toBeInTheDocument();
+      });
+    });
+
+    it('無効化ダイアログをキャンセルできる', async () => {
+      const user = userEvent.setup({ delay: null });
+
+      render(
+        <TwoFactorManagement
+          backupCodes={mockBackupCodes}
+          onRegenerateBackupCodes={mockOnRegenerateBackupCodes}
+          onDisableTwoFactor={mockOnDisableTwoFactor}
+          onDisableSuccess={mockOnDisableSuccess}
+        />
+      );
+
+      const disableButton = screen.getByRole('button', { name: /2FAを無効化/i });
+      await user.click(disableButton);
+
+      expect(screen.getByText(/本人確認のため/i)).toBeInTheDocument();
+
+      const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+      await user.click(cancelButton);
+
+      // ダイアログが閉じる
+      await waitFor(() => {
+        expect(screen.queryByText(/本人確認のため/i)).not.toBeInTheDocument();
+      });
+    });
+  });
 });
