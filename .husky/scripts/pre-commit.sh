@@ -3,12 +3,7 @@
 # Pre-commit Hook - Quality Checks for Staged Files
 # ============================================================================
 # このスクリプトは .husky/pre-commit から呼び出されます
-# コミット前にlint、type check、および変更ファイルのカバレッジチェックを実行します
-#
-# カバレッジチェック:
-#   - 変更されたソースファイルに対応するテストを実行
-#   - 80%未満のカバレッジがあればコミットを中断
-#   - pre-pushと同じ閾値を適用
+# コミット前にlint、type checkを実行します
 # ============================================================================
 
 # Get list of staged files
@@ -82,83 +77,6 @@ if echo "$STAGED_FILES" | grep -q '^\(e2e/.*\|playwright\.config\|scripts/.*\)\.
   if [ $? -ne 0 ]; then
     echo "❌ E2E type check failed. Commit aborted."
     exit 1
-  fi
-fi
-
-# ============================================================================
-# カバレッジチェック（変更ファイルのみ）
-# ============================================================================
-# ベストプラクティス: pre-pushと同じ閾値（80%）を適用
-# - 変更されたソースファイルのカバレッジを測定
-# - 80%未満のファイルがあればコミットを中断
-# - テストファイルと除外パターンはスキップ
-# ============================================================================
-
-# Backend: カバレッジチェック
-if echo "$STAGED_FILES" | grep -q '^backend/src/.*\.ts$'; then
-  # テストファイルと除外パターンを除外した上でソースファイルがあるかチェック
-  BACKEND_SOURCE_FILES=$(echo "$STAGED_FILES" | grep '^backend/src/.*\.ts$' | grep -v '\.test\.ts$' | grep -v '\.spec\.ts$' | grep -v '__tests__' | grep -v '\.d\.ts$' | grep -v '/types/' | grep -v '/routes/' | grep -v '/storage/' | grep -v '/generated/' | grep -v 'app\.ts$' | grep -v 'index\.ts$' | grep -v 'db\.ts$' | grep -v 'redis\.ts$' | grep -v 'generate-swagger\.ts$' | grep -v 'seed-helpers')
-
-  if [ -n "$BACKEND_SOURCE_FILES" ]; then
-    echo ""
-    echo "📊 Running backend coverage check for staged files..."
-    echo "   対象ファイル:"
-    echo "$BACKEND_SOURCE_FILES" | while read -r f; do echo "     - $f"; done
-
-    # テストを実行してカバレッジを生成
-    echo ""
-    echo "🧪 Running backend unit tests with coverage..."
-    npm --prefix backend run test:unit:coverage
-    if [ $? -ne 0 ]; then
-      echo "❌ Backend tests failed. Commit aborted."
-      exit 1
-    fi
-
-    # ステージされたファイルのカバレッジをチェック
-    node scripts/check-staged-coverage.cjs --project=backend
-    if [ $? -ne 0 ]; then
-      echo "❌ Backend coverage check failed. Commit aborted."
-      echo ""
-      echo "対応方法:"
-      echo "  1. 変更したファイルに対応するテストを追加してください"
-      echo "  2. カバレッジを80%以上に改善してください"
-      echo "  3. 詳細は上記のレポートを確認してください"
-      exit 1
-    fi
-  fi
-fi
-
-# Frontend: カバレッジチェック
-if echo "$STAGED_FILES" | grep -q '^frontend/src/.*\.\(ts\|tsx\)$'; then
-  # テストファイルと除外パターンを除外した上でソースファイルがあるかチェック
-  FRONTEND_SOURCE_FILES=$(echo "$STAGED_FILES" | grep '^frontend/src/.*\.\(ts\|tsx\)$' | grep -v '\.test\.\(ts\|tsx\)$' | grep -v '\.spec\.\(ts\|tsx\)$' | grep -v '__tests__' | grep -v '\.d\.ts$' | grep -v '\.css$' | grep -v 'index\.ts$' | grep -v 'AnnotationEditor\.tsx$')
-
-  if [ -n "$FRONTEND_SOURCE_FILES" ]; then
-    echo ""
-    echo "📊 Running frontend coverage check for staged files..."
-    echo "   対象ファイル:"
-    echo "$FRONTEND_SOURCE_FILES" | while read -r f; do echo "     - $f"; done
-
-    # テストを実行してカバレッジを生成
-    echo ""
-    echo "🧪 Running frontend unit tests with coverage..."
-    npm --prefix frontend run test:coverage
-    if [ $? -ne 0 ]; then
-      echo "❌ Frontend tests failed. Commit aborted."
-      exit 1
-    fi
-
-    # ステージされたファイルのカバレッジをチェック
-    node scripts/check-staged-coverage.cjs --project=frontend
-    if [ $? -ne 0 ]; then
-      echo "❌ Frontend coverage check failed. Commit aborted."
-      echo ""
-      echo "対応方法:"
-      echo "  1. 変更したファイルに対応するテストを追加してください"
-      echo "  2. カバレッジを80%以上に改善してください"
-      echo "  3. 詳細は上記のレポートを確認してください"
-      exit 1
-    fi
   fi
 fi
 

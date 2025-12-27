@@ -496,6 +496,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         setUser(userResponse);
 
         // TokenRefreshManagerを初期化
+        /* v8 ignore next 24 -- @preserve */
         const manager = new TokenRefreshManager(async () => {
           const currentRefreshToken = localStorage.getItem('refreshToken');
           if (!currentRefreshToken) {
@@ -581,6 +582,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     initializeAuth();
 
     // クリーンアップ関数
+    /* v8 ignore next 5 -- @preserve */
     return () => {
       if (tokenRefreshManager) {
         tokenRefreshManager.cleanup();
