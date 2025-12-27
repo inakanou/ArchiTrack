@@ -528,4 +528,29 @@ describe('Profile - 2FA機能', () => {
       });
     });
   });
+
+  describe('バックアップコード残数警告', () => {
+    it('バックアップコード残数が少ない場合に警告を表示する', async () => {
+      const user = userEvent.setup();
+      const lowBackupCodes: BackupCodeInfo[] = [
+        { code: 'LAST-0001', isUsed: false, usedAt: null },
+        { code: 'LAST-0002', isUsed: false, usedAt: null },
+      ];
+      mockApiGet.mockResolvedValueOnce({
+        backupCodes: lowBackupCodes,
+        remainingCount: 2,
+      });
+
+      render(<Profile />);
+
+      // バックアップコード表示ボタンをクリック
+      const showButton = screen.getByRole('button', { name: /バックアップコードを表示/i });
+      await user.click(showButton);
+
+      // 警告メッセージが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/残りが少なく/i)).toBeInTheDocument();
+      });
+    });
+  });
 });

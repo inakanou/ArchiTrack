@@ -170,6 +170,52 @@ describe('PdfFontService', () => {
           service.initialize(undefined as unknown as jsPDF);
         }).toThrow('jsPDF instance is required');
       });
+
+      it('addFileToVFSがエラーをスローした場合、ステータスがFAILEDになる', () => {
+        mockJsPDF.addFileToVFS.mockImplementation(() => {
+          throw new Error('VFS error');
+        });
+
+        expect(() => {
+          service.initialize(mockJsPDF as unknown as jsPDF);
+        }).toThrow('VFS error');
+
+        expect(service.getStatus()).toBe(FontLoadStatus.FAILED);
+      });
+
+      it('ステータスがFAILEDの場合は再初期化をスキップする', () => {
+        // まずエラーを発生させてFAILED状態にする
+        mockJsPDF.addFileToVFS.mockImplementation(() => {
+          throw new Error('VFS error');
+        });
+
+        try {
+          service.initialize(mockJsPDF as unknown as jsPDF);
+        } catch {
+          // エラーは期待される
+        }
+
+        expect(service.getStatus()).toBe(FontLoadStatus.FAILED);
+
+        // FAILEDの状態でエラーを発生させないモックに変更
+        mockJsPDF.addFileToVFS.mockReset();
+
+        // 再度初期化を試みる
+        service.initialize(mockJsPDF as unknown as jsPDF);
+
+        // スキップされるのでaddFileToVFSは呼ばれない
+        expect(mockJsPDF.addFileToVFS).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('reset()', () => {
+      it('ステータスをNOT_LOADEDにリセットする', () => {
+        service.initialize(mockJsPDF as unknown as jsPDF);
+        expect(service.getStatus()).toBe(FontLoadStatus.LOADED);
+
+        service.reset();
+        expect(service.getStatus()).toBe(FontLoadStatus.NOT_LOADED);
+      });
     });
   });
 });

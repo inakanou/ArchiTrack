@@ -1076,5 +1076,26 @@ describe('SiteSurveyDetailPage', () => {
 
       expect(screen.getByText('現場調査の取得に失敗しました')).toBeInTheDocument();
     });
+
+    it('現場調査が見つからない場合は何も表示されない', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        null as unknown as SiteSurveyDetail
+      );
+
+      const { container } = renderComponent();
+
+      // ローディングが終了するまで待機
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // エラー表示もなく、コンテンツも表示されない（nullを返す）
+      expect(screen.queryByRole('heading', { name: 'テスト現場調査' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      // containerの直接子要素が空または最小限であることを確認
+      expect(
+        container.querySelector('[data-testid="survey-detail-container"]')
+      ).not.toBeInTheDocument();
+    });
   });
 });
