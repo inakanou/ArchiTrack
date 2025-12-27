@@ -420,7 +420,7 @@ export function AppHeader(): ReactElement {
   const userMenuTrigger = (
     <>
       <div className="app-header-avatar">{getInitials(user?.displayName)}</div>
-      <span className="app-header-user-name">{user?.displayName ?? 'ユーザー'}</span>
+      <span className="app-header-user-name">{user?.displayName || 'ユーザー'}</span>
       <Icons.ChevronDown />
     </>
   );

@@ -905,9 +905,9 @@ describe('AppHeader - タスク23.2: ナビゲーションコンポーネント�
     });
 
     /**
-     * displayNameがundefinedの場合「ユーザー」が表示される
+     * displayNameが空文字列の場合「ユーザー」が表示される
      */
-    it('should show "ユーザー" when displayName is undefined', () => {
+    it('should show "ユーザー" when displayName is empty', () => {
       const mockAuthValue = createMockAuthContextValue({
         user: {
           id: 'user-1',
