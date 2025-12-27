@@ -1,10 +1,24 @@
 import { defineConfig } from 'vitest/config';
 
+/**
+ * CI環境かどうかを判定
+ * GitHub ActionsではCI=trueが自動設定される
+ */
+const isCI = !!process.env.CI;
+
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
     include: ['src/**/*.{test,spec}.ts'],
+    // ============================================================================
+    // Reporter設定（進捗表示の改善）
+    // ============================================================================
+    // ベストプラクティス: 環境に応じた適切なレポーター選択
+    // - ローカル: verbose（各テストの詳細と進捗を表示）
+    // - CI: default + github-actions（GitHub Actionsとの統合）
+    // ============================================================================
+    reporter: isCI ? ['default', 'github-actions'] : ['verbose'],
     // Argon2ハッシュなど計算コストの高い処理に対応するため、タイムアウトを延長
     testTimeout: 15000,
     // Global setup: 全てのテストの前に一度だけ実行される
