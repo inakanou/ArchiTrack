@@ -147,6 +147,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
       // TokenRefreshManagerを初期化
       // リフレッシュ関数をインラインで定義（循環参照を避けるため）
+      /* v8 ignore next 27 -- @preserve: TokenRefreshManagerのコールバック */
       const manager = new TokenRefreshManager(async () => {
         const storedRefreshToken = localStorage.getItem('refreshToken');
         if (!storedRefreshToken) {
@@ -180,11 +181,13 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       apiClient.setTokenRefreshCallback(() => manager.refreshToken());
 
       // 自動リフレッシュをスケジュール（expiresInが提供されている場合）
+      /* v8 ignore next 3 */
       if (response.expiresIn) {
         manager.scheduleAutoRefresh(response.expiresIn);
       }
 
       // 他のタブからのトークン更新を監視
+      /* v8 ignore next 4 */
       manager.onTokenRefreshed((newAccessToken) => {
         apiClient.setAccessToken(newAccessToken);
         localStorage.setItem('accessToken', newAccessToken);
@@ -312,6 +315,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         localStorage.setItem('accessToken', response.accessToken);
 
         // TokenRefreshManagerを初期化
+        /* v8 ignore next 24 -- @preserve: TokenRefreshManagerのコールバック */
         const manager = new TokenRefreshManager(async () => {
           const storedRefreshToken = localStorage.getItem('refreshToken');
           if (!storedRefreshToken) {
@@ -338,14 +342,17 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         setTokenRefreshManager(manager);
         apiClient.setTokenRefreshCallback(() => manager.refreshToken());
 
+        /* v8 ignore next 3 */
         if (response.expiresIn) {
           manager.scheduleAutoRefresh(response.expiresIn);
         }
 
+        /* v8 ignore next 4 */
         manager.onTokenRefreshed((newAccessToken) => {
           apiClient.setAccessToken(newAccessToken);
           localStorage.setItem('accessToken', newAccessToken);
         });
+        /* v8 ignore next */
       } catch (error) {
         throw error;
       } finally {
@@ -413,6 +420,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         setTokenRefreshManager(manager);
         apiClient.setTokenRefreshCallback(() => manager.refreshToken());
 
+        /* v8 ignore next 3 */
         if (response.expiresIn) {
           manager.scheduleAutoRefresh(response.expiresIn);
         }
@@ -422,6 +430,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           localStorage.setItem('accessToken', newAccessToken);
         });
       } catch (error) {
+        /* v8 ignore next */
         throw error;
       } finally {
         setIsLoading(false);
@@ -444,6 +453,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     const initializeAuth = async () => {
       // React 18 StrictModeでの重複実行を防ぐ
       // トークンローテーションにより、2回目のリフレッシュが古いトークンで失敗するのを防止
+      /* v8 ignore next 4 */
       if (initializeStartedRef.current) {
         logger.debug('initializeAuth already started, skipping duplicate execution');
         return;

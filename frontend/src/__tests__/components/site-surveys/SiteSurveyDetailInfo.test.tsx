@@ -22,11 +22,22 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import SiteSurveyDetailInfo from '../../../components/site-surveys/SiteSurveyDetailInfo';
 import type { SiteSurveyDetail } from '../../../types/site-survey.types';
+import * as exportModule from '../../../services/export';
+import * as annotationModule from '../../../services/export/AnnotationRendererService';
+
+// エクスポートサービスのモック
+vi.mock('../../../services/export', () => ({
+  exportAndDownloadPdf: vi.fn(),
+}));
+
+vi.mock('../../../services/export/AnnotationRendererService', () => ({
+  renderImagesWithAnnotations: vi.fn(),
+}));
 
 // ============================================================================
 // テストデータ
@@ -438,6 +449,111 @@ describe('SiteSurveyDetailInfo', () => {
             '報告書出力対象の写真がありません。写真管理で出力対象を選択してください。'
           )
         ).toBeInTheDocument();
+      });
+    });
+
+    describe('PDF生成処理 (Requirement 10.6)', () => {
+      it('PDF生成成功時に進捗コールバックが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const firstImage = mockSurveyDetail.images[0]!;
+
+        // モックの設定
+        vi.mocked(annotationModule.renderImagesWithAnnotations).mockResolvedValue([
+          {
+            imageInfo: firstImage,
+            dataUrl: 'data:image/jpeg;base64,test',
+          },
+        ]);
+
+        vi.mocked(exportModule.exportAndDownloadPdf).mockImplementation(
+          async (_survey, _images, options) => {
+            // プログレスコールバックを呼び出す
+            if (options?.onProgress) {
+              options.onProgress({
+                phase: 'generating',
+                current: 1,
+                total: 2,
+                percent: 50,
+                message: 'レンダリング中...',
+              });
+            }
+          }
+        );
+
+        renderComponent();
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        await user.click(exportButton);
+
+        // エクスポートが呼ばれたことを確認
+        await waitFor(() => {
+          expect(exportModule.exportAndDownloadPdf).toHaveBeenCalled();
+        });
+      });
+
+      it('PDF生成失敗時にエラーメッセージを表示する', async () => {
+        const user = userEvent.setup();
+        const firstImage = mockSurveyDetail.images[0]!;
+
+        // モックの設定
+        vi.mocked(annotationModule.renderImagesWithAnnotations).mockResolvedValue([
+          {
+            imageInfo: firstImage,
+            dataUrl: 'data:image/jpeg;base64,test',
+          },
+        ]);
+
+        vi.mocked(exportModule.exportAndDownloadPdf).mockRejectedValue(
+          new Error('PDF generation failed')
+        );
+
+        renderComponent();
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        await user.click(exportButton);
+
+        await waitFor(() => {
+          expect(
+            screen.getByText('PDF生成に失敗しました。再度お試しください。')
+          ).toBeInTheDocument();
+        });
+      });
+
+      it('PDF生成中はボタンが無効化され「生成中...」と表示される', async () => {
+        const user = userEvent.setup();
+        const firstImage = mockSurveyDetail.images[0]!;
+
+        // モックの設定（Promiseを保持して解決を遅延させる）
+        let resolveRender: (() => void) | undefined;
+        vi.mocked(annotationModule.renderImagesWithAnnotations).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              resolveRender = () =>
+                resolve([
+                  {
+                    imageInfo: firstImage,
+                    dataUrl: 'data:image/jpeg;base64,test',
+                  },
+                ]);
+            })
+        );
+
+        vi.mocked(exportModule.exportAndDownloadPdf).mockResolvedValue();
+
+        renderComponent();
+
+        const exportButton = screen.getByRole('button', { name: '調査報告書出力' });
+        await user.click(exportButton);
+
+        // ボタンが「生成中...」に変わる
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: '生成中...' })).toBeDisabled();
+        });
+
+        // テストをクリーンアップするために解決する
+        if (resolveRender) {
+          resolveRender();
+        }
       });
     });
   });

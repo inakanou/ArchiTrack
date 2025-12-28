@@ -1149,6 +1149,98 @@ describe('ProjectDetailPage', () => {
   // Task 27.2: ラベルを「取引先」から「顧客名」に変更
   // ==========================================================================
 
+  // ==========================================================================
+  // エラーハンドリング追加テスト（カバレッジ向上）
+  // ==========================================================================
+
+  describe('削除エラーハンドリング詳細', () => {
+    it('削除時にApiErrorでmessageがない場合はデフォルトメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.deleteProject).mockRejectedValue(new ApiError(500, ''));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await user.click(deleteButton);
+
+      const dialog = screen.getByRole('dialog');
+      const confirmButton = within(dialog).getByRole('button', { name: '削除' });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('削除中にエラーが発生しました')).toBeInTheDocument();
+      });
+    });
+
+    it('削除時にApiErrorでない場合もデフォルトエラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      // isApiErrorがfalseになるケース（文字列エラー）
+      vi.mocked(projectsApi.deleteProject).mockRejectedValue('string error');
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await user.click(deleteButton);
+
+      const dialog = screen.getByRole('dialog');
+      const confirmButton = within(dialog).getByRole('button', { name: '削除' });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('削除中にエラーが発生しました')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('ステータス遷移エラーハンドリング詳細', () => {
+    it('ステータス遷移時にApiErrorでmessageがない場合はデフォルトメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.transitionStatus).mockRejectedValue(new ApiError(500, ''));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 順方向遷移ボタン（調査中）をクリック
+      const surveyingButton = screen.getByRole('button', { name: /調査中/ });
+      await user.click(surveyingButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('ステータス変更中にエラーが発生しました')).toBeInTheDocument();
+      });
+    });
+
+    it('ステータス遷移時にApiErrorでない場合もデフォルトエラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      // isApiErrorがfalseになるケース（文字列エラー）
+      vi.mocked(projectsApi.transitionStatus).mockRejectedValue('string error');
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 順方向遷移ボタン（調査中）をクリック
+      const surveyingButton = screen.getByRole('button', { name: /調査中/ });
+      await user.click(surveyingButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('ステータス変更中にエラーが発生しました')).toBeInTheDocument();
+      });
+    });
+  });
+
   describe('顧客情報表示（Task 18.3, Task 27.2, Requirements 22.5）', () => {
     it('プロジェクトに顧客が設定されている場合、顧客名が表示される', async () => {
       renderWithRouter();

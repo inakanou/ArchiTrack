@@ -287,4 +287,64 @@ describe('SiteSurveyImageViewerPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/site-surveys/survey-123');
     });
   });
+
+  describe('編集モード', () => {
+    it('編集モードボタンをクリックすると編集モードに切り替わる', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'image1.jpg' })).toBeInTheDocument();
+      });
+
+      const editButton = screen.getByRole('button', { name: '編集モード' });
+      expect(editButton).toHaveAttribute('aria-pressed', 'false');
+
+      fireEvent.click(editButton);
+
+      expect(screen.getByRole('button', { name: '編集終了' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '編集終了' })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+    });
+
+    it('編集終了ボタンをクリックすると閲覧モードに戻る', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'image1.jpg' })).toBeInTheDocument();
+      });
+
+      // 編集モードに切り替え
+      fireEvent.click(screen.getByRole('button', { name: '編集モード' }));
+
+      // 編集終了をクリック
+      fireEvent.click(screen.getByRole('button', { name: '編集終了' }));
+
+      expect(screen.getByRole('button', { name: '編集モード' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '編集モード' })).toHaveAttribute(
+        'aria-pressed',
+        'false'
+      );
+    });
+  });
+
+  describe('APIエラーの種類', () => {
+    it('ApiErrorでメッセージがない場合にデフォルトメッセージを表示する', async () => {
+      const apiError = new ApiError(500, '', {});
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockRejectedValue(apiError);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('エラーが発生しました')).toBeInTheDocument();
+    });
+  });
 });

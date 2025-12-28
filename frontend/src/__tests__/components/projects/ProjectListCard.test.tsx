@@ -344,4 +344,60 @@ describe('ProjectListCard', () => {
       expect(statusBadge).toBeInTheDocument();
     });
   });
+
+  describe('エッジケース', () => {
+    it('tradingPartnerがnullの場合は顧客名に「-」を表示する', () => {
+      const projectWithNoTradingPartner: ProjectInfo[] = [
+        {
+          id: 'project-null-partner',
+          name: 'パートナー無しプロジェクト',
+          tradingPartnerId: null as unknown as string,
+          tradingPartner: null as unknown as ProjectInfo['tradingPartner'],
+          salesPerson: { id: 'user-1', displayName: '営業担当1' },
+          constructionPerson: { id: 'user-2', displayName: '工事担当1' },
+          status: 'PREPARING',
+          statusLabel: '準備中',
+          createdAt: '2025-01-01T10:00:00.000Z',
+          updatedAt: '2025-01-05T15:30:00.000Z',
+        },
+      ];
+
+      renderWithRouter(
+        <ProjectListCard projects={projectWithNoTradingPartner} onCardClick={vi.fn()} />
+      );
+
+      // 顧客名セクションに「-」があること（複数の「-」があるかもしれないのでAllByTextを使用）
+      const dashes = screen.getAllByText('-');
+      expect(dashes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('未知のステータスの場合はステータス値をそのまま表示する', () => {
+      const projectWithUnknownStatus: ProjectInfo[] = [
+        {
+          id: 'project-unknown-status',
+          name: '未知ステータスプロジェクト',
+          tradingPartnerId: 'partner-a',
+          tradingPartner: {
+            id: 'partner-a',
+            name: '顧客A株式会社',
+            nameKana: 'コキャクエーカブシキガイシャ',
+          },
+          salesPerson: { id: 'user-1', displayName: '営業担当1' },
+          status: 'UNKNOWN_STATUS' as ProjectInfo['status'],
+          statusLabel: 'UNKNOWN_STATUS',
+          createdAt: '2025-01-01T10:00:00.000Z',
+          updatedAt: '2025-01-05T15:30:00.000Z',
+        },
+      ];
+
+      renderWithRouter(
+        <ProjectListCard projects={projectWithUnknownStatus} onCardClick={vi.fn()} />
+      );
+
+      // 未知のステータスもそのまま表示される
+      expect(
+        screen.getByTestId('project-card-status-badge-project-unknown-status')
+      ).toHaveAttribute('data-status', 'UNKNOWN_STATUS');
+    });
+  });
 });

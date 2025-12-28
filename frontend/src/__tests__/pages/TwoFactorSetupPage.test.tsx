@@ -29,6 +29,28 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// ToastNotificationコンポーネントをモック
+vi.mock('../../components/ToastNotification', () => ({
+  default: ({
+    toasts,
+    onDismiss,
+  }: {
+    toasts: Array<{ id: string; type: string; message: string }>;
+    onDismiss: (id: string) => void;
+  }) => (
+    <div data-testid="toast-container">
+      {toasts.map((toast) => (
+        <div key={toast.id} data-testid={`toast-${toast.id}`}>
+          {toast.message}
+          <button onClick={() => onDismiss(toast.id)} data-testid="dismiss-toast-button">
+            閉じる
+          </button>
+        </div>
+      ))}
+    </div>
+  ),
+}));
+
 // TwoFactorSetupFormコンポーネントをモック
 vi.mock('../../components/TwoFactorSetupForm', () => ({
   default: ({
@@ -192,6 +214,54 @@ describe('TwoFactorSetupPage Component', () => {
       await user.click(screen.getByTestId('cancel-button'));
 
       expect(mockNavigate).toHaveBeenCalledWith('/profile');
+    });
+  });
+
+  describe('トースト通知', () => {
+    it('完了時に成功トーストが表示される', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({
+        advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+      });
+
+      renderTwoFactorSetupPage();
+
+      await user.click(screen.getByTestId('complete-button'));
+
+      // 成功トーストが表示される
+      await waitFor(() => {
+        expect(screen.getByText('二要素認証を有効化しました')).toBeInTheDocument();
+      });
+
+      vi.useRealTimers();
+    });
+
+    it('トーストを閉じるボタンをクリックするとトーストが非表示になる', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({
+        advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+      });
+
+      renderTwoFactorSetupPage();
+
+      // 完了ボタンをクリックしてトーストを表示
+      await user.click(screen.getByTestId('complete-button'));
+
+      // 成功トーストが表示される
+      await waitFor(() => {
+        expect(screen.getByText('二要素認証を有効化しました')).toBeInTheDocument();
+      });
+
+      // トーストを閉じるボタンをクリック
+      const dismissButton = screen.getByTestId('dismiss-toast-button');
+      await user.click(dismissButton);
+
+      // トーストが消える
+      await waitFor(() => {
+        expect(screen.queryByText('二要素認証を有効化しました')).not.toBeInTheDocument();
+      });
+
+      vi.useRealTimers();
     });
   });
 });

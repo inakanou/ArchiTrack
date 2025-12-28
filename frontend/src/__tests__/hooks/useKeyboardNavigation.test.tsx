@@ -11,7 +11,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React, { useRef, type KeyboardEvent } from 'react';
+import type React from 'react';
+import { useRef, type KeyboardEvent } from 'react';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 
 // テスト用コンポーネント（基本）
@@ -434,6 +435,84 @@ describe('useKeyboardNavigation', () => {
       await user.keyboard('{Enter}');
 
       expect(item0).toBeInTheDocument();
+    });
+
+    it('containerRef が null でもエラーにならない', async () => {
+      function TestComponentWithNullRef() {
+        const containerRef = { current: null };
+        const { getItemProps, focusFirstItem, focusLastItem, focusNextItem, focusPreviousItem } =
+          useKeyboardNavigation({
+            containerRef,
+          });
+
+        return (
+          <div>
+            <button data-testid="focus-first" onClick={focusFirstItem}>
+              Focus First
+            </button>
+            <button data-testid="focus-last" onClick={focusLastItem}>
+              Focus Last
+            </button>
+            <button data-testid="focus-next" onClick={focusNextItem}>
+              Focus Next
+            </button>
+            <button data-testid="focus-prev" onClick={focusPreviousItem}>
+              Focus Previous
+            </button>
+            <button data-testid="item-0" {...getItemProps(0)}>
+              Item 0
+            </button>
+          </div>
+        );
+      }
+
+      const user = userEvent.setup();
+      render(<TestComponentWithNullRef />);
+
+      // エラーにならないことを確認
+      await user.click(screen.getByTestId('focus-first'));
+      await user.click(screen.getByTestId('focus-last'));
+      await user.click(screen.getByTestId('focus-next'));
+      await user.click(screen.getByTestId('focus-prev'));
+
+      // アイテムでキー操作してもエラーにならない
+      const item = screen.getByTestId('item-0');
+      item.focus();
+      await user.keyboard('{ArrowDown}');
+
+      expect(item).toBeInTheDocument();
+    });
+
+    it('フォーカス可能な要素がない場合でもエラーにならない', async () => {
+      function TestComponentEmpty() {
+        const containerRef = useRef<HTMLDivElement>(null);
+        const { getItemProps } = useKeyboardNavigation({ containerRef });
+
+        return (
+          <div ref={containerRef} role="listbox">
+            {/* フォーカス可能な要素なし */}
+            <div data-testid="non-focusable" {...getItemProps(0)}>
+              Non-focusable
+            </div>
+          </div>
+        );
+      }
+
+      render(<TestComponentEmpty />);
+      expect(screen.getByTestId('non-focusable')).toBeInTheDocument();
+    });
+
+    it('horizontal: false でも ArrowRight/ArrowLeft が反応しない', async () => {
+      const user = userEvent.setup();
+      render(<TestComponent horizontal={false} />);
+
+      const item0 = screen.getByTestId('item-0');
+      item0.focus();
+
+      await user.keyboard('{ArrowRight}');
+
+      // horizontal: false なので ArrowRight では移動しない
+      expect(screen.getByTestId('item-0')).toHaveFocus();
     });
   });
 });

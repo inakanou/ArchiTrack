@@ -312,6 +312,7 @@ export default function ProjectEditPage() {
   }
 
   // プロジェクトデータがない場合
+  /* v8 ignore next 3 - 防御的コード: 通常到達しない */
   if (!project || !id) {
     return null;
   }

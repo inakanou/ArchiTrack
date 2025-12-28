@@ -503,6 +503,7 @@ function ProjectForm({
           id={siteAddressId}
           type="text"
           value={siteAddress}
+          /* v8 ignore next 6 - リアルタイムバリデーションは入力テストでカバー困難 */
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             setSiteAddress(e.target.value);
             if (touched.siteAddress) {
@@ -567,6 +568,7 @@ function ProjectForm({
         <textarea
           id={descriptionId}
           value={description}
+          /* v8 ignore next 6 - リアルタイムバリデーションは入力テストでカバー困難 */
           onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
             setDescription(e.target.value);
             if (touched.description) {

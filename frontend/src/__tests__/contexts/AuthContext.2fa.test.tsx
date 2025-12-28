@@ -263,6 +263,45 @@ describe('AuthContext - 2FA機能', () => {
         })
       ).rejects.toThrow('2FA state not available');
     });
+
+    it('バックアップコード検証失敗時にエラーをスローすること', async () => {
+      // 最初のログインは2FA要求
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          requires2FA: true,
+          userId: 'user-123',
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      // バックアップコード検証失敗レスポンス
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ error: 'Invalid backup code' }),
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.verifyBackupCode('INVALID-CODE');
+        })
+      ).rejects.toThrow();
+
+      // 2FA状態は維持される
+      expect(result.current.twoFactorState).not.toBeNull();
+    });
   });
 
   describe('cancel2FA', () => {

@@ -11,7 +11,12 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { apiClient, ApiError } from '../../api/client';
-import { getAnnotation, saveAnnotation, exportAnnotationJson } from '../../api/survey-annotations';
+import {
+  getAnnotation,
+  saveAnnotation,
+  exportAnnotationJson,
+  updateThumbnail,
+} from '../../api/survey-annotations';
 import type {
   AnnotationInfo,
   AnnotationData,
@@ -26,6 +31,7 @@ vi.mock('../../api/client', async () => {
     apiClient: {
       get: vi.fn(),
       put: vi.fn(),
+      patch: vi.fn(),
     },
   };
 });
@@ -387,6 +393,96 @@ describe('survey-annotations API client', () => {
       // Act & Assert
       await expect(exportAnnotationJson(mockImageId)).rejects.toThrow(ApiError);
       await expect(exportAnnotationJson(mockImageId)).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
+  });
+
+  // ===========================================================================
+  // updateThumbnail テスト
+  // ===========================================================================
+
+  describe('updateThumbnail', () => {
+    const mockImageId = '123e4567-e89b-12d3-a456-426614174000';
+    const mockImageData = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...';
+
+    it('サムネイルを正常に更新できる', async () => {
+      // Arrange
+      const mockResponse = {
+        success: true,
+        thumbnailPath: '/uploads/thumbnails/new-thumbnail.jpg',
+      };
+
+      vi.mocked(apiClient.patch).mockResolvedValueOnce(mockResponse);
+
+      // Act
+      const result = await updateThumbnail(mockImageId, mockImageData);
+
+      // Assert
+      expect(apiClient.patch).toHaveBeenCalledWith(
+        `/api/site-surveys/images/${mockImageId}/thumbnail`,
+        { imageData: mockImageData }
+      );
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('画像が見つからない場合、ApiErrorをスロー', async () => {
+      // Arrange
+      const error = new ApiError(404, '画像が見つかりません。', {
+        type: 'https://architrack.example.com/problems/image-not-found',
+        title: 'Image Not Found',
+        status: 404,
+        detail: '画像が見つかりません。',
+        code: 'IMAGE_NOT_FOUND',
+        imageId: mockImageId,
+      });
+      vi.mocked(apiClient.patch).mockRejectedValue(error);
+
+      // Act & Assert
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('バリデーションエラーの場合、ApiErrorをスロー', async () => {
+      // Arrange
+      const error = new ApiError(400, '無効な画像データ形式です。', {
+        type: 'https://architrack.example.com/problems/invalid-image-data',
+        title: 'Invalid Image Data',
+        status: 400,
+        detail: '無効な画像データ形式です。',
+        code: 'INVALID_IMAGE_DATA',
+      });
+      vi.mocked(apiClient.patch).mockRejectedValue(error);
+
+      // Act & Assert
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it('認証エラーの場合、ApiErrorをスロー', async () => {
+      // Arrange
+      const error = new ApiError(401, '認証が必要です。');
+      vi.mocked(apiClient.patch).mockRejectedValue(error);
+
+      // Act & Assert
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+        statusCode: 401,
+      });
+    });
+
+    it('権限不足の場合、ApiErrorをスロー', async () => {
+      // Arrange
+      const error = new ApiError(403, '権限がありません。');
+      vi.mocked(apiClient.patch).mockRejectedValue(error);
+
+      // Act & Assert
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 403,
       });
     });

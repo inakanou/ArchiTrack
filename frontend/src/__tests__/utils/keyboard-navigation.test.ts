@@ -21,6 +21,9 @@ import {
   focusNext,
   focusPrevious,
   FOCUS_VISIBLE_STYLES,
+  FOCUS_VISIBLE_HIGH_CONTRAST_STYLES,
+  createKeyboardNavigationHandler,
+  createActivationHandler,
 } from '../../utils/keyboard-navigation';
 
 describe('keyboard-navigation utils', () => {
@@ -409,6 +412,261 @@ describe('keyboard-navigation utils', () => {
     it('アウトラインの色が指定されている', () => {
       expect(FOCUS_VISIBLE_STYLES.outline).toContain('2px');
       expect(FOCUS_VISIBLE_STYLES.outline).toContain('solid');
+    });
+  });
+
+  describe('createKeyboardNavigationHandler', () => {
+    it('矢印キーナビゲーションを正しく処理する', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn1 = document.getElementById('btn1') as HTMLElement;
+      btn1.focus();
+
+      const handler = createKeyboardNavigationHandler({ circular: true });
+      const event = new KeyboardEvent('keydown', { key: 'ArrowDown' });
+
+      handler(event, container);
+
+      expect(document.activeElement?.id).toBe('btn2');
+    });
+  });
+
+  describe('createActivationHandler', () => {
+    it('Enterキーでハンドラを呼び出す', () => {
+      const handler = vi.fn();
+      const activationHandler = createActivationHandler(handler);
+
+      const mockEvent = {
+        key: 'Enter',
+        nativeEvent: new KeyboardEvent('keydown', { key: 'Enter' }),
+      } as unknown as React.KeyboardEvent;
+
+      activationHandler(mockEvent);
+
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it('Spaceキーでハンドラを呼び出す', () => {
+      const handler = vi.fn();
+      const activationHandler = createActivationHandler(handler);
+
+      const mockEvent = {
+        key: ' ',
+        nativeEvent: new KeyboardEvent('keydown', { key: ' ' }),
+      } as unknown as React.KeyboardEvent;
+
+      activationHandler(mockEvent);
+
+      expect(handler).toHaveBeenCalled();
+    });
+  });
+
+  describe('FOCUS_VISIBLE_HIGH_CONTRAST_STYLES', () => {
+    it('高コントラストフォーカススタイルが定義されている', () => {
+      expect(FOCUS_VISIBLE_HIGH_CONTRAST_STYLES).toBeDefined();
+      expect(FOCUS_VISIBLE_HIGH_CONTRAST_STYLES.outline).toContain('3px');
+      expect(FOCUS_VISIBLE_HIGH_CONTRAST_STYLES.outline).toContain('#000000');
+    });
+  });
+
+  describe('handleArrowNavigation - ArrowRight/ArrowLeft', () => {
+    it('ArrowRight で次の要素にフォーカスを移動', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn1 = document.getElementById('btn1') as HTMLElement;
+      btn1.focus();
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowRight' });
+      const preventDefault = vi.spyOn(event, 'preventDefault');
+
+      handleArrowNavigation(event, container);
+
+      expect(document.activeElement?.id).toBe('btn2');
+      expect(preventDefault).toHaveBeenCalled();
+    });
+
+    it('ArrowLeft で前の要素にフォーカスを移動', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn2 = document.getElementById('btn2') as HTMLElement;
+      btn2.focus();
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowLeft' });
+      handleArrowNavigation(event, container);
+
+      expect(document.activeElement?.id).toBe('btn1');
+    });
+
+    it('最後の要素で ArrowRight を押すと最初の要素に循環', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn2 = document.getElementById('btn2') as HTMLElement;
+      btn2.focus();
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowRight' });
+      handleArrowNavigation(event, container, { circular: true });
+
+      expect(document.activeElement?.id).toBe('btn1');
+    });
+
+    it('最初の要素で ArrowLeft を押すと最後の要素に循環', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn1 = document.getElementById('btn1') as HTMLElement;
+      btn1.focus();
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowLeft' });
+      handleArrowNavigation(event, container, { circular: true });
+
+      expect(document.activeElement?.id).toBe('btn2');
+    });
+  });
+
+  describe('focusNext/focusPrevious - edge cases', () => {
+    it('フォーカスがない状態でfocusNextを呼ぶと最初の要素にフォーカス', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      // フォーカスをbodyに移動（コンテナ外）
+      document.body.focus();
+
+      focusNext(container);
+
+      expect(document.activeElement?.id).toBe('btn1');
+    });
+
+    it('フォーカスがない状態でfocusPreviousを呼ぶと最後の要素にフォーカス', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      // フォーカスをbodyに移動（コンテナ外）
+      document.body.focus();
+
+      focusPrevious(container);
+
+      expect(document.activeElement?.id).toBe('btn2');
+    });
+
+    it('最後の要素でcircular: falseの場合focusNextは何もしない', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn2 = document.getElementById('btn2') as HTMLElement;
+      btn2.focus();
+
+      focusNext(container, { circular: false });
+
+      expect(document.activeElement?.id).toBe('btn2');
+    });
+
+    it('最初の要素でcircular: falseの場合focusPreviousは何もしない', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn1 = document.getElementById('btn1') as HTMLElement;
+      btn1.focus();
+
+      focusPrevious(container, { circular: false });
+
+      expect(document.activeElement?.id).toBe('btn1');
+    });
+
+    it('空のコンテナでfocusNextは何もしない', () => {
+      const container = document.createElement('div');
+      container.innerHTML = '<div>No buttons</div>';
+      document.body.appendChild(container);
+
+      const previousActive = document.activeElement;
+      focusNext(container);
+
+      expect(document.activeElement).toBe(previousActive);
+    });
+
+    it('空のコンテナでfocusPreviousは何もしない', () => {
+      const container = document.createElement('div');
+      container.innerHTML = '<div>No buttons</div>';
+      document.body.appendChild(container);
+
+      const previousActive = document.activeElement;
+      focusPrevious(container);
+
+      expect(document.activeElement).toBe(previousActive);
+    });
+  });
+
+  describe('focusLast - edge cases', () => {
+    it('フォーカス可能な要素がない場合は何もしない', () => {
+      const container = document.createElement('div');
+      container.innerHTML = '<div>No focusable elements</div>';
+      document.body.appendChild(container);
+
+      const previousActive = document.activeElement;
+      focusLast(container);
+
+      expect(document.activeElement).toBe(previousActive);
+    });
+  });
+
+  describe('handleArrowNavigation - non-navigation keys', () => {
+    it('ナビゲーションキー以外では何もしない', () => {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <button id="btn1">Button 1</button>
+        <button id="btn2">Button 2</button>
+      `;
+      document.body.appendChild(container);
+
+      const btn1 = document.getElementById('btn1') as HTMLElement;
+      btn1.focus();
+
+      const event = new KeyboardEvent('keydown', { key: 'Tab' });
+      const preventDefault = vi.spyOn(event, 'preventDefault');
+
+      handleArrowNavigation(event, container);
+
+      expect(document.activeElement?.id).toBe('btn1');
+      expect(preventDefault).not.toHaveBeenCalled();
     });
   });
 });

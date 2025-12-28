@@ -638,5 +638,162 @@ describe('AuthContext', () => {
         expect(newToken).toBe('refreshed-access-token');
       });
     });
+
+    it('expiresInがない場合も正常にログインできること', async () => {
+      const mockUser = {
+        id: '1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      };
+
+      // expiresInなしでログイン成功
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          user: mockUser,
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          // expiresInなし
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+        expect(result.current.user).toEqual(mockUser);
+      });
+    });
+
+    it('新しいリフレッシュトークンが返されない場合も既存トークンを維持すること', async () => {
+      const mockUser = {
+        id: '1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+      };
+
+      // ログイン
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          user: mockUser,
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          expiresIn: 900000,
+        }),
+      });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await act(async () => {
+        await result.current.login('test@example.com', 'password123');
+      });
+
+      // リフレッシュAPIのモック（新しいリフレッシュトークンなし）
+      globalThis.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          accessToken: 'new-access-token',
+          // refreshTokenなし
+        }),
+      });
+
+      await act(async () => {
+        const newToken = await result.current.refreshToken();
+        expect(newToken).toBe('new-access-token');
+      });
+
+      // 既存のリフレッシュトークンが維持されていること
+      expect(localStorage.getItem('refreshToken')).toBe('test-refresh-token');
+    });
+  });
+
+  describe('セッション復元詳細', () => {
+    it('認証エラー（401）の場合フォールバックせずセッション期限切れとなること', async () => {
+      localStorage.setItem('refreshToken', 'expired-refresh-token');
+      localStorage.setItem('accessToken', 'expired-access-token');
+
+      // 401エラーでリフレッシュ失敗（Unauthorizedメッセージを含む）
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Unauthorized'));
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+        expect(result.current.sessionExpired).toBe(true);
+        expect(result.current.user).toBeNull();
+      });
+    });
+
+    it('ネットワークエラー時に既存トークンでフォールバック成功すること', async () => {
+      localStorage.setItem('refreshToken', 'valid-refresh-token');
+      localStorage.setItem('accessToken', 'valid-access-token');
+
+      // 最初のリフレッシュAPIがネットワークエラー（401や認証エラーではない）
+      globalThis.fetch = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Network error'))
+        // 2回目：既存トークンでユーザー情報取得成功
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            id: 'user-1',
+            email: 'test@example.com',
+            displayName: 'Test User',
+            role: 'user',
+            twoFactorEnabled: false,
+          }),
+        });
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+        expect(result.current.user).not.toBeNull();
+        expect(result.current.user?.email).toBe('test@example.com');
+      });
+    });
+
+    it('ネットワークエラー後、既存トークンでもユーザー情報取得失敗するとセッション期限切れとなること', async () => {
+      localStorage.setItem('refreshToken', 'valid-refresh-token');
+      localStorage.setItem('accessToken', 'invalid-access-token');
+
+      // 最初のリフレッシュAPIがネットワークエラー
+      globalThis.fetch = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Network error'))
+        // 2回目：既存トークンでもユーザー情報取得失敗
+        .mockRejectedValueOnce(new Error('Token invalid'));
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+        expect(result.current.sessionExpired).toBe(true);
+        expect(result.current.user).toBeNull();
+      });
+    });
   });
 });

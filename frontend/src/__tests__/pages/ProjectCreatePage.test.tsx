@@ -487,6 +487,32 @@ describe('ProjectCreatePage', () => {
       });
     });
 
+    it('非ApiErrorタイプのエラー時、デフォルトエラーメッセージを表示する', async () => {
+      const { createProject } = await import('../../api/projects');
+      // 通常のErrorオブジェクトをスロー（ApiErrorではない）
+      vi.mocked(createProject).mockRejectedValue(new Error('Unexpected error'));
+
+      renderWithRouter();
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // フォーム入力
+      const nameInput = screen.getByLabelText(/プロジェクト名/i);
+      await userEvent.type(nameInput, 'Test Project');
+
+      // 作成ボタンをクリック
+      const submitButton = screen.getByRole('button', { name: /作成$/i });
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(screen.getByText('作成中にエラーが発生しました')).toBeInTheDocument();
+      });
+    });
+
     it('再送信時にsubmitErrorがクリアされ、新しいエラーが設定される', async () => {
       const { createProject } = await import('../../api/projects');
 

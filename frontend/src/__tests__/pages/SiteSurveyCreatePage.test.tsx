@@ -285,4 +285,71 @@ describe('SiteSurveyCreatePage', () => {
       expect(screen.getByText('重複エラー')).toBeInTheDocument();
     });
   });
+
+  describe('一般的なエラー', () => {
+    it('ApiError以外のエラー時にデフォルトメッセージを表示する', async () => {
+      vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
+      vi.mocked(siteSurveysApi.createSiteSurvey).mockRejectedValue(new Error('Network Error'));
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '新規現場調査' })).toBeInTheDocument();
+      });
+
+      // フォーム入力
+      const nameInput = screen.getByLabelText(/調査名/);
+      const dateInput = screen.getByLabelText(/調査日/);
+
+      fireEvent.change(nameInput, { target: { value: '新規現場調査' } });
+      fireEvent.change(dateInput, { target: { value: '2025-06-15' } });
+
+      // 送信
+      const submitButton = screen.getByRole('button', { name: /作成/ });
+      fireEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('作成中にエラーが発生しました');
+      });
+    });
+
+    it('ApiErrorでメッセージがない場合にデフォルトメッセージを表示する', async () => {
+      vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
+      const apiError = new ApiError(500, '', {});
+      vi.mocked(siteSurveysApi.createSiteSurvey).mockRejectedValue(apiError);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '新規現場調査' })).toBeInTheDocument();
+      });
+
+      // フォーム入力
+      const nameInput = screen.getByLabelText(/調査名/);
+      const dateInput = screen.getByLabelText(/調査日/);
+
+      fireEvent.change(nameInput, { target: { value: '新規現場調査' } });
+      fireEvent.change(dateInput, { target: { value: '2025-06-15' } });
+
+      // 送信
+      const submitButton = screen.getByRole('button', { name: /作成/ });
+      fireEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('作成中にエラーが発生しました');
+      });
+    });
+
+    it('プロジェクト取得でApiError以外のエラー時にデフォルトメッセージを表示する', async () => {
+      vi.mocked(projectsApi.getProject).mockRejectedValue(new Error('Network Error'));
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('プロジェクトの取得に失敗しました')).toBeInTheDocument();
+    });
+  });
 });

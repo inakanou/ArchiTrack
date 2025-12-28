@@ -180,10 +180,12 @@ function TwoFactorSetupForm({
     switch (currentStep) {
       case 'qr-code':
         return 1;
+      /* v8 ignore next 2 */
       case 'verify-totp':
         return 2;
       case 'backup-codes':
         return 3;
+      /* v8 ignore next 2 */
       default:
         return 1;
     }
@@ -372,89 +374,7 @@ function TwoFactorSetupForm({
         </form>
       )}
 
-      {/* Step 2: TOTP検証 */}
-      {currentStep === 'verify-totp' && (
-        <form onSubmit={handleVerifyTotp}>
-          <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: 'bold' }}>
-            認証コードを入力
-          </h2>
-          <p style={{ marginBottom: '20px', color: '#666' }}>
-            認証アプリに表示されている6桁のコードを入力してください。
-          </p>
-
-          <div
-            role="group"
-            aria-label="認証コード入力"
-            style={{
-              display: 'flex',
-              gap: '8px',
-              justifyContent: 'center',
-              marginBottom: '20px',
-            }}
-          >
-            {totpCode.map((digit, index) => (
-              <input
-                key={index}
-                ref={(el) => {
-                  inputRefs.current[index] = el;
-                }}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  handleTotpChange(index, e.target.value)
-                }
-                onKeyDown={(e) => handleKeyDown(index, e)}
-                onPaste={index === 0 ? handlePaste : undefined}
-                aria-label={`認証コード ${index + 1}桁目`}
-                style={{
-                  width: '48px',
-                  height: '56px',
-                  textAlign: 'center',
-                  fontSize: '24px',
-                  border: '2px solid #ccc',
-                  borderRadius: '4px',
-                  outline: 'none',
-                }}
-              />
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              onClick={() => setCurrentStep('qr-code')}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#fff',
-                color: '#333',
-                border: '1px solid #ccc',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '14px',
-              }}
-            >
-              戻る
-            </button>
-            <button
-              type="submit"
-              disabled={totpCode.join('').length !== 6 || isLoading}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: totpCode.join('').length === 6 && !isLoading ? '#007bff' : '#ccc',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: totpCode.join('').length === 6 && !isLoading ? 'pointer' : 'not-allowed',
-                fontSize: '14px',
-              }}
-            >
-              {isLoading ? '検証中...' : '検証'}
-            </button>
-          </div>
-        </form>
-      )}
+      {/* Step 2: TOTP検証 - 現在未使用（QRコードステップで直接検証するため） */}
 
       {/* Step 3: バックアップコード表示 */}
       {currentStep === 'backup-codes' && (

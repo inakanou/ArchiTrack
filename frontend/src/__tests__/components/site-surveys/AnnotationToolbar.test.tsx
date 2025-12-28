@@ -505,7 +505,7 @@ describe('AnnotationToolbar', () => {
 
         const colorPicker = screen.getByTestId('color-picker');
         await user.click(colorPicker);
-        // Note: color input change is tricky to test, but we can verify it's interactive
+        // Note: color input change is tricky to test in JSDOM, but we can verify it's interactive
         expect(colorPicker).not.toBeDisabled();
       });
 
@@ -563,7 +563,7 @@ describe('AnnotationToolbar', () => {
         expect(screen.queryByTestId('fill-color-picker')).not.toBeInTheDocument();
       });
 
-      it('塗りつぶし色の変更時にonStyleChangeが呼ばれる', async () => {
+      it('塗りつぶし色の変更時にonStyleChangeが呼ばれる', () => {
         const onStyleChange = vi.fn();
 
         render(
@@ -598,6 +598,28 @@ describe('AnnotationToolbar', () => {
 
         const colorPicker = screen.getByTestId('color-picker');
         expect(colorPicker).toBeInTheDocument();
+      });
+
+      it('テキストツールで文字色選択が対話可能である', () => {
+        const onStyleChange = vi.fn();
+
+        render(
+          <AnnotationToolbar
+            {...defaultProps}
+            activeTool="text"
+            onStyleChange={onStyleChange}
+            styleOptions={{
+              strokeColor: '#000000',
+              strokeWidth: 2,
+              fontSize: 16,
+              fillColor: 'transparent',
+            }}
+          />
+        );
+
+        const colorPicker = screen.getByTestId('color-picker');
+        // Note: color input change is tricky to test in JSDOM
+        expect(colorPicker).not.toBeDisabled();
       });
 
       it('テキストツールでは線幅入力が表示されない', () => {

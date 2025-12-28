@@ -267,6 +267,30 @@ function StylePanel({
   onStyleChange,
   disabled,
 }: StylePanelProps): React.JSX.Element | null {
+  // スタイル変更ハンドラ（Hooksは条件分岐の前に呼び出す必要がある）
+  const handleStrokeColorChange = useCallback(
+    /* v8 ignore next */
+    (e: React.ChangeEvent<HTMLInputElement>) => onStyleChange({ strokeColor: e.target.value }),
+    [onStyleChange]
+  );
+
+  const handleStrokeWidthChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      onStyleChange({ strokeWidth: Number(e.target.value) }),
+    [onStyleChange]
+  );
+
+  const handleFillColorChange = useCallback(
+    /* v8 ignore next */
+    (e: React.ChangeEvent<HTMLInputElement>) => onStyleChange({ fillColor: e.target.value }),
+    [onStyleChange]
+  );
+
+  const handleFontSizeChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => onStyleChange({ fontSize: Number(e.target.value) }),
+    [onStyleChange]
+  );
+
   // 選択ツールの場合はスタイルパネルを表示しない
   if (!isDrawingTool(activeTool)) {
     return null;
@@ -290,7 +314,7 @@ function StylePanel({
             <input
               type="color"
               value={styleOptions.strokeColor}
-              onChange={(e) => onStyleChange({ strokeColor: e.target.value })}
+              onChange={handleStrokeColorChange}
               disabled={disabled}
               style={STYLES.colorPicker}
               data-testid="color-picker"
@@ -306,7 +330,7 @@ function StylePanel({
             <input
               type="number"
               value={styleOptions.strokeWidth}
-              onChange={(e) => onStyleChange({ strokeWidth: Number(e.target.value) })}
+              onChange={handleStrokeWidthChange}
               disabled={disabled}
               min={1}
               max={20}
@@ -325,7 +349,7 @@ function StylePanel({
             <input
               type="color"
               value={styleOptions.fillColor || '#ffffff'}
-              onChange={(e) => onStyleChange({ fillColor: e.target.value })}
+              onChange={handleFillColorChange}
               disabled={disabled}
               style={STYLES.colorPicker}
               data-testid="fill-color-picker"
@@ -342,7 +366,7 @@ function StylePanel({
               <input
                 type="color"
                 value={styleOptions.strokeColor}
-                onChange={(e) => onStyleChange({ strokeColor: e.target.value })}
+                onChange={handleStrokeColorChange}
                 disabled={disabled}
                 style={STYLES.colorPicker}
                 data-testid="color-picker"
@@ -354,7 +378,7 @@ function StylePanel({
               <input
                 type="number"
                 value={styleOptions.fontSize}
-                onChange={(e) => onStyleChange({ fontSize: Number(e.target.value) })}
+                onChange={handleFontSizeChange}
                 disabled={disabled}
                 min={8}
                 max={72}

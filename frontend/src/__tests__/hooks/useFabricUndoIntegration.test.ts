@@ -658,4 +658,176 @@ describe('useFabricUndoIntegration', () => {
       expect(canvas2.on).toHaveBeenCalled();
     });
   });
+
+  describe('エッジケース', () => {
+    it('should ignore object:added event when target is null', () => {
+      const { canvas, emit } = createMockCanvas();
+
+      renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // targetがnullのobject:addedイベントを発火
+      act(() => {
+        emit('object:added', { target: null });
+      });
+
+      // UndoManagerに追加されないこと
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('should ignore object:removed event when target is null', () => {
+      const { canvas, emit } = createMockCanvas();
+
+      renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // targetがnullのobject:removedイベントを発火
+      act(() => {
+        emit('object:removed', { target: null });
+      });
+
+      // UndoManagerに追加されないこと
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('should ignore object:modified event when target is null', () => {
+      const { canvas, emit } = createMockCanvas();
+
+      renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // targetがnullのobject:modifiedイベントを発火
+      act(() => {
+        emit('object:modified', { target: null });
+      });
+
+      // UndoManagerに追加されないこと
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('should ignore object:modified event when no previous snapshot exists', () => {
+      const { canvas, emit } = createMockCanvas();
+      const mockObject = createMockObject();
+
+      renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // selection:createdを発火せずに直接object:modifiedを発火
+      act(() => {
+        emit('object:modified', { target: mockObject });
+      });
+
+      // スナップショットがないためUndoManagerに追加されないこと
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('should ignore selection:created event when selected is empty', () => {
+      const { canvas, emit } = createMockCanvas();
+
+      renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // 空の選択イベントを発火
+      act(() => {
+        emit('selection:created', { selected: [] });
+      });
+
+      // 何も問題が起きないこと（スナップショットがないだけ）
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('should ignore selection:created event when selected is undefined', () => {
+      const { canvas, emit } = createMockCanvas();
+
+      renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // selectedがundefinedの選択イベントを発火
+      act(() => {
+        emit('selection:created', { selected: undefined });
+      });
+
+      // 何も問題が起きないこと
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('should handle selection:updated event', () => {
+      const { canvas, emit } = createMockCanvas();
+      const mockObject = createMockObject();
+
+      renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // selection:updatedイベントを発火
+      act(() => {
+        emit('selection:updated', { selected: [mockObject] });
+      });
+
+      // その後object:modifiedを発火
+      act(() => {
+        emit('object:modified', { target: mockObject });
+      });
+
+      // UndoManagerに追加されること
+      expect(undoManager.canUndo()).toBe(true);
+    });
+
+    it('should return isProgrammaticOperation flag', () => {
+      const { canvas } = createMockCanvas();
+
+      const { result } = renderHook(() =>
+        useFabricUndoIntegration({
+          canvas,
+          undoManager,
+          enabled: true,
+        })
+      );
+
+      // 初期状態はfalse
+      expect(result.current.isProgrammaticOperation).toBe(false);
+
+      // フラグを設定
+      act(() => {
+        result.current.setProgrammaticOperation(true);
+      });
+
+      // trueになること
+      expect(result.current.isProgrammaticOperation).toBe(true);
+    });
+  });
 });

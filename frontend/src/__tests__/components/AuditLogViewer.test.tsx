@@ -120,4 +120,76 @@ describe('AuditLogViewer', () => {
 
     expect(screen.getByRole('table')).toBeInTheDocument();
   });
+
+  it('開始日時フィルターに入力できる', async () => {
+    const user = userEvent.setup();
+
+    render(<AuditLogViewer logs={mockLogs} loading={false} />);
+
+    const startDateFilter = screen.getByLabelText(/開始日時フィルター/i);
+    await user.clear(startDateFilter);
+    await user.type(startDateFilter, '2025-01-01');
+
+    expect(startDateFilter).toHaveValue('2025-01-01');
+  });
+
+  it('終了日時フィルターに入力できる', async () => {
+    const user = userEvent.setup();
+
+    render(<AuditLogViewer logs={mockLogs} loading={false} />);
+
+    const endDateFilter = screen.getByLabelText(/終了日時フィルター/i);
+    await user.clear(endDateFilter);
+    await user.type(endDateFilter, '2025-12-31');
+
+    expect(endDateFilter).toHaveValue('2025-12-31');
+  });
+
+  it('エクスポートが失敗した場合にエラーをログに出力する', async () => {
+    const user = userEvent.setup();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mockOnExport = vi.fn().mockRejectedValue(new Error('Export failed'));
+
+    render(<AuditLogViewer logs={mockLogs} loading={false} onExport={mockOnExport} />);
+
+    const exportButton = screen.getByRole('button', { name: /JSONエクスポート/i });
+    await user.click(exportButton);
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith('エクスポートに失敗しました', expect.any(Error));
+    });
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('フィルターを設定してエクスポートするとフィルター値が渡される', async () => {
+    const user = userEvent.setup();
+    const mockOnExport = vi.fn().mockResolvedValue(undefined);
+
+    render(<AuditLogViewer logs={mockLogs} loading={false} onExport={mockOnExport} />);
+
+    // フィルター値を設定
+    const actorFilter = screen.getByLabelText(/実行者IDフィルター/i);
+    await user.type(actorFilter, 'test-user');
+
+    const startDateFilter = screen.getByLabelText(/開始日時フィルター/i);
+    await user.clear(startDateFilter);
+    await user.type(startDateFilter, '2025-01-01');
+
+    const endDateFilter = screen.getByLabelText(/終了日時フィルター/i);
+    await user.clear(endDateFilter);
+    await user.type(endDateFilter, '2025-12-31');
+
+    // エクスポート
+    const exportButton = screen.getByRole('button', { name: /JSONエクスポート/i });
+    await user.click(exportButton);
+
+    await waitFor(() => {
+      expect(mockOnExport).toHaveBeenCalledWith({
+        actorId: 'test-user',
+        startDate: '2025-01-01',
+        endDate: '2025-12-31',
+      });
+    });
+  });
 });
