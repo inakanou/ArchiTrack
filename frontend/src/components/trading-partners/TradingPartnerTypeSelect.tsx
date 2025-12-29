@@ -151,8 +151,6 @@ function TradingPartnerTypeSelect({
       <div
         role="group"
         aria-labelledby={`${groupId}-label`}
-        aria-required={required || undefined}
-        aria-invalid={hasError}
         aria-describedby={hasError ? errorId : undefined}
         style={{
           display: 'flex',
