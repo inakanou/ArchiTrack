@@ -85,7 +85,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^9.39.2",
     "@types/autocannon": "^7.12.7",
     "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.10",
