@@ -4,8 +4,7 @@
 
 **アーキテクチャ決定記録（ADR）管理システム**
 
-[![CI](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml)
-[![CD](https://github.com/your-org/ArchiTrack/actions/workflows/cd.yml/badge.svg)](https://github.com/your-org/ArchiTrack/actions/workflows/cd.yml)
+[![CI/CD](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/your-org/ArchiTrack/branch/main/graph/badge.svg)](https://codecov.io/gh/your-org/ArchiTrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 

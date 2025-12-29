@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-26（Steering Sync: テストカバレッジ強化を確認、パターン準拠）_
+_最終更新: 2025-12-29（Steering Sync: バージョン更新、CI/CD統合構成確認）_
 
 ## アーキテクチャ
 
@@ -59,7 +59,7 @@ ArchiTrack/
 - `jsdom` ^27.2.0 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.27.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
-- `storybook` ^10.1.5 - コンポーネントドキュメント・開発環境（Storybook 10.x）
+- `storybook` ^10.1.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
 - `@storybook/react` ^10.1.8 - Storybook React統合（10.x系）
 - `@storybook/react-vite` ^10.1.5 - Storybook React + Vite統合（10.x系）
 - `@storybook/test-runner` ^0.24.2 - Storybookインタラクションテスト
@@ -362,7 +362,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 
 ### 主要な依存関係
 
-- `@playwright/test` ^1.40.0 - E2Eテストフレームワーク
+- `@playwright/test` ^1.57.0 - E2Eテストフレームワーク
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/node` ^24.10.1 - Node.js型定義
 - `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
@@ -467,13 +467,14 @@ node e2e/helpers/browser.js api http://localhost:3000/health
 
 `.claude/CLAUDE.md` ファイルに、プロジェクト固有のAI運用ルールを定義しています：
 
-- **AI運用6原則**: 計画作成時のベストプラクティス準拠、ファイル読み込み時の分割処理、計画失敗時の再確認、ユーザー主導の意思決定、ルールの厳守、チャット冒頭での原則表示
-  - 第1原則: AIは計画作成時、必ず関連技術のベストプラクティスに準拠
-  - 第2原則: AIは長いファイルを読む場合、適宜分割して必要量全てを読む
-  - 第3原則: 迂回や別アプローチを勝手に行わず、計画失敗時は次の計画の確認を取る
-  - 第4原則: AIはツールであり決定権は常にユーザーにある。指示された通りに実行
-  - 第5原則: ルールを歪曲・解釈変更せず、最上位命令として絶対的に遵守
-  - 第6原則: 全てのチャットの冒頭にこの原則を逐語的に必ず画面出力してから対応
+- **AI運用7原則**: ベストプラクティス準拠、ファイル分割読み込み、テスト単位実行、長時間待機時のコンテキスト節約、ユーザー主導、ルール厳守、チャット冒頭での原則表示
+  - 第1原則: AIは必ず関連技術のベストプラクティスに準拠
+  - 第2原則: AIはツールであり決定権は常にユーザーにある。指示された通りに実行
+  - 第3原則: AIは長いファイルを読む場合、適宜分割して必要量全てを読む
+  - 第4原則: AIは自らテストを実行する場合、一括実行ではなくテストファイル単位で実行
+  - 第5原則: AIはテスト実行完了まで長時間待機する場合、コンテキストの節約に努める
+  - 第6原則: ルールを歪曲・解釈変更せず、最上位命令として絶対的に遵守
+  - 第7原則: 全てのチャットの冒頭にこの7原則を逐語的に必ず画面出力してから対応
 - **言語設定**: 日本語、UTF-8
 - **対話ルール**: ベストプラクティスに則った作業計画の報告と承認プロセス
 
@@ -989,7 +990,7 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 ### GitHub Actions
 
-`.github/workflows/ci.yml` と `.github/workflows/cd.yml` でCI/CDパイプラインを定義しています。
+`.github/workflows/ci.yml` で統合CI/CDパイプラインを定義しています（CDはCIワークフロー内に統合）。
 
 **CIワークフロー（最適化された並列実行）:**
 

@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-26（Steering Sync: テストカバレッジ強化を確認、パターン準拠）_
+_最終更新: 2025-12-29（Steering Sync: CI/CD統合構成、pre-pushフック拡張確認）_
 
 ## ルートディレクトリ構成
 
@@ -16,15 +16,16 @@ ArchiTrack/
 │       └── hook_pre_commands.sh  # コマンド実行前フック
 ├── .github/                # GitHub設定
 │   ├── workflows/          # GitHub Actions CI/CD
-│   │   ├── ci.yml          # CI/CDパイプライン定義（デプロイジョブ統合）
-│   │   ├── cd.yml          # 継続的デプロイ（Railway staging/production）
-│   │   ├── e2e-tests.yml   # E2Eテストワークフロー
+│   │   ├── ci.yml          # 統合CI/CDパイプライン（CI + デプロイジョブ統合）
 │   │   └── dependabot-automerge.yml  # Dependabot自動マージ
 │   └── dependabot.yml      # Dependabot自動依存関係管理設定
 ├── .husky/                 # Git フック管理（Husky v9）
+│   ├── _/                  # Husky内部設定
+│   ├── scripts/            # フック実装スクリプト
+│   │   └── pre-push.sh     # pre-push実装（bash）
 │   ├── pre-commit          # コミット前フック（lint-staged + 型チェック）
 │   ├── commit-msg          # コミットメッセージ検証（commitlint）
-│   └── pre-push            # プッシュ前フック（型チェック + E2Eテスト）
+│   └── pre-push            # プッシュ前ラッパー（scripts/pre-push.sh呼び出し）
 ├── .kiro/                  # Kiro開発管理
 │   ├── steering/           # プロジェクトステアリング
 │   │   ├── product.md      # プロダクト概要
@@ -158,15 +159,22 @@ Gitフック管理ディレクトリ（Husky v9使用）。
   - commitlintによるConventional Commits形式の強制
   - type: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
   - subject: 小文字始まり、100文字以内、末尾にピリオド不要
-- `pre-push` - プッシュ前に自動実行されるスクリプト
+- `pre-push` + `scripts/pre-push.sh` - プッシュ前に自動実行されるスクリプト
+  - **ラッパー構造**: `pre-push`（sh）→ `scripts/pre-push.sh`（bash）でpipefail等を使用
+  - **WSL2メモリ最適化**: `NODE_OPTIONS="--max-old-space-size=1024"` でOOM防止
+  - **Git操作検出**: ブランチ削除時はスキップ、新規ブランチ/更新時は全チェック
   - Format check、Lint、TypeScript型チェック（Backend/Frontend/E2E）
-  - ビルド（Backend/Frontend）
-  - Backend単体テスト、Frontend単体テスト
-  - Backend統合テスト（Docker環境必須）
-  - E2Eテスト実行（Docker環境必須、タイムアウト: 10分）
+  - ビルド（Backend/Frontend）+ ES Module検証
+  - **セキュリティ監査**: `scripts/security-audit.mjs` による脆弱性チェック
+  - Backend単体テスト（カバレッジチェック付き）、Frontend単体テスト
+  - **Storybookテスト**: インタラクション + アクセシビリティ + カバレッジチェック
+  - Backend統合テスト（Docker環境: architrack-test）
+  - **要件カバレッジチェック**: E2E対象の受入基準100%確認
+  - **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
+  - **コンテナ再起動**: E2E前のメモリリフレッシュ
+  - E2Eテスト実行（Docker環境: architrack-test、ポート3100/5174）
   - **同期実行**: すべてのテストを完了してからプッシュ実行
-  - **タイムアウト保護**: E2Eテストに10分のタイムアウト設定
-  - 失敗時はプッシュを中断
+  - 失敗時はプッシュを中断、テスト環境を自動クリーンアップ
 
 **有効化方法:**
 
@@ -1036,23 +1044,33 @@ refactor: improve type safety by eliminating any types
 
 コミットメッセージが Conventional Commits形式に従っているかチェック。形式違反の場合はコミットを中断します。
 
-#### 3. Pre-pushフック
+#### 3. Pre-pushフック（ラッパー構造）
 
-プッシュ前に以下を実行：
+`.husky/pre-push`（sh）→ `.husky/scripts/pre-push.sh`（bash）の2層構造で実装。
+
+**初期化処理:**
+- WSL2メモリ最適化（`NODE_OPTIONS="--max-old-space-size=1024"`）
+- Git操作タイプ検出（ブランチ削除時はスキップ）
+- ログファイル管理とローテーション
+
+**品質チェック（順次実行）:**
 
 1. **Formatチェック（Backend/Frontend/E2E）**: Prettierによるコードフォーマット検証
 2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
 3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
-4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認
-5. **Backend単体テスト（カバレッジチェック）**: `npm --prefix backend run test:unit:coverage`（1011+テストケース、カバレッジ閾値80%）
-6. **Frontend単体テスト（カバレッジチェック）**: `npm --prefix frontend run test:coverage`（667+テストケース、カバレッジ閾値80%）
-7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`（Docker環境必須）
-8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分、Docker環境必須）
-   - **同期実行**: テスト完了を待ってからプッシュ実行
-   - **タイムアウト保護**: 10分でハングアップを防止
-   - **詳細なエラーハンドリング**: タイムアウトとテスト失敗を区別
+4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認 + ES Module検証
+5. **セキュリティ監査**: `scripts/security-audit.mjs`（本番依存high以上でブロック）
+6. **Backend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
+7. **Frontend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
+8. **Storybookテスト**: インタラクションテスト + アクセシビリティ + カバレッジ80%
+9. **Docker環境構築**: テスト環境（architrack-test）自動起動
+10. **Backend統合テスト**: `docker exec architrack-backend-test npm run test:integration`
+11. **要件カバレッジチェック**: E2E対象の受入基準100%確認
+12. **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
+13. **コンテナ再起動**: E2E前のメモリリフレッシュ
+14. **E2Eテスト実行**: `CI=true npx playwright test`
 
-型エラー、テスト失敗、またはタイムアウトがある場合、プッシュは中断されます。
+型エラー、テスト失敗、カバレッジ不足がある場合、プッシュは中断されます。
 
 **テスト実行順序の理由:**
 - Format/Lint/型チェック（超高速）→ ビルド（高速）→ 単体テスト（高速）→ 統合テスト（中速）→ E2Eテスト（低速）の順で実行

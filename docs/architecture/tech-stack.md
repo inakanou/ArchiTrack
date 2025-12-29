@@ -24,7 +24,7 @@
 | | Argon2 | - | パスワードハッシュ |
 | | TOTP | - | 二段階認証 |
 | **Testing** | Vitest | 4.x | ユニット・統合テスト |
-| | Playwright | 1.40.x | E2Eテスト |
+| | Playwright | 1.57.x | E2Eテスト |
 | | Storybook | 10.x | UIコンポーネントテスト |
 | **Development** | Docker | - | コンテナ化 |
 | | Docker Compose | - | ローカル開発環境 |

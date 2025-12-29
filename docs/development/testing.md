@@ -260,9 +260,9 @@ npx playwright test integration/  # 統合テストのみ
 
 ## Storybookテスト
 
-**目的**: UIコンポーネントのビジュアルテストとインタラクションテスト
+**目的**: UIコンポーネントのビジュアルテスト、インタラクションテスト、ドキュメント化
 
-**ツール**: Storybook + Test Runner
+**ツール**: Storybook 10 + Test Runner + axe-core
 
 ### 実行方法
 
@@ -278,6 +278,35 @@ npm --prefix frontend run test-storybook
 # CI/CD用（Storybookを起動してテスト実行後に自動終了）
 npm --prefix frontend run test-storybook:ci
 ```
+
+### Storybookストーリーカバレッジ
+
+コンポーネントに対応するStoriesファイルの網羅性を検証します。
+
+**カバレッジ目標**: 80%以上のコンポーネントにStoriesが存在すること
+
+```bash
+# ストーリーカバレッジチェック
+npm --prefix frontend run storybook:coverage
+```
+
+**出力例:**
+```
+Storybook Coverage Report
+=========================
+Total components: 85
+Components with stories: 72
+Coverage: 84.7%
+
+✅ Target achieved (80%)
+```
+
+**除外対象（Storiesが不要なコンポーネント）:**
+- テストファイル（`*.test.tsx`）
+- Storiesファイル自体（`*.stories.tsx`）
+- index.tsx（エクスポート用）
+- Provider/Layout/Routeコンポーネント
+- 複雑なCanvas/Fabric.js連携コンポーネント（E2Eテストでカバー）
 
 ---
 
