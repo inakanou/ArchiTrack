@@ -554,7 +554,7 @@ function TradingPartnerForm({
   // ============================================================================
 
   return (
-    <form id={formId} onSubmit={handleSubmit} style={{ maxWidth: '600px' }}>
+    <form id={formId} onSubmit={handleSubmit} role="form" style={{ maxWidth: '600px' }}>
       {/* ========== 必須フィールド ========== */}
 
       {/* 取引先名 */}

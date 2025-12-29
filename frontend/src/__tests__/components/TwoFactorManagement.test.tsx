@@ -78,12 +78,12 @@ describe('TwoFactorManagement', () => {
       // 使用済みコードの確認
       const usedCode1 = screen.getByText('IJKL****');
       expect(usedCode1).toHaveStyle({ textDecoration: 'line-through' });
-      expect(usedCode1).toHaveStyle({ color: '#999' });
+      expect(usedCode1).toHaveStyle({ color: '#525b6a' }); // WCAG 2.1 AA準拠
       expect(usedCode1).toHaveAttribute('aria-label', '使用済み');
 
       const usedCode2 = screen.getByText('YZAB****');
       expect(usedCode2).toHaveStyle({ textDecoration: 'line-through' });
-      expect(usedCode2).toHaveStyle({ color: '#999' });
+      expect(usedCode2).toHaveStyle({ color: '#525b6a' }); // WCAG 2.1 AA準拠
       expect(usedCode2).toHaveAttribute('aria-label', '使用済み');
     });
 
