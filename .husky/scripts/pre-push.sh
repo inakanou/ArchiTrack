@@ -443,6 +443,15 @@ fi
 # ============================================================================
 if [ -d "frontend" ]; then
   echo "📖 Running Storybook tests..."
+
+  # ポート6006を使用しているプロセスをクリーンアップ（残留プロセス対策）
+  # 前回のテストが中断された場合にhttp-serverが残留することがある
+  if lsof -ti :6006 > /dev/null 2>&1; then
+    echo "   ⚠️  Cleaning up stale process on port 6006..."
+    kill -9 $(lsof -ti :6006) 2>/dev/null || true
+    sleep 1
+  fi
+
   npm --prefix frontend run test-storybook:ci
   if [ $? -ne 0 ]; then
     echo "❌ Storybook tests failed. Push aborted."
