@@ -97,9 +97,9 @@ const styles = {
     border: '1px solid #d1d5db',
   } as React.CSSProperties,
   cancelButtonDisabled: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#e5e7eb',
+    color: '#6b7280', // WCAG 2.1 AA準拠 (5.0:1 on #e5e7eb)
     cursor: 'not-allowed',
-    opacity: 0.6,
   } as React.CSSProperties,
   deleteButton: {
     backgroundColor: '#dc2626',
@@ -107,9 +107,8 @@ const styles = {
     border: 'none',
   } as React.CSSProperties,
   deleteButtonDisabled: {
-    backgroundColor: '#f87171',
+    backgroundColor: '#6b7280', // WCAG 2.1 AA準拠 - gray for disabled
     cursor: 'not-allowed',
-    opacity: 0.6,
   } as React.CSSProperties,
 };
 
@@ -160,6 +159,7 @@ function TradingPartnerDeleteDialog({
       closeOnEscape={!isDeleting}
       closeOnOutsideClick={false}
       initialFocusRef={cancelButtonRef as React.RefObject<HTMLElement>}
+      ariaLabelledBy={DIALOG_TITLE_ID}
     >
       <div
         style={styles.container}

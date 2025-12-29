@@ -67,7 +67,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
           role="alert"
           style={{
             backgroundColor: '#ffebee',
-            color: '#d32f2f',
+            color: '#c62828',
             padding: '12px 16px',
             borderRadius: '4px',
             marginBottom: '20px',
@@ -166,7 +166,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
             onClick={handleExport}
             disabled={exporting}
             style={{
-              backgroundColor: exporting ? '#ccc' : '#1976d2',
+              backgroundColor: exporting ? '#ccc' : '#1565c0',
               color: '#fff',
               padding: '8px 16px',
               border: 'none',
@@ -200,7 +200,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
             読み込み中...
           </div>
         ) : logs.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
+          <div style={{ padding: '40px', textAlign: 'center', color: '#5c5c5c' }}>
             監査ログがありません
           </div>
         ) : (
@@ -272,7 +272,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
                     <span
                       style={{
                         backgroundColor: '#e3f2fd',
-                        color: '#1976d2',
+                        color: '#1565c0',
                         padding: '4px 8px',
                         borderRadius: '4px',
                         fontSize: '12px',

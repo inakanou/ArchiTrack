@@ -208,7 +208,7 @@ function TwoFactorSetupForm({
             style={{
               width: `${(getStepNumber() / 3) * 100}%`,
               height: '100%',
-              backgroundColor: '#007bff',
+              backgroundColor: '#0056b3', // WCAG 2.1 AA準拠
               borderRadius: '2px',
               transition: 'width 0.3s ease',
             }}
@@ -244,7 +244,7 @@ function TwoFactorSetupForm({
               width: '40px',
               height: '40px',
               border: '4px solid #f3f3f3',
-              borderTop: '4px solid #007bff',
+              borderTop: '4px solid #0056b3', // WCAG 2.1 AA準拠
               borderRadius: '50%',
               animation: 'spin 1s linear infinite',
               margin: '0 auto',
@@ -359,7 +359,7 @@ function TwoFactorSetupForm({
               disabled={isLoading || totpCode.join('').length !== 6}
               style={{
                 padding: '10px 20px',
-                backgroundColor: '#007bff',
+                backgroundColor: '#0056b3', // WCAG 2.1 AA準拠
                 color: '#fff',
                 border: 'none',
                 borderRadius: '4px',
@@ -491,7 +491,7 @@ function TwoFactorSetupForm({
               disabled={!backupCodesSaved}
               style={{
                 padding: '10px 20px',
-                backgroundColor: backupCodesSaved ? '#28a745' : '#ccc',
+                backgroundColor: backupCodesSaved ? '#1e7e34' : '#ccc', // WCAG 2.1 AA準拠
                 color: '#fff',
                 border: 'none',
                 borderRadius: '4px',

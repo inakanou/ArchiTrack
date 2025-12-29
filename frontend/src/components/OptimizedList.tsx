@@ -33,9 +33,27 @@ const OptimizedListItem = memo<ListItemProps>(({ item, onItemClick, isSelected }
     onItemClick(item.id);
   }, [item.id, onItemClick]);
 
+  /**
+   * キーボードイベントハンドラ
+   * EnterまたはSpaceキーでクリック動作を実行
+   */
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onItemClick(item.id);
+      }
+    },
+    [item.id, onItemClick]
+  );
+
   return (
     <div
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="button"
+      aria-pressed={isSelected}
       style={{
         padding: '1rem',
         margin: '0.5rem 0',
@@ -47,7 +65,7 @@ const OptimizedListItem = memo<ListItemProps>(({ item, onItemClick, isSelected }
       }}
     >
       <h3 style={{ margin: '0 0 0.5rem 0' }}>{item.title}</h3>
-      {item.description && <p style={{ margin: 0, color: '#666' }}>{item.description}</p>}
+      {item.description && <p style={{ margin: 0, color: '#525252' }}>{item.description}</p>}
     </div>
   );
 });
@@ -140,7 +158,7 @@ export const OptimizedList = memo<OptimizedListProps>(
         </div>
 
         {sortedItems.length === 0 ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#999' }}>
+          <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
             アイテムが見つかりません
           </div>
         ) : (
@@ -215,6 +233,9 @@ export const VirtualList = memo<VirtualListProps>(
     return (
       <div
         onScroll={handleScroll}
+        tabIndex={0}
+        role="list"
+        aria-label="アイテムリスト"
         style={{
           height: containerHeight,
           overflow: 'auto',
@@ -226,12 +247,9 @@ export const VirtualList = memo<VirtualListProps>(
           {/* 表示するアイテムのみレンダリング */}
           <div style={{ transform: `translateY(${offsetY}px)` }}>
             {visibleItems.map((item) => (
-              <OptimizedListItem
-                key={item.id}
-                item={item}
-                onItemClick={handleItemClick}
-                isSelected={false}
-              />
+              <div key={item.id} role="listitem">
+                <OptimizedListItem item={item} onItemClick={handleItemClick} isSelected={false} />
+              </div>
             ))}
           </div>
         </div>

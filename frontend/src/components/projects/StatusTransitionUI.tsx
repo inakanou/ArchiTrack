@@ -100,7 +100,7 @@ const TRANSITION_TYPE_STYLES: Record<
     hoverBg: '#dcfce7',
   },
   backward: {
-    iconColor: '#ea580c', // オレンジ
+    iconColor: '#c2410c', // オレンジ - WCAG 2.1 AA準拠 (5.3:1 on #fff7ed)
     bgColor: '#fff7ed',
     hoverBg: '#ffedd5',
   },
@@ -159,7 +159,8 @@ const styles = {
     transition: 'all 0.2s',
   } as React.CSSProperties,
   transitionButtonDisabled: {
-    opacity: 0.5,
+    backgroundColor: '#e5e7eb',
+    color: '#6b7280',
     cursor: 'not-allowed',
   } as React.CSSProperties,
   historyList: {

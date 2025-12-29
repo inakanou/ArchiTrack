@@ -34,6 +34,11 @@ const config: TestRunnerConfig = {
             'wcag21aa', // WCAG 2.1 Level AA
           ],
         },
+        rules: {
+          // Storybookでは個別コンポーネントをテストするため、
+          // ページ全体のh1見出しは不要（親ページで提供される想定）
+          'page-has-heading-one': { enabled: false },
+        },
       },
     });
   },

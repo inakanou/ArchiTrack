@@ -16,4 +16,8 @@ export interface FocusManagerProps {
   initialFocusRef?: React.RefObject<HTMLElement>;
   /** モーダルを閉じた後にフォーカスを戻す要素のRef。デフォルト: モーダルを開く前のフォーカス要素 */
   returnFocusRef?: React.RefObject<HTMLElement>;
+  /** ダイアログのアクセシブルな名前（aria-label） */
+  ariaLabel?: string;
+  /** ダイアログのタイトル要素のID（aria-labelledby） */
+  ariaLabelledBy?: string;
 }

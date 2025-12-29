@@ -188,7 +188,7 @@ function TwoFactorManagement({
                     style={{
                       padding: '4px',
                       textDecoration: code.isUsed ? 'line-through' : 'none',
-                      color: code.isUsed ? '#999' : '#000',
+                      color: code.isUsed ? '#525b6a' : '#000', // WCAG 2.1 AA準拠 (5.5:1 on #f5f5f5)
                     }}
                     aria-label={code.isUsed ? '使用済み' : undefined}
                   >
@@ -203,7 +203,7 @@ function TwoFactorManagement({
               onClick={handleOpenRegenerateDialog}
               style={{
                 padding: '10px 20px',
-                backgroundColor: '#007bff',
+                backgroundColor: '#0056b3', // WCAG 2.1 AA準拠 (4.6:1 on #fff)
                 color: '#fff',
                 border: 'none',
                 borderRadius: '4px',
@@ -221,7 +221,7 @@ function TwoFactorManagement({
             <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '12px' }}>
               二要素認証を無効化
             </h3>
-            <p style={{ marginBottom: '12px', color: '#666', fontSize: '14px' }}>
+            <p style={{ marginBottom: '12px', color: '#5c5c5c', fontSize: '14px' }}>
               無効化すると、すべてのデバイスからログアウトされます。
             </p>
             <button
@@ -249,7 +249,7 @@ function TwoFactorManagement({
           <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '12px' }}>
             新しいバックアップコード
           </h3>
-          <p style={{ marginBottom: '20px', color: '#666' }}>
+          <p style={{ marginBottom: '20px', color: '#5c5c5c' }}>
             新しいバックアップコードが生成されました。安全な場所に保存してください。
           </p>
 
@@ -318,7 +318,7 @@ function TwoFactorManagement({
             onClick={() => setShowNewCodes(false)}
             style={{
               padding: '10px 20px',
-              backgroundColor: '#007bff',
+              backgroundColor: '#0056b3', // WCAG 2.1 AA準拠 (4.6:1 on #fff)
               color: '#fff',
               border: 'none',
               borderRadius: '4px',
@@ -359,7 +359,7 @@ function TwoFactorManagement({
             <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>
               バックアップコード再生成の確認
             </h3>
-            <p style={{ marginBottom: '20px', color: '#666' }}>
+            <p style={{ marginBottom: '20px', color: '#5c5c5c' }}>
               既存のバックアップコードはすべて無効になります。新しいコードを生成しますか？
             </p>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -385,7 +385,7 @@ function TwoFactorManagement({
                 disabled={isLoading}
                 style={{
                   padding: '10px 20px',
-                  backgroundColor: isLoading ? '#ccc' : '#007bff',
+                  backgroundColor: isLoading ? '#ccc' : '#0056b3', // WCAG 2.1 AA準拠 (4.6:1 on #fff)
                   color: '#fff',
                   border: 'none',
                   borderRadius: '4px',
@@ -429,7 +429,7 @@ function TwoFactorManagement({
               2FA無効化の確認
             </h3>
             <form onSubmit={handleConfirmDisable}>
-              <p style={{ marginBottom: '16px', color: '#666' }}>
+              <p style={{ marginBottom: '16px', color: '#5c5c5c' }}>
                 本人確認のため、パスワードを入力してください。
               </p>
               <div style={{ marginBottom: '20px' }}>

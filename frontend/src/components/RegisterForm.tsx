@@ -561,7 +561,7 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
         style={{
           width: '100%',
           padding: '0.75rem',
-          backgroundColor: isLoading ? '#9ca3af' : '#2563eb',
+          backgroundColor: isLoading ? '#6b7280' : '#2563eb',
           color: 'white',
           border: 'none',
           borderRadius: '0.375rem',

@@ -107,7 +107,7 @@ const styles = {
   imageIcon: {
     width: '32px',
     height: '32px',
-    color: '#9ca3af',
+    color: '#6b7280',
   } as React.CSSProperties,
 };
 

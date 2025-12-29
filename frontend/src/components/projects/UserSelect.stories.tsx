@@ -2,6 +2,37 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
 import { MemoryRouter } from 'react-router-dom';
 import UserSelect from './UserSelect';
+import { AuthContext, type User, type AuthContextValue } from '../../contexts/AuthContext';
+
+/**
+ * モック用のAuthContextを作成するヘルパー
+ */
+const createMockAuthContext = (user: User | null): AuthContextValue => ({
+  user,
+  isAuthenticated: !!user,
+  isLoading: false,
+  isInitialized: true,
+  sessionExpired: false,
+  twoFactorState: null,
+  login: fn().mockResolvedValue(undefined),
+  logout: fn().mockResolvedValue(undefined),
+  refreshToken: fn().mockResolvedValue('mock-token'),
+  clearSessionExpired: fn(),
+  verify2FA: fn().mockResolvedValue(undefined),
+  verifyBackupCode: fn().mockResolvedValue(undefined),
+  cancel2FA: fn(),
+});
+
+/**
+ * 一般ユーザーのモックデータ
+ */
+const regularUser: User = {
+  id: 'user-1',
+  email: 'user@example.com',
+  displayName: '山田 太郎',
+  roles: ['user'],
+  createdAt: new Date().toISOString(),
+};
 
 /**
  * UserSelect コンポーネントのストーリー
@@ -14,13 +45,18 @@ const meta = {
   title: 'Components/Projects/UserSelect',
   component: UserSelect,
   decorators: [
-    (Story) => (
-      <MemoryRouter>
-        <div style={{ width: '400px', padding: '24px' }}>
-          <Story />
-        </div>
-      </MemoryRouter>
-    ),
+    (Story) => {
+      const mockAuthContext = createMockAuthContext(regularUser);
+      return (
+        <MemoryRouter>
+          <AuthContext.Provider value={mockAuthContext}>
+            <div style={{ width: '400px', padding: '24px' }}>
+              <Story />
+            </div>
+          </AuthContext.Provider>
+        </MemoryRouter>
+      );
+    },
   ],
   parameters: {
     layout: 'centered',

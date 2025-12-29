@@ -50,7 +50,7 @@ const ToastDemo = () => {
           }
           style={{
             padding: '10px 20px',
-            backgroundColor: '#28a745',
+            backgroundColor: '#1e7e34', // WCAG 2.1 AA準拠
             color: '#fff',
             border: 'none',
             borderRadius: '4px',
@@ -107,7 +107,7 @@ const ToastDemo = () => {
           }
           style={{
             padding: '10px 20px',
-            backgroundColor: '#17a2b8',
+            backgroundColor: '#117a8b', // WCAG 2.1 AA準拠
             color: '#fff',
             border: 'none',
             borderRadius: '4px',
@@ -203,7 +203,7 @@ const MultipleToastsDemo = () => {
         onClick={showMultipleToasts}
         style={{
           padding: '10px 20px',
-          backgroundColor: '#007bff',
+          backgroundColor: '#0056b3', // WCAG 2.1 AA準拠
           color: '#fff',
           border: 'none',
           borderRadius: '4px',

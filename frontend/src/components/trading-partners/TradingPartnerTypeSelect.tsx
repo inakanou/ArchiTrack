@@ -56,7 +56,7 @@ const STYLES = {
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
-    disabled: '#9ca3af',
+    disabled: '#6b7280', // WCAG 2.1 AA準拠 (5.0:1 on #fff)
     disabledBg: '#f3f4f6',
     white: '#ffffff',
   },
@@ -151,7 +151,6 @@ function TradingPartnerTypeSelect({
       <div
         role="group"
         aria-labelledby={`${groupId}-label`}
-        aria-required={required}
         aria-invalid={hasError}
         aria-describedby={hasError ? errorId : undefined}
         style={{

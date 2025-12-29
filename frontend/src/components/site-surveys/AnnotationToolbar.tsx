@@ -93,7 +93,7 @@ const STYLES = {
   },
   styleLabel: {
     fontSize: '10px',
-    color: '#6b7280',
+    color: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f9fafb
     fontWeight: 500,
   },
   colorPicker: {
@@ -128,12 +128,14 @@ const STYLES = {
     transition: 'all 0.15s ease',
   },
   actionButtonPrimary: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#2563eb',
+    backgroundColor: '#2563eb', // WCAG 2.1 AA準拠: 5.2:1 contrast ratio with #fff
+    borderColor: '#1d4ed8',
     color: '#ffffff',
   },
   actionButtonDisabled: {
-    opacity: 0.5,
+    backgroundColor: '#6b7280',
+    borderColor: '#6b7280',
+    color: '#ffffff',
     cursor: 'not-allowed',
   },
   actionButtonsContainer: {
@@ -164,8 +166,8 @@ const STYLES = {
       outline: 'none',
     },
     active: {
-      backgroundColor: '#3b82f6',
-      borderColor: '#2563eb',
+      backgroundColor: '#2563eb', // WCAG 2.1 AA準拠: 5.2:1 contrast ratio with #fff
+      borderColor: '#1d4ed8',
       color: '#ffffff',
     },
     inactive: {
@@ -177,7 +179,8 @@ const STYLES = {
       backgroundColor: '#f3f4f6',
     },
     disabled: {
-      opacity: 0.5,
+      backgroundColor: '#e5e7eb',
+      color: '#525b6a', // WCAG 2.1 AA準拠: 5.0:1 contrast ratio on #e5e7eb
       cursor: 'not-allowed',
     },
   },

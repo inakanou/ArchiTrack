@@ -73,7 +73,7 @@ class ErrorBoundary extends Component<Props, State> {
             fontFamily: 'system-ui, -apple-system, sans-serif',
           }}
         >
-          <h1 style={{ color: '#d32f2f', marginBottom: '1rem' }}>エラーが発生しました</h1>
+          <h1 style={{ color: '#c62828', marginBottom: '1rem' }}>エラーが発生しました</h1>
           <p style={{ marginBottom: '1.5rem', color: '#666' }}>
             アプリケーションで予期しないエラーが発生しました。
             <br />
@@ -84,7 +84,7 @@ class ErrorBoundary extends Component<Props, State> {
             onClick={this.handleReset}
             style={{
               padding: '0.75rem 1.5rem',
-              backgroundColor: '#1976d2',
+              backgroundColor: '#1565c0',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
@@ -101,8 +101,8 @@ class ErrorBoundary extends Component<Props, State> {
             style={{
               padding: '0.75rem 1.5rem',
               backgroundColor: '#fff',
-              color: '#1976d2',
-              border: '1px solid #1976d2',
+              color: '#1565c0',
+              border: '1px solid #1565c0',
               borderRadius: '4px',
               cursor: 'pointer',
               fontSize: '1rem',

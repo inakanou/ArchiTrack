@@ -108,7 +108,8 @@ const styles = {
   } as React.CSSProperties,
   uploadAreaDisabled: {
     cursor: 'not-allowed',
-    opacity: 0.6,
+    backgroundColor: '#e5e7eb',
+    color: '#525b6a', // WCAG 2.1 AA準拠: 5.0:1 contrast ratio on #e5e7eb
   } as React.CSSProperties,
   uploadAreaCompact: {
     padding: '16px 12px',
@@ -116,7 +117,7 @@ const styles = {
   uploadIcon: {
     width: '48px',
     height: '48px',
-    color: '#9ca3af',
+    color: '#6b7280',
     marginBottom: '16px',
   } as React.CSSProperties,
   uploadIconCompact: {
@@ -138,7 +139,7 @@ const styles = {
   } as React.CSSProperties,
   uploadHint: {
     fontSize: '12px',
-    color: '#9ca3af',
+    color: '#6b7280',
   } as React.CSSProperties,
   hiddenInput: {
     position: 'absolute' as const,
@@ -474,34 +475,33 @@ export function ImageUploader({
 
         {/* ヒント */}
         <div style={styles.uploadHint}>対応形式: JPEG, PNG, WEBP（最大{MAX_FILE_SIZE_MB}MB）</div>
+      </div>
 
-        {/* ボタンコンテナ */}
-        <div style={styles.buttonContainer}>
-          {/* カメラボタン */}
-          <button
-            type="button"
-            data-testid="camera-button"
-            style={styles.cameraButton}
-            onClick={handleCameraClick}
-            disabled={disabled || isUploading}
-          >
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-            カメラで撮影
-          </button>
-        </div>
+      {/* カメラボタン - アップロードエリア外に配置（nested-interactive回避） */}
+      <div style={styles.buttonContainer}>
+        <button
+          type="button"
+          data-testid="camera-button"
+          style={styles.cameraButton}
+          onClick={handleCameraClick}
+          disabled={disabled || isUploading}
+        >
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+          </svg>
+          カメラで撮影
+        </button>
       </div>
 
       {/* 隠しファイル入力 */}
@@ -536,6 +536,7 @@ export function ImageUploader({
           <div style={styles.progressBar}>
             <div
               role="progressbar"
+              aria-label="アップロード進捗"
               aria-valuenow={progressPercentage}
               aria-valuemin={0}
               aria-valuemax={100}

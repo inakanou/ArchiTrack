@@ -127,19 +127,18 @@ const styles = {
     border: '1px solid #d1d5db',
   } as React.CSSProperties,
   cancelButtonDisabled: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#e5e7eb',
+    color: '#6b7280', // WCAG 2.1 AA準拠 (5.0:1 on #e5e7eb)
     cursor: 'not-allowed',
-    opacity: 0.6,
   } as React.CSSProperties,
   confirmButton: {
-    backgroundColor: '#f97316',
+    backgroundColor: '#c2410c', // WCAG 2.1 AA準拠 (5.3:1 on #fff)
     color: '#ffffff',
     border: 'none',
   } as React.CSSProperties,
   confirmButtonDisabled: {
-    backgroundColor: '#fdba74',
+    backgroundColor: '#6b7280', // WCAG 2.1 AA準拠 (4.7:1 on #fff) - gray for disabled state
     cursor: 'not-allowed',
-    opacity: 0.6,
   } as React.CSSProperties,
 };
 
@@ -175,6 +174,7 @@ function BackwardReasonDialog({
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const titleId = 'backward-reason-dialog-title';
   const errorId = 'backward-reason-error';
 
   // キャンセル時にリセットしてコールバック呼び出し
@@ -214,10 +214,13 @@ function BackwardReasonDialog({
       closeOnEscape={!isSubmitting}
       closeOnOutsideClick={false}
       initialFocusRef={textareaRef as React.RefObject<HTMLElement>}
+      ariaLabelledBy={titleId}
     >
       <div style={styles.container}>
         {/* タイトル */}
-        <h2 style={styles.title}>差し戻し理由の入力</h2>
+        <h2 id={titleId} style={styles.title}>
+          差し戻し理由の入力
+        </h2>
 
         {/* ステータス遷移情報 */}
         <div style={styles.statusInfo}>
@@ -226,7 +229,7 @@ function BackwardReasonDialog({
               style={{
                 ...styles.statusBadge,
                 backgroundColor: '#fbbf24',
-                color: '#78350f',
+                color: '#451a03', // WCAG 2.1 AA準拠 (7.5:1 on #fbbf24)
               }}
             >
               {fromStatusLabel}

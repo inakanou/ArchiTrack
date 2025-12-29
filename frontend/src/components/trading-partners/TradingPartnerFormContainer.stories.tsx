@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { MemoryRouter } from 'react-router-dom';
 import TradingPartnerFormContainer from './TradingPartnerFormContainer';
+import { ToastProvider } from '../ToastProvider';
 
 /**
  * TradingPartnerFormContainer コンポーネントのストーリー
@@ -18,7 +19,9 @@ const meta = {
   decorators: [
     (Story) => (
       <MemoryRouter>
-        <Story />
+        <ToastProvider>
+          <Story />
+        </ToastProvider>
       </MemoryRouter>
     ),
   ],

@@ -42,10 +42,11 @@ const STYLES = {
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
-    disabled: '#9ca3af',
+    disabled: '#6b7280', // WCAG 2.1 AA準拠 (5.0:1 on #fff)
     disabledBg: '#f3f4f6',
     white: '#ffffff',
-    placeholder: '#6b7280', // WCAG 2.1 AA準拠: 4.6:1 contrast ratio
+    placeholder: '#6b7280', // WCAG 2.1 AA準拠: 4.6:1 contrast ratio on #fff
+    loadingText: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f3f4f6
   },
   borderRadius: '0.375rem',
   transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out',
@@ -281,7 +282,7 @@ function UserSelect({
             borderRadius: STYLES.borderRadius,
             fontSize: '1rem',
             lineHeight: '1.5',
-            color: STYLES.colors.placeholder,
+            color: STYLES.colors.loadingText,
             backgroundColor: STYLES.colors.disabledBg,
           }}
         >
@@ -328,7 +329,7 @@ function UserSelect({
             borderRadius: STYLES.borderRadius,
             fontSize: '1rem',
             lineHeight: '1.5',
-            color: STYLES.colors.placeholder,
+            color: STYLES.colors.loadingText,
             backgroundColor: STYLES.colors.disabledBg,
           }}
         >

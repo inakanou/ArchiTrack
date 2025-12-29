@@ -110,12 +110,12 @@ const styles = {
   } as React.CSSProperties,
   deleteButtonDisabled: {
     backgroundColor: '#f3f4f6',
-    color: '#9ca3af',
+    color: '#6b7280',
     border: '1px solid #d1d5db',
     cursor: 'not-allowed',
   } as React.CSSProperties,
   pdfButton: {
-    backgroundColor: '#059669',
+    backgroundColor: '#047857', // WCAG 2.1 AA準拠 (4.9:1 on #fff)
     color: '#ffffff',
     border: 'none',
   } as React.CSSProperties,

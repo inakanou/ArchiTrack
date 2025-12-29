@@ -113,17 +113,6 @@ export const WithoutDescriptions: Story = {
  * VirtualList コンポーネント
  * 仮想スクロールによる大量データの効率的な表示
  */
-const virtualListMeta = {
-  title: 'Components/VirtualList',
-  component: VirtualList,
-  parameters: {
-    layout: 'padded',
-  },
-  tags: ['autodocs'],
-  args: {
-    onItemSelect: fn(),
-  },
-} satisfies Meta<typeof VirtualList>;
 
 export const VirtualListDefault: StoryObj<typeof VirtualList> = {
   render: (args) => <VirtualList {...args} />,
@@ -152,5 +141,3 @@ export const VirtualListSmallContainer: StoryObj<typeof VirtualList> = {
     onItemSelect: fn(),
   },
 };
-
-export { virtualListMeta };

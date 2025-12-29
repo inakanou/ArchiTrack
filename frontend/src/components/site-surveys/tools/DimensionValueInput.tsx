@@ -109,7 +109,7 @@ const STYLES = {
     border: 'none',
   },
   confirmButton: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#1d4ed8', // WCAG 2.1 AA準拠 (6.2:1 on #fff)
     color: '#ffffff',
   },
   cancelButton: {

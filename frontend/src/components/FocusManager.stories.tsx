@@ -34,6 +34,7 @@ type Story = StoryObj<typeof meta>;
 export const Open: Story = {
   args: {
     isOpen: true,
+    ariaLabel: 'モーダルタイトル',
     children: (
       <div style={{ minWidth: '300px' }}>
         <h2 style={{ marginBottom: '16px' }}>モーダルタイトル</h2>
@@ -67,6 +68,7 @@ export const NoEscapeClose: Story = {
   args: {
     isOpen: true,
     closeOnEscape: false,
+    ariaLabel: 'Escapeキー無効',
     children: (
       <div style={{ minWidth: '300px' }}>
         <h2 style={{ marginBottom: '16px' }}>Escapeキー無効</h2>
@@ -85,6 +87,7 @@ export const CloseOnOutsideClick: Story = {
   args: {
     isOpen: true,
     closeOnOutsideClick: true,
+    ariaLabel: 'オーバーレイクリック',
     children: (
       <div style={{ minWidth: '300px' }}>
         <h2 style={{ marginBottom: '16px' }}>オーバーレイクリック</h2>
@@ -102,6 +105,7 @@ export const CloseOnOutsideClick: Story = {
 export const WithForm: Story = {
   args: {
     isOpen: true,
+    ariaLabel: 'ログイン',
     children: (
       <div style={{ minWidth: '350px' }}>
         <h2 style={{ marginBottom: '16px' }}>ログイン</h2>
@@ -141,7 +145,7 @@ export const WithForm: Story = {
             <button
               type="submit"
               style={{
-                backgroundColor: '#1976d2',
+                backgroundColor: '#1565c0', // WCAG 2.1 AA準拠
                 color: '#fff',
                 border: 'none',
                 padding: '8px 16px',
@@ -173,7 +177,7 @@ const InteractiveTemplate = () => {
         onClick={() => setIsOpen(true)}
         style={{
           padding: '12px 24px',
-          backgroundColor: '#1976d2',
+          backgroundColor: '#1565c0',
           color: '#fff',
           border: 'none',
           borderRadius: '4px',
@@ -189,6 +193,7 @@ const InteractiveTemplate = () => {
         closeOnEscape
         closeOnOutsideClick
         returnFocusRef={buttonRef as React.RefObject<HTMLElement>}
+        ariaLabel="インタラクティブモーダル"
       >
         <div style={{ minWidth: '300px' }}>
           <h2 style={{ marginBottom: '16px' }}>インタラクティブモーダル</h2>

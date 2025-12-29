@@ -209,13 +209,13 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
 
     switch (status) {
       case 'pending':
-        return { ...baseStyle, backgroundColor: '#e3f2fd', color: '#1976d2' };
+        return { ...baseStyle, backgroundColor: '#e3f2fd', color: '#1565c0' }; // WCAG 2.1 AA準拠
       case 'accepted':
-        return { ...baseStyle, backgroundColor: '#e8f5e9', color: '#388e3c' };
+        return { ...baseStyle, backgroundColor: '#e8f5e9', color: '#2e7d32' }; // WCAG 2.1 AA準拠
       case 'expired':
-        return { ...baseStyle, backgroundColor: '#ffebee', color: '#d32f2f' };
+        return { ...baseStyle, backgroundColor: '#ffebee', color: '#c62828' }; // WCAG 2.1 AA準拠
       case 'cancelled':
-        return { ...baseStyle, backgroundColor: '#fafafa', color: '#757575' };
+        return { ...baseStyle, backgroundColor: '#fafafa', color: '#5c5c5c' }; // WCAG 2.1 AA準拠
       default:
         return baseStyle;
     }
@@ -249,7 +249,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
           role="alert"
           style={{
             backgroundColor: '#ffebee',
-            color: '#d32f2f',
+            color: '#c62828',
             padding: '12px 16px',
             borderRadius: '4px',
             marginBottom: '20px',
@@ -292,13 +292,13 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               style={{
                 width: '100%',
                 padding: '10px 12px',
-                border: emailError ? '2px solid #d32f2f' : '1px solid #ddd',
+                border: emailError ? '2px solid #c62828' : '1px solid #ddd',
                 borderRadius: '4px',
                 fontSize: '16px',
               }}
             />
             {emailError && (
-              <div style={{ color: '#d32f2f', fontSize: '14px', marginTop: '4px' }}>
+              <div style={{ color: '#c62828', fontSize: '14px', marginTop: '4px' }}>
                 {emailError}
               </div>
             )}
@@ -307,7 +307,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
             type="submit"
             disabled={submitting}
             style={{
-              backgroundColor: submitting ? '#ccc' : '#1976d2',
+              backgroundColor: submitting ? '#ccc' : '#1565c0',
               color: '#fff',
               padding: '10px 24px',
               border: 'none',
@@ -331,7 +331,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               borderRadius: '4px',
             }}
           >
-            <div style={{ color: '#388e3c', fontWeight: 'bold', marginBottom: '8px' }}>
+            <div style={{ color: '#2e7d32', fontWeight: 'bold', marginBottom: '8px' }}>
               招待を送信しました
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -351,7 +351,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               <button
                 onClick={() => handleCopyUrl()}
                 style={{
-                  backgroundColor: '#388e3c',
+                  backgroundColor: '#2e7d32',
                   color: '#fff',
                   padding: '8px 16px',
                   border: 'none',
@@ -375,7 +375,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
             style={{
               marginTop: '16px',
               backgroundColor: '#ffebee',
-              color: '#d32f2f',
+              color: '#c62828',
               padding: '12px 16px',
               borderRadius: '4px',
             }}
@@ -393,10 +393,10 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
             onClick={() => setSelectedFilter(filter)}
             style={{
               padding: '8px 16px',
-              border: selectedFilter === filter ? '2px solid #1976d2' : '1px solid #ddd',
+              border: selectedFilter === filter ? '2px solid #1565c0' : '1px solid #ddd',
               borderRadius: '20px',
               backgroundColor: selectedFilter === filter ? '#e3f2fd' : '#fff',
-              color: selectedFilter === filter ? '#1976d2' : '#333',
+              color: selectedFilter === filter ? '#1565c0' : '#333', // WCAG 2.1 AA準拠
               fontSize: '14px',
               fontWeight: selectedFilter === filter ? 'bold' : 'normal',
               cursor: 'pointer',
@@ -428,7 +428,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
           /* モバイル: カード形式レイアウト */
           <div style={{ padding: '16px' }}>
             {paginatedInvitations.length === 0 ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
+              <div style={{ padding: '40px', textAlign: 'center', color: '#5c5c5c' }}>
                 招待がありません
               </div>
             ) : (
@@ -447,7 +447,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                   }}
                 >
                   <div style={{ marginBottom: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                    <div style={{ fontSize: '12px', color: '#5c5c5c', marginBottom: '4px' }}>
                       メールアドレス
                     </div>
                     <div style={{ fontWeight: 'bold', wordBreak: 'break-all' }}>
@@ -456,20 +456,20 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                   </div>
                   <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                      <div style={{ fontSize: '12px', color: '#5c5c5c', marginBottom: '4px' }}>
                         招待日時
                       </div>
                       <div>{new Date(invitation.createdAt).toLocaleDateString('ja-JP')}</div>
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                      <div style={{ fontSize: '12px', color: '#5c5c5c', marginBottom: '4px' }}>
                         有効期限
                       </div>
                       <div>{new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}</div>
                     </div>
                   </div>
                   <div style={{ marginBottom: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#757575', marginBottom: '4px' }}>
+                    <div style={{ fontSize: '12px', color: '#5c5c5c', marginBottom: '4px' }}>
                       ステータス
                     </div>
                     <span data-testid="status-badge" style={getStatusBadgeStyle(invitation.status)}>
@@ -485,9 +485,9 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                             style={{
                               padding: '8px 16px',
                               backgroundColor: '#fff',
-                              border: '1px solid #d32f2f',
+                              border: '1px solid #c62828',
                               borderRadius: '4px',
-                              color: '#d32f2f',
+                              color: '#c62828',
                               cursor: 'pointer',
                               fontSize: '14px',
                             }}
@@ -498,7 +498,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                             onClick={() => handleCopyUrl(invitation.token)}
                             style={{
                               padding: '8px 16px',
-                              backgroundColor: '#1976d2',
+                              backgroundColor: '#1565c0',
                               border: 'none',
                               borderRadius: '4px',
                               color: '#fff',
@@ -515,7 +515,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                           onClick={() => handleResendInvitation(invitation.id)}
                           style={{
                             padding: '8px 16px',
-                            backgroundColor: '#1976d2',
+                            backgroundColor: '#1565c0',
                             border: 'none',
                             borderRadius: '4px',
                             color: '#fff',
@@ -574,7 +574,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                 <tr>
                   <td
                     colSpan={5}
-                    style={{ padding: '40px', textAlign: 'center', color: '#757575' }}
+                    style={{ padding: '40px', textAlign: 'center', color: '#5c5c5c' }}
                   >
                     招待がありません
                   </td>
@@ -605,9 +605,9 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                             style={{
                               padding: '6px 12px',
                               backgroundColor: '#fff',
-                              border: '1px solid #d32f2f',
+                              border: '1px solid #c62828',
                               borderRadius: '4px',
-                              color: '#d32f2f',
+                              color: '#c62828',
                               cursor: 'pointer',
                               fontSize: '14px',
                               marginRight: '8px',
@@ -619,7 +619,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                             onClick={() => handleCopyUrl(invitation.token)}
                             style={{
                               padding: '6px 12px',
-                              backgroundColor: '#1976d2',
+                              backgroundColor: '#1565c0',
                               border: 'none',
                               borderRadius: '4px',
                               color: '#fff',
@@ -636,7 +636,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                           onClick={() => handleResendInvitation(invitation.id)}
                           style={{
                             padding: '6px 12px',
-                            backgroundColor: '#1976d2',
+                            backgroundColor: '#1565c0',
                             border: 'none',
                             borderRadius: '4px',
                             color: '#fff',
@@ -689,10 +689,10 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                 onClick={() => setCurrentPage(page)}
                 style={{
                   padding: '8px 12px',
-                  border: currentPage === page ? '2px solid #1976d2' : '1px solid #ddd',
+                  border: currentPage === page ? '2px solid #1565c0' : '1px solid #ddd',
                   borderRadius: '4px',
                   backgroundColor: currentPage === page ? '#e3f2fd' : '#fff',
-                  color: currentPage === page ? '#1976d2' : '#333',
+                  color: currentPage === page ? '#1565c0' : '#333', // WCAG 2.1 AA準拠
                   fontWeight: currentPage === page ? 'bold' : 'normal',
                   cursor: 'pointer',
                 }}
@@ -776,7 +776,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
               <button
                 onClick={handleCancelInvitation}
                 style={{
-                  backgroundColor: '#d32f2f',
+                  backgroundColor: '#c62828',
                   color: '#fff',
                   padding: '10px 20px',
                   border: 'none',
