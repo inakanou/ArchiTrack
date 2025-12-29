@@ -274,7 +274,8 @@ test.describe('ステータス遷移', () => {
       });
 
       // 理由入力欄が表示されることを確認
-      const reasonTextarea = page.getByLabel(/差し戻し理由/i);
+      // Note: getByRole('textbox') を使用して、ダイアログ自体ではなくtextareaを特定する
+      const reasonTextarea = page.getByRole('textbox', { name: /差し戻し理由/i });
       await expect(reasonTextarea).toBeVisible();
 
       // 理由を入力せずに「差し戻す」ボタンをクリック
@@ -345,7 +346,8 @@ test.describe('ステータス遷移', () => {
       });
 
       // 理由を入力（保存しない）
-      const reasonTextarea = page.getByLabel(/差し戻し理由/i);
+      // Note: getByRole('textbox') を使用して、ダイアログ自体ではなくtextareaを特定する
+      const reasonTextarea = page.getByRole('textbox', { name: /差し戻し理由/i });
       await reasonTextarea.fill('キャンセルされる理由');
 
       // キャンセルボタンをクリック
@@ -388,10 +390,10 @@ test.describe('ステータス遷移', () => {
       });
 
       // オレンジ系の色が使われていることを確認（RGB値で検証）
-      // #fff7ed -> rgb(255, 247, 237)
-      // #ea580c -> rgb(234, 88, 12)
+      // #fff7ed -> rgb(255, 247, 237) (背景)
+      // #c2410c -> rgb(194, 65, 12) (テキスト - Tailwind orange-700)
       expect(buttonStyles.backgroundColor).toContain('255'); // 薄いオレンジの背景
-      expect(buttonStyles.color).toContain('234'); // オレンジのテキスト
+      expect(buttonStyles.color).toContain('194'); // オレンジのテキスト
     });
   });
 
