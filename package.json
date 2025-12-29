@@ -12,7 +12,7 @@
     "dev:docker:logs": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev logs -f",
     "test:docker": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d",
     "test:docker:build": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d --build",
-    "test:docker:down": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down -v",
+    "test:docker:down": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down",
     "test:docker:logs": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test logs -f",
     "test:e2e": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:test@localhost:5433/architrack_test playwright test",
     "test:e2e:ui": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:test@localhost:5433/architrack_test playwright test --ui",
