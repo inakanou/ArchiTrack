@@ -164,7 +164,7 @@ function SessionManagement({
           disabled={isLoading || sessions.length === 0}
           style={{
             padding: '10px 20px',
-            backgroundColor: isLoading || sessions.length === 0 ? '#9ca3af' : '#dc2626',
+            backgroundColor: isLoading || sessions.length === 0 ? '#6b7280' : '#dc2626',
             color: '#ffffff',
             border: 'none',
             borderRadius: '4px',
@@ -262,7 +262,7 @@ function SessionManagement({
                   disabled={deletingSessionId === session.id}
                   style={{
                     padding: '8px 16px',
-                    backgroundColor: deletingSessionId === session.id ? '#9ca3af' : '#ef4444',
+                    backgroundColor: deletingSessionId === session.id ? '#6b7280' : '#ef4444',
                     color: '#ffffff',
                     border: 'none',
                     borderRadius: '4px',

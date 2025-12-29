@@ -472,6 +472,118 @@ describe('TradingPartnerForm', () => {
       });
     });
 
+    it('部課/支店/支社名が100文字を超える場合、エラーが表示される', async () => {
+      const user = userEvent.setup();
+      render(
+        <TradingPartnerForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      const branchNameInput = screen.getByLabelText(/部課\/支店\/支社名/);
+      await user.type(branchNameInput, 'あ'.repeat(101));
+
+      // フォーカスを外してバリデーションを発火
+      fireEvent.blur(branchNameInput);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('部課/支店/支社名は100文字以内で入力してください')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('代表者名が100文字を超える場合、エラーが表示される', async () => {
+      const user = userEvent.setup();
+      render(
+        <TradingPartnerForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      const representativeNameInput = screen.getByLabelText(/代表者名/);
+      await user.type(representativeNameInput, 'あ'.repeat(101));
+
+      // フォーカスを外してバリデーションを発火
+      fireEvent.blur(representativeNameInput);
+
+      await waitFor(() => {
+        expect(screen.getByText('代表者名は100文字以内で入力してください')).toBeInTheDocument();
+      });
+    });
+
+    it('備考が2000文字を超える場合、エラーが表示される', async () => {
+      render(
+        <TradingPartnerForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      const notesInput = screen.getByLabelText(/備考/);
+      // 2001文字を直接設定（userEvent.typeは大量の文字入力に時間がかかるため）
+      fireEvent.change(notesInput, { target: { value: 'あ'.repeat(2001) } });
+
+      // フォーカスを外してバリデーションを発火
+      fireEvent.blur(notesInput);
+
+      await waitFor(() => {
+        expect(screen.getByText('備考は2000文字以内で入力してください')).toBeInTheDocument();
+      });
+    });
+
+    it('フリガナが200文字を超える場合、エラーが表示される', async () => {
+      render(
+        <TradingPartnerForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      const nameKanaInput = screen.getByLabelText(/^フリガナ$/);
+      // 201文字を直接設定（userEvent.typeは大量の文字入力に時間がかかるため）
+      fireEvent.change(nameKanaInput, { target: { value: 'ア'.repeat(201) } });
+
+      // フォーカスを外してバリデーションを発火
+      fireEvent.blur(nameKanaInput);
+
+      await waitFor(() => {
+        expect(screen.getByText('フリガナは200文字以内で入力してください')).toBeInTheDocument();
+      });
+    });
+
+    it('住所が500文字を超える場合、エラーが表示される', async () => {
+      render(
+        <TradingPartnerForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      const addressInput = screen.getByLabelText(/^住所$/);
+      // 501文字を直接設定（userEvent.typeは大量の文字入力に時間がかかるため）
+      fireEvent.change(addressInput, { target: { value: 'あ'.repeat(501) } });
+
+      // フォーカスを外してバリデーションを発火
+      fireEvent.blur(addressInput);
+
+      await waitFor(() => {
+        expect(screen.getByText('住所は500文字以内で入力してください')).toBeInTheDocument();
+      });
+    });
+
     // Note: Task 19.2で branchNameKana / representativeNameKana 入力欄を削除したため、
     // 以下のバリデーションテストは削除:
     // - 部課/支店/支社フリガナがカタカナ以外を含む場合のエラー表示

@@ -128,7 +128,7 @@ const STYLES = {
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
-    disabled: '#9ca3af',
+    disabled: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f3f4f6
     disabledBg: '#f3f4f6',
     white: '#ffffff',
   },
@@ -1073,7 +1073,7 @@ function TradingPartnerForm({
             fontSize: '1rem',
             fontWeight: 500,
             cursor: isSubmitting ? 'not-allowed' : 'pointer',
-            opacity: isSubmitting ? 0.5 : 1,
+            ...(isSubmitting ? { backgroundColor: '#e5e7eb', color: '#525b6a' } : {}),
           }}
         >
           キャンセル

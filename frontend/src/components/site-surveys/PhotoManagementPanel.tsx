@@ -195,7 +195,7 @@ const styles = {
     width: '48px',
     height: '48px',
     marginBottom: '16px',
-    opacity: 0.5,
+    color: '#6b7280', // WCAG 2.1 AA準拠
   } as React.CSSProperties,
   skeleton: {
     display: 'flex',
@@ -236,7 +236,7 @@ const styles = {
     width: '32px',
     height: '32px',
     cursor: 'grab',
-    color: '#9ca3af',
+    color: '#6b7280', // WCAG 2.1 AA準拠 (5.0:1 on #fff)
     borderRadius: '4px',
     transition: 'all 0.2s ease',
     flexShrink: 0,
@@ -246,9 +246,9 @@ const styles = {
     color: '#6b7280',
   } as React.CSSProperties,
   panelItemDragging: {
-    opacity: 0.5,
     border: '2px dashed #6b7280',
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f3f4f6',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
   } as React.CSSProperties,
   panelItemDragOver: {
     border: '2px solid #10b981',
@@ -425,6 +425,8 @@ function PhotoItem({
       {/* ドラッグハンドル（Task 27.5） */}
       {enableDrag && (
         <div
+          role="button"
+          tabIndex={0}
           draggable
           onDragStart={(e) => onDragStart(e, image.id)}
           onDragEnd={onDragEnd}

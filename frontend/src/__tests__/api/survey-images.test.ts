@@ -52,6 +52,109 @@ describe('Survey Images API Client', () => {
   });
 
   // ==========================================================================
+  // requestWithFormData Edge Cases
+  // ==========================================================================
+  describe('requestWithFormData edge cases', () => {
+    it('非JSONレスポンスでもテキストとして処理できること', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+      const surveyId = 'survey-1';
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/plain' }),
+        text: async () => 'Success',
+      });
+
+      // Act - 非JSONレスポンスでも動作確認
+      const result = await uploadSurveyImage(surveyId, file);
+
+      // Assert
+      expect(result).toBe('Success');
+    });
+
+    it('エラーレスポンスでerrorフィールドを使用すること', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+      const surveyId = 'survey-1';
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          error: 'カスタムエラーメッセージ',
+        }),
+      });
+
+      // Act & Assert
+      try {
+        await uploadSurveyImage(surveyId, file);
+        expect.fail('ApiError should have been thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).message).toBe('カスタムエラーメッセージ');
+      }
+    });
+
+    it('エラーレスポンスでstatusTextをフォールバックとして使用すること', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+      const surveyId = 'survey-1';
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({}), // detailもerrorもない
+      });
+
+      // Act & Assert
+      try {
+        await uploadSurveyImage(surveyId, file);
+        expect.fail('ApiError should have been thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).message).toBe('Internal Server Error');
+      }
+    });
+
+    it('認証トークンがない場合もリクエストが送信されること', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+      const surveyId = 'survey-1';
+
+      // apiClient.getAccessToken()がnullを返すようにモック
+      const { apiClient } = await import('../../api/client');
+      const originalGetAccessToken = apiClient.getAccessToken;
+      apiClient.getAccessToken = () => null;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockImageInfo,
+      });
+
+      // Act
+      const result = await uploadSurveyImage(surveyId, file);
+
+      // Assert
+      expect(result).toEqual(mockImageInfo);
+      const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(options.headers).toBeDefined();
+      // Authorizationヘッダーがないことを確認
+      expect((options.headers as Record<string, string>)['Authorization']).toBeUndefined();
+
+      // Clean up
+      apiClient.getAccessToken = originalGetAccessToken;
+    });
+  });
+
+  // ==========================================================================
   // uploadSurveyImage Tests
   // ==========================================================================
   describe('uploadSurveyImage', () => {
@@ -318,6 +421,97 @@ describe('Survey Images API Client', () => {
       // Assert
       expect(result.length).toBe(7);
       expect(mockFetch).toHaveBeenCalledTimes(7);
+    });
+
+    it('startDisplayOrderを指定して表示順序をカスタマイズできること', async () => {
+      // Arrange
+      const files = [
+        new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' }),
+        new File(['content2'], 'photo2.jpg', { type: 'image/jpeg' }),
+      ];
+      const surveyId = 'survey-1';
+      const startDisplayOrder = 10;
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-1', displayOrder: 10 }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-2', displayOrder: 11 }),
+        });
+
+      // Act
+      const result = await uploadSurveyImages(surveyId, files, { startDisplayOrder });
+
+      // Assert
+      expect(result.length).toBe(2);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // FormDataに正しいdisplayOrderが設定されていることを確認
+      const [, firstOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const firstFormData = firstOptions.body as FormData;
+      expect(firstFormData.get('displayOrder')).toBe('10');
+
+      const [, secondOptions] = mockFetch.mock.calls[1] as [string, RequestInit];
+      const secondFormData = secondOptions.body as FormData;
+      expect(secondFormData.get('displayOrder')).toBe('11');
+    });
+
+    it('非ApiError例外が発生した場合もエラー情報を記録すること', async () => {
+      // Arrange
+      const files = [
+        new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' }),
+        new File(['content2'], 'photo2.jpg', { type: 'image/jpeg' }),
+      ];
+      const surveyId = 'survey-1';
+      const progressCallback = vi.fn();
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-1' }),
+        })
+        .mockRejectedValueOnce(new Error('Network error')); // 非ApiError
+
+      // Act
+      const result = await uploadSurveyImages(surveyId, files, { onProgress: progressCallback });
+
+      // Assert
+      expect(result.length).toBe(1); // 1件のみ成功
+
+      // 進捗コールバックでエラー情報が記録されていることを確認
+      const lastCall = progressCallback.mock.calls[progressCallback.mock.calls.length - 1] as [
+        BatchUploadProgress,
+      ];
+      expect(lastCall[0].errors.length).toBe(1);
+      expect(lastCall[0].errors[0]?.error).toBe('アップロードに失敗しました。');
+    });
+
+    it('onProgressが未定義でもエラーなく動作すること', async () => {
+      // Arrange
+      const files = [new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' })];
+      const surveyId = 'survey-1';
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockImageInfo,
+      });
+
+      // Act - onProgressなしで呼び出し
+      const result = await uploadSurveyImages(surveyId, files);
+
+      // Assert
+      expect(result.length).toBe(1);
     });
   });
 

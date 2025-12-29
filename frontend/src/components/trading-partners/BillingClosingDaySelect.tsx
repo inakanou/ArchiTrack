@@ -87,7 +87,7 @@ const STYLES = {
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
-    disabled: '#9ca3af',
+    disabled: '#6b7280',
     disabledBg: '#f3f4f6',
     white: '#ffffff',
   },

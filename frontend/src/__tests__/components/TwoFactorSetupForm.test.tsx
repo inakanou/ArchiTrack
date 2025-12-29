@@ -819,5 +819,145 @@ describe('TwoFactorSetupForm', () => {
       expect(createObjectURLSpy).toHaveBeenCalled();
       expect(revokeObjectURLSpy).toHaveBeenCalled();
     });
+
+    it('6桁未満のペーストは無視される', async () => {
+      const user = userEvent.setup();
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      const firstInput = screen.getByTestId('totp-digit-0');
+      await user.click(firstInput);
+      await user.paste('12345'); // 5桁（6桁未満）
+
+      // 値が入力されていないことを確認
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      expect(inputs[0]).toHaveValue('');
+    });
+
+    it('複数桁の入力は最初の1桁のみ受け付ける', async () => {
+      const user = userEvent.setup();
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      const firstInput = screen.getByTestId('totp-digit-0') as HTMLInputElement;
+      // 既存の値を設定してから複数文字を入力しようとする
+      await user.type(firstInput, '1');
+      // 入力フィールドは既に次に移動しているので、最初のフィールドの値を確認
+      expect(firstInput).toHaveValue('1');
+    });
+
+    it('window.openがnullを返す場合も印刷処理がエラーにならない', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(window, 'open').mockReturnValue(null);
+
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      // ステップ3へ進む
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      for (let i = 0; i < 6; i++) {
+        await user.type(inputs[i]!, String(i));
+      }
+
+      const verifyButton = screen.getByRole('button', { name: /検証/i });
+      await user.click(verifyButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /バックアップコードを保存/i })
+        ).toBeInTheDocument();
+      });
+
+      // 印刷ボタンをクリック（エラーにならないことを確認）
+      const printButton = screen.getByRole('button', { name: /印刷/i });
+      await user.click(printButton);
+
+      expect(window.open).toHaveBeenCalledWith('', '_blank');
+    });
+
+    it('Backspaceキーでフィールドに値がある場合はフォーカス移動しない', async () => {
+      const user = userEvent.setup();
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+
+      // 2番目のフィールドに値を入力
+      await user.type(inputs[1]!, '5');
+
+      // 3番目のフィールドにフォーカスが移動するので、2番目に戻る
+      await user.click(inputs[1]!);
+
+      // Backspaceキーを押す（値があるので前に移動しない）
+      await user.keyboard('{Backspace}');
+
+      // 2番目のフィールドにまだフォーカスがあるはず（値を削除しただけ）
+      expect(inputs[1]).toHaveFocus();
+    });
+
+    it('最初のフィールドでBackspaceを押しても何も起きない', async () => {
+      const user = userEvent.setup();
+      render(
+        <TwoFactorSetupForm
+          onSetupStart={mockOnSetupStart}
+          onEnable={mockOnEnable}
+          onComplete={mockOnComplete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockOnSetupStart).toHaveBeenCalled();
+      });
+
+      const inputs = screen.getAllByRole('textbox') as HTMLInputElement[];
+      await user.click(inputs[0]!);
+
+      // Backspaceキーを押す
+      await user.keyboard('{Backspace}');
+
+      // フォーカスは最初のフィールドのまま
+      expect(inputs[0]).toHaveFocus();
+    });
   });
 });

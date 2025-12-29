@@ -34,6 +34,8 @@ function FocusManager({
   closeOnOutsideClick = false,
   initialFocusRef,
   returnFocusRef,
+  ariaLabel,
+  ariaLabelledBy,
 }: FocusManagerProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
@@ -142,6 +144,9 @@ function FocusManager({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
+        tabIndex={0}
         style={{
           backgroundColor: '#fff',
           borderRadius: '8px',

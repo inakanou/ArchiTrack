@@ -133,7 +133,7 @@ const STYLES = {
     transition: 'transform 0.1s ease',
   },
   presetButtonActive: {
-    border: '2px solid #3b82f6',
+    border: '2px solid #2563eb', // WCAG 2.1 AA準拠: 5.2:1 contrast ratio with #fff
     transform: 'scale(1.1)',
   },
   noFillButton: {
@@ -148,7 +148,7 @@ const STYLES = {
     padding: 0,
     backgroundColor: '#ffffff',
     fontSize: '10px',
-    color: '#9ca3af',
+    color: '#6b7280',
     transition: 'transform 0.1s ease',
   },
   sliderWrapper: {
@@ -187,8 +187,8 @@ const STYLES = {
     transition: 'all 0.15s ease',
   },
   presetWidthButtonActive: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#2563eb',
+    backgroundColor: '#2563eb', // WCAG 2.1 AA準拠: 5.2:1 contrast ratio with #fff
+    borderColor: '#1d4ed8',
     color: '#ffffff',
   },
   numberInput: {
@@ -200,7 +200,8 @@ const STYLES = {
     textAlign: 'center' as const,
   },
   disabledStyle: {
-    opacity: 0.5,
+    backgroundColor: '#e5e7eb',
+    color: '#525b6a', // WCAG 2.1 AA準拠: 5.0:1 contrast ratio on #e5e7eb
     cursor: 'not-allowed',
   },
 };

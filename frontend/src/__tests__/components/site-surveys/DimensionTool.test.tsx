@@ -1147,6 +1147,210 @@ describe('DimensionTool', () => {
           expect(json.customData.dimensionUnit).toBe('cm');
         });
       });
+
+      describe('fromObject() デシリアライズ', () => {
+        it('JSONオブジェクトからDimensionLineを復元できる', async () => {
+          const json = {
+            type: 'dimensionLine' as const,
+            startPoint: { x: 100, y: 100 },
+            endPoint: { x: 300, y: 200 },
+            stroke: '#ff0000',
+            strokeWidth: 4,
+            capLength: 15,
+            customData: {
+              dimensionValue: '1500',
+              dimensionUnit: 'mm',
+            },
+          };
+
+          const dimensionLine = await DimensionLine.fromObject(json);
+
+          expect(dimensionLine).toBeInstanceOf(DimensionLine);
+          expect(dimensionLine.startPoint).toEqual({ x: 100, y: 100 });
+          expect(dimensionLine.endPoint).toEqual({ x: 300, y: 200 });
+          expect(dimensionLine.stroke).toBe('#ff0000');
+          expect(dimensionLine.strokeWidth).toBe(4);
+          expect(dimensionLine.customData.dimensionValue).toBe('1500');
+          expect(dimensionLine.customData.dimensionUnit).toBe('mm');
+        });
+
+        it('customDataなしでも復元できる', async () => {
+          const json = {
+            type: 'dimensionLine' as const,
+            startPoint: { x: 50, y: 50 },
+            endPoint: { x: 250, y: 150 },
+            stroke: '#000000',
+            strokeWidth: 2,
+            capLength: 10,
+            customData: {
+              dimensionValue: '',
+              dimensionUnit: '',
+            },
+          };
+
+          const dimensionLine = await DimensionLine.fromObject(json);
+
+          expect(dimensionLine.type).toBe('dimensionLine');
+          expect(dimensionLine.customData.dimensionValue).toBe('');
+        });
+
+        it('labelStyleを含むJSONを復元できる', async () => {
+          const json = {
+            type: 'dimensionLine' as const,
+            startPoint: { x: 100, y: 100 },
+            endPoint: { x: 300, y: 100 },
+            stroke: '#000000',
+            strokeWidth: 2,
+            capLength: 10,
+            customData: {
+              dimensionValue: '2000',
+              dimensionUnit: 'cm',
+            },
+            labelStyle: {
+              fontSize: 16,
+              fontColor: '#ff0000',
+              backgroundColor: '#ffffff',
+            },
+          };
+
+          const dimensionLine = await DimensionLine.fromObject(json);
+
+          const labelStyle = dimensionLine.getLabelStyle();
+          expect(labelStyle.fontSize).toBe(16);
+          expect(labelStyle.fontColor).toBe('#ff0000');
+        });
+
+        it('toObject()で出力したJSONをfromObject()で復元できる', async () => {
+          const mockCanvas = new Canvas();
+          const originalDim = new DimensionLine(
+            { x: 120, y: 80 },
+            { x: 400, y: 300 },
+            { stroke: '#00ff00', strokeWidth: 3, capLength: 12 }
+          );
+          originalDim.setDimensionWithLabel(mockCanvas, '3000', 'm');
+
+          const json = originalDim.toObject();
+          const restoredDim = await DimensionLine.fromObject(json);
+
+          expect(restoredDim.startPoint).toEqual(originalDim.startPoint);
+          expect(restoredDim.endPoint).toEqual(originalDim.endPoint);
+          expect(restoredDim.stroke).toBe(originalDim.stroke);
+          expect(restoredDim.strokeWidth).toBe(originalDim.strokeWidth);
+          expect(restoredDim.customData.dimensionValue).toBe('3000');
+          expect(restoredDim.customData.dimensionUnit).toBe('m');
+        });
+      });
+
+      describe('角度の正規化（負の角度）', () => {
+        it('左向きの寸法線の角度は180度', () => {
+          const dimensionLine = new DimensionLine({ x: 300, y: 100 }, { x: 100, y: 100 });
+
+          expect(dimensionLine.dimensionAngle).toBeCloseTo(180, 1);
+        });
+
+        it('上向きの寸法線の角度は270度', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 300 }, { x: 100, y: 100 });
+
+          expect(dimensionLine.dimensionAngle).toBeCloseTo(270, 1);
+        });
+
+        it('左上向きの寸法線の角度は正規化される', () => {
+          const dimensionLine = new DimensionLine({ x: 200, y: 200 }, { x: 100, y: 100 });
+
+          // 左上は-135度 → 正規化されて225度
+          expect(dimensionLine.dimensionAngle).toBeCloseTo(225, 1);
+        });
+      });
+
+      describe('setStyle() 部分更新', () => {
+        it('strokeのみ更新できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          const originalStrokeWidth = dimensionLine.strokeWidth;
+
+          dimensionLine.setStyle({ stroke: '#0000ff' });
+
+          expect(dimensionLine.stroke).toBe('#0000ff');
+          expect(dimensionLine.strokeWidth).toBe(originalStrokeWidth);
+        });
+
+        it('strokeWidthのみ更新できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          const originalStroke = dimensionLine.stroke;
+
+          dimensionLine.setStyle({ strokeWidth: 8 });
+
+          expect(dimensionLine.stroke).toBe(originalStroke);
+          expect(dimensionLine.strokeWidth).toBe(8);
+        });
+
+        it('capLengthのみ更新できる', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setStyle({ capLength: 25 });
+
+          const style = dimensionLine.getStyle();
+          expect(style.capLength).toBe(25);
+        });
+
+        it('空のオプションでも安全に処理される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          const originalStyle = dimensionLine.getStyle();
+
+          dimensionLine.setStyle({});
+
+          expect(dimensionLine.getStyle().stroke).toBe(originalStyle.stroke);
+          expect(dimensionLine.getStyle().strokeWidth).toBe(originalStyle.strokeWidth);
+        });
+      });
+
+      describe('removeLabelFromCanvas', () => {
+        it('ラベルをCanvasから直接削除できる', () => {
+          const mockCanvas = new Canvas();
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+          dimensionLine.setDimensionWithLabel(mockCanvas, '1500', 'mm');
+          expect(dimensionLine.hasLabel()).toBe(true);
+
+          dimensionLine.removeLabelFromCanvas(mockCanvas);
+
+          expect(dimensionLine.hasLabel()).toBe(false);
+        });
+
+        it('ラベルがない状態でもエラーにならない', () => {
+          const mockCanvas = new Canvas();
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          // ラベルなしで呼び出してもエラーにならない
+          expect(() => dimensionLine.removeLabelFromCanvas(mockCanvas)).not.toThrow();
+        });
+      });
+
+      describe('setLabelStyle ラベルなし時', () => {
+        it('ラベルがない状態でもスタイル設定が保存される', () => {
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setLabelStyle({
+            fontSize: 20,
+            fontColor: '#00ff00',
+            backgroundColor: '#ffff00',
+          });
+
+          const labelStyle = dimensionLine.getLabelStyle();
+          expect(labelStyle.fontSize).toBe(20);
+          expect(labelStyle.fontColor).toBe('#00ff00');
+          expect(labelStyle.backgroundColor).toBe('#ffff00');
+        });
+
+        it('後からラベルを追加すると保存されたスタイルが適用される', () => {
+          const mockCanvas = new Canvas();
+          const dimensionLine = new DimensionLine({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+          dimensionLine.setLabelStyle({ fontSize: 24 });
+          dimensionLine.setDimensionWithLabel(mockCanvas, '2000', 'mm');
+
+          const labelStyle = dimensionLine.getLabelStyle();
+          expect(labelStyle.fontSize).toBe(24);
+        });
+      });
     });
   });
 });

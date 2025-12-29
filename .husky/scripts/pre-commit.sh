@@ -3,7 +3,7 @@
 # Pre-commit Hook - Quality Checks for Staged Files
 # ============================================================================
 # このスクリプトは .husky/pre-commit から呼び出されます
-# コミット前にlintとtype checkを実行します
+# コミット前にlint、type checkを実行します
 # ============================================================================
 
 # Get list of staged files

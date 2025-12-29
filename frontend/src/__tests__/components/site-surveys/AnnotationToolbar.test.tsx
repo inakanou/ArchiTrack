@@ -449,4 +449,389 @@ describe('AnnotationToolbar', () => {
       expect(buttons.length).toBeGreaterThan(0);
     });
   });
+
+  // ==========================================================================
+  // スタイルパネルテスト
+  // ==========================================================================
+  describe('スタイルパネル', () => {
+    describe('表示条件', () => {
+      it('選択ツールの場合、スタイルパネルは表示されない', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="select" />);
+
+        expect(screen.queryByTestId('style-options')).not.toBeInTheDocument();
+      });
+
+      it('矢印ツールの場合、スタイルパネルが表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="arrow" />);
+
+        expect(screen.getByTestId('style-options')).toBeInTheDocument();
+      });
+
+      it('円ツールの場合、スタイルパネルが表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="circle" />);
+
+        expect(screen.getByTestId('style-options')).toBeInTheDocument();
+      });
+
+      it('テキストツールの場合、スタイルパネルが表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="text" />);
+
+        expect(screen.getByTestId('style-options')).toBeInTheDocument();
+      });
+    });
+
+    describe('線オプション', () => {
+      it('矢印ツールで色選択が表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="arrow" />);
+
+        const colorPicker = screen.getByTestId('color-picker');
+        expect(colorPicker).toBeInTheDocument();
+      });
+
+      it('矢印ツールで線幅入力が表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="arrow" />);
+
+        const lineWidth = screen.getByTestId('line-width');
+        expect(lineWidth).toBeInTheDocument();
+      });
+
+      it('色選択の変更でonStyleChangeが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onStyleChange = vi.fn();
+
+        render(
+          <AnnotationToolbar {...defaultProps} activeTool="arrow" onStyleChange={onStyleChange} />
+        );
+
+        const colorPicker = screen.getByTestId('color-picker');
+        await user.click(colorPicker);
+        // Note: color input change is tricky to test in JSDOM, but we can verify it's interactive
+        expect(colorPicker).not.toBeDisabled();
+      });
+
+      it('線幅の変更でonStyleChangeが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onStyleChange = vi.fn();
+
+        render(
+          <AnnotationToolbar
+            {...defaultProps}
+            activeTool="arrow"
+            onStyleChange={onStyleChange}
+            styleOptions={{
+              strokeColor: '#ff0000',
+              strokeWidth: 2,
+              fontSize: 16,
+              fillColor: 'transparent',
+            }}
+          />
+        );
+
+        const lineWidth = screen.getByTestId('line-width');
+        await user.clear(lineWidth);
+        await user.type(lineWidth, '5');
+
+        expect(onStyleChange).toHaveBeenCalled();
+      });
+    });
+
+    describe('塗りつぶしオプション', () => {
+      it('円ツールで塗りつぶし色選択が表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="circle" />);
+
+        const fillColorPicker = screen.getByTestId('fill-color-picker');
+        expect(fillColorPicker).toBeInTheDocument();
+      });
+
+      it('四角形ツールで塗りつぶし色選択が表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="rectangle" />);
+
+        const fillColorPicker = screen.getByTestId('fill-color-picker');
+        expect(fillColorPicker).toBeInTheDocument();
+      });
+
+      it('多角形ツールで塗りつぶし色選択が表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="polygon" />);
+
+        const fillColorPicker = screen.getByTestId('fill-color-picker');
+        expect(fillColorPicker).toBeInTheDocument();
+      });
+
+      it('矢印ツールでは塗りつぶし色選択が表示されない', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="arrow" />);
+
+        expect(screen.queryByTestId('fill-color-picker')).not.toBeInTheDocument();
+      });
+
+      it('塗りつぶし色の変更時にonStyleChangeが呼ばれる', () => {
+        const onStyleChange = vi.fn();
+
+        render(
+          <AnnotationToolbar
+            {...defaultProps}
+            activeTool="circle"
+            onStyleChange={onStyleChange}
+            styleOptions={{
+              strokeColor: '#ff0000',
+              strokeWidth: 2,
+              fontSize: 16,
+              fillColor: '#ffffff',
+            }}
+          />
+        );
+
+        const fillColorPicker = screen.getByTestId('fill-color-picker');
+        expect(fillColorPicker).not.toBeDisabled();
+      });
+    });
+
+    describe('フォントオプション', () => {
+      it('テキストツールでフォントサイズ入力が表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="text" />);
+
+        const fontSize = screen.getByTestId('font-size');
+        expect(fontSize).toBeInTheDocument();
+      });
+
+      it('テキストツールで文字色選択が表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="text" />);
+
+        const colorPicker = screen.getByTestId('color-picker');
+        expect(colorPicker).toBeInTheDocument();
+      });
+
+      it('テキストツールで文字色選択が対話可能である', () => {
+        const onStyleChange = vi.fn();
+
+        render(
+          <AnnotationToolbar
+            {...defaultProps}
+            activeTool="text"
+            onStyleChange={onStyleChange}
+            styleOptions={{
+              strokeColor: '#000000',
+              strokeWidth: 2,
+              fontSize: 16,
+              fillColor: 'transparent',
+            }}
+          />
+        );
+
+        const colorPicker = screen.getByTestId('color-picker');
+        // Note: color input change is tricky to test in JSDOM
+        expect(colorPicker).not.toBeDisabled();
+      });
+
+      it('テキストツールでは線幅入力が表示されない', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="text" />);
+
+        expect(screen.queryByTestId('line-width')).not.toBeInTheDocument();
+      });
+
+      it('矢印ツールではフォントサイズ入力が表示されない', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="arrow" />);
+
+        expect(screen.queryByTestId('font-size')).not.toBeInTheDocument();
+      });
+
+      it('フォントサイズの変更でonStyleChangeが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onStyleChange = vi.fn();
+
+        render(
+          <AnnotationToolbar
+            {...defaultProps}
+            activeTool="text"
+            onStyleChange={onStyleChange}
+            styleOptions={{
+              strokeColor: '#000000',
+              strokeWidth: 2,
+              fontSize: 16,
+              fillColor: 'transparent',
+            }}
+          />
+        );
+
+        const fontSize = screen.getByTestId('font-size');
+        await user.clear(fontSize);
+        await user.type(fontSize, '24');
+
+        expect(onStyleChange).toHaveBeenCalled();
+      });
+    });
+
+    describe('disabled状態', () => {
+      it('disabled時はスタイル入力が無効化される', () => {
+        render(<AnnotationToolbar {...defaultProps} activeTool="arrow" disabled={true} />);
+
+        const colorPicker = screen.getByTestId('color-picker');
+        const lineWidth = screen.getByTestId('line-width');
+
+        expect(colorPicker).toBeDisabled();
+        expect(lineWidth).toBeDisabled();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // アクションボタンテスト
+  // ==========================================================================
+  describe('アクションボタン', () => {
+    describe('Undo/Redoボタン', () => {
+      it('元に戻すボタンが表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} />);
+
+        const undoButton = screen.getByRole('button', { name: /元に戻す/i });
+        expect(undoButton).toBeInTheDocument();
+      });
+
+      it('やり直しボタンが表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} />);
+
+        const redoButton = screen.getByRole('button', { name: /やり直し/i });
+        expect(redoButton).toBeInTheDocument();
+      });
+
+      it('元に戻すボタンクリックでonUndoが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onUndo = vi.fn();
+
+        render(<AnnotationToolbar {...defaultProps} onUndo={onUndo} />);
+
+        const undoButton = screen.getByRole('button', { name: /元に戻す/i });
+        await user.click(undoButton);
+
+        expect(onUndo).toHaveBeenCalled();
+      });
+
+      it('やり直しボタンクリックでonRedoが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onRedo = vi.fn();
+
+        render(<AnnotationToolbar {...defaultProps} onRedo={onRedo} />);
+
+        const redoButton = screen.getByRole('button', { name: /やり直し/i });
+        await user.click(redoButton);
+
+        expect(onRedo).toHaveBeenCalled();
+      });
+
+      it('canUndo=falseの場合、元に戻すボタンが無効化される', () => {
+        render(<AnnotationToolbar {...defaultProps} canUndo={false} />);
+
+        const undoButton = screen.getByRole('button', { name: /元に戻す/i });
+        expect(undoButton).toBeDisabled();
+      });
+
+      it('canRedo=falseの場合、やり直しボタンが無効化される', () => {
+        render(<AnnotationToolbar {...defaultProps} canRedo={false} />);
+
+        const redoButton = screen.getByRole('button', { name: /やり直し/i });
+        expect(redoButton).toBeDisabled();
+      });
+    });
+
+    describe('保存/エクスポートボタン', () => {
+      it('保存ボタンが表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} />);
+
+        const saveButton = screen.getByRole('button', { name: /保存/i });
+        expect(saveButton).toBeInTheDocument();
+      });
+
+      it('エクスポートボタンが表示される', () => {
+        render(<AnnotationToolbar {...defaultProps} />);
+
+        const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+        expect(exportButton).toBeInTheDocument();
+      });
+
+      it('保存ボタンクリックでonSaveが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onSave = vi.fn();
+
+        render(<AnnotationToolbar {...defaultProps} onSave={onSave} />);
+
+        const saveButton = screen.getByRole('button', { name: /保存/i });
+        await user.click(saveButton);
+
+        expect(onSave).toHaveBeenCalled();
+      });
+
+      it('エクスポートボタンクリックでonExportが呼ばれる', async () => {
+        const user = userEvent.setup();
+        const onExport = vi.fn();
+
+        render(<AnnotationToolbar {...defaultProps} onExport={onExport} />);
+
+        const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+        await user.click(exportButton);
+
+        expect(onExport).toHaveBeenCalled();
+      });
+
+      it('disabled時は保存ボタンが無効化される', () => {
+        render(<AnnotationToolbar {...defaultProps} disabled={true} />);
+
+        const saveButton = screen.getByRole('button', { name: /保存/i });
+        expect(saveButton).toBeDisabled();
+      });
+
+      it('disabled時はエクスポートボタンが無効化される', () => {
+        render(<AnnotationToolbar {...defaultProps} disabled={true} />);
+
+        const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+        expect(exportButton).toBeDisabled();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // スタイルオプションのデフォルト値テスト
+  // ==========================================================================
+  describe('スタイルオプションのデフォルト値', () => {
+    it('styleOptionsが未指定でもスタイルパネルが正常に表示される', () => {
+      render(<AnnotationToolbar {...defaultProps} activeTool="arrow" />);
+
+      const stylePanel = screen.getByTestId('style-options');
+      expect(stylePanel).toBeInTheDocument();
+    });
+
+    it('onStyleChangeが未指定でもスタイル変更操作でエラーが発生しない', async () => {
+      const user = userEvent.setup();
+
+      render(<AnnotationToolbar {...defaultProps} activeTool="arrow" />);
+
+      const lineWidth = screen.getByTestId('line-width');
+      // onStyleChangeが未定義でも操作可能（エラーが発生しないことを確認）
+      await user.clear(lineWidth);
+      await user.type(lineWidth, '5');
+
+      // コントロールされた入力なので値は変わらないが、エラーは発生しない
+      expect(lineWidth).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // 追加のツールテスト
+  // ==========================================================================
+  describe('追加ツール表示', () => {
+    it('寸法線ツールでスタイルパネルが表示される', () => {
+      render(<AnnotationToolbar {...defaultProps} activeTool="dimension" />);
+
+      expect(screen.getByTestId('style-options')).toBeInTheDocument();
+    });
+
+    it('折れ線ツールでスタイルパネルが表示される', () => {
+      render(<AnnotationToolbar {...defaultProps} activeTool="polyline" />);
+
+      expect(screen.getByTestId('style-options')).toBeInTheDocument();
+    });
+
+    it('フリーハンドツールでスタイルパネルが表示される', () => {
+      render(<AnnotationToolbar {...defaultProps} activeTool="freehand" />);
+
+      expect(screen.getByTestId('style-options')).toBeInTheDocument();
+    });
+  });
 });

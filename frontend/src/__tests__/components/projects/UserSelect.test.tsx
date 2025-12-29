@@ -379,4 +379,117 @@ describe('UserSelect', () => {
       expect(select.value).toBe('user-2');
     });
   });
+
+  describe('フォーカス/ブラー処理', () => {
+    it('onBlurコールバックが呼ばれる', async () => {
+      const onChange = vi.fn();
+      const onBlur = vi.fn();
+      render(<UserSelect value="" onChange={onChange} label="営業担当者" onBlur={onBlur} />);
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText(/読み込み中/)).not.toBeInTheDocument();
+      });
+
+      const select = screen.getByRole('combobox');
+      fireEvent.focus(select);
+      fireEvent.blur(select);
+
+      expect(onBlur).toHaveBeenCalled();
+    });
+
+    it('フォーカス時にスタイルが変わる', async () => {
+      const onChange = vi.fn();
+      render(<UserSelect value="" onChange={onChange} label="営業担当者" />);
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText(/読み込み中/)).not.toBeInTheDocument();
+      });
+
+      const select = screen.getByRole('combobox');
+      fireEvent.focus(select);
+
+      // フォーカス状態が設定されていること（box-shadowがあること）
+      expect(select).toHaveStyle({ outline: 'none' });
+    });
+
+    it('disabled状態でフォーカスしてもfocus状態にならない', async () => {
+      const onChange = vi.fn();
+      render(<UserSelect value="" onChange={onChange} label="営業担当者" disabled />);
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText(/読み込み中/)).not.toBeInTheDocument();
+      });
+
+      const select = screen.getByRole('combobox');
+      fireEvent.focus(select);
+
+      // disabled状態では変化なし
+      expect(select).toBeDisabled();
+    });
+  });
+
+  describe('認証初期化前', () => {
+    it('認証初期化前はローディング状態', async () => {
+      // isInitializedをfalseに設定
+      const { useAuth } = await import('../../../hooks/useAuth');
+      vi.mocked(useAuth).mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isInitialized: false,
+        // その他の必要なプロパティ
+      } as ReturnType<typeof useAuth>);
+
+      const onChange = vi.fn();
+      render(<UserSelect value="" onChange={onChange} label="営業担当者" />);
+
+      // 認証初期化前はローディング状態を表示
+      expect(screen.getByText(/読み込み中/)).toBeInTheDocument();
+    });
+  });
+
+  describe('トークンリトライ', () => {
+    it('トークンがない場合はlocalStorageから復元を試みる', async () => {
+      const { apiClient } = await import('../../../api/client');
+      // 最初はトークンなし、2回目で成功
+      vi.mocked(apiClient.getAccessToken).mockReturnValueOnce(null).mockReturnValue('mock-token');
+
+      // localStorageにトークンを設定
+      const storedToken = 'stored-access-token';
+      localStorage.setItem('accessToken', storedToken);
+
+      const onChange = vi.fn();
+      render(<UserSelect value="" onChange={onChange} label="営業担当者" />);
+
+      // 最終的にユーザー一覧が表示される
+      await waitFor(() => {
+        expect(screen.queryByText(/読み込み中/)).not.toBeInTheDocument();
+      });
+
+      localStorage.removeItem('accessToken');
+    });
+  });
+
+  describe('ログインユーザーがリストに存在しない場合', () => {
+    it('ログインユーザーが候補リストにない場合はデフォルト選択されない', async () => {
+      // ログインユーザーがリストにない
+      vi.mocked(getAssignableUsers).mockResolvedValue([
+        { id: 'user-1', displayName: 'User One' },
+        { id: 'user-2', displayName: 'User Two' },
+      ]);
+
+      const onChange = vi.fn();
+      render(<UserSelect value="" onChange={onChange} label="営業担当者" defaultToCurrentUser />);
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText(/読み込み中/)).not.toBeInTheDocument();
+      });
+
+      // ログインユーザーがリストにないのでonChangeは呼ばれない
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  });
 });

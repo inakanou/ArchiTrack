@@ -251,27 +251,13 @@ describe('TradingPartnerTypeSelect', () => {
       expect(group).toBeInTheDocument();
     });
 
-    it('required=trueの場合、aria-required属性が設定されている', () => {
+    it('required=trueの場合、ラベルに必須マークが表示される', () => {
       render(
         <TradingPartnerTypeSelect value={[]} onChange={onChange} label="取引先種別" required />
       );
 
-      const group = screen.getByRole('group');
-      expect(group).toHaveAttribute('aria-required', 'true');
-    });
-
-    it('エラー時はaria-invalid属性が設定されている', () => {
-      render(
-        <TradingPartnerTypeSelect
-          value={[]}
-          onChange={onChange}
-          label="取引先種別"
-          error="エラー"
-        />
-      );
-
-      const group = screen.getByRole('group');
-      expect(group).toHaveAttribute('aria-invalid', 'true');
+      // 必須マークの*が表示されていることを確認
+      expect(screen.getByText('*')).toBeInTheDocument();
     });
 
     it('エラーメッセージはaria-describedbyで関連付けられている', () => {

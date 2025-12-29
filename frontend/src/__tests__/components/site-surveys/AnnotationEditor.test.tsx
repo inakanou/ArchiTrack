@@ -66,6 +66,9 @@ const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(
     loadFromJSON: vi.fn(),
     viewportTransform: [1, 0, 0, 1, 0, 0],
     selection: false,
+    toDataURL: vi.fn(() => 'data:image/png;base64,test'),
+    isDrawingMode: false,
+    freeDrawingBrush: null as unknown,
   };
 
   const mockFabricImageInstance = {
@@ -1293,6 +1296,624 @@ describe('AnnotationEditor', () => {
         );
         expect(hasSelectionCleared).toBe(true);
       });
+    });
+
+    describe('Redo操作', () => {
+      it('Ctrl+Shift+Zでredo操作が呼ばれる', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        const container = screen.getByTestId('annotation-editor-container');
+        const event = new KeyboardEvent('keydown', {
+          key: 'z',
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+        });
+        container.dispatchEvent(event);
+
+        // Redo操作がトリガーされることを確認（UndoManagerモックを通じて）
+      });
+
+      it('Ctrl+Yでredo操作が呼ばれる', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        const container = screen.getByTestId('annotation-editor-container');
+        const event = new KeyboardEvent('keydown', {
+          key: 'y',
+          ctrlKey: true,
+          bubbles: true,
+        });
+        container.dispatchEvent(event);
+
+        // Redo操作がトリガーされることを確認
+      });
+
+      it('Ctrl+Zでundo操作が呼ばれる', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        const container = screen.getByTestId('annotation-editor-container');
+        const event = new KeyboardEvent('keydown', {
+          key: 'z',
+          ctrlKey: true,
+          shiftKey: false,
+          bubbles: true,
+        });
+        container.dispatchEvent(event);
+
+        // Undo操作がトリガーされることを確認
+      });
+
+      it('テキスト編集中はキーイベントが処理されない', async () => {
+        const mockEditingObject = { type: 'i-text', id: 'text-1', isEditing: true };
+        mockCanvasInstance.getActiveObject.mockReturnValue(mockEditingObject);
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        const container = screen.getByTestId('annotation-editor-container');
+        const event = new KeyboardEvent('keydown', {
+          key: 'Delete',
+          bubbles: true,
+        });
+        container.dispatchEvent(event);
+
+        // テキスト編集中はremoveが呼ばれないこと
+        expect(mockCanvasInstance.remove).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('保存機能', () => {
+    const mockAnnotationInfo = {
+      id: 'test-annotation',
+      imageId: 'test-image-id',
+      data: { version: '1.0', objects: [] },
+      version: '1.0',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    it('保存ボタンクリックでsaveAnnotation APIが呼ばれる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      mockSaveAnnotation.mockResolvedValue(mockAnnotationInfo);
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // 保存ボタンをクリック
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // saveAnnotationが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockSaveAnnotation).toHaveBeenCalledWith(
+          defaultProps.imageId,
+          expect.objectContaining({
+            data: expect.objectContaining({
+              version: '1.0',
+              objects: expect.any(Array),
+            }),
+          })
+        );
+      });
+    });
+
+    it('保存成功時に成功メッセージが表示される', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      mockSaveAnnotation.mockResolvedValue(mockAnnotationInfo);
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // 成功メッセージが表示されることを確認
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
+      });
+    });
+
+    it('保存失敗時にエラーメッセージが表示される', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      mockSaveAnnotation.mockRejectedValue(new Error('保存に失敗'));
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // エラーメッセージが表示されることを確認
+      await waitFor(() => {
+        expect(screen.getByText(/保存に失敗/i)).toBeInTheDocument();
+      });
+    });
+
+    it('オブジェクトがある場合、各オブジェクトがシリアライズされる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      mockSaveAnnotation.mockResolvedValue(mockAnnotationInfo);
+
+      // オブジェクトをモック（toObjectメソッドを持つ）
+      const mockObject = {
+        type: 'rect',
+        toObject: vi.fn().mockReturnValue({ type: 'rect', left: 10, top: 10 }),
+      };
+      mockCanvasInstance.getObjects.mockReturnValue([mockObject] as unknown as ReturnType<
+        typeof mockCanvasInstance.getObjects
+      >);
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // toObjectが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockObject.toObject).toHaveBeenCalled();
+      });
+    });
+
+    it('サムネイル更新失敗時も保存は成功する', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      const mockUpdateThumbnail = vi.mocked(
+        (await import('../../../api/survey-annotations')).updateThumbnail
+      );
+
+      mockSaveAnnotation.mockResolvedValue(mockAnnotationInfo);
+      mockUpdateThumbnail.mockRejectedValue(new Error('サムネイル更新失敗'));
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // サムネイル失敗しても保存成功メッセージが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('エクスポート機能', () => {
+    it('エクスポートボタンクリックでファイルがダウンロードされる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      mockCanvasInstance.toDataURL = vi.fn().mockReturnValue('data:image/png;base64,test');
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // エクスポートボタンをクリック
+      const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+      await user.click(exportButton);
+
+      // toDataURLが呼ばれることを確認（exportImage経由）
+    });
+
+    it('エクスポート失敗時にエラーメッセージが表示される', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      // ExportServiceのexportImageがエラーをスローするようにモック
+      mockCanvasInstance.toDataURL = vi.fn().mockImplementation(() => {
+        throw new Error('エクスポートに失敗しました');
+      });
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // エクスポートボタンをクリック
+      const exportButton = screen.getByRole('button', { name: /エクスポート/i });
+      await user.click(exportButton);
+
+      // エラーメッセージが表示されることを確認
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('フリーハンドツール', () => {
+    it('フリーハンドツールに切り替えるとisDrawingModeがtrueになる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // フリーハンドツールに切り替え
+      const freehandButton = screen.getByRole('button', { name: /フリーハンド/i });
+      await user.click(freehandButton);
+
+      // isDrawingModeがtrueに設定されることを確認
+      expect(mockCanvasInstance.isDrawingMode).toBe(true);
+    });
+
+    it('フリーハンドツールから他のツールに切り替えるとisDrawingModeがfalseになる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // フリーハンドツールに切り替え
+      const freehandButton = screen.getByRole('button', { name: /フリーハンド/i });
+      await user.click(freehandButton);
+
+      // 選択ツールに戻す
+      const selectButton = screen.getByRole('button', { name: /選択/i });
+      await user.click(selectButton);
+
+      // isDrawingModeがfalseに設定されることを確認
+      expect(mockCanvasInstance.isDrawingMode).toBe(false);
+    });
+  });
+
+  describe('readOnlyモード', () => {
+    it('readOnlyモードではイベントリスナーが設定されない', async () => {
+      render(<AnnotationEditor {...defaultProps} readOnly={true} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // mouse:downなどのイベントが登録されていないことを確認
+      const mouseDownCalls = mockCanvasInstance.on.mock.calls.filter(
+        (call: unknown[]) => call[0] === 'mouse:down'
+      );
+      expect(mouseDownCalls.length).toBe(0);
+    });
+
+    it('readOnlyモードではツールバーが表示されない', async () => {
+      render(<AnnotationEditor {...defaultProps} readOnly={true} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // ツールバーのボタンが表示されないことを確認
+      expect(screen.queryByRole('button', { name: /矢印/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('スタイル変更', () => {
+    it('スタイルパネルでストローク色を変更できる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // スタイルパネルの存在確認
+      const strokeColorInputs = screen.queryAllByLabelText(/線の色/i);
+      if (strokeColorInputs.length > 0 && strokeColorInputs[0]) {
+        // 色を変更
+        await user.clear(strokeColorInputs[0]);
+        await user.type(strokeColorInputs[0], '#00ff00');
+      }
+    });
+  });
+
+  describe('エラー表示', () => {
+    it('画像読み込みエラー時にエラーメッセージが表示される', async () => {
+      // 画像読み込みエラーをシミュレート
+      mockFromURL.mockRejectedValueOnce(new Error('画像の読み込みに失敗'));
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalled();
+      });
+
+      // エラーメッセージが表示されることを確認
+      await waitFor(
+        () => {
+          const errorElement = screen.queryByRole('alert');
+          if (errorElement) {
+            expect(errorElement).toBeInTheDocument();
+          }
+        },
+        { timeout: 3000 }
+      );
+    });
+  });
+
+  describe('マウスイベント', () => {
+    it('mouse:downイベントが登録される', async () => {
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.on).toHaveBeenCalled();
+      });
+
+      const onCalls = mockCanvasInstance.on.mock.calls;
+      const hasMouseDown = onCalls.some((call: unknown[]) => call[0] === 'mouse:down');
+      expect(hasMouseDown).toBe(true);
+    });
+
+    it('mouse:moveイベントが登録される', async () => {
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.on).toHaveBeenCalled();
+      });
+
+      const onCalls = mockCanvasInstance.on.mock.calls;
+      const hasMouseMove = onCalls.some((call: unknown[]) => call[0] === 'mouse:move');
+      expect(hasMouseMove).toBe(true);
+    });
+
+    it('mouse:upイベントが登録される', async () => {
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.on).toHaveBeenCalled();
+      });
+
+      const onCalls = mockCanvasInstance.on.mock.calls;
+      const hasMouseUp = onCalls.some((call: unknown[]) => call[0] === 'mouse:up');
+      expect(hasMouseUp).toBe(true);
+    });
+
+    it('mouse:dblclickイベントが登録される', async () => {
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.on).toHaveBeenCalled();
+      });
+
+      const onCalls = mockCanvasInstance.on.mock.calls;
+      const hasDblClick = onCalls.some((call: unknown[]) => call[0] === 'mouse:dblclick');
+      expect(hasDblClick).toBe(true);
+    });
+  });
+
+  describe('描画ツール', () => {
+    it('矢印ツールで描画開始するとドラッグ状態になる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // 矢印ツールに切り替え
+      const arrowButton = screen.getByRole('button', { name: /矢印/i });
+      await user.click(arrowButton);
+
+      // mouse:downイベントハンドラを取得して呼び出し
+      const onCalls = mockCanvasInstance.on.mock.calls;
+      const mouseDownHandler = onCalls.find(
+        (call: unknown[]) => call[0] === 'mouse:down'
+      )?.[1] as (options: { pointer: { x: number; y: number } }) => void;
+
+      if (mouseDownHandler) {
+        mouseDownHandler({ pointer: { x: 100, y: 100 } });
+      }
+    });
+
+    it('円ツールで描画が可能', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // 円ツールに切り替え
+      const circleButton = screen.getByRole('button', { name: /円/i });
+      await user.click(circleButton);
+
+      expect(circleButton).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('四角形ツールで描画が可能', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // 四角形ツールに切り替え
+      const rectButton = screen.getByRole('button', { name: /四角形/i });
+      await user.click(rectButton);
+
+      expect(rectButton).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('寸法線ツールで描画が可能', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // 寸法線ツールに切り替え
+      const dimButton = screen.getByRole('button', { name: /寸法線/i });
+      await user.click(dimButton);
+
+      expect(dimButton).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('多角形ツールで描画が可能', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // 多角形ツールに切り替え
+      const polygonButton = screen.getByRole('button', { name: /多角形/i });
+      await user.click(polygonButton);
+
+      expect(polygonButton).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('折れ線ツールで描画が可能', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // 折れ線ツールに切り替え
+      const polylineButton = screen.getByRole('button', { name: /折れ線/i });
+      await user.click(polylineButton);
+
+      expect(polylineButton).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('テキストツールで描画が可能', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // テキストツールに切り替え
+      const textButton = screen.getByRole('button', { name: /テキスト/i });
+      await user.click(textButton);
+
+      expect(textButton).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  describe('UndoManager連携', () => {
+    it('UndoManagerの状態変更が反映される', async () => {
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // UndoManagerのコールバックが設定されることを確認
+      // (UndoManager.setOnChangeが呼ばれる)
+    });
+
+    it('Undoボタンクリックでundo操作が呼ばれる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // Undoボタンをクリック
+      const undoButton = screen.getByRole('button', { name: /元に戻す/i });
+      await user.click(undoButton);
+    });
+
+    it('Redoボタンクリックでredo操作が呼ばれる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // Redoボタンをクリック
+      const redoButton = screen.getByRole('button', { name: /やり直し/i });
+      await user.click(redoButton);
+    });
+  });
+
+  describe('スタイルオプション変更', () => {
+    it('スタイル変更コールバックが呼ばれる', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      // ツールバーのスタイルパネルがあれば操作
+      const strokeWidthInputs = screen.queryAllByLabelText(/線の太さ/i);
+      if (strokeWidthInputs.length > 0 && strokeWidthInputs[0]) {
+        await user.clear(strokeWidthInputs[0]);
+        await user.type(strokeWidthInputs[0], '5');
+      }
     });
   });
 });

@@ -59,7 +59,7 @@ const ERROR_STYLES: Record<
     backgroundColor: '#fff7ed',
     borderColor: '#fed7aa',
     color: '#9a3412',
-    iconColor: '#ea580c',
+    iconColor: '#c2410c', // WCAG 2.1 AA準拠
   },
   server: {
     backgroundColor: '#fef2f2',
@@ -77,7 +77,7 @@ const ERROR_STYLES: Record<
     backgroundColor: '#fef3c7',
     borderColor: '#fcd34d',
     color: '#92400e',
-    iconColor: '#f59e0b',
+    iconColor: '#b45309', // WCAG 2.1 AA準拠
   },
   notFound: {
     backgroundColor: '#f3f4f6',
@@ -113,7 +113,7 @@ const ERROR_STYLES: Record<
     backgroundColor: '#fff7ed',
     borderColor: '#fed7aa',
     color: '#9a3412',
-    iconColor: '#ea580c',
+    iconColor: '#c2410c', // WCAG 2.1 AA準拠
   },
 };
 
@@ -332,17 +332,10 @@ function SiteSurveyErrorDisplay({
             padding: '4px',
             fontSize: '18px',
             lineHeight: 1,
-            opacity: 0.7,
             flexShrink: 0,
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '1';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '0.7';
-          }}
         >
-          x
+          ×
         </button>
       </div>
 
@@ -368,7 +361,7 @@ function SiteSurveyErrorDisplay({
                 fontSize: '14px',
                 fontWeight: 500,
                 color: '#fff',
-                backgroundColor: isRetrying ? '#9ca3af' : styles.iconColor,
+                backgroundColor: isRetrying ? '#6b7280' : styles.iconColor,
                 border: 'none',
                 borderRadius: '6px',
                 cursor: isRetrying ? 'not-allowed' : 'pointer',

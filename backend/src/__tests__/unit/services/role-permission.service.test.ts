@@ -562,4 +562,169 @@ describe('RolePermissionService', () => {
       expect(result).toBe(false);
     });
   });
+
+  describe('RBACService integration', () => {
+    it('addPermissionToRoleでキャッシュを無効化する', async () => {
+      // Arrange
+      const rbacServiceMock = {
+        invalidateUserPermissionsCacheForRole: vi.fn().mockResolvedValue(undefined),
+      };
+      const serviceWithRbac = new RolePermissionService(
+        prismaMock,
+        rbacServiceMock as unknown as ConstructorParameters<typeof RolePermissionService>[1],
+        auditLogServiceMock
+      );
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.rolePermission.create).mockResolvedValue(mockRolePermission);
+
+      // Act
+      await serviceWithRbac.addPermissionToRole(mockRoleId, mockPermissionId, 'actor-123');
+
+      // Assert
+      expect(rbacServiceMock.invalidateUserPermissionsCacheForRole).toHaveBeenCalledWith(
+        mockRoleId
+      );
+    });
+
+    it('removePermissionFromRoleでキャッシュを無効化する', async () => {
+      // Arrange
+      const rbacServiceMock = {
+        invalidateUserPermissionsCacheForRole: vi.fn().mockResolvedValue(undefined),
+      };
+      const serviceWithRbac = new RolePermissionService(
+        prismaMock,
+        rbacServiceMock as unknown as ConstructorParameters<typeof RolePermissionService>[1],
+        auditLogServiceMock
+      );
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(mockRolePermission);
+      vi.mocked(prismaMock.rolePermission.delete).mockResolvedValue(mockRolePermission);
+
+      // Act
+      await serviceWithRbac.removePermissionFromRole(mockRoleId, mockPermissionId, 'actor-123');
+
+      // Assert
+      expect(rbacServiceMock.invalidateUserPermissionsCacheForRole).toHaveBeenCalledWith(
+        mockRoleId
+      );
+    });
+  });
+
+  describe('Error handling edge cases', () => {
+    it('addPermissionToRoleで非Errorオブジェクトの場合Unknown errorを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.rolePermission.create).mockRejectedValue('string error');
+
+      // Act
+      const result = await rolePermissionService.addPermissionToRole(mockRoleId, mockPermissionId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Unknown error',
+        })
+      );
+    });
+
+    it('removePermissionFromRoleで非Errorオブジェクトの場合Unknown errorを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(mockRolePermission);
+      vi.mocked(prismaMock.rolePermission.delete).mockRejectedValue({ code: 'P2002' });
+
+      // Act
+      const result = await rolePermissionService.removePermissionFromRole(
+        mockRoleId,
+        mockPermissionId
+      );
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Unknown error',
+        })
+      );
+    });
+
+    it('getRolePermissionsで非Errorオブジェクトの場合Unknown errorを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.rolePermission.findMany).mockRejectedValue('string error');
+
+      // Act
+      const result = await rolePermissionService.getRolePermissions(mockRoleId);
+
+      // Assert
+      expect(result).toEqual(
+        Err({
+          type: 'DATABASE_ERROR',
+          message: 'Unknown error',
+        })
+      );
+    });
+
+    it('removePermissionFromRoleでロールが存在しない場合ROLE_NOT_FOUNDを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await rolePermissionService.removePermissionFromRole(
+        mockRoleId,
+        mockPermissionId
+      );
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
+    });
+
+    it('removePermissionFromRoleで権限が存在しない場合PERMISSION_NOT_FOUNDを返す', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(null);
+
+      // Act
+      const result = await rolePermissionService.removePermissionFromRole(
+        mockRoleId,
+        mockPermissionId
+      );
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'PERMISSION_NOT_FOUND' }));
+    });
+
+    it('addPermissionsToRoleでエラーが発生した場合中断する', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null); // ROLE_NOT_FOUND
+
+      // Act
+      const result = await rolePermissionService.addPermissionsToRole(mockRoleId, [
+        mockPermissionId,
+      ]);
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
+    });
+
+    it('removePermissionsFromRoleでエラーが発生した場合中断する', async () => {
+      // Arrange
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null); // ROLE_NOT_FOUND
+
+      // Act
+      const result = await rolePermissionService.removePermissionsFromRole(mockRoleId, [
+        mockPermissionId,
+      ]);
+
+      // Assert
+      expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
+    });
+  });
 });

@@ -577,5 +577,115 @@ describe('RectangleTool', () => {
         expect(json.height).toBe(150);
       });
     });
+
+    describe('fromObject() デシリアライズ', () => {
+      it('JSONオブジェクトからRectangleShapeを復元できる', async () => {
+        const json = {
+          type: 'rectangleShape' as const,
+          left: 100,
+          top: 100,
+          width: 200,
+          height: 150,
+          stroke: '#ff0000',
+          strokeWidth: 4,
+          fill: '#00ff00',
+        };
+
+        const rectangle = await RectangleShape.fromObject(json);
+
+        expect(rectangle).toBeInstanceOf(RectangleShape);
+        expect(rectangle.positionX).toBe(100);
+        expect(rectangle.positionY).toBe(100);
+        expect(rectangle.shapeWidth).toBe(200);
+        expect(rectangle.shapeHeight).toBe(150);
+        expect(rectangle.stroke).toBe('#ff0000');
+        expect(rectangle.strokeWidth).toBe(4);
+        expect(rectangle.fill).toBe('#00ff00');
+      });
+
+      it('デフォルトオプションで復元できる', async () => {
+        const json = {
+          type: 'rectangleShape' as const,
+          left: 50,
+          top: 50,
+          width: 100,
+          height: 100,
+          stroke: '#000000',
+          strokeWidth: 2,
+          fill: 'transparent',
+        };
+
+        const rectangle = await RectangleShape.fromObject(json);
+
+        expect(rectangle.type).toBe('rectangleShape');
+        expect(rectangle.isSquare).toBe(true);
+      });
+
+      it('toObject()で出力したJSONをfromObject()で復元できる', async () => {
+        const originalRect = new RectangleShape(120, 80, 250, 180, {
+          stroke: '#00ff00',
+          strokeWidth: 3,
+          fill: '#ff00ff',
+        });
+
+        const json = originalRect.toObject();
+        const restoredRect = await RectangleShape.fromObject(json);
+
+        expect(restoredRect.positionX).toBe(originalRect.positionX);
+        expect(restoredRect.positionY).toBe(originalRect.positionY);
+        expect(restoredRect.shapeWidth).toBe(originalRect.shapeWidth);
+        expect(restoredRect.shapeHeight).toBe(originalRect.shapeHeight);
+        expect(restoredRect.stroke).toBe(originalRect.stroke);
+        expect(restoredRect.strokeWidth).toBe(originalRect.strokeWidth);
+        expect(restoredRect.fill).toBe(originalRect.fill);
+      });
+    });
+
+    describe('setStyle() 部分更新', () => {
+      it('strokeのみ更新できる', () => {
+        const rectangle = new RectangleShape(100, 100, 200, 150);
+        const originalStrokeWidth = rectangle.strokeWidth;
+        const originalFill = rectangle.fill;
+
+        rectangle.setStyle({ stroke: '#0000ff' });
+
+        expect(rectangle.stroke).toBe('#0000ff');
+        expect(rectangle.strokeWidth).toBe(originalStrokeWidth);
+        expect(rectangle.fill).toBe(originalFill);
+      });
+
+      it('strokeWidthのみ更新できる', () => {
+        const rectangle = new RectangleShape(100, 100, 200, 150);
+        const originalStroke = rectangle.stroke;
+        const originalFill = rectangle.fill;
+
+        rectangle.setStyle({ strokeWidth: 8 });
+
+        expect(rectangle.stroke).toBe(originalStroke);
+        expect(rectangle.strokeWidth).toBe(8);
+        expect(rectangle.fill).toBe(originalFill);
+      });
+
+      it('fillのみ更新できる', () => {
+        const rectangle = new RectangleShape(100, 100, 200, 150);
+        const originalStroke = rectangle.stroke;
+        const originalStrokeWidth = rectangle.strokeWidth;
+
+        rectangle.setStyle({ fill: '#ffff00' });
+
+        expect(rectangle.stroke).toBe(originalStroke);
+        expect(rectangle.strokeWidth).toBe(originalStrokeWidth);
+        expect(rectangle.fill).toBe('#ffff00');
+      });
+
+      it('空のオプションでも安全に処理される', () => {
+        const rectangle = new RectangleShape(100, 100, 200, 150);
+        const originalStyle = rectangle.getStyle();
+
+        rectangle.setStyle({});
+
+        expect(rectangle.getStyle()).toEqual(originalStyle);
+      });
+    });
   });
 });

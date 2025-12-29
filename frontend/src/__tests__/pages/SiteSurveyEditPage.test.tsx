@@ -279,4 +279,57 @@ describe('SiteSurveyEditPage', () => {
       });
     });
   });
+
+  describe('一般的なエラー', () => {
+    it('ApiError以外のエラー時にデフォルトメッセージを表示する', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(siteSurveysApi.updateSiteSurvey).mockRejectedValue(new Error('Network Error'));
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '現場調査を編集' })).toBeInTheDocument();
+      });
+
+      // 送信
+      const submitButton = screen.getByRole('button', { name: /保存/ });
+      fireEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('現場調査の更新に失敗しました');
+      });
+    });
+
+    it('ApiErrorでメッセージがない場合にデフォルトメッセージを表示する', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      const apiError = new ApiError(500, '', {});
+      vi.mocked(siteSurveysApi.updateSiteSurvey).mockRejectedValue(apiError);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '現場調査を編集' })).toBeInTheDocument();
+      });
+
+      // 送信
+      const submitButton = screen.getByRole('button', { name: /保存/ });
+      fireEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('現場調査の更新に失敗しました');
+      });
+    });
+
+    it('データ取得でApiError以外のエラー時にデフォルトメッセージを表示する', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockRejectedValue(new Error('Network Error'));
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('エラーが発生しました')).toBeInTheDocument();
+    });
+  });
 });

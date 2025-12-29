@@ -126,7 +126,7 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
               読み込み中...
             </div>
           ) : roles.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
+            <div style={{ padding: '40px', textAlign: 'center', color: '#5c5c5c' }}>
               ロールがありません
             </div>
           ) : (
@@ -168,9 +168,9 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
                           <button
                             style={{
                               backgroundColor: '#fff',
-                              color: '#d32f2f',
+                              color: '#c62828',
                               padding: '6px 12px',
-                              border: '1px solid #d32f2f',
+                              border: '1px solid #c62828',
                               borderRadius: '4px',
                               fontSize: '14px',
                               cursor: 'pointer',
@@ -197,7 +197,7 @@ const RolePermissionManager: React.FC<RolePermissionManagerProps> = ({
               読み込み中...
             </div>
           ) : permissions.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#757575' }}>
+            <div style={{ padding: '40px', textAlign: 'center', color: '#5c5c5c' }}>
               権限がありません
             </div>
           ) : (

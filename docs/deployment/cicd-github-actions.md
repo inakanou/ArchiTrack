@@ -14,16 +14,20 @@ ArchiTrackは、GitHub ActionsでCI/CDパイプラインを実装しています
 ci.yml
 ├── CI Jobs（並列実行）
 │   ├── lint（backend, frontend, e2e）
-│   ├── requirement-coverage
+│   ├── requirement-coverage（要件カバレッジ100%チェック）
 │   ├── typecheck（backend, frontend, e2e）
-│   ├── test-unit（backend, frontend）
-│   ├── build（backend, frontend）
-│   └── security（backend, frontend）
+│   ├── test-unit（backend, frontend + カバレッジ80%チェック）
+│   ├── build（backend, frontend + ES Module検証）
+│   └── security（セキュリティ監査）
 ├── test-storybook（lint, typecheck, build 完了後）
-├── test-integration（全CI Jobs完了後）
-└── CD Jobs（CI成功後）
-    ├── deploy-staging（developブランチ）
-    └── deploy-production（mainブランチ）
+│   ├── Storybookテスト（アクセシビリティ含む）
+│   └── Storybookストーリーカバレッジチェック（80%ターゲット）
+├── test-integration（全CI Jobs + test-storybook + requirement-coverage 完了後）
+│   ├── 統合テスト（Docker環境）
+│   └── E2Eテスト（Playwright）
+└── CD Jobs（ci-success後）
+    ├── deploy-staging（developブランチ→Railway Staging）
+    └── deploy-production（mainブランチ→Railway Production）
 ```
 
 ### トリガー
@@ -42,11 +46,11 @@ ci.yml
 1. **Lint & Format Check**: Prettier、ESLint（backend, frontend, e2e並列）
 2. **Requirement Coverage**: 要件カバレッジ100%チェック
 3. **Type Check**: TypeScript型チェック（backend, frontend, e2e並列）
-4. **Unit Tests**: ユニットテスト + カバレッジ（backend, frontend並列）
-5. **Build Test**: ビルド成功確認 + ESモジュール検証
-6. **Storybook Tests**: コンポーネントテスト（Playwright使用）
+4. **Unit Tests**: ユニットテスト + カバレッジ80%チェック（backend, frontend並列）
+5. **Build Test**: ビルド成功確認 + ESモジュール検証（backend）
+6. **Storybook Tests**: コンポーネントテスト + アクセシビリティテスト + ストーリーカバレッジ80%チェック
 7. **Integration & E2E Tests**: Docker環境（docker-compose.ci.yml）で統合・E2Eテスト
-8. **Security Scan**: npm audit によるセキュリティスキャン
+8. **Security Scan**: npm audit によるセキュリティスキャン（allowlist対応）
 
 ### CI環境のDocker構成
 

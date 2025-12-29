@@ -135,14 +135,6 @@ function ToastNotification({ toasts, onDismiss, position = 'top-right' }: ToastN
                   padding: '4px',
                   fontSize: '18px',
                   lineHeight: 1,
-                  opacity: 0.7,
-                  transition: 'opacity 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.opacity = '1';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.opacity = '0.7';
                 }}
               >
                 ×

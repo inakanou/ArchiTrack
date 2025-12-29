@@ -1187,4 +1187,173 @@ describe('TextTool', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // fromObject() デシリアライズテスト
+  // ==========================================================================
+  describe('fromObject() デシリアライズ', () => {
+    it('JSONオブジェクトからTextAnnotationを復元できる', async () => {
+      const json = {
+        type: 'textAnnotation' as const,
+        text: 'テストテキスト',
+        position: { x: 100, y: 200 },
+        fontSize: 24,
+        fontFamily: 'serif',
+        fill: '#ff0000',
+        backgroundColor: '#ffffff',
+        balloonStyle: 'rounded' as const,
+        balloonBackgroundColor: '#ffffcc',
+        balloonStrokeColor: '#333333',
+        balloonStrokeWidth: 2,
+        balloonPadding: 12,
+      };
+
+      const textAnnotation = await TextAnnotation.fromObject(json);
+
+      expect(textAnnotation).toBeInstanceOf(TextAnnotation);
+      expect(textAnnotation.getText()).toBe('テストテキスト');
+      expect(textAnnotation.position).toEqual({ x: 100, y: 200 });
+      expect(textAnnotation.fontSize).toBe(24);
+      expect(textAnnotation.fontFamily).toBe('serif');
+      expect(textAnnotation.fill).toBe('#ff0000');
+      expect(textAnnotation.backgroundColor).toBe('#ffffff');
+      expect(textAnnotation.getBalloonStyle()).toBe('rounded');
+      expect(textAnnotation.getBalloonBackgroundColor()).toBe('#ffffcc');
+      expect(textAnnotation.getBalloonStrokeColor()).toBe('#333333');
+      expect(textAnnotation.getBalloonStrokeWidth()).toBe(2);
+      expect(textAnnotation.getBalloonPadding()).toBe(12);
+    });
+
+    it('吹き出し設定なしでも復元できる', async () => {
+      const json = {
+        type: 'textAnnotation' as const,
+        text: 'シンプルテキスト',
+        position: { x: 50, y: 100 },
+        fontSize: 16,
+        fontFamily: 'sans-serif',
+        fill: '#000000',
+        backgroundColor: 'transparent',
+        balloonStyle: 'none' as const,
+        balloonBackgroundColor: '',
+        balloonStrokeColor: '',
+        balloonStrokeWidth: 0,
+        balloonPadding: 0,
+      };
+
+      const textAnnotation = await TextAnnotation.fromObject(json);
+
+      expect(textAnnotation).toBeInstanceOf(TextAnnotation);
+      expect(textAnnotation.getText()).toBe('シンプルテキスト');
+      expect(textAnnotation.getBalloonStyle()).toBe('none');
+    });
+
+    it('toObject()で出力したJSONをfromObject()で復元できる', async () => {
+      const original = new TextAnnotation(
+        { x: 150, y: 250 },
+        {
+          initialText: '往復テスト',
+          fontSize: 20,
+          fontFamily: 'monospace',
+          fill: '#123456',
+          backgroundColor: '#abcdef',
+          balloonStyle: 'ellipse',
+        }
+      );
+      original.setBalloonOptions({
+        backgroundColor: '#fedcba',
+        strokeColor: '#654321',
+        strokeWidth: 3,
+        padding: 16,
+      });
+
+      const json = original.toObject();
+      const restored = await TextAnnotation.fromObject(json);
+
+      expect(restored.getText()).toBe(original.getText());
+      expect(restored.fontSize).toBe(original.fontSize);
+      expect(restored.fontFamily).toBe(original.fontFamily);
+      expect(restored.fill).toBe(original.fill);
+      expect(restored.getBalloonStyle()).toBe(original.getBalloonStyle());
+      expect(restored.getBalloonBackgroundColor()).toBe(original.getBalloonBackgroundColor());
+      expect(restored.getBalloonStrokeColor()).toBe(original.getBalloonStrokeColor());
+      expect(restored.getBalloonStrokeWidth()).toBe(original.getBalloonStrokeWidth());
+      expect(restored.getBalloonPadding()).toBe(original.getBalloonPadding());
+    });
+  });
+
+  // ==========================================================================
+  // setStyle() 部分更新テスト
+  // ==========================================================================
+  describe('setStyle() 部分更新', () => {
+    it('fontSizeのみ更新できる', () => {
+      const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+      textAnnotation.setStyle({ fontSize: 32 });
+
+      expect(textAnnotation.fontSize).toBe(32);
+      expect(textAnnotation.fontFamily).toBe(DEFAULT_TEXT_OPTIONS.fontFamily);
+      expect(textAnnotation.fill).toBe(DEFAULT_TEXT_OPTIONS.fill);
+    });
+
+    it('fontFamilyのみ更新できる', () => {
+      const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+      textAnnotation.setStyle({ fontFamily: 'monospace' });
+
+      expect(textAnnotation.fontSize).toBe(DEFAULT_TEXT_OPTIONS.fontSize);
+      expect(textAnnotation.fontFamily).toBe('monospace');
+      expect(textAnnotation.fill).toBe(DEFAULT_TEXT_OPTIONS.fill);
+    });
+
+    it('fillのみ更新できる', () => {
+      const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+      textAnnotation.setStyle({ fill: '#0000ff' });
+
+      expect(textAnnotation.fontSize).toBe(DEFAULT_TEXT_OPTIONS.fontSize);
+      expect(textAnnotation.fontFamily).toBe(DEFAULT_TEXT_OPTIONS.fontFamily);
+      expect(textAnnotation.fill).toBe('#0000ff');
+    });
+
+    it('backgroundColorのみ更新できる', () => {
+      const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+      textAnnotation.setStyle({ backgroundColor: '#ff00ff' });
+
+      expect(textAnnotation.fontSize).toBe(DEFAULT_TEXT_OPTIONS.fontSize);
+      expect(textAnnotation.backgroundColor).toBe('#ff00ff');
+    });
+
+    it('空のオプションでも安全に処理される', () => {
+      const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+      textAnnotation.setStyle({});
+
+      expect(textAnnotation.fontSize).toBe(DEFAULT_TEXT_OPTIONS.fontSize);
+      expect(textAnnotation.fontFamily).toBe(DEFAULT_TEXT_OPTIONS.fontFamily);
+      expect(textAnnotation.fill).toBe(DEFAULT_TEXT_OPTIONS.fill);
+    });
+  });
+
+  // ==========================================================================
+  // 編集モード追加テスト
+  // ==========================================================================
+  describe('編集モード追加テスト', () => {
+    it('キャンバスなしで編集モードに入れる', () => {
+      const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+
+      textAnnotation.enterEditing();
+
+      expect(textAnnotation.isEditing).toBe(true);
+    });
+
+    it('キャンバスなしで編集モードを終了できる', () => {
+      const textAnnotation = new TextAnnotation({ x: 100, y: 200 });
+      textAnnotation.enterEditing();
+
+      textAnnotation.exitEditing();
+
+      expect(textAnnotation.isEditing).toBe(false);
+    });
+  });
 });

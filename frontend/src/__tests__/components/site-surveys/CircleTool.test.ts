@@ -591,5 +591,115 @@ describe('CircleTool', () => {
         expect(json.ry).toBe(75);
       });
     });
+
+    describe('fromObject() デシリアライズ', () => {
+      it('JSONオブジェクトからCircleShapeを復元できる', async () => {
+        const json = {
+          type: 'circleShape' as const,
+          centerX: 200,
+          centerY: 150,
+          rx: 100,
+          ry: 75,
+          stroke: '#ff0000',
+          strokeWidth: 4,
+          fill: '#00ff00',
+        };
+
+        const circle = await CircleShape.fromObject(json);
+
+        expect(circle).toBeInstanceOf(CircleShape);
+        expect(circle.centerX).toBe(200);
+        expect(circle.centerY).toBe(150);
+        expect(circle.rx).toBe(100);
+        expect(circle.ry).toBe(75);
+        expect(circle.stroke).toBe('#ff0000');
+        expect(circle.strokeWidth).toBe(4);
+        expect(circle.fill).toBe('#00ff00');
+      });
+
+      it('デフォルトオプションで復元できる', async () => {
+        const json = {
+          type: 'circleShape' as const,
+          centerX: 150,
+          centerY: 150,
+          rx: 50,
+          ry: 50,
+          stroke: '#000000',
+          strokeWidth: 2,
+          fill: 'transparent',
+        };
+
+        const circle = await CircleShape.fromObject(json);
+
+        expect(circle.type).toBe('circleShape');
+        expect(circle.isCircle).toBe(true);
+      });
+
+      it('toObject()で出力したJSONをfromObject()で復元できる', async () => {
+        const originalCircle = new CircleShape(180, 120, 80, 60, {
+          stroke: '#00ff00',
+          strokeWidth: 3,
+          fill: '#ff00ff',
+        });
+
+        const json = originalCircle.toObject();
+        const restoredCircle = await CircleShape.fromObject(json);
+
+        expect(restoredCircle.centerX).toBe(originalCircle.centerX);
+        expect(restoredCircle.centerY).toBe(originalCircle.centerY);
+        expect(restoredCircle.rx).toBe(originalCircle.rx);
+        expect(restoredCircle.ry).toBe(originalCircle.ry);
+        expect(restoredCircle.stroke).toBe(originalCircle.stroke);
+        expect(restoredCircle.strokeWidth).toBe(originalCircle.strokeWidth);
+        expect(restoredCircle.fill).toBe(originalCircle.fill);
+      });
+    });
+
+    describe('setStyle() 部分更新', () => {
+      it('strokeのみ更新できる', () => {
+        const circle = new CircleShape(150, 150, 50, 50);
+        const originalStrokeWidth = circle.strokeWidth;
+        const originalFill = circle.fill;
+
+        circle.setStyle({ stroke: '#0000ff' });
+
+        expect(circle.stroke).toBe('#0000ff');
+        expect(circle.strokeWidth).toBe(originalStrokeWidth);
+        expect(circle.fill).toBe(originalFill);
+      });
+
+      it('strokeWidthのみ更新できる', () => {
+        const circle = new CircleShape(150, 150, 50, 50);
+        const originalStroke = circle.stroke;
+        const originalFill = circle.fill;
+
+        circle.setStyle({ strokeWidth: 8 });
+
+        expect(circle.stroke).toBe(originalStroke);
+        expect(circle.strokeWidth).toBe(8);
+        expect(circle.fill).toBe(originalFill);
+      });
+
+      it('fillのみ更新できる', () => {
+        const circle = new CircleShape(150, 150, 50, 50);
+        const originalStroke = circle.stroke;
+        const originalStrokeWidth = circle.strokeWidth;
+
+        circle.setStyle({ fill: '#ffff00' });
+
+        expect(circle.stroke).toBe(originalStroke);
+        expect(circle.strokeWidth).toBe(originalStrokeWidth);
+        expect(circle.fill).toBe('#ffff00');
+      });
+
+      it('空のオプションでも安全に処理される', () => {
+        const circle = new CircleShape(150, 150, 50, 50);
+        const originalStyle = circle.getStyle();
+
+        circle.setStyle({});
+
+        expect(circle.getStyle()).toEqual(originalStyle);
+      });
+    });
   });
 });

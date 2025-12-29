@@ -850,4 +850,43 @@ describe('UserManagement Component', () => {
       expect(container).toHaveClass('mobile-optimized');
     });
   });
+
+  describe('ロールダイアログ操作', () => {
+    it('ロール作成ダイアログのキャンセルボタンでダイアログを閉じる', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockImplementation((url: string) => {
+        if (url.includes('/users')) return Promise.resolve(mockUsers);
+        if (url.includes('/roles')) return Promise.resolve(mockRoles);
+        if (url.includes('/permissions')) return Promise.resolve(mockPermissions);
+        return Promise.resolve([]);
+      });
+
+      render(<UserManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('admin@example.com')).toBeInTheDocument();
+      });
+
+      // ロールタブに切り替え
+      const rolesTab = screen.getByLabelText('ロールタブ');
+      await user.click(rolesTab);
+
+      // ロール作成ボタンをクリック
+      const createButton = screen.getByLabelText('新しいロールを作成');
+      await user.click(createButton);
+
+      // ダイアログが表示される
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      // キャンセルボタンをクリック
+      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
+      await user.click(cancelButton);
+
+      // ダイアログが閉じる
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+  });
 });

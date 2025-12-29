@@ -435,4 +435,155 @@ describe('ImageDeleteService', () => {
       expect(error.cause).toBe(originalError);
     });
   });
+
+  describe('constructor validation', () => {
+    it('should throw error when neither storageProvider nor s3Client+bucketName is provided', () => {
+      const invalidDeps: ImageDeleteServiceDependencies = {
+        prisma: mockPrisma as unknown as PrismaClient,
+        // Neither storageProvider nor s3Client+bucketName
+      };
+
+      expect(() => new ImageDeleteService(invalidDeps)).toThrow(
+        'Either storageProvider or s3Client+bucketName is required'
+      );
+    });
+
+    it('should throw error when only s3Client is provided without bucketName', () => {
+      const invalidDeps: ImageDeleteServiceDependencies = {
+        prisma: mockPrisma as unknown as PrismaClient,
+        s3Client: mockS3Client as unknown as S3Client,
+        // Missing bucketName
+      };
+
+      expect(() => new ImageDeleteService(invalidDeps)).toThrow(
+        'Either storageProvider or s3Client+bucketName is required'
+      );
+    });
+
+    it('should throw error when only bucketName is provided without s3Client', () => {
+      const invalidDeps: ImageDeleteServiceDependencies = {
+        prisma: mockPrisma as unknown as PrismaClient,
+        bucketName: 'test-bucket',
+        // Missing s3Client
+      };
+
+      expect(() => new ImageDeleteService(invalidDeps)).toThrow(
+        'Either storageProvider or s3Client+bucketName is required'
+      );
+    });
+  });
+
+  describe('storageProvider', () => {
+    let mockStorageProvider: {
+      delete: Mock;
+    };
+
+    beforeEach(() => {
+      mockStorageProvider = {
+        delete: vi.fn(),
+      };
+    });
+
+    it('should use storageProvider.delete when storageProvider is provided', async () => {
+      // Arrange
+      const serviceWithStorageProvider = new ImageDeleteService({
+        prisma: mockPrisma as unknown as PrismaClient,
+        storageProvider:
+          mockStorageProvider as unknown as import('../../../storage/storage-provider.interface.js').StorageProvider,
+      });
+
+      mockPrisma.surveyImage.findUnique.mockResolvedValue(testImage);
+      mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+        return fn(mockPrisma);
+      });
+      mockPrisma.surveyImage.delete.mockResolvedValue(testImage);
+      mockStorageProvider.delete.mockResolvedValue(undefined);
+
+      // Act
+      await serviceWithStorageProvider.delete('image-123');
+
+      // Assert
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(testImage.originalPath);
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(testImage.thumbnailPath);
+      expect(mockS3Client.send).not.toHaveBeenCalled();
+    });
+
+    it('should log warning when storageProvider.delete fails', async () => {
+      // Arrange
+      const serviceWithStorageProvider = new ImageDeleteService({
+        prisma: mockPrisma as unknown as PrismaClient,
+        storageProvider:
+          mockStorageProvider as unknown as import('../../../storage/storage-provider.interface.js').StorageProvider,
+      });
+
+      mockPrisma.surveyImage.findUnique.mockResolvedValue(testImage);
+      mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+        return fn(mockPrisma);
+      });
+      mockPrisma.surveyImage.delete.mockResolvedValue(testImage);
+      mockStorageProvider.delete.mockRejectedValue(new Error('Storage error'));
+
+      // Act
+      await serviceWithStorageProvider.delete('image-123');
+
+      // Assert - should log warning for orphaned files
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: testImage.originalPath,
+        }),
+        expect.stringContaining('孤立ファイル')
+      );
+    });
+  });
+
+  describe('deleteBySurveyId - thumbnail deletion failures', () => {
+    const testImagesForThumbnailTest: SurveyImage[] = [
+      {
+        id: 'image-1',
+        surveyId: 'survey-456',
+        originalPath: 'surveys/survey-456/img1.jpg',
+        thumbnailPath: 'surveys/survey-456/img1_thumb.jpg',
+        fileName: 'img1.jpg',
+        fileSize: 100000,
+        width: 800,
+        height: 600,
+        displayOrder: 1,
+        comment: null,
+        includeInReport: false,
+        createdAt: new Date('2025-01-01'),
+      },
+    ];
+
+    beforeEach(() => {
+      (mockPrisma.surveyImage as unknown as { findMany: Mock }).findMany = vi.fn();
+      (mockPrisma.surveyImage as unknown as { deleteMany: Mock }).deleteMany = vi.fn();
+      (mockPrisma.imageAnnotation as unknown as { deleteMany: Mock }).deleteMany = vi.fn();
+    });
+
+    it('should track orphaned files when thumbnail deletion fails', async () => {
+      // Arrange
+      const findManyMock = mockPrisma.surveyImage as unknown as { findMany: Mock };
+      const deleteManyMock = mockPrisma.surveyImage as unknown as { deleteMany: Mock };
+      const annotationDeleteManyMock = mockPrisma.imageAnnotation as unknown as {
+        deleteMany: Mock;
+      };
+
+      findManyMock.findMany.mockResolvedValue(testImagesForThumbnailTest);
+      mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+        return fn(mockPrisma);
+      });
+      annotationDeleteManyMock.deleteMany.mockResolvedValue({ count: 0 });
+      deleteManyMock.deleteMany.mockResolvedValue({ count: 1 });
+
+      // Original succeeds, thumbnail fails
+      mockS3Client.send.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('S3 error'));
+
+      // Act
+      const result = await service.deleteBySurveyId('survey-456');
+
+      // Assert
+      expect(result.deletedCount).toBe(1);
+      expect(result.orphanedFiles).toContain(testImagesForThumbnailTest[0]!.thumbnailPath);
+    });
+  });
 });

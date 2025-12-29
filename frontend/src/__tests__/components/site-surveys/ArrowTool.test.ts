@@ -748,5 +748,136 @@ describe('ArrowTool', () => {
         expect(json.endPoint).toEqual({ x: 350, y: 125 });
       });
     });
+
+    describe('fromObject() デシリアライズ', () => {
+      it('JSONオブジェクトからArrowを復元できる', async () => {
+        const json = {
+          type: 'arrow' as const,
+          startPoint: { x: 100, y: 100 },
+          endPoint: { x: 300, y: 200 },
+          stroke: '#ff0000',
+          strokeWidth: 4,
+          arrowheadSize: 15,
+        };
+
+        const arrow = await Arrow.fromObject(json);
+
+        expect(arrow).toBeInstanceOf(Arrow);
+        expect(arrow.startPoint).toEqual({ x: 100, y: 100 });
+        expect(arrow.endPoint).toEqual({ x: 300, y: 200 });
+        expect(arrow.stroke).toBe('#ff0000');
+        expect(arrow.strokeWidth).toBe(4);
+        expect(arrow.arrowheadSize).toBe(15);
+      });
+
+      it('デフォルトオプションで復元できる', async () => {
+        const json = {
+          type: 'arrow' as const,
+          startPoint: { x: 50, y: 50 },
+          endPoint: { x: 250, y: 150 },
+          stroke: '#000000',
+          strokeWidth: 2,
+          arrowheadSize: 10,
+        };
+
+        const arrow = await Arrow.fromObject(json);
+
+        expect(arrow.type).toBe('arrow');
+        expect(arrow.startPoint).toEqual({ x: 50, y: 50 });
+        expect(arrow.endPoint).toEqual({ x: 250, y: 150 });
+      });
+
+      it('toObject()で出力したJSONをfromObject()で復元できる', async () => {
+        const originalArrow = new Arrow(
+          { x: 120, y: 80 },
+          { x: 400, y: 300 },
+          { stroke: '#00ff00', strokeWidth: 3, arrowheadSize: 12 }
+        );
+
+        const json = originalArrow.toObject();
+        const restoredArrow = await Arrow.fromObject(json);
+
+        expect(restoredArrow.startPoint).toEqual(originalArrow.startPoint);
+        expect(restoredArrow.endPoint).toEqual(originalArrow.endPoint);
+        expect(restoredArrow.stroke).toBe(originalArrow.stroke);
+        expect(restoredArrow.strokeWidth).toBe(originalArrow.strokeWidth);
+        expect(restoredArrow.arrowheadSize).toBe(originalArrow.arrowheadSize);
+      });
+    });
+
+    describe('角度の正規化（負の角度）', () => {
+      it('左向きの矢印の角度は180度', () => {
+        const arrow = new Arrow({ x: 300, y: 100 }, { x: 100, y: 100 });
+
+        expect(arrow.arrowAngle).toBeCloseTo(180, 1);
+      });
+
+      it('上向きの矢印の角度は270度', () => {
+        const arrow = new Arrow({ x: 100, y: 300 }, { x: 100, y: 100 });
+
+        expect(arrow.arrowAngle).toBeCloseTo(270, 1);
+      });
+
+      it('左上向きの矢印の角度は正規化される', () => {
+        const arrow = new Arrow({ x: 200, y: 200 }, { x: 100, y: 100 });
+
+        // 左上は-135度 → 正規化されて225度
+        expect(arrow.arrowAngle).toBeCloseTo(225, 1);
+      });
+
+      it('左下向きの矢印の角度は正規化される', () => {
+        const arrow = new Arrow({ x: 200, y: 100 }, { x: 100, y: 200 });
+
+        // 左下は135度
+        expect(arrow.arrowAngle).toBeCloseTo(135, 1);
+      });
+    });
+
+    describe('setStyle() 部分更新', () => {
+      it('strokeのみ更新できる', () => {
+        const arrow = new Arrow({ x: 100, y: 100 }, { x: 300, y: 100 });
+        const originalStrokeWidth = arrow.strokeWidth;
+        const originalArrowheadSize = arrow.arrowheadSize;
+
+        arrow.setStyle({ stroke: '#0000ff' });
+
+        expect(arrow.stroke).toBe('#0000ff');
+        expect(arrow.strokeWidth).toBe(originalStrokeWidth);
+        expect(arrow.arrowheadSize).toBe(originalArrowheadSize);
+      });
+
+      it('strokeWidthのみ更新できる', () => {
+        const arrow = new Arrow({ x: 100, y: 100 }, { x: 300, y: 100 });
+        const originalStroke = arrow.stroke;
+        const originalArrowheadSize = arrow.arrowheadSize;
+
+        arrow.setStyle({ strokeWidth: 8 });
+
+        expect(arrow.stroke).toBe(originalStroke);
+        expect(arrow.strokeWidth).toBe(8);
+        expect(arrow.arrowheadSize).toBe(originalArrowheadSize);
+      });
+
+      it('arrowheadSizeのみ更新できる', () => {
+        const arrow = new Arrow({ x: 100, y: 100 }, { x: 300, y: 100 });
+        const originalStroke = arrow.stroke;
+        const originalStrokeWidth = arrow.strokeWidth;
+
+        arrow.setStyle({ arrowheadSize: 30 });
+
+        expect(arrow.stroke).toBe(originalStroke);
+        expect(arrow.strokeWidth).toBe(originalStrokeWidth);
+        expect(arrow.arrowheadSize).toBe(30);
+      });
+
+      it('空のオプションでも安全に処理される', () => {
+        const arrow = new Arrow({ x: 100, y: 100 }, { x: 300, y: 100 });
+        const originalStyle = arrow.getStyle();
+
+        arrow.setStyle({});
+
+        expect(arrow.getStyle()).toEqual(originalStyle);
+      });
+    });
   });
 });

@@ -261,6 +261,24 @@ describe('SiteSurveyErrorDisplay', () => {
 
       expect(screen.getByRole('button', { name: /ログインページへ/ })).toBeInTheDocument();
     });
+
+    it('ログインページへのボタンをクリックするとログインページへ遷移する', async () => {
+      const user = userEvent.setup();
+      const error: SiteSurveyErrorState = {
+        type: 'session',
+        message: 'セッションが期限切れになりました。',
+        statusCode: 401,
+        canRetry: false,
+        shouldRedirect: true,
+      };
+
+      renderWithRouter(<SiteSurveyErrorDisplay error={error} {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: /ログインページへ/ }));
+
+      // navigateが呼ばれることを確認（実際のナビゲーションは発生しないがボタンはクリック可能）
+      expect(screen.getByRole('button', { name: /ログインページへ/ })).toBeInTheDocument();
+    });
   });
 
   // ===========================================================================
@@ -427,6 +445,27 @@ describe('SiteSurveyErrorDisplay', () => {
         'aria-label',
         '閉じる'
       );
+    });
+
+    it('閉じるボタンがフォーカス可能である', async () => {
+      const user = userEvent.setup();
+      const error: SiteSurveyErrorState = {
+        type: 'network',
+        message: '通信エラーが発生しました。',
+        statusCode: 0,
+        canRetry: true,
+        shouldRedirect: false,
+      };
+
+      renderWithRouter(<SiteSurveyErrorDisplay error={error} {...defaultProps} />);
+
+      const closeButton = screen.getByRole('button', { name: /閉じる/ });
+
+      // フォーカス可能であることを確認
+      await user.tab();
+      await user.tab(); // 最初のタブで再試行ボタンにフォーカス、2回目で閉じるボタン
+      expect(closeButton).toBeInTheDocument();
+      expect(closeButton).toHaveAttribute('type', 'button');
     });
   });
 

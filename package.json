@@ -12,7 +12,7 @@
     "dev:docker:logs": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev logs -f",
     "test:docker": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d",
     "test:docker:build": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d --build",
-    "test:docker:down": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down -v",
+    "test:docker:down": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test down",
     "test:docker:logs": "docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test logs -f",
     "test:e2e": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:test@localhost:5433/architrack_test playwright test",
     "test:e2e:ui": "cross-env NODE_ENV=test DISABLE_RATE_LIMIT=true DATABASE_URL=postgresql://postgres:test@localhost:5433/architrack_test playwright test --ui",
@@ -31,6 +31,8 @@
     "audit:security": "node scripts/security-audit.mjs",
     "audit:security:verbose": "node scripts/security-audit.mjs --verbose",
     "audit:security:warn": "node scripts/security-audit.mjs --mode=warn",
+    "coverage:staged:backend": "node scripts/check-staged-coverage.cjs --project=backend",
+    "coverage:staged:frontend": "node scripts/check-staged-coverage.cjs --project=frontend",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -38,7 +40,7 @@
     "@commitlint/cli": "^20.2.0",
     "@commitlint/config-conventional": "^20.2.0",
     "@eslint/js": "^9.39.2",
-    "@playwright/test": "^1.40.0",
+    "@playwright/test": "^1.57.0",
     "@types/node": "^24.10.1",
     "@typescript-eslint/eslint-plugin": "^8.47.0",
     "@typescript-eslint/parser": "^8.48.1",

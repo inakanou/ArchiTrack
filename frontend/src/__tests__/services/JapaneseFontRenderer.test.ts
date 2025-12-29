@@ -584,3 +584,218 @@ describe('エクスポート時の日本語レンダリング', () => {
     expect(fontFamily).toMatch(/"Noto Sans JP".*sans-serif/);
   });
 });
+
+describe('JapaneseFontRenderer追加テスト', () => {
+  let renderer: JapaneseFontRenderer;
+
+  beforeEach(() => {
+    renderer = new JapaneseFontRenderer();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe('reset()', () => {
+    it('状態をNOT_LOADEDにリセットする', async () => {
+      const MockFontFace = createMockFontFaceClass('success');
+      const mockFonts = {
+        add: vi.fn(),
+        check: vi.fn().mockReturnValue(true),
+      };
+
+      vi.stubGlobal('FontFace', MockFontFace);
+      vi.stubGlobal('document', { fonts: mockFonts });
+
+      await renderer.load();
+      expect(renderer.getStatus()).toBe(FontLoadStatus.LOADED);
+
+      renderer.reset();
+      expect(renderer.getStatus()).toBe(FontLoadStatus.NOT_LOADED);
+    });
+  });
+
+  describe('applyToCanvas() nullキャンバス', () => {
+    it('nullキャンバスの場合は何も行わない', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(() => renderer.applyToCanvas(null as any)).not.toThrow();
+    });
+
+    it('undefinedキャンバスの場合は何も行わない', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(() => renderer.applyToCanvas(undefined as any)).not.toThrow();
+    });
+  });
+
+  describe('CSS経由のフォント読み込み（FontFace APIがない場合）', () => {
+    it('FontFace APIが利用できない場合はCSS経由で読み込む', async () => {
+      // FontFace APIをundefinedに
+      vi.stubGlobal('FontFace', undefined);
+
+      // DOMモック
+      const mockLink = {
+        rel: '',
+        href: '',
+        onload: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+      };
+
+      const mockHead = {
+        appendChild: vi.fn((link) => {
+          // すぐにonloadを呼び出す
+          setTimeout(() => {
+            link.onload?.();
+          }, 0);
+        }),
+      };
+
+      vi.stubGlobal('document', {
+        fonts: { add: vi.fn() },
+        head: mockHead,
+        createElement: vi.fn().mockReturnValue(mockLink),
+        querySelector: vi.fn().mockReturnValue(null),
+      });
+
+      await renderer.load();
+
+      expect(mockHead.appendChild).toHaveBeenCalled();
+      expect(renderer.getStatus()).toBe(FontLoadStatus.LOADED);
+    });
+
+    it('既存のリンクタグがある場合はスキップする', async () => {
+      vi.stubGlobal('FontFace', undefined);
+
+      const existingLink = { href: 'existing' };
+      const mockHead = { appendChild: vi.fn() };
+
+      vi.stubGlobal('document', {
+        fonts: { add: vi.fn() },
+        head: mockHead,
+        createElement: vi.fn(),
+        querySelector: vi.fn().mockReturnValue(existingLink),
+      });
+
+      await renderer.load();
+
+      expect(mockHead.appendChild).not.toHaveBeenCalled();
+      expect(renderer.getStatus()).toBe(FontLoadStatus.LOADED);
+    });
+
+    it('CSS読み込みエラー時はFAILEDステータスになる', async () => {
+      vi.stubGlobal('FontFace', undefined);
+
+      const mockLink = {
+        rel: '',
+        href: '',
+        onload: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+      };
+
+      const mockHead = {
+        appendChild: vi.fn((link) => {
+          setTimeout(() => {
+            link.onerror?.();
+          }, 0);
+        }),
+      };
+
+      vi.stubGlobal('document', {
+        fonts: { add: vi.fn() },
+        head: mockHead,
+        createElement: vi.fn().mockReturnValue(mockLink),
+        querySelector: vi.fn().mockReturnValue(null),
+      });
+
+      await expect(renderer.load()).rejects.toThrow('Failed to load Google Fonts CSS');
+      expect(renderer.getStatus()).toBe(FontLoadStatus.FAILED);
+    });
+  });
+
+  describe('並行読み込み', () => {
+    it('読み込み中に再度load()を呼ぶと完了を待機する', async () => {
+      const MockFontFace = createMockFontFaceClass('pending');
+      const mockFonts = {
+        add: vi.fn(),
+        check: vi.fn().mockReturnValue(true),
+      };
+
+      vi.stubGlobal('FontFace', MockFontFace);
+      vi.stubGlobal('document', { fonts: mockFonts });
+
+      // 1回目の読み込み開始
+      const firstLoad = renderer.load();
+
+      // ステータスがLOADINGに変わっている
+      expect(renderer.getStatus()).toBe(FontLoadStatus.LOADING);
+
+      // 2回目の読み込みを同時に開始
+      const secondLoad = renderer.load();
+
+      // 両方の完了を待機
+      await Promise.all([firstLoad, secondLoad]);
+
+      // 最終的にLOADEDになる
+      expect(renderer.getStatus()).toBe(FontLoadStatus.LOADED);
+    });
+  });
+
+  describe('テキストオブジェクト判定', () => {
+    it('textタイプのオブジェクトにフォントが適用される', async () => {
+      const mockTextObject = {
+        type: 'text',
+        fontFamily: 'sans-serif',
+        set: vi.fn(),
+      };
+      const mockCanvas = createMockCanvas([mockTextObject as unknown as MockITextObject]);
+
+      const MockFontFace = createMockFontFaceClass('success');
+      const mockFonts = {
+        add: vi.fn(),
+        check: vi.fn().mockReturnValue(true),
+      };
+
+      vi.stubGlobal('FontFace', MockFontFace);
+      vi.stubGlobal('document', { fonts: mockFonts });
+
+      await renderer.load();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      renderer.applyToCanvas(mockCanvas as any);
+
+      expect(mockTextObject.set).toHaveBeenCalledWith(
+        'fontFamily',
+        expect.stringContaining('Noto Sans JP')
+      );
+    });
+  });
+});
+
+describe('waitForLoad待機中のエラーハンドリング', () => {
+  beforeEach(() => {
+    resetDefaultRenderer();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('読み込み失敗時はwaitForLoadがエラーをthrowする', async () => {
+    const renderer = new JapaneseFontRenderer();
+
+    const MockFontFace = createMockFontFaceClass('failure');
+    const mockFonts = {
+      add: vi.fn(),
+      check: vi.fn().mockReturnValue(false),
+    };
+
+    vi.stubGlobal('FontFace', MockFontFace);
+    vi.stubGlobal('document', { fonts: mockFonts });
+
+    // 最初の読み込みを開始（エラーになる）
+    const loadPromise = renderer.load().catch(() => {});
+    await loadPromise;
+
+    // ステータスがFAILEDになっているはず
+    expect(renderer.getStatus()).toBe(FontLoadStatus.FAILED);
+  });
+});

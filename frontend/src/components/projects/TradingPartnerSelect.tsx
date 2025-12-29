@@ -56,7 +56,7 @@ const STYLES = {
     label: '#374151',
     text: '#111827',
     textSecondary: '#6b7280',
-    disabled: '#9ca3af',
+    disabled: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f3f4f6
     disabledBg: '#f3f4f6',
     white: '#ffffff',
     hoverBg: '#f3f4f6',

@@ -33,37 +33,48 @@ export interface NetworkErrorDisplayProps {
  */
 const ERROR_STYLES: Record<
   ErrorType,
-  { backgroundColor: string; borderColor: string; color: string; iconColor: string }
+  {
+    backgroundColor: string;
+    borderColor: string;
+    color: string;
+    iconColor: string;
+    buttonTextColor: string;
+  }
 > = {
   network: {
     backgroundColor: '#fff3cd',
-    borderColor: '#ffc107',
+    borderColor: '#8a6d00', // WCAG 2.1 AA準拠: 4.9:1 contrast ratio with #fff (button text)
     color: '#856404',
     iconColor: '#856404',
+    buttonTextColor: '#fff',
   },
   server: {
     backgroundColor: '#f8d7da',
     borderColor: '#dc3545',
     color: '#721c24',
     iconColor: '#721c24',
+    buttonTextColor: '#fff',
   },
   session: {
     backgroundColor: '#d1ecf1',
-    borderColor: '#17a2b8',
+    borderColor: '#117a8b', // WCAG 2.1 AA準拠 (4.6:1 on #fff)
     color: '#0c5460',
     iconColor: '#0c5460',
+    buttonTextColor: '#fff',
   },
   client: {
     backgroundColor: '#f8d7da',
     borderColor: '#dc3545',
     color: '#721c24',
     iconColor: '#721c24',
+    buttonTextColor: '#fff',
   },
   unknown: {
     backgroundColor: '#fff3cd',
-    borderColor: '#ffc107',
+    borderColor: '#8a6d00', // WCAG 2.1 AA準拠: 4.9:1 contrast ratio with #fff (button text)
     color: '#856404',
     iconColor: '#856404',
+    buttonTextColor: '#fff',
   },
 };
 
@@ -195,14 +206,7 @@ function NetworkErrorDisplay({
             padding: '4px',
             fontSize: '18px',
             lineHeight: 1,
-            opacity: 0.7,
             flexShrink: 0,
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '1';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '0.7';
           }}
         >
           ×
@@ -228,12 +232,11 @@ function NetworkErrorDisplay({
               padding: '8px 16px',
               fontSize: '14px',
               fontWeight: 500,
-              color: '#fff',
-              backgroundColor: isRetrying ? '#6c757d' : styles.borderColor,
+              color: styles.buttonTextColor,
+              backgroundColor: isRetrying ? '#6b7280' : styles.borderColor, // WCAG 2.1 AA準拠
               border: 'none',
               borderRadius: '4px',
               cursor: isRetrying ? 'not-allowed' : 'pointer',
-              opacity: isRetrying ? 0.7 : 1,
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
@@ -270,7 +273,7 @@ function NetworkErrorDisplay({
               padding: '8px 16px',
               fontSize: '14px',
               fontWeight: 500,
-              color: '#fff',
+              color: styles.buttonTextColor,
               backgroundColor: styles.borderColor,
               border: 'none',
               borderRadius: '4px',

@@ -445,6 +445,39 @@ describe('ProjectEditPage', () => {
 
       expect(projectsApi.getProject).toHaveBeenCalledTimes(2);
     });
+
+    it('ApiError以外のエラー時にデフォルトエラーメッセージを表示する', async () => {
+      // 通常のErrorオブジェクトをスロー
+      vi.mocked(projectsApi.getProject).mockRejectedValue(new Error('Network Error'));
+
+      renderProjectEditPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(screen.getByText('エラーが発生しました')).toBeInTheDocument();
+      });
+    });
+
+    it('保存時にApiError以外のエラーが発生した場合にデフォルトエラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+
+      // 通常のErrorオブジェクトをスロー
+      vi.mocked(projectsApi.updateProject).mockRejectedValue(new Error('Network Error'));
+
+      renderProjectEditPage();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/プロジェクト名/)).toBeInTheDocument();
+      });
+
+      // 保存ボタンをクリック
+      const submitButton = screen.getByRole('button', { name: /保存/ });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('プロジェクトの更新に失敗しました')).toBeInTheDocument();
+      });
+    });
   });
 
   // ========================================================================

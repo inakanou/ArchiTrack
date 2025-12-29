@@ -164,7 +164,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({
                 style={{
                   display: 'inline-block',
                   padding: '5px 10px',
-                  backgroundColor: '#4caf50',
+                  backgroundColor: '#2e7d32', // WCAG 2.1 AA準拠 (4.9:1 on #fff)
                   color: 'white',
                   borderRadius: '4px',
                   fontSize: '14px',
@@ -182,7 +182,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({
             disabled={!isProfileChanged || isProfileLoading}
             style={{
               padding: '10px 20px',
-              backgroundColor: isProfileChanged && !isProfileLoading ? '#2196f3' : '#ccc',
+              backgroundColor: isProfileChanged && !isProfileLoading ? '#1565c0' : '#6b7280', // WCAG 2.1 AA準拠 (disabled gray 4.7:1)
               color: 'white',
               border: 'none',
               borderRadius: '4px',
@@ -199,7 +199,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({
               style={{
                 marginTop: '15px',
                 padding: '10px',
-                backgroundColor: profileMessage.includes('失敗') ? '#f44336' : '#4caf50',
+                backgroundColor: profileMessage.includes('失敗') ? '#c62828' : '#2e7d32', // WCAG 2.1 AA準拠 (4.9:1 on #fff)
                 color: 'white',
                 borderRadius: '4px',
               }}
@@ -217,7 +217,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({
                   onNavigateToUserManagement();
                 }}
                 style={{
-                  color: '#2196f3',
+                  color: '#1565c0', // WCAG 2.1 AA準拠
                   textDecoration: 'none',
                 }}
               >
@@ -290,7 +290,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({
               <div
                 role="alert"
                 aria-live="polite"
-                style={{ marginTop: '5px', color: '#f44336', fontSize: '14px' }}
+                style={{ marginTop: '5px', color: '#c62828', fontSize: '14px' }} // WCAG 2.1 AA準拠
               >
                 {passwordError}
               </div>
@@ -310,8 +310,8 @@ const ProfileForm: React.FC<ProfileFormProps> = ({
               padding: '10px 20px',
               backgroundColor:
                 currentPassword && newPassword && confirmPassword && newPassword === confirmPassword
-                  ? '#f44336'
-                  : '#ccc',
+                  ? '#c62828' // WCAG 2.1 AA準拠
+                  : '#6b7280', // WCAG 2.1 AA準拠 (disabled gray 4.7:1)
               color: 'white',
               border: 'none',
               borderRadius: '4px',
@@ -350,7 +350,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({
                 onClick={handleConfirmPasswordChange}
                 style={{
                   padding: '10px 20px',
-                  backgroundColor: '#f44336',
+                  backgroundColor: '#c62828', // WCAG 2.1 AA準拠
                   color: 'white',
                   border: 'none',
                   borderRadius: '4px',

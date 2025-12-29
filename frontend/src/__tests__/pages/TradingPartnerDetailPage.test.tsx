@@ -30,10 +30,15 @@ import type { TradingPartnerDetail } from '../../types/trading-partner.types';
 // APIモック
 const mockGetTradingPartner = vi.fn();
 const mockDeleteTradingPartner = vi.fn();
+const mockGetProjects = vi.fn();
 
 vi.mock('../../api/trading-partners', () => ({
   getTradingPartner: (...args: unknown[]) => mockGetTradingPartner(...args),
   deleteTradingPartner: (...args: unknown[]) => mockDeleteTradingPartner(...args),
+}));
+
+vi.mock('../../api/projects', () => ({
+  getProjects: (...args: unknown[]) => mockGetProjects(...args),
 }));
 
 // ナビゲーションモック
@@ -71,6 +76,21 @@ const mockPartner: TradingPartnerDetail = {
   createdAt: '2025-01-01T00:00:00.000Z',
   updatedAt: '2025-01-02T00:00:00.000Z',
 };
+
+const mockRelatedProjects = [
+  {
+    id: 'project-1',
+    name: 'プロジェクトA',
+    status: 'IN_PROGRESS',
+    salesPerson: { displayName: '田中一郎' },
+  },
+  {
+    id: 'project-2',
+    name: 'プロジェクトB',
+    status: 'COMPLETED',
+    salesPerson: { displayName: '佐藤二郎' },
+  },
+];
 
 // ============================================================================
 // ヘルパー関数
@@ -119,6 +139,7 @@ describe('TradingPartnerDetailPage', () => {
     vi.clearAllMocks();
     mockGetTradingPartner.mockResolvedValue(mockPartner);
     mockDeleteTradingPartner.mockResolvedValue(undefined);
+    mockGetProjects.mockResolvedValue({ data: mockRelatedProjects, total: 2 });
   });
 
   afterEach(() => {
@@ -383,6 +404,139 @@ describe('TradingPartnerDetailPage', () => {
           screen.getByText('この取引先は現在プロジェクトに使用されているため削除できません')
         ).toBeInTheDocument();
       });
+    });
+
+    it('削除エラー時にメッセージがない場合はデフォルトエラーメッセージを表示する', async () => {
+      mockDeleteTradingPartner.mockRejectedValue({
+        statusCode: 500,
+      });
+
+      const { user } = renderDetailPage();
+
+      await waitForDataLoaded();
+
+      // 削除ボタンをクリック
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      // 削除確認ダイアログで削除ボタンをクリック
+      const dialogTitle = screen.getByText('取引先の削除');
+      const dialogContainer = dialogTitle.closest('div[aria-labelledby]') as HTMLElement | null;
+      expect(dialogContainer).not.toBeNull();
+      const confirmDeleteButton = within(dialogContainer!).getByRole('button', { name: '削除' });
+      await user.click(confirmDeleteButton);
+
+      // デフォルトエラーメッセージの表示確認
+      await waitFor(() => {
+        expect(screen.getByText('削除中にエラーが発生しました')).toBeInTheDocument();
+      });
+    });
+
+    it('削除エラー時にisApiErrorでない場合もデフォルトエラーメッセージを表示する', async () => {
+      // isApiErrorがfalseになるケース（オブジェクトではない）
+      mockDeleteTradingPartner.mockRejectedValue('string error');
+
+      const { user } = renderDetailPage();
+
+      await waitForDataLoaded();
+
+      // 削除ボタンをクリック
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      // 削除確認ダイアログで削除ボタンをクリック
+      const dialogTitle = screen.getByText('取引先の削除');
+      const dialogContainer = dialogTitle.closest('div[aria-labelledby]') as HTMLElement | null;
+      expect(dialogContainer).not.toBeNull();
+      const confirmDeleteButton = within(dialogContainer!).getByRole('button', { name: '削除' });
+      await user.click(confirmDeleteButton);
+
+      // デフォルトエラーメッセージの表示確認
+      await waitFor(() => {
+        expect(screen.getByText('削除中にエラーが発生しました')).toBeInTheDocument();
+      });
+    });
+
+    it('APIエラーにmessageプロパティがある場合はそのメッセージを表示する', async () => {
+      mockGetTradingPartner.mockRejectedValue({
+        statusCode: 500,
+        message: 'サーバーエラーが発生しました',
+      });
+
+      renderDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('サーバーエラーが発生しました')).toBeInTheDocument();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 関連プロジェクト（REQ-3.4）
+  // --------------------------------------------------------------------------
+
+  describe('関連プロジェクト', () => {
+    it('関連プロジェクト一覧を表示する', async () => {
+      renderDetailPage();
+
+      await waitForDataLoaded();
+
+      // 関連プロジェクトセクションの存在確認
+      expect(screen.getByText('関連プロジェクト')).toBeInTheDocument();
+
+      // プロジェクト名の確認
+      await waitFor(() => {
+        expect(screen.getByText('プロジェクトA')).toBeInTheDocument();
+      });
+      expect(screen.getByText('プロジェクトB')).toBeInTheDocument();
+
+      // 営業担当者名の確認
+      expect(screen.getByText('田中一郎')).toBeInTheDocument();
+      expect(screen.getByText('佐藤二郎')).toBeInTheDocument();
+    });
+
+    it('関連プロジェクトがない場合はメッセージを表示する', async () => {
+      mockGetProjects.mockResolvedValue({ data: [], total: 0 });
+
+      renderDetailPage();
+
+      await waitForDataLoaded();
+
+      await waitFor(() => {
+        expect(screen.getByText('関連するプロジェクトはありません')).toBeInTheDocument();
+      });
+    });
+
+    it('プロジェクト名のリンクが正しいパスを持つ', async () => {
+      renderDetailPage();
+
+      await waitForDataLoaded();
+
+      await waitFor(() => {
+        expect(screen.getByText('プロジェクトA')).toBeInTheDocument();
+      });
+
+      const projectLink = screen.getByRole('link', { name: 'プロジェクトA' });
+      expect(projectLink).toHaveAttribute('href', '/projects/project-1');
+    });
+
+    it('関連プロジェクト読み込み中はローディングを表示する', async () => {
+      // プロジェクトAPIの解決を遅延させる
+      mockGetProjects.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ data: mockRelatedProjects, total: 2 }), 200)
+          )
+      );
+
+      renderDetailPage();
+
+      await waitForDataLoaded();
+
+      // プロジェクト読み込み中の表示確認
+      const projectSection = screen.getByText('関連プロジェクト').closest('section');
+      expect(projectSection).toBeDefined();
+      expect(within(projectSection!).getByText('読み込み中...')).toBeInTheDocument();
     });
   });
 });

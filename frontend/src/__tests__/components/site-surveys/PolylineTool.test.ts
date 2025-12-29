@@ -765,5 +765,165 @@ describe('PolylineTool', () => {
         expect(json.points[2]).toEqual({ x: 150, y: 200 });
       });
     });
+
+    describe('fromObject() デシリアライズ', () => {
+      it('JSONオブジェクトからPolylineShapeを復元できる', async () => {
+        const json = {
+          type: 'polylineShape' as const,
+          points: [
+            { x: 100, y: 100 },
+            { x: 200, y: 100 },
+            { x: 150, y: 200 },
+          ],
+          stroke: '#ff0000',
+          strokeWidth: 4,
+          fill: '#00ff00',
+        };
+
+        const polyline = await PolylineShape.fromObject(json);
+
+        expect(polyline).toBeInstanceOf(PolylineShape);
+        expect(polyline.pointCount).toBe(3);
+        expect(polyline.stroke).toBe('#ff0000');
+        expect(polyline.strokeWidth).toBe(4);
+        expect(polyline.fill).toBe('#00ff00');
+      });
+
+      it('left/topを含むJSONを復元できる', async () => {
+        const json = {
+          type: 'polylineShape' as const,
+          points: [
+            { x: 100, y: 100 },
+            { x: 200, y: 100 },
+          ],
+          stroke: '#000000',
+          strokeWidth: 2,
+          fill: 'transparent',
+          left: 50,
+          top: 75,
+        };
+
+        const polyline = await PolylineShape.fromObject(json);
+
+        expect(polyline).toBeInstanceOf(PolylineShape);
+        expect(polyline.left).toBe(50);
+        expect(polyline.top).toBe(75);
+        expect(mockSetCoords).toHaveBeenCalled();
+      });
+
+      it('left/topなしでも復元できる（後方互換性）', async () => {
+        const json = {
+          type: 'polylineShape' as const,
+          points: [
+            { x: 100, y: 100 },
+            { x: 200, y: 100 },
+          ],
+          stroke: '#000000',
+          strokeWidth: 2,
+          fill: 'transparent',
+        };
+
+        const polyline = await PolylineShape.fromObject(json);
+
+        expect(polyline).toBeInstanceOf(PolylineShape);
+        expect(polyline.pointCount).toBe(2);
+      });
+
+      it('toObject()で出力したJSONをfromObject()で復元できる', async () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 200 },
+          { x: 50, y: 150 },
+        ];
+        const original = new PolylineShape(points, {
+          stroke: '#123456',
+          strokeWidth: 3,
+          fill: '#654321',
+        });
+
+        const json = original.toObject();
+        const restored = await PolylineShape.fromObject(json);
+
+        expect(restored.pointCount).toBe(original.pointCount);
+        expect(restored.stroke).toBe(original.stroke);
+        expect(restored.strokeWidth).toBe(original.strokeWidth);
+        expect(restored.fill).toBe(original.fill);
+      });
+    });
+
+    describe('setStyle() 部分更新', () => {
+      it('strokeのみ更新できる', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+        ];
+        const polyline = new PolylineShape(points);
+
+        polyline.setStyle({ stroke: '#0000ff' });
+
+        expect(polyline.stroke).toBe('#0000ff');
+        expect(polyline.strokeWidth).toBe(DEFAULT_POLYLINE_OPTIONS.strokeWidth);
+        expect(polyline.fill).toBe(DEFAULT_POLYLINE_OPTIONS.fill);
+      });
+
+      it('strokeWidthのみ更新できる', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+        ];
+        const polyline = new PolylineShape(points);
+
+        polyline.setStyle({ strokeWidth: 8 });
+
+        expect(polyline.stroke).toBe(DEFAULT_POLYLINE_OPTIONS.stroke);
+        expect(polyline.strokeWidth).toBe(8);
+        expect(polyline.fill).toBe(DEFAULT_POLYLINE_OPTIONS.fill);
+      });
+
+      it('fillのみ更新できる', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+        ];
+        const polyline = new PolylineShape(points);
+
+        polyline.setStyle({ fill: '#ff00ff' });
+
+        expect(polyline.stroke).toBe(DEFAULT_POLYLINE_OPTIONS.stroke);
+        expect(polyline.strokeWidth).toBe(DEFAULT_POLYLINE_OPTIONS.strokeWidth);
+        expect(polyline.fill).toBe('#ff00ff');
+      });
+
+      it('空のオプションでも安全に処理される', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+        ];
+        const polyline = new PolylineShape(points);
+
+        polyline.setStyle({});
+
+        expect(polyline.stroke).toBe(DEFAULT_POLYLINE_OPTIONS.stroke);
+        expect(polyline.strokeWidth).toBe(DEFAULT_POLYLINE_OPTIONS.strokeWidth);
+        expect(polyline.fill).toBe(DEFAULT_POLYLINE_OPTIONS.fill);
+      });
+    });
+
+    describe('setPoint() 負のインデックス', () => {
+      it('負のインデックスに対する更新は無視される', () => {
+        const points = [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+        ];
+        const polyline = new PolylineShape(points);
+
+        polyline.setPoint(-1, { x: 999, y: 999 });
+
+        // 点は変更されていない
+        expect(polyline.getPoint(0)).toEqual({ x: 100, y: 100 });
+        expect(polyline.getPoint(1)).toEqual({ x: 200, y: 100 });
+      });
+    });
   });
 });

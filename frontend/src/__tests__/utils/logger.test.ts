@@ -252,4 +252,71 @@ describe('logger', () => {
       expect(consoleErrorSpy).toHaveBeenCalledWith('[ERROR] Simple error');
     });
   });
+
+  describe('本番環境 (DEV=false)', () => {
+    // import.meta.env.DEVをfalseにするために、モジュールを再インポート
+    beforeEach(() => {
+      vi.stubEnv('DEV', false);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('error: Sentryにメッセージを送信する', async () => {
+      // モジュールを再読み込み
+      vi.resetModules();
+      const { logger: prodLogger } = await import('../../utils/logger');
+
+      prodLogger.error('Production error', { context: 'test' });
+
+      expect(sentryUtils.captureMessage).toHaveBeenCalledWith('Production error', 'error', {
+        context: 'test',
+      });
+    });
+
+    it('warn: Sentryにメッセージを送信する', async () => {
+      vi.resetModules();
+      const { logger: prodLogger } = await import('../../utils/logger');
+
+      prodLogger.warn('Production warning', { alert: true });
+
+      expect(sentryUtils.captureMessage).toHaveBeenCalledWith('Production warning', 'warning', {
+        alert: true,
+      });
+    });
+
+    it('debug: コンソールに出力しない', async () => {
+      vi.resetModules();
+      const { logger: prodLogger } = await import('../../utils/logger');
+
+      prodLogger.debug('Debug in prod');
+
+      // DEV=falseの場合、コンソールは呼ばれない
+      expect(consoleDebugSpy).not.toHaveBeenCalled();
+    });
+
+    it('info: コンソールに出力しない', async () => {
+      vi.resetModules();
+      const { logger: prodLogger } = await import('../../utils/logger');
+
+      prodLogger.info('Info in prod');
+
+      // DEV=falseの場合、コンソールは呼ばれない
+      expect(consoleInfoSpy).not.toHaveBeenCalled();
+    });
+
+    it('exception: 本番環境でコンソールに出力しない', async () => {
+      vi.resetModules();
+      const { logger: prodLogger } = await import('../../utils/logger');
+
+      const error = new Error('Prod exception');
+      prodLogger.exception(error, { userId: '123' });
+
+      // DEV=falseの場合、コンソールは呼ばれない
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      // しかしSentryには送信される
+      expect(sentryUtils.captureException).toHaveBeenCalledWith(error, { userId: '123' });
+    });
+  });
 });

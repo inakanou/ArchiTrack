@@ -56,7 +56,7 @@ const STYLES = {
     textSecondary: '#374151',
     border: '#d1d5db',
     white: '#ffffff',
-    disabled: '#9ca3af',
+    disabled: '#6b7280',
   },
   borderRadius: '0.5rem',
 } as const;
@@ -145,7 +145,7 @@ const reloadButtonStyle: React.CSSProperties = {
 
 /** 無効ボタンスタイル */
 const disabledButtonStyle: React.CSSProperties = {
-  opacity: 0.6,
+  backgroundColor: '#6b7280', // WCAG 2.1 AA準拠 - gray for disabled state
   cursor: 'not-allowed',
 };
 
@@ -238,6 +238,7 @@ function ConflictDialog({
       closeOnEscape={!isReloading}
       closeOnOutsideClick={false}
       initialFocusRef={reloadButtonRef as React.RefObject<HTMLElement>}
+      ariaLabelledBy={titleId}
     >
       <div style={containerStyle} aria-labelledby={titleId} aria-describedby={descriptionId}>
         {/* タイトル */}

@@ -618,11 +618,17 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       });
 
       // ダイアログのaria-labelledby属性を確認
-      const dialogContainer = page.locator('[aria-labelledby="delete-dialog-title"]');
+      // Note: role="dialog" を持つ要素に限定して aria-labelledby を検証する
+      const dialogContainer = page.getByRole('dialog').filter({
+        has: page.locator('[aria-labelledby="delete-dialog-title"]'),
+      });
       await expect(dialogContainer).toBeVisible();
 
       // ダイアログのaria-describedby属性を確認
-      const dialogWithDescription = page.locator('[aria-describedby="delete-dialog-description"]');
+      // Note: role="dialog" を持つ要素に限定して検証する
+      const dialogWithDescription = page.getByRole('dialog').filter({
+        has: page.locator('[aria-describedby="delete-dialog-description"]'),
+      });
       await expect(dialogWithDescription).toBeVisible();
 
       // キャンセルボタンをクリックしてダイアログを閉じる

@@ -21,8 +21,9 @@ import {
   type UploadImageInput,
   InvalidFileTypeError,
   InvalidMagicBytesError,
-  // Note: SurveySurveyNotFoundError will be used in subsequent tasks (4.2+)
+  SurveySurveyNotFoundError,
 } from '../../../services/survey-image.service.js';
+import type { StorageProvider } from '../../../storage/storage-provider.interface.js';
 
 describe('SurveyImageService', () => {
   let service: SurveyImageService;
@@ -368,6 +369,156 @@ describe('SurveyImageService', () => {
       // Paths may be the same if generated in same millisecond, but format should be consistent
       expect(path1).toMatch(/^surveys\/survey-123\/\d+/);
       expect(path2).toMatch(/^surveys\/survey-123\/\d+/);
+    });
+  });
+
+  describe('SurveySurveyNotFoundError', () => {
+    it('should create error with correct properties', () => {
+      const error = new SurveySurveyNotFoundError('survey-123');
+
+      expect(error.name).toBe('SurveySurveyNotFoundError');
+      expect(error.code).toBe('SURVEY_NOT_FOUND');
+      expect(error.surveyId).toBe('survey-123');
+      expect(error.message).toContain('survey-123');
+    });
+
+    it('should be an instance of Error', () => {
+      const error = new SurveySurveyNotFoundError('test-id');
+      expect(error).toBeInstanceOf(Error);
+    });
+  });
+
+  describe('getter methods', () => {
+    it('getBucketName should return bucket name', () => {
+      const bucketName = service.getBucketName();
+      expect(bucketName).toBe('test-bucket');
+    });
+
+    it('getS3Client should return S3 client', () => {
+      const s3Client = service.getS3Client();
+      expect(s3Client).toBe(mockS3Client);
+    });
+
+    it('getStorageProvider should return null when not set', () => {
+      const storageProvider = service.getStorageProvider();
+      expect(storageProvider).toBeNull();
+    });
+
+    it('getPrismaClient should return Prisma client', () => {
+      const prisma = service.getPrismaClient();
+      expect(prisma).toBe(mockPrisma);
+    });
+
+    it('should return storageProvider when set', () => {
+      const mockStorageProvider = {
+        upload: vi.fn(),
+        delete: vi.fn(),
+        getSignedUrl: vi.fn(),
+      } as unknown as StorageProvider;
+
+      const serviceWithProvider = new SurveyImageService({
+        prisma: mockPrisma,
+        storageProvider: mockStorageProvider,
+      });
+
+      expect(serviceWithProvider.getStorageProvider()).toBe(mockStorageProvider);
+      expect(serviceWithProvider.getBucketName()).toBeNull();
+      expect(serviceWithProvider.getS3Client()).toBeNull();
+    });
+  });
+
+  describe('validateMagicBytes edge cases', () => {
+    it('should throw InvalidMagicBytesError for unknown MIME type', () => {
+      const buffer = Buffer.alloc(100);
+      expect(() => service.validateMagicBytes(buffer, 'application/unknown')).toThrow(
+        InvalidMagicBytesError
+      );
+    });
+
+    it('should validate various JPEG magic byte sequences', () => {
+      // JPEG with EXIF marker (FFD8FFE1)
+      const jpegExif = Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x00, 0x00, 0x00]);
+      expect(() => service.validateMagicBytes(jpegExif, 'image/jpeg')).not.toThrow();
+
+      // JPEG with SPIFF marker (FFD8FFE8)
+      const jpegSpiff = Buffer.from([0xff, 0xd8, 0xff, 0xe8, 0x00, 0x00, 0x00, 0x00]);
+      expect(() => service.validateMagicBytes(jpegSpiff, 'image/jpeg')).not.toThrow();
+
+      // JPEG with quantization table marker (FFD8FFDB)
+      const jpegDb = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x00, 0x00, 0x00]);
+      expect(() => service.validateMagicBytes(jpegDb, 'image/jpeg')).not.toThrow();
+
+      // JPEG with Adobe marker (FFD8FFEE)
+      const jpegAdobe = Buffer.from([0xff, 0xd8, 0xff, 0xee, 0x00, 0x00, 0x00, 0x00]);
+      expect(() => service.validateMagicBytes(jpegAdobe, 'image/jpeg')).not.toThrow();
+    });
+
+    it('should reject JPEG with buffer too small', () => {
+      const smallBuffer = Buffer.from([0xff, 0xd8]);
+      expect(() => service.validateMagicBytes(smallBuffer, 'image/jpeg')).toThrow(
+        InvalidMagicBytesError
+      );
+    });
+
+    it('should reject PNG with buffer too small', () => {
+      const smallBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      expect(() => service.validateMagicBytes(smallBuffer, 'image/png')).toThrow(
+        InvalidMagicBytesError
+      );
+    });
+
+    it('should reject WebP with buffer too small', () => {
+      const smallBuffer = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x00]);
+      expect(() => service.validateMagicBytes(smallBuffer, 'image/webp')).toThrow(
+        InvalidMagicBytesError
+      );
+    });
+
+    it('should reject WebP with valid RIFF header but missing WEBP signature', () => {
+      // RIFF header but not WEBP at offset 8
+      const invalidWebp = Buffer.from([
+        0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x41, 0x56, 0x49, 0x20,
+      ]);
+      expect(() => service.validateMagicBytes(invalidWebp, 'image/webp')).toThrow(
+        InvalidMagicBytesError
+      );
+    });
+  });
+
+  describe('sanitizeFileName edge cases', () => {
+    it('should handle files without extension', () => {
+      const sanitized = service.sanitizeFileName('filename');
+      expect(sanitized).toBe('filename');
+    });
+
+    it('should handle files with only non-ASCII characters', () => {
+      const sanitized = service.sanitizeFileName('日本語.jpg');
+      // 非ASCII文字が除去されるため、fallback名が生成される可能性
+      expect(sanitized).toMatch(/\.jpg$/);
+    });
+
+    it('should handle deeply nested path traversal', () => {
+      const sanitized = service.sanitizeFileName('....//....//file.jpg');
+      expect(sanitized).not.toContain('..');
+      expect(sanitized).not.toContain('/');
+    });
+
+    it('should handle Windows-style path traversal', () => {
+      const sanitized = service.sanitizeFileName('..\\..\\windows\\system32\\file.jpg');
+      expect(sanitized).not.toContain('..');
+      expect(sanitized).not.toContain('\\');
+    });
+
+    it('should handle filenames starting with dot', () => {
+      const sanitized = service.sanitizeFileName('.hidden.jpg');
+      expect(sanitized).toMatch(/\.jpg$/);
+    });
+
+    it('should handle mixed dangerous characters', () => {
+      const sanitized = service.sanitizeFileName('<script>alert("xss")</script>.jpg');
+      expect(sanitized).not.toContain('<');
+      expect(sanitized).not.toContain('>');
+      expect(sanitized).not.toContain('"');
     });
   });
 });
