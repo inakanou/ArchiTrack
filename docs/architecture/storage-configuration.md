@@ -197,6 +197,37 @@ R2_PUBLIC_URL=https://images.your-domain.com  # オプション
    - Custom domain または R2.dev subdomain を設定
    - `R2_PUBLIC_URL` に設定
 
+5. **CORS設定を追加（必須）**
+
+   フロントエンドから署名付きURLで画像を読み込むために、バケットのCORS設定が必要です。
+
+   - R2 > bucket > Settings > CORS Policy
+   - **Add CORS policy** をクリック
+   - 以下のJSONを設定:
+
+   ```json
+   [
+     {
+       "AllowedOrigins": [
+         "https://your-frontend.railway.app",
+         "http://localhost:5173"
+       ],
+       "AllowedMethods": ["GET", "HEAD"],
+       "AllowedHeaders": ["*"],
+       "ExposeHeaders": [
+         "Content-Type",
+         "Content-Length",
+         "ETag",
+         "Cache-Control"
+       ],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   > **重要:** `AllowedOrigins` にはフロントエンドのドメインを指定してください。
+   > 本番環境では `http://localhost:*` を削除し、実際のドメインのみを許可することを推奨します。
+
 #### 特徴
 
 - S3互換APIでCloudflare R2に接続
@@ -309,6 +340,52 @@ R2 storage connection test failed
 1. `R2_ENDPOINT`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY` を確認
 2. `R2_BUCKET_NAME` のバケットが存在することを確認
 3. APIトークンの権限を確認
+
+### R2画像読み込みエラー（CORSエラー）
+
+```
+fabric: Error loading https://[bucket].[account-id].r2.cloudflarestorage.com/...
+```
+
+または、ブラウザのコンソールに以下のエラーが表示される場合:
+
+```
+Access to image at 'https://...' from origin 'https://...' has been blocked by CORS policy:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+**原因:** R2バケットにCORS設定がされていない
+
+**解決方法:**
+
+1. Cloudflare Dashboard > R2 > バケット > Settings > CORS Policy
+2. 以下のCORSポリシーを追加:
+
+```json
+[
+  {
+    "AllowedOrigins": [
+      "https://your-frontend-staging.railway.app",
+      "https://your-frontend-production.railway.app"
+    ],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": [
+      "Content-Type",
+      "Content-Length",
+      "ETag",
+      "Cache-Control"
+    ],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+3. `AllowedOrigins` にフロントエンドの実際のドメインを追加
+4. 設定を保存後、ブラウザのキャッシュをクリアして再試行
+
+> **Note:** CORS設定変更後、既存のキャッシュが残っている場合は正しく動作しないことがあります。
+> Cloudflare Dashboardから該当ドメインのキャッシュをパージすることで解決できます。
 
 ---
 
