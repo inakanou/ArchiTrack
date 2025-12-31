@@ -26,6 +26,7 @@ import type { SiteSurveyDetail } from '../../types/site-survey.types';
 import { exportAndDownloadPdf, type AnnotatedImageWithComment } from '../../services/export';
 import { renderImagesWithAnnotations } from '../../services/export/AnnotationRendererService';
 import type { PdfExportProgress } from '../../services/export/PdfExportService';
+import { getSiteSurvey } from '../../api/site-surveys';
 
 // ============================================================================
 // 型定義
@@ -315,8 +316,13 @@ export default function SiteSurveyDetailInfo({
     });
 
     try {
+      // 最新の署名付きURLを取得するためにAPIから再取得
+      // ブラウザキャッシュによるCORSエラーを回避
+      const freshSurvey = await getSiteSurvey(survey.id);
+      const freshExportTargetImages = freshSurvey.images.filter((img) => img.includeInReport);
+
       // 画像に注釈をレンダリングしてdataURLを取得
-      const renderedImages = await renderImagesWithAnnotations(exportTargetImages, {
+      const renderedImages = await renderImagesWithAnnotations(freshExportTargetImages, {
         format: 'jpeg',
         quality: 0.9,
       });

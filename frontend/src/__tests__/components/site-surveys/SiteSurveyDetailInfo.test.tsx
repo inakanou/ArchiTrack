@@ -39,6 +39,13 @@ vi.mock('../../../services/export/AnnotationRendererService', () => ({
   renderImagesWithAnnotations: vi.fn(),
 }));
 
+// APIモック
+vi.mock('../../../api/site-surveys', () => ({
+  getSiteSurvey: vi.fn(),
+}));
+
+import * as siteSurveysApi from '../../../api/site-surveys';
+
 // ============================================================================
 // テストデータ
 // ============================================================================
@@ -453,6 +460,11 @@ describe('SiteSurveyDetailInfo', () => {
     });
 
     describe('PDF生成処理 (Requirement 10.6)', () => {
+      beforeEach(() => {
+        // getSiteSurveyのモック（最新のURLを取得するAPI呼び出し）
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      });
+
       it('PDF生成成功時に進捗コールバックが呼ばれる', async () => {
         const user = userEvent.setup();
         const firstImage = mockSurveyDetail.images[0]!;
