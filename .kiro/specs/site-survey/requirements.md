@@ -49,9 +49,10 @@
 5. If アップロードされたファイルが許可された形式でない, then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する
 6. If ファイルサイズが上限（300KB）を超える, then the Site Survey Service shall 画像サイズと品質を段階的に下げて250KB〜350KBの範囲に圧縮した上で登録する
 7. When ユーザーが画像を削除する, the Site Survey Service shall 画像と関連する注釈データを削除する
-8. The Site Survey Service shall JPEG、PNG、WEBP形式の画像ファイルをサポートする
-9. The Site Survey Service shall 画像一覧を固定の表示順序で表示する
-10. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更して保存する
+8. If R2ストレージからのオブジェクト削除に失敗する, then the Site Survey Service shall 孤立ファイルとして専用プレフィックス（orphaned/）に移動し、Object Lifecycle Ruleにより7日後に自動削除する
+9. The Site Survey Service shall JPEG、PNG、WEBP形式の画像ファイルをサポートする
+10. The Site Survey Service shall 画像一覧を固定の表示順序で表示する
+11. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更して保存する
 
 ### Requirement 5: 画像ビューア
 **Objective:** As a 現場調査担当者, I want アップロードした画像を拡大・縮小・回転して閲覧できること, so that 画像の詳細を確認できる
@@ -183,6 +184,10 @@
 4. While 注釈編集中, the Site Survey Service shall 一定間隔（30秒）で自動保存を実行する
 5. When ページをリロードまたは再訪問した場合, the Site Survey Service shall ブラウザのlocalStorageから未保存の編集状態を復元する
 6. If ネットワーク接続が切断される, then the Site Survey Service shall 警告を表示し保存操作をブロックする
+7. If localStorageへの保存時にQuotaExceededErrorが発生する, then the Site Survey Service shall LRU（Least Recently Used）戦略で古いキャッシュを削除してリトライする
+8. If QuotaExceededErrorのリトライ後も保存に失敗する, then the Site Survey Service shall ユーザーに警告を表示し、手動で「今すぐ保存」を促す
+9. The Site Survey Service shall プライベートブラウジングモードでのlocalStorage制限（SecurityError）を検出し、自動保存機能を無効化して手動保存のみで動作する
+10. The Site Survey Service shall localStorageのエラー検出にクロスブラウザ対応（code===22, code===1014, name===QuotaExceededError, name===NS_ERROR_DOM_QUOTA_REACHED）を実装する
 
 ### Requirement 16: 非機能要件
 **Objective:** As a システム管理者, I want 現場調査機能が高いパフォーマンスと信頼性を持つこと, so that ユーザーがストレスなく利用できる

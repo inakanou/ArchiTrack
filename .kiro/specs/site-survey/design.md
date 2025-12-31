@@ -410,8 +410,9 @@ sequenceDiagram
 | **2.1** | **プロジェクト詳細画面の現場調査セクション** | **SiteSurveySectionCard, ProjectDetailPage** | **SurveyListAPI** | - |
 | 2.2-2.7 | 画面遷移・ナビゲーション | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
 | 3.1-3.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
-| 4.1-4.6, 4.8-4.10 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
+| 4.1-4.6, 4.9, 4.10 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
 | **4.7** | **画像削除** | **ImageDeleteService, PhotoManagementPanel** | **ImageDeleteAPI** | **画像削除フロー** |
+| **4.8** | **R2孤立ファイル処理** | **ImageDeleteService** | **R2 Lifecycle Rule** | **R2孤立ファイル処理フロー** |
 | 5.1-5.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
 | 6.1-6.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
@@ -430,6 +431,10 @@ sequenceDiagram
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
 | 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
 | 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
+| **15.7** | **QuotaExceededError LRUリトライ** | **AutoSaveManager** | **localStorage** | - |
+| **15.8** | **保存失敗時ユーザー警告・今すぐ保存促進** | **AutoSaveManager, QuotaWarningDialog** | - | - |
+| **15.9** | **プライベートブラウジング検出・自動保存無効化** | **AutoSaveManager** | - | - |
+| **15.10** | **クロスブラウザQuotaExceededError検出** | **AutoSaveManager (isQuotaExceededError)** | - | - |
 | 16.1-16.8 | 非機能要件 | 全コンポーネント | - | - |
 
 ## Components and Interfaces
@@ -442,7 +447,7 @@ sequenceDiagram
 | ImageService | Backend/Service | 画像アップロード・処理 | 4 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
 | AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9 | PrismaClient (P0) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
-| **ImageDeleteService** | Backend/Service | 画像削除処理 | 4.7, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
+| **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
 | ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
@@ -453,7 +458,7 @@ sequenceDiagram
 | ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12 | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
-| AutoSaveManager | Frontend/Service | 自動保存・状態復元 | 15 | localStorage (P0) | State |
+| AutoSaveManager | Frontend/Service | 自動保存・状態復元・QuotaExceeded対応 | 15, 15.7-15.10 | localStorage (P0) | State |
 | **useUnsavedChanges** | Frontend/Hook | 未保存変更検出 | 9.1, 9.3, 10.8, 10.9 | - | State |
 
 ### Backend / Service Layer
@@ -696,23 +701,24 @@ export async function generateSignedUrl(key: string, expiresIn = 900): Promise<s
 }
 ```
 
-#### ImageDeleteService（要件4.7、10.10、10.11対応）
+#### ImageDeleteService（要件4.7、4.8、10.10、10.11対応）
 
 | Field | Detail |
 |-------|--------|
 | Intent | 画像の削除処理とストレージ連携を担当 |
-| Requirements | 4.7, 10.10, 10.11 |
+| Requirements | 4.7, 4.8, 10.10, 10.11 |
 
 **Responsibilities & Constraints**
 - 画像メタデータのデータベースからの削除
 - 関連する注釈データの連動削除
 - Cloudflare R2からの原画像・サムネイル削除
 - トランザクション整合性の保証（PostgreSQL側）
+- **R2削除失敗時の孤立ファイル処理（4.8対応）**
 
 **Dependencies**
 - Inbound: SurveyRoutes — 削除リクエスト処理 (P0)
 - Outbound: PrismaClient — メタデータ・注釈削除 (P0)
-- Outbound: @aws-sdk/client-s3 — R2ファイル削除 (P0)
+- Outbound: @aws-sdk/client-s3 — R2ファイル削除・移動 (P0)
 
 **Contracts**: Service [x] / API [x] / Event [ ] / Batch [ ] / State [ ]
 
@@ -724,15 +730,116 @@ interface IImageDeleteService {
    * 画像を削除する
    * - PostgreSQLから画像メタデータと関連注釈を削除
    * - R2から原画像とサムネイルを削除
+   * - R2削除失敗時はorphaned/プレフィックスに移動（4.8対応）
    * @throws NotFoundError 画像が存在しない場合
    */
   delete(imageId: string): Promise<void>;
+
+  /**
+   * 孤立ファイルをorphaned/プレフィックスに移動する
+   * @param objectKey 元のオブジェクトキー
+   * @returns 移動先のオブジェクトキー
+   */
+  moveToOrphaned(objectKey: string): Promise<string>;
 }
 ```
 
 - Preconditions: imageIdが有効な画像を参照すること
 - Postconditions: データベースとR2から画像関連データが削除されること
-- Invariants: R2削除失敗時はログ記録して孤立ファイルとして管理
+- Invariants: R2削除失敗時は`orphaned/`プレフィックスに移動、Object Lifecycle Ruleにより7日後自動削除
+
+##### R2孤立ファイル処理（要件4.8対応）
+
+**処理フロー**:
+```mermaid
+sequenceDiagram
+    participant Service as ImageDeleteService
+    participant R2 as Cloudflare R2
+    participant Logger
+
+    Service->>R2: DeleteObjectCommand(originalPath)
+    alt 削除成功
+        R2-->>Service: 成功
+    else 削除失敗
+        R2-->>Service: エラー
+        Service->>R2: CopyObjectCommand(orphaned/{originalPath})
+        R2-->>Service: コピー成功
+        Service->>Logger: 孤立ファイル移動ログ
+    end
+
+    Service->>R2: DeleteObjectCommand(thumbnailPath)
+    alt 削除成功
+        R2-->>Service: 成功
+    else 削除失敗
+        R2-->>Service: エラー
+        Service->>R2: CopyObjectCommand(orphaned/{thumbnailPath})
+        R2-->>Service: コピー成功
+        Service->>Logger: 孤立ファイル移動ログ
+    end
+```
+
+**孤立ファイル移動の実装**:
+```typescript
+// backend/src/services/image-delete.service.ts
+import { S3Client, DeleteObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
+
+async function deleteFromR2(objectKey: string): Promise<void> {
+  try {
+    await s3Client.send(new DeleteObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: objectKey,
+    }));
+  } catch (error) {
+    // 削除失敗時は orphaned/ プレフィックスに移動
+    await this.moveToOrphaned(objectKey);
+    logger.warn({
+      action: 'r2_delete_failed',
+      objectKey,
+      orphanedKey: `orphaned/${objectKey}`,
+      error: error.message,
+    });
+  }
+}
+
+async function moveToOrphaned(objectKey: string): Promise<string> {
+  const orphanedKey = `orphaned/${objectKey}`;
+
+  await s3Client.send(new CopyObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME,
+    CopySource: `${process.env.R2_BUCKET_NAME}/${objectKey}`,
+    Key: orphanedKey,
+  }));
+
+  return orphanedKey;
+}
+```
+
+**R2 Object Lifecycle Rule設定**:
+Cloudflare R2ダッシュボードまたはAPIで設定:
+```json
+{
+  "rules": [
+    {
+      "id": "orphaned-cleanup",
+      "enabled": true,
+      "filter": {
+        "prefix": "orphaned/"
+      },
+      "action": {
+        "type": "Delete"
+      },
+      "condition": {
+        "age": 7
+      }
+    }
+  ]
+}
+```
+
+**メリット**:
+- クリーンアップジョブが不要（R2のLifecycle Ruleで自動削除）
+- 7日間の猶予期間により、誤削除時のリカバリが可能
+- 運用負荷の軽減
 
 ##### API Contract
 
@@ -745,7 +852,7 @@ interface IImageDeleteService {
 **Implementation Notes**
 - Integration: PostgreSQLトランザクション内でメタデータと注釈を削除後、R2ファイルを削除
 - Validation: 画像存在確認、権限チェック
-- Risks: R2削除失敗時は孤立ファイルとしてログに記録し、後日クリーンアップジョブで対応
+- Risks: R2移動も失敗した場合は孤立ファイルとしてログに記録（Sentryアラート）
 
 #### ImageMetadataService（要件10対応）
 
@@ -1623,7 +1730,7 @@ interface IAutoSaveManager {
 - Validation: localStorageのデータサイズ制限（5MB）に注意
 - Risks: localStorageはブラウザごとに独立、デバイス間での共有不可
 
-##### localStorage容量管理
+##### localStorage容量管理（要件15.7-15.10対応）
 
 **想定データサイズ**:
 - 注釈データ（Fabric.js JSON）: 50KB〜200KB/画像（注釈量による）
@@ -1644,7 +1751,72 @@ interface CacheEntry {
   size: number;
 }
 
-function saveWithQuotaManagement(key: string, data: string): boolean {
+/**
+ * QuotaExceededErrorを検出する（クロスブラウザ対応）
+ * @requirement 15.10
+ */
+function isQuotaExceededError(error: unknown): boolean {
+  if (!(error instanceof DOMException)) {
+    return false;
+  }
+
+  // Chrome, Safari, Edge (Chromium)
+  if (error.code === 22) {
+    return true;
+  }
+
+  // Firefox
+  if (error.code === 1014) {
+    return true;
+  }
+
+  // Chrome, Safari (name-based detection)
+  if (error.name === 'QuotaExceededError') {
+    return true;
+  }
+
+  // Firefox legacy
+  if (error.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * プライベートブラウジングモードを検出する
+ * @requirement 15.9
+ */
+function isPrivateBrowsingMode(): boolean {
+  try {
+    const testKey = '__architrack_private_test__';
+    localStorage.setItem(testKey, 'test');
+    localStorage.removeItem(testKey);
+    return false;
+  } catch (e) {
+    // SecurityError: プライベートブラウジングでのlocalStorage制限
+    if (e instanceof DOMException &&
+        (e.name === 'SecurityError' || e.code === 18)) {
+      return true;
+    }
+    // Safari Private Mode: QuotaExceededError with 0 quota
+    if (isQuotaExceededError(e)) {
+      return true;
+    }
+    return false;
+  }
+}
+
+/**
+ * LRU戦略でlocalStorageに保存（QuotaExceededError対応）
+ * @requirement 15.7, 15.8
+ */
+function saveWithQuotaManagement(
+  key: string,
+  data: string,
+  onQuotaWarning?: () => void,
+  onSaveFailure?: () => void
+): boolean {
   const size = new Blob([data]).size;
 
   // 1. サイズチェック（単一エントリが1MBを超える場合は警告）
@@ -1660,14 +1832,23 @@ function saveWithQuotaManagement(key: string, data: string): boolean {
     localStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now(), size }));
     return true;
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      // 緊急クリーンアップ後にリトライ
+    if (isQuotaExceededError(e)) {
+      // LRU戦略: 古いキャッシュを削除してリトライ（15.7）
+      console.info('QuotaExceededError detected, applying LRU cleanup strategy');
       clearOldestEntries(3);
+
       try {
         localStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now(), size }));
         return true;
-      } catch {
-        return false; // 保存失敗をUIに通知
+      } catch (retryError) {
+        if (isQuotaExceededError(retryError)) {
+          // リトライ後も失敗: ユーザーに警告表示（15.8）
+          console.warn('localStorage save failed after LRU cleanup');
+          onQuotaWarning?.();
+          onSaveFailure?.();
+          return false;
+        }
+        throw retryError;
       }
     }
     throw e;
@@ -1678,18 +1859,107 @@ function ensureStorageSpace(requiredSize: number): void {
   const entries = getAllCacheEntries().sort((a, b) => a.savedAt - b.savedAt);
   let totalSize = entries.reduce((sum, e) => sum + e.size, 0);
 
+  // LRU (Least Recently Used): 最も古いエントリから削除
   while (totalSize + requiredSize > MAX_CACHE_SIZE_BYTES && entries.length > 0) {
     const oldest = entries.shift()!;
     localStorage.removeItem(STORAGE_KEY_PREFIX + oldest.imageId);
     totalSize -= oldest.size;
   }
 }
+
+function clearOldestEntries(count: number): void {
+  const entries = getAllCacheEntries().sort((a, b) => a.savedAt - b.savedAt);
+  for (let i = 0; i < Math.min(count, entries.length); i++) {
+    localStorage.removeItem(STORAGE_KEY_PREFIX + entries[i].imageId);
+  }
+}
+```
+
+##### AutoSaveManager拡張インターフェース（要件15.7-15.10対応）
+
+```typescript
+interface IAutoSaveManager {
+  // 既存メソッド
+  saveToLocal(imageId: string, data: AnnotationData): void;
+  loadFromLocal(imageId: string): LocalStorageData | null;
+  clearLocal(imageId: string): void;
+  hasUnsavedData(imageId: string): boolean;
+  isOnline(): boolean;
+  onNetworkChange(callback: (isOnline: boolean) => void): void;
+
+  // 新規メソッド（15.7-15.10対応）
+  /**
+   * プライベートブラウジングモードかどうかを判定
+   * @requirement 15.9
+   */
+  isPrivateBrowsingMode(): boolean;
+
+  /**
+   * 自動保存が利用可能かどうかを判定
+   * - プライベートブラウジングモードでは false
+   * @requirement 15.9
+   */
+  isAutoSaveAvailable(): boolean;
+
+  /**
+   * QuotaExceededError発生時のコールバックを設定
+   * @requirement 15.8
+   */
+  onQuotaExceeded(callback: () => void): void;
+}
+
+interface AutoSaveConfig {
+  // 既存設定
+  autoSaveIntervalMs: number; // default: 30000 (30秒)
+  maxCacheSize: number;       // default: 4MB
+  maxCachedImages: number;    // default: 10
+
+  // 新規設定（15.7-15.10対応）
+  /**
+   * プライベートブラウジングモードでの動作
+   * @requirement 15.9
+   */
+  privateBrowsingMode: {
+    disableAutoSave: true;     // 自動保存を無効化
+    showWarning: true;         // 初回アクセス時に警告表示
+    manualSaveOnly: true;      // 手動保存のみで動作
+  };
+}
+```
+
+##### プライベートブラウジングモード対応UI（要件15.9）
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ⚠️ プライベートブラウジングモードでは自動保存が無効です                    │
+│                                                                         │
+│ 編集内容は定期的に「保存」ボタンをクリックして保存してください。            │
+│ ブラウザを閉じると未保存の変更は失われます。                               │
+│                                                                         │
+│                                             [了解] [今後表示しない]       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+##### QuotaExceededError時のUI（要件15.8）
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ⚠️ 自動保存に失敗しました                                                │
+│                                                                         │
+│ ブラウザのストレージ容量が不足しています。                                 │
+│ 「今すぐ保存」をクリックして、サーバーに編集内容を保存してください。         │
+│                                                                         │
+│                                                    [今すぐ保存] [後で]   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **フォールバック動作**:
-1. 保存成功: 通常動作
-2. 容量警告（3MB超過）: ステータスバーに「キャッシュ容量が少なくなっています」表示
-3. 保存失敗: エラーメッセージ「自動保存に失敗しました。手動で保存してください」表示
+1. **保存成功**: 通常動作
+2. **容量警告（3MB超過）**: ステータスバーに「キャッシュ容量が少なくなっています」表示
+3. **QuotaExceededError発生（15.7）**: LRU戦略で古いキャッシュを削除してリトライ
+4. **リトライ後も失敗（15.8）**: ユーザーに警告表示、「今すぐ保存」を促進
+5. **プライベートブラウジング検出（15.9）**: 自動保存を無効化、手動保存のみで動作
+6. **クロスブラウザ対応（15.10）**: code===22, code===1014, QuotaExceededError, NS_ERROR_DOM_QUOTA_REACHEDを検出
 
 ## Data Models
 
@@ -1857,7 +2127,11 @@ interface FabricSerializedObject {
 **Cross-Service Data Management**:
 - 画像ファイルはCloudflare R2に保存、メタデータはPostgreSQLに保存
 - 削除時はPostgreSQLトランザクション内でメタデータを削除し、その後R2ファイルを削除
-- R2削除失敗時は孤立ファイルとしてログに記録（後でクリーンアップジョブで処理）
+- **R2削除失敗時の処理（要件4.8対応）**:
+  - 削除失敗したファイルを`orphaned/`プレフィックスに移動
+  - R2 Object Lifecycle Ruleにより7日後に自動削除
+  - クリーンアップジョブは不要（Lifecycle Ruleで対応）
+  - 7日間の猶予期間で誤削除からのリカバリが可能
 
 ## Error Handling
 
@@ -1903,11 +2177,11 @@ interface FabricSerializedObject {
 - **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携、**直近N件取得**
 - **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
 - **ImageMetadataService**: コメント更新、報告書フラグ更新、バリデーション、**一括更新**
-- **ImageDeleteService**: 画像削除、注釈連動削除、R2連携
+- **ImageDeleteService**: 画像削除、注釈連動削除、R2連携、**孤立ファイルorphaned/移動（4.8）**
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート
 - **PdfReportService**: 3組レイアウト、コメント表示、ページ分割
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
-- **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視
+- **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視、**QuotaExceededError LRUリトライ（15.7）、プライベートブラウジング検出（15.9）、クロスブラウザエラー検出（15.10）**
 - **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation
 
 ### Integration Tests
@@ -1919,6 +2193,8 @@ interface FabricSerializedObject {
 - **PDFエクスポート**: 画像取得 → 注釈合成 → 3組レイアウト → PDF生成
 - **認証・認可**: プロジェクト権限による現場調査アクセス制御
 - **自動保存・復元**: localStorage保存 → ページリロード → データ復元
+- **R2孤立ファイル処理**: 削除失敗時のorphaned/移動、Object Lifecycle Ruleテスト（4.8）
+- **localStorage QuotaExceededError処理**: LRUリトライ、警告表示、プライベートブラウジング検出（15.7-15.10）
 - **直近N件取得**: プロジェクト詳細画面での現場調査セクション表示
 
 ### E2E Tests
@@ -1933,6 +2209,8 @@ interface FabricSerializedObject {
 - **PDF報告書エクスポート（3組レイアウト確認）**
 - **個別画像エクスポート（形式・品質・注釈オプション）**
 - レスポンシブUIの動作確認
+- **localStorage容量不足時のユーザー警告表示（15.8）**
+- **プライベートブラウジングモードでの自動保存無効化警告（15.9）**
 
 ### Performance Tests
 
@@ -2014,7 +2292,16 @@ interface FabricSerializedObject {
 3. PATCH /api/site-surveys/images/batch エンドポイントの追加
 4. GET /api/projects/:projectId/site-surveys/latest エンドポイントの追加
 5. 画像一覧APIのレスポンスに新フィールドを追加
-6. 単体テスト・統合テストの追加
+6. **ImageDeleteServiceにorphaned/移動ロジックを追加（4.8）**
+7. 単体テスト・統合テストの追加
+
+### Phase 2.5: R2インフラ設定（要件4.8対応）
+
+1. Cloudflare R2ダッシュボードでObject Lifecycle Ruleを設定
+   - prefix: `orphaned/`
+   - action: Delete
+   - age: 7日
+2. Lifecycle Rule動作確認テスト
 
 ### Phase 3: フロントエンド実装
 
@@ -2025,10 +2312,16 @@ interface FabricSerializedObject {
 5. PdfReportServiceの3組レイアウト対応
 6. ImageExportDialogコンポーネントの実装
 7. ProjectDetailPageへのSiteSurveySectionCard統合
-8. 単体テスト・E2Eテストの追加
+8. **AutoSaveManagerにQuotaExceededError対応を追加（15.7-15.10）**
+   - LRU戦略でのリトライ実装
+   - プライベートブラウジングモード検出
+   - クロスブラウザエラー検出ユーティリティ
+   - 警告UIコンポーネントの実装
+9. 単体テスト・E2Eテストの追加
 
 ### Rollback Triggers
 
 - マイグレーション失敗時: Prisma rollback
 - R2接続失敗時: 画像アップロード機能の一時無効化
+- R2 Lifecycle Rule設定失敗時: 孤立ファイル手動クリーンアップに切り替え
 - 重大なバグ発見時: フィーチャーフラグによる機能無効化
