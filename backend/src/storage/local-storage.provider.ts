@@ -176,6 +176,38 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   /**
+   * ファイルをコピー
+   *
+   * Task 32.1: 孤立ファイル移動機能 (Requirements: 4.8)
+   *
+   * @param sourceKey - コピー元のキー（パス）
+   * @param destinationKey - コピー先のキー（パス）
+   */
+  async copy(sourceKey: string, destinationKey: string): Promise<void> {
+    const sourcePath = this.getFilePath(sourceKey);
+    const destPath = this.getFilePath(destinationKey);
+    const destDir = path.dirname(destPath);
+
+    // コピー先ディレクトリを作成
+    await fs.mkdir(destDir, { recursive: true });
+
+    // ファイルをコピー
+    await fs.copyFile(sourcePath, destPath);
+
+    // メタデータファイルがあればそれもコピー
+    const sourceMetaPath = `${sourcePath}.meta.json`;
+    const destMetaPath = `${destPath}.meta.json`;
+    try {
+      await fs.access(sourceMetaPath);
+      await fs.copyFile(sourceMetaPath, destMetaPath);
+    } catch {
+      // メタデータファイルが存在しなくてもエラーにしない
+    }
+
+    logger.debug({ sourceKey, destinationKey }, 'File copied in local storage');
+  }
+
+  /**
    * 接続テスト
    */
   async testConnection(): Promise<boolean> {

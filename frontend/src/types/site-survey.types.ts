@@ -141,6 +141,21 @@ export interface PaginatedSiteSurveys {
   pagination: SiteSurveyPaginationInfo;
 }
 
+/**
+ * プロジェクト別現場調査サマリー（Requirements: 2.1）
+ *
+ * プロジェクト詳細画面の現場調査セクションで表示する
+ * 直近の現場調査一覧と総数を含む。
+ *
+ * Task 31.1: GET /api/projects/:projectId/site-surveys/latest レスポンス型
+ */
+export interface ProjectSurveySummary {
+  /** 現場調査の総数 */
+  totalCount: number;
+  /** 直近N件の現場調査 */
+  latestSurveys: SiteSurveyInfo[];
+}
+
 // ============================================================================
 // 入力型定義
 // ============================================================================

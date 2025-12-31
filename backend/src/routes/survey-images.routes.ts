@@ -178,6 +178,31 @@ const imageMetadataUpdateBodySchema = z
   });
 
 /**
+ * 画像メタデータ一括更新スキーマ
+ *
+ * Task 33.1: 写真一覧管理パネルを手動保存方式に変更する
+ */
+const batchImageMetadataUpdateBodySchema = z.object({
+  updates: z
+    .array(
+      z
+        .object({
+          id: z.string().uuid('無効な画像IDです'),
+          comment: z
+            .string()
+            .max(2000, 'コメントは2000文字以内で入力してください')
+            .nullable()
+            .optional(),
+          includeInReport: z.boolean().optional(),
+        })
+        .refine((data) => data.comment !== undefined || data.includeInReport !== undefined, {
+          message: 'commentまたはincludeInReportのいずれかを指定してください',
+        })
+    )
+    .min(1, '更新データが指定されていません'),
+});
+
+/**
  * @swagger
  * /api/site-surveys/{id}/images:
  *   get:
@@ -459,6 +484,132 @@ router.put(
           status: statusCode,
           detail: error.message,
           code: error.code,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/site-surveys/images/batch:
+ *   patch:
+ *     summary: 画像メタデータ一括更新
+ *     description: 複数の画像のコメントと報告書出力フラグを一括で更新
+ *     tags:
+ *       - Survey Images
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - updates
+ *             properties:
+ *               updates:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - id
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: 画像ID
+ *                     comment:
+ *                       type: string
+ *                       nullable: true
+ *                       maxLength: 2000
+ *                       description: 写真コメント（最大2000文字、nullでクリア）
+ *                     includeInReport:
+ *                       type: boolean
+ *                       description: 報告書出力フラグ
+ *     responses:
+ *       200:
+ *         description: 一括更新成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                     format: uuid
+ *                   comment:
+ *                     type: string
+ *                     nullable: true
+ *                   includeInReport:
+ *                     type: boolean
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 画像が見つからない
+ */
+router.patch(
+  '/batch',
+  authenticate,
+  requirePermission('site_survey:update'),
+  validate(batchImageMetadataUpdateBodySchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { updates } = req.validatedBody as {
+        updates: Array<{
+          id: string;
+          comment?: string | null;
+          includeInReport?: boolean;
+        }>;
+      };
+
+      const updatedImages = await imageMetadataService.updateMetadataBatch(updates);
+
+      logger.info(
+        { userId: req.user!.userId, updateCount: updates.length },
+        'Image metadata batch updated'
+      );
+
+      res.json(
+        updatedImages.map((img) => ({
+          id: img.id,
+          surveyId: img.surveyId,
+          fileName: img.fileName,
+          comment: img.comment,
+          includeInReport: img.includeInReport,
+          displayOrder: img.displayOrder,
+        }))
+      );
+    } catch (error) {
+      if (error instanceof MetadataImageNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/image-not-found',
+          title: 'Image Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'IMAGE_NOT_FOUND',
+          imageId: error.imageId,
+        });
+        return;
+      }
+      if (error instanceof CommentTooLongError) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error.message,
+          code: 'COMMENT_TOO_LONG',
+          length: error.length,
+          maxLength: error.maxLength,
         });
         return;
       }

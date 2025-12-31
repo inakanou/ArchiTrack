@@ -164,6 +164,111 @@ router.post(
 );
 
 /**
+ * 直近N件取得のクエリパラメータスキーマ
+ * Task 31.1: 現場調査直近N件取得APIエンドポイント
+ */
+const latestSurveysQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(10).default(2),
+});
+
+/**
+ * @swagger
+ * /api/projects/{projectId}/site-surveys/latest:
+ *   get:
+ *     summary: 現場調査直近N件取得
+ *     description: プロジェクトに紐付く直近の現場調査と総数を取得
+ *     tags:
+ *       - Site Surveys
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: プロジェクトID
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 2
+ *           minimum: 1
+ *           maximum: 10
+ *         description: 取得件数（デフォルト2、最大10）
+ *     responses:
+ *       200:
+ *         description: 直近N件の現場調査と総数
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalCount:
+ *                   type: integer
+ *                 latestSurveys:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/SiteSurveyInfo'
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ */
+router.get(
+  '/latest',
+  authenticate,
+  requirePermission('site_survey:read'),
+  validate(projectIdParamSchema, 'params'),
+  validate(latestSurveysQuerySchema, 'query'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { projectId } = req.validatedParams as { projectId: string };
+      const { limit } = req.validatedQuery as { limit: number };
+
+      const result = await siteSurveyService.findLatestByProjectId(projectId, limit);
+
+      // thumbnailUrlを署名付きURLに変換
+      let enrichedSurveys = result.latestSurveys;
+      if (isStorageConfigured()) {
+        const storageProvider = getStorageProvider();
+        if (storageProvider) {
+          enrichedSurveys = await Promise.all(
+            result.latestSurveys.map(async (survey) => {
+              if (survey.thumbnailUrl) {
+                try {
+                  const signedUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl);
+                  return { ...survey, thumbnailUrl: signedUrl };
+                } catch (error) {
+                  logger.warn(
+                    { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
+                    'Failed to generate signed URL for thumbnail'
+                  );
+                  return { ...survey, thumbnailUrl: null };
+                }
+              }
+              return survey;
+            })
+          );
+        }
+      }
+
+      logger.debug(
+        { userId: req.user?.userId, projectId, limit, totalCount: result.totalCount },
+        'Latest site surveys retrieved'
+      );
+
+      res.json({ totalCount: result.totalCount, latestSurveys: enrichedSurveys });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
  * @swagger
  * /api/projects/{projectId}/site-surveys:
  *   get:

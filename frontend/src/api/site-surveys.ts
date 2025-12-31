@@ -14,6 +14,7 @@
 import { apiClient } from './client';
 import type {
   PaginatedSiteSurveys,
+  ProjectSurveySummary,
   SiteSurveyDetail,
   SiteSurveyInfo,
   CreateSiteSurveyInput,
@@ -76,6 +77,45 @@ export interface GetSiteSurveysOptions {
  *   order: 'desc',
  * });
  */
+/**
+ * 直近N件の現場調査と総数を取得する
+ *
+ * プロジェクト詳細画面の現場調査セクションで使用します。
+ *
+ * @param projectId - プロジェクトID（UUID）
+ * @param limit - 取得件数（デフォルト: 2、最大: 10）
+ * @returns プロジェクト別現場調査サマリー（直近N件と総数）
+ * @throws ApiError バリデーションエラー、認証エラー、権限不足
+ *
+ * Requirements: 2.1
+ *
+ * Task 31.1: 現場調査直近N件取得APIクライアント
+ *
+ * @example
+ * // デフォルト（直近2件）を取得
+ * const summary = await getLatestSiteSurveys('project-id');
+ *
+ * @example
+ * // 直近5件を取得
+ * const summary = await getLatestSiteSurveys('project-id', 5);
+ */
+export async function getLatestSiteSurveys(
+  projectId: string,
+  limit: number = 2
+): Promise<ProjectSurveySummary> {
+  const params = new URLSearchParams();
+  if (limit !== 2) {
+    params.append('limit', String(limit));
+  }
+
+  const queryString = params.toString();
+  const path = queryString
+    ? `/api/projects/${projectId}/site-surveys/latest?${queryString}`
+    : `/api/projects/${projectId}/site-surveys/latest`;
+
+  return apiClient.get<ProjectSurveySummary>(path);
+}
+
 export async function getSiteSurveys(
   projectId: string,
   options: GetSiteSurveysOptions = {}

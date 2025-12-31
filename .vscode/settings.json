@@ -1,4 +1,12 @@
 {
+  // cSpell設定
+  "cSpell.words": [
+    "ArchiTrack",
+    "architrack",
+    "ARCHITRACK",
+    "beforeunload"
+  ],
+
   // TypeScript設定
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,

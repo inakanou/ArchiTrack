@@ -715,15 +715,15 @@
 
 ### Phase 18: 追加要件対応（要件2.1、4.8、9.1、9.3、10.8-10.11、15.7-15.10）
 
-- [ ] 31. プロジェクト詳細画面の現場調査セクション実装（要件2.1）
-- [ ] 31.1 (P) 現場調査直近N件取得APIエンドポイントを実装する
+- [x] 31. プロジェクト詳細画面の現場調査セクション実装（要件2.1）
+- [x] 31.1 (P) 現場調査直近N件取得APIエンドポイントを実装する
   - GET /api/projects/:projectId/site-surveys/latest エンドポイントを追加
   - クエリパラメータでlimit（デフォルト2）を指定可能にする
   - 直近N件の現場調査と総数（totalCount）を返却する
   - SurveyServiceにfindLatestByProjectIdメソッドを追加
   - _Requirements: 2.1_
 
-- [ ] 31.2 SiteSurveySectionCardコンポーネントを実装する
+- [x] 31.2 SiteSurveySectionCardコンポーネントを実装する
   - プロジェクト詳細画面に「現場調査」セクションとして配置
   - 直近2件の現場調査への参照リンクを表示
   - 現場調査の総数（N件）を表示
@@ -732,26 +732,28 @@
   - ローディングスケルトン表示
   - _Requirements: 2.1, 2.2_
 
-- [ ] 31.3 ProjectDetailPageへのSiteSurveySectionCard統合
+- [x] 31.3 ProjectDetailPageへのSiteSurveySectionCard統合
   - 既存のプロジェクト詳細画面にセクションカードを組み込む
   - 適切な配置位置の決定（他セクションとのバランス）
   - _Requirements: 2.1_
 
-- [ ] 32. R2孤立ファイル処理機能の実装（要件4.8）
-- [ ] 32.1 ImageDeleteServiceに孤立ファイル移動ロジックを追加する
+- [x] 32. R2孤立ファイル処理機能の実装（要件4.8）
+- [x] 32.1 ImageDeleteServiceに孤立ファイル移動ロジックを追加する
   - R2削除失敗時に孤立ファイルをorphaned/プレフィックスにコピー
   - CopyObjectCommandによる移動処理
   - 移動成功後のログ記録（Sentry警告レベル）
   - 移動失敗時のエラーログとSentryアラート
   - _Requirements: 4.8_
 
-- [ ] 32.2 R2 Object Lifecycle Rule設定ドキュメントを作成する
+- [x] 32.2 R2 Object Lifecycle Rule設定ドキュメントを作成する
   - Cloudflare R2ダッシュボードでの設定手順
   - orphaned/プレフィックスに対して7日後自動削除ルールを設定
   - 設定確認用のテストケース
   - _Requirements: 4.8_
 
 - [ ] 33. 保存方式変更の実装（オートセーブ → ボタン保存、要件9.1、9.3、10.8、10.9）
+  - [x] バックエンド: ImageMetadataService.updateMetadataBatch メソッド追加
+  - [x] バックエンド: PATCH /api/site-surveys/images/batch エンドポイント追加
 - [ ] 33.1 写真一覧管理パネルを手動保存方式に変更する
   - コメント入力・報告書出力フラグ変更を未保存状態（isDirty）としてマーク
   - 「保存」ボタン追加と一括保存機能の実装

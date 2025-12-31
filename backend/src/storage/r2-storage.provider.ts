@@ -14,6 +14,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
   HeadBucketCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type {
@@ -197,6 +198,25 @@ export class R2StorageProvider implements StorageProvider {
       return `${this.publicUrl}/${key}`;
     }
     return null;
+  }
+
+  /**
+   * ファイルをコピー
+   *
+   * Task 32.1: 孤立ファイル移動機能 (Requirements: 4.8)
+   *
+   * @param sourceKey - コピー元のキー（パス）
+   * @param destinationKey - コピー先のキー（パス）
+   */
+  async copy(sourceKey: string, destinationKey: string): Promise<void> {
+    const command = new CopyObjectCommand({
+      Bucket: this.bucketName,
+      CopySource: `${this.bucketName}/${sourceKey}`,
+      Key: destinationKey,
+    });
+
+    await this.client.send(command);
+    logger.debug({ sourceKey, destinationKey }, 'File copied in R2');
   }
 
   /**

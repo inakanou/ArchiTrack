@@ -10,8 +10,14 @@
  * - 関連する注釈データの削除
  * - 削除失敗時の孤立ファイルログ記録
  *
+ * Task 32.1: 孤立ファイル移動ロジック
+ * - R2削除失敗時にorphaned/プレフィックスにコピー
+ * - コピー成功時のログ記録（警告レベル）
+ * - コピー失敗時のエラーログとSentryアラート
+ *
  * Requirements:
  * - 4.7: ユーザーが画像を削除すると、画像と関連する注釈データを削除する
+ * - 4.8: R2削除失敗時の孤立ファイルをorphaned/プレフィックスに移動
  *
  * @module services/image-delete
  */
@@ -231,8 +237,10 @@ export class ImageDeleteService {
    * StorageProviderが設定されている場合はそちらを使用し、
    * そうでない場合は従来のS3Clientを使用します。
    *
-   * 削除に失敗した場合は孤立ファイルとしてログに記録し、
+   * 削除に失敗した場合は孤立ファイルをorphaned/プレフィックスにコピーし、
    * falseを返します（エラーはスローしません）。
+   *
+   * Task 32.1: 孤立ファイル移動ロジック (Requirements: 4.8)
    *
    * @param path - 削除するファイルのパス
    * @returns 削除成功ならtrue、失敗ならfalse
@@ -257,15 +265,61 @@ export class ImageDeleteService {
       await this.s3Client.send(command);
       return true;
     } catch (error) {
-      // 孤立ファイルとしてログに記録
-      logger.warn(
-        {
-          path,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        '孤立ファイル: ストレージからのファイル削除に失敗しました。手動での削除が必要です。'
-      );
+      // Task 32.1: 削除失敗時に孤立ファイルをorphaned/プレフィックスにコピー
+      await this.moveToOrphaned(path, error);
       return false;
+    }
+  }
+
+  /**
+   * 孤立ファイルをorphaned/プレフィックスに移動
+   *
+   * 削除に失敗したファイルをorphaned/プレフィックスにコピーします。
+   * Cloudflare R2のLifecycle Ruleで7日後に自動削除されます。
+   *
+   * Task 32.1 (Requirements: 4.8)
+   *
+   * @param originalPath - 元のファイルパス
+   * @param deleteError - 削除時に発生したエラー
+   */
+  private async moveToOrphaned(originalPath: string, deleteError: unknown): Promise<void> {
+    const orphanedPath = `orphaned/${originalPath}`;
+
+    try {
+      if (this.storageProvider && this.storageProvider.copy) {
+        await this.storageProvider.copy(originalPath, orphanedPath);
+
+        // コピー成功: 警告レベルでログ記録
+        logger.warn(
+          {
+            originalPath,
+            orphanedPath,
+            path: orphanedPath,
+            deleteError: deleteError instanceof Error ? deleteError.message : 'Unknown error',
+          },
+          '孤立ファイル: orphaned/プレフィックスに移動しました。7日後に自動削除されます。'
+        );
+      } else {
+        // StorageProviderにcopyメソッドがない場合は従来のログのみ
+        logger.warn(
+          {
+            path: originalPath,
+            error: deleteError instanceof Error ? deleteError.message : 'Unknown error',
+          },
+          '孤立ファイル: ストレージからのファイル削除に失敗しました。手動での削除が必要です。'
+        );
+      }
+    } catch (copyError) {
+      // コピー失敗: エラーレベルでログ記録（Sentryアラート）
+      logger.error(
+        {
+          originalPath,
+          orphanedPath,
+          error: copyError instanceof Error ? copyError.message : 'Unknown error',
+          deleteError: deleteError instanceof Error ? deleteError.message : 'Unknown error',
+        },
+        '孤立ファイルの移動に失敗しました。手動での確認が必要です。'
+      );
     }
   }
 }

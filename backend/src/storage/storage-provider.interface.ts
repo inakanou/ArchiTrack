@@ -78,6 +78,16 @@ export interface StorageProvider {
   delete(key: string): Promise<void>;
 
   /**
+   * ファイルをコピー
+   *
+   * Task 32.1: 孤立ファイル移動機能 (Requirements: 4.8)
+   *
+   * @param sourceKey - コピー元のキー（パス）
+   * @param destinationKey - コピー先のキー（パス）
+   */
+  copy(sourceKey: string, destinationKey: string): Promise<void>;
+
+  /**
    * ファイルの存在確認
    *
    * @param key - 確認するファイルのキー（パス）
