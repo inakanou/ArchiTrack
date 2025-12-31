@@ -728,4 +728,127 @@ describe('AutoSaveManager', () => {
       });
     });
   });
+
+  describe('AutoSaveManager configuration extension (Task 35.6)', () => {
+    describe('isAutoSaveAvailable', () => {
+      it('should return true when localStorage is available', () => {
+        expect(autoSaveManager.isAutoSaveAvailable()).toBe(true);
+      });
+
+      it('should return false when localStorage is not available', () => {
+        // Mock localStorage.setItem to throw SecurityError (tested in isAutoSaveAvailable)
+        const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw new DOMException('Blocked', 'SecurityError');
+        });
+
+        const newManager = new AutoSaveManager();
+        expect(newManager.isAutoSaveAvailable()).toBe(false);
+
+        setItemSpy.mockRestore();
+        newManager.destroy();
+      });
+
+      it('should return false when in private browsing mode', () => {
+        // Simulate private mode by making setItem fail
+        const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+        });
+
+        const newManager = new AutoSaveManager();
+        expect(newManager.isAutoSaveAvailable()).toBe(false);
+
+        setItemSpy.mockRestore();
+        newManager.destroy();
+      });
+    });
+
+    describe('onQuotaExceeded callback', () => {
+      it('should allow setting onQuotaExceeded callback', () => {
+        const onQuotaExceeded = vi.fn();
+        autoSaveManager.setOnQuotaExceeded(onQuotaExceeded);
+
+        // Verify it was set (no direct way to test, but should not throw)
+        expect(() => autoSaveManager.setOnQuotaExceeded(onQuotaExceeded)).not.toThrow();
+      });
+
+      it('should call onQuotaExceeded callback when quota is exceeded', () => {
+        const onQuotaExceeded = vi.fn();
+        autoSaveManager.setOnQuotaExceeded(onQuotaExceeded);
+
+        // Mock localStorage.setItem to always throw QuotaExceededError
+        const quotaError = new DOMException('QuotaExceededError', 'QuotaExceededError');
+        vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw quotaError;
+        });
+
+        // Try to save - should trigger callback
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        expect(onQuotaExceeded).toHaveBeenCalledTimes(1);
+        expect(onQuotaExceeded).toHaveBeenCalledWith(expect.objectContaining({
+          imageId: 'image-1',
+          surveyId: 'survey-1',
+        }));
+      });
+
+      it('should allow removing onQuotaExceeded callback with null', () => {
+        const onQuotaExceeded = vi.fn();
+        autoSaveManager.setOnQuotaExceeded(onQuotaExceeded);
+        autoSaveManager.setOnQuotaExceeded(null);
+
+        // Mock quota exceeded
+        const quotaError = new DOMException('QuotaExceededError', 'QuotaExceededError');
+        vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw quotaError;
+        });
+
+        autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        // Callback should not be called since it was removed
+        expect(onQuotaExceeded).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('private browsing mode configuration', () => {
+      it('should allow disabling auto-save for private browsing mode', () => {
+        const managerWithPrivateMode = new AutoSaveManager({
+          disableAutoSave: true,
+        });
+
+        expect(managerWithPrivateMode.isAutoSaveDisabled()).toBe(true);
+        managerWithPrivateMode.destroy();
+      });
+
+      it('should not save when auto-save is disabled', () => {
+        const managerWithPrivateMode = new AutoSaveManager({
+          disableAutoSave: true,
+        });
+
+        managerWithPrivateMode.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
+
+        // Should not attempt to save
+        expect(localStorageMock.setItem).not.toHaveBeenCalled();
+
+        managerWithPrivateMode.destroy();
+      });
+
+      it('should return SaveResult with success=false when auto-save is disabled', () => {
+        const managerWithPrivateMode = new AutoSaveManager({
+          disableAutoSave: true,
+        });
+
+        const result = managerWithPrivateMode.saveToLocalWithResult(
+          'image-1',
+          'survey-1',
+          mockAnnotationData,
+          true
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('disabled');
+
+        managerWithPrivateMode.destroy();
+      });
+    });
+  });
 });

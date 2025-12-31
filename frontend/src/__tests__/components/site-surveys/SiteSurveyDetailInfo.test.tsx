@@ -271,24 +271,21 @@ describe('SiteSurveyDetailInfo', () => {
   });
 
   // ==========================================================================
-  // プロジェクトへの戻り導線
+  // ナビゲーションボタン削除確認 (Task 33.4)
+  // ブレッドクラムのみでナビゲーションを行う設計に統一
   // ==========================================================================
 
-  describe('プロジェクトへの戻り導線', () => {
-    it('プロジェクト詳細へ戻るリンクが表示される', () => {
+  describe('ナビゲーションボタン削除 (Task 33.4)', () => {
+    it('「プロジェクトに戻る」リンクは表示されない', () => {
       renderComponent();
 
-      const backLink = screen.getByRole('link', { name: /プロジェクトに戻る/ });
-      expect(backLink).toBeInTheDocument();
-      expect(backLink).toHaveAttribute('href', '/projects/project-1');
+      expect(screen.queryByRole('link', { name: /プロジェクトに戻る/ })).not.toBeInTheDocument();
     });
 
-    it('現場調査一覧へ戻るリンクが表示される', () => {
+    it('「現場調査一覧に戻る」リンクは表示されない', () => {
       renderComponent();
 
-      const listLink = screen.getByRole('link', { name: /現場調査一覧に戻る/ });
-      expect(listLink).toBeInTheDocument();
-      expect(listLink).toHaveAttribute('href', '/projects/project-1/site-surveys');
+      expect(screen.queryByRole('link', { name: /現場調査一覧に戻る/ })).not.toBeInTheDocument();
     });
   });
 
@@ -396,11 +393,12 @@ describe('SiteSurveyDetailInfo', () => {
         expect(screen.getByText('テストプロジェクト')).toBeInTheDocument();
       });
 
-      it('ナビゲーションリンクは表示される', () => {
+      it('基本情報は権限に関係なく表示される', () => {
         renderComponent({ canEdit: false, canDelete: false });
 
-        expect(screen.getByRole('link', { name: /プロジェクトに戻る/ })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: /現場調査一覧に戻る/ })).toBeInTheDocument();
+        // 基本情報は表示される
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        expect(screen.getByText(/テストプロジェクト/)).toBeInTheDocument();
       });
     });
   });

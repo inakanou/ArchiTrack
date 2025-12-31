@@ -669,4 +669,181 @@ describe('PhotoManagementPanel', () => {
       expect(items[0]).toHaveAttribute('data-dragging', 'true');
     });
   });
+
+  // ==========================================================================
+  // 手動保存方式テスト（Task 33.1）
+  // ==========================================================================
+
+  describe('手動保存方式', () => {
+    it('保存ボタンが表示されること', () => {
+      render(<PhotoManagementPanel {...defaultProps} onSave={vi.fn()} />);
+
+      expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument();
+    });
+
+    it('onSaveが未定義の場合、保存ボタンは表示されないこと', () => {
+      render(<PhotoManagementPanel {...defaultProps} />);
+
+      expect(screen.queryByRole('button', { name: /保存/i })).not.toBeInTheDocument();
+    });
+
+    it('変更がない場合、保存ボタンが無効化されていること', () => {
+      render(<PhotoManagementPanel {...defaultProps} onSave={vi.fn()} isDirty={false} />);
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      expect(saveButton).toBeDisabled();
+    });
+
+    it('変更がある場合、保存ボタンが有効化されていること', () => {
+      render(<PhotoManagementPanel {...defaultProps} onSave={vi.fn()} isDirty={true} />);
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      expect(saveButton).not.toBeDisabled();
+    });
+
+    it('保存ボタンをクリックするとonSaveが呼ばれること', async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn();
+
+      render(<PhotoManagementPanel {...defaultProps} onSave={onSave} isDirty={true} />);
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      expect(onSave).toHaveBeenCalled();
+    });
+
+    it('isSavingがtrueの場合、保存中の表示になること', () => {
+      render(
+        <PhotoManagementPanel {...defaultProps} onSave={vi.fn()} isDirty={true} isSaving={true} />
+      );
+
+      const saveButton = screen.getByRole('button', { name: /保存中/i });
+      expect(saveButton).toBeInTheDocument();
+      expect(saveButton).toBeDisabled();
+    });
+
+    it('未保存変更インジケーターが表示されること', () => {
+      render(<PhotoManagementPanel {...defaultProps} onSave={vi.fn()} isDirty={true} />);
+
+      expect(screen.getByText(/未保存の変更があります/i)).toBeInTheDocument();
+    });
+
+    it('未保存変更がない場合、インジケーターは表示されないこと', () => {
+      render(<PhotoManagementPanel {...defaultProps} onSave={vi.fn()} isDirty={false} />);
+
+      expect(screen.queryByText(/未保存の変更があります/i)).not.toBeInTheDocument();
+    });
+
+    it('readOnlyモードでは保存ボタンが表示されないこと', () => {
+      render(<PhotoManagementPanel {...defaultProps} onSave={vi.fn()} readOnly={true} />);
+
+      expect(screen.queryByRole('button', { name: /保存/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // 画像削除機能テスト（Task 34.1, Task 34.2）
+  // ==========================================================================
+
+  describe('画像削除機能 (Task 34)', () => {
+    it('onDeleteが定義されている場合、各画像に削除ボタンが表示されること', () => {
+      const onDelete = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onDelete={onDelete} />);
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      expect(deleteButtons).toHaveLength(3);
+    });
+
+    it('onDeleteが未定義の場合、削除ボタンは表示されないこと', () => {
+      render(<PhotoManagementPanel {...defaultProps} />);
+
+      const deleteButtons = screen.queryAllByRole('button', { name: /削除/i });
+      expect(deleteButtons).toHaveLength(0);
+    });
+
+    it('readOnlyモードでは削除ボタンが表示されないこと', () => {
+      const onDelete = vi.fn();
+      render(<PhotoManagementPanel {...defaultProps} onDelete={onDelete} readOnly={true} />);
+
+      const deleteButtons = screen.queryAllByRole('button', { name: /削除/i });
+      expect(deleteButtons).toHaveLength(0);
+    });
+
+    it('削除ボタンをクリックすると確認ダイアログが表示されること', async () => {
+      const user = userEvent.setup();
+      const onDelete = vi.fn();
+
+      render(<PhotoManagementPanel {...defaultProps} onDelete={onDelete} />);
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      await user.click(deleteButtons[0]!);
+
+      // 確認ダイアログが表示される
+      expect(
+        screen.getByText(/この画像を削除しますか？関連する注釈データも削除されます。/i)
+      ).toBeInTheDocument();
+    });
+
+    it('確認ダイアログでキャンセルをクリックするとダイアログが閉じる', async () => {
+      const user = userEvent.setup();
+      const onDelete = vi.fn();
+
+      render(<PhotoManagementPanel {...defaultProps} onDelete={onDelete} />);
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      await user.click(deleteButtons[0]!);
+
+      // 確認ダイアログが表示される
+      expect(
+        screen.getByText(/この画像を削除しますか？関連する注釈データも削除されます。/i)
+      ).toBeInTheDocument();
+
+      // キャンセルボタンをクリック
+      const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+      await user.click(cancelButton);
+
+      // ダイアログが閉じる
+      expect(
+        screen.queryByText(/この画像を削除しますか？関連する注釈データも削除されます。/i)
+      ).not.toBeInTheDocument();
+      expect(onDelete).not.toHaveBeenCalled();
+    });
+
+    it('確認ダイアログで削除を確認するとonDeleteが呼ばれること', async () => {
+      const user = userEvent.setup();
+      const onDelete = vi.fn();
+
+      render(<PhotoManagementPanel {...defaultProps} onDelete={onDelete} />);
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      await user.click(deleteButtons[0]!);
+
+      // 確認ダイアログで削除を確認
+      const confirmButton = screen.getByRole('button', { name: /削除する/i });
+      await user.click(confirmButton);
+
+      // onDeleteが呼ばれる（画像IDを渡す）
+      expect(onDelete).toHaveBeenCalledWith('img-1');
+    });
+
+    it('削除中の状態ではボタンが無効化されること', async () => {
+      const user = userEvent.setup();
+      const onDelete = vi.fn().mockImplementation(() => new Promise(() => {})); // 永遠に解決しない
+
+      render(<PhotoManagementPanel {...defaultProps} onDelete={onDelete} />);
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      await user.click(deleteButtons[0]!);
+
+      // 確認ダイアログで削除を確認
+      const confirmButton = screen.getByRole('button', { name: /削除する/i });
+      await user.click(confirmButton);
+
+      // 削除中の状態になる
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /削除中/i })).toBeInTheDocument();
+      });
+    });
+  });
 });

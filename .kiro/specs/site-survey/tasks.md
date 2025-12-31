@@ -751,51 +751,51 @@
   - 設定確認用のテストケース
   - _Requirements: 4.8_
 
-- [ ] 33. 保存方式変更の実装（オートセーブ → ボタン保存、要件9.1、9.3、10.8、10.9）
+- [x] 33. 保存方式変更の実装（オートセーブ → ボタン保存、要件9.1、9.3、10.8、10.9）
   - [x] バックエンド: ImageMetadataService.updateMetadataBatch メソッド追加
   - [x] バックエンド: PATCH /api/site-surveys/images/batch エンドポイント追加
-- [ ] 33.1 写真一覧管理パネルを手動保存方式に変更する
+- [x] 33.1 写真一覧管理パネルを手動保存方式に変更する
   - コメント入力・報告書出力フラグ変更を未保存状態（isDirty）としてマーク
   - 「保存」ボタン追加と一括保存機能の実装
   - PATCH /api/site-surveys/images/batch APIを使用した一括更新
   - useUnsavedChangesフックとの統合
   - _Requirements: 10.8_
 
-- [ ] 33.2 ページ離脱時の確認ダイアログを実装する
+- [x] 33.2 ページ離脱時の確認ダイアログを実装する
   - PhotoManagementPanelでbeforeunloadイベントを設定
   - 未保存変更がある場合に確認ダイアログを表示
   - React Routerとの連携（ルート遷移時の確認）
   - _Requirements: 9.3, 10.9_
 
-- [ ] 33.3 注釈エディタを手動保存方式に変更する
+- [x] 33.3 注釈エディタを手動保存方式に変更する
   - 注釈編集時にisDirtyフラグを更新
   - 「保存」ボタンクリックでサーバーに保存
   - 保存成功時にisDirtyフラグをリセット
   - useUnsavedChangesフックとの統合
   - _Requirements: 9.1, 9.3_
 
-- [ ] 33.4 「プロジェクトに戻る」「現場調査一覧に戻る」ボタンを削除する
+- [x] 33.4 「プロジェクトに戻る」「現場調査一覧に戻る」ボタンを削除する
   - PhotoManagementPanelからナビゲーションボタンを削除
   - SurveyDetailPageから該当ボタンを削除
   - ブレッドクラムのみでナビゲーションを行う設計に統一
   - _Requirements: 2.5, 2.6, 2.7_
 
-- [ ] 34. 画像削除機能の拡充（要件10.10、10.11）
-- [ ] 34.1 画像削除確認ダイアログを実装する
+- [x] 34. 画像削除機能の拡充（要件10.10、10.11）
+- [x] 34.1 画像削除確認ダイアログを実装する
   - 削除ボタンクリック時に確認ダイアログを表示
   - 「画像と関連する注釈データも削除される」旨の警告文を表示
   - キャンセル/削除ボタンの配置
   - _Requirements: 10.10_
 
-- [ ] 34.2 PhotoManagementPanelに削除機能を統合する
+- [x] 34.2 PhotoManagementPanelに削除機能を統合する
   - 各写真に削除ボタンを追加
   - 削除確認ダイアログの呼び出し
   - 削除実行後の画像リストからの除去
   - 削除成功時のフィードバック表示
   - _Requirements: 10.10, 10.11_
 
-- [ ] 35. localStorage QuotaExceededError対応の実装（要件15.7-15.10）
-- [ ] 35.1 (P) クロスブラウザQuotaExceededError検出ユーティリティを実装する
+- [x] 35. localStorage QuotaExceededError対応の実装（要件15.7-15.10）
+- [x] 35.1 (P) クロスブラウザQuotaExceededError検出ユーティリティを実装する
   - isQuotaExceededError関数の実装
   - code===22（Chrome、Safari、Edge）対応
   - code===1014（Firefox）対応
@@ -803,32 +803,32 @@
   - name===NS_ERROR_DOM_QUOTA_REACHED対応
   - _Requirements: 15.10_
 
-- [ ] 35.2 (P) プライベートブラウジングモード検出機能を実装する
+- [x] 35.2 (P) プライベートブラウジングモード検出機能を実装する
   - isPrivateBrowsingMode関数の実装
   - SecurityError検出（プライベートモードでのlocalStorage制限）
   - Safari Private ModeのQuotaExceededError検出
   - _Requirements: 15.9_
 
-- [ ] 35.3 AutoSaveManagerにLRUリトライ機能を追加する
+- [x] 35.3 AutoSaveManagerにLRUリトライ機能を追加する
   - QuotaExceededError発生時にLRU戦略で古いキャッシュを削除
   - clearOldestEntries関数の実装
   - リトライ後も失敗した場合のエラーハンドリング
   - _Requirements: 15.7_
 
-- [ ] 35.4 QuotaExceededError時のユーザー警告UIを実装する
+- [x] 35.4 QuotaExceededError時のユーザー警告UIを実装する
   - QuotaWarningDialogコンポーネントの実装
   - 「自動保存に失敗しました」メッセージ表示
   - 「今すぐ保存」ボタンで手動保存を促進
   - _Requirements: 15.8_
 
-- [ ] 35.5 プライベートブラウジングモード時の警告UIを実装する
+- [x] 35.5 プライベートブラウジングモード時の警告UIを実装する
   - 初回アクセス時に警告バナーを表示
   - 「自動保存が無効です」メッセージ
   - 「今後表示しない」オプション
   - 自動保存を無効化し手動保存のみで動作
   - _Requirements: 15.9_
 
-- [ ] 35.6 AutoSaveManagerの設定を拡張する
+- [x] 35.6 AutoSaveManagerの設定を拡張する
   - isAutoSaveAvailable()メソッドの追加
   - onQuotaExceeded()コールバック設定
   - プライベートブラウジングモード時の動作設定
@@ -836,31 +836,31 @@
 
 ### Phase 19: Phase 18のテスト
 
-- [ ] 36. 追加要件のテスト実装
-- [ ] 36.1 (P) プロジェクト詳細画面の現場調査セクションのテストを実装する
+- [x] 36. 追加要件のテスト実装
+- [x] 36.1 (P) プロジェクト詳細画面の現場調査セクションのテストを実装する
   - SiteSurveySectionCardコンポーネントの単体テスト
   - 直近N件取得APIの単体テスト
   - 0件・1件・複数件の表示パターンテスト
   - _Requirements: 2.1, 2.2_
 
-- [ ] 36.2 (P) R2孤立ファイル処理のテストを実装する
+- [x] 36.2 (P) R2孤立ファイル処理のテストを実装する
   - ImageDeleteServiceのorphaned/移動ロジックの単体テスト
   - 削除失敗シミュレーションテスト
   - _Requirements: 4.8_
 
-- [ ] 36.3 (P) 手動保存方式のテストを実装する
+- [x] 36.3 (P) 手動保存方式のテストを実装する
   - isDirtyフラグの状態管理テスト
   - 保存ボタンクリック時の一括保存テスト
   - ページ離脱時の確認ダイアログテスト
   - _Requirements: 9.1, 9.3, 10.8, 10.9_
 
-- [ ] 36.4 (P) 画像削除確認ダイアログのテストを実装する
+- [x] 36.4 (P) 画像削除確認ダイアログのテストを実装する
   - 削除確認ダイアログの表示テスト
   - キャンセル/削除操作のテスト
   - 削除後のリスト更新テスト
   - _Requirements: 10.10, 10.11_
 
-- [ ] 36.5 (P) localStorage QuotaExceededError対応のテストを実装する
+- [x] 36.5 (P) localStorage QuotaExceededError対応のテストを実装する
   - isQuotaExceededError関数のクロスブラウザテスト
   - isPrivateBrowsingMode関数のテスト
   - LRUリトライ機能のテスト

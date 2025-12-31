@@ -894,6 +894,19 @@ export interface UpdateImageMetadataResponse {
 }
 
 /**
+ * 一括画像メタデータ更新入力
+ *
+ * 複数の画像のコメントや報告書出力フラグを一括で更新するための入力型
+ *
+ * Task 33.1: 手動保存方式対応
+ * Requirements: 10.8
+ */
+export interface BatchUpdateImageMetadataInput extends UpdateImageMetadataInput {
+  /** 画像ID */
+  id: string;
+}
+
+/**
  * コメント長すぎエラーレスポンス
  *
  * コメントが最大文字数（2000文字）を超えた場合のエラーレスポンス

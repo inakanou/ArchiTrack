@@ -19,17 +19,18 @@
  * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/common';
 import { buildSiteSurveyDetailBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getSiteSurvey, deleteSiteSurvey } from '../api/site-surveys';
 import {
   uploadSurveyImages,
-  updateImageMetadata,
   updateSurveyImageOrder,
+  updateImageMetadataBatch,
 } from '../api/survey-images';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import SiteSurveyDetailInfo from '../components/site-surveys/SiteSurveyDetailInfo';
 import { PhotoManagementPanel } from '../components/site-surveys/PhotoManagementPanel';
 import {
@@ -42,6 +43,7 @@ import type {
   SurveyImageInfo,
   ImageOrderItem,
   UpdateImageMetadataInput,
+  BatchUpdateImageMetadataInput,
 } from '../types/site-survey.types';
 
 // ============================================================================
@@ -246,6 +248,17 @@ export default function SiteSurveyDetailPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | undefined>(undefined);
 
+  // 手動保存方式の状態 (Task 33.1, 33.2)
+  const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+  // 未保存の変更をトラッキングするためのMap: imageId -> { comment?, includeInReport? }
+  const pendingChangesRef = useRef<Map<string, UpdateImageMetadataInput>>(new Map());
+
+  // ページ離脱警告フック (Task 33.2: ページ離脱時の確認ダイアログ)
+  const { isDirty, markAsChanged, markAsSaved } = useUnsavedChanges({
+    message: '保存されていない変更があります。このページを離れますか？',
+    enabled: canEdit,
+  });
+
   /**
    * 現場調査詳細データを取得
    */
@@ -306,38 +319,80 @@ export default function SiteSurveyDetailPage() {
   );
 
   /**
-   * 画像メタデータ変更ハンドラ (Task 27.6)
+   * 画像メタデータ変更ハンドラ (Task 33.1: 手動保存方式)
    *
-   * 報告書出力フラグやコメントが変更された時にAPIを呼び出します。
+   * 報告書出力フラグやコメントが変更された時に、ローカル状態を更新し、
+   * pendingChangesに変更を追記します。
+   * APIへの保存は保存ボタンクリック時に一括で行います。
    */
   const handleImageMetadataChange = useCallback(
-    async (imageId: string, metadata: UpdateImageMetadataInput) => {
-      try {
-        await updateImageMetadata(imageId, metadata);
-        // 状態を即座に更新（楽観的UI更新）
-        setSurvey((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            images: prev.images.map((img) =>
-              img.id === imageId
-                ? {
-                    ...img,
-                    ...(metadata.includeInReport !== undefined && {
-                      includeInReport: metadata.includeInReport,
-                    }),
-                    ...(metadata.comment !== undefined && { comment: metadata.comment }),
-                  }
-                : img
-            ),
-          };
-        });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'メタデータの保存に失敗しました');
-      }
+    (imageId: string, metadata: UpdateImageMetadataInput) => {
+      // ローカル状態を即座に更新（UI反映用）
+      setSurvey((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          images: prev.images.map((img) =>
+            img.id === imageId
+              ? {
+                  ...img,
+                  ...(metadata.includeInReport !== undefined && {
+                    includeInReport: metadata.includeInReport,
+                  }),
+                  ...(metadata.comment !== undefined && { comment: metadata.comment }),
+                }
+              : img
+          ),
+        };
+      });
+
+      // pendingChangesに変更を追記
+      const existingChanges = pendingChangesRef.current.get(imageId) || {};
+      pendingChangesRef.current.set(imageId, {
+        ...existingChanges,
+        ...metadata,
+      });
+
+      // 未保存フラグを設定
+      markAsChanged();
     },
-    []
+    [markAsChanged]
   );
+
+  /**
+   * メタデータ一括保存ハンドラ (Task 33.1: 手動保存方式)
+   *
+   * 保存ボタンクリック時に、pendingChangesにある全ての変更を
+   * batch APIを使用して一括保存します。
+   */
+  const handleSaveMetadata = useCallback(async () => {
+    if (pendingChangesRef.current.size === 0) return;
+
+    setIsSavingMetadata(true);
+    setError(null);
+
+    try {
+      // pendingChangesをBatchUpdateImageMetadataInput[]に変換
+      const updates: BatchUpdateImageMetadataInput[] = [];
+      pendingChangesRef.current.forEach((changes, imageId) => {
+        updates.push({
+          id: imageId,
+          ...changes,
+        });
+      });
+
+      // 一括更新APIを呼び出し
+      await updateImageMetadataBatch(updates);
+
+      // 成功したらpendingChangesをクリア
+      pendingChangesRef.current.clear();
+      markAsSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'メタデータの保存に失敗しました');
+    } finally {
+      setIsSavingMetadata(false);
+    }
+  }, [markAsSaved]);
 
   /**
    * 編集ボタンクリックハンドラ
@@ -503,6 +558,7 @@ export default function SiteSurveyDetailPage() {
         )}
 
         {/* 写真管理パネル (Requirement 10.1: サムネイル一覧は表示せず、フルサイズ写真のみを表示) */}
+        {/* Task 33.1: 手動保存方式に変更 - 保存ボタンとisDirty状態を追加 */}
         <PhotoManagementPanel
           images={survey.images}
           onImageMetadataChange={handleImageMetadataChange}
@@ -511,6 +567,9 @@ export default function SiteSurveyDetailPage() {
           isLoading={isLoading}
           readOnly={!canEdit}
           showOrderNumbers={true}
+          onSave={canEdit ? handleSaveMetadata : undefined}
+          isDirty={isDirty}
+          isSaving={isSavingMetadata}
         />
       </div>
 

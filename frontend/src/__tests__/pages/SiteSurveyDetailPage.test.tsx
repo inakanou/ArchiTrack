@@ -40,6 +40,19 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../../api/site-surveys');
 vi.mock('../../api/survey-images');
 vi.mock('../../hooks/useSiteSurveyPermission');
+// useUnsavedChangesのモック
+const mockUseUnsavedChanges = {
+  isDirty: false,
+  markAsChanged: vi.fn(),
+  markAsSaved: vi.fn(),
+  setDirty: vi.fn(),
+  reset: vi.fn(),
+  confirmNavigation: vi.fn().mockReturnValue(true),
+};
+
+vi.mock('../../hooks/useUnsavedChanges', () => ({
+  useUnsavedChanges: () => mockUseUnsavedChanges,
+}));
 
 // PDF出力サービスのモック（ページテストではUI動作のみをテストし、実際のPDF生成は行わない）
 vi.mock('../../services/export', () => ({
@@ -669,25 +682,29 @@ describe('SiteSurveyDetailPage', () => {
     });
   });
 
-  describe('写真管理パネル操作 (Task 27.6)', () => {
+  describe('写真管理パネル操作 (Task 27.6, Task 33.1: 手動保存方式)', () => {
     beforeEach(() => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
-      vi.mocked(surveyImagesApi.updateImageMetadata).mockResolvedValue({
-        id: 'img-1',
-        surveyId: 'survey-123',
-        fileName: 'image1.jpg',
-        includeInReport: false,
-        comment: null,
-        displayOrder: 1,
-      });
+      vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([
+        {
+          id: 'img-1',
+          surveyId: 'survey-123',
+          fileName: 'image1.jpg',
+          includeInReport: false,
+          comment: null,
+          displayOrder: 1,
+        },
+      ]);
       vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
     });
 
-    it('報告書出力フラグを変更するとAPIが呼ばれる', async () => {
+    it('報告書出力フラグを変更するとmarkAsChangedが呼ばれる', async () => {
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,
         canEdit: true,
       });
+      mockUseUnsavedChanges.isDirty = false;
+      mockUseUnsavedChanges.markAsChanged.mockClear();
 
       renderComponent();
 
@@ -703,10 +720,9 @@ describe('SiteSurveyDetailPage', () => {
       const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
       fireEvent.click(checkboxes[0] as HTMLElement);
 
+      // markAsChangedが呼ばれることを確認（手動保存方式）
       await waitFor(() => {
-        expect(surveyImagesApi.updateImageMetadata).toHaveBeenCalledWith('img-1', {
-          includeInReport: false,
-        });
+        expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
       });
     });
 
@@ -998,19 +1014,20 @@ describe('SiteSurveyDetailPage', () => {
   });
 
   // ============================================================================
-  // メタデータ変更機能テスト
+  // メタデータ変更機能テスト (Task 33.1: 手動保存方式)
   // ============================================================================
-  describe('メタデータ変更エラーハンドリング', () => {
+  describe('メタデータ変更エラーハンドリング (Task 33.1: 手動保存方式)', () => {
     beforeEach(() => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      mockUseUnsavedChanges.isDirty = true;
     });
 
-    it('メタデータ変更失敗時にエラーメッセージが表示される', async () => {
+    it('メタデータ一括保存失敗時にエラーメッセージが表示される', async () => {
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,
         canEdit: true,
       });
-      vi.mocked(surveyImagesApi.updateImageMetadata).mockRejectedValue(
+      vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockRejectedValue(
         new Error('メタデータの保存に失敗しました')
       );
 
@@ -1024,13 +1041,17 @@ describe('SiteSurveyDetailPage', () => {
         expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
       });
 
-      // チェックボックスをクリックしてエラーを発生させる
+      // チェックボックスをクリックして変更を追加
       const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
       fireEvent.click(checkboxes[0] as HTMLElement);
 
+      // 保存ボタンをクリック
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      fireEvent.click(saveButton);
+
       // エラーハンドリングをテスト（APIが呼ばれたことを確認）
       await waitFor(() => {
-        expect(surveyImagesApi.updateImageMetadata).toHaveBeenCalled();
+        expect(surveyImagesApi.updateImageMetadataBatch).toHaveBeenCalled();
       });
     });
 
@@ -1040,7 +1061,7 @@ describe('SiteSurveyDetailPage', () => {
         canEdit: true,
       });
       // 文字列エラーをスロー
-      vi.mocked(surveyImagesApi.updateImageMetadata).mockRejectedValue('文字列エラー');
+      vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockRejectedValue('文字列エラー');
 
       renderComponent();
 
@@ -1055,8 +1076,12 @@ describe('SiteSurveyDetailPage', () => {
       const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
       fireEvent.click(checkboxes[0] as HTMLElement);
 
+      // 保存ボタンをクリック
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      fireEvent.click(saveButton);
+
       await waitFor(() => {
-        expect(surveyImagesApi.updateImageMetadata).toHaveBeenCalled();
+        expect(surveyImagesApi.updateImageMetadataBatch).toHaveBeenCalled();
       });
     });
   });
@@ -1324,26 +1349,30 @@ describe('SiteSurveyDetailPage', () => {
   });
 
   // ============================================================================
-  // メタデータ変更詳細テスト
+  // メタデータ変更詳細テスト (Task 33.1: 手動保存方式)
   // ============================================================================
-  describe('メタデータ変更詳細テスト', () => {
+  describe('メタデータ変更詳細テスト (Task 33.1: 手動保存方式)', () => {
     beforeEach(() => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,
         canEdit: true,
       });
+      mockUseUnsavedChanges.isDirty = true;
+      mockUseUnsavedChanges.markAsChanged.mockClear();
     });
 
     it('メタデータ変更成功時に楽観的UI更新が行われる', async () => {
-      vi.mocked(surveyImagesApi.updateImageMetadata).mockResolvedValue({
-        id: 'img-1',
-        surveyId: 'survey-123',
-        fileName: 'image1.jpg',
-        includeInReport: false,
-        comment: null,
-        displayOrder: 1,
-      });
+      vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([
+        {
+          id: 'img-1',
+          surveyId: 'survey-123',
+          fileName: 'image1.jpg',
+          includeInReport: false,
+          comment: null,
+          displayOrder: 1,
+        },
+      ]);
 
       renderComponent();
 
@@ -1358,26 +1387,19 @@ describe('SiteSurveyDetailPage', () => {
       const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
       expect(checkboxes[0]).toBeChecked();
 
-      // チェックを外す
+      // チェックを外す（楽観的UI更新でUIが即座に変化）
       fireEvent.click(checkboxes[0] as HTMLElement);
 
+      // 楽観的UI更新により、チェックが外れる
       await waitFor(() => {
-        expect(surveyImagesApi.updateImageMetadata).toHaveBeenCalledWith('img-1', {
-          includeInReport: false,
-        });
+        expect(checkboxes[0]).not.toBeChecked();
       });
+
+      // markAsChangedが呼ばれたことを確認
+      expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
     });
 
-    it('コメント変更時にAPIが呼ばれて楽観的UI更新が行われる', async () => {
-      vi.mocked(surveyImagesApi.updateImageMetadata).mockResolvedValue({
-        id: 'img-1',
-        surveyId: 'survey-123',
-        fileName: 'image1.jpg',
-        includeInReport: true,
-        comment: '新しいコメント',
-        displayOrder: 1,
-      });
-
+    it('コメント変更時に楽観的UI更新が行われ、markAsChangedが呼ばれる', async () => {
       renderComponent();
 
       await waitFor(() => {
@@ -1394,8 +1416,9 @@ describe('SiteSurveyDetailPage', () => {
         fireEvent.change(commentInputs[0] as HTMLElement, { target: { value: '新しいコメント' } });
         fireEvent.blur(commentInputs[0] as HTMLElement);
 
+        // markAsChangedが呼ばれたことを確認（手動保存方式）
         await waitFor(() => {
-          expect(surveyImagesApi.updateImageMetadata).toHaveBeenCalled();
+          expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
         });
       }
     });

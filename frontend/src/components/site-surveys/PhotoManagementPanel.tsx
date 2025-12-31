@@ -48,6 +48,14 @@ export interface PhotoManagementPanelProps {
   readOnly?: boolean;
   /** 表示順序番号を表示するか */
   showOrderNumbers?: boolean;
+  /** 保存ボタンクリック時のハンドラ（Task 33.1: 手動保存方式） */
+  onSave?: () => void;
+  /** 未保存の変更があるか（Task 33.1: 手動保存方式） */
+  isDirty?: boolean;
+  /** 保存中かどうか（Task 33.1: 手動保存方式） */
+  isSaving?: boolean;
+  /** 画像削除時のハンドラ（Task 34: 画像削除機能） */
+  onDelete?: (imageId: string) => Promise<void>;
 }
 
 // ============================================================================
@@ -254,6 +262,127 @@ const styles = {
     border: '2px solid #10b981',
     backgroundColor: '#ecfdf5',
   } as React.CSSProperties,
+  // 手動保存方式関連スタイル（Task 33.1）
+  headerContainer: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+    paddingBottom: '12px',
+    borderBottom: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  dirtyIndicator: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 12px',
+    backgroundColor: '#fef3c7',
+    borderRadius: '6px',
+    fontSize: '14px',
+    color: '#92400e',
+  } as React.CSSProperties,
+  saveButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    border: 'none',
+    transition: 'all 0.2s ease',
+  } as React.CSSProperties,
+  saveButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  // 画像削除機能関連スタイル（Task 34）
+  deleteButton: {
+    padding: '4px 8px',
+    fontSize: '12px',
+    fontWeight: 500,
+    borderRadius: '4px',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#dc2626',
+    border: '1px solid #dc2626',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  } as React.CSSProperties,
+  deleteButtonDisabled: {
+    backgroundColor: '#f3f4f6',
+    color: '#9ca3af',
+    borderColor: '#d1d5db',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  deleteDialog: {
+    position: 'fixed' as const,
+    inset: 0,
+    zIndex: 50,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as React.CSSProperties,
+  deleteDialogOverlay: {
+    position: 'absolute' as const,
+    inset: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  } as React.CSSProperties,
+  deleteDialogContent: {
+    position: 'relative' as const,
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    padding: '24px',
+    maxWidth: '400px',
+    width: '90%',
+    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+  } as React.CSSProperties,
+  deleteDialogTitle: {
+    fontSize: '18px',
+    fontWeight: 600,
+    color: '#1f2937',
+    marginBottom: '12px',
+  } as React.CSSProperties,
+  deleteDialogMessage: {
+    fontSize: '14px',
+    color: '#6b7280',
+    marginBottom: '20px',
+  } as React.CSSProperties,
+  deleteDialogWarning: {
+    fontSize: '14px',
+    color: '#dc2626',
+    backgroundColor: '#fef2f2',
+    padding: '12px',
+    borderRadius: '6px',
+    marginBottom: '20px',
+  } as React.CSSProperties,
+  deleteDialogButtons: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '12px',
+  } as React.CSSProperties,
+  cancelButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    border: '1px solid #d1d5db',
+  } as React.CSSProperties,
+  confirmDeleteButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+    border: 'none',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -277,6 +406,8 @@ interface PhotoItemProps {
   onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
   onDrop: (e: React.DragEvent<HTMLElement>, targetId: string) => void;
   onDragEnd: () => void;
+  // 画像削除用props（Task 34）
+  onDeleteClick?: (imageId: string) => void;
 }
 
 function PhotoItem({
@@ -295,6 +426,7 @@ function PhotoItem({
   onDragLeave,
   onDrop,
   onDragEnd,
+  onDeleteClick,
 }: PhotoItemProps) {
   const [comment, setComment] = useState(image.comment ?? '');
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -514,6 +646,26 @@ function PhotoItem({
             </span>
           )}
         </div>
+
+        {/* 削除ボタン（Task 34） */}
+        {onDeleteClick && !readOnly && (
+          <button
+            type="button"
+            onClick={() => onDeleteClick(image.id)}
+            style={styles.deleteButton}
+            aria-label={`画像を削除: ${image.fileName}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+            削除
+          </button>
+        )}
       </div>
     </article>
   );
@@ -547,7 +699,14 @@ export function PhotoManagementPanel({
   isLoading = false,
   readOnly = false,
   showOrderNumbers = false,
+  onSave,
+  isDirty = false,
+  isSaving = false,
+  onDelete,
 }: PhotoManagementPanelProps) {
+  // 削除確認ダイアログの状態（Task 34）
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   // ドラッグ状態の管理（Task 27.5）
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -710,6 +869,36 @@ export function PhotoManagementPanel({
     setDragOverId(null);
   }, []);
 
+  // 削除ボタンクリックハンドラ（Task 34）
+  const handleDeleteClick = useCallback((imageId: string) => {
+    setDeleteTargetId(imageId);
+  }, []);
+
+  // 削除キャンセルハンドラ（Task 34）
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteTargetId(null);
+  }, []);
+
+  // 削除確認ハンドラ（Task 34）
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTargetId || !onDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await onDelete(deleteTargetId);
+      setDeleteTargetId(null);
+    } catch {
+      // エラーは呼び出し元で処理
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deleteTargetId, onDelete]);
+
+  // 削除対象の画像情報を取得（Task 34）
+  const deleteTargetImage = deleteTargetId
+    ? images.find((img) => img.id === deleteTargetId)
+    : null;
+
   // ローディング中でデータがない場合のスケルトン表示
   if (isLoading && images.length === 0) {
     return (
@@ -749,8 +938,45 @@ export function PhotoManagementPanel({
     );
   }
 
+  // 保存ボタンを表示するかどうか（Task 33.1）
+  const showSaveButton = !!onSave && !readOnly;
+
   return (
     <section style={styles.container} role="region" aria-label="写真管理パネル">
+      {/* 手動保存方式ヘッダー（Task 33.1） */}
+      {showSaveButton && (
+        <div style={styles.headerContainer}>
+          <div>
+            {isDirty && (
+              <div style={styles.dirtyIndicator} data-testid="dirty-indicator">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 11-2 0 1 1 0 012 0zM8 6.5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 6.5z" />
+                </svg>
+                <span>未保存の変更があります</span>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={!isDirty || isSaving}
+            style={{
+              ...styles.saveButton,
+              ...(!isDirty || isSaving ? styles.saveButtonDisabled : {}),
+            }}
+            aria-busy={isSaving}
+          >
+            {isSaving ? '保存中...' : '保存'}
+          </button>
+        </div>
+      )}
+
       <div style={styles.panelList}>
         {sortedImages.map((image, index) => (
           <PhotoItem
@@ -771,9 +997,50 @@ export function PhotoManagementPanel({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onDragEnd={handleDragEnd}
+            // 画像削除用props（Task 34）
+            onDeleteClick={onDelete ? handleDeleteClick : undefined}
           />
         ))}
       </div>
+
+      {/* 削除確認ダイアログ（Task 34） */}
+      {deleteTargetId && (
+        <div style={styles.deleteDialog} role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+          <div style={styles.deleteDialogOverlay} onClick={handleDeleteCancel} aria-hidden="true" />
+          <div style={styles.deleteDialogContent}>
+            <h2 id="delete-dialog-title" style={styles.deleteDialogTitle}>
+              画像を削除
+            </h2>
+            <p style={styles.deleteDialogMessage}>
+              「{deleteTargetImage?.fileName}」を削除しますか？
+            </p>
+            <div style={styles.deleteDialogWarning}>
+              この画像を削除しますか？関連する注釈データも削除されます。
+            </div>
+            <div style={styles.deleteDialogButtons}>
+              <button
+                type="button"
+                onClick={handleDeleteCancel}
+                style={styles.cancelButton}
+                disabled={isDeleting}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteConfirm}
+                style={{
+                  ...styles.confirmDeleteButton,
+                  ...(isDeleting ? styles.deleteButtonDisabled : {}),
+                }}
+                disabled={isDeleting}
+              >
+                {isDeleting ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
