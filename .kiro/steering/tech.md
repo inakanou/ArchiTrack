@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-29（Steering Sync: バージョン更新、CI/CD統合構成確認）_
+_最終更新: 2025-12-31（Steering Sync: 依存関係バージョン更新、React 19.2.3、Prisma 7.2.0確認）_
 
 ## アーキテクチャ
 
@@ -32,8 +32,8 @@ ArchiTrack/
 
 ### 主要な依存関係
 
-- `react` ^19.2.0 - UIライブラリ
-- `react-dom` ^19.2.0 - React DOM操作
+- `react` ^19.2.3 - UIライブラリ
+- `react-dom` ^19.2.3 - React DOM操作
 - `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
 - `jspdf` ^3.0.4 - PDF報告書生成（現場調査）
@@ -121,11 +121,11 @@ ArchiTrack/
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
 - `@prisma/client` ^7.0.0 - Prisma ORM クライアント（型安全なデータアクセス）
-- `@prisma/adapter-pg` ^7.0.1 - Prisma Driver Adapter for PostgreSQL
+- `@prisma/adapter-pg` ^7.2.0 - Prisma Driver Adapter for PostgreSQL
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
-- `nodemailer` ^7.0.11 - メール送信
+- `nodemailer` ^7.0.12 - メール送信
 - `handlebars` ^4.7.8 - テンプレートエンジン
 - `dataloader` ^2.2.3 - データローダー（N+1問題対策）
 - `jose` ^5.10.0 - JWT EdDSA署名・検証
