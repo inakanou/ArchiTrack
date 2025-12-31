@@ -20,8 +20,8 @@
 **Objective:** As a プロジェクト担当者, I want 現場調査機能への画面遷移が分かりやすいこと, so that 目的の画面に迷わずたどり着ける
 
 #### Acceptance Criteria
-1. When ユーザーがプロジェクト詳細画面を表示する, the Site Survey Service shall 「現場調査」タブまたはセクションを表示する
-2. When ユーザーが「現場調査」タブをクリックする, the Site Survey Service shall 当該プロジェクトの現場調査一覧を表示する
+1. When ユーザーがプロジェクト詳細画面を表示する, the Site Survey Service shall 「現場調査」セクションに直近2件の現場調査への参照リンクと現場調査の総数を表示する
+2. When ユーザーが現場調査セクションで「すべて表示」リンクをクリックする, the Site Survey Service shall 当該プロジェクトの現場調査一覧を表示する
 3. When ユーザーが現場調査一覧で項目をクリックする, the Site Survey Service shall 現場調査詳細画面に遷移する
 4. When ユーザーが現場調査詳細画面で画像をクリックする, the Site Survey Service shall 画像ビューア/注釈エディタを開く
 5. The Site Survey Service shall 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
@@ -118,14 +118,17 @@
 **Objective:** As a 現場調査担当者, I want 現場調査詳細画面で写真ごとに報告書出力対象を選択しコメントを管理できること, so that 必要な写真とコメントを選択的に報告書に含められる
 
 #### Acceptance Criteria
-1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各写真について報告書出力フラグ（チェックボックス）、フルサイズの写真（サムネイル一覧は表示しない）、コメント入力用テキストエリアを表示する
-2. When ユーザーが報告書出力フラグのチェックボックスをONにする, the Site Survey Service shall 当該写真をPDF出力対象として設定する
-3. When ユーザーが報告書出力フラグのチェックボックスをOFFにする, the Site Survey Service shall 当該写真をPDF出力対象から除外する
-4. When ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付けて保存する
+1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各写真について報告書出力フラグ（チェックボックス）、フルサイズの写真（サムネイル一覧は表示しない）、コメント入力用テキストエリア、削除ボタンを表示する
+2. When ユーザーが報告書出力フラグのチェックボックスをONにする, the Site Survey Service shall 当該写真をPDF出力対象として設定する（未保存状態になる）
+3. When ユーザーが報告書出力フラグのチェックボックスをOFFにする, the Site Survey Service shall 当該写真をPDF出力対象から除外する（未保存状態になる）
+4. When ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付ける（未保存状態になる）
 5. When ユーザーが写真をマウスドラッグで移動する, the Site Survey Service shall 写真の表示順序を変更する
 6. When ユーザーが写真の並び替え操作を完了する, the Site Survey Service shall 変更された表示順序をデータベースに保存する
 7. The Site Survey Service shall 写真一覧を保存された表示順序の通りに表示する
-8. The Site Survey Service shall 各写真のコメントと報告書出力フラグの状態を永続化する
+8. When ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメントと報告書出力フラグの状態をデータベースに保存する
+9. While 未保存の変更がある状態でユーザーがページを離れようとする, the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する
+10. When ユーザーが写真の削除ボタンをクリックする, the Site Survey Service shall 確認ダイアログを表示する
+11. When ユーザーが削除確認ダイアログで削除を確定する, the Site Survey Service shall 当該写真と関連する注釈データを削除する
 
 ### Requirement 11: 調査報告書PDF出力
 **Objective:** As a 現場調査担当者, I want 注釈を含めた画像を選択的にPDF報告書としてエクスポートできること, so that 報告書や数量表作成に利用できる
