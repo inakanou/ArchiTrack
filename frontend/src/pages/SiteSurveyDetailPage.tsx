@@ -28,6 +28,7 @@ import {
   uploadSurveyImages,
   updateSurveyImageOrder,
   updateImageMetadataBatch,
+  deleteSurveyImage,
 } from '../api/survey-images';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -435,6 +436,38 @@ export default function SiteSurveyDetailPage() {
   }, []);
 
   /**
+   * 画像削除ハンドラ (Task 34: 画像削除機能)
+   *
+   * PhotoManagementPanelから呼び出され、指定された画像を削除します。
+   * 削除成功後、ローカルの画像リストを更新します。
+   *
+   * Requirements:
+   * - 10.10: 画像削除確認ダイアログ表示
+   * - 10.11: 画像削除実行
+   */
+  const handleImageDelete = useCallback(async (imageId: string) => {
+    try {
+      // 画像削除APIを呼び出し
+      await deleteSurveyImage(imageId);
+
+      // ローカルの画像リストから削除
+      setSurvey((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          images: prev.images.filter((img) => img.id !== imageId),
+        };
+      });
+
+      // pendingChangesから該当画像の変更を削除
+      pendingChangesRef.current.delete(imageId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '画像の削除に失敗しました');
+      throw err; // PhotoManagementPanelにエラーを伝播
+    }
+  }, []);
+
+  /**
    * 画像アップロードハンドラ
    *
    * ImageUploaderからバリデーション済みファイルを受け取り、
@@ -559,6 +592,7 @@ export default function SiteSurveyDetailPage() {
 
         {/* 写真管理パネル (Requirement 10.1: サムネイル一覧は表示せず、フルサイズ写真のみを表示) */}
         {/* Task 33.1: 手動保存方式に変更 - 保存ボタンとisDirty状態を追加 */}
+        {/* Task 34: 画像削除機能を追加 */}
         <PhotoManagementPanel
           images={survey.images}
           onImageMetadataChange={handleImageMetadataChange}
@@ -570,6 +604,7 @@ export default function SiteSurveyDetailPage() {
           onSave={canEdit ? handleSaveMetadata : undefined}
           isDirty={isDirty}
           isSaving={isSavingMetadata}
+          onDelete={canEdit ? handleImageDelete : undefined}
         />
       </div>
 
