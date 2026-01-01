@@ -213,12 +213,9 @@ export default function StorageWarningBanner({
     onDismiss(doNotShowAgain);
   }, [onDismiss, doNotShowAgain]);
 
-  const handleCheckboxChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setDoNotShowAgain(e.target.checked);
-    },
-    []
-  );
+  const handleCheckboxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setDoNotShowAgain(e.target.checked);
+  }, []);
 
   // 非表示の場合は何もレンダリングしない
   if (!isVisible) {
@@ -234,15 +231,9 @@ export default function StorageWarningBanner({
   };
 
   return (
-    <div
-      role="alert"
-      style={bannerStyle}
-      data-warning-type={type}
-    >
+    <div role="alert" style={bannerStyle} data-warning-type={type}>
       {/* アイコン */}
-      <div style={styles.iconContainer}>
-        {isQuotaExceeded ? <WarningIcon /> : <InfoIcon />}
-      </div>
+      <div style={styles.iconContainer}>{isQuotaExceeded ? <WarningIcon /> : <InfoIcon />}</div>
 
       {/* コンテンツ */}
       <div style={styles.content}>
@@ -270,11 +261,7 @@ export default function StorageWarningBanner({
         {/* アクションボタン */}
         <div style={styles.actions}>
           {isQuotaExceeded && onSaveNow && (
-            <button
-              type="button"
-              onClick={onSaveNow}
-              style={styles.saveButton}
-            >
+            <button type="button" onClick={onSaveNow} style={styles.saveButton}>
               今すぐ保存
             </button>
           )}

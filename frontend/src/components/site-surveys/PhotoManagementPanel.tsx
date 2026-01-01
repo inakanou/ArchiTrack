@@ -655,7 +655,14 @@ function PhotoItem({
             style={styles.deleteButton}
             aria-label={`画像を削除: ${image.fileName}`}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -895,9 +902,7 @@ export function PhotoManagementPanel({
   }, [deleteTargetId, onDelete]);
 
   // 削除対象の画像情報を取得（Task 34）
-  const deleteTargetImage = deleteTargetId
-    ? images.find((img) => img.id === deleteTargetId)
-    : null;
+  const deleteTargetImage = deleteTargetId ? images.find((img) => img.id === deleteTargetId) : null;
 
   // ローディング中でデータがない場合のスケルトン表示
   if (isLoading && images.length === 0) {
@@ -1005,7 +1010,12 @@ export function PhotoManagementPanel({
 
       {/* 削除確認ダイアログ（Task 34） */}
       {deleteTargetId && (
-        <div style={styles.deleteDialog} role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+        <div
+          style={styles.deleteDialog}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+        >
           <div style={styles.deleteDialogOverlay} onClick={handleDeleteCancel} aria-hidden="true" />
           <div style={styles.deleteDialogContent}>
             <h2 id="delete-dialog-title" style={styles.deleteDialogTitle}>

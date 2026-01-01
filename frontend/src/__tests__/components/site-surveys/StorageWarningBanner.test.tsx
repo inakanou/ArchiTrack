@@ -95,27 +95,15 @@ describe('StorageWarningBanner', () => {
 
   describe('Private browsing warning (Task 35.5)', () => {
     it('should render private browsing warning message', () => {
-      render(
-        <StorageWarningBanner
-          type="private-browsing"
-          onDismiss={mockOnDismiss}
-        />
-      );
+      render(<StorageWarningBanner type="private-browsing" onDismiss={mockOnDismiss} />);
 
       expect(screen.getByText(/自動保存が無効です/)).toBeInTheDocument();
     });
 
     it('should explain that private browsing disables auto-save', () => {
-      render(
-        <StorageWarningBanner
-          type="private-browsing"
-          onDismiss={mockOnDismiss}
-        />
-      );
+      render(<StorageWarningBanner type="private-browsing" onDismiss={mockOnDismiss} />);
 
-      expect(
-        screen.getByText(/プライベートブラウジングモード/)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/プライベートブラウジングモード/)).toBeInTheDocument();
     });
 
     it('should show "Do not show again" checkbox for private browsing', () => {
@@ -154,16 +142,9 @@ describe('StorageWarningBanner', () => {
     });
 
     it('should not show "Save Now" button for private browsing mode', () => {
-      render(
-        <StorageWarningBanner
-          type="private-browsing"
-          onDismiss={mockOnDismiss}
-        />
-      );
+      render(<StorageWarningBanner type="private-browsing" onDismiss={mockOnDismiss} />);
 
-      expect(
-        screen.queryByRole('button', { name: /今すぐ保存/ })
-      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /今すぐ保存/ })).not.toBeInTheDocument();
     });
   });
 
@@ -195,10 +176,7 @@ describe('StorageWarningBanner', () => {
 
     it('should use info colors for private browsing', () => {
       const { container } = render(
-        <StorageWarningBanner
-          type="private-browsing"
-          onDismiss={mockOnDismiss}
-        />
+        <StorageWarningBanner type="private-browsing" onDismiss={mockOnDismiss} />
       );
 
       const banner = container.firstChild as HTMLElement;
@@ -211,12 +189,7 @@ describe('StorageWarningBanner', () => {
       const types: StorageWarningType[] = ['quota-exceeded', 'private-browsing'];
 
       types.forEach((type) => {
-        const { unmount } = render(
-          <StorageWarningBanner
-            type={type}
-            onDismiss={mockOnDismiss}
-          />
-        );
+        const { unmount } = render(<StorageWarningBanner type={type} onDismiss={mockOnDismiss} />);
         unmount();
       });
     });

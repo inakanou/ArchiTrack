@@ -785,10 +785,12 @@ describe('AutoSaveManager', () => {
         autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);
 
         expect(onQuotaExceeded).toHaveBeenCalledTimes(1);
-        expect(onQuotaExceeded).toHaveBeenCalledWith(expect.objectContaining({
-          imageId: 'image-1',
-          surveyId: 'survey-1',
-        }));
+        expect(onQuotaExceeded).toHaveBeenCalledWith(
+          expect.objectContaining({
+            imageId: 'image-1',
+            surveyId: 'survey-1',
+          })
+        );
       });
 
       it('should allow removing onQuotaExceeded callback with null', () => {
