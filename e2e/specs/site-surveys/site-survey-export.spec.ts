@@ -251,7 +251,7 @@ test.describe('現場調査エクスポート機能', () => {
       if (await includeInReportCheckbox.isChecked()) {
         const responsePromise1 = page.waitForResponse(
           (response) =>
-            response.url().includes('/api/site-surveys/images/') &&
+            response.url().includes('/api/site-surveys/images') &&
             response.request().method() === 'PATCH',
           { timeout: getTimeout(15000) }
         );
@@ -263,9 +263,10 @@ test.describe('現場調査エクスポート機能', () => {
       await expect(includeInReportCheckbox).not.toBeChecked();
 
       // APIコール待機をセットアップ（クリック前に開始）
+      // 注: batch APIエンドポイントを使用するため、/api/site-surveys/images を含むURLにマッチ
       const responsePromise = page.waitForResponse(
         (response) =>
-          response.url().includes('/api/site-surveys/images/') &&
+          response.url().includes('/api/site-surveys/images') &&
           response.request().method() === 'PATCH',
         { timeout: getTimeout(15000) }
       );

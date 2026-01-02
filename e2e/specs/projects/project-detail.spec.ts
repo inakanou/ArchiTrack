@@ -525,7 +525,8 @@ test.describe('プロジェクト詳細画面', () => {
 
       if (sectionVisible) {
         // セクションが表示されている場合、0件または「今後実装予定」を確認
-        const zeroOrComingSoon = page.getByText(/0件|今後実装予定/i);
+        // 複数要素がマッチする可能性があるため .first() を使用
+        const zeroOrComingSoon = page.getByText(/0件|今後実装予定/i).first();
         await expect(zeroOrComingSoon).toBeVisible({ timeout: getTimeout(5000) });
       }
     });

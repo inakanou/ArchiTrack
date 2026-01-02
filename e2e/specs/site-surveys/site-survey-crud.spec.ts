@@ -113,8 +113,9 @@ test.describe('現場調査CRUD操作', () => {
       await page.goto(`/projects/${createdProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 現場調査タブまたはリンクを探してクリック
-      const surveyLink = page.getByRole('link', { name: /現場調査/i });
+      // 現場調査セクションの「すべて見る」リンクを探してクリック
+      // SiteSurveySectionCardコンポーネントでは「すべて見る」リンクが使用されている
+      const surveyLink = page.getByRole('link', { name: /すべて見る/i }).first();
       await expect(surveyLink).toBeVisible({ timeout: getTimeout(10000) });
       await surveyLink.click();
 
