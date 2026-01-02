@@ -509,11 +509,12 @@ test.describe('現場調査画像管理', () => {
   /**
    * 画像表示順序テスト
    *
-   * REQ-4.9: 画像一覧を固定の表示順序で表示する
+   * REQ-4.10: 画像一覧を固定の表示順序で表示する
+   * REQ-4.11: ドラッグアンドドロップで表示順序を変更して保存する
    */
   test.describe('画像表示順序', () => {
     /**
-     * @requirement site-survey/REQ-4.9
+     * @requirement site-survey/REQ-4.10
      */
     test('画像がdisplayOrder順に表示される', async ({ page }) => {
       if (!createdSurveyId) {
@@ -560,7 +561,7 @@ test.describe('現場調査画像管理', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.10
+     * @requirement site-survey/REQ-4.11
      */
     test('ドラッグ＆ドロップで画像の表示順序を変更できる', async ({ page }) => {
       if (!createdSurveyId) {
