@@ -11,11 +11,12 @@
  * - isPrivateBrowsingMode関数
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   isQuotaExceededError,
   isSecurityError,
   isPrivateBrowsingMode,
+  isLocalStorageAvailable,
 } from '../../utils/storage-error';
 
 // =============================================================================
@@ -95,10 +96,29 @@ describe('isSecurityError', () => {
     expect(isSecurityError(error)).toBe(true);
   });
 
+  it('name===SecurityErrorのエラーを検出すること（codeなし）', () => {
+    const error = new Error('Security error');
+    Object.defineProperty(error, 'name', { value: 'SecurityError' });
+
+    expect(isSecurityError(error)).toBe(true);
+  });
+
   it('通常のErrorはSecurityErrorとして検出しないこと', () => {
     const error = new Error('Some error');
 
     expect(isSecurityError(error)).toBe(false);
+  });
+
+  it('nullはSecurityErrorとして検出しないこと', () => {
+    expect(isSecurityError(null)).toBe(false);
+  });
+
+  it('undefinedはSecurityErrorとして検出しないこと', () => {
+    expect(isSecurityError(undefined)).toBe(false);
+  });
+
+  it('文字列はSecurityErrorとして検出しないこと', () => {
+    expect(isSecurityError('SecurityError')).toBe(false);
   });
 });
 
@@ -129,5 +149,75 @@ describe('isPrivateBrowsingMode', () => {
     const error = new Error('Storage limit reached');
 
     expect(isPrivateBrowsingMode(error)).toBe(false);
+  });
+});
+
+// =============================================================================
+// isLocalStorageAvailable テスト
+// =============================================================================
+
+describe('isLocalStorageAvailable', () => {
+  let originalLocalStorage: Storage;
+
+  beforeEach(() => {
+    originalLocalStorage = window.localStorage;
+  });
+
+  afterEach(() => {
+    // localStorageを元に戻す
+    Object.defineProperty(window, 'localStorage', {
+      value: originalLocalStorage,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('localStorageが正常に動作する場合trueを返すこと', () => {
+    // デフォルトのlocalStorageは利用可能
+    expect(isLocalStorageAvailable()).toBe(true);
+  });
+
+  it('localStorageでエラーが発生する場合falseを返すこと', () => {
+    // localStorageをモックしてエラーを発生させる
+    const mockStorage = {
+      setItem: vi.fn().mockImplementation(() => {
+        throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+      }),
+      removeItem: vi.fn(),
+      getItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    };
+
+    Object.defineProperty(window, 'localStorage', {
+      value: mockStorage,
+      writable: true,
+      configurable: true,
+    });
+
+    expect(isLocalStorageAvailable()).toBe(false);
+  });
+
+  it('localStorageがSecurityErrorをスローする場合falseを返すこと', () => {
+    // プライベートブラウジングモードをシミュレート
+    const mockStorage = {
+      setItem: vi.fn().mockImplementation(() => {
+        throw new DOMException('SecurityError', 'SecurityError');
+      }),
+      removeItem: vi.fn(),
+      getItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    };
+
+    Object.defineProperty(window, 'localStorage', {
+      value: mockStorage,
+      writable: true,
+      configurable: true,
+    });
+
+    expect(isLocalStorageAvailable()).toBe(false);
   });
 });
