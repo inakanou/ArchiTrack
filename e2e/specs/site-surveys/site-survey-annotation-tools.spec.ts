@@ -30,9 +30,9 @@
  * - REQ-10.4: 元画像のダウンロード
  * - REQ-10.5: 日本語テキストのレンダリング
  * - REQ-10.7: 調査報告PDF基本情報
- * - REQ-11.1: Undo操作
- * - REQ-11.2: Redo操作
- * - REQ-11.3: キーボードショートカット
+ * - REQ-13.1: Undo操作
+ * - REQ-13.2: Redo操作
+ * - REQ-13.3: キーボードショートカット
  */
 
 import path from 'path';
@@ -1490,14 +1490,14 @@ test.describe('現場調査注釈ツール', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-11.1
-   * @requirement site-survey/REQ-11.2
-   * @requirement site-survey/REQ-11.3
-   * @requirement site-survey/REQ-11.4
-   * @requirement site-survey/REQ-11.5
+   * @requirement site-survey/REQ-13.1
+   * @requirement site-survey/REQ-13.2
+   * @requirement site-survey/REQ-13.3
+   * @requirement site-survey/REQ-13.4
+   * @requirement site-survey/REQ-13.5
    */
   test.describe('Undo/Redo機能', () => {
-    test('Undo操作を実行すると直前の注釈操作が取り消される (site-survey/REQ-11.1)', async ({
+    test('Undo操作を実行すると直前の注釈操作が取り消される (site-survey/REQ-13.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1547,7 +1547,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(objectCountAfterUndo).toBe(objectCountBefore);
     });
 
-    test('Redo操作を実行すると取り消した操作が再実行される (site-survey/REQ-11.2)', async ({
+    test('Redo操作を実行すると取り消した操作が再実行される (site-survey/REQ-13.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1607,7 +1607,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
-    test('キーボードショートカット（Ctrl+Z、Ctrl+Shift+Z）でUndo/Redoを実行できる (site-survey/REQ-11.3)', async ({
+    test('キーボードショートカット（Ctrl+Z、Ctrl+Shift+Z）でUndo/Redoを実行できる (site-survey/REQ-13.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1667,7 +1667,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
-    test('操作履歴を最大50件まで保持する (site-survey/REQ-11.4)', async ({ page }) => {
+    test('操作履歴を最大50件まで保持する (site-survey/REQ-13.4)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1717,7 +1717,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('注釈データを保存すると操作履歴がクリアされる (site-survey/REQ-11.5)', async ({
+    test('注釈データを保存すると操作履歴がクリアされる (site-survey/REQ-13.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
