@@ -122,6 +122,34 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
     vi.mocked(projectsApi.getStatusHistory).mockResolvedValue(mockStatusHistory);
     vi.mocked(projectsApi.getAssignableUsers).mockResolvedValue([]);
     vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockSiteSurveys);
+    // SiteSurveySectionCardで使用する現場調査サマリーのモック
+    vi.mocked(siteSurveysApi.getLatestSiteSurveys).mockResolvedValue({
+      totalCount: 2,
+      latestSurveys: [
+        {
+          id: 'survey-1',
+          projectId: 'project-test-123',
+          name: '第1回現場調査',
+          surveyDate: '2024-01-15',
+          memo: 'テストメモ1',
+          thumbnailUrl: null,
+          imageCount: 3,
+          createdAt: '2024-01-15T00:00:00.000Z',
+          updatedAt: '2024-01-15T00:00:00.000Z',
+        },
+        {
+          id: 'survey-2',
+          projectId: 'project-test-123',
+          name: '第2回現場調査',
+          surveyDate: '2024-02-01',
+          memo: 'テストメモ2',
+          thumbnailUrl: null,
+          imageCount: 5,
+          createdAt: '2024-02-01T00:00:00.000Z',
+          updatedAt: '2024-02-01T00:00:00.000Z',
+        },
+      ],
+    });
 
     // window.matchMediaのモック
     Object.defineProperty(window, 'matchMedia', {
@@ -153,33 +181,48 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         ).toBeInTheDocument();
       });
 
-      // 現場調査セクションの見出しが存在
-      expect(screen.getByRole('heading', { level: 2, name: '現場調査' })).toBeInTheDocument();
+      // 現場調査セクションの見出しが存在（h3要素、level: 3）
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 3, name: '現場調査' })).toBeInTheDocument();
+      });
     });
 
-    it('現場調査一覧へのリンクが正しいURLを持つ', async () => {
+    it('「すべて見る」リンクが正しいURLを持つ', async () => {
       renderIntegration('/projects/project-test-123');
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const listLink = screen.getByRole('link', { name: /現場調査一覧/ });
+      // 「すべて見る」リンクが表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+      });
+
+      const listLink = screen.getByRole('link', { name: /すべて見る/ });
       expect(listLink).toHaveAttribute('href', '/projects/project-test-123/site-surveys');
     });
 
-    it('新規作成リンクが正しいURLを持つ', async () => {
+    it('現場調査詳細へのリンクが正しいURLを持つ', async () => {
       renderIntegration('/projects/project-test-123');
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const createLink = screen.getByRole('link', { name: /新規作成/ });
-      expect(createLink).toHaveAttribute('href', '/projects/project-test-123/site-surveys/new');
+      // 現場調査カードが表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /第1回現場調査/ })).toBeInTheDocument();
+      });
+
+      const surveyLink = screen.getByRole('link', { name: /第1回現場調査/ });
+      expect(surveyLink).toHaveAttribute(
+        'href',
+        '/projects/project-test-123/site-surveys/survey-1'
+      );
     });
 
-    it('現場調査一覧リンクをクリックして現場調査一覧ページへ遷移できる', async () => {
+    it('すべて見るリンクをクリックして現場調査一覧ページへ遷移できる', async () => {
       const user = userEvent.setup();
       renderIntegration('/projects/project-test-123');
 
@@ -187,7 +230,11 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const listLink = screen.getByRole('link', { name: /現場調査一覧/ });
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+      });
+
+      const listLink = screen.getByRole('link', { name: /すべて見る/ });
       await user.click(listLink);
 
       // 現場調査一覧ページへ遷移
@@ -304,8 +351,13 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         ).toBeInTheDocument();
       });
 
-      // Step 2: 現場調査一覧リンクをクリック
-      const listLink = screen.getByRole('link', { name: /現場調査一覧/ });
+      // 「すべて見る」リンクが表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+      });
+
+      // Step 2: すべて見るリンクをクリック
+      const listLink = screen.getByRole('link', { name: /すべて見る/ });
       await user.click(listLink);
 
       // Step 3: 現場調査一覧ページへ遷移したことを確認
