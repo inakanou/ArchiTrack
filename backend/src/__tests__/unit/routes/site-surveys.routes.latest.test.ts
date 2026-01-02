@@ -16,17 +16,34 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import supertest from 'supertest';
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
 
+// モックサービスインスタンス
+const mockSiteSurveyService = {
+  findLatestByProjectId: vi.fn(),
+};
+
+const mockAuditLogService = {
+  createLog: vi.fn(),
+};
+
+const mockImageListService = {
+  findBySurveyIdWithUrls: vi.fn(),
+};
+
 // モックの設定
 vi.mock('../../../services/site-survey.service.js', () => ({
-  SiteSurveyService: vi.fn().mockImplementation(() => ({
-    findLatestByProjectId: vi.fn(),
-  })),
+  SiteSurveyService: class {
+    constructor() {
+      return mockSiteSurveyService;
+    }
+  },
 }));
 
 vi.mock('../../../services/audit-log.service.js', () => ({
-  AuditLogService: vi.fn().mockImplementation(() => ({
-    createLog: vi.fn(),
-  })),
+  AuditLogService: class {
+    constructor() {
+      return mockAuditLogService;
+    }
+  },
 }));
 
 vi.mock('../../../db.js', () => ({
@@ -39,13 +56,17 @@ vi.mock('../../../storage/index.js', () => ({
 }));
 
 vi.mock('../../../services/image-list.service.js', () => ({
-  ImageListService: vi.fn().mockImplementation(() => ({
-    findBySurveyIdWithUrls: vi.fn(),
-  })),
+  ImageListService: class {
+    constructor() {
+      return mockImageListService;
+    }
+  },
 }));
 
 vi.mock('../../../services/signed-url.service.js', () => ({
-  SignedUrlService: vi.fn().mockImplementation(() => ({})),
+  SignedUrlService: class {
+    constructor() {}
+  },
 }));
 
 // 認証・認可ミドルウェアのモック
@@ -61,6 +82,9 @@ vi.mock('../../../middleware/authorize.middleware.js', () => ({
     next();
   },
 }));
+
+// テスト用の有効なUUID
+const VALID_PROJECT_ID = '550e8400-e29b-41d4-a716-446655440000';
 
 describe('GET /api/projects/:projectId/site-surveys/latest', () => {
   let app: Express;
@@ -83,32 +107,28 @@ describe('GET /api/projects/:projectId/site-surveys/latest', () => {
 
   it('デフォルトで直近2件と総数を返却する（Requirements: 2.1）', async () => {
     // Arrange
-    const { SiteSurveyService } = await import('../../../services/site-survey.service.js');
-    const mockService = vi.mocked(SiteSurveyService).mock.results[0]?.value;
-    if (mockService) {
-      mockService.findLatestByProjectId = vi.fn().mockResolvedValue({
-        totalCount: 5,
-        latestSurveys: [
-          {
-            id: 'survey-1',
-            name: '第5回現場調査',
-            surveyDate: '2024-05-15',
-            thumbnailUrl: null,
-            imageCount: 3,
-          },
-          {
-            id: 'survey-2',
-            name: '第4回現場調査',
-            surveyDate: '2024-04-15',
-            thumbnailUrl: null,
-            imageCount: 2,
-          },
-        ],
-      });
-    }
+    mockSiteSurveyService.findLatestByProjectId.mockResolvedValue({
+      totalCount: 5,
+      latestSurveys: [
+        {
+          id: 'survey-1',
+          name: '第5回現場調査',
+          surveyDate: '2024-05-15',
+          thumbnailUrl: null,
+          imageCount: 3,
+        },
+        {
+          id: 'survey-2',
+          name: '第4回現場調査',
+          surveyDate: '2024-04-15',
+          thumbnailUrl: null,
+          imageCount: 2,
+        },
+      ],
+    });
 
     // Act
-    const response = await request.get('/api/projects/project-123/site-surveys/latest');
+    const response = await request.get(`/api/projects/${VALID_PROJECT_ID}/site-surveys/latest`);
 
     // Assert
     expect(response.status).toBe(200);
@@ -118,23 +138,21 @@ describe('GET /api/projects/:projectId/site-surveys/latest', () => {
 
   it('limitクエリパラメータで取得件数を指定できる', async () => {
     // Arrange
-    const { SiteSurveyService } = await import('../../../services/site-survey.service.js');
-    const mockService = vi.mocked(SiteSurveyService).mock.results[0]?.value;
-    if (mockService) {
-      mockService.findLatestByProjectId = vi.fn().mockResolvedValue({
-        totalCount: 10,
-        latestSurveys: [
-          { id: 'survey-1', name: '第10回現場調査' },
-          { id: 'survey-2', name: '第9回現場調査' },
-          { id: 'survey-3', name: '第8回現場調査' },
-          { id: 'survey-4', name: '第7回現場調査' },
-          { id: 'survey-5', name: '第6回現場調査' },
-        ],
-      });
-    }
+    mockSiteSurveyService.findLatestByProjectId.mockResolvedValue({
+      totalCount: 10,
+      latestSurveys: [
+        { id: 'survey-1', name: '第10回現場調査' },
+        { id: 'survey-2', name: '第9回現場調査' },
+        { id: 'survey-3', name: '第8回現場調査' },
+        { id: 'survey-4', name: '第7回現場調査' },
+        { id: 'survey-5', name: '第6回現場調査' },
+      ],
+    });
 
     // Act
-    const response = await request.get('/api/projects/project-123/site-surveys/latest?limit=5');
+    const response = await request.get(
+      `/api/projects/${VALID_PROJECT_ID}/site-surveys/latest?limit=5`
+    );
 
     // Assert
     expect(response.status).toBe(200);
@@ -143,7 +161,9 @@ describe('GET /api/projects/:projectId/site-surveys/latest', () => {
 
   it('limitの最大値は10', async () => {
     // Act
-    const response = await request.get('/api/projects/project-123/site-surveys/latest?limit=20');
+    const response = await request.get(
+      `/api/projects/${VALID_PROJECT_ID}/site-surveys/latest?limit=20`
+    );
 
     // Assert
     expect(response.status).toBe(400);
@@ -151,7 +171,9 @@ describe('GET /api/projects/:projectId/site-surveys/latest', () => {
 
   it('limitの最小値は1', async () => {
     // Act
-    const response = await request.get('/api/projects/project-123/site-surveys/latest?limit=0');
+    const response = await request.get(
+      `/api/projects/${VALID_PROJECT_ID}/site-surveys/latest?limit=0`
+    );
 
     // Assert
     expect(response.status).toBe(400);
@@ -167,17 +189,13 @@ describe('GET /api/projects/:projectId/site-surveys/latest', () => {
 
   it('現場調査が0件の場合は空配列と総数0を返す', async () => {
     // Arrange
-    const { SiteSurveyService } = await import('../../../services/site-survey.service.js');
-    const mockService = vi.mocked(SiteSurveyService).mock.results[0]?.value;
-    if (mockService) {
-      mockService.findLatestByProjectId = vi.fn().mockResolvedValue({
-        totalCount: 0,
-        latestSurveys: [],
-      });
-    }
+    mockSiteSurveyService.findLatestByProjectId.mockResolvedValue({
+      totalCount: 0,
+      latestSurveys: [],
+    });
 
     // Act
-    const response = await request.get('/api/projects/project-empty/site-surveys/latest');
+    const response = await request.get(`/api/projects/${VALID_PROJECT_ID}/site-surveys/latest`);
 
     // Assert
     expect(response.status).toBe(200);
