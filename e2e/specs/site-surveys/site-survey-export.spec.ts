@@ -249,18 +249,34 @@ test.describe('現場調査エクスポート機能', () => {
 
       // まず、チェックをオフにする（初期状態を統一）
       if (await includeInReportCheckbox.isChecked()) {
-        const responsePromise1 = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/images') &&
-            response.request().method() === 'PATCH',
-          { timeout: getTimeout(15000) }
-        );
+        // チェックボックスをクリックしてオフにする
         await includeInReportCheckbox.click();
-        await responsePromise1;
+        // 保存ボタンをクリック（手動保存方式）
+        const saveButton1 = page.getByRole('button', { name: /^保存$|^保存中/ });
+        if (await saveButton1.isVisible({ timeout: 3000 }).catch(() => false)) {
+          const responsePromise1 = page.waitForResponse(
+            (response) =>
+              response.url().includes('/api/site-surveys/images') &&
+              response.request().method() === 'PATCH',
+            { timeout: getTimeout(15000) }
+          );
+          await saveButton1.click();
+          await responsePromise1;
+        }
       }
 
       // チェックがオフであることを確認
       await expect(includeInReportCheckbox).not.toBeChecked();
+
+      // チェックボックスをクリックしてオンにする
+      await includeInReportCheckbox.click();
+
+      // チェックがオンになったことを確認
+      await expect(includeInReportCheckbox).toBeChecked();
+
+      // 保存ボタンを探してクリック（手動保存方式 Task 33.1）
+      const saveButton = page.getByRole('button', { name: /^保存$/ });
+      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
 
       // APIコール待機をセットアップ（クリック前に開始）
       // 注: batch APIエンドポイントを使用するため、/api/site-surveys/images を含むURLにマッチ
@@ -271,8 +287,8 @@ test.describe('現場調査エクスポート機能', () => {
         { timeout: getTimeout(15000) }
       );
 
-      // チェックボックスをクリックしてオンにする
-      await includeInReportCheckbox.click();
+      // 保存ボタンをクリック
+      await saveButton.click();
 
       // APIレスポンスを待機
       await responsePromise;
