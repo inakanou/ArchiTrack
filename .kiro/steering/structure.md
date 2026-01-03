@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-01-03（Steering Sync: site-surveys E2Eテスト追加、Storybook統合拡充）_
+_最終更新: 2026-01-03（Steering Sync: site-survey手動保存モード対応確認）_
 
 ## ルートディレクトリ構成
 

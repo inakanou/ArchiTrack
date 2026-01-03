@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-01-03（Steering Sync: 依存関係バージョン更新確認、Storybook統合拡充）_
+_最終更新: 2026-01-03（Steering Sync: 依存関係バージョン確認、手動保存モード対応）_
 
 ## アーキテクチャ
 
