@@ -341,16 +341,21 @@ test.describe('現場調査エクスポート機能', () => {
       const testComment = `テストコメント_${Date.now()}`;
       await commentTextarea.fill(testComment);
 
-      // APIコール待機をセットアップ（blur前に開始）
+      // blur イベントをトリガーして変更を確定
+      await commentTextarea.blur();
+
+      // APIコール待機をセットアップ（保存ボタンクリック前に開始）
       const responsePromise = page.waitForResponse(
         (response) =>
-          response.url().includes('/api/site-surveys/images/') &&
+          response.url().includes('/api/site-surveys/images') &&
           response.request().method() === 'PATCH',
         { timeout: getTimeout(15000) }
       );
 
-      // blur イベントをトリガーして保存
-      await commentTextarea.blur();
+      // 保存ボタンをクリック（手動保存方式 Task 33.1）
+      const saveButton = page.getByRole('button', { name: /^保存$/ });
+      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+      await saveButton.click();
 
       // APIレスポンスを待機
       await responsePromise;
@@ -450,17 +455,27 @@ test.describe('現場調査エクスポート機能', () => {
       );
       const checkboxCount = await checkboxes.count();
 
+      let anyChecked = false;
       for (let i = 0; i < checkboxCount; i++) {
         const checkbox = checkboxes.nth(i);
         if (await checkbox.isChecked()) {
           await checkbox.click();
-          await page.waitForResponse(
-            (response) =>
-              response.url().includes('/api/site-surveys/images/') &&
-              (response.request().method() === 'PUT' || response.request().method() === 'PATCH'),
-            { timeout: getTimeout(15000) }
-          );
+          anyChecked = true;
         }
+      }
+
+      // 変更があれば保存ボタンをクリック（手動保存方式 Task 33.1）
+      if (anyChecked) {
+        const responsePromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/site-surveys/images') &&
+            response.request().method() === 'PATCH',
+          { timeout: getTimeout(15000) }
+        );
+        const saveButton = page.getByRole('button', { name: /^保存$/ });
+        await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+        await saveButton.click();
+        await responsePromise;
       }
 
       // 調査報告書出力ボタンをクリック
@@ -503,14 +518,18 @@ test.describe('現場調査エクスポート機能', () => {
       await expect(checkbox).toBeVisible({ timeout: getTimeout(15000) });
 
       if (!(await checkbox.isChecked())) {
-        // APIコール待機をセットアップ（クリック前に開始）
+        await checkbox.click();
+
+        // 保存ボタンをクリック（手動保存方式 Task 33.1）
         const responsePromise = page.waitForResponse(
           (response) =>
-            response.url().includes('/api/site-surveys/images/') &&
+            response.url().includes('/api/site-surveys/images') &&
             response.request().method() === 'PATCH',
           { timeout: getTimeout(15000) }
         );
-        await checkbox.click();
+        const saveButton = page.getByRole('button', { name: /^保存$/ });
+        await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+        await saveButton.click();
         await responsePromise;
       }
 
