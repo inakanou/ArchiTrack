@@ -604,7 +604,7 @@ export default function SiteSurveyDetailPage() {
           onSave={canEdit ? handleSaveMetadata : undefined}
           isDirty={isDirty}
           isSaving={isSavingMetadata}
-          onDelete={canEdit ? handleImageDelete : undefined}
+          onDelete={canDelete ? handleImageDelete : undefined}
         />
       </div>
 
