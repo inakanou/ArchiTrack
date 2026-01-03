@@ -231,26 +231,50 @@ router.get(
 
       const result = await siteSurveyService.findLatestByProjectId(projectId, limit);
 
-      // thumbnailUrlを署名付きURLに変換
-      let enrichedSurveys = result.latestSurveys;
+      // thumbnailUrl と thumbnailOriginalUrl を署名付きURLに変換
+      let enrichedSurveys = result.latestSurveys.map((survey) => ({
+        ...survey,
+        thumbnailOriginalUrl: null as string | null,
+      }));
       if (isStorageConfigured()) {
         const storageProvider = getStorageProvider();
         if (storageProvider) {
           enrichedSurveys = await Promise.all(
             result.latestSurveys.map(async (survey) => {
+              let thumbnailUrl: string | null = null;
+              let thumbnailOriginalUrl: string | null = null;
+
+              // サムネイルURLを生成
               if (survey.thumbnailUrl) {
                 try {
-                  const signedUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl);
-                  return { ...survey, thumbnailUrl: signedUrl };
+                  thumbnailUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl);
                 } catch (error) {
                   logger.warn(
                     { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
                     'Failed to generate signed URL for thumbnail'
                   );
-                  return { ...survey, thumbnailUrl: null };
                 }
               }
-              return survey;
+
+              // 元画像URLを生成（注釈レンダリング用）
+              if (survey.thumbnailOriginalPath) {
+                try {
+                  thumbnailOriginalUrl = await storageProvider.getSignedUrl(
+                    survey.thumbnailOriginalPath
+                  );
+                } catch (error) {
+                  logger.warn(
+                    { surveyId: survey.id, originalPath: survey.thumbnailOriginalPath, error },
+                    'Failed to generate signed URL for original image'
+                  );
+                }
+              }
+
+              return {
+                ...survey,
+                thumbnailUrl,
+                thumbnailOriginalUrl,
+              };
             })
           );
         }
@@ -372,27 +396,50 @@ router.get(
         { sort, order }
       );
 
-      // thumbnailUrlを署名付きURLまたは公開URLに変換
-      let enrichedData = result.data;
+      // thumbnailUrl と thumbnailOriginalUrl を署名付きURLに変換
+      let enrichedData = result.data.map((survey) => ({
+        ...survey,
+        thumbnailOriginalUrl: null as string | null,
+      }));
       if (isStorageConfigured()) {
         const storageProvider = getStorageProvider();
         if (storageProvider) {
           enrichedData = await Promise.all(
             result.data.map(async (survey) => {
+              let thumbnailUrl: string | null = null;
+              let thumbnailOriginalUrl: string | null = null;
+
+              // サムネイルURLを生成
               if (survey.thumbnailUrl) {
                 try {
-                  // thumbnailUrlはthumbnailPathが入っているので、署名付きURLに変換
-                  const signedUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl);
-                  return { ...survey, thumbnailUrl: signedUrl };
+                  thumbnailUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl);
                 } catch (error) {
                   logger.warn(
                     { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
                     'Failed to generate signed URL for thumbnail'
                   );
-                  return { ...survey, thumbnailUrl: null };
                 }
               }
-              return survey;
+
+              // 元画像URLを生成（注釈レンダリング用）
+              if (survey.thumbnailOriginalPath) {
+                try {
+                  thumbnailOriginalUrl = await storageProvider.getSignedUrl(
+                    survey.thumbnailOriginalPath
+                  );
+                } catch (error) {
+                  logger.warn(
+                    { surveyId: survey.id, originalPath: survey.thumbnailOriginalPath, error },
+                    'Failed to generate signed URL for original image'
+                  );
+                }
+              }
+
+              return {
+                ...survey,
+                thumbnailUrl,
+                thumbnailOriginalUrl,
+              };
             })
           );
         }

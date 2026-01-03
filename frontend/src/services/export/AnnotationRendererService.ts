@@ -152,11 +152,40 @@ export class AnnotationRendererService {
       // 6. 注釈オブジェクトを復元
       const enlivenedObjects = await util.enlivenObjects(annotationData.data.objects);
 
-      // 復元したオブジェクトをキャンバスに追加
+      // スケール係数を計算（保存時のキャンバスサイズと現在のレンダリングサイズの比率）
+      const savedCanvasWidth = annotationData.data.canvasWidth;
+      const savedCanvasHeight = annotationData.data.canvasHeight;
+      const scaleX =
+        savedCanvasWidth && savedCanvasWidth > 0 ? htmlImage.width / savedCanvasWidth : 1;
+      const scaleY =
+        savedCanvasHeight && savedCanvasHeight > 0 ? htmlImage.height / savedCanvasHeight : 1;
+
+      // 復元したオブジェクトをキャンバスに追加（スケール変換を適用）
       enlivenedObjects.forEach((obj) => {
         if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          fabricCanvas.add(obj as any);
+          const fabricObj = obj as any;
+
+          // スケール変換が必要な場合のみ適用
+          if (scaleX !== 1 || scaleY !== 1) {
+            // 位置をスケール
+            const left = fabricObj.left ?? 0;
+            const top = fabricObj.top ?? 0;
+            fabricObj.set({
+              left: left * scaleX,
+              top: top * scaleY,
+              scaleX: (fabricObj.scaleX ?? 1) * scaleX,
+              scaleY: (fabricObj.scaleY ?? 1) * scaleY,
+            });
+
+            // ストローク幅もスケール（平均スケールを使用）
+            const avgScale = (scaleX + scaleY) / 2;
+            if (fabricObj.strokeWidth) {
+              fabricObj.set({ strokeWidth: fabricObj.strokeWidth * avgScale });
+            }
+          }
+
+          fabricCanvas.add(fabricObj);
         }
       });
 
@@ -301,11 +330,40 @@ export class AnnotationRendererService {
       // 7. 注釈オブジェクトを復元
       const enlivenedObjects = await util.enlivenObjects(annotationData.data.objects);
 
-      // 復元したオブジェクトをキャンバスに追加
+      // スケール係数を計算（保存時のキャンバスサイズと現在のレンダリングサイズの比率）
+      const savedCanvasWidth = annotationData.data.canvasWidth;
+      const savedCanvasHeight = annotationData.data.canvasHeight;
+      const scaleX =
+        savedCanvasWidth && savedCanvasWidth > 0 ? htmlImage.width / savedCanvasWidth : 1;
+      const scaleY =
+        savedCanvasHeight && savedCanvasHeight > 0 ? htmlImage.height / savedCanvasHeight : 1;
+
+      // 復元したオブジェクトをキャンバスに追加（スケール変換を適用）
       enlivenedObjects.forEach((obj) => {
         if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          fabricCanvas.add(obj as any);
+          const fabricObj = obj as any;
+
+          // スケール変換が必要な場合のみ適用
+          if (scaleX !== 1 || scaleY !== 1) {
+            // 位置をスケール
+            const left = fabricObj.left ?? 0;
+            const top = fabricObj.top ?? 0;
+            fabricObj.set({
+              left: left * scaleX,
+              top: top * scaleY,
+              scaleX: (fabricObj.scaleX ?? 1) * scaleX,
+              scaleY: (fabricObj.scaleY ?? 1) * scaleY,
+            });
+
+            // ストローク幅もスケール（平均スケールを使用）
+            const avgScale = (scaleX + scaleY) / 2;
+            if (fabricObj.strokeWidth) {
+              fabricObj.set({ strokeWidth: fabricObj.strokeWidth * avgScale });
+            }
+          }
+
+          fabricCanvas.add(fabricObj);
         }
       });
 

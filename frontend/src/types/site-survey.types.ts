@@ -98,6 +98,10 @@ export interface SiteSurveyInfo {
   memo: string | null;
   /** サムネイルURL（最初の画像、存在しない場合はnull） */
   thumbnailUrl: string | null;
+  /** サムネイル画像ID（注釈表示用、存在しない場合はnull） */
+  thumbnailImageId?: string | null;
+  /** サムネイル元画像URL（注釈レンダリング用、存在しない場合はnull） */
+  thumbnailOriginalUrl?: string | null;
   /** 画像件数 */
   imageCount: number;
   /** 作成日時（ISO8601形式） */
@@ -568,6 +572,10 @@ export interface AnnotationData {
   background?: string;
   /** ビューポート変換マトリックス */
   viewportTransform?: number[];
+  /** 保存時のキャンバス幅（スケール変換用） */
+  canvasWidth?: number;
+  /** 保存時のキャンバス高さ（スケール変換用） */
+  canvasHeight?: number;
 }
 
 /**

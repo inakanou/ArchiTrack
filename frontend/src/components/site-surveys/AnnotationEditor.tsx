@@ -1208,10 +1208,12 @@ function AnnotationEditor({
       // Canvasからオブジェクトを取得（背景画像を除く）
       const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
 
-      // 注釈データを構築
+      // 注釈データを構築（キャンバス寸法を含める - PDF/サムネイルでのスケール変換用）
       const annotationData = {
         version: '1.0',
         objects: objects.map((obj) => obj.toObject()),
+        canvasWidth: canvas.getWidth(),
+        canvasHeight: canvas.getHeight(),
       };
 
       // APIを呼び出して保存

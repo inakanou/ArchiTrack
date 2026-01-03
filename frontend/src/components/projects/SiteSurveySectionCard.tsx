@@ -19,7 +19,8 @@
  */
 
 import { Link } from 'react-router-dom';
-import type { SiteSurveyInfo } from '../../types/site-survey.types';
+import type { SiteSurveyInfo, SurveyImageInfo } from '../../types/site-survey.types';
+import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
 
 // ============================================================================
 // 型定義
@@ -259,24 +260,60 @@ function ThumbnailPlaceholder() {
 }
 
 /**
+ * 注釈付きサムネイルのレンダリング
+ *
+ * thumbnailImageId と thumbnailOriginalUrl がある場合は注釈付きサムネイルを表示
+ */
+function SurveyThumbnail({ survey }: { survey: SiteSurveyInfo }) {
+  // 注釈表示に必要な情報がある場合
+  if (survey.thumbnailImageId && survey.thumbnailOriginalUrl) {
+    // AnnotatedImageThumbnail用のSurveyImageInfoオブジェクトを作成
+    const imageInfo: SurveyImageInfo = {
+      id: survey.thumbnailImageId,
+      surveyId: survey.id,
+      originalPath: '',
+      thumbnailPath: '',
+      fileName: '',
+      fileSize: 0,
+      width: 0,
+      height: 0,
+      displayOrder: 0,
+      createdAt: '',
+      originalUrl: survey.thumbnailOriginalUrl,
+    };
+
+    return (
+      <AnnotatedImageThumbnail
+        image={imageInfo}
+        alt={`${survey.name}のサムネイル`}
+        style={styles.thumbnail}
+        loading="lazy"
+      />
+    );
+  }
+
+  // サムネイルURLがある場合は通常の画像を表示
+  if (survey.thumbnailUrl) {
+    return (
+      <img src={survey.thumbnailUrl} alt={`${survey.name}のサムネイル`} style={styles.thumbnail} />
+    );
+  }
+
+  // サムネイルがない場合はプレースホルダーを表示
+  return <ThumbnailPlaceholder />;
+}
+
+/**
  * 現場調査カード
  */
-function SurveyCard({ survey, projectId }: { survey: SiteSurveyInfo; projectId: string }) {
+function SurveyCard({ survey }: { survey: SiteSurveyInfo }) {
   return (
     <Link
-      to={`/projects/${projectId}/site-surveys/${survey.id}`}
+      to={`/site-surveys/${survey.id}`}
       style={styles.surveyCard}
       aria-label={`${survey.name}の現場調査詳細を見る`}
     >
-      {survey.thumbnailUrl ? (
-        <img
-          src={survey.thumbnailUrl}
-          alt={`${survey.name}のサムネイル`}
-          style={styles.thumbnail}
-        />
-      ) : (
-        <ThumbnailPlaceholder />
-      )}
+      <SurveyThumbnail survey={survey} />
       <div style={styles.surveyInfo}>
         <h4 style={styles.surveyName}>{survey.name}</h4>
         <p style={styles.surveyMeta}>
@@ -335,7 +372,7 @@ export function SiteSurveySectionCard({
       ) : (
         <div style={styles.surveyList}>
           {latestSurveys.map((survey) => (
-            <SurveyCard key={survey.id} survey={survey} projectId={projectId} />
+            <SurveyCard key={survey.id} survey={survey} />
           ))}
         </div>
       )}

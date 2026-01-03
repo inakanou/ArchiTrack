@@ -51,6 +51,9 @@ export interface SiteSurveyInfo {
   surveyDate: Date;
   memo: string | null;
   thumbnailUrl: string | null;
+  thumbnailImageId: string | null;
+  /** サムネイル元画像パス（注釈レンダリング用） */
+  thumbnailOriginalPath: string | null;
   imageCount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -487,13 +490,16 @@ export class SiteSurveyService {
     },
     images: SurveyImageInfo[] = []
   ): SiteSurveyInfo {
+    const firstImage = images.length > 0 ? images[0] : null;
     return {
       id: siteSurvey.id,
       projectId: siteSurvey.projectId,
       name: siteSurvey.name,
       surveyDate: siteSurvey.surveyDate,
       memo: siteSurvey.memo,
-      thumbnailUrl: images.length > 0 && images[0] ? images[0].thumbnailPath : null,
+      thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
+      thumbnailImageId: firstImage ? firstImage.id : null,
+      thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
       imageCount: images.length,
       createdAt: siteSurvey.createdAt,
       updatedAt: siteSurvey.updatedAt,
@@ -636,6 +642,8 @@ export class SiteSurveyService {
         surveyDate: survey.surveyDate,
         memo: survey.memo,
         thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
+        thumbnailImageId: firstImage ? firstImage.id : null,
+        thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
         imageCount: survey.images.length, // includeで取得した件数を使用
         createdAt: survey.createdAt,
         updatedAt: survey.updatedAt,
@@ -711,6 +719,7 @@ export class SiteSurveyService {
             select: {
               id: true,
               thumbnailPath: true,
+              originalPath: true,
             },
           },
           _count: {
@@ -731,6 +740,8 @@ export class SiteSurveyService {
         surveyDate: survey.surveyDate,
         memo: survey.memo,
         thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
+        thumbnailImageId: firstImage ? firstImage.id : null,
+        thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
         imageCount: survey._count.images,
         createdAt: survey.createdAt,
         updatedAt: survey.updatedAt,
