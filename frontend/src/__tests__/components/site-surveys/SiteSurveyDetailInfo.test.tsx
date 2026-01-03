@@ -36,7 +36,7 @@ vi.mock('../../../services/export', () => ({
 }));
 
 vi.mock('../../../services/export/AnnotationRendererService', () => ({
-  renderImagesWithAnnotations: vi.fn(),
+  renderImagesForReport: vi.fn(),
 }));
 
 // APIモック
@@ -468,7 +468,7 @@ describe('SiteSurveyDetailInfo', () => {
         const firstImage = mockSurveyDetail.images[0]!;
 
         // モックの設定
-        vi.mocked(annotationModule.renderImagesWithAnnotations).mockResolvedValue([
+        vi.mocked(annotationModule.renderImagesForReport).mockResolvedValue([
           {
             imageInfo: firstImage,
             dataUrl: 'data:image/jpeg;base64,test',
@@ -506,7 +506,7 @@ describe('SiteSurveyDetailInfo', () => {
         const firstImage = mockSurveyDetail.images[0]!;
 
         // モックの設定
-        vi.mocked(annotationModule.renderImagesWithAnnotations).mockResolvedValue([
+        vi.mocked(annotationModule.renderImagesForReport).mockResolvedValue([
           {
             imageInfo: firstImage,
             dataUrl: 'data:image/jpeg;base64,test',
@@ -535,7 +535,7 @@ describe('SiteSurveyDetailInfo', () => {
 
         // モックの設定（Promiseを保持して解決を遅延させる）
         let resolveRender: (() => void) | undefined;
-        vi.mocked(annotationModule.renderImagesWithAnnotations).mockImplementation(
+        vi.mocked(annotationModule.renderImagesForReport).mockImplementation(
           () =>
             new Promise((resolve) => {
               resolveRender = () =>
