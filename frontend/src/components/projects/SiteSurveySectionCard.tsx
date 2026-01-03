@@ -309,7 +309,7 @@ function SurveyThumbnail({ survey }: { survey: SiteSurveyInfo }) {
 function SurveyCard({ survey }: { survey: SiteSurveyInfo }) {
   return (
     <Link
-      to={`/site-surveys/${survey.id}`}
+      to={`/projects/${survey.projectId}/site-surveys/${survey.id}`}
       style={styles.surveyCard}
       aria-label={`${survey.name}の現場調査詳細を見る`}
     >
