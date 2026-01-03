@@ -24,7 +24,7 @@ import { useState, useCallback, useEffect } from 'react';
 // Task 33.4: Link importは削除（ナビゲーションボタンをブレッドクラムに統一）
 import type { SiteSurveyDetail } from '../../types/site-survey.types';
 import { exportAndDownloadPdf, type AnnotatedImageWithComment } from '../../services/export';
-import { renderImagesWithAnnotations } from '../../services/export/AnnotationRendererService';
+import { renderImagesForReport } from '../../services/export/AnnotationRendererService';
 import type { PdfExportProgress } from '../../services/export/PdfExportService';
 import { getSiteSurvey } from '../../api/site-surveys';
 
@@ -307,8 +307,8 @@ export default function SiteSurveyDetailInfo({
       const freshSurvey = await getSiteSurvey(survey.id);
       const freshExportTargetImages = freshSurvey.images.filter((img) => img.includeInReport);
 
-      // 画像に注釈をレンダリングしてdataURLを取得
-      const renderedImages = await renderImagesWithAnnotations(freshExportTargetImages, {
+      // 画像に注釈をレンダリングしてdataURLを取得（日本語フォント適用）
+      const renderedImages = await renderImagesForReport(freshExportTargetImages, {
         format: 'jpeg',
         quality: 0.9,
       });

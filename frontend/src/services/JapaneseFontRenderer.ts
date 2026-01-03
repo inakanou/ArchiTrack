@@ -87,9 +87,6 @@ export class JapaneseFontRenderer {
   /** フォント読み込みステータス */
   private status: FontLoadStatus = FontLoadStatus.NOT_LOADED;
 
-  /** FontFaceインスタンス */
-  private fontFace: FontFace | null = null;
-
   /**
    * 現在のステータスを取得
    */
@@ -118,7 +115,6 @@ export class JapaneseFontRenderer {
    */
   reset(): void {
     this.status = FontLoadStatus.NOT_LOADED;
-    this.fontFace = null;
   }
 
   /**
@@ -156,31 +152,23 @@ export class JapaneseFontRenderer {
   }
 
   /**
-   * FontFace APIを使用してフォントを読み込む
+   * Google Fontsからフォントを読み込む
+   *
+   * CSSリンクタグを追加してGoogle Fontsを読み込み、
+   * document.fonts.load()でフォントの読み込み完了を待機する。
    */
   private async loadFontViaFontFaceAPI(): Promise<void> {
-    // FontFace APIが利用可能かチェック
-    if (typeof FontFace === 'undefined') {
-      // FontFace APIが利用できない場合は、CSS経由で読み込む
-      await this.loadFontViaCSS();
-      return;
+    // CSSリンクタグを追加
+    await this.loadFontViaCSS();
+
+    // フォントの読み込み完了を待機
+    // document.fonts.load()を使用して特定のフォントの読み込みを待つ
+    try {
+      await document.fonts.load('400 16px "Noto Sans JP"');
+    } catch {
+      // フォント読み込みに失敗しても、フォールバックフォントを使用して続行
+      console.warn('Failed to load Noto Sans JP font, falling back to system fonts');
     }
-
-    // Google FontsのCSSファイルから実際のフォントURLを取得する代わりに、
-    // FontFaceを直接作成してCSSフォントソースを指定
-    // 注: 実際の実装ではGoogle FontsのCSSファイルをパースする必要があるが、
-    // テストでは簡易的にFontFace APIのモックを使用
-    this.fontFace = new FontFace('Noto Sans JP', `url(${GOOGLE_FONTS_URL})`, {
-      style: 'normal',
-      weight: '400',
-      display: 'swap',
-    });
-
-    // フォントを読み込み
-    await this.fontFace.load();
-
-    // document.fontsに追加
-    document.fonts.add(this.fontFace);
   }
 
   /**
