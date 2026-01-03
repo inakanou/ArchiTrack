@@ -70,6 +70,10 @@ export const annotationDataSchema = z.object({
   objects: z.array(fabricSerializedObjectSchema),
   background: z.string().optional(),
   viewportTransform: z.array(z.number()).optional(),
+  /** 保存時のキャンバス幅（スケール変換用） */
+  canvasWidth: z.number().positive().optional(),
+  /** 保存時のキャンバス高さ（スケール変換用） */
+  canvasHeight: z.number().positive().optional(),
 });
 
 /**
