@@ -20,8 +20,8 @@
 **Objective:** As a プロジェクト担当者, I want 現場調査機能への画面遷移が分かりやすいこと, so that 目的の画面に迷わずたどり着ける
 
 #### Acceptance Criteria
-1. When ユーザーがプロジェクト詳細画面を表示する, the Site Survey Service shall 「現場調査」タブまたはセクションを表示する
-2. When ユーザーが「現場調査」タブをクリックする, the Site Survey Service shall 当該プロジェクトの現場調査一覧を表示する
+1. When ユーザーがプロジェクト詳細画面を表示する, the Site Survey Service shall 「現場調査」セクションに直近2件の現場調査への参照リンクと現場調査の総数を表示する
+2. When ユーザーが現場調査セクションで「すべて表示」リンクをクリックする, the Site Survey Service shall 当該プロジェクトの現場調査一覧を表示する
 3. When ユーザーが現場調査一覧で項目をクリックする, the Site Survey Service shall 現場調査詳細画面に遷移する
 4. When ユーザーが現場調査詳細画面で画像をクリックする, the Site Survey Service shall 画像ビューア/注釈エディタを開く
 5. The Site Survey Service shall 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
@@ -49,9 +49,10 @@
 5. If アップロードされたファイルが許可された形式でない, then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する
 6. If ファイルサイズが上限（300KB）を超える, then the Site Survey Service shall 画像サイズと品質を段階的に下げて250KB〜350KBの範囲に圧縮した上で登録する
 7. When ユーザーが画像を削除する, the Site Survey Service shall 画像と関連する注釈データを削除する
-8. The Site Survey Service shall JPEG、PNG、WEBP形式の画像ファイルをサポートする
-9. The Site Survey Service shall 画像一覧を固定の表示順序で表示する
-10. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更して保存する
+8. If R2ストレージからのオブジェクト削除に失敗する, then the Site Survey Service shall 孤立ファイルとして専用プレフィックス（orphaned/）に移動し、Object Lifecycle Ruleにより7日後に自動削除する
+9. The Site Survey Service shall JPEG、PNG、WEBP形式の画像ファイルをサポートする
+10. The Site Survey Service shall 画像一覧を固定の表示順序で表示する
+11. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更して保存する
 
 ### Requirement 5: 画像ビューア
 **Objective:** As a 現場調査担当者, I want アップロードした画像を拡大・縮小・回転して閲覧できること, so that 画像の詳細を確認できる
@@ -118,14 +119,17 @@
 **Objective:** As a 現場調査担当者, I want 現場調査詳細画面で写真ごとに報告書出力対象を選択しコメントを管理できること, so that 必要な写真とコメントを選択的に報告書に含められる
 
 #### Acceptance Criteria
-1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各写真について報告書出力フラグ（チェックボックス）、フルサイズの写真（サムネイル一覧は表示しない）、コメント入力用テキストエリアを表示する
-2. When ユーザーが報告書出力フラグのチェックボックスをONにする, the Site Survey Service shall 当該写真をPDF出力対象として設定する
-3. When ユーザーが報告書出力フラグのチェックボックスをOFFにする, the Site Survey Service shall 当該写真をPDF出力対象から除外する
-4. When ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付けて保存する
+1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各写真について報告書出力フラグ（チェックボックス）、フルサイズの写真（サムネイル一覧は表示しない）、コメント入力用テキストエリア、削除ボタンを表示する
+2. When ユーザーが報告書出力フラグのチェックボックスをONにする, the Site Survey Service shall 当該写真をPDF出力対象として設定する（未保存状態になる）
+3. When ユーザーが報告書出力フラグのチェックボックスをOFFにする, the Site Survey Service shall 当該写真をPDF出力対象から除外する（未保存状態になる）
+4. When ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付ける（未保存状態になる）
 5. When ユーザーが写真をマウスドラッグで移動する, the Site Survey Service shall 写真の表示順序を変更する
 6. When ユーザーが写真の並び替え操作を完了する, the Site Survey Service shall 変更された表示順序をデータベースに保存する
 7. The Site Survey Service shall 写真一覧を保存された表示順序の通りに表示する
-8. The Site Survey Service shall 各写真のコメントと報告書出力フラグの状態を永続化する
+8. When ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメントと報告書出力フラグの状態をデータベースに保存する
+9. While 未保存の変更がある状態でユーザーがページを離れようとする, the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する
+10. When ユーザーが写真の削除ボタンをクリックする, the Site Survey Service shall 確認ダイアログを表示する
+11. When ユーザーが削除確認ダイアログで削除を確定する, the Site Survey Service shall 当該写真と関連する注釈データを削除する
 
 ### Requirement 11: 調査報告書PDF出力
 **Objective:** As a 現場調査担当者, I want 注釈を含めた画像を選択的にPDF報告書としてエクスポートできること, so that 報告書や数量表作成に利用できる
@@ -180,6 +184,10 @@
 4. While 注釈編集中, the Site Survey Service shall 一定間隔（30秒）で自動保存を実行する
 5. When ページをリロードまたは再訪問した場合, the Site Survey Service shall ブラウザのlocalStorageから未保存の編集状態を復元する
 6. If ネットワーク接続が切断される, then the Site Survey Service shall 警告を表示し保存操作をブロックする
+7. If localStorageへの保存時にQuotaExceededErrorが発生する, then the Site Survey Service shall LRU（Least Recently Used）戦略で古いキャッシュを削除してリトライする
+8. If QuotaExceededErrorのリトライ後も保存に失敗する, then the Site Survey Service shall ユーザーに警告を表示し、手動で「今すぐ保存」を促す
+9. The Site Survey Service shall プライベートブラウジングモードでのlocalStorage制限（SecurityError）を検出し、自動保存機能を無効化して手動保存のみで動作する
+10. The Site Survey Service shall localStorageのエラー検出にクロスブラウザ対応（code===22, code===1014, name===QuotaExceededError, name===NS_ERROR_DOM_QUOTA_REACHED）を実装する
 
 ### Requirement 16: 非機能要件
 **Objective:** As a システム管理者, I want 現場調査機能が高いパフォーマンスと信頼性を持つこと, so that ユーザーがストレスなく利用できる

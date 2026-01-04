@@ -59,6 +59,16 @@ export interface UpdateImageMetadataInput {
 }
 
 /**
+ * 一括更新用メタデータ入力
+ *
+ * Task 33.1: 一括更新機能
+ */
+export interface BatchUpdateImageMetadataInput extends UpdateImageMetadataInput {
+  /** 画像ID */
+  id: string;
+}
+
+/**
  * 画像メタデータ
  */
 export interface ImageMetadata {
@@ -202,6 +212,93 @@ export class ImageMetadataService {
     }
 
     return this.mapToImageMetadata(image);
+  }
+
+  /**
+   * 複数の画像メタデータを一括で更新する
+   *
+   * Task 33.1: 写真一覧管理パネルを手動保存方式に変更する
+   * - 複数の画像メタデータを一括で受け取る
+   * - トランザクション内で一括更新
+   * - 更新結果を返却
+   *
+   * Requirements:
+   * - 10.8: 保存ボタンで一括保存
+   *
+   * @param inputs - 更新データの配列
+   * @returns 更新後の画像メタデータの配列
+   * @throws {ImageNotFoundError} 画像が存在しない場合
+   * @throws {CommentTooLongError} コメントが2000文字を超える場合
+   */
+  async updateMetadataBatch(inputs: BatchUpdateImageMetadataInput[]): Promise<ImageMetadata[]> {
+    // 空の配列の場合は即座に空の結果を返す
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    // 事前バリデーション: コメント長のチェック
+    for (const input of inputs) {
+      if (input.comment !== undefined && input.comment !== null) {
+        if (input.comment.length > ImageMetadataService.MAX_COMMENT_LENGTH) {
+          throw new CommentTooLongError(
+            input.comment.length,
+            ImageMetadataService.MAX_COMMENT_LENGTH
+          );
+        }
+      }
+    }
+
+    // 画像の存在確認
+    const imageIds = inputs.map((input) => input.id);
+    const existingImages = await this.prisma.surveyImage.findMany({
+      where: { id: { in: imageIds } },
+      select: { id: true },
+    });
+
+    const existingIdSet = new Set(existingImages.map((img) => img.id));
+    for (const input of inputs) {
+      if (!existingIdSet.has(input.id)) {
+        throw new ImageNotFoundError(input.id);
+      }
+    }
+
+    // トランザクション内で一括更新
+    const updatedImages = await this.prisma.$transaction(async (tx) => {
+      const results: SurveyImage[] = [];
+
+      for (const input of inputs) {
+        const updateData: { comment?: string | null; includeInReport?: boolean } = {};
+
+        if (input.comment !== undefined) {
+          updateData.comment = input.comment;
+        }
+
+        if (input.includeInReport !== undefined) {
+          updateData.includeInReport = input.includeInReport;
+        }
+
+        // 更新データがある場合のみ更新を実行
+        if (Object.keys(updateData).length > 0) {
+          const updated = await tx.surveyImage.update({
+            where: { id: input.id },
+            data: updateData,
+          });
+          results.push(updated);
+        } else {
+          // 更新データがない場合は現在の画像を取得して追加
+          const current = await tx.surveyImage.findUnique({
+            where: { id: input.id },
+          });
+          if (current) {
+            results.push(current);
+          }
+        }
+      }
+
+      return results;
+    });
+
+    return updatedImages.map((image) => this.mapToImageMetadata(image));
   }
 
   /**

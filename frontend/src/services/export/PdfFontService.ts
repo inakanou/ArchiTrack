@@ -93,6 +93,10 @@ export class PdfFontService {
    * jsPDFのVFS（Virtual File System）に追加し、
    * フォントとして登録する。
    *
+   * 注意: 各jsPDFインスタンスに対してフォントを登録する必要がある。
+   * jsPDFはインスタンスごとにフォントを管理するため、
+   * 毎回フォントを追加・登録する。
+   *
    * @param doc jsPDFインスタンス
    * @throws Error jsPDFインスタンスがnullまたはundefinedの場合
    */
@@ -100,17 +104,6 @@ export class PdfFontService {
     // バリデーション
     if (!doc) {
       throw new Error('jsPDF instance is required');
-    }
-
-    // 既に初期化済みの場合はフォントのみ設定
-    if (this.status === FontLoadStatus.LOADED) {
-      doc.setFont(PDF_FONT_FAMILY);
-      return;
-    }
-
-    // 既に初期化失敗済みの場合はスキップ
-    if (this.status === FontLoadStatus.FAILED) {
-      return;
     }
 
     // フォントデータの簡易バリデーション（最小サイズチェック）
@@ -123,6 +116,7 @@ export class PdfFontService {
 
     try {
       // 1. フォントファイルをVFS（Virtual File System）に追加
+      // 各jsPDFインスタンスに対してフォントを登録する必要がある
       doc.addFileToVFS(PDF_FONT_NAME, NotoSansJPBase64);
 
       // 2. フォントを登録

@@ -551,13 +551,21 @@ export class TextAnnotation extends IText {
 
   /**
    * オブジェクトをJSON形式にシリアライズ
+   *
+   * ドラッグ移動後の位置を正しく保存するため、Fabric.jsのleft/topプロパティを使用する
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): TextAnnotationJSON {
+    // ドラッグ移動で変更されるleft/topを使用（_positionは初期値のまま更新されない）
+    const currentPosition: Point = {
+      x: this.left ?? this._position.x,
+      y: this.top ?? this._position.y,
+    };
+
     return {
       type: 'textAnnotation' as const,
       text: this.getText(),
-      position: this.position,
+      position: currentPosition,
       fontSize: this.fontSize,
       fontFamily: this.fontFamily,
       fill: this.fill,

@@ -92,6 +92,42 @@ function createMockFontFaceClass(loadBehavior: 'success' | 'failure' | 'pending'
   };
 }
 
+/**
+ * 完全なdocumentモックを作成するヘルパー
+ * loadFontViaCSSが使用するDOM APIをすべてモックする
+ */
+function createMockDocument(mockFonts: {
+  add: ReturnType<typeof vi.fn>;
+  check: ReturnType<typeof vi.fn>;
+  load?: ReturnType<typeof vi.fn>;
+}) {
+  const mockLink = {
+    rel: '',
+    href: '',
+    onload: null as (() => void) | null,
+    onerror: null as (() => void) | null,
+  };
+
+  const mockHead = {
+    appendChild: vi.fn((link) => {
+      // 即座にonloadを呼び出す
+      setTimeout(() => {
+        link.onload?.();
+      }, 0);
+    }),
+  };
+
+  return {
+    fonts: {
+      ...mockFonts,
+      load: mockFonts.load ?? vi.fn().mockResolvedValue([]),
+    },
+    head: mockHead,
+    createElement: vi.fn().mockReturnValue(mockLink),
+    querySelector: vi.fn().mockReturnValue(null),
+  };
+}
+
 describe('JapaneseFontRenderer', () => {
   let renderer: JapaneseFontRenderer;
 
@@ -135,7 +171,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         // 読み込みを開始（awaitせずに状態確認）
         const loadPromise = renderer.load();
@@ -155,7 +191,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
 
@@ -163,14 +199,29 @@ describe('JapaneseFontRenderer', () => {
       });
 
       it('読み込み失敗時はFAILEDステータスになる', async () => {
-        const MockFontFace = createMockFontFaceClass('failure');
-        const mockFonts = {
-          add: vi.fn(),
-          check: vi.fn().mockReturnValue(false),
+        // CSS読み込み失敗をシミュレート
+        const mockLink = {
+          rel: '',
+          href: '',
+          onload: null as (() => void) | null,
+          onerror: null as (() => void) | null,
         };
 
-        vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        const mockHead = {
+          appendChild: vi.fn((link) => {
+            // CSS読み込みエラーを発生させる
+            setTimeout(() => {
+              link.onerror?.();
+            }, 0);
+          }),
+        };
+
+        vi.stubGlobal('document', {
+          fonts: { add: vi.fn(), check: vi.fn(), load: vi.fn() },
+          head: mockHead,
+          createElement: vi.fn().mockReturnValue(mockLink),
+          querySelector: vi.fn().mockReturnValue(null),
+        });
 
         await renderer.load().catch(() => {});
 
@@ -187,50 +238,41 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         const result = renderer.load();
 
         expect(result).toBeInstanceOf(Promise);
       });
 
-      it('フォントがdocument.fontsに追加される', async () => {
-        const MockFontFace = createMockFontFaceClass('success');
+      it('CSSリンクタグがheadに追加される', async () => {
         const mockFonts = {
           add: vi.fn(),
           check: vi.fn().mockReturnValue(true),
         };
+        const mockDocument = createMockDocument(mockFonts);
 
-        vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', mockDocument);
 
         await renderer.load();
 
-        expect(mockFonts.add).toHaveBeenCalled();
+        expect(mockDocument.head.appendChild).toHaveBeenCalled();
       });
 
       it('既に読み込み済みの場合は再読み込みしない', async () => {
-        const MockFontFace = createMockFontFaceClass('success');
-        const constructorSpy = vi.fn();
-        const MockFontFaceWithSpy = class extends MockFontFace {
-          constructor(family: string, source: string, descriptors?: FontFaceDescriptors) {
-            super(family, source, descriptors);
-            constructorSpy();
-          }
-        };
         const mockFonts = {
           add: vi.fn(),
           check: vi.fn().mockReturnValue(true),
         };
+        const mockDocument = createMockDocument(mockFonts);
 
-        vi.stubGlobal('FontFace', MockFontFaceWithSpy);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', mockDocument);
 
         await renderer.load();
         await renderer.load(); // 2回目
 
-        // コンストラクタは1回しか呼ばれない
-        expect(constructorSpy).toHaveBeenCalledTimes(1);
+        // head.appendChildは1回しか呼ばれない（既存リンクチェックで重複を防ぐ）
+        expect(mockDocument.head.appendChild).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -243,7 +285,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         expect(renderer.isLoaded()).toBe(false);
 
@@ -272,7 +314,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -299,7 +341,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -326,7 +368,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -348,7 +390,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -371,7 +413,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -392,7 +434,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         // 日本語フォントが適用可能であることを確認
@@ -410,7 +452,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         expect(renderer.isLoaded()).toBe(true);
@@ -424,7 +466,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         expect(renderer.isLoaded()).toBe(true);
@@ -438,7 +480,7 @@ describe('JapaneseFontRenderer', () => {
         };
 
         vi.stubGlobal('FontFace', MockFontFace);
-        vi.stubGlobal('document', { fonts: mockFonts });
+        vi.stubGlobal('document', createMockDocument(mockFonts));
 
         await renderer.load();
         expect(renderer.isLoaded()).toBe(true);
@@ -467,7 +509,7 @@ describe('スタンドアロン関数', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       await expect(loadJapaneseFont()).resolves.not.toThrow();
     });
@@ -482,7 +524,7 @@ describe('スタンドアロン関数', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       // 初期状態はfalse
       expect(isJapaneseFontLoaded()).toBe(false);
@@ -514,7 +556,7 @@ describe('スタンドアロン関数', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       await loadJapaneseFont();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -533,7 +575,7 @@ describe('スタンドアロン関数', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       await expect(waitForFontLoad()).resolves.not.toThrow();
     });
@@ -546,7 +588,7 @@ describe('スタンドアロン関数', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       await expect(waitForFontLoad(5000)).resolves.not.toThrow();
     });
@@ -570,7 +612,7 @@ describe('エクスポート時の日本語レンダリング', () => {
     };
 
     vi.stubGlobal('FontFace', MockFontFace);
-    vi.stubGlobal('document', { fonts: mockFonts });
+    vi.stubGlobal('document', createMockDocument(mockFonts));
 
     await loadJapaneseFont();
 
@@ -606,7 +648,7 @@ describe('JapaneseFontRenderer追加テスト', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       await renderer.load();
       expect(renderer.getStatus()).toBe(FontLoadStatus.LOADED);
@@ -721,7 +763,7 @@ describe('JapaneseFontRenderer追加テスト', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       // 1回目の読み込み開始
       const firstLoad = renderer.load();
@@ -756,7 +798,7 @@ describe('JapaneseFontRenderer追加テスト', () => {
       };
 
       vi.stubGlobal('FontFace', MockFontFace);
-      vi.stubGlobal('document', { fonts: mockFonts });
+      vi.stubGlobal('document', createMockDocument(mockFonts));
 
       await renderer.load();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -782,14 +824,29 @@ describe('waitForLoad待機中のエラーハンドリング', () => {
   it('読み込み失敗時はwaitForLoadがエラーをthrowする', async () => {
     const renderer = new JapaneseFontRenderer();
 
-    const MockFontFace = createMockFontFaceClass('failure');
-    const mockFonts = {
-      add: vi.fn(),
-      check: vi.fn().mockReturnValue(false),
+    // CSS読み込み失敗をシミュレート
+    const mockLink = {
+      rel: '',
+      href: '',
+      onload: null as (() => void) | null,
+      onerror: null as (() => void) | null,
     };
 
-    vi.stubGlobal('FontFace', MockFontFace);
-    vi.stubGlobal('document', { fonts: mockFonts });
+    const mockHead = {
+      appendChild: vi.fn((link) => {
+        // CSS読み込みエラーを発生させる
+        setTimeout(() => {
+          link.onerror?.();
+        }, 0);
+      }),
+    };
+
+    vi.stubGlobal('document', {
+      fonts: { add: vi.fn(), check: vi.fn(), load: vi.fn() },
+      head: mockHead,
+      createElement: vi.fn().mockReturnValue(mockLink),
+      querySelector: vi.fn().mockReturnValue(null),
+    });
 
     // 最初の読み込みを開始（エラーになる）
     const loadPromise = renderer.load().catch(() => {});

@@ -20,6 +20,7 @@ import {
   createSiteSurvey,
   updateSiteSurvey,
   deleteSiteSurvey,
+  getLatestSiteSurveys,
 } from '../../api/site-surveys';
 import {
   isSiteSurveyConflictErrorResponse,
@@ -31,6 +32,7 @@ import {
   type CreateSiteSurveyInput,
   type UpdateSiteSurveyInput,
   type SiteSurveyFilter,
+  type ProjectSurveySummary,
 } from '../../types/site-survey.types';
 
 // モック設定
@@ -191,6 +193,76 @@ describe('site-surveys API client', () => {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(401);
       }
+    });
+  });
+
+  // ==========================================================================
+  // getLatestSiteSurveys - 直近N件の現場調査取得
+  // Requirements: 2.1
+  // ==========================================================================
+  describe('getLatestSiteSurveys', () => {
+    const mockProjectSurveySummary: ProjectSurveySummary = {
+      totalCount: 5,
+      latestSurveys: [
+        {
+          id: 'survey-1',
+          projectId: 'project-1',
+          name: '現場調査1',
+          surveyDate: '2025-01-15',
+          memo: 'メモ1',
+          thumbnailUrl: '/uploads/thumbnails/image1.jpg',
+          imageCount: 3,
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-02T00:00:00.000Z',
+        },
+        {
+          id: 'survey-2',
+          projectId: 'project-1',
+          name: '現場調査2',
+          surveyDate: '2025-01-20',
+          memo: null,
+          thumbnailUrl: null,
+          imageCount: 0,
+          createdAt: '2025-01-03T00:00:00.000Z',
+          updatedAt: '2025-01-03T00:00:00.000Z',
+        },
+      ],
+    };
+
+    it('デフォルトパラメータで直近2件の現場調査を取得できること', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockProjectSurveySummary);
+
+      const result = await getLatestSiteSurveys('project-1');
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/projects/project-1/site-surveys/latest');
+      expect(result).toEqual(mockProjectSurveySummary);
+    });
+
+    it('limit指定で直近N件の現場調査を取得できること', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockProjectSurveySummary);
+
+      const result = await getLatestSiteSurveys('project-1', 5);
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/projects/project-1/site-surveys/latest?limit=5'
+      );
+      expect(result).toEqual(mockProjectSurveySummary);
+    });
+
+    it('limit=2の場合はクエリパラメータを省略すること', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce(mockProjectSurveySummary);
+
+      const result = await getLatestSiteSurveys('project-1', 2);
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/projects/project-1/site-surveys/latest');
+      expect(result).toEqual(mockProjectSurveySummary);
+    });
+
+    it('APIエラーが発生した場合、エラーがスローされること', async () => {
+      const mockError = new ApiError(404, 'プロジェクトが見つかりません');
+      vi.mocked(apiClient.get).mockRejectedValueOnce(mockError);
+
+      await expect(getLatestSiteSurveys('non-existent')).rejects.toThrow(ApiError);
     });
   });
 

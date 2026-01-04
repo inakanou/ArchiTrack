@@ -23,6 +23,7 @@ import type {
   ImageOrderItem,
   UpdateImageMetadataInput,
   UpdateImageMetadataResponse,
+  BatchUpdateImageMetadataInput,
 } from '../types/site-survey.types';
 
 // ============================================================================
@@ -371,4 +372,38 @@ export async function updateImageMetadata(
   input: UpdateImageMetadataInput
 ): Promise<UpdateImageMetadataResponse> {
   return apiClient.patch<UpdateImageMetadataResponse>(`/api/site-surveys/images/${imageId}`, input);
+}
+
+/**
+ * 複数の画像メタデータを一括で更新する
+ *
+ * Task 33.1: 手動保存方式対応
+ *
+ * 保存ボタンクリック時に、変更のあったすべての画像メタデータを
+ * 一括でサーバーに送信します。
+ *
+ * @param updates - 更新する画像メタデータの配列
+ * @returns 更新された画像メタデータの配列
+ * @throws ApiError
+ *   - バリデーションエラー（400）- コメントが2000文字を超えた場合
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - 画像が見つからない（404）
+ *
+ * Requirements: 10.8
+ *
+ * @example
+ * // 複数の画像を一括更新
+ * const updated = await updateImageMetadataBatch([
+ *   { id: 'image-1', comment: '施工箇所A' },
+ *   { id: 'image-2', includeInReport: true },
+ *   { id: 'image-3', comment: '確認済み', includeInReport: true },
+ * ]);
+ */
+export async function updateImageMetadataBatch(
+  updates: BatchUpdateImageMetadataInput[]
+): Promise<UpdateImageMetadataResponse[]> {
+  return apiClient.patch<UpdateImageMetadataResponse[]>('/api/site-surveys/images/batch', {
+    updates,
+  });
 }

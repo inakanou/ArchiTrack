@@ -80,6 +80,7 @@ npm run dev:docker
 - [シークレット管理](docs/deployment/secrets-management.md) - JWT鍵・2FA鍵の生成
 - [鍵ローテーション手順](docs/deployment/key-rotation-procedure.md) - EdDSA鍵の定期更新手順
 - [Railway設定](docs/deployment/railway-setup.md) - Railway初回セットアップ
+- [R2 Lifecycle Rules](docs/deployment/r2-lifecycle-rules.md) - 孤立ファイル自動削除設定
 - [CI/CD設定](docs/deployment/cicd-github-actions.md) - GitHub Actions設定
 - [トラブルシューティング](docs/deployment/troubleshooting.md) - よくある問題と解決方法
 

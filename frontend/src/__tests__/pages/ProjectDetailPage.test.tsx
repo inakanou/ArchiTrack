@@ -29,11 +29,13 @@ import { ToastProvider } from '../../components/ToastProvider';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
 import * as tradingPartnersApi from '../../api/trading-partners';
+import * as siteSurveyApi from '../../api/site-surveys';
 import { ApiError } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/projects');
 vi.mock('../../api/trading-partners');
+vi.mock('../../api/site-surveys');
 
 // useAuthフックのモック
 vi.mock('../../hooks/useAuth', () => ({
@@ -117,6 +119,11 @@ describe('ProjectDetailPage', () => {
     vi.mocked(projectsApi.getAssignableUsers).mockResolvedValue(mockAssignableUsers);
     // デフォルトでは取引先が見つからない設定
     vi.mocked(tradingPartnersApi.searchTradingPartners).mockResolvedValue([]);
+    // 現場調査サマリーのデフォルトモック（空の状態）
+    vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
+      totalCount: 0,
+      latestSurveys: [],
+    });
   });
 
   afterEach(() => {
@@ -1073,24 +1080,74 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 現場調査セクションの見出しが表示される
-      expect(screen.getByRole('heading', { level: 2, name: '現場調査' })).toBeInTheDocument();
+      // 現場調査セクションの見出しが表示される（h3要素、level: 3）
+      expect(screen.getByRole('heading', { level: 3, name: '現場調査' })).toBeInTheDocument();
     });
 
-    it('「現場調査一覧」へのリンクが表示される', async () => {
+    it('「すべて見る」リンクが表示される', async () => {
+      // モックを現場調査あり状態に設定（totalCount > 0）
+      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
+        totalCount: 3,
+        latestSurveys: [
+          {
+            id: 'survey-1',
+            projectId: 'project-1',
+            name: '現場調査1',
+            surveyDate: '2024-01-15',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 5,
+            createdAt: '2024-01-15T00:00:00.000Z',
+            updatedAt: '2024-01-15T00:00:00.000Z',
+          },
+          {
+            id: 'survey-2',
+            projectId: 'project-1',
+            name: '現場調査2',
+            surveyDate: '2024-01-10',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 3,
+            createdAt: '2024-01-10T00:00:00.000Z',
+            updatedAt: '2024-01-10T00:00:00.000Z',
+          },
+        ],
+      });
+
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 現場調査一覧へのリンクが存在する
-      const link = screen.getByRole('link', { name: /現場調査一覧/ });
-      expect(link).toBeInTheDocument();
+      // 「すべて見る」リンクが表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+      });
+
+      const link = screen.getByRole('link', { name: /すべて見る/ });
       expect(link).toHaveAttribute('href', '/projects/project-1/site-surveys');
     });
 
-    it('現場調査一覧リンクをクリックすると現場調査一覧ページへ遷移する', async () => {
+    it('すべて見るリンクをクリックすると現場調査一覧ページへ遷移する', async () => {
+      // モックを現場調査あり状態に設定
+      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
+        totalCount: 3,
+        latestSurveys: [
+          {
+            id: 'survey-1',
+            projectId: 'project-1',
+            name: '現場調査1',
+            surveyDate: '2024-01-15',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 5,
+            createdAt: '2024-01-15T00:00:00.000Z',
+            updatedAt: '2024-01-15T00:00:00.000Z',
+          },
+        ],
+      });
+
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -1098,47 +1155,102 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const link = screen.getByRole('link', { name: /現場調査一覧/ });
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+      });
+
+      const link = screen.getByRole('link', { name: /すべて見る/ });
       await user.click(link);
 
       // MemoryRouterを使用しているため、実際のナビゲーションはリンクのhref属性で確認
       expect(link).toHaveAttribute('href', '/projects/project-1/site-surveys');
     });
 
-    it('「新規作成」ボタンが表示される', async () => {
+    it('「新規作成」ボタンが表示される（現場調査0件時）', async () => {
+      // モックを現場調査なし状態に設定（totalCount = 0）
+      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
+        totalCount: 0,
+        latestSurveys: [],
+      });
+
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 現場調査の新規作成リンクが存在する
+      // 新規作成リンクが表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /新規作成/ })).toBeInTheDocument();
+      });
+
       const createLink = screen.getByRole('link', { name: /新規作成/ });
-      expect(createLink).toBeInTheDocument();
       expect(createLink).toHaveAttribute('href', '/projects/project-1/site-surveys/new');
     });
 
     it('現場調査セクションにプロジェクトIDが正しく反映される', async () => {
+      // モックを現場調査あり状態に設定
+      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
+        totalCount: 2,
+        latestSurveys: [
+          {
+            id: 'survey-1',
+            projectId: 'project-1',
+            name: '現場調査1',
+            surveyDate: '2024-01-15',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 5,
+            createdAt: '2024-01-15T00:00:00.000Z',
+            updatedAt: '2024-01-15T00:00:00.000Z',
+          },
+        ],
+      });
+
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
       });
 
       // URLにproject-1のIDが含まれている
-      const link = screen.getByRole('link', { name: /現場調査一覧/ });
+      const link = screen.getByRole('link', { name: /すべて見る/ });
       expect(link.getAttribute('href')).toContain('project-1');
     });
 
-    it('現場調査セクションの説明テキストが表示される', async () => {
+    it('現場調査セクションに件数表示がある', async () => {
+      // モックを現場調査あり状態に設定
+      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
+        totalCount: 5,
+        latestSurveys: [
+          {
+            id: 'survey-1',
+            projectId: 'project-1',
+            name: '現場調査1',
+            surveyDate: '2024-01-15',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 5,
+            createdAt: '2024-01-15T00:00:00.000Z',
+            updatedAt: '2024-01-15T00:00:00.000Z',
+          },
+        ],
+      });
+
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 説明テキストが表示される
-      expect(screen.getByText(/現場調査を管理します/)).toBeInTheDocument();
+      // 件数表示が表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByText(/全5件/)).toBeInTheDocument();
+      });
     });
   });
 

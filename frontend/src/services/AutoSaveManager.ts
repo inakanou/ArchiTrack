@@ -89,7 +89,26 @@ export interface AutoSaveManagerOptions {
   maxCacheSizeBytes?: number;
   /** 最大キャッシュ画像数（デフォルト: 10） */
   maxCachedImages?: number;
+  /** 自動保存を無効にする（プライベートブラウジングモード用） */
+  disableAutoSave?: boolean;
 }
+
+/**
+ * QuotaExceededコールバックに渡される情報
+ */
+export interface QuotaExceededInfo {
+  /** 保存しようとした画像ID */
+  imageId: string;
+  /** 保存しようとした現場調査ID */
+  surveyId: string;
+  /** 発生したエラー */
+  error: Error;
+}
+
+/**
+ * QuotaExceededコールバック型
+ */
+export type OnQuotaExceededCallback = (info: QuotaExceededInfo) => void;
 
 /**
  * キャッシュエントリ情報
@@ -160,6 +179,8 @@ export interface IAutoSaveManager {
   setServerUpdatedAt(imageId: string, serverUpdatedAt: string): void;
   /** 状態変更コールバックを設定する */
   setOnStatusChange(callback: OnStatusChangeCallback | null): void;
+  /** QuotaExceededコールバックを設定する */
+  setOnQuotaExceeded(callback: OnQuotaExceededCallback | null): void;
   /** マネージャーを破棄する（タイマークリア等） */
   destroy(): void;
   /** 全キャッシュエントリを取得する（LRU順、古い順） */
@@ -172,6 +193,10 @@ export interface IAutoSaveManager {
   getStorageStats(): StorageStats;
   /** 最も古いエントリを削除する */
   clearOldestEntries(count: number): void;
+  /** 自動保存が利用可能かどうかを確認する */
+  isAutoSaveAvailable(): boolean;
+  /** 自動保存が無効化されているかどうかを確認する */
+  isAutoSaveDisabled(): boolean;
 }
 
 /**
@@ -242,6 +267,15 @@ export class AutoSaveManager implements IAutoSaveManager {
   /** 状態変更コールバック */
   private onStatusChange: OnStatusChangeCallback | null = null;
 
+  /** QuotaExceededコールバック */
+  private onQuotaExceeded: OnQuotaExceededCallback | null = null;
+
+  /** 自動保存が無効化されているか */
+  private autoSaveDisabled: boolean = false;
+
+  /** localStorageが利用可能かどうかのキャッシュ */
+  private storageAvailable: boolean | null = null;
+
   /**
    * コンストラクタ
    * @param options オプション設定
@@ -250,6 +284,7 @@ export class AutoSaveManager implements IAutoSaveManager {
     this.debounceInterval = options.debounceInterval ?? DEFAULT_DEBOUNCE_INTERVAL;
     this.maxCacheSizeBytes = options.maxCacheSizeBytes ?? DEFAULT_MAX_CACHE_SIZE_BYTES;
     this.maxCachedImages = options.maxCachedImages ?? DEFAULT_MAX_CACHED_IMAGES;
+    this.autoSaveDisabled = options.disableAutoSave ?? false;
   }
 
   /**
@@ -293,6 +328,11 @@ export class AutoSaveManager implements IAutoSaveManager {
     data: AnnotationData,
     force: boolean = false
   ): void {
+    // 自動保存が無効化されている場合は何もしない
+    if (this.autoSaveDisabled) {
+      return;
+    }
+
     // 既存のタイマーをクリア
     this.cancelPendingSave(imageId);
 
@@ -332,6 +372,11 @@ export class AutoSaveManager implements IAutoSaveManager {
     data: AnnotationData,
     force: boolean = false
   ): SaveResult {
+    // 自動保存が無効化されている場合はエラーを返す
+    if (this.autoSaveDisabled) {
+      return { success: false, error: 'Auto-save is disabled' };
+    }
+
     // 既存のタイマーをクリア
     this.cancelPendingSave(imageId);
 
@@ -447,6 +492,17 @@ export class AutoSaveManager implements IAutoSaveManager {
   }
 
   /**
+   * QuotaExceededコールバックを設定する
+   *
+   * QuotaExceededErrorが発生した際に呼び出されるコールバックを設定します。
+   *
+   * @param callback コールバック関数（nullで解除）
+   */
+  setOnQuotaExceeded(callback: OnQuotaExceededCallback | null): void {
+    this.onQuotaExceeded = callback;
+  }
+
+  /**
    * マネージャーを破棄する
    *
    * 全ての保留中の保存をキャンセルし、コールバックをクリアする。
@@ -459,6 +515,7 @@ export class AutoSaveManager implements IAutoSaveManager {
     this.saveTimers.clear();
     this.pendingData.clear();
     this.onStatusChange = null;
+    this.onQuotaExceeded = null;
   }
 
   /**
@@ -538,6 +595,43 @@ export class AutoSaveManager implements IAutoSaveManager {
   }
 
   /**
+   * 自動保存が利用可能かどうかを確認する
+   *
+   * localStorageが利用できない場合（プライベートモード、セキュリティ制限等）
+   * はfalseを返す。
+   *
+   * @returns 自動保存が利用可能な場合true
+   */
+  isAutoSaveAvailable(): boolean {
+    // キャッシュがある場合はそれを返す
+    if (this.storageAvailable !== null) {
+      return this.storageAvailable;
+    }
+
+    // localStorageのテスト
+    const testKey = '__autosave_test__';
+    try {
+      localStorage.setItem(testKey, testKey);
+      localStorage.removeItem(testKey);
+      this.storageAvailable = true;
+      return true;
+    } catch {
+      // SecurityError、QuotaExceededError等
+      this.storageAvailable = false;
+      return false;
+    }
+  }
+
+  /**
+   * 自動保存が無効化されているかどうかを確認する
+   *
+   * @returns 自動保存が無効化されている場合true
+   */
+  isAutoSaveDisabled(): boolean {
+    return this.autoSaveDisabled;
+  }
+
+  /**
    * 保存を実行する（内部メソッド）
    */
   private performSave(imageId: string, surveyId: string, data: AnnotationData): void {
@@ -594,8 +688,15 @@ export class AutoSaveManager implements IAutoSaveManager {
           this.lastAutoSavedAt = storageData.savedAt;
           this.updateStatus('saved');
           return { success: true };
-        } catch {
-          // 保存失敗
+        } catch (retryError) {
+          // 保存失敗 - コールバックを呼び出す
+          if (this.onQuotaExceeded) {
+            this.onQuotaExceeded({
+              imageId,
+              surveyId,
+              error: retryError instanceof Error ? retryError : new Error('QuotaExceededError'),
+            });
+          }
           this.updateStatus('error');
           return { success: false, error: 'Storage quota exceeded, cannot free enough space' };
         }

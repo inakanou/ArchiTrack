@@ -9,7 +9,8 @@
  */
 
 import { useCallback, type KeyboardEvent } from 'react';
-import type { SiteSurveyInfo } from '../../types/site-survey.types';
+import type { SiteSurveyInfo, SurveyImageInfo } from '../../types/site-survey.types';
+import { AnnotatedImageThumbnail } from './AnnotatedImageThumbnail';
 
 // ============================================================================
 // 型定義
@@ -54,6 +55,39 @@ function formatDate(dateString: string): string {
  * Requirements: 3.5
  */
 function ThumbnailImage({ survey }: { survey: SiteSurveyInfo }) {
+  // 注釈表示に必要な情報がある場合
+  if (survey.thumbnailImageId && survey.thumbnailOriginalUrl) {
+    // AnnotatedImageThumbnail用のSurveyImageInfoオブジェクトを作成
+    const imageInfo: SurveyImageInfo = {
+      id: survey.thumbnailImageId,
+      surveyId: survey.id,
+      originalPath: '',
+      thumbnailPath: '',
+      fileName: '',
+      fileSize: 0,
+      width: 0,
+      height: 0,
+      displayOrder: 0,
+      createdAt: '',
+      originalUrl: survey.thumbnailOriginalUrl,
+    };
+
+    return (
+      <AnnotatedImageThumbnail
+        image={imageInfo}
+        alt={`${survey.name}のサムネイル`}
+        style={{
+          width: '80px',
+          height: '80px',
+          objectFit: 'cover',
+          borderRadius: '8px',
+        }}
+        loading="lazy"
+      />
+    );
+  }
+
+  // サムネイルURLがある場合は通常の画像を表示
   if (survey.thumbnailUrl) {
     return (
       <img

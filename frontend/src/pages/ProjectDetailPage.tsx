@@ -24,7 +24,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getProject, getStatusHistory, deleteProject, transitionStatus } from '../api/projects';
+import { getLatestSiteSurveys } from '../api/site-surveys';
 import { ApiError } from '../api/client';
+import type { ProjectSurveySummary } from '../types/site-survey.types';
 import { useToast } from '../hooks/useToast';
 import type {
   ProjectDetail,
@@ -35,6 +37,7 @@ import type {
 import { PROJECT_STATUS_LABELS } from '../types/project.types';
 import StatusTransitionUI from '../components/projects/StatusTransitionUI';
 import DeleteConfirmationDialog from '../components/projects/DeleteConfirmationDialog';
+import { SiteSurveySectionCard } from '../components/projects/SiteSurveySectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -260,42 +263,6 @@ const styles = {
     fontSize: '14px',
     textAlign: 'center' as const,
   } as React.CSSProperties,
-  siteSurveySection: {
-    backgroundColor: '#f0f9ff',
-    borderRadius: '8px',
-    padding: '16px',
-    marginBottom: '16px',
-  } as React.CSSProperties,
-  siteSurveyDescription: {
-    color: '#1e40af',
-    fontSize: '14px',
-    marginBottom: '12px',
-  } as React.CSSProperties,
-  siteSurveyActions: {
-    display: 'flex',
-    gap: '12px',
-  } as React.CSSProperties,
-  siteSurveyLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
-    fontWeight: '500',
-  } as React.CSSProperties,
-  siteSurveyCreateLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    backgroundColor: '#2563eb',
-    color: '#ffffff',
-    padding: '8px 16px',
-    borderRadius: '6px',
-    textDecoration: 'none',
-    fontSize: '14px',
-    fontWeight: '500',
-  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -315,6 +282,8 @@ export default function ProjectDetailPage() {
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [statusHistory, setStatusHistory] = useState<StatusHistoryResponse[]>([]);
+  const [surveySummary, setSurveySummary] = useState<ProjectSurveySummary | null>(null);
+  const [isSurveyLoading, setIsSurveyLoading] = useState(false);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -332,6 +301,7 @@ export default function ProjectDetailPage() {
     if (!id) return;
 
     setIsLoading(true);
+    setIsSurveyLoading(true);
     setError(null);
 
     try {
@@ -341,6 +311,17 @@ export default function ProjectDetailPage() {
       setStatusHistory(historyData);
 
       // 取引先情報は既にprojectDataに含まれている（tradingPartnerフィールド）
+
+      // 現場調査サマリー取得（Task 31.3: Requirements 2.1）
+      try {
+        const summaryData = await getLatestSiteSurveys(id);
+        setSurveySummary(summaryData);
+      } catch {
+        // 現場調査の取得に失敗しても、プロジェクト詳細は表示する
+        setSurveySummary({ totalCount: 0, latestSurveys: [] });
+      } finally {
+        setIsSurveyLoading(false);
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -606,24 +587,13 @@ export default function ProjectDetailPage() {
         />
       </section>
 
-      {/* 現場調査セクション (Task 10.1, Requirements 2.1, 2.2) */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>現場調査</h2>
-        <div style={styles.siteSurveySection}>
-          <p style={styles.siteSurveyDescription}>このプロジェクトの現場調査を管理します。</p>
-          <div style={styles.siteSurveyActions}>
-            <Link
-              to={`/projects/${project.id}/site-surveys/new`}
-              style={styles.siteSurveyCreateLink}
-            >
-              新規作成
-            </Link>
-            <Link to={`/projects/${project.id}/site-surveys`} style={styles.siteSurveyLink}>
-              現場調査一覧を見る
-            </Link>
-          </div>
-        </div>
-      </section>
+      {/* 現場調査セクション (Task 31.3, Requirements 2.1, 2.2) */}
+      <SiteSurveySectionCard
+        projectId={project.id}
+        totalCount={surveySummary?.totalCount ?? 0}
+        latestSurveys={surveySummary?.latestSurveys ?? []}
+        isLoading={isSurveyLoading}
+      />
 
       {/* 関連データ（機能フラグ対応、将来実装予定） */}
       <section style={styles.section}>

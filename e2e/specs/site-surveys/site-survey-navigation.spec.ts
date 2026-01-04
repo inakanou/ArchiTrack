@@ -191,8 +191,9 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await page.goto(`/projects/${createdProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 現場調査リンク/タブをクリック
-      const surveyLink = page.getByRole('link', { name: /現場調査/i });
+      // 現場調査セクションの「すべて見る」リンクをクリック
+      // SiteSurveySectionCardコンポーネントでは「すべて見る」リンクが使用されている
+      const surveyLink = page.getByRole('link', { name: /すべて見る/i }).first();
       if (await surveyLink.isVisible({ timeout: 5000 }).catch(() => false)) {
         await surveyLink.click();
       }
@@ -202,8 +203,8 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
         timeout: getTimeout(10000),
       });
 
-      // 一覧が表示されることを確認（h2の「現場調査」見出しを正確にマッチ）
-      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
+      // 一覧が表示されることを確認（h1またはh2の「現場調査」見出しをマッチ）
+      await expect(page.getByRole('heading', { name: /^現場調査$/i }).first()).toBeVisible({
         timeout: getTimeout(10000),
       });
 

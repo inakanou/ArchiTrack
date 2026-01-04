@@ -98,6 +98,10 @@ export interface SiteSurveyInfo {
   memo: string | null;
   /** サムネイルURL（最初の画像、存在しない場合はnull） */
   thumbnailUrl: string | null;
+  /** サムネイル画像ID（注釈表示用、存在しない場合はnull） */
+  thumbnailImageId?: string | null;
+  /** サムネイル元画像URL（注釈レンダリング用、存在しない場合はnull） */
+  thumbnailOriginalUrl?: string | null;
   /** 画像件数 */
   imageCount: number;
   /** 作成日時（ISO8601形式） */
@@ -139,6 +143,21 @@ export interface PaginatedSiteSurveys {
   data: SiteSurveyInfo[];
   /** ページネーション情報 */
   pagination: SiteSurveyPaginationInfo;
+}
+
+/**
+ * プロジェクト別現場調査サマリー（Requirements: 2.1）
+ *
+ * プロジェクト詳細画面の現場調査セクションで表示する
+ * 直近の現場調査一覧と総数を含む。
+ *
+ * Task 31.1: GET /api/projects/:projectId/site-surveys/latest レスポンス型
+ */
+export interface ProjectSurveySummary {
+  /** 現場調査の総数 */
+  totalCount: number;
+  /** 直近N件の現場調査 */
+  latestSurveys: SiteSurveyInfo[];
 }
 
 // ============================================================================
@@ -553,6 +572,10 @@ export interface AnnotationData {
   background?: string;
   /** ビューポート変換マトリックス */
   viewportTransform?: number[];
+  /** 保存時のキャンバス幅（スケール変換用） */
+  canvasWidth?: number;
+  /** 保存時のキャンバス高さ（スケール変換用） */
+  canvasHeight?: number;
 }
 
 /**
@@ -876,6 +899,19 @@ export interface UpdateImageMetadataResponse {
   includeInReport: boolean;
   /** 表示順序 */
   displayOrder: number;
+}
+
+/**
+ * 一括画像メタデータ更新入力
+ *
+ * 複数の画像のコメントや報告書出力フラグを一括で更新するための入力型
+ *
+ * Task 33.1: 手動保存方式対応
+ * Requirements: 10.8
+ */
+export interface BatchUpdateImageMetadataInput extends UpdateImageMetadataInput {
+  /** 画像ID */
+  id: string;
 }
 
 /**

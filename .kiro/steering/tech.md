@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2025-12-31（Steering Sync: 依存関係バージョン更新、React 19.2.3、Prisma 7.2.0確認）_
+_最終更新: 2026-01-03（Steering Sync: 依存関係バージョン確認、手動保存モード対応）_
 
 ## アーキテクチャ
 
@@ -56,8 +56,8 @@ ArchiTrack/
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
-- `jsdom` ^27.2.0 - ブラウザ環境シミュレーション
-- `@sentry/react` ^10.27.0 - Sentryエラートラッキング（Frontend）
+- `jsdom` ^27.4.0 - ブラウザ環境シミュレーション
+- `@sentry/react` ^10.32.1 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
 - `storybook` ^10.1.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
 - `@storybook/react` ^10.1.8 - Storybook React統合（10.x系）
@@ -95,10 +95,10 @@ ArchiTrack/
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.2.0
 - **ORM**: Prisma 7.0.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
-- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 7.0.0、@prisma/adapter-pg 7.0.1
+- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 7.0.0、@prisma/adapter-pg 7.2.0
 - **キャッシュクライアント**: ioredis 5.3.2
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
-- **メール送信**: nodemailer 7.0.10、handlebars 4.7.8
+- **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
 - **JWT署名**: jose 5.10.0（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）

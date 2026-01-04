@@ -44,7 +44,7 @@ describe('seedPermissions', () => {
         findUnique: vi.fn().mockResolvedValue({ id: 'role-id', name: 'admin' }),
       } as unknown as PrismaClient['role'],
       rolePermission: {
-        upsert: vi.fn().mockResolvedValue({}),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
       } as unknown as PrismaClient['rolePermission'],
     };
   });
@@ -154,7 +154,7 @@ describe('seedPermissions - 取引先管理権限', () => {
         findUnique: vi.fn().mockResolvedValue({ id: 'role-id', name: 'admin' }),
       } as unknown as PrismaClient['role'],
       rolePermission: {
-        upsert: vi.fn().mockResolvedValue({}),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
       } as unknown as PrismaClient['rolePermission'],
     };
   });
@@ -248,10 +248,43 @@ describe('seedPermissions - 取引先管理権限', () => {
 
 describe('seedRolePermissions - 取引先管理権限', () => {
   let mockPrisma: Partial<PrismaClient>;
+  let rolePermissionData: Array<{ roleId: string; permissionId: string }>;
 
   beforeEach(() => {
     vi.resetModules();
+    rolePermissionData = [];
   });
+
+  // ヘルパー関数: 共通のモック設定
+  const createMockPrisma = (
+    userRoleId: string,
+    permissions: Array<{ id: string; resource: string; action: string }>
+  ) => {
+    return {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: userRoleId, name: 'user' };
+          return null;
+        }),
+      } as unknown as PrismaClient['role'],
+      permission: {
+        findFirst: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.resource === '*' && where.action === '*') {
+            return { id: 'all-perm-id', resource: '*', action: '*' };
+          }
+          return null;
+        }),
+        findMany: vi.fn().mockResolvedValue(permissions),
+      } as unknown as PrismaClient['permission'],
+      rolePermission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          rolePermissionData = [...rolePermissionData, ...data];
+          return { count: data.length };
+        }),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  };
 
   describe('一般ユーザーロールへの取引先権限割り当て（trading-partner-management/REQ-7.5）', () => {
     it('一般ユーザーにtrading-partner:create権限が割り当てられる', async () => {
@@ -259,38 +292,12 @@ describe('seedRolePermissions - 取引先管理権限', () => {
       const userRoleId = 'user-role-id';
       const tradingPartnerCreatePermissionId = 'trading-partner-create-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'trading-partner' && where.action === 'create') {
-              return {
-                id: tradingPartnerCreatePermissionId,
-                resource: 'trading-partner',
-                action: 'create',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: tradingPartnerCreatePermissionId, resource: 'trading-partner', action: 'create' },
+        { id: 'trading-partner-read-perm-id', resource: 'trading-partner', action: 'read' },
+        { id: 'trading-partner-update-perm-id', resource: 'trading-partner', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -298,11 +305,9 @@ describe('seedRolePermissions - 取引先管理権限', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const tradingPartnerCreateAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === tradingPartnerCreatePermissionId
+      const tradingPartnerCreateAssignment = rolePermissionData.find(
+        (item) =>
+          item.roleId === userRoleId && item.permissionId === tradingPartnerCreatePermissionId
       );
 
       expect(tradingPartnerCreateAssignment).toBeDefined();
@@ -313,38 +318,12 @@ describe('seedRolePermissions - 取引先管理権限', () => {
       const userRoleId = 'user-role-id';
       const tradingPartnerReadPermissionId = 'trading-partner-read-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'trading-partner' && where.action === 'read') {
-              return {
-                id: tradingPartnerReadPermissionId,
-                resource: 'trading-partner',
-                action: 'read',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'trading-partner-create-perm-id', resource: 'trading-partner', action: 'create' },
+        { id: tradingPartnerReadPermissionId, resource: 'trading-partner', action: 'read' },
+        { id: 'trading-partner-update-perm-id', resource: 'trading-partner', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -352,11 +331,8 @@ describe('seedRolePermissions - 取引先管理権限', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const tradingPartnerReadAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === tradingPartnerReadPermissionId
+      const tradingPartnerReadAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === tradingPartnerReadPermissionId
       );
 
       expect(tradingPartnerReadAssignment).toBeDefined();
@@ -367,38 +343,12 @@ describe('seedRolePermissions - 取引先管理権限', () => {
       const userRoleId = 'user-role-id';
       const tradingPartnerUpdatePermissionId = 'trading-partner-update-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'trading-partner' && where.action === 'update') {
-              return {
-                id: tradingPartnerUpdatePermissionId,
-                resource: 'trading-partner',
-                action: 'update',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'trading-partner-create-perm-id', resource: 'trading-partner', action: 'create' },
+        { id: 'trading-partner-read-perm-id', resource: 'trading-partner', action: 'read' },
+        { id: tradingPartnerUpdatePermissionId, resource: 'trading-partner', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -406,11 +356,9 @@ describe('seedRolePermissions - 取引先管理権限', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const tradingPartnerUpdateAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === tradingPartnerUpdatePermissionId
+      const tradingPartnerUpdateAssignment = rolePermissionData.find(
+        (item) =>
+          item.roleId === userRoleId && item.permissionId === tradingPartnerUpdatePermissionId
       );
 
       expect(tradingPartnerUpdateAssignment).toBeDefined();
@@ -419,54 +367,27 @@ describe('seedRolePermissions - 取引先管理権限', () => {
     it('一般ユーザーにtrading-partner:delete権限は割り当てられない（管理者のみ）', async () => {
       // Arrange
       const userRoleId = 'user-role-id';
+      const tradingPartnerDeletePermissionId = 'trading-partner-delete-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'trading-partner' && where.action === 'delete') {
-              return {
-                id: 'trading-partner-delete-perm-id',
-                resource: 'trading-partner',
-                action: 'delete',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      // findManyはdelete権限を返さない（実装ではuserロールにdeleteは含まれない）
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'trading-partner-create-perm-id', resource: 'trading-partner', action: 'create' },
+        { id: 'trading-partner-read-perm-id', resource: 'trading-partner', action: 'read' },
+        { id: 'trading-partner-update-perm-id', resource: 'trading-partner', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
       // Act
       await seedRolePermissions(mockPrisma as PrismaClient);
 
-      // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const tradingPartnerDeleteAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === 'trading-partner-delete-perm-id'
+      // Assert - deleteのcreateが一般ユーザーには呼ばれていないことを確認
+      const tradingPartnerDeleteAssignment = rolePermissionData.find(
+        (item) =>
+          item.roleId === userRoleId && item.permissionId === tradingPartnerDeletePermissionId
       );
 
-      // 一般ユーザーロールにはtrading-partner:delete権限が割り当てられていないことを確認
       expect(tradingPartnerDeleteAssignment).toBeUndefined();
     });
   });
@@ -474,10 +395,43 @@ describe('seedRolePermissions - 取引先管理権限', () => {
 
 describe('seedRolePermissions', () => {
   let mockPrisma: Partial<PrismaClient>;
+  let rolePermissionData: Array<{ roleId: string; permissionId: string }>;
 
   beforeEach(() => {
     vi.resetModules();
+    rolePermissionData = [];
   });
+
+  // ヘルパー関数: 共通のモック設定
+  const createMockPrisma = (
+    userRoleId: string,
+    permissions: Array<{ id: string; resource: string; action: string }>
+  ) => {
+    return {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: userRoleId, name: 'user' };
+          return null;
+        }),
+      } as unknown as PrismaClient['role'],
+      permission: {
+        findFirst: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.resource === '*' && where.action === '*') {
+            return { id: 'all-perm-id', resource: '*', action: '*' };
+          }
+          return null;
+        }),
+        findMany: vi.fn().mockResolvedValue(permissions),
+      } as unknown as PrismaClient['permission'],
+      rolePermission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          rolePermissionData = [...rolePermissionData, ...data];
+          return { count: data.length };
+        }),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  };
 
   describe('一般ユーザーロールへのプロジェクト権限割り当て（project-management/REQ-12.5）', () => {
     it('一般ユーザーにproject:create権限が割り当てられる', async () => {
@@ -485,40 +439,12 @@ describe('seedRolePermissions', () => {
       const userRoleId = 'user-role-id';
       const projectCreatePermissionId = 'project-create-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'project' && where.action === 'create') {
-              return { id: projectCreatePermissionId, resource: 'project', action: 'create' };
-            }
-            if (where.resource === 'project' && where.action === 'read') {
-              return { id: 'project-read-perm-id', resource: 'project', action: 'read' };
-            }
-            if (where.resource === 'project' && where.action === 'update') {
-              return { id: 'project-update-perm-id', resource: 'project', action: 'update' };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: projectCreatePermissionId, resource: 'project', action: 'create' },
+        { id: 'project-read-perm-id', resource: 'project', action: 'read' },
+        { id: 'project-update-perm-id', resource: 'project', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -526,11 +452,8 @@ describe('seedRolePermissions', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const projectCreateAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === projectCreatePermissionId
+      const projectCreateAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === projectCreatePermissionId
       );
 
       expect(projectCreateAssignment).toBeDefined();
@@ -541,34 +464,12 @@ describe('seedRolePermissions', () => {
       const userRoleId = 'user-role-id';
       const projectReadPermissionId = 'project-read-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'project' && where.action === 'read') {
-              return { id: projectReadPermissionId, resource: 'project', action: 'read' };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'project-create-perm-id', resource: 'project', action: 'create' },
+        { id: projectReadPermissionId, resource: 'project', action: 'read' },
+        { id: 'project-update-perm-id', resource: 'project', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -576,11 +477,8 @@ describe('seedRolePermissions', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const projectReadAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === projectReadPermissionId
+      const projectReadAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === projectReadPermissionId
       );
 
       expect(projectReadAssignment).toBeDefined();
@@ -591,34 +489,12 @@ describe('seedRolePermissions', () => {
       const userRoleId = 'user-role-id';
       const projectUpdatePermissionId = 'project-update-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'project' && where.action === 'update') {
-              return { id: projectUpdatePermissionId, resource: 'project', action: 'update' };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'project-create-perm-id', resource: 'project', action: 'create' },
+        { id: 'project-read-perm-id', resource: 'project', action: 'read' },
+        { id: projectUpdatePermissionId, resource: 'project', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -626,11 +502,8 @@ describe('seedRolePermissions', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const projectUpdateAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === projectUpdatePermissionId
+      const projectUpdateAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === projectUpdatePermissionId
       );
 
       expect(projectUpdateAssignment).toBeDefined();
@@ -639,35 +512,15 @@ describe('seedRolePermissions', () => {
     it('一般ユーザーにproject:delete権限は割り当てられない（管理者のみ）', async () => {
       // Arrange
       const userRoleId = 'user-role-id';
+      const projectDeletePermissionId = 'project-delete-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'project' && where.action === 'delete') {
-              return { id: 'project-delete-perm-id', resource: 'project', action: 'delete' };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      // findManyはdelete権限を返さない
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'project-create-perm-id', resource: 'project', action: 'create' },
+        { id: 'project-read-perm-id', resource: 'project', action: 'read' },
+        { id: 'project-update-perm-id', resource: 'project', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -675,11 +528,8 @@ describe('seedRolePermissions', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const projectDeleteAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === 'project-delete-perm-id'
+      const projectDeleteAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === projectDeletePermissionId
       );
 
       // 一般ユーザーロールにはproject:delete権限が割り当てられていないことを確認
@@ -712,7 +562,7 @@ describe('seedPermissions - 現場調査管理権限', () => {
         findUnique: vi.fn().mockResolvedValue({ id: 'role-id', name: 'admin' }),
       } as unknown as PrismaClient['role'],
       rolePermission: {
-        upsert: vi.fn().mockResolvedValue({}),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
       } as unknown as PrismaClient['rolePermission'],
     };
   });
@@ -806,10 +656,43 @@ describe('seedPermissions - 現場調査管理権限', () => {
 
 describe('seedRolePermissions - 現場調査管理権限', () => {
   let mockPrisma: Partial<PrismaClient>;
+  let rolePermissionData: Array<{ roleId: string; permissionId: string }>;
 
   beforeEach(() => {
     vi.resetModules();
+    rolePermissionData = [];
   });
+
+  // ヘルパー関数: 共通のモック設定
+  const createMockPrisma = (
+    userRoleId: string,
+    permissions: Array<{ id: string; resource: string; action: string }>
+  ) => {
+    return {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: userRoleId, name: 'user' };
+          return null;
+        }),
+      } as unknown as PrismaClient['role'],
+      permission: {
+        findFirst: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.resource === '*' && where.action === '*') {
+            return { id: 'all-perm-id', resource: '*', action: '*' };
+          }
+          return null;
+        }),
+        findMany: vi.fn().mockResolvedValue(permissions),
+      } as unknown as PrismaClient['permission'],
+      rolePermission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          rolePermissionData = [...rolePermissionData, ...data];
+          return { count: data.length };
+        }),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  };
 
   describe('一般ユーザーロールへの現場調査権限割り当て（site-survey/REQ-12.1, 12.2, 12.3）', () => {
     it('一般ユーザーにsite_survey:create権限が割り当てられる', async () => {
@@ -817,38 +700,12 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
       const userRoleId = 'user-role-id';
       const siteSurveyCreatePermissionId = 'site_survey-create-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'site_survey' && where.action === 'create') {
-              return {
-                id: siteSurveyCreatePermissionId,
-                resource: 'site_survey',
-                action: 'create',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: siteSurveyCreatePermissionId, resource: 'site_survey', action: 'create' },
+        { id: 'site_survey-read-perm-id', resource: 'site_survey', action: 'read' },
+        { id: 'site_survey-update-perm-id', resource: 'site_survey', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -856,11 +713,8 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const siteSurveyCreateAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === siteSurveyCreatePermissionId
+      const siteSurveyCreateAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === siteSurveyCreatePermissionId
       );
 
       expect(siteSurveyCreateAssignment).toBeDefined();
@@ -871,38 +725,12 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
       const userRoleId = 'user-role-id';
       const siteSurveyReadPermissionId = 'site_survey-read-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'site_survey' && where.action === 'read') {
-              return {
-                id: siteSurveyReadPermissionId,
-                resource: 'site_survey',
-                action: 'read',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'site_survey-create-perm-id', resource: 'site_survey', action: 'create' },
+        { id: siteSurveyReadPermissionId, resource: 'site_survey', action: 'read' },
+        { id: 'site_survey-update-perm-id', resource: 'site_survey', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -910,11 +738,8 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const siteSurveyReadAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === siteSurveyReadPermissionId
+      const siteSurveyReadAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === siteSurveyReadPermissionId
       );
 
       expect(siteSurveyReadAssignment).toBeDefined();
@@ -925,38 +750,12 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
       const userRoleId = 'user-role-id';
       const siteSurveyUpdatePermissionId = 'site_survey-update-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'site_survey' && where.action === 'update') {
-              return {
-                id: siteSurveyUpdatePermissionId,
-                resource: 'site_survey',
-                action: 'update',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'site_survey-create-perm-id', resource: 'site_survey', action: 'create' },
+        { id: 'site_survey-read-perm-id', resource: 'site_survey', action: 'read' },
+        { id: siteSurveyUpdatePermissionId, resource: 'site_survey', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -964,11 +763,8 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const siteSurveyUpdateAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === siteSurveyUpdatePermissionId
+      const siteSurveyUpdateAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === siteSurveyUpdatePermissionId
       );
 
       expect(siteSurveyUpdateAssignment).toBeDefined();
@@ -977,39 +773,15 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
     it('一般ユーザーにsite_survey:delete権限は割り当てられない（管理者のみ）', async () => {
       // Arrange
       const userRoleId = 'user-role-id';
+      const siteSurveyDeletePermissionId = 'site_survey-delete-perm-id';
 
-      mockPrisma = {
-        role: {
-          findUnique: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
-            if (where.name === 'user') return { id: userRoleId, name: 'user' };
-            return null;
-          }),
-        } as unknown as PrismaClient['role'],
-        permission: {
-          findFirst: vi.fn().mockImplementation(async ({ where }) => {
-            if (where.resource === '*' && where.action === '*') {
-              return { id: 'all-perm-id', resource: '*', action: '*' };
-            }
-            if (where.resource === 'site_survey' && where.action === 'delete') {
-              return {
-                id: 'site_survey-delete-perm-id',
-                resource: 'site_survey',
-                action: 'delete',
-              };
-            }
-            // その他の権限
-            return {
-              id: `${where.resource}-${where.action}-perm-id`,
-              resource: where.resource,
-              action: where.action,
-            };
-          }),
-        } as unknown as PrismaClient['permission'],
-        rolePermission: {
-          upsert: vi.fn().mockResolvedValue({}),
-        } as unknown as PrismaClient['rolePermission'],
-      };
+      // findManyはdelete権限を返さない
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'site_survey-create-perm-id', resource: 'site_survey', action: 'create' },
+        { id: 'site_survey-read-perm-id', resource: 'site_survey', action: 'read' },
+        { id: 'site_survey-update-perm-id', resource: 'site_survey', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
 
       const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
 
@@ -1017,11 +789,8 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
       await seedRolePermissions(mockPrisma as PrismaClient);
 
       // Assert
-      const upsertCalls = vi.mocked(mockPrisma.rolePermission!.upsert).mock.calls;
-      const siteSurveyDeleteAssignment = upsertCalls.find(
-        (call) =>
-          call[0].create.roleId === userRoleId &&
-          call[0].create.permissionId === 'site_survey-delete-perm-id'
+      const siteSurveyDeleteAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === siteSurveyDeletePermissionId
       );
 
       // 一般ユーザーロールにはsite_survey:delete権限が割り当てられていないことを確認

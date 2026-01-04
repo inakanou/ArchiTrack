@@ -21,10 +21,10 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+// Task 33.4: Link importは削除（ナビゲーションボタンをブレッドクラムに統一）
 import type { SiteSurveyDetail } from '../../types/site-survey.types';
 import { exportAndDownloadPdf, type AnnotatedImageWithComment } from '../../services/export';
-import { renderImagesWithAnnotations } from '../../services/export/AnnotationRendererService';
+import { renderImagesForReport } from '../../services/export/AnnotationRendererService';
 import type { PdfExportProgress } from '../../services/export/PdfExportService';
 import { getSiteSurvey } from '../../api/site-surveys';
 
@@ -195,21 +195,7 @@ const styles = {
     borderRadius: '6px',
     marginTop: '4px',
   } as React.CSSProperties,
-  navigationLinks: {
-    display: 'flex',
-    gap: '16px',
-    marginTop: '24px',
-    paddingTop: '16px',
-    borderTop: '1px solid #e5e7eb',
-  } as React.CSSProperties,
-  link: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
-  } as React.CSSProperties,
+  // Task 33.4: navigationLinks と link スタイルは削除（ブレッドクラムに統一）
 };
 
 // ============================================================================
@@ -321,8 +307,8 @@ export default function SiteSurveyDetailInfo({
       const freshSurvey = await getSiteSurvey(survey.id);
       const freshExportTargetImages = freshSurvey.images.filter((img) => img.includeInReport);
 
-      // 画像に注釈をレンダリングしてdataURLを取得
-      const renderedImages = await renderImagesWithAnnotations(freshExportTargetImages, {
+      // 画像に注釈をレンダリングしてdataURLを取得（日本語フォント適用）
+      const renderedImages = await renderImagesForReport(freshExportTargetImages, {
         format: 'jpeg',
         quality: 0.9,
       });
@@ -468,31 +454,10 @@ export default function SiteSurveyDetailInfo({
         </div>
       )}
 
-      {/* ナビゲーションリンク */}
-      <div style={styles.navigationLinks}>
-        <Link to={`/projects/${survey.projectId}`} style={styles.link}>
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-          プロジェクトに戻る
-        </Link>
-        <Link to={`/projects/${survey.projectId}/site-surveys`} style={styles.link}>
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 6h16M4 10h16M4 14h16M4 18h16"
-            />
-          </svg>
-          現場調査一覧に戻る
-        </Link>
-      </div>
+      {/* Task 33.4: ナビゲーションリンクを削除
+       * ブレッドクラムのみでナビゲーションを行う設計に統一
+       * Requirements: 2.5, 2.6, 2.7
+       */}
     </div>
   );
 }

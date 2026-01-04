@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2025-12-31（Steering Sync: 依存関係バージョン更新確認）_
+_最終更新: 2026-01-03（Steering Sync: site-survey手動保存モード対応確認）_
 
 ## ルートディレクトリ構成
 
@@ -259,7 +259,7 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── trading-partners/ # 取引先管理テスト
 │   │   └── *.spec.ts
-│   └── site-surveys/     # 現場調査テスト（11ファイル）
+│   └── site-surveys/     # 現場調査テスト（12ファイル）
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -286,7 +286,7 @@ e2e/
 - `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
-- `site-surveys/` - 現場調査テスト（11ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈）
+- `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
 
 **テストヘルパー:**
 
@@ -411,11 +411,13 @@ frontend/
 │   │       ├── PhotoManagementPanel.tsx # 写真管理パネル
 │   │       ├── AnnotatedImageThumbnail.tsx # 注釈付き画像サムネイル
 │   │       ├── ImageExportDialog.tsx # 画像エクスポートダイアログ
-│   │       └── tools/               # 注釈ツール（10ファイル）
+│   │       ├── StorageWarningBanner.tsx # ストレージ警告バナー
+│   │       └── tools/               # 注釈ツール（12ファイル）
 │   │           ├── ArrowTool.ts     # 矢印ツール
 │   │           ├── CircleTool.ts    # 円・楕円ツール
 │   │           ├── DimensionTool.ts # 寸法線ツール
 │   │           ├── DimensionValueInput.tsx # 寸法値入力コンポーネント
+│   │           ├── DimensionValueInput.stories.tsx # 寸法値入力Storybook
 │   │           ├── FreehandTool.ts  # フリーハンドツール
 │   │           ├── PolygonTool.ts   # 多角形ツール
 │   │           ├── PolylineTool.ts  # 折れ線ツール
@@ -491,8 +493,9 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（11ファイル）:**
+**Storybookストーリーファイル（28ファイル）:**
 
+認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
 - `LoginForm.stories.tsx` - ログインフォーム
 - `RegisterForm.stories.tsx` - 登録フォーム
@@ -504,6 +507,26 @@ frontend/
 - `TwoFactorVerificationForm.stories.tsx` - 2FA検証
 - `common/Breadcrumb.stories.tsx` - パンくずナビゲーション
 - `common/ResourceNotFound.stories.tsx` - リソース未発見表示
+
+現場調査コンポーネント（site-surveys/）:
+- `SiteSurveyForm.stories.tsx` - 現場調査フォーム
+- `SiteSurveyListTable.stories.tsx` - 一覧テーブル
+- `SiteSurveyListCard.stories.tsx` - 一覧カード（モバイル）
+- `SiteSurveyListView.stories.tsx` - 一覧ビュー
+- `SiteSurveySearchFilter.stories.tsx` - 検索・フィルタ
+- `SiteSurveyResponsiveView.stories.tsx` - レスポンシブビュー
+- `SiteSurveyDetailInfo.stories.tsx` - 詳細情報表示
+- `SiteSurveyErrorDisplay.stories.tsx` - エラー表示
+- `ImageUploader.stories.tsx` - 画像アップロード
+- `SurveyImageGrid.stories.tsx` - 画像グリッド
+- `ImageViewer.stories.tsx` - 画像ビューア
+- `LazyImage.stories.tsx` - 遅延読み込み画像
+- `AnnotationToolbar.stories.tsx` - 注釈ツールバー
+- `StylePanel.stories.tsx` - スタイル設定パネル
+- `PhotoManagementPanel.stories.tsx` - 写真管理パネル
+- `AnnotatedImageThumbnail.stories.tsx` - 注釈付きサムネイル
+- `ImageExportDialog.stories.tsx` - エクスポートダイアログ
+- `tools/DimensionValueInput.stories.tsx` - 寸法値入力
 
 **実装済み拡張ディレクトリ:**
 

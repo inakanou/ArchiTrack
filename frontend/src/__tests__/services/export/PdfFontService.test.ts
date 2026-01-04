@@ -118,16 +118,18 @@ describe('PdfFontService', () => {
       });
     });
 
-    describe('フォント再初期化の防止', () => {
-      it('既に初期化済みの場合は再度VFSに追加しない', () => {
+    describe('各jsPDFインスタンスへのフォント登録', () => {
+      it('initialize()を複数回呼び出すと、毎回VFSにフォントを追加する', () => {
+        // 各jsPDFインスタンスに対してフォントを登録する必要があるため
+        // 同じインスタンスでも毎回addFileToVFSが呼ばれる
         service.initialize(mockJsPDF as unknown as jsPDF);
         service.initialize(mockJsPDF as unknown as jsPDF);
 
-        // addFileToVFSは1回のみ呼ばれる
-        expect(mockJsPDF.addFileToVFS).toHaveBeenCalledTimes(1);
+        // addFileToVFSは2回呼ばれる（各initialize呼び出しで）
+        expect(mockJsPDF.addFileToVFS).toHaveBeenCalledTimes(2);
       });
 
-      it('既に初期化済みの場合でもsetFontは呼ばれる', () => {
+      it('initialize()を複数回呼び出すと、毎回setFontが呼ばれる', () => {
         service.initialize(mockJsPDF as unknown as jsPDF);
         service.initialize(mockJsPDF as unknown as jsPDF);
 
@@ -183,7 +185,7 @@ describe('PdfFontService', () => {
         expect(service.getStatus()).toBe(FontLoadStatus.FAILED);
       });
 
-      it('ステータスがFAILEDの場合は再初期化をスキップする', () => {
+      it('ステータスがFAILEDの場合でも再初期化を試みる', () => {
         // まずエラーを発生させてFAILED状態にする
         mockJsPDF.addFileToVFS.mockImplementation(() => {
           throw new Error('VFS error');
@@ -200,11 +202,12 @@ describe('PdfFontService', () => {
         // FAILEDの状態でエラーを発生させないモックに変更
         mockJsPDF.addFileToVFS.mockReset();
 
-        // 再度初期化を試みる
+        // 再度初期化を試みる（各jsPDFインスタンスに登録が必要なため）
         service.initialize(mockJsPDF as unknown as jsPDF);
 
-        // スキップされるのでaddFileToVFSは呼ばれない
-        expect(mockJsPDF.addFileToVFS).not.toHaveBeenCalled();
+        // 再初期化されるのでaddFileToVFSが呼ばれる
+        expect(mockJsPDF.addFileToVFS).toHaveBeenCalled();
+        expect(service.getStatus()).toBe(FontLoadStatus.LOADED);
       });
     });
 

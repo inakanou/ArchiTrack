@@ -14,8 +14,10 @@
 - 画像アップロード、圧縮、サムネイル生成を実現する
 - Canvas上での注釈編集（寸法線、マーキング、コメント）を可能にする
 - 注釈付き画像のエクスポートおよびPDF報告書生成を実現する
-- 自動保存と編集状態の一時保存機能を提供する
+- 手動保存と未保存変更の検出機能を提供する
 - **写真ごとのコメント管理と報告書出力フラグによる選択的PDF出力を実現する**
+- **プロジェクト詳細画面での現場調査セクション表示を実現する**
+- **画像削除機能をUI上で提供する**
 
 ### Non-Goals
 
@@ -47,6 +49,7 @@
 - ページネーション/検索/フィルタリングパターン
 - 論理削除パターン（deletedAtフィールド）
 - 楽観的排他制御パターン（expectedUpdatedAt）
+- **useUnsavedChangesフック（isDirty、beforeunload、confirmNavigation）**
 
 **既存実装の活用**（要件10〜12向け）:
 - PdfExportService: クライアントサイドPDF生成（jsPDF 2.5.x）
@@ -59,6 +62,8 @@
 ```mermaid
 graph TB
     subgraph Frontend
+        ProjectDetailPage[ProjectDetailPage]
+        SiteSurveySectionCard[SiteSurveySectionCard]
         SurveyListPage[SurveyListPage]
         SurveyDetailPage[SurveyDetailPage]
         ImageViewer[ImageViewer]
@@ -75,6 +80,7 @@ graph TB
         AnnotationService[AnnotationService]
         ExportService[ExportService]
         ImageMetadataService[ImageMetadataService]
+        ImageDeleteService[ImageDeleteService]
     end
 
     subgraph Storage
@@ -86,6 +92,8 @@ graph TB
         LocalStorage[(localStorage)]
     end
 
+    ProjectDetailPage --> SiteSurveySectionCard
+    SiteSurveySectionCard --> SurveyRoutes
     SurveyListPage --> SurveyRoutes
     SurveyDetailPage --> SurveyRoutes
     ImageViewer --> SurveyRoutes
@@ -99,10 +107,12 @@ graph TB
     SurveyRoutes --> AnnotationService
     SurveyRoutes --> ExportService
     SurveyRoutes --> ImageMetadataService
+    SurveyRoutes --> ImageDeleteService
 
     SurveyService --> PostgreSQL
     ImageService --> R2
     ImageMetadataService --> PostgreSQL
+    ImageDeleteService --> R2
     AnnotationService --> PostgreSQL
 
     AnnotationEditor --> LocalStorage
@@ -117,8 +127,10 @@ graph TB
   - AnnotationService: 注釈データの永続化と復元
   - ExportService: PDF/画像エクスポートのビジネスロジック
   - **ImageMetadataService**: 写真コメント・報告書出力フラグの管理（要件10対応）
+  - **ImageDeleteService**: 画像削除のストレージ連携（要件4.7、10.10、10.11対応）
   - **PhotoManagementPanel**: フルサイズ写真一覧管理UI（サムネイル一覧なし、要件10対応）
   - **ImageExportDialog**: 個別画像エクスポートUI（要件12対応）
+  - **SiteSurveySectionCard**: プロジェクト詳細画面の現場調査セクション（要件2.1対応）
 - Steering compliance: TypeScript strict mode、ESLint、Prettier、Conventional Commits
 
 ### Technology Stack
@@ -168,7 +180,7 @@ sequenceDiagram
 - サムネイルは200x200pxで自動生成
 - バッチアップロードは5件ずつキュー処理して順次アップロード（並列アップロードによるサーバー負荷を防止）
 
-### 注釈編集フロー
+### 注釈編集フロー（手動保存）
 
 ```mermaid
 sequenceDiagram
@@ -176,6 +188,7 @@ sequenceDiagram
     participant AnnotationEditor
     participant FabricCanvas
     participant UndoManager
+    participant useUnsavedChanges
     participant LocalStorage
     participant Backend
 
@@ -184,6 +197,7 @@ sequenceDiagram
     alt 未保存データあり
         LocalStorage-->>AnnotationEditor: 復元データ
         AnnotationEditor->>FabricCanvas: ローカルデータ復元
+        AnnotationEditor->>useUnsavedChanges: markAsChanged()
     else 未保存データなし
         AnnotationEditor->>Backend: GET /api/site-surveys/:id/images/:imageId/annotations
         Backend-->>AnnotationEditor: 注釈データ(JSON)
@@ -192,6 +206,7 @@ sequenceDiagram
 
     User->>FabricCanvas: 注釈操作（追加/編集/削除）
     FabricCanvas->>UndoManager: 操作履歴記録
+    FabricCanvas->>useUnsavedChanges: markAsChanged()
     FabricCanvas->>LocalStorage: 一時保存（debounce 30秒）
 
     User->>AnnotationEditor: 保存ボタン
@@ -199,12 +214,16 @@ sequenceDiagram
     FabricCanvas-->>AnnotationEditor: 注釈データ
     AnnotationEditor->>Backend: PUT /api/.../annotations
     Backend-->>AnnotationEditor: 保存完了
+    AnnotationEditor->>useUnsavedChanges: markAsSaved()
     AnnotationEditor->>LocalStorage: ローカルキャッシュクリア
 ```
 
 **Key Decisions**:
 - 注釈データはFabric.js JSON形式で保存
 - Undo/Redo履歴は最大50件保持し、超過時は最古の履歴から削除（FIFO）、保存時にクリア
+- **手動保存方式**: 保存ボタンクリックでサーバーに保存（オートセーブからの変更）
+- **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理
+- **ページ離脱警告**: beforeunloadイベントで確認ダイアログを表示
 - 30秒間隔で自動的にlocalStorageに一時保存（debounce）
 - ページリロード時にlocalStorageから未保存データを復元
 
@@ -214,10 +233,11 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> Online
     Online --> Editing: 注釈編集開始
-    Editing --> AutoSaving: 30秒経過
-    AutoSaving --> Editing: localStorage保存完了
+    Editing --> LocalAutoSaving: 30秒経過
+    LocalAutoSaving --> Editing: localStorage保存完了
     Editing --> Saving: 保存ボタン押下
-    Saving --> Online: サーバー保存成功
+    Saving --> Saved: サーバー保存成功
+    Saved --> Online: isDirty=false
     Saving --> SaveFailed: サーバー保存失敗
     SaveFailed --> Editing: リトライ
     Online --> Offline: ネットワーク切断検出
@@ -237,6 +257,7 @@ stateDiagram-v2
 sequenceDiagram
     participant User
     participant PhotoManagementPanel
+    participant useUnsavedChanges
     participant Backend
     participant PostgreSQL
 
@@ -245,27 +266,63 @@ sequenceDiagram
     Backend->>PostgreSQL: 画像一覧取得（comment, includeInReport含む）
     PostgreSQL-->>Backend: 画像データ
     Backend-->>PhotoManagementPanel: 画像一覧（署名付きURL付き）
-    PhotoManagementPanel-->>User: フルサイズ写真一覧表示（コメント、チェックボックス）
+    PhotoManagementPanel-->>User: フルサイズ写真一覧表示（コメント、チェックボックス、削除ボタン）
 
     User->>PhotoManagementPanel: コメント入力
-    PhotoManagementPanel->>PhotoManagementPanel: デバウンス（500ms）
-    PhotoManagementPanel->>Backend: PATCH /api/site-surveys/images/:imageId
-    Backend->>PostgreSQL: comment更新
-    PostgreSQL-->>Backend: 更新完了
-    Backend-->>PhotoManagementPanel: 更新結果
+    PhotoManagementPanel->>useUnsavedChanges: markAsChanged()
+    PhotoManagementPanel-->>User: 未保存インジケーター表示
 
     User->>PhotoManagementPanel: 報告書出力フラグ変更
-    PhotoManagementPanel->>Backend: PATCH /api/site-surveys/images/:imageId
-    Backend->>PostgreSQL: includeInReport更新
+    PhotoManagementPanel->>useUnsavedChanges: markAsChanged()
+    PhotoManagementPanel-->>User: 未保存インジケーター表示
+
+    User->>PhotoManagementPanel: 保存ボタンクリック
+    PhotoManagementPanel->>Backend: PATCH /api/site-surveys/images/batch
+    Backend->>PostgreSQL: 一括更新（comment, includeInReport）
     PostgreSQL-->>Backend: 更新完了
     Backend-->>PhotoManagementPanel: 更新結果
+    PhotoManagementPanel->>useUnsavedChanges: markAsSaved()
 ```
 
 **Key Decisions**:
-- コメント入力は500msデバウンスで自動保存
-- 報告書出力フラグは即時保存
+- **手動保存方式**: コメント入力・フラグ変更は未保存状態としてマーク、保存ボタンで一括保存
+- **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理
+- **ページ離脱警告**: 未保存変更がある場合は確認ダイアログを表示
 - 現場調査詳細画面ではサムネイル一覧タブを設けず、フルサイズ写真を直接表示（要件10.1準拠）
 - パフォーマンス最適化のため、一覧表示用に中解像度画像（800x600px程度）を使用し、クリック時に元画像を表示
+
+### 画像削除フロー（要件10.10、10.11対応）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant PhotoManagementPanel
+    participant DeleteDialog
+    participant Backend
+    participant R2 as Cloudflare R2
+    participant PostgreSQL
+
+    User->>PhotoManagementPanel: 削除ボタンクリック
+    PhotoManagementPanel->>DeleteDialog: 確認ダイアログ表示
+    DeleteDialog-->>User: 削除確認（画像と関連注釈も削除される旨）
+
+    User->>DeleteDialog: 削除確定
+    DeleteDialog->>Backend: DELETE /api/site-surveys/images/:imageId
+    Backend->>PostgreSQL: 画像メタデータ削除
+    Backend->>PostgreSQL: 関連注釈データ削除
+    PostgreSQL-->>Backend: 削除完了
+    Backend->>R2: 原画像・サムネイル削除
+    R2-->>Backend: 削除完了
+    Backend-->>PhotoManagementPanel: 204 No Content
+    PhotoManagementPanel->>PhotoManagementPanel: 画像リストから除去
+    PhotoManagementPanel-->>User: 削除完了表示
+```
+
+**Key Decisions**:
+- 削除前に確認ダイアログを表示（誤削除防止）
+- 画像削除時は関連する注釈データも連動削除
+- PostgreSQLとR2は非トランザクション（R2削除失敗時は孤立ファイルとしてログ記録）
+- 既存のDELETE /api/site-surveys/images/:imageIdエンドポイントを利用
 
 ### PDF報告書生成フロー（要件11対応）
 
@@ -350,20 +407,34 @@ sequenceDiagram
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
 | 1.1-1.6 | 現場調査CRUD | SurveyService, SurveyRoutes | SurveyAPI | - |
-| 2.1-2.7 | 画面遷移・ナビゲーション | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
+| **2.1** | **プロジェクト詳細画面の現場調査セクション** | **SiteSurveySectionCard, ProjectDetailPage** | **SurveyListAPI** | - |
+| 2.2-2.7 | 画面遷移・ナビゲーション | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
 | 3.1-3.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
-| 4.1-4.10 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
+| 4.1-4.6, 4.9, 4.10 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
+| **4.7** | **画像削除** | **ImageDeleteService, PhotoManagementPanel** | **ImageDeleteAPI** | **画像削除フロー** |
+| **4.8** | **R2孤立ファイル処理** | **ImageDeleteService** | **R2 Lifecycle Rule** | **R2孤立ファイル処理フロー** |
 | 5.1-5.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
 | 6.1-6.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
-| 9.1-9.6 | 注釈保存・復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
-| **10.1-10.8** | **写真一覧管理・PDF出力設定（フルサイズ写真表示、サムネイル一覧なし）** | **PhotoManagementPanel, ImageMetadataService** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
+| **9.1** | **手動保存（保存ボタン）** | **AnnotationEditor, useUnsavedChanges** | **AnnotationAPI** | **注釈編集フロー** |
+| 9.2 | 注釈データ復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
+| **9.3** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges, SurveyDetailPage** | - | - |
+| 9.4-9.6 | 保存インジケーター・リトライ・エクスポート | AnnotationService | AnnotationAPI | 注釈編集フロー |
+| **10.1** | **写真一覧管理（削除ボタン付き）** | **PhotoManagementPanel** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
+| 10.2-10.7 | コメント・フラグ・並び替え | PhotoManagementPanel, ImageMetadataService | ImageMetadataAPI | 写真メタデータ更新フロー |
+| **10.8** | **手動保存（保存ボタン）** | **PhotoManagementPanel, useUnsavedChanges** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
+| **10.9** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges** | - | - |
+| **10.10, 10.11** | **画像削除（確認ダイアログ付き）** | **PhotoManagementPanel, ImageDeleteService** | **ImageDeleteAPI** | **画像削除フロー** |
 | **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService** | **ExportAPI** | **PDF報告書生成フロー** |
 | **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService** | **ExportAPI** | **個別画像エクスポートフロー** |
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
 | 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
 | 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
+| **15.7** | **QuotaExceededError LRUリトライ** | **AutoSaveManager** | **localStorage** | - |
+| **15.8** | **保存失敗時ユーザー警告・今すぐ保存促進** | **AutoSaveManager, QuotaWarningDialog** | - | - |
+| **15.9** | **プライベートブラウジング検出・自動保存無効化** | **AutoSaveManager** | - | - |
+| **15.10** | **クロスブラウザQuotaExceededError検出** | **AutoSaveManager (isQuotaExceededError)** | - | - |
 | 16.1-16.8 | 非機能要件 | 全コンポーネント | - | - |
 
 ## Components and Interfaces
@@ -376,16 +447,19 @@ sequenceDiagram
 | ImageService | Backend/Service | 画像アップロード・処理 | 4 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
 | AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9 | PrismaClient (P0) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
+| **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
 | ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14 | All Services (P0) | API |
+| **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
 | SurveyListPage | Frontend/Page | 一覧表示 | 2, 3 | SurveyAPI (P0) | State |
-| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 4, 5, 10, 11 | SurveyAPI (P0), ImageAPI (P0) | State |
-| **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（サムネイル一覧なし） | 10 | ImageMetadataAPI (P0) | State |
-| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13 | Fabric.js (P0), UndoManager (P0) | State |
+| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 4, 5, 9, 10, 11 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
+| **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（削除ボタン付き） | 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
+| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0) | State |
 | ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12 | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
-| AutoSaveManager | Frontend/Service | 自動保存・状態復元 | 15 | localStorage (P0) | State |
+| AutoSaveManager | Frontend/Service | 自動保存・状態復元・QuotaExceeded対応 | 15, 15.7-15.10 | localStorage (P0) | State |
+| **useUnsavedChanges** | Frontend/Hook | 未保存変更検出 | 9.1, 9.3, 10.8, 10.9 | - | State |
 
 ### Backend / Service Layer
 
@@ -394,13 +468,14 @@ sequenceDiagram
 | Field | Detail |
 |-------|--------|
 | Intent | 現場調査エンティティのCRUD操作とビジネスロジックを管理 |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 3.1, 3.2, 3.3, 3.4, 3.5 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 3.1, 3.2, 3.3, 3.4, 3.5 |
 
 **Responsibilities & Constraints**
 - 現場調査の作成・読取・更新・削除を管理
 - プロジェクト存在確認の整合性を保証
 - 楽観的排他制御による同時編集競合を検出
 - 論理削除時に関連画像データを連動削除
+- **プロジェクト別の直近N件取得をサポート（要件2.1対応）**
 
 **Dependencies**
 - Inbound: SurveyRoutes — HTTPリクエスト処理 (P0)
@@ -455,6 +530,12 @@ interface SurveyFilter {
   surveyDateTo?: string;
 }
 
+/** 要件2.1対応: プロジェクト別現場調査サマリー */
+interface ProjectSurveySummary {
+  totalCount: number;
+  latestSurveys: SurveyInfo[];
+}
+
 interface ISurveyService {
   create(input: CreateSurveyInput, actorId: string): Promise<SurveyInfo>;
   findById(id: string): Promise<SurveyDetail | null>;
@@ -464,6 +545,8 @@ interface ISurveyService {
     pagination: PaginationInput,
     sort: SortInput
   ): Promise<PaginatedSurveys>;
+  /** 要件2.1対応: プロジェクト別の直近N件と総数を取得 */
+  findLatestByProjectId(projectId: string, limit: number): Promise<ProjectSurveySummary>;
   update(
     id: string,
     input: UpdateSurveyInput,
@@ -488,7 +571,7 @@ interface ISurveyService {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像のアップロード、圧縮、サムネイル生成、ストレージ管理を担当 |
-| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10 |
+| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8, 4.9, 4.10 |
 
 **Responsibilities & Constraints**
 - ファイル形式バリデーション（JPEG, PNG, WEBP）
@@ -552,8 +635,6 @@ interface IImageService {
   ): Promise<SurveyImageInfo[]>; // 5件ずつキュー処理
   findBySurveyId(surveyId: string): Promise<SurveyImageInfo[]>;
   updateOrder(surveyId: string, imageOrders: { id: string; order: number }[]): Promise<void>;
-  delete(imageId: string): Promise<void>;
-  deleteBySurveyId(surveyId: string): Promise<void>;
   getSignedUrl(imageId: string, type: 'original' | 'thumbnail'): Promise<string>;
   validateSignedUrl(signedUrl: string, userId: string): Promise<boolean>; // 14.4対応
 }
@@ -620,6 +701,159 @@ export async function generateSignedUrl(key: string, expiresIn = 900): Promise<s
 }
 ```
 
+#### ImageDeleteService（要件4.7、4.8、10.10、10.11対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 画像の削除処理とストレージ連携を担当 |
+| Requirements | 4.7, 4.8, 10.10, 10.11 |
+
+**Responsibilities & Constraints**
+- 画像メタデータのデータベースからの削除
+- 関連する注釈データの連動削除
+- Cloudflare R2からの原画像・サムネイル削除
+- トランザクション整合性の保証（PostgreSQL側）
+- **R2削除失敗時の孤立ファイル処理（4.8対応）**
+
+**Dependencies**
+- Inbound: SurveyRoutes — 削除リクエスト処理 (P0)
+- Outbound: PrismaClient — メタデータ・注釈削除 (P0)
+- Outbound: @aws-sdk/client-s3 — R2ファイル削除・移動 (P0)
+
+**Contracts**: Service [x] / API [x] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface IImageDeleteService {
+  /**
+   * 画像を削除する
+   * - PostgreSQLから画像メタデータと関連注釈を削除
+   * - R2から原画像とサムネイルを削除
+   * - R2削除失敗時はorphaned/プレフィックスに移動（4.8対応）
+   * @throws NotFoundError 画像が存在しない場合
+   */
+  delete(imageId: string): Promise<void>;
+
+  /**
+   * 孤立ファイルをorphaned/プレフィックスに移動する
+   * @param objectKey 元のオブジェクトキー
+   * @returns 移動先のオブジェクトキー
+   */
+  moveToOrphaned(objectKey: string): Promise<string>;
+}
+```
+
+- Preconditions: imageIdが有効な画像を参照すること
+- Postconditions: データベースとR2から画像関連データが削除されること
+- Invariants: R2削除失敗時は`orphaned/`プレフィックスに移動、Object Lifecycle Ruleにより7日後自動削除
+
+##### R2孤立ファイル処理（要件4.8対応）
+
+**処理フロー**:
+```mermaid
+sequenceDiagram
+    participant Service as ImageDeleteService
+    participant R2 as Cloudflare R2
+    participant Logger
+
+    Service->>R2: DeleteObjectCommand(originalPath)
+    alt 削除成功
+        R2-->>Service: 成功
+    else 削除失敗
+        R2-->>Service: エラー
+        Service->>R2: CopyObjectCommand(orphaned/{originalPath})
+        R2-->>Service: コピー成功
+        Service->>Logger: 孤立ファイル移動ログ
+    end
+
+    Service->>R2: DeleteObjectCommand(thumbnailPath)
+    alt 削除成功
+        R2-->>Service: 成功
+    else 削除失敗
+        R2-->>Service: エラー
+        Service->>R2: CopyObjectCommand(orphaned/{thumbnailPath})
+        R2-->>Service: コピー成功
+        Service->>Logger: 孤立ファイル移動ログ
+    end
+```
+
+**孤立ファイル移動の実装**:
+```typescript
+// backend/src/services/image-delete.service.ts
+import { S3Client, DeleteObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
+
+async function deleteFromR2(objectKey: string): Promise<void> {
+  try {
+    await s3Client.send(new DeleteObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: objectKey,
+    }));
+  } catch (error) {
+    // 削除失敗時は orphaned/ プレフィックスに移動
+    await this.moveToOrphaned(objectKey);
+    logger.warn({
+      action: 'r2_delete_failed',
+      objectKey,
+      orphanedKey: `orphaned/${objectKey}`,
+      error: error.message,
+    });
+  }
+}
+
+async function moveToOrphaned(objectKey: string): Promise<string> {
+  const orphanedKey = `orphaned/${objectKey}`;
+
+  await s3Client.send(new CopyObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME,
+    CopySource: `${process.env.R2_BUCKET_NAME}/${objectKey}`,
+    Key: orphanedKey,
+  }));
+
+  return orphanedKey;
+}
+```
+
+**R2 Object Lifecycle Rule設定**:
+Cloudflare R2ダッシュボードまたはAPIで設定:
+```json
+{
+  "rules": [
+    {
+      "id": "orphaned-cleanup",
+      "enabled": true,
+      "filter": {
+        "prefix": "orphaned/"
+      },
+      "action": {
+        "type": "Delete"
+      },
+      "condition": {
+        "age": 7
+      }
+    }
+  ]
+}
+```
+
+**メリット**:
+- クリーンアップジョブが不要（R2のLifecycle Ruleで自動削除）
+- 7日間の猶予期間により、誤削除時のリカバリが可能
+- 運用負荷の軽減
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| DELETE | /api/site-surveys/images/:imageId | - | 204 No Content | 404 |
+
+**Note**: このエンドポイントは既に実装済み（survey-images.routes.ts）
+
+**Implementation Notes**
+- Integration: PostgreSQLトランザクション内でメタデータと注釈を削除後、R2ファイルを削除
+- Validation: 画像存在確認、権限チェック
+- Risks: R2移動も失敗した場合は孤立ファイルとしてログに記録（Sentryアラート）
+
 #### ImageMetadataService（要件10対応）
 
 | Field | Detail |
@@ -647,11 +881,22 @@ interface UpdateImageMetadataInput {
   includeInReport?: boolean;
 }
 
+interface BatchUpdateImageMetadataInput {
+  imageId: string;
+  comment?: string | null;
+  includeInReport?: boolean;
+}
+
 interface IImageMetadataService {
   updateMetadata(
     imageId: string,
     input: UpdateImageMetadataInput
   ): Promise<SurveyImageInfo>;
+
+  /** 要件10.8対応: 複数画像の一括更新 */
+  batchUpdateMetadata(
+    inputs: BatchUpdateImageMetadataInput[]
+  ): Promise<SurveyImageInfo[]>;
 
   // 報告書出力対象の画像のみを取得
   findForReport(surveyId: string): Promise<SurveyImageInfo[]>;
@@ -667,6 +912,7 @@ interface IImageMetadataService {
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
 | PATCH | /api/site-surveys/images/:imageId | UpdateImageMetadataInput | SurveyImageInfo | 400, 404 |
+| PATCH | /api/site-surveys/images/batch | BatchUpdateImageMetadataInput[] | SurveyImageInfo[] | 400, 404 |
 
 **Request Schema**:
 ```typescript
@@ -675,6 +921,12 @@ const updateImageMetadataSchema = z.object({
   comment: z.string().max(2000).nullable().optional(),
   includeInReport: z.boolean().optional(),
 });
+
+const batchUpdateImageMetadataSchema = z.array(z.object({
+  imageId: z.string().uuid(),
+  comment: z.string().max(2000).nullable().optional(),
+  includeInReport: z.boolean().optional(),
+}));
 ```
 
 **Implementation Notes**
@@ -975,6 +1227,7 @@ export function initializePdfFonts(doc: jsPDF): void {
 |--------|----------|---------|----------|--------|
 | POST | /api/projects/:projectId/site-surveys | CreateSurveyRequest | SurveyInfo | 400, 404, 409 |
 | GET | /api/projects/:projectId/site-surveys | QueryParams | PaginatedSurveys | 400, 404 |
+| **GET** | **/api/projects/:projectId/site-surveys/latest** | **?limit=2** | **ProjectSurveySummary** | **400, 404** |
 | GET | /api/site-surveys/:id | - | SurveyDetail | 404 |
 | PUT | /api/site-surveys/:id | UpdateSurveyRequest | SurveyInfo | 400, 404, 409 |
 | DELETE | /api/site-surveys/:id | - | 204 No Content | 404 |
@@ -983,6 +1236,7 @@ export function initializePdfFonts(doc: jsPDF): void {
 | PUT | /api/site-surveys/:id/images/order | ImageOrderRequest | 204 No Content | 400, 404 |
 | DELETE | /api/site-surveys/images/:imageId | - | 204 No Content | 404 |
 | **PATCH** | **/api/site-surveys/images/:imageId** | **UpdateImageMetadataInput** | **SurveyImageInfo** | **400, 404** |
+| **PATCH** | **/api/site-surveys/images/batch** | **BatchUpdateImageMetadataInput[]** | **SurveyImageInfo[]** | **400, 404** |
 | GET | /api/site-surveys/images/:imageId/annotations | - | AnnotationInfo | 404 |
 | PUT | /api/site-surveys/images/:imageId/annotations | AnnotationData | AnnotationInfo | 400, 404, 409 |
 
@@ -990,25 +1244,90 @@ export function initializePdfFonts(doc: jsPDF): void {
 
 ### Frontend / Component Layer
 
+#### SiteSurveySectionCard（要件2.1対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に表示する現場調査セクションを提供 |
+| Requirements | 2.1 |
+
+**Responsibilities & Constraints**
+- 直近2件の現場調査への参照リンクを表示
+- 現場調査の総数を表示
+- 「すべて表示」リンクによる一覧ページへの遷移
+
+**Dependencies**
+- Inbound: ProjectDetailPage — 親コンポーネント (P0)
+- Outbound: SurveyAPI — 直近N件取得 (P0)
+- Outbound: React Router — ページ遷移 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface SiteSurveySectionCardProps {
+  projectId: string;
+}
+
+interface SiteSurveySectionCardState {
+  isLoading: boolean;
+  error: string | null;
+  totalCount: number;
+  latestSurveys: SurveyInfo[];
+}
+```
+
+##### UI仕様
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 現場調査                                        すべて表示 (N件) │
+├─────────────────────────────────────────────────────────────────┤
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │ 📷 調査名1                                    2025-01-15    │ │
+│ │    画像数: 5枚                                               │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │ 📷 調査名2                                    2025-01-10    │ │
+│ │    画像数: 3枚                                               │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│ 現場調査がない場合:                                              │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │ 現場調査がありません。[新規作成]                               │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Notes**
+- Integration: ProjectDetailPageの既存レイアウトに統合
+- Validation: 現場調査が0件の場合は新規作成リンクを表示
+- Risks: APIレスポンス遅延時のUX（ローディングスケルトン表示）
+
 #### PhotoManagementPanel（要件10対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 現場調査詳細画面の写真一覧管理UIを提供（フルサイズ写真表示、コメント入力、報告書出力フラグ、ドラッグ&ドロップ並び替え） |
-| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8 |
+| Intent | 現場調査詳細画面の写真一覧管理UIを提供（フルサイズ写真表示、コメント入力、報告書出力フラグ、削除ボタン、ドラッグ&ドロップ並び替え） |
+| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10, 10.11 |
 
 **Responsibilities & Constraints**
 - **フルサイズの写真を直接表示**（サムネイル一覧タブは表示しない、要件10.1準拠）
 - 写真ごとのコメント入力テキストエリア
 - 報告書出力フラグ（チェックボックス）の管理
+- **削除ボタンと確認ダイアログ**
 - ドラッグ&ドロップによる順序変更
-- 変更の自動保存（デバウンス500ms）
+- **手動保存方式**: 変更の一括保存（保存ボタンクリック）
+- **未保存変更検出**: useUnsavedChangesフックとの統合
 - 現場調査詳細画面のメイン表示コンポーネントとして機能
 
 **Dependencies**
 - Inbound: SurveyDetailPage — 親コンポーネント (P0)
 - Outbound: ImageMetadataAPI — コメント・フラグ更新 (P0)
 - Outbound: ImageOrderAPI — 順序変更 (P0)
+- Outbound: ImageDeleteAPI — 画像削除 (P0)
+- Outbound: useUnsavedChanges — 未保存変更検出 (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
@@ -1018,9 +1337,11 @@ export function initializePdfFonts(doc: jsPDF): void {
 interface PhotoManagementState {
   images: SurveyImageInfo[];
   isLoading: boolean;
-  isSaving: Record<string, boolean>; // imageId -> saving status
+  isSaving: boolean;
   errors: Record<string, string | null>; // imageId -> error message
   draggedImageId: string | null;
+  pendingChanges: Map<string, UpdateImageMetadataInput>; // 未保存の変更
+  deleteDialogImageId: string | null; // 削除確認ダイアログの対象
 }
 
 interface PhotoManagementPanelProps {
@@ -1029,14 +1350,17 @@ interface PhotoManagementPanelProps {
   onImagesChange: (images: SurveyImageInfo[]) => void;
   onImageClick: (imageId: string) => void; // 画像クリック時にビューア/エディタを開く
   readOnly?: boolean;
+  isDirty: boolean;
+  onDirtyChange: (isDirty: boolean) => void;
 }
 ```
 
 **Implementation Notes**
 - Integration: 現場調査詳細画面のメインコンテンツとして統合（サムネイル一覧タブとの切り替えなし）
-- Validation: コメント最大2000文字、debounce 500ms
+- Validation: コメント最大2000文字
 - Risks: 大量画像時のレンダリングパフォーマンス（遅延読み込み、仮想スクロール検討）
 - **UI設計の注意点**: サムネイル一覧は別タブとして用意せず、フルサイズ写真のみを表示する単一ビュー構成
+- **ナビゲーション削除**: 「プロジェクトに戻る」「現場調査一覧に戻る」ボタンは表示しない（ブレッドクラムのみ）
 
 ##### UI仕様
 
@@ -1044,30 +1368,33 @@ interface PhotoManagementPanelProps {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ 現場調査詳細: [調査名]                                           │
-│ 調査日: YYYY-MM-DD  |  画像数: N枚                               │
+│ 現場調査詳細: [調査名]                      [保存] [PDF出力]    │
+│ 調査日: YYYY-MM-DD  |  画像数: N枚                              │
+│ ※ 未保存の変更があります（isDirty=trueの場合）                  │
 ├─────────────────────────────────────────────────────────────────┤
-│ 写真一覧（フルサイズ表示、表示順序でドラッグ可能）                 │
+│ 写真一覧（フルサイズ表示、表示順序でドラッグ可能）                │
 ├─────────────────────────────────────────────────────────────────┤
 │ ┌───┐ ┌──────────────────────────────────────────────────────┐ │
 │ │ ☐ │ │ ┌─────────────────────┐  ┌────────────────────────┐ │ │
-│ │   │ │ │                     │  │ コメント                 │ │ │
+│ │   │ │ │                     │  │ コメント                │ │ │
 │ │   │ │ │  [フルサイズ写真]   │  │ ┌────────────────────┐ │ │ │
 │ │   │ │ │  (クリックで        │  │ │                    │ │ │ │
 │ │   │ │ │   ビューア/エディタ) │  │ │                    │ │ │ │
 │ │   │ │ │                     │  │ └────────────────────┘ │ │ │
 │ │   │ │ └─────────────────────┘  └────────────────────────┘ │ │
+│ │   │ │                                              [🗑削除] │ │
 │ └───┘ └──────────────────────────────────────────────────────┘ │
 │   ↑                                                             │
 │ 報告書出力フラグ                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │ ┌───┐ ┌──────────────────────────────────────────────────────┐ │
 │ │ ☐ │ │ ┌─────────────────────┐  ┌────────────────────────┐ │ │
-│ │   │ │ │                     │  │ コメント                 │ │ │
+│ │   │ │ │                     │  │ コメント                │ │ │
 │ │   │ │ │  [フルサイズ写真]   │  │ ┌────────────────────┐ │ │ │
 │ │   │ │ │                     │  │ │                    │ │ │ │
 │ │   │ │ │                     │  │ │                    │ │ │ │
 │ │   │ │ └─────────────────────┘  └────────────────────────┘ │ │
+│ │   │ │                                              [🗑削除] │ │
 │ └───┘ └──────────────────────────────────────────────────────┘ │
 │   ↑                                                             │
 │ 報告書出力フラグ                                                 │
@@ -1077,7 +1404,55 @@ interface PhotoManagementPanelProps {
 
 ※ サムネイル一覧タブは表示しない（要件10.1準拠）
 ※ フルサイズ写真をクリックすると画像ビューア/注釈エディタが開く
+※ 「プロジェクトに戻る」「現場調査一覧に戻る」ボタンは表示しない
 ```
+
+##### 削除確認ダイアログ
+
+```
+┌───────────────────────────────────────────┐
+│ 画像の削除                          [×]   │
+├───────────────────────────────────────────┤
+│                                           │
+│ この画像を削除しますか？                   │
+│                                           │
+│ この操作は取り消せません。                 │
+│ 画像に関連する注釈データも削除されます。   │
+│                                           │
+├───────────────────────────────────────────┤
+│            [キャンセル] [削除]            │
+└───────────────────────────────────────────┘
+```
+
+#### useUnsavedChanges（既存フック活用）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 未保存変更の検出とページ離脱時の確認ダイアログを提供 |
+| Requirements | 9.1, 9.3, 10.8, 10.9 |
+
+**Responsibilities & Constraints**
+- isDirtyフラグの管理
+- beforeunloadイベントによるページ離脱時の確認ダイアログ
+- 既存実装（frontend/src/hooks/useUnsavedChanges.ts）を活用
+
+**既存実装の活用**:
+```typescript
+// frontend/src/hooks/useUnsavedChanges.ts（既存実装）
+interface UseUnsavedChangesResult {
+  isDirty: boolean;
+  setDirty: (dirty: boolean) => void;
+  markAsChanged: () => void;
+  markAsSaved: () => void;
+  reset: () => void;
+  confirmNavigation: () => boolean;
+}
+```
+
+**Implementation Notes**
+- Integration: SurveyDetailPage、PhotoManagementPanel、AnnotationEditorで共有
+- Validation: isDirty=trueの場合のみbeforeunloadイベントをリッスン
+- Risks: React Routerとの連携（ルート遷移時の確認ダイアログ）
 
 #### ImageExportDialog（要件12対応）
 
@@ -1158,7 +1533,8 @@ interface ImageExportDialogProps {
 - 各種ツール（寸法線、図形、テキスト）の切り替え
 - オブジェクト選択・編集・削除の操作
 - Undo/Redo操作の管理
-- 未保存変更の検出と警告
+- **手動保存方式**: 保存ボタンクリックでサーバーに保存
+- **未保存変更検出**: useUnsavedChangesフックとの統合
 
 **Dependencies**
 - Inbound: SurveyDetailPage — 親コンポーネント (P0)
@@ -1166,6 +1542,7 @@ interface ImageExportDialogProps {
 - Outbound: UndoManager — 操作履歴 (P0)
 - Outbound: AnnotationAPI — データ永続化 (P0)
 - Outbound: localStorage — 一時保存 (P1)
+- Outbound: useUnsavedChanges — 未保存変更検出 (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
@@ -1206,6 +1583,7 @@ interface ToolOptions {
 - Integration: useRefでFabric.js canvasインスタンスを管理
 - Validation: ツール切り替え時に未保存変更を確認
 - Risks: 大量オブジェクト時のパフォーマンス低下
+- **保存方式変更**: オートセーブから手動保存に変更、isDirtyフラグで変更検出
 
 #### ImageViewer
 
@@ -1303,7 +1681,7 @@ interface IUndoManager {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 注釈編集の自動保存とローカル状態の復元を管理 |
+| Intent | 注釈編集の自動保存（localStorage）とローカル状態の復元を管理 |
 | Requirements | 15.4, 15.5, 15.6 |
 
 **Responsibilities & Constraints**
@@ -1352,7 +1730,7 @@ interface IAutoSaveManager {
 - Validation: localStorageのデータサイズ制限（5MB）に注意
 - Risks: localStorageはブラウザごとに独立、デバイス間での共有不可
 
-##### localStorage容量管理
+##### localStorage容量管理（要件15.7-15.10対応）
 
 **想定データサイズ**:
 - 注釈データ（Fabric.js JSON）: 50KB〜200KB/画像（注釈量による）
@@ -1373,7 +1751,72 @@ interface CacheEntry {
   size: number;
 }
 
-function saveWithQuotaManagement(key: string, data: string): boolean {
+/**
+ * QuotaExceededErrorを検出する（クロスブラウザ対応）
+ * @requirement 15.10
+ */
+function isQuotaExceededError(error: unknown): boolean {
+  if (!(error instanceof DOMException)) {
+    return false;
+  }
+
+  // Chrome, Safari, Edge (Chromium)
+  if (error.code === 22) {
+    return true;
+  }
+
+  // Firefox
+  if (error.code === 1014) {
+    return true;
+  }
+
+  // Chrome, Safari (name-based detection)
+  if (error.name === 'QuotaExceededError') {
+    return true;
+  }
+
+  // Firefox legacy
+  if (error.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * プライベートブラウジングモードを検出する
+ * @requirement 15.9
+ */
+function isPrivateBrowsingMode(): boolean {
+  try {
+    const testKey = '__architrack_private_test__';
+    localStorage.setItem(testKey, 'test');
+    localStorage.removeItem(testKey);
+    return false;
+  } catch (e) {
+    // SecurityError: プライベートブラウジングでのlocalStorage制限
+    if (e instanceof DOMException &&
+        (e.name === 'SecurityError' || e.code === 18)) {
+      return true;
+    }
+    // Safari Private Mode: QuotaExceededError with 0 quota
+    if (isQuotaExceededError(e)) {
+      return true;
+    }
+    return false;
+  }
+}
+
+/**
+ * LRU戦略でlocalStorageに保存（QuotaExceededError対応）
+ * @requirement 15.7, 15.8
+ */
+function saveWithQuotaManagement(
+  key: string,
+  data: string,
+  onQuotaWarning?: () => void,
+  onSaveFailure?: () => void
+): boolean {
   const size = new Blob([data]).size;
 
   // 1. サイズチェック（単一エントリが1MBを超える場合は警告）
@@ -1389,14 +1832,23 @@ function saveWithQuotaManagement(key: string, data: string): boolean {
     localStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now(), size }));
     return true;
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      // 緊急クリーンアップ後にリトライ
+    if (isQuotaExceededError(e)) {
+      // LRU戦略: 古いキャッシュを削除してリトライ（15.7）
+      console.info('QuotaExceededError detected, applying LRU cleanup strategy');
       clearOldestEntries(3);
+
       try {
         localStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now(), size }));
         return true;
-      } catch {
-        return false; // 保存失敗をUIに通知
+      } catch (retryError) {
+        if (isQuotaExceededError(retryError)) {
+          // リトライ後も失敗: ユーザーに警告表示（15.8）
+          console.warn('localStorage save failed after LRU cleanup');
+          onQuotaWarning?.();
+          onSaveFailure?.();
+          return false;
+        }
+        throw retryError;
       }
     }
     throw e;
@@ -1407,18 +1859,107 @@ function ensureStorageSpace(requiredSize: number): void {
   const entries = getAllCacheEntries().sort((a, b) => a.savedAt - b.savedAt);
   let totalSize = entries.reduce((sum, e) => sum + e.size, 0);
 
+  // LRU (Least Recently Used): 最も古いエントリから削除
   while (totalSize + requiredSize > MAX_CACHE_SIZE_BYTES && entries.length > 0) {
     const oldest = entries.shift()!;
     localStorage.removeItem(STORAGE_KEY_PREFIX + oldest.imageId);
     totalSize -= oldest.size;
   }
 }
+
+function clearOldestEntries(count: number): void {
+  const entries = getAllCacheEntries().sort((a, b) => a.savedAt - b.savedAt);
+  for (let i = 0; i < Math.min(count, entries.length); i++) {
+    localStorage.removeItem(STORAGE_KEY_PREFIX + entries[i].imageId);
+  }
+}
+```
+
+##### AutoSaveManager拡張インターフェース（要件15.7-15.10対応）
+
+```typescript
+interface IAutoSaveManager {
+  // 既存メソッド
+  saveToLocal(imageId: string, data: AnnotationData): void;
+  loadFromLocal(imageId: string): LocalStorageData | null;
+  clearLocal(imageId: string): void;
+  hasUnsavedData(imageId: string): boolean;
+  isOnline(): boolean;
+  onNetworkChange(callback: (isOnline: boolean) => void): void;
+
+  // 新規メソッド（15.7-15.10対応）
+  /**
+   * プライベートブラウジングモードかどうかを判定
+   * @requirement 15.9
+   */
+  isPrivateBrowsingMode(): boolean;
+
+  /**
+   * 自動保存が利用可能かどうかを判定
+   * - プライベートブラウジングモードでは false
+   * @requirement 15.9
+   */
+  isAutoSaveAvailable(): boolean;
+
+  /**
+   * QuotaExceededError発生時のコールバックを設定
+   * @requirement 15.8
+   */
+  onQuotaExceeded(callback: () => void): void;
+}
+
+interface AutoSaveConfig {
+  // 既存設定
+  autoSaveIntervalMs: number; // default: 30000 (30秒)
+  maxCacheSize: number;       // default: 4MB
+  maxCachedImages: number;    // default: 10
+
+  // 新規設定（15.7-15.10対応）
+  /**
+   * プライベートブラウジングモードでの動作
+   * @requirement 15.9
+   */
+  privateBrowsingMode: {
+    disableAutoSave: true;     // 自動保存を無効化
+    showWarning: true;         // 初回アクセス時に警告表示
+    manualSaveOnly: true;      // 手動保存のみで動作
+  };
+}
+```
+
+##### プライベートブラウジングモード対応UI（要件15.9）
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ⚠️ プライベートブラウジングモードでは自動保存が無効です                    │
+│                                                                         │
+│ 編集内容は定期的に「保存」ボタンをクリックして保存してください。            │
+│ ブラウザを閉じると未保存の変更は失われます。                               │
+│                                                                         │
+│                                             [了解] [今後表示しない]       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+##### QuotaExceededError時のUI（要件15.8）
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ⚠️ 自動保存に失敗しました                                                │
+│                                                                         │
+│ ブラウザのストレージ容量が不足しています。                                 │
+│ 「今すぐ保存」をクリックして、サーバーに編集内容を保存してください。         │
+│                                                                         │
+│                                                    [今すぐ保存] [後で]   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **フォールバック動作**:
-1. 保存成功: 通常動作
-2. 容量警告（3MB超過）: ステータスバーに「キャッシュ容量が少なくなっています」表示
-3. 保存失敗: エラーメッセージ「自動保存に失敗しました。手動で保存してください」表示
+1. **保存成功**: 通常動作
+2. **容量警告（3MB超過）**: ステータスバーに「キャッシュ容量が少なくなっています」表示
+3. **QuotaExceededError発生（15.7）**: LRU戦略で古いキャッシュを削除してリトライ
+4. **リトライ後も失敗（15.8）**: ユーザーに警告表示、「今すぐ保存」を促進
+5. **プライベートブラウジング検出（15.9）**: 自動保存を無効化、手動保存のみで動作
+6. **クロスブラウザ対応（15.10）**: code===22, code===1014, QuotaExceededError, NS_ERROR_DOM_QUOTA_REACHEDを検出
 
 ## Data Models
 
@@ -1480,7 +2021,8 @@ erDiagram
 - 現場調査削除時、関連画像・注釈も削除
 - 画像表示順序は1から始まる連番
 - **画像のコメントは最大2000文字**
-- **報告書出力フラグのデフォルトはtrue**
+- **報告書出力フラグのデフォルトはfalse**
+- **画像削除時は関連する注釈データも連動削除**
 
 ### Physical Data Model
 
@@ -1585,7 +2127,11 @@ interface FabricSerializedObject {
 **Cross-Service Data Management**:
 - 画像ファイルはCloudflare R2に保存、メタデータはPostgreSQLに保存
 - 削除時はPostgreSQLトランザクション内でメタデータを削除し、その後R2ファイルを削除
-- R2削除失敗時は孤立ファイルとしてログに記録（後でクリーンアップジョブで処理）
+- **R2削除失敗時の処理（要件4.8対応）**:
+  - 削除失敗したファイルを`orphaned/`プレフィックスに移動
+  - R2 Object Lifecycle Ruleにより7日後に自動削除
+  - クリーンアップジョブは不要（Lifecycle Ruleで対応）
+  - 7日間の猶予期間で誤削除からのリカバリが可能
 
 ## Error Handling
 
@@ -1628,32 +2174,43 @@ interface FabricSerializedObject {
 
 ### Unit Tests
 
-- **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携
+- **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携、**直近N件取得**
 - **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
-- **ImageMetadataService**: コメント更新、報告書フラグ更新、バリデーション
+- **ImageMetadataService**: コメント更新、報告書フラグ更新、バリデーション、**一括更新**
+- **ImageDeleteService**: 画像削除、注釈連動削除、R2連携、**孤立ファイルorphaned/移動（4.8）**
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート
 - **PdfReportService**: 3組レイアウト、コメント表示、ページ分割
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
-- **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視
+- **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視、**QuotaExceededError LRUリトライ（15.7）、プライベートブラウジング検出（15.9）、クロスブラウザエラー検出（15.10）**
+- **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation
 
 ### Integration Tests
 
 - **画像アップロードフロー**: Multer → Sharp → R2 → PostgreSQL
 - **画像メタデータ更新フロー**: PATCH API → PostgreSQL → レスポンス
+- **画像削除フロー**: DELETE API → PostgreSQL → R2 → レスポンス
 - **注釈保存・復元**: Frontend ↔ Backend ↔ PostgreSQL
 - **PDFエクスポート**: 画像取得 → 注釈合成 → 3組レイアウト → PDF生成
 - **認証・認可**: プロジェクト権限による現場調査アクセス制御
 - **自動保存・復元**: localStorage保存 → ページリロード → データ復元
+- **R2孤立ファイル処理**: 削除失敗時のorphaned/移動、Object Lifecycle Ruleテスト（4.8）
+- **localStorage QuotaExceededError処理**: LRUリトライ、警告表示、プライベートブラウジング検出（15.7-15.10）
+- **直近N件取得**: プロジェクト詳細画面での現場調査セクション表示
 
 ### E2E Tests
 
 - 現場調査作成・編集・削除フロー
+- **プロジェクト詳細画面の現場調査セクション表示**
 - 画像アップロード・削除・順序変更
-- **写真コメント入力・報告書フラグ切り替え**
+- **写真コメント入力・報告書フラグ切り替え・手動保存**
+- **画像削除（確認ダイアログ）**
+- **ページ離脱時の未保存変更確認ダイアログ**
 - 注釈編集（各ツール）とUndo/Redo
 - **PDF報告書エクスポート（3組レイアウト確認）**
 - **個別画像エクスポート（形式・品質・注釈オプション）**
 - レスポンシブUIの動作確認
+- **localStorage容量不足時のユーザー警告表示（15.8）**
+- **プライベートブラウジングモードでの自動保存無効化警告（15.9）**
 
 ### Performance Tests
 
@@ -1732,19 +2289,39 @@ interface FabricSerializedObject {
 
 1. ImageMetadataServiceの実装
 2. PATCH /api/site-surveys/images/:imageId エンドポイントの追加
-3. 画像一覧APIのレスポンスに新フィールドを追加
-4. 単体テスト・統合テストの追加
+3. PATCH /api/site-surveys/images/batch エンドポイントの追加
+4. GET /api/projects/:projectId/site-surveys/latest エンドポイントの追加
+5. 画像一覧APIのレスポンスに新フィールドを追加
+6. **ImageDeleteServiceにorphaned/移動ロジックを追加（4.8）**
+7. 単体テスト・統合テストの追加
+
+### Phase 2.5: R2インフラ設定（要件4.8対応）
+
+1. Cloudflare R2ダッシュボードでObject Lifecycle Ruleを設定
+   - prefix: `orphaned/`
+   - action: Delete
+   - age: 7日
+2. Lifecycle Rule動作確認テスト
 
 ### Phase 3: フロントエンド実装
 
-1. PhotoManagementPanelコンポーネントの実装
-2. SurveyDetailPageへの統合
-3. PdfReportServiceの3組レイアウト対応
-4. ImageExportDialogコンポーネントの実装
-5. 単体テスト・E2Eテストの追加
+1. SiteSurveySectionCardコンポーネントの実装
+2. PhotoManagementPanelコンポーネントの拡張（削除ボタン、手動保存）
+3. useUnsavedChangesフックとの統合
+4. SurveyDetailPageの変更（手動保存、ナビゲーション削除）
+5. PdfReportServiceの3組レイアウト対応
+6. ImageExportDialogコンポーネントの実装
+7. ProjectDetailPageへのSiteSurveySectionCard統合
+8. **AutoSaveManagerにQuotaExceededError対応を追加（15.7-15.10）**
+   - LRU戦略でのリトライ実装
+   - プライベートブラウジングモード検出
+   - クロスブラウザエラー検出ユーティリティ
+   - 警告UIコンポーネントの実装
+9. 単体テスト・E2Eテストの追加
 
 ### Rollback Triggers
 
 - マイグレーション失敗時: Prisma rollback
 - R2接続失敗時: 画像アップロード機能の一時無効化
+- R2 Lifecycle Rule設定失敗時: 孤立ファイル手動クリーンアップに切り替え
 - 重大なバグ発見時: フィーチャーフラグによる機能無効化

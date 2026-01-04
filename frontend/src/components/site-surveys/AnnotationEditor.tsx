@@ -553,11 +553,47 @@ function AnnotationEditor({
                 return;
               }
 
+              // スケール係数を計算（保存時のキャンバスサイズと現在のキャンバスサイズの比率）
+              const savedCanvasWidth = annotationData.data.canvasWidth;
+              const savedCanvasHeight = annotationData.data.canvasHeight;
+              const currentCanvasWidth = canvas.getWidth();
+              const currentCanvasHeight = canvas.getHeight();
+              const scaleX =
+                savedCanvasWidth && savedCanvasWidth > 0
+                  ? currentCanvasWidth / savedCanvasWidth
+                  : 1;
+              const scaleY =
+                savedCanvasHeight && savedCanvasHeight > 0
+                  ? currentCanvasHeight / savedCanvasHeight
+                  : 1;
+              const needsScaling = scaleX !== 1 || scaleY !== 1;
+
               // 復元したオブジェクトをキャンバスに追加
               enlivenedObjects.forEach((obj) => {
                 // FabricObjectであることを確認
                 if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
                   const fabricObj = obj as FabricObject;
+
+                  // スケール変換が必要な場合は適用
+                  if (needsScaling) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const objAny = fabricObj as any;
+                    const left = objAny.left ?? 0;
+                    const top = objAny.top ?? 0;
+                    fabricObj.set({
+                      left: left * scaleX,
+                      top: top * scaleY,
+                      scaleX: (objAny.scaleX ?? 1) * scaleX,
+                      scaleY: (objAny.scaleY ?? 1) * scaleY,
+                    });
+
+                    // ストローク幅もスケール（平均スケールを使用）
+                    const avgScale = (scaleX + scaleY) / 2;
+                    if (objAny.strokeWidth) {
+                      fabricObj.set({ strokeWidth: objAny.strokeWidth * avgScale });
+                    }
+                  }
+
                   // readOnlyモードでは選択不可、それ以外は選択ツールの場合のみ選択可能
                   fabricObj.set({
                     selectable: !readOnly && activeToolRef.current === 'select',
@@ -567,7 +603,10 @@ function AnnotationEditor({
                 }
               });
               canvas.renderAll();
-              console.log(`Restored ${enlivenedObjects.length} annotation objects`);
+              console.log(
+                `Restored ${enlivenedObjects.length} annotation objects` +
+                  (needsScaling ? ` (scaled: ${scaleX.toFixed(2)}x${scaleY.toFixed(2)})` : '')
+              );
             }
           }
         } catch (annotationErr) {
@@ -1208,10 +1247,12 @@ function AnnotationEditor({
       // Canvasからオブジェクトを取得（背景画像を除く）
       const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
 
-      // 注釈データを構築
+      // 注釈データを構築（キャンバス寸法を含める - PDF/サムネイルでのスケール変換用）
       const annotationData = {
         version: '1.0',
         objects: objects.map((obj) => obj.toObject()),
+        canvasWidth: canvas.getWidth(),
+        canvasHeight: canvas.getHeight(),
       };
 
       // APIを呼び出して保存

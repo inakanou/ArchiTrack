@@ -20,10 +20,12 @@ import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
 import SiteSurveyListTable from './SiteSurveyListTable';
 import SiteSurveyListCard from './SiteSurveyListCard';
+import { AnnotatedImageThumbnail } from './AnnotatedImageThumbnail';
 import type {
   SiteSurveyInfo,
   SiteSurveySortableField,
   SiteSurveySortOrder,
+  SurveyImageInfo,
 } from '../../types/site-survey.types';
 
 // ============================================================================
@@ -159,6 +161,38 @@ function ViewModeToggle({
  * グリッドアイテムサムネイル
  */
 function GridItemThumbnail({ survey }: { survey: SiteSurveyInfo }) {
+  // 注釈表示に必要な情報がある場合
+  if (survey.thumbnailImageId && survey.thumbnailOriginalUrl) {
+    // AnnotatedImageThumbnail用のSurveyImageInfoオブジェクトを作成
+    const imageInfo: SurveyImageInfo = {
+      id: survey.thumbnailImageId,
+      surveyId: survey.id,
+      originalPath: '',
+      thumbnailPath: '',
+      fileName: '',
+      fileSize: 0,
+      width: 0,
+      height: 0,
+      displayOrder: 0,
+      createdAt: '',
+      originalUrl: survey.thumbnailOriginalUrl,
+    };
+
+    return (
+      <AnnotatedImageThumbnail
+        image={imageInfo}
+        alt={`${survey.name}のサムネイル`}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+        }}
+        loading="lazy"
+      />
+    );
+  }
+
+  // サムネイルURLがある場合は通常の画像を表示
   if (survey.thumbnailUrl) {
     return (
       <img

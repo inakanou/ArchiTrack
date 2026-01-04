@@ -51,6 +51,9 @@ export interface SiteSurveyInfo {
   surveyDate: Date;
   memo: string | null;
   thumbnailUrl: string | null;
+  thumbnailImageId: string | null;
+  /** サムネイル元画像パス（注釈レンダリング用） */
+  thumbnailOriginalPath: string | null;
   imageCount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -136,6 +139,19 @@ export interface SiteSurveyPaginationInfo {
 export interface PaginatedSiteSurveys {
   data: SiteSurveyInfo[];
   pagination: SiteSurveyPaginationInfo;
+}
+
+/**
+ * プロジェクト別現場調査サマリー（Requirements: 2.1）
+ *
+ * プロジェクト詳細画面の現場調査セクションで表示する
+ * 直近の現場調査一覧と総数を含む。
+ */
+export interface ProjectSurveySummary {
+  /** 現場調査の総数 */
+  totalCount: number;
+  /** 直近N件の現場調査 */
+  latestSurveys: SiteSurveyInfo[];
 }
 
 /**
@@ -474,13 +490,16 @@ export class SiteSurveyService {
     },
     images: SurveyImageInfo[] = []
   ): SiteSurveyInfo {
+    const firstImage = images.length > 0 ? images[0] : null;
     return {
       id: siteSurvey.id,
       projectId: siteSurvey.projectId,
       name: siteSurvey.name,
       surveyDate: siteSurvey.surveyDate,
       memo: siteSurvey.memo,
-      thumbnailUrl: images.length > 0 && images[0] ? images[0].thumbnailPath : null,
+      thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
+      thumbnailImageId: firstImage ? firstImage.id : null,
+      thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
       imageCount: images.length,
       createdAt: siteSurvey.createdAt,
       updatedAt: siteSurvey.updatedAt,
@@ -623,6 +642,8 @@ export class SiteSurveyService {
         surveyDate: survey.surveyDate,
         memo: survey.memo,
         thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
+        thumbnailImageId: firstImage ? firstImage.id : null,
+        thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
         imageCount: survey.images.length, // includeで取得した件数を使用
         createdAt: survey.createdAt,
         updatedAt: survey.updatedAt,
@@ -662,6 +683,74 @@ export class SiteSurveyService {
         total,
         totalPages,
       },
+    };
+  }
+
+  /**
+   * プロジェクト別の直近N件と総数を取得
+   *
+   * プロジェクト詳細画面の現場調査セクションで使用する。
+   * 直近N件の現場調査と、現場調査の総数を返却する。
+   *
+   * Requirements:
+   * - 2.1: プロジェクト詳細画面に直近2件の現場調査と総数を表示する
+   *
+   * @param projectId - プロジェクトID
+   * @param limit - 取得件数（デフォルト: 2）
+   * @returns プロジェクト別現場調査サマリー
+   */
+  async findLatestByProjectId(projectId: string, limit: number = 2): Promise<ProjectSurveySummary> {
+    // WHERE条件
+    const where = {
+      projectId,
+      deletedAt: null,
+    };
+
+    // データ取得と件数カウントを並行実行
+    const [surveys, totalCount] = await Promise.all([
+      this.prisma.siteSurvey.findMany({
+        where,
+        orderBy: { surveyDate: 'desc' },
+        take: limit,
+        include: {
+          images: {
+            orderBy: { displayOrder: 'asc' },
+            take: 1, // サムネイル用に最初の1件のみ取得
+            select: {
+              id: true,
+              thumbnailPath: true,
+              originalPath: true,
+            },
+          },
+          _count: {
+            select: { images: true },
+          },
+        },
+      }),
+      this.prisma.siteSurvey.count({ where }),
+    ]);
+
+    // 結果の変換
+    const latestSurveys: SiteSurveyInfo[] = surveys.map((survey) => {
+      const firstImage = survey.images[0];
+      return {
+        id: survey.id,
+        projectId: survey.projectId,
+        name: survey.name,
+        surveyDate: survey.surveyDate,
+        memo: survey.memo,
+        thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
+        thumbnailImageId: firstImage ? firstImage.id : null,
+        thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
+        imageCount: survey._count.images,
+        createdAt: survey.createdAt,
+        updatedAt: survey.updatedAt,
+      };
+    });
+
+    return {
+      totalCount,
+      latestSurveys,
     };
   }
 }
