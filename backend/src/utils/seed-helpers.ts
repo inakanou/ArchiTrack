@@ -328,18 +328,15 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
   });
 
   if (allPermission) {
-    await prisma.rolePermission.upsert({
-      where: {
-        roleId_permissionId: {
+    // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
+    await prisma.rolePermission.createMany({
+      data: [
+        {
           roleId: adminRole.id,
           permissionId: allPermission.id,
         },
-      },
-      update: {},
-      create: {
-        roleId: adminRole.id,
-        permissionId: allPermission.id,
-      },
+      ],
+      skipDuplicates: true,
     });
   }
 
@@ -367,26 +364,22 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'site_survey', action: 'update' },
   ];
 
-  for (const { resource, action } of basicPermissions) {
-    const permission = await prisma.permission.findFirst({
-      where: { resource, action },
-    });
+  // 権限IDを一括取得
+  const permissions = await prisma.permission.findMany({
+    where: {
+      OR: basicPermissions,
+    },
+  });
 
-    if (permission) {
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: userRole.id,
-            permissionId: permission.id,
-          },
-        },
-        update: {},
-        create: {
-          roleId: userRole.id,
-          permissionId: permission.id,
-        },
-      });
-    }
+  // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
+  if (permissions.length > 0) {
+    await prisma.rolePermission.createMany({
+      data: permissions.map((permission) => ({
+        roleId: userRole.id,
+        permissionId: permission.id,
+      })),
+      skipDuplicates: true,
+    });
   }
 
   logger.info('Role-permission assignments seeded successfully');
