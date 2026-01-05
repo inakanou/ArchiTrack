@@ -141,7 +141,21 @@ export type AuditLogAction =
   // 現場調査管理
   | 'SITE_SURVEY_CREATED'
   | 'SITE_SURVEY_UPDATED'
-  | 'SITE_SURVEY_DELETED';
+  | 'SITE_SURVEY_DELETED'
+  // 数量表管理
+  | 'QUANTITY_TABLE_CREATED'
+  | 'QUANTITY_TABLE_UPDATED'
+  | 'QUANTITY_TABLE_DELETED'
+  // 数量グループ管理
+  | 'QUANTITY_GROUP_CREATED'
+  | 'QUANTITY_GROUP_UPDATED'
+  | 'QUANTITY_GROUP_DELETED'
+  // 数量項目管理
+  | 'QUANTITY_ITEM_CREATED'
+  | 'QUANTITY_ITEM_UPDATED'
+  | 'QUANTITY_ITEM_DELETED'
+  | 'QUANTITY_ITEM_COPIED'
+  | 'QUANTITY_ITEM_MOVED';
 
 /**
  * 取引先管理の監査ログアクション一覧
@@ -182,6 +196,66 @@ export type SiteSurveyAuditAction = (typeof SITE_SURVEY_AUDIT_ACTIONS)[number];
  * 現場調査監査ログのターゲットタイプ定数
  */
 export const SITE_SURVEY_TARGET_TYPE = 'SiteSurvey' as const;
+
+/**
+ * 数量表管理の監査ログアクション一覧
+ * QuantityTableServiceとの連携で使用
+ */
+export const QUANTITY_TABLE_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'QUANTITY_TABLE_CREATED',
+  'QUANTITY_TABLE_UPDATED',
+  'QUANTITY_TABLE_DELETED',
+] as const;
+
+/**
+ * 数量表監査ログアクション型（サブセット）
+ */
+export type QuantityTableAuditAction = (typeof QUANTITY_TABLE_AUDIT_ACTIONS)[number];
+
+/**
+ * 数量表監査ログのターゲットタイプ定数
+ */
+export const QUANTITY_TABLE_TARGET_TYPE = 'QuantityTable' as const;
+
+/**
+ * 数量グループ管理の監査ログアクション一覧
+ */
+export const QUANTITY_GROUP_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'QUANTITY_GROUP_CREATED',
+  'QUANTITY_GROUP_UPDATED',
+  'QUANTITY_GROUP_DELETED',
+] as const;
+
+/**
+ * 数量グループ監査ログアクション型（サブセット）
+ */
+export type QuantityGroupAuditAction = (typeof QUANTITY_GROUP_AUDIT_ACTIONS)[number];
+
+/**
+ * 数量グループ監査ログのターゲットタイプ定数
+ */
+export const QUANTITY_GROUP_TARGET_TYPE = 'QuantityGroup' as const;
+
+/**
+ * 数量項目管理の監査ログアクション一覧
+ */
+export const QUANTITY_ITEM_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'QUANTITY_ITEM_CREATED',
+  'QUANTITY_ITEM_UPDATED',
+  'QUANTITY_ITEM_DELETED',
+  'QUANTITY_ITEM_COPIED',
+  'QUANTITY_ITEM_MOVED',
+] as const;
+
+/**
+ * 数量項目監査ログアクション型（サブセット）
+ */
+export type QuantityItemAuditAction = (typeof QUANTITY_ITEM_AUDIT_ACTIONS)[number];
+
+/**
+ * 数量項目監査ログのターゲットタイプ定数
+ */
+export const QUANTITY_ITEM_TARGET_TYPE = 'QuantityItem' as const;
 
 /**
  * 監査ログエラー種別
