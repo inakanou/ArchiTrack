@@ -29,7 +29,7 @@
   "dependencies": {
     "@sentry/react": "^10.32.1",
     "fabric": "^6.9.1",
-    "jspdf": "^3.0.4",
+    "jspdf": "^4.0.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.9.6"
