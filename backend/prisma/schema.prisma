@@ -273,6 +273,7 @@ model Project {
   createdBy          User                   @relation("CreatedProjects", fields: [createdById], references: [id])
   statusHistory      ProjectStatusHistory[]
   siteSurveys        SiteSurvey[] // 現場調査リレーション
+  quantityTables     QuantityTable[] // 数量表リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -492,8 +493,9 @@ model SurveyImage {
   includeInReport Boolean  @default(false) // 報告書出力フラグ
   createdAt       DateTime @default(now())
 
-  survey     SiteSurvey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
-  annotation ImageAnnotation?
+  survey         SiteSurvey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  annotation     ImageAnnotation?
+  quantityGroups QuantityGroup[] // 数量グループリレーション
 
   @@index([surveyId])
   @@index([displayOrder])
@@ -527,4 +529,152 @@ model ImageAnnotation {
   image SurveyImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
 
   @@map("image_annotations")
+}
+
+// ===== Quantity Table Management Data Models =====
+
+/**
+ * 計算方法
+ * Requirements: 8.1, 8.5, 8.8
+ */
+enum CalculationMethod {
+  STANDARD // 標準（直接入力）
+  AREA_VOLUME // 面積・体積
+  PITCH // ピッチ
+}
+
+/**
+ * 数量表モデル
+ * プロジェクトに紐付く数量表を管理する。
+ * 1つのプロジェクトに対して複数の数量表を作成でき、各数量表は複数の数量グループで構成される。
+ * フィールド:
+ * - id: 数量表の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー）
+ * - name: 数量表名（必須、1-200文字）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位での数量表検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * Requirements:
+ * - 2.1: 数量表一覧画面で新規作成操作を行う
+ * - 2.2: 数量表名を入力して作成を確定する
+ * - 2.3: プロジェクトに紐づく全ての数量表を作成日時順に一覧表示する
+ * - 2.4: 数量表を選択して削除操作を行う
+ * - 2.5: 数量表名を編集する
+ */
+model QuantityTable {
+  id        String    @id @default(uuid())
+  projectId String
+  name      String // 数量表名（必須、1-200文字）
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // 論理削除
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  groups  QuantityGroup[]
+
+  @@index([projectId])
+  @@index([deletedAt])
+  @@map("quantity_tables")
+}
+
+/**
+ * 数量グループモデル
+ * 数量表に紐付く数量グループを管理する。
+ * 各グループは現場調査画像と紐づけることができ、複数の数量項目を含む。
+ * フィールド:
+ * - id: 数量グループの一意ID（UUID）
+ * - quantityTableId: 所属する数量表ID（外部キー、カスケード削除）
+ * - surveyImageId: 紐付け現場調査画像ID（外部キー、任意）
+ * - name: グループ名（任意、最大200文字）
+ * - displayOrder: 表示順序
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * インデックス:
+ * - quantityTableId, displayOrder: 数量表単位でのグループ取得・並び順用
+ * Requirements:
+ * - 4.1: 数量表編集画面で数量グループ追加操作を行う
+ * - 4.2: 数量グループが追加される場合、同一プロジェクトの注釈付き現場調査写真選択機能を提供する
+ * - 4.3: 数量グループ内で写真選択操作を行う
+ * - 4.4: 数量グループに写真が紐づけられている状態で、注釈付き写真と数量項目の関連性を視覚的に表示する
+ * - 4.5: 数量グループの削除操作を行う
+ */
+model QuantityGroup {
+  id              String  @id @default(uuid())
+  quantityTableId String
+  surveyImageId   String? // 紐付け現場調査画像ID
+  name            String? // グループ名（任意、最大200文字）
+  displayOrder    Int // 表示順序
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quantityTable QuantityTable  @relation(fields: [quantityTableId], references: [id], onDelete: Cascade)
+  surveyImage   SurveyImage?   @relation(fields: [surveyImageId], references: [id], onDelete: SetNull)
+  items         QuantityItem[]
+
+  @@index([quantityTableId, displayOrder])
+  @@map("quantity_groups")
+}
+
+/**
+ * 数量項目モデル
+ * 数量グループに紐付く数量項目を管理する。
+ * 各項目は大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・調整係数・丸め設定・数量・備考の属性を持つ。
+ * フィールド:
+ * - id: 数量項目の一意ID（UUID）
+ * - quantityGroupId: 所属する数量グループID（外部キー、カスケード削除）
+ * - majorCategory: 大項目（必須、最大100文字）
+ * - middleCategory: 中項目（任意、最大100文字）
+ * - minorCategory: 小項目（任意、最大100文字）
+ * - customCategory: 任意分類（任意、最大100文字）
+ * - workType: 工種（必須、最大100文字）
+ * - name: 名称（必須、最大200文字）
+ * - specification: 規格（任意、最大500文字）
+ * - unit: 単位（必須、最大50文字）
+ * - calculationMethod: 計算方法（STANDARD/AREA_VOLUME/PITCH）
+ * - calculationParams: 計算用パラメータ（JSON）
+ * - adjustmentFactor: 調整係数（デフォルト: 1.0000）
+ * - roundingUnit: 丸め単位（デフォルト: 0.0100）
+ * - quantity: 数量（必須）
+ * - remarks: 備考（任意）
+ * - displayOrder: 表示順序
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * インデックス:
+ * - quantityGroupId, displayOrder: 数量グループ単位での項目取得・並び順用
+ * Requirements:
+ * - 5.1: 数量グループ内で行追加操作を行う
+ * - 5.2: 数量項目の各フィールドに値を入力する
+ * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
+ * - 5.4: 数量項目を選択して削除操作を行う
+ */
+model QuantityItem {
+  id                String            @id @default(uuid())
+  quantityGroupId   String
+  majorCategory     String // 大項目（必須、最大100文字）
+  middleCategory    String? // 中項目（任意、最大100文字）
+  minorCategory     String? // 小項目（任意、最大100文字）
+  customCategory    String? // 任意分類（任意、最大100文字）
+  workType          String // 工種（必須、最大100文字）
+  name              String // 名称（必須、最大200文字）
+  specification     String? // 規格（任意、最大500文字）
+  unit              String // 単位（必須、最大50文字）
+  calculationMethod CalculationMethod @default(STANDARD) // 計算方法
+  calculationParams Json? // 計算用パラメータ（JSON）
+  adjustmentFactor  Decimal           @default(1.0000) @db.Decimal(10, 4) // 調整係数
+  roundingUnit      Decimal           @default(0.0100) @db.Decimal(10, 4) // 丸め単位
+  quantity          Decimal           @db.Decimal(15, 4) // 数量
+  remarks           String? // 備考
+  displayOrder      Int // 表示順序
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quantityGroup QuantityGroup @relation(fields: [quantityGroupId], references: [id], onDelete: Cascade)
+
+  @@index([quantityGroupId, displayOrder])
+  @@map("quantity_items")
 }
