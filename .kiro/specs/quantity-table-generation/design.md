@@ -154,7 +154,7 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|------------------|-----------|
 | QuantityTableService | Backend/Service | 数量表のCRUD操作 | 2.1-2.5, 11.1-11.5 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | QuantityGroupService | Backend/Service | 数量グループのCRUD操作と画像紐付け | 3.1-3.3, 4.1-4.5 | PrismaClient (P0) | Service, API |
-| QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5 | PrismaClient (P0), CalculationEngine (P0) | Service |
+| QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5 | PrismaClient (P0), CalculationEngine (P0) | Service, API |
 | CalculationEngine | Shared/Utility | 数量計算ロジック | 8.1-8.11, 9.1-9.5, 10.1-10.5 | decimal.js (P0) | Service |
 | QuantityTableEditPage | Frontend/Page | 数量表編集画面 | 3.1-3.3 | QuantityGroupComponent (P0) | State |
 | QuantityTableSectionCard | Frontend/Component | プロジェクト詳細の数量表セクション | 1.1-1.7 | - | - |
@@ -469,12 +469,73 @@ interface CalculationResult {
   finalValue: number;
   formula: string;
 }
+
+interface UpdateQuantityItemInput {
+  majorCategory?: string;
+  middleCategory?: string | null;
+  minorCategory?: string | null;
+  customCategory?: string | null;
+  workType?: string;
+  name?: string;
+  specification?: string | null;
+  unit?: string;
+  calculationMethod?: CalculationMethod;
+  calculationParams?: CalculationParams | null;
+  adjustmentFactor?: number;
+  roundingUnit?: number;
+  quantity?: number;
+  remarks?: string | null;
+}
+
+interface QuantityItemInfo {
+  id: string;
+  quantityGroupId: string;
+  majorCategory: string;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  calculationMethod: CalculationMethod;
+  calculationParams: CalculationParams | null;
+  adjustmentFactor: number;
+  roundingUnit: number;
+  quantity: number;
+  remarks: string | null;
+  displayOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface BatchOperation {
+  type: 'delete' | 'copy' | 'move';
+  itemIds: string[];
+  targetGroupId?: string; // moveの場合に必要
+  position?: number; // moveの場合に必要
+}
 ```
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| POST | /api/quantity-groups/:groupId/items | CreateQuantityItemInput | QuantityItemInfo | 400, 404 |
+| GET | /api/quantity-groups/:groupId/items | - | QuantityItemInfo[] | 404 |
+| PUT | /api/quantity-groups/:groupId/items/reorder | { orderedIds: string[] } | QuantityItemInfo[] | 400, 404 |
+| GET | /api/quantity-items/:id | - | QuantityItemInfo | 404 |
+| PUT | /api/quantity-items/:id | UpdateQuantityItemInput + expectedUpdatedAt | QuantityItemInfo | 400, 404, 409 |
+| DELETE | /api/quantity-items/:id | - | 204 No Content | 404 |
+| POST | /api/quantity-items/:id/copy | - | QuantityItemInfo | 404 |
+| POST | /api/quantity-items/:id/move | { targetGroupId: string, position: number } | QuantityItemInfo | 400, 404 |
+| POST | /api/quantity-items/batch | BatchOperation | QuantityItemInfo[] | 400, 404 |
 
 **Implementation Notes**
 
 - Integration: 計算ロジックはCalculationEngineに委譲
 - Validation: 計算方法と入力値の整合性チェック
+- Pattern: 既存のsite-surveys/survey-imagesパターンに準拠（ネストルート + フラットルート）
 
 ---
 
@@ -650,7 +711,8 @@ type AutocompleteColumn =
   | 'workType'
   | 'name'
   | 'specification'
-  | 'unit';
+  | 'unit'
+  | 'remarks';
 
 interface UseAutocompleteResult {
   suggestions: string[];
