@@ -4,15 +4,15 @@
 
 **Purpose**: 本機能は、積算担当者が現場調査結果に基づいて数量を拾い出し、調査写真と紐づけながら数量表を作成するための機能を提供する。
 
-**Users**: 積算担当者が、プロジェクトに紐付く数量表の作成・編集・管理、および計算機能（面積・体積、ピッチ、参照合計）を使用して効率的な積算作業を実施する。
+**Users**: 積算担当者が、プロジェクトに紐付く数量表の作成・編集・管理、および計算機能（面積・体積、ピッチ）を使用して効率的な積算作業を実施する。
 
-**Impact**: プロジェクト詳細画面に数量表セクションを追加し、新たにQuantityTable、QuantityGroup、QuantityItem、QuantityItemReferenceエンティティを導入する。
+**Impact**: プロジェクト詳細画面に数量表セクションを追加し、新たにQuantityTable、QuantityGroup、QuantityItemエンティティを導入する。
 
 ### Goals
 
 - プロジェクトに対して複数の数量表を作成・管理可能にする
 - 数量グループと現場調査写真の紐づけによるトレーサビリティ確保
-- 計算方法（標準・面積体積・ピッチ・参照合計）による効率的な数量算出
+- 計算方法（標準・面積体積・ピッチ）による効率的な数量算出
 - オートコンプリートによる入力支援と一貫性確保
 - 自動保存による作業継続性の保証
 
@@ -53,7 +53,6 @@ graph TB
         QTSV[QuantityTableService]
         QGSV[QuantityGroupService]
         QISV[QuantityItemService]
-        CRD[CircularRefDetector]
     end
 
     subgraph Database
@@ -61,7 +60,6 @@ graph TB
         QT[QuantityTable]
         QG[QuantityGroup]
         QI[QuantityItem]
-        QIR[QuantityItemReference]
         SI[SurveyImage]
     end
 
@@ -76,12 +74,10 @@ graph TB
     QTR --> QTSV
     QTSV --> QGSV
     QGSV --> QISV
-    QISV --> CRD
 
     QTSV --> QT
     QGSV --> QG
     QISV --> QI
-    QI --> QIR
     QG --> SI
     QT --> PJ
 ```
@@ -91,7 +87,7 @@ graph TB
 - 選択パターン: 階層型サービス（QuantityTable → QuantityGroup → QuantityItem）
 - ドメイン境界: 数量表管理は独立したドメインとして分離、プロジェクトとの関連はIDリレーションのみ
 - 既存パターン: SiteSurveyパターンを継承（CRUD、一覧、詳細、楽観的排他制御）
-- 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方）、循環参照検出器
+- 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -133,29 +129,6 @@ sequenceDiagram
     API-->>QuantityItemComponent: 保存完了通知
 ```
 
-### 参照合計フロー（循環参照検出）
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant QuantityItemComponent
-    participant CircularRefDetector
-    participant API
-
-    User->>QuantityItemComponent: 参照合計モード選択
-    QuantityItemComponent->>QuantityItemComponent: 参照先選択UI表示
-    User->>QuantityItemComponent: 参照先項目選択
-    QuantityItemComponent->>CircularRefDetector: 循環参照チェック
-    alt 循環参照あり
-        CircularRefDetector-->>QuantityItemComponent: エラー（循環参照検出）
-        QuantityItemComponent->>User: エラーメッセージ表示
-    else 循環参照なし
-        CircularRefDetector-->>QuantityItemComponent: OK
-        QuantityItemComponent->>QuantityItemComponent: 参照合計計算
-        QuantityItemComponent->>API: 自動保存
-    end
-```
-
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -170,9 +143,8 @@ sequenceDiagram
 | 8.1-8.11 | 計算方法の選択 | CalculationMethodSelector, CalculationFields | CalculationEngine | 数量計算フロー |
 | 9.1-9.5 | 調整係数 | AdjustmentFactorInput | CalculationEngine | - |
 | 10.1-10.5 | 丸め設定 | RoundingSettingInput | CalculationEngine | - |
-| 11.1-11.5 | 参照合計計算 | ReferenceSelector, CircularRefDetector | QuantityItemService | 参照合計フロー |
-| 12.1-12.5 | 数量表の保存 | useAutoSave Hook, SaveIndicator | QuantityTableService | - |
-| 13.1-13.5 | パンくずナビゲーション | Breadcrumb | - | - |
+| 11.1-11.5 | 数量表の保存 | useAutoSave Hook, SaveIndicator | QuantityTableService | - |
+| 12.1-12.5 | パンくずナビゲーション | Breadcrumb | - | - |
 
 ## Components and Interfaces
 
@@ -180,11 +152,10 @@ sequenceDiagram
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| QuantityTableService | Backend/Service | 数量表のCRUD操作 | 2.1-2.5, 12.1-12.5 | PrismaClient (P0), AuditLogService (P1) | Service, API |
-| QuantityGroupService | Backend/Service | 数量グループのCRUD操作 | 3.1-3.3, 4.1-4.5 | PrismaClient (P0) | Service |
-| QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5, 11.1-11.5 | PrismaClient (P0), CircularRefDetector (P0) | Service |
+| QuantityTableService | Backend/Service | 数量表のCRUD操作 | 2.1-2.5, 11.1-11.5 | PrismaClient (P0), AuditLogService (P1) | Service, API |
+| QuantityGroupService | Backend/Service | 数量グループのCRUD操作と画像紐付け | 3.1-3.3, 4.1-4.5 | PrismaClient (P0) | Service, API |
+| QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5 | PrismaClient (P0), CalculationEngine (P0) | Service |
 | CalculationEngine | Shared/Utility | 数量計算ロジック | 8.1-8.11, 9.1-9.5, 10.1-10.5 | decimal.js (P0) | Service |
-| CircularRefDetector | Shared/Utility | 循環参照検出 | 11.4 | - | Service |
 | QuantityTableEditPage | Frontend/Page | 数量表編集画面 | 3.1-3.3 | QuantityGroupComponent (P0) | State |
 | QuantityTableSectionCard | Frontend/Component | プロジェクト詳細の数量表セクション | 1.1-1.7 | - | - |
 
@@ -195,7 +166,7 @@ sequenceDiagram
 | Field | Detail |
 |-------|--------|
 | Intent | 数量表のライフサイクル管理とCRUD操作を担当 |
-| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 12.1, 12.2, 12.3, 12.4, 12.5 |
+| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 11.1, 11.2, 11.3, 11.4, 11.5 |
 
 **Responsibilities & Constraints**
 
@@ -283,25 +254,158 @@ interface ProjectQuantityTableSummary {
 
 ---
 
+#### QuantityGroupService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 数量グループのCRUD操作と現場調査画像との紐付け管理を担当 |
+| Requirements | 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 4.5 |
+
+**Responsibilities & Constraints**
+
+- 数量グループの作成・更新・削除
+- 現場調査画像との紐付け・解除
+- グループの表示順序管理
+- グループ内の数量項目の集約取得
+
+**Dependencies**
+
+- Inbound: QuantityTableRoutes (P0), QuantityTableService (P1)
+- Outbound: QuantityItemService (P1)
+- External: PrismaClient (P0)
+
+**Contracts**: Service [x]
+
+##### Service Interface
+
+```typescript
+interface QuantityGroupService {
+  /**
+   * 数量グループを作成
+   */
+  create(input: CreateQuantityGroupInput): Promise<QuantityGroupInfo>;
+
+  /**
+   * IDで数量グループを取得（項目を含む）
+   */
+  findById(id: string): Promise<QuantityGroupDetail | null>;
+
+  /**
+   * 数量表IDで数量グループ一覧を取得
+   */
+  findByQuantityTableId(quantityTableId: string): Promise<QuantityGroupInfo[]>;
+
+  /**
+   * 数量グループを更新
+   */
+  update(
+    id: string,
+    input: UpdateQuantityGroupInput,
+    expectedUpdatedAt: Date
+  ): Promise<QuantityGroupInfo>;
+
+  /**
+   * 数量グループを削除（配下の項目も削除）
+   */
+  delete(id: string): Promise<void>;
+
+  /**
+   * 現場調査画像を紐付け
+   */
+  linkSurveyImage(id: string, surveyImageId: string): Promise<QuantityGroupInfo>;
+
+  /**
+   * 現場調査画像の紐付けを解除
+   */
+  unlinkSurveyImage(id: string): Promise<QuantityGroupInfo>;
+
+  /**
+   * 表示順序を更新
+   */
+  reorder(quantityTableId: string, orderedIds: string[]): Promise<QuantityGroupInfo[]>;
+}
+
+interface CreateQuantityGroupInput {
+  quantityTableId: string;
+  name?: string;
+  surveyImageId?: string;
+}
+
+interface UpdateQuantityGroupInput {
+  name?: string;
+  surveyImageId?: string | null;
+}
+
+interface QuantityGroupInfo {
+  id: string;
+  quantityTableId: string;
+  name: string | null;
+  surveyImageId: string | null;
+  displayOrder: number;
+  itemCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface QuantityGroupDetail extends QuantityGroupInfo {
+  surveyImage: SurveyImageSummary | null;
+  items: QuantityItemInfo[];
+}
+
+interface SurveyImageSummary {
+  id: string;
+  url: string;
+  thumbnailUrl: string;
+  annotations: Annotation[];
+}
+
+interface Annotation {
+  id: string;
+  type: string;
+  coordinates: object;
+  label: string;
+}
+```
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| POST | /api/quantity-tables/:tableId/groups | CreateQuantityGroupInput | QuantityGroupInfo | 400, 404 |
+| GET | /api/quantity-tables/:tableId/groups | - | QuantityGroupInfo[] | 404 |
+| GET | /api/quantity-groups/:id | - | QuantityGroupDetail | 404 |
+| PUT | /api/quantity-groups/:id | UpdateQuantityGroupInput | QuantityGroupInfo | 400, 404, 409 |
+| DELETE | /api/quantity-groups/:id | - | 204 No Content | 404 |
+| PUT | /api/quantity-groups/:id/survey-image | { surveyImageId: string } | QuantityGroupInfo | 400, 404 |
+| DELETE | /api/quantity-groups/:id/survey-image | - | QuantityGroupInfo | 404 |
+| PUT | /api/quantity-tables/:tableId/groups/reorder | { orderedIds: string[] } | QuantityGroupInfo[] | 400, 404 |
+
+**Implementation Notes**
+
+- Integration: 既存のSiteSurveyServiceパターンを踏襲
+- Validation: 存在しない現場調査画像への紐付けは400エラー
+- Cascade: グループ削除時は配下の数量項目も削除（ON DELETE CASCADE）
+- Risks: 大量の項目を持つグループの詳細取得パフォーマンス
+
+---
+
 #### QuantityItemService
 
 | Field | Detail |
 |-------|--------|
-| Intent | 数量項目のCRUD、計算検証、参照管理を担当 |
-| Requirements | 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 6.4, 6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5, 11.1-11.5 |
+| Intent | 数量項目のCRUD、計算検証を担当 |
+| Requirements | 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 6.4, 6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5 |
 
 **Responsibilities & Constraints**
 
 - 数量項目の作成・更新・削除・コピー・移動
 - 計算方法に応じた数量算出
 - 調整係数・丸め設定の適用
-- 参照合計の依存関係管理
-- 循環参照の検出・防止
 
 **Dependencies**
 
 - Inbound: QuantityTableRoutes (P0)
-- Outbound: CircularRefDetector (P0)
+- Outbound: CalculationEngine (P0)
 - External: PrismaClient (P0), decimal.js (P0)
 
 **Contracts**: Service [x]
@@ -316,7 +420,6 @@ interface QuantityItemService {
   copy(id: string): Promise<QuantityItemInfo>;
   move(id: string, targetGroupId: string, position: number): Promise<QuantityItemInfo>;
   batchOperation(operation: BatchOperation): Promise<QuantityItemInfo[]>;
-  setReferences(id: string, referenceIds: string[]): Promise<void>;
   calculateQuantity(input: CalculationInput): CalculationResult;
 }
 
@@ -337,7 +440,7 @@ interface CreateQuantityItemInput {
   remarks?: string;
 }
 
-type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH' | 'REFERENCE_SUM';
+type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
 
 interface CalculationParams {
   // 面積・体積モード
@@ -358,7 +461,6 @@ interface CalculationInput {
   params: CalculationParams;
   adjustmentFactor: number;
   roundingUnit: number;
-  referenceQuantities?: number[];
 }
 
 interface CalculationResult {
@@ -373,67 +475,6 @@ interface CalculationResult {
 
 - Integration: 計算ロジックはCalculationEngineに委譲
 - Validation: 計算方法と入力値の整合性チェック
-- Risks: 参照合計の連鎖更新によるパフォーマンス影響
-
----
-
-#### CircularRefDetector
-
-| Field | Detail |
-|-------|--------|
-| Intent | 数量項目間の循環参照を検出 |
-| Requirements | 11.4 |
-
-**Responsibilities & Constraints**
-
-- 有向グラフとしての依存関係モデリング
-- DFSベースの循環検出アルゴリズム
-- O(V+E)時間複雑度の保証
-
-**Dependencies**
-
-- Inbound: QuantityItemService (P0)
-- External: なし
-
-**Contracts**: Service [x]
-
-##### Service Interface
-
-```typescript
-interface CircularRefDetector {
-  /**
-   * 新しい参照を追加した場合に循環参照が発生するかチェック
-   * @param fromId 参照元の数量項目ID
-   * @param toIds 参照先の数量項目ID配列
-   * @param existingRefs 既存の参照関係マップ
-   * @returns 循環参照が発生する場合はエラー情報、なければnull
-   */
-  detectCycle(
-    fromId: string,
-    toIds: string[],
-    existingRefs: Map<string, string[]>
-  ): CircularRefError | null;
-
-  /**
-   * 依存グラフ全体の循環参照をチェック
-   * @param refs 全参照関係マップ
-   * @returns 循環に含まれるノードID配列
-   */
-  findAllCycles(refs: Map<string, string[]>): string[][];
-}
-
-interface CircularRefError {
-  type: 'CIRCULAR_REFERENCE';
-  path: string[]; // 循環パス（例: ['item1', 'item2', 'item3', 'item1']）
-  message: string;
-}
-```
-
-**Implementation Notes**
-
-- Integration: フロントエンドとバックエンドで同じロジックを共有
-- Validation: 参照選択時に即時検証
-- Risks: 大量の参照関係でのパフォーマンス（100項目以上でテスト必要）
 
 ---
 
@@ -474,12 +515,6 @@ interface CalculationEngine {
    * 結果 = 本数 * 長さ * 重量（任意項目は1として扱う）
    */
   calculatePitch(params: PitchParams): Decimal;
-
-  /**
-   * 参照合計計算
-   * 参照先の数量を合計
-   */
-  calculateReferenceSum(quantities: Decimal[]): Decimal;
 
   /**
    * 調整係数を適用
@@ -582,14 +617,98 @@ interface QuantityTableEditActions {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 入力履歴に基づくオートコンプリート候補を表示 |
+| Intent | 同一プロジェクト内のデータに基づくオートコンプリート候補を表示 |
 | Requirements | 7.1, 7.2, 7.3, 7.4, 7.5 |
+
+**Responsibilities & Constraints**
+
+- 同一プロジェクト内のDB保存済みデータから当該列の値を取得
+- 画面上の未保存入力データを含めた候補リストを生成
+- 重複を除去した一意のリストとして提供
+
+**Dependencies**
+
+- Inbound: QuantityItemComponent (P0)
+- External: QuantityItemService API (P0)
+
+**Contracts**: Hook [x]
+
+##### useAutocomplete Hook Interface
+
+```typescript
+interface UseAutocompleteOptions {
+  projectId: string;
+  column: AutocompleteColumn;
+  unsavedValues: string[];
+}
+
+type AutocompleteColumn =
+  | 'majorCategory'
+  | 'middleCategory'
+  | 'minorCategory'
+  | 'customCategory'
+  | 'workType'
+  | 'name'
+  | 'specification'
+  | 'unit';
+
+interface UseAutocompleteResult {
+  suggestions: string[];
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => void;
+}
+
+function useAutocomplete(options: UseAutocompleteOptions): UseAutocompleteResult;
+```
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/projects/:projectId/quantity-items/autocomplete/:column | - | { values: string[] } | 400, 404 |
+
+##### Autocomplete Logic
+
+```typescript
+/**
+ * オートコンプリート候補の生成ロジック
+ *
+ * 1. APIから同一プロジェクト内のDB保存済み値を取得
+ * 2. 画面上の未保存入力値を追加
+ * 3. 重複を除去して一意のリストを生成
+ * 4. 入力中のテキストでフィルタリング
+ */
+function generateSuggestions(
+  dbValues: string[],
+  unsavedValues: string[],
+  inputText: string
+): string[] {
+  // 全候補を結合
+  const allValues = [...dbValues, ...unsavedValues];
+
+  // 重複除去（大文字小文字を区別）
+  const uniqueValues = [...new Set(allValues)];
+
+  // 空文字を除外
+  const nonEmptyValues = uniqueValues.filter(v => v.trim() !== '');
+
+  // 入力テキストでフィルタリング（前方一致）
+  const filtered = nonEmptyValues.filter(v =>
+    v.toLowerCase().startsWith(inputText.toLowerCase())
+  );
+
+  // 50音順（日本語対応）でソート
+  return filtered.sort((a, b) => a.localeCompare(b, 'ja'));
+}
+```
 
 **Implementation Notes**
 
-- クライアントサイドのみで動作
-- 同一数量表内の入力値から候補を抽出
-- 使用頻度順にソート
+- Integration: APIは初回フォーカス時にフェッチ、結果はキャッシュ（5分間有効）
+- Validation: 入力値の最大長チェック（列ごとの制約に準拠）
+- Performance: 候補リストは最大100件に制限
+- UX: 2文字以上入力で候補表示、上下キーで選択、Enterで確定
 
 ## Data Models
 
@@ -601,8 +720,6 @@ erDiagram
     QuantityTable ||--o{ QuantityGroup : contains
     QuantityGroup ||--o{ QuantityItem : contains
     QuantityGroup }o--o| SurveyImage : references
-    QuantityItem ||--o{ QuantityItemReference : references
-    QuantityItem }o--o{ QuantityItem : "referenced by"
 
     QuantityTable {
         uuid id PK
@@ -644,13 +761,6 @@ erDiagram
         datetime createdAt
         datetime updatedAt
     }
-
-    QuantityItemReference {
-        uuid id PK
-        uuid sourceItemId FK
-        uuid targetItemId FK
-        datetime createdAt
-    }
 ```
 
 **Business Rules & Invariants**:
@@ -659,7 +769,6 @@ erDiagram
 - 必須フィールド: 大項目、工種、名称、単位、数量
 - 調整係数のデフォルトは1.00、0以下で警告
 - 丸め設定のデフォルトは0.01、0以下はエラー
-- 参照合計で循環参照は禁止
 - 計算方法「面積・体積」では最低1項目の入力必須
 - 計算方法「ピッチ」では範囲長・端長1・端長2・ピッチ長が必須
 
@@ -712,24 +821,12 @@ erDiagram
 | createdAt | TIMESTAMP | NOT NULL, DEFAULT NOW() | 作成日時 |
 | updatedAt | TIMESTAMP | NOT NULL, @updatedAt | 更新日時 |
 
-**QuantityItemReference**
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK, DEFAULT uuid() | 参照ID |
-| sourceItemId | UUID | FK, NOT NULL, ON DELETE CASCADE | 参照元数量項目ID |
-| targetItemId | UUID | FK, NOT NULL, ON DELETE CASCADE | 参照先数量項目ID |
-| createdAt | TIMESTAMP | NOT NULL, DEFAULT NOW() | 作成日時 |
-
 **Indexes**:
 
 - `@@index([projectId])` on QuantityTable
 - `@@index([deletedAt])` on QuantityTable
 - `@@index([quantityTableId, displayOrder])` on QuantityGroup
 - `@@index([quantityGroupId, displayOrder])` on QuantityItem
-- `@@index([sourceItemId])` on QuantityItemReference
-- `@@index([targetItemId])` on QuantityItemReference
-- `@@unique([sourceItemId, targetItemId])` on QuantityItemReference
 
 **Enum Definition**:
 
@@ -738,7 +835,6 @@ enum CalculationMethod {
   STANDARD      // 標準（直接入力）
   AREA_VOLUME   // 面積・体積
   PITCH         // ピッチ
-  REFERENCE_SUM // 参照合計
 }
 ```
 
@@ -751,33 +847,32 @@ enum CalculationMethod {
 - `400 BAD_REQUEST`: 入力バリデーションエラー（必須フィールド未入力、計算方法と入力値の不整合）
 - `404 NOT_FOUND`: 数量表・グループ・項目が存在しない
 - `409 CONFLICT`: 楽観的排他制御エラー（他ユーザーによる更新との競合）
-- `422 UNPROCESSABLE_ENTITY`: 循環参照検出、参照先削除エラー
+- `422 UNPROCESSABLE_ENTITY`: ビジネスロジックエラー
 
 **Business Logic Errors**:
 
-- 循環参照エラー: パスを明示したメッセージ（「項目A → 項目B → 項目A の循環参照が検出されました」）
-- 参照先削除警告: 参照元項目のリストを表示
 - 計算不整合エラー: 問題のフィールドをハイライト
+- 必須項目未入力エラー: 面積・体積やピッチモードでの必須項目チェック
 
 ### Monitoring
 
 - 保存エラー率の監視
-- 循環参照検出回数のログ
 - 自動保存の成功率
+- 計算エラー発生頻度
 
 ## Testing Strategy
 
 ### Unit Tests
 
-- CalculationEngine: 各計算方法（標準、面積・体積、ピッチ、参照合計）のテスト
-- CircularRefDetector: 循環検出アルゴリズムのテスト（単純循環、複雑循環、正常ケース）
+- CalculationEngine: 各計算方法（標準、面積・体積、ピッチ）のテスト
 - QuantityTableService: CRUD操作、楽観的排他制御のテスト
-- QuantityItemService: 計算検証、参照管理のテスト
+- QuantityGroupService: CRUD操作、写真紐付けのテスト
+- QuantityItemService: 計算検証のテスト
 
 ### Integration Tests
 
 - 数量表作成 → グループ追加 → 項目追加 → 保存の一連フロー
-- 参照合計の連鎖更新テスト
+- 計算方法の切り替えと数量再計算の正確性テスト
 - 楽観的排他制御の競合シナリオ
 
 ### E2E Tests
@@ -790,8 +885,9 @@ enum CalculationMethod {
 ### Performance Tests
 
 - 100項目以上の数量表での操作レスポンス
-- 循環参照検出の大規模グラフでのパフォーマンス
 - 自動保存のデバウンス動作
+- オートコンプリート候補生成の応答時間
+- 計算エンジンの大量項目での処理時間
 
 ## Security Considerations
 
