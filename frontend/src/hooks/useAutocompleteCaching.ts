@@ -78,7 +78,11 @@ const cache = new Map<string, CacheEntry>();
 /**
  * キャッシュキーを生成
  */
-function getCacheKey(endpoint: string, query: string, additionalParams?: Record<string, string>): string {
+function getCacheKey(
+  endpoint: string,
+  query: string,
+  additionalParams?: Record<string, string>
+): string {
   const paramsString = additionalParams
     ? Object.entries(additionalParams)
         .sort(([a], [b]) => a.localeCompare(b))

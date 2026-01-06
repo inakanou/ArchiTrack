@@ -12,7 +12,11 @@
  */
 
 import { useMemo } from 'react';
-import type { QuantityItemDetail, CalculationMethod, CalculationParams } from '../types/quantity-table.types';
+import type {
+  QuantityItemDetail,
+  CalculationMethod,
+  CalculationParams,
+} from '../types/quantity-table.types';
 
 // ============================================================================
 // 型定義
@@ -192,11 +196,11 @@ function buildFinalFormula(
 export function useMemoizedCalculation(item: QuantityItemDetail): MemoizedCalculationResult {
   return useMemo(() => {
     // 基本値を計算
-    const { value: baseValue, formula: baseFormula, isValid } = calculateBaseValue(
-      item.calculationMethod,
-      item.quantity,
-      item.calculationParams
-    );
+    const {
+      value: baseValue,
+      formula: baseFormula,
+      isValid,
+    } = calculateBaseValue(item.calculationMethod, item.quantity, item.calculationParams);
 
     if (!isValid || baseValue === 0) {
       return {

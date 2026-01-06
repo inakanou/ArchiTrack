@@ -16,7 +16,9 @@ describe('useAutoSave', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     // localStorage mock
     const localStorageMock: Record<string, string> = {};
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key) => localStorageMock[key] || null);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(
+      (key) => localStorageMock[key] || null
+    );
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key, value) => {
       localStorageMock[key] = value;
     });

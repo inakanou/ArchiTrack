@@ -12,7 +12,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useQuantityTableSave } from './useQuantityTableSave';
-import type { QuantityTableEdit, QuantityGroupEdit, QuantityItemEdit } from '../types/quantity-edit.types';
+import type {
+  QuantityTableEdit,
+  QuantityGroupEdit,
+  QuantityItemEdit,
+} from '../types/quantity-edit.types';
 
 // localStorageのモック
 const localStorageMock: Record<string, string> = {};
@@ -20,7 +24,9 @@ const localStorageMock: Record<string, string> = {};
 describe('useQuantityTableSave', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key) => localStorageMock[key] || null);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(
+      (key) => localStorageMock[key] || null
+    );
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key, value) => {
       localStorageMock[key] = value;
     });
@@ -513,10 +519,7 @@ describe('useQuantityTableSave', () => {
         result.current.markAsChanged();
       });
 
-      expect(localStorage.setItem).toHaveBeenCalledWith(
-        'qt-draft-qt-001',
-        expect.any(String)
-      );
+      expect(localStorage.setItem).toHaveBeenCalledWith('qt-draft-qt-001', expect.any(String));
     });
 
     it('loadDraftでドラフトを復元できること', () => {
