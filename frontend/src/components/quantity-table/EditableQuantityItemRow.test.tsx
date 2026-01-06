@@ -65,7 +65,7 @@ describe('EditableQuantityItemRow', () => {
   };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Setup logic can go here if needed
   });
 
   describe('基本表示', () => {

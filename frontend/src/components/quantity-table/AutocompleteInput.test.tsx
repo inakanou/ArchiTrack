@@ -41,7 +41,6 @@ describe('AutocompleteInput', () => {
   };
 
   beforeEach(() => {
-    vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mockUseAutocomplete.mockReturnValue({
       suggestions: [],
@@ -52,6 +51,7 @@ describe('AutocompleteInput', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.clearAllMocks();
   });
 
   describe('基本表示', () => {
