@@ -26,6 +26,7 @@ import SiteSurveyDetailPage from './pages/SiteSurveyDetailPage';
 import SiteSurveyCreatePage from './pages/SiteSurveyCreatePage';
 import SiteSurveyEditPage from './pages/SiteSurveyEditPage';
 import SiteSurveyImageViewerPage from './pages/SiteSurveyImageViewerPage';
+import QuantityTableListPage from './pages/QuantityTableListPage';
 
 /**
  * アプリケーションのルート設定
@@ -169,6 +170,15 @@ export const routes: RouteObject[] = [
       {
         path: '/site-surveys/:id',
         element: <SiteSurveyDetailPage />,
+      },
+
+      // 数量表一覧
+      // REQ-1.4: 数量表一覧画面への遷移リンク
+      // REQ-2.3: プロジェクトに紐づく全ての数量表を作成日時順に一覧表示する
+      // Task 4.2: 数量表一覧画面を実装する
+      {
+        path: '/projects/:projectId/quantity-tables',
+        element: <QuantityTableListPage />,
       },
 
       // 取引先一覧

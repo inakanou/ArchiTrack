@@ -1,0 +1,221 @@
+/**
+ * @fileoverview 数量表用APIクライアント
+ *
+ * Task 4.1: 数量表APIクライアントの実装
+ *
+ * Requirements:
+ * - 1.2: GET /api/projects/:projectId/quantity-tables/summary 直近N件と総数取得
+ * - 2.3: GET /api/projects/:projectId/quantity-tables 数量表一覧取得
+ */
+
+import { apiClient } from './client';
+import type {
+  PaginatedQuantityTables,
+  ProjectQuantityTableSummary,
+  QuantityTableInfo,
+  CreateQuantityTableInput,
+  UpdateQuantityTableInput,
+  QuantityTableFilter,
+  QuantityTableSortableField,
+  QuantityTableSortOrder,
+} from '../types/quantity-table.types';
+
+// ============================================================================
+// 型定義（クエリパラメータ用）
+// ============================================================================
+
+/**
+ * 数量表一覧取得のオプション
+ */
+export interface GetQuantityTablesOptions {
+  /** ページ番号（1始まり） */
+  page?: number;
+  /** 1ページあたりの件数（デフォルト: 20、最大: 100） */
+  limit?: number;
+  /** フィルタ条件 */
+  filter?: QuantityTableFilter;
+  /** ソートフィールド（createdAt, updatedAt, name） */
+  sort?: QuantityTableSortableField;
+  /** ソート順序 */
+  order?: QuantityTableSortOrder;
+}
+
+// ============================================================================
+// APIクライアント関数
+// ============================================================================
+
+/**
+ * 直近N件の数量表と総数を取得する
+ *
+ * プロジェクト詳細画面の数量表セクションで使用します。
+ *
+ * @param projectId - プロジェクトID（UUID）
+ * @param limit - 取得件数（デフォルト: 2、最大: 10）
+ * @returns プロジェクト別数量表サマリー（直近N件と総数）
+ * @throws ApiError バリデーションエラー、認証エラー、権限不足
+ *
+ * Requirements: 1.2
+ *
+ * @example
+ * // デフォルト（直近2件）を取得
+ * const summary = await getLatestQuantityTables('project-id');
+ *
+ * @example
+ * // 直近5件を取得
+ * const summary = await getLatestQuantityTables('project-id', 5);
+ */
+export async function getLatestQuantityTables(
+  projectId: string,
+  limit: number = 2
+): Promise<ProjectQuantityTableSummary> {
+  const params = new URLSearchParams();
+  if (limit !== 2) {
+    params.append('limit', String(limit));
+  }
+
+  const queryString = params.toString();
+  const path = queryString
+    ? `/api/projects/${projectId}/quantity-tables/summary?${queryString}`
+    : `/api/projects/${projectId}/quantity-tables/summary`;
+
+  return apiClient.get<ProjectQuantityTableSummary>(path);
+}
+
+/**
+ * 数量表一覧を取得する
+ *
+ * 指定されたプロジェクトに紐付く数量表の一覧を取得します。
+ * ページネーション、検索、ソートに対応しています。
+ *
+ * @param projectId - プロジェクトID（UUID）
+ * @param options - 取得オプション（ページネーション、フィルタ、ソート）
+ * @returns ページネーション付き数量表一覧
+ * @throws ApiError バリデーションエラー、認証エラー、権限不足
+ *
+ * Requirements: 2.3
+ *
+ * @example
+ * // 基本的な取得
+ * const result = await getQuantityTables('project-id');
+ *
+ * @example
+ * // フィルタ付き取得
+ * const result = await getQuantityTables('project-id', {
+ *   page: 1,
+ *   limit: 20,
+ *   filter: { search: '見積' },
+ *   sort: 'createdAt',
+ *   order: 'desc',
+ * });
+ */
+export async function getQuantityTables(
+  projectId: string,
+  options: GetQuantityTablesOptions = {}
+): Promise<PaginatedQuantityTables> {
+  const { page, limit, filter, sort, order } = options;
+
+  // クエリパラメータを構築
+  const params = new URLSearchParams();
+
+  if (page !== undefined) {
+    params.append('page', String(page));
+  }
+  if (limit !== undefined) {
+    params.append('limit', String(limit));
+  }
+  if (filter?.search) {
+    params.append('search', filter.search);
+  }
+  if (sort) {
+    params.append('sort', sort);
+  }
+  if (order) {
+    params.append('order', order);
+  }
+
+  const queryString = params.toString();
+  const path = queryString
+    ? `/api/projects/${projectId}/quantity-tables?${queryString}`
+    : `/api/projects/${projectId}/quantity-tables`;
+
+  return apiClient.get<PaginatedQuantityTables>(path);
+}
+
+/**
+ * 数量表詳細を取得する
+ *
+ * 数量表の詳細情報を取得します。
+ *
+ * @param id - 数量表ID（UUID）
+ * @returns 数量表詳細情報
+ * @throws ApiError 数量表が見つからない（404）、認証エラー（401）、権限不足（403）
+ */
+export async function getQuantityTable(id: string): Promise<QuantityTableInfo> {
+  return apiClient.get<QuantityTableInfo>(`/api/quantity-tables/${id}`);
+}
+
+/**
+ * 数量表を作成する
+ *
+ * 指定されたプロジェクトに紐付く新しい数量表を作成します。
+ *
+ * @param projectId - プロジェクトID（UUID）
+ * @param input - 数量表作成データ
+ * @returns 作成された数量表情報
+ * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）、プロジェクトが見つからない（404）
+ *
+ * @example
+ * const table = await createQuantityTable('project-id', {
+ *   name: '第1回見積数量表',
+ * });
+ */
+export async function createQuantityTable(
+  projectId: string,
+  input: CreateQuantityTableInput
+): Promise<QuantityTableInfo> {
+  return apiClient.post<QuantityTableInfo>(`/api/projects/${projectId}/quantity-tables`, input);
+}
+
+/**
+ * 数量表を更新する
+ *
+ * 楽観的排他制御を使用して数量表を更新します。
+ *
+ * @param id - 数量表ID（UUID）
+ * @param input - 数量表更新データ
+ * @param expectedUpdatedAt - 楽観的排他制御用の期待される更新日時（ISO8601形式）
+ * @returns 更新された数量表情報
+ * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）、数量表が見つからない（404）、競合（409）
+ *
+ * @example
+ * const table = await updateQuantityTable(
+ *   'table-id',
+ *   { name: '更新された数量表名' },
+ *   '2025-01-02T00:00:00.000Z'
+ * );
+ */
+export async function updateQuantityTable(
+  id: string,
+  input: UpdateQuantityTableInput,
+  expectedUpdatedAt: string
+): Promise<QuantityTableInfo> {
+  return apiClient.put<QuantityTableInfo>(`/api/quantity-tables/${id}`, {
+    ...input,
+    expectedUpdatedAt,
+  });
+}
+
+/**
+ * 数量表を削除する（論理削除）
+ *
+ * 数量表と関連するグループ・項目を論理削除します。
+ *
+ * @param id - 数量表ID（UUID）
+ * @throws ApiError 数量表が見つからない（404）、認証エラー（401）、権限不足（403）
+ *
+ * @example
+ * await deleteQuantityTable('table-id');
+ */
+export async function deleteQuantityTable(id: string): Promise<void> {
+  return apiClient.delete<void>(`/api/quantity-tables/${id}`);
+}

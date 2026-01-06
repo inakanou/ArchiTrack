@@ -25,8 +25,10 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getProject, getStatusHistory, deleteProject, transitionStatus } from '../api/projects';
 import { getLatestSiteSurveys } from '../api/site-surveys';
+import { getLatestQuantityTables } from '../api/quantity-tables';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
+import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
 import { useToast } from '../hooks/useToast';
 import type {
   ProjectDetail,
@@ -38,6 +40,7 @@ import { PROJECT_STATUS_LABELS } from '../types/project.types';
 import StatusTransitionUI from '../components/projects/StatusTransitionUI';
 import DeleteConfirmationDialog from '../components/projects/DeleteConfirmationDialog';
 import { SiteSurveySectionCard } from '../components/projects/SiteSurveySectionCard';
+import { QuantityTableSectionCard } from '../components/projects/QuantityTableSectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -284,6 +287,9 @@ export default function ProjectDetailPage() {
   const [statusHistory, setStatusHistory] = useState<StatusHistoryResponse[]>([]);
   const [surveySummary, setSurveySummary] = useState<ProjectSurveySummary | null>(null);
   const [isSurveyLoading, setIsSurveyLoading] = useState(false);
+  const [quantityTableSummary, setQuantityTableSummary] =
+    useState<ProjectQuantityTableSummary | null>(null);
+  const [isQuantityTableLoading, setIsQuantityTableLoading] = useState(false);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -302,6 +308,7 @@ export default function ProjectDetailPage() {
 
     setIsLoading(true);
     setIsSurveyLoading(true);
+    setIsQuantityTableLoading(true);
     setError(null);
 
     try {
@@ -321,6 +328,17 @@ export default function ProjectDetailPage() {
         setSurveySummary({ totalCount: 0, latestSurveys: [] });
       } finally {
         setIsSurveyLoading(false);
+      }
+
+      // 数量表サマリー取得（Task 4.1: Requirements 1.1, 1.2, 1.3）
+      try {
+        const quantityTableData = await getLatestQuantityTables(id);
+        setQuantityTableSummary(quantityTableData);
+      } catch {
+        // 数量表の取得に失敗しても、プロジェクト詳細は表示する
+        setQuantityTableSummary({ totalCount: 0, latestTables: [] });
+      } finally {
+        setIsQuantityTableLoading(false);
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -593,6 +611,14 @@ export default function ProjectDetailPage() {
         totalCount={surveySummary?.totalCount ?? 0}
         latestSurveys={surveySummary?.latestSurveys ?? []}
         isLoading={isSurveyLoading}
+      />
+
+      {/* 数量表セクション (Task 4.1, Requirements 1.1, 1.2, 1.3) */}
+      <QuantityTableSectionCard
+        projectId={project.id}
+        totalCount={quantityTableSummary?.totalCount ?? 0}
+        latestTables={quantityTableSummary?.latestTables ?? []}
+        isLoading={isQuantityTableLoading}
       />
 
       {/* 関連データ（機能フラグ対応、将来実装予定） */}
