@@ -169,6 +169,146 @@ describe('QuantityItemRow', () => {
 
         expect(screen.getByRole('menuitem', { name: /コピー/ })).toBeInTheDocument();
       });
+
+      it('コピーボタンクリックでonCopyコールバックが呼ばれる', async () => {
+        const onCopy = vi.fn();
+        render(<QuantityItemRow item={mockItem} onCopy={onCopy} />);
+
+        // メニューを開く
+        await userEvent.click(screen.getByRole('button', { name: /アクション/ }));
+        // コピーをクリック
+        await userEvent.click(screen.getByRole('menuitem', { name: /コピー/ }));
+
+        expect(onCopy).toHaveBeenCalledWith('item-1');
+      });
+
+      it('コピーボタンクリック後にメニューが閉じる', async () => {
+        const onCopy = vi.fn();
+        render(<QuantityItemRow item={mockItem} onCopy={onCopy} />);
+
+        // メニューを開く
+        await userEvent.click(screen.getByRole('button', { name: /アクション/ }));
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+
+        // コピーをクリック
+        await userEvent.click(screen.getByRole('menuitem', { name: /コピー/ }));
+
+        // メニューが閉じていることを確認
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      });
+
+      it('メニューボタンを2回クリックするとメニューが閉じる', async () => {
+        render(<QuantityItemRow item={mockItem} />);
+
+        // メニューを開く
+        await userEvent.click(screen.getByRole('button', { name: /アクション/ }));
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+
+        // もう一度クリックして閉じる
+        await userEvent.click(screen.getByRole('button', { name: /アクション/ }));
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('規格フィールド', () => {
+      it('規格がnullの場合はハイフンが表示される', () => {
+        const itemWithoutSpec: QuantityItemDetail = {
+          ...mockItem,
+          specification: null,
+        };
+
+        render(<QuantityItemRow item={itemWithoutSpec} />);
+
+        const cells = screen.getAllByRole('cell');
+        expect(cells.some((cell) => cell.textContent === '-')).toBe(true);
+      });
+    });
+
+    describe('備考フィールド', () => {
+      it('備考がnullの場合は空文字が表示される', () => {
+        const itemWithoutRemarks: QuantityItemDetail = {
+          ...mockItem,
+          remarks: null,
+        };
+
+        render(<QuantityItemRow item={itemWithoutRemarks} />);
+
+        // 備考セルが空であることを確認（備考テストが表示されていない）
+        expect(screen.queryByText('備考テスト')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('選択状態スタイリング', () => {
+      it('isSelected=falseの場合、チェックなしで表示される', () => {
+        render(<QuantityItemRow item={mockItem} isSelected={false} />);
+
+        expect(screen.getByRole('checkbox', { name: /選択/ })).not.toBeChecked();
+      });
+
+      it('選択済みのチェックボックスをクリックすると選択解除される', async () => {
+        const onSelectionChange = vi.fn();
+        render(
+          <QuantityItemRow
+            item={mockItem}
+            isSelected={true}
+            onSelectionChange={onSelectionChange}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('checkbox', { name: /選択/ }));
+
+        expect(onSelectionChange).toHaveBeenCalledWith('item-1', false);
+      });
+    });
+
+    describe('onBlurイベント', () => {
+      it('行外にフォーカスが移動するとメニューが閉じる', async () => {
+        render(
+          <div>
+            <QuantityItemRow item={mockItem} />
+            <button data-testid="outside-button">外部ボタン</button>
+          </div>
+        );
+
+        // メニューを開く
+        await userEvent.click(screen.getByRole('button', { name: /アクション/ }));
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+
+        // 外部ボタンをクリック（フォーカス移動）
+        await userEvent.click(screen.getByTestId('outside-button'));
+
+        // メニューが閉じていることを確認
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('削除コールバック', () => {
+      it('onDeleteが未指定の場合でも削除ボタンクリックでエラーが発生しない', async () => {
+        render(<QuantityItemRow item={mockItem} />);
+
+        // エラーなしでクリックできることを確認
+        await userEvent.click(screen.getByRole('button', { name: /削除/ }));
+      });
+    });
+
+    describe('コピーコールバック', () => {
+      it('onCopyが未指定の場合でもコピーボタンクリックでエラーが発生しない', async () => {
+        render(<QuantityItemRow item={mockItem} />);
+
+        // メニューを開く
+        await userEvent.click(screen.getByRole('button', { name: /アクション/ }));
+        // コピーをクリック（エラーなし）
+        await userEvent.click(screen.getByRole('menuitem', { name: /コピー/ }));
+      });
+    });
+
+    describe('選択変更コールバック', () => {
+      it('onSelectionChangeが未指定の場合でもチェックボックスクリックでエラーが発生しない', async () => {
+        render(<QuantityItemRow item={mockItem} />);
+
+        // エラーなしでクリックできることを確認
+        await userEvent.click(screen.getByRole('checkbox', { name: /選択/ }));
+      });
     });
   });
 });
