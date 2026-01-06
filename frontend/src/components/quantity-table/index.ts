@@ -3,6 +3,7 @@
  *
  * Task 5: 数量表編集画面の実装
  * Task 6: 計算機能UIの実装
+ * Task 7: 入力支援機能の実装
  */
 
 // Task 5: 基本コンポーネント
@@ -27,3 +28,9 @@ export type {
 } from './AdjustmentFactorInput';
 export type { RoundingUnitInputProps, RoundingUnitInputMeta } from './RoundingUnitInput';
 export type { QuantityInputProps, QuantityInputMeta } from './QuantityInput';
+
+// Task 7: 入力支援機能コンポーネント
+export { default as AutocompleteInput } from './AutocompleteInput';
+export { default as EditableQuantityItemRow } from './EditableQuantityItemRow';
+export type { AutocompleteInputProps } from './AutocompleteInput';
+export type { EditableQuantityItemRowProps } from './EditableQuantityItemRow';
