@@ -264,3 +264,104 @@ export function isQuantityTableSortableField(value: unknown): value is QuantityT
     (QUANTITY_TABLE_SORTABLE_FIELDS as readonly string[]).includes(value as string)
   );
 }
+
+// ============================================================================
+// 数量表詳細（グループ・項目を含む）
+// Task 5.1: 数量表編集画面用の型定義
+// ============================================================================
+
+/**
+ * 計算方法
+ */
+export type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+
+/**
+ * 計算パラメータ
+ */
+export interface CalculationParams {
+  width?: number;
+  depth?: number;
+  height?: number;
+  weight?: number;
+  rangeLength?: number;
+  endLength1?: number;
+  endLength2?: number;
+  pitchLength?: number;
+  length?: number;
+}
+
+/**
+ * 現場調査画像情報（簡易）
+ */
+export interface SurveyImageSummary {
+  id: string;
+  thumbnailUrl: string;
+  originalUrl: string;
+  fileName: string;
+}
+
+/**
+ * 数量項目情報（詳細取得用）
+ */
+export interface QuantityItemDetail {
+  id: string;
+  quantityGroupId: string;
+  majorCategory: string;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  calculationMethod: CalculationMethod;
+  calculationParams: CalculationParams | null;
+  adjustmentFactor: number;
+  roundingUnit: number;
+  quantity: number;
+  remarks: string | null;
+  displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 数量グループ情報（詳細取得用）
+ */
+export interface QuantityGroupDetail {
+  id: string;
+  quantityTableId: string;
+  name: string | null;
+  surveyImageId: string | null;
+  surveyImage: SurveyImageSummary | null;
+  displayOrder: number;
+  itemCount: number;
+  items: QuantityItemDetail[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * プロジェクト情報（簡易）
+ */
+export interface ProjectInfoSummary {
+  id: string;
+  name: string;
+}
+
+/**
+ * 数量表詳細（グループ・項目を含む）
+ *
+ * Requirements: 3.1
+ */
+export interface QuantityTableDetail {
+  id: string;
+  projectId: string;
+  project: ProjectInfoSummary;
+  name: string;
+  groupCount: number;
+  itemCount: number;
+  groups: QuantityGroupDetail[];
+  createdAt: string;
+  updatedAt: string;
+}

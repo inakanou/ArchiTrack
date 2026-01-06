@@ -27,6 +27,7 @@ import SiteSurveyCreatePage from './pages/SiteSurveyCreatePage';
 import SiteSurveyEditPage from './pages/SiteSurveyEditPage';
 import SiteSurveyImageViewerPage from './pages/SiteSurveyImageViewerPage';
 import QuantityTableListPage from './pages/QuantityTableListPage';
+import QuantityTableEditPage from './pages/QuantityTableEditPage';
 
 /**
  * アプリケーションのルート設定
@@ -179,6 +180,14 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/quantity-tables',
         element: <QuantityTableListPage />,
+      },
+      // 数量表編集画面
+      // REQ-3.1: 数量表編集画面を表示する
+      // REQ-3.2: 数量グループ一覧と各グループ内の数量項目を階層的に表示する
+      // Task 5.1: 数量表編集画面のレイアウトを実装する
+      {
+        path: '/quantity-tables/:id/edit',
+        element: <QuantityTableEditPage />,
       },
 
       // 取引先一覧

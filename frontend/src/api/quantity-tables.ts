@@ -13,6 +13,7 @@ import type {
   PaginatedQuantityTables,
   ProjectQuantityTableSummary,
   QuantityTableInfo,
+  QuantityTableDetail,
   CreateQuantityTableInput,
   UpdateQuantityTableInput,
   QuantityTableFilter,
@@ -142,16 +143,41 @@ export async function getQuantityTables(
 }
 
 /**
- * 数量表詳細を取得する
+ * 数量表詳細を取得する（簡易版）
  *
- * 数量表の詳細情報を取得します。
+ * 数量表の基本情報を取得します。
  *
  * @param id - 数量表ID（UUID）
- * @returns 数量表詳細情報
+ * @returns 数量表情報
  * @throws ApiError 数量表が見つからない（404）、認証エラー（401）、権限不足（403）
  */
 export async function getQuantityTable(id: string): Promise<QuantityTableInfo> {
   return apiClient.get<QuantityTableInfo>(`/api/quantity-tables/${id}`);
+}
+
+/**
+ * 数量表詳細を取得する（グループ・項目を含む）
+ *
+ * 数量表の詳細情報（グループ一覧と各グループ内の項目を含む）を取得します。
+ * 編集画面で使用します。
+ *
+ * Task 5.1: 数量表編集画面用
+ *
+ * Requirements:
+ * - 3.1: 数量表編集画面を表示する
+ * - 3.2: 数量グループ一覧と各グループ内の数量項目を階層的に表示する
+ *
+ * @param id - 数量表ID（UUID）
+ * @returns 数量表詳細（グループ・項目を含む）
+ * @throws ApiError 数量表が見つからない（404）、認証エラー（401）、権限不足（403）
+ *
+ * @example
+ * const detail = await getQuantityTableDetail('qt-123');
+ * console.log(detail.groups); // グループ一覧
+ * console.log(detail.groups[0].items); // 項目一覧
+ */
+export async function getQuantityTableDetail(id: string): Promise<QuantityTableDetail> {
+  return apiClient.get<QuantityTableDetail>(`/api/quantity-tables/${id}/detail`);
 }
 
 /**
