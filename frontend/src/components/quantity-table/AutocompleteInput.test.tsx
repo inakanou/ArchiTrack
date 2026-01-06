@@ -27,6 +27,9 @@ import { useAutocomplete } from '../../hooks/useAutocomplete';
 
 const mockUseAutocomplete = vi.mocked(useAutocomplete);
 
+// Mock scrollIntoView which is not implemented in JSDOM
+Element.prototype.scrollIntoView = vi.fn();
+
 describe('AutocompleteInput', () => {
   const defaultProps = {
     value: '',
