@@ -27,6 +27,8 @@ import { afterEach, vi } from 'vitest';
 // これにより DOM 要素とイベントリスナーが確実にクリーンアップされる
 afterEach(() => {
   cleanup();
-  // すべてのモックをクリアしてメモリリークを防ぐ
-  vi.clearAllMocks();
+  // すべてのモックを元の実装に戻してメモリを完全に解放
+  // restoreAllMocks は clearAllMocks よりも徹底的で、
+  // モックの実装自体を削除してメモリリークを防ぐ
+  vi.restoreAllMocks();
 });
