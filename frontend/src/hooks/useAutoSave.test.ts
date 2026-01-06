@@ -12,10 +12,11 @@ import { renderHook, act } from '@testing-library/react';
 import { useAutoSave } from './useAutoSave';
 
 describe('useAutoSave', () => {
+  // localStorage mock (トップレベルで定義してクリーンアップ可能にする)
+  const localStorageMock: Record<string, string> = {};
+
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    // localStorage mock
-    const localStorageMock: Record<string, string> = {};
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(
       (key) => localStorageMock[key] || null
     );
@@ -30,6 +31,8 @@ describe('useAutoSave', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    // localStorageMockをクリア
+    Object.keys(localStorageMock).forEach((key) => delete localStorageMock[key]);
   });
 
   describe('基本的な自動保存機能', () => {
