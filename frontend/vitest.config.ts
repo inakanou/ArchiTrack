@@ -145,21 +145,28 @@ export default defineConfig({
         },
       },
 
-      // ===== 8. Hooks - Form Tests =====
+      // ===== 8. Hooks - Form Tests (Part 1) =====
       {
         test: {
           ...commonTestConfig,
-          name: 'hooks-form',
+          name: 'hooks-form-1',
           include: [
             'src/__tests__/hooks/useUnsavedChanges.test.ts',
             'src/hooks/useAutoSave.test.ts',
-            'src/hooks/useAutocomplete.test.ts',
-            'src/hooks/useQuantityTableSave.test.ts',
           ],
         },
       },
 
-      // ===== 9. Core Components Tests =====
+      // ===== 9. Hooks - Form Tests (Part 2) =====
+      {
+        test: {
+          ...commonTestConfig,
+          name: 'hooks-form-2',
+          include: ['src/hooks/useAutocomplete.test.ts', 'src/hooks/useQuantityTableSave.test.ts'],
+        },
+      },
+
+      // ===== 10. Core Components Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -172,7 +179,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 10. Projects Feature Tests =====
+      // ===== 11. Projects Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -184,7 +191,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 11. Quantity Table Feature Tests =====
+      // ===== 12. Quantity Table Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -196,7 +203,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 12. Site Surveys Feature Tests =====
+      // ===== 13. Site Surveys Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -205,7 +212,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 13. Trading Partners Feature Tests =====
+      // ===== 14. Trading Partners Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -214,7 +221,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 14. Pages Tests =====
+      // ===== 15. Pages Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -226,7 +233,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 15. Integration & Performance Tests =====
+      // ===== 16. Integration & Performance Tests =====
       {
         test: {
           ...commonTestConfig,
