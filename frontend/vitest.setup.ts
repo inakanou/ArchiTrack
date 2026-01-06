@@ -20,3 +20,11 @@ console.error = (...args: unknown[]) => {
 };
 
 import '@testing-library/jest-dom/vitest';
+import { cleanup } from '@testing-library/react';
+import { afterEach } from 'vitest';
+
+// Testing Library の cleanup を各テスト後に自動実行
+// これにより DOM 要素とイベントリスナーが確実にクリーンアップされる
+afterEach(() => {
+  cleanup();
+});
