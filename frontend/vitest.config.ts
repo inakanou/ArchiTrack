@@ -17,7 +17,7 @@ const commonTestConfig = {
   pool: 'forks' as const,
   poolOptions: {
     forks: {
-      maxForks: 1,
+      maxForks: 2,
       minForks: 1,
       isolate: true,
     },
@@ -82,91 +82,19 @@ export default defineConfig({
         },
       },
 
-      // ===== 3. Contexts Tests =====
+      // ===== 3. Hooks & Contexts Tests =====
       {
         test: {
           ...commonTestConfig,
-          name: 'contexts',
-          include: ['src/__tests__/contexts/**/*.{test,spec}.{ts,tsx}'],
-        },
-      },
-
-      // ===== 4. Hooks - Auth Tests =====
-      {
-        test: {
-          ...commonTestConfig,
-          name: 'hooks-auth',
+          name: 'hooks',
           include: [
-            'src/__tests__/hooks/useAuth.test.tsx',
-            'src/__tests__/hooks/useSiteSurveyPermission.test.ts',
+            'src/__tests__/{hooks,contexts}/**/*.{test,spec}.{ts,tsx}',
+            'src/hooks/**/*.{test,spec}.{ts,tsx}',
           ],
         },
       },
 
-      // ===== 5. Hooks - UI Tests =====
-      {
-        test: {
-          ...commonTestConfig,
-          name: 'hooks-ui',
-          include: [
-            'src/__tests__/hooks/useKeyboardNavigation.test.tsx',
-            'src/__tests__/hooks/useMediaQuery.test.ts',
-            'src/__tests__/hooks/useResponsive.test.ts',
-            'src/__tests__/hooks/useToast.test.tsx',
-            'src/__tests__/hooks/useNetworkError.test.tsx',
-            'src/__tests__/hooks/useNetworkStatus.test.ts',
-          ],
-        },
-      },
-
-      // ===== 6. Hooks - Site Survey Tests =====
-      {
-        test: {
-          ...commonTestConfig,
-          name: 'hooks-site-survey',
-          include: [
-            'src/__tests__/hooks/useAnnotationRestoration.test.ts',
-            'src/__tests__/hooks/useSiteSurveyError.test.ts',
-          ],
-        },
-      },
-
-      // ===== 7. Hooks - Canvas Tests =====
-      {
-        test: {
-          ...commonTestConfig,
-          name: 'hooks-canvas',
-          include: [
-            'src/__tests__/hooks/useCanvasOptimization.test.ts',
-            'src/__tests__/hooks/useFabricUndoIntegration.test.ts',
-            'src/__tests__/hooks/useUndoKeyboardShortcuts.test.ts',
-            'src/__tests__/hooks/useUndoState.test.ts',
-          ],
-        },
-      },
-
-      // ===== 8. Hooks - Form Tests (Part 1) =====
-      {
-        test: {
-          ...commonTestConfig,
-          name: 'hooks-form-1',
-          include: [
-            'src/__tests__/hooks/useUnsavedChanges.test.ts',
-            'src/hooks/useAutoSave.test.ts',
-          ],
-        },
-      },
-
-      // ===== 9. Hooks - Form Tests (Part 2) =====
-      {
-        test: {
-          ...commonTestConfig,
-          name: 'hooks-form-2',
-          include: ['src/hooks/useAutocomplete.test.ts', 'src/hooks/useQuantityTableSave.test.ts'],
-        },
-      },
-
-      // ===== 10. Core Components Tests =====
+      // ===== 4. Core Components Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -179,7 +107,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 11. Projects Feature Tests =====
+      // ===== 5. Projects Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -191,7 +119,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 12. Quantity Table Feature Tests =====
+      // ===== 6. Quantity Table Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -203,7 +131,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 13. Site Surveys Feature Tests =====
+      // ===== 7. Site Surveys Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -212,7 +140,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 14. Trading Partners Feature Tests =====
+      // ===== 8. Trading Partners Feature Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -221,7 +149,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 15. Pages Tests =====
+      // ===== 9. Pages Tests =====
       {
         test: {
           ...commonTestConfig,
@@ -233,7 +161,7 @@ export default defineConfig({
         },
       },
 
-      // ===== 16. Integration & Performance Tests =====
+      // ===== 10. Integration & Performance Tests =====
       {
         test: {
           ...commonTestConfig,

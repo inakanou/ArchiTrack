@@ -411,13 +411,13 @@ if [ -d "frontend" ]; then
   echo "🧪 Running frontend unit tests (staged by project for memory optimization)..."
   echo ""
   echo "   ベストプラクティス: WSL環境のメモリ制限に対応するため、"
-  echo "   テストを16個のプロジェクトに分割して順次実行します。"
+  echo "   テストを10個のプロジェクトに分割して順次実行します。"
   echo "   各プロジェクト実行後にメモリが解放されるため、OOMクラッシュを防止できます。"
   echo ""
 
   # プロジェクトリスト（軽量→重い順）
-  # Vitest Projects機能により、各プロジェクトは独立したプロセスで実行される
-  projects=("lightweight" "api" "contexts" "hooks-auth" "hooks-ui" "hooks-site-survey" "hooks-canvas" "hooks-form-1" "hooks-form-2" "components-core" "projects" "quantity-table" "site-surveys" "trading-partners" "pages" "integration")
+  # Vitest Workspace機能により、各プロジェクトは独立したプロセスで実行される
+  projects=("lightweight" "api" "hooks" "components-core" "projects" "quantity-table" "site-surveys" "trading-partners" "pages" "integration")
 
   project_count=1
   total_projects=${#projects[@]}
