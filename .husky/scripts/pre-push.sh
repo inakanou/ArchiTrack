@@ -406,51 +406,13 @@ if [ -d "backend" ]; then
   fi
 fi
 
-# Frontend unit tests (staged by project for WSL memory optimization)
+# Frontend unit tests with coverage
 if [ -d "frontend" ]; then
-  echo "🧪 Running frontend unit tests (staged by project for memory optimization)..."
-  echo ""
-  echo "   ベストプラクティス: WSL環境のメモリ制限に対応するため、"
-  echo "   テストを10個のプロジェクトに分割して順次実行します。"
-  echo "   各プロジェクト実行後にメモリが解放されるため、OOMクラッシュを防止できます。"
-  echo ""
-
-  # プロジェクトリスト（軽量→重い順）
-  # Vitest Workspace機能により、各プロジェクトは独立したプロセスで実行される
-  projects=("lightweight" "api" "hooks" "components-core" "projects" "quantity-table" "site-surveys" "trading-partners" "pages" "integration")
-
-  project_count=1
-  total_projects=${#projects[@]}
-
-  for project in "${projects[@]}"; do
-    echo "  📦 [$project_count/$total_projects] Testing project: $project..."
-    npm --prefix frontend run test:$project
-    if [ $? -ne 0 ]; then
-      echo ""
-      echo "❌ Frontend unit tests failed in project: $project. Push aborted."
-      echo "   Run 'npm --prefix frontend run test:$project' to reproduce the failure."
-      exit 1
-    fi
-    echo "     ✅ Project $project passed"
-    echo ""
-    project_count=$((project_count + 1))
-  done
-
-  echo "✅ All frontend unit tests passed ($total_projects projects)"
-  echo ""
-
-  # ============================================================================
-  # カバレッジ収集（全プロジェクト分を一括収集）
-  # ============================================================================
-  # ベストプラクティス: テスト成功後にカバレッジを収集
-  # - メモリ設定を3GBに調整（WSL環境の6GB総メモリに対応）
-  # - 元の8GB設定はWSL環境では過剰でOOMの原因
-  # ============================================================================
-  echo "📊 Collecting frontend test coverage..."
-  NODE_OPTIONS='--max-old-space-size=3072' npm --prefix frontend run test:coverage
+  echo "🧪 Running frontend unit tests with coverage..."
+  npm --prefix frontend run test:coverage
   if [ $? -ne 0 ]; then
-    echo "❌ Frontend coverage collection failed. Push aborted."
-    echo "   Run 'NODE_OPTIONS=\"--max-old-space-size=3072\" npm --prefix frontend run test:coverage' to reproduce."
+    echo "❌ Frontend unit tests or coverage check failed. Push aborted."
+    echo "   Run 'npm --prefix frontend run test:coverage' to check coverage locally."
     exit 1
   fi
 
