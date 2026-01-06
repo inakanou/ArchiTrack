@@ -27,6 +27,7 @@ import SiteSurveyCreatePage from './pages/SiteSurveyCreatePage';
 import SiteSurveyEditPage from './pages/SiteSurveyEditPage';
 import SiteSurveyImageViewerPage from './pages/SiteSurveyImageViewerPage';
 import QuantityTableListPage from './pages/QuantityTableListPage';
+import QuantityTableCreatePage from './pages/QuantityTableCreatePage';
 import QuantityTableEditPage from './pages/QuantityTableEditPage';
 
 /**
@@ -173,6 +174,14 @@ export const routes: RouteObject[] = [
         element: <SiteSurveyDetailPage />,
       },
 
+      // 数量表新規作成（/projects/:projectId/quantity-tables より先に定義する必要あり）
+      // REQ-2.1: 数量表名を入力して作成を確定する
+      // REQ-2.2: 新しい数量表を作成し、数量表編集画面に遷移する
+      // Task 10.1: 数量表新規作成画面の統合
+      {
+        path: '/projects/:projectId/quantity-tables/new',
+        element: <QuantityTableCreatePage />,
+      },
       // 数量表一覧
       // REQ-1.4: 数量表一覧画面への遷移リンク
       // REQ-2.3: プロジェクトに紐づく全ての数量表を作成日時順に一覧表示する
