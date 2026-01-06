@@ -9,7 +9,7 @@
  * - 7.3: 小項目フィールドで大項目・中項目に紐づく候補を表示
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
@@ -25,6 +25,10 @@ vi.mock('../../hooks/useAutocomplete', () => ({
 }));
 
 describe('EditableQuantityItemRow', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   const mockItem: QuantityItemDetail = {
     id: 'item-1',
     quantityGroupId: 'group-1',

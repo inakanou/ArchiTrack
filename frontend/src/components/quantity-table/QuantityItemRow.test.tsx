@@ -10,7 +10,7 @@
  * - 6.1: 選択した数量項目をコピーする
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import QuantityItemRow from './QuantityItemRow';
@@ -40,6 +40,10 @@ const mockItem: QuantityItemDetail = {
 };
 
 describe('QuantityItemRow', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   // ====================================================================
   // Task 5.3: 数量項目行コンポーネントを実装する
   // ====================================================================

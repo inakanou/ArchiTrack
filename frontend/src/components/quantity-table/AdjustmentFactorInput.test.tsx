@@ -11,12 +11,16 @@
  * - 9.5: 調整係数が設定されている状態で、計算元の値変更時に調整係数を適用した数量を自動再計算する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import AdjustmentFactorInput, { type AdjustmentFactorInputMeta } from './AdjustmentFactorInput';
 
 describe('AdjustmentFactorInput', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   // ============================================================================
   // 表示テスト
   // ============================================================================

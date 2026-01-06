@@ -12,7 +12,7 @@
  * - 2.5: 数量表名を編集する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableListPage from './QuantityTableListPage';
@@ -64,6 +64,10 @@ const renderWithRouter = (projectId: string = 'project-123') => {
 
 describe('QuantityTableListPage', () => {
   beforeEach(() => {
+    // Setup logic can go here if needed
+  });
+
+  afterEach(() => {
     vi.clearAllMocks();
   });
 

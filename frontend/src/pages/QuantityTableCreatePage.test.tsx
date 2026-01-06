@@ -9,7 +9,7 @@
  * - 12.3: パンくずナビゲーション「プロジェクト一覧 > {プロジェクト名} > 数量表 > 新規作成」
  */
 
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import QuantityTableCreatePage from './QuantityTableCreatePage';
@@ -67,10 +67,13 @@ function renderWithRouter() {
 
 describe('QuantityTableCreatePage', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     (useNavigate as Mock).mockReturnValue(mockNavigate);
     (useParams as Mock).mockReturnValue({ projectId: 'project-123' });
     (projectsApi.getProject as Mock).mockResolvedValue(mockProject);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
   });
 
   describe('画面表示', () => {

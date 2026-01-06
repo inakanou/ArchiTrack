@@ -11,7 +11,7 @@
  * - 4.5: 数量グループの削除操作を行う
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -121,6 +121,10 @@ function renderWithRouter(ui: React.ReactElement) {
 }
 
 describe('QuantityGroupCard', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   // ====================================================================
   // Task 5.2: 数量グループコンポーネントを実装する
   // ====================================================================

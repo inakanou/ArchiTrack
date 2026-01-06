@@ -9,7 +9,7 @@
  * - 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
@@ -144,6 +144,10 @@ function renderWithRouter(tableId: string = 'qt-123') {
 
 describe('QuantityTableEditPage', () => {
   beforeEach(() => {
+    // Setup logic can go here if needed
+  });
+
+  afterEach(() => {
     vi.clearAllMocks();
   });
 

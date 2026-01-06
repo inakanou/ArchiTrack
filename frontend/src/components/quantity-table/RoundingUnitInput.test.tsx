@@ -11,12 +11,16 @@
  * - 10.5: 丸め設定が設定されている状態で、調整係数適用後の値変更時に丸め処理を自動再実行する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import RoundingUnitInput, { type RoundingUnitInputMeta } from './RoundingUnitInput';
 
 describe('RoundingUnitInput', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   // ============================================================================
   // 表示テスト
   // ============================================================================

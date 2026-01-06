@@ -9,12 +9,16 @@
  * - 8.4: 数量フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import QuantityInput, { type QuantityInputMeta } from './QuantityInput';
 
 describe('QuantityInput', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   // ============================================================================
   // 表示テスト
   // ============================================================================

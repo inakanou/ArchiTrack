@@ -11,7 +11,7 @@
  * - 8.11: 計算用列の値変更時に数量を自動再計算する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import CalculationFields from './CalculationFields';
@@ -19,6 +19,10 @@ import type { AreaVolumeParams, PitchParams } from '../../utils/calculation-engi
 import type { CalculationParams } from '../../types/quantity-edit.types';
 
 describe('CalculationFields', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   // ============================================================================
   // 面積・体積モード表示テスト（Requirement 8.5）
   // ============================================================================

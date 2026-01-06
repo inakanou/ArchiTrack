@@ -9,13 +9,17 @@
  * - 8.8: 「ピッチ」が選択された場合、計算用列として「範囲長」「端長1」「端長2」「ピッチ長」「長さ」「重量」入力フィールドを表示する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import CalculationMethodSelect from './CalculationMethodSelect';
 import type { CalculationMethod } from '../../types/quantity-edit.types';
 
 describe('CalculationMethodSelect', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   // ============================================================================
   // 表示テスト
   // ============================================================================
