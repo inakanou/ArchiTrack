@@ -17,7 +17,7 @@ const commonTestConfig = {
   pool: 'forks' as const,
   poolOptions: {
     forks: {
-      maxForks: 2,
+      maxForks: 1,
       minForks: 1,
       isolate: true,
     },
