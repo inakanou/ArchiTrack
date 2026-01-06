@@ -34,7 +34,10 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: {
       forks: {
-        singleFork: true, // 1つのforkでシーケンシャルに実行
+        // 各テストファイルを別々のforkで実行し、完了後にメモリを解放
+        // maxForks: 1 により同時実行を1つに制限
+        maxForks: 1,
+        minForks: 1,
         isolate: true, // 各テストファイルを分離
       },
     },
