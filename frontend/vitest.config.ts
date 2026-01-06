@@ -14,6 +14,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['**/node_modules/**'],
     // ============================================================================
     // Reporter設定（進捗表示の改善）
     // ============================================================================

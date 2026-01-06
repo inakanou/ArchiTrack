@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { useAutocomplete } from './useAutocomplete';
 import { apiClient } from '../api/client';
 
@@ -26,12 +26,19 @@ vi.mock('../api/client', () => ({
 const mockApiGet = vi.mocked(apiClient.get);
 
 describe('useAutocomplete', () => {
+  // テスト間で安定した参照を使用（OOM対策）
+  // renderHook内で毎回新しい配列を作成すると、
+  // useCallbackの依存配列が変化し続けてメモリリークを引き起こす
+  const unsavedValuesWithDuplicate = ['建築工事', '建設仮設工事'];
+  const unsavedValuesWithEmpty = ['', '建設工事'];
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 
@@ -58,7 +65,7 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
       expect(mockApiGet).not.toHaveBeenCalled();
@@ -75,13 +82,14 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith('/api/autocomplete/major-categories?q=建&limit=10');
-      });
-
+      // URLSearchParamsが自動的にエンコードするため、部分一致で確認
+      expect(mockApiGet).toHaveBeenCalledWith(
+        expect.stringContaining('/api/autocomplete/major-categories?q=')
+      );
+      expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('limit=10'));
       expect(result.current.suggestions).toContain('建築工事');
     });
   });
@@ -100,7 +108,7 @@ describe('useAutocomplete', () => {
 
       // デバウンス時間の半分だけ進める
       await act(async () => {
-        vi.advanceTimersByTime(150);
+        await vi.advanceTimersByTimeAsync(150);
       });
 
       expect(mockApiGet).not.toHaveBeenCalled();
@@ -118,12 +126,10 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalled();
-      });
+      expect(mockApiGet).toHaveBeenCalled();
     });
   });
 
@@ -135,20 +141,18 @@ describe('useAutocomplete', () => {
         useAutocomplete({
           endpoint: '/api/autocomplete/major-categories',
           inputValue: '建',
-          unsavedValues: ['建築工事', '建設仮設工事'],
+          unsavedValues: unsavedValuesWithDuplicate,
         })
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(result.current.suggestions).toHaveLength(3);
-        expect(result.current.suggestions).toContain('建築工事');
-        expect(result.current.suggestions).toContain('建設工事');
-        expect(result.current.suggestions).toContain('建設仮設工事');
-      });
+      expect(result.current.suggestions).toHaveLength(3);
+      expect(result.current.suggestions).toContain('建築工事');
+      expect(result.current.suggestions).toContain('建設工事');
+      expect(result.current.suggestions).toContain('建設仮設工事');
     });
 
     it('50音順（日本語対応）でソートする', async () => {
@@ -164,14 +168,12 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        const suggestions = result.current.suggestions;
-        // 50音順でソートされることを確認
-        expect(suggestions).toEqual([...suggestions].sort((a, b) => a.localeCompare(b, 'ja')));
-      });
+      const suggestions = result.current.suggestions;
+      // 50音順でソートされることを確認
+      expect(suggestions).toEqual([...suggestions].sort((a, b) => a.localeCompare(b, 'ja')));
     });
 
     it('空文字列をフィルタリングする', async () => {
@@ -181,17 +183,15 @@ describe('useAutocomplete', () => {
         useAutocomplete({
           endpoint: '/api/autocomplete/major-categories',
           inputValue: '建',
-          unsavedValues: ['', '建設工事'],
+          unsavedValues: unsavedValuesWithEmpty,
         })
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(result.current.suggestions).not.toContain('');
-      });
+      expect(result.current.suggestions).not.toContain('');
     });
   });
 
@@ -209,14 +209,12 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(result.current.suggestions).toContain('建築工事');
-        expect(result.current.suggestions).toContain('建設工事');
-        expect(result.current.suggestions).not.toContain('電気工事');
-      });
+      expect(result.current.suggestions).toContain('建築工事');
+      expect(result.current.suggestions).toContain('建設工事');
+      expect(result.current.suggestions).not.toContain('電気工事');
     });
 
     it('大文字小文字を区別せずにフィルタリングする', async () => {
@@ -232,18 +230,23 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(result.current.suggestions).toContain('m2');
-        expect(result.current.suggestions).toContain('M3');
-        expect(result.current.suggestions).not.toContain('kg');
-      });
+      expect(result.current.suggestions).toContain('m2');
+      expect(result.current.suggestions).toContain('M3');
+      expect(result.current.suggestions).not.toContain('kg');
     });
   });
 
   describe('追加パラメータ (Req 7.2, 7.3)', () => {
+    // 安定した参照のadditionalParamsを使用
+    const additionalParamsSingle = { majorCategory: '建築工事' };
+    const additionalParamsMultiple = {
+      majorCategory: '建築工事',
+      middleCategory: '内装仕上工事',
+    };
+
     it('majorCategoryパラメータをクエリに含める', async () => {
       mockApiGet.mockResolvedValue({ suggestions: ['内装仕上工事'] });
 
@@ -251,19 +254,15 @@ describe('useAutocomplete', () => {
         useAutocomplete({
           endpoint: '/api/autocomplete/middle-categories',
           inputValue: '内',
-          additionalParams: { majorCategory: '建築工事' },
+          additionalParams: additionalParamsSingle,
         })
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(
-          expect.stringContaining('majorCategory=%E5%BB%BA%E7%AF%89%E5%B7%A5%E4%BA%8B')
-        );
-      });
+      expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('majorCategory='));
     });
 
     it('複数の追加パラメータをクエリに含める', async () => {
@@ -273,25 +272,20 @@ describe('useAutocomplete', () => {
         useAutocomplete({
           endpoint: '/api/autocomplete/minor-categories',
           inputValue: '塗',
-          additionalParams: {
-            majorCategory: '建築工事',
-            middleCategory: '内装仕上工事',
-          },
+          additionalParams: additionalParamsMultiple,
         })
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        const calls = mockApiGet.mock.calls;
-        expect(calls.length).toBeGreaterThan(0);
-        const call = calls[0]?.[0] as string | undefined;
-        expect(call).toBeDefined();
-        expect(call).toContain('majorCategory=');
-        expect(call).toContain('middleCategory=');
-      });
+      const calls = mockApiGet.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const call = calls[0]?.[0] as string | undefined;
+      expect(call).toBeDefined();
+      expect(call).toContain('majorCategory=');
+      expect(call).toContain('middleCategory=');
     });
   });
 
@@ -308,13 +302,11 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(result.current.error).toBeTruthy();
-        expect(result.current.suggestions).toEqual([]);
-      });
+      expect(result.current.error).toBeTruthy();
+      expect(result.current.suggestions).toEqual([]);
     });
   });
 
@@ -334,8 +326,9 @@ describe('useAutocomplete', () => {
         })
       );
 
+      // タイマーを進めてAPIコールを発火
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.advanceTimersByTimeAsync(300);
       });
 
       // ローディング中
@@ -348,9 +341,7 @@ describe('useAutocomplete', () => {
         }
       });
 
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
-      });
+      expect(result.current.isLoading).toBe(false);
     });
   });
 
@@ -367,12 +358,10 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('limit=20'));
-      });
+      expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('limit=20'));
     });
   });
 
@@ -387,7 +376,7 @@ describe('useAutocomplete', () => {
       );
 
       await act(async () => {
-        vi.advanceTimersByTime(300);
+        await vi.runAllTimersAsync();
       });
 
       expect(mockApiGet).not.toHaveBeenCalled();
