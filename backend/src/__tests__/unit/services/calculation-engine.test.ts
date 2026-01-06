@@ -419,6 +419,30 @@ describe('CalculationEngine', () => {
       expect(formula).toBe('10 x 5 x 3 = 150');
     });
 
+    it('面積・体積モードで重量のみの計算式を生成する', () => {
+      // Arrange
+      const params: AreaVolumeParams = {
+        weight: new Decimal(25),
+      };
+
+      // Act
+      const formula = engine.generateAreaVolumeFormula(params);
+
+      // Assert
+      expect(formula).toBe('25 = 25');
+    });
+
+    it('面積・体積モードで全項目未入力の場合、0を返す', () => {
+      // Arrange
+      const params: AreaVolumeParams = {};
+
+      // Act
+      const formula = engine.generateAreaVolumeFormula(params);
+
+      // Assert
+      expect(formula).toBe('0');
+    });
+
     it('ピッチモードの計算式を生成する', () => {
       // Arrange
       const params: PitchParams = {
@@ -436,6 +460,129 @@ describe('CalculationEngine', () => {
       expect(formula).toContain('floor((10 - 1 - 1) / 2) + 1');
       expect(formula).toContain('= 5');
       expect(formula).toContain('x 1.5');
+    });
+
+    it('ピッチモードで重量も指定された場合の計算式を生成する', () => {
+      // Arrange
+      const params: PitchParams = {
+        rangeLength: new Decimal(10),
+        endLength1: new Decimal(1),
+        endLength2: new Decimal(1),
+        pitchLength: new Decimal(2),
+        length: new Decimal('1.5'),
+        weight: new Decimal('2.5'),
+      };
+
+      // Act
+      const formula = engine.generatePitchFormula(params);
+
+      // Assert
+      expect(formula).toContain('floor((10 - 1 - 1) / 2) + 1');
+      expect(formula).toContain('= 5');
+      expect(formula).toContain('x 1.5');
+      expect(formula).toContain('x 2.5');
+    });
+
+    it('ピッチモードで有効範囲が0以下の場合の計算式を生成する', () => {
+      // Arrange
+      const params: PitchParams = {
+        rangeLength: new Decimal(5),
+        endLength1: new Decimal(3),
+        endLength2: new Decimal(3),
+        pitchLength: new Decimal(2),
+      };
+
+      // Act
+      const formula = engine.generatePitchFormula(params);
+
+      // Assert
+      expect(formula).toContain('= 1'); // 本数は最低1
+    });
+  });
+
+  describe('calculate - additional cases', () => {
+    it('標準モードでquantityが未定義の場合、0を返す', () => {
+      // Arrange
+      const input: CalculationInput = {
+        method: CalculationMethod.STANDARD,
+        params: {},
+        quantity: undefined,
+        adjustmentFactor: new Decimal(1),
+        roundingUnit: new Decimal('0.01'),
+      };
+
+      // Act
+      const result = engine.calculate(input);
+
+      // Assert
+      expect(result.rawValue.toString()).toBe('0');
+      expect(result.finalValue.toString()).toBe('0');
+      expect(result.formula).toBe('0');
+    });
+
+    it('未知の計算方法の場合、デフォルトで0を返す', () => {
+      // Arrange
+      const input: CalculationInput = {
+        method: 'UNKNOWN' as CalculationMethod,
+        params: {},
+        adjustmentFactor: new Decimal(1),
+        roundingUnit: new Decimal('0.01'),
+      };
+
+      // Act
+      const result = engine.calculate(input);
+
+      // Assert
+      expect(result.rawValue.toString()).toBe('0');
+      expect(result.finalValue.toString()).toBe('0');
+      expect(result.formula).toBe('0');
+    });
+  });
+
+  describe('calculatePitch - additional cases', () => {
+    it('ピッチ計算で重量のみが指定された場合（長さなし）、本数に重量を乗算する', () => {
+      // Arrange
+      // 本数 = 5, 重量 = 2.5kg
+      // 結果 = 5 * 2.5 = 12.5
+      const params: PitchParams = {
+        rangeLength: new Decimal(10),
+        endLength1: new Decimal(1),
+        endLength2: new Decimal(1),
+        pitchLength: new Decimal(2),
+        weight: new Decimal('2.5'),
+      };
+
+      // Act
+      const result = engine.calculatePitch(params);
+
+      // Assert
+      expect(result.toString()).toBe('12.5');
+    });
+
+    it('ピッチ長が負の場合、エラーをスローする', () => {
+      // Arrange
+      const params: PitchParams = {
+        rangeLength: new Decimal(10),
+        endLength1: new Decimal(1),
+        endLength2: new Decimal(1),
+        pitchLength: new Decimal(-1),
+      };
+
+      // Act & Assert
+      expect(() => engine.calculatePitch(params)).toThrow('pitchLength must be greater than 0');
+    });
+  });
+
+  describe('applyRounding - additional cases', () => {
+    it('負の丸め単位の場合、エラーをスローする', () => {
+      // Arrange
+      const value = new Decimal(10);
+      const unit = new Decimal(-0.1);
+
+      // Act & Assert
+      expect(() => engine.applyRounding(value, unit)).toThrow(
+        'rounding unit must be greater than 0'
+      );
     });
   });
 });

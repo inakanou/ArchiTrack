@@ -490,4 +490,302 @@ describe('QuantityGroupService', () => {
       );
     });
   });
+
+  describe('findById - additional cases', () => {
+    const groupId = '123e4567-e89b-12d3-a456-426614174002';
+
+    it('論理削除された数量表のグループはnullを返す', async () => {
+      // Arrange
+      const group = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityTable: { id: '123e4567-e89b-12d3-a456-426614174000', deletedAt: new Date() },
+        surveyImage: null,
+        items: [],
+        _count: { items: 0 },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(group);
+
+      // Act
+      const result = await service.findById(groupId);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('項目を持つグループを取得できる（Decimal型のquantity）', async () => {
+      // Arrange
+      const group = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityTable: { id: '123e4567-e89b-12d3-a456-426614174000', deletedAt: null },
+        surveyImage: null,
+        items: [
+          {
+            id: 'item-1',
+            name: '項目1',
+            unit: 'm3',
+            quantity: { toString: () => '100.5' },
+            displayOrder: 0,
+          },
+          { id: 'item-2', name: '項目2', unit: 'm2', quantity: 50, displayOrder: 1 },
+        ],
+        _count: { items: 2 },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(group);
+
+      // Act
+      const result = await service.findById(groupId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.items).toHaveLength(2);
+      expect(result!.items[0]!.quantity).toBe(100.5);
+      expect(result!.items[1]!.quantity).toBe(50);
+    });
+  });
+
+  describe('update - additional cases', () => {
+    const groupId = '123e4567-e89b-12d3-a456-426614174002';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+    const expectedUpdatedAt = new Date('2026-01-06T00:00:00.000Z');
+
+    it('存在しないグループの更新はエラーをスローする', async () => {
+      // Arrange
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(
+        service.update(groupId, { name: '新名称' }, actorId, expectedUpdatedAt)
+      ).rejects.toThrow('数量グループが見つかりません');
+    });
+
+    it('論理削除された数量表のグループ更新はエラーをスローする', async () => {
+      // Arrange
+      const existingGroup = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityTable: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          deletedAt: new Date(), // 論理削除済み
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+        },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(existingGroup);
+
+      // Act & Assert
+      await expect(
+        service.update(groupId, { name: '新名称' }, actorId, expectedUpdatedAt)
+      ).rejects.toThrow('数量グループが見つかりません');
+    });
+
+    it('名前と表示順序を更新できる', async () => {
+      // Arrange
+      const existingGroup = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityTable: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          deletedAt: null,
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+        },
+      };
+
+      const updatedGroup = {
+        ...existingGroup,
+        name: '新しい名称',
+        displayOrder: 5,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+        _count: { items: 0 },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(existingGroup);
+      mockPrisma.quantityGroup.update.mockResolvedValue(updatedGroup);
+
+      // Act
+      const result = await service.update(
+        groupId,
+        { name: '新しい名称', displayOrder: 5 },
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result.name).toBe('新しい名称');
+      expect(result.displayOrder).toBe(5);
+    });
+
+    it('名前をnullに設定できる', async () => {
+      // Arrange
+      const existingGroup = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityTable: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          deletedAt: null,
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+        },
+      };
+
+      const updatedGroup = {
+        ...existingGroup,
+        name: null,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+        _count: { items: 0 },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(existingGroup);
+      mockPrisma.quantityGroup.update.mockResolvedValue(updatedGroup);
+
+      // Act
+      const result = await service.update(groupId, { name: null }, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(result.name).toBeNull();
+    });
+  });
+
+  describe('updateDisplayOrder - additional cases', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174000';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+
+    it('異なる数量表のグループが含まれる場合はエラーをスローする', async () => {
+      // Arrange
+      const differentTableId = '123e4567-e89b-12d3-a456-426614174099';
+      const orderUpdates = [
+        { id: '123e4567-e89b-12d3-a456-426614174002', displayOrder: 1 },
+        { id: '123e4567-e89b-12d3-a456-426614174003', displayOrder: 0 },
+      ];
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+
+      mockPrisma.quantityGroup.findMany.mockResolvedValue([
+        { id: '123e4567-e89b-12d3-a456-426614174002', quantityTableId },
+        { id: '123e4567-e89b-12d3-a456-426614174003', quantityTableId: differentTableId }, // 異なる数量表
+      ]);
+
+      // Act & Assert
+      await expect(
+        service.updateDisplayOrder(quantityTableId, orderUpdates, actorId)
+      ).rejects.toThrow('異なる数量表のグループが含まれています');
+    });
+  });
+
+  describe('create - additional cases', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174000';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+
+    it('数量表が論理削除されている場合はエラーをスローする', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: new Date(), // 論理削除済み
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+
+      // Act & Assert
+      await expect(
+        service.create({ quantityTableId, name: 'テスト', displayOrder: 0 }, actorId)
+      ).rejects.toThrow('数量表が見つかりません');
+    });
+
+    it('指定したdisplayOrderで作成される', async () => {
+      // Arrange
+      const input = {
+        quantityTableId,
+        name: 'テストグループ',
+        displayOrder: 3,
+      };
+
+      const createdGroup = {
+        id: '123e4567-e89b-12d3-a456-426614174002',
+        quantityTableId,
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 3,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        _count: { items: 0 },
+      };
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+
+      mockPrisma.quantityGroup.create.mockResolvedValue(createdGroup);
+
+      // Act
+      const result = await service.create(input, actorId);
+
+      // Assert
+      expect(result.displayOrder).toBe(3);
+    });
+
+    it('名前がnullの場合でも作成できる', async () => {
+      // Arrange
+      const input = {
+        quantityTableId,
+        displayOrder: 0,
+      };
+
+      const createdGroup = {
+        id: '123e4567-e89b-12d3-a456-426614174002',
+        quantityTableId,
+        name: null,
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        _count: { items: 0 },
+      };
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+
+      mockPrisma.quantityGroup.create.mockResolvedValue(createdGroup);
+
+      // Act
+      const result = await service.create(input, actorId);
+
+      // Assert
+      expect(result.name).toBeNull();
+    });
+  });
 });

@@ -267,6 +267,83 @@ describe('QuantityItemService', () => {
       // Assert
       expect(result).toBeNull();
     });
+
+    it('論理削除された数量表の項目の場合はnullを返す', async () => {
+      // Arrange
+      const item = {
+        id: itemId,
+        quantityGroupId: '123e4567-e89b-12d3-a456-426614174000',
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityGroup: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          quantityTable: { deletedAt: new Date() }, // 論理削除済み
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(item);
+
+      // Act
+      const result = await service.findById(itemId);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('number型のadjustmentFactor, roundingUnit, quantityを正しく変換できる', async () => {
+      // Arrange
+      const item = {
+        id: itemId,
+        quantityGroupId: '123e4567-e89b-12d3-a456-426614174000',
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: 1.5, // number型
+        roundingUnit: 0.1, // number型
+        quantity: 200, // number型
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityGroup: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          quantityTable: { deletedAt: null },
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(item);
+
+      // Act
+      const result = await service.findById(itemId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.adjustmentFactor).toBe(1.5);
+      expect(result!.roundingUnit).toBe(0.1);
+      expect(result!.quantity).toBe(200);
+    });
   });
 
   describe('findByGroupId', () => {
@@ -523,6 +600,30 @@ describe('QuantityItemService', () => {
       // Assert
       expect(mockPrisma.quantityItem.update).toHaveBeenCalledTimes(2);
     });
+
+    it('異なるグループの項目が含まれる場合はエラーをスローする', async () => {
+      // Arrange
+      const differentGroupId = '123e4567-e89b-12d3-a456-426614174099';
+      const orderUpdates = [
+        { id: '123e4567-e89b-12d3-a456-426614174002', displayOrder: 1 },
+        { id: '123e4567-e89b-12d3-a456-426614174003', displayOrder: 0 },
+      ];
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+        id: groupId,
+        quantityTable: { deletedAt: null },
+      });
+
+      mockPrisma.quantityItem.findMany.mockResolvedValue([
+        { id: '123e4567-e89b-12d3-a456-426614174002', quantityGroupId: groupId },
+        { id: '123e4567-e89b-12d3-a456-426614174003', quantityGroupId: differentGroupId }, // 異なるグループ
+      ]);
+
+      // Act & Assert
+      await expect(service.updateDisplayOrder(groupId, orderUpdates, actorId)).rejects.toThrow(
+        '異なる数量グループの項目が含まれています'
+      );
+    });
   });
 
   describe('copy', () => {
@@ -721,6 +822,117 @@ describe('QuantityItemService', () => {
         '異なる数量表のグループへは移動できません'
       );
     });
+
+    it('存在しない項目の移動はエラーをスローする', async () => {
+      // Arrange
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.move(itemId, targetGroupId, 0, actorId)).rejects.toThrow(
+        '数量項目が見つかりません'
+      );
+    });
+
+    it('論理削除された数量表の項目の移動はエラーをスローする', async () => {
+      // Arrange
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: sourceGroupId,
+        majorCategory: '土工事',
+        quantityGroup: {
+          id: sourceGroupId,
+          quantityTableId: '123e4567-e89b-12d3-a456-426614174020',
+          quantityTable: { deletedAt: new Date() }, // 論理削除済み
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+
+      // Act & Assert
+      await expect(service.move(itemId, targetGroupId, 0, actorId)).rejects.toThrow(
+        '数量項目が見つかりません'
+      );
+    });
+
+    it('存在しない移動先グループの場合はエラーをスローする', async () => {
+      // Arrange
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: sourceGroupId,
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityGroup: {
+          id: sourceGroupId,
+          quantityTableId: '123e4567-e89b-12d3-a456-426614174020',
+          quantityTable: { deletedAt: null },
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.move(itemId, targetGroupId, 0, actorId)).rejects.toThrow(
+        '数量グループが見つかりません'
+      );
+    });
+
+    it('論理削除された移動先グループの場合はエラーをスローする', async () => {
+      // Arrange
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: sourceGroupId,
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityGroup: {
+          id: sourceGroupId,
+          quantityTableId: '123e4567-e89b-12d3-a456-426614174020',
+          quantityTable: { deletedAt: null },
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+        id: targetGroupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174020',
+        quantityTable: { deletedAt: new Date() }, // 論理削除済み
+      });
+
+      // Act & Assert
+      await expect(service.move(itemId, targetGroupId, 0, actorId)).rejects.toThrow(
+        '数量グループが見つかりません'
+      );
+    });
   });
 
   describe('bulkCopy', () => {
@@ -802,6 +1014,82 @@ describe('QuantityItemService', () => {
       expect(result).toHaveLength(2);
       expect(mockPrisma.quantityItem.create).toHaveBeenCalledTimes(2);
     });
+
+    it('論理削除された数量表の項目はスキップされる', async () => {
+      // Arrange
+      const itemIds = [
+        '123e4567-e89b-12d3-a456-426614174002',
+        '123e4567-e89b-12d3-a456-426614174003',
+      ];
+
+      const existingItems = [
+        {
+          id: itemIds[0],
+          quantityGroupId: groupId,
+          majorCategory: '土工事',
+          middleCategory: null,
+          minorCategory: null,
+          customCategory: null,
+          workType: '掘削',
+          name: '掘削作業1',
+          specification: null,
+          unit: 'm3',
+          calculationMethod: 'STANDARD',
+          calculationParams: null,
+          adjustmentFactor: new Decimal('1.0000'),
+          roundingUnit: new Decimal('0.0100'),
+          quantity: new Decimal('100.0000'),
+          remarks: null,
+          displayOrder: 0,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          quantityGroup: {
+            id: groupId,
+            quantityTable: { deletedAt: new Date() }, // 論理削除済み
+          },
+        },
+        {
+          id: itemIds[1],
+          quantityGroupId: groupId,
+          majorCategory: '土工事',
+          middleCategory: null,
+          minorCategory: null,
+          customCategory: null,
+          workType: '掘削',
+          name: '掘削作業2',
+          specification: null,
+          unit: 'm3',
+          calculationMethod: 'STANDARD',
+          calculationParams: null,
+          adjustmentFactor: new Decimal('1.0000'),
+          roundingUnit: new Decimal('0.0100'),
+          quantity: new Decimal('200.0000'),
+          remarks: null,
+          displayOrder: 1,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          quantityGroup: {
+            id: groupId,
+            quantityTable: { deletedAt: null },
+          },
+        },
+      ];
+
+      mockPrisma.quantityItem.findMany.mockResolvedValue(existingItems);
+      mockPrisma.quantityItem.count.mockResolvedValue(2);
+      mockPrisma.quantityItem.create.mockResolvedValue({
+        ...existingItems[1],
+        id: 'new-id-2',
+        displayOrder: 2,
+      });
+
+      // Act
+      const result = await service.bulkCopy(itemIds, actorId);
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(mockPrisma.quantityItem.create).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('bulkMove', () => {
@@ -855,6 +1143,288 @@ describe('QuantityItemService', () => {
 
       // Assert
       expect(mockPrisma.quantityItem.update).toHaveBeenCalledTimes(2);
+    });
+
+    it('存在しない移動先グループの場合はエラーをスローする', async () => {
+      // Arrange
+      const itemIds = [
+        '123e4567-e89b-12d3-a456-426614174002',
+        '123e4567-e89b-12d3-a456-426614174003',
+      ];
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.bulkMove(itemIds, targetGroupId, actorId)).rejects.toThrow(
+        '数量グループが見つかりません'
+      );
+    });
+
+    it('論理削除された移動先グループの場合はエラーをスローする', async () => {
+      // Arrange
+      const itemIds = [
+        '123e4567-e89b-12d3-a456-426614174002',
+        '123e4567-e89b-12d3-a456-426614174003',
+      ];
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+        id: targetGroupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174020',
+        quantityTable: { deletedAt: new Date() }, // 論理削除済み
+      });
+
+      // Act & Assert
+      await expect(service.bulkMove(itemIds, targetGroupId, actorId)).rejects.toThrow(
+        '数量グループが見つかりません'
+      );
+    });
+
+    it('異なる数量表の項目が含まれる場合はエラーをスローする', async () => {
+      // Arrange
+      const itemIds = [
+        '123e4567-e89b-12d3-a456-426614174002',
+        '123e4567-e89b-12d3-a456-426614174003',
+      ];
+
+      const existingItems = [
+        {
+          id: itemIds[0],
+          quantityGroupId: sourceGroupId,
+          majorCategory: '土工事',
+          displayOrder: 0,
+          quantityGroup: {
+            id: sourceGroupId,
+            quantityTableId: 'different-table-id', // 異なる数量表
+            quantityTable: { deletedAt: null },
+          },
+        },
+        {
+          id: itemIds[1],
+          quantityGroupId: sourceGroupId,
+          majorCategory: '土工事',
+          displayOrder: 1,
+          quantityGroup: {
+            id: sourceGroupId,
+            quantityTableId: '123e4567-e89b-12d3-a456-426614174020',
+            quantityTable: { deletedAt: null },
+          },
+        },
+      ];
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+        id: targetGroupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174020',
+        quantityTable: { deletedAt: null },
+      });
+      mockPrisma.quantityItem.findMany.mockResolvedValue(existingItems);
+
+      // Act & Assert
+      await expect(service.bulkMove(itemIds, targetGroupId, actorId)).rejects.toThrow(
+        '異なる数量表のグループへは移動できません'
+      );
+    });
+  });
+
+  describe('update - additional fields', () => {
+    const itemId = '123e4567-e89b-12d3-a456-426614174002';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+    const expectedUpdatedAt = new Date('2026-01-06T00:00:00.000Z');
+
+    it('全フィールドを更新できる（Requirements: 5.2）', async () => {
+      // Arrange
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: '123e4567-e89b-12d3-a456-426614174000',
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityGroup: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          quantityTable: { deletedAt: null },
+        },
+      };
+
+      const updatedItem = {
+        ...existingItem,
+        majorCategory: '新大項目',
+        middleCategory: '新中項目',
+        minorCategory: '新小項目',
+        customCategory: '新カスタム',
+        workType: '新工種',
+        name: '新名称',
+        specification: '新仕様',
+        unit: '新単位',
+        calculationMethod: 'AREA_VOLUME',
+        calculationParams: { width: 10, height: 5 },
+        adjustmentFactor: new Decimal('1.5000'),
+        roundingUnit: new Decimal('0.1000'),
+        quantity: new Decimal('150.0000'),
+        remarks: '新備考',
+        displayOrder: 5,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+      mockPrisma.quantityItem.update.mockResolvedValue(updatedItem);
+
+      // Act
+      const result = await service.update(
+        itemId,
+        {
+          majorCategory: '新大項目',
+          middleCategory: '新中項目',
+          minorCategory: '新小項目',
+          customCategory: '新カスタム',
+          workType: '新工種',
+          name: '新名称',
+          specification: '新仕様',
+          unit: '新単位',
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: { width: 10, height: 5 },
+          adjustmentFactor: 1.5,
+          roundingUnit: 0.1,
+          quantity: 150,
+          remarks: '新備考',
+          displayOrder: 5,
+        },
+        actorId,
+        expectedUpdatedAt
+      );
+
+      // Assert
+      expect(result.majorCategory).toBe('新大項目');
+      expect(result.middleCategory).toBe('新中項目');
+      expect(result.minorCategory).toBe('新小項目');
+      expect(result.customCategory).toBe('新カスタム');
+      expect(result.workType).toBe('新工種');
+      expect(result.name).toBe('新名称');
+      expect(result.specification).toBe('新仕様');
+      expect(result.unit).toBe('新単位');
+      expect(result.calculationMethod).toBe('AREA_VOLUME');
+      expect(result.remarks).toBe('新備考');
+      expect(result.displayOrder).toBe(5);
+    });
+
+    it('論理削除された数量表の項目更新はエラーをスローする', async () => {
+      // Arrange
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: '123e4567-e89b-12d3-a456-426614174000',
+        majorCategory: '土工事',
+        workType: '掘削',
+        name: '掘削作業',
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityGroup: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          quantityTable: { deletedAt: new Date() }, // 論理削除済み
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+
+      // Act & Assert
+      await expect(
+        service.update(itemId, { name: '新名称' }, actorId, expectedUpdatedAt)
+      ).rejects.toThrow('数量項目が見つかりません');
+    });
+  });
+
+  describe('delete - additional cases', () => {
+    const itemId = '123e4567-e89b-12d3-a456-426614174002';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+
+    it('論理削除された数量表の項目削除はエラーをスローする', async () => {
+      // Arrange
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: '123e4567-e89b-12d3-a456-426614174000',
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityGroup: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          quantityTable: { deletedAt: new Date() }, // 論理削除済み
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+
+      // Act & Assert
+      await expect(service.delete(itemId, actorId)).rejects.toThrow('数量項目が見つかりません');
+    });
+  });
+
+  describe('copy - additional cases', () => {
+    const itemId = '123e4567-e89b-12d3-a456-426614174002';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+
+    it('論理削除された数量表の項目コピーはエラーをスローする', async () => {
+      // Arrange
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: '123e4567-e89b-12d3-a456-426614174000',
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityGroup: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          quantityTable: { deletedAt: new Date() }, // 論理削除済み
+        },
+      };
+
+      mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+
+      // Act & Assert
+      await expect(service.copy(itemId, actorId)).rejects.toThrow('数量項目が見つかりません');
     });
   });
 });
