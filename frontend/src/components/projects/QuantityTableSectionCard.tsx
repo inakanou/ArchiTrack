@@ -305,7 +305,12 @@ export function QuantityTableSectionCard({
   isLoading,
 }: QuantityTableSectionCardProps) {
   return (
-    <section style={styles.section} role="region" aria-labelledby="quantity-table-section-title">
+    <section
+      style={styles.section}
+      role="region"
+      aria-labelledby="quantity-table-section-title"
+      data-testid="quantity-table-section"
+    >
       <div style={styles.header}>
         <div style={styles.titleWrapper}>
           <h3 id="quantity-table-section-title" style={styles.title}>

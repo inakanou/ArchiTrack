@@ -224,6 +224,28 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'delete',
       description: 'プロジェクトの削除',
     },
+
+    // 数量表関連権限
+    {
+      resource: 'quantity_table',
+      action: 'create',
+      description: '数量表の作成',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'read',
+      description: '数量表の閲覧',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'update',
+      description: '数量表の更新',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'delete',
+      description: '数量表の削除',
+    },
   ];
 
   for (const permission of permissions) {
@@ -301,6 +323,11 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'project', action: 'create' },
     { resource: 'project', action: 'read' },
     { resource: 'project', action: 'update' },
+    // 数量表関連権限
+    { resource: 'quantity_table', action: 'create' },
+    { resource: 'quantity_table', action: 'read' },
+    { resource: 'quantity_table', action: 'update' },
+    { resource: 'quantity_table', action: 'delete' },
   ];
 
   for (const { resource, action } of basicPermissions) {

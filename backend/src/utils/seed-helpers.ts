@@ -281,6 +281,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '現場調査の削除',
     },
+
+    // 数量表関連権限（quantity-table-generation）
+    {
+      resource: 'quantity_table',
+      action: 'create',
+      description: '数量表の作成',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'read',
+      description: '数量表の閲覧',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'update',
+      description: '数量表の更新',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'delete',
+      description: '数量表の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -362,6 +384,12 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'site_survey', action: 'create' },
     { resource: 'site_survey', action: 'read' },
     { resource: 'site_survey', action: 'update' },
+    // 数量表関連権限（quantity-table-generation）
+    // 一般ユーザーは数量表の作成・閲覧・更新・削除が可能
+    { resource: 'quantity_table', action: 'create' },
+    { resource: 'quantity_table', action: 'read' },
+    { resource: 'quantity_table', action: 'update' },
+    { resource: 'quantity_table', action: 'delete' },
   ];
 
   // 権限IDを一括取得

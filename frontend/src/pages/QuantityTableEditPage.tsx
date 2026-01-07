@@ -315,9 +315,9 @@ export default function QuantityTableEditPage() {
   const groups = quantityTable.groups ?? [];
 
   return (
-    <main role="main" style={styles.container}>
+    <main role="main" style={styles.container} data-testid="quantity-table-edit-area">
       {/* パンくずナビゲーション */}
-      <nav aria-label="breadcrumb" style={styles.breadcrumbWrapper}>
+      <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
             { label: 'ダッシュボード', path: '/' },
@@ -327,7 +327,7 @@ export default function QuantityTableEditPage() {
             { label: quantityTable.name },
           ]}
         />
-      </nav>
+      </div>
 
       {/* ヘッダー */}
       <div style={styles.header}>
@@ -356,13 +356,14 @@ export default function QuantityTableEditPage() {
       {groups.length === 0 ? (
         <EmptyState onAddGroup={handleAddGroup} />
       ) : (
-        <div style={styles.groupList}>
+        <div style={styles.groupList} data-testid="quantity-group-section">
           {groups.map((group, index) => (
-            <QuantityGroupCard
-              key={group.id}
-              group={group}
-              groupDisplayName={getGroupDisplayName(group, index)}
-            />
+            <div key={group.id} data-testid="quantity-group">
+              <QuantityGroupCard
+                group={group}
+                groupDisplayName={getGroupDisplayName(group, index)}
+              />
+            </div>
           ))}
         </div>
       )}

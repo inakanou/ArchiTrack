@@ -434,7 +434,8 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
+      // 画像削除にはsite_survey:delete権限が必要なため、ADMIN_USERを使用
+      await loginAsUser(page, 'ADMIN_USER');
 
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
@@ -450,11 +451,10 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         .first()
         .getByRole('button', { name: /画像を削除/i });
 
-      // 削除ボタンが表示されない場合はテストをスキップ（読み取り専用モードの可能性）
+      // 削除ボタンが表示されることを確認
       const isDeleteButtonVisible = await deleteButton.isVisible().catch(() => false);
       if (!isDeleteButtonVisible) {
-        test.skip();
-        return;
+        throw new Error('削除ボタンが表示されていません。UIの状態が期待と異なります。');
       }
 
       await deleteButton.click();
@@ -478,7 +478,8 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
+      // 画像削除にはsite_survey:delete権限が必要なため、ADMIN_USERを使用
+      await loginAsUser(page, 'ADMIN_USER');
 
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
@@ -492,8 +493,9 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       const initialCount = await photoPanelItems.count();
 
       if (initialCount === 0) {
-        test.skip();
-        return;
+        throw new Error(
+          '画像アイテムが0件です。事前準備テストで画像が正しくアップロードされていません。'
+        );
       }
 
       // 削除ボタンをクリック
@@ -501,8 +503,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       const deleteButton = photoPanelItems.first().getByRole('button', { name: /画像を削除/i });
       const isDeleteButtonVisible = await deleteButton.isVisible().catch(() => false);
       if (!isDeleteButtonVisible) {
-        test.skip();
-        return;
+        throw new Error('削除ボタンが表示されていません。UIの状態が期待と異なります。');
       }
 
       await deleteButton.click();
@@ -669,8 +670,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         .catch(() => false);
 
       if (!hasImagesNow) {
-        test.skip();
-        return;
+        throw new Error('画像が見つかりません。アップロード処理が正しく完了していません。');
       }
 
       await imageButtonAfterUpload.click();

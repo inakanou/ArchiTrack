@@ -177,7 +177,7 @@ export async function getQuantityTable(id: string): Promise<QuantityTableInfo> {
  * console.log(detail.groups[0].items); // 項目一覧
  */
 export async function getQuantityTableDetail(id: string): Promise<QuantityTableDetail> {
-  return apiClient.get<QuantityTableDetail>(`/api/quantity-tables/${id}/detail`);
+  return apiClient.get<QuantityTableDetail>(`/api/quantity-tables/${id}`);
 }
 
 /**
