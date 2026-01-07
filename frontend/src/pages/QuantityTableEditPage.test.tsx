@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
 import * as quantityTablesApi from '../api/quantity-tables';
@@ -19,6 +20,9 @@ import type { QuantityTableDetail } from '../types/quantity-table.types';
 // APIモック
 vi.mock('../api/quantity-tables');
 const mockGetQuantityTableDetail = vi.mocked(quantityTablesApi.getQuantityTableDetail);
+const mockCreateQuantityGroup = vi.mocked(quantityTablesApi.createQuantityGroup);
+const mockDeleteQuantityGroup = vi.mocked(quantityTablesApi.deleteQuantityGroup);
+const mockCreateQuantityItem = vi.mocked(quantityTablesApi.createQuantityItem);
 
 // テストデータ
 const mockQuantityTableDetail: QuantityTableDetail = {
@@ -319,6 +323,365 @@ describe('QuantityTableEditPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/グループがありません/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // REQ 4.1: グループ追加機能
+  // ====================================================================
+
+  describe('REQ 4.1: グループ追加機能', () => {
+    it('グループを追加ボタンをクリックするとグループが追加される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockCreateQuantityGroup.mockResolvedValue({
+        id: 'group-new',
+        quantityTableId: 'qt-123',
+        name: null,
+        surveyImageId: null,
+        surveyImage: null,
+        displayOrder: 2,
+        itemCount: 0,
+        items: [],
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const addButton = screen.getByRole('button', { name: /グループを追加/ });
+      await user.click(addButton);
+
+      await waitFor(() => {
+        expect(mockCreateQuantityGroup).toHaveBeenCalledWith('qt-123', {
+          name: null,
+          displayOrder: 2,
+        });
+      });
+    });
+
+    it('グループ追加中はボタンが無効化される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockCreateQuantityGroup.mockImplementation(
+        () => new Promise(() => {}) // 永続的なpending
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const addButton = screen.getByRole('button', { name: /グループを追加/ });
+      await user.click(addButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /追加中/ })).toBeDisabled();
+      });
+    });
+
+    it('グループ追加に失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockCreateQuantityGroup.mockRejectedValue(new Error('Create failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const addButton = screen.getByRole('button', { name: /グループを追加/ });
+      await user.click(addButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/グループの追加に失敗しました/)).toBeInTheDocument();
+      });
+    });
+
+    it('空状態からグループを追加できる', async () => {
+      const user = userEvent.setup();
+      const emptyTable: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groupCount: 0,
+        itemCount: 0,
+        groups: [],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(emptyTable);
+      mockCreateQuantityGroup.mockResolvedValue({
+        id: 'group-new',
+        quantityTableId: 'qt-123',
+        name: null,
+        surveyImageId: null,
+        surveyImage: null,
+        displayOrder: 0,
+        itemCount: 0,
+        items: [],
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText(/グループがありません/)).toBeInTheDocument();
+      });
+
+      // 空状態のボタンをクリック
+      const addButtons = screen.getAllByRole('button', { name: /グループを追加/ });
+      const addButton = addButtons[0];
+      expect(addButton).toBeDefined();
+      await user.click(addButton!);
+
+      await waitFor(() => {
+        expect(mockCreateQuantityGroup).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ====================================================================
+  // REQ 4.5: グループ削除機能
+  // ====================================================================
+
+  describe('REQ 4.5: グループ削除機能', () => {
+    it('グループ削除ボタンをクリックすると確認ダイアログが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
+      const deleteButton = deleteButtons[0];
+      expect(deleteButton).toBeDefined();
+      await user.click(deleteButton!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByText(/グループを削除しますか？/)).toBeInTheDocument();
+      });
+    });
+
+    it('確認ダイアログでキャンセルするとダイアログが閉じる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
+      const deleteButton = deleteButtons[0];
+      expect(deleteButton).toBeDefined();
+      await user.click(deleteButton!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
+      await user.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
+    it('確認ダイアログで削除を実行するとグループが削除される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockDeleteQuantityGroup.mockResolvedValue();
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
+      const deleteButton = deleteButtons[0];
+      expect(deleteButton).toBeDefined();
+      await user.click(deleteButton!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole('button', { name: '削除する' });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(mockDeleteQuantityGroup).toHaveBeenCalledWith('group-1');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
+    it('グループ削除に失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockDeleteQuantityGroup.mockRejectedValue(new Error('Delete failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
+      const deleteButton = deleteButtons[0];
+      expect(deleteButton).toBeDefined();
+      await user.click(deleteButton!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole('button', { name: '削除する' });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/グループの削除に失敗しました/)).toBeInTheDocument();
+      });
+    });
+
+    it('ダイアログのオーバーレイをクリックするとダイアログが閉じる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
+      const deleteButton = deleteButtons[0];
+      expect(deleteButton).toBeDefined();
+      await user.click(deleteButton!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      // オーバーレイをクリック（role="dialog"の要素自体がオーバーレイ）
+      const overlay = screen.getByRole('dialog');
+      await user.click(overlay);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // REQ 5.1: 項目追加機能
+  // ====================================================================
+
+  describe('REQ 5.1: 項目追加機能', () => {
+    it('項目追加ボタンをクリックすると項目が追加される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockCreateQuantityItem.mockResolvedValue({
+        id: 'item-new',
+        quantityGroupId: 'group-1',
+        majorCategory: '未設定',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '未設定',
+        name: '新規項目',
+        specification: null,
+        unit: '式',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: 1.0,
+        roundingUnit: 0.01,
+        quantity: 0,
+        remarks: null,
+        displayOrder: 2,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const addItemButtons = screen.getAllByRole('button', { name: /項目を追加/ });
+      const addItemButton = addItemButtons[0];
+      expect(addItemButton).toBeDefined();
+      await user.click(addItemButton!);
+
+      await waitFor(() => {
+        expect(mockCreateQuantityItem).toHaveBeenCalledWith('group-1', {
+          majorCategory: '未設定',
+          workType: '未設定',
+          name: '新規項目',
+          unit: '式',
+          quantity: 0,
+          displayOrder: 2,
+        });
+      });
+    });
+
+    it('項目追加に失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockCreateQuantityItem.mockRejectedValue(new Error('Create failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const addItemButtons = screen.getAllByRole('button', { name: /項目を追加/ });
+      const addItemButton = addItemButtons[0];
+      expect(addItemButton).toBeDefined();
+      await user.click(addItemButton!);
+
+      await waitFor(() => {
+        expect(screen.getByText(/項目の追加に失敗しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // リトライ機能
+  // ====================================================================
+
+  describe('リトライ機能', () => {
+    it('再試行ボタンをクリックするとデータを再取得する', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText(/読み込みに失敗しました/)).toBeInTheDocument();
+      });
+
+      const retryButton = screen.getByRole('button', { name: /再試行/ });
+      await user.click(retryButton);
+
+      await waitFor(() => {
+        expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(2);
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('テスト数量表');
       });
     });
   });
