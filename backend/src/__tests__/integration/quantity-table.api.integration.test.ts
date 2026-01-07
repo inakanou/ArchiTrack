@@ -75,6 +75,19 @@ describe('Quantity Table API Integration Tests', () => {
       });
     }
 
+    // 数量表関連の権限を作成（seedPermissionsに含まれていないため）
+    const quantityTablePermissions = [
+      { resource: 'quantity_table', action: 'create', description: '数量表の作成' },
+      { resource: 'quantity_table', action: 'read', description: '数量表の閲覧' },
+      { resource: 'quantity_table', action: 'update', description: '数量表の更新' },
+      { resource: 'quantity_table', action: 'delete', description: '数量表の削除' },
+    ];
+
+    await prisma.permission.createMany({
+      data: quantityTablePermissions,
+      skipDuplicates: true,
+    });
+
     // 必要な権限を割り当て（プロジェクト、数量表関連）
     const permissions = await prisma.permission.findMany({
       where: {
