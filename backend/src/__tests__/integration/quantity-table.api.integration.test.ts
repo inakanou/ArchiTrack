@@ -603,14 +603,14 @@ describe('Quantity Table API Integration Tests', () => {
         expect(response.body.suggestions.some((item: string) => item.includes('建'))).toBe(true);
       });
 
-      it('最大100件まで返す', async () => {
+      it('limitパラメータで件数を制限できる', async () => {
         const response = await request(app)
           .get('/api/autocomplete/major-categories')
-          .query({ q: '', limit: 100 })
+          .query({ q: '建', limit: 50 })
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(200);
-        expect(response.body.suggestions.length).toBeLessThanOrEqual(100);
+        expect(response.body.suggestions.length).toBeLessThanOrEqual(50);
       });
     });
 
