@@ -205,7 +205,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('プロジェクトが存在しない場合は404を返す', async () => {
         const response = await request(app)
-          .post('/api/projects/non-existent-project-id/quantity-tables')
+          .post('/api/projects/00000000-0000-0000-0000-000000000000/quantity-tables')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'テスト数量表' });
 
@@ -302,7 +302,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('存在しない数量表の場合は404を返す', async () => {
         const response = await request(app)
-          .get('/api/quantity-tables/non-existent-id')
+          .get('/api/quantity-tables/00000000-0000-0000-0000-000000000000')
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
@@ -376,7 +376,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('存在しない数量表の削除は404を返す', async () => {
         const response = await request(app)
-          .delete('/api/quantity-tables/non-existent-id')
+          .delete('/api/quantity-tables/00000000-0000-0000-0000-000000000000')
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
@@ -417,7 +417,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('数量表が存在しない場合は404を返す', async () => {
         const response = await request(app)
-          .post('/api/quantity-tables/non-existent-id/groups')
+          .post('/api/quantity-tables/00000000-0000-0000-0000-000000000000/groups')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'テストグループ' });
 
