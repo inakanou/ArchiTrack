@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "playwright install chromium && npx prisma generate",
+    "postinstall": "npx prisma generate",
     "dev:docker": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up",
     "dev:docker:build": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up --build",
     "dev:docker:down": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev down",

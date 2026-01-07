@@ -4,7 +4,6 @@
   "description": "ArchiTrack Frontend",
   "type": "module",
   "scripts": {
-    "postinstall": "playwright install chromium",
     "dev": "vite",
     "build": "tsc && vite build",
     "build:analyze": "tsc && vite build --mode production && echo 'Bundle analysis report generated at dist/stats.html'",

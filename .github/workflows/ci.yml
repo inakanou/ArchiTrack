@@ -442,6 +442,9 @@ jobs:
 
       - name: Run database migrations
         run: docker exec architrack-backend npx prisma migrate deploy
+      - name: Install Playwright browsers for E2E
+        run: npx playwright install chromium --with-deps
+
       - name: Run E2E tests
         run: npx playwright test
         env:
