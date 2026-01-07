@@ -599,18 +599,18 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(200);
-        expect(response.body).toBeInstanceOf(Array);
-        expect(response.body.some((item: string) => item.includes('建'))).toBe(true);
+        expect(response.body.suggestions).toBeInstanceOf(Array);
+        expect(response.body.suggestions.some((item: string) => item.includes('建'))).toBe(true);
       });
 
       it('最大100件まで返す', async () => {
         const response = await request(app)
           .get('/api/autocomplete/major-categories')
-          .query({ q: '' })
+          .query({ q: '', limit: 100 })
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(200);
-        expect(response.body.length).toBeLessThanOrEqual(100);
+        expect(response.body.suggestions.length).toBeLessThanOrEqual(100);
       });
     });
 
@@ -622,7 +622,7 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(200);
-        expect(response.body).toBeInstanceOf(Array);
+        expect(response.body.suggestions).toBeInstanceOf(Array);
       });
     });
   });
