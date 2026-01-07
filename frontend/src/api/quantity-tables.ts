@@ -15,6 +15,7 @@ import type {
   QuantityTableInfo,
   QuantityTableDetail,
   QuantityGroupDetail,
+  QuantityItemDetail,
   CreateQuantityTableInput,
   UpdateQuantityTableInput,
   QuantityTableFilter,
@@ -303,4 +304,45 @@ export async function createQuantityGroup(
  */
 export async function deleteQuantityGroup(id: string): Promise<void> {
   return apiClient.delete<void>(`/api/quantity-groups/${id}`);
+}
+
+// ============================================================================
+// 数量項目API
+// ============================================================================
+
+/**
+ * 数量項目作成用入力型
+ */
+export interface CreateQuantityItemInput {
+  majorCategory: string;
+  middleCategory?: string | null;
+  minorCategory?: string | null;
+  customCategory?: string | null;
+  workType: string;
+  name: string;
+  specification?: string | null;
+  unit: string;
+  calculationMethod?: 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+  calculationParams?: Record<string, number> | null;
+  adjustmentFactor?: number;
+  roundingUnit?: number;
+  quantity: number;
+  remarks?: string | null;
+  displayOrder?: number;
+}
+
+/**
+ * 数量項目を作成する
+ *
+ * Requirements: 5.1
+ *
+ * @param groupId - グループID（UUID）
+ * @param input - 項目データ
+ * @returns 作成された項目
+ */
+export async function createQuantityItem(
+  groupId: string,
+  input: CreateQuantityItemInput
+): Promise<QuantityItemDetail> {
+  return apiClient.post<QuantityItemDetail>(`/api/quantity-groups/${groupId}/items`, input);
 }

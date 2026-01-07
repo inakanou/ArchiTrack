@@ -269,6 +269,7 @@ export default function QuantityItemRow({
     <div
       style={{ ...styles.row, ...(isSelected ? styles.rowSelected : {}) }}
       role="row"
+      data-testid="quantity-item-row"
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
           handleCloseMenu();

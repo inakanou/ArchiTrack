@@ -15,6 +15,7 @@ import {
   getQuantityTableDetail,
   createQuantityGroup,
   deleteQuantityGroup,
+  createQuantityItem,
 } from '../api/quantity-tables';
 import type { QuantityTableDetail, QuantityGroupDetail } from '../types/quantity-table.types';
 import { Breadcrumb } from '../components/common';
@@ -407,6 +408,59 @@ export default function QuantityTableEditPage() {
     }
   }, [groupToDelete, isDeletingGroup]);
 
+  /**
+   * 項目追加ハンドラ
+   *
+   * Requirements: 5.1
+   */
+  const handleAddItem = useCallback(
+    async (groupId: string) => {
+      setError(null);
+
+      try {
+        // 対象グループの現在の項目数を取得
+        const targetGroup = (quantityTable?.groups ?? []).find((g) => g.id === groupId);
+        const currentItems = targetGroup?.items ?? [];
+        const maxDisplayOrder = currentItems.reduce(
+          (max, item) => Math.max(max, item.displayOrder),
+          -1
+        );
+
+        // デフォルト値で新規項目を作成（必須フィールドにデフォルト値を設定）
+        const newItem = await createQuantityItem(groupId, {
+          majorCategory: '未設定',
+          workType: '未設定',
+          name: '新規項目',
+          unit: '式',
+          quantity: 0,
+          displayOrder: maxDisplayOrder + 1,
+        });
+
+        // ローカル状態を更新（再取得せずに即時反映）
+        setQuantityTable((prev) => {
+          if (!prev) return prev;
+          const updatedGroups = (prev.groups ?? []).map((g) => {
+            if (g.id === groupId) {
+              return {
+                ...g,
+                items: [...(g.items ?? []), newItem],
+              };
+            }
+            return g;
+          });
+          return {
+            ...prev,
+            itemCount: prev.itemCount + 1,
+            groups: updatedGroups,
+          };
+        });
+      } catch {
+        setError('項目の追加に失敗しました');
+      }
+    },
+    [quantityTable]
+  );
+
   // ローディング表示
   if (isLoading) {
     return (
@@ -512,6 +566,7 @@ export default function QuantityTableEditPage() {
               <QuantityGroupCard
                 group={group}
                 groupDisplayName={getGroupDisplayName(group, index)}
+                onAddItem={handleAddItem}
                 onDeleteGroup={handleDeleteGroup}
               />
             </div>
