@@ -183,7 +183,9 @@ describe('QuantityTableEditPage', () => {
         renderWithRouter();
 
         await waitFor(() => {
-          expect(screen.getByRole('navigation', { name: /breadcrumb/i })).toBeInTheDocument();
+          expect(
+            screen.getByRole('navigation', { name: /パンくずナビゲーション/ })
+          ).toBeInTheDocument();
         });
       });
 

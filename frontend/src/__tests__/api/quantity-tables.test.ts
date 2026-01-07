@@ -382,7 +382,7 @@ describe('quantity-tables API client', () => {
 
       const result = await getQuantityTableDetail('qt-1');
 
-      expect(apiClient.get).toHaveBeenCalledWith('/api/quantity-tables/qt-1/detail');
+      expect(apiClient.get).toHaveBeenCalledWith('/api/quantity-tables/qt-1');
       expect(result).toEqual(mockQuantityTableDetail);
     });
 
