@@ -197,7 +197,11 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       await expect(skeleton).not.toBeVisible({ timeout: getTimeout(10000) });
 
       // 総数表示が存在することを確認（「全N件」形式）
-      const countDisplay = page.locator('text=/全\\d+件/');
+      // 現場調査セクション内に限定（他セクションの「全N件」と区別するため）
+      const siteSurveySection = page.locator(
+        'section[aria-labelledby="site-survey-section-title"]'
+      );
+      const countDisplay = siteSurveySection.locator('text=/全\\d+件/');
       await expect(countDisplay).toBeVisible();
 
       // 作成した現場調査名が表示されていることを確認
