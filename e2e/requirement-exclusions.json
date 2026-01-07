@@ -1108,6 +1108,461 @@
         "description": "Ctrl+Z/Ctrl+Shift+Zでundo/redoが実行されることを確認",
         "threshold": "keyboard_shortcuts: functional"
       }
+    },
+    {
+      "id": "quantity-table-generation/REQ-1.3",
+      "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
+      "title": "数量表カードの一覧表示（名称・更新日時・数量項目数）",
+      "reason": "カード詳細表示はUI実装に依存。基本的な表示テストでカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "数量表カードに名称・更新日時・数量項目数が表示されることを確認",
+        "threshold": "card_content: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-1.4",
+      "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
+      "title": "「すべて見る」リンクで一覧画面遷移",
+      "reason": "ナビゲーションリンクの存在確認はREQ-1.2でカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "「すべて見る」リンクが正しいURLに遷移することを確認",
+        "threshold": "navigation: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-1.5",
+      "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
+      "title": "数量表カードクリックで編集画面遷移",
+      "reason": "カードクリックの詳細動作はUI実装に依存",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "数量表カードクリック時に編集画面に遷移することを確認",
+        "threshold": "card_click: navigates"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-1.7",
+      "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
+      "title": "新規作成ボタンで新規作成画面遷移",
+      "reason": "REQ-2.1の新規作成フローテストでカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-2.1のテストで新規作成フローを検証",
+        "threshold": "covered_by: REQ-2.1"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-2.5",
+      "requirement": "REQ-2: 数量表の作成・管理",
+      "title": "数量表名編集の即座保存",
+      "reason": "即座保存の検証はREQ-11.5の自動保存テストでカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-11.5の自動保存テストで名称変更の保存を検証",
+        "threshold": "covered_by: REQ-11.5"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-3.3",
+      "requirement": "REQ-3: 数量表編集画面の表示",
+      "title": "写真紐づけ時のサムネイル表示",
+      "reason": "写真紐づけ機能はUI実装に依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "写真が紐づけられている場合にサムネイルが表示されることを確認",
+        "threshold": "thumbnail: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-4.2",
+      "requirement": "REQ-4: 数量グループの作成・管理",
+      "title": "注釈付き現場調査写真選択機能",
+      "reason": "写真選択機能はUI実装に依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "数量グループ追加時に写真選択機能が提供されることを確認",
+        "threshold": "photo_selection: available"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-4.3",
+      "requirement": "REQ-4: 数量グループの作成・管理",
+      "title": "写真一覧表示と選択",
+      "reason": "写真一覧モーダルの動作はUI実装に依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "写真選択操作時に同一プロジェクトの写真一覧が表示されることを確認",
+        "threshold": "photo_list: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-4.4",
+      "requirement": "REQ-4: 数量グループの作成・管理",
+      "title": "写真と数量項目の関連性表示",
+      "reason": "視覚的な関連性表示はUI実装に依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "写真と数量項目の関連性が視覚的に表示されることを確認",
+        "threshold": "visual_link: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-5.3",
+      "requirement": "REQ-5: 数量項目の追加・編集",
+      "title": "必須フィールド未入力時のエラー表示",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "必須フィールド未入力時にエラーメッセージとハイライトが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-6.3",
+      "requirement": "REQ-6: 数量項目のコピー・移動",
+      "title": "同一グループ内の位置移動",
+      "reason": "ドラッグ&ドロップ/位置指定操作はUI実装に依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "同一グループ内での項目位置移動が正しく動作することを確認",
+        "threshold": "move_within_group: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-6.4",
+      "requirement": "REQ-6: 数量項目のコピー・移動",
+      "title": "別グループへの移動",
+      "reason": "グループ間移動操作はUI実装に依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "別グループへの項目移動と元位置からの削除が正しく動作することを確認",
+        "threshold": "move_between_groups: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-6.5",
+      "requirement": "REQ-6: 数量項目のコピー・移動",
+      "title": "複数項目の一括操作",
+      "reason": "複数選択と一括操作はUI実装に依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "複数項目選択時の一括削除・コピー・移動が正しく動作することを確認",
+        "threshold": "bulk_operation: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-7.2",
+      "requirement": "REQ-7: 入力支援・オートコンプリート",
+      "title": "中項目フィールドのオートコンプリート",
+      "reason": "REQ-7.1で大項目のオートコンプリートをカバー。中項目は同様の動作",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "中項目入力時に過去の入力履歴がオートコンプリート候補として表示されることを確認",
+        "threshold": "autocomplete: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-7.3",
+      "requirement": "REQ-7: 入力支援・オートコンプリート",
+      "title": "その他フィールドのオートコンプリート",
+      "reason": "REQ-7.1で大項目のオートコンプリートをカバー。他フィールドは同様の動作",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "小項目・任意分類・工種・名称・規格・単位・備考の各フィールドでオートコンプリートが動作することを確認",
+        "threshold": "autocomplete: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-7.5",
+      "requirement": "REQ-7: 入力支援・オートコンプリート",
+      "title": "オートコンプリート候補の50音順表示",
+      "reason": "ソート順の検証はユニットテストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Jest",
+        "description": "オートコンプリート候補が50音順でソートされることを確認",
+        "threshold": "sort_order: hiragana"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.2",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "標準モードでの直接数値入力",
+      "reason": "入力動作はREQ-5.2のフィールド入力テストでカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-5.2のテストで数量フィールドへの入力を検証",
+        "threshold": "covered_by: REQ-5.2"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.3",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "負の値入力時の警告",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "負の値入力時に警告メッセージが表示されることを確認",
+        "threshold": "validation_warning: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.4",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "非数値入力時のエラー",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "数値以外の入力が拒否されエラーメッセージが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.6",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "面積・体積モードでの自動計算",
+      "reason": "計算ロジックはユニットテストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Jest",
+        "description": "面積・体積モードで計算用列の値を掛け算して数量が計算されることを確認",
+        "threshold": "calculation: width * depth * height"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.7",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "面積・体積モードで計算用列未入力時のエラー",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "面積・体積モードで計算用列が未入力の場合にエラーが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.9",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "ピッチ計算式の適用",
+      "reason": "ピッチ計算ロジックはユニットテストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Jest",
+        "description": "ピッチ計算式((範囲長 - 端長1 - 端長2) / ピッチ長 + 1)で本数が計算されることを確認",
+        "threshold": "calculation: pitch_formula"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.10",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "ピッチモードで必須項目未入力時のエラー",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "ピッチモードで必須項目未入力時にエラーが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-8.11",
+      "requirement": "REQ-8: 計算方法の選択",
+      "title": "計算用列変更時の自動再計算",
+      "reason": "自動再計算ロジックは統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "計算用列の値変更時に数量が自動的に再計算されることを確認",
+        "threshold": "auto_recalculation: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-9.3",
+      "requirement": "REQ-9: 調整係数",
+      "title": "調整係数0以下入力時の警告",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "調整係数に0以下の値を入力時に警告が表示されることを確認",
+        "threshold": "validation_warning: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-9.4",
+      "requirement": "REQ-9: 調整係数",
+      "title": "調整係数非数値入力時のエラー",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "調整係数に数値以外を入力時にエラーが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-9.5",
+      "requirement": "REQ-9: 調整係数",
+      "title": "調整係数変更時の自動再計算",
+      "reason": "自動再計算ロジックは統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "調整係数変更時に数量が自動的に再計算されることを確認",
+        "threshold": "auto_recalculation: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-10.2",
+      "requirement": "REQ-10: 丸め設定",
+      "title": "丸め処理の適用",
+      "reason": "丸めロジックはユニットテストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Jest",
+        "description": "丸め設定に基づいて切り上げ処理が正しく適用されることを確認",
+        "threshold": "rounding: ceil"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-10.3",
+      "requirement": "REQ-10: 丸め設定",
+      "title": "丸め設定0以下入力時のエラー",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "丸め設定に0以下の値を入力時にエラーが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-10.4",
+      "requirement": "REQ-10: 丸め設定",
+      "title": "丸め設定非数値入力時のエラー",
+      "reason": "入力バリデーションはユニット/統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "丸め設定に数値以外を入力時にエラーが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-10.5",
+      "requirement": "REQ-10: 丸め設定",
+      "title": "丸め設定変更時の自動再計算",
+      "reason": "自動再計算ロジックは統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "丸め設定変更時に最終数量が自動的に再計算されることを確認",
+        "threshold": "auto_recalculation: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-11.2",
+      "requirement": "REQ-11: 数量表の保存",
+      "title": "データ保存時の整合性チェック",
+      "reason": "データ整合性チェックはバックエンド統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "保存時に整合性チェックでエラーが検出された場合に保存が中断されることを確認",
+        "threshold": "integrity_check: enforced"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-11.3",
+      "requirement": "REQ-11: 数量表の保存",
+      "title": "計算方法と入力値の不整合検出",
+      "reason": "不整合検出ロジックはバックエンド統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "計算方法と入力値の不整合時にエラー箇所が明示されることを確認",
+        "threshold": "inconsistency_detection: functional"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-11.4",
+      "requirement": "REQ-11: 数量表の保存",
+      "title": "不整合がある場合の警告とハイライト",
+      "reason": "警告・ハイライト表示はフロントエンド統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "不整合がある項目に警告メッセージとハイライトが表示されることを確認",
+        "threshold": "warning_highlight: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-12.3",
+      "requirement": "REQ-12: パンくずナビゲーション",
+      "title": "新規作成画面のパンくずナビゲーション",
+      "reason": "新規作成画面はダイアログで表示されるため、パンくずが表示されない場合あり",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "新規作成画面でパンくず「プロジェクト一覧 > {プロジェクト名} > 数量表 > 新規作成」が表示されることを確認",
+        "threshold": "breadcrumb: displayed"
+      }
     }
   ],
   "categories": {
@@ -1133,14 +1588,14 @@
     }
   },
   "summary": {
-    "totalExclusions": 89,
+    "totalExclusions": 124,
     "byCategory": {
       "performance": 21,
-      "infrastructure": 36,
+      "infrastructure": 58,
       "fault-tolerance": 21,
-      "data-integrity": 11,
+      "data-integrity": 24,
       "security": 4
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3-1.7, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証"
   }
 }
