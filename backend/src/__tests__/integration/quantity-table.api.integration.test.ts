@@ -104,7 +104,7 @@ describe('Quantity Table API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/auth/login').send({
+    const response = await request(app).post('/api/v1/auth/login').send({
       email: 'test-quantity-table-integration@example.com',
       password: 'TestPassword123!',
     });
