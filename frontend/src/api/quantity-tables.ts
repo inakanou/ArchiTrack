@@ -14,6 +14,7 @@ import type {
   ProjectQuantityTableSummary,
   QuantityTableInfo,
   QuantityTableDetail,
+  QuantityGroupDetail,
   CreateQuantityTableInput,
   UpdateQuantityTableInput,
   QuantityTableFilter,
@@ -244,4 +245,62 @@ export async function updateQuantityTable(
  */
 export async function deleteQuantityTable(id: string): Promise<void> {
   return apiClient.delete<void>(`/api/quantity-tables/${id}`);
+}
+
+// ============================================================================
+// 数量グループAPI
+// ============================================================================
+
+/**
+ * 数量グループ作成入力
+ */
+export interface CreateQuantityGroupInput {
+  /** グループ名（任意、最大200文字） */
+  name?: string | null;
+  /** 現場調査画像ID（任意） */
+  surveyImageId?: string | null;
+  /** 表示順序 */
+  displayOrder: number;
+}
+
+/**
+ * 数量グループを作成する
+ *
+ * 指定された数量表に新しいグループを追加します。
+ *
+ * Requirements: 4.1
+ *
+ * @param quantityTableId - 数量表ID（UUID）
+ * @param input - グループ作成データ
+ * @returns 作成されたグループ情報
+ * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）、数量表が見つからない（404）
+ *
+ * @example
+ * const group = await createQuantityGroup('table-id', {
+ *   name: '新規グループ',
+ *   displayOrder: 0,
+ * });
+ */
+export async function createQuantityGroup(
+  quantityTableId: string,
+  input: CreateQuantityGroupInput
+): Promise<QuantityGroupDetail> {
+  return apiClient.post<QuantityGroupDetail>(
+    `/api/quantity-tables/${quantityTableId}/groups`,
+    input
+  );
+}
+
+/**
+ * 数量グループを削除する
+ *
+ * グループと配下の項目を削除します。
+ *
+ * Requirements: 4.5
+ *
+ * @param id - グループID（UUID）
+ * @throws ApiError グループが見つからない（404）、認証エラー（401）、権限不足（403）
+ */
+export async function deleteQuantityGroup(id: string): Promise<void> {
+  return apiClient.delete<void>(`/api/quantity-groups/${id}`);
 }

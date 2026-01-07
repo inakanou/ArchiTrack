@@ -1123,45 +1123,6 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-1.4",
-      "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
-      "title": "「すべて見る」リンクで一覧画面遷移",
-      "reason": "ナビゲーションリンクの存在確認はREQ-1.2でカバー",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "「すべて見る」リンクが正しいURLに遷移することを確認",
-        "threshold": "navigation: functional"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-1.5",
-      "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
-      "title": "数量表カードクリックで編集画面遷移",
-      "reason": "カードクリックの詳細動作はUI実装に依存",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "数量表カードクリック時に編集画面に遷移することを確認",
-        "threshold": "card_click: navigates"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-1.7",
-      "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
-      "title": "新規作成ボタンで新規作成画面遷移",
-      "reason": "REQ-2.1の新規作成フローテストでカバー",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "REQ-2.1のテストで新規作成フローを検証",
-        "threshold": "covered_by: REQ-2.1"
-      }
-    },
-    {
       "id": "quantity-table-generation/REQ-2.5",
       "requirement": "REQ-2: 数量表の作成・管理",
       "title": "数量表名編集の即座保存",
@@ -1588,14 +1549,14 @@
     }
   },
   "summary": {
-    "totalExclusions": 124,
+    "totalExclusions": 121,
     "byCategory": {
       "performance": 21,
-      "infrastructure": 58,
+      "infrastructure": 55,
       "fault-tolerance": 21,
       "data-integrity": 24,
       "security": 4
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3-1.7, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み"
   }
 }

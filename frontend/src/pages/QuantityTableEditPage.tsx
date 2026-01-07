@@ -11,7 +11,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getQuantityTableDetail } from '../api/quantity-tables';
+import {
+  getQuantityTableDetail,
+  createQuantityGroup,
+  deleteQuantityGroup,
+} from '../api/quantity-tables';
 import type { QuantityTableDetail, QuantityGroupDetail } from '../types/quantity-table.types';
 import { Breadcrumb } from '../components/common';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
@@ -141,6 +145,60 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
   } as React.CSSProperties,
+  // 確認ダイアログスタイル
+  dialogOverlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  } as React.CSSProperties,
+  dialogContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    padding: '24px',
+    maxWidth: '400px',
+    width: '90%',
+    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+  } as React.CSSProperties,
+  dialogTitle: {
+    fontSize: '18px',
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: '12px',
+  } as React.CSSProperties,
+  dialogMessage: {
+    fontSize: '14px',
+    color: '#6b7280',
+    marginBottom: '24px',
+  } as React.CSSProperties,
+  dialogActions: {
+    display: 'flex',
+    gap: '12px',
+    justifyContent: 'flex-end',
+  } as React.CSSProperties,
+  cancelButton: {
+    backgroundColor: '#f3f4f6',
+    color: '#374151',
+    border: '1px solid #d1d5db',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  deleteButton: {
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+    border: 'none',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -227,6 +285,10 @@ export default function QuantityTableEditPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAddingGroup, setIsAddingGroup] = useState(false);
+  // 削除確認ダイアログ用state（REQ-4.5）
+  const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
 
   /**
    * 数量表詳細を取得
@@ -253,12 +315,41 @@ export default function QuantityTableEditPage() {
   }, [fetchQuantityTableDetail]);
 
   /**
-   * グループ追加ハンドラ（仮実装）
+   * グループ追加ハンドラ
+   *
+   * Requirements: 4.1
    */
-  const handleAddGroup = useCallback(() => {
-    // Task 5.2で実装
-    console.log('Add group');
-  }, []);
+  const handleAddGroup = useCallback(async () => {
+    if (!id || !quantityTable || isAddingGroup) return;
+
+    setIsAddingGroup(true);
+    setError(null);
+
+    try {
+      // 現在のグループ数に基づいて表示順序を設定
+      const currentGroups = quantityTable.groups ?? [];
+      const maxDisplayOrder = currentGroups.reduce((max, g) => Math.max(max, g.displayOrder), -1);
+
+      const newGroup = await createQuantityGroup(id, {
+        name: null, // グループ名は任意
+        displayOrder: maxDisplayOrder + 1,
+      });
+
+      // ローカル状態を更新（再取得せずに即時反映）
+      setQuantityTable((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          groupCount: prev.groupCount + 1,
+          groups: [...(prev.groups ?? []), { ...newGroup, items: [] }],
+        };
+      });
+    } catch {
+      setError('グループの追加に失敗しました');
+    } finally {
+      setIsAddingGroup(false);
+    }
+  }, [id, quantityTable, isAddingGroup]);
 
   /**
    * グループ名取得（名前がない場合はデフォルト表示）
@@ -266,6 +357,55 @@ export default function QuantityTableEditPage() {
   const getGroupDisplayName = (group: QuantityGroupDetail, index: number): string => {
     return group.name || `グループ ${index + 1}`;
   };
+
+  /**
+   * グループ削除確認ダイアログを開く
+   *
+   * Requirements: 4.5
+   */
+  const handleDeleteGroup = useCallback((groupId: string) => {
+    setGroupToDelete(groupId);
+  }, []);
+
+  /**
+   * 削除をキャンセル
+   */
+  const handleCancelDelete = useCallback(() => {
+    setGroupToDelete(null);
+  }, []);
+
+  /**
+   * グループ削除を実行
+   *
+   * Requirements: 4.5
+   */
+  const handleConfirmDeleteGroup = useCallback(async () => {
+    if (!groupToDelete || isDeletingGroup) return;
+
+    setIsDeletingGroup(true);
+    setError(null);
+
+    try {
+      await deleteQuantityGroup(groupToDelete);
+
+      // ローカル状態を更新（再取得せずに即時反映）
+      setQuantityTable((prev) => {
+        if (!prev) return prev;
+        const updatedGroups = (prev.groups ?? []).filter((g) => g.id !== groupToDelete);
+        return {
+          ...prev,
+          groupCount: updatedGroups.length,
+          groups: updatedGroups,
+        };
+      });
+
+      setGroupToDelete(null);
+    } catch {
+      setError('グループの削除に失敗しました');
+    } finally {
+      setIsDeletingGroup(false);
+    }
+  }, [groupToDelete, isDeletingGroup]);
 
   // ローディング表示
   if (isLoading) {
@@ -345,9 +485,19 @@ export default function QuantityTableEditPage() {
           </p>
         </div>
         <div style={styles.headerActions}>
-          <button type="button" style={styles.addGroupButton} onClick={handleAddGroup}>
+          <button
+            type="button"
+            style={{
+              ...styles.addGroupButton,
+              opacity: isAddingGroup ? 0.7 : 1,
+              cursor: isAddingGroup ? 'wait' : 'pointer',
+            }}
+            onClick={handleAddGroup}
+            disabled={isAddingGroup}
+            aria-busy={isAddingGroup}
+          >
             <PlusIcon />
-            グループを追加
+            {isAddingGroup ? '追加中...' : 'グループを追加'}
           </button>
         </div>
       </div>
@@ -362,9 +512,52 @@ export default function QuantityTableEditPage() {
               <QuantityGroupCard
                 group={group}
                 groupDisplayName={getGroupDisplayName(group, index)}
+                onDeleteGroup={handleDeleteGroup}
               />
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 削除確認ダイアログ (REQ-4.5) */}
+      {groupToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+          style={styles.dialogOverlay}
+          onClick={handleCancelDelete}
+        >
+          <div style={styles.dialogContent} onClick={(e) => e.stopPropagation()}>
+            <h2 id="delete-dialog-title" style={styles.dialogTitle}>
+              グループを削除しますか？
+            </h2>
+            <p style={styles.dialogMessage}>
+              このグループとその中のすべての項目が削除されます。この操作は元に戻せません。
+            </p>
+            <div style={styles.dialogActions}>
+              <button
+                type="button"
+                style={styles.cancelButton}
+                onClick={handleCancelDelete}
+                disabled={isDeletingGroup}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...styles.deleteButton,
+                  opacity: isDeletingGroup ? 0.7 : 1,
+                  cursor: isDeletingGroup ? 'wait' : 'pointer',
+                }}
+                onClick={handleConfirmDeleteGroup}
+                disabled={isDeletingGroup}
+              >
+                {isDeletingGroup ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

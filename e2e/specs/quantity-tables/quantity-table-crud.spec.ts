@@ -96,13 +96,11 @@ test.describe('数量表CRUD操作', () => {
   /**
    * @requirement quantity-table-generation/REQ-1.1
    * @requirement quantity-table-generation/REQ-1.2
-   * @requirement quantity-table-generation/REQ-1.3
    * @requirement quantity-table-generation/REQ-1.6
-   * @requirement quantity-table-generation/REQ-1.7
    *
-   * REQ-1: プロジェクト詳細画面の数量表セクション
+   * REQ-1: プロジェクト詳細画面の数量表セクション（数量表なし時）
    */
-  test.describe('プロジェクト詳細の数量表セクション', () => {
+  test.describe('プロジェクト詳細の数量表セクション（数量表なし時）', () => {
     test('数量表セクションが表示される (quantity-table-generation/REQ-1.1)', async ({ page }) => {
       if (!testProjectId) {
         throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
@@ -112,7 +110,7 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 数量表セクションが表示される
+      // 数量表セクションが表示される（必須）
       const quantityTableSection = page.getByTestId('quantity-table-section');
       await expect(quantityTableSection).toBeVisible({ timeout: getTimeout(10000) });
     });
@@ -129,11 +127,15 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       const quantityTableSection = page.getByTestId('quantity-table-section');
-      // ヘッダーに「数量表」タイトルが表示される
+      // ヘッダーに「数量表」タイトルが表示される（必須）
       await expect(quantityTableSection.getByRole('heading', { name: '数量表' })).toBeVisible();
+      // 総数表示が含まれる（必須）
+      await expect(quantityTableSection.getByText(/全\d+件/)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
 
-    test('数量表がない場合は空状態メッセージと新規作成ボタンを表示 (quantity-table-generation/REQ-1.6)', async ({
+    test('数量表がない場合は空状態メッセージと新規作成リンクを表示 (quantity-table-generation/REQ-1.6)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -145,15 +147,14 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       const quantityTableSection = page.getByTestId('quantity-table-section');
-      const emptyMessage =
-        quantityTableSection.getByText(/数量表はまだありません|まだ作成されていません/);
-      const createButton = quantityTableSection.getByRole('button', { name: /新規作成|追加/ });
 
-      // 空状態メッセージまたは作成ボタンが表示される
-      const hasEmptyMessage = await emptyMessage.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasCreateButton = await createButton.isVisible({ timeout: 3000 }).catch(() => false);
+      // 空状態メッセージが表示される（必須）
+      const emptyMessage = quantityTableSection.getByText(/数量表はまだありません/);
+      await expect(emptyMessage).toBeVisible({ timeout: getTimeout(5000) });
 
-      expect(hasEmptyMessage || hasCreateButton).toBeTruthy();
+      // 新規作成リンクが表示される（必須）
+      const createLink = quantityTableSection.getByRole('link', { name: /新規作成/ });
+      await expect(createLink).toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 
@@ -264,6 +265,97 @@ test.describe('数量表CRUD操作', () => {
   });
 
   /**
+   * @requirement quantity-table-generation/REQ-1.4
+   * @requirement quantity-table-generation/REQ-1.5
+   * @requirement quantity-table-generation/REQ-1.7
+   *
+   * REQ-1: プロジェクト詳細画面の数量表セクション（数量表あり時）
+   * 注: これらのテストは数量表作成後に実行する必要がある
+   */
+  test.describe('プロジェクト詳細の数量表セクション（数量表あり時）', () => {
+    test('「すべて見る」リンクをクリックして数量表一覧画面に遷移する (quantity-table-generation/REQ-1.4)', async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      const quantityTableSection = page.getByTestId('quantity-table-section');
+      await expect(quantityTableSection).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 「すべて見る」リンクが表示される（必須）
+      const viewAllLink = quantityTableSection.getByRole('link', { name: /すべて見る/ });
+      await expect(viewAllLink).toBeVisible({ timeout: getTimeout(5000) });
+
+      // クリックして遷移
+      await viewAllLink.click();
+
+      // 数量表一覧画面に遷移したことを確認（必須）
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/quantity-tables`), {
+        timeout: getTimeout(10000),
+      });
+
+      // 一覧画面が正しく表示されることを確認
+      await page.waitForLoadState('networkidle');
+      // 404エラーが表示されていないことを確認
+      await expect(page.getByText(/404|ページが見つかりません/)).not.toBeVisible({ timeout: 3000 });
+    });
+
+    test('数量表カードをクリックして編集画面に遷移する (quantity-table-generation/REQ-1.5)', async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      const quantityTableSection = page.getByTestId('quantity-table-section');
+      await expect(quantityTableSection).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 数量表カード（リンク）をクリック
+      // カードは「E2Eテスト用数量表」のテキストを含むリンク
+      const quantityTableCard = quantityTableSection.getByRole('link', {
+        name: /E2Eテスト用数量表|数量表詳細を見る/,
+      });
+      await expect(quantityTableCard).toBeVisible({ timeout: getTimeout(5000) });
+
+      await quantityTableCard.click();
+
+      // 編集画面に遷移したことを確認（必須）
+      // リダイレクトを経由するので最終的なURLをチェック
+      await expect(page).toHaveURL(/\/quantity-tables\/[a-f0-9-]+\/edit/, {
+        timeout: getTimeout(15000),
+      });
+
+      // 編集画面が正しく表示されることを確認
+      await page.waitForLoadState('networkidle');
+      // 404エラーが表示されていないことを確認（必須）
+      await expect(page.getByText(/404|ページが見つかりません/)).not.toBeVisible({ timeout: 3000 });
+
+      // 編集画面の基本要素が表示されることを確認（必須）
+      const editArea = page.getByTestId('quantity-table-edit-area');
+      await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
+    });
+  });
+
+  /**
    * @requirement quantity-table-generation/REQ-3.1
    * @requirement quantity-table-generation/REQ-3.2
    * @requirement quantity-table-generation/REQ-3.3
@@ -343,15 +435,49 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // グループ追加ボタンをクリック
-      const addGroupButton = page.getByRole('button', { name: /グループ追加|グループを追加/ });
-      if (await addGroupButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await addGroupButton.click();
+      // 編集画面が正しく表示されることを確認（必須）
+      const editArea = page.getByTestId('quantity-table-edit-area');
+      await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 新しいグループが追加されたことを確認
-        const groups = page.getByTestId('quantity-group');
-        await expect(groups.first()).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // グループ追加ボタンが表示されることを確認（必須）
+      // 複数ボタンがある場合は最初の1つを使用
+      const addGroupButton = page
+        .getByRole('button', { name: /グループ追加|グループを追加/ })
+        .first();
+      await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // ボタンが無効化されていないことを確認（必須）
+      await expect(addGroupButton).toBeEnabled({ timeout: getTimeout(5000) });
+
+      // 現在のグループ数を記録（空状態も可能）
+      const initialGroupCount = await page.getByTestId('quantity-group').count();
+
+      // APIレスポンス用のPromiseを設定
+      const apiResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-tables/') &&
+          response.url().includes('/groups') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(20000) }
+      );
+
+      // グループ追加ボタンをクリック
+      await addGroupButton.click();
+
+      // APIレスポンスを待機し、ステータスを検証
+      const apiResponse = await apiResponsePromise;
+      const responseStatus = apiResponse.status();
+
+      // APIが201（作成成功）を返すことを確認（必須）
+      expect(responseStatus).toBe(201);
+
+      // 新しいグループがUIに追加されたことを確認（必須）
+      const groups = page.getByTestId('quantity-group');
+      await expect(groups).toHaveCount(initialGroupCount + 1, { timeout: getTimeout(10000) });
+
+      // 追加されたグループが表示されていることを確認（必須）
+      const newGroup = groups.last();
+      await expect(newGroup).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     test('数量グループ削除時に確認ダイアログが表示される (quantity-table-generation/REQ-4.5)', async ({
