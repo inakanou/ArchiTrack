@@ -167,21 +167,21 @@ describe('Quantity Table API Integration Tests', () => {
     redis.disconnect();
   });
 
-  beforeEach(async () => {
-    // 各テスト前にクリーンアップ
-    if (testProjectId) {
-      await prisma.quantityTable.deleteMany({
-        where: { projectId: testProjectId },
-      });
-    }
-  });
-
   describe('数量表API', () => {
     beforeAll(async () => {
       const auth = await loginTestUser();
       accessToken = auth.token;
       testUserId = auth.userId;
       testProjectId = await createTestProject();
+    });
+
+    beforeEach(async () => {
+      // 各テスト前にクリーンアップ（数量表APIのテストのみ）
+      if (testProjectId) {
+        await prisma.quantityTable.deleteMany({
+          where: { projectId: testProjectId },
+        });
+      }
     });
 
     describe('POST /api/projects/:projectId/quantity-tables', () => {
@@ -205,7 +205,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('プロジェクトが存在しない場合は404を返す', async () => {
         const response = await request(app)
-          .post('/api/projects/00000000-0000-0000-0000-000000000000/quantity-tables')
+          .post('/api/projects/12345678-1234-4234-a234-123456789012/quantity-tables')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'テスト数量表' });
 
@@ -302,7 +302,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('存在しない数量表の場合は404を返す', async () => {
         const response = await request(app)
-          .get('/api/quantity-tables/00000000-0000-0000-0000-000000000000')
+          .get('/api/quantity-tables/12345678-1234-4234-a234-123456789012')
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
@@ -376,7 +376,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('存在しない数量表の削除は404を返す', async () => {
         const response = await request(app)
-          .delete('/api/quantity-tables/00000000-0000-0000-0000-000000000000')
+          .delete('/api/quantity-tables/12345678-1234-4234-a234-123456789012')
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
@@ -386,16 +386,14 @@ describe('Quantity Table API Integration Tests', () => {
 
   describe('数量グループAPI', () => {
     beforeAll(async () => {
-      // 数量表が存在しない場合は作成
-      if (!testQuantityTableId) {
-        const qt = await prisma.quantityTable.create({
-          data: {
-            projectId: testProjectId,
-            name: 'グループテスト用数量表',
-          },
-        });
-        testQuantityTableId = qt.id;
-      }
+      // 数量表を作成（前のテストでクリーンアップされている可能性があるため常に新規作成）
+      const qt = await prisma.quantityTable.create({
+        data: {
+          projectId: testProjectId,
+          name: 'グループテスト用数量表',
+        },
+      });
+      testQuantityTableId = qt.id;
     });
 
     describe('POST /api/quantity-tables/:quantityTableId/groups', () => {
@@ -417,7 +415,7 @@ describe('Quantity Table API Integration Tests', () => {
 
       it('数量表が存在しない場合は404を返す', async () => {
         const response = await request(app)
-          .post('/api/quantity-tables/00000000-0000-0000-0000-000000000000/groups')
+          .post('/api/quantity-tables/12345678-1234-4234-a234-123456789012/groups')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'テストグループ' });
 
@@ -464,17 +462,15 @@ describe('Quantity Table API Integration Tests', () => {
 
   describe('数量項目API', () => {
     beforeAll(async () => {
-      // 数量グループが存在しない場合は作成
-      if (!testQuantityGroupId) {
-        const group = await prisma.quantityGroup.create({
-          data: {
-            quantityTableId: testQuantityTableId,
-            name: '項目テスト用グループ',
-            displayOrder: 0,
-          },
-        });
-        testQuantityGroupId = group.id;
-      }
+      // 数量グループを作成（確実に存在するようにする）
+      const group = await prisma.quantityGroup.create({
+        data: {
+          quantityTableId: testQuantityTableId,
+          name: '項目テスト用グループ',
+          displayOrder: 0,
+        },
+      });
+      testQuantityGroupId = group.id;
     });
 
     describe('POST /api/quantity-groups/:groupId/items', () => {
