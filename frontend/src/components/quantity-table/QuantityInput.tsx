@@ -69,7 +69,7 @@ const styles = {
   } as React.CSSProperties,
   calculatedLabel: {
     fontSize: '10px',
-    color: '#6b7280',
+    color: '#4b5563',
     backgroundColor: '#e5e7eb',
     padding: '2px 6px',
     borderRadius: '4px',

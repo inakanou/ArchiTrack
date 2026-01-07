@@ -70,7 +70,7 @@ const styles = {
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    color: '#6b7280',
+    color: '#4b5563',
     transition: 'background-color 0.2s, transform 0.2s',
   } as React.CSSProperties,
   toggleButtonCollapsed: {
@@ -95,7 +95,7 @@ const styles = {
     objectFit: 'cover' as const,
   } as React.CSSProperties,
   placeholderIcon: {
-    color: '#9ca3af',
+    color: '#4b5563',
   } as React.CSSProperties,
   headerInfo: {
     flex: 1,
@@ -110,7 +110,7 @@ const styles = {
   } as React.CSSProperties,
   groupMeta: {
     fontSize: '12px',
-    color: '#6b7280',
+    color: '#4b5563',
   } as React.CSSProperties,
   headerActions: {
     display: 'flex',
@@ -141,7 +141,7 @@ const styles = {
     borderRadius: '4px',
     border: '1px solid #fecaca',
     backgroundColor: '#fef2f2',
-    color: '#dc2626',
+    color: '#b91c1c',
     cursor: 'pointer',
     transition: 'background-color 0.2s',
   } as React.CSSProperties,
@@ -167,7 +167,7 @@ const styles = {
   emptyState: {
     padding: '32px',
     textAlign: 'center' as const,
-    color: '#6b7280',
+    color: '#4b5563',
     fontSize: '14px',
   } as React.CSSProperties,
 };
@@ -397,15 +397,17 @@ export default function QuantityGroupCard({
         {items.length === 0 ? (
           <div style={styles.emptyState}>項目がありません</div>
         ) : (
-          <div style={styles.itemList}>
-            {items.map((item) => (
-              <QuantityItemRow
-                key={item.id}
-                item={item}
-                onUpdate={onUpdateItem}
-                onDelete={onDeleteItem}
-              />
-            ))}
+          <div style={styles.itemList} role="table" aria-label="数量項目一覧">
+            <div role="rowgroup">
+              {items.map((item) => (
+                <QuantityItemRow
+                  key={item.id}
+                  item={item}
+                  onUpdate={onUpdateItem}
+                  onDelete={onDeleteItem}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

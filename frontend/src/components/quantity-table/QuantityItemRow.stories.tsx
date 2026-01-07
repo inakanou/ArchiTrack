@@ -49,7 +49,11 @@ const meta = {
   decorators: [
     (Story) => (
       <div style={{ overflowX: 'auto' }}>
-        <Story />
+        <div role="table" aria-label="数量項目テーブル">
+          <div role="rowgroup">
+            <Story />
+          </div>
+        </div>
       </div>
     ),
   ],

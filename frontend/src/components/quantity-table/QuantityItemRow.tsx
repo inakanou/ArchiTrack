@@ -84,11 +84,11 @@ const styles = {
   } as React.CSSProperties,
   unitCell: {
     fontSize: '13px',
-    color: '#6b7280',
+    color: '#4b5563',
   } as React.CSSProperties,
   remarksCell: {
     fontSize: '12px',
-    color: '#6b7280',
+    color: '#4b5563',
     fontStyle: 'italic' as const,
   } as React.CSSProperties,
   actionsCell: {
@@ -105,7 +105,7 @@ const styles = {
     border: 'none',
     borderRadius: '4px',
     backgroundColor: 'transparent',
-    color: '#6b7280',
+    color: '#4b5563',
     cursor: 'pointer',
     transition: 'background-color 0.2s, color 0.2s',
   } as React.CSSProperties,
