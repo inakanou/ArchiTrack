@@ -450,11 +450,27 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 現場調査一覧リンクをクリックして遷移を確認
-      const surveyLink = page.getByRole('link', { name: /現場調査一覧/i });
-      await expect(surveyLink).toBeVisible({ timeout: getTimeout(10000) });
-      await surveyLink.click();
-      await expect(page).toHaveURL(/surveys|site-surveys/, { timeout: getTimeout(10000) });
+      // 現場調査セクションが表示されることを確認
+      const surveySection = page.getByRole('heading', { name: /現場調査/i });
+      await expect(surveySection).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 「すべて見る」リンク（現場調査がある場合）または「新規作成」リンク（ない場合）を探す
+      // 現場調査セクション内のリンクを使用
+      const viewAllLink = page.getByRole('link', { name: /すべて見る/i }).first();
+      const createLink = page
+        .locator('section')
+        .filter({ has: surveySection })
+        .getByRole('link', { name: /新規作成/i });
+
+      // どちらかのリンクをクリックして現場調査関連画面に遷移
+      const viewAllVisible = await viewAllLink.isVisible().catch(() => false);
+      if (viewAllVisible) {
+        await viewAllLink.click();
+      } else {
+        await createLink.click();
+      }
+
+      await expect(page).toHaveURL(/site-surveys/, { timeout: getTimeout(10000) });
     });
 
     /**
