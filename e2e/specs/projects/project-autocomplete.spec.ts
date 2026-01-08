@@ -292,9 +292,9 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 取引先フィールドがセレクトボックスであることを確認
-      // セレクトボックスは自由入力を許可しないため、REQ-16.10を満たす
+      // 取引先フィールドがセレクトボックスかオートコンプリートかを確認
       const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
 
       if (isSelect) {
@@ -306,36 +306,37 @@ test.describe('取引先オートコンプリート連携', () => {
         // 少なくともプレースホルダーオプションが存在
         expect(options.length).toBeGreaterThan(0);
       } else {
-        // オートコンプリート実装の場合は、バリデーションで自由入力が拒否されることをテスト
-        // ただし現在の実装はセレクトボックスのため、このパスは実行されない
+        // オートコンプリート実装の場合:
+        // 自由入力テキストは値として保存されず、フィルタリング用にのみ使用される
+        // 入力後にフォーカスを外すと、選択されていない場合は入力がクリアされる
+
+        // 存在しない取引先名を入力
         await tradingPartnerInput.fill('存在しない任意テキスト');
 
-        // プロジェクト名と営業担当者を入力
-        await page.getByLabel(/プロジェクト名/i).fill('自由入力テスト');
+        // 入力中はテキストが表示される
+        await expect(tradingPartnerInput).toHaveValue('存在しない任意テキスト');
 
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
+        // ドロップダウンが表示され、候補がないことを確認
+        const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+        const isListVisible = await autocompleteList.isVisible().catch(() => false);
 
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        const salesPersonValue = await salesPersonSelect.inputValue();
-        if (!salesPersonValue) {
-          const selectOptions = await salesPersonSelect.locator('option').all();
-          if (selectOptions.length > 1 && selectOptions[1]) {
-            const firstUserOption = await selectOptions[1].getAttribute('value');
-            if (firstUserOption) {
-              await salesPersonSelect.selectOption(firstUserOption);
-            }
-          }
+        if (isListVisible) {
+          // 候補リストが表示されている場合、一致する候補がないことを確認
+          const options = await autocompleteList.locator('[role="option"]').all();
+          // 候補がないか、「一致なし」のようなメッセージのみ
+          expect(options.length).toBeLessThanOrEqual(1);
         }
 
-        // 作成ボタンをクリック
-        await page.getByRole('button', { name: /^作成$/i }).click();
+        // フォーカスを外す（別のフィールドをクリック）
+        await page.getByLabel(/プロジェクト名/i).click();
 
-        // 取引先のバリデーションエラーが表示されることを確認
-        // または作成が失敗することを確認
-        const errorMessage = page.getByText(/取引先.*選択|有効な取引先/i);
-        await expect(errorMessage).toBeVisible({ timeout: getTimeout(5000) });
+        // オートコンプリートは自由入力を値として保持しないため、
+        // 選択されなかった場合は入力がクリアされる（空になるか、プレースホルダーが表示される）
+        const inputValue = await tradingPartnerInput.inputValue();
+
+        // 自由入力テキストが値として保持されていないことを確認
+        // （空文字列、または元のプレースホルダーに戻る）
+        expect(inputValue).not.toBe('存在しない任意テキスト');
       }
     });
 
