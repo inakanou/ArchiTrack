@@ -102,7 +102,7 @@ function ThumbnailImage({ survey }: { survey: SiteSurveyInfo }) {
   return (
     <div
       data-testid="thumbnail-placeholder"
-      className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center"
+      className="thumbnail-placeholder w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center"
     >
       <svg
         width="32"
