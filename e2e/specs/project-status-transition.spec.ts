@@ -63,11 +63,9 @@ async function createTestProject(page: Page): Promise<{ id: string; name: string
     }
 
     // エラーが表示されている場合はリロードして再試行
-    const hasError = await page
-      .getByText(/ユーザー一覧の取得に失敗しました/i)
-      .first()
-      .isVisible()
-      .catch(() => false);
+    const errorMessage = page.getByText(/ユーザー一覧の取得に失敗しました/i).first();
+    const errorCount = await errorMessage.count();
+    const hasError = errorCount > 0 && (await errorMessage.isVisible());
     if (hasError && retry < 2) {
       await page.reload();
       await page.waitForLoadState('networkidle');

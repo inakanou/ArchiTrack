@@ -244,18 +244,9 @@ test.describe('現場調査アクセス制御', () => {
       // 現場調査詳細ページにアクセス
       await page.goto(`/site-surveys/${createdSurveyId}`);
 
-      // ログインページにリダイレクトされるか、エラーメッセージが表示されることを確認
-      const isRedirectedToLogin = await page
-        .waitForURL(/\/login/, { timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false);
-
-      const hasUnauthorizedError = await page
-        .getByText(/ログインが必要|認証エラー|401|Unauthorized/i)
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-
-      expect(isRedirectedToLogin || hasUnauthorizedError).toBeTruthy();
+      // ログインページにリダイレクトされることを確認
+      await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
+      expect(page.url()).toMatch(/\/login/);
     });
 
     test('未認証ユーザーは現場調査一覧にアクセスできない (site-survey/REQ-12.3)', async ({
@@ -277,18 +268,9 @@ test.describe('現場調査アクセス制御', () => {
       // 現場調査一覧ページにアクセス
       await page.goto(`/projects/${createdProjectId}/site-surveys`);
 
-      // ログインページにリダイレクトされるか、エラーメッセージが表示されることを確認
-      const isRedirectedToLogin = await page
-        .waitForURL(/\/login/, { timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false);
-
-      const hasUnauthorizedError = await page
-        .getByText(/ログインが必要|認証エラー|401|Unauthorized/i)
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-
-      expect(isRedirectedToLogin || hasUnauthorizedError).toBeTruthy();
+      // ログインページにリダイレクトされることを確認
+      await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
+      expect(page.url()).toMatch(/\/login/);
     });
 
     test('未認証ユーザーは現場調査作成ページにアクセスできない (site-survey/REQ-12.3)', async ({
@@ -310,18 +292,9 @@ test.describe('現場調査アクセス制御', () => {
       // 現場調査作成ページにアクセス
       await page.goto(`/projects/${createdProjectId}/site-surveys/new`);
 
-      // ログインページにリダイレクトされるか、エラーメッセージが表示されることを確認
-      const isRedirectedToLogin = await page
-        .waitForURL(/\/login/, { timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false);
-
-      const hasUnauthorizedError = await page
-        .getByText(/ログインが必要|認証エラー|401|Unauthorized/i)
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-
-      expect(isRedirectedToLogin || hasUnauthorizedError).toBeTruthy();
+      // ログインページにリダイレクトされることを確認
+      await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
+      expect(page.url()).toMatch(/\/login/);
     });
   });
 
@@ -385,7 +358,8 @@ test.describe('現場調査アクセス制御', () => {
       const imageElement = page
         .locator('img[src*="storage"], img[src*="blob"], img[src*="api"]')
         .first();
-      const imageSrc = await imageElement.getAttribute('src').catch(() => null);
+      const imageCount = await imageElement.count();
+      const imageSrc = imageCount > 0 ? await imageElement.getAttribute('src') : null;
 
       if (imageSrc && !imageSrc.startsWith('blob:') && !imageSrc.startsWith('data:')) {
         // ログアウト
@@ -397,14 +371,12 @@ test.describe('現場調査アクセス制御', () => {
         });
 
         // 画像URLに直接アクセス
-        const response = await page.request.get(imageSrc).catch(() => null);
+        const response = await page.request.get(imageSrc);
 
-        if (response) {
-          // 署名が無効になった場合は401/403または画像データが取得できない
-          const status = response.status();
-          // 署名付きURLが有効な場合は一定時間はアクセス可能なので、どちらの結果もOK
-          expect(typeof status === 'number').toBeTruthy();
-        }
+        // 署名が無効になった場合は401/403または画像データが取得できない
+        const status = response.status();
+        // 署名付きURLが有効な場合は一定時間はアクセス可能なので、どちらの結果もOK
+        expect(typeof status === 'number').toBeTruthy();
       }
 
       // テストが完了したことを確認
@@ -484,19 +456,18 @@ test.describe('現場調査アクセス制御', () => {
 
       // メモを更新
       const memoField = page.getByLabel(/メモ/i);
-      if (await memoField.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await memoField.fill(`監査ログテスト更新_${Date.now()}`);
+      await expect(memoField).toBeVisible({ timeout: getTimeout(5000) });
+      await memoField.fill(`監査ログテスト更新_${Date.now()}`);
 
-        // 保存ボタンをクリック
-        const saveButton = page.getByRole('button', { name: /保存|更新/i });
-        await saveButton.click();
+      // 保存ボタンをクリック
+      const saveButton = page.getByRole('button', { name: /保存|更新/i });
+      await saveButton.click();
 
-        // APIリクエストが発生するまで待機
-        await page.waitForTimeout(2000);
+      // APIリクエストが発生するまで待機
+      await page.waitForTimeout(2000);
 
-        // 更新APIが呼び出されたことを確認（監査ログに記録されるはず）
-        expect(updateRequestMade).toBeTruthy();
-      }
+      // 更新APIが呼び出されたことを確認（監査ログに記録されるはず）
+      expect(updateRequestMade).toBeTruthy();
     });
   });
 
@@ -517,17 +488,13 @@ test.describe('現場調査アクセス制御', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          // 確認ダイアログの「削除する」ボタンを正確に指定
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        // 確認ダイアログの「削除する」ボタンを正確に指定
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       if (createdProjectId) {
@@ -535,16 +502,14 @@ test.describe('現場調査アクセス制御', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

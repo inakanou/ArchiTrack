@@ -558,32 +558,22 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i });
-        const deleteButtonVisible = await deleteButton.isVisible().catch(() => false);
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
 
-        if (deleteButtonVisible) {
-          await deleteButton.click();
+        // 削除確認ダイアログで削除を確認
+        const confirmDialog = page.getByText(/削除しますか|取引先の削除/i);
+        await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-          // 削除確認ダイアログで削除を確認
-          const confirmDialog = page.getByText(/削除しますか|取引先の削除/i);
-          const confirmDialogVisible = await confirmDialog.isVisible().catch(() => false);
-
-          if (confirmDialogVisible) {
-            // ダイアログ内の削除ボタンをクリック
-            const dialogDeleteButton = page
-              .getByTestId('focus-manager-overlay')
-              .getByRole('button', { name: /^削除$/i });
-            const dialogDeleteButtonVisible = await dialogDeleteButton
-              .isVisible()
-              .catch(() => false);
-
-            if (dialogDeleteButtonVisible) {
-              await dialogDeleteButton.click();
-              await expect(page).toHaveURL(/\/trading-partners$/, {
-                timeout: getTimeout(15000),
-              });
-            }
-          }
-        }
+        // ダイアログ内の削除ボタンをクリック
+        const dialogDeleteButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
+        await dialogDeleteButton.click();
+        await expect(page).toHaveURL(/\/trading-partners$/, {
+          timeout: getTimeout(15000),
+        });
       }
     } catch (error) {
       console.error('Cleanup failed:', error);

@@ -389,16 +389,9 @@ test.describe('取引先一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認（取引先がない場合はスキップ）
+      // テーブルが表示されていることを確認（ソートテストにはテーブルが必須）
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        // 取引先がない場合、空状態メッセージを確認
-        const emptyMessage = page.getByText(/取引先が登録されていません/i);
-        await expect(emptyMessage).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // 取引先名ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /取引先名でソート/i });
@@ -419,15 +412,9 @@ test.describe('取引先一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認
+      // テーブルが表示されていることを確認（ソートテストにはテーブルが必須）
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        const emptyMessage = page.getByText(/取引先が登録されていません/i);
-        await expect(emptyMessage).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // 登録日ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /登録日でソート/i });
@@ -446,15 +433,9 @@ test.describe('取引先一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認
+      // テーブルが表示されていることを確認（ソートテストにはテーブルが必須）
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        const emptyMessage = page.getByText(/取引先が登録されていません/i);
-        await expect(emptyMessage).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // 取引先名ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /取引先名でソート/i });
@@ -482,15 +463,9 @@ test.describe('取引先一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認
+      // テーブルが表示されていることを確認（ソートテストにはテーブルが必須）
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        const emptyMessage = page.getByText(/取引先が登録されていません/i);
-        await expect(emptyMessage).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // 取引先名ヘッダーのソートボタンをクリック（昇順でソート開始）
       // Note: フリガナ列は Task 19.1 で削除されたため、取引先名でテスト
@@ -844,16 +819,9 @@ test.describe('取引先一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認
+      // テーブルが表示されていることを確認（詳細遷移テストにはテーブルが必須）
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        // 取引先がない場合、空状態メッセージを確認
-        const emptyMessage = page.getByText(/取引先が登録されていません/i);
-        await expect(emptyMessage).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // 最初の取引先行をクリック
       const firstRow = page.locator('[data-testid^="partner-row-"]').first();
@@ -878,15 +846,9 @@ test.describe('取引先一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認
+      // テーブルが表示されていることを確認（詳細遷移テストにはテーブルが必須）
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        const emptyMessage = page.getByText(/取引先が登録されていません/i);
-        await expect(emptyMessage).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // 最初の取引先行にフォーカスしてEnterキーを押す
       const firstRow = page.locator('[data-testid^="partner-row-"]').first();

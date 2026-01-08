@@ -174,9 +174,9 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const surveyTab = page.getByRole('tab', { name: /現場調査/i });
       const surveySection = page.getByRole('heading', { name: '現場調査', exact: true });
 
-      const hasLink = await surveyLink.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasTab = await surveyTab.isVisible({ timeout: 2000 }).catch(() => false);
-      const hasSection = await surveySection.isVisible({ timeout: 2000 }).catch(() => false);
+      const hasLink = await surveyLink.isVisible({ timeout: 5000 });
+      const hasTab = await surveyTab.isVisible();
+      const hasSection = await surveySection.isVisible();
 
       expect(hasLink || hasTab || hasSection).toBeTruthy();
     });
@@ -194,9 +194,8 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       // 現場調査セクションの「すべて見る」リンクをクリック
       // SiteSurveySectionCardコンポーネントでは「すべて見る」リンクが使用されている
       const surveyLink = page.getByRole('link', { name: /すべて見る/i }).first();
-      if (await surveyLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await surveyLink.click();
-      }
+      await expect(surveyLink).toBeVisible({ timeout: getTimeout(5000) });
+      await surveyLink.click();
 
       // 現場調査一覧ページに遷移
       await expect(page).toHaveURL(new RegExp(`/projects/${createdProjectId}/site-surveys`), {
@@ -266,13 +265,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await expect(photoPanel).toBeVisible({ timeout: getTimeout(10000) });
 
       const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
-
-      if (!hasImages) {
-        throw new Error(
-          '画像が見つかりません。事前準備テストで画像アップロードが正しく実行されていない可能性があります。'
-        );
-      }
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
 
       // 画像ボタンをクリック
       await imageButton.click();
@@ -324,14 +317,10 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await expect(breadcrumb.getByText(projectName)).toBeVisible({ timeout: getTimeout(10000) });
 
       // 現場調査関連のテキストが含まれることを確認
-      const hasSurveyText = await breadcrumb
-        .getByText(/現場調査/i)
-        .isVisible()
-        .catch(() => false);
-      const hasSurveyName = await breadcrumb
-        .getByText(surveyName)
-        .isVisible()
-        .catch(() => false);
+      const surveyTextElement = breadcrumb.getByText(/現場調査/i);
+      const surveyNameElement = breadcrumb.getByText(surveyName);
+      const hasSurveyText = await surveyTextElement.isVisible();
+      const hasSurveyName = await surveyNameElement.isVisible();
       expect(hasSurveyText || hasSurveyName).toBeTruthy();
     });
 
@@ -356,7 +345,8 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const breadcrumb = page.getByRole('navigation', { name: /パンくず|breadcrumb/i });
       const projectLink = breadcrumb.getByRole('link', { name: projectName });
 
-      if (await projectLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const projectLinkVisible = await projectLink.isVisible({ timeout: 5000 });
+      if (projectLinkVisible) {
         await projectLink.click();
 
         // プロジェクト詳細ページに遷移することを確認
@@ -403,16 +393,13 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await deleteButton.click();
-          // 削除確認ダイアログが表示されるのを待機
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          await expect(confirmButton).toBeVisible({ timeout: 5000 });
-          await confirmButton.click();
-          await page
-            .waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) })
-            .catch(() => {});
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        // 削除確認ダイアログが表示されるのを待機
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
       }
 
       // プロジェクトを削除
@@ -421,16 +408,14 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

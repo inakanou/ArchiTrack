@@ -176,16 +176,12 @@ test.describe('現場調査エクスポート機能', () => {
         await cleanupPage.waitForLoadState('networkidle');
 
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible().catch(() => false)) {
-          await deleteButton.click();
-          const confirmButton = cleanupPage.getByRole('button', { name: /^削除する$|^削除$/i });
-          if (await confirmButton.isVisible().catch(() => false)) {
-            await confirmButton.click();
-            await cleanupPage
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = cleanupPage.getByRole('button', { name: /^削除する$|^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       // プロジェクトを削除
@@ -194,18 +190,14 @@ test.describe('現場調査エクスポート機能', () => {
         await cleanupPage.waitForLoadState('networkidle');
 
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible().catch(() => false)) {
-          await deleteButton.click();
-          const confirmButton = cleanupPage
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible().catch(() => false)) {
-            await confirmButton.click();
-            await cleanupPage
-              .waitForURL(/\/projects$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = cleanupPage
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     } finally {
       await cleanupPage.close();
@@ -253,16 +245,15 @@ test.describe('現場調査エクスポート機能', () => {
         await includeInReportCheckbox.click();
         // 保存ボタンをクリック（手動保存方式）
         const saveButton1 = page.getByRole('button', { name: /^保存$|^保存中/ });
-        if (await saveButton1.isVisible({ timeout: 3000 }).catch(() => false)) {
-          const responsePromise1 = page.waitForResponse(
-            (response) =>
-              response.url().includes('/api/site-surveys/images') &&
-              response.request().method() === 'PATCH',
-            { timeout: getTimeout(15000) }
-          );
-          await saveButton1.click();
-          await responsePromise1;
-        }
+        await expect(saveButton1).toBeVisible({ timeout: getTimeout(5000) });
+        const responsePromise1 = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/site-surveys/images') &&
+            response.request().method() === 'PATCH',
+          { timeout: getTimeout(15000) }
+        );
+        await saveButton1.click();
+        await responsePromise1;
       }
 
       // チェックがオフであることを確認
@@ -539,18 +530,6 @@ test.describe('現場調査エクスポート機能', () => {
       // 調査報告書出力ボタンをクリック
       const pdfButton = page.getByRole('button', { name: /調査報告書出力|PDF/i });
       await pdfButton.click();
-
-      // プログレス表示またはダウンロード完了のいずれかを確認
-      // （PDF生成が速い場合、プログレスがすぐに消える可能性がある）
-      const progressContainer = page.locator('[data-testid="pdf-export-progress"]');
-
-      // プログレスが表示されるか、すぐにダウンロードが開始されるかのいずれか
-      await Promise.race([
-        expect(progressContainer)
-          .toBeVisible({ timeout: getTimeout(10000) })
-          .catch(() => {}),
-        downloadPromise.catch(() => {}),
-      ]);
 
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;

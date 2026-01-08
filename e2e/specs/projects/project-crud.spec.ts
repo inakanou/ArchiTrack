@@ -97,18 +97,6 @@ test.describe('プロジェクトCRUD操作', () => {
       // フォームが表示されるまで待機
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ユーザー一覧取得エラーが表示されないことを確認（認証が成功している）
-      // もしエラーがあればページをリロードして再試行
-      // Note: 営業担当者と工事担当者の2つのUserSelectコンポーネントがあるため、
-      //       複数のエラーメッセージが表示される可能性がある。.first()を使用して厳密モード違反を回避
-      const userFetchError = page.getByText(/ユーザー一覧の取得に失敗しました/i).first();
-      const hasError = await userFetchError.isVisible().catch(() => false);
-      if (hasError) {
-        console.log('User fetch error detected, reloading page...');
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-      }
-
       // 営業担当者のセレクトボックスが読み込み完了になるまで待機
       // 「読み込み中...」または「ユーザー一覧の取得に失敗しました」が表示されなくなるまで待機
       // Note: 2つのUserSelectコンポーネントがあるため.first()を使用
@@ -924,20 +912,8 @@ test.describe('プロジェクトCRUD操作', () => {
           timeout: getTimeout(10000),
         });
 
-        // 関連データが存在する場合は警告メッセージが表示される（実装されている場合）
-        const relatedDataWarning = page.getByText(/関連データが存在します|現場調査|見積書/i);
-        const warningVisible = await relatedDataWarning.isVisible().catch(() => false);
-
-        // 警告が表示される場合は、削除ボタンをクリックして削除を実行
-        if (warningVisible) {
-          await page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i })
-            .click();
-        } else {
-          // 警告がない場合は通常の削除確認ダイアログをキャンセル
-          await page.getByRole('button', { name: /キャンセル/i }).click();
-        }
+        // 削除確認ダイアログが表示されたらキャンセルする
+        await page.getByRole('button', { name: /キャンセル/i }).click();
       }
     });
   });

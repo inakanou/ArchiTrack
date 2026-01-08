@@ -452,10 +452,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         .getByRole('button', { name: /画像を削除/i });
 
       // 削除ボタンが表示されることを確認
-      const isDeleteButtonVisible = await deleteButton.isVisible().catch(() => false);
-      if (!isDeleteButtonVisible) {
-        throw new Error('削除ボタンが表示されていません。UIの状態が期待と異なります。');
-      }
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
 
       await deleteButton.click();
 
@@ -501,10 +498,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       // 削除ボタンをクリック
       // aria-labelは「画像を削除: ファイル名」の形式
       const deleteButton = photoPanelItems.first().getByRole('button', { name: /画像を削除/i });
-      const isDeleteButtonVisible = await deleteButton.isVisible().catch(() => false);
-      if (!isDeleteButtonVisible) {
-        throw new Error('削除ボタンが表示されていません。UIの状態が期待と異なります。');
-      }
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
 
       await deleteButton.click();
 
@@ -634,16 +628,16 @@ test.describe('現場調査 Phase 18 追加要件', () => {
 
       // 画像をクリックしてビューア/エディタを開く
       const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasImages = await imageButton.isVisible({ timeout: 5000 });
 
       if (!hasImages) {
         // 前のテストで画像が削除された可能性があるため、新しい画像をアップロード
         let fileInput = page.locator('input[type="file"]').first();
-        if ((await fileInput.count()) === 0) {
+        const fileInputCount = await fileInput.count();
+        if (fileInputCount === 0) {
           const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
-          if (await uploadButton.isVisible()) {
-            await uploadButton.click();
-          }
+          await expect(uploadButton).toBeVisible({ timeout: getTimeout(5000) });
+          await uploadButton.click();
           fileInput = page.locator('input[type="file"]').first();
         }
 
@@ -665,13 +659,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
 
       // 画像ボタンを再取得
       const imageButtonAfterUpload = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImagesNow = await imageButtonAfterUpload
-        .isVisible({ timeout: 5000 })
-        .catch(() => false);
-
-      if (!hasImagesNow) {
-        throw new Error('画像が見つかりません。アップロード処理が正しく完了していません。');
-      }
+      await expect(imageButtonAfterUpload).toBeVisible({ timeout: getTimeout(10000) });
 
       await imageButtonAfterUpload.click();
 
@@ -722,15 +710,12 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /^削除$/ }).first();
-        if (await deleteButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          await expect(confirmButton).toBeVisible({ timeout: 5000 });
-          await confirmButton.click();
-          await page
-            .waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) })
-            .catch(() => {});
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
       }
 
       // プロジェクトを削除
@@ -739,16 +724,14 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

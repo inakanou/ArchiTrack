@@ -128,11 +128,9 @@ test.describe('プロジェクト一覧操作', () => {
       const cardList = page.getByTestId('project-card-list');
 
       // いずれかが表示されることを確認
-      const hasEmptyMessage = await emptyMessage.isVisible().catch(() => false);
-      const hasTable = await table.isVisible().catch(() => false);
-      const hasCardList = await cardList.isVisible().catch(() => false);
-
-      expect(hasEmptyMessage || hasTable || hasCardList).toBe(true);
+      await expect(emptyMessage.or(table).or(cardList)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
   });
 
@@ -347,18 +345,9 @@ test.describe('プロジェクト一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認（プロジェクトがない場合はスキップ）
+      // テーブルが表示されていることを確認（プロジェクトがない場合はテスト失敗）
       const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        // プロジェクトがない場合、空状態メッセージを確認
-        const emptyOrError = page.getByText(
-          /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-        );
-        await expect(emptyOrError).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // プロジェクト名ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /プロジェクト名でソート/i });
@@ -381,18 +370,9 @@ test.describe('プロジェクト一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認（プロジェクトがない場合はスキップ）
+      // テーブルが表示されていることを確認（プロジェクトがない場合はテスト失敗）
       const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        // プロジェクトがない場合、空状態メッセージを確認
-        const emptyOrError = page.getByText(
-          /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-        );
-        await expect(emptyOrError).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // プロジェクト名ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /プロジェクト名でソート/i });

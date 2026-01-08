@@ -54,39 +54,31 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       timeout: getTimeout(10000),
     });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // テーブルヘッダー行を取得
-      const headerRow = page.locator('thead tr');
+    // テーブルヘッダー行を取得
+    const headerRow = page.locator('thead tr');
 
-      // ID列のソートボタンが存在しないことを確認
-      const idSortButton = page.getByRole('button', { name: /^IDでソート$/i });
-      await expect(idSortButton).not.toBeVisible();
+    // ID列のソートボタンが存在しないことを確認
+    const idSortButton = page.getByRole('button', { name: /^IDでソート$/i });
+    await expect(idSortButton).not.toBeVisible();
 
-      // ヘッダー内に「ID」というテキストが列ラベルとして存在しないことを確認
-      // 注意: 「プロジェクトID」などの部分一致は避ける
-      const headerCells = headerRow.locator('th');
-      const headerTexts: string[] = [];
-      const count = await headerCells.count();
-      for (let i = 0; i < count; i++) {
-        const text = await headerCells.nth(i).textContent();
-        if (text) {
-          headerTexts.push(text.trim());
-        }
+    // ヘッダー内に「ID」というテキストが列ラベルとして存在しないことを確認
+    // 注意: 「プロジェクトID」などの部分一致は避ける
+    const headerCells = headerRow.locator('th');
+    const headerTexts: string[] = [];
+    const count = await headerCells.count();
+    for (let i = 0; i < count; i++) {
+      const text = await headerCells.nth(i).textContent();
+      if (text) {
+        headerTexts.push(text.trim());
       }
-
-      // ヘッダーに「ID」のみの列が存在しないことを確認
-      expect(headerTexts).not.toContain('ID');
-    } else {
-      // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
     }
+
+    // ヘッダーに「ID」のみの列が存在しないことを確認
+    expect(headerTexts).not.toContain('ID');
   });
 
   /**
@@ -111,21 +103,13 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       timeout: getTimeout(10000),
     });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // 営業担当者列のソートボタンが存在することを確認
-      const salesPersonSortButton = page.getByRole('button', { name: /営業担当者でソート/i });
-      await expect(salesPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
-    } else {
-      // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
-    }
+    // 営業担当者列のソートボタンが存在することを確認
+    const salesPersonSortButton = page.getByRole('button', { name: /営業担当者でソート/i });
+    await expect(salesPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   /**
@@ -150,23 +134,15 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       timeout: getTimeout(10000),
     });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // 工事担当者列のソートボタンが存在することを確認
-      const constructionPersonSortButton = page.getByRole('button', {
-        name: /工事担当者でソート/i,
-      });
-      await expect(constructionPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
-    } else {
-      // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
-    }
+    // 工事担当者列のソートボタンが存在することを確認
+    const constructionPersonSortButton = page.getByRole('button', {
+      name: /工事担当者でソート/i,
+    });
+    await expect(constructionPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   /**
@@ -191,46 +167,38 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       timeout: getTimeout(10000),
     });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // プロジェクト行が存在する場合、最初の行を確認
-      const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
+    // プロジェクト行が存在する場合、最初の行を確認
+    const rows = page.locator('tbody tr');
+    const rowCount = await rows.count();
 
-      if (rowCount > 0) {
-        // 最初の行の担当者セルを確認
-        // 営業担当者列（3列目: 0-indexed で2）
-        const firstRow = rows.first();
-        const cells = firstRow.locator('td');
+    if (rowCount > 0) {
+      // 最初の行の担当者セルを確認
+      // 営業担当者列（3列目: 0-indexed で2）
+      const firstRow = rows.first();
+      const cells = firstRow.locator('td');
 
-        // 列の数を確認（7列: プロジェクト名、顧客名、営業担当者、工事担当者、ステータス、作成日、更新日）
-        const cellCount = await cells.count();
-        expect(cellCount).toBe(7);
+      // 列の数を確認（7列: プロジェクト名、顧客名、営業担当者、工事担当者、ステータス、作成日、更新日）
+      const cellCount = await cells.count();
+      expect(cellCount).toBe(7);
 
-        // 営業担当者セル（3列目）の内容を確認
-        // 担当者名はユーザーアイコンと一緒に表示される
-        const salesPersonCell = cells.nth(2);
-        const salesPersonText = await salesPersonCell.textContent();
-        expect(salesPersonText).toBeTruthy();
-        // 空でないことを確認（「-」または実際の名前）
-        expect(salesPersonText!.trim().length).toBeGreaterThan(0);
+      // 営業担当者セル（3列目）の内容を確認
+      // 担当者名はユーザーアイコンと一緒に表示される
+      const salesPersonCell = cells.nth(2);
+      const salesPersonText = await salesPersonCell.textContent();
+      expect(salesPersonText).toBeTruthy();
+      // 空でないことを確認（「-」または実際の名前）
+      expect(salesPersonText!.trim().length).toBeGreaterThan(0);
 
-        // 工事担当者セル（4列目）の内容を確認
-        const constructionPersonCell = cells.nth(3);
-        const constructionPersonText = await constructionPersonCell.textContent();
-        expect(constructionPersonText).toBeTruthy();
-        // 空でないことを確認（「-」または実際の名前）
-        expect(constructionPersonText!.trim().length).toBeGreaterThan(0);
-      }
-    } else {
-      // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
+      // 工事担当者セル（4列目）の内容を確認
+      const constructionPersonCell = cells.nth(3);
+      const constructionPersonText = await constructionPersonCell.textContent();
+      expect(constructionPersonText).toBeTruthy();
+      // 空でないことを確認（「-」または実際の名前）
+      expect(constructionPersonText!.trim().length).toBeGreaterThan(0);
     }
   });
 
@@ -256,52 +224,44 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       timeout: getTimeout(10000),
     });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // プロジェクト行が存在する場合、工事担当者が未設定の行を探す
-      const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
+    // プロジェクト行が存在する場合、工事担当者が未設定の行を探す
+    const rows = page.locator('tbody tr');
+    const rowCount = await rows.count();
 
-      if (rowCount > 0) {
-        // 各行の工事担当者セルを確認
-        let foundEmptyConstructionPerson = false;
+    if (rowCount > 0) {
+      // 各行の工事担当者セルを確認
+      let foundEmptyConstructionPerson = false;
 
-        for (let i = 0; i < rowCount; i++) {
-          const row = rows.nth(i);
-          const cells = row.locator('td');
-          const constructionPersonCell = cells.nth(3);
-          const constructionPersonText = await constructionPersonCell.textContent();
+      for (let i = 0; i < rowCount; i++) {
+        const row = rows.nth(i);
+        const cells = row.locator('td');
+        const constructionPersonCell = cells.nth(3);
+        const constructionPersonText = await constructionPersonCell.textContent();
 
-          // 「-」が表示されている行があるかチェック
-          if (constructionPersonText && constructionPersonText.trim() === '-') {
-            foundEmptyConstructionPerson = true;
-            break;
-          }
+        // 「-」が表示されている行があるかチェック
+        if (constructionPersonText && constructionPersonText.trim() === '-') {
+          foundEmptyConstructionPerson = true;
+          break;
         }
-
-        // 工事担当者が未設定のプロジェクトがある場合、「-」が表示されていることを確認
-        // 全てのプロジェクトに工事担当者が設定されている場合もテストは成功
-        // （この場合は実際のテストデータに依存）
-        if (!foundEmptyConstructionPerson) {
-          // 全てのプロジェクトに工事担当者が設定されている場合
-          // テストは成功として扱う（データ依存のため）
-          console.log(
-            'Note: All projects have construction person assigned. Test passed conditionally.'
-          );
-        }
-
-        // 少なくとも1つの行が存在し、正常に処理されたことを確認
-        expect(rowCount).toBeGreaterThan(0);
       }
-    } else {
-      // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
+
+      // 工事担当者が未設定のプロジェクトがある場合、「-」が表示されていることを確認
+      // 全てのプロジェクトに工事担当者が設定されている場合もテストは成功
+      // （この場合は実際のテストデータに依存）
+      if (!foundEmptyConstructionPerson) {
+        // 全てのプロジェクトに工事担当者が設定されている場合
+        // テストは成功として扱う（データ依存のため）
+        console.log(
+          'Note: All projects have construction person assigned. Test passed conditionally.'
+        );
+      }
+
+      // 少なくとも1つの行が存在し、正常に処理されたことを確認
+      expect(rowCount).toBeGreaterThan(0);
     }
   });
 
@@ -325,45 +285,37 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       timeout: getTimeout(10000),
     });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // テーブルヘッダーのボタン/テキストを順序通りに確認
-      const expectedOrder = [
-        /プロジェクト名/,
-        /顧客名/,
-        /営業担当者/,
-        /工事担当者/,
-        /ステータス/,
-        /作成日/,
-        /更新日/,
-      ];
+    // テーブルヘッダーのボタン/テキストを順序通りに確認
+    const expectedOrder = [
+      /プロジェクト名/,
+      /顧客名/,
+      /営業担当者/,
+      /工事担当者/,
+      /ステータス/,
+      /作成日/,
+      /更新日/,
+    ];
 
-      // ヘッダー行のボタン（ソート可能列）を取得
-      const headerRow = page.locator('thead tr');
-      const headerButtons = headerRow.locator('button');
-      const headerCount = await headerButtons.count();
+    // ヘッダー行のボタン（ソート可能列）を取得
+    const headerRow = page.locator('thead tr');
+    const headerButtons = headerRow.locator('button');
+    const headerCount = await headerButtons.count();
 
-      // 7列全てがソート可能であることを確認
-      expect(headerCount).toBe(7);
+    // 7列全てがソート可能であることを確認
+    expect(headerCount).toBe(7);
 
-      // 各列の順序を確認
-      for (let i = 0; i < expectedOrder.length; i++) {
-        const button = headerButtons.nth(i);
-        const buttonText = await button.textContent();
-        const pattern = expectedOrder[i];
-        if (pattern) {
-          expect(buttonText).toMatch(pattern);
-        }
+    // 各列の順序を確認
+    for (let i = 0; i < expectedOrder.length; i++) {
+      const button = headerButtons.nth(i);
+      const buttonText = await button.textContent();
+      const pattern = expectedOrder[i];
+      if (pattern) {
+        expect(buttonText).toMatch(pattern);
       }
-    } else {
-      // プロジェクトがない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
     }
   });
 
@@ -395,52 +347,33 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
     // レスポンシブレイアウトが適用されるまで待機
     await page.waitForTimeout(1000);
 
-    // カードリストまたはカードが表示されているか確認
-    // （プロジェクトが存在する場合のみカードが表示される）
+    // カードリストが表示されていることを確認
+    // （モバイル表示ではカード形式が必須）
     const cardList = page.getByTestId('project-card-list');
-    const cardListVisible = await cardList.isVisible().catch(() => false);
+    await expect(cardList).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (cardListVisible) {
-      // カードが存在する場合、最初のカードの担当者情報を確認
-      const cards = page.locator('[data-testid^="project-card-"]');
-      const cardCount = await cards.count();
+    // カードが存在する場合、最初のカードの担当者情報を確認
+    const cards = page.locator('[data-testid^="project-card-"]');
+    const cardCount = await cards.count();
 
-      if (cardCount > 0) {
-        const firstCard = cards.first();
+    if (cardCount > 0) {
+      const firstCard = cards.first();
 
-        // カード内に営業担当者情報が表示されていることを確認
-        // .first()を使用して、複数のマッチがある場合でも最初の要素を取得
-        const salesPersonElement = firstCard.locator('[data-testid^="sales-person-"]').first();
-        await expect(salesPersonElement).toBeVisible({ timeout: getTimeout(10000) });
+      // カード内に営業担当者情報が表示されていることを確認
+      // .first()を使用して、複数のマッチがある場合でも最初の要素を取得
+      const salesPersonElement = firstCard.locator('[data-testid^="sales-person-"]').first();
+      await expect(salesPersonElement).toBeVisible({ timeout: getTimeout(10000) });
 
-        // カード内に工事担当者情報が表示されていることを確認
-        // .first()を使用して、複数のマッチがある場合でも最初の要素を取得
-        const constructionPersonElement = firstCard
-          .locator('[data-testid^="construction-person-"]')
-          .first();
-        await expect(constructionPersonElement).toBeVisible({ timeout: getTimeout(10000) });
-      } else {
-        // カードリストはあるがカードがない場合（プロジェクト0件）
-        const emptyMessage = page.getByText(/プロジェクトがありません/i);
-        await expect(emptyMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // カード内に工事担当者情報が表示されていることを確認
+      // .first()を使用して、複数のマッチがある場合でも最初の要素を取得
+      const constructionPersonElement = firstCard
+        .locator('[data-testid^="construction-person-"]')
+        .first();
+      await expect(constructionPersonElement).toBeVisible({ timeout: getTimeout(10000) });
     } else {
-      // カードリストが見つからない場合、テーブルが表示されているか確認
-      // （viewportが小さくてもテーブルが表示される場合がある）
-      const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (tableVisible) {
-        // テーブル表示の場合は営業担当者列を確認
-        const salesPersonHeader = page.getByRole('columnheader', { name: /営業担当者/i });
-        await expect(salesPersonHeader).toBeVisible({ timeout: getTimeout(5000) });
-      } else {
-        // どちらも見つからない場合、空状態メッセージまたはエラーメッセージを確認
-        const emptyOrError = page.getByText(
-          /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-        );
-        await expect(emptyOrError).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // カードリストはあるがカードがない場合（プロジェクト0件）
+      const emptyMessage = page.getByText(/プロジェクトがありません/i);
+      await expect(emptyMessage).toBeVisible({ timeout: getTimeout(5000) });
     }
   });
 });

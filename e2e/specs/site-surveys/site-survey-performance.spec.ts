@@ -166,25 +166,26 @@ test.describe('現場調査非機能要件', () => {
 
       // ファイル入力を取得
       const fileInput = page.locator('input[type="file"]').first();
-      if (!(await fileInput.isVisible({ timeout: 3000 }).catch(() => false))) {
+      const fileInputVisible = await fileInput.isVisible();
+      if (!fileInputVisible) {
         // 非表示の場合はinputがある要素をクリック
         const uploadArea = page.locator('[data-testid="upload-area"], .upload-dropzone').first();
-        if (await uploadArea.isVisible().catch(() => false)) {
+        const uploadAreaVisible = await uploadArea.isVisible();
+        if (uploadAreaVisible) {
           // hidden inputを取得
           const hiddenInput = page.locator('input[type="file"]');
-          if ((await hiddenInput.count()) > 0) {
+          const hiddenInputCount = await hiddenInput.count();
+          if (hiddenInputCount > 0) {
             const startTime = Date.now();
 
             // アップロードAPIのレスポンスを待機
-            const uploadPromise = page
-              .waitForResponse(
-                (response) =>
-                  response.url().includes('/api/') &&
-                  response.url().includes('images') &&
-                  response.request().method() === 'POST',
-                { timeout: getTimeout(30000) }
-              )
-              .catch(() => null);
+            const uploadPromise = page.waitForResponse(
+              (response) =>
+                response.url().includes('/api/') &&
+                response.url().includes('images') &&
+                response.request().method() === 'POST',
+              { timeout: getTimeout(30000) }
+            );
 
             await hiddenInput.first().setInputFiles(testImagePath);
 
@@ -193,26 +194,27 @@ test.describe('現場調査非機能要件', () => {
             const endTime = Date.now();
             const uploadTime = endTime - startTime;
 
-            if (uploadResponse) {
-              // 5秒（5000ms）以内にアップロードが完了することを確認
-              // CI環境では時間がかかる場合があるので、15秒を上限とする
-              expect(uploadTime).toBeLessThan(15000);
-              console.log(`[Performance] 画像アップロード時間: ${uploadTime}ms`);
-            }
+            // 5秒（5000ms）以内にアップロードが完了することを確認
+            // CI環境では時間がかかる場合があるので、15秒を上限とする
+            expect(uploadResponse.ok()).toBe(true);
+            expect(uploadTime).toBeLessThan(15000);
+            console.log(`[Performance] 画像アップロード時間: ${uploadTime}ms`);
+          } else {
+            throw new Error('ファイル入力要素が見つかりません');
           }
+        } else {
+          throw new Error('アップロードエリアが見つかりません');
         }
       } else {
         const startTime = Date.now();
 
-        const uploadPromise = page
-          .waitForResponse(
-            (response) =>
-              response.url().includes('/api/') &&
-              response.url().includes('images') &&
-              response.request().method() === 'POST',
-            { timeout: getTimeout(30000) }
-          )
-          .catch(() => null);
+        const uploadPromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/') &&
+            response.url().includes('images') &&
+            response.request().method() === 'POST',
+          { timeout: getTimeout(30000) }
+        );
 
         await fileInput.setInputFiles(testImagePath);
 
@@ -221,10 +223,9 @@ test.describe('現場調査非機能要件', () => {
         const endTime = Date.now();
         const uploadTime = endTime - startTime;
 
-        if (uploadResponse) {
-          expect(uploadTime).toBeLessThan(15000);
-          console.log(`[Performance] 画像アップロード時間: ${uploadTime}ms`);
-        }
+        expect(uploadResponse.ok()).toBe(true);
+        expect(uploadTime).toBeLessThan(15000);
+        console.log(`[Performance] 画像アップロード時間: ${uploadTime}ms`);
       }
 
       await expect(page.locator('body')).toBeVisible();
@@ -288,8 +289,8 @@ test.describe('現場調査非機能要件', () => {
       const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
       const errorPage = page.locator('[data-testid="error-page"], .error-container');
 
-      const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasErrorPage = await errorPage.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 });
+      const hasErrorPage = await errorPage.isVisible();
       const is404Url = page.url().includes('404');
 
       // エラー表示があることを確認
@@ -309,8 +310,8 @@ test.describe('現場調査非機能要件', () => {
       // エラーメッセージまたはリダイレクトを確認
       const errorAlert = page.getByRole('alert');
       const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
-      const hasErrorAlert = await errorAlert.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasErrorAlert = await errorAlert.isVisible({ timeout: 5000 });
+      const hasErrorMessage = await errorMessage.isVisible();
       const isRedirected = !page.url().includes(nonExistentProjectId);
 
       // エラー表示またはリダイレクトがあることを確認
@@ -338,10 +339,8 @@ test.describe('現場調査非機能要件', () => {
       const validationError = page.getByText(/必須|入力してください|required/i);
       const formError = page.locator('.error-message, [data-testid="form-error"], [role="alert"]');
 
-      const hasValidationError = await validationError
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-      const hasFormError = await formError.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasValidationError = await validationError.isVisible({ timeout: getTimeout(5000) });
+      const hasFormError = await formError.isVisible();
 
       // エラーメッセージが表示されることを確認
       expect(hasValidationError || hasFormError).toBeTruthy();
@@ -364,16 +363,12 @@ test.describe('現場調査非機能要件', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       if (createdProjectId) {
@@ -381,16 +376,14 @@ test.describe('現場調査非機能要件', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

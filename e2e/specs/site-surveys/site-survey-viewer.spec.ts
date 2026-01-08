@@ -32,9 +32,7 @@ async function ensureImageExists(
   _surveyId: string
 ): Promise<boolean> {
   const imageGrid = page.locator('[aria-label="写真管理パネル"]');
-  if (!(await imageGrid.isVisible({ timeout: 5000 }).catch(() => false))) {
-    return false;
-  }
+  await expect(imageGrid).toBeVisible({ timeout: getTimeout(5000) });
 
   // 画像が存在するか確認
   const imageButtons = imageGrid.locator('button:has(img)');
@@ -50,29 +48,26 @@ async function ensureImageExists(
 
   if ((await input.count()) === 0) {
     const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
-    if (await uploadButton.isVisible()) {
+    const uploadVisible = await uploadButton.isVisible();
+    if (uploadVisible) {
       await uploadButton.click();
     }
   }
 
   const fileInput = page.locator('input[type="file"]').first();
   if ((await fileInput.count()) > 0) {
-    try {
-      await fileInput.setInputFiles(testImagePath);
-      await page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/') &&
-          response.url().includes('images') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(30000) }
-      );
-      await page.waitForTimeout(500);
-      await page.reload({ waitUntil: 'networkidle' });
-      return true;
-    } catch {
-      return false;
-    }
+    await fileInput.setInputFiles(testImagePath);
+    await page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/') &&
+        response.url().includes('images') &&
+        response.request().method() === 'POST' &&
+        response.status() === 201,
+      { timeout: getTimeout(30000) }
+    );
+    await page.waitForTimeout(500);
+    await page.reload({ waitUntil: 'networkidle' });
+    return true;
   }
   return false;
 }
@@ -179,16 +174,14 @@ test.describe('現場調査画像ビューア', () => {
         await input.setInputFiles(testImagePath);
 
         // アップロード完了を待機
-        await page
-          .waitForResponse(
-            (response) =>
-              response.url().includes('/api/') &&
-              response.url().includes('images') &&
-              response.request().method() === 'POST' &&
-              response.status() === 201,
-            { timeout: getTimeout(30000) }
-          )
-          .catch(() => {});
+        await page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/') &&
+            response.url().includes('images') &&
+            response.request().method() === 'POST' &&
+            response.status() === 201,
+          { timeout: getTimeout(30000) }
+        );
 
         // 2枚目の画像をアップロード（ドラッグ並び替えテスト用）
         await page.waitForTimeout(500);
@@ -196,16 +189,14 @@ test.describe('現場調査画像ビューア', () => {
         if ((await input.count()) > 0) {
           await input.setInputFiles(testImagePath);
 
-          await page
-            .waitForResponse(
-              (response) =>
-                response.url().includes('/api/') &&
-                response.url().includes('images') &&
-                response.request().method() === 'POST' &&
-                response.status() === 201,
-              { timeout: getTimeout(30000) }
-            )
-            .catch(() => {});
+          await page.waitForResponse(
+            (response) =>
+              response.url().includes('/api/') &&
+              response.url().includes('images') &&
+              response.request().method() === 'POST' &&
+              response.status() === 201,
+            { timeout: getTimeout(30000) }
+          );
         }
 
         // ページを再読み込みして画像が表示されることを確認
@@ -355,18 +346,18 @@ test.describe('現場調査画像ビューア', () => {
       // 画像一覧コンテナを確認
       const imageContainer = page.locator('[aria-label="写真管理パネル"]');
 
-      // 画像コンテナが存在する場合、順序付きで表示されていることを確認
-      if (await imageContainer.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // 画像アイテムを取得
-        const imageItems = imageContainer.locator('[data-testid="photo-image-button"]');
-        const count = await imageItems.count();
+      // 画像コンテナが存在することを必須検証
+      await expect(imageContainer).toBeVisible({ timeout: getTimeout(3000) });
 
-        // 画像がある場合、表示順序が存在することを確認
-        if (count > 0) {
-          // data-order属性やindex等で順序が管理されているか確認
-          const firstItem = imageItems.first();
-          await expect(firstItem).toBeVisible();
-        }
+      // 画像アイテムを取得
+      const imageItems = imageContainer.locator('[data-testid="photo-image-button"]');
+      const count = await imageItems.count();
+
+      // 画像がある場合、表示順序が存在することを確認
+      if (count > 0) {
+        // data-order属性やindex等で順序が管理されているか確認
+        const firstItem = imageItems.first();
+        await expect(firstItem).toBeVisible();
       }
     });
   });
@@ -449,32 +440,29 @@ test.describe('現場調査画像ビューア', () => {
       let imageElement = page
         .locator('[aria-label="写真管理パネル"] [data-testid="photo-image-button"]')
         .first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
+        imageVisible = await imageElement.isVisible();
       }
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
       await imageElement.click();
 
-      // ビューアページに遷移するか、モーダルが開くことを確認
-      const viewerPage = await page
-        .waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-          timeout: getTimeout(10000),
-        })
-        .catch(() => null);
+      // ビューアページに遷移することを確認
+      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+        timeout: getTimeout(10000),
+      });
 
-      const viewerModal = page.locator(
-        '[data-testid="image-viewer"], .image-viewer, [role="dialog"]'
-      );
-      const hasModal = await viewerModal.isVisible({ timeout: 3000 }).catch(() => false);
-
-      expect(viewerPage !== null || hasModal).toBeTruthy();
+      // ビューアページに遷移したことを確認
+      expect(page.url()).toMatch(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`));
     });
   });
 
@@ -496,11 +484,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -520,16 +510,15 @@ test.describe('現場調査画像ビューア', () => {
 
       // 編集モードボタンをクリックして注釈ツールバーを表示
       const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      if (await editModeButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await editModeButton.click();
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(3000) });
+      await editModeButton.click();
 
-        // 注釈ツールバーが表示されることを確認
-        const toolbar = page.getByRole('toolbar', { name: /注釈ツール/i });
-        const hasToolbar = await toolbar.isVisible({ timeout: 5000 }).catch(() => false);
+      // 注釈ツールバーが表示されることを確認
+      const toolbar = page.getByRole('toolbar', { name: /注釈ツール/i });
+      const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
 
-        // ツールバーまたはエディタが表示されていればOK
-        expect(hasToolbar || (await annotationEditor.isVisible())).toBeTruthy();
-      }
+      // ツールバーまたはエディタが表示されていればOK
+      expect(hasToolbar || (await annotationEditor.isVisible())).toBeTruthy();
     });
 
     test('ズームイン操作で画像が拡大される (site-survey/REQ-5.2)', async ({ page }) => {
@@ -545,11 +534,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -580,22 +571,22 @@ test.describe('現場調査画像ビューア', () => {
       // 現在の実装ではズームボタンがないため、マウスホイールでテスト
       // Fabric.jsはupper-canvas（イベント処理用）とlower-canvas（描画用）の2層構造
       const upperCanvas = page.locator('canvas.upper-canvas');
-      if (await upperCanvas.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // マウスホイールでズームイン（負のdeltaY = ズームイン）
-        await upperCanvas.hover();
-        await page.mouse.wheel(0, -100);
-        await page.waitForTimeout(500);
+      await expect(upperCanvas).toBeVisible({ timeout: getTimeout(3000) });
 
-        // ズームレベルが変更されたことを確認
-        const zoomLevelAfter = await page.evaluate(() => {
-          const fabricCanvas = (window as { __fabricCanvas?: { getZoom: () => number } })
-            .__fabricCanvas;
-          return fabricCanvas?.getZoom() ?? 1;
-        });
+      // マウスホイールでズームイン（負のdeltaY = ズームイン）
+      await upperCanvas.hover();
+      await page.mouse.wheel(0, -100);
+      await page.waitForTimeout(500);
 
-        // ズームレベルが同じ以上であれば成功（初期ズームの場合もある）
-        expect(zoomLevelAfter).toBeGreaterThanOrEqual(zoomLevelBefore);
-      }
+      // ズームレベルが変更されたことを確認
+      const zoomLevelAfter = await page.evaluate(() => {
+        const fabricCanvas = (window as { __fabricCanvas?: { getZoom: () => number } })
+          .__fabricCanvas;
+        return fabricCanvas?.getZoom() ?? 1;
+      });
+
+      // ズームレベルが同じ以上であれば成功（初期ズームの場合もある）
+      expect(zoomLevelAfter).toBeGreaterThanOrEqual(zoomLevelBefore);
     });
   });
 
@@ -616,11 +607,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -639,16 +632,15 @@ test.describe('現場調査画像ビューア', () => {
 
       // 編集モードボタンをクリックしてツールバーを表示
       const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      if (await editModeButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await editModeButton.click();
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(3000) });
+      await editModeButton.click();
 
-        // 注釈ツールバーが表示されることを確認（回転機能は現在UIボタンなし）
-        const toolbar = page.getByRole('toolbar', { name: /注釈ツール/i });
-        const hasToolbar = await toolbar.isVisible({ timeout: 5000 }).catch(() => false);
+      // 注釈ツールバーが表示されることを確認（回転機能は現在UIボタンなし）
+      const toolbar = page.getByRole('toolbar', { name: /注釈ツール/i });
+      const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
 
-        // ツールバーまたはエディタが表示されていればOK
-        expect(hasToolbar || (await annotationEditor.isVisible())).toBeTruthy();
-      }
+      // ツールバーまたはエディタが表示されていればOK
+      expect(hasToolbar || (await annotationEditor.isVisible())).toBeTruthy();
     });
 
     test('回転ボタンで画像が90度回転する (site-survey/REQ-5.3)', async ({ page }) => {
@@ -664,11 +656,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -683,12 +677,9 @@ test.describe('現場調査画像ビューア', () => {
       const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
       await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
 
-      // canvasが表示されていることを確認（回転操作の確認は現在スキップ）
-      const hasCanvas = await page
-        .locator('canvas')
-        .first()
-        .isVisible()
-        .catch(() => false);
+      // canvasが表示されていることを確認
+      const canvas = page.locator('canvas').first();
+      const hasCanvas = await canvas.isVisible();
       expect(hasCanvas || (await annotationEditor.isVisible())).toBeTruthy();
     });
   });
@@ -710,11 +701,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -732,7 +725,7 @@ test.describe('現場調査画像ビューア', () => {
 
       // canvasが存在することを確認（パン操作可能な要素）
       const canvas = page.locator('canvas').first();
-      const hasCanvas = await canvas.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasCanvas = await canvas.isVisible();
 
       // キャンバスまたはエディタが表示されていればパン操作可能
       expect(hasCanvas || (await annotationEditor.isVisible())).toBeTruthy();
@@ -751,11 +744,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -772,25 +767,25 @@ test.describe('現場調査画像ビューア', () => {
 
       // Fabric.jsのupper-canvas（イベント処理用）の位置を取得
       const upperCanvas = page.locator('canvas.upper-canvas');
-      if (await upperCanvas.isVisible({ timeout: 3000 }).catch(() => false)) {
-        const box = await upperCanvas.boundingBox();
-        if (box) {
-          // 中央からドラッグ操作を実行
-          const startX = box.x + box.width / 2;
-          const startY = box.y + box.height / 2;
-          const endX = startX - 50;
-          const endY = startY - 50;
+      await expect(upperCanvas).toBeVisible({ timeout: getTimeout(3000) });
 
-          // ドラッグ操作
-          await page.mouse.move(startX, startY);
-          await page.mouse.down();
-          await page.mouse.move(endX, endY);
-          await page.mouse.up();
+      const box = await upperCanvas.boundingBox();
+      expect(box).toBeTruthy();
 
-          // ドラッグ操作が完了したことを確認（エラーが発生しなければ成功）
-          expect(true).toBeTruthy();
-        }
-      }
+      // 中央からドラッグ操作を実行
+      const startX = box!.x + box!.width / 2;
+      const startY = box!.y + box!.height / 2;
+      const endX = startX - 50;
+      const endY = startY - 50;
+
+      // ドラッグ操作
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(endX, endY);
+      await page.mouse.up();
+
+      // ドラッグ操作が完了したことを確認（エラーが発生しなければ成功）
+      expect(true).toBeTruthy();
     });
   });
 
@@ -813,11 +808,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -834,22 +831,22 @@ test.describe('現場調査画像ビューア', () => {
 
       // canvasがタッチイベントをサポートしていることを確認
       const canvas = page.locator('canvas').first();
-      if (await canvas.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // タッチイベントハンドラが登録されていることを確認
-        const hasTouchSupport = await page.evaluate(() => {
-          const canvas = document.querySelector('canvas');
-          if (!canvas) return false;
-          // タッチイベントリスナーの存在を確認するのは困難なので、
-          // touch-actionスタイルまたはFabric.jsの設定を確認
-          const style = window.getComputedStyle(canvas);
-          // touch-actionが設定されているか、またはFabric.jsがロードされているかを確認
-          // @ts-expect-error Fabric.js check
-          return style.touchAction !== 'auto' || typeof window.fabric !== 'undefined';
-        });
+      await expect(canvas).toBeVisible({ timeout: getTimeout(3000) });
 
-        // タッチサポートまたはFabric.jsが存在することを確認
-        expect(hasTouchSupport).toBeTruthy();
-      }
+      // タッチイベントハンドラが登録されていることを確認
+      const hasTouchSupport = await page.evaluate(() => {
+        const canvas = document.querySelector('canvas');
+        if (!canvas) return false;
+        // タッチイベントリスナーの存在を確認するのは困難なので、
+        // touch-actionスタイルまたはFabric.jsの設定を確認
+        const style = window.getComputedStyle(canvas);
+        // touch-actionが設定されているか、またはFabric.jsがロードされているかを確認
+        // @ts-expect-error Fabric.js check
+        return style.touchAction !== 'auto' || typeof window.fabric !== 'undefined';
+      });
+
+      // タッチサポートまたはFabric.jsが存在することを確認
+      expect(hasTouchSupport).toBeTruthy();
     });
   });
 
@@ -872,11 +869,13 @@ test.describe('現場調査画像ビューア', () => {
       await ensureImageExists(page, createdSurveyId);
 
       let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      let imageVisible = await imageElement.isVisible();
+      if (!imageVisible) {
         imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
+        imageVisible = await imageElement.isVisible();
       }
 
-      if (!(await imageElement.isVisible({ timeout: 3000 }).catch(() => false))) {
+      if (!imageVisible) {
         throw new Error('画像が見つかりません。');
       }
 
@@ -894,10 +893,12 @@ test.describe('現場調査画像ビューア', () => {
 
       // 編集モードボタンが存在することを確認（ビューアと編集モードの切り替え）
       const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      const hasEditMode = await editModeButton.isVisible({ timeout: 3000 }).catch(() => false);
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(3000) });
 
       // 注釈エディタが存在し、編集モードボタンがあることを確認
-      expect((await annotationEditor.isVisible()) && hasEditMode).toBeTruthy();
+      expect(
+        (await annotationEditor.isVisible()) && (await editModeButton.isVisible())
+      ).toBeTruthy();
     });
   });
 
@@ -918,16 +919,14 @@ test.describe('現場調査画像ビューア', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(5000) });
+        await deleteButton.click();
+
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+
+        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       if (createdProjectId) {
@@ -935,16 +934,16 @@ test.describe('現場調査画像ビューア', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(5000) });
+        await deleteButton.click();
+
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

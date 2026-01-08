@@ -194,10 +194,8 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       const projectLink = page.getByRole('link', { name: 'プロジェクト', exact: true });
       const icon = projectLink.locator('svg, img, i').first();
 
-      const iconVisible = await icon.isVisible().catch(() => false);
-      if (iconVisible) {
-        await expect(icon).toBeVisible();
-      }
+      // アイコンが表示されていることを検証
+      await expect(icon).toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 
@@ -234,17 +232,14 @@ test.describe('プロジェクト管理ナビゲーション', () => {
 
       // 「プロジェクト管理」カードをクリック
       const projectCard = page.getByRole('link', { name: /プロジェクト管理/i });
-      const cardVisible = await projectCard.isVisible().catch(() => false);
+      await expect(projectCard).toBeVisible({ timeout: getTimeout(10000) });
+      await projectCard.click();
 
-      if (cardVisible) {
-        await projectCard.click();
-
-        // プロジェクト一覧画面に遷移することを確認
-        await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(10000) });
-        await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-      }
+      // プロジェクト一覧画面に遷移することを確認
+      await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(10000) });
+      await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
@@ -283,11 +278,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
 
       // 「プロジェクト管理」カード内に説明文が存在することを確認
       const description = page.getByText(/工事案件の作成・管理/i);
-      const descriptionVisible = await description.isVisible().catch(() => false);
-
-      if (descriptionVisible) {
-        await expect(description).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      await expect(description).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
 
@@ -402,10 +393,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
 
       // 戻るリンクの確認
       const backLink = page.getByRole('link', { name: /一覧に戻る|プロジェクト一覧/i });
-      const backLinkVisible = await backLink.isVisible().catch(() => false);
-      if (backLinkVisible) {
-        await expect(backLink).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      await expect(backLink).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
 

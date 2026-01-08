@@ -963,19 +963,11 @@ test.describe('プロジェクト管理 追加要件', () => {
       // OpenAPI仕様書にアクセス（実装されている場合）
       await page.goto('/api-docs');
 
-      // OpenAPI仕様書が表示されることを確認（実装されている場合）
-      const apiDocsVisible = await page
-        .getByText(/API|Swagger|OpenAPI/i)
-        .isVisible()
-        .catch(() => false);
-
-      if (apiDocsVisible) {
-        // プロジェクト関連のエンドポイントが文書化されていることを確認
-        await expect(page.getByText(/\/api\/projects/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-      }
-      // 未実装の場合はテストパス
+      // OpenAPI仕様書が表示されることを確認
+      // プロジェクト関連のエンドポイントが文書化されていることを確認
+      await expect(page.getByText(/\/api\/projects/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
   });
 });

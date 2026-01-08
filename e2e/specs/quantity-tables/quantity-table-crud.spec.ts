@@ -182,20 +182,23 @@ test.describe('数量表CRUD操作', () => {
       const createLink = quantityTableSection.getByRole('link', { name: /新規作成/ });
       const createButton = quantityTableSection.getByRole('button', { name: /新規作成|追加/ });
 
-      const hasLink = await createLink.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasButton = await createButton.isVisible({ timeout: 1000 }).catch(() => false);
+      // 新規作成リンクまたはボタンのいずれかが表示されることを確認（必須）
+      const hasLink = await createLink.isVisible({ timeout: 3000 });
+      const hasButton = await createButton.isVisible({ timeout: 1000 });
+
+      expect(hasLink || hasButton).toBeTruthy();
 
       if (hasLink) {
         await createLink.click();
-      } else if (hasButton) {
-        await createButton.click();
       } else {
-        throw new Error('新規作成リンクまたはボタンが見つかりません');
+        await createButton.click();
       }
 
       // 新規作成ダイアログまたはページが表示される
       const dialog = page.getByRole('dialog');
-      if (await dialog.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const isDialogVisible = await dialog.isVisible({ timeout: 3000 });
+
+      if (isDialogVisible) {
         // ダイアログが表示された場合 - REQ-2.1
         const nameInput = dialog.getByLabel(/名称|数量表名/);
         await expect(nameInput).toBeVisible();
@@ -380,10 +383,8 @@ test.describe('数量表CRUD操作', () => {
       const editArea = page.getByTestId('quantity-table-edit-area');
       await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 関連写真エリアが表示される（オプショナル）
-      const photoArea = page.getByTestId('related-photos-area');
-      // 関連写真エリアが存在しない場合もテストはパス（UIの実装による）
-      void photoArea.isVisible({ timeout: 3000 }).catch(() => false);
+      // 関連写真エリアの存在を確認（オプショナル - 実装状況による）
+      // 注: 関連写真エリアは将来の実装で追加予定
     });
 
     test('数量グループと数量項目が階層的に表示される (quantity-table-generation/REQ-3.2)', async ({
@@ -399,19 +400,16 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 数量グループセクションが表示される
+      // 数量グループセクション、テーブル、または空状態のいずれかが表示される（必須）
       const groupSection = page.getByTestId('quantity-group-section');
-      const hasGroupSection = await groupSection.isVisible({ timeout: 5000 }).catch(() => false);
-
-      // グループセクションまたはテーブル形式が表示される
       const table = page.getByRole('table');
-      const hasTable = await table.isVisible({ timeout: 3000 }).catch(() => false);
-
-      // 空状態（グループがない場合）も有効
       const emptyState = page.getByText(/グループがありません/);
-      const hasEmptyState = await emptyState.isVisible({ timeout: 3000 }).catch(() => false);
 
-      // グループセクション、テーブル、または空状態のいずれかが表示されている
+      const hasGroupSection = await groupSection.isVisible({ timeout: 5000 });
+      const hasTable = await table.isVisible({ timeout: 3000 });
+      const hasEmptyState = await emptyState.isVisible({ timeout: 3000 });
+
+      // いずれかが表示されている必要がある（必須検証）
       expect(hasGroupSection || hasTable || hasEmptyState).toBeTruthy();
     });
   });
@@ -493,21 +491,25 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // グループ削除ボタンを探す
-      const deleteGroupButton = page.getByRole('button', { name: /グループ削除|削除/ }).first();
-      if (await deleteGroupButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await deleteGroupButton.click();
+      // グループ削除ボタンが表示されることを確認（必須）
+      const deleteGroupButton = page
+        .getByRole('button', { name: /グループを削除|グループ削除/ })
+        .first();
+      await expect(deleteGroupButton).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 確認ダイアログが表示される
-        const confirmDialog = page.getByRole('dialog');
-        await expect(confirmDialog).toBeVisible({ timeout: 3000 });
+      await deleteGroupButton.click();
 
-        // キャンセルして閉じる
-        const cancelButton = confirmDialog.getByRole('button', { name: /キャンセル|いいえ/ });
-        if (await cancelButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await cancelButton.click();
-        }
-      }
+      // 確認ダイアログが表示される（必須）
+      const confirmDialog = page.getByRole('dialog');
+      await expect(confirmDialog).toBeVisible({ timeout: 3000 });
+
+      // キャンセルボタンが表示される（必須）
+      const cancelButton = confirmDialog.getByRole('button', { name: /キャンセル|いいえ/ });
+      await expect(cancelButton).toBeVisible({ timeout: 2000 });
+      await cancelButton.click();
+
+      // ダイアログが閉じる
+      await expect(confirmDialog).not.toBeVisible({ timeout: 3000 });
     });
   });
 
@@ -530,17 +532,17 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 項目追加ボタンをクリック
-      const addItemButton = page.getByRole('button', { name: /項目を追加|行追加|項目追加/ });
-      if (await addItemButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const initialRowCount = await page.getByTestId('quantity-item-row').count();
-        await addItemButton.click();
+      // 項目追加ボタンが表示されることを確認（必須）
+      const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
+      await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 新しい行が追加されたことを確認
-        await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount + 1, {
-          timeout: 5000,
-        });
-      }
+      const initialRowCount = await page.getByTestId('quantity-item-row').count();
+      await addItemButton.click();
+
+      // 新しい行が追加されたことを確認（必須）
+      await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount + 1, {
+        timeout: 5000,
+      });
     });
 
     test('数量項目のフィールドに値を入力できる (quantity-table-generation/REQ-5.2)', async ({
@@ -556,12 +558,13 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 大項目フィールドに入力
+      // 大項目フィールドが表示されることを確認（必須）
       const majorCategoryInput = page.getByLabel(/大項目/).first();
-      if (await majorCategoryInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await majorCategoryInput.fill('建築工事');
-        await expect(majorCategoryInput).toHaveValue('建築工事');
-      }
+      await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 値を入力（必須）
+      await majorCategoryInput.fill('建築工事');
+      await expect(majorCategoryInput).toHaveValue('建築工事');
     });
 
     test('数量項目を削除できる (quantity-table-generation/REQ-5.4)', async ({ page }) => {
@@ -575,28 +578,28 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 既存の項目行を探す
+      // 項目行が表示されることを確認（必須）
       const itemRow = page.getByTestId('quantity-item-row').first();
-      if (await itemRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const initialRowCount = await page.getByTestId('quantity-item-row').count();
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 削除ボタンをクリック
-        const deleteButton = itemRow.getByRole('button', { name: /削除/ });
-        if (await deleteButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await deleteButton.click();
+      const initialRowCount = await page.getByTestId('quantity-item-row').count();
 
-          // 確認ダイアログがあれば確認
-          const confirmButton = page.getByRole('button', { name: /削除|確認|はい/ });
-          if (await confirmButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await confirmButton.click();
-          }
+      // 削除ボタンが表示されることを確認（必須）
+      const deleteButton = itemRow.getByRole('button', { name: /削除/ });
+      await expect(deleteButton).toBeVisible({ timeout: 3000 });
+      await deleteButton.click();
 
-          // 行が削除されたことを確認
-          await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount - 1, {
-            timeout: 5000,
-          });
-        }
+      // 確認ダイアログが表示されれば確認ボタンをクリック
+      const confirmButton = page.getByRole('button', { name: /^削除$|確認|はい/ });
+      const hasConfirm = await confirmButton.isVisible({ timeout: 2000 });
+      if (hasConfirm) {
+        await confirmButton.click();
       }
+
+      // 行が削除されたことを確認（必須）
+      await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount - 1, {
+        timeout: 5000,
+      });
     });
   });
 
@@ -618,27 +621,26 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 項目行が表示されることを確認（必須）
       const itemRow = page.getByTestId('quantity-item-row').first();
-      if (await itemRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const initialRowCount = await page.getByTestId('quantity-item-row').count();
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-        // アクションメニューを開く
-        const moreButton = itemRow.getByLabel(/アクション|メニュー|その他/);
-        if (await moreButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await moreButton.click();
+      const initialRowCount = await page.getByTestId('quantity-item-row').count();
 
-          // コピーオプションをクリック
-          const copyOption = page.getByRole('menuitem', { name: /コピー|複製/ });
-          if (await copyOption.isVisible({ timeout: 3000 }).catch(() => false)) {
-            await copyOption.click();
+      // アクションメニューボタンが表示されることを確認（必須）
+      const moreButton = itemRow.getByLabel(/アクション|メニュー|その他/);
+      await expect(moreButton).toBeVisible({ timeout: 3000 });
+      await moreButton.click();
 
-            // 新しい行が追加されたことを確認
-            await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount + 1, {
-              timeout: 5000,
-            });
-          }
-        }
-      }
+      // コピーオプションが表示されることを確認（必須）
+      const copyOption = page.getByRole('menuitem', { name: /コピー|複製/ });
+      await expect(copyOption).toBeVisible({ timeout: 3000 });
+      await copyOption.click();
+
+      // 新しい行が追加されたことを確認（必須）
+      await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount + 1, {
+        timeout: 5000,
+      });
     });
 
     test('数量項目移動時にUI表示される (quantity-table-generation/REQ-6.2)', async ({ page }) => {
@@ -652,18 +654,18 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 項目行が表示されることを確認（必須）
       const itemRow = page.getByTestId('quantity-item-row').first();
-      if (await itemRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const moreButton = itemRow.getByLabel(/アクション|メニュー|その他/);
-        if (await moreButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await moreButton.click();
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-          // 移動オプションを確認
-          const moveOption = page.getByRole('menuitem', { name: /移動/ });
-          // 移動機能が存在することを確認（クリックはしない）
-          void moveOption.isVisible({ timeout: 3000 }).catch(() => false);
-        }
-      }
+      // アクションメニューボタンが表示されることを確認（必須）
+      const moreButton = itemRow.getByLabel(/アクション|メニュー|その他/);
+      await expect(moreButton).toBeVisible({ timeout: 3000 });
+      await moreButton.click();
+
+      // メニューが開いたことを確認（必須）
+      const menu = page.getByRole('menu');
+      await expect(menu).toBeVisible({ timeout: 3000 });
     });
   });
 
@@ -687,16 +689,16 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 大項目コンボボックスが表示されることを確認（必須）
       const majorCategoryInput = page.getByRole('combobox', { name: /大項目/ }).first();
-      if (await majorCategoryInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // 入力を開始
-        await majorCategoryInput.fill('建');
+      await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        // オートコンプリート候補が表示される
-        const listbox = page.getByRole('listbox');
-        // リストボックスが表示されるか、または候補がなくても入力可能
-        void listbox.isVisible({ timeout: 3000 }).catch(() => false);
-      }
+      // 入力を開始
+      await majorCategoryInput.fill('建');
+
+      // オートコンプリート候補リストが表示される（必須）
+      const listbox = page.getByRole('listbox');
+      await expect(listbox).toBeVisible({ timeout: 3000 });
     });
 
     test('オートコンプリート候補を選択すると入力欄に反映される (quantity-table-generation/REQ-7.4)', async ({
@@ -712,23 +714,26 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 大項目コンボボックスが表示されることを確認（必須）
       const majorCategoryInput = page.getByRole('combobox', { name: /大項目/ }).first();
-      if (await majorCategoryInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await majorCategoryInput.fill('建');
+      await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 3000 }).catch(() => false)) {
-          const firstOption = listbox.getByRole('option').first();
-          if (await firstOption.isVisible({ timeout: 2000 }).catch(() => false)) {
-            const optionText = await firstOption.textContent();
-            await firstOption.click();
+      await majorCategoryInput.fill('建');
 
-            // 入力フィールドに値が反映される
-            if (optionText) {
-              await expect(majorCategoryInput).toHaveValue(optionText);
-            }
-          }
-        }
+      // オートコンプリート候補リストが表示される（必須）
+      const listbox = page.getByRole('listbox');
+      await expect(listbox).toBeVisible({ timeout: 3000 });
+
+      // 最初のオプションが表示される（必須）
+      const firstOption = listbox.getByRole('option').first();
+      await expect(firstOption).toBeVisible({ timeout: 2000 });
+
+      const optionText = await firstOption.textContent();
+      await firstOption.click();
+
+      // 入力フィールドに値が反映される（必須）
+      if (optionText) {
+        await expect(majorCategoryInput).toHaveValue(optionText);
       }
     });
   });
@@ -754,18 +759,18 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 項目追加ボタンをクリック
-      const addItemButton = page.getByRole('button', { name: /項目を追加|行追加/ });
-      if (await addItemButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await addItemButton.click();
+      // 項目追加ボタンが表示されることを確認（必須）
+      const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
+      await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
+      await addItemButton.click();
 
-        // 計算方法セレクトボックスのデフォルト値を確認
-        const calcMethodSelect = page.getByLabel(/計算方法/).first();
-        if (await calcMethodSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
-          const value = await calcMethodSelect.inputValue();
-          expect(value).toMatch(/STANDARD|標準|default/i);
-        }
-      }
+      // 計算方法セレクトボックスが表示されることを確認（必須）
+      const calcMethodSelect = page.getByLabel(/計算方法/).first();
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+
+      // デフォルト値が「標準」であることを確認（必須）
+      const value = await calcMethodSelect.inputValue();
+      expect(value).toMatch(/STANDARD|標準|default/i);
     });
 
     test('面積・体積モードで計算用列が表示される (quantity-table-generation/REQ-8.5)', async ({
@@ -781,16 +786,16 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 計算方法セレクトボックスが表示されることを確認（必須）
       const calcMethodSelect = page.getByLabel(/計算方法/).first();
-      if (await calcMethodSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // 面積・体積モードに変更
-        await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 幅、奥行き、高さなどのフィールドが表示される
-        const widthField = page.getByLabel(/幅|width|W/i).first();
-        const hasWidthField = await widthField.isVisible({ timeout: 3000 }).catch(() => false);
-        expect(hasWidthField).toBeTruthy();
-      }
+      // 面積・体積モードに変更
+      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
+
+      // 幅フィールドが表示されることを確認（必須）
+      const widthField = page.getByLabel(/幅|width|W/i).first();
+      await expect(widthField).toBeVisible({ timeout: 3000 });
     });
 
     test('ピッチモードで計算用列が表示される (quantity-table-generation/REQ-8.8)', async ({
@@ -806,18 +811,19 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 計算方法セレクトボックスが表示されることを確認（必須）
       const calcMethodSelect = page.getByLabel(/計算方法/).first();
-      if (await calcMethodSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // ピッチモードに変更
-        await calcMethodSelect.selectOption({ value: 'PITCH' });
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 範囲長、ピッチ長などのフィールドが表示される
-        const rangeField = page.getByLabel(/範囲長|range/i).first();
-        const pitchField = page.getByLabel(/ピッチ長|pitch/i).first();
-        const hasRangeField = await rangeField.isVisible({ timeout: 3000 }).catch(() => false);
-        const hasPitchField = await pitchField.isVisible({ timeout: 3000 }).catch(() => false);
-        expect(hasRangeField || hasPitchField).toBeTruthy();
-      }
+      // ピッチモードに変更
+      await calcMethodSelect.selectOption({ value: 'PITCH' });
+
+      // 範囲長またはピッチ長フィールドが表示されることを確認（必須）
+      const rangeField = page.getByLabel(/範囲長|range/i).first();
+      const pitchField = page.getByLabel(/ピッチ長|pitch/i).first();
+      const hasRangeField = await rangeField.isVisible({ timeout: 3000 });
+      const hasPitchField = await pitchField.isVisible({ timeout: 3000 });
+      expect(hasRangeField || hasPitchField).toBeTruthy();
     });
   });
 
@@ -841,11 +847,13 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 調整係数フィールドが表示されることを確認（必須）
       const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
-      if (await adjustmentField.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const value = await adjustmentField.inputValue();
-        expect(parseFloat(value)).toBeCloseTo(1.0);
-      }
+      await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
+
+      // デフォルト値が1.00であることを確認（必須）
+      const value = await adjustmentField.inputValue();
+      expect(parseFloat(value)).toBeCloseTo(1.0);
     });
 
     test('調整係数を入力すると数量に反映される (quantity-table-generation/REQ-9.2)', async ({
@@ -861,17 +869,15 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 調整係数フィールドが表示されることを確認（必須）
       const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
-      if (await adjustmentField.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await adjustmentField.fill('1.5');
+      await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 数量フィールドの値が更新されることを確認（UIの実装による）
-        const quantityField = page.getByLabel(/数量|quantity/i).first();
-        if (await quantityField.isVisible({ timeout: 3000 }).catch(() => false)) {
-          // 数量フィールドが存在することを確認
-          expect(true).toBeTruthy();
-        }
-      }
+      await adjustmentField.fill('1.5');
+
+      // 数量フィールドが表示されることを確認（必須）
+      const quantityField = page.getByLabel(/数量|quantity/i).first();
+      await expect(quantityField).toBeVisible({ timeout: 3000 });
     });
   });
 
@@ -894,11 +900,13 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 丸め設定フィールドが表示されることを確認（必須）
       const roundingField = page.getByLabel(/丸め設定|rounding/i).first();
-      if (await roundingField.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const value = await roundingField.inputValue();
-        expect(parseFloat(value)).toBeCloseTo(0.01);
-      }
+      await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
+
+      // デフォルト値が0.01であることを確認（必須）
+      const value = await roundingField.inputValue();
+      expect(parseFloat(value)).toBeCloseTo(0.01);
     });
   });
 
@@ -922,15 +930,15 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 保存ボタンをクリック
+      // 保存ボタンが表示されることを確認（必須）
       const saveButton = page.getByRole('button', { name: /保存/ });
-      if (await saveButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await saveButton.click();
+      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 保存成功のインジケーターを確認
-        const successIndicator = page.getByText(/保存しました|保存完了|success/i);
-        await expect(successIndicator).toBeVisible({ timeout: 5000 });
-      }
+      await saveButton.click();
+
+      // 保存成功のインジケーターが表示されることを確認（必須）
+      const successIndicator = page.getByText(/保存しました|保存完了|success/i);
+      await expect(successIndicator).toBeVisible({ timeout: 5000 });
     });
 
     test('編集後に自動保存インジケーターが表示される (quantity-table-generation/REQ-11.5)', async ({
@@ -946,15 +954,16 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 名称フィールドが表示されることを確認（必須）
       const nameInput = page.getByLabel(/名称/).first();
-      if (await nameInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const originalValue = await nameInput.inputValue();
-        await nameInput.fill(originalValue + ' 更新');
+      await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 保存中または保存済みインジケーターが表示される
-        const savingIndicator = page.getByText(/保存中|保存しました|自動保存/);
-        await expect(savingIndicator).toBeVisible({ timeout: 5000 });
-      }
+      const originalValue = await nameInput.inputValue();
+      await nameInput.fill(originalValue + ' 更新');
+
+      // 保存中または保存済みインジケーターが表示されることを確認（必須）
+      const savingIndicator = page.getByText(/保存中|保存しました|自動保存/);
+      await expect(savingIndicator).toBeVisible({ timeout: 5000 });
     });
   });
 
@@ -1042,14 +1051,21 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // パンくずナビゲーションが表示されることを確認（必須）
       const breadcrumb = page.getByRole('navigation', { name: /パンくず|breadcrumb/i });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 最後の項目がリンクでないことを確認
+      // 最後の項目がリンクでないことを確認（必須）
       const lastItem = breadcrumb.locator('li').last();
+      await expect(lastItem).toBeVisible({ timeout: 3000 });
+
+      // 最後の項目はリンクでないか、aria-current属性を持つ
+      const hasAriaCurrent = await lastItem.getAttribute('aria-current');
       const link = lastItem.getByRole('link');
-      // 最後の項目がリンクでない場合はパス
-      // リンクであってもaria-currentで識別される場合もある
-      void link.isVisible({ timeout: 1000 }).catch(() => false);
+      const isLink = await link.isVisible({ timeout: 1000 });
+
+      // 最後の項目がリンクでない、またはaria-current="page"を持つ（必須）
+      expect(!isLink || hasAriaCurrent === 'page').toBeTruthy();
     });
   });
 
@@ -1072,22 +1088,13 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/projects/${testProjectId}/quantity-tables`);
       await page.waitForLoadState('networkidle');
 
-      // 削除対象の数量表を探す
+      // 削除対象の数量表が表示されることを確認（必須）
       const quantityTableRow = page.getByText('E2Eテスト用数量表');
-      if (!(await quantityTableRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-        // 数量表が見つからない場合はテスト終了（既に削除されているか存在しない）
-        return;
-      }
+      await expect(quantityTableRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 削除ボタンを探す（リスト上または行内）
+      // 削除ボタンが表示されることを確認（必須）
       const deleteButton = page.getByRole('button', { name: /削除/ }).first();
-      const hasDeleteButton = await deleteButton.isVisible({ timeout: 3000 }).catch(() => false);
-
-      if (!hasDeleteButton) {
-        // 削除機能がまだ実装されていない場合はテスト終了（UI未実装）
-        // 注: REQ-2.4の実装が完了したらこの分岐は削除
-        return;
-      }
+      await expect(deleteButton).toBeVisible({ timeout: 3000 });
 
       // 削除ボタンをクリック
       await deleteButton.click();
@@ -1126,15 +1133,18 @@ test.describe('数量表CRUD操作', () => {
         await page.goto(`/projects/${testProjectId}`);
         await page.waitForLoadState('networkidle');
 
+        // 削除ボタンをクリック
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+        const hasDeleteButton = await deleteButton.isVisible({ timeout: 5000 });
+        if (hasDeleteButton) {
           await deleteButton.click();
           const confirmButton = page
             .getByTestId('focus-manager-overlay')
             .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+          const hasConfirmButton = await confirmButton.isVisible({ timeout: 5000 });
+          if (hasConfirmButton) {
             await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
+            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
           }
         }
       }

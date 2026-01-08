@@ -291,15 +291,13 @@ test.describe('プロジェクト取引先連携', () => {
 
       // オートコンプリート候補が表示されることを確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 候補リストの各項目は、formatTradingPartnerDisplay関数により
-        // 部課・支店・支社名が未設定の場合は「名前 / 代表者名」形式で表示される
-        // TradingPartnerSelectコンポーネントの実装により適切にフォールバック処理される
-        const options = await autocompleteList.locator('[role="option"]').all();
-        expect(options.length).toBeGreaterThanOrEqual(1);
-      }
+      // 候補リストの各項目は、formatTradingPartnerDisplay関数により
+      // 部課・支店・支社名が未設定の場合は「名前 / 代表者名」形式で表示される
+      // TradingPartnerSelectコンポーネントの実装により適切にフォールバック処理される
+      const options = await autocompleteList.locator('[role="option"]').all();
+      expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
     /**
@@ -322,15 +320,13 @@ test.describe('プロジェクト取引先連携', () => {
 
       // オートコンプリート候補が表示されることを確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 候補リストの各項目は、formatTradingPartnerDisplay関数により
-        // 代表者名が未設定の場合は「名前 / 部課・支店・支社名」または「名前」のみで表示される
-        // TradingPartnerSelectコンポーネントの実装により適切にフォールバック処理される
-        const options = await autocompleteList.locator('[role="option"]').all();
-        expect(options.length).toBeGreaterThanOrEqual(1);
-      }
+      // 候補リストの各項目は、formatTradingPartnerDisplay関数により
+      // 代表者名が未設定の場合は「名前 / 部課・支店・支社名」または「名前」のみで表示される
+      // TradingPartnerSelectコンポーネントの実装により適切にフォールバック処理される
+      const options = await autocompleteList.locator('[role="option"]').all();
+      expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
     /**
@@ -354,13 +350,7 @@ test.describe('プロジェクト取引先連携', () => {
       // オートコンプリートリストが表示されない、または「該当する取引先がありません」メッセージが表示される
       // TradingPartnerSelectコンポーネントは選択候補からのみ選択可能で、自由入力は許可されない
       const noResultsMessage = page.getByText(/該当する取引先がありません/i);
-      const messageVisible = await noResultsMessage.isVisible().catch(() => false);
-
-      // フォームを送信しても、存在しない取引先IDは送信されない
-      // （選択していない場合は空文字が送信される）
-      if (messageVisible) {
-        await expect(noResultsMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      await expect(noResultsMessage).toBeVisible({ timeout: getTimeout(5000) });
 
       // 取引先IDが設定されていないことを確認
       // （自由入力した文字列は取引先IDとして使用されない）
@@ -547,7 +537,7 @@ test.describe('プロジェクト取引先連携', () => {
       });
 
       // テーブルが表示されている場合、顧客名カラムが存在することを確認
-      const tableVisible = await table.isVisible().catch(() => false);
+      const tableVisible = await table.isVisible();
       if (tableVisible) {
         // 顧客名カラムのヘッダーが表示されることを確認
         await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible({
@@ -559,7 +549,7 @@ test.describe('プロジェクト取引先連携', () => {
       }
 
       // カードリストが表示されている場合も顧客名が表示されることを確認
-      const cardListVisible = await cardList.isVisible().catch(() => false);
+      const cardListVisible = await cardList.isVisible();
       if (cardListVisible) {
         // カード内に顧客情報が表示されることを確認
         // ProjectListCardコンポーネントも同様に取引先名を表示する
@@ -584,24 +574,21 @@ test.describe('プロジェクト取引先連携', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i });
-        const deleteButtonVisible = await deleteButton.isVisible().catch(() => false);
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
 
-        if (deleteButtonVisible) {
-          await deleteButton.click();
+        // 削除確認ダイアログで削除を確認
+        await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
+          timeout: getTimeout(10000),
+        });
 
-          // 削除確認ダイアログで削除を確認
-          await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
-            timeout: getTimeout(10000),
-          });
+        await page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i })
+          .click();
 
-          await page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i })
-            .click();
-
-          // 削除成功を確認
-          await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
-        }
+        // 削除成功を確認
+        await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
 
       // 作成した取引先を削除
@@ -610,32 +597,22 @@ test.describe('プロジェクト取引先連携', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i });
-        const deleteButtonVisible = await deleteButton.isVisible().catch(() => false);
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
 
-        if (deleteButtonVisible) {
-          await deleteButton.click();
+        // 削除確認ダイアログで削除を確認
+        const confirmDialog = page.getByText(/削除しますか|取引先の削除/i);
+        await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-          // 削除確認ダイアログで削除を確認
-          const confirmDialog = page.getByText(/削除しますか|取引先の削除/i);
-          const confirmDialogVisible = await confirmDialog.isVisible().catch(() => false);
-
-          if (confirmDialogVisible) {
-            // ダイアログ内の削除ボタンをクリック
-            const dialogDeleteButton = page
-              .getByTestId('focus-manager-overlay')
-              .getByRole('button', { name: /^削除$/i });
-            const dialogDeleteButtonVisible = await dialogDeleteButton
-              .isVisible()
-              .catch(() => false);
-
-            if (dialogDeleteButtonVisible) {
-              await dialogDeleteButton.click();
-              await expect(page).toHaveURL(/\/trading-partners$/, {
-                timeout: getTimeout(15000),
-              });
-            }
-          }
-        }
+        // ダイアログ内の削除ボタンをクリック
+        const dialogDeleteButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
+        await dialogDeleteButton.click();
+        await expect(page).toHaveURL(/\/trading-partners$/, {
+          timeout: getTimeout(15000),
+        });
       }
     } catch (error) {
       console.error('Cleanup failed:', error);

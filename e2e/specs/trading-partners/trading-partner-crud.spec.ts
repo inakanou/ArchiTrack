@@ -564,9 +564,9 @@ test.describe('取引先CRUD操作', () => {
       const projectsTable = page.getByRole('table', { name: /プロジェクト/i });
 
       // どちらかが表示されていることを確認
-      const hasEmpty = await projectsEmpty.isVisible().catch(() => false);
-      const hasTable = await projectsTable.isVisible().catch(() => false);
-      expect(hasEmpty || hasTable).toBeTruthy();
+      await expect(projectsEmpty.or(projectsTable)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**

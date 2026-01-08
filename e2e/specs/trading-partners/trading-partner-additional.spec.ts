@@ -154,12 +154,10 @@ test.describe('取引先管理の追加要件', () => {
       expect(updateResponse.status()).toBe(200);
 
       // 監査ログAPIが呼び出されることを確認
-      const auditLogResponse = await auditLogPromise.catch(() => null);
+      const auditLogResponse = await auditLogPromise;
 
       // 監査ログが記録されたことを確認
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
+      expect(auditLogResponse.status()).toBe(201);
 
       // 更新成功を確認（詳細ページに遷移することで確認）
       await expect(page).toHaveURL(new RegExp(`/trading-partners/${partnerId}$`), {
@@ -245,12 +243,10 @@ test.describe('取引先管理の追加要件', () => {
       });
 
       // 監査ログAPIが呼び出されることを確認
-      const auditLogResponse = await auditLogPromise.catch(() => null);
+      const auditLogResponse = await auditLogPromise;
 
       // 監査ログが記録されたことを確認
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
+      expect(auditLogResponse.status()).toBe(201);
     });
   });
 

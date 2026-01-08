@@ -43,9 +43,7 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // 取引先がセレクトボックスの場合、オートコンプリート検索は別途入力欄が必要
       // 現在の実装はセレクトボックスのため、オートコンプリート機能は未実装
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         // セレクトボックスの場合はテストをスキップ
         return;
@@ -53,14 +51,9 @@ test.describe('取引先オートコンプリート連携', () => {
 
       await tradingPartnerInput.fill('テスト');
 
-      // オートコンプリート候補が表示されることを確認（実装されている場合）
-      // 未実装の場合は候補が表示されないため、このテストはパスする
+      // オートコンプリート候補が表示されることを確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
-
-      if (listVisible) {
-        await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**
@@ -78,9 +71,7 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         return;
       }
@@ -91,25 +82,21 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // オートコンプリート候補が表示されるまで待機
       const autocompleteList = page.getByRole('listbox');
-      const listVisible = await autocompleteList
-        .isVisible({ timeout: getTimeout(5000) })
-        .catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 「-- 選択なし --」以外の実際の取引先オプションを探す
-        const options = autocompleteList.getByRole('option');
-        const optionCount = await options.count();
+      // 「-- 選択なし --」以外の実際の取引先オプションを探す
+      const options = autocompleteList.getByRole('option');
+      const optionCount = await options.count();
 
-        // 2番目以降のオプション（実際の取引先）がある場合はそれを選択
-        if (optionCount > 1) {
-          const realOption = options.nth(1);
-          await realOption.click();
+      // 2番目以降のオプション（実際の取引先）がある場合はそれを選択
+      if (optionCount > 1) {
+        const realOption = options.nth(1);
+        await realOption.click();
 
-          // 取引先フィールドに選択した値（の一部）が反映されることを確認
-          // オートコンプリートは表示形式が異なる場合があるため、空でないことを確認
-          const inputValue = await tradingPartnerInput.inputValue();
-          expect(inputValue).toBeTruthy();
-        }
+        // 取引先フィールドに選択した値（の一部）が反映されることを確認
+        // オートコンプリートは表示形式が異なる場合があるため、空でないことを確認
+        const inputValue = await tradingPartnerInput.inputValue();
+        expect(inputValue).toBeTruthy();
       }
     });
 
@@ -127,9 +114,7 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         return;
       }
@@ -138,13 +123,10 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // オートコンプリート候補を確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
-
-      if (listVisible) {
-        const options = await autocompleteList.getByRole('option').all();
-        expect(options.length).toBeGreaterThan(0);
-        expect(options.length).toBeLessThanOrEqual(10); // REQ-16.5: 最大10件
-      }
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      const options = await autocompleteList.getByRole('option').all();
+      expect(options.length).toBeGreaterThan(0);
+      expect(options.length).toBeLessThanOrEqual(10); // REQ-16.5: 最大10件
     });
 
     /**
@@ -161,9 +143,7 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         return;
       }
@@ -193,22 +173,16 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         return;
       }
 
       await tradingPartnerInput.fill('存在しない取引先XYZ12345');
 
-      // オートコンプリートが実装されている場合
+      // オートコンプリートが実装されている場合、該当なしメッセージが表示される
       const noResultsMessage = page.getByText(/該当する取引先がありません/i);
-      const messageVisible = await noResultsMessage.isVisible().catch(() => false);
-
-      if (messageVisible) {
-        await expect(noResultsMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      await expect(noResultsMessage).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**
@@ -226,9 +200,7 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         return;
       }
@@ -236,12 +208,9 @@ test.describe('取引先オートコンプリート連携', () => {
       await tradingPartnerInput.fill('株'); // 多くの候補がヒットしそうなキーワード
 
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
-
-      if (listVisible) {
-        const options = await autocompleteList.getByRole('option').all();
-        expect(options.length).toBeLessThanOrEqual(10);
-      }
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      const options = await autocompleteList.getByRole('option').all();
+      expect(options.length).toBeLessThanOrEqual(10);
     });
 
     /**
@@ -259,9 +228,7 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         return;
       }
@@ -269,20 +236,18 @@ test.describe('取引先オートコンプリート連携', () => {
       await tradingPartnerInput.fill('テスト');
 
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 下キーを押す
-        await tradingPartnerInput.press('ArrowDown');
-        await tradingPartnerInput.press('ArrowDown');
+      // 下キーを押す
+      await tradingPartnerInput.press('ArrowDown');
+      await tradingPartnerInput.press('ArrowDown');
 
-        // Enterキーで確定
-        await tradingPartnerInput.press('Enter');
+      // Enterキーで確定
+      await tradingPartnerInput.press('Enter');
 
-        // 何らかの値が入力されていることを確認
-        const value = await tradingPartnerInput.inputValue();
-        expect(value).toBeTruthy();
-      }
+      // 何らかの値が入力されていることを確認
+      const value = await tradingPartnerInput.inputValue();
+      expect(value).toBeTruthy();
     });
 
     /**
@@ -298,9 +263,7 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
       // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
       if (isSelect) {
         return;
       }
@@ -308,15 +271,13 @@ test.describe('取引先オートコンプリート連携', () => {
       await tradingPartnerInput.fill('テスト');
 
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 別の場所をクリック
-        await page.getByLabel(/プロジェクト名/i).click();
+      // 別の場所をクリック
+      await page.getByLabel(/プロジェクト名/i).click();
 
-        // オートコンプリートリストが閉じることを確認
-        await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // オートコンプリートリストが閉じることを確認
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**
@@ -334,9 +295,7 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // 取引先フィールドがセレクトボックスであることを確認
       // セレクトボックスは自由入力を許可しないため、REQ-16.10を満たす
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
 
       if (isSelect) {
         // セレクトボックスであれば自由入力は不可（要件を満たす）
@@ -376,12 +335,7 @@ test.describe('取引先オートコンプリート連携', () => {
         // 取引先のバリデーションエラーが表示されることを確認
         // または作成が失敗することを確認
         const errorMessage = page.getByText(/取引先.*選択|有効な取引先/i);
-        const errorVisible = await errorMessage.isVisible().catch(() => false);
-
-        if (!errorVisible) {
-          // エラーメッセージがなくても、作成が成功しないことを確認
-          // （サーバー側でバリデーションされる場合）
-        }
+        await expect(errorMessage).toBeVisible({ timeout: getTimeout(5000) });
       }
     });
 
@@ -405,22 +359,20 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // オートコンプリート候補が表示されることを確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 候補が表示されている場合、表示形式を確認
-        // 各候補には「名前」が必ず表示され、「部課・支店・支社名」「代表者名」が追加で表示される
-        const options = await autocompleteList.locator('[role="option"]').all();
-        if (options.length > 1) {
-          // 「-- 選択なし --」以外の候補を確認
-          const firstOption = options[1];
-          if (firstOption) {
-            const optionText = await firstOption.textContent();
-            // 名前が必ず含まれ、「/」区切りで追加情報がある場合はフォーマットに準拠
-            expect(optionText).toBeTruthy();
-            // 少なくとも名前部分（取引先名）が存在することを確認
-            expect(optionText!.length).toBeGreaterThan(0);
-          }
+      // 候補が表示されている場合、表示形式を確認
+      // 各候補には「名前」が必ず表示され、「部課・支店・支社名」「代表者名」が追加で表示される
+      const options = await autocompleteList.locator('[role="option"]').all();
+      if (options.length > 1) {
+        // 「-- 選択なし --」以外の候補を確認
+        const firstOption = options[1];
+        if (firstOption) {
+          const optionText = await firstOption.textContent();
+          // 名前が必ず含まれ、「/」区切りで追加情報がある場合はフォーマットに準拠
+          expect(optionText).toBeTruthy();
+          // 少なくとも名前部分（取引先名）が存在することを確認
+          expect(optionText!.length).toBeGreaterThan(0);
         }
       }
     });
@@ -445,16 +397,14 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // オートコンプリート候補が表示されることを確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 候補リストの各項目は、formatTradingPartnerDisplay関数により
-        // 「名前 / 部課・支店・支社名 / 代表者名」または
-        // 「名前 / 代表者名」（部課・支店・支社名がない場合）の形式で表示される
-        // TradingPartnerSelectコンポーネントの実装により適切にフォールバック処理される
-        const options = await autocompleteList.locator('[role="option"]').all();
-        expect(options.length).toBeGreaterThanOrEqual(1);
-      }
+      // 候補リストの各項目は、formatTradingPartnerDisplay関数により
+      // 「名前 / 部課・支店・支社名 / 代表者名」または
+      // 「名前 / 代表者名」（部課・支店・支社名がない場合）の形式で表示される
+      // TradingPartnerSelectコンポーネントの実装により適切にフォールバック処理される
+      const options = await autocompleteList.locator('[role="option"]').all();
+      expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
     /**
@@ -492,15 +442,13 @@ test.describe('取引先オートコンプリート連携', () => {
       await tradingPartnerInput.click();
 
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-      const listVisible = await autocompleteList.isVisible().catch(() => false);
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listVisible) {
-        // 顧客種別を持つ取引先のみが候補として表示される
-        // （非顧客の取引先は表示されない）
-        const options = await autocompleteList.locator('[role="option"]').all();
-        // 少なくとも「-- 選択なし --」オプションが存在
-        expect(options.length).toBeGreaterThanOrEqual(1);
-      }
+      // 顧客種別を持つ取引先のみが候補として表示される
+      // （非顧客の取引先は表示されない）
+      const options = await autocompleteList.locator('[role="option"]').all();
+      // 少なくとも「-- 選択なし --」オプションが存在
+      expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
     /**
@@ -519,9 +467,7 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      const isSelect = await tradingPartnerInput
-        .evaluate((el) => el.tagName === 'SELECT')
-        .catch(() => false);
+      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
 
       if (isSelect) {
         // セレクトボックスの場合、読み込み完了（取引先データ取得完了）を確認
@@ -534,14 +480,11 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // オートコンプリートの場合のみレスポンス時間を計測
       const startTime = Date.now();
-      const responsePromise = page
-        .waitForResponse(
-          (response) =>
-            response.url().includes('/api/trading-partners') &&
-            response.request().method() === 'GET',
-          { timeout: getTimeout(10000) }
-        )
-        .catch(() => null);
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/trading-partners') && response.request().method() === 'GET',
+        { timeout: getTimeout(10000) }
+      );
 
       await tradingPartnerInput.fill('テスト');
 

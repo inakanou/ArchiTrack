@@ -120,7 +120,8 @@ test.describe('現場調査CRUD操作', () => {
 
       // 現場調査がある場合は「すべて見る」リンク、ない場合は直接URLに遷移
       const viewAllLink = page.getByRole('link', { name: /すべて見る/i }).first();
-      if (await viewAllLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const viewAllLinkVisible = await viewAllLink.isVisible({ timeout: 3000 });
+      if (viewAllLinkVisible) {
         await viewAllLink.click();
       } else {
         // 現場調査が0件の場合は直接URLに遷移
@@ -577,10 +578,10 @@ test.describe('現場調査CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // エラー表示またはリダイレクトを確認
-      const hasError = await page
-        .getByText(/プロジェクトが見つかりません|not found|404|存在しません/i)
-        .isVisible()
-        .catch(() => false);
+      const errorMessage = page.getByText(
+        /プロジェクトが見つかりません|not found|404|存在しません/i
+      );
+      const hasError = await errorMessage.isVisible({ timeout: getTimeout(5000) });
       const isRedirected =
         page.url().includes('/404') ||
         page.url().includes('/projects') ||
