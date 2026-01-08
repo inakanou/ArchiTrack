@@ -259,10 +259,11 @@ describe('QuantityTableEditPage', () => {
 
         renderWithRouter();
 
+        // 項目名はinput要素のvalueとして表示されるため、getByDisplayValueを使用
         await waitFor(() => {
-          expect(screen.getByText('足場')).toBeInTheDocument();
-          expect(screen.getByText('ネット')).toBeInTheDocument();
-          expect(screen.getByText('掘削')).toBeInTheDocument();
+          expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+          expect(screen.getByDisplayValue('ネット')).toBeInTheDocument();
+          expect(screen.getByDisplayValue('掘削')).toBeInTheDocument();
         });
       });
 
@@ -271,11 +272,12 @@ describe('QuantityTableEditPage', () => {
 
         renderWithRouter();
 
+        // 数量と単位はinput要素のvalueとして表示されるため、getByDisplayValueを使用
         await waitFor(() => {
-          expect(screen.getByText('100.5')).toBeInTheDocument();
+          expect(screen.getByDisplayValue('100.5')).toBeInTheDocument();
           // m2 is used by multiple items
-          expect(screen.getAllByText('m2').length).toBeGreaterThanOrEqual(1);
-          expect(screen.getByText('m3')).toBeInTheDocument();
+          expect(screen.getAllByDisplayValue('m2').length).toBeGreaterThanOrEqual(1);
+          expect(screen.getByDisplayValue('m3')).toBeInTheDocument();
         });
       });
     });
