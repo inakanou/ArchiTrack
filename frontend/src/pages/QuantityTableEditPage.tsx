@@ -92,6 +92,20 @@ const styles = {
     cursor: 'pointer',
     transition: 'background-color 0.2s',
   } as React.CSSProperties,
+  saveButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: '#16a34a',
+    color: '#ffffff',
+    padding: '10px 20px',
+    borderRadius: '6px',
+    border: 'none',
+    fontSize: '14px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  } as React.CSSProperties,
   groupList: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -297,6 +311,7 @@ export default function QuantityTableEditPage() {
   // 削除確認ダイアログ用state（REQ-4.5）
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   /**
    * 数量表詳細を取得
@@ -493,6 +508,7 @@ export default function QuantityTableEditPage() {
           return;
         }
 
+        setSaveMessage('保存中...');
         const updatedItem = await updateQuantityItem(itemId, updates, expectedUpdatedAt);
 
         // ローカル状態を更新
@@ -507,8 +523,12 @@ export default function QuantityTableEditPage() {
             groups: updatedGroups,
           };
         });
+
+        setSaveMessage('保存しました');
+        setTimeout(() => setSaveMessage(null), 2000);
       } catch {
         setError('項目の更新に失敗しました');
+        setSaveMessage(null);
       }
     },
     [quantityTable]
@@ -576,6 +596,20 @@ export default function QuantityTableEditPage() {
     } catch {
       setError('項目のコピーに失敗しました');
     }
+  }, []);
+
+  /**
+   * 保存ハンドラ
+   *
+   * Requirements: 11.1
+   */
+  const handleSave = useCallback(() => {
+    // 現在のデータはすでに各操作時に個別に保存されているため、
+    // ここでは保存完了メッセージを表示
+    setSaveMessage('保存しました');
+    setTimeout(() => {
+      setSaveMessage(null);
+    }, 3000);
   }, []);
 
   // ローディング表示
@@ -656,6 +690,14 @@ export default function QuantityTableEditPage() {
           </p>
         </div>
         <div style={styles.headerActions}>
+          {saveMessage && (
+            <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: 500 }}>
+              {saveMessage}
+            </span>
+          )}
+          <button type="button" style={styles.saveButton} onClick={handleSave} aria-label="保存">
+            保存
+          </button>
           <button
             type="button"
             style={{

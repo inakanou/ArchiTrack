@@ -11,8 +11,11 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import type { QuantityItemDetail } from '../../types/quantity-table.types';
+import type { QuantityItemDetail, CalculationMethod } from '../../types/quantity-table.types';
+import type { CalculationParams } from '../../types/quantity-edit.types';
 import AutocompleteInput from './AutocompleteInput';
+import CalculationMethodSelect from './CalculationMethodSelect';
+import CalculationFields from './CalculationFields';
 
 // ============================================================================
 // 型定義
@@ -51,14 +54,20 @@ export interface EditableQuantityItemRowProps {
 // ============================================================================
 
 const styles = {
+  wrapper: {
+    borderBottom: '1px solid #e5e7eb',
+    backgroundColor: '#ffffff',
+  } as React.CSSProperties,
   row: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr 120px 120px 80px 80px 120px 80px',
+    gridTemplateColumns: '1fr 1fr 1fr 120px 120px 100px 80px 80px 80px 80px 120px 80px',
     gap: '8px',
     alignItems: 'start',
     padding: '12px 16px',
-    borderBottom: '1px solid #e5e7eb',
-    backgroundColor: '#ffffff',
+  } as React.CSSProperties,
+  calculationFieldsRow: {
+    padding: '0 16px 12px 16px',
+    backgroundColor: '#f9fafb',
   } as React.CSSProperties,
   fieldGroup: {
     display: 'flex',
@@ -276,6 +285,52 @@ export default function EditableQuantityItemRow({
   );
 
   /**
+   * 計算方法変更ハンドラ
+   */
+  const handleCalculationMethodChange = useCallback(
+    (method: CalculationMethod) => {
+      onUpdate?.(item.id, { calculationMethod: method });
+    },
+    [item.id, onUpdate]
+  );
+
+  /**
+   * 計算パラメータ変更ハンドラ
+   */
+  const handleCalculationParamsChange = useCallback(
+    (params: CalculationParams) => {
+      onUpdate?.(item.id, { calculationParams: params });
+    },
+    [item.id, onUpdate]
+  );
+
+  /**
+   * 調整係数変更ハンドラ
+   */
+  const handleAdjustmentFactorChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = parseFloat(e.target.value);
+      if (!isNaN(value)) {
+        onUpdate?.(item.id, { adjustmentFactor: value });
+      }
+    },
+    [item.id, onUpdate]
+  );
+
+  /**
+   * 丸め設定変更ハンドラ
+   */
+  const handleRoundingUnitChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = parseFloat(e.target.value);
+      if (!isNaN(value)) {
+        onUpdate?.(item.id, { roundingUnit: value });
+      }
+    },
+    [item.id, onUpdate]
+  );
+
+  /**
    * 削除ハンドラ
    */
   const handleDelete = useCallback(() => {
@@ -321,8 +376,7 @@ export default function EditableQuantityItemRow({
 
   return (
     <div
-      style={styles.row}
-      role="row"
+      style={styles.wrapper}
       data-testid="quantity-item-row"
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
@@ -330,175 +384,233 @@ export default function EditableQuantityItemRow({
         }
       }}
     >
-      {/* 大項目 */}
-      <div style={styles.fieldGroup} role="cell">
-        <AutocompleteInput
-          id={`${item.id}-majorCategory`}
-          label="大項目"
-          value={item.majorCategory}
-          onChange={createUpdateHandler('majorCategory')}
-          endpoint="/api/autocomplete/major-categories"
-          unsavedValues={unsavedMajorCategories}
-          error={errors.majorCategory}
-          required
-          placeholder="大項目を入力"
-        />
-      </div>
+      <div style={styles.row} role="row">
+        {/* 大項目 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-majorCategory`}
+            label="大項目"
+            value={item.majorCategory}
+            onChange={createUpdateHandler('majorCategory')}
+            endpoint="/api/autocomplete/major-categories"
+            unsavedValues={unsavedMajorCategories}
+            error={errors.majorCategory}
+            required
+            placeholder="大項目を入力"
+          />
+        </div>
 
-      {/* 中項目 */}
-      <div style={styles.fieldGroup} role="cell">
-        <AutocompleteInput
-          id={`${item.id}-middleCategory`}
-          label="中項目"
-          value={item.middleCategory || ''}
-          onChange={createUpdateHandler('middleCategory')}
-          endpoint="/api/autocomplete/middle-categories"
-          additionalParams={middleCategoryParams}
-          unsavedValues={unsavedMiddleCategories}
-          placeholder="中項目を入力"
-        />
-      </div>
+        {/* 中項目 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-middleCategory`}
+            label="中項目"
+            value={item.middleCategory || ''}
+            onChange={createUpdateHandler('middleCategory')}
+            endpoint="/api/autocomplete/middle-categories"
+            additionalParams={middleCategoryParams}
+            unsavedValues={unsavedMiddleCategories}
+            placeholder="中項目を入力"
+          />
+        </div>
 
-      {/* 工種 */}
-      <div style={styles.fieldGroup} role="cell">
-        <AutocompleteInput
-          id={`${item.id}-workType`}
-          label="工種"
-          value={item.workType}
-          onChange={createUpdateHandler('workType')}
-          endpoint="/api/autocomplete/work-types"
-          unsavedValues={unsavedWorkTypes}
-          error={errors.workType}
-          required
-          placeholder="工種を入力"
-        />
-      </div>
+        {/* 工種 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-workType`}
+            label="工種"
+            value={item.workType}
+            onChange={createUpdateHandler('workType')}
+            endpoint="/api/autocomplete/work-types"
+            unsavedValues={unsavedWorkTypes}
+            error={errors.workType}
+            required
+            placeholder="工種を入力"
+          />
+        </div>
 
-      {/* 名称 */}
-      <div style={styles.fieldGroup} role="cell">
-        <label
-          htmlFor={`${item.id}-name`}
-          style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
-        >
-          名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-        </label>
-        <input
-          id={`${item.id}-name`}
-          type="text"
-          value={item.name}
-          onChange={(e) => onUpdate?.(item.id, { name: e.target.value })}
-          style={{
-            ...styles.input,
-            ...(errors.name ? styles.inputError : {}),
-          }}
-          placeholder="名称を入力"
-          aria-invalid={!!errors.name}
-          aria-required
-        />
-        {errors.name && <span style={{ fontSize: '12px', color: '#dc2626' }}>{errors.name}</span>}
-      </div>
+        {/* 名称 */}
+        <div style={styles.fieldGroup} role="cell">
+          <label
+            htmlFor={`${item.id}-name`}
+            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+          >
+            名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+          </label>
+          <input
+            id={`${item.id}-name`}
+            type="text"
+            value={item.name}
+            onChange={(e) => onUpdate?.(item.id, { name: e.target.value })}
+            style={{
+              ...styles.input,
+              ...(errors.name ? styles.inputError : {}),
+            }}
+            placeholder="名称を入力"
+            aria-invalid={!!errors.name}
+            aria-required
+          />
+          {errors.name && <span style={{ fontSize: '12px', color: '#dc2626' }}>{errors.name}</span>}
+        </div>
 
-      {/* 規格 */}
-      <div style={styles.fieldGroup} role="cell">
-        <AutocompleteInput
-          id={`${item.id}-specification`}
-          label="規格"
-          value={item.specification || ''}
-          onChange={createUpdateHandler('specification')}
-          endpoint="/api/autocomplete/specifications"
-          unsavedValues={unsavedSpecifications}
-          placeholder="規格を入力"
-        />
-      </div>
+        {/* 規格 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-specification`}
+            label="規格"
+            value={item.specification || ''}
+            onChange={createUpdateHandler('specification')}
+            endpoint="/api/autocomplete/specifications"
+            unsavedValues={unsavedSpecifications}
+            placeholder="規格を入力"
+          />
+        </div>
 
-      {/* 数量 */}
-      <div style={styles.fieldGroup} role="cell">
-        <label
-          htmlFor={`${item.id}-quantity`}
-          style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
-        >
-          数量<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-        </label>
-        <input
-          id={`${item.id}-quantity`}
-          type="number"
-          value={item.quantity}
-          onChange={handleQuantityChange}
-          style={{ ...styles.input, ...styles.quantityInput }}
-          step="0.01"
-          aria-required
-        />
-      </div>
+        {/* 計算方法 */}
+        <div style={styles.fieldGroup} role="cell">
+          <CalculationMethodSelect
+            id={`${item.id}-calculationMethod`}
+            value={item.calculationMethod}
+            onChange={handleCalculationMethodChange}
+          />
+        </div>
 
-      {/* 単位 */}
-      <div style={styles.fieldGroup} role="cell">
-        <AutocompleteInput
-          id={`${item.id}-unit`}
-          label="単位"
-          value={item.unit}
-          onChange={createUpdateHandler('unit')}
-          endpoint="/api/autocomplete/units"
-          unsavedValues={unsavedUnits}
-          error={errors.unit}
-          required
-          placeholder="単位"
-        />
-      </div>
+        {/* 数量 */}
+        <div style={styles.fieldGroup} role="cell">
+          <label
+            htmlFor={`${item.id}-quantity`}
+            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+          >
+            数量<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+          </label>
+          <input
+            id={`${item.id}-quantity`}
+            type="number"
+            value={item.quantity}
+            onChange={handleQuantityChange}
+            style={{ ...styles.input, ...styles.quantityInput }}
+            step="0.01"
+            aria-required
+          />
+        </div>
 
-      {/* 備考 */}
-      <div style={styles.fieldGroup} role="cell">
-        <label
-          htmlFor={`${item.id}-remarks`}
-          style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
-        >
-          備考
-        </label>
-        <input
-          id={`${item.id}-remarks`}
-          type="text"
-          value={item.remarks || ''}
-          onChange={(e) => onUpdate?.(item.id, { remarks: e.target.value })}
-          style={styles.input}
-          placeholder="備考"
-        />
-      </div>
+        {/* 単位 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-unit`}
+            label="単位"
+            value={item.unit}
+            onChange={createUpdateHandler('unit')}
+            endpoint="/api/autocomplete/units"
+            unsavedValues={unsavedUnits}
+            error={errors.unit}
+            required
+            placeholder="単位"
+          />
+        </div>
 
-      {/* アクション */}
-      <div style={styles.actionsCell} role="cell">
-        {/* 削除ボタン */}
-        <button
-          type="button"
-          style={{ ...styles.actionButton, ...styles.deleteButton }}
-          onClick={handleDelete}
-          aria-label="削除"
-          title="削除"
-        >
-          <TrashIcon />
-        </button>
+        {/* 調整係数 */}
+        <div style={styles.fieldGroup} role="cell">
+          <label
+            htmlFor={`${item.id}-adjustmentFactor`}
+            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+          >
+            調整係数
+          </label>
+          <input
+            id={`${item.id}-adjustmentFactor`}
+            type="number"
+            value={item.adjustmentFactor}
+            onChange={handleAdjustmentFactorChange}
+            style={{ ...styles.input, ...styles.quantityInput }}
+            step="0.01"
+          />
+        </div>
 
-        {/* アクションメニュー */}
-        <div style={styles.menuWrapper}>
+        {/* 丸め設定 */}
+        <div style={styles.fieldGroup} role="cell">
+          <label
+            htmlFor={`${item.id}-roundingUnit`}
+            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+          >
+            丸め設定
+          </label>
+          <input
+            id={`${item.id}-roundingUnit`}
+            type="number"
+            value={item.roundingUnit}
+            onChange={handleRoundingUnitChange}
+            style={{ ...styles.input, ...styles.quantityInput }}
+            step="0.01"
+          />
+        </div>
+
+        {/* 備考 */}
+        <div style={styles.fieldGroup} role="cell">
+          <label
+            htmlFor={`${item.id}-remarks`}
+            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+          >
+            備考
+          </label>
+          <input
+            id={`${item.id}-remarks`}
+            type="text"
+            value={item.remarks || ''}
+            onChange={(e) => onUpdate?.(item.id, { remarks: e.target.value })}
+            style={styles.input}
+            placeholder="備考"
+          />
+        </div>
+
+        {/* アクション */}
+        <div style={styles.actionsCell} role="cell">
+          {/* 削除ボタン */}
           <button
             type="button"
-            style={styles.actionButton}
-            onClick={handleToggleMenu}
-            aria-label="アクション"
-            aria-haspopup="menu"
-            aria-expanded={isMenuOpen}
+            style={{ ...styles.actionButton, ...styles.deleteButton }}
+            onClick={handleDelete}
+            aria-label="削除"
+            title="削除"
           >
-            <MoreIcon />
+            <TrashIcon />
           </button>
 
-          {isMenuOpen && (
-            <div style={styles.menu} role="menu">
-              <button type="button" style={styles.menuItem} onClick={handleCopy} role="menuitem">
-                <CopyIcon />
-                コピー
-              </button>
-            </div>
-          )}
+          {/* アクションメニュー */}
+          <div style={styles.menuWrapper}>
+            <button
+              type="button"
+              style={styles.actionButton}
+              onClick={handleToggleMenu}
+              aria-label="アクション"
+              aria-haspopup="menu"
+              aria-expanded={isMenuOpen}
+            >
+              <MoreIcon />
+            </button>
+
+            {isMenuOpen && (
+              <div style={styles.menu} role="menu">
+                <button type="button" style={styles.menuItem} onClick={handleCopy} role="menuitem">
+                  <CopyIcon />
+                  コピー
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* 計算用フィールド（面積・体積またはピッチモード時のみ表示） */}
+      {item.calculationMethod !== 'STANDARD' && (
+        <div style={styles.calculationFieldsRow}>
+          <CalculationFields
+            method={item.calculationMethod}
+            params={item.calculationParams || {}}
+            onChange={handleCalculationParamsChange}
+          />
+        </div>
+      )}
     </div>
   );
 }
