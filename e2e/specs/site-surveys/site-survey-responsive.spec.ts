@@ -289,11 +289,11 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // カメラ撮影ボタンを探す
-      const cameraButton = page.getByRole('button', { name: /カメラ|撮影|camera/i });
+      // カメラ撮影ボタンを探す（複数要素がある場合はdata-testidで特定）
+      const cameraButton = page.getByTestId('camera-button');
       const cameraInput = page.locator('input[accept*="image"][capture]');
 
-      const hasCameraButton = await cameraButton.isVisible({ timeout: 3000 });
+      const hasCameraButton = await cameraButton.isVisible({ timeout: 3000 }).catch(() => false);
       const cameraInputCount = await cameraInput.count();
       const hasCameraInput = cameraInputCount > 0;
 

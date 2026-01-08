@@ -410,8 +410,8 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 現場調査セクションの存在を確認
-      const surveySection = page.getByText(/現場調査|調査一覧/i);
+      // 現場調査セクションの存在を確認（見出し要素に限定）
+      const surveySection = page.getByRole('heading', { name: /現場調査/i });
       await expect(surveySection).toBeVisible({ timeout: getTimeout(10000) });
     });
 

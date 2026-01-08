@@ -137,7 +137,11 @@ test.describe('現場調査注釈エディタ', () => {
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
         await expect(deleteButton).toBeVisible({ timeout: 5000 });
         await deleteButton.click();
-        const confirmButton = cleanupPage.getByRole('button', { name: /^削除する$|^削除$/i });
+        // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
+        const dialog = cleanupPage
+          .getByTestId('focus-manager-overlay')
+          .or(cleanupPage.getByRole('dialog'));
+        const confirmButton = dialog.getByRole('button', { name: /^削除する$/i });
         await expect(confirmButton).toBeVisible({ timeout: 5000 });
         await confirmButton.click();
         await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });

@@ -700,9 +700,14 @@ test.describe('現場調査CRUD操作', () => {
 
       // 削除した現場調査が一覧に表示されないことを確認
       await page.waitForLoadState('networkidle');
-      await expect(page.getByText(deleteSurveyName)).not.toBeVisible({
-        timeout: getTimeout(5000),
-      });
+      // 一覧テーブル/リスト内に限定して確認（strict mode violation回避）
+      const surveyList = page
+        .getByRole('main')
+        .or(page.locator('[data-testid="survey-list"]'))
+        .or(page.locator('table'));
+      const deletedSurveyInList = surveyList.getByText(deleteSurveyName);
+      const count = await deletedSurveyInList.count();
+      expect(count).toBe(0);
     });
 
     /**

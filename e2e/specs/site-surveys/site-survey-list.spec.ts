@@ -272,11 +272,12 @@ test.describe('現場調査一覧・検索', () => {
       // ソートヘッダーまたはソートボタンを探す
       const sortByDate = page.getByRole('button', { name: /調査日/i });
       const sortHeader = page.getByRole('columnheader', { name: /調査日/i });
-      const sortSelect = page.getByRole('combobox', { name: /並び替え|ソート/i });
+      // ソート項目セレクトを取得（複数ある場合はfirst()）
+      const sortSelect = page.getByLabel(/ソート項目/i);
 
-      const hasSortByDate = await sortByDate.isVisible({ timeout: 3000 });
-      const hasSortHeader = await sortHeader.isVisible({ timeout: 3000 });
-      const hasSortSelect = await sortSelect.isVisible({ timeout: 3000 });
+      const hasSortByDate = await sortByDate.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSortHeader = await sortHeader.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSortSelect = await sortSelect.isVisible({ timeout: 3000 }).catch(() => false);
 
       // 少なくとも1つのソート機能が必須
       expect(hasSortByDate || hasSortHeader || hasSortSelect).toBeTruthy();

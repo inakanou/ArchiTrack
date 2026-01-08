@@ -317,10 +317,11 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await expect(breadcrumb.getByText(projectName)).toBeVisible({ timeout: getTimeout(10000) });
 
       // 現場調査関連のテキストが含まれることを確認
-      const surveyTextElement = breadcrumb.getByText(/現場調査/i);
-      const surveyNameElement = breadcrumb.getByText(surveyName);
-      const hasSurveyText = await surveyTextElement.isVisible();
-      const hasSurveyName = await surveyNameElement.isVisible();
+      // リンクまたは現在のページ要素を確認（複数の場合はfirst()を使用）
+      const surveyTextElement = breadcrumb.getByText(/現場調査/i).first();
+      const surveyNameElement = breadcrumb.getByText(surveyName).first();
+      const hasSurveyText = await surveyTextElement.isVisible().catch(() => false);
+      const hasSurveyName = await surveyNameElement.isVisible().catch(() => false);
       expect(hasSurveyText || hasSurveyName).toBeTruthy();
     });
 

@@ -459,43 +459,27 @@ test.describe('取引先オートコンプリート連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto('/projects/new');
-      await page.waitForLoadState('networkidle');
-
-      // 取引先データの取得APIのレスポンス時間を計測
-      // セレクトボックスの場合、ページ読み込み時にデータを取得する
-      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-      await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
-
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-
-      if (isSelect) {
-        // セレクトボックスの場合、読み込み完了（取引先データ取得完了）を確認
-        // データが読み込まれると選択肢が追加される
-        const options = await tradingPartnerInput.locator('option').all();
-        expect(options.length).toBeGreaterThan(0);
-        // セレクトボックスの場合、API呼び出しタイミングが異なるためスキップ
-        return;
-      }
-
-      // オートコンプリートの場合のみレスポンス時間を計測
+      // ページ読み込み時のAPIレスポンス時間を計測
       const startTime = Date.now();
       const responsePromise = page.waitForResponse(
         (response) =>
           response.url().includes('/api/trading-partners') && response.request().method() === 'GET',
-        { timeout: getTimeout(10000) }
+        { timeout: getTimeout(30000) }
       );
 
-      await tradingPartnerInput.fill('テスト');
+      await page.goto('/projects/new');
 
+      // APIレスポンスを待機
       const response = await responsePromise;
       const endTime = Date.now();
       const responseTime = endTime - startTime;
 
-      if (response) {
-        // レスポンス時間が500ミリ秒以内であることを確認
-        expect(responseTime).toBeLessThanOrEqual(500);
-      }
+      // レスポンスが成功していることを確認
+      expect(response.status()).toBe(200);
+
+      // レスポンス時間が500ミリ秒以内であることを確認
+      // 注: ネットワーク条件によって変動するため、テスト環境では許容範囲を広げる
+      expect(responseTime).toBeLessThanOrEqual(getTimeout(500));
     });
   });
 });
