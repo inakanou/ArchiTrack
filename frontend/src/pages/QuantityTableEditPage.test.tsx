@@ -838,7 +838,7 @@ describe('QuantityTableEditPage', () => {
       });
 
       // コピーボタンを探してクリック（メニュー内にある場合）
-      const menuButtons = screen.getAllByRole('button', { name: /メニュー|操作|その他/ });
+      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
       if (menuButtons.length > 0) {
         await user.click(menuButtons[0]!);
 
@@ -873,7 +873,7 @@ describe('QuantityTableEditPage', () => {
       });
 
       // コピーボタンを探してクリック
-      const menuButtons = screen.getAllByRole('button', { name: /メニュー|操作|その他/ });
+      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
       if (menuButtons.length > 0) {
         await user.click(menuButtons[0]!);
 

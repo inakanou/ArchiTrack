@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableListPage from './QuantityTableListPage';
 import * as quantityTablesApi from '../api/quantity-tables';
@@ -275,8 +275,9 @@ describe('QuantityTableListPage', () => {
       await user.click(deleteButtons[0]!);
 
       await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-        expect(screen.getByText(/数量表を削除/)).toBeInTheDocument();
+        const dialog = screen.getByRole('dialog');
+        expect(dialog).toBeInTheDocument();
+        expect(within(dialog).getByRole('heading')).toHaveTextContent(/削除/);
       });
     });
 
@@ -325,7 +326,8 @@ describe('QuantityTableListPage', () => {
         expect(screen.getByRole('dialog')).toBeInTheDocument();
       });
 
-      const confirmButton = screen.getByRole('button', { name: '削除' });
+      const dialog = screen.getByRole('dialog');
+      const confirmButton = within(dialog).getByRole('button', { name: '削除' });
       await user.click(confirmButton);
 
       await waitFor(() => {
@@ -355,7 +357,8 @@ describe('QuantityTableListPage', () => {
         expect(screen.getByRole('dialog')).toBeInTheDocument();
       });
 
-      const confirmButton = screen.getByRole('button', { name: '削除' });
+      const dialog = screen.getByRole('dialog');
+      const confirmButton = within(dialog).getByRole('button', { name: '削除' });
       await user.click(confirmButton);
 
       await waitFor(() => {
@@ -385,7 +388,8 @@ describe('QuantityTableListPage', () => {
         expect(screen.getByRole('dialog')).toBeInTheDocument();
       });
 
-      const confirmButton = screen.getByRole('button', { name: '削除' });
+      const dialog = screen.getByRole('dialog');
+      const confirmButton = within(dialog).getByRole('button', { name: '削除' });
       await user.click(confirmButton);
 
       // 削除中の状態を確認
