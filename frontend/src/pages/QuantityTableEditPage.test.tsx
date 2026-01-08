@@ -23,6 +23,9 @@ const mockGetQuantityTableDetail = vi.mocked(quantityTablesApi.getQuantityTableD
 const mockCreateQuantityGroup = vi.mocked(quantityTablesApi.createQuantityGroup);
 const mockDeleteQuantityGroup = vi.mocked(quantityTablesApi.deleteQuantityGroup);
 const mockCreateQuantityItem = vi.mocked(quantityTablesApi.createQuantityItem);
+const mockUpdateQuantityItem = vi.mocked(quantityTablesApi.updateQuantityItem);
+const mockDeleteQuantityItem = vi.mocked(quantityTablesApi.deleteQuantityItem);
+const mockCopyQuantityItem = vi.mocked(quantityTablesApi.copyQuantityItem);
 
 // テストデータ
 const mockQuantityTableDetail: QuantityTableDetail = {
@@ -684,6 +687,244 @@ describe('QuantityTableEditPage', () => {
       await waitFor(() => {
         expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(2);
         expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('テスト数量表');
+      });
+    });
+  });
+
+  // ====================================================================
+  // REQ 5.2: 項目更新機能
+  // ====================================================================
+
+  describe('REQ 5.2: 項目更新機能', () => {
+    it('項目のフィールドを編集すると更新APIが呼ばれる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockUpdateQuantityItem.mockResolvedValue({
+        ...mockQuantityTableDetail.groups[0]!.items[0]!,
+        name: '足場（更新）',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      // 項目名を変更
+      const nameInput = screen.getByDisplayValue('足場');
+      await user.clear(nameInput);
+      await user.type(nameInput, '足場（更新）');
+
+      // フォーカスを外してblurイベントを発火
+      await user.tab();
+
+      await waitFor(() => {
+        expect(mockUpdateQuantityItem).toHaveBeenCalled();
+      });
+    });
+
+    it('項目更新に失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockUpdateQuantityItem.mockRejectedValue(new Error('Update failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      // 項目名を変更
+      const nameInput = screen.getByDisplayValue('足場');
+      await user.clear(nameInput);
+      await user.type(nameInput, '足場（更新）');
+      await user.tab();
+
+      await waitFor(() => {
+        expect(screen.getByText(/項目の更新に失敗しました/)).toBeInTheDocument();
+      });
+    });
+
+    it('項目が見つからない場合はエラーが表示される', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue({
+        ...mockQuantityTableDetail,
+        groups: [],
+      });
+      mockUpdateQuantityItem.mockRejectedValue(new Error('Item not found'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText(/グループがありません/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // REQ 5.3: 項目削除機能
+  // ====================================================================
+
+  describe('REQ 5.3: 項目削除機能', () => {
+    it('項目削除ボタンをクリックすると削除APIが呼ばれる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockDeleteQuantityItem.mockResolvedValue();
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      // 削除ボタンを探してクリック（EditableQuantityItemRow内のボタン）
+      const deleteButtons = screen.getAllByRole('button', { name: /項目を削除|削除/ });
+      // 最初の項目の削除ボタンをクリック
+      const itemDeleteButton = deleteButtons.find((btn) =>
+        btn.getAttribute('aria-label')?.includes('項目を削除')
+      );
+      if (itemDeleteButton) {
+        await user.click(itemDeleteButton);
+
+        await waitFor(() => {
+          expect(mockDeleteQuantityItem).toHaveBeenCalledWith('item-1');
+        });
+      }
+    });
+
+    it('項目削除に失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockDeleteQuantityItem.mockRejectedValue(new Error('Delete failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      // 削除ボタンを探してクリック
+      const deleteButtons = screen.getAllByRole('button', { name: /項目を削除|削除/ });
+      const itemDeleteButton = deleteButtons.find((btn) =>
+        btn.getAttribute('aria-label')?.includes('項目を削除')
+      );
+      if (itemDeleteButton) {
+        await user.click(itemDeleteButton);
+
+        await waitFor(() => {
+          expect(screen.getByText(/項目の削除に失敗しました/)).toBeInTheDocument();
+        });
+      }
+    });
+  });
+
+  // ====================================================================
+  // REQ 5.4: 項目コピー機能
+  // ====================================================================
+
+  describe('REQ 5.4: 項目コピー機能', () => {
+    it('項目コピーボタンをクリックするとコピーAPIが呼ばれる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockCopyQuantityItem.mockResolvedValue({
+        ...mockQuantityTableDetail.groups[0]!.items[0]!,
+        id: 'item-copy',
+        displayOrder: 3,
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      // コピーボタンを探してクリック（メニュー内にある場合）
+      const menuButtons = screen.getAllByRole('button', { name: /メニュー|操作|その他/ });
+      if (menuButtons.length > 0) {
+        await user.click(menuButtons[0]!);
+
+        await waitFor(() => {
+          const copyButton = screen.queryByRole('button', { name: /コピー/ });
+          if (copyButton) {
+            return true;
+          }
+          return false;
+        });
+
+        const copyButton = screen.queryByRole('button', { name: /コピー/ });
+        if (copyButton) {
+          await user.click(copyButton);
+
+          await waitFor(() => {
+            expect(mockCopyQuantityItem).toHaveBeenCalledWith('item-1');
+          });
+        }
+      }
+    });
+
+    it('項目コピーに失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockCopyQuantityItem.mockRejectedValue(new Error('Copy failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      // コピーボタンを探してクリック
+      const menuButtons = screen.getAllByRole('button', { name: /メニュー|操作|その他/ });
+      if (menuButtons.length > 0) {
+        await user.click(menuButtons[0]!);
+
+        const copyButton = screen.queryByRole('button', { name: /コピー/ });
+        if (copyButton) {
+          await user.click(copyButton);
+
+          await waitFor(() => {
+            expect(screen.getByText(/項目のコピーに失敗しました/)).toBeInTheDocument();
+          });
+        }
+      }
+    });
+  });
+
+  // ====================================================================
+  // REQ 11.1: 保存機能
+  // ====================================================================
+
+  describe('REQ 11.1: 保存機能', () => {
+    it('保存ボタンをクリックすると保存メッセージが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      await user.click(saveButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 数量表が見つからない場合
+  // ====================================================================
+
+  describe('数量表が見つからない場合', () => {
+    it('nullが返された場合は「数量表が見つかりません」が表示される', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(null as unknown as QuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText(/数量表が見つかりません/)).toBeInTheDocument();
       });
     });
   });

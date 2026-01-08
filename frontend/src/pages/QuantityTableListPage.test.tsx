@@ -247,5 +247,175 @@ describe('QuantityTableListPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
     });
+
+    it('パンくずナビゲーションを表示する', async () => {
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('navigation', { name: /パンくず/ })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('削除機能 (Requirements: 2.4)', () => {
+    it('削除ボタンをクリックすると確認ダイアログが表示される', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByText(/数量表を削除/)).toBeInTheDocument();
+      });
+    });
+
+    it('確認ダイアログでキャンセルするとダイアログが閉じる', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
+      await user.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
+    it('確認ダイアログで削除を実行すると数量表が削除される', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+      vi.mocked(quantityTablesApi.deleteQuantityTable).mockResolvedValue();
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole('button', { name: '削除' });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(quantityTablesApi.deleteQuantityTable).toHaveBeenCalledWith('table-1');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
+    it('削除に失敗した場合はエラーメッセージが表示される', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+      vi.mocked(quantityTablesApi.deleteQuantityTable).mockRejectedValue(
+        new Error('Delete failed')
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole('button', { name: '削除' });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/削除に失敗しました/)).toBeInTheDocument();
+      });
+    });
+
+    it('削除中はボタンが無効化される', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+      // 削除を遅延させる
+      vi.mocked(quantityTablesApi.deleteQuantityTable).mockImplementation(
+        () => new Promise((resolve) => setTimeout(resolve, 100))
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole('button', { name: '削除' });
+      await user.click(confirmButton);
+
+      // 削除中の状態を確認
+      await waitFor(() => {
+        expect(screen.getByText('削除中...')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('リトライ機能', () => {
+    it('再試行ボタンをクリックするとデータを再取得する', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables)
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+
+      const retryButton = screen.getByRole('button', { name: /再試行/ });
+      await user.click(retryButton);
+
+      await waitFor(() => {
+        expect(quantityTablesApi.getQuantityTables).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+    });
   });
 });
