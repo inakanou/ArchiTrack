@@ -691,8 +691,8 @@ test.describe('プロジェクト管理 追加要件', () => {
       const endTime = Date.now();
       const responseTime = endTime - startTime;
 
-      // レスポンスが成功していることを確認
-      expect(response.status()).toBe(200);
+      // レスポンスが成功していることを確認（200または304キャッシュ）
+      expect(response.ok() || response.status() === 304).toBe(true);
 
       // E2Eテスト環境ではページナビゲーション＋ネットワーク条件により変動するため、
       // 5秒以内に応答があることを確認（本番APIの500ms要件は別途APIモニタリングで監視）
