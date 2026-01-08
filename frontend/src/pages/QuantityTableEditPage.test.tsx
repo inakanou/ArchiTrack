@@ -825,11 +825,13 @@ describe('QuantityTableEditPage', () => {
     it('項目コピーボタンをクリックするとコピーAPIが呼ばれる', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockCopyQuantityItem.mockResolvedValue({
+      const copiedItem = {
         ...mockQuantityTableDetail.groups[0]!.items[0]!,
         id: 'item-copy',
+        name: '足場（コピー）',
         displayOrder: 3,
-      });
+      };
+      mockCopyQuantityItem.mockResolvedValue(copiedItem);
 
       renderWithRouter();
 
@@ -837,28 +839,28 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // コピーボタンを探してクリック（メニュー内にある場合）
+      // アクションメニューを開く
       const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
-      if (menuButtons.length > 0) {
-        await user.click(menuButtons[0]!);
+      expect(menuButtons.length).toBeGreaterThan(0);
+      await user.click(menuButtons[0]!);
 
-        await waitFor(() => {
-          const copyButton = screen.queryByRole('button', { name: /コピー/ });
-          if (copyButton) {
-            return true;
-          }
-          return false;
-        });
+      // コピーボタンが表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /コピー/ })).toBeInTheDocument();
+      });
 
-        const copyButton = screen.queryByRole('button', { name: /コピー/ });
-        if (copyButton) {
-          await user.click(copyButton);
+      const copyButton = screen.getByRole('menuitem', { name: /コピー/ });
+      await user.click(copyButton);
 
-          await waitFor(() => {
-            expect(mockCopyQuantityItem).toHaveBeenCalledWith('item-1');
-          });
-        }
-      }
+      // APIが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockCopyQuantityItem).toHaveBeenCalledWith('item-1');
+      });
+
+      // コピーされた項目がUIに追加されることを確認
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場（コピー）')).toBeInTheDocument();
+      });
     });
 
     it('項目コピーに失敗した場合はエラーが表示される', async () => {
@@ -872,20 +874,23 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // コピーボタンを探してクリック
+      // アクションメニューを開く
       const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
-      if (menuButtons.length > 0) {
-        await user.click(menuButtons[0]!);
+      expect(menuButtons.length).toBeGreaterThan(0);
+      await user.click(menuButtons[0]!);
 
-        const copyButton = screen.queryByRole('button', { name: /コピー/ });
-        if (copyButton) {
-          await user.click(copyButton);
+      // コピーボタンが表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /コピー/ })).toBeInTheDocument();
+      });
 
-          await waitFor(() => {
-            expect(screen.getByText(/項目のコピーに失敗しました/)).toBeInTheDocument();
-          });
-        }
-      }
+      const copyButton = screen.getByRole('menuitem', { name: /コピー/ });
+      await user.click(copyButton);
+
+      // エラーメッセージが表示されることを確認
+      await waitFor(() => {
+        expect(screen.getByText(/項目のコピーに失敗しました/)).toBeInTheDocument();
+      });
     });
   });
 
