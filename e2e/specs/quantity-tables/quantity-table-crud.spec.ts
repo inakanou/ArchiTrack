@@ -558,40 +558,9 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 項目がない場合は先に追加する
-      const existingItemCount = await page.getByTestId('quantity-item-row').count();
-      if (existingItemCount === 0) {
-        // 項目追加ボタンを探してクリック
-        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        const addButtonVisible = await addItemButton.isVisible().catch(() => false);
-        if (addButtonVisible) {
-          await addItemButton.click();
-          await page.waitForTimeout(500);
-        }
-      }
-
-      // 数量項目が表示されることを確認
-      const itemRowCount = await page.getByTestId('quantity-item-row').count();
-      if (itemRowCount === 0) {
-        // 項目がない場合、「項目がありません」メッセージを確認
-        const emptyMessage = page.getByText(/項目がありません/);
-        const hasEmptyMessage = await emptyMessage.isVisible().catch(() => false);
-        if (hasEmptyMessage) {
-          // 項目がない状態でも、UIが正しく表示されていれば成功
-          expect(hasEmptyMessage).toBe(true);
-          return;
-        }
-      }
-
+      // 数量項目が表示されることを確認（必須）
       const itemRow = page.getByTestId('quantity-item-row').first();
-      const itemRowVisible = await itemRow.isVisible().catch(() => false);
-
-      if (!itemRowVisible) {
-        // 項目行が見えない場合、編集ページのUIが表示されていることを確認
-        const pageTitle = page.getByRole('heading', { name: /数量表|編集/i });
-        await expect(pageTitle).toBeVisible({ timeout: getTimeout(5000) });
-        return;
-      }
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
       // 入力フィールドまたは表示セルが存在することを確認
       // 現在の実装では表示モードのため、セル内のテキストを確認
@@ -623,62 +592,28 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 項目がない場合は先に追加する
-      let initialRowCount = await page.getByTestId('quantity-item-row').count();
-      if (initialRowCount === 0) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        const addButtonVisible = await addItemButton.isVisible().catch(() => false);
-        if (addButtonVisible) {
-          await addItemButton.click();
-          await page.waitForTimeout(500);
-          initialRowCount = await page.getByTestId('quantity-item-row').count();
-        }
-      }
-
-      // 項目がない場合は削除テストを実行できない
-      if (initialRowCount === 0) {
-        // 削除ボタンまたはUIの存在を確認して終了
-        const deleteButtonExists = await page.getByRole('button', { name: /削除/ }).count();
-        // 項目がないので削除ボタンもないはず - これは正常
-        expect(deleteButtonExists).toBe(0);
-        return;
-      }
-
-      // 項目行が表示されることを確認
+      // 項目行が表示されることを確認（必須）
       const itemRow = page.getByTestId('quantity-item-row').first();
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 削除ボタンが表示されることを確認
+      const initialRowCount = await page.getByTestId('quantity-item-row').count();
+
+      // 削除ボタンが表示されることを確認（必須）
       const deleteButton = itemRow.getByRole('button', { name: /削除/ });
-      const deleteButtonVisible = await deleteButton.isVisible().catch(() => false);
-
-      if (!deleteButtonVisible) {
-        // 削除ボタンがない場合、項目行の存在のみ確認
-        await expect(itemRow).toBeVisible();
-        return;
-      }
-
+      await expect(deleteButton).toBeVisible({ timeout: 3000 });
       await deleteButton.click();
 
       // 確認ダイアログが表示されれば確認ボタンをクリック
-      // focus-manager-overlay内のボタンを探す
-      const dialog = page.getByTestId('focus-manager-overlay').or(page.getByRole('dialog'));
-      const dialogVisible = await dialog.isVisible({ timeout: 2000 }).catch(() => false);
-
-      if (dialogVisible) {
-        const confirmButton = dialog.getByRole('button', { name: /^削除$/i });
-        const confirmVisible = await confirmButton.isVisible({ timeout: 1000 }).catch(() => false);
-        if (confirmVisible) {
-          await confirmButton.click();
-        }
+      const confirmButton = page.getByRole('button', { name: /^削除$|確認|はい/ });
+      const hasConfirm = await confirmButton.isVisible({ timeout: 2000 });
+      if (hasConfirm) {
+        await confirmButton.click();
       }
 
-      // 削除操作後の状態を確認（削除成功または失敗）
-      await page.waitForTimeout(500);
-      const newRowCount = await page.getByTestId('quantity-item-row').count();
-
-      // 行数が減少したか、または同じ（削除が行われなかった場合）を確認
-      expect(newRowCount).toBeLessThanOrEqual(initialRowCount);
+      // 行が削除されたことを確認（必須）
+      await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount - 1, {
+        timeout: 5000,
+      });
     });
   });
 
@@ -700,56 +635,26 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 項目がない場合は先に追加する
-      let initialRowCount = await page.getByTestId('quantity-item-row').count();
-      if (initialRowCount === 0) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        const addButtonVisible = await addItemButton.isVisible().catch(() => false);
-        if (addButtonVisible) {
-          await addItemButton.click();
-          await page.waitForTimeout(500);
-          initialRowCount = await page.getByTestId('quantity-item-row').count();
-        }
-      }
-
-      // 項目がない場合はコピーテストを実行できない
-      if (initialRowCount === 0) {
-        // コピー機能のUIが存在しないことを確認して終了
-        const pageTitle = page.getByRole('heading', { name: /数量表|編集/i });
-        await expect(pageTitle).toBeVisible({ timeout: getTimeout(5000) });
-        return;
-      }
-
+      // 項目行が表示されることを確認（必須）
       const itemRow = page.getByTestId('quantity-item-row').first();
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      // アクションメニューボタンを探す
+      const initialRowCount = await page.getByTestId('quantity-item-row').count();
+
+      // アクションメニューボタンが表示されることを確認（必須）
       const moreButton = itemRow.getByLabel(/アクション|メニュー|その他/);
-      const moreButtonVisible = await moreButton.isVisible().catch(() => false);
-
-      if (!moreButtonVisible) {
-        // アクションメニューがない場合、項目行の存在のみ確認
-        await expect(itemRow).toBeVisible();
-        return;
-      }
-
+      await expect(moreButton).toBeVisible({ timeout: 3000 });
       await moreButton.click();
 
-      // コピーオプションを探す
+      // コピーオプションが表示されることを確認（必須）
       const copyOption = page.getByRole('menuitem', { name: /コピー|複製/ });
-      const copyOptionVisible = await copyOption.isVisible({ timeout: 2000 }).catch(() => false);
-
-      if (!copyOptionVisible) {
-        // コピーオプションがない場合、メニューが開いたことを確認して終了
-        return;
-      }
-
+      await expect(copyOption).toBeVisible({ timeout: 3000 });
       await copyOption.click();
 
-      // コピー後の状態を確認
-      await page.waitForTimeout(500);
-      const newRowCount = await page.getByTestId('quantity-item-row').count();
-      expect(newRowCount).toBeGreaterThanOrEqual(initialRowCount);
+      // 新しい行が追加されたことを確認（必須）
+      await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount + 1, {
+        timeout: 5000,
+      });
     });
 
     test('数量項目移動時にUI表示される (quantity-table-generation/REQ-6.2)', async ({ page }) => {
@@ -763,44 +668,18 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 項目がない場合は先に追加する
-      const initialRowCount = await page.getByTestId('quantity-item-row').count();
-      if (initialRowCount === 0) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        const addButtonVisible = await addItemButton.isVisible().catch(() => false);
-        if (addButtonVisible) {
-          await addItemButton.click();
-          await page.waitForTimeout(500);
-        }
-      }
-
-      // 項目が存在するか確認
+      // 項目行が表示されることを確認（必須）
       const itemRow = page.getByTestId('quantity-item-row').first();
-      const itemRowVisible = await itemRow.isVisible().catch(() => false);
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      if (!itemRowVisible) {
-        // 項目がない場合、編集ページのUIが表示されていることを確認
-        const pageTitle = page.getByRole('heading', { name: /数量表|編集/i });
-        await expect(pageTitle).toBeVisible({ timeout: getTimeout(5000) });
-        return;
-      }
-
-      // アクションメニューボタンを探す
+      // アクションメニューボタンが表示されることを確認（必須）
       const moreButton = itemRow.getByLabel(/アクション|メニュー|その他/);
-      const moreButtonVisible = await moreButton.isVisible().catch(() => false);
-
-      if (!moreButtonVisible) {
-        // アクションメニューがない場合、項目行の存在のみ確認
-        await expect(itemRow).toBeVisible();
-        return;
-      }
-
+      await expect(moreButton).toBeVisible({ timeout: 3000 });
       await moreButton.click();
 
-      // メニューが開いたことを確認
+      // メニューが開いたことを確認（必須）
       const menu = page.getByRole('menu');
-      const menuVisible = await menu.isVisible({ timeout: 2000 }).catch(() => false);
-      expect(menuVisible || true).toBe(true); // メニューの有無に関わらず成功
+      await expect(menu).toBeVisible({ timeout: 3000 });
     });
   });
 
@@ -824,36 +703,16 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 大項目コンボボックスまたは入力フィールドを探す
+      // 大項目コンボボックスが表示されることを確認（必須）
       const majorCategoryInput = page.getByRole('combobox', { name: /大項目/ }).first();
-      const majorCategoryTextbox = page.getByLabel(/大項目/).first();
-
-      const comboboxVisible = await majorCategoryInput.isVisible().catch(() => false);
-      const textboxVisible = await majorCategoryTextbox.isVisible().catch(() => false);
-
-      if (!comboboxVisible && !textboxVisible) {
-        // 大項目フィールドがない場合、編集ページのUIが表示されていることを確認
-        const pageTitle = page.getByRole('heading', { name: /数量表|編集/i });
-        await expect(pageTitle).toBeVisible({ timeout: getTimeout(5000) });
-        return;
-      }
-
-      const inputField = comboboxVisible ? majorCategoryInput : majorCategoryTextbox;
+      await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
       // 入力を開始
-      await inputField.fill('建');
+      await majorCategoryInput.fill('建');
 
-      // オートコンプリート候補リストが表示されるか確認
+      // オートコンプリート候補リストが表示される（必須）
       const listbox = page.getByRole('listbox');
-      const listboxVisible = await listbox.isVisible({ timeout: 2000 }).catch(() => false);
-
-      // オートコンプリートが実装されている場合はリストが表示される
-      // 実装されていない場合は入力フィールドが動作していることを確認
-      if (listboxVisible) {
-        await expect(listbox).toBeVisible();
-      } else {
-        await expect(inputField).toHaveValue('建');
-      }
+      await expect(listbox).toBeVisible({ timeout: 3000 });
     });
 
     test('オートコンプリート候補を選択すると入力欄に反映される (quantity-table-generation/REQ-7.4)', async ({
@@ -869,50 +728,26 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 大項目コンボボックスまたは入力フィールドを探す
+      // 大項目コンボボックスが表示されることを確認（必須）
       const majorCategoryInput = page.getByRole('combobox', { name: /大項目/ }).first();
-      const majorCategoryTextbox = page.getByLabel(/大項目/).first();
+      await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-      const comboboxVisible = await majorCategoryInput.isVisible().catch(() => false);
-      const textboxVisible = await majorCategoryTextbox.isVisible().catch(() => false);
+      await majorCategoryInput.fill('建');
 
-      if (!comboboxVisible && !textboxVisible) {
-        // 大項目フィールドがない場合、編集ページのUIが表示されていることを確認
-        const pageTitle = page.getByRole('heading', { name: /数量表|編集/i });
-        await expect(pageTitle).toBeVisible({ timeout: getTimeout(5000) });
-        return;
-      }
-
-      const inputField = comboboxVisible ? majorCategoryInput : majorCategoryTextbox;
-
-      await inputField.fill('建');
-
-      // オートコンプリート候補リストが表示されるか確認
+      // オートコンプリート候補リストが表示される（必須）
       const listbox = page.getByRole('listbox');
-      const listboxVisible = await listbox.isVisible({ timeout: 2000 }).catch(() => false);
+      await expect(listbox).toBeVisible({ timeout: 3000 });
 
-      if (!listboxVisible) {
-        // オートコンプリートが実装されていない場合、入力フィールドの動作を確認
-        await expect(inputField).toHaveValue('建');
-        return;
-      }
-
-      // 最初のオプションを探す
+      // 最初のオプションが表示される（必須）
       const firstOption = listbox.getByRole('option').first();
-      const optionVisible = await firstOption.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (!optionVisible) {
-        // オプションがない場合、リストが表示されていることを確認
-        await expect(listbox).toBeVisible();
-        return;
-      }
+      await expect(firstOption).toBeVisible({ timeout: 2000 });
 
       const optionText = await firstOption.textContent();
       await firstOption.click();
 
-      // 入力フィールドに値が反映される
+      // 入力フィールドに値が反映される（必須）
       if (optionText) {
-        await expect(inputField).toHaveValue(optionText);
+        await expect(majorCategoryInput).toHaveValue(optionText);
       }
     });
   });
