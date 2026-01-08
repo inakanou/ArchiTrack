@@ -16,8 +16,15 @@ import {
   createQuantityGroup,
   deleteQuantityGroup,
   createQuantityItem,
+  updateQuantityItem,
+  deleteQuantityItem,
+  copyQuantityItem,
 } from '../api/quantity-tables';
-import type { QuantityTableDetail, QuantityGroupDetail } from '../types/quantity-table.types';
+import type {
+  QuantityTableDetail,
+  QuantityGroupDetail,
+  QuantityItemDetail,
+} from '../types/quantity-table.types';
 import { Breadcrumb } from '../components/common';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
 
@@ -461,6 +468,116 @@ export default function QuantityTableEditPage() {
     [quantityTable]
   );
 
+  /**
+   * 項目更新ハンドラ
+   *
+   * Requirements: 5.2
+   */
+  const handleUpdateItem = useCallback(
+    async (itemId: string, updates: Partial<QuantityItemDetail>) => {
+      setError(null);
+
+      try {
+        // 対象項目を見つけてupdatedAtを取得
+        let expectedUpdatedAt: string | undefined;
+        for (const group of quantityTable?.groups ?? []) {
+          const item = (group.items ?? []).find((i) => i.id === itemId);
+          if (item) {
+            expectedUpdatedAt = item.updatedAt;
+            break;
+          }
+        }
+
+        if (!expectedUpdatedAt) {
+          setError('項目が見つかりません');
+          return;
+        }
+
+        const updatedItem = await updateQuantityItem(itemId, updates, expectedUpdatedAt);
+
+        // ローカル状態を更新
+        setQuantityTable((prev) => {
+          if (!prev) return prev;
+          const updatedGroups = (prev.groups ?? []).map((g) => ({
+            ...g,
+            items: (g.items ?? []).map((item) => (item.id === itemId ? updatedItem : item)),
+          }));
+          return {
+            ...prev,
+            groups: updatedGroups,
+          };
+        });
+      } catch {
+        setError('項目の更新に失敗しました');
+      }
+    },
+    [quantityTable]
+  );
+
+  /**
+   * 項目削除ハンドラ
+   *
+   * Requirements: 5.3
+   */
+  const handleDeleteItem = useCallback(async (itemId: string) => {
+    setError(null);
+
+    try {
+      await deleteQuantityItem(itemId);
+
+      // ローカル状態を更新
+      setQuantityTable((prev) => {
+        if (!prev) return prev;
+        const updatedGroups = (prev.groups ?? []).map((g) => ({
+          ...g,
+          items: (g.items ?? []).filter((item) => item.id !== itemId),
+        }));
+        return {
+          ...prev,
+          itemCount: prev.itemCount - 1,
+          groups: updatedGroups,
+        };
+      });
+    } catch {
+      setError('項目の削除に失敗しました');
+    }
+  }, []);
+
+  /**
+   * 項目コピーハンドラ
+   *
+   * Requirements: 5.4
+   */
+  const handleCopyItem = useCallback(async (itemId: string) => {
+    setError(null);
+
+    try {
+      const copiedItem = await copyQuantityItem(itemId);
+
+      // コピー元の項目が属するグループを探す
+      setQuantityTable((prev) => {
+        if (!prev) return prev;
+        const updatedGroups = (prev.groups ?? []).map((g) => {
+          const hasItem = (g.items ?? []).some((item) => item.id === itemId);
+          if (hasItem) {
+            return {
+              ...g,
+              items: [...(g.items ?? []), copiedItem],
+            };
+          }
+          return g;
+        });
+        return {
+          ...prev,
+          itemCount: prev.itemCount + 1,
+          groups: updatedGroups,
+        };
+      });
+    } catch {
+      setError('項目のコピーに失敗しました');
+    }
+  }, []);
+
   // ローディング表示
   if (isLoading) {
     return (
@@ -566,8 +683,12 @@ export default function QuantityTableEditPage() {
               <QuantityGroupCard
                 group={group}
                 groupDisplayName={getGroupDisplayName(group, index)}
+                isEditable
                 onAddItem={handleAddItem}
                 onDeleteGroup={handleDeleteGroup}
+                onUpdateItem={handleUpdateItem}
+                onDeleteItem={handleDeleteItem}
+                onCopyItem={handleCopyItem}
               />
             </div>
           ))}

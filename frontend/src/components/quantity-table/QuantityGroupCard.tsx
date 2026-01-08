@@ -14,6 +14,7 @@
 import { useState, useCallback } from 'react';
 import type { QuantityGroupDetail, QuantityItemDetail } from '../../types/quantity-table.types';
 import QuantityItemRow from './QuantityItemRow';
+import EditableQuantityItemRow from './EditableQuantityItemRow';
 
 // ============================================================================
 // 型定義
@@ -29,6 +30,8 @@ export interface QuantityGroupCardProps {
   groupDisplayName: string;
   /** 初期展開状態 */
   initialExpanded?: boolean;
+  /** 編集モード（trueの場合EditableQuantityItemRowを使用） */
+  isEditable?: boolean;
   /** 項目追加コールバック */
   onAddItem?: (groupId: string) => void;
   /** グループ削除コールバック */
@@ -39,6 +42,8 @@ export interface QuantityGroupCardProps {
   onUpdateItem?: (itemId: string, updates: Partial<QuantityItemDetail>) => void;
   /** 項目削除コールバック */
   onDeleteItem?: (itemId: string) => void;
+  /** 項目コピーコールバック */
+  onCopyItem?: (itemId: string) => void;
 }
 
 // ============================================================================
@@ -274,11 +279,13 @@ export default function QuantityGroupCard({
   group,
   groupDisplayName,
   initialExpanded = true,
+  isEditable = false,
   onAddItem,
   onDeleteGroup,
   onSelectImage,
   onUpdateItem,
   onDeleteItem,
+  onCopyItem,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
 
@@ -399,14 +406,24 @@ export default function QuantityGroupCard({
         ) : (
           <div style={styles.itemList} role="table" aria-label="数量項目一覧">
             <div role="rowgroup">
-              {items.map((item) => (
-                <QuantityItemRow
-                  key={item.id}
-                  item={item}
-                  onUpdate={onUpdateItem}
-                  onDelete={onDeleteItem}
-                />
-              ))}
+              {items.map((item) =>
+                isEditable ? (
+                  <EditableQuantityItemRow
+                    key={item.id}
+                    item={item}
+                    onUpdate={onUpdateItem}
+                    onDelete={onDeleteItem}
+                    onCopy={onCopyItem}
+                  />
+                ) : (
+                  <QuantityItemRow
+                    key={item.id}
+                    item={item}
+                    onUpdate={onUpdateItem}
+                    onDelete={onDeleteItem}
+                  />
+                )
+              )}
             </div>
           </div>
         )}

@@ -604,10 +604,13 @@ test.describe('数量表CRUD操作', () => {
       await deleteButton.click();
 
       // 確認ダイアログが表示されれば確認ボタンをクリック
-      const confirmButton = page.getByRole('button', { name: /^削除$|確認|はい/ });
-      const hasConfirm = await confirmButton.isVisible({ timeout: 2000 });
-      if (hasConfirm) {
+      // 注意: ダイアログ内のボタンのみを探す（行の削除ボタンと混同しないため）
+      const confirmDialog = page.getByRole('dialog');
+      const hasDialog = await confirmDialog.isVisible({ timeout: 2000 });
+      if (hasDialog) {
+        const confirmButton = confirmDialog.getByRole('button', { name: /^削除$|確認|はい/ });
         await confirmButton.click();
+        await expect(confirmDialog).not.toBeVisible({ timeout: 3000 });
       }
 
       // 行が削除されたことを確認（必須）
@@ -635,8 +638,20 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 項目がない場合は先に追加（削除テストの後に項目がない可能性があるため）
+      let itemRow = page.getByTestId('quantity-item-row').first();
+      const hasItem = await itemRow.isVisible({ timeout: 2000 });
+      if (!hasItem) {
+        // 項目を追加
+        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
+        await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
+        await addItemButton.click();
+        await page.waitForLoadState('networkidle');
+        // 追加後に再度項目を取得
+        itemRow = page.getByTestId('quantity-item-row').first();
+      }
+
       // 項目行が表示されることを確認（必須）
-      const itemRow = page.getByTestId('quantity-item-row').first();
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const initialRowCount = await page.getByTestId('quantity-item-row').count();
@@ -668,8 +683,18 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 項目がない場合は先に追加
+      let itemRow = page.getByTestId('quantity-item-row').first();
+      const hasItem = await itemRow.isVisible({ timeout: 2000 });
+      if (!hasItem) {
+        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
+        await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
+        await addItemButton.click();
+        await page.waitForLoadState('networkidle');
+        itemRow = page.getByTestId('quantity-item-row').first();
+      }
+
       // 項目行が表示されることを確認（必須）
-      const itemRow = page.getByTestId('quantity-item-row').first();
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
       // アクションメニューボタンが表示されることを確認（必須）

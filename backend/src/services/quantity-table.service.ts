@@ -69,6 +69,65 @@ export interface QuantityGroupInfo {
 }
 
 /**
+ * 現場調査画像サマリー
+ */
+export interface SurveyImageSummary {
+  id: string;
+  thumbnailUrl: string;
+  originalUrl: string;
+  fileName: string;
+}
+
+/**
+ * 数量項目詳細
+ */
+export interface QuantityItemDetailInfo {
+  id: string;
+  quantityGroupId: string;
+  majorCategory: string;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  calculationMethod: string;
+  calculationParams: Record<string, number> | null;
+  adjustmentFactor: number;
+  roundingUnit: number;
+  quantity: number;
+  remarks: string | null;
+  displayOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * 数量グループ詳細情報
+ */
+export interface QuantityGroupDetailInfo {
+  id: string;
+  quantityTableId: string;
+  name: string | null;
+  surveyImageId: string | null;
+  surveyImage: SurveyImageSummary | null;
+  displayOrder: number;
+  itemCount: number;
+  items: QuantityItemDetailInfo[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * 数量表詳細情報（項目を含む）
+ */
+export interface QuantityTableDetailWithItems extends QuantityTableInfo {
+  project: { id: string; name: string };
+  groups: QuantityGroupDetailInfo[];
+}
+
+/**
  * フィルター条件
  */
 export interface QuantityTableFilter {
@@ -228,13 +287,13 @@ export class QuantityTableService {
   /**
    * 数量表詳細取得
    *
-   * 数量表の基本情報、プロジェクト情報、グループ一覧を取得する。
+   * 数量表の基本情報、プロジェクト情報、グループ一覧（項目を含む）を取得する。
    * 論理削除されたレコードは除外される。
    *
    * @param id - 数量表ID
    * @returns 数量表詳細情報、存在しない場合はnull
    */
-  async findById(id: string): Promise<QuantityTableDetail | null> {
+  async findById(id: string): Promise<QuantityTableDetailWithItems | null> {
     const quantityTable = await this.prisma.quantityTable.findUnique({
       where: {
         id,
@@ -252,6 +311,19 @@ export class QuantityTableService {
             displayOrder: 'asc',
           },
           include: {
+            surveyImage: {
+              select: {
+                id: true,
+                thumbnailPath: true,
+                originalPath: true,
+                fileName: true,
+              },
+            },
+            items: {
+              orderBy: {
+                displayOrder: 'asc',
+              },
+            },
             _count: {
               select: { items: true },
             },
@@ -267,7 +339,7 @@ export class QuantityTableService {
       return null;
     }
 
-    return this.toQuantityTableDetail(quantityTable);
+    return this.toQuantityTableDetailWithItems(quantityTable);
   }
 
   /**
@@ -637,9 +709,9 @@ export class QuantityTableService {
   }
 
   /**
-   * データベースの結果をQuantityTableDetailに変換
+   * データベースの結果をQuantityTableDetailWithItemsに変換
    */
-  private toQuantityTableDetail(quantityTable: {
+  private toQuantityTableDetailWithItems(quantityTable: {
     id: string;
     projectId: string;
     name: string;
@@ -648,19 +720,81 @@ export class QuantityTableService {
     project: { id: string; name: string };
     groups: Array<{
       id: string;
+      quantityTableId: string;
       name: string | null;
       surveyImageId: string | null;
       displayOrder: number;
+      createdAt: Date;
+      updatedAt: Date;
+      surveyImage: {
+        id: string;
+        thumbnailPath: string;
+        originalPath: string;
+        fileName: string;
+      } | null;
+      items: Array<{
+        id: string;
+        quantityGroupId: string;
+        majorCategory: string;
+        middleCategory: string | null;
+        minorCategory: string | null;
+        customCategory: string | null;
+        workType: string;
+        name: string;
+        specification: string | null;
+        unit: string;
+        calculationMethod: string;
+        calculationParams: Prisma.JsonValue | null;
+        adjustmentFactor: Prisma.Decimal;
+        roundingUnit: Prisma.Decimal;
+        quantity: Prisma.Decimal;
+        remarks: string | null;
+        displayOrder: number;
+        createdAt: Date;
+        updatedAt: Date;
+      }>;
       _count: { items: number };
     }>;
     _count: { groups: number };
-  }): QuantityTableDetail {
-    const groups: QuantityGroupInfo[] = quantityTable.groups.map((g) => ({
+  }): QuantityTableDetailWithItems {
+    const groups: QuantityGroupDetailInfo[] = quantityTable.groups.map((g) => ({
       id: g.id,
+      quantityTableId: g.quantityTableId,
       name: g.name,
       surveyImageId: g.surveyImageId,
+      surveyImage: g.surveyImage
+        ? {
+            id: g.surveyImage.id,
+            thumbnailUrl: `/api/storage/${g.surveyImage.thumbnailPath}`,
+            originalUrl: `/api/storage/${g.surveyImage.originalPath}`,
+            fileName: g.surveyImage.fileName,
+          }
+        : null,
       displayOrder: g.displayOrder,
       itemCount: g._count.items,
+      items: g.items.map((item) => ({
+        id: item.id,
+        quantityGroupId: item.quantityGroupId,
+        majorCategory: item.majorCategory,
+        middleCategory: item.middleCategory,
+        minorCategory: item.minorCategory,
+        customCategory: item.customCategory,
+        workType: item.workType,
+        name: item.name,
+        specification: item.specification,
+        unit: item.unit,
+        calculationMethod: item.calculationMethod,
+        calculationParams: item.calculationParams as Record<string, number> | null,
+        adjustmentFactor: Number(item.adjustmentFactor),
+        roundingUnit: Number(item.roundingUnit),
+        quantity: Number(item.quantity),
+        remarks: item.remarks,
+        displayOrder: item.displayOrder,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      })),
+      createdAt: g.createdAt,
+      updatedAt: g.updatedAt,
     }));
 
     const itemCount = groups.reduce((sum, g) => sum + g.itemCount, 0);

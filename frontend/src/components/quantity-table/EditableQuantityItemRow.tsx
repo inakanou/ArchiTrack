@@ -323,6 +323,7 @@ export default function EditableQuantityItemRow({
     <div
       style={styles.row}
       role="row"
+      data-testid="quantity-item-row"
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
           handleCloseMenu();

@@ -21,6 +21,8 @@ import type {
   QuantityTableFilter,
   QuantityTableSortableField,
   QuantityTableSortOrder,
+  CalculationParams,
+  CalculationMethod,
 } from '../types/quantity-table.types';
 
 // ============================================================================
@@ -345,4 +347,69 @@ export async function createQuantityItem(
   input: CreateQuantityItemInput
 ): Promise<QuantityItemDetail> {
   return apiClient.post<QuantityItemDetail>(`/api/quantity-groups/${groupId}/items`, input);
+}
+
+/**
+ * 数量項目更新用入力型
+ */
+export interface UpdateQuantityItemInput {
+  majorCategory?: string;
+  middleCategory?: string | null;
+  minorCategory?: string | null;
+  customCategory?: string | null;
+  workType?: string;
+  name?: string;
+  specification?: string | null;
+  unit?: string;
+  calculationMethod?: CalculationMethod;
+  calculationParams?: CalculationParams | null;
+  adjustmentFactor?: number;
+  roundingUnit?: number;
+  quantity?: number;
+  remarks?: string | null;
+  displayOrder?: number;
+}
+
+/**
+ * 数量項目を更新する
+ *
+ * Requirements: 5.2
+ *
+ * @param itemId - 項目ID（UUID）
+ * @param input - 更新データ
+ * @param expectedUpdatedAt - 楽観的排他制御用の期待される更新日時（ISO8601形式）
+ * @returns 更新された項目
+ */
+export async function updateQuantityItem(
+  itemId: string,
+  input: UpdateQuantityItemInput,
+  expectedUpdatedAt: string
+): Promise<QuantityItemDetail> {
+  return apiClient.put<QuantityItemDetail>(`/api/quantity-items/${itemId}`, {
+    ...input,
+    expectedUpdatedAt,
+  });
+}
+
+/**
+ * 数量項目を削除する
+ *
+ * Requirements: 5.3
+ *
+ * @param itemId - 項目ID（UUID）
+ */
+export async function deleteQuantityItem(itemId: string): Promise<void> {
+  return apiClient.delete<void>(`/api/quantity-items/${itemId}`);
+}
+
+/**
+ * 数量項目をコピーする
+ *
+ * Requirements: 5.4
+ *
+ * @param itemId - コピー元項目ID（UUID）
+ * @returns コピーされた項目
+ */
+export async function copyQuantityItem(itemId: string): Promise<QuantityItemDetail> {
+  return apiClient.post<QuantityItemDetail>(`/api/quantity-items/${itemId}/copy`, {});
 }
