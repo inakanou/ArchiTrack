@@ -261,7 +261,6 @@ test.describe('監査ログとコンプライアンス', () => {
 
   /**
    * 一般ユーザーは監査ログにアクセスできない
-   * 要件22.9: センシティブ操作時のアラート通知
    * @requirement user-authentication/REQ-22.9
    */
   test('一般ユーザーは監査ログにアクセスできない', async ({ request }) => {
@@ -285,5 +284,177 @@ test.describe('監査ログとコンプライアンス', () => {
     });
 
     expect(logsResponse.status()).toBe(403);
+  });
+
+  /**
+   * 要件22.7: 監査ログに変更前後の値（before/after）を含める
+   * ロール変更操作時に変更前と変更後の値が監査ログに記録される
+   * @requirement user-authentication/REQ-22.7
+   */
+  test('監査ログに変更前後の値（before/after）が記録される', async ({ request }) => {
+    const prisma = getPrismaClient();
+
+    // テストユーザーを作成
+    const testUser = await createTestUser('REGULAR_USER');
+
+    // 新しいロールを作成
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        name: 'Before After Test Role',
+        description: 'Role for testing before/after values',
+      },
+    });
+    const newRole = await createRoleResponse.json();
+
+    // ユーザーにロールを割り当て
+    await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        roleIds: [newRole.id],
+      },
+    });
+
+    // USER_ROLE_ASSIGNED アクションの監査ログを取得
+    // user-role.service.ts で action: 'USER_ROLE_ASSIGNED', targetType: 'user-role' で記録される
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'USER_ROLE_ASSIGNED',
+        targetType: 'user-role',
+        targetId: testUser.id,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    expect(auditLog).not.toBeNull();
+
+    // afterには新しく割り当てられたロール情報が含まれる
+    // user-role.service.ts: after: { userId, userEmail, roleId, roleName }
+    expect(auditLog?.after).not.toBeNull();
+    const afterValue = auditLog?.after as {
+      userId?: string;
+      userEmail?: string;
+      roleId?: string;
+      roleName?: string;
+    } | null;
+    expect(afterValue?.roleId).toBe(newRole.id);
+    expect(afterValue?.roleName).toBe('Before After Test Role');
+  });
+
+  /**
+   * 要件22.6: 監査ログ保存失敗時の操作中断
+   * 監査ログが正常に保存されないと操作は完了しない
+   * （E2Eテストでは正常系のみ検証 - DB障害シミュレーションは困難）
+   * @requirement user-authentication/REQ-22.6
+   */
+  test('監査ログは操作と同時に保存される', async ({ request }) => {
+    const prisma = getPrismaClient();
+
+    // 監査ログ作成前のカウント
+    const beforeCount = await prisma.auditLog.count();
+
+    // ロールを作成（この操作で監査ログが作成される）
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        name: 'Audit Log Transaction Test Role',
+        description: 'Role for transaction testing',
+      },
+    });
+
+    expect(createRoleResponse.ok()).toBeTruthy();
+    const createdRole = await createRoleResponse.json();
+
+    // 操作が成功した場合、監査ログも必ず作成されている
+    const afterCount = await prisma.auditLog.count();
+    expect(afterCount).toBeGreaterThan(beforeCount);
+
+    // 作成されたロールに対応する監査ログが存在することを確認
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'ROLE_CREATED',
+        targetId: createdRole.id,
+      },
+    });
+
+    expect(auditLog).not.toBeNull();
+    // 監査ログと操作が同一トランザクション内で処理されていることを確認
+    // （監査ログが存在 = 操作とログが共に成功）
+    expect(auditLog?.targetType).toBe('role');
+  });
+
+  /**
+   * 要件22.9: センシティブ操作時のアラート通知
+   * 管理者ロール変更などのセンシティブな操作が監査ログに記録される
+   * @requirement user-authentication/REQ-22.9
+   */
+  test('センシティブ操作は監査ログに記録される', async ({ request }) => {
+    const prisma = getPrismaClient();
+
+    // テストユーザーを作成
+    const testUser = await createTestUser('REGULAR_USER');
+
+    // 管理者ロールを取得
+    const adminRole = await prisma.role.findUnique({
+      where: { name: 'admin' },
+    });
+    expect(adminRole).not.toBeNull();
+
+    // 監査ログ作成前のカウント（USER_ROLE_ASSIGNEDアクション）
+    const beforeCount = await prisma.auditLog.count({
+      where: { action: 'USER_ROLE_ASSIGNED' },
+    });
+
+    // センシティブ操作: ユーザーに管理者ロールを割り当て
+    await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        roleIds: [adminRole!.id],
+      },
+    });
+
+    // センシティブ操作が監査ログに記録されていることを確認
+    const afterCount = await prisma.auditLog.count({
+      where: { action: 'USER_ROLE_ASSIGNED' },
+    });
+
+    expect(afterCount).toBeGreaterThan(beforeCount);
+
+    // 最新の監査ログを取得
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'USER_ROLE_ASSIGNED',
+        targetType: 'user-role',
+        targetId: testUser.id,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.actorId).toBeDefined();
+    expect(auditLog?.createdAt).toBeDefined();
+
+    // センシティブ操作の詳細情報がafter値に含まれていることを確認
+    const afterValue = auditLog?.after as {
+      userId?: string;
+      userEmail?: string;
+      roleId?: string;
+      roleName?: string;
+    } | null;
+    // 管理者ロールの割り当てが記録されている
+    expect(afterValue?.roleId).toBe(adminRole!.id);
+    expect(afterValue?.roleName).toBe('admin');
   });
 });

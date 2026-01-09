@@ -317,27 +317,29 @@ test.describe('現場調査アクセス制御', () => {
       const imageElements = page.locator('img[src*="storage"], img[src*="blob"], img[src*="?"]');
       const imageCount = await imageElements.count();
 
-      if (imageCount > 0) {
-        const firstImageSrc = await imageElements.first().getAttribute('src');
-
-        // 署名付きURLは通常クエリパラメータを含む（例：?token=xxx、?sig=xxx、?X-Amz-Signature=xxx）
-        const hasSignature =
-          firstImageSrc &&
-          (firstImageSrc.includes('token=') ||
-            firstImageSrc.includes('sig=') ||
-            firstImageSrc.includes('Signature=') ||
-            firstImageSrc.includes('X-Amz-') ||
-            firstImageSrc.includes('sv=') || // Azure Storage
-            firstImageSrc.includes('?')); // 何らかのクエリパラメータがある
-
-        // 署名付きURLが使用されていることを確認（または内部URLの場合はパス）
-        expect(
-          hasSignature || firstImageSrc?.startsWith('/') || firstImageSrc?.startsWith('blob:')
-        ).toBeTruthy();
+      // 画像が存在することを確認（第3原則: 前提条件でテストを除外してはならない）
+      if (imageCount === 0) {
+        throw new Error(
+          'REQ-12.4: 画像が見つかりません。署名付きURLをテストするには画像が必要です。前のテスト（画像アップロード）が正しく実行されていません。'
+        );
       }
 
-      // 画像がない場合は詳細ページが表示されていることを確認
-      await expect(page.locator('body')).toBeVisible();
+      const firstImageSrc = await imageElements.first().getAttribute('src');
+
+      // 署名付きURLは通常クエリパラメータを含む（例：?token=xxx、?sig=xxx、?X-Amz-Signature=xxx）
+      const hasSignature =
+        firstImageSrc &&
+        (firstImageSrc.includes('token=') ||
+          firstImageSrc.includes('sig=') ||
+          firstImageSrc.includes('Signature=') ||
+          firstImageSrc.includes('X-Amz-') ||
+          firstImageSrc.includes('sv=') || // Azure Storage
+          firstImageSrc.includes('?')); // 何らかのクエリパラメータがある
+
+      // 署名付きURLが使用されていることを確認（または内部URLの場合はパス）
+      expect(
+        hasSignature || firstImageSrc?.startsWith('/') || firstImageSrc?.startsWith('blob:')
+      ).toBeTruthy();
     });
 
     test('未認証状態で画像URLに直接アクセスすると拒否される (site-survey/REQ-12.4)', async ({

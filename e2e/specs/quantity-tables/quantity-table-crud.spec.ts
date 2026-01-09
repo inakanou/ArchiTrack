@@ -185,10 +185,9 @@ test.describe('数量表CRUD操作', () => {
         await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
       } else {
         // ページ遷移形式の場合、新規作成画面URLに遷移
-        await expect(page).toHaveURL(
-          new RegExp(`/projects/${testProjectId}/quantity-tables/new`),
-          { timeout: getTimeout(10000) }
-        );
+        await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/quantity-tables/new`), {
+          timeout: getTimeout(10000),
+        });
       }
     });
   });
@@ -351,7 +350,9 @@ test.describe('数量表CRUD操作', () => {
       await reloadedNameInput.clear();
       await reloadedNameInput.fill(originalValue);
       await reloadedNameInput.blur();
-      await page.getByText(/保存しました/).waitFor({ state: 'visible', timeout: getTimeout(10000) });
+      await page
+        .getByText(/保存しました/)
+        .waitFor({ state: 'visible', timeout: getTimeout(10000) });
     });
   });
 
@@ -575,21 +576,27 @@ test.describe('数量表CRUD操作', () => {
         if (thumbnailCount > 0) {
           await expect(thumbnails.first()).toBeVisible({ timeout: 3000 });
         }
+        // 写真エリアがあればUIとして機能している
       } else {
         // 写真エリアがない場合は、グループ内の写真アイコンまたはリンクを確認
         const groups = page.getByTestId('quantity-group');
         const groupCount = await groups.count();
 
-        if (groupCount > 0) {
-          // グループに写真関連の要素（ボタン、アイコン）が存在することを確認
-          const photoButton = groups.first().getByRole('button', { name: /写真|画像/ });
-          const photoIcon = groups.first().getByTestId('photo-indicator');
-          const hasPhotoButton = await photoButton.isVisible({ timeout: 2000 });
-          const hasPhotoIcon = await photoIcon.isVisible({ timeout: 2000 });
-
-          // 写真操作機能が存在すること（必須）
-          expect(hasPhotoButton || hasPhotoIcon || hasPhotoArea).toBeTruthy();
+        // グループが存在することを確認（第3原則: 前提条件でテストを除外してはならない）
+        if (groupCount === 0) {
+          throw new Error(
+            'REQ-3.3: グループが存在しません。写真機能をテストするにはグループが必要です。前のテスト（グループ追加）が正しく実行されていません。'
+          );
         }
+
+        // グループに写真関連の要素（ボタン、アイコン）が存在することを確認
+        const photoButton = groups.first().getByRole('button', { name: /写真|画像/ });
+        const photoIcon = groups.first().getByTestId('photo-indicator');
+        const hasPhotoButton = await photoButton.isVisible({ timeout: 2000 });
+        const hasPhotoIcon = await photoIcon.isVisible({ timeout: 2000 });
+
+        // 写真操作機能が存在すること（必須）
+        expect(hasPhotoButton || hasPhotoIcon || hasPhotoArea).toBeTruthy();
       }
     });
   });
@@ -807,10 +814,14 @@ test.describe('数量表CRUD操作', () => {
 
       // 写真選択ボタンが存在することを確認（写真関連UIの一部として）
       const photoSelectButton = firstGroup.getByRole('button', { name: /写真を選択/ });
-      const hasPhotoButton = await photoSelectButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasPhotoButton = await photoSelectButton
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
 
       if (!hasPhotoButton) {
-        throw new Error('REQ-4.4: 写真選択ボタンが見つかりません。写真関連UIが正しく実装されていません。');
+        throw new Error(
+          'REQ-4.4: 写真選択ボタンが見つかりません。写真関連UIが正しく実装されていません。'
+        );
       }
 
       // 写真選択ボタンが存在すれば、写真紐づけUIの基盤は実装されている
@@ -881,7 +892,9 @@ test.describe('数量表CRUD操作', () => {
       await expect(page.getByLabel(/計算方法/).first()).toBeVisible({ timeout: 3000 });
       await expect(page.getByLabel(/調整係数/).first()).toBeVisible({ timeout: 3000 });
       await expect(page.getByLabel(/丸め設定/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByRole('spinbutton', { name: /数量/ }).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByRole('spinbutton', { name: /数量/ }).first()).toBeVisible({
+        timeout: 3000,
+      });
       await expect(page.getByLabel(/備考/).first()).toBeVisible({ timeout: 3000 });
     });
 
@@ -1076,7 +1089,10 @@ test.describe('数量表CRUD操作', () => {
       const errorField = lastItemRow.locator('[aria-invalid="true"]');
 
       const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasErrorField = await errorField.first().isVisible({ timeout: 3000 }).catch(() => false);
+      const hasErrorField = await errorField
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
 
       // エラー表示が行われること（必須）
       expect(hasErrorMessage || hasErrorField).toBeTruthy();
@@ -1233,7 +1249,9 @@ test.describe('数量表CRUD操作', () => {
       let groupCount = await groups.count();
 
       while (groupCount < 2) {
-        const addGroupButton = page.getByRole('button', { name: /グループ追加|グループを追加/ }).first();
+        const addGroupButton = page
+          .getByRole('button', { name: /グループ追加|グループを追加/ })
+          .first();
         if (await addGroupButton.isVisible({ timeout: 3000 })) {
           await addGroupButton.click();
           await page.waitForLoadState('networkidle');
@@ -1258,7 +1276,9 @@ test.describe('数量表CRUD操作', () => {
             await moreButton.click();
 
             // グループ移動オプションを確認
-            const moveToGroupOption = page.getByRole('menuitem', { name: /グループに移動|別グループ/ });
+            const moveToGroupOption = page.getByRole('menuitem', {
+              name: /グループに移動|別グループ/,
+            });
             const hasMoveToGroup = await moveToGroupOption.isVisible({ timeout: 2000 });
 
             // 移動オプションが存在すること（必須）
@@ -1825,7 +1845,8 @@ test.describe('数量表CRUD操作', () => {
 
       // HTML5 number inputは数値以外を受け付けないため、値が変わらないことを確認
       // （ブラウザによる入力拒否が要件を満たす）
-      const wasRejected = fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
+      const wasRejected =
+        fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
 
       // 入力が拒否されていること（必須）
       // 注: HTML5 input[type=number]はブラウザレベルで非数値を拒否するため、
@@ -2156,7 +2177,8 @@ test.describe('数量表CRUD操作', () => {
       const fieldValue = await adjustmentField.inputValue();
 
       // HTML5 number inputは数値以外を受け付けないため、値が変わらないことを確認
-      const wasRejected = fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
+      const wasRejected =
+        fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
 
       // 入力が拒否されていること（必須）
       expect(wasRejected).toBeTruthy();
@@ -2347,9 +2369,16 @@ test.describe('数量表CRUD操作', () => {
       const errorMessage = page.getByText(/数値|数字|入力|error|エラー/i);
       const errorField = page.locator('[aria-invalid="true"], .error, .is-invalid');
 
-      const hasError = await errorMessage.first().isVisible({ timeout: 2000 }).catch(() => false);
-      const hasErrorField = await errorField.first().isVisible({ timeout: 2000 }).catch(() => false);
-      const wasRejected = fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
+      const hasError = await errorMessage
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      const hasErrorField = await errorField
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      const wasRejected =
+        fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
 
       // エラー表示または入力拒否が行われること（必須）
       expect(hasError || hasErrorField || wasRejected).toBeTruthy();
@@ -2400,7 +2429,7 @@ test.describe('数量表CRUD操作', () => {
       await page.keyboard.press('Tab');
 
       const lengthFields = page.getByLabel(/長さ|L/i);
-      if (await lengthFields.count() > 0) {
+      if ((await lengthFields.count()) > 0) {
         const lengthField = lengthFields.first();
         if (await lengthField.isVisible({ timeout: 2000 }).catch(() => false)) {
           await lengthField.fill('3');
@@ -2490,7 +2519,10 @@ test.describe('数量表CRUD操作', () => {
       // 保存中または保存済みインジケーターが表示されることを確認（必須）
       // または API の応答が成功したことを確認
       const savingIndicator = page.getByText(/保存中|保存しました|自動保存/);
-      const hasSaveIndicator = await savingIndicator.first().isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSaveIndicator = await savingIndicator
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
 
       // 保存インジケーターが表示されるか、または値が正しく保存されていることを確認
       if (hasSaveIndicator) {
@@ -2582,9 +2614,18 @@ test.describe('数量表CRUD操作', () => {
       const errorField = page.locator('[aria-invalid="true"], .error, .is-invalid');
       const warningAlert = page.getByRole('alert');
 
-      const hasError = await errorMessage.first().isVisible({ timeout: 3000 }).catch(() => false);
-      const hasErrorField = await errorField.first().isVisible({ timeout: 2000 }).catch(() => false);
-      const hasWarning = await warningAlert.first().isVisible({ timeout: 2000 }).catch(() => false);
+      const hasError = await errorMessage
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
+      const hasErrorField = await errorField
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      const hasWarning = await warningAlert
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
 
       // エラー表示が行われること（フィールドレベルのバリデーション）
       expect(hasError || hasErrorField || hasWarning).toBeTruthy();
@@ -2620,9 +2661,18 @@ test.describe('数量表CRUD操作', () => {
       );
       const warningAlert = page.getByRole('alert');
 
-      const hasWarning = await warningMessage.first().isVisible({ timeout: 3000 }).catch(() => false);
-      const hasHighlight = await highlightedField.first().isVisible({ timeout: 2000 }).catch(() => false);
-      const hasAlert = await warningAlert.first().isVisible({ timeout: 2000 }).catch(() => false);
+      const hasWarning = await warningMessage
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
+      const hasHighlight = await highlightedField
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      const hasAlert = await warningAlert
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
 
       // 警告またはハイライトが表示されること（必須）
       expect(hasWarning || hasHighlight || hasAlert).toBeTruthy();
@@ -2706,8 +2756,16 @@ test.describe('数量表CRUD操作', () => {
 
       // パンくず内のコンテンツを確認（少なくとも「プロジェクト」と「新規作成」がある）
       if (hasBreadcrumb) {
-        const hasProjectText = await breadcrumb.getByText(/プロジェクト/).first().isVisible({ timeout: 2000 }).catch(() => false);
-        const hasNewText = await breadcrumb.getByText(/新規作成/).first().isVisible({ timeout: 2000 }).catch(() => false);
+        const hasProjectText = await breadcrumb
+          .getByText(/プロジェクト/)
+          .first()
+          .isVisible({ timeout: 2000 })
+          .catch(() => false);
+        const hasNewText = await breadcrumb
+          .getByText(/新規作成/)
+          .first()
+          .isVisible({ timeout: 2000 })
+          .catch(() => false);
         expect(hasProjectText || hasNewText).toBeTruthy();
       }
     });

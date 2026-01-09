@@ -438,13 +438,44 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     return;
   }
 
-  // 既に存在する場合はスキップ（冪等性）
+  // 既に存在する場合は監査ログのみ確認・作成（冪等性）
   const existingAdmin = await prisma.user.findUnique({
     where: { email: adminEmail },
   });
 
   if (existingAdmin) {
-    logger.info(`Admin user already exists: ${adminEmail}. Skipping.`);
+    // REQ-3.5: 既存の管理者に対しても監査ログが存在しない場合は作成
+    const existingAuditLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'USER_CREATED',
+        targetType: 'User',
+        targetId: existingAdmin.id,
+      },
+    });
+
+    if (!existingAuditLog) {
+      await prisma.auditLog.create({
+        data: {
+          action: 'USER_CREATED',
+          actorId: existingAdmin.id,
+          targetType: 'User',
+          targetId: existingAdmin.id,
+          after: {
+            email: adminEmail,
+            displayName: existingAdmin.displayName,
+            role: 'admin',
+          },
+          metadata: {
+            source: 'seed',
+            isInitialAdmin: true,
+            migratedFromExisting: true,
+          },
+        },
+      });
+      logger.info(`Admin user audit log created for existing user: ${adminEmail}`);
+    }
+
+    logger.info(`Admin user already exists: ${adminEmail}. Skipping user creation.`);
     return;
   }
 
@@ -478,6 +509,25 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     data: {
       userId: adminUser.id,
       roleId: adminRole.id,
+    },
+  });
+
+  // REQ-3.5: 初期管理者作成を監査ログに記録
+  await prisma.auditLog.create({
+    data: {
+      action: 'USER_CREATED',
+      actorId: adminUser.id, // 初期管理者は自身を作成者として記録
+      targetType: 'User',
+      targetId: adminUser.id,
+      after: {
+        email: adminEmail,
+        displayName: adminDisplayName,
+        role: 'admin',
+      },
+      metadata: {
+        source: 'seed',
+        isInitialAdmin: true,
+      },
     },
   });
 

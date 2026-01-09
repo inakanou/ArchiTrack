@@ -235,33 +235,40 @@ test.describe('現場調査レスポンシブ対応', () => {
       // 画像があればビューアを開く（PhotoManagementPanel内）
       const imageElement = page.locator('[data-testid="photo-image-button"]').first();
       const imageVisible = await imageElement.isVisible({ timeout: 3000 });
-      if (imageVisible) {
-        await imageElement.click();
-        await page.waitForLoadState('networkidle');
 
-        // 編集モードボタン
-        const editModeButton = page.getByRole('button', { name: /編集モード/i });
-        const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
-        if (editModeVisible) {
-          await editModeButton.click();
+      // 画像が存在することを確認（第3原則: 前提条件でテストを除外してはならない）
+      if (!imageVisible) {
+        throw new Error(
+          'REQ-15.2: 画像が見つかりません。タッチ操作テストには画像が必要です。前のテスト（画像アップロード）が正しく実行されていません。'
+        );
+      }
 
-          // 注釈ツールバーが表示されることを確認
-          const toolbar = page.locator('[data-testid="annotation-toolbar"]');
-          const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
+      await imageElement.click();
+      await page.waitForLoadState('networkidle');
 
-          // ツールボタンがタッチ操作しやすいサイズかどうか確認
-          if (hasToolbar) {
-            const toolButtons = toolbar.locator('button');
-            const buttonCount = await toolButtons.count();
+      // 編集モードボタン
+      const editModeButton = page.getByRole('button', { name: /編集モード/i });
+      const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
 
-            if (buttonCount > 0) {
-              const firstButton = toolButtons.first();
-              const box = await firstButton.boundingBox();
+      if (editModeVisible) {
+        await editModeButton.click();
 
-              // タッチターゲットは最低44px以上が推奨
-              if (box) {
-                expect(box.width >= 32 || box.height >= 32).toBeTruthy();
-              }
+        // 注釈ツールバーが表示されることを確認
+        const toolbar = page.locator('[data-testid="annotation-toolbar"]');
+        const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
+
+        // ツールボタンがタッチ操作しやすいサイズかどうか確認
+        if (hasToolbar) {
+          const toolButtons = toolbar.locator('button');
+          const buttonCount = await toolButtons.count();
+
+          if (buttonCount > 0) {
+            const firstButton = toolButtons.first();
+            const box = await firstButton.boundingBox();
+
+            // タッチターゲットは最低44px以上が推奨
+            if (box) {
+              expect(box.width >= 32 || box.height >= 32).toBeTruthy();
             }
           }
         }

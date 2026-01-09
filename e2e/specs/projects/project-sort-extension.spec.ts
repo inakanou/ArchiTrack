@@ -41,6 +41,8 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    *
    * REQ-6.5: 営業担当者列のヘッダークリックでソートが動作する
    * REQ-6.1: テーブルヘッダークリックで昇順ソート
+   * @requirement project-management/REQ-6.5
+   * @requirement project-management/REQ-6.1
    */
   test('営業担当者列のヘッダークリックでソートが動作することを確認 (project-management/REQ-6.5)', async ({
     page,
@@ -78,6 +80,8 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    *
    * REQ-6.5: 工事担当者列のヘッダークリックでソートが動作する
    * REQ-6.1: テーブルヘッダークリックで昇順ソート
+   * @requirement project-management/REQ-6.5
+   * @requirement project-management/REQ-6.1
    */
   test('工事担当者列のヘッダークリックでソートが動作することを確認 (project-management/REQ-6.5)', async ({
     page,
@@ -116,6 +120,7 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    * 営業担当者列の昇順・降順切り替えテスト
    *
    * REQ-6.2: 同じヘッダー再度クリックで降順ソート切り替え
+   * @requirement project-management/REQ-6.2
    */
   test('営業担当者列で昇順・降順の切り替えが正しく動作することを確認 (project-management/REQ-6.2)', async ({
     page,
@@ -192,6 +197,7 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    * 工事担当者列の昇順・降順切り替えテスト
    *
    * REQ-6.2: 同じヘッダー再度クリックで降順ソート切り替え
+   * @requirement project-management/REQ-6.2
    */
   test('工事担当者列で昇順・降順の切り替えが正しく動作することを確認 (project-management/REQ-6.2)', async ({
     page,
@@ -264,6 +270,7 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    * 営業担当者列のソートアイコン表示テスト
    *
    * REQ-6.3: 現在のソート状態をヘッダーにアイコン（昇順: up、降順: down）で表示
+   * @requirement project-management/REQ-6.3
    */
   test('営業担当者列でソートアイコンが適切に表示されることを確認 (project-management/REQ-6.3)', async ({
     page,
@@ -322,6 +329,7 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    * 工事担当者列のソートアイコン表示テスト
    *
    * REQ-6.3: 現在のソート状態をヘッダーにアイコン（昇順: up、降順: down）で表示
+   * @requirement project-management/REQ-6.3
    */
   test('工事担当者列でソートアイコンが適切に表示されることを確認 (project-management/REQ-6.3)', async ({
     page,
@@ -382,6 +390,8 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    *
    * REQ-6.3: 現在のソート状態をヘッダーにアイコンで表示
    * REQ-6.4: ソート対象外のカラムヘッダーにはソートアイコンを表示しない
+   * @requirement project-management/REQ-6.3
+   * @requirement project-management/REQ-6.4
    */
   test('ソート列を切り替えた時にアイコンが正しく移動することを確認 (project-management/REQ-6.3, REQ-6.4)', async ({
     page,
@@ -445,6 +455,8 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    * aria-sort属性のテスト
    *
    * REQ-6.3: アクセシビリティ対応のソート状態表示
+   * @requirement project-management/REQ-6.3
+   * @requirement project-management/REQ-20.6
    */
   test('ソート時にaria-sort属性が適切に設定されることを確認 (project-management/REQ-6.3)', async ({
     page,
@@ -500,6 +512,7 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
    * URLからのソート状態復元テスト
    *
    * REQ-6.5: URLパラメータからソート状態を復元
+   * @requirement project-management/REQ-6.5
    */
   test('URLパラメータからソート状態が正しく復元されることを確認 (project-management/REQ-6.5)', async ({
     page,

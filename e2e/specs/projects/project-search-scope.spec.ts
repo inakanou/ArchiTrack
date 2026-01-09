@@ -182,6 +182,8 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
    * 営業担当者名での検索テスト
    *
    * REQ-4.1a, REQ-4.1b: 営業担当者を対象に部分一致検索を実行
+   * @requirement project-management/REQ-4.1a
+   * @requirement project-management/REQ-4.1b
    */
   test('営業担当者名での検索結果が正しいことを確認 (project-management/REQ-4.1a, REQ-4.1b)', async ({
     page,
@@ -244,6 +246,8 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
    * 工事担当者名での検索テスト
    *
    * REQ-4.1a, REQ-4.1b: 工事担当者を対象に部分一致検索を実行
+   * @requirement project-management/REQ-4.1a
+   * @requirement project-management/REQ-4.1b
    */
   test('工事担当者名での検索結果が正しいことを確認 (project-management/REQ-4.1a, REQ-4.1b)', async ({
     page,
@@ -310,6 +314,8 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
    * 複数フィールドにまたがる検索のテスト
    *
    * REQ-4.1a, REQ-4.1b: プロジェクト名、顧客名、営業担当者、工事担当者を対象に部分一致検索を実行
+   * @requirement project-management/REQ-4.1a
+   * @requirement project-management/REQ-4.1b
    */
   test('複数フィールドにまたがる検索が動作することを確認 (project-management/REQ-4.1a, REQ-4.1b)', async ({
     page,

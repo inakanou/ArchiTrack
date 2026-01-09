@@ -138,8 +138,12 @@ test.describe('プロジェクト一覧操作', () => {
    * 検索機能のテスト
    *
    * REQ-4.1: 検索フィールドにキーワードを入力してEnter/検索ボタンで検索実行
+   * @requirement project-management/REQ-4.1a
    */
   test.describe('検索機能', () => {
+    /**
+     * @requirement project-management/REQ-4.1a
+     */
     test('検索フィールドにキーワードを入力してEnterで検索が実行される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -159,6 +163,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-4.1b
+     */
     test('検索ボタンクリックで検索が実行される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -177,6 +184,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-4.2
+     */
     test('検索結果が0件の場合、適切なメッセージが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -203,6 +213,9 @@ test.describe('プロジェクト一覧操作', () => {
       });
     });
 
+    /**
+     * @requirement project-management/REQ-4.3
+     */
     test('検索キーワードをクリアすると全プロジェクト一覧が再表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -224,6 +237,7 @@ test.describe('プロジェクト一覧操作', () => {
    *
    * REQ-5.1: ステータスフィルタで値を選択すると選択されたステータスのプロジェクトのみ表示
    * REQ-5.6: フィルタの選択状態をURLパラメータに反映
+   * @requirement project-management/REQ-5.1
    */
   test.describe('フィルタ機能', () => {
     /**
@@ -249,6 +263,9 @@ test.describe('プロジェクト一覧操作', () => {
       expect(statusValue).toBe('PREPARING');
     });
 
+    /**
+     * @requirement project-management/REQ-5.1
+     */
     test('ステータスフィルタで値を選択するとフィルタリングされる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -267,6 +284,10 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/status=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-5.2
+     * @requirement project-management/REQ-5.3
+     */
     test('期間フィルタで日付範囲を指定するとフィルタリングされる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -289,6 +310,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/createdFrom=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-5.4
+     */
     test('複数のフィルタを適用するとAND条件で絞り込まれる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -312,6 +336,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/status=/);
     });
 
+    /**
+     * @requirement project-management/REQ-5.5
+     */
     test('フィルタをクリアをクリックするとすべてのフィルタが解除される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -333,8 +360,12 @@ test.describe('プロジェクト一覧操作', () => {
    * ソート機能のテスト
    *
    * REQ-6.1: テーブルヘッダーをクリックすると該当カラムで昇順ソート
+   * @requirement project-management/REQ-6.1
    */
   test.describe('ソート機能', () => {
+    /**
+     * @requirement project-management/REQ-6.1
+     */
     test('テーブルヘッダークリックでソートが実行される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -359,6 +390,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/sort=name/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-6.2
+     */
     test('ソートボタンを連続クリックするとソート順序が切り替わる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -393,8 +427,15 @@ test.describe('プロジェクト一覧操作', () => {
    * ページネーション機能のテスト
    *
    * REQ-3.3: ページ番号クリックで該当ページのプロジェクトを表示
+   * @requirement project-management/REQ-3.2
+   * @requirement project-management/REQ-3.3
+   * @requirement project-management/REQ-3.4
    */
   test.describe('ページネーション機能', () => {
+    /**
+     * @requirement project-management/REQ-3.2
+     * @requirement project-management/REQ-3.4
+     */
     test('プロジェクトが存在する場合、ページネーションコントロールが表示される', async ({
       page,
     }) => {
@@ -428,6 +469,9 @@ test.describe('プロジェクト一覧操作', () => {
       }
     });
 
+    /**
+     * @requirement project-management/REQ-3.5
+     */
     test('表示件数を変更するとURLパラメータに反映される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -462,8 +506,13 @@ test.describe('プロジェクト一覧操作', () => {
    * レスポンシブ表示のテスト
    *
    * REQ-15.3: 画面幅が768px未満の場合、テーブルをカード形式に切り替えて表示
+   * @requirement project-management/REQ-15.1
+   * @requirement project-management/REQ-15.3
    */
   test.describe('レスポンシブ表示', () => {
+    /**
+     * @requirement project-management/REQ-15.1
+     */
     test('デスクトップ表示: テーブル形式で表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -491,6 +540,9 @@ test.describe('プロジェクト一覧操作', () => {
       }
     });
 
+    /**
+     * @requirement project-management/REQ-15.3
+     */
     test('モバイル表示: カード形式で表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -517,6 +569,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(table).not.toBeVisible();
     });
 
+    /**
+     * @requirement project-management/REQ-15.3
+     */
     test('画面幅変更時にテーブル/カード表示が切り替わる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
