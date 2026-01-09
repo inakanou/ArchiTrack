@@ -41,6 +41,8 @@ export interface EditableQuantityItemRowProps {
   unsavedMiddleCategories?: string[];
   /** 未保存の小項目リスト */
   unsavedMinorCategories?: string[];
+  /** 未保存の任意分類リスト */
+  unsavedCustomCategories?: string[];
   /** 未保存の工種リスト */
   unsavedWorkTypes?: string[];
   /** 未保存の単位リスト */
@@ -60,7 +62,8 @@ const styles = {
   } as React.CSSProperties,
   row: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr 120px 120px 100px 80px 80px 80px 80px 120px 80px',
+    // 要件順: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・調整係数・丸め設定・数量・備考・アクション
+    gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 120px 100px 80px 100px 80px 80px 80px 100px 80px',
     gap: '8px',
     alignItems: 'start',
     padding: '12px 16px',
@@ -248,7 +251,8 @@ export default function EditableQuantityItemRow({
   showValidation = false,
   unsavedMajorCategories = [],
   unsavedMiddleCategories = [],
-  unsavedMinorCategories: _unsavedMinorCategories = [],
+  unsavedMinorCategories = [],
+  unsavedCustomCategories = [],
   unsavedWorkTypes = [],
   unsavedUnits = [],
   unsavedSpecifications = [],
@@ -365,14 +369,14 @@ export default function EditableQuantityItemRow({
     [item.majorCategory]
   );
 
-  // Note: 小項目用の追加パラメータは将来の拡張で使用予定
-  // const minorCategoryParams = useMemo(
-  //   () => ({
-  //     majorCategory: item.majorCategory,
-  //     middleCategory: item.middleCategory || '',
-  //   }),
-  //   [item.majorCategory, item.middleCategory]
-  // );
+  // 小項目用の追加パラメータ（大項目・中項目でフィルタ）
+  const minorCategoryParams = useMemo(
+    () => ({
+      majorCategory: item.majorCategory,
+      middleCategory: item.middleCategory || '',
+    }),
+    [item.majorCategory, item.middleCategory]
+  );
 
   return (
     <div
@@ -411,6 +415,33 @@ export default function EditableQuantityItemRow({
             additionalParams={middleCategoryParams}
             unsavedValues={unsavedMiddleCategories}
             placeholder="中項目を入力"
+          />
+        </div>
+
+        {/* 小項目 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-minorCategory`}
+            label="小項目"
+            value={item.minorCategory || ''}
+            onChange={createUpdateHandler('minorCategory')}
+            endpoint="/api/autocomplete/minor-categories"
+            additionalParams={minorCategoryParams}
+            unsavedValues={unsavedMinorCategories}
+            placeholder="小項目を入力"
+          />
+        </div>
+
+        {/* 任意分類 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-customCategory`}
+            label="任意分類"
+            value={item.customCategory || ''}
+            onChange={createUpdateHandler('customCategory')}
+            endpoint="/api/autocomplete/custom-categories"
+            unsavedValues={unsavedCustomCategories}
+            placeholder="任意分類を入力"
           />
         </div>
 
@@ -466,7 +497,22 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* 計算方法 */}
+        {/* 単位 - 要件順序: 規格の次 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-unit`}
+            label="単位"
+            value={item.unit}
+            onChange={createUpdateHandler('unit')}
+            endpoint="/api/autocomplete/units"
+            unsavedValues={unsavedUnits}
+            error={errors.unit}
+            required
+            placeholder="単位"
+          />
+        </div>
+
+        {/* 計算方法 - 要件順序: 単位の次 */}
         <div style={styles.fieldGroup} role="cell">
           <CalculationMethodSelect
             id={`${item.id}-calculationMethod`}
@@ -475,7 +521,43 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* 数量 */}
+        {/* 調整係数 - 要件順序: 計算方法の次 */}
+        <div style={styles.fieldGroup} role="cell">
+          <label
+            htmlFor={`${item.id}-adjustmentFactor`}
+            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+          >
+            調整係数
+          </label>
+          <input
+            id={`${item.id}-adjustmentFactor`}
+            type="number"
+            value={item.adjustmentFactor}
+            onChange={handleAdjustmentFactorChange}
+            style={{ ...styles.input, ...styles.quantityInput }}
+            step="0.01"
+          />
+        </div>
+
+        {/* 丸め設定 - 要件順序: 調整係数の次 */}
+        <div style={styles.fieldGroup} role="cell">
+          <label
+            htmlFor={`${item.id}-roundingUnit`}
+            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+          >
+            丸め設定
+          </label>
+          <input
+            id={`${item.id}-roundingUnit`}
+            type="number"
+            value={item.roundingUnit}
+            onChange={handleRoundingUnitChange}
+            style={{ ...styles.input, ...styles.quantityInput }}
+            step="0.01"
+          />
+        </div>
+
+        {/* 数量 - 要件順序: 丸め設定の次 */}
         <div style={styles.fieldGroup} role="cell">
           <label
             htmlFor={`${item.id}-quantity`}
@@ -494,58 +576,7 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* 単位 */}
-        <div style={styles.fieldGroup} role="cell">
-          <AutocompleteInput
-            id={`${item.id}-unit`}
-            label="単位"
-            value={item.unit}
-            onChange={createUpdateHandler('unit')}
-            endpoint="/api/autocomplete/units"
-            unsavedValues={unsavedUnits}
-            error={errors.unit}
-            required
-            placeholder="単位"
-          />
-        </div>
-
-        {/* 調整係数 */}
-        <div style={styles.fieldGroup} role="cell">
-          <label
-            htmlFor={`${item.id}-adjustmentFactor`}
-            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
-          >
-            調整係数
-          </label>
-          <input
-            id={`${item.id}-adjustmentFactor`}
-            type="number"
-            value={item.adjustmentFactor}
-            onChange={handleAdjustmentFactorChange}
-            style={{ ...styles.input, ...styles.quantityInput }}
-            step="0.01"
-          />
-        </div>
-
-        {/* 丸め設定 */}
-        <div style={styles.fieldGroup} role="cell">
-          <label
-            htmlFor={`${item.id}-roundingUnit`}
-            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
-          >
-            丸め設定
-          </label>
-          <input
-            id={`${item.id}-roundingUnit`}
-            type="number"
-            value={item.roundingUnit}
-            onChange={handleRoundingUnitChange}
-            style={{ ...styles.input, ...styles.quantityInput }}
-            step="0.01"
-          />
-        </div>
-
-        {/* 備考 */}
+        {/* 備考 - 要件順序: 数量の次 */}
         <div style={styles.fieldGroup} role="cell">
           <label
             htmlFor={`${item.id}-remarks`}

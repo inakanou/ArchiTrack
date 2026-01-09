@@ -545,6 +545,90 @@ test.describe('数量表CRUD操作', () => {
       });
     });
 
+    test('数量項目が要件通りのフィールド構成を持つ (quantity-table-generation/REQ-5.1)', async ({
+      page,
+    }) => {
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 数量項目行が表示されることを確認（必須）
+      const itemRow = page.getByTestId('quantity-item-row').first();
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 要件で指定されている全フィールドが存在することを確認
+      // 要件: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・調整係数・丸め設定・数量・備考
+      await expect(page.getByLabel(/大項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/中項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/小項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/任意分類/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/工種/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/名称/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/規格/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/単位/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/計算方法/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/調整係数/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/丸め設定/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/数量/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByLabel(/備考/).first()).toBeVisible({ timeout: 3000 });
+    });
+
+    test('数量項目フィールドが要件通りの順序で表示される (quantity-table-generation/REQ-5.1)', async ({
+      page,
+    }) => {
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 数量項目行が表示されることを確認（必須）
+      const itemRow = page.getByTestId('quantity-item-row').first();
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 要件順序: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・調整係数・丸め設定・数量・備考
+      // role="cell"の順序で確認
+      const cells = itemRow.getByRole('cell');
+      const cellCount = await cells.count();
+
+      // 14列（13フィールド + アクション）であることを確認
+      expect(cellCount).toBe(14);
+
+      // 各セル内のラベルテキストを順に確認
+      const expectedFields = [
+        '大項目',
+        '中項目',
+        '小項目',
+        '任意分類',
+        '工種',
+        '名称',
+        '規格',
+        '単位',
+        '計算方法',
+        '調整係数',
+        '丸め設定',
+        '数量',
+        '備考',
+      ];
+
+      for (let i = 0; i < expectedFields.length; i++) {
+        const cell = cells.nth(i);
+        const fieldName = expectedFields[i] as string;
+        // セル内にフィールドラベルが存在することを確認
+        await expect(cell.getByText(fieldName, { exact: false })).toBeVisible({ timeout: 2000 });
+      }
+    });
+
     test('数量項目のフィールドに値を入力できる (quantity-table-generation/REQ-5.2)', async ({
       page,
     }) => {
