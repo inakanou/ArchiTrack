@@ -16,6 +16,7 @@ import type { CalculationParams } from '../../types/quantity-edit.types';
 import AutocompleteInput from './AutocompleteInput';
 import CalculationMethodSelect from './CalculationMethodSelect';
 import CalculationFields from './CalculationFields';
+import { calculate } from '../../utils/calculation-engine';
 
 // ============================================================================
 // 型定義
@@ -290,48 +291,122 @@ export default function EditableQuantityItemRow({
 
   /**
    * 計算方法変更ハンドラ
+   * REQ-8.1: 計算方法を変更時、既存のパラメータで再計算を実行
    */
   const handleCalculationMethodChange = useCallback(
     (method: CalculationMethod) => {
-      onUpdate?.(item.id, { calculationMethod: method });
+      const updates: Partial<QuantityItemDetail> = { calculationMethod: method };
+
+      // 面積・体積またはピッチモードに変更し、既存パラメータがある場合は再計算
+      if (method !== 'STANDARD' && item.calculationParams) {
+        try {
+          const result = calculate({
+            method,
+            params: item.calculationParams,
+            adjustmentFactor: item.adjustmentFactor,
+            roundingUnit: item.roundingUnit,
+          });
+          updates.quantity = result.finalValue;
+        } catch {
+          // 計算エラーの場合は数量を更新しない
+        }
+      }
+
+      onUpdate?.(item.id, updates);
     },
-    [item.id, onUpdate]
+    [item.id, item.calculationParams, item.adjustmentFactor, item.roundingUnit, onUpdate]
   );
 
   /**
    * 計算パラメータ変更ハンドラ
+   * REQ-8.6: 面積・体積モードで計算用列に値が入力されると数量を自動計算
+   * REQ-8.9: ピッチモードで必須項目が入力されると本数を自動計算
    */
   const handleCalculationParamsChange = useCallback(
     (params: CalculationParams) => {
-      onUpdate?.(item.id, { calculationParams: params });
+      // 計算パラメータを更新
+      const updates: Partial<QuantityItemDetail> = { calculationParams: params };
+
+      // 面積・体積またはピッチモードの場合、計算を実行して数量を自動更新
+      if (item.calculationMethod !== 'STANDARD') {
+        try {
+          const result = calculate({
+            method: item.calculationMethod,
+            params,
+            adjustmentFactor: item.adjustmentFactor,
+            roundingUnit: item.roundingUnit,
+          });
+          updates.quantity = result.finalValue;
+        } catch {
+          // 計算エラーの場合は数量を更新しない（例：ピッチ長が0の場合）
+        }
+      }
+
+      onUpdate?.(item.id, updates);
     },
-    [item.id, onUpdate]
+    [item.id, item.calculationMethod, item.adjustmentFactor, item.roundingUnit, onUpdate]
   );
 
   /**
    * 調整係数変更ハンドラ
+   * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
    */
   const handleAdjustmentFactorChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = parseFloat(e.target.value);
       if (!isNaN(value)) {
-        onUpdate?.(item.id, { adjustmentFactor: value });
+        const updates: Partial<QuantityItemDetail> = { adjustmentFactor: value };
+
+        // 面積・体積またはピッチモードの場合、再計算を実行
+        if (item.calculationMethod !== 'STANDARD' && item.calculationParams) {
+          try {
+            const result = calculate({
+              method: item.calculationMethod,
+              params: item.calculationParams,
+              adjustmentFactor: value,
+              roundingUnit: item.roundingUnit,
+            });
+            updates.quantity = result.finalValue;
+          } catch {
+            // 計算エラーの場合は数量を更新しない
+          }
+        }
+
+        onUpdate?.(item.id, updates);
       }
     },
-    [item.id, onUpdate]
+    [item.id, item.calculationMethod, item.calculationParams, item.roundingUnit, onUpdate]
   );
 
   /**
    * 丸め設定変更ハンドラ
+   * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
    */
   const handleRoundingUnitChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = parseFloat(e.target.value);
-      if (!isNaN(value)) {
-        onUpdate?.(item.id, { roundingUnit: value });
+      if (!isNaN(value) && value > 0) {
+        const updates: Partial<QuantityItemDetail> = { roundingUnit: value };
+
+        // 面積・体積またはピッチモードの場合、再計算を実行
+        if (item.calculationMethod !== 'STANDARD' && item.calculationParams) {
+          try {
+            const result = calculate({
+              method: item.calculationMethod,
+              params: item.calculationParams,
+              adjustmentFactor: item.adjustmentFactor,
+              roundingUnit: value,
+            });
+            updates.quantity = result.finalValue;
+          } catch {
+            // 計算エラーの場合は数量を更新しない
+          }
+        }
+
+        onUpdate?.(item.id, updates);
       }
     },
-    [item.id, onUpdate]
+    [item.id, item.calculationMethod, item.calculationParams, item.adjustmentFactor, onUpdate]
   );
 
   /**

@@ -948,6 +948,56 @@ test.describe('数量表CRUD操作', () => {
       const hasPitchField = await pitchField.isVisible({ timeout: 3000 });
       expect(hasRangeField || hasPitchField).toBeTruthy();
     });
+
+    test('面積・体積モードで計算用列に値を入力すると数量が自動計算される (quantity-table-generation/REQ-8.6)', async ({
+      page,
+    }) => {
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 計算方法セレクトボックスが表示されることを確認（必須）
+      const calcMethodSelect = page.getByLabel(/計算方法/).first();
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 面積・体積モードに変更
+      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
+
+      // 幅フィールドが表示されることを確認（必須）
+      const widthField = page.getByLabel(/幅|W/i).first();
+      await expect(widthField).toBeVisible({ timeout: 3000 });
+
+      // 奥行きフィールドを取得
+      const depthField = page.getByLabel(/奥行き|D/i).first();
+      await expect(depthField).toBeVisible({ timeout: 3000 });
+
+      // 高さフィールドを取得
+      const heightField = page.getByLabel(/高さ|H/i).first();
+      await expect(heightField).toBeVisible({ timeout: 3000 });
+
+      // 数量フィールドを取得
+      const quantityField = page.getByLabel(/数量/).first();
+      await expect(quantityField).toBeVisible({ timeout: 3000 });
+
+      // 幅に10を入力
+      await widthField.fill('10');
+
+      // 奥行きに5を入力
+      await depthField.fill('5');
+
+      // 高さに2を入力
+      await heightField.fill('2');
+
+      // 数量が10 * 5 * 2 = 100になることを確認（必須）
+      // 調整係数1、丸め設定0.01なので、最終値は100
+      await expect(quantityField).toHaveValue('100', { timeout: 3000 });
+    });
   });
 
   /**
@@ -992,20 +1042,36 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
+      // 計算方法セレクトボックスを面積・体積モードに設定
+      const calcMethodSelect = page.getByLabel(/計算方法/).first();
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
+
+      // 計算用フィールドに値を入力
+      const widthField = page.getByLabel(/幅|W/i).first();
+      await expect(widthField).toBeVisible({ timeout: 3000 });
+      await widthField.fill('10');
+
       // 調整係数フィールドが表示されることを確認（必須）
       const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
       await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
 
-      await adjustmentField.fill('1.5');
-
-      // 数量フィールドが表示されることを確認（必須）
-      const quantityField = page.getByLabel(/数量|quantity/i).first();
+      // 数量フィールドを取得
+      const quantityField = page.getByLabel(/数量/).first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
+
+      // 調整係数を2.0に変更
+      await adjustmentField.fill('2');
+
+      // 数量が10 * 2 = 20になることを確認（必須）
+      // 幅10、調整係数2、丸め設定0.01なので、最終値は20
+      await expect(quantityField).toHaveValue('20', { timeout: 3000 });
     });
   });
 
   /**
    * @requirement quantity-table-generation/REQ-10.1
+   * @requirement quantity-table-generation/REQ-10.2
    *
    * REQ-10: 丸め設定
    */
@@ -1030,6 +1096,45 @@ test.describe('数量表CRUD操作', () => {
       // デフォルト値が0.01であることを確認（必須）
       const value = await roundingField.inputValue();
       expect(parseFloat(value)).toBeCloseTo(0.01);
+    });
+
+    test('丸め設定を入力すると数量が切り上げられる (quantity-table-generation/REQ-10.2)', async ({
+      page,
+    }) => {
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 計算方法セレクトボックスを面積・体積モードに設定
+      const calcMethodSelect = page.getByLabel(/計算方法/).first();
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
+
+      // 計算用フィールドに値を入力
+      const widthField = page.getByLabel(/幅|W/i).first();
+      await expect(widthField).toBeVisible({ timeout: 3000 });
+      await widthField.fill('7');
+
+      // 丸め設定フィールドが表示されることを確認（必須）
+      const roundingField = page.getByLabel(/丸め設定|rounding/i).first();
+      await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 数量フィールドを取得
+      const quantityField = page.getByLabel(/数量/).first();
+      await expect(quantityField).toBeVisible({ timeout: 3000 });
+
+      // 丸め設定を5に変更（5単位で切り上げ）
+      await roundingField.fill('5');
+
+      // 数量が7を5単位で切り上げて10になることを確認（必須）
+      // 幅7、調整係数1、丸め設定5なので、ceil(7/5)*5 = 10
+      await expect(quantityField).toHaveValue('10', { timeout: 3000 });
     });
   });
 
