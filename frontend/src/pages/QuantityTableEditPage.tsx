@@ -1025,20 +1025,22 @@ export default function QuantityTableEditPage() {
           >
             ← 数量表一覧に戻る
           </Link>
-          <input
-            type="text"
-            value={editingName}
-            onChange={handleNameChange}
-            onBlur={handleNameBlur}
-            onFocus={handleNameFocus}
-            onKeyDown={handleNameKeyDown}
-            style={{
-              ...styles.titleInput,
-              ...(isNameFocused ? styles.titleInputFocused : {}),
-            }}
-            aria-label="数量表名"
-            disabled={isSavingName}
-          />
+          <h1 style={{ margin: 0 }}>
+            <input
+              type="text"
+              value={editingName}
+              onChange={handleNameChange}
+              onBlur={handleNameBlur}
+              onFocus={handleNameFocus}
+              onKeyDown={handleNameKeyDown}
+              style={{
+                ...styles.titleInput,
+                ...(isNameFocused ? styles.titleInputFocused : {}),
+              }}
+              aria-label="数量表名"
+              disabled={isSavingName}
+            />
+          </h1>
           <p style={styles.subtitle}>
             {quantityTable.groupCount}グループ / {quantityTable.itemCount}項目
           </p>

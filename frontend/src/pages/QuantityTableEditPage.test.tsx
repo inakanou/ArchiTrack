@@ -180,7 +180,9 @@ describe('QuantityTableEditPage', () => {
         renderWithRouter();
 
         await waitFor(() => {
-          expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('テスト数量表');
+          expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+          // h1内のinputに数量表名が設定されている
+          expect(screen.getByDisplayValue('テスト数量表')).toBeInTheDocument();
         });
       });
 
@@ -686,7 +688,8 @@ describe('QuantityTableEditPage', () => {
 
       await waitFor(() => {
         expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(2);
-        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('テスト数量表');
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        expect(screen.getByDisplayValue('テスト数量表')).toBeInTheDocument();
       });
     });
   });

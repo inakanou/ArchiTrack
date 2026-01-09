@@ -129,16 +129,20 @@ describe('EditableQuantityItemRow', () => {
     });
 
     it('名称変更時にonUpdateが呼ばれる', async () => {
+      const user = userEvent.setup();
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
       const input = screen.getByRole('textbox', { name: /名称/ });
-      await userEvent.type(input, 'X');
+      await user.clear(input);
+      await user.type(input, '更新された名称');
+      // 名称フィールドはblur時にonUpdateが呼ばれる
+      await user.tab();
 
       expect(onUpdate).toHaveBeenLastCalledWith(
         'item-1',
         expect.objectContaining({
-          name: expect.any(String),
+          name: '更新された名称',
         })
       );
     });
