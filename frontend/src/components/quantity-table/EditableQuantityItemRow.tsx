@@ -10,7 +10,7 @@
  * - 7.4: 候補選択時の自動入力
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { QuantityItemDetail, CalculationMethod } from '../../types/quantity-table.types';
 import type { CalculationParams } from '../../types/quantity-edit.types';
 import AutocompleteInput from './AutocompleteInput';
@@ -34,6 +34,14 @@ export interface EditableQuantityItemRowProps {
   onDelete?: (itemId: string) => void;
   /** 項目コピーコールバック */
   onCopy?: (itemId: string) => void;
+  /** 項目を上に移動するコールバック（REQ-6.3） */
+  onMoveUp?: (itemId: string) => void;
+  /** 項目を下に移動するコールバック（REQ-6.3） */
+  onMoveDown?: (itemId: string) => void;
+  /** 上に移動可能かどうか */
+  canMoveUp?: boolean;
+  /** 下に移動可能かどうか */
+  canMoveDown?: boolean;
   /** バリデーション表示フラグ */
   showValidation?: boolean;
   /** 未保存の大項目リスト */
@@ -92,6 +100,15 @@ const styles = {
   } as React.CSSProperties,
   inputError: {
     borderColor: '#dc2626',
+  } as React.CSSProperties,
+  inputWarning: {
+    borderColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
+  } as React.CSSProperties,
+  warningMessage: {
+    color: '#b45309',
+    fontSize: '11px',
+    marginTop: '2px',
   } as React.CSSProperties,
   quantityInput: {
     textAlign: 'right' as const,
@@ -249,7 +266,11 @@ export default function EditableQuantityItemRow({
   onUpdate,
   onDelete,
   onCopy,
-  showValidation = false,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
+  showValidation = true,
   unsavedMajorCategories = [],
   unsavedMiddleCategories = [],
   unsavedMinorCategories = [],
@@ -259,12 +280,61 @@ export default function EditableQuantityItemRow({
   unsavedSpecifications = [],
 }: EditableQuantityItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  // 名称フィールドのローカル状態（REQ-5.3: blur時にバリデーション）
+  const [localName, setLocalName] = useState(item.name);
 
-  // バリデーションエラー
-  const errors = useMemo(
-    () => (showValidation ? getValidationErrors(item) : {}),
-    [item, showValidation]
+  // 親の値が変更された場合、ローカル状態を同期
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
+    setLocalName(item.name);
+  }, [item.name]);
+
+  // REQ-8.3: 負の値警告状態（propsから派生計算）
+  const negativeQuantityWarning = useMemo(
+    () => item.quantity < 0 && item.calculationMethod === 'STANDARD',
+    [item.quantity, item.calculationMethod]
   );
+
+  // REQ-9.3: 調整係数警告状態（propsから派生計算）
+  const adjustmentFactorWarning = useMemo(
+    () => item.adjustmentFactor <= 0,
+    [item.adjustmentFactor]
+  );
+
+  // REQ-10.3: 丸め設定警告状態（propsから派生計算）
+  const roundingUnitWarning = useMemo(() => item.roundingUnit <= 0, [item.roundingUnit]);
+
+  // バリデーションエラー（名称はローカル状態でチェック）
+  const errors = useMemo((): Record<string, string | undefined> => {
+    if (!showValidation) return {};
+    const baseErrors = getValidationErrors(item);
+    // 名称はローカル値でチェック（blur時にリアルタイムでエラー表示）
+    return {
+      ...baseErrors,
+      name: !localName?.trim() ? '名称は必須です' : undefined,
+    };
+  }, [item, showValidation, localName]);
+
+  /**
+   * 名称フィールド変更ハンドラ（ローカル状態のみ更新）
+   * REQ-5.3: blur時にバリデーションを実行
+   */
+  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalName(e.target.value);
+  }, []);
+
+  /**
+   * 名称フィールドblurハンドラ（バリデーション後にAPI呼び出し）
+   * REQ-5.3: 必須フィールド未入力時にエラーメッセージを表示
+   */
+  const handleNameBlur = useCallback(() => {
+    const trimmedValue = localName?.trim() || '';
+    // 有効な値の場合のみAPIを呼び出し
+    if (trimmedValue && trimmedValue !== item.name) {
+      onUpdate?.(item.id, { name: trimmedValue });
+    }
+    // 空の場合はローカル状態を維持し、エラーを表示（APIは呼ばない）
+  }, [localName, item.id, item.name, onUpdate]);
 
   /**
    * フィールド更新ハンドラを生成
@@ -278,6 +348,7 @@ export default function EditableQuantityItemRow({
 
   /**
    * 数量フィールド更新ハンドラ
+   * REQ-8.3: 負の値が入力された場合は警告を表示（警告はpropsから派生計算）
    */
   const handleQuantityChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -350,6 +421,7 @@ export default function EditableQuantityItemRow({
   /**
    * 調整係数変更ハンドラ
    * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
+   * REQ-9.3: 0以下の値が入力された場合は警告を表示（警告はpropsから派生計算）
    */
   const handleAdjustmentFactorChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -381,15 +453,16 @@ export default function EditableQuantityItemRow({
   /**
    * 丸め設定変更ハンドラ
    * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
+   * REQ-10.3: 0以下の値が入力された場合は警告を表示（警告はpropsから派生計算）
    */
   const handleRoundingUnitChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = parseFloat(e.target.value);
-      if (!isNaN(value) && value > 0) {
+      if (!isNaN(value)) {
         const updates: Partial<QuantityItemDetail> = { roundingUnit: value };
 
-        // 面積・体積またはピッチモードの場合、再計算を実行
-        if (item.calculationMethod !== 'STANDARD' && item.calculationParams) {
+        // 面積・体積またはピッチモードの場合、正の値でのみ再計算を実行
+        if (value > 0 && item.calculationMethod !== 'STANDARD' && item.calculationParams) {
           try {
             const result = calculate({
               method: item.calculationMethod,
@@ -423,6 +496,22 @@ export default function EditableQuantityItemRow({
     onCopy?.(item.id);
     setIsMenuOpen(false);
   }, [item.id, onCopy]);
+
+  /**
+   * 上に移動ハンドラ（REQ-6.3）
+   */
+  const handleMoveUp = useCallback(() => {
+    onMoveUp?.(item.id);
+    setIsMenuOpen(false);
+  }, [item.id, onMoveUp]);
+
+  /**
+   * 下に移動ハンドラ（REQ-6.3）
+   */
+  const handleMoveDown = useCallback(() => {
+    onMoveDown?.(item.id);
+    setIsMenuOpen(false);
+  }, [item.id, onMoveDown]);
 
   /**
    * メニュー開閉を切り替え
@@ -546,8 +635,9 @@ export default function EditableQuantityItemRow({
           <input
             id={`${item.id}-name`}
             type="text"
-            value={item.name}
-            onChange={(e) => onUpdate?.(item.id, { name: e.target.value })}
+            value={localName}
+            onChange={handleNameChange}
+            onBlur={handleNameBlur}
             style={{
               ...styles.input,
               ...(errors.name ? styles.inputError : {}),
@@ -609,9 +699,20 @@ export default function EditableQuantityItemRow({
             type="number"
             value={item.adjustmentFactor}
             onChange={handleAdjustmentFactorChange}
-            style={{ ...styles.input, ...styles.quantityInput }}
+            style={{
+              ...styles.input,
+              ...styles.quantityInput,
+              ...(adjustmentFactorWarning ? styles.inputWarning : {}),
+            }}
             step="0.01"
+            aria-invalid={adjustmentFactorWarning}
           />
+          {/* REQ-9.3: 0以下の値警告メッセージ */}
+          {adjustmentFactorWarning && (
+            <span style={styles.warningMessage} role="alert">
+              0以下の値は使用できません。正の値を入力してください。
+            </span>
+          )}
         </div>
 
         {/* 丸め設定 - 要件順序: 調整係数の次 */}
@@ -627,9 +728,20 @@ export default function EditableQuantityItemRow({
             type="number"
             value={item.roundingUnit}
             onChange={handleRoundingUnitChange}
-            style={{ ...styles.input, ...styles.quantityInput }}
+            style={{
+              ...styles.input,
+              ...styles.quantityInput,
+              ...(roundingUnitWarning ? styles.inputWarning : {}),
+            }}
             step="0.01"
+            aria-invalid={roundingUnitWarning}
           />
+          {/* REQ-10.3: 0以下の値警告メッセージ */}
+          {roundingUnitWarning && (
+            <span style={styles.warningMessage} role="alert">
+              0以下の値は使用できません。正の値を入力してください。
+            </span>
+          )}
         </div>
 
         {/* 数量 - 要件順序: 丸め設定の次 */}
@@ -645,10 +757,21 @@ export default function EditableQuantityItemRow({
             type="number"
             value={item.quantity}
             onChange={handleQuantityChange}
-            style={{ ...styles.input, ...styles.quantityInput }}
+            style={{
+              ...styles.input,
+              ...styles.quantityInput,
+              ...(negativeQuantityWarning ? styles.inputWarning : {}),
+            }}
             step="0.01"
             aria-required
+            aria-invalid={negativeQuantityWarning}
           />
+          {/* REQ-8.3: 負の値警告メッセージ */}
+          {negativeQuantityWarning && (
+            <span style={styles.warningMessage} role="alert">
+              負の値が入力されています。確認してください。
+            </span>
+          )}
         </div>
 
         {/* 備考 - 要件順序: 数量の次 */}
@@ -701,6 +824,28 @@ export default function EditableQuantityItemRow({
                   <CopyIcon />
                   コピー
                 </button>
+                {canMoveUp && (
+                  <button
+                    type="button"
+                    style={styles.menuItem}
+                    onClick={handleMoveUp}
+                    role="menuitem"
+                  >
+                    <span style={{ fontSize: '14px' }}>↑</span>
+                    上に移動
+                  </button>
+                )}
+                {canMoveDown && (
+                  <button
+                    type="button"
+                    style={styles.menuItem}
+                    onClick={handleMoveDown}
+                    role="menuitem"
+                  >
+                    <span style={{ fontSize: '14px' }}>↓</span>
+                    下に移動
+                  </button>
+                )}
               </div>
             )}
           </div>

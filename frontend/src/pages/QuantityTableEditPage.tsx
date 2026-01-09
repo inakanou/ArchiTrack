@@ -19,12 +19,15 @@ import {
   updateQuantityItem,
   deleteQuantityItem,
   copyQuantityItem,
+  updateQuantityTable,
 } from '../api/quantity-tables';
+import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import type {
   QuantityTableDetail,
   QuantityGroupDetail,
   QuantityItemDetail,
 } from '../types/quantity-table.types';
+import type { SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb } from '../components/common';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
 
@@ -67,6 +70,23 @@ const styles = {
     fontWeight: 'bold',
     color: '#1f2937',
     margin: 0,
+  } as React.CSSProperties,
+  titleInput: {
+    fontSize: '24px',
+    fontWeight: 'bold',
+    color: '#1f2937',
+    margin: 0,
+    padding: '4px 8px',
+    border: '1px solid transparent',
+    borderRadius: '4px',
+    backgroundColor: 'transparent',
+    width: '100%',
+    maxWidth: '500px',
+    transition: 'border-color 0.2s, background-color 0.2s',
+  } as React.CSSProperties,
+  titleInputFocused: {
+    border: '1px solid #2563eb',
+    backgroundColor: '#ffffff',
   } as React.CSSProperties,
   subtitle: {
     fontSize: '14px',
@@ -167,6 +187,32 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
   } as React.CSSProperties,
+  // 操作エラー表示スタイル（インライン）
+  operationErrorContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  operationErrorText: {
+    color: '#991b1b',
+    fontSize: '14px',
+    margin: 0,
+    flex: 1,
+  } as React.CSSProperties,
+  operationErrorDismiss: {
+    backgroundColor: 'transparent',
+    border: 'none',
+    color: '#991b1b',
+    cursor: 'pointer',
+    fontSize: '16px',
+    padding: '4px 8px',
+    marginLeft: '12px',
+  } as React.CSSProperties,
   // 確認ダイアログスタイル
   dialogOverlay: {
     position: 'fixed' as const,
@@ -220,6 +266,63 @@ const styles = {
     fontWeight: 500,
     borderRadius: '6px',
     cursor: 'pointer',
+  } as React.CSSProperties,
+  // 写真選択ダイアログスタイル（REQ-4.3）
+  photoDialogContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    padding: '24px',
+    maxWidth: '800px',
+    width: '90%',
+    maxHeight: '80vh',
+    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+  } as React.CSSProperties,
+  photoDialogHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  photoGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+    gap: '12px',
+    overflowY: 'auto' as const,
+    flex: 1,
+    padding: '4px',
+  } as React.CSSProperties,
+  photoItem: {
+    aspectRatio: '1',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    cursor: 'pointer',
+    border: '2px solid transparent',
+    transition: 'border-color 0.2s, transform 0.2s',
+  } as React.CSSProperties,
+  photoItemSelected: {
+    border: '2px solid #2563eb',
+    transform: 'scale(1.02)',
+  } as React.CSSProperties,
+  photoImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover' as const,
+  } as React.CSSProperties,
+  closeButton: {
+    backgroundColor: 'transparent',
+    border: 'none',
+    fontSize: '24px',
+    cursor: 'pointer',
+    color: '#6b7280',
+    padding: '4px',
+    lineHeight: 1,
+  } as React.CSSProperties,
+  emptyPhotos: {
+    textAlign: 'center' as const,
+    padding: '40px 20px',
+    color: '#6b7280',
   } as React.CSSProperties,
 };
 
@@ -306,12 +409,22 @@ export default function QuantityTableEditPage() {
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null); // 読み込みエラー（全画面表示）
+  const [operationError, setOperationError] = useState<string | null>(null); // 操作エラー（インライン表示）
   const [isAddingGroup, setIsAddingGroup] = useState(false);
   // 削除確認ダイアログ用state（REQ-4.5）
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  // 数量表名編集用state（REQ-2.5）
+  const [editingName, setEditingName] = useState<string>('');
+  const [isNameFocused, setIsNameFocused] = useState(false);
+  const [isSavingName, setIsSavingName] = useState(false);
+  // 写真選択ダイアログ用state（REQ-4.3）
+  const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
+  const [selectedGroupIdForPhoto, setSelectedGroupIdForPhoto] = useState<string | null>(null);
+  const [availablePhotos, setAvailablePhotos] = useState<SurveyImageInfo[]>([]);
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
 
   /**
    * 数量表詳細を取得
@@ -320,13 +433,14 @@ export default function QuantityTableEditPage() {
     if (!id) return;
 
     setIsLoading(true);
-    setError(null);
+    setLoadError(null);
+    setOperationError(null); // 操作エラーもクリア
 
     try {
       const result = await getQuantityTableDetail(id);
       setQuantityTable(result);
     } catch {
-      setError('読み込みに失敗しました');
+      setLoadError('読み込みに失敗しました');
     } finally {
       setIsLoading(false);
     }
@@ -337,6 +451,92 @@ export default function QuantityTableEditPage() {
     fetchQuantityTableDetail();
   }, [fetchQuantityTableDetail]);
 
+  // 数量表名を編集用stateに初期化（REQ-2.5）
+  useEffect(() => {
+    if (quantityTable) {
+      setEditingName(quantityTable.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 名前の変更のみに依存
+  }, [quantityTable?.name]);
+
+  /**
+   * 数量表名変更ハンドラ（REQ-2.5）
+   */
+  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditingName(e.target.value);
+  }, []);
+
+  /**
+   * 数量表名保存ハンドラ（REQ-2.5）
+   * フォーカスを外したときに自動保存
+   */
+  const handleNameBlur = useCallback(async () => {
+    setIsNameFocused(false);
+
+    if (!quantityTable || !id) return;
+
+    // 変更がない場合は何もしない
+    if (editingName === quantityTable.name) return;
+
+    // 空の場合は元に戻す
+    if (!editingName.trim()) {
+      setEditingName(quantityTable.name);
+      return;
+    }
+
+    setIsSavingName(true);
+    try {
+      const updatedTable = await updateQuantityTable(
+        id,
+        { name: editingName.trim() },
+        quantityTable.updatedAt
+      );
+
+      // ローカル状態を更新
+      setQuantityTable((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          name: updatedTable.name,
+          updatedAt: updatedTable.updatedAt,
+        };
+      });
+
+      setSaveMessage('保存しました');
+      setTimeout(() => setSaveMessage(null), 2000);
+    } catch {
+      setOperationError('数量表名の保存に失敗しました');
+      setEditingName(quantityTable.name); // エラー時は元に戻す
+    } finally {
+      setIsSavingName(false);
+    }
+  }, [id, quantityTable, editingName]);
+
+  /**
+   * 数量表名フォーカスハンドラ（REQ-2.5）
+   */
+  const handleNameFocus = useCallback(() => {
+    setIsNameFocused(true);
+  }, []);
+
+  /**
+   * 数量表名キーダウンハンドラ（REQ-2.5）
+   * Enterで確定、Escでキャンセル
+   */
+  const handleNameKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.currentTarget.blur(); // blurでhandleNameBlurが呼ばれる
+      } else if (e.key === 'Escape') {
+        if (quantityTable) {
+          setEditingName(quantityTable.name);
+        }
+        e.currentTarget.blur();
+      }
+    },
+    [quantityTable]
+  );
+
   /**
    * グループ追加ハンドラ
    *
@@ -346,7 +546,7 @@ export default function QuantityTableEditPage() {
     if (!id || !quantityTable || isAddingGroup) return;
 
     setIsAddingGroup(true);
-    setError(null);
+    setOperationError(null);
 
     try {
       // 現在のグループ数に基づいて表示順序を設定
@@ -368,7 +568,7 @@ export default function QuantityTableEditPage() {
         };
       });
     } catch {
-      setError('グループの追加に失敗しました');
+      setOperationError('グループの追加に失敗しました');
     } finally {
       setIsAddingGroup(false);
     }
@@ -406,7 +606,7 @@ export default function QuantityTableEditPage() {
     if (!groupToDelete || isDeletingGroup) return;
 
     setIsDeletingGroup(true);
-    setError(null);
+    setOperationError(null);
 
     try {
       await deleteQuantityGroup(groupToDelete);
@@ -424,11 +624,78 @@ export default function QuantityTableEditPage() {
 
       setGroupToDelete(null);
     } catch {
-      setError('グループの削除に失敗しました');
+      setOperationError('グループの削除に失敗しました');
     } finally {
       setIsDeletingGroup(false);
     }
   }, [groupToDelete, isDeletingGroup]);
+
+  /**
+   * 写真選択ダイアログを開く
+   *
+   * Requirements: 4.3
+   */
+  const handleSelectImage = useCallback(
+    async (groupId: string) => {
+      if (!quantityTable) return;
+
+      setSelectedGroupIdForPhoto(groupId);
+      setIsPhotoDialogOpen(true);
+      setIsLoadingPhotos(true);
+      setAvailablePhotos([]);
+
+      try {
+        // プロジェクト内の現場調査を取得
+        const surveysResult = await getSiteSurveys(quantityTable.projectId, { limit: 100 });
+        const allPhotos: SurveyImageInfo[] = [];
+
+        // 各現場調査の詳細を取得して画像を集める
+        for (const survey of surveysResult.data) {
+          try {
+            const surveyDetail = await getSiteSurvey(survey.id);
+            if (surveyDetail.images && surveyDetail.images.length > 0) {
+              allPhotos.push(...surveyDetail.images);
+            }
+          } catch {
+            // 個別の現場調査取得エラーは無視
+          }
+        }
+
+        setAvailablePhotos(allPhotos);
+      } catch {
+        setOperationError('写真の読み込みに失敗しました');
+      } finally {
+        setIsLoadingPhotos(false);
+      }
+    },
+    [quantityTable]
+  );
+
+  /**
+   * 写真選択ダイアログを閉じる
+   *
+   * Requirements: 4.3
+   */
+  const handleClosePhotoDialog = useCallback(() => {
+    setIsPhotoDialogOpen(false);
+    setSelectedGroupIdForPhoto(null);
+    setAvailablePhotos([]);
+  }, []);
+
+  /**
+   * 写真を選択して適用
+   *
+   * Requirements: 4.3
+   */
+  const handlePhotoSelect = useCallback(
+    (imageId: string) => {
+      // TODO: グループに画像を紐付けるAPIを呼び出す
+      // 現時点ではダイアログを閉じるだけ
+      console.log('Selected image:', imageId, 'for group:', selectedGroupIdForPhoto);
+      handleClosePhotoDialog();
+    },
+    [selectedGroupIdForPhoto, handleClosePhotoDialog]
+  );
 
   /**
    * 項目追加ハンドラ
@@ -437,7 +704,7 @@ export default function QuantityTableEditPage() {
    */
   const handleAddItem = useCallback(
     async (groupId: string) => {
-      setError(null);
+      setOperationError(null);
 
       try {
         // 対象グループの現在の項目数を取得
@@ -477,7 +744,7 @@ export default function QuantityTableEditPage() {
           };
         });
       } catch {
-        setError('項目の追加に失敗しました');
+        setOperationError('項目の追加に失敗しました');
       }
     },
     [quantityTable]
@@ -490,7 +757,7 @@ export default function QuantityTableEditPage() {
    */
   const handleUpdateItem = useCallback(
     async (itemId: string, updates: Partial<QuantityItemDetail>) => {
-      setError(null);
+      setOperationError(null);
 
       try {
         // 対象項目を見つけてupdatedAtを取得
@@ -504,7 +771,7 @@ export default function QuantityTableEditPage() {
         }
 
         if (!expectedUpdatedAt) {
-          setError('項目が見つかりません');
+          setOperationError('項目が見つかりません');
           return;
         }
 
@@ -527,7 +794,7 @@ export default function QuantityTableEditPage() {
         setSaveMessage('保存しました');
         setTimeout(() => setSaveMessage(null), 2000);
       } catch {
-        setError('項目の更新に失敗しました');
+        setOperationError('項目の更新に失敗しました');
         setSaveMessage(null);
       }
     },
@@ -540,7 +807,7 @@ export default function QuantityTableEditPage() {
    * Requirements: 5.3
    */
   const handleDeleteItem = useCallback(async (itemId: string) => {
-    setError(null);
+    setOperationError(null);
 
     try {
       await deleteQuantityItem(itemId);
@@ -559,7 +826,7 @@ export default function QuantityTableEditPage() {
         };
       });
     } catch {
-      setError('項目の削除に失敗しました');
+      setOperationError('項目の削除に失敗しました');
     }
   }, []);
 
@@ -569,7 +836,7 @@ export default function QuantityTableEditPage() {
    * Requirements: 5.4
    */
   const handleCopyItem = useCallback(async (itemId: string) => {
-    setError(null);
+    setOperationError(null);
 
     try {
       const copiedItem = await copyQuantityItem(itemId);
@@ -594,23 +861,97 @@ export default function QuantityTableEditPage() {
         };
       });
     } catch {
-      setError('項目のコピーに失敗しました');
+      setOperationError('項目のコピーに失敗しました');
     }
+  }, []);
+
+  /**
+   * 項目移動ハンドラ
+   *
+   * Requirements: REQ-6.3 同一数量グループ内で項目の位置を移動できる
+   */
+  const handleMoveItem = useCallback((itemId: string, direction: 'up' | 'down') => {
+    setQuantityTable((prev) => {
+      if (!prev) return prev;
+
+      const updatedGroups = (prev.groups ?? []).map((group) => {
+        const items = group.items ?? [];
+        const itemIndex = items.findIndex((item) => item.id === itemId);
+
+        // この項目がこのグループにない場合は変更なし
+        if (itemIndex === -1) return group;
+
+        // 移動先インデックスを計算
+        const targetIndex = direction === 'up' ? itemIndex - 1 : itemIndex + 1;
+
+        // 範囲外の場合は変更なし
+        if (targetIndex < 0 || targetIndex >= items.length) return group;
+
+        // 項目を入れ替え
+        const newItems = [...items];
+        const itemToMove = newItems[itemIndex];
+        const targetItem = newItems[targetIndex];
+        if (!itemToMove || !targetItem) return group;
+        newItems[itemIndex] = targetItem;
+        newItems[targetIndex] = itemToMove;
+
+        // displayOrderを更新
+        const updatedItems = newItems.map((item, idx) => ({
+          ...item,
+          displayOrder: idx,
+        }));
+
+        return {
+          ...group,
+          items: updatedItems,
+        };
+      });
+
+      return {
+        ...prev,
+        groups: updatedGroups,
+      };
+    });
   }, []);
 
   /**
    * 保存ハンドラ
    *
-   * Requirements: 11.1
+   * Requirements: 11.1, 11.2
    */
   const handleSave = useCallback(() => {
+    // REQ-11.2: 整合性チェック
+    const validationErrors: string[] = [];
+    const groups = quantityTable?.groups ?? [];
+
+    for (const group of groups) {
+      for (const item of group.items ?? []) {
+        // 項目名が空の場合はエラー
+        if (!item.name || item.name.trim() === '') {
+          validationErrors.push(`グループ「${group.name}」に項目名が空の項目があります`);
+        }
+        // 丸め設定が0以下の場合はエラー
+        if (item.roundingUnit <= 0) {
+          validationErrors.push(
+            `グループ「${group.name}」の項目「${item.name || '(名称未設定)'}」の丸め設定が無効です`
+          );
+        }
+      }
+    }
+
+    // エラーがある場合は保存を中断
+    if (validationErrors.length > 0) {
+      setOperationError('保存できません: ' + validationErrors[0]);
+      return;
+    }
+
     // 現在のデータはすでに各操作時に個別に保存されているため、
     // ここでは保存完了メッセージを表示
     setSaveMessage('保存しました');
     setTimeout(() => {
       setSaveMessage(null);
     }, 3000);
-  }, []);
+  }, [quantityTable]);
 
   // ローディング表示
   if (isLoading) {
@@ -632,12 +973,12 @@ export default function QuantityTableEditPage() {
     );
   }
 
-  // エラー表示
-  if (error) {
+  // 読み込みエラー表示（全画面）
+  if (loadError) {
     return (
       <main role="main" style={styles.container}>
         <div role="alert" style={styles.errorContainer}>
-          <p style={styles.errorText}>{error}</p>
+          <p style={styles.errorText}>{loadError}</p>
           <button type="button" onClick={fetchQuantityTableDetail} style={styles.retryButton}>
             再試行
           </button>
@@ -684,7 +1025,20 @@ export default function QuantityTableEditPage() {
           >
             ← 数量表一覧に戻る
           </Link>
-          <h1 style={styles.title}>{quantityTable.name}</h1>
+          <input
+            type="text"
+            value={editingName}
+            onChange={handleNameChange}
+            onBlur={handleNameBlur}
+            onFocus={handleNameFocus}
+            onKeyDown={handleNameKeyDown}
+            style={{
+              ...styles.titleInput,
+              ...(isNameFocused ? styles.titleInputFocused : {}),
+            }}
+            aria-label="数量表名"
+            disabled={isSavingName}
+          />
           <p style={styles.subtitle}>
             {quantityTable.groupCount}グループ / {quantityTable.itemCount}項目
           </p>
@@ -715,6 +1069,21 @@ export default function QuantityTableEditPage() {
         </div>
       </div>
 
+      {/* 操作エラー表示（インライン） */}
+      {operationError && (
+        <div role="alert" style={styles.operationErrorContainer}>
+          <p style={styles.operationErrorText}>{operationError}</p>
+          <button
+            type="button"
+            style={styles.operationErrorDismiss}
+            onClick={() => setOperationError(null)}
+            aria-label="エラーを閉じる"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* グループ一覧 */}
       {groups.length === 0 ? (
         <EmptyState onAddGroup={handleAddGroup} />
@@ -728,9 +1097,11 @@ export default function QuantityTableEditPage() {
                 isEditable
                 onAddItem={handleAddItem}
                 onDeleteGroup={handleDeleteGroup}
+                onSelectImage={handleSelectImage}
                 onUpdateItem={handleUpdateItem}
                 onDeleteItem={handleDeleteItem}
                 onCopyItem={handleCopyItem}
+                onMoveItem={handleMoveItem}
               />
             </div>
           ))}
@@ -775,6 +1146,70 @@ export default function QuantityTableEditPage() {
                 {isDeletingGroup ? '削除中...' : '削除する'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 写真選択ダイアログ (REQ-4.3) */}
+      {isPhotoDialogOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="photo-dialog-title"
+          style={styles.dialogOverlay}
+          onClick={handleClosePhotoDialog}
+        >
+          <div style={styles.photoDialogContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.photoDialogHeader}>
+              <h2 id="photo-dialog-title" style={styles.dialogTitle}>
+                写真を選択
+              </h2>
+              <button
+                type="button"
+                style={styles.closeButton}
+                onClick={handleClosePhotoDialog}
+                aria-label="ダイアログを閉じる"
+              >
+                ×
+              </button>
+            </div>
+            {isLoadingPhotos ? (
+              <div style={styles.emptyPhotos}>
+                <p>写真を読み込み中...</p>
+              </div>
+            ) : availablePhotos.length === 0 ? (
+              <div style={styles.emptyPhotos}>
+                <p>利用可能な写真がありません</p>
+                <p style={{ fontSize: '12px', marginTop: '8px' }}>
+                  現場調査で写真をアップロードしてください
+                </p>
+              </div>
+            ) : (
+              <div style={styles.photoGrid}>
+                {availablePhotos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    style={styles.photoItem}
+                    onClick={() => handlePhotoSelect(photo.id)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${photo.fileName}を選択`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handlePhotoSelect(photo.id);
+                      }
+                    }}
+                  >
+                    <img
+                      src={photo.thumbnailUrl || photo.originalUrl || ''}
+                      alt={photo.fileName}
+                      style={styles.photoImage}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

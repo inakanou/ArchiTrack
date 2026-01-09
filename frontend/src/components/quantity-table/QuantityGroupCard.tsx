@@ -44,6 +44,8 @@ export interface QuantityGroupCardProps {
   onDeleteItem?: (itemId: string) => void;
   /** 項目コピーコールバック */
   onCopyItem?: (itemId: string) => void;
+  /** 項目移動コールバック（REQ-6.3） */
+  onMoveItem?: (itemId: string, direction: 'up' | 'down') => void;
 }
 
 // ============================================================================
@@ -286,6 +288,7 @@ export default function QuantityGroupCard({
   onUpdateItem,
   onDeleteItem,
   onCopyItem,
+  onMoveItem,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
 
@@ -406,7 +409,7 @@ export default function QuantityGroupCard({
         ) : (
           <div style={styles.itemList} role="table" aria-label="数量項目一覧">
             <div role="rowgroup">
-              {items.map((item) =>
+              {items.map((item, index) =>
                 isEditable ? (
                   <EditableQuantityItemRow
                     key={item.id}
@@ -414,6 +417,10 @@ export default function QuantityGroupCard({
                     onUpdate={onUpdateItem}
                     onDelete={onDeleteItem}
                     onCopy={onCopyItem}
+                    onMoveUp={(itemId) => onMoveItem?.(itemId, 'up')}
+                    onMoveDown={(itemId) => onMoveItem?.(itemId, 'down')}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < items.length - 1}
                   />
                 ) : (
                   <QuantityItemRow
