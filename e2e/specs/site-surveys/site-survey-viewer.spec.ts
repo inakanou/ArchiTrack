@@ -380,42 +380,38 @@ test.describe('現場調査画像ビューア', () => {
       const imageGrid = page.locator('[aria-label="写真管理パネル"]');
       await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 画像グリッド内のボタン要素を確認（複数画像がある場合に並び替え可能）
-      // まず aria-label付きのボタンを探す
-      let imageItems = page.locator(
-        '[aria-label="写真管理パネル"] [data-testid="photo-image-button"]'
-      );
-      let imageCount = await imageItems.count();
+      // ドラッグハンドルが存在するかを確認
+      // ドラッグハンドルはdata-testid="photo-drag-handle"を持ち、draggable属性がある
+      const dragHandles = page.locator('[data-testid="photo-drag-handle"]');
+      const dragHandleCount = await dragHandles.count();
 
-      // aria-labelがない場合は一般的なbutton内のimgを探す
-      if (imageCount === 0) {
-        imageItems = page.locator('[aria-label="写真管理パネル"] button:has(img)');
-        imageCount = await imageItems.count();
+      if (dragHandleCount === 0) {
+        // ドラッグハンドルがない場合、画像がないか確認
+        const imageButtons = imageGrid.locator('button:has(img)');
+        const imageCount = await imageButtons.count();
+
+        if (imageCount === 0) {
+          // 画像がない場合、グリッド自体が存在すればOK
+          expect(await imageGrid.isVisible()).toBeTruthy();
+          return;
+        }
+
+        // 画像はあるがドラッグハンドルがない場合は失敗
+        throw new Error(
+          'ドラッグハンドルが見つかりません。ドラッグアンドドロップUIが実装されていない可能性があります。'
+        );
       }
 
-      // それでもない場合は全てのbuttonを探す
-      if (imageCount === 0) {
-        imageItems = page.locator('[aria-label="写真管理パネル"] button');
-        imageCount = await imageItems.count();
-      }
+      // ドラッグハンドルのdraggable属性を確認
+      const firstDragHandle = dragHandles.first();
+      await expect(firstDragHandle).toBeVisible();
 
-      if (imageCount === 0) {
-        // 画像グリッドは表示されているが画像がない場合
-        // 画像グリッド自体が存在すれば、ドラッグ機能の準備はできているとみなす
-        expect(await imageGrid.isVisible()).toBeTruthy();
-        return;
-      }
-
-      // 画像グリッドのbutton要素がdraggable属性を持っていることを確認
-      // （readOnlyモードではdraggable=falseだが、要素自体は存在する）
-      const firstImageButton = imageItems.first();
-      await expect(firstImageButton).toBeVisible();
-
-      // draggable属性の存在を確認（値はreadOnlyによってtrue/falseが変わる）
-      const hasDraggableAttr = await firstImageButton.evaluate((el) =>
-        el.hasAttribute('draggable')
-      );
+      const hasDraggableAttr = await firstDragHandle.evaluate((el) => el.hasAttribute('draggable'));
       expect(hasDraggableAttr).toBeTruthy();
+
+      // アクセシビリティ: ドラッグハンドルが適切なaria-labelを持っているか確認
+      const ariaLabel = await firstDragHandle.getAttribute('aria-label');
+      expect(ariaLabel).toBe('ドラッグして順序を変更');
     });
   });
 

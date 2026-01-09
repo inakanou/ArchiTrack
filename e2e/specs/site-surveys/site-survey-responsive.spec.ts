@@ -17,6 +17,12 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESモジュールでの__dirname代替
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('現場調査レスポンシブ対応', () => {
   test.describe.configure({ mode: 'serial' });
@@ -101,6 +107,42 @@ test.describe('現場調査レスポンシブ対応', () => {
       const surveyMatch = surveyUrl.match(/\/site-surveys\/([0-9a-f-]+)$/);
       createdSurveyId = surveyMatch?.[1] ?? null;
       expect(createdSurveyId).toBeTruthy();
+
+      // 画像をアップロード（REQ-15.2, REQ-15.3のテストで必要）
+      await page.waitForLoadState('networkidle');
+
+      // ファイル入力を取得
+      let fileInput = page.locator('input[type="file"]').first();
+      const inputCount = await fileInput.count();
+      if (inputCount === 0) {
+        const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
+        if (await uploadButton.isVisible()) {
+          await uploadButton.click();
+        }
+        fileInput = page.locator('input[type="file"]').first();
+      }
+
+      await expect(fileInput).toBeAttached({ timeout: getTimeout(10000) });
+
+      // テスト用画像ファイルをアップロード
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+
+      const uploadPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/') &&
+          response.url().includes('/images') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+
+      await fileInput.setInputFiles(testImagePath);
+
+      const uploadResponse = await uploadPromise;
+      expect(uploadResponse.ok()).toBe(true);
+
+      // ページをリロードして画像が保存されていることを確認
+      await page.reload();
+      await page.waitForLoadState('networkidle');
     });
   });
 

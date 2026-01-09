@@ -1290,6 +1290,116 @@ test.describe('現場調査注釈ツール', () => {
       // エクスポート関連のUI操作が完了したことを確認
       await expect(page.locator('body')).toBeVisible();
     });
+
+    /**
+     * @requirement site-survey/REQ-9.5
+     *
+     * 注釈データの保存に失敗した場合にエラーメッセージを表示してリトライを促す
+     */
+    test('注釈データの保存に失敗するとエラーメッセージが表示される (site-survey/REQ-9.5)', async ({
+      page,
+      context,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const success = await navigateToAnnotationEditor(page);
+      if (!success) {
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
+      }
+
+      // 図形を描画
+      const rectTool = page.getByRole('button', { name: /四角形/i });
+      await expect(rectTool).toBeVisible({ timeout: 5000 });
+      await rectTool.click();
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+      const center = await getCanvasCenter(page);
+      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+
+      // ネットワークをオフラインにして保存失敗をシミュレート
+      await context.setOffline(true);
+
+      // 保存ボタンをクリック
+      const saveButton = page.getByRole('button', { name: /保存/i });
+      await expect(saveButton).toBeVisible({ timeout: 5000 });
+      await saveButton.click();
+
+      // エラーメッセージが表示されるまで待機
+      const errorMessage = page.locator(
+        '[role="alert"], .error-message, [data-testid="error-toast"]'
+      );
+      const errorText = page.getByText(
+        /保存に失敗|エラー|失敗しました|ネットワーク|接続できません|save.*failed/i
+      );
+
+      // 少し待ってからエラー表示を確認
+      await page.waitForTimeout(3000);
+
+      const hasErrorMessage = await errorMessage.isVisible();
+      const hasErrorText = await errorText.isVisible();
+
+      // ネットワークをオンラインに戻す
+      await context.setOffline(false);
+
+      // エラーメッセージが表示されたことを確認
+      expect(hasErrorMessage || hasErrorText).toBeTruthy();
+    });
+
+    test('保存失敗後にリトライボタンまたは保存ボタンが有効になる (site-survey/REQ-9.5)', async ({
+      page,
+      context,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const success = await navigateToAnnotationEditor(page);
+      if (!success) {
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
+      }
+
+      // 図形を描画
+      const rectTool = page.getByRole('button', { name: /四角形/i });
+      await expect(rectTool).toBeVisible({ timeout: 5000 });
+      await rectTool.click();
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+      const center = await getCanvasCenter(page);
+      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+
+      // ネットワークをオフラインにして保存失敗をシミュレート
+      await context.setOffline(true);
+
+      // 保存ボタンをクリック
+      const saveButton = page.getByRole('button', { name: /保存/i });
+      await expect(saveButton).toBeVisible({ timeout: 5000 });
+      await saveButton.click();
+
+      // エラー発生を待機
+      await page.waitForTimeout(3000);
+
+      // ネットワークをオンラインに戻す
+      await context.setOffline(false);
+
+      // リトライボタンまたは保存ボタンが有効になっていることを確認
+      const retryButton = page.getByRole('button', { name: /リトライ|再試行|retry/i });
+      const saveButtonAfterError = page.getByRole('button', { name: /保存/i });
+
+      const hasRetryButton = await retryButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSaveButton = await saveButtonAfterError.isVisible({ timeout: 3000 });
+
+      // リトライボタンまたは保存ボタンが利用可能であることを確認
+      expect(hasRetryButton || hasSaveButton).toBeTruthy();
+
+      // リトライ/保存ボタンが有効な状態であることを確認
+      if (hasRetryButton) {
+        await expect(retryButton).not.toBeDisabled();
+      } else if (hasSaveButton) {
+        await expect(saveButtonAfterError).not.toBeDisabled();
+      }
+    });
   });
 
   /**
