@@ -1794,7 +1794,25 @@ test.describe('数量表CRUD操作', () => {
       // 数量フィールドに負の値を入力
       const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
+
+      // APIレスポンスを待機するためのPromiseを設定
+      const apiResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-items/') && response.request().method() === 'PUT',
+        { timeout: getTimeout(10000) }
+      );
+
       await quantityField.fill('-10');
+      // blurイベントをトリガーして状態更新を確実にする
+      await quantityField.blur();
+
+      // API更新を待機
+      await apiResponsePromise.catch(() => {
+        // APIが呼ばれない場合もあるため無視
+      });
+
+      // 状態更新を待機
+      await page.waitForTimeout(500);
 
       // 警告メッセージまたはエラー表示が行われること（必須）
       // フィールドレベルの警告は入力直後に表示されるはず
