@@ -284,6 +284,10 @@ export default function EditableQuantityItemRow({
   const [localName, setLocalName] = useState(item.name);
   // REQ-8.3: 数量フィールドのローカル状態（入力時に即座に警告を表示するため）
   const [localQuantity, setLocalQuantity] = useState(item.quantity);
+  // REQ-9.3: 調整係数のローカル状態（入力時に即座に警告を表示するため）
+  const [localAdjustmentFactor, setLocalAdjustmentFactor] = useState(item.adjustmentFactor);
+  // REQ-10.3: 丸め設定のローカル状態（入力時に即座に警告を表示するため）
+  const [localRoundingUnit, setLocalRoundingUnit] = useState(item.roundingUnit);
 
   // 親の値が変更された場合、ローカル状態を同期
   useEffect(() => {
@@ -297,20 +301,32 @@ export default function EditableQuantityItemRow({
     setLocalQuantity(item.quantity);
   }, [item.quantity]);
 
+  // 親の調整係数が変更された場合、ローカル状態を同期
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
+    setLocalAdjustmentFactor(item.adjustmentFactor);
+  }, [item.adjustmentFactor]);
+
+  // 親の丸め設定が変更された場合、ローカル状態を同期
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
+    setLocalRoundingUnit(item.roundingUnit);
+  }, [item.roundingUnit]);
+
   // REQ-8.3: 負の値警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
   const negativeQuantityWarning = useMemo(
     () => localQuantity < 0 && item.calculationMethod === 'STANDARD',
     [localQuantity, item.calculationMethod]
   );
 
-  // REQ-9.3: 調整係数警告状態（propsから派生計算）
+  // REQ-9.3: 調整係数警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
   const adjustmentFactorWarning = useMemo(
-    () => item.adjustmentFactor <= 0,
-    [item.adjustmentFactor]
+    () => localAdjustmentFactor <= 0,
+    [localAdjustmentFactor]
   );
 
-  // REQ-10.3: 丸め設定警告状態（propsから派生計算）
-  const roundingUnitWarning = useMemo(() => item.roundingUnit <= 0, [item.roundingUnit]);
+  // REQ-10.3: 丸め設定警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
+  const roundingUnitWarning = useMemo(() => localRoundingUnit <= 0, [localRoundingUnit]);
 
   // バリデーションエラー（名称はローカル状態でチェック）
   const errors = useMemo((): Record<string, string | undefined> => {
@@ -432,12 +448,15 @@ export default function EditableQuantityItemRow({
   /**
    * 調整係数変更ハンドラ
    * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
-   * REQ-9.3: 0以下の値が入力された場合は警告を表示（警告はpropsから派生計算）
+   * REQ-9.3: 0以下の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
   const handleAdjustmentFactorChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = parseFloat(e.target.value);
       if (!isNaN(value)) {
+        // まずローカル状態を更新（即座に警告を表示するため）
+        setLocalAdjustmentFactor(value);
+
         const updates: Partial<QuantityItemDetail> = { adjustmentFactor: value };
 
         // 面積・体積またはピッチモードの場合、再計算を実行
@@ -464,12 +483,15 @@ export default function EditableQuantityItemRow({
   /**
    * 丸め設定変更ハンドラ
    * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
-   * REQ-10.3: 0以下の値が入力された場合は警告を表示（警告はpropsから派生計算）
+   * REQ-10.3: 0以下の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
   const handleRoundingUnitChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = parseFloat(e.target.value);
       if (!isNaN(value)) {
+        // まずローカル状態を更新（即座に警告を表示するため）
+        setLocalRoundingUnit(value);
+
         const updates: Partial<QuantityItemDetail> = { roundingUnit: value };
 
         // 面積・体積またはピッチモードの場合、正の値でのみ再計算を実行
@@ -708,7 +730,7 @@ export default function EditableQuantityItemRow({
           <input
             id={`${item.id}-adjustmentFactor`}
             type="number"
-            value={item.adjustmentFactor}
+            value={localAdjustmentFactor}
             onChange={handleAdjustmentFactorChange}
             style={{
               ...styles.input,
@@ -737,7 +759,7 @@ export default function EditableQuantityItemRow({
           <input
             id={`${item.id}-roundingUnit`}
             type="number"
-            value={item.roundingUnit}
+            value={localRoundingUnit}
             onChange={handleRoundingUnitChange}
             style={{
               ...styles.input,
