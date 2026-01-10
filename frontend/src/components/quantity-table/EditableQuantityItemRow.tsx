@@ -282,6 +282,8 @@ export default function EditableQuantityItemRow({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // 名称フィールドのローカル状態（REQ-5.3: blur時にバリデーション）
   const [localName, setLocalName] = useState(item.name);
+  // REQ-8.3: 数量フィールドのローカル状態（入力時に即座に警告を表示するため）
+  const [localQuantity, setLocalQuantity] = useState(item.quantity);
 
   // 親の値が変更された場合、ローカル状態を同期
   useEffect(() => {
@@ -289,10 +291,16 @@ export default function EditableQuantityItemRow({
     setLocalName(item.name);
   }, [item.name]);
 
-  // REQ-8.3: 負の値警告状態（propsから派生計算）
+  // 親の数量値が変更された場合、ローカル状態を同期
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
+    setLocalQuantity(item.quantity);
+  }, [item.quantity]);
+
+  // REQ-8.3: 負の値警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
   const negativeQuantityWarning = useMemo(
-    () => item.quantity < 0 && item.calculationMethod === 'STANDARD',
-    [item.quantity, item.calculationMethod]
+    () => localQuantity < 0 && item.calculationMethod === 'STANDARD',
+    [localQuantity, item.calculationMethod]
   );
 
   // REQ-9.3: 調整係数警告状態（propsから派生計算）
@@ -348,12 +356,15 @@ export default function EditableQuantityItemRow({
 
   /**
    * 数量フィールド更新ハンドラ
-   * REQ-8.3: 負の値が入力された場合は警告を表示（警告はpropsから派生計算）
+   * REQ-8.3: 負の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
   const handleQuantityChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = parseFloat(e.target.value);
       if (!isNaN(value)) {
+        // まずローカル状態を更新（即座に警告を表示するため）
+        setLocalQuantity(value);
+        // その後APIを呼び出し
         onUpdate?.(item.id, { quantity: value });
       }
     },
@@ -755,7 +766,7 @@ export default function EditableQuantityItemRow({
           <input
             id={`${item.id}-quantity`}
             type="number"
-            value={item.quantity}
+            value={localQuantity}
             onChange={handleQuantityChange}
             style={{
               ...styles.input,
