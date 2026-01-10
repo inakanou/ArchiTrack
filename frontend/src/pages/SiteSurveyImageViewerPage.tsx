@@ -351,6 +351,7 @@ export default function SiteSurveyImageViewerPage() {
             initialRotation={rotation}
             initialPan={pan}
             readOnly={!isEditMode}
+            imageInfo={image}
           />
         </div>
       ) : (
