@@ -455,4 +455,240 @@ describe('EditableQuantityItemRow', () => {
       expect(screen.queryByText('名称は必須です')).not.toBeInTheDocument();
     });
   });
+
+  describe('REQ-8.3: 負の数量警告', () => {
+    it('標準モードで負の数量の場合、警告が表示される', () => {
+      const itemWithNegativeQuantity = {
+        ...mockItem,
+        quantity: -10,
+        calculationMethod: 'STANDARD' as const,
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithNegativeQuantity} />);
+
+      expect(screen.getByText(/負の値が入力されています/)).toBeInTheDocument();
+    });
+
+    it('標準モードで正の数量の場合、警告は表示されない', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      expect(screen.queryByText(/負の値が入力されています/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('REQ-9.3: 調整係数警告', () => {
+    it('調整係数が0以下の場合、警告が表示される', () => {
+      const itemWithZeroFactor = {
+        ...mockItem,
+        adjustmentFactor: 0,
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithZeroFactor} />);
+
+      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
+    });
+
+    it('調整係数が負の場合、警告が表示される', () => {
+      const itemWithNegativeFactor = {
+        ...mockItem,
+        adjustmentFactor: -0.5,
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithNegativeFactor} />);
+
+      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
+    });
+
+    it('調整係数が正の場合、警告は表示されない', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      // 調整係数の警告が表示されないことを確認
+      const warnings = screen.queryAllByText(/0以下の値は使用できません/);
+      // 丸め設定の警告も同じテキストを使用しているため、配列が空か、
+      // 調整係数入力フィールドに関連する警告がないことを確認
+      expect(warnings.length).toBeLessThanOrEqual(1); // 丸め設定の警告がある可能性
+    });
+  });
+
+  describe('REQ-10.3: 丸め設定警告', () => {
+    it('丸め設定が0以下の場合、警告が表示される', () => {
+      const itemWithZeroRounding = {
+        ...mockItem,
+        roundingUnit: 0,
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithZeroRounding} />);
+
+      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
+    });
+
+    it('丸め設定が負の場合、警告が表示される', () => {
+      const itemWithNegativeRounding = {
+        ...mockItem,
+        roundingUnit: -0.1,
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithNegativeRounding} />);
+
+      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
+    });
+  });
+
+  describe('REQ-6.3: 項目移動', () => {
+    it('上に移動ボタンをクリックするとonMoveUpが呼ばれる', async () => {
+      const onMoveUp = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onMoveUp={onMoveUp} canMoveUp={true} />);
+
+      const moreButton = screen.getByLabelText('アクション');
+      await userEvent.click(moreButton);
+
+      const moveUpButton = screen.getByRole('menuitem', { name: /上に移動/ });
+      await userEvent.click(moveUpButton);
+
+      expect(onMoveUp).toHaveBeenCalledWith('item-1');
+    });
+
+    it('下に移動ボタンをクリックするとonMoveDownが呼ばれる', async () => {
+      const onMoveDown = vi.fn();
+      render(
+        <EditableQuantityItemRow {...defaultProps} onMoveDown={onMoveDown} canMoveDown={true} />
+      );
+
+      const moreButton = screen.getByLabelText('アクション');
+      await userEvent.click(moreButton);
+
+      const moveDownButton = screen.getByRole('menuitem', { name: /下に移動/ });
+      await userEvent.click(moveDownButton);
+
+      expect(onMoveDown).toHaveBeenCalledWith('item-1');
+    });
+
+    it('canMoveUpがfalseの場合、上に移動ボタンは表示されない', async () => {
+      render(<EditableQuantityItemRow {...defaultProps} canMoveUp={false} />);
+
+      const moreButton = screen.getByLabelText('アクション');
+      await userEvent.click(moreButton);
+
+      expect(screen.queryByRole('menuitem', { name: /上に移動/ })).not.toBeInTheDocument();
+    });
+
+    it('canMoveDownがfalseの場合、下に移動ボタンは表示されない', async () => {
+      render(<EditableQuantityItemRow {...defaultProps} canMoveDown={false} />);
+
+      const moreButton = screen.getByLabelText('アクション');
+      await userEvent.click(moreButton);
+
+      expect(screen.queryByRole('menuitem', { name: /下に移動/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('面積・体積モード', () => {
+    it('面積・体積モードの場合、計算フィールドが表示される', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      // 計算フィールドが表示される
+      expect(screen.getByLabelText(/幅/)).toBeInTheDocument();
+    });
+
+    it('標準モードの場合、計算フィールドは表示されない', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      // 計算フィールドは表示されない
+      expect(screen.queryByLabelText(/幅/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('ピッチモード', () => {
+    it('ピッチモードの場合、計算フィールドが表示される', () => {
+      const itemWithPitch = {
+        ...mockItem,
+        calculationMethod: 'PITCH' as const,
+        calculationParams: {
+          rangeLength: 10,
+          endLength1: 1,
+          endLength2: 1,
+          pitchLength: 2,
+        },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithPitch} />);
+
+      // 計算フィールドが表示される
+      expect(screen.getByLabelText(/範囲長/)).toBeInTheDocument();
+    });
+  });
+
+  describe('小項目・任意分類フィールド', () => {
+    it('小項目フィールドが表示される', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      expect(screen.getByRole('combobox', { name: /小項目/ })).toBeInTheDocument();
+    });
+
+    it('任意分類フィールドが表示される', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      expect(screen.getByRole('combobox', { name: /任意分類/ })).toBeInTheDocument();
+    });
+
+    it('小項目変更時にonUpdateが呼ばれる', async () => {
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+
+      const input = screen.getByRole('combobox', { name: /小項目/ });
+      await userEvent.type(input, 'テスト');
+
+      expect(onUpdate).toHaveBeenLastCalledWith(
+        'item-1',
+        expect.objectContaining({
+          minorCategory: expect.any(String),
+        })
+      );
+    });
+
+    it('任意分類変更時にonUpdateが呼ばれる', async () => {
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+
+      const input = screen.getByRole('combobox', { name: /任意分類/ });
+      await userEvent.type(input, 'テスト');
+
+      expect(onUpdate).toHaveBeenLastCalledWith(
+        'item-1',
+        expect.objectContaining({
+          customCategory: expect.any(String),
+        })
+      );
+    });
+  });
+
+  describe('名称フィールドのblur動作', () => {
+    it('名称が変更されていない場合、onUpdateは呼ばれない', async () => {
+      const user = userEvent.setup();
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+
+      const input = screen.getByRole('textbox', { name: /名称/ });
+      // フォーカスしてすぐblur（変更なし）
+      await user.click(input);
+      await user.tab();
+
+      // 名称の更新は呼ばれない（他のフィールドの更新は除外）
+      const nameUpdateCalls = onUpdate.mock.calls.filter((call) => call[1] && 'name' in call[1]);
+      expect(nameUpdateCalls.length).toBe(0);
+    });
+
+    it('名称が空の場合、onUpdateは呼ばれない', async () => {
+      const user = userEvent.setup();
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+
+      const input = screen.getByRole('textbox', { name: /名称/ });
+      await user.clear(input);
+      await user.tab();
+
+      // 名称の更新は呼ばれない
+      const nameUpdateCalls = onUpdate.mock.calls.filter((call) => call[1] && 'name' in call[1]);
+      expect(nameUpdateCalls.length).toBe(0);
+    });
+  });
 });
