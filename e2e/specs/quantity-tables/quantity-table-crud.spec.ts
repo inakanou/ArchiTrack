@@ -1787,9 +1787,17 @@ test.describe('数量表CRUD操作', () => {
       const calcMethodSelect = page.getByLabel(/計算方法/).first();
       await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 標準モードに設定
+      // 標準モードに設定（API待機を追加）
+      const calcMethodApiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-items/') && response.request().method() === 'PUT',
+        { timeout: getTimeout(10000) }
+      );
       await calcMethodSelect.selectOption({ value: 'STANDARD' });
-      await page.waitForTimeout(300);
+      await calcMethodApiPromise.catch(() => {
+        // APIが呼ばれない場合もあるため無視
+      });
+      await page.waitForTimeout(500);
 
       // 数量フィールドに負の値を入力
       const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
@@ -1812,18 +1820,18 @@ test.describe('数量表CRUD操作', () => {
       });
 
       // 状態更新を待機
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(1000);
 
       // 警告メッセージまたはエラー表示が行われること（必須）
-      // フィールドレベルの警告は入力直後に表示されるはず
-      const warningMessage = page.getByText(/負|マイナス|warning|確認/i);
-      const errorField = page.locator('[aria-invalid="true"], .warning, .is-warning');
+      // REQ-8.3: 負の値警告メッセージは role="alert" で表示される
+      const warningAlert = page.locator('[role="alert"]').filter({ hasText: /負の値/ });
+      const errorField = page.locator('[aria-invalid="true"]');
 
-      const hasWarning = await warningMessage.isVisible({ timeout: 5000 });
+      const hasWarningAlert = await warningAlert.isVisible({ timeout: 5000 });
       const hasErrorField = await errorField.first().isVisible({ timeout: 2000 });
 
       // 警告が表示されること（必須）
-      expect(hasWarning || hasErrorField).toBeTruthy();
+      expect(hasWarningAlert || hasErrorField).toBeTruthy();
     });
 
     test('標準モードで数値以外を入力するとエラーメッセージが表示される (quantity-table-generation/REQ-8.4)', async ({
