@@ -2226,22 +2226,52 @@ test.describe('数量表CRUD操作', () => {
       // 計算方法セレクトボックスを面積・体積モードに設定
       const calcMethodSelect = page.getByLabel(/計算方法/).first();
       await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 計算方法変更のAPI待機
+      const calcMethodApiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-items/') && response.request().method() === 'PUT',
+        { timeout: getTimeout(10000) }
+      );
       await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
+      await calcMethodApiPromise.catch(() => {});
+      await page.waitForTimeout(500);
 
       // 調整係数を先に設定
       const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
       await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 調整係数変更のAPI待機
+      const adjustmentApiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-items/') && response.request().method() === 'PUT',
+        { timeout: getTimeout(10000) }
+      );
       await adjustmentField.fill('2');
+      await page.keyboard.press('Tab');
+      await adjustmentApiPromise.catch(() => {});
+      await page.waitForTimeout(500);
 
       // 計算用フィールドに値を入力
       const widthField = page.getByLabel(/幅|W/i).first();
       await expect(widthField).toBeVisible({ timeout: 3000 });
+
+      // 幅入力のAPI待機
+      const widthApiPromise1 = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-items/') && response.request().method() === 'PUT',
+        { timeout: getTimeout(10000) }
+      );
       await widthField.fill('10');
+      await page.keyboard.press('Tab');
+      await widthApiPromise1.catch(() => {});
+      await page.waitForTimeout(500);
 
       // 数量フィールドを確認
       const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
+      // 初期値を取得（計算が完了した状態）
       const initialQuantity = await quantityField.inputValue();
 
       // 幅を変更
@@ -2260,16 +2290,15 @@ test.describe('数量表CRUD操作', () => {
         // APIが呼ばれない場合もあるため無視
       });
 
-      // 状態更新を待機
-      await page.waitForTimeout(1000);
+      // 状態更新を待機（数量フィールドの値が変わるまで待機）
+      await expect(async () => {
+        const currentQuantity = await quantityField.inputValue();
+        expect(parseFloat(currentQuantity)).not.toBe(parseFloat(initialQuantity));
+      }).toPass({ timeout: getTimeout(10000) });
 
-      // 調整係数が適用された状態で数量が再計算されること（必須）
+      // 調整係数が適用された状態で数量が再計算されたことを最終確認
       const updatedQuantity = await quantityField.inputValue();
-
-      // 値が変わっていること（調整係数2が適用された状態で再計算）
-      if (initialQuantity && updatedQuantity) {
-        expect(parseFloat(updatedQuantity)).not.toBe(parseFloat(initialQuantity));
-      }
+      expect(parseFloat(updatedQuantity)).not.toBe(parseFloat(initialQuantity));
     });
   });
 

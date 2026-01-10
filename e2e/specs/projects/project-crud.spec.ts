@@ -644,13 +644,22 @@ test.describe('プロジェクトCRUD操作', () => {
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
+      // ユーザーAPI応答待機を開始してからボタンをクリック
+      const usersApiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/users/assignable') &&
+          response.request().method() === 'GET' &&
+          response.status() === 200,
+        { timeout: getTimeout(30000) }
+      );
+
       await page.getByRole('button', { name: /新規作成/i }).click();
       await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
 
-      // ユーザー一覧の読み込み完了を待機（複数の読み込み中が存在する可能性があるのでfirst()を使用）
-      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-        timeout: getTimeout(15000),
-      });
+      // ユーザー一覧APIの応答を待機（ローディング状態のチェックより信頼性が高い）
+      await usersApiPromise;
+      // フォームがインタラクティブになるまで少し待機
+      await page.waitForTimeout(500);
 
       const projectNameToDelete = `削除テスト用プロジェクト_${Date.now()}`;
       await page.getByLabel(/プロジェクト名/i).fill(projectNameToDelete);
@@ -733,6 +742,11 @@ test.describe('プロジェクトCRUD操作', () => {
       // APIレスポンスを待機
       await deletePromise;
 
+      // 確認ダイアログが閉じることを待機
+      await expect(page.getByTestId('focus-manager-overlay')).not.toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
       // 成功メッセージ（トースト）が表示されることを確認
       await expect(page.getByText(/プロジェクトを削除しました/i)).toBeVisible({
         timeout: getTimeout(10000),
@@ -741,10 +755,16 @@ test.describe('プロジェクトCRUD操作', () => {
       // 一覧画面に遷移することを確認
       await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
 
-      // 削除したプロジェクトが一覧に表示されないことを確認
+      // 一覧ページの読み込み完了を待機
       await page.waitForLoadState('networkidle');
-      await expect(page.getByText(projectNameToDelete)).not.toBeVisible({
-        timeout: getTimeout(5000),
+
+      // 一覧テーブル内に削除したプロジェクトが表示されないことを確認
+      // テーブル本体（role="table" または一覧コンテンツ部分）で確認
+      const projectListArea = page.locator('main');
+      await expect(
+        projectListArea.getByRole('link', { name: projectNameToDelete })
+      ).not.toBeVisible({
+        timeout: getTimeout(10000),
       });
     });
 
@@ -762,13 +782,22 @@ test.describe('プロジェクトCRUD操作', () => {
 
         await page.goto('/projects');
         await page.waitForLoadState('networkidle');
+
+        // ユーザーAPI応答待機を開始してからボタンをクリック
+        const usersApiPromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/users/assignable') &&
+            response.request().method() === 'GET' &&
+            response.status() === 200,
+          { timeout: getTimeout(30000) }
+        );
+
         await page.getByRole('button', { name: /新規作成/i }).click();
         await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
 
-        // ユーザー一覧の読み込み完了を待機（複数のUserSelectがあるため.first()を使用）
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
+        // ユーザー一覧APIの応答を待機
+        await usersApiPromise;
+        await page.waitForTimeout(500);
 
         await page.getByLabel(/プロジェクト名/i).fill(`キャンセルテスト_${Date.now()}`);
 
