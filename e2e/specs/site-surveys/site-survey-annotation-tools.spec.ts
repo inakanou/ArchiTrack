@@ -1438,10 +1438,17 @@ test.describe('現場調査注釈ツール', () => {
         name: /エクスポート|export|ダウンロード|download/i,
       });
       await expect(exportButton).toBeVisible({ timeout: 5000 });
-
-      // ダウンロードイベントを待機
-      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
       await exportButton.click();
+
+      // エクスポートダイアログが表示されるのを待機
+      const exportDialog = page.getByRole('dialog');
+      await expect(exportDialog).toBeVisible({ timeout: 5000 });
+
+      // ダウンロードイベントを待機してからダイアログ内のエクスポートボタンをクリック
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
+      const dialogExportButton = exportDialog.getByRole('button', { name: /エクスポート/i });
+      await expect(dialogExportButton).toBeVisible({ timeout: 3000 });
+      await dialogExportButton.click();
 
       const download = await downloadPromise;
       // ダウンロードされたファイルが画像形式であることを確認
