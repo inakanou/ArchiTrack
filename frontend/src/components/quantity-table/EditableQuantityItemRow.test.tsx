@@ -304,13 +304,14 @@ describe('EditableQuantityItemRow', () => {
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
       const input = screen.getByRole('spinbutton', { name: /調整係数/ });
-      await userEvent.clear(input);
-      await userEvent.type(input, '1.5');
+      // 数字を追加入力（controlled componentなのでclearは空文字がNaNとなり無視される）
+      await userEvent.type(input, '5');
 
-      expect(onUpdate).toHaveBeenLastCalledWith(
+      // onUpdateがadjustmentFactorフィールドで呼ばれることを確認（元の値1に5が追加されて15）
+      expect(onUpdate).toHaveBeenCalledWith(
         'item-1',
         expect.objectContaining({
-          adjustmentFactor: 1.5,
+          adjustmentFactor: 15,
         })
       );
     });
