@@ -2245,8 +2245,23 @@ test.describe('数量表CRUD操作', () => {
       const initialQuantity = await quantityField.inputValue();
 
       // 幅を変更
+      // APIレスポンスを待機するためのPromiseを設定
+      const apiResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-items/') && response.request().method() === 'PUT',
+        { timeout: getTimeout(10000) }
+      );
+
       await widthField.fill('20');
       await page.keyboard.press('Tab');
+
+      // API更新を待機
+      await apiResponsePromise.catch(() => {
+        // APIが呼ばれない場合もあるため無視
+      });
+
+      // 状態更新を待機
+      await page.waitForTimeout(1000);
 
       // 調整係数が適用された状態で数量が再計算されること（必須）
       const updatedQuantity = await quantityField.inputValue();
