@@ -723,12 +723,24 @@ test.describe('数量表CRUD操作', () => {
       const dialogTitle = photoDialog.getByText('写真を選択');
       await expect(dialogTitle).toBeVisible();
 
-      // REQ-4.3: 写真一覧が表示されることを確認（必須）
+      // REQ-4.3: 写真読み込み完了を待つ（「読み込み中」が消えるまで待機）
+      const loadingMessage = photoDialog.getByText(/読み込み中/);
+      await expect(loadingMessage)
+        .not.toBeVisible({ timeout: getTimeout(15000) })
+        .catch(() => {
+          // 読み込み中が最初から表示されていない場合もある
+        });
+
+      // 写真一覧が表示されることを確認（必須）
       // 写真がない場合は空状態メッセージが表示される
       const photoList = photoDialog.getByTestId('photo-list');
       const emptyState = photoDialog.getByText(/写真がありません|現場調査/);
-      const hasPhotoList = await photoList.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasEmptyState = await emptyState.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasPhotoList = await photoList
+        .isVisible({ timeout: getTimeout(5000) })
+        .catch(() => false);
+      const hasEmptyState = await emptyState
+        .isVisible({ timeout: getTimeout(5000) })
+        .catch(() => false);
 
       // 写真一覧または空状態のどちらかが表示されること（必須）
       if (!hasPhotoList && !hasEmptyState) {
@@ -790,6 +802,14 @@ test.describe('数量表CRUD操作', () => {
       // 写真選択ダイアログが表示されることを確認
       const photoDialog = page.getByRole('dialog', { name: /写真を選択/ });
       await expect(photoDialog).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 写真読み込み完了を待つ（「読み込み中」が消えるまで待機）
+      const loadingMessage = photoDialog.getByText(/読み込み中/);
+      await expect(loadingMessage)
+        .not.toBeVisible({ timeout: getTimeout(15000) })
+        .catch(() => {
+          // 読み込み中が最初から表示されていない場合もある
+        });
 
       // 写真一覧から最初の写真を選択（写真が存在する場合）
       const photos = photoDialog.getByRole('img');
