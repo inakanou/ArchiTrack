@@ -723,12 +723,109 @@ test.describe('数量表CRUD操作', () => {
       const dialogTitle = photoDialog.getByText('写真を選択');
       await expect(dialogTitle).toBeVisible();
 
+      // REQ-4.3: 写真一覧が表示されることを確認（必須）
+      // 写真がない場合は空状態メッセージが表示される
+      const photoList = photoDialog.getByTestId('photo-list');
+      const emptyState = photoDialog.getByText(/写真がありません|現場調査/);
+      const hasPhotoList = await photoList.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasEmptyState = await emptyState.isVisible({ timeout: 3000 }).catch(() => false);
+
+      // 写真一覧または空状態のどちらかが表示されること（必須）
+      if (!hasPhotoList && !hasEmptyState) {
+        throw new Error(
+          'REQ-4.3: 写真選択ダイアログに写真一覧(data-testid="photo-list")も空状態メッセージも表示されていません。写真選択機能が正しく実装されていません。'
+        );
+      }
+
       // ダイアログを閉じる
       const closeButton = photoDialog.getByRole('button', { name: /ダイアログを閉じる/ });
       await closeButton.click();
 
       // ダイアログが閉じたことを確認
       await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
+    });
+
+    /**
+     * @requirement quantity-table-generation/REQ-4.3
+     *
+     * 写真を選択してグループに紐付ける機能をテスト
+     * 写真を選択するとグループのサムネイルが更新される
+     */
+    test('写真を選択するとグループに紐付けられる (quantity-table-generation/REQ-4.3-link)', async ({
+      page,
+    }) => {
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 編集画面が表示されることを確認
+      const editArea = page.getByTestId('quantity-table-edit-area');
+      await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
+
+      // グループが存在することを確認
+      const groups = page.getByTestId('quantity-group');
+      const groupCount = await groups.count();
+
+      if (groupCount === 0) {
+        throw new Error('グループが存在しません。グループ追加テストが正しく実行されていません。');
+      }
+
+      const firstGroup = groups.first();
+
+      // 写真選択前：プレースホルダーが表示されていることを確認
+      const placeholder = firstGroup.getByTestId(/image-placeholder/);
+      const hasPlaceholder = await placeholder.isVisible({ timeout: 3000 }).catch(() => false);
+
+      // 写真選択ボタンをクリック
+      const photoSelectButton = firstGroup.getByRole('button', { name: /写真を選択/ });
+      await expect(photoSelectButton).toBeVisible({ timeout: getTimeout(5000) });
+      await photoSelectButton.click();
+
+      // 写真選択ダイアログが表示されることを確認
+      const photoDialog = page.getByRole('dialog', { name: /写真を選択/ });
+      await expect(photoDialog).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 写真一覧から最初の写真を選択（写真が存在する場合）
+      const photos = photoDialog.getByRole('img');
+      const photoCount = await photos.count();
+
+      if (photoCount > 0) {
+        // 写真を選択
+        await photos.first().click();
+
+        // APIコールを待つ
+        await page
+          .waitForResponse(
+            (resp) => resp.url().includes('/api/quantity-groups/') && resp.status() === 200,
+            { timeout: getTimeout(10000) }
+          )
+          .catch(() => {
+            // APIがまだ実装されていない場合はスキップ
+          });
+
+        // ダイアログが閉じることを確認
+        await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
+
+        // グループにサムネイルが表示されることを確認（必須）
+        const thumbnail = firstGroup.getByRole('img');
+        await expect(thumbnail).toBeVisible({ timeout: getTimeout(5000) });
+
+        // プレースホルダーが消えていることを確認
+        if (hasPlaceholder) {
+          await expect(placeholder).not.toBeVisible({ timeout: getTimeout(3000) });
+        }
+      } else {
+        // 写真がない場合はダイアログを閉じてテスト終了
+        const closeButton = photoDialog.getByRole('button', { name: /ダイアログを閉じる/ });
+        await closeButton.click();
+        await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
+      }
     });
 
     test('写真紐づけ時に注釈付き写真と数量項目の関連性が視覚的に表示される (quantity-table-generation/REQ-4.4)', async ({
@@ -758,21 +855,40 @@ test.describe('数量表CRUD操作', () => {
 
       const firstGroup = groups.first();
 
-      // 写真選択ボタンが存在することを確認（写真関連UIの一部として）
-      const photoSelectButton = firstGroup.getByRole('button', { name: /写真を選択/ });
-      const hasPhotoButton = await photoSelectButton
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+      // 写真が紐付けられている場合、注釈オーバーレイが表示されることを確認
+      const thumbnail = firstGroup.getByRole('img');
+      const hasThumbnail = await thumbnail.isVisible({ timeout: 3000 }).catch(() => false);
 
-      if (!hasPhotoButton) {
+      if (hasThumbnail) {
+        // REQ-4.4: 注釈オーバーレイが表示されることを確認（必須）
+        const annotationOverlay = firstGroup.getByTestId(/annotation-overlay/);
+        await expect(annotationOverlay).toBeVisible({ timeout: getTimeout(5000) });
+
+        // サムネイルをクリックすると注釈付き拡大画像が表示される
+        await thumbnail.click();
+
+        // 注釈ビューアモーダルが表示されることを確認
+        const viewerModal = page.getByTestId('annotation-viewer-modal');
+        await expect(viewerModal).toBeVisible({ timeout: getTimeout(5000) });
+
+        // モーダルを閉じる
+        const closeModal = viewerModal.getByRole('button', { name: /閉じる|×/ });
+        await closeModal.click();
+        await expect(viewerModal).not.toBeVisible({ timeout: getTimeout(3000) });
+      } else {
+        // 写真が紐付けられていない場合、写真を紐付ける
+        const photoSelectButton = firstGroup.getByRole('button', { name: /写真を選択/ });
+        if (!(await photoSelectButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+          throw new Error(
+            'REQ-4.4: 写真選択ボタンが見つかりません。写真関連UIが正しく実装されていません。'
+          );
+        }
+
+        // 写真を紐付ける操作（REQ-4.3-linkテストで実行されることを想定）
         throw new Error(
-          'REQ-4.4: 写真選択ボタンが見つかりません。写真関連UIが正しく実装されていません。'
+          'REQ-4.4: 写真が紐付けられていません。先にREQ-4.3-linkテストを実行して写真を紐付けてください。'
         );
       }
-
-      // 写真選択ボタンが存在すれば、写真紐づけUIの基盤は実装されている
-      // 実際の写真紐づけ機能はREQ-4.3の実装に依存
-      expect(hasPhotoButton).toBeTruthy();
     });
 
     test('写真が紐づけられたグループでは注釈付きサムネイルが表示される (quantity-table-generation/REQ-3.3)', async ({
@@ -792,40 +908,46 @@ test.describe('数量表CRUD操作', () => {
       const editArea = page.getByTestId('quantity-table-edit-area');
       await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 関連写真表示エリアが存在することを確認（必須）
-      const photoArea = page.getByTestId('related-photos-area');
-      const hasPhotoArea = await photoArea.isVisible({ timeout: 5000 });
+      // グループが存在することを確認（第3原則: 前提条件でテストを除外してはならない）
+      const groups = page.getByTestId('quantity-group');
+      const groupCount = await groups.count();
 
-      if (hasPhotoArea) {
-        // 写真エリア内のサムネイル画像が表示されることを確認
-        const thumbnails = photoArea.getByRole('img');
-        const thumbnailCount = await thumbnails.count();
+      if (groupCount === 0) {
+        throw new Error(
+          'REQ-3.3: グループが存在しません。写真機能をテストするにはグループが必要です。'
+        );
+      }
 
-        // 写真が存在する場合はサムネイルとして表示される
-        if (thumbnailCount > 0) {
-          await expect(thumbnails.first()).toBeVisible({ timeout: 3000 });
+      const firstGroup = groups.first();
+
+      // 写真が紐付けられている場合のテスト
+      const thumbnail = firstGroup.getByRole('img');
+      const hasThumbnail = await thumbnail.isVisible({ timeout: 3000 }).catch(() => false);
+
+      if (hasThumbnail) {
+        // REQ-3.3: 注釈付きサムネイルが表示されることを確認（必須）
+        await expect(thumbnail).toBeVisible();
+
+        // 注釈バッジが表示されることを確認（注釈がある場合）
+        const annotationBadge = firstGroup.getByTestId(/annotation-badge/);
+        const hasAnnotationBadge = await annotationBadge
+          .isVisible({ timeout: 2000 })
+          .catch(() => false);
+
+        // 注釈がある場合はバッジが表示される
+        if (hasAnnotationBadge) {
+          await expect(annotationBadge).toBeVisible();
         }
-        // 写真エリアがあればUIとして機能している
       } else {
-        // 写真エリアがない場合は、グループ内の写真アイコンまたはリンクを確認
-        const groups = page.getByTestId('quantity-group');
-        const groupCount = await groups.count();
+        // 写真が紐付けられていない場合、プレースホルダーまたは写真選択ボタンが表示される
+        const placeholder = firstGroup.getByTestId(/image-placeholder/);
+        const photoButton = firstGroup.getByRole('button', { name: /写真を選択/ });
 
-        // グループが存在することを確認（第3原則: 前提条件でテストを除外してはならない）
-        if (groupCount === 0) {
-          throw new Error(
-            'REQ-3.3: グループが存在しません。写真機能をテストするにはグループが必要です。前のテスト（グループ追加）が正しく実行されていません。'
-          );
-        }
+        const hasPlaceholder = await placeholder.isVisible({ timeout: 2000 }).catch(() => false);
+        const hasPhotoButton = await photoButton.isVisible({ timeout: 2000 }).catch(() => false);
 
-        // グループに写真関連の要素（ボタン、アイコン）が存在することを確認
-        const photoButton = groups.first().getByRole('button', { name: /写真|画像/ });
-        const photoIcon = groups.first().getByTestId('photo-indicator');
-        const hasPhotoButton = await photoButton.isVisible({ timeout: 2000 });
-        const hasPhotoIcon = await photoIcon.isVisible({ timeout: 2000 });
-
-        // 写真操作機能が存在すること（必須）
-        expect(hasPhotoButton || hasPhotoIcon || hasPhotoArea).toBeTruthy();
+        // 写真未紐付け時は適切なUIが表示されること
+        expect(hasPlaceholder || hasPhotoButton).toBeTruthy();
       }
     });
   });

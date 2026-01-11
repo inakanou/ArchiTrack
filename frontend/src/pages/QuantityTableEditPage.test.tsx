@@ -15,10 +15,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
 import * as quantityTablesApi from '../api/quantity-tables';
+import * as siteSurveysApi from '../api/site-surveys';
 import type { QuantityTableDetail } from '../types/quantity-table.types';
+import type { SurveyImageInfo } from '../types/site-survey.types';
 
 // APIモック
 vi.mock('../api/quantity-tables');
+vi.mock('../api/site-surveys');
+
 const mockGetQuantityTableDetail = vi.mocked(quantityTablesApi.getQuantityTableDetail);
 const mockCreateQuantityGroup = vi.mocked(quantityTablesApi.createQuantityGroup);
 const mockDeleteQuantityGroup = vi.mocked(quantityTablesApi.deleteQuantityGroup);
@@ -26,6 +30,10 @@ const mockCreateQuantityItem = vi.mocked(quantityTablesApi.createQuantityItem);
 const mockUpdateQuantityItem = vi.mocked(quantityTablesApi.updateQuantityItem);
 const mockDeleteQuantityItem = vi.mocked(quantityTablesApi.deleteQuantityItem);
 const mockCopyQuantityItem = vi.mocked(quantityTablesApi.copyQuantityItem);
+const mockUpdateQuantityGroup = vi.mocked(quantityTablesApi.updateQuantityGroup);
+
+const mockGetSiteSurveys = vi.mocked(siteSurveysApi.getSiteSurveys);
+const mockGetSiteSurvey = vi.mocked(siteSurveysApi.getSiteSurvey);
 
 // テストデータ
 const mockQuantityTableDetail: QuantityTableDetail = {
@@ -1363,6 +1371,379 @@ describe('QuantityTableEditPage', () => {
 
       // 項目の順序が変わることを確認
       // （UIでの確認は難しいが、ボタンクリック自体が成功すればOK）
+    });
+  });
+
+  // ====================================================================
+  // REQ-3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する
+  // ====================================================================
+
+  describe('REQ 3.3: 注釈付きサムネイル表示', () => {
+    it('紐付けられた写真に注釈がある場合、注釈バッジが表示される', async () => {
+      const tableWithAnnotatedImage: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+              hasAnnotations: true,
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithAnnotatedImage);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        // 注釈バッジが表示されることを確認
+        expect(screen.getByTestId('annotation-badge-group-1')).toBeInTheDocument();
+      });
+    });
+
+    it('紐付けられた写真に注釈がない場合、注釈バッジは表示されない', async () => {
+      const tableWithoutAnnotation: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithoutAnnotation);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByAltText('photo1.jpg')).toBeInTheDocument();
+      });
+
+      // 注釈バッジが表示されないことを確認
+      expect(screen.queryByTestId('annotation-badge-group-1')).not.toBeInTheDocument();
+    });
+  });
+
+  // ====================================================================
+  // REQ-4.3: 写真選択してグループに紐付け
+  // ====================================================================
+
+  describe('REQ 4.3: 写真選択してグループに紐付け', () => {
+    const mockPhotosWithAnnotations: SurveyImageInfo[] = [
+      {
+        id: 'photo-1',
+        surveyId: 'survey-1',
+        originalPath: '/original/photo1.jpg',
+        thumbnailPath: '/thumb/photo1.jpg',
+        originalUrl: '/images/original-1.jpg',
+        thumbnailUrl: '/images/thumb-1.jpg',
+        fileName: 'photo1.jpg',
+        fileSize: 1024,
+        width: 800,
+        height: 600,
+        displayOrder: 0,
+        createdAt: '2025-01-01T00:00:00Z',
+        hasAnnotations: true,
+      },
+      {
+        id: 'photo-2',
+        surveyId: 'survey-1',
+        originalPath: '/original/photo2.jpg',
+        thumbnailPath: '/thumb/photo2.jpg',
+        originalUrl: '/images/original-2.jpg',
+        thumbnailUrl: '/images/thumb-2.jpg',
+        fileName: 'photo2.jpg',
+        fileSize: 2048,
+        width: 800,
+        height: 600,
+        displayOrder: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+
+    it('写真選択ダイアログで注釈ありの写真には注釈バッジが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: 'テスト調査',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 2,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: 'テスト調査',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 2,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: mockPhotosWithAnnotations,
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 写真選択ボタンをクリック（画像なしのグループ）
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      // 注釈ありの写真には注釈バッジが表示される
+      await waitFor(() => {
+        expect(screen.getByTestId('photo-annotation-badge-photo-1')).toBeInTheDocument();
+      });
+    });
+
+    it('写真を選択するとグループに紐付けるAPIが呼ばれる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: 'テスト調査',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 2,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: 'テスト調査',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 2,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: mockPhotosWithAnnotations,
+      });
+      mockUpdateQuantityGroup.mockResolvedValue({
+        id: 'group-2',
+        quantityTableId: 'qt-123',
+        name: null,
+        surveyImageId: 'photo-1',
+        displayOrder: 1,
+        itemCount: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-02T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 写真選択ボタンをクリック
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      // 写真が読み込まれるのを待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('photo-item-photo-1')).toBeInTheDocument();
+      });
+
+      // 写真を選択
+      const photo = screen.getByTestId('photo-item-photo-1');
+      await user.click(photo);
+
+      // グループに紐付けるAPIが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
+          'group-2',
+          { surveyImageId: 'photo-1' },
+          expect.any(String)
+        );
+      });
+    });
+
+    it('写真選択後、グループのサムネイルが更新される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: 'テスト調査',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 2,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: 'テスト調査',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 2,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: mockPhotosWithAnnotations,
+      });
+      mockUpdateQuantityGroup.mockResolvedValue({
+        id: 'group-2',
+        quantityTableId: 'qt-123',
+        name: null,
+        surveyImageId: 'photo-1',
+        displayOrder: 1,
+        itemCount: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-02T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 最初はプレースホルダーが表示されている
+      expect(screen.getByTestId('image-placeholder-group-2')).toBeInTheDocument();
+
+      // 写真選択ボタンをクリック
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      // 写真が読み込まれるのを待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('photo-item-photo-1')).toBeInTheDocument();
+      });
+
+      // 写真を選択
+      const photo = screen.getByTestId('photo-item-photo-1');
+      await user.click(photo);
+
+      // 選択後、グループのサムネイルが更新される
+      await waitFor(() => {
+        // プレースホルダーが消えて、選択した写真のサムネイルが表示される
+        expect(screen.queryByTestId('image-placeholder-group-2')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // REQ-4.4: 注釈付き写真と数量項目の関連性を視覚的に表示する
+  // ====================================================================
+
+  describe('REQ 4.4: 注釈付き写真と数量項目の関連性表示', () => {
+    it('グループに注釈付き写真が紐付けられている場合、注釈オーバーレイが表示される', async () => {
+      const tableWithAnnotatedImage: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+              hasAnnotations: true,
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithAnnotatedImage);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 注釈オーバーレイコンテナが表示されることを確認
+      await waitFor(() => {
+        expect(screen.getByTestId('annotation-overlay-group-1')).toBeInTheDocument();
+      });
+    });
+
+    it('サムネイルをクリックすると注釈付き拡大画像が表示される', async () => {
+      const user = userEvent.setup();
+      const tableWithAnnotatedImage: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+              hasAnnotations: true,
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithAnnotatedImage);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByAltText('photo1.jpg')).toBeInTheDocument();
+      });
+
+      // サムネイルをクリック
+      const thumbnail = screen.getByAltText('photo1.jpg');
+      await user.click(thumbnail);
+
+      // 拡大表示モーダルまたは注釈付き画像ビューアが表示される
+      await waitFor(() => {
+        expect(screen.getByTestId('annotation-viewer-modal')).toBeInTheDocument();
+      });
     });
   });
 });

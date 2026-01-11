@@ -295,6 +295,63 @@ export async function createQuantityGroup(
 }
 
 /**
+ * 数量グループ更新入力
+ */
+export interface UpdateQuantityGroupInput {
+  /** グループ名（任意、最大200文字） */
+  name?: string | null;
+  /** 現場調査画像ID（任意） */
+  surveyImageId?: string | null;
+  /** 表示順序 */
+  displayOrder?: number;
+}
+
+/**
+ * 数量グループ更新レスポンス（簡易）
+ */
+export interface UpdateQuantityGroupResponse {
+  id: string;
+  quantityTableId: string;
+  name: string | null;
+  surveyImageId: string | null;
+  displayOrder: number;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 数量グループを更新する
+ *
+ * グループの名前や紐付け画像を更新します。
+ *
+ * Requirements: 4.3
+ *
+ * @param id - グループID（UUID）
+ * @param input - グループ更新データ
+ * @param expectedUpdatedAt - 楽観的排他制御用の期待される更新日時（ISO8601形式）
+ * @returns 更新されたグループ情報
+ * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）、グループが見つからない（404）、競合（409）
+ *
+ * @example
+ * const group = await updateQuantityGroup(
+ *   'group-id',
+ *   { surveyImageId: 'image-id' },
+ *   '2025-01-02T00:00:00.000Z'
+ * );
+ */
+export async function updateQuantityGroup(
+  id: string,
+  input: UpdateQuantityGroupInput,
+  expectedUpdatedAt: string
+): Promise<UpdateQuantityGroupResponse> {
+  return apiClient.put<UpdateQuantityGroupResponse>(`/api/quantity-groups/${id}`, {
+    ...input,
+    expectedUpdatedAt,
+  });
+}
+
+/**
  * 数量グループを削除する
  *
  * グループと配下の項目を削除します。

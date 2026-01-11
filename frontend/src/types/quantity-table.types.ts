@@ -298,6 +298,8 @@ export interface SurveyImageSummary {
   thumbnailUrl: string;
   originalUrl: string;
   fileName: string;
+  /** 注釈の有無 */
+  hasAnnotations?: boolean;
 }
 
 /**

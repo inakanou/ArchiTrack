@@ -15,6 +15,7 @@ import {
   getQuantityTableDetail,
   createQuantityGroup,
   deleteQuantityGroup,
+  updateQuantityGroup,
   createQuantityItem,
   updateQuantityItem,
   deleteQuantityItem,
@@ -324,6 +325,20 @@ const styles = {
     padding: '40px 20px',
     color: '#6b7280',
   } as React.CSSProperties,
+  actionButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    border: '1px solid #e5e7eb',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -425,6 +440,9 @@ export default function QuantityTableEditPage() {
   const [selectedGroupIdForPhoto, setSelectedGroupIdForPhoto] = useState<string | null>(null);
   const [availablePhotos, setAvailablePhotos] = useState<SurveyImageInfo[]>([]);
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
+  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+  // 注釈ビューアモーダル用state（REQ-4.4）
+  const [annotationViewerGroupId, setAnnotationViewerGroupId] = useState<string | null>(null);
 
   /**
    * 数量表詳細を取得
@@ -688,14 +706,86 @@ export default function QuantityTableEditPage() {
    * Requirements: 4.3
    */
   const handlePhotoSelect = useCallback(
-    (imageId: string) => {
-      // TODO: グループに画像を紐付けるAPIを呼び出す
-      // 現時点ではダイアログを閉じるだけ
-      console.log('Selected image:', imageId, 'for group:', selectedGroupIdForPhoto);
-      handleClosePhotoDialog();
+    async (imageId: string) => {
+      if (!selectedGroupIdForPhoto || isSavingPhoto) return;
+
+      setIsSavingPhoto(true);
+      setOperationError(null);
+
+      try {
+        // 対象グループを取得
+        const targetGroup = (quantityTable?.groups ?? []).find(
+          (g) => g.id === selectedGroupIdForPhoto
+        );
+        if (!targetGroup) {
+          throw new Error('グループが見つかりません');
+        }
+
+        // グループに画像を紐付けるAPIを呼び出す
+        await updateQuantityGroup(
+          selectedGroupIdForPhoto,
+          { surveyImageId: imageId },
+          targetGroup.updatedAt
+        );
+
+        // 選択した写真情報を取得
+        const selectedPhoto = availablePhotos.find((p) => p.id === imageId);
+
+        // ローカル状態を更新
+        setQuantityTable((prev) => {
+          if (!prev) return prev;
+          const updatedGroups = (prev.groups ?? []).map((g) => {
+            if (g.id === selectedGroupIdForPhoto) {
+              return {
+                ...g,
+                surveyImageId: imageId,
+                surveyImage: selectedPhoto
+                  ? {
+                      id: selectedPhoto.id,
+                      thumbnailUrl: selectedPhoto.thumbnailUrl || selectedPhoto.originalUrl || '',
+                      originalUrl: selectedPhoto.originalUrl || '',
+                      fileName: selectedPhoto.fileName,
+                      hasAnnotations: selectedPhoto.hasAnnotations,
+                    }
+                  : null,
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return g;
+          });
+          return {
+            ...prev,
+            groups: updatedGroups,
+          };
+        });
+
+        handleClosePhotoDialog();
+      } catch {
+        setOperationError('写真の紐付けに失敗しました');
+      } finally {
+        setIsSavingPhoto(false);
+      }
     },
-    [selectedGroupIdForPhoto, handleClosePhotoDialog]
+    [selectedGroupIdForPhoto, isSavingPhoto, quantityTable, availablePhotos, handleClosePhotoDialog]
   );
+
+  /**
+   * 注釈ビューアを開く
+   *
+   * Requirements: 4.4
+   */
+  const handleOpenAnnotationViewer = useCallback((groupId: string) => {
+    setAnnotationViewerGroupId(groupId);
+  }, []);
+
+  /**
+   * 注釈ビューアを閉じる
+   *
+   * Requirements: 4.4
+   */
+  const handleCloseAnnotationViewer = useCallback(() => {
+    setAnnotationViewerGroupId(null);
+  }, []);
 
   /**
    * 項目追加ハンドラ
@@ -1124,6 +1214,7 @@ export default function QuantityTableEditPage() {
                 onDeleteItem={handleDeleteItem}
                 onCopyItem={handleCopyItem}
                 onMoveItem={handleMoveItem}
+                onOpenAnnotationViewer={handleOpenAnnotationViewer}
               />
             </div>
           ))}
@@ -1207,34 +1298,134 @@ export default function QuantityTableEditPage() {
                 </p>
               </div>
             ) : (
-              <div style={styles.photoGrid}>
-                {availablePhotos.map((photo) => (
-                  <div
-                    key={photo.id}
-                    style={styles.photoItem}
-                    onClick={() => handlePhotoSelect(photo.id)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`${photo.fileName}を選択`}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handlePhotoSelect(photo.id);
-                      }
-                    }}
-                  >
-                    <img
-                      src={photo.thumbnailUrl || photo.originalUrl || ''}
-                      alt={photo.fileName}
-                      style={styles.photoImage}
-                    />
-                  </div>
-                ))}
+              <div style={styles.photoGrid} data-testid="photo-list">
+                {availablePhotos.map((photo) => {
+                  const hasPhotoAnnotations =
+                    photo.hasAnnotations || (photo.annotations?.length ?? 0) > 0;
+                  return (
+                    <div
+                      key={photo.id}
+                      style={{ ...styles.photoItem, position: 'relative' as const }}
+                      onClick={() => handlePhotoSelect(photo.id)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${photo.fileName}を選択`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handlePhotoSelect(photo.id);
+                        }
+                      }}
+                    >
+                      <img
+                        src={photo.thumbnailUrl || photo.originalUrl || ''}
+                        alt={photo.fileName}
+                        style={styles.photoImage}
+                        data-testid={`photo-item-${photo.id}`}
+                      />
+                      {/* 注釈バッジ (REQ-3.3) */}
+                      {hasPhotoAnnotations && (
+                        <span
+                          data-testid={`photo-annotation-badge-${photo.id}`}
+                          style={{
+                            position: 'absolute',
+                            top: '4px',
+                            right: '4px',
+                            backgroundColor: '#dc2626',
+                            color: '#ffffff',
+                            borderRadius: '9999px',
+                            padding: '2px 6px',
+                            fontSize: '10px',
+                            fontWeight: 'bold',
+                            minWidth: '16px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          注
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
       )}
+
+      {/* 注釈ビューアモーダル (REQ-4.4) */}
+      {annotationViewerGroupId &&
+        (() => {
+          const viewerGroup = groups.find((g) => g.id === annotationViewerGroupId);
+          if (!viewerGroup?.surveyImage) return null;
+          return (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="annotation-viewer-title"
+              style={styles.dialogOverlay}
+              onClick={handleCloseAnnotationViewer}
+              data-testid="annotation-viewer-modal"
+            >
+              <div
+                style={{
+                  ...styles.photoDialogContent,
+                  maxWidth: '90vw',
+                  maxHeight: '90vh',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div style={styles.photoDialogHeader}>
+                  <h2 id="annotation-viewer-title" style={styles.dialogTitle}>
+                    {getGroupDisplayName(viewerGroup, groups.indexOf(viewerGroup))} - 紐付け画像
+                  </h2>
+                  <button
+                    type="button"
+                    style={styles.closeButton}
+                    onClick={handleCloseAnnotationViewer}
+                    aria-label="ダイアログを閉じる"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    flex: 1,
+                    overflow: 'auto',
+                    padding: '16px',
+                  }}
+                >
+                  <img
+                    src={
+                      viewerGroup.surveyImage.originalUrl || viewerGroup.surveyImage.thumbnailUrl
+                    }
+                    alt={viewerGroup.surveyImage.fileName}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '70vh',
+                      objectFit: 'contain',
+                    }}
+                  />
+                </div>
+                <div style={{ padding: '16px', borderTop: '1px solid #e5e7eb' }}>
+                  <button
+                    type="button"
+                    style={styles.actionButton}
+                    onClick={() => {
+                      handleCloseAnnotationViewer();
+                      handleSelectImage(annotationViewerGroupId);
+                    }}
+                  >
+                    別の写真を選択
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </main>
   );
 }

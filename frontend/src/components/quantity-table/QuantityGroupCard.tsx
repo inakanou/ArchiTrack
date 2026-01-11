@@ -46,6 +46,8 @@ export interface QuantityGroupCardProps {
   onCopyItem?: (itemId: string) => void;
   /** 項目移動コールバック（REQ-6.3） */
   onMoveItem?: (itemId: string, direction: 'up' | 'down') => void;
+  /** 注釈ビューアを開くコールバック（REQ-4.4） */
+  onOpenAnnotationViewer?: (groupId: string) => void;
 }
 
 // ============================================================================
@@ -289,8 +291,10 @@ export default function QuantityGroupCard({
   onDeleteItem,
   onCopyItem,
   onMoveItem,
+  onOpenAnnotationViewer,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
+  const hasAnnotations = group.surveyImage?.hasAnnotations ?? false;
 
   /**
    * 展開/折りたたみを切り替え
@@ -317,8 +321,14 @@ export default function QuantityGroupCard({
    * 画像選択/変更ハンドラ
    */
   const handleImageClick = useCallback(() => {
-    onSelectImage?.(group.id);
-  }, [group.id, onSelectImage]);
+    // 画像が既に紐付けられている場合は注釈ビューアを開く（REQ-4.4）
+    if (group.surveyImage) {
+      onOpenAnnotationViewer?.(group.id);
+    } else {
+      // 画像がない場合は選択ダイアログを開く
+      onSelectImage?.(group.id);
+    }
+  }, [group.id, group.surveyImage, onSelectImage, onOpenAnnotationViewer]);
 
   const items = group.items ?? [];
 
@@ -342,11 +352,11 @@ export default function QuantityGroupCard({
 
         {/* サムネイル / プレースホルダー */}
         <div
-          style={styles.thumbnailWrapper}
+          style={{ ...styles.thumbnailWrapper, position: 'relative' as const }}
           onClick={handleImageClick}
           role="button"
           tabIndex={0}
-          aria-label={group.surveyImage ? '紐付け画像を変更' : '写真を選択'}
+          aria-label={group.surveyImage ? '紐付け画像を表示' : '写真を選択'}
           data-testid={group.surveyImage ? undefined : `image-placeholder-${group.id}`}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -356,11 +366,47 @@ export default function QuantityGroupCard({
           }}
         >
           {group.surveyImage ? (
-            <img
-              src={group.surveyImage.thumbnailUrl}
-              alt={group.surveyImage.fileName}
-              style={styles.thumbnail}
-            />
+            <>
+              <img
+                src={group.surveyImage.thumbnailUrl}
+                alt={group.surveyImage.fileName}
+                style={styles.thumbnail}
+              />
+              {/* 注釈オーバーレイ（REQ-4.4） */}
+              {hasAnnotations && (
+                <div
+                  data-testid={`annotation-overlay-${group.id}`}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    pointerEvents: 'none',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    borderRadius: '6px',
+                  }}
+                />
+              )}
+              {/* 注釈バッジ（REQ-3.3） */}
+              {hasAnnotations && (
+                <span
+                  data-testid={`annotation-badge-${group.id}`}
+                  style={{
+                    position: 'absolute',
+                    top: '4px',
+                    right: '4px',
+                    backgroundColor: '#dc2626',
+                    color: '#ffffff',
+                    borderRadius: '9999px',
+                    padding: '2px 6px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    minWidth: '16px',
+                    textAlign: 'center',
+                  }}
+                >
+                  注
+                </span>
+              )}
+            </>
           ) : (
             <div style={styles.placeholderIcon}>
               <ImagePlaceholderIcon />
