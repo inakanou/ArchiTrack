@@ -73,25 +73,25 @@ const styles = {
     display: 'grid',
     // 要件順: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・調整係数・丸め設定・数量・備考・アクション
     gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 120px 100px 80px 100px 80px 80px 80px 100px 80px',
-    gap: '8px',
+    gap: '2px',
     alignItems: 'start',
-    padding: '12px 16px',
+    padding: '2px 4px',
   } as React.CSSProperties,
   calculationFieldsRow: {
-    padding: '0 16px 12px 16px',
+    padding: '0 4px 4px 4px',
     backgroundColor: '#f9fafb',
   } as React.CSSProperties,
   fieldGroup: {
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '4px',
+    gap: '1px',
   } as React.CSSProperties,
   input: {
     width: '100%',
-    padding: '6px 10px',
+    padding: '2px 4px',
     border: '1px solid #d1d5db',
-    borderRadius: '4px',
-    fontSize: '13px',
+    borderRadius: '0px',
+    fontSize: '12px',
     color: '#1f2937',
     backgroundColor: '#ffffff',
     outline: 'none',
@@ -661,7 +661,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <label
             htmlFor={`${item.id}-name`}
-            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
           >
             名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
           </label>
@@ -723,7 +723,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <label
             htmlFor={`${item.id}-adjustmentFactor`}
-            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
           >
             調整係数
           </label>
@@ -752,7 +752,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <label
             htmlFor={`${item.id}-roundingUnit`}
-            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
           >
             丸め設定
           </label>
@@ -781,7 +781,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <label
             htmlFor={`${item.id}-quantity`}
-            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
           >
             数量<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
           </label>
@@ -811,7 +811,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <label
             htmlFor={`${item.id}-remarks`}
-            style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}
+            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
           >
             備考
           </label>
