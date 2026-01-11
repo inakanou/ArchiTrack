@@ -82,12 +82,29 @@ const styles = {
     backgroundColor: '#f9fafb',
   } as React.CSSProperties,
   fieldGroup: {
+    // グリッドセルとしてのラッパー（内部レイアウトは各コンポーネントが担当）
+  } as React.CSSProperties,
+  directInputContainer: {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '1px',
+    width: '100%',
+  } as React.CSSProperties,
+  inputWrapper: {
+    position: 'relative' as const,
+    height: '22px',
+  } as React.CSSProperties,
+  fieldLabel: {
+    fontSize: '11px',
+    fontWeight: 500,
+    color: '#374151',
+    whiteSpace: 'nowrap' as const,
+    height: '14px',
+    lineHeight: '14px',
   } as React.CSSProperties,
   input: {
     width: '100%',
+    height: '22px',
     padding: '2px 4px',
     border: '1px solid #d1d5db',
     borderRadius: '0px',
@@ -113,11 +130,17 @@ const styles = {
   quantityInput: {
     textAlign: 'right' as const,
   } as React.CSSProperties,
+  numberInput: {
+    // スピナー（上下ボタン）を非表示にする
+    MozAppearance: 'textfield' as const,
+    WebkitAppearance: 'textfield',
+  } as React.CSSProperties,
   actionsCell: {
     display: 'flex',
     gap: '4px',
     justifyContent: 'flex-end',
-    paddingTop: '4px',
+    alignItems: 'flex-start',
+    paddingTop: '15px',
   } as React.CSSProperties,
   actionButton: {
     display: 'flex',
@@ -659,27 +682,30 @@ export default function EditableQuantityItemRow({
 
         {/* 名称 */}
         <div style={styles.fieldGroup} role="cell">
-          <label
-            htmlFor={`${item.id}-name`}
-            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
-          >
-            名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-          </label>
-          <input
-            id={`${item.id}-name`}
-            type="text"
-            value={localName}
-            onChange={handleNameChange}
-            onBlur={handleNameBlur}
-            style={{
-              ...styles.input,
-              ...(errors.name ? styles.inputError : {}),
-            }}
-            placeholder="名称を入力"
-            aria-invalid={!!errors.name}
-            aria-required
-          />
-          {errors.name && <span style={{ fontSize: '12px', color: '#dc2626' }}>{errors.name}</span>}
+          <div style={styles.directInputContainer}>
+            <label htmlFor={`${item.id}-name`} style={styles.fieldLabel}>
+              名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+            </label>
+            <div style={styles.inputWrapper}>
+              <input
+                id={`${item.id}-name`}
+                type="text"
+                value={localName}
+                onChange={handleNameChange}
+                onBlur={handleNameBlur}
+                style={{
+                  ...styles.input,
+                  ...(errors.name ? styles.inputError : {}),
+                }}
+                placeholder="名称を入力"
+                aria-invalid={!!errors.name}
+                aria-required
+              />
+            </div>
+            {errors.name && (
+              <span style={{ fontSize: '12px', color: '#dc2626' }}>{errors.name}</span>
+            )}
+          </div>
         </div>
 
         {/* 規格 */}
@@ -721,108 +747,118 @@ export default function EditableQuantityItemRow({
 
         {/* 調整係数 - 要件順序: 計算方法の次 */}
         <div style={styles.fieldGroup} role="cell">
-          <label
-            htmlFor={`${item.id}-adjustmentFactor`}
-            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
-          >
-            調整係数
-          </label>
-          <input
-            id={`${item.id}-adjustmentFactor`}
-            type="number"
-            value={localAdjustmentFactor}
-            onChange={handleAdjustmentFactorChange}
-            style={{
-              ...styles.input,
-              ...styles.quantityInput,
-              ...(adjustmentFactorWarning ? styles.inputWarning : {}),
-            }}
-            step="0.01"
-            aria-invalid={adjustmentFactorWarning}
-          />
-          {/* REQ-9.3: 0以下の値警告メッセージ */}
-          {adjustmentFactorWarning && (
-            <span style={styles.warningMessage} role="alert">
-              0以下の値は使用できません。正の値を入力してください。
-            </span>
-          )}
+          <div style={styles.directInputContainer}>
+            <label htmlFor={`${item.id}-adjustmentFactor`} style={styles.fieldLabel}>
+              調整係数
+            </label>
+            <div style={styles.inputWrapper}>
+              <input
+                id={`${item.id}-adjustmentFactor`}
+                type="number"
+                value={localAdjustmentFactor}
+                onChange={handleAdjustmentFactorChange}
+                className="hide-spinner"
+                style={{
+                  ...styles.input,
+                  ...styles.quantityInput,
+                  ...styles.numberInput,
+                  ...(adjustmentFactorWarning ? styles.inputWarning : {}),
+                }}
+                step="0.01"
+                aria-invalid={adjustmentFactorWarning}
+              />
+            </div>
+            {/* REQ-9.3: 0以下の値警告メッセージ */}
+            {adjustmentFactorWarning && (
+              <span style={styles.warningMessage} role="alert">
+                0以下の値は使用できません。正の値を入力してください。
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 丸め設定 - 要件順序: 調整係数の次 */}
         <div style={styles.fieldGroup} role="cell">
-          <label
-            htmlFor={`${item.id}-roundingUnit`}
-            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
-          >
-            丸め設定
-          </label>
-          <input
-            id={`${item.id}-roundingUnit`}
-            type="number"
-            value={localRoundingUnit}
-            onChange={handleRoundingUnitChange}
-            style={{
-              ...styles.input,
-              ...styles.quantityInput,
-              ...(roundingUnitWarning ? styles.inputWarning : {}),
-            }}
-            step="0.01"
-            aria-invalid={roundingUnitWarning}
-          />
-          {/* REQ-10.3: 0以下の値警告メッセージ */}
-          {roundingUnitWarning && (
-            <span style={styles.warningMessage} role="alert">
-              0以下の値は使用できません。正の値を入力してください。
-            </span>
-          )}
+          <div style={styles.directInputContainer}>
+            <label htmlFor={`${item.id}-roundingUnit`} style={styles.fieldLabel}>
+              丸め設定
+            </label>
+            <div style={styles.inputWrapper}>
+              <input
+                id={`${item.id}-roundingUnit`}
+                type="number"
+                value={localRoundingUnit}
+                onChange={handleRoundingUnitChange}
+                className="hide-spinner"
+                style={{
+                  ...styles.input,
+                  ...styles.quantityInput,
+                  ...styles.numberInput,
+                  ...(roundingUnitWarning ? styles.inputWarning : {}),
+                }}
+                step="0.01"
+                aria-invalid={roundingUnitWarning}
+              />
+            </div>
+            {/* REQ-10.3: 0以下の値警告メッセージ */}
+            {roundingUnitWarning && (
+              <span style={styles.warningMessage} role="alert">
+                0以下の値は使用できません。正の値を入力してください。
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 数量 - 要件順序: 丸め設定の次 */}
         <div style={styles.fieldGroup} role="cell">
-          <label
-            htmlFor={`${item.id}-quantity`}
-            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
-          >
-            数量<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-          </label>
-          <input
-            id={`${item.id}-quantity`}
-            type="number"
-            value={localQuantity}
-            onChange={handleQuantityChange}
-            style={{
-              ...styles.input,
-              ...styles.quantityInput,
-              ...(negativeQuantityWarning ? styles.inputWarning : {}),
-            }}
-            step="0.01"
-            aria-required
-            aria-invalid={negativeQuantityWarning}
-          />
-          {/* REQ-8.3: 負の値警告メッセージ */}
-          {negativeQuantityWarning && (
-            <span style={styles.warningMessage} role="alert">
-              負の値が入力されています。確認してください。
-            </span>
-          )}
+          <div style={styles.directInputContainer}>
+            <label htmlFor={`${item.id}-quantity`} style={styles.fieldLabel}>
+              数量<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+            </label>
+            <div style={styles.inputWrapper}>
+              <input
+                id={`${item.id}-quantity`}
+                type="number"
+                value={localQuantity}
+                onChange={handleQuantityChange}
+                className="hide-spinner"
+                style={{
+                  ...styles.input,
+                  ...styles.quantityInput,
+                  ...styles.numberInput,
+                  ...(negativeQuantityWarning ? styles.inputWarning : {}),
+                }}
+                step="0.01"
+                aria-required
+                aria-invalid={negativeQuantityWarning}
+              />
+            </div>
+            {/* REQ-8.3: 負の値警告メッセージ */}
+            {negativeQuantityWarning && (
+              <span style={styles.warningMessage} role="alert">
+                負の値が入力されています。確認してください。
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 備考 - 要件順序: 数量の次 */}
         <div style={styles.fieldGroup} role="cell">
-          <label
-            htmlFor={`${item.id}-remarks`}
-            style={{ fontSize: '11px', fontWeight: 500, color: '#374151', whiteSpace: 'nowrap' }}
-          >
-            備考
-          </label>
-          <input
-            id={`${item.id}-remarks`}
-            type="text"
-            value={item.remarks || ''}
-            onChange={(e) => onUpdate?.(item.id, { remarks: e.target.value })}
-            style={styles.input}
-            placeholder="備考"
-          />
+          <div style={styles.directInputContainer}>
+            <label htmlFor={`${item.id}-remarks`} style={styles.fieldLabel}>
+              備考
+            </label>
+            <div style={styles.inputWrapper}>
+              <input
+                id={`${item.id}-remarks`}
+                type="text"
+                value={item.remarks || ''}
+                onChange={(e) => onUpdate?.(item.id, { remarks: e.target.value })}
+                style={styles.input}
+                placeholder="備考"
+              />
+            </div>
+          </div>
         </div>
 
         {/* アクション */}
@@ -895,6 +931,17 @@ export default function EditableQuantityItemRow({
           />
         </div>
       )}
+
+      {/* 数値入力フィールドのスピナーを非表示にするスタイル */}
+      <style>
+        {`
+          .hide-spinner::-webkit-outer-spin-button,
+          .hide-spinner::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+          }
+        `}
+      </style>
     </div>
   );
 }

@@ -77,40 +77,46 @@ const styles = {
   container: {
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '12px',
+    gap: '2px',
   } as React.CSSProperties,
   fieldsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-    gap: '12px',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))',
+    gap: '4px',
   } as React.CSSProperties,
   fieldWrapper: {
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '4px',
+    gap: '1px',
   } as React.CSSProperties,
   label: {
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 500,
     color: '#374151',
     display: 'flex',
     alignItems: 'center',
     gap: '2px',
+    whiteSpace: 'nowrap' as const,
+    height: '14px',
+    lineHeight: '14px',
   } as React.CSSProperties,
   requiredMark: {
     color: '#dc2626',
-    fontSize: '12px',
+    fontSize: '11px',
   } as React.CSSProperties,
   input: {
-    height: '36px',
-    padding: '0 12px',
-    fontSize: '13px',
+    width: '100%',
+    height: '22px',
+    padding: '0 4px',
+    fontSize: '12px',
     border: '1px solid #d1d5db',
-    borderRadius: '6px',
+    borderRadius: '0px',
     backgroundColor: '#ffffff',
     color: '#1f2937',
     outline: 'none',
     transition: 'border-color 0.2s, box-shadow 0.2s',
+    boxSizing: 'border-box' as const,
+    MozAppearance: 'textfield' as const,
   } as React.CSSProperties,
   inputDisabled: {
     backgroundColor: '#f3f4f6',
@@ -118,10 +124,10 @@ const styles = {
     cursor: 'not-allowed',
   } as React.CSSProperties,
   standardMessage: {
-    padding: '12px 16px',
+    padding: '4px 8px',
     backgroundColor: '#f3f4f6',
-    borderRadius: '6px',
-    fontSize: '13px',
+    borderRadius: '0px',
+    fontSize: '12px',
     color: '#4b5563',
     textAlign: 'center' as const,
   } as React.CSSProperties,
@@ -181,12 +187,22 @@ function NumberInputField({
         onChange={handleChange}
         disabled={disabled}
         step={step}
+        className="hide-spinner"
         style={{
           ...styles.input,
           ...(disabled ? styles.inputDisabled : {}),
         }}
         aria-required={required}
       />
+      <style>
+        {`
+          .hide-spinner::-webkit-outer-spin-button,
+          .hide-spinner::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+          }
+        `}
+      </style>
     </div>
   );
 }

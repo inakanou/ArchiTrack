@@ -751,55 +751,29 @@ export default function QuantityTableEditPage() {
   );
 
   /**
-   * 項目更新ハンドラ
+   * 項目更新ハンドラ（ローカル状態のみ更新、APIは呼ばない）
    *
    * Requirements: 5.2
+   *
+   * 自動保存は行わず、ローカル状態のみ更新する。
+   * 保存ボタンを押したときにまとめて保存される。
    */
-  const handleUpdateItem = useCallback(
-    async (itemId: string, updates: Partial<QuantityItemDetail>) => {
-      setOperationError(null);
+  const handleUpdateItem = useCallback((itemId: string, updates: Partial<QuantityItemDetail>) => {
+    setOperationError(null);
 
-      try {
-        // 対象項目を見つけてupdatedAtを取得
-        let expectedUpdatedAt: string | undefined;
-        for (const group of quantityTable?.groups ?? []) {
-          const item = (group.items ?? []).find((i) => i.id === itemId);
-          if (item) {
-            expectedUpdatedAt = item.updatedAt;
-            break;
-          }
-        }
-
-        if (!expectedUpdatedAt) {
-          setOperationError('項目が見つかりません');
-          return;
-        }
-
-        setSaveMessage('保存中...');
-        const updatedItem = await updateQuantityItem(itemId, updates, expectedUpdatedAt);
-
-        // ローカル状態を更新
-        setQuantityTable((prev) => {
-          if (!prev) return prev;
-          const updatedGroups = (prev.groups ?? []).map((g) => ({
-            ...g,
-            items: (g.items ?? []).map((item) => (item.id === itemId ? updatedItem : item)),
-          }));
-          return {
-            ...prev,
-            groups: updatedGroups,
-          };
-        });
-
-        setSaveMessage('保存しました');
-        setTimeout(() => setSaveMessage(null), 2000);
-      } catch {
-        setOperationError('項目の更新に失敗しました');
-        setSaveMessage(null);
-      }
-    },
-    [quantityTable]
-  );
+    // ローカル状態のみを更新（APIは呼ばない）
+    setQuantityTable((prev) => {
+      if (!prev) return prev;
+      const updatedGroups = (prev.groups ?? []).map((g) => ({
+        ...g,
+        items: (g.items ?? []).map((item) => (item.id === itemId ? { ...item, ...updates } : item)),
+      }));
+      return {
+        ...prev,
+        groups: updatedGroups,
+      };
+    });
+  }, []);
 
   /**
    * 項目削除ハンドラ
@@ -918,8 +892,10 @@ export default function QuantityTableEditPage() {
    * 保存ハンドラ
    *
    * Requirements: 11.1, 11.2
+   *
+   * ローカル状態の変更をまとめてAPIに保存する。
    */
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     // REQ-11.2: 整合性チェック
     const validationErrors: string[] = [];
     const groups = quantityTable?.groups ?? [];
@@ -945,13 +921,57 @@ export default function QuantityTableEditPage() {
       return;
     }
 
-    // 現在のデータはすでに各操作時に個別に保存されているため、
-    // ここでは保存完了メッセージを表示
-    setSaveMessage('保存しました');
-    setTimeout(() => {
+    // 全ての項目をAPIに保存
+    setSaveMessage('保存中...');
+    setOperationError(null);
+
+    try {
+      const savePromises: Promise<void>[] = [];
+
+      for (const group of groups) {
+        for (const item of group.items ?? []) {
+          savePromises.push(
+            (async () => {
+              await updateQuantityItem(
+                item.id,
+                {
+                  majorCategory: item.majorCategory,
+                  middleCategory: item.middleCategory,
+                  minorCategory: item.minorCategory,
+                  customCategory: item.customCategory,
+                  workType: item.workType,
+                  name: item.name,
+                  specification: item.specification,
+                  unit: item.unit,
+                  calculationMethod: item.calculationMethod,
+                  calculationParams: item.calculationParams,
+                  adjustmentFactor: item.adjustmentFactor,
+                  roundingUnit: item.roundingUnit,
+                  quantity: item.quantity,
+                  remarks: item.remarks,
+                  displayOrder: item.displayOrder,
+                },
+                item.updatedAt
+              );
+            })()
+          );
+        }
+      }
+
+      await Promise.all(savePromises);
+
+      // 保存後にデータを再取得して最新のupdatedAtを反映
+      await fetchQuantityTableDetail();
+
+      setSaveMessage('保存しました');
+      setTimeout(() => {
+        setSaveMessage(null);
+      }, 3000);
+    } catch {
+      setOperationError('保存に失敗しました。再度お試しください。');
       setSaveMessage(null);
-    }, 3000);
-  }, [quantityTable]);
+    }
+  }, [quantityTable, fetchQuantityTableDetail]);
 
   // ローディング表示
   if (isLoading) {

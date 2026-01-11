@@ -58,6 +58,12 @@ const styles = {
     fontWeight: 500,
     color: '#374151',
     whiteSpace: 'nowrap' as const,
+    height: '14px',
+    lineHeight: '14px',
+  } as React.CSSProperties,
+  selectWrapper: {
+    position: 'relative' as const,
+    height: '22px',
   } as React.CSSProperties,
   select: {
     height: '22px',
@@ -118,23 +124,25 @@ export default function CalculationMethodSelect({
       <label id={labelId} htmlFor={selectId} style={styles.label}>
         計算方法
       </label>
-      <select
-        id={selectId}
-        value={value}
-        onChange={handleChange}
-        disabled={disabled}
-        style={{
-          ...styles.select,
-          ...(disabled ? styles.selectDisabled : {}),
-        }}
-        aria-labelledby={labelId}
-      >
-        {CALCULATION_METHOD_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <div style={styles.selectWrapper}>
+        <select
+          id={selectId}
+          value={value}
+          onChange={handleChange}
+          disabled={disabled}
+          style={{
+            ...styles.select,
+            ...(disabled ? styles.selectDisabled : {}),
+          }}
+          aria-labelledby={labelId}
+        >
+          {CALCULATION_METHOD_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
