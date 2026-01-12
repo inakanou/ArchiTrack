@@ -34,3 +34,7 @@ export { default as AutocompleteInput } from './AutocompleteInput';
 export { default as EditableQuantityItemRow } from './EditableQuantityItemRow';
 export type { AutocompleteInputProps } from './AutocompleteInput';
 export type { EditableQuantityItemRowProps } from './EditableQuantityItemRow';
+
+// Task 12: フィールドバリデーション
+export { default as TextFieldInput } from './TextFieldInput';
+export type { TextFieldInputProps } from './TextFieldInput';
