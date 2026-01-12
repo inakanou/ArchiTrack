@@ -18,6 +18,7 @@ import {
   calculateStringWidth,
   validateTextLength,
   getRemainingWidth,
+  formatDecimal2,
   FIELD_CONSTRAINTS,
 } from './field-validation';
 
@@ -243,6 +244,72 @@ describe('field-validation', () => {
 
       it('m2の場合は4', () => {
         expect(getRemainingWidth('m2', 'unit')).toBe(4);
+      });
+    });
+  });
+
+  describe('formatDecimal2', () => {
+    describe('整数値のフォーマット', () => {
+      it('1を "1.00" に変換する', () => {
+        expect(formatDecimal2(1)).toBe('1.00');
+      });
+
+      it('0を "0.00" に変換する', () => {
+        expect(formatDecimal2(0)).toBe('0.00');
+      });
+
+      it('100を "100.00" に変換する', () => {
+        expect(formatDecimal2(100)).toBe('100.00');
+      });
+
+      it('-5を "-5.00" に変換する', () => {
+        expect(formatDecimal2(-5)).toBe('-5.00');
+      });
+    });
+
+    describe('小数値のフォーマット', () => {
+      it('1.5を "1.50" に変換する（小数1桁→2桁）', () => {
+        expect(formatDecimal2(1.5)).toBe('1.50');
+      });
+
+      it('1.25を "1.25" に変換する（小数2桁はそのまま）', () => {
+        expect(formatDecimal2(1.25)).toBe('1.25');
+      });
+
+      it('1.999を "2.00" に変換する（小数3桁は四捨五入）', () => {
+        expect(formatDecimal2(1.999)).toBe('2.00');
+      });
+
+      it('0.01を "0.01" に変換する', () => {
+        expect(formatDecimal2(0.01)).toBe('0.01');
+      });
+
+      it('0.1を "0.10" に変換する', () => {
+        expect(formatDecimal2(0.1)).toBe('0.10');
+      });
+    });
+
+    describe('負の小数値のフォーマット', () => {
+      it('-1.5を "-1.50" に変換する', () => {
+        expect(formatDecimal2(-1.5)).toBe('-1.50');
+      });
+
+      it('-0.01を "-0.01" に変換する', () => {
+        expect(formatDecimal2(-0.01)).toBe('-0.01');
+      });
+    });
+
+    describe('典型的なユースケース', () => {
+      it('調整係数のデフォルト値 1 を "1.00" に変換する', () => {
+        expect(formatDecimal2(1)).toBe('1.00');
+      });
+
+      it('丸め設定のデフォルト値 0.01 を "0.01" に変換する', () => {
+        expect(formatDecimal2(0.01)).toBe('0.01');
+      });
+
+      it('数量の入力値 150.5 を "150.50" に変換する', () => {
+        expect(formatDecimal2(150.5)).toBe('150.50');
       });
     });
   });

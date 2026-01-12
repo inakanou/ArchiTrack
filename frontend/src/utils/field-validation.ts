@@ -154,3 +154,23 @@ export function getRemainingWidth(value: string, fieldName: TextFieldName): numb
   const currentWidth = calculateStringWidth(value);
   return constraint.hankaku - currentWidth;
 }
+
+// ============================================================================
+// 数値フォーマット
+// ============================================================================
+
+/**
+ * 数値を小数2桁の文字列に変換する
+ *
+ * 調整係数・丸め設定・数量フィールドの表示に使用。
+ * 整数値でも常に小数2桁で表示する（例: 1 → "1.00"）。
+ *
+ * Requirements:
+ * - 14.2: 調整係数・丸め設定・数量フィールドを小数2桁で常時表示する
+ *
+ * @param value - 変換対象の数値
+ * @returns 小数2桁の文字列（例: 1 → "1.00", 1.5 → "1.50"）
+ */
+export function formatDecimal2(value: number): string {
+  return value.toFixed(2);
+}
