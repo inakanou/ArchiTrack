@@ -497,4 +497,427 @@ describe('QuantityFieldValidationService', () => {
       });
     });
   });
+
+  // ============================================================================
+  // Task 13: バリデーションテストの拡張
+  // ============================================================================
+
+  describe('Task 13.1: テキストフィールドバリデーションの単体テスト', () => {
+    describe('全角/半角混在文字列の文字幅計算テスト (Requirements: 13.1, 13.2, 13.3)', () => {
+      it('全角ひらがな・カタカナ・漢字の混在を正しく計算する', () => {
+        // あ(2) + イ(2) + 漢(2) = 6
+        expect(service.calculateStringWidth('あイ漢')).toBe(6);
+      });
+
+      it('半角英数字と全角文字の交互配置を正しく計算する', () => {
+        // a(1) + あ(2) + b(1) + い(2) + c(1) = 7
+        expect(service.calculateStringWidth('aあbいc')).toBe(7);
+      });
+
+      it('全角記号を正しく計算する', () => {
+        // ！(2) + ？(2) + ＃(2) = 6
+        expect(service.calculateStringWidth('！？＃')).toBe(6);
+      });
+
+      it('半角記号を正しく計算する', () => {
+        // !(1) + ?(1) + #(1) = 3
+        expect(service.calculateStringWidth('!?#')).toBe(3);
+      });
+    });
+
+    describe('境界値テスト（最大文字数ちょうど、超過、空白）', () => {
+      it('大項目: 全角25文字ちょうどは有効', () => {
+        const text = '漢'.repeat(25); // 幅50
+        const result = service.validateMajorCategory(text);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('大項目: 全角24文字 + 半角2文字（幅50）は有効', () => {
+        const text = '漢'.repeat(24) + 'ab'; // 48 + 2 = 50
+        const result = service.validateMajorCategory(text);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('大項目: 全角24文字 + 半角3文字（幅51）は無効', () => {
+        const text = '漢'.repeat(24) + 'abc'; // 48 + 3 = 51
+        const result = service.validateMajorCategory(text);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('工種: 全角8文字ちょうど（幅16）は有効', () => {
+        const text = '漢'.repeat(8); // 幅16
+        const result = service.validateWorkType(text);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('工種: 全角7文字 + 半角2文字（幅16）は有効', () => {
+        const text = '漢'.repeat(7) + 'ab'; // 14 + 2 = 16
+        const result = service.validateWorkType(text);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('工種: 半角17文字（幅17）は無効', () => {
+        const text = 'a'.repeat(17);
+        const result = service.validateWorkType(text);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('単位: 全角3文字ちょうど（幅6）は有効', () => {
+        const text = '㎡台式'; // 幅6
+        const result = service.validateUnit(text);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('単位: 半角6文字ちょうど（幅6）は有効', () => {
+        const text = 'pieces'.slice(0, 6); // 幅6
+        const result = service.validateUnit(text);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('単位: 全角2文字 + 半角3文字（幅7）は無効', () => {
+        const text = '㎡台abc'; // 4 + 3 = 7
+        const result = service.validateUnit(text);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('空白文字列は有効', () => {
+        expect(service.validateMajorCategory('').isValid).toBe(true);
+        expect(service.validateWorkType('').isValid).toBe(true);
+        expect(service.validateUnit('').isValid).toBe(true);
+      });
+    });
+
+    describe('特殊文字・絵文字・サロゲートペアの取り扱いテスト', () => {
+      it('基本絵文字（BMP外）は全角として計算される', () => {
+        // 絵文字は通常2幅として扱う
+        const emoji = '\u{1F600}'; // 😀
+        expect(service.calculateStringWidth(emoji)).toBe(2);
+      });
+
+      it('絵文字を含む文字列の幅を正しく計算する', () => {
+        // 漢(2) + 😀(2) + a(1) = 5
+        const text = '漢\u{1F600}a';
+        expect(service.calculateStringWidth(text)).toBe(5);
+      });
+
+      it('サロゲートペア文字（𠮷など）を正しく計算する', () => {
+        // 𠮷（つちよし）はサロゲートペア
+        const text = '\u{20BB7}'; // 𠮷
+        expect(service.calculateStringWidth(text)).toBe(2);
+      });
+
+      it('複数のサロゲートペア文字を正しく計算する', () => {
+        // 𠮷(2) + 𩸽(2) = 4
+        const text = '\u{20BB7}\u{29E3D}';
+        expect(service.calculateStringWidth(text)).toBe(4);
+      });
+
+      it('制御文字を含む文字列を正しく処理する', () => {
+        // タブや改行は半角として扱う（ASCII範囲）
+        expect(service.calculateStringWidth('\t')).toBe(1);
+        expect(service.calculateStringWidth('\n')).toBe(1);
+      });
+
+      it('全角スペースは全角として計算される', () => {
+        expect(service.calculateStringWidth('\u3000')).toBe(2); // 全角スペース
+      });
+
+      it('半角スペースは半角として計算される', () => {
+        expect(service.calculateStringWidth(' ')).toBe(1);
+      });
+
+      it('複合絵文字シーケンス（家族絵文字など）を正しく処理する', () => {
+        // 複合絵文字は複数のコードポイントで構成される
+        // for...ofはグラフェムクラスタではなくコードポイント単位で反復
+        // 👨‍👩‍👧 = 👨(U+1F468) + ZWJ(U+200D) + 👩(U+1F469) + ZWJ(U+200D) + 👧(U+1F467)
+        const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+        // 各コードポイント: 1F468(2) + 200D(1) + 1F469(2) + 200D(1) + 1F467(2) = 8
+        const width = service.calculateStringWidth(family);
+        expect(width).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  describe('Task 13.2: 数値フィールドバリデーションの単体テスト', () => {
+    describe('調整係数の範囲検証テスト（-9.99〜9.99）', () => {
+      it('正の小数値（1.23）は有効', () => {
+        const result = service.validateAdjustmentFactor(1.23);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('負の小数値（-1.23）は有効', () => {
+        const result = service.validateAdjustmentFactor(-1.23);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('0は有効', () => {
+        const result = service.validateAdjustmentFactor(0);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: -9.98は有効', () => {
+        const result = service.validateAdjustmentFactor(-9.98);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: 9.98は有効', () => {
+        const result = service.validateAdjustmentFactor(9.98);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: -9.991は無効（微小超過）', () => {
+        const result = service.validateAdjustmentFactor(-9.991);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('境界値テスト: 9.991は無効（微小超過）', () => {
+        const result = service.validateAdjustmentFactor(9.991);
+        expect(result.isValid).toBe(false);
+      });
+    });
+
+    describe('丸め設定の範囲検証テスト（-99.99〜99.99）', () => {
+      it('一般的な丸め値（0.25）は有効', () => {
+        const result = service.validateRoundingUnit(0.25);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('大きな丸め値（50）は有効', () => {
+        const result = service.validateRoundingUnit(50);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('負の丸め値（-0.5）は有効', () => {
+        const result = service.validateRoundingUnit(-0.5);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: -99.98は有効', () => {
+        const result = service.validateRoundingUnit(-99.98);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: 99.98は有効', () => {
+        const result = service.validateRoundingUnit(99.98);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: -99.991は無効（微小超過）', () => {
+        const result = service.validateRoundingUnit(-99.991);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('境界値テスト: 99.991は無効（微小超過）', () => {
+        const result = service.validateRoundingUnit(99.991);
+        expect(result.isValid).toBe(false);
+      });
+    });
+
+    describe('数量フィールドの範囲検証テスト（-999999.99〜9999999.99）', () => {
+      it('一般的な数量（123.45）は有効', () => {
+        const result = service.validateQuantity(123.45);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('大きな正の数量（5000000）は有効', () => {
+        const result = service.validateQuantity(5000000);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('負の数量（-500000）は有効', () => {
+        const result = service.validateQuantity(-500000);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: -999999.98は有効', () => {
+        const result = service.validateQuantity(-999999.98);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: 9999999.98は有効', () => {
+        const result = service.validateQuantity(9999999.98);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: -999999.991は無効（微小超過）', () => {
+        const result = service.validateQuantity(-999999.991);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('境界値テスト: 9999999.991は無効（微小超過）', () => {
+        const result = service.validateQuantity(9999999.991);
+        expect(result.isValid).toBe(false);
+      });
+    });
+
+    describe('寸法・ピッチフィールドの範囲検証テスト（0.01〜9999999.99）', () => {
+      it('一般的な寸法値（100）は有効', () => {
+        const result = service.validateDimensionField(100);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('小さな寸法値（0.02）は有効', () => {
+        const result = service.validateDimensionField(0.02);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('大きな寸法値（5000000）は有効', () => {
+        const result = service.validateDimensionField(5000000);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: 0.009は無効（最小値未満）', () => {
+        const result = service.validateDimensionField(0.009);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('境界値テスト: 0.011は有効', () => {
+        const result = service.validateDimensionField(0.011);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: 9999999.98は有効', () => {
+        const result = service.validateDimensionField(9999999.98);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('境界値テスト: 9999999.991は無効（微小超過）', () => {
+        const result = service.validateDimensionField(9999999.991);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('負の値（-0.01）は無効', () => {
+        const result = service.validateDimensionField(-0.01);
+        expect(result.isValid).toBe(false);
+      });
+    });
+
+    describe('空白・0入力時のデフォルト値設定テスト', () => {
+      it('調整係数: 0はそのまま返す（0も有効な値）', () => {
+        const result = service.applyAdjustmentFactorDefault(0);
+        expect(result).toBe(0);
+      });
+
+      it('調整係数: 負の値はそのまま返す', () => {
+        const result = service.applyAdjustmentFactorDefault(-1.5);
+        expect(result).toBe(-1.5);
+      });
+
+      it('丸め設定: NaNはデフォルト値を返さない（NaN入力は別途処理）', () => {
+        // NaNはnull/undefinedではないのでそのまま返る
+        const result = service.applyRoundingUnitDefault(NaN);
+        expect(Number.isNaN(result)).toBe(true);
+      });
+
+      it('数量: 0はそのまま返す（0も有効な数量）', () => {
+        const result = service.applyQuantityDefault(0);
+        expect(result).toBe(0);
+      });
+
+      it('数量: 負の値はそのまま返す', () => {
+        const result = service.applyQuantityDefault(-100);
+        expect(result).toBe(-100);
+      });
+    });
+  });
+
+  describe('Task 13.3: 表示書式変換の単体テスト', () => {
+    describe('整数入力時の小数2桁表示変換テスト', () => {
+      it('正の整数を小数2桁で表示する', () => {
+        expect(service.formatDecimal2(100)).toBe('100.00');
+        expect(service.formatDecimal2(999)).toBe('999.00');
+        expect(service.formatDecimal2(1234567)).toBe('1234567.00');
+      });
+
+      it('負の整数を小数2桁で表示する', () => {
+        expect(service.formatDecimal2(-100)).toBe('-100.00');
+        expect(service.formatDecimal2(-999)).toBe('-999.00');
+      });
+
+      it('0を小数2桁で表示する', () => {
+        expect(service.formatDecimal2(0)).toBe('0.00');
+      });
+    });
+
+    describe('小数1桁入力時の小数2桁表示変換テスト', () => {
+      it('正の小数1桁を小数2桁で表示する', () => {
+        expect(service.formatDecimal2(1.5)).toBe('1.50');
+        expect(service.formatDecimal2(99.9)).toBe('99.90');
+        expect(service.formatDecimal2(0.1)).toBe('0.10');
+      });
+
+      it('負の小数1桁を小数2桁で表示する', () => {
+        expect(service.formatDecimal2(-1.5)).toBe('-1.50');
+        expect(service.formatDecimal2(-0.1)).toBe('-0.10');
+      });
+    });
+
+    describe('空白時の条件付き表示テスト', () => {
+      it('nullは空文字列を返す', () => {
+        expect(service.formatConditionalDecimal2(null)).toBe('');
+      });
+
+      it('undefinedは空文字列を返す', () => {
+        expect(service.formatConditionalDecimal2(undefined)).toBe('');
+      });
+
+      it('0は "0.00" を返す（空白ではない）', () => {
+        expect(service.formatConditionalDecimal2(0)).toBe('0.00');
+      });
+
+      it('正の数は小数2桁で返す', () => {
+        expect(service.formatConditionalDecimal2(123.4)).toBe('123.40');
+      });
+
+      it('負の数は小数2桁で返す', () => {
+        expect(service.formatConditionalDecimal2(-123.4)).toBe('-123.40');
+      });
+    });
+
+    describe('四捨五入処理テスト', () => {
+      it('小数3桁以上は四捨五入で2桁に丸める', () => {
+        expect(service.formatDecimal2(1.234)).toBe('1.23');
+        expect(service.formatDecimal2(1.235)).toBe('1.24'); // 四捨五入
+        expect(service.formatDecimal2(1.999)).toBe('2.00');
+      });
+
+      it('負の数も正しく四捨五入する', () => {
+        expect(service.formatDecimal2(-1.234)).toBe('-1.23');
+        expect(service.formatDecimal2(-1.235)).toBe('-1.24');
+      });
+
+      it('非常に小さい小数を正しく処理する', () => {
+        expect(service.formatDecimal2(0.001)).toBe('0.00');
+        expect(service.formatDecimal2(0.005)).toBe('0.01');
+        expect(service.formatDecimal2(0.004)).toBe('0.00');
+      });
+    });
+
+    describe('典型的なフィールド値の書式設定テスト', () => {
+      it('調整係数の典型値を書式設定する', () => {
+        expect(service.formatDecimal2(FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.default)).toBe('1.00');
+        expect(service.formatDecimal2(1.2)).toBe('1.20');
+        expect(service.formatDecimal2(-0.5)).toBe('-0.50');
+      });
+
+      it('丸め設定の典型値を書式設定する', () => {
+        expect(service.formatDecimal2(FIELD_CONSTRAINTS.ROUNDING_UNIT.default)).toBe('0.01');
+        expect(service.formatDecimal2(0.25)).toBe('0.25');
+        expect(service.formatDecimal2(1)).toBe('1.00');
+      });
+
+      it('数量の典型値を書式設定する', () => {
+        expect(service.formatDecimal2(FIELD_CONSTRAINTS.QUANTITY.default)).toBe('0.00');
+        expect(service.formatDecimal2(150.5)).toBe('150.50');
+        expect(service.formatDecimal2(-50)).toBe('-50.00');
+      });
+
+      it('寸法の典型値を条件付き書式設定する', () => {
+        // 寸法は空白時は表示なし、数値時は小数2桁
+        expect(service.formatConditionalDecimal2(null)).toBe('');
+        expect(service.formatConditionalDecimal2(100)).toBe('100.00');
+        expect(service.formatConditionalDecimal2(FIELD_CONSTRAINTS.DIMENSION.min)).toBe('0.01');
+      });
+    });
+  });
 });

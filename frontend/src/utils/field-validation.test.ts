@@ -313,4 +313,252 @@ describe('field-validation', () => {
       });
     });
   });
+
+  // ============================================================================
+  // Task 13.1: テキストフィールドバリデーションの単体テスト（拡張）
+  // ============================================================================
+
+  describe('Task 13.1: テキストフィールドバリデーションの拡張テスト', () => {
+    describe('全角/半角混在文字列の文字幅計算テスト', () => {
+      it('全角ひらがな・カタカナ・漢字の混在を正しく計算する', () => {
+        // あ(2) + イ(2) + 漢(2) = 6
+        expect(calculateStringWidth('あイ漢')).toBe(6);
+      });
+
+      it('半角英数字と全角文字の交互配置を正しく計算する', () => {
+        // a(1) + あ(2) + b(1) + い(2) + c(1) = 7
+        expect(calculateStringWidth('aあbいc')).toBe(7);
+      });
+
+      it('全角記号を正しく計算する', () => {
+        // ！(2) + ？(2) + ＃(2) = 6
+        expect(calculateStringWidth('！？＃')).toBe(6);
+      });
+
+      it('半角記号を正しく計算する', () => {
+        // !(1) + ?(1) + #(1) = 3
+        expect(calculateStringWidth('!?#')).toBe(3);
+      });
+
+      it('建設業務で典型的な文字列を正しく計算する', () => {
+        // 共(2) + 通(2) + 仮(2) + 設(2) = 8
+        expect(calculateStringWidth('共通仮設')).toBe(8);
+
+        // 足(2) + 場(2) + 1(1) + 0(1) + 0(1) = 7
+        expect(calculateStringWidth('足場100')).toBe(7);
+
+        // コ(2) + ン(2) + ク(2) + リ(2) + ー(2) + ト(2) = 12
+        expect(calculateStringWidth('コンクリート')).toBe(12);
+      });
+    });
+
+    describe('境界値テスト（フィールド別）', () => {
+      it('大項目: 全角25文字ちょうどは有効', () => {
+        const text = '漢'.repeat(25); // 幅50
+        const result = validateTextLength(text, 'majorCategory');
+        expect(result.isValid).toBe(true);
+      });
+
+      it('大項目: 全角24文字 + 半角2文字（幅50）は有効', () => {
+        const text = '漢'.repeat(24) + 'ab'; // 48 + 2 = 50
+        const result = validateTextLength(text, 'majorCategory');
+        expect(result.isValid).toBe(true);
+      });
+
+      it('大項目: 全角24文字 + 半角3文字（幅51）は無効', () => {
+        const text = '漢'.repeat(24) + 'abc'; // 48 + 3 = 51
+        const result = validateTextLength(text, 'majorCategory');
+        expect(result.isValid).toBe(false);
+      });
+
+      it('工種: 全角8文字ちょうど（幅16）は有効', () => {
+        const text = '漢'.repeat(8); // 幅16
+        const result = validateTextLength(text, 'workType');
+        expect(result.isValid).toBe(true);
+      });
+
+      it('工種: 全角7文字 + 半角2文字（幅16）は有効', () => {
+        const text = '漢'.repeat(7) + 'ab'; // 14 + 2 = 16
+        const result = validateTextLength(text, 'workType');
+        expect(result.isValid).toBe(true);
+      });
+
+      it('工種: 半角17文字（幅17）は無効', () => {
+        const text = 'a'.repeat(17);
+        const result = validateTextLength(text, 'workType');
+        expect(result.isValid).toBe(false);
+      });
+
+      it('単位: 全角3文字ちょうど（幅6）は有効', () => {
+        const text = '平米台'; // 幅6
+        const result = validateTextLength(text, 'unit');
+        expect(result.isValid).toBe(true);
+      });
+
+      it('単位: 半角6文字ちょうど（幅6）は有効', () => {
+        const text = 'pieces'; // 幅6
+        const result = validateTextLength(text, 'unit');
+        expect(result.isValid).toBe(true);
+      });
+
+      it('単位: 全角2文字 + 半角3文字（幅7）は無効', () => {
+        const text = '平米abc'; // 4 + 3 = 7
+        const result = validateTextLength(text, 'unit');
+        expect(result.isValid).toBe(false);
+      });
+    });
+
+    describe('特殊文字・絵文字・サロゲートペアの取り扱いテスト', () => {
+      it('基本絵文字（BMP外）は全角として計算される', () => {
+        const emoji = '\u{1F600}'; // 😀
+        expect(calculateStringWidth(emoji)).toBe(2);
+      });
+
+      it('絵文字を含む文字列の幅を正しく計算する', () => {
+        // 漢(2) + 😀(2) + a(1) = 5
+        const text = '漢\u{1F600}a';
+        expect(calculateStringWidth(text)).toBe(5);
+      });
+
+      it('サロゲートペア文字（𠮷など）を正しく計算する', () => {
+        const text = '\u{20BB7}'; // 𠮷（つちよし）
+        expect(calculateStringWidth(text)).toBe(2);
+      });
+
+      it('全角スペースは全角として計算される', () => {
+        expect(calculateStringWidth('\u3000')).toBe(2);
+      });
+
+      it('半角スペースは半角として計算される', () => {
+        expect(calculateStringWidth(' ')).toBe(1);
+      });
+
+      it('制御文字を含む文字列を正しく処理する', () => {
+        expect(calculateStringWidth('\t')).toBe(1);
+        expect(calculateStringWidth('\n')).toBe(1);
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 13.3: 表示書式変換の単体テスト（拡張）
+  // ============================================================================
+
+  describe('Task 13.3: 表示書式変換の拡張テスト', () => {
+    describe('四捨五入処理テスト', () => {
+      it('小数3桁以上は四捨五入で2桁に丸める', () => {
+        expect(formatDecimal2(1.234)).toBe('1.23');
+        expect(formatDecimal2(1.235)).toBe('1.24'); // 四捨五入
+        expect(formatDecimal2(1.999)).toBe('2.00');
+      });
+
+      it('負の数も正しく四捨五入する', () => {
+        expect(formatDecimal2(-1.234)).toBe('-1.23');
+        expect(formatDecimal2(-1.235)).toBe('-1.24');
+      });
+
+      it('非常に小さい小数を正しく処理する', () => {
+        expect(formatDecimal2(0.001)).toBe('0.00');
+        expect(formatDecimal2(0.005)).toBe('0.01');
+        expect(formatDecimal2(0.004)).toBe('0.00');
+      });
+    });
+
+    describe('典型的なフィールド値の書式設定テスト', () => {
+      it('調整係数の典型値を書式設定する', () => {
+        expect(formatDecimal2(1)).toBe('1.00'); // デフォルト値
+        expect(formatDecimal2(1.2)).toBe('1.20');
+        expect(formatDecimal2(-0.5)).toBe('-0.50');
+      });
+
+      it('丸め設定の典型値を書式設定する', () => {
+        expect(formatDecimal2(0.01)).toBe('0.01'); // デフォルト値
+        expect(formatDecimal2(0.25)).toBe('0.25');
+        expect(formatDecimal2(1)).toBe('1.00');
+      });
+
+      it('数量の典型値を書式設定する', () => {
+        expect(formatDecimal2(0)).toBe('0.00'); // デフォルト値
+        expect(formatDecimal2(150.5)).toBe('150.50');
+        expect(formatDecimal2(-50)).toBe('-50.00');
+      });
+    });
+
+    describe('大きな数値の書式設定テスト', () => {
+      it('最大値に近い数量を書式設定する', () => {
+        expect(formatDecimal2(9999999.99)).toBe('9999999.99');
+        expect(formatDecimal2(-999999.99)).toBe('-999999.99');
+      });
+
+      it('大きな整数を書式設定する', () => {
+        expect(formatDecimal2(1234567)).toBe('1234567.00');
+        expect(formatDecimal2(-1234567)).toBe('-1234567.00');
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 13.2: 数値フィールド残幅計算テスト
+  // ============================================================================
+
+  describe('Task 13.2: 残り入力可能幅計算テスト', () => {
+    describe('各フィールドの残幅計算', () => {
+      it('中項目の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'middleCategory')).toBe(50);
+        expect(getRemainingWidth('あ'.repeat(10), 'middleCategory')).toBe(30);
+      });
+
+      it('小項目の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'minorCategory')).toBe(50);
+        expect(getRemainingWidth('テスト', 'minorCategory')).toBe(44); // 6幅消費
+      });
+
+      it('任意分類の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'customCategory')).toBe(50);
+        expect(getRemainingWidth('abc123', 'customCategory')).toBe(44); // 6幅消費
+      });
+
+      it('名称の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'name')).toBe(50);
+        expect(getRemainingWidth('製品名テスト', 'name')).toBe(38); // 12幅消費
+      });
+
+      it('規格の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'specification')).toBe(50);
+        expect(getRemainingWidth('100x200mm', 'specification')).toBe(41); // 9幅消費
+      });
+
+      it('計算方法の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'calculationMethod')).toBe(50);
+        expect(getRemainingWidth('標準計算', 'calculationMethod')).toBe(42); // 8幅消費
+      });
+
+      it('備考の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'remarks')).toBe(50);
+        expect(getRemainingWidth('注意事項', 'remarks')).toBe(42); // 8幅消費
+      });
+
+      it('工種の残幅を正しく計算する', () => {
+        expect(getRemainingWidth('', 'workType')).toBe(16);
+        expect(getRemainingWidth('鉄筋工', 'workType')).toBe(10); // 6幅消費
+      });
+    });
+
+    describe('超過時の負の残幅', () => {
+      it('大項目が超過した場合は負の残幅を返す', () => {
+        const text = 'あ'.repeat(26); // 幅52
+        expect(getRemainingWidth(text, 'majorCategory')).toBe(-2);
+      });
+
+      it('工種が超過した場合は負の残幅を返す', () => {
+        const text = 'a'.repeat(17); // 幅17
+        expect(getRemainingWidth(text, 'workType')).toBe(-1);
+      });
+
+      it('単位が超過した場合は負の残幅を返す', () => {
+        const text = 'あいうえ'; // 幅8
+        expect(getRemainingWidth(text, 'unit')).toBe(-2);
+      });
+    });
+  });
 });
