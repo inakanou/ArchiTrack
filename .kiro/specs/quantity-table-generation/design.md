@@ -15,6 +15,7 @@
 - 計算方法（標準・面積体積・ピッチ）による効率的な数量算出
 - オートコンプリートによる入力支援と一貫性確保
 - 自動保存による作業継続性の保証
+- 厳密なフィールド仕様に基づく入力制御と統一された表示書式
 
 ### Non-Goals
 
@@ -46,6 +47,7 @@ graph TB
         QGC[QuantityGroupComponent]
         QIC[QuantityItemComponent]
         CE[CalculationEngine]
+        FV[FieldValidator]
     end
 
     subgraph Backend
@@ -53,6 +55,7 @@ graph TB
         QTSV[QuantityTableService]
         QGSV[QuantityGroupService]
         QISV[QuantityItemService]
+        QVS[QuantityValidationService]
     end
 
     subgraph Database
@@ -69,11 +72,13 @@ graph TB
     QTE --> QGC
     QGC --> QIC
     QIC --> CE
+    QIC --> FV
 
     QTE --> QTR
     QTR --> QTSV
     QTSV --> QGSV
     QGSV --> QISV
+    QISV --> QVS
 
     QTSV --> QT
     QGSV --> QG
@@ -87,7 +92,7 @@ graph TB
 - 選択パターン: 階層型サービス（QuantityTable → QuantityGroup → QuantityItem）
 - ドメイン境界: 数量表管理は独立したドメインとして分離、プロジェクトとの関連はIDリレーションのみ
 - 既存パターン: SiteSurveyパターンを継承（CRUD、一覧、詳細、楽観的排他制御）
-- 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）
+- 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）、フィールドバリデーター
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -99,6 +104,7 @@ graph TB
 | Frontend | @dnd-kit/core ^6.x | ドラッグ&ドロップ操作 | 新規追加（アクセシブル） |
 | Backend | Express 5.2 + TypeScript 5.9 | REST API | 既存スタック |
 | Backend | Prisma 7.0 | データアクセス | 既存スタック |
+| Backend | Zod 4.1 | バリデーション | 既存スタック |
 | Data | PostgreSQL 15 | データ永続化 | 既存スタック |
 
 ## System Flows
@@ -109,6 +115,7 @@ graph TB
 sequenceDiagram
     participant User
     participant QuantityItemComponent
+    participant FieldValidator
     participant CalculationEngine
     participant API
     participant QuantityItemService
@@ -116,17 +123,23 @@ sequenceDiagram
     User->>QuantityItemComponent: 計算方法「面積・体積」選択
     QuantityItemComponent->>QuantityItemComponent: 計算用列表示（W/D/H/重量）
     User->>QuantityItemComponent: 計算用列に値入力
-    QuantityItemComponent->>CalculationEngine: 計算リクエスト
-    CalculationEngine->>CalculationEngine: Decimal.jsで精度保証計算
-    CalculationEngine->>QuantityItemComponent: 計算結果
-    QuantityItemComponent->>QuantityItemComponent: 調整係数適用
-    QuantityItemComponent->>QuantityItemComponent: 丸め設定適用
-    QuantityItemComponent->>QuantityItemComponent: 数量フィールド更新
-    Note over QuantityItemComponent: 1500msデバウンス後
-    QuantityItemComponent->>API: 自動保存
-    API->>QuantityItemService: 検証・保存
-    QuantityItemService-->>API: 保存結果
-    API-->>QuantityItemComponent: 保存完了通知
+    QuantityItemComponent->>FieldValidator: 入力値検証（範囲・書式）
+    FieldValidator-->>QuantityItemComponent: 検証結果
+    alt 入力エラー
+        QuantityItemComponent->>QuantityItemComponent: エラー表示
+    else 入力OK
+        QuantityItemComponent->>CalculationEngine: 計算リクエスト
+        CalculationEngine->>CalculationEngine: Decimal.jsで精度保証計算
+        CalculationEngine->>CalculationEngine: 調整係数適用
+        CalculationEngine->>CalculationEngine: 丸め設定適用
+        CalculationEngine-->>QuantityItemComponent: 計算結果
+        QuantityItemComponent->>QuantityItemComponent: 数量フィールド更新（小数2桁表示）
+        Note over QuantityItemComponent: 1500msデバウンス後
+        QuantityItemComponent->>API: 自動保存
+        API->>QuantityItemService: 検証・保存
+        QuantityItemService-->>API: 保存結果
+        API-->>QuantityItemComponent: 保存完了通知
+    end
 ```
 
 ## Requirements Traceability
@@ -141,10 +154,62 @@ sequenceDiagram
 | 6.1-6.5 | 数量項目のコピー・移動 | QuantityItemComponent, DragDropContext | QuantityItemService | - |
 | 7.1-7.5 | 入力支援・オートコンプリート | AutocompleteInput | useAutocomplete Hook | - |
 | 8.1-8.11 | 計算方法の選択 | CalculationMethodSelector, CalculationFields | CalculationEngine | 数量計算フロー |
-| 9.1-9.5 | 調整係数 | AdjustmentFactorInput | CalculationEngine | - |
-| 10.1-10.5 | 丸め設定 | RoundingSettingInput | CalculationEngine | - |
+| 9.1-9.7 | 調整係数 | AdjustmentFactorInput | CalculationEngine, FieldValidator | - |
+| 10.1-10.7 | 丸め設定 | RoundingSettingInput | CalculationEngine, FieldValidator | - |
 | 11.1-11.5 | 数量表の保存 | useAutoSave Hook, SaveIndicator | QuantityTableService | - |
 | 12.1-12.5 | パンくずナビゲーション | Breadcrumb | - | - |
+| 13.1-13.4 | テキストフィールドの入力制御 | FieldValidator, TextFieldConstraints | QuantityValidationService | - |
+| 14.1-14.5 | 数値フィールドの表示書式 | NumericFormatter, QuantityItemRow | - | - |
+| 15.1-15.3 | 数量フィールドの入力制御 | FieldValidator, NumericInputConstraints | QuantityValidationService | - |
+
+## Field Specifications
+
+### テキストフィールド仕様
+
+| フィールド | 必須 | 配置 | 最大文字数 | デフォルト値 | 備考 |
+|-----------|------|------|------------|--------------|------|
+| 大項目 | - | 左寄せ | 全角25/半角50 | 空白 | - |
+| 中項目 | - | 左寄せ | 全角25/半角50 | 空白 | - |
+| 小項目 | - | 左寄せ | 全角25/半角50 | 空白 | - |
+| 任意分類 | - | 左寄せ | 全角25/半角50 | 空白 | - |
+| 工種 | 必須 | 左寄せ | 全角8/半角16 | 空白 | - |
+| 名称 | 必須 | 左寄せ | 全角25/半角50 | 空白 | - |
+| 規格 | - | 左寄せ | 全角25/半角50 | 空白 | - |
+| 単位 | 必須 | 左寄せ | 全角3/半角6 | 式 | - |
+| 計算方法 | 必須 | 左寄せ | 全角25/半角50 | 標準 | - |
+| 備考 | - | 左寄せ | 全角25/半角50 | 空白 | - |
+
+### 数値フィールド仕様（計算パラメータ）
+
+| フィールド | 必須 | 配置 | 入力可能範囲 | デフォルト値 | 表示書式 | 空白時動作 |
+|-----------|------|------|--------------|--------------|----------|------------|
+| 調整係数 | 必須 | 右寄せ | -9.99〜9.99 | 1.00 | 小数2桁常時表示 | デフォルト値を自動入力 |
+| 丸め設定 | 必須 | 右寄せ | -99.99〜99.99 | 0.01 | 小数2桁常時表示 | 0または空白でデフォルト値を自動入力 |
+| 数量 | 必須 | 右寄せ | -999999.99〜9999999.99 | 0 | 小数2桁常時表示 | デフォルト値を自動入力 |
+
+### 寸法フィールド仕様（面積・体積計算用）
+
+| フィールド | 必須 | 配置 | 入力可能範囲 | デフォルト値 | 表示書式 |
+|-----------|------|------|--------------|--------------|----------|
+| 幅(W) | - | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| 奥行き(D) | - | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| 高さ(H) | - | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| 重量（面積・体積用） | - | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+
+**制約**: 計算方法が「面積・体積」の場合、幅(W)、奥行き(D)、高さ(H)のうち最低1つの入力が必須
+
+### ピッチ計算フィールド仕様
+
+| フィールド | 必須 | 配置 | 入力可能範囲 | デフォルト値 | 表示書式 |
+|-----------|------|------|--------------|--------------|----------|
+| 範囲長 | 必須 | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| 端長1 | 必須 | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| 端長2 | 必須 | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| ピッチ長 | 必須 | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| 長さ（ピッチ用） | - | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+| 重量（ピッチ用） | - | 右寄せ | 0.01〜9999999.99または空白 | 空白 | 数値入力時は小数2桁、空白時は表示なし |
+
+**制約**: 計算方法が「ピッチ」の場合、範囲長、端長1、端長2、ピッチ長の4項目すべてが必須
 
 ## Components and Interfaces
 
@@ -154,10 +219,12 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|------------------|-----------|
 | QuantityTableService | Backend/Service | 数量表のCRUD操作 | 2.1-2.5, 11.1-11.5 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | QuantityGroupService | Backend/Service | 数量グループのCRUD操作と画像紐付け | 3.1-3.3, 4.1-4.5 | PrismaClient (P0) | Service, API |
-| QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5 | PrismaClient (P0), CalculationEngine (P0) | Service, API |
-| CalculationEngine | Shared/Utility | 数量計算ロジック | 8.1-8.11, 9.1-9.5, 10.1-10.5 | decimal.js (P0) | Service |
+| QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.7, 10.1-10.7 | PrismaClient (P0), CalculationEngine (P0), QuantityValidationService (P0) | Service, API |
+| QuantityValidationService | Backend/Service | フィールドバリデーション | 8.3, 8.4, 8.7, 8.10, 9.3-9.5, 10.3-10.5, 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
+| CalculationEngine | Shared/Utility | 数量計算ロジック | 8.1-8.11, 9.1-9.7, 10.1-10.7 | decimal.js (P0) | Service |
 | QuantityTableEditPage | Frontend/Page | 数量表編集画面 | 3.1-3.3 | QuantityGroupComponent (P0) | State |
 | QuantityTableSectionCard | Frontend/Component | プロジェクト詳細の数量表セクション | 1.1-1.7 | - | - |
+| FieldValidator | Frontend/Utility | フィールド入力制御・書式 | 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
 
 ### Backend Services
 
@@ -394,18 +461,19 @@ interface Annotation {
 | Field | Detail |
 |-------|--------|
 | Intent | 数量項目のCRUD、計算検証を担当 |
-| Requirements | 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 6.4, 6.5, 8.1-8.11, 9.1-9.5, 10.1-10.5 |
+| Requirements | 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 6.4, 6.5, 8.1-8.11, 9.1-9.7, 10.1-10.7 |
 
 **Responsibilities & Constraints**
 
 - 数量項目の作成・更新・削除・コピー・移動
 - 計算方法に応じた数量算出
 - 調整係数・丸め設定の適用
+- フィールド仕様に基づく入力値検証
 
 **Dependencies**
 
 - Inbound: QuantityTableRoutes (P0)
-- Outbound: CalculationEngine (P0)
+- Outbound: CalculationEngine (P0), QuantityValidationService (P0)
 - External: PrismaClient (P0), decimal.js (P0)
 
 **Contracts**: Service [x]
@@ -424,31 +492,31 @@ interface QuantityItemService {
 }
 
 interface CreateQuantityItemInput {
-  majorCategory: string;
-  middleCategory?: string;
-  minorCategory?: string;
-  customCategory?: string;
-  workType: string;
-  name: string;
-  specification?: string;
-  unit: string;
-  calculationMethod: CalculationMethod;
+  majorCategory: string;              // 全角25/半角50文字
+  middleCategory?: string;            // 全角25/半角50文字
+  minorCategory?: string;             // 全角25/半角50文字
+  customCategory?: string;            // 全角25/半角50文字
+  workType: string;                   // 全角8/半角16文字、必須
+  name: string;                       // 全角25/半角50文字、必須
+  specification?: string;             // 全角25/半角50文字
+  unit: string;                       // 全角3/半角6文字、必須、デフォルト「式」
+  calculationMethod: CalculationMethod; // デフォルト「標準」
   calculationParams?: CalculationParams;
-  adjustmentFactor: number; // default: 1.00
-  roundingUnit: number; // default: 0.01
-  quantity?: number;
-  remarks?: string;
+  adjustmentFactor: number;           // -9.99～9.99、デフォルト1.00
+  roundingUnit: number;               // -99.99～99.99、デフォルト0.01
+  quantity?: number;                  // -999999.99～9999999.99
+  remarks?: string;                   // 全角25/半角50文字
 }
 
 type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
 
 interface CalculationParams {
-  // 面積・体積モード
+  // 面積・体積モード (0.01～9999999.99)
   width?: number;
   depth?: number;
   height?: number;
   weight?: number;
-  // ピッチモード
+  // ピッチモード (0.01～9999999.99)
   rangeLength?: number;
   endLength1?: number;
   endLength2?: number;
@@ -534,8 +602,152 @@ interface BatchOperation {
 **Implementation Notes**
 
 - Integration: 計算ロジックはCalculationEngineに委譲
-- Validation: 計算方法と入力値の整合性チェック
+- Validation: 計算方法と入力値の整合性チェック、フィールド仕様準拠チェック
 - Pattern: 既存のsite-surveys/survey-imagesパターンに準拠（ネストルート + フラットルート）
+
+---
+
+#### QuantityValidationService
+
+| Field | Detail |
+|-------|--------|
+| Intent | フィールド仕様に基づく入力値検証を担当 |
+| Requirements | 8.3, 8.4, 8.7, 8.10, 9.3, 9.4, 9.5, 10.3, 10.4, 10.5, 13.1, 13.2, 13.3, 13.4, 14.1, 14.2, 14.3, 14.4, 14.5, 15.1, 15.2, 15.3 |
+
+**Responsibilities & Constraints**
+
+- テキストフィールドの文字数制限検証（全角/半角対応）
+- 数値フィールドの範囲検証
+- 数値フィールドの表示書式設定
+- 計算方法と入力値の整合性チェック
+
+**Dependencies**
+
+- Inbound: QuantityItemService (P0)
+- External: -
+
+**Contracts**: Service [x]
+
+##### Service Interface
+
+```typescript
+interface QuantityValidationService {
+  /**
+   * テキストフィールドの文字数検証
+   * @param value 検証対象の文字列
+   * @param maxZenkaku 全角最大文字数
+   * @param maxHankaku 半角最大文字数
+   * @returns 検証結果（trueで有効）
+   */
+  validateTextLength(value: string, maxZenkaku: number, maxHankaku: number): boolean;
+
+  /**
+   * 数値フィールドの範囲検証
+   * @param value 検証対象の数値
+   * @param min 最小値
+   * @param max 最大値
+   * @returns 検証結果
+   */
+  validateNumericRange(value: number, min: number, max: number): ValidationResult;
+
+  /**
+   * 調整係数の検証
+   * @param value 調整係数値（-9.99～9.99）
+   * @returns 検証結果
+   */
+  validateAdjustmentFactor(value: number): ValidationResult;
+
+  /**
+   * 丸め設定の検証
+   * @param value 丸め設定値（-99.99～99.99）
+   * @returns 検証結果
+   */
+  validateRoundingUnit(value: number): ValidationResult;
+
+  /**
+   * 数量の検証
+   * @param value 数量値（-999999.99～9999999.99）
+   * @returns 検証結果
+   */
+  validateQuantity(value: number): ValidationResult;
+
+  /**
+   * 寸法・ピッチ計算フィールドの検証
+   * @param value 寸法値（0.01～9999999.99または空白）
+   * @returns 検証結果
+   */
+  validateDimensionField(value: number | null): ValidationResult;
+
+  /**
+   * 計算方法と入力値の整合性検証
+   * @param method 計算方法
+   * @param params 計算パラメータ
+   * @returns 検証結果
+   */
+  validateCalculationParams(method: CalculationMethod, params: CalculationParams): ValidationResult;
+
+  /**
+   * 数値を小数2桁表示用に書式設定
+   * @param value 数値
+   * @returns 書式設定された文字列（例: 1 → "1.00"）
+   */
+  formatDecimal2(value: number): string;
+
+  /**
+   * 空白または数値を条件付き書式設定
+   * @param value 数値またはnull
+   * @returns 空白時は空文字、数値時は小数2桁
+   */
+  formatConditionalDecimal2(value: number | null): string;
+}
+
+interface ValidationResult {
+  isValid: boolean;
+  errors: ValidationError[];
+  warnings: ValidationWarning[];
+}
+
+interface ValidationError {
+  field: string;
+  message: string;
+}
+
+interface ValidationWarning {
+  field: string;
+  message: string;
+}
+
+/**
+ * フィールド仕様定数
+ */
+const FIELD_CONSTRAINTS = {
+  // テキストフィールド（全角/半角）
+  MAJOR_CATEGORY: { zenkaku: 25, hankaku: 50 },
+  MIDDLE_CATEGORY: { zenkaku: 25, hankaku: 50 },
+  MINOR_CATEGORY: { zenkaku: 25, hankaku: 50 },
+  CUSTOM_CATEGORY: { zenkaku: 25, hankaku: 50 },
+  WORK_TYPE: { zenkaku: 8, hankaku: 16 },
+  NAME: { zenkaku: 25, hankaku: 50 },
+  SPECIFICATION: { zenkaku: 25, hankaku: 50 },
+  UNIT: { zenkaku: 3, hankaku: 6 },
+  CALCULATION_METHOD: { zenkaku: 25, hankaku: 50 },
+  REMARKS: { zenkaku: 25, hankaku: 50 },
+
+  // 数値フィールド
+  ADJUSTMENT_FACTOR: { min: -9.99, max: 9.99, default: 1.00 },
+  ROUNDING_UNIT: { min: -99.99, max: 99.99, default: 0.01 },
+  QUANTITY: { min: -999999.99, max: 9999999.99, default: 0 },
+
+  // 寸法・ピッチフィールド
+  DIMENSION: { min: 0.01, max: 9999999.99 },
+} as const;
+```
+
+**Implementation Notes**
+
+- Integration: 既存のQuantityValidationServiceを拡張
+- Validation: 全角/半角の文字幅を正しくカウント（全角は2、半角は1として計算）
+- Risks: 文字幅計算の正確性（Unicode文字の取り扱い）
 
 ---
 
@@ -544,7 +756,7 @@ interface BatchOperation {
 | Field | Detail |
 |-------|--------|
 | Intent | 高精度な数量計算ロジックを提供 |
-| Requirements | 8.1-8.11, 9.1-9.5, 10.1-10.5 |
+| Requirements | 8.1-8.11, 9.1-9.7, 10.1-10.7 |
 
 **Responsibilities & Constraints**
 
@@ -671,6 +883,94 @@ interface QuantityTableEditActions {
 
 - Summary-only: SiteSurveySectionCardと同じパターン
 - 表示要素: セクションタイトル、総数、直近N件のカード、「すべて見る」リンク
+
+---
+
+#### FieldValidator
+
+| Field | Detail |
+|-------|--------|
+| Intent | フロントエンドでのフィールド入力制御と書式設定 |
+| Requirements | 13.1, 13.2, 13.3, 13.4, 14.1, 14.2, 14.3, 14.4, 14.5, 15.1, 15.2, 15.3 |
+
+**Responsibilities & Constraints**
+
+- テキストフィールドの最大文字数超過防止
+- 数値フィールドの範囲外入力エラー表示
+- 数値フィールドの小数2桁常時表示
+- 全てのテキストフィールドを左寄せ、数値フィールドを右寄せで表示
+
+**Contracts**: Service [x]
+
+##### Service Interface
+
+```typescript
+interface FieldValidator {
+  /**
+   * テキストフィールドの文字数チェック（入力中）
+   * 最大文字数を超える入力を防止
+   */
+  validateTextInput(
+    value: string,
+    maxZenkaku: number,
+    maxHankaku: number
+  ): { isValid: boolean; truncated: string };
+
+  /**
+   * 数値フィールドの範囲チェック
+   */
+  validateNumericInput(
+    value: number,
+    min: number,
+    max: number
+  ): { isValid: boolean; error?: string };
+
+  /**
+   * 数値を小数2桁表示に書式設定
+   */
+  formatDecimal2(value: number): string;
+
+  /**
+   * 条件付き書式設定（空白または小数2桁）
+   */
+  formatConditionalDecimal2(value: number | null): string;
+
+  /**
+   * 文字幅計算（全角=2、半角=1）
+   */
+  calculateStringWidth(value: string): number;
+}
+
+/**
+ * フィールド書式設定用React Hook
+ */
+interface UseFieldFormatterOptions {
+  type: 'text' | 'numeric' | 'conditional-numeric';
+  maxZenkaku?: number;
+  maxHankaku?: number;
+  min?: number;
+  max?: number;
+  decimalPlaces?: number;
+  alignment?: 'left' | 'right';
+}
+
+function useFieldFormatter(options: UseFieldFormatterOptions): {
+  value: string;
+  onChange: (newValue: string) => void;
+  error: string | null;
+  formattedValue: string;
+  inputProps: {
+    style: { textAlign: 'left' | 'right' };
+    maxLength?: number;
+  };
+};
+```
+
+**Implementation Notes**
+
+- Integration: 各入力コンポーネントで使用
+- Validation: リアルタイムでの入力制御
+- Risks: 全角/半角判定の正確性（文字コード範囲で判定）
 
 ---
 
@@ -828,10 +1128,16 @@ erDiagram
 **Business Rules & Invariants**:
 
 - 数量表名は1-200文字
-- 必須フィールド: 大項目、工種、名称、単位、数量
-- 調整係数のデフォルトは1.00、0以下で警告
-- 丸め設定のデフォルトは0.01、0以下はエラー
-- 計算方法「面積・体積」では最低1項目の入力必須
+- 必須フィールド: 工種、名称、単位、計算方法、調整係数、丸め設定、数量
+- テキストフィールドの文字数制限:
+  - 大項目・中項目・小項目・任意分類・名称・規格・計算方法・備考: 全角25文字/半角50文字
+  - 工種: 全角8文字/半角16文字
+  - 単位: 全角3文字/半角6文字
+- 調整係数の範囲: -9.99～9.99、デフォルト1.00
+- 丸め設定の範囲: -99.99～99.99、デフォルト0.01、0または空白でデフォルト値適用
+- 数量の範囲: -999999.99～9999999.99、デフォルト0
+- 寸法・ピッチフィールドの範囲: 0.01～9999999.99または空白
+- 計算方法「面積・体積」では幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力必須
 - 計算方法「ピッチ」では範囲長・端長1・端長2・ピッチ長が必須
 
 ### Logical Data Model
@@ -865,20 +1171,20 @@ erDiagram
 |--------|------|-------------|-------------|
 | id | UUID | PK, DEFAULT uuid() | 数量項目ID |
 | quantityGroupId | UUID | FK, NOT NULL, ON DELETE CASCADE | 数量グループID |
-| majorCategory | VARCHAR(100) | NOT NULL | 大項目 |
-| middleCategory | VARCHAR(100) | NULL | 中項目 |
-| minorCategory | VARCHAR(100) | NULL | 小項目 |
-| customCategory | VARCHAR(100) | NULL | 任意分類 |
-| workType | VARCHAR(100) | NOT NULL | 工種 |
-| name | VARCHAR(200) | NOT NULL | 名称 |
-| specification | VARCHAR(500) | NULL | 規格 |
-| unit | VARCHAR(50) | NOT NULL | 単位 |
+| majorCategory | VARCHAR(50) | NOT NULL | 大項目（全角25/半角50） |
+| middleCategory | VARCHAR(50) | NULL | 中項目（全角25/半角50） |
+| minorCategory | VARCHAR(50) | NULL | 小項目（全角25/半角50） |
+| customCategory | VARCHAR(50) | NULL | 任意分類（全角25/半角50） |
+| workType | VARCHAR(16) | NOT NULL | 工種（全角8/半角16） |
+| name | VARCHAR(50) | NOT NULL | 名称（全角25/半角50） |
+| specification | VARCHAR(50) | NULL | 規格（全角25/半角50） |
+| unit | VARCHAR(6) | NOT NULL | 単位（全角3/半角6） |
 | calculationMethod | ENUM | NOT NULL, DEFAULT 'STANDARD' | 計算方法 |
 | calculationParams | JSONB | NULL | 計算用パラメータ |
-| adjustmentFactor | DECIMAL(10,4) | NOT NULL, DEFAULT 1.0000 | 調整係数 |
-| roundingUnit | DECIMAL(10,4) | NOT NULL, DEFAULT 0.0100 | 丸め単位 |
-| quantity | DECIMAL(15,4) | NOT NULL | 数量 |
-| remarks | TEXT | NULL | 備考 |
+| adjustmentFactor | DECIMAL(5,2) | NOT NULL, DEFAULT 1.00 | 調整係数（-9.99～9.99） |
+| roundingUnit | DECIMAL(6,2) | NOT NULL, DEFAULT 0.01 | 丸め単位（-99.99～99.99） |
+| quantity | DECIMAL(12,2) | NOT NULL | 数量（-999999.99～9999999.99） |
+| remarks | VARCHAR(50) | NULL | 備考（全角25/半角50） |
 | displayOrder | INT | NOT NULL | 表示順序 |
 | createdAt | TIMESTAMP | NOT NULL, DEFAULT NOW() | 作成日時 |
 | updatedAt | TIMESTAMP | NOT NULL, @updatedAt | 更新日時 |
@@ -906,7 +1212,7 @@ enum CalculationMethod {
 
 **User Errors (4xx)**:
 
-- `400 BAD_REQUEST`: 入力バリデーションエラー（必須フィールド未入力、計算方法と入力値の不整合）
+- `400 BAD_REQUEST`: 入力バリデーションエラー（必須フィールド未入力、計算方法と入力値の不整合、範囲外入力、文字数超過）
 - `404 NOT_FOUND`: 数量表・グループ・項目が存在しない
 - `409 CONFLICT`: 楽観的排他制御エラー（他ユーザーによる更新との競合）
 - `422 UNPROCESSABLE_ENTITY`: ビジネスロジックエラー
@@ -915,12 +1221,15 @@ enum CalculationMethod {
 
 - 計算不整合エラー: 問題のフィールドをハイライト
 - 必須項目未入力エラー: 面積・体積やピッチモードでの必須項目チェック
+- 範囲外入力エラー: 各フィールドの入力可能範囲を超えた値
+- 文字数超過エラー: テキストフィールドの最大文字数超過
 
 ### Monitoring
 
 - 保存エラー率の監視
 - 自動保存の成功率
 - 計算エラー発生頻度
+- バリデーションエラー分布
 
 ## Testing Strategy
 
@@ -930,12 +1239,17 @@ enum CalculationMethod {
 - QuantityTableService: CRUD操作、楽観的排他制御のテスト
 - QuantityGroupService: CRUD操作、写真紐付けのテスト
 - QuantityItemService: 計算検証のテスト
+- QuantityValidationService: フィールド仕様バリデーションのテスト
+  - テキストフィールド文字数制限（全角/半角）
+  - 数値フィールド範囲検証
+  - 表示書式変換
 
 ### Integration Tests
 
 - 数量表作成 → グループ追加 → 項目追加 → 保存の一連フロー
 - 計算方法の切り替えと数量再計算の正確性テスト
 - 楽観的排他制御の競合シナリオ
+- フィールドバリデーションエラー時の保存阻止
 
 ### E2E Tests
 
@@ -943,6 +1257,10 @@ enum CalculationMethod {
 - 計算方法変更と数量再計算
 - コピー・移動操作
 - パンくずナビゲーション
+- 入力制限の動作確認
+  - テキストフィールドの最大文字数入力防止
+  - 数値フィールドの範囲外入力エラー表示
+  - 小数2桁表示の自動書式設定
 
 ### Performance Tests
 
@@ -956,6 +1274,7 @@ enum CalculationMethod {
 - 認証済みユーザーのみアクセス可能（既存のProtectedRoute使用）
 - プロジェクトへのアクセス権限チェック（既存のRBAC使用）
 - 入力値のサニタイズ（Zodスキーマ）
+- 数値範囲の厳格なバリデーション（オーバーフロー防止）
 
 ## Performance & Scalability
 
@@ -964,3 +1283,4 @@ enum CalculationMethod {
 - メモ化: 計算結果のキャッシュ（useMemo）
 - デバウンス: 自動保存は1500msデバウンス
 - バッチ処理: 複数項目の一括操作をトランザクションで実行
+- 入力制御の最適化: 文字幅計算のキャッシュ
