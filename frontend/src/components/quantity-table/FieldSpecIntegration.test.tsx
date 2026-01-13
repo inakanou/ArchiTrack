@@ -69,7 +69,9 @@ describe('FieldValidatedItemRow - Task 14.1', () => {
     it('大項目が全角26文字の場合にエラーを表示する', async () => {
       // 全角26文字の大項目でレンダリング（超過）
       const itemWithLongCategory = { ...mockItem, majorCategory: 'あ'.repeat(26) };
-      render(<FieldValidatedItemRow {...defaultProps} item={itemWithLongCategory} showValidation />);
+      render(
+        <FieldValidatedItemRow {...defaultProps} item={itemWithLongCategory} showValidation />
+      );
 
       // エラーメッセージが表示されることを確認
       await waitFor(() => {
@@ -95,7 +97,9 @@ describe('FieldValidatedItemRow - Task 14.1', () => {
     it('工種が全角9文字の場合にエラーを表示する', async () => {
       // 全角9文字の工種でレンダリング（超過）
       const itemWithLongWorkType = { ...mockItem, workType: 'あ'.repeat(9) };
-      render(<FieldValidatedItemRow {...defaultProps} item={itemWithLongWorkType} showValidation />);
+      render(
+        <FieldValidatedItemRow {...defaultProps} item={itemWithLongWorkType} showValidation />
+      );
 
       // エラーメッセージが表示されることを確認
       await waitFor(() => {
@@ -151,7 +155,9 @@ describe('FieldValidatedItemRow - Task 14.1', () => {
     it('数量が範囲外の場合にエラーを表示する', async () => {
       // 範囲外の数量でレンダリング
       const itemWithOutOfRangeQuantity = { ...mockItem, quantity: 99999999 };
-      render(<FieldValidatedItemRow {...defaultProps} item={itemWithOutOfRangeQuantity} showValidation />);
+      render(
+        <FieldValidatedItemRow {...defaultProps} item={itemWithOutOfRangeQuantity} showValidation />
+      );
 
       // エラーメッセージが表示されることを確認
       await waitFor(() => {
@@ -178,7 +184,9 @@ describe('FieldValidatedItemRow - Task 14.1', () => {
     it('文字数超過フィールドにエラースタイルが適用される', async () => {
       // 全角26文字の大項目（超過）
       const itemWithLongCategory = { ...mockItem, majorCategory: 'あ'.repeat(26) };
-      render(<FieldValidatedItemRow {...defaultProps} item={itemWithLongCategory} showValidation />);
+      render(
+        <FieldValidatedItemRow {...defaultProps} item={itemWithLongCategory} showValidation />
+      );
 
       // エラーメッセージが表示される
       await waitFor(() => {
