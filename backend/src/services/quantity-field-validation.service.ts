@@ -453,4 +453,162 @@ export class QuantityFieldValidationService {
     }
     return this.formatDecimal2(value);
   }
+
+  // ============================================================================
+  // Task 14.2: 保存時バリデーション
+  // ============================================================================
+
+  /**
+   * フィールド仕様エラー型
+   */
+
+  /**
+   * 数量項目の全フィールドをフィールド仕様に基づいて検証する
+   *
+   * Task 14.2: 保存時バリデーションにフィールド仕様チェックを追加する
+   *
+   * Requirements:
+   * - 11.2: 保存前にすべてのフィールドの文字数・範囲をサーバーサイドで再検証する
+   * - 11.3: バリデーションエラー時にエラー箇所を特定する
+   * - 11.4: フィールド仕様違反の詳細なエラーメッセージを返却する
+   *
+   * @param item - 検証対象の数量項目
+   * @returns バリデーション結果
+   */
+  validateItemFieldSpecs(item: {
+    majorCategory: string;
+    middleCategory: string | null;
+    minorCategory: string | null;
+    customCategory: string | null;
+    workType: string;
+    name: string;
+    specification: string | null;
+    unit: string;
+    remarks: string | null;
+    adjustmentFactor: number;
+    roundingUnit: number;
+    quantity: number;
+  }): FieldSpecValidationResult {
+    const errors: FieldSpecError[] = [];
+
+    // テキストフィールドの文字数検証
+    const textFieldsToValidate = [
+      { field: 'majorCategory', value: item.majorCategory, validator: () => this.validateMajorCategory(item.majorCategory) },
+      { field: 'middleCategory', value: item.middleCategory, validator: () => item.middleCategory ? this.validateMiddleCategory(item.middleCategory) : { isValid: true } },
+      { field: 'minorCategory', value: item.minorCategory, validator: () => item.minorCategory ? this.validateMinorCategory(item.minorCategory) : { isValid: true } },
+      { field: 'customCategory', value: item.customCategory, validator: () => item.customCategory ? this.validateCustomCategory(item.customCategory) : { isValid: true } },
+      { field: 'workType', value: item.workType, validator: () => this.validateWorkType(item.workType) },
+      { field: 'name', value: item.name, validator: () => this.validateName(item.name) },
+      { field: 'specification', value: item.specification, validator: () => item.specification ? this.validateSpecification(item.specification) : { isValid: true } },
+      { field: 'unit', value: item.unit, validator: () => this.validateUnit(item.unit) },
+      { field: 'remarks', value: item.remarks, validator: () => item.remarks ? this.validateRemarks(item.remarks) : { isValid: true } },
+    ] as const;
+
+    for (const { field, value, validator } of textFieldsToValidate) {
+      const result = validator();
+      if (!result.isValid && result.error) {
+        errors.push({
+          field,
+          message: result.error,
+          value: value ?? undefined,
+        });
+      }
+    }
+
+    // 数値フィールドの範囲検証
+    const adjustmentFactorResult = this.validateAdjustmentFactor(item.adjustmentFactor);
+    if (!adjustmentFactorResult.isValid) {
+      errors.push({
+        field: 'adjustmentFactor',
+        message: '調整係数は-9.99から9.99の範囲で入力してください',
+        value: item.adjustmentFactor,
+      });
+    }
+
+    // 丸め設定の範囲検証（フィールド仕様: 0.01〜999.99）
+    const roundingUnitMin = 0.01;
+    const roundingUnitMax = 999.99;
+    if (item.roundingUnit < roundingUnitMin || item.roundingUnit > roundingUnitMax) {
+      errors.push({
+        field: 'roundingUnit',
+        message: `丸め設定は${roundingUnitMin}から${roundingUnitMax}の範囲で入力してください`,
+        value: item.roundingUnit,
+      });
+    }
+
+    const quantityResult = this.validateQuantity(item.quantity);
+    if (!quantityResult.isValid) {
+      errors.push({
+        field: 'quantity',
+        message: '数量は-999999.99から9999999.99の範囲で入力してください',
+        value: item.quantity,
+      });
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
+  }
+
+  /**
+   * フィールド仕様違反のエラーレスポンスを生成する
+   *
+   * Task 14.2: フィールド仕様違反の詳細なエラーメッセージを返却する
+   *
+   * @param errors - フィールドエラー配列
+   * @returns RFC 7807準拠のエラーレスポンス
+   */
+  createValidationErrorResponse(errors: FieldSpecError[]): FieldValidationErrorResponse {
+    const errorMessages = errors.map(e => e.message).join('; ');
+
+    return {
+      type: 'https://architrack.example.com/problems/field-validation-error',
+      title: 'Field Validation Error',
+      status: 400,
+      detail: `フィールド仕様違反: ${errorMessages}`,
+      code: 'FIELD_VALIDATION_ERROR',
+      fieldErrors: errors,
+    };
+  }
+}
+
+/**
+ * フィールド仕様エラー型
+ */
+export interface FieldSpecError {
+  /** フィールド名 */
+  field: string;
+  /** エラーメッセージ */
+  message: string;
+  /** 問題のある値 */
+  value?: string | number;
+}
+
+/**
+ * フィールド仕様バリデーション結果型
+ */
+export interface FieldSpecValidationResult {
+  /** バリデーション成否 */
+  isValid: boolean;
+  /** エラー配列 */
+  errors: FieldSpecError[];
+}
+
+/**
+ * フィールドバリデーションエラーレスポンス型
+ */
+export interface FieldValidationErrorResponse {
+  /** RFC 7807 Problem Details - 問題タイプURI */
+  type: string;
+  /** RFC 7807 Problem Details - タイトル */
+  title: string;
+  /** HTTPステータスコード */
+  status: number;
+  /** エラー詳細メッセージ */
+  detail: string;
+  /** エラーコード */
+  code: string;
+  /** フィールドごとのエラー */
+  fieldErrors: FieldSpecError[];
 }

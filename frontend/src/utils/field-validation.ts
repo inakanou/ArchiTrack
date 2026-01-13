@@ -174,3 +174,176 @@ export function getRemainingWidth(value: string, fieldName: TextFieldName): numb
 export function formatDecimal2(value: number): string {
   return value.toFixed(2);
 }
+
+// ============================================================================
+// 数値フィールド範囲検証
+// Task 14.1: 数値フィールドに範囲チェックを適用する
+// ============================================================================
+
+/**
+ * 数値フィールドの範囲定義
+ *
+ * Requirements:
+ * - 14.3: 調整係数の範囲（-9.99〜9.99）
+ * - 14.4: 丸め設定の範囲（0.01〜999.99）
+ * - 15.1: 数量の範囲（-999999.99〜9999999.99）
+ */
+export const NUMERIC_FIELD_RANGES = {
+  adjustmentFactor: { min: -9.99, max: 9.99 },
+  roundingUnit: { min: 0.01, max: 999.99 },
+  quantity: { min: -999999.99, max: 9999999.99 },
+} as const;
+
+/**
+ * 数値フィールド名の型
+ */
+export type NumericFieldName = keyof typeof NUMERIC_FIELD_RANGES;
+
+/**
+ * 数値フィールドの日本語ラベル
+ */
+const NUMERIC_FIELD_LABELS: Record<NumericFieldName, string> = {
+  adjustmentFactor: '調整係数',
+  roundingUnit: '丸め設定',
+  quantity: '数量',
+};
+
+/**
+ * 数値フィールドの範囲検証
+ *
+ * @param value - 検証対象の数値
+ * @param fieldName - フィールド名
+ * @returns 検証結果
+ */
+export function validateNumericRange(
+  value: number,
+  fieldName: NumericFieldName
+): TextValidationResult {
+  const range = NUMERIC_FIELD_RANGES[fieldName];
+  const label = NUMERIC_FIELD_LABELS[fieldName];
+
+  if (value >= range.min && value <= range.max) {
+    return { isValid: true };
+  }
+
+  return {
+    isValid: false,
+    error: `${label}は${range.min}から${range.max}の範囲で入力してください`,
+  };
+}
+
+// ============================================================================
+// 統合バリデーション
+// Task 14.1: フィールドバリデーターを使用した入力制御を統合する
+// ============================================================================
+
+/**
+ * フィールドバリデーションエラーの型
+ */
+export interface FieldValidationErrors {
+  majorCategory?: string;
+  middleCategory?: string;
+  minorCategory?: string;
+  customCategory?: string;
+  workType?: string;
+  name?: string;
+  specification?: string;
+  unit?: string;
+  calculationMethod?: string;
+  remarks?: string;
+  adjustmentFactor?: string;
+  roundingUnit?: string;
+  quantity?: string;
+}
+
+/**
+ * 数量項目のフィールドバリデーション入力型
+ */
+export interface QuantityItemValidationInput {
+  majorCategory: string;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  remarks: string | null;
+  adjustmentFactor: number;
+  roundingUnit: number;
+  quantity: number;
+}
+
+/**
+ * 数量項目の全フィールドを検証する
+ *
+ * Task 14.1: フィールドバリデーターを使用した入力制御を統合する
+ *
+ * Requirements:
+ * - 13.1, 13.2, 13.3: テキストフィールドの文字数制限
+ * - 14.3, 14.4, 15.1: 数値フィールドの範囲チェック
+ *
+ * @param item - 検証対象の数量項目
+ * @returns フィールドごとのエラーメッセージ（エラーがない場合はundefined）
+ */
+export function validateQuantityItemFields(
+  item: QuantityItemValidationInput
+): FieldValidationErrors {
+  const errors: FieldValidationErrors = {};
+
+  // テキストフィールドの文字数検証
+  const textFieldsToValidate: Array<{
+    fieldName: TextFieldName;
+    value: string | null;
+  }> = [
+    { fieldName: 'majorCategory', value: item.majorCategory },
+    { fieldName: 'middleCategory', value: item.middleCategory },
+    { fieldName: 'minorCategory', value: item.minorCategory },
+    { fieldName: 'customCategory', value: item.customCategory },
+    { fieldName: 'workType', value: item.workType },
+    { fieldName: 'name', value: item.name },
+    { fieldName: 'specification', value: item.specification },
+    { fieldName: 'unit', value: item.unit },
+    { fieldName: 'remarks', value: item.remarks },
+  ];
+
+  for (const { fieldName, value } of textFieldsToValidate) {
+    if (value !== null && value !== undefined && value !== '') {
+      const result = validateTextLength(value, fieldName);
+      if (!result.isValid) {
+        errors[fieldName] = result.error;
+      }
+    }
+  }
+
+  // 数値フィールドの範囲検証
+  const numericFieldsToValidate: Array<{
+    fieldName: NumericFieldName;
+    value: number;
+  }> = [
+    { fieldName: 'adjustmentFactor', value: item.adjustmentFactor },
+    { fieldName: 'roundingUnit', value: item.roundingUnit },
+    { fieldName: 'quantity', value: item.quantity },
+  ];
+
+  for (const { fieldName, value } of numericFieldsToValidate) {
+    if (typeof value === 'number' && !isNaN(value)) {
+      const result = validateNumericRange(value, fieldName);
+      if (!result.isValid) {
+        errors[fieldName] = result.error;
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * バリデーションエラーが存在するかチェック
+ *
+ * @param errors - バリデーションエラー
+ * @returns エラーが存在する場合true
+ */
+export function hasValidationErrors(errors: FieldValidationErrors): boolean {
+  return Object.values(errors).some((error) => error !== undefined);
+}
