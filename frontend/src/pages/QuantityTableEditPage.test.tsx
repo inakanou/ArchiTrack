@@ -707,7 +707,7 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 5.2: 項目更新機能', () => {
-    it('項目のフィールドを編集すると更新APIが呼ばれる', async () => {
+    it('項目のフィールドを編集して保存ボタンをクリックすると更新APIが呼ばれる', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       mockUpdateQuantityItem.mockResolvedValue({
@@ -726,15 +726,16 @@ describe('QuantityTableEditPage', () => {
       await user.clear(nameInput);
       await user.type(nameInput, '足場（更新）');
 
-      // フォーカスを外してblurイベントを発火
-      await user.tab();
+      // 保存ボタンをクリック
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      await user.click(saveButton);
 
       await waitFor(() => {
         expect(mockUpdateQuantityItem).toHaveBeenCalled();
       });
     });
 
-    it('項目更新に失敗した場合はエラーが表示される', async () => {
+    it('保存に失敗した場合はエラーが表示される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       mockUpdateQuantityItem.mockRejectedValue(new Error('Update failed'));
@@ -745,14 +746,12 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // 項目名を変更
-      const nameInput = screen.getByDisplayValue('足場');
-      await user.clear(nameInput);
-      await user.type(nameInput, '足場（更新）');
-      await user.tab();
+      // 保存ボタンをクリック
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      await user.click(saveButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/項目の更新に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/保存に失敗しました/)).toBeInTheDocument();
       });
     });
 
@@ -913,6 +912,9 @@ describe('QuantityTableEditPage', () => {
     it('保存ボタンをクリックすると保存メッセージが表示される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockUpdateQuantityItem.mockResolvedValue({
+        ...mockQuantityTableDetail.groups[0]!.items[0]!,
+      });
 
       renderWithRouter();
 

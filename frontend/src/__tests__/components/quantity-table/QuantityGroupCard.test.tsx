@@ -76,6 +76,7 @@ describe('QuantityGroupCard', () => {
     onAddItem: vi.fn(),
     onDeleteGroup: vi.fn(),
     onSelectImage: vi.fn(),
+    onOpenAnnotationViewer: vi.fn(),
     onUpdateItem: vi.fn(),
     onDeleteItem: vi.fn(),
   };
@@ -134,13 +135,13 @@ describe('QuantityGroupCard', () => {
       expect(screen.getByTestId('image-placeholder-group-1')).toBeInTheDocument();
     });
 
-    it('サムネイルをクリックするとonSelectImageが呼ばれる', async () => {
+    it('サムネイルをクリックするとonOpenAnnotationViewerが呼ばれる（画像がある場合）', async () => {
       const user = userEvent.setup();
       render(<QuantityGroupCard {...defaultProps} />);
 
       await user.click(screen.getByAltText('photo1.jpg'));
 
-      expect(defaultProps.onSelectImage).toHaveBeenCalledWith('group-1');
+      expect(defaultProps.onOpenAnnotationViewer).toHaveBeenCalledWith('group-1');
     });
 
     it('プレースホルダーをクリックするとonSelectImageが呼ばれる', async () => {
@@ -153,7 +154,7 @@ describe('QuantityGroupCard', () => {
       expect(defaultProps.onSelectImage).toHaveBeenCalledWith('group-1');
     });
 
-    it('サムネイルでEnterキーを押すとonSelectImageが呼ばれる', async () => {
+    it('サムネイルでEnterキーを押すとonOpenAnnotationViewerが呼ばれる（画像がある場合）', async () => {
       const user = userEvent.setup();
       render(<QuantityGroupCard {...defaultProps} />);
 
@@ -161,10 +162,10 @@ describe('QuantityGroupCard', () => {
       thumbnail?.focus();
       await user.keyboard('{Enter}');
 
-      expect(defaultProps.onSelectImage).toHaveBeenCalledWith('group-1');
+      expect(defaultProps.onOpenAnnotationViewer).toHaveBeenCalledWith('group-1');
     });
 
-    it('サムネイルでSpaceキーを押すとonSelectImageが呼ばれる', async () => {
+    it('サムネイルでSpaceキーを押すとonOpenAnnotationViewerが呼ばれる（画像がある場合）', async () => {
       const user = userEvent.setup();
       render(<QuantityGroupCard {...defaultProps} />);
 
@@ -172,7 +173,7 @@ describe('QuantityGroupCard', () => {
       thumbnail?.focus();
       await user.keyboard(' ');
 
-      expect(defaultProps.onSelectImage).toHaveBeenCalledWith('group-1');
+      expect(defaultProps.onOpenAnnotationViewer).toHaveBeenCalledWith('group-1');
     });
   });
 
@@ -276,7 +277,7 @@ describe('QuantityGroupCard', () => {
     it('サムネイルにaria-labelが設定されている', () => {
       render(<QuantityGroupCard {...defaultProps} />);
 
-      expect(screen.getByRole('button', { name: '紐付け画像を変更' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '紐付け画像を表示' })).toBeInTheDocument();
     });
 
     it('プレースホルダーにaria-labelが設定されている', () => {
