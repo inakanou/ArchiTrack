@@ -920,4 +920,266 @@ describe('QuantityFieldValidationService', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 14.2: 保存時バリデーション
+  // ==========================================================================
+  describe('Task 14.2: 保存時バリデーション', () => {
+    describe('validateItemFieldSpecs - フィールド仕様検証', () => {
+      const createValidItem = () => ({
+        majorCategory: '建築工事',
+        middleCategory: '内装仕上工事',
+        minorCategory: '床工事',
+        customCategory: '特殊分類',
+        workType: '足場工事',
+        name: '外部足場',
+        specification: 'H=10m',
+        unit: 'm2',
+        remarks: '備考',
+        adjustmentFactor: 1.0,
+        roundingUnit: 0.01,
+        quantity: 100.0,
+      });
+
+      describe('テキストフィールドの文字数検証', () => {
+        it('全てのテキストフィールドが有効な場合、エラーは返されない', () => {
+          const result = service.validateItemFieldSpecs(createValidItem());
+          expect(result.isValid).toBe(true);
+          expect(result.errors).toHaveLength(0);
+        });
+
+        it('大項目が全角25文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), majorCategory: 'あ'.repeat(26) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors).toContainEqual({
+            field: 'majorCategory',
+            message: '大項目は全角25文字/半角50文字以内で入力してください',
+            value: item.majorCategory,
+          });
+        });
+
+        it('中項目が全角25文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), middleCategory: 'あ'.repeat(26) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'middleCategory')).toBe(true);
+        });
+
+        it('小項目が全角25文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), minorCategory: 'あ'.repeat(26) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'minorCategory')).toBe(true);
+        });
+
+        it('任意分類が全角25文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), customCategory: 'あ'.repeat(26) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'customCategory')).toBe(true);
+        });
+
+        it('工種が全角8文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), workType: 'あ'.repeat(9) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors).toContainEqual({
+            field: 'workType',
+            message: '工種は全角8文字/半角16文字以内で入力してください',
+            value: item.workType,
+          });
+        });
+
+        it('名称が全角25文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), name: 'あ'.repeat(26) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'name')).toBe(true);
+        });
+
+        it('規格が全角25文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), specification: 'あ'.repeat(26) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'specification')).toBe(true);
+        });
+
+        it('単位が全角3文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), unit: 'あいうえ' };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors).toContainEqual({
+            field: 'unit',
+            message: '単位は全角3文字/半角6文字以内で入力してください',
+            value: item.unit,
+          });
+        });
+
+        it('備考が全角25文字を超えた場合、エラーが返される', () => {
+          const item = { ...createValidItem(), remarks: 'あ'.repeat(26) };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'remarks')).toBe(true);
+        });
+
+        it('半角文字は幅1、全角文字は幅2としてカウントされる', () => {
+          const item = {
+            ...createValidItem(),
+            majorCategory: 'あaいbうcえdおeかfきgくhけiこj', // 10全角(20) + 10半角(10) = 30幅
+          };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(true);
+        });
+      });
+
+      describe('数値フィールドの範囲検証', () => {
+        it('調整係数が範囲外（-9.99〜9.99）の場合、エラーが返される', () => {
+          const item = { ...createValidItem(), adjustmentFactor: 10.0 };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors).toContainEqual({
+            field: 'adjustmentFactor',
+            message: '調整係数は-9.99から9.99の範囲で入力してください',
+            value: 10.0,
+          });
+        });
+
+        it('調整係数が負の範囲外の場合、エラーが返される', () => {
+          const item = { ...createValidItem(), adjustmentFactor: -10.0 };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'adjustmentFactor')).toBe(true);
+        });
+
+        it('丸め設定が範囲外（0.01〜999.99）の場合、エラーが返される', () => {
+          const item = { ...createValidItem(), roundingUnit: 0.001 };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors).toContainEqual({
+            field: 'roundingUnit',
+            message: '丸め設定は0.01から999.99の範囲で入力してください',
+            value: 0.001,
+          });
+        });
+
+        it('丸め設定が上限超過の場合、エラーが返される', () => {
+          const item = { ...createValidItem(), roundingUnit: 1000.0 };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'roundingUnit')).toBe(true);
+        });
+
+        it('数量が範囲外（-999999.99〜9999999.99）の場合、エラーが返される', () => {
+          const item = { ...createValidItem(), quantity: 10000000.0 };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors).toContainEqual({
+            field: 'quantity',
+            message: '数量は-999999.99から9999999.99の範囲で入力してください',
+            value: 10000000.0,
+          });
+        });
+
+        it('数量が負の範囲外の場合、エラーが返される', () => {
+          const item = { ...createValidItem(), quantity: -1000000.0 };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.some((e) => e.field === 'quantity')).toBe(true);
+        });
+      });
+
+      describe('複数フィールドエラー', () => {
+        it('複数のフィールドにエラーがある場合、全てのエラーが返される', () => {
+          const item = {
+            ...createValidItem(),
+            majorCategory: 'あ'.repeat(26),
+            workType: 'あ'.repeat(9),
+            unit: 'あいうえ',
+            adjustmentFactor: 10.0,
+          };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(false);
+          expect(result.errors.length).toBe(4);
+          expect(result.errors.map((e) => e.field)).toContain('majorCategory');
+          expect(result.errors.map((e) => e.field)).toContain('workType');
+          expect(result.errors.map((e) => e.field)).toContain('unit');
+          expect(result.errors.map((e) => e.field)).toContain('adjustmentFactor');
+        });
+      });
+
+      describe('null/undefinedフィールドの処理', () => {
+        it('nullのオプションフィールドはバリデーションをスキップする', () => {
+          const item = {
+            ...createValidItem(),
+            middleCategory: null,
+            minorCategory: null,
+            customCategory: null,
+            specification: null,
+            remarks: null,
+          };
+          const result = service.validateItemFieldSpecs(item);
+          expect(result.isValid).toBe(true);
+          expect(result.errors).toHaveLength(0);
+        });
+      });
+    });
+
+    describe('createValidationErrorResponse - エラーレスポンス生成', () => {
+      it('フィールド仕様違反の詳細なエラーメッセージを含むレスポンスを生成する', () => {
+        const errors = [
+          {
+            field: 'majorCategory',
+            message: '大項目は全角25文字/半角50文字以内で入力してください',
+            value: 'あ'.repeat(26),
+          },
+          {
+            field: 'workType',
+            message: '工種は全角8文字/半角16文字以内で入力してください',
+            value: 'あ'.repeat(9),
+          },
+        ];
+
+        const response = service.createValidationErrorResponse(errors);
+
+        expect(response.type).toBe(
+          'https://architrack.example.com/problems/field-validation-error'
+        );
+        expect(response.title).toBe('Field Validation Error');
+        expect(response.status).toBe(400);
+        expect(response.code).toBe('FIELD_VALIDATION_ERROR');
+        expect(response.fieldErrors).toHaveLength(2);
+        expect(response.fieldErrors[0]).toEqual({
+          field: 'majorCategory',
+          message: '大項目は全角25文字/半角50文字以内で入力してください',
+          value: 'あ'.repeat(26),
+        });
+      });
+
+      it('エラーメッセージは日本語で返される', () => {
+        const errors = [
+          {
+            field: 'quantity',
+            message: '数量は-999999.99から9999999.99の範囲で入力してください',
+            value: 10000000,
+          },
+        ];
+
+        const response = service.createValidationErrorResponse(errors);
+
+        expect(response.detail).toContain('数量は-999999.99から9999999.99の範囲で入力してください');
+      });
+
+      it('複数エラーがセミコロンで連結される', () => {
+        const errors = [
+          { field: 'majorCategory', message: 'エラー1', value: 'x' },
+          { field: 'workType', message: 'エラー2', value: 'y' },
+        ];
+
+        const response = service.createValidationErrorResponse(errors);
+
+        expect(response.detail).toBe('フィールド仕様違反: エラー1; エラー2');
+      });
+    });
+  });
 });
