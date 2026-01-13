@@ -10,8 +10,376 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
+import {
+  QuantityFieldValidationService,
+  FIELD_CONSTRAINTS,
+} from './quantity-field-validation.service.js';
 
+describe('QuantityFieldValidationService', () => {
+  let service: QuantityFieldValidationService;
+
+  beforeEach(() => {
+    service = new QuantityFieldValidationService();
+  });
+
+  // ==========================================================================
+  // 文字幅計算
+  // ==========================================================================
+  describe('calculateStringWidth - 文字幅計算', () => {
+    it('半角英数字は幅1としてカウントされる', () => {
+      expect(service.calculateStringWidth('abc123')).toBe(6);
+    });
+
+    it('全角文字は幅2としてカウントされる', () => {
+      expect(service.calculateStringWidth('あいう')).toBe(6);
+    });
+
+    it('半角カタカナは幅1としてカウントされる', () => {
+      expect(service.calculateStringWidth('ｱｲｳ')).toBe(3);
+    });
+
+    it('混在文字列は正しくカウントされる', () => {
+      expect(service.calculateStringWidth('aあ1い')).toBe(6); // 1+2+1+2
+    });
+
+    it('空文字列は幅0を返す', () => {
+      expect(service.calculateStringWidth('')).toBe(0);
+    });
+  });
+
+  // ==========================================================================
+  // テキストフィールド検証
+  // ==========================================================================
+  describe('validateTextLength - テキスト長検証', () => {
+    it('幅が最大値以下の場合trueを返す', () => {
+      expect(service.validateTextLength('abc', 25, 50)).toBe(true);
+    });
+
+    it('幅が最大値を超える場合falseを返す', () => {
+      expect(service.validateTextLength('a'.repeat(51), 25, 50)).toBe(false);
+    });
+  });
+
+  describe('個別テキストフィールド検証', () => {
+    it('validateMajorCategory - 有効な値', () => {
+      const result = service.validateMajorCategory('建築工事');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateMajorCategory - 無効な値', () => {
+      const result = service.validateMajorCategory('あ'.repeat(26));
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain('大項目');
+    });
+
+    it('validateMiddleCategory - 有効な値', () => {
+      const result = service.validateMiddleCategory('内装工事');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateMinorCategory - 有効な値', () => {
+      const result = service.validateMinorCategory('床工事');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateCustomCategory - 有効な値', () => {
+      const result = service.validateCustomCategory('特殊分類');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateWorkType - 有効な値', () => {
+      const result = service.validateWorkType('足場工事');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateWorkType - 無効な値（8文字超過）', () => {
+      const result = service.validateWorkType('あ'.repeat(9));
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain('工種');
+    });
+
+    it('validateName - 有効な値', () => {
+      const result = service.validateName('外部足場');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateSpecification - 有効な値', () => {
+      const result = service.validateSpecification('H=10m');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateUnit - 有効な値', () => {
+      const result = service.validateUnit('m2');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateUnit - 無効な値（3文字超過）', () => {
+      const result = service.validateUnit('あいうえ');
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain('単位');
+    });
+
+    it('validateCalculationMethodText - 有効な値', () => {
+      const result = service.validateCalculationMethodText('長さ×幅');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('validateRemarks - 有効な値', () => {
+      const result = service.validateRemarks('備考テスト');
+      expect(result.isValid).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // 数値フィールド検証
+  // ==========================================================================
+  describe('validateNumericRange - 数値範囲検証', () => {
+    it('範囲内の値は有効', () => {
+      const result = service.validateNumericRange(5, 0, 10);
+      expect(result.isValid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('最小値未満はエラー', () => {
+      const result = service.validateNumericRange(-1, 0, 10);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+    });
+
+    it('最大値超過はエラー', () => {
+      const result = service.validateNumericRange(11, 0, 10);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+    });
+
+    it('境界値（最小値）は有効', () => {
+      const result = service.validateNumericRange(0, 0, 10);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（最大値）は有効', () => {
+      const result = service.validateNumericRange(10, 0, 10);
+      expect(result.isValid).toBe(true);
+    });
+  });
+
+  describe('validateAdjustmentFactor - 調整係数検証', () => {
+    it('範囲内（-9.99〜9.99）の値は有効', () => {
+      const result = service.validateAdjustmentFactor(1.5);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（-9.99）は有効', () => {
+      const result = service.validateAdjustmentFactor(FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.min);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（9.99）は有効', () => {
+      const result = service.validateAdjustmentFactor(FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.max);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('範囲外の値はエラー', () => {
+      const result = service.validateAdjustmentFactor(10);
+      expect(result.isValid).toBe(false);
+      expect(result.errors[0]?.field).toBe('adjustmentFactor');
+    });
+
+    it('負の範囲外の値はエラー', () => {
+      const result = service.validateAdjustmentFactor(-10);
+      expect(result.isValid).toBe(false);
+    });
+  });
+
+  describe('validateRoundingUnit - 丸め設定検証', () => {
+    it('範囲内（-99.99〜99.99）の値は有効', () => {
+      const result = service.validateRoundingUnit(0.01);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（-99.99）は有効', () => {
+      const result = service.validateRoundingUnit(FIELD_CONSTRAINTS.ROUNDING_UNIT.min);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（99.99）は有効', () => {
+      const result = service.validateRoundingUnit(FIELD_CONSTRAINTS.ROUNDING_UNIT.max);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('範囲外の値はエラー', () => {
+      const result = service.validateRoundingUnit(100);
+      expect(result.isValid).toBe(false);
+      expect(result.errors[0]?.field).toBe('roundingUnit');
+    });
+  });
+
+  describe('validateQuantity - 数量検証', () => {
+    it('範囲内の値は有効', () => {
+      const result = service.validateQuantity(1000);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（-999999.99）は有効', () => {
+      const result = service.validateQuantity(FIELD_CONSTRAINTS.QUANTITY.min);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（9999999.99）は有効', () => {
+      const result = service.validateQuantity(FIELD_CONSTRAINTS.QUANTITY.max);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('範囲外の値はエラー', () => {
+      const result = service.validateQuantity(10000000);
+      expect(result.isValid).toBe(false);
+      expect(result.errors[0]?.field).toBe('quantity');
+    });
+
+    it('負の範囲外の値はエラー', () => {
+      const result = service.validateQuantity(-1000000);
+      expect(result.isValid).toBe(false);
+    });
+  });
+
+  describe('validateDimensionField - 寸法フィールド検証', () => {
+    it('範囲内の値は有効', () => {
+      const result = service.validateDimensionField(100);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('nullは有効（空白許可）', () => {
+      const result = service.validateDimensionField(null);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（0.01）は有効', () => {
+      const result = service.validateDimensionField(FIELD_CONSTRAINTS.DIMENSION.min);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('境界値（9999999.99）は有効', () => {
+      const result = service.validateDimensionField(FIELD_CONSTRAINTS.DIMENSION.max);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('最小値未満はエラー', () => {
+      const result = service.validateDimensionField(0.001);
+      expect(result.isValid).toBe(false);
+      expect(result.errors[0]?.field).toBe('dimension');
+    });
+
+    it('最大値超過はエラー', () => {
+      const result = service.validateDimensionField(10000000);
+      expect(result.isValid).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // デフォルト値適用
+  // ==========================================================================
+  describe('applyAdjustmentFactorDefault - 調整係数デフォルト値', () => {
+    it('nullの場合1.0を返す', () => {
+      expect(service.applyAdjustmentFactorDefault(null)).toBe(1.0);
+    });
+
+    it('undefinedの場合1.0を返す', () => {
+      expect(service.applyAdjustmentFactorDefault(undefined)).toBe(1.0);
+    });
+
+    it('値がある場合はそのまま返す', () => {
+      expect(service.applyAdjustmentFactorDefault(2.5)).toBe(2.5);
+    });
+
+    it('0の場合はそのまま返す', () => {
+      expect(service.applyAdjustmentFactorDefault(0)).toBe(0);
+    });
+  });
+
+  describe('applyRoundingUnitDefault - 丸め設定デフォルト値', () => {
+    it('nullの場合0.01を返す', () => {
+      expect(service.applyRoundingUnitDefault(null)).toBe(0.01);
+    });
+
+    it('undefinedの場合0.01を返す', () => {
+      expect(service.applyRoundingUnitDefault(undefined)).toBe(0.01);
+    });
+
+    it('0の場合0.01を返す', () => {
+      expect(service.applyRoundingUnitDefault(0)).toBe(0.01);
+    });
+
+    it('値がある場合はそのまま返す', () => {
+      expect(service.applyRoundingUnitDefault(0.1)).toBe(0.1);
+    });
+  });
+
+  describe('applyQuantityDefault - 数量デフォルト値', () => {
+    it('nullの場合0を返す', () => {
+      expect(service.applyQuantityDefault(null)).toBe(0);
+    });
+
+    it('undefinedの場合0を返す', () => {
+      expect(service.applyQuantityDefault(undefined)).toBe(0);
+    });
+
+    it('値がある場合はそのまま返す', () => {
+      expect(service.applyQuantityDefault(100)).toBe(100);
+    });
+
+    it('0の場合はそのまま返す', () => {
+      expect(service.applyQuantityDefault(0)).toBe(0);
+    });
+  });
+
+  // ==========================================================================
+  // 書式設定
+  // ==========================================================================
+  describe('formatDecimal2 - 小数2桁書式', () => {
+    it('整数を小数2桁に書式設定する', () => {
+      expect(service.formatDecimal2(1)).toBe('1.00');
+    });
+
+    it('小数1桁を小数2桁に書式設定する', () => {
+      expect(service.formatDecimal2(1.5)).toBe('1.50');
+    });
+
+    it('小数2桁はそのまま', () => {
+      expect(service.formatDecimal2(1.23)).toBe('1.23');
+    });
+
+    it('小数3桁以上は四捨五入される', () => {
+      expect(service.formatDecimal2(1.235)).toBe('1.24');
+      expect(service.formatDecimal2(1.234)).toBe('1.23');
+    });
+
+    it('負の数も正しく書式設定される', () => {
+      expect(service.formatDecimal2(-1.5)).toBe('-1.50');
+    });
+  });
+
+  describe('formatConditionalDecimal2 - 条件付き小数2桁書式', () => {
+    it('nullの場合空文字を返す', () => {
+      expect(service.formatConditionalDecimal2(null)).toBe('');
+    });
+
+    it('undefinedの場合空文字を返す', () => {
+      expect(service.formatConditionalDecimal2(undefined)).toBe('');
+    });
+
+    it('数値の場合小数2桁に書式設定する', () => {
+      expect(service.formatConditionalDecimal2(1)).toBe('1.00');
+    });
+
+    it('0の場合も書式設定される', () => {
+      expect(service.formatConditionalDecimal2(0)).toBe('0.00');
+    });
+  });
+});
+
+// ==========================================================================
+// Task 14.2 テスト
+// ==========================================================================
 describe('QuantityFieldValidationService - Task 14.2', () => {
   let service: QuantityFieldValidationService;
 
