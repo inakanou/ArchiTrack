@@ -279,8 +279,16 @@ describe('QuantityFieldValidationService - Task 14.2', () => {
   describe('createValidationErrorResponse - エラーレスポンス生成', () => {
     it('フィールド仕様違反の詳細なエラーメッセージを含むレスポンスを生成する', () => {
       const errors = [
-        { field: 'majorCategory', message: '大項目は全角25文字/半角50文字以内で入力してください', value: 'あ'.repeat(26) },
-        { field: 'workType', message: '工種は全角8文字/半角16文字以内で入力してください', value: 'あ'.repeat(9) },
+        {
+          field: 'majorCategory',
+          message: '大項目は全角25文字/半角50文字以内で入力してください',
+          value: 'あ'.repeat(26),
+        },
+        {
+          field: 'workType',
+          message: '工種は全角8文字/半角16文字以内で入力してください',
+          value: 'あ'.repeat(9),
+        },
       ];
 
       const response = service.createValidationErrorResponse(errors);
@@ -299,7 +307,11 @@ describe('QuantityFieldValidationService - Task 14.2', () => {
 
     it('エラーメッセージは日本語で返される', () => {
       const errors = [
-        { field: 'quantity', message: '数量は-999999.99から9999999.99の範囲で入力してください', value: 10000000 },
+        {
+          field: 'quantity',
+          message: '数量は-999999.99から9999999.99の範囲で入力してください',
+          value: 10000000,
+        },
       ];
 
       const response = service.createValidationErrorResponse(errors);

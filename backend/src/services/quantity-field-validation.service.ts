@@ -493,15 +493,51 @@ export class QuantityFieldValidationService {
 
     // テキストフィールドの文字数検証
     const textFieldsToValidate = [
-      { field: 'majorCategory', value: item.majorCategory, validator: () => this.validateMajorCategory(item.majorCategory) },
-      { field: 'middleCategory', value: item.middleCategory, validator: () => item.middleCategory ? this.validateMiddleCategory(item.middleCategory) : { isValid: true } },
-      { field: 'minorCategory', value: item.minorCategory, validator: () => item.minorCategory ? this.validateMinorCategory(item.minorCategory) : { isValid: true } },
-      { field: 'customCategory', value: item.customCategory, validator: () => item.customCategory ? this.validateCustomCategory(item.customCategory) : { isValid: true } },
-      { field: 'workType', value: item.workType, validator: () => this.validateWorkType(item.workType) },
+      {
+        field: 'majorCategory',
+        value: item.majorCategory,
+        validator: () => this.validateMajorCategory(item.majorCategory),
+      },
+      {
+        field: 'middleCategory',
+        value: item.middleCategory,
+        validator: () =>
+          item.middleCategory
+            ? this.validateMiddleCategory(item.middleCategory)
+            : { isValid: true },
+      },
+      {
+        field: 'minorCategory',
+        value: item.minorCategory,
+        validator: () =>
+          item.minorCategory ? this.validateMinorCategory(item.minorCategory) : { isValid: true },
+      },
+      {
+        field: 'customCategory',
+        value: item.customCategory,
+        validator: () =>
+          item.customCategory
+            ? this.validateCustomCategory(item.customCategory)
+            : { isValid: true },
+      },
+      {
+        field: 'workType',
+        value: item.workType,
+        validator: () => this.validateWorkType(item.workType),
+      },
       { field: 'name', value: item.name, validator: () => this.validateName(item.name) },
-      { field: 'specification', value: item.specification, validator: () => item.specification ? this.validateSpecification(item.specification) : { isValid: true } },
+      {
+        field: 'specification',
+        value: item.specification,
+        validator: () =>
+          item.specification ? this.validateSpecification(item.specification) : { isValid: true },
+      },
       { field: 'unit', value: item.unit, validator: () => this.validateUnit(item.unit) },
-      { field: 'remarks', value: item.remarks, validator: () => item.remarks ? this.validateRemarks(item.remarks) : { isValid: true } },
+      {
+        field: 'remarks',
+        value: item.remarks,
+        validator: () => (item.remarks ? this.validateRemarks(item.remarks) : { isValid: true }),
+      },
     ] as const;
 
     for (const { field, value, validator } of textFieldsToValidate) {
@@ -560,7 +596,7 @@ export class QuantityFieldValidationService {
    * @returns RFC 7807準拠のエラーレスポンス
    */
   createValidationErrorResponse(errors: FieldSpecError[]): FieldValidationErrorResponse {
-    const errorMessages = errors.map(e => e.message).join('; ');
+    const errorMessages = errors.map((e) => e.message).join('; ');
 
     return {
       type: 'https://architrack.example.com/problems/field-validation-error',
