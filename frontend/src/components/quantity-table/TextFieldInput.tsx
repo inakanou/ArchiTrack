@@ -140,9 +140,9 @@ function getCounterColor(remaining: number): string {
     return '#dc2626'; // red - ちょうど最大
   }
   if (remaining <= 10) {
-    return '#d97706'; // amber - 警告
+    return '#92400e'; // amber-800 - 警告 (WCAG AA contrast ratio: 5.7:1)
   }
-  return '#6b7280'; // gray - 通常
+  return '#4b5563'; // gray-600 - 通常 (WCAG AA contrast ratio: 7.0:1)
 }
 
 /**
@@ -186,6 +186,7 @@ export default function TextFieldInput({
   const generatedId = useId();
   const inputId = propId || generatedId;
   const errorId = `${inputId}-error`;
+  const counterId = `${inputId}-counter`;
 
   // 残り幅を計算
   const remaining = useMemo(() => getRemainingWidth(value, fieldName), [value, fieldName]);
@@ -220,7 +221,11 @@ export default function TextFieldInput({
           {label}
           {required && <span style={styles.requiredMark}>*</span>}
         </label>
-        {showCharacterCount && <span style={counterStyles}>{counterText}</span>}
+        {showCharacterCount && (
+          <span id={counterId} style={counterStyles} aria-live="polite">
+            {counterText}
+          </span>
+        )}
       </div>
 
       {/* 入力フィールド */}
@@ -235,7 +240,11 @@ export default function TextFieldInput({
           onChange={handleChange}
           aria-invalid={!!error}
           aria-required={required}
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={
+            [error ? errorId : null, showCharacterCount ? counterId : null]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
         />
       </div>
 

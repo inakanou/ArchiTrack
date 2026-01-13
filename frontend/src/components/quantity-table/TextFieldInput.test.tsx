@@ -148,7 +148,7 @@ describe('TextFieldInput', () => {
       const value = 'a'.repeat(42); // 残り8
       render(<TextFieldInput {...defaultProps} value={value} showCharacterCount />);
       const counter = screen.getByText('残り8');
-      expect(counter).toHaveStyle({ color: '#d97706' });
+      expect(counter).toHaveStyle({ color: '#92400e' });
     });
 
     it('残り幅が0の場合、エラー色で表示される', () => {
@@ -169,7 +169,7 @@ describe('TextFieldInput', () => {
       const value = 'a'.repeat(10); // 残り40
       render(<TextFieldInput {...defaultProps} value={value} showCharacterCount />);
       const counter = screen.getByText('残り40');
-      expect(counter).toHaveStyle({ color: '#6b7280' });
+      expect(counter).toHaveStyle({ color: '#4b5563' });
     });
   });
 
