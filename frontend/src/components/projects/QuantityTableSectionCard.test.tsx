@@ -147,7 +147,10 @@ describe('QuantityTableSectionCard', () => {
         />
       );
 
-      const tableLinks = screen.getAllByRole('link', { name: /数量表/ });
+      // 数量表カードへのリンクを取得（新規作成ボタンを除外）
+      const tableLinks = screen
+        .getAllByRole('link', { name: /数量表/ })
+        .filter((link) => !link.getAttribute('href')?.includes('/new'));
       expect(tableLinks[0]).toHaveAttribute(
         'href',
         `/projects/${projectId}/quantity-tables/table-1`
