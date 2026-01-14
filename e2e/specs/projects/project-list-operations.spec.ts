@@ -462,6 +462,49 @@ test.describe('プロジェクト一覧操作', () => {
    */
   test.describe('ソート機能', () => {
     /**
+     * ソートテストの前提条件: プロジェクトが存在することを確認し、なければ作成
+     */
+    test.beforeAll(async ({ browser }) => {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+
+      try {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto('/projects');
+        await page.waitForLoadState('networkidle');
+
+        // プロジェクトが存在するか確認
+        const table = page.getByRole('table');
+        const hasProjects = await table.isVisible({ timeout: 5000 }).catch(() => false);
+
+        if (!hasProjects) {
+          // プロジェクトがない場合は作成
+          await page.getByRole('button', { name: /新規作成/i }).click();
+          await page.waitForURL(/\/projects\/new/);
+
+          await page
+            .getByRole('textbox', { name: /プロジェクト名/i })
+            .fill(`ソートテスト用_${Date.now()}`);
+
+          // 営業担当者を選択（必須フィールド）
+          const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+          const options = await salesPersonSelect.locator('option').all();
+          if (options.length > 1 && options[1]) {
+            const firstUserOption = await options[1].getAttribute('value');
+            if (firstUserOption) {
+              await salesPersonSelect.selectOption(firstUserOption);
+            }
+          }
+
+          await page.getByRole('button', { name: /^作成$/i }).click();
+          await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
+        }
+      } finally {
+        await context.close();
+      }
+    });
+
+    /**
      * @requirement project-management/REQ-6.1
      */
     test('テーブルヘッダークリックでソートが実行される', async ({ page }) => {
@@ -559,10 +602,18 @@ test.describe('プロジェクト一覧操作', () => {
       await sortButton.click();
       await expect(page).toHaveURL(/sort=name/, { timeout: getTimeout(10000) });
 
+      // Reactコンポーネントのリレンダリングを待つ
+      await page.waitForLoadState('networkidle');
+
       // ソートアイコンまたはソート状態の視覚的な表示を確認
       // ソートボタン内のSVGアイコン、data属性、またはテキストでソート状態を確認
       const sortIconSvg = sortButton.locator('svg');
-      const hasSvgIcon = (await sortIconSvg.count()) > 0;
+
+      // SVGアイコンが表示されるまで待機（リレンダリング完了を待つ）
+      const hasSvgIcon = await sortIconSvg
+        .first()
+        .isVisible({ timeout: getTimeout(3000) })
+        .catch(() => false);
 
       // ボタンのテキストまたはaria属性でソート状態を確認
       const buttonText = await sortButton.textContent();
@@ -572,9 +623,14 @@ test.describe('プロジェクト一覧操作', () => {
         buttonText?.includes('↑') ||
         buttonText?.includes('↓');
 
-      // ソートアイコン（SVGまたは矢印記号）が存在することを確認
+      // th要素のaria-sort属性でソート状態を確認（より信頼性の高い方法）
+      const thElement = sortButton.locator('..');
+      const ariaSortValue = await thElement.getAttribute('aria-sort');
+      const hasAriaSortAttribute = ariaSortValue === 'ascending' || ariaSortValue === 'descending';
+
+      // ソートアイコン（SVGまたは矢印記号）またはaria-sort属性が存在することを確認
       // UIの実装方法によっていずれかが表示される
-      expect(hasSvgIcon || hasArrowSymbol).toBeTruthy();
+      expect(hasSvgIcon || hasArrowSymbol || hasAriaSortAttribute).toBeTruthy();
     });
 
     /**

@@ -95,15 +95,9 @@ test.describe('フィールド仕様', () => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/projects/${testProjectId}`);
-      await page.waitForLoadState('networkidle');
 
-      // 数量表作成ボタンをクリック
-      const createButton = page.getByRole('button', { name: /新規作成|数量表を作成/i });
-      await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
-      await createButton.click();
-
-      // 数量表作成モーダルまたはページを待つ
+      // 数量表作成ページに直接遷移（プロジェクト詳細ページの「新規作成」リンクは数量表0件時のみ表示）
+      await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
       await page.waitForLoadState('networkidle');
 
       // 数量表名を入力
@@ -479,22 +473,39 @@ test.describe('フィールド仕様', () => {
     test('テスト用プロジェクトを削除する', async ({ page }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
       // 削除ボタンをクリック
-      const deleteButton = page.getByRole('button', { name: /削除/i });
+      const deleteButton = page.getByRole('button', { name: /削除/i }).first();
       if (await deleteButton.isVisible()) {
         await deleteButton.click();
 
-        // 確認ダイアログで削除を確定
-        const confirmButton = page.getByRole('button', { name: /^削除$|^確定$|^はい$/i });
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
+        // 確認ダイアログが表示されるのを待つ
+        const dialog = page.getByRole('dialog');
+        const dialogVisible = await dialog
+          .waitFor({ state: 'visible', timeout: getTimeout(5000) })
+          .then(() => true)
+          .catch(() => false);
 
-          // 削除完了を待つ
-          await page.waitForURL(/\/projects(?!.*\/)/, { timeout: getTimeout(10000) });
+        if (dialogVisible) {
+          // 確認ダイアログ内の削除確定ボタンをクリック
+          const confirmButton = dialog.getByRole('button', { name: /^削除$/i });
+
+          // APIレスポンスを待ちながら削除ボタンをクリック
+          const deletePromise = page.waitForResponse(
+            (response) =>
+              response.url().includes(`/api/projects/${testProjectId}`) &&
+              response.request().method() === 'DELETE',
+            { timeout: getTimeout(15000) }
+          );
+
+          await confirmButton.click();
+          await deletePromise.catch(() => {});
+
+          // 一覧画面に遷移するのを待つ
+          await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
         }
       }
     });

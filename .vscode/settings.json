@@ -4,7 +4,9 @@
     "ArchiTrack",
     "architrack",
     "ARCHITRACK",
-    "beforeunload"
+    "beforeunload",
+    "networkidle",
+    "spinbutton"
   ],
 
   // TypeScript設定
