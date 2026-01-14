@@ -1013,8 +1013,8 @@ test.describe('プロジェクト管理 追加要件', () => {
     }) => {
       // OpenAPI仕様書へのアクセスを試行
       // フロントエンド経由（プロキシ）またはバックエンド直接
-      const baseUrl = process.env.BASE_URL || 'http://localhost:5173';
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+      const baseUrl = process.env.BASE_URL || 'http://localhost:5174';
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:3100';
 
       let response;
       let swaggerSpec;
