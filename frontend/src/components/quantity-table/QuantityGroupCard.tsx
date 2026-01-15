@@ -86,8 +86,8 @@ const styles = {
     transform: 'rotate(-90deg)',
   } as React.CSSProperties,
   thumbnailWrapper: {
-    width: '80px',
-    height: '60px',
+    width: '640px',
+    height: '480px',
     borderRadius: '6px',
     overflow: 'hidden',
     flexShrink: 0,
@@ -350,9 +350,45 @@ export default function QuantityGroupCard({
           <ChevronIcon />
         </button>
 
-        {/* サムネイル / プレースホルダー */}
+        {/* グループ情報 */}
+        <div style={styles.headerInfo}>
+          <h3 style={styles.groupName}>{groupDisplayName}</h3>
+          <p style={styles.groupMeta}>{group.itemCount}項目</p>
+        </div>
+
+        {/* アクションボタン */}
+        <div style={styles.headerActions}>
+          <button
+            type="button"
+            style={styles.actionButton}
+            onClick={handleAddItem}
+            aria-label="項目を追加"
+          >
+            <PlusIcon />
+            項目を追加
+          </button>
+          <button
+            type="button"
+            style={styles.deleteButton}
+            onClick={handleDeleteGroup}
+            aria-label="グループを削除"
+          >
+            <TrashIcon />
+            グループを削除
+          </button>
+        </div>
+      </div>
+
+      {/* コンテンツ（画像・項目一覧） REQ-3.4: グループ折りたたみ時に画像も非表示 */}
+      <div
+        style={{
+          ...styles.content,
+          ...(isExpanded ? styles.contentExpanded : styles.contentCollapsed),
+        }}
+      >
+        {/* 関連画像 / プレースホルダー（REQ-3.3: オリジナル画像を表示） */}
         <div
-          style={{ ...styles.thumbnailWrapper, position: 'relative' as const }}
+          style={{ ...styles.thumbnailWrapper, position: 'relative' as const, margin: '16px' }}
           onClick={handleImageClick}
           role="button"
           tabIndex={0}
@@ -368,7 +404,7 @@ export default function QuantityGroupCard({
           {group.surveyImage ? (
             <>
               <img
-                src={group.surveyImage.thumbnailUrl}
+                src={group.surveyImage.originalUrl}
                 alt={group.surveyImage.fileName}
                 style={styles.thumbnail}
               />
@@ -414,42 +450,6 @@ export default function QuantityGroupCard({
           )}
         </div>
 
-        {/* グループ情報 */}
-        <div style={styles.headerInfo}>
-          <h3 style={styles.groupName}>{groupDisplayName}</h3>
-          <p style={styles.groupMeta}>{group.itemCount}項目</p>
-        </div>
-
-        {/* アクションボタン */}
-        <div style={styles.headerActions}>
-          <button
-            type="button"
-            style={styles.actionButton}
-            onClick={handleAddItem}
-            aria-label="項目を追加"
-          >
-            <PlusIcon />
-            項目を追加
-          </button>
-          <button
-            type="button"
-            style={styles.deleteButton}
-            onClick={handleDeleteGroup}
-            aria-label="グループを削除"
-          >
-            <TrashIcon />
-            グループを削除
-          </button>
-        </div>
-      </div>
-
-      {/* コンテンツ（項目一覧） */}
-      <div
-        style={{
-          ...styles.content,
-          ...(isExpanded ? styles.contentExpanded : styles.contentCollapsed),
-        }}
-      >
         {items.length === 0 ? (
           <div style={styles.emptyState}>項目がありません</div>
         ) : (

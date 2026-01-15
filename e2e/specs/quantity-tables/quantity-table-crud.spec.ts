@@ -6,7 +6,7 @@
  * Requirements coverage (quantity-table-generation):
  * - REQ-1.1-REQ-1.7: プロジェクト詳細画面の数量表セクション
  * - REQ-2.1-REQ-2.5: 数量表の作成・管理
- * - REQ-3.1-REQ-3.3: 数量表編集画面の表示
+ * - REQ-3.1-REQ-3.4: 数量表編集画面の表示
  * - REQ-4.1-REQ-4.5: 数量グループの作成・管理
  * - REQ-5.1-REQ-5.4: 数量項目の追加・編集
  * - REQ-6.1-REQ-6.5: 数量項目のコピー・移動
@@ -602,6 +602,7 @@ test.describe('数量表CRUD操作', () => {
    * @requirement quantity-table-generation/REQ-3.1
    * @requirement quantity-table-generation/REQ-3.2
    * @requirement quantity-table-generation/REQ-3.3
+   * @requirement quantity-table-generation/REQ-3.4
    *
    * REQ-3: 数量表編集画面の表示
    */
@@ -1069,7 +1070,7 @@ test.describe('数量表CRUD操作', () => {
       }
     });
 
-    test('写真が紐づけられたグループでは注釈付きサムネイルが表示される (quantity-table-generation/REQ-3.3)', async ({
+    test('写真が紐づけられたグループではオリジナル画像（注釈付き）が表示される (quantity-table-generation/REQ-3.3)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -1099,12 +1100,24 @@ test.describe('数量表CRUD操作', () => {
       const firstGroup = groups.first();
 
       // 写真が紐付けられている場合のテスト
-      const thumbnail = firstGroup.locator('img');
-      const hasThumbnail = await thumbnail.isVisible({ timeout: 3000 }).catch(() => false);
+      const image = firstGroup.locator('img');
+      const hasImage = await image.isVisible({ timeout: 3000 }).catch(() => false);
 
-      if (hasThumbnail) {
-        // REQ-3.3: 注釈付きサムネイルが表示されることを確認（必須）
-        await expect(thumbnail).toBeVisible();
+      if (hasImage) {
+        // REQ-3.3: オリジナル画像（注釈付き）が表示されることを確認（必須）
+        await expect(image).toBeVisible();
+
+        // 画像のsrc属性を取得してオリジナル画像URLであることを確認
+        const imageSrc = await image.getAttribute('src');
+        if (imageSrc) {
+          // サムネイルURLではなくオリジナルURLを使用していることを確認
+          // サムネイルは通常 /thumbnails/ や _thumb などを含む
+          const isThumbnail =
+            imageSrc.includes('/thumbnails/') ||
+            imageSrc.includes('_thumb') ||
+            imageSrc.includes('thumbnail');
+          expect(isThumbnail).toBeFalsy();
+        }
 
         // 注釈バッジが表示されることを確認（注釈がある場合）
         const annotationBadge = firstGroup.getByTestId(/annotation-badge/);
@@ -1126,6 +1139,84 @@ test.describe('数量表CRUD操作', () => {
 
         // 写真未紐付け時は適切なUIが表示されること
         expect(hasPlaceholder || hasPhotoButton).toBeTruthy();
+      }
+    });
+
+    test('数量グループを折りたたむと画像も非表示になる (quantity-table-generation/REQ-3.4)', async ({
+      page,
+    }) => {
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 編集画面が表示されることを確認（必須）
+      const editArea = page.getByTestId('quantity-table-edit-area');
+      await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
+
+      // グループが存在することを確認（第3原則: 前提条件でテストを除外してはならない）
+      const groups = page.getByTestId('quantity-group');
+      const groupCount = await groups.count();
+
+      if (groupCount === 0) {
+        throw new Error(
+          'REQ-3.4: グループが存在しません。折りたたみ機能をテストするにはグループが必要です。'
+        );
+      }
+
+      const firstGroup = groups.first();
+
+      // 折りたたみボタンを取得
+      const toggleButton = firstGroup.getByRole('button', { name: /グループを折りたたむ/ });
+      const isToggleButtonVisible = await toggleButton
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
+
+      if (!isToggleButtonVisible) {
+        throw new Error(
+          'REQ-3.4: 折りたたみボタンが見つかりません。グループの折りたたみ機能が正しく実装されていません。'
+        );
+      }
+
+      // 初期状態: グループが展開されていることを確認
+      await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
+
+      // 画像が紐付けられている場合の確認
+      const image = firstGroup.locator('img');
+      const hasImage = await image.isVisible({ timeout: 3000 }).catch(() => false);
+
+      // グループを折りたたむ
+      await toggleButton.click();
+
+      // 折りたたみ後: aria-expandedがfalseになることを確認
+      const expandButton = firstGroup.getByRole('button', { name: /グループを展開/ });
+      await expect(expandButton).toBeVisible({ timeout: getTimeout(3000) });
+
+      // REQ-3.4: 折りたたみ後、画像が非表示になることを確認
+      if (hasImage) {
+        // 画像が存在していた場合、折りたたみ後は非表示になっていること
+        await expect(image).not.toBeVisible({ timeout: getTimeout(3000) });
+      }
+
+      // 項目一覧も非表示になっていることを確認
+      const itemTable = firstGroup.getByRole('table', { name: /数量項目一覧/ });
+      const hasItemTable = await itemTable.isVisible({ timeout: 1000 }).catch(() => false);
+      expect(hasItemTable).toBeFalsy();
+
+      // グループを再展開
+      await expandButton.click();
+
+      // 展開後: 折りたたみボタンが復帰することを確認
+      await expect(toggleButton).toBeVisible({ timeout: getTimeout(3000) });
+
+      // REQ-3.4: 展開後、画像が再表示されることを確認
+      if (hasImage) {
+        await expect(image).toBeVisible({ timeout: getTimeout(3000) });
       }
     });
   });
