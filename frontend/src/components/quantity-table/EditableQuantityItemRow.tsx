@@ -72,7 +72,10 @@ const styles = {
   row: {
     display: 'grid',
     // 要件順: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・調整係数・丸め設定・数量・備考・アクション
-    gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 120px 100px 80px 100px 80px 80px 80px 100px 80px',
+    // フィールド幅: 大項目5.5全角(76px)・中項目5.5全角(76px)・小項目5.5全角(76px)・任意分類5.5全角(76px)・工種6.5全角(88px)・
+    // 名称10.5全角(136px)・規格10.5全角(136px)・単位3全角(46px)・計算方法(80px)・調整係数5半角(45px)・丸め設定6半角(52px)・
+    // 数量10半角(80px)・備考5.5全角(76px)・アクション(80px)
+    gridTemplateColumns: '76px 76px 76px 76px 88px 136px 136px 46px 80px 45px 52px 80px 76px 80px',
     gap: '2px',
     alignItems: 'start',
     padding: '2px 4px',
@@ -310,7 +313,9 @@ export default function EditableQuantityItemRow({
   const [localQuantity, setLocalQuantity] = useState(item.quantity.toFixed(2));
   // REQ-9.3: 調整係数のローカル状態（入力時に即座に警告を表示するため）
   // REQ-14.2: 小数2桁で常時表示（文字列として保持）
-  const [localAdjustmentFactor, setLocalAdjustmentFactor] = useState(item.adjustmentFactor.toFixed(2));
+  const [localAdjustmentFactor, setLocalAdjustmentFactor] = useState(
+    item.adjustmentFactor.toFixed(2)
+  );
   // REQ-10.3: 丸め設定のローカル状態（入力時に即座に警告を表示するため）
   // REQ-14.2: 小数2桁で常時表示（文字列として保持）
   const [localRoundingUnit, setLocalRoundingUnit] = useState(item.roundingUnit.toFixed(2));
@@ -352,7 +357,10 @@ export default function EditableQuantityItemRow({
   );
 
   // REQ-10.3: 丸め設定警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
-  const roundingUnitWarning = useMemo(() => parseFloat(localRoundingUnit) <= 0, [localRoundingUnit]);
+  const roundingUnitWarning = useMemo(
+    () => parseFloat(localRoundingUnit) <= 0,
+    [localRoundingUnit]
+  );
 
   // バリデーションエラー（名称はローカル状態でチェック）
   const errors = useMemo((): Record<string, string | undefined> => {
@@ -523,7 +531,14 @@ export default function EditableQuantityItemRow({
     }
 
     onUpdate?.(item.id, updates);
-  }, [localAdjustmentFactor, item.id, item.calculationMethod, item.calculationParams, item.roundingUnit, onUpdate]);
+  }, [
+    localAdjustmentFactor,
+    item.id,
+    item.calculationMethod,
+    item.calculationParams,
+    item.roundingUnit,
+    onUpdate,
+  ]);
 
   /**
    * 丸め設定変更ハンドラ（入力中）
@@ -567,7 +582,14 @@ export default function EditableQuantityItemRow({
     }
 
     onUpdate?.(item.id, updates);
-  }, [localRoundingUnit, item.id, item.calculationMethod, item.calculationParams, item.adjustmentFactor, onUpdate]);
+  }, [
+    localRoundingUnit,
+    item.id,
+    item.calculationMethod,
+    item.calculationParams,
+    item.adjustmentFactor,
+    onUpdate,
+  ]);
 
   /**
    * 削除ハンドラ

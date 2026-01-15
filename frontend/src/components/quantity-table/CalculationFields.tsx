@@ -81,7 +81,8 @@ const styles = {
   } as React.CSSProperties,
   fieldsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))',
+    // 半角10文字分の幅: 10 * 7 + 10(padding/border) = 80px
+    gridTemplateColumns: 'repeat(auto-fill, 80px)',
     gap: '4px',
   } as React.CSSProperties,
   fieldWrapper: {
