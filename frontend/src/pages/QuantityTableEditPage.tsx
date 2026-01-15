@@ -722,7 +722,7 @@ export default function QuantityTableEditPage() {
         }
 
         // グループに画像を紐付けるAPIを呼び出す
-        await updateQuantityGroup(
+        const updatedGroup = await updateQuantityGroup(
           selectedGroupIdForPhoto,
           { surveyImageId: imageId },
           targetGroup.updatedAt
@@ -731,7 +731,7 @@ export default function QuantityTableEditPage() {
         // 選択した写真情報を取得
         const selectedPhoto = availablePhotos.find((p) => p.id === imageId);
 
-        // ローカル状態を更新
+        // ローカル状態を更新（APIから返されたupdatedAtを使用）
         setQuantityTable((prev) => {
           if (!prev) return prev;
           const updatedGroups = (prev.groups ?? []).map((g) => {
@@ -748,7 +748,7 @@ export default function QuantityTableEditPage() {
                       hasAnnotations: selectedPhoto.hasAnnotations,
                     }
                   : null,
-                updatedAt: new Date().toISOString(),
+                updatedAt: updatedGroup.updatedAt,
               };
             }
             return g;
