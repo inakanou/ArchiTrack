@@ -179,6 +179,24 @@ const styles = {
     color: '#4b5563',
     fontSize: '14px',
   } as React.CSSProperties,
+  addItemButtonWrapper: {
+    padding: '16px',
+    borderTop: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  addItemButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    border: '1px dashed #d1d5db',
+    backgroundColor: '#f9fafb',
+    color: '#374151',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s, border-color 0.2s',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -360,15 +378,6 @@ export default function QuantityGroupCard({
         <div style={styles.headerActions}>
           <button
             type="button"
-            style={styles.actionButton}
-            onClick={handleAddItem}
-            aria-label="項目を追加"
-          >
-            <PlusIcon />
-            項目を追加
-          </button>
-          <button
-            type="button"
             style={styles.deleteButton}
             onClick={handleDeleteGroup}
             aria-label="グループを削除"
@@ -480,6 +489,19 @@ export default function QuantityGroupCard({
             </div>
           </div>
         )}
+
+        {/* 項目追加ボタン（グループコンテンツ内の最終行） */}
+        <div style={styles.addItemButtonWrapper}>
+          <button
+            type="button"
+            style={styles.addItemButton}
+            onClick={handleAddItem}
+            aria-label="項目を追加"
+          >
+            <PlusIcon />
+            項目を追加
+          </button>
+        </div>
       </div>
     </article>
   );
