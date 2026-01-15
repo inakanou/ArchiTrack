@@ -306,11 +306,14 @@ export default function EditableQuantityItemRow({
   // 名称フィールドのローカル状態（REQ-5.3: blur時にバリデーション）
   const [localName, setLocalName] = useState(item.name);
   // REQ-8.3: 数量フィールドのローカル状態（入力時に即座に警告を表示するため）
-  const [localQuantity, setLocalQuantity] = useState(item.quantity);
+  // REQ-14.2: 小数2桁で常時表示（文字列として保持）
+  const [localQuantity, setLocalQuantity] = useState(item.quantity.toFixed(2));
   // REQ-9.3: 調整係数のローカル状態（入力時に即座に警告を表示するため）
-  const [localAdjustmentFactor, setLocalAdjustmentFactor] = useState(item.adjustmentFactor);
+  // REQ-14.2: 小数2桁で常時表示（文字列として保持）
+  const [localAdjustmentFactor, setLocalAdjustmentFactor] = useState(item.adjustmentFactor.toFixed(2));
   // REQ-10.3: 丸め設定のローカル状態（入力時に即座に警告を表示するため）
-  const [localRoundingUnit, setLocalRoundingUnit] = useState(item.roundingUnit);
+  // REQ-14.2: 小数2桁で常時表示（文字列として保持）
+  const [localRoundingUnit, setLocalRoundingUnit] = useState(item.roundingUnit.toFixed(2));
 
   // 親の値が変更された場合、ローカル状態を同期
   useEffect(() => {
@@ -318,38 +321,38 @@ export default function EditableQuantityItemRow({
     setLocalName(item.name);
   }, [item.name]);
 
-  // 親の数量値が変更された場合、ローカル状態を同期
+  // 親の数量値が変更された場合、ローカル状態を同期（REQ-14.2: 小数2桁で表示）
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
-    setLocalQuantity(item.quantity);
+    setLocalQuantity(item.quantity.toFixed(2));
   }, [item.quantity]);
 
-  // 親の調整係数が変更された場合、ローカル状態を同期
+  // 親の調整係数が変更された場合、ローカル状態を同期（REQ-14.2: 小数2桁で表示）
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
-    setLocalAdjustmentFactor(item.adjustmentFactor);
+    setLocalAdjustmentFactor(item.adjustmentFactor.toFixed(2));
   }, [item.adjustmentFactor]);
 
-  // 親の丸め設定が変更された場合、ローカル状態を同期
+  // 親の丸め設定が変更された場合、ローカル状態を同期（REQ-14.2: 小数2桁で表示）
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
-    setLocalRoundingUnit(item.roundingUnit);
+    setLocalRoundingUnit(item.roundingUnit.toFixed(2));
   }, [item.roundingUnit]);
 
   // REQ-8.3: 負の値警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
   const negativeQuantityWarning = useMemo(
-    () => localQuantity < 0 && item.calculationMethod === 'STANDARD',
+    () => parseFloat(localQuantity) < 0 && item.calculationMethod === 'STANDARD',
     [localQuantity, item.calculationMethod]
   );
 
   // REQ-9.3: 調整係数警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
   const adjustmentFactorWarning = useMemo(
-    () => localAdjustmentFactor <= 0,
+    () => parseFloat(localAdjustmentFactor) <= 0,
     [localAdjustmentFactor]
   );
 
   // REQ-10.3: 丸め設定警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
-  const roundingUnitWarning = useMemo(() => localRoundingUnit <= 0, [localRoundingUnit]);
+  const roundingUnitWarning = useMemo(() => parseFloat(localRoundingUnit) <= 0, [localRoundingUnit]);
 
   // バリデーションエラー（名称はローカル状態でチェック）
   const errors = useMemo((): Record<string, string | undefined> => {
@@ -394,21 +397,31 @@ export default function EditableQuantityItemRow({
   );
 
   /**
-   * 数量フィールド更新ハンドラ
+   * 数量フィールド更新ハンドラ（入力中）
    * REQ-8.3: 負の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
-  const handleQuantityChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = parseFloat(e.target.value);
-      if (!isNaN(value)) {
-        // まずローカル状態を更新（即座に警告を表示するため）
-        setLocalQuantity(value);
-        // その後APIを呼び出し
-        onUpdate?.(item.id, { quantity: value });
-      }
-    },
-    [item.id, onUpdate]
-  );
+  const handleQuantityChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // 入力中はそのままの値を保持（フォーマットしない）
+    setLocalQuantity(e.target.value);
+  }, []);
+
+  /**
+   * 数量フィールドblurハンドラ
+   * REQ-14.2: blur時に小数2桁でフォーマット
+   * REQ-15.2: 空入力時は0を設定
+   */
+  const handleQuantityBlur = useCallback(() => {
+    let value = parseFloat(localQuantity);
+    // REQ-15.2: 空または無効な値の場合は0を設定
+    if (isNaN(value) || localQuantity.trim() === '') {
+      value = 0;
+    }
+    // REQ-14.2: 小数2桁でフォーマット
+    const formattedValue = value.toFixed(2);
+    setLocalQuantity(formattedValue);
+    // APIを呼び出し
+    onUpdate?.(item.id, { quantity: value });
+  }, [localQuantity, item.id, onUpdate]);
 
   /**
    * 計算方法変更ハンドラ
@@ -469,74 +482,92 @@ export default function EditableQuantityItemRow({
   );
 
   /**
-   * 調整係数変更ハンドラ
-   * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
+   * 調整係数変更ハンドラ（入力中）
    * REQ-9.3: 0以下の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
-  const handleAdjustmentFactorChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = parseFloat(e.target.value);
-      if (!isNaN(value)) {
-        // まずローカル状態を更新（即座に警告を表示するため）
-        setLocalAdjustmentFactor(value);
-
-        const updates: Partial<QuantityItemDetail> = { adjustmentFactor: value };
-
-        // 面積・体積またはピッチモードの場合、再計算を実行
-        if (item.calculationMethod !== 'STANDARD' && item.calculationParams) {
-          try {
-            const result = calculate({
-              method: item.calculationMethod,
-              params: item.calculationParams,
-              adjustmentFactor: value,
-              roundingUnit: item.roundingUnit,
-            });
-            updates.quantity = result.finalValue;
-          } catch {
-            // 計算エラーの場合は数量を更新しない
-          }
-        }
-
-        onUpdate?.(item.id, updates);
-      }
-    },
-    [item.id, item.calculationMethod, item.calculationParams, item.roundingUnit, onUpdate]
-  );
+  const handleAdjustmentFactorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // 入力中はそのままの値を保持（フォーマットしない）
+    setLocalAdjustmentFactor(e.target.value);
+  }, []);
 
   /**
-   * 丸め設定変更ハンドラ
-   * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
+   * 調整係数blurハンドラ
+   * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
+   * REQ-14.2: blur時に小数2桁でフォーマット
+   */
+  const handleAdjustmentFactorBlur = useCallback(() => {
+    let value = parseFloat(localAdjustmentFactor);
+    // 空または無効な値の場合は1を設定（デフォルト値）
+    if (isNaN(value) || localAdjustmentFactor.trim() === '') {
+      value = 1;
+    }
+    // REQ-14.2: 小数2桁でフォーマット
+    const formattedValue = value.toFixed(2);
+    setLocalAdjustmentFactor(formattedValue);
+
+    const updates: Partial<QuantityItemDetail> = { adjustmentFactor: value };
+
+    // 面積・体積またはピッチモードの場合、再計算を実行
+    if (item.calculationMethod !== 'STANDARD' && item.calculationParams) {
+      try {
+        const result = calculate({
+          method: item.calculationMethod,
+          params: item.calculationParams,
+          adjustmentFactor: value,
+          roundingUnit: item.roundingUnit,
+        });
+        updates.quantity = result.finalValue;
+      } catch {
+        // 計算エラーの場合は数量を更新しない
+      }
+    }
+
+    onUpdate?.(item.id, updates);
+  }, [localAdjustmentFactor, item.id, item.calculationMethod, item.calculationParams, item.roundingUnit, onUpdate]);
+
+  /**
+   * 丸め設定変更ハンドラ（入力中）
    * REQ-10.3: 0以下の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
-  const handleRoundingUnitChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = parseFloat(e.target.value);
-      if (!isNaN(value)) {
-        // まずローカル状態を更新（即座に警告を表示するため）
-        setLocalRoundingUnit(value);
+  const handleRoundingUnitChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // 入力中はそのままの値を保持（フォーマットしない）
+    setLocalRoundingUnit(e.target.value);
+  }, []);
 
-        const updates: Partial<QuantityItemDetail> = { roundingUnit: value };
+  /**
+   * 丸め設定blurハンドラ
+   * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
+   * REQ-14.2: blur時に小数2桁でフォーマット
+   */
+  const handleRoundingUnitBlur = useCallback(() => {
+    let value = parseFloat(localRoundingUnit);
+    // REQ-10.4: 0または空白でデフォルト値を自動入力
+    if (isNaN(value) || localRoundingUnit.trim() === '' || value === 0) {
+      value = 0.01;
+    }
+    // REQ-14.2: 小数2桁でフォーマット
+    const formattedValue = value.toFixed(2);
+    setLocalRoundingUnit(formattedValue);
 
-        // 面積・体積またはピッチモードの場合、正の値でのみ再計算を実行
-        if (value > 0 && item.calculationMethod !== 'STANDARD' && item.calculationParams) {
-          try {
-            const result = calculate({
-              method: item.calculationMethod,
-              params: item.calculationParams,
-              adjustmentFactor: item.adjustmentFactor,
-              roundingUnit: value,
-            });
-            updates.quantity = result.finalValue;
-          } catch {
-            // 計算エラーの場合は数量を更新しない
-          }
-        }
+    const updates: Partial<QuantityItemDetail> = { roundingUnit: value };
 
-        onUpdate?.(item.id, updates);
+    // 面積・体積またはピッチモードの場合、正の値でのみ再計算を実行
+    if (value > 0 && item.calculationMethod !== 'STANDARD' && item.calculationParams) {
+      try {
+        const result = calculate({
+          method: item.calculationMethod,
+          params: item.calculationParams,
+          adjustmentFactor: item.adjustmentFactor,
+          roundingUnit: value,
+        });
+        updates.quantity = result.finalValue;
+      } catch {
+        // 計算エラーの場合は数量を更新しない
       }
-    },
-    [item.id, item.calculationMethod, item.calculationParams, item.adjustmentFactor, onUpdate]
-  );
+    }
+
+    onUpdate?.(item.id, updates);
+  }, [localRoundingUnit, item.id, item.calculationMethod, item.calculationParams, item.adjustmentFactor, onUpdate]);
 
   /**
    * 削除ハンドラ
@@ -753,9 +784,11 @@ export default function EditableQuantityItemRow({
             <div style={styles.inputWrapper}>
               <input
                 id={`${item.id}-adjustmentFactor`}
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={localAdjustmentFactor}
                 onChange={handleAdjustmentFactorChange}
+                onBlur={handleAdjustmentFactorBlur}
                 className="hide-spinner"
                 style={{
                   ...styles.input,
@@ -763,7 +796,6 @@ export default function EditableQuantityItemRow({
                   ...styles.numberInput,
                   ...(adjustmentFactorWarning ? styles.inputWarning : {}),
                 }}
-                step="0.01"
                 aria-invalid={adjustmentFactorWarning}
               />
             </div>
@@ -785,9 +817,11 @@ export default function EditableQuantityItemRow({
             <div style={styles.inputWrapper}>
               <input
                 id={`${item.id}-roundingUnit`}
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={localRoundingUnit}
                 onChange={handleRoundingUnitChange}
+                onBlur={handleRoundingUnitBlur}
                 className="hide-spinner"
                 style={{
                   ...styles.input,
@@ -795,7 +829,6 @@ export default function EditableQuantityItemRow({
                   ...styles.numberInput,
                   ...(roundingUnitWarning ? styles.inputWarning : {}),
                 }}
-                step="0.01"
                 aria-invalid={roundingUnitWarning}
               />
             </div>
@@ -817,9 +850,11 @@ export default function EditableQuantityItemRow({
             <div style={styles.inputWrapper}>
               <input
                 id={`${item.id}-quantity`}
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={localQuantity}
                 onChange={handleQuantityChange}
+                onBlur={handleQuantityBlur}
                 className="hide-spinner"
                 style={{
                   ...styles.input,
@@ -827,7 +862,6 @@ export default function EditableQuantityItemRow({
                   ...styles.numberInput,
                   ...(negativeQuantityWarning ? styles.inputWarning : {}),
                 }}
-                step="0.01"
                 aria-required
                 aria-invalid={negativeQuantityWarning}
               />

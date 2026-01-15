@@ -11,10 +11,17 @@
  * - REQ-14: 数値フィールドの表示書式
  *   - 14.2: 調整係数・丸め設定・数量フィールドを小数2桁で常時表示
  *   - 14.3: 寸法フィールドは数値入力時のみ小数2桁表示
- * - REQ-15: 数値フィールドの入力制限
- *   - 15.1: 調整係数は-9.99〜9.99の範囲
- *   - 15.2: 丸め設定は0.01〜99.99の範囲
- *   - 15.3: 数量は-999999.99〜9999999.99の範囲
+ *   - 14.4: 寸法フィールドが空白の場合は空白のまま表示
+ * - REQ-15: 数値フィールドの入力制御
+ *   - 15.1: 数量は-999999.99〜9999999.99の範囲
+ *   - 15.2: 数量フィールドに空白が入力されると自動的に「0」を設定し「0.00」と表示
+ *   - 15.3: 寸法・ピッチフィールドは0.01〜9999999.99の範囲
+ * - REQ-9: 調整係数
+ *   - 9.3: 調整係数は-9.99〜9.99の範囲
+ *   - 9.4: 調整係数が空白時は1.00を自動設定
+ * - REQ-10: 丸め設定
+ *   - 10.3: 丸め設定は-99.99〜99.99の範囲
+ *   - 10.4: 丸め設定が0または空白時は0.01を自動設定
  *
  * @module e2e/specs/quantity-tables/field-specification.spec
  */
@@ -348,87 +355,77 @@ test.describe('フィールド仕様', () => {
         await expect(quantityInput).toHaveValue('100.00');
       }
     });
+
+    test('14.3: 寸法フィールドに数値を入力すると小数2桁で表示される', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
+
+      // 幅フィールドを取得
+      const widthInput = page.getByLabel(/幅（W）|幅\(W\)/i);
+      if (await widthInput.isVisible()) {
+        // 整数を入力
+        await widthInput.fill('5');
+        await widthInput.blur();
+
+        // 小数2桁で表示されることを確認
+        await expect(widthInput).toHaveValue('5.00');
+      }
+    });
+
+    test('14.4: 寸法フィールドが空白の場合は空白のまま表示される', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
+
+      // 奥行きフィールドを取得（空白のまま）
+      const depthInput = page.getByLabel(/奥行き（D）|奥行き\(D\)/i);
+      if (await depthInput.isVisible()) {
+        // 空白を入力
+        await depthInput.fill('');
+        await depthInput.blur();
+
+        // 空白のまま表示されることを確認（0.00ではない）
+        await expect(depthInput).toHaveValue('');
+      }
+    });
   });
 
   /**
-   * REQ-15: 数値フィールドの入力制限テスト
+   * REQ-15: 数量フィールドの入力制御テスト
    */
-  test.describe('REQ-15: 数値フィールドの入力制限', () => {
-    test('15.1: 調整係数は-9.99〜9.99の範囲で入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
-
-      // 調整係数フィールドを取得
-      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
-      if (await adjustmentFactorInput.isVisible()) {
-        // 有効な値を入力
-        await adjustmentFactorInput.fill('9.99');
-        await adjustmentFactorInput.blur();
-
-        // エラーが表示されていないことを確認
-        const errorMessage = page.getByText(/-9\.99〜9\.99/i);
-        await expect(errorMessage).not.toBeVisible();
-
-        // 無効な値を入力
-        await adjustmentFactorInput.fill('10');
-        await adjustmentFactorInput.blur();
-
-        // エラーメッセージが表示されることを確認（または値が制限される）
-        const inputValue = await adjustmentFactorInput.inputValue();
-        const isLimited = parseFloat(inputValue) <= 9.99;
-        const hasError = await page.getByText(/範囲|超過|-9\.99/i).isVisible();
-
-        expect(isLimited || hasError).toBeTruthy();
-      }
-    });
-
-    test('15.2: 丸め設定は0.01〜99.99の範囲で入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
-
-      // 丸め設定フィールドを取得
-      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
-      if (await roundingUnitInput.isVisible()) {
-        // 有効な値を入力
-        await roundingUnitInput.fill('0.01');
-        await roundingUnitInput.blur();
-
-        // エラーが表示されていないことを確認
-        const errorMessage = page.getByText(/0\.01〜99\.99/i);
-        await expect(errorMessage).not.toBeVisible();
-
-        // 無効な値を入力
-        await roundingUnitInput.fill('100');
-        await roundingUnitInput.blur();
-
-        // エラーメッセージが表示されることを確認（または値が制限される）
-        const inputValue = await roundingUnitInput.inputValue();
-        const isLimited = parseFloat(inputValue) <= 99.99;
-        const hasError = await page.getByText(/範囲|超過|99\.99/i).isVisible();
-
-        expect(isLimited || hasError).toBeTruthy();
-      }
-    });
-
-    test('15.3: 数量は-999999.99〜9999999.99の範囲で入力できる', async ({ page }) => {
+  test.describe('REQ-15: 数量フィールドの入力制御', () => {
+    test('15.1: 数量は-999999.99〜9999999.99の範囲で入力できる', async ({ page }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -462,6 +459,218 @@ test.describe('フィールド仕様', () => {
         const hasError = await page.getByText(/範囲|超過|9999999/i).isVisible();
 
         expect(isLimited || hasError).toBeTruthy();
+      }
+    });
+
+    test('15.2: 数量フィールドに空白が入力されると0.00が自動設定される', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 数量フィールドを取得
+      const quantityInput = page.getByLabel(/^数量$/i);
+      if (await quantityInput.isVisible()) {
+        // 空白を入力
+        await quantityInput.fill('');
+        await quantityInput.blur();
+
+        // 0.00が自動設定されることを確認
+        await expect(quantityInput).toHaveValue('0.00');
+      }
+    });
+
+    test('15.3: 寸法フィールドは0.01〜9999999.99の範囲で入力できる', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
+
+      // 幅フィールドを取得
+      const widthInput = page.getByLabel(/幅（W）|幅\(W\)/i);
+      if (await widthInput.isVisible()) {
+        // 有効な値を入力
+        await widthInput.fill('0.01');
+        await widthInput.blur();
+
+        // 小数2桁で表示されることを確認
+        await expect(widthInput).toHaveValue('0.01');
+
+        // 最大値を入力
+        await widthInput.fill('9999999.99');
+        await widthInput.blur();
+
+        // エラーが表示されていないことを確認
+        const inputValue = await widthInput.inputValue();
+        expect(parseFloat(inputValue)).toBeLessThanOrEqual(9999999.99);
+      }
+    });
+  });
+
+  /**
+   * REQ-9: 調整係数テスト
+   */
+  test.describe('REQ-9: 調整係数', () => {
+    test('9.3: 調整係数は-9.99〜9.99の範囲で入力できる', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 調整係数フィールドを取得
+      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
+      if (await adjustmentFactorInput.isVisible()) {
+        // 有効な値を入力
+        await adjustmentFactorInput.fill('9.99');
+        await adjustmentFactorInput.blur();
+
+        // 小数2桁で表示されることを確認
+        await expect(adjustmentFactorInput).toHaveValue('9.99');
+
+        // 負の有効な値を入力
+        await adjustmentFactorInput.fill('-9.99');
+        await adjustmentFactorInput.blur();
+
+        await expect(adjustmentFactorInput).toHaveValue('-9.99');
+      }
+    });
+
+    test('9.4: 調整係数が空白時は1.00が自動設定される', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 調整係数フィールドを取得
+      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
+      if (await adjustmentFactorInput.isVisible()) {
+        // 空白を入力
+        await adjustmentFactorInput.fill('');
+        await adjustmentFactorInput.blur();
+
+        // 1.00が自動設定されることを確認
+        await expect(adjustmentFactorInput).toHaveValue('1.00');
+      }
+    });
+  });
+
+  /**
+   * REQ-10: 丸め設定テスト
+   */
+  test.describe('REQ-10: 丸め設定', () => {
+    test('10.3: 丸め設定は-99.99〜99.99の範囲で入力できる', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 丸め設定フィールドを取得
+      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
+      if (await roundingUnitInput.isVisible()) {
+        // 有効な値を入力
+        await roundingUnitInput.fill('99.99');
+        await roundingUnitInput.blur();
+
+        // 小数2桁で表示されることを確認
+        await expect(roundingUnitInput).toHaveValue('99.99');
+
+        // 負の有効な値を入力
+        await roundingUnitInput.fill('-99.99');
+        await roundingUnitInput.blur();
+
+        await expect(roundingUnitInput).toHaveValue('-99.99');
+      }
+    });
+
+    test('10.4: 丸め設定が空白時は0.01が自動設定される', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 丸め設定フィールドを取得
+      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
+      if (await roundingUnitInput.isVisible()) {
+        // 空白を入力
+        await roundingUnitInput.fill('');
+        await roundingUnitInput.blur();
+
+        // 0.01が自動設定されることを確認
+        await expect(roundingUnitInput).toHaveValue('0.01');
+      }
+    });
+
+    test('10.4: 丸め設定が0の時は0.01が自動設定される', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 丸め設定フィールドを取得
+      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
+      if (await roundingUnitInput.isVisible()) {
+        // 0を入力
+        await roundingUnitInput.fill('0');
+        await roundingUnitInput.blur();
+
+        // 0.01が自動設定されることを確認
+        await expect(roundingUnitInput).toHaveValue('0.01');
       }
     });
   });

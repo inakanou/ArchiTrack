@@ -11,7 +11,7 @@
  * - 8.11: 計算用列の値変更時に数量を自動再計算する
  */
 
-import { useCallback, useId } from 'react';
+import { useCallback, useId, useState } from 'react';
 import type { CalculationMethod, CalculationParams } from '../../types/quantity-edit.types';
 import type { AreaVolumeParams, PitchParams } from '../../utils/calculation-engine';
 
@@ -139,6 +139,8 @@ const styles = {
 
 /**
  * 数値入力フィールド
+ * REQ-14.3: 数値入力時は小数2桁で表示
+ * REQ-14.4: 空白時は空白のまま表示
  */
 interface NumberInputFieldProps {
   id: string;
@@ -157,22 +159,43 @@ function NumberInputField({
   onChange,
   disabled,
   required,
-  step = 0.01,
 }: NumberInputFieldProps) {
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const inputValue = e.target.value;
-      if (inputValue === '') {
-        onChange(undefined);
+  // REQ-14.3/14.4: ローカル状態で表示値を管理
+  const [localValue, setLocalValue] = useState<string>(value !== undefined ? value.toFixed(2) : '');
+  // 前回のprops値を追跡（公式ドキュメント推奨パターン）
+  const [prevValue, setPrevValue] = useState(value);
+
+  // 親の値が変更された場合、レンダリング中にローカル状態を同期
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setLocalValue(value !== undefined ? value.toFixed(2) : '');
+  }
+
+  // 入力中はそのままの値を保持
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalValue(e.target.value);
+  }, []);
+
+  // blur時に小数2桁でフォーマットして親に通知
+  const handleBlur = useCallback(() => {
+    const trimmedValue = localValue.trim();
+    if (trimmedValue === '') {
+      // REQ-14.4: 空白時は空白のまま
+      onChange(undefined);
+    } else {
+      const numValue = parseFloat(trimmedValue);
+      if (!isNaN(numValue)) {
+        // REQ-14.3: 数値入力時は小数2桁で表示
+        setLocalValue(numValue.toFixed(2));
+        onChange(numValue);
       } else {
-        const numValue = parseFloat(inputValue);
-        if (!isNaN(numValue)) {
-          onChange(numValue);
-        }
+        // 無効な値の場合はクリア
+        setLocalValue('');
+        onChange(undefined);
       }
-    },
-    [onChange]
-  );
+    }
+  }, [localValue, onChange]);
 
   return (
     <div style={styles.fieldWrapper}>
@@ -182,14 +205,16 @@ function NumberInputField({
       </label>
       <input
         id={id}
-        type="number"
-        value={value ?? ''}
+        type="text"
+        inputMode="decimal"
+        value={localValue}
         onChange={handleChange}
+        onBlur={handleBlur}
         disabled={disabled}
-        step={step}
         className="hide-spinner"
         style={{
           ...styles.input,
+          textAlign: 'right',
           ...(disabled ? styles.inputDisabled : {}),
         }}
         aria-required={required}
