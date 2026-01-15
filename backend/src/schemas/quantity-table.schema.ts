@@ -11,7 +11,7 @@
  * - 4.5: 数量グループの削除操作を行う
  * - 5.1: 数量グループ内で行追加操作を行う
  * - 5.2: 数量項目の各フィールドに値を入力する
- * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
+ * - 5.3: 必須フィールド（工種・名称・単位・計算方法・調整係数・丸め設定・数量）が未入力で保存を試行する
  * - 5.4: 数量項目を選択して削除操作を行う
  * - 8.1: 計算方法列に「標準」をデフォルト値として設定する
  *
@@ -296,7 +296,7 @@ export const calculationParamsSchema = z.union([
  * Requirements:
  * - 5.1: 数量グループ内で行追加操作を行う
  * - 5.2: 数量項目の各フィールドに値を入力する
- * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
+ * - 5.3: 必須フィールド（工種・名称・単位・計算方法・調整係数・丸め設定・数量）が未入力で保存を試行する
  * - 8.1: 計算方法列に「標準」をデフォルト値として設定する
  */
 export const createQuantityItemSchema = z.object({
@@ -307,11 +307,9 @@ export const createQuantityItemSchema = z.object({
 
   majorCategory: z
     .string()
-    .min(1, QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_REQUIRED)
     .max(100, QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_TOO_LONG)
-    .refine((val) => val.trim().length > 0, {
-      message: QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_REQUIRED,
-    }),
+    .nullable()
+    .optional(),
 
   middleCategory: z
     .string()
@@ -397,11 +395,8 @@ export type CreateQuantityItemInput = z.infer<typeof createQuantityItemSchema>;
 export const updateQuantityItemSchema = z.object({
   majorCategory: z
     .string()
-    .min(1, QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_REQUIRED)
     .max(100, QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_TOO_LONG)
-    .refine((val) => val.trim().length > 0, {
-      message: QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_REQUIRED,
-    })
+    .nullable()
     .optional(),
 
   middleCategory: z

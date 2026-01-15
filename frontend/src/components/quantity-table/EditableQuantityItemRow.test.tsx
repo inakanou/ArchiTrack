@@ -190,13 +190,14 @@ describe('EditableQuantityItemRow', () => {
   });
 
   describe('必須フィールドのバリデーション', () => {
-    it('大項目が空の場合にエラー表示', () => {
+    it('大項目が空でもエラー表示されない（任意フィールド）', () => {
       const itemWithEmptyMajor = { ...mockItem, majorCategory: '' };
       render(
         <EditableQuantityItemRow {...defaultProps} item={itemWithEmptyMajor} showValidation />
       );
 
-      expect(screen.getByText('大項目は必須です')).toBeInTheDocument();
+      // 大項目は任意フィールドのため、空でもエラーは表示されない
+      expect(screen.queryByText('大項目は必須です')).not.toBeInTheDocument();
     });
 
     it('工種が空の場合にエラー表示', () => {

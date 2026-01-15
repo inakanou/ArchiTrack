@@ -277,8 +277,8 @@ function CopyIcon() {
  * 必須フィールドのバリデーションエラーを生成
  */
 function getRequiredFieldErrors(item: QuantityItemDetail): Record<string, string | undefined> {
+  // 大項目は任意のためバリデーション不要
   return {
-    majorCategory: item.majorCategory ? undefined : '大項目は必須です',
     workType: item.workType ? undefined : '工種は必須です',
     name: item.name ? undefined : '名称は必須です',
     unit: item.unit ? undefined : '単位は必須です',
@@ -716,7 +716,6 @@ export default function FieldValidatedItemRow({
             endpoint="/api/autocomplete/major-categories"
             unsavedValues={unsavedMajorCategories}
             error={errors.majorCategory}
-            required
             placeholder="大項目を入力"
           />
         </div>

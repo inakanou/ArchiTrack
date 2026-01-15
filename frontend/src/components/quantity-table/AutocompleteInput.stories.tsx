@@ -62,8 +62,8 @@ export const WithValue: Story = {
 export const Required: Story = {
   args: {
     value: '',
-    label: '大項目',
-    placeholder: '大項目を入力',
+    label: '工種',
+    placeholder: '工種を入力',
     required: true,
   },
 };
@@ -75,10 +75,10 @@ export const Required: Story = {
 export const Error: Story = {
   args: {
     value: '',
-    label: '大項目',
-    placeholder: '大項目を入力',
+    label: '工種',
+    placeholder: '工種を入力',
     required: true,
-    error: '大項目は必須です',
+    error: '工種は必須です',
   },
 };
 

@@ -84,7 +84,7 @@ export interface SurveyImageSummary {
 export interface QuantityItemDetailInfo {
   id: string;
   quantityGroupId: string;
-  majorCategory: string;
+  majorCategory: string | null;
   middleCategory: string | null;
   minorCategory: string | null;
   customCategory: string | null;
@@ -735,7 +735,7 @@ export class QuantityTableService {
       items: Array<{
         id: string;
         quantityGroupId: string;
-        majorCategory: string;
+        majorCategory: string | null;
         middleCategory: string | null;
         minorCategory: string | null;
         customCategory: string | null;

@@ -303,7 +303,7 @@ export const FormExample: Story = {
         maxWidth: '600px',
       }}
     >
-      <TextFieldInputWrapper fieldName="majorCategory" label="大項目" required showCharacterCount />
+      <TextFieldInputWrapper fieldName="majorCategory" label="大項目" showCharacterCount />
       <TextFieldInputWrapper fieldName="middleCategory" label="中項目" showCharacterCount />
       <TextFieldInputWrapper fieldName="minorCategory" label="小項目" showCharacterCount />
       <TextFieldInputWrapper fieldName="workType" label="工種" required showCharacterCount />

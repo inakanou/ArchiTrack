@@ -252,14 +252,7 @@ export function useQuantityTableSave(
       group.items.forEach((item, itemIndex) => {
         const basePath = `groups[${groupIndex}].items[${itemIndex}]`;
 
-        // 必須フィールドチェック
-        if (!item.majorCategory?.trim()) {
-          errors.push({
-            path: `${basePath}.majorCategory`,
-            message: '大項目は必須です',
-          });
-        }
-
+        // 必須フィールドチェック（大項目は任意のためチェック不要）
         if (!item.workType?.trim()) {
           errors.push({
             path: `${basePath}.workType`,

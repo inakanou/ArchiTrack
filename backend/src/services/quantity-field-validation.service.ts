@@ -476,7 +476,7 @@ export class QuantityFieldValidationService {
    * @returns バリデーション結果
    */
   validateItemFieldSpecs(item: {
-    majorCategory: string;
+    majorCategory: string | null;
     middleCategory: string | null;
     minorCategory: string | null;
     customCategory: string | null;
@@ -496,7 +496,8 @@ export class QuantityFieldValidationService {
       {
         field: 'majorCategory',
         value: item.majorCategory,
-        validator: () => this.validateMajorCategory(item.majorCategory),
+        validator: () =>
+          item.majorCategory ? this.validateMajorCategory(item.majorCategory) : { isValid: true },
       },
       {
         field: 'middleCategory',

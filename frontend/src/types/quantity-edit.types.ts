@@ -62,8 +62,8 @@ export interface QuantityItemEdit {
   id: string;
   /** 所属グループID */
   quantityGroupId: string;
-  /** 大項目（必須） */
-  majorCategory: string;
+  /** 大項目（任意） */
+  majorCategory: string | null;
   /** 中項目 */
   middleCategory: string | null;
   /** 小項目 */

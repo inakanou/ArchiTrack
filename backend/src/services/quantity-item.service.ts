@@ -45,7 +45,7 @@ export interface QuantityItemServiceDependencies {
 export interface QuantityItemInfo {
   id: string;
   quantityGroupId: string;
-  majorCategory: string;
+  majorCategory: string | null;
   middleCategory: string | null;
   minorCategory: string | null;
   customCategory: string | null;
@@ -121,7 +121,7 @@ export class QuantityItemService {
       const quantityItem = await tx.quantityItem.create({
         data: {
           quantityGroupId: input.quantityGroupId,
-          majorCategory: input.majorCategory.trim(),
+          majorCategory: input.majorCategory?.trim() ?? null,
           middleCategory: input.middleCategory?.trim() ?? null,
           minorCategory: input.minorCategory?.trim() ?? null,
           customCategory: input.customCategory?.trim() ?? null,
@@ -290,7 +290,7 @@ export class QuantityItemService {
       const updateData: Record<string, unknown> = {};
 
       if (input.majorCategory !== undefined) {
-        updateData.majorCategory = input.majorCategory.trim();
+        updateData.majorCategory = input.majorCategory?.trim() ?? null;
       }
       if (input.middleCategory !== undefined) {
         updateData.middleCategory = input.middleCategory?.trim() ?? null;
@@ -844,7 +844,7 @@ export class QuantityItemService {
   private toQuantityItemInfo(quantityItem: {
     id: string;
     quantityGroupId: string;
-    majorCategory: string;
+    majorCategory: string | null;
     middleCategory: string | null;
     minorCategory: string | null;
     customCategory: string | null;

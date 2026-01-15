@@ -626,7 +626,7 @@ model QuantityGroup {
  * フィールド:
  * - id: 数量項目の一意ID（UUID）
  * - quantityGroupId: 所属する数量グループID（外部キー、カスケード削除）
- * - majorCategory: 大項目（必須、最大100文字）
+ * - majorCategory: 大項目（任意、最大100文字）
  * - middleCategory: 中項目（任意、最大100文字）
  * - minorCategory: 小項目（任意、最大100文字）
  * - customCategory: 任意分類（任意、最大100文字）
@@ -648,13 +648,13 @@ model QuantityGroup {
  * Requirements:
  * - 5.1: 数量グループ内で行追加操作を行う
  * - 5.2: 数量項目の各フィールドに値を入力する
- * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
+ * - 5.3: 必須フィールド（工種・名称・単位・計算方法・調整係数・丸め設定・数量）が未入力で保存を試行する
  * - 5.4: 数量項目を選択して削除操作を行う
  */
 model QuantityItem {
   id                String            @id @default(uuid())
   quantityGroupId   String
-  majorCategory     String // 大項目（必須、最大100文字）
+  majorCategory     String? // 大項目（任意、最大100文字）
   middleCategory    String? // 中項目（任意、最大100文字）
   minorCategory     String? // 小項目（任意、最大100文字）
   customCategory    String? // 任意分類（任意、最大100文字）
