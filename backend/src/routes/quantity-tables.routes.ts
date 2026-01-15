@@ -33,6 +33,7 @@ import {
   QuantityTableConflictError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
+import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
 const router = Router({ mergeParams: true });
@@ -363,12 +364,72 @@ router.get(
         return;
       }
 
+      // グループ内のsurveyImageのURLを署名付きURLに変換
+      let enrichedQuantityTable = quantityTable;
+      if (isStorageConfigured() && quantityTable.groups) {
+        const storageProvider = getStorageProvider();
+        if (storageProvider) {
+          const enrichedGroups = await Promise.all(
+            quantityTable.groups.map(async (group) => {
+              if (!group.surveyImage) {
+                return group;
+              }
+
+              // 元のURLを保持（署名付きURL生成失敗時のフォールバック）
+              let thumbnailUrl: string = group.surveyImage.thumbnailUrl;
+              let originalUrl: string = group.surveyImage.originalUrl;
+
+              // サムネイルURLを署名付きURLに変換
+              try {
+                // /api/storage/ プレフィックスを除去してパスのみを取得
+                const thumbnailPath = group.surveyImage.thumbnailUrl.replace(
+                  /^\/api\/storage\//,
+                  ''
+                );
+                thumbnailUrl = await storageProvider.getSignedUrl(thumbnailPath);
+              } catch (error) {
+                logger.warn(
+                  { groupId: group.id, thumbnailUrl: group.surveyImage.thumbnailUrl, error },
+                  'Failed to generate signed URL for thumbnail'
+                );
+              }
+
+              // オリジナル画像URLを署名付きURLに変換
+              try {
+                // /api/storage/ プレフィックスを除去してパスのみを取得
+                const originalPath = group.surveyImage.originalUrl.replace(/^\/api\/storage\//, '');
+                originalUrl = await storageProvider.getSignedUrl(originalPath);
+              } catch (error) {
+                logger.warn(
+                  { groupId: group.id, originalUrl: group.surveyImage.originalUrl, error },
+                  'Failed to generate signed URL for original image'
+                );
+              }
+
+              return {
+                ...group,
+                surveyImage: {
+                  ...group.surveyImage,
+                  thumbnailUrl,
+                  originalUrl,
+                },
+              };
+            })
+          );
+
+          enrichedQuantityTable = {
+            ...quantityTable,
+            groups: enrichedGroups,
+          };
+        }
+      }
+
       logger.debug(
         { userId: req.user?.userId, quantityTableId: id },
         'Quantity table detail retrieved'
       );
 
-      res.json(quantityTable);
+      res.json(enrichedQuantityTable);
     } catch (error) {
       next(error);
     }
