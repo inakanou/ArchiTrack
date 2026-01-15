@@ -15,6 +15,7 @@ import { useState, useCallback } from 'react';
 import type { QuantityGroupDetail, QuantityItemDetail } from '../../types/quantity-table.types';
 import QuantityItemRow from './QuantityItemRow';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
+import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
 
 // ============================================================================
 // 型定義
@@ -412,24 +413,14 @@ export default function QuantityGroupCard({
         >
           {group.surveyImage ? (
             <>
-              <img
-                src={group.surveyImage.originalUrl}
+              <AnnotatedImageThumbnail
+                image={{
+                  id: group.surveyImage.id,
+                  originalUrl: group.surveyImage.originalUrl,
+                }}
                 alt={group.surveyImage.fileName}
                 style={styles.thumbnail}
               />
-              {/* 注釈オーバーレイ（REQ-4.4） */}
-              {hasAnnotations && (
-                <div
-                  data-testid={`annotation-overlay-${group.id}`}
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    pointerEvents: 'none',
-                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                    borderRadius: '6px',
-                  }}
-                />
-              )}
               {/* 注釈バッジ（REQ-3.3） */}
               {hasAnnotations && (
                 <span

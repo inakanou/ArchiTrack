@@ -31,6 +31,7 @@ import type {
 import type { SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb } from '../components/common';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
+import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 
 // ============================================================================
 // スタイル定義
@@ -1398,16 +1399,18 @@ export default function QuantityTableEditPage() {
                     padding: '16px',
                   }}
                 >
-                  <img
-                    src={
-                      viewerGroup.surveyImage.originalUrl || viewerGroup.surveyImage.thumbnailUrl
-                    }
+                  <AnnotatedImageThumbnail
+                    image={{
+                      id: viewerGroup.surveyImage.id,
+                      originalUrl: viewerGroup.surveyImage.originalUrl,
+                    }}
                     alt={viewerGroup.surveyImage.fileName}
                     style={{
                       maxWidth: '100%',
                       maxHeight: '70vh',
                       objectFit: 'contain',
                     }}
+                    loading="eager"
                   />
                 </div>
                 <div style={{ padding: '16px', borderTop: '1px solid #e5e7eb' }}>
