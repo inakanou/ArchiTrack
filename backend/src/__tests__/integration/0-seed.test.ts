@@ -152,9 +152,8 @@ describe('Seed Script Integration Tests', () => {
 
   it('一般ユーザーロールにプロジェクト基本権限が割り当てられる（project-management/REQ-12.5）', async () => {
     // Arrange
-    const { seedRoles, seedPermissions, seedRolePermissions } = await import(
-      '../../utils/seed-helpers.js'
-    );
+    const { seedRoles, seedPermissions, seedRolePermissions } =
+      await import('../../utils/seed-helpers.js');
     await seedRoles(prisma);
     await seedPermissions(prisma);
 
@@ -193,9 +192,8 @@ describe('Seed Script Integration Tests', () => {
 
   it('ロールと権限が正しく紐付けられる', async () => {
     // Arrange
-    const { seedRoles, seedPermissions, seedRolePermissions } = await import(
-      '../../utils/seed-helpers.js'
-    );
+    const { seedRoles, seedPermissions, seedRolePermissions } =
+      await import('../../utils/seed-helpers.js');
     await seedRoles(prisma);
     await seedPermissions(prisma);
 
@@ -241,9 +239,8 @@ describe('Seed Script Integration Tests', () => {
 
   it('初期管理者アカウントが正しく作成される', async () => {
     // Arrange
-    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
-      '../../utils/seed-helpers.js'
-    );
+    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } =
+      await import('../../utils/seed-helpers.js');
     await seedRoles(prisma);
     await seedPermissions(prisma);
     await seedRolePermissions(prisma);
@@ -294,9 +291,8 @@ describe('Seed Script Integration Tests', () => {
     // 代わりに、seed関数の冪等性（既存データがあっても重複作成しない）に依存する
 
     // Arrange & Act: 1回目の実行
-    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
-      '../../utils/seed-helpers.js'
-    );
+    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } =
+      await import('../../utils/seed-helpers.js');
     await seedRoles(prisma);
     await seedPermissions(prisma);
     await seedRolePermissions(prisma);
@@ -383,9 +379,8 @@ describe('Seed Script Integration Tests', () => {
       },
     });
 
-    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
-      '../../utils/seed-helpers.js'
-    );
+    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } =
+      await import('../../utils/seed-helpers.js');
     await seedRoles(prisma);
     await seedPermissions(prisma);
     await seedRolePermissions(prisma);
@@ -440,9 +435,8 @@ describe('Seed Script Integration Tests', () => {
     process.env.INITIAL_ADMIN_PASSWORD = 'InitialAdmin123!@#';
     process.env.INITIAL_ADMIN_DISPLAY_NAME = 'Initial Test Admin';
 
-    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } = await import(
-      '../../utils/seed-helpers.js'
-    );
+    const { seedRoles, seedPermissions, seedRolePermissions, seedAdminUser } =
+      await import('../../utils/seed-helpers.js');
     await seedRoles(prisma);
     await seedPermissions(prisma);
     await seedRolePermissions(prisma);

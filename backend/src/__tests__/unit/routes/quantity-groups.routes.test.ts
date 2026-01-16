@@ -113,9 +113,8 @@ describe('QuantityGroupsRoutes', () => {
     }));
 
     // Import route after mocks are setup
-    const { default: quantityGroupsRoutes } = await import(
-      '../../../routes/quantity-groups.routes.js'
-    );
+    const { default: quantityGroupsRoutes } =
+      await import('../../../routes/quantity-groups.routes.js');
 
     // Setup express app
     app = express();
