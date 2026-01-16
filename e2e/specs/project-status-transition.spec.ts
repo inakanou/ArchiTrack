@@ -63,11 +63,9 @@ async function createTestProject(page: Page): Promise<{ id: string; name: string
     }
 
     // エラーが表示されている場合はリロードして再試行
-    const hasError = await page
-      .getByText(/ユーザー一覧の取得に失敗しました/i)
-      .first()
-      .isVisible()
-      .catch(() => false);
+    const errorMessage = page.getByText(/ユーザー一覧の取得に失敗しました/i).first();
+    const errorCount = await errorMessage.count();
+    const hasError = errorCount > 0 && (await errorMessage.isVisible());
     if (hasError && retry < 2) {
       await page.reload();
       await page.waitForLoadState('networkidle');
@@ -729,6 +727,201 @@ test.describe('ステータス遷移', () => {
 
       // 順方向と差し戻しのスタイルが異なることを確認
       expect(forwardStyles.backgroundColor).not.toBe(backwardStyles.backgroundColor);
+    });
+  });
+
+  /**
+   * 終端ステータスからの遷移禁止テスト
+   *
+   * REQ-10.7: 終端ステータス（完了、中止、失注）からの遷移を禁止する
+   */
+  test.describe('終端ステータス遷移禁止', () => {
+    /**
+     * @requirement project-management/REQ-10.7
+     */
+    test('終端ステータス「中止」からは遷移できない (project-management/REQ-10.7)', async ({
+      page,
+    }) => {
+      // 一般ユーザーでログイン
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新しいプロジェクトを作成
+      await createTestProject(page);
+      await page.waitForLoadState('networkidle');
+
+      // 終端遷移ボタン（「中止」への遷移）をクリック
+      const terminateButton = page.locator('button[data-transition-type="terminate"]').first();
+      await expect(terminateButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      const transitionPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/projects/') &&
+          response.url().includes('/status') &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(30000) }
+      );
+
+      await terminateButton.click();
+      await transitionPromise;
+
+      // ステータスが「中止」になったことを確認
+      const currentStatusBadge = page.getByTestId('current-status-badge');
+      await expect(currentStatusBadge).toHaveText('中止', { timeout: getTimeout(10000) });
+
+      // 遷移可能なステータスがないことを確認
+      await expect(page.getByText(/遷移可能なステータスがありません/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 遷移ボタンが表示されていないことを確認
+      const anyTransitionButton = page.locator('button[data-transition-type]');
+      await expect(anyTransitionButton).not.toBeVisible({ timeout: getTimeout(5000) });
+    });
+  });
+
+  /**
+   * 不許可遷移エラーテスト
+   *
+   * REQ-10.9: 許可されていないステータス遷移を実行しようとするとエラーメッセージを表示し、遷移を拒否する
+   */
+  test.describe('不許可遷移エラー', () => {
+    /**
+     * @requirement project-management/REQ-10.9
+     */
+    test('許可されていないステータス遷移を直接APIで試みるとエラーが返される (project-management/REQ-10.9)', async ({
+      page,
+    }) => {
+      // 一般ユーザーでログイン
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新しいプロジェクトを作成（初期ステータス: PREPARING）
+      const project = await createTestProject(page);
+      await page.waitForLoadState('networkidle');
+
+      // 不許可な遷移をAPIで直接試行（準備中 → 完了 は許可されていない）
+      const response = await page.request.patch(`/api/projects/${project.id}/status`, {
+        data: { status: 'COMPLETED' },
+      });
+
+      // エラーレスポンス（4xx）が返されることを確認
+      // 400 (Bad Request), 403 (Forbidden), 422 (Unprocessable Entity) のいずれか
+      const statusCode = response.status();
+      expect(statusCode >= 400 && statusCode < 500).toBe(true);
+
+      // エラーレスポンスの内容を確認（レスポンスボディがある場合）
+      try {
+        const responseText = await response.text();
+        if (responseText) {
+          const responseData = JSON.parse(responseText);
+          expect(responseData.error || responseData.message || responseData.errors).toBeTruthy();
+        }
+      } catch {
+        // レスポンスボディがない場合やJSONでない場合は、ステータスコードのみで検証
+        // ステータスコードが4xxであることは既に確認済み
+      }
+    });
+  });
+
+  /**
+   * 履歴記録テスト
+   *
+   * REQ-10.10: ステータス変更履歴を記録する
+   * REQ-10.15: 差し戻し理由を履歴に記録する
+   */
+  test.describe('履歴記録', () => {
+    /**
+     * @requirement project-management/REQ-10.10
+     */
+    test('ステータス変更時に変更履歴が記録される (project-management/REQ-10.10)', async ({
+      page,
+    }) => {
+      // 一般ユーザーでログイン
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新しいプロジェクトを作成
+      await createTestProject(page);
+      await page.waitForLoadState('networkidle');
+
+      // 初期状態の履歴数を確認
+      let historyItems = page.locator('[data-testid^="status-history-item-"]');
+      const initialHistoryCount = await historyItems.count();
+
+      // 順方向遷移を実行
+      await executeForwardTransition(page);
+
+      // ページを再読み込みして履歴を更新
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+
+      // 履歴が増えていることを確認
+      historyItems = page.locator('[data-testid^="status-history-item-"]');
+      const newHistoryCount = await historyItems.count();
+      expect(newHistoryCount).toBeGreaterThan(initialHistoryCount);
+
+      // 最新の履歴アイテムに遷移情報が含まれていることを確認
+      const latestHistoryItem = historyItems.first();
+      await expect(latestHistoryItem).toBeVisible();
+
+      // 履歴に遷移種別が記録されていることを確認
+      const transitionType = await latestHistoryItem.getAttribute('data-transition-type');
+      expect(['initial', 'forward', 'backward', 'terminate']).toContain(transitionType);
+    });
+
+    /**
+     * @requirement project-management/REQ-10.15
+     */
+    test('差し戻し遷移時に差し戻し理由が履歴に記録される (project-management/REQ-10.15)', async ({
+      page,
+    }) => {
+      // 一般ユーザーでログイン
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新しいプロジェクトを作成
+      await createTestProject(page);
+      await page.waitForLoadState('networkidle');
+
+      // 順方向遷移を実行（準備中 -> 調査中）
+      await executeForwardTransition(page);
+
+      // ステータスが「調査中」に更新されたことを確認
+      const currentStatusBadge = page.getByTestId('current-status-badge');
+      await expect(currentStatusBadge).toHaveText('調査中', { timeout: getTimeout(10000) });
+
+      // 差し戻しボタンをクリック
+      const backwardButton = page.locator('button[data-transition-type="backward"]').first();
+      await expect(backwardButton).toBeVisible({ timeout: getTimeout(10000) });
+      await backwardButton.click();
+
+      // 差し戻し理由入力ダイアログが表示されることを確認
+      await expect(page.getByRole('heading', { name: /差し戻し理由の入力/i })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 差し戻し理由を入力
+      const backwardReason = 'テスト用の差し戻し理由：追加情報が必要';
+      const reasonTextarea = page.getByRole('textbox', { name: /差し戻し理由/i });
+      await reasonTextarea.fill(backwardReason);
+
+      // APIレスポンスを待機しながら「差し戻す」ボタンをクリック
+      const transitionPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/projects/') &&
+          response.url().includes('/status') &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /差し戻す/i }).click();
+      await transitionPromise;
+
+      // ページを再読み込みして履歴を更新
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+
+      // 差し戻し理由が履歴に表示されていることを確認
+      await expect(page.getByText(backwardReason)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
   });
 });

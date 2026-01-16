@@ -26,6 +26,10 @@ import SiteSurveyDetailPage from './pages/SiteSurveyDetailPage';
 import SiteSurveyCreatePage from './pages/SiteSurveyCreatePage';
 import SiteSurveyEditPage from './pages/SiteSurveyEditPage';
 import SiteSurveyImageViewerPage from './pages/SiteSurveyImageViewerPage';
+import QuantityTableListPage from './pages/QuantityTableListPage';
+import QuantityTableCreatePage from './pages/QuantityTableCreatePage';
+import QuantityTableEditPage from './pages/QuantityTableEditPage';
+import QuantityTableRedirectPage from './pages/QuantityTableRedirectPage';
 
 /**
  * アプリケーションのルート設定
@@ -169,6 +173,38 @@ export const routes: RouteObject[] = [
       {
         path: '/site-surveys/:id',
         element: <SiteSurveyDetailPage />,
+      },
+
+      // 数量表新規作成（/projects/:projectId/quantity-tables より先に定義する必要あり）
+      // REQ-2.1: 数量表名を入力して作成を確定する
+      // REQ-2.2: 新しい数量表を作成し、数量表編集画面に遷移する
+      // Task 10.1: 数量表新規作成画面の統合
+      {
+        path: '/projects/:projectId/quantity-tables/new',
+        element: <QuantityTableCreatePage />,
+      },
+      // 数量表一覧
+      // REQ-1.4: 数量表一覧画面への遷移リンク
+      // REQ-2.3: プロジェクトに紐づく全ての数量表を作成日時順に一覧表示する
+      // Task 4.2: 数量表一覧画面を実装する
+      {
+        path: '/projects/:projectId/quantity-tables',
+        element: <QuantityTableListPage />,
+      },
+      // 数量表詳細（編集画面へリダイレクト）
+      // REQ-1.5: 数量表カードクリックで編集画面遷移
+      // プロジェクト詳細画面の数量表セクションからの遷移先
+      {
+        path: '/projects/:projectId/quantity-tables/:id',
+        element: <QuantityTableRedirectPage />,
+      },
+      // 数量表編集画面
+      // REQ-3.1: 数量表編集画面を表示する
+      // REQ-3.2: 数量グループ一覧と各グループ内の数量項目を階層的に表示する
+      // Task 5.1: 数量表編集画面のレイアウトを実装する
+      {
+        path: '/quantity-tables/:id/edit',
+        element: <QuantityTableEditPage />,
       },
 
       // 取引先一覧

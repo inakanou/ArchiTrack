@@ -581,8 +581,10 @@ test.describe('現場調査画像管理', () => {
       const imageCount = await dragHandles.count();
 
       if (imageCount < 2) {
-        // 画像が2枚未満の場合は並び替えテスト不可
-        return;
+        // 画像が2枚未満の場合はテスト失敗（第3原則: 前提条件でテストを除外してはならない）
+        throw new Error(
+          `REQ-4.11: 画像が${imageCount}枚しかありません。ドラッグ＆ドロップテストには2枚以上の画像が必要です。前のテスト（複数画像アップロード）が正しく実行されていません。`
+        );
       }
 
       // 最初と2番目のドラッグハンドルを取得
@@ -593,23 +595,8 @@ test.describe('現場調査画像管理', () => {
       const firstImageSrc = await photoPanelItems.nth(0).locator('img').getAttribute('src');
       const secondImageSrc = await photoPanelItems.nth(1).locator('img').getAttribute('src');
 
-      // ドラッグ＆ドロップを実行
-      // 並び替えAPIのレスポンスを待機
-      const reorderPromise = page
-        .waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/') &&
-            (response.url().includes('/reorder') || response.url().includes('/order')) &&
-            (response.request().method() === 'PUT' || response.request().method() === 'PATCH'),
-          { timeout: getTimeout(15000) }
-        )
-        .catch(() => null); // 並び替えAPIがない場合もテストを続行
-
       // ドラッグ＆ドロップ操作
       await firstHandle.dragTo(secondHandle);
-
-      // 並び替えAPIが呼ばれた場合はレスポンスを待機
-      await reorderPromise;
 
       // ページをリロードして順序が保存されていることを確認
       await page.reload();
@@ -666,13 +653,7 @@ test.describe('現場調査画像管理', () => {
       await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
       const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
-
-      if (!hasImages) {
-        throw new Error(
-          '画像が見つかりません。アップロードテストが正しく実行されていない可能性があります。'
-        );
-      }
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
 
       // 画像が表示されていることを確認（UIテスト）
       const imageElement = photoPanelItems.first().locator('img');
@@ -705,13 +686,7 @@ test.describe('現場調査画像管理', () => {
       await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
       const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImages = await imageButton.isVisible({ timeout: 5000 }).catch(() => false);
-
-      if (!hasImages) {
-        throw new Error(
-          '画像が見つかりません。アップロードテストが正しく実行されていない可能性があります。'
-        );
-      }
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
 
       // 画像ボタンをクリック
       await imageButton.click();
@@ -750,16 +725,13 @@ test.describe('現場調査画像管理', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await deleteButton.click();
-          // 削除確認ダイアログが表示されるのを待機
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          await expect(confirmButton).toBeVisible({ timeout: 5000 });
-          await confirmButton.click();
-          await page
-            .waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) })
-            .catch(() => {});
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        // 削除確認ダイアログが表示されるのを待機
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
       }
 
       // プロジェクトを削除
@@ -768,16 +740,14 @@ test.describe('現場調査画像管理', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

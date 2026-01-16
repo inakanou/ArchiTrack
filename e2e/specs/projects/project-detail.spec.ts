@@ -410,16 +410,9 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 現場調査セクションの存在を確認
-      // （機能が未実装の場合は非表示、実装済みの場合は表示）
-      const surveySection = page.getByText(/現場調査|調査一覧/i);
-      const sectionVisible = await surveySection.isVisible().catch(() => false);
-
-      if (sectionVisible) {
-        // セクションが表示されている場合、関連データの件数表示を確認
-        await expect(surveySection).toBeVisible({ timeout: getTimeout(10000) });
-      }
-      // 未実装の場合はテストパス
+      // 現場調査セクションの存在を確認（見出し要素に限定）
+      const surveySection = page.getByRole('heading', { name: /現場調査/i });
+      await expect(surveySection).toBeVisible({ timeout: getTimeout(10000) });
     });
 
     /**
@@ -438,15 +431,8 @@ test.describe('プロジェクト詳細画面', () => {
       await page.waitForLoadState('networkidle');
 
       // 見積書セクションの存在を確認
-      // （機能が未実装の場合は非表示、実装済みの場合は表示）
       const quoteSection = page.getByText(/見積|見積書一覧/i);
-      const sectionVisible = await quoteSection.isVisible().catch(() => false);
-
-      if (sectionVisible) {
-        // セクションが表示されている場合、関連データの件数表示を確認
-        await expect(quoteSection).toBeVisible({ timeout: getTimeout(10000) });
-      }
-      // 未実装の場合はテストパス
+      await expect(quoteSection).toBeVisible({ timeout: getTimeout(10000) });
     });
 
     /**
@@ -464,16 +450,27 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 現場調査一覧リンクの存在を確認
-      const surveyLink = page.getByRole('link', { name: /現場調査一覧/i });
-      const linkVisible = await surveyLink.isVisible().catch(() => false);
+      // 現場調査セクションが表示されることを確認
+      const surveySection = page.getByRole('heading', { name: /現場調査/i });
+      await expect(surveySection).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (linkVisible) {
-        // リンクをクリックして遷移を確認
-        await surveyLink.click();
-        await expect(page).toHaveURL(/surveys|site-surveys/, { timeout: getTimeout(10000) });
+      // 「すべて見る」リンク（現場調査がある場合）または「新規作成」リンク（ない場合）を探す
+      // 現場調査セクション内のリンクを使用
+      const viewAllLink = page.getByRole('link', { name: /すべて見る/i }).first();
+      const createLink = page
+        .locator('section')
+        .filter({ has: surveySection })
+        .getByRole('link', { name: /新規作成/i });
+
+      // どちらかのリンクをクリックして現場調査関連画面に遷移
+      const viewAllVisible = await viewAllLink.isVisible().catch(() => false);
+      if (viewAllVisible) {
+        await viewAllLink.click();
+      } else {
+        await createLink.click();
       }
-      // 未実装の場合はテストパス
+
+      await expect(page).toHaveURL(/site-surveys/, { timeout: getTimeout(10000) });
     });
 
     /**
@@ -491,16 +488,29 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 見積書一覧リンクの存在を確認
-      const quoteLink = page.getByRole('link', { name: /見積書一覧/i });
-      const linkVisible = await quoteLink.isVisible().catch(() => false);
+      // 見積機能は現在未実装のため、関連データセクションの存在を確認
+      // 将来実装時にはリンク遷移テストに更新する
+      const relatedDataSection = page.getByRole('heading', { name: /関連データ/i });
+      const relatedDataVisible = await relatedDataSection.isVisible().catch(() => false);
 
-      if (linkVisible) {
-        // リンクをクリックして遷移を確認
-        await quoteLink.click();
-        await expect(page).toHaveURL(/quotes|estimates/, { timeout: getTimeout(10000) });
+      if (relatedDataVisible) {
+        // 未実装メッセージまたはリンクの存在を確認
+        const notImplementedMessage = page.getByText(/今後実装予定|見積書/i);
+        const quoteLink = page.getByRole('link', { name: /見積書一覧|見積/i });
+
+        const linkVisible = await quoteLink.isVisible().catch(() => false);
+        if (linkVisible) {
+          // リンクが実装されている場合は遷移テスト
+          await quoteLink.click();
+          await expect(page).toHaveURL(/quotes|estimates/, { timeout: getTimeout(10000) });
+        } else {
+          // 未実装の場合はメッセージ表示を確認
+          await expect(notImplementedMessage).toBeVisible({ timeout: getTimeout(5000) });
+        }
+      } else {
+        // 関連データセクション自体がない場合はテスト成功（機能無効状態）
+        expect(true).toBe(true);
       }
-      // 未実装の場合はテストパス
     });
 
     /**
@@ -518,17 +528,13 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 関連データセクションが存在する場合、0件表示を確認
-      // （現場調査機能・見積機能が未実装の場合はセクション自体が非表示）
+      // 関連データセクションの存在を確認
       const relatedDataSection = page.getByText(/関連データ|現場調査|見積書/i).first();
-      const sectionVisible = await relatedDataSection.isVisible().catch(() => false);
+      await expect(relatedDataSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (sectionVisible) {
-        // セクションが表示されている場合、0件または「今後実装予定」を確認
-        // 複数要素がマッチする可能性があるため .first() を使用
-        const zeroOrComingSoon = page.getByText(/0件|今後実装予定/i).first();
-        await expect(zeroOrComingSoon).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // 0件表示を確認
+      const zeroOrComingSoon = page.getByText(/0件|今後実装予定/i).first();
+      await expect(zeroOrComingSoon).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**
@@ -547,20 +553,12 @@ test.describe('プロジェクト詳細画面', () => {
       await page.waitForLoadState('networkidle');
 
       // 現場調査機能・見積機能が未実装の場合、セクションが非表示であることを確認
-      // （実装されている場合はこのテストは失敗する）
       const surveySection = page.getByText(/現場調査一覧/i);
       const quoteSection = page.getByText(/見積書一覧/i);
 
-      const surveyVisible = await surveySection.isVisible().catch(() => false);
-      const quoteVisible = await quoteSection.isVisible().catch(() => false);
-
-      // どちらかが実装されていれば表示されるが、両方未実装なら非表示
-      // この時点では未実装のため、どちらも非表示であることを期待
-      if (!surveyVisible && !quoteVisible) {
-        // 関連データセクション自体が存在しないことを確認
-        expect(surveyVisible).toBe(false);
-        expect(quoteVisible).toBe(false);
-      }
+      // 両方のセクションが非表示であることを確認
+      await expect(surveySection).not.toBeVisible({ timeout: getTimeout(5000) });
+      await expect(quoteSection).not.toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 });

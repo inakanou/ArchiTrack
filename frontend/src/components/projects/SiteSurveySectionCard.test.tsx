@@ -155,11 +155,9 @@ describe('SiteSurveySectionCard', () => {
         />
       );
 
+      // 現場調査詳細へのリンクはプロジェクトIDなしの直接パスに変更（fix(site-survey)コミット）
       const surveyLinks = screen.getAllByRole('link', { name: /現場調査/ });
-      expect(surveyLinks[0]).toHaveAttribute(
-        'href',
-        `/projects/${projectId}/site-surveys/survey-1`
-      );
+      expect(surveyLinks[0]).toHaveAttribute('href', '/site-surveys/survey-1');
     });
   });
 

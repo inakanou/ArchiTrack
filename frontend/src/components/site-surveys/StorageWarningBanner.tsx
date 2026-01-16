@@ -57,7 +57,7 @@ const styles = {
   quotaExceeded: {
     backgroundColor: '#fef3c7',
     border: '1px solid #f59e0b',
-    color: '#92400e',
+    color: '#78350f',
   } as React.CSSProperties,
   privateBrowsing: {
     backgroundColor: '#e0f2fe',
@@ -91,7 +91,7 @@ const styles = {
     padding: '6px 12px',
     fontSize: '13px',
     fontWeight: 500,
-    backgroundColor: '#f59e0b',
+    backgroundColor: '#b45309',
     color: '#ffffff',
     border: 'none',
     borderRadius: '6px',
@@ -133,6 +133,8 @@ const styles = {
 function WarningIcon() {
   return (
     <svg
+      role="img"
+      aria-label="警告"
       width="20"
       height="20"
       viewBox="0 0 24 24"
@@ -155,6 +157,8 @@ function WarningIcon() {
 function InfoIcon() {
   return (
     <svg
+      role="img"
+      aria-label="情報"
       width="20"
       height="20"
       viewBox="0 0 24 24"

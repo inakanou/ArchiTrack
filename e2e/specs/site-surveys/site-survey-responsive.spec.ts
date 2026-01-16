@@ -17,6 +17,12 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESモジュールでの__dirname代替
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('現場調査レスポンシブ対応', () => {
   test.describe.configure({ mode: 'serial' });
@@ -101,6 +107,42 @@ test.describe('現場調査レスポンシブ対応', () => {
       const surveyMatch = surveyUrl.match(/\/site-surveys\/([0-9a-f-]+)$/);
       createdSurveyId = surveyMatch?.[1] ?? null;
       expect(createdSurveyId).toBeTruthy();
+
+      // 画像をアップロード（REQ-15.2, REQ-15.3のテストで必要）
+      await page.waitForLoadState('networkidle');
+
+      // ファイル入力を取得
+      let fileInput = page.locator('input[type="file"]').first();
+      const inputCount = await fileInput.count();
+      if (inputCount === 0) {
+        const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
+        if (await uploadButton.isVisible()) {
+          await uploadButton.click();
+        }
+        fileInput = page.locator('input[type="file"]').first();
+      }
+
+      await expect(fileInput).toBeAttached({ timeout: getTimeout(10000) });
+
+      // テスト用画像ファイルをアップロード
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+
+      const uploadPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/') &&
+          response.url().includes('/images') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+
+      await fileInput.setInputFiles(testImagePath);
+
+      const uploadResponse = await uploadPromise;
+      expect(uploadResponse.ok()).toBe(true);
+
+      // ページをリロードして画像が保存されていることを確認
+      await page.reload();
+      await page.waitForLoadState('networkidle');
     });
   });
 
@@ -234,32 +276,41 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 画像があればビューアを開く（PhotoManagementPanel内）
       const imageElement = page.locator('[data-testid="photo-image-button"]').first();
-      if (await imageElement.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await imageElement.click();
-        await page.waitForLoadState('networkidle');
+      const imageVisible = await imageElement.isVisible({ timeout: 3000 });
 
-        // 編集モードボタン
-        const editModeButton = page.getByRole('button', { name: /編集モード/i });
-        if (await editModeButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await editModeButton.click();
+      // 画像が存在することを確認（第3原則: 前提条件でテストを除外してはならない）
+      if (!imageVisible) {
+        throw new Error(
+          'REQ-15.2: 画像が見つかりません。タッチ操作テストには画像が必要です。前のテスト（画像アップロード）が正しく実行されていません。'
+        );
+      }
 
-          // 注釈ツールバーが表示されることを確認
-          const toolbar = page.locator('[data-testid="annotation-toolbar"]');
-          const hasToolbar = await toolbar.isVisible({ timeout: 5000 }).catch(() => false);
+      await imageElement.click();
+      await page.waitForLoadState('networkidle');
 
-          // ツールボタンがタッチ操作しやすいサイズかどうか確認
-          if (hasToolbar) {
-            const toolButtons = toolbar.locator('button');
-            const buttonCount = await toolButtons.count();
+      // 編集モードボタン
+      const editModeButton = page.getByRole('button', { name: /編集モード/i });
+      const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
 
-            if (buttonCount > 0) {
-              const firstButton = toolButtons.first();
-              const box = await firstButton.boundingBox();
+      if (editModeVisible) {
+        await editModeButton.click();
 
-              // タッチターゲットは最低44px以上が推奨
-              if (box) {
-                expect(box.width >= 32 || box.height >= 32).toBeTruthy();
-              }
+        // 注釈ツールバーが表示されることを確認
+        const toolbar = page.locator('[data-testid="annotation-toolbar"]');
+        const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
+
+        // ツールボタンがタッチ操作しやすいサイズかどうか確認
+        if (hasToolbar) {
+          const toolButtons = toolbar.locator('button');
+          const buttonCount = await toolButtons.count();
+
+          if (buttonCount > 0) {
+            const firstButton = toolButtons.first();
+            const box = await firstButton.boundingBox();
+
+            // タッチターゲットは最低44px以上が推奨
+            if (box) {
+              expect(box.width >= 32 || box.height >= 32).toBeTruthy();
             }
           }
         }
@@ -287,15 +338,13 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // カメラ撮影ボタンを探す
-      const cameraButton = page.getByRole('button', { name: /カメラ|撮影|camera/i });
+      // カメラ撮影ボタンを探す（複数要素がある場合はdata-testidで特定）
+      const cameraButton = page.getByTestId('camera-button');
       const cameraInput = page.locator('input[accept*="image"][capture]');
 
       const hasCameraButton = await cameraButton.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasCameraInput = await cameraInput
-        .count()
-        .then((count) => count > 0)
-        .catch(() => false);
+      const cameraInputCount = await cameraInput.count();
+      const hasCameraInput = cameraInputCount > 0;
 
       // カメラ機能が存在することを確認
       expect(hasCameraButton || hasCameraInput).toBeTruthy();
@@ -318,13 +367,15 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 画像があればビューアを開く（PhotoManagementPanel内）
       const imageElement = page.locator('[data-testid="photo-image-button"]').first();
-      if (await imageElement.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const imageVisible = await imageElement.isVisible({ timeout: 3000 });
+      if (imageVisible) {
         await imageElement.click();
         await page.waitForLoadState('networkidle');
 
         // 編集モードに入る
         const editModeButton = page.getByRole('button', { name: /編集モード/i });
-        if (await editModeButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+        const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
+        if (editModeVisible) {
           await editModeButton.click();
 
           // 自動保存インジケーターまたはメッセージを探す
@@ -333,12 +384,8 @@ test.describe('現場調査レスポンシブ対応', () => {
           );
           const autoSaveText = page.getByText(/自動保存|auto.*save|下書き保存/i);
 
-          const hasAutoSaveIndicator = await autoSaveIndicator
-            .isVisible({ timeout: 3000 })
-            .catch(() => false);
-          const hasAutoSaveText = await autoSaveText
-            .isVisible({ timeout: 3000 })
-            .catch(() => false);
+          const hasAutoSaveIndicator = await autoSaveIndicator.isVisible({ timeout: 3000 });
+          const hasAutoSaveText = await autoSaveText.isVisible();
 
           // 自動保存機能が存在することを確認（または実装されていない場合はパス）
           expect(hasAutoSaveIndicator || hasAutoSaveText || true).toBeTruthy();
@@ -412,8 +459,8 @@ test.describe('現場調査レスポンシブ対応', () => {
       // 少し待ってから確認
       await page.waitForTimeout(2000);
 
-      const hasOfflineWarning = await offlineWarning.isVisible().catch(() => false);
-      const hasOfflineText = await offlineText.isVisible().catch(() => false);
+      const hasOfflineWarning = await offlineWarning.isVisible();
+      const hasOfflineText = await offlineText.isVisible();
 
       // オンラインに戻す
       await context.setOffline(false);
@@ -441,12 +488,13 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 保存ボタンをクリック
       const saveButton = page.getByRole('button', { name: /保存|更新/i });
-      if (await saveButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const saveButtonVisible = await saveButton.isVisible({ timeout: 3000 });
+      if (saveButtonVisible) {
         await saveButton.click();
 
         // エラーメッセージまたは保存ブロックの表示を確認
         const errorMessage = page.getByText(/保存.*失敗|エラー|オフライン|接続/i);
-        const hasError = await errorMessage.isVisible({ timeout: 5000 }).catch(() => false);
+        const hasError = await errorMessage.isVisible({ timeout: 5000 });
 
         // オンラインに戻す
         await context.setOffline(false);
@@ -556,7 +604,7 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 手動保存ボタンの存在確認
       const saveButton = page.getByRole('button', { name: /保存|更新/i });
-      const hasSaveButton = await saveButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSaveButton = await saveButton.isVisible({ timeout: 3000 });
 
       // 保存機能が利用可能であることを確認
       expect(hasSaveButton || true).toBeTruthy();
@@ -682,16 +730,12 @@ test.describe('現場調査レスポンシブ対応', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       if (createdProjectId) {
@@ -699,16 +743,14 @@ test.describe('現場調査レスポンシブ対応', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

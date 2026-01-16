@@ -42,7 +42,10 @@ import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
 import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
 import { saveAnnotation, getAnnotation, updateThumbnail } from '../../api/survey-annotations';
-import { exportImage, downloadFile } from '../../services/ExportService';
+import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
+import ImageExportDialog from './ImageExportDialog';
+import type { ExportOptions } from './ImageExportDialog';
+import type { SurveyImageInfo } from '../../types/site-survey.types';
 import { util } from 'fabric';
 // カスタムシェイプをFabric.jsクラスレジストリに登録（enlivenObjectsで復元するために必要）
 import './tools/registerCustomShapes';
@@ -116,6 +119,8 @@ export interface AnnotationEditorProps {
   initialPan?: { x: number; y: number };
   /** 閲覧専用モード（REQ-9.2: 注釈を表示するが編集は不可） */
   readOnly?: boolean;
+  /** 画像情報（ImageExportDialog用、REQ-12.2, 12.3, 12.4） */
+  imageInfo?: SurveyImageInfo;
 }
 
 // ============================================================================
@@ -260,6 +265,7 @@ function AnnotationEditor({
   imageId,
   surveyId,
   readOnly = false,
+  imageInfo,
 }: AnnotationEditorProps): React.JSX.Element {
   // DOM参照 - Canvas要素を動的に挿入するコンテナ
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -288,6 +294,11 @@ function AnnotationEditor({
     isSaving: false,
     saveSuccess: false,
   });
+
+  // エクスポートダイアログの状態管理（REQ-12.2, 12.3, 12.4）
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
   const undoManagerRef = useRef<UndoManager | null>(null);
@@ -1291,12 +1302,21 @@ function AnnotationEditor({
   }, [imageId, state.isSaving]);
 
   /**
-   * エクスポート操作ハンドラ
+   * エクスポートダイアログを開く
    *
-   * REQ-10.1: 注釈をレンダリングした画像を生成する
-   * REQ-10.2: JPEG、PNG形式でのエクスポートをサポート
+   * REQ-12.1: 個別画像のエクスポートボタンで注釈をレンダリングした画像を生成
+   * REQ-12.2: JPEG、PNG形式でのエクスポートをサポート
+   * REQ-12.3: エクスポート画像の解像度（品質）を選択可能
+   * REQ-12.4: 注釈なしの元画像もダウンロード可能
    */
   const handleExport = useCallback(() => {
+    // imageInfoがある場合はダイアログを開く
+    if (imageInfo) {
+      setIsExportDialogOpen(true);
+      return;
+    }
+
+    // imageInfoがない場合は従来通りPNG形式でエクスポート
     if (!fabricCanvasRef.current) return;
 
     const canvas = fabricCanvasRef.current;
@@ -1318,7 +1338,93 @@ function AnnotationEditor({
         error: err instanceof Error ? err.message : '画像のエクスポートに失敗しました',
       }));
     }
-  }, [imageId]);
+  }, [imageId, imageInfo]);
+
+  /**
+   * ImageExportDialogからのエクスポート実行
+   *
+   * REQ-12.2: JPEG、PNG形式でのエクスポートをサポート
+   * REQ-12.3: エクスポート画像の解像度（品質）を選択可能
+   */
+  const handleExportWithOptions = useCallback(
+    (options: ExportOptions) => {
+      if (!fabricCanvasRef.current) return;
+
+      setIsExporting(true);
+
+      try {
+        const canvas = fabricCanvasRef.current;
+
+        // 品質の数値変換
+        const qualityMap: Record<string, number> = {
+          low: 0.6,
+          medium: 0.8,
+          high: 1.0,
+        };
+        const quality = qualityMap[options.quality] || 0.8;
+
+        // 画像をエクスポート
+        const dataUrl = exportImage(canvas, {
+          format: options.format,
+          quality,
+          includeAnnotations: options.includeAnnotations,
+        });
+
+        // ファイル名を生成
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const baseName = imageInfo?.fileName?.replace(/\.[^/.]+$/, '') || 'annotation';
+        const filename = `${baseName}_${timestamp}.${options.format}`;
+
+        // ダウンロード
+        downloadFile(dataUrl, filename);
+
+        // ダイアログを閉じる
+        setIsExportDialogOpen(false);
+      } catch (err) {
+        console.error('画像のエクスポートに失敗しました:', err);
+        setState((prev) => ({
+          ...prev,
+          error: err instanceof Error ? err.message : '画像のエクスポートに失敗しました',
+        }));
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [imageInfo?.fileName]
+  );
+
+  /**
+   * 元画像ダウンロード
+   *
+   * REQ-12.4: 注釈なしの元画像もダウンロード可能
+   */
+  const handleDownloadOriginal = useCallback(async () => {
+    if (!imageInfo?.originalUrl) return;
+
+    setIsDownloading(true);
+
+    try {
+      await downloadOriginalImage(imageInfo.originalUrl, {
+        filename: imageInfo.fileName,
+      });
+      setIsExportDialogOpen(false);
+    } catch (err) {
+      console.error('元画像のダウンロードに失敗しました:', err);
+      setState((prev) => ({
+        ...prev,
+        error: err instanceof Error ? err.message : '元画像のダウンロードに失敗しました',
+      }));
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [imageInfo?.originalUrl, imageInfo?.fileName]);
+
+  /**
+   * エクスポートダイアログを閉じる
+   */
+  const handleCloseExportDialog = useCallback(() => {
+    setIsExportDialogOpen(false);
+  }, []);
 
   /**
    * キーボードイベントハンドラ
@@ -1464,6 +1570,19 @@ function AnnotationEditor({
           )}
         </div>
       </div>
+
+      {/* エクスポートダイアログ（REQ-12.2, 12.3, 12.4） */}
+      {imageInfo && (
+        <ImageExportDialog
+          open={isExportDialogOpen}
+          imageInfo={imageInfo}
+          onExport={handleExportWithOptions}
+          onClose={handleCloseExportDialog}
+          onDownloadOriginal={handleDownloadOriginal}
+          exporting={isExporting}
+          downloading={isDownloading}
+        />
+      )}
     </>
   );
 }

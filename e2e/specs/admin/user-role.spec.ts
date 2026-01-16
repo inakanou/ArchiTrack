@@ -338,4 +338,86 @@ test.describe('ユーザーへのロール割り当て', () => {
     expect(userRoles.some((ur) => ur.role.id === role1.id)).toBe(true);
     expect(userRoles.some((ur) => ur.role.id === role2.id)).toBe(true);
   });
+
+  /**
+   * 要件20.7: 新ロール割り当て後の次回トークンリフレッシュで権限反映
+   * ユーザーに新しいロールが割り当てられた場合、トークンリフレッシュ時に新しい権限が反映される
+   * @requirement user-authentication/REQ-20.7
+   */
+  test('トークンリフレッシュ時に新しいロールの権限が反映される', async ({ request }) => {
+    const prisma = getPrismaClient();
+
+    // テストユーザーを作成してログイン
+    const testUser = await createTestUser('REGULAR_USER');
+    const userLoginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
+      data: {
+        email: 'user@example.com',
+        password: 'Password123!',
+      },
+    });
+    const userLoginData = await userLoginResponse.json();
+    const userAccessToken = userLoginData.accessToken;
+    const refreshToken = userLoginData.refreshToken;
+
+    // 最初は権限がないのでロール一覧にアクセスできない
+    const initialRolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+      },
+    });
+    expect(initialRolesResponse.status()).toBe(403);
+
+    // role:read権限を持つ新しいロールを作成
+    const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: { name: 'Role Reader', description: 'Can read roles' },
+    });
+    const newRole = await createRoleResponse.json();
+
+    // ロールにrole:read権限を割り当て
+    const roleReadPermission = await prisma.permission.findFirst({
+      where: { resource: 'role', action: 'read' },
+    });
+
+    if (roleReadPermission) {
+      await prisma.rolePermission.create({
+        data: {
+          roleId: newRole.id,
+          permissionId: roleReadPermission.id,
+        },
+      });
+    }
+
+    // テストユーザーに新しいロールを割り当て
+    await request.post(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: {
+        roleIds: [newRole.id],
+      },
+    });
+
+    // トークンをリフレッシュ
+    const refreshResponse = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      data: {
+        refreshToken: refreshToken,
+      },
+    });
+
+    expect(refreshResponse.ok()).toBeTruthy();
+    const newTokenData = await refreshResponse.json();
+    const newAccessToken = newTokenData.accessToken;
+
+    // 新しいトークンでロール一覧にアクセス
+    // 新しい権限が反映されていれば、role:readでアクセス可能
+    const afterRolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
+      headers: {
+        Authorization: `Bearer ${newAccessToken}`,
+      },
+    });
+
+    // 新しいロールの権限が反映されていることを確認
+    expect(afterRolesResponse.ok()).toBeTruthy();
+  });
 });

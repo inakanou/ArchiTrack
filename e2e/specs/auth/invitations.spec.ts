@@ -45,7 +45,8 @@ test.describe('管理者招待機能', () => {
 
       // APIエラーが表示されていないか確認
       const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
-      const hasError = await errorAlert.isVisible().catch(() => false);
+      const errorAlertCount = await errorAlert.count();
+      const hasError = errorAlertCount > 0 && (await errorAlert.isVisible());
 
       if (!hasError) {
         // エラーがなければ成功
@@ -551,7 +552,8 @@ test.describe('管理者招待機能', () => {
 
       // APIエラーが表示されていないか確認
       const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
-      const hasError = await errorAlert.isVisible().catch(() => false);
+      const errorAlertCount = await errorAlert.count();
+      const hasError = errorAlertCount > 0 && (await errorAlert.isVisible());
 
       if (!hasError) {
         break;

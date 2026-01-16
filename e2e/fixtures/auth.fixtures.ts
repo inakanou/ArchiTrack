@@ -76,6 +76,28 @@ export async function createTestUser(
     }
   }
 
+  // REQ-3.5: 管理者ユーザー作成時は監査ログを記録
+  // 初期管理者セットアップのシミュレーション
+  if ((userData.roles as readonly string[]).includes('admin')) {
+    await client.auditLog.create({
+      data: {
+        action: 'USER_CREATED',
+        actorId: user.id,
+        targetType: 'User',
+        targetId: user.id,
+        after: {
+          email: userData.email,
+          displayName: userData.displayName,
+          role: 'admin',
+        },
+        metadata: {
+          source: 'seed',
+          isInitialAdmin: true,
+        },
+      },
+    });
+  }
+
   return user;
 }
 

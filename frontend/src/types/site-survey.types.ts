@@ -80,6 +80,10 @@ export interface SurveyImageInfo {
   includeInReport?: boolean;
   /** 中解像度画像URL（署名付きURL、800x600程度） */
   mediumUrl?: string | null;
+  /** 注釈の有無 */
+  hasAnnotations?: boolean;
+  /** 注釈データ（注釈が存在する場合） */
+  annotations?: AnnotationData[];
 }
 
 /**

@@ -178,20 +178,13 @@ test.describe('現場調査注釈ツール', () => {
     // 画像ボタンを取得（aria-labelを使用）
     const imageElement = page.getByRole('button', { name: /画像を拡大表示/i }).first();
 
-    if (!(await imageElement.isVisible({ timeout: 5000 }).catch(() => false))) {
-      return false;
-    }
-
+    await expect(imageElement).toBeVisible({ timeout: getTimeout(5000) });
     await imageElement.click();
 
     // 画像ビューアページへの遷移を待つ
-    try {
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-    } catch {
-      return false;
-    }
+    await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+      timeout: getTimeout(10000),
+    });
 
     // ページの読み込みを待つ
     await page.waitForLoadState('networkidle');
@@ -200,19 +193,13 @@ test.describe('現場調査注釈ツール', () => {
     // ページの安定化を待つ
     await page.waitForTimeout(100);
     const editModeButton = page.getByRole('button', { name: /編集モード/i });
-    if (await editModeButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await editModeButton.click();
-      // 注釈ツールバーが表示されるのを待つ
-      try {
-        await page
-          .locator('[data-testid="annotation-toolbar"]')
-          .waitFor({ state: 'visible', timeout: 10000 });
-      } catch {
-        return false;
-      }
-    } else {
-      return false;
-    }
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(5000) });
+    await editModeButton.click();
+
+    // 注釈ツールバーが表示されるのを待つ
+    await page
+      .locator('[data-testid="annotation-toolbar"]')
+      .waitFor({ state: 'visible', timeout: 10000 });
 
     // 注釈エディタの初期化を待つ
     await page.waitForTimeout(100);
@@ -288,9 +275,9 @@ test.describe('現場調査注釈ツール', () => {
       const lineWidth = page.locator('[data-testid="line-width"]');
 
       // スタイルオプションが表示されていることを確認
-      const hasStyleOptions = await styleOptions.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasColorPicker = await colorPicker.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasLineWidth = await lineWidth.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasStyleOptions = await styleOptions.isVisible();
+      const hasColorPicker = await colorPicker.isVisible();
+      const hasLineWidth = await lineWidth.isVisible();
 
       // 少なくとも一つのスタイルオプションが利用可能であることを確認
       expect(hasStyleOptions || hasColorPicker || hasLineWidth).toBeTruthy();
@@ -314,7 +301,8 @@ test.describe('現場調査注釈ツール', () => {
 
       // 色設定が利用可能であることを確認
       const colorPicker = page.locator('[data-testid="color-picker"]');
-      if (await colorPicker.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const colorPickerVisible = await colorPicker.isVisible();
+      if (colorPickerVisible) {
         // 色設定が変更可能であることを確認
         const initialColor = await colorPicker.inputValue();
         expect(initialColor).toBeTruthy();
@@ -437,9 +425,9 @@ test.describe('現場調査注釈ツール', () => {
       );
       const styleOptions = page.locator('[data-testid="style-options"], .style-panel');
 
-      const hasColorPicker = await colorPicker.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasLineWidth = await lineWidth.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasStyleOptions = await styleOptions.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasColorPicker = await colorPicker.isVisible();
+      const hasLineWidth = await lineWidth.isVisible();
+      const hasStyleOptions = await styleOptions.isVisible();
 
       expect(hasColorPicker || hasLineWidth || hasStyleOptions).toBeTruthy();
 
@@ -478,7 +466,7 @@ test.describe('現場調査注釈ツール', () => {
 
     // キャンバスサイズが10px以上になるまで最大10秒待機
     for (let i = 0; i < 20; i++) {
-      box = await upperCanvas.boundingBox().catch(() => null);
+      box = await upperCanvas.boundingBox();
       if (box && box.width > 10 && box.height > 10) {
         break;
       }
@@ -488,7 +476,7 @@ test.describe('現場調査注釈ツール', () => {
     // それでも見つからない場合はcanvas要素を試す
     if (!box || box.width <= 10 || box.height <= 10) {
       const canvas = page.locator('[data-testid="annotation-editor-container"] canvas').first();
-      box = await canvas.boundingBox().catch(() => null);
+      box = await canvas.boundingBox();
     }
 
     // それでも見つからない場合はコンテナを使用
@@ -844,11 +832,11 @@ test.describe('現場調査注釈ツール', () => {
 
       // 塗りつぶし色オプションが表示されることを確認
       const fillColorPicker = page.locator('[data-testid="fill-color-picker"]');
-      const hasFillColor = await fillColorPicker.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasFillColor = await fillColorPicker.isVisible();
 
       // スタイルオプションが利用可能であることを確認
       const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasStyleOptions = await styleOptions.isVisible();
 
       expect(hasFillColor || hasStyleOptions).toBeTruthy();
     });
@@ -873,19 +861,19 @@ test.describe('現場調査注釈ツール', () => {
 
       // スタイルオプションパネルが表示されることを確認
       const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasStyleOptions = await styleOptions.isVisible();
 
       // 色ピッカーが表示されることを確認
       const colorPicker = page.locator('[data-testid="color-picker"]');
-      const hasColorPicker = await colorPicker.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasColorPicker = await colorPicker.isVisible();
 
       // 線の太さ入力が表示されることを確認
       const lineWidth = page.locator('[data-testid="line-width"]');
-      const hasLineWidth = await lineWidth.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasLineWidth = await lineWidth.isVisible();
 
       // 塗りつぶし色ピッカーが表示されることを確認
       const fillColorPicker = page.locator('[data-testid="fill-color-picker"]');
-      const hasFillColor = await fillColorPicker.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasFillColor = await fillColorPicker.isVisible();
 
       // 少なくとも一つのスタイルオプションが利用可能であることを確認
       expect(hasStyleOptions || hasColorPicker || hasLineWidth || hasFillColor).toBeTruthy();
@@ -961,9 +949,9 @@ test.describe('現場調査注釈ツール', () => {
       const fontSize = page.locator('[data-testid="font-size"]');
       const styleOptions = page.locator('[data-testid="style-options"]');
 
-      const hasColorPicker = await colorPicker.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasFontSize = await fontSize.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasStyleOptions = await styleOptions.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasColorPicker = await colorPicker.isVisible();
+      const hasFontSize = await fontSize.isVisible();
+      const hasStyleOptions = await styleOptions.isVisible();
 
       expect(hasColorPicker || hasFontSize || hasStyleOptions).toBeTruthy();
     });
@@ -1036,18 +1024,14 @@ test.describe('現場調査注釈ツール', () => {
 
       // スタイルオプションパネルが表示されることを確認
       const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasStyleOptions = await styleOptions.isVisible();
 
       // フォントサイズオプションを探す
       const fontSizeOption = page.locator('[data-testid="font-size"]');
       const textColorOption = page.locator('[data-testid="color-picker"]');
 
-      const hasFontSizeOption = await fontSizeOption
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-      const hasTextColorOption = await textColorOption
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+      const hasFontSizeOption = await fontSizeOption.isVisible();
+      const hasTextColorOption = await textColorOption.isVisible();
 
       expect(hasStyleOptions || hasFontSizeOption || hasTextColorOption).toBeTruthy();
     });
@@ -1143,27 +1127,19 @@ test.describe('現場調査注釈ツール', () => {
       await expect(saveButton).toBeVisible({ timeout: 5000 });
 
       // 保存APIのレスポンスを待機
-      const savePromise = page
-        .waitForResponse(
-          (response) =>
-            response.url().includes('/api/') &&
-            response.url().includes('annotations') &&
-            (response.request().method() === 'PUT' || response.request().method() === 'POST'),
-          { timeout: getTimeout(30000) }
-        )
-        .catch(() => null);
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/') &&
+          response.url().includes('annotations') &&
+          (response.request().method() === 'PUT' || response.request().method() === 'POST'),
+        { timeout: getTimeout(30000) }
+      );
 
       await saveButton.click();
 
-      // 保存完了またはボタンクリックが完了したことを確認
+      // 保存完了を確認
       const saveResponse = await savePromise;
-      if (saveResponse) {
-        expect(saveResponse.ok()).toBeTruthy();
-      } else {
-        // APIレスポンスがない場合は保存操作が完了したことを確認
-        await page.waitForTimeout(1000);
-        await expect(page.locator('body')).toBeVisible();
-      }
+      expect(saveResponse.ok()).toBeTruthy();
     });
 
     test('注釈付き画像を再度開くと保存された注釈データが復元される (site-survey/REQ-9.2)', async ({
@@ -1200,10 +1176,9 @@ test.describe('現場調査注釈ツール', () => {
 
       // 編集モードに入る
       const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      if (await editModeButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await editModeButton.click();
-        await page.waitForTimeout(1000);
-      }
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(5000) });
+      await editModeButton.click();
+      await page.waitForTimeout(1000);
 
       // ページが正常に読み込まれ、キャンバスが表示されていることを確認
       const canvas = page.locator('canvas').first();
@@ -1300,17 +1275,130 @@ test.describe('現場調査注釈ツール', () => {
       });
       const exportMenu = page.getByRole('button', { name: /エクスポート/i });
 
-      let hasJsonExport = await jsonExportButton.isVisible({ timeout: 3000 }).catch(() => false);
+      let hasJsonExport = await jsonExportButton.isVisible();
 
       // メニューから選択する場合
-      if (!hasJsonExport && (await exportMenu.isVisible({ timeout: 2000 }).catch(() => false))) {
-        await exportMenu.click();
-        const jsonOption = page.getByRole('menuitem', { name: /JSON/i });
-        hasJsonExport = await jsonOption.isVisible({ timeout: 2000 }).catch(() => false);
+      if (!hasJsonExport) {
+        const exportMenuVisible = await exportMenu.isVisible();
+        if (exportMenuVisible) {
+          await exportMenu.click();
+          const jsonOption = page.getByRole('menuitem', { name: /JSON/i });
+          hasJsonExport = await jsonOption.isVisible();
+        }
       }
 
       // エクスポート関連のUI操作が完了したことを確認
       await expect(page.locator('body')).toBeVisible();
+    });
+
+    /**
+     * @requirement site-survey/REQ-9.5
+     *
+     * 注釈データの保存に失敗した場合にエラーメッセージを表示してリトライを促す
+     */
+    test('注釈データの保存に失敗するとエラーメッセージが表示される (site-survey/REQ-9.5)', async ({
+      page,
+      context,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const success = await navigateToAnnotationEditor(page);
+      if (!success) {
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
+      }
+
+      // 図形を描画
+      const rectTool = page.getByRole('button', { name: /四角形/i });
+      await expect(rectTool).toBeVisible({ timeout: 5000 });
+      await rectTool.click();
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+      const center = await getCanvasCenter(page);
+      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+
+      // ネットワークをオフラインにして保存失敗をシミュレート
+      await context.setOffline(true);
+
+      // 保存ボタンをクリック
+      const saveButton = page.getByRole('button', { name: /保存/i });
+      await expect(saveButton).toBeVisible({ timeout: 5000 });
+      await saveButton.click();
+
+      // エラーメッセージが表示されるまで待機
+      const errorMessage = page.locator(
+        '[role="alert"], .error-message, [data-testid="error-toast"]'
+      );
+      const errorText = page.getByText(
+        /保存に失敗|エラー|失敗しました|ネットワーク|接続できません|save.*failed/i
+      );
+
+      // 少し待ってからエラー表示を確認
+      await page.waitForTimeout(3000);
+
+      const hasErrorMessage = await errorMessage.isVisible();
+      const hasErrorText = await errorText.isVisible();
+
+      // ネットワークをオンラインに戻す
+      await context.setOffline(false);
+
+      // エラーメッセージが表示されたことを確認
+      expect(hasErrorMessage || hasErrorText).toBeTruthy();
+    });
+
+    test('保存失敗後にリトライボタンまたは保存ボタンが有効になる (site-survey/REQ-9.5)', async ({
+      page,
+      context,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const success = await navigateToAnnotationEditor(page);
+      if (!success) {
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
+      }
+
+      // 図形を描画
+      const rectTool = page.getByRole('button', { name: /四角形/i });
+      await expect(rectTool).toBeVisible({ timeout: 5000 });
+      await rectTool.click();
+      await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+      const center = await getCanvasCenter(page);
+      await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
+
+      // ネットワークをオフラインにして保存失敗をシミュレート
+      await context.setOffline(true);
+
+      // 保存ボタンをクリック
+      const saveButton = page.getByRole('button', { name: /保存/i });
+      await expect(saveButton).toBeVisible({ timeout: 5000 });
+      await saveButton.click();
+
+      // エラー発生を待機
+      await page.waitForTimeout(3000);
+
+      // ネットワークをオンラインに戻す
+      await context.setOffline(false);
+
+      // リトライボタンまたは保存ボタンが有効になっていることを確認
+      const retryButton = page.getByRole('button', { name: /リトライ|再試行|retry/i });
+      const saveButtonAfterError = page.getByRole('button', { name: /保存/i });
+
+      const hasRetryButton = await retryButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSaveButton = await saveButtonAfterError.isVisible({ timeout: 3000 });
+
+      // リトライボタンまたは保存ボタンが利用可能であることを確認
+      expect(hasRetryButton || hasSaveButton).toBeTruthy();
+
+      // リトライ/保存ボタンが有効な状態であることを確認
+      if (hasRetryButton) {
+        await expect(retryButton).not.toBeDisabled();
+      } else if (hasSaveButton) {
+        await expect(saveButtonAfterError).not.toBeDisabled();
+      }
     });
   });
 
@@ -1350,22 +1438,22 @@ test.describe('現場調査注釈ツール', () => {
         name: /エクスポート|export|ダウンロード|download/i,
       });
       await expect(exportButton).toBeVisible({ timeout: 5000 });
-
-      // ダウンロードイベントを待機
-      const downloadPromise = page
-        .waitForEvent('download', { timeout: getTimeout(30000) })
-        .catch(() => null);
       await exportButton.click();
 
+      // エクスポートダイアログが表示されるのを待機
+      const exportDialog = page.getByRole('dialog');
+      await expect(exportDialog).toBeVisible({ timeout: 5000 });
+
+      // ダウンロードイベントを待機してからダイアログ内のエクスポートボタンをクリック
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
+      const dialogExportButton = exportDialog.getByRole('button', { name: /エクスポート/i });
+      await expect(dialogExportButton).toBeVisible({ timeout: 3000 });
+      await dialogExportButton.click();
+
       const download = await downloadPromise;
-      if (download) {
-        // ダウンロードされたファイルが画像形式であることを確認
-        const filename = download.suggestedFilename();
-        expect(filename).toMatch(/\.(jpg|jpeg|png|webp)$/i);
-      } else {
-        // ダウンロードが発生しない場合（ダイアログが表示される等）
-        await expect(page.locator('body')).toBeVisible();
-      }
+      // ダウンロードされたファイルが画像形式であることを確認
+      const filename = download.suggestedFilename();
+      expect(filename).toMatch(/\.(jpg|jpeg|png|webp)$/i);
     });
 
     test('JPEG、PNG形式でのエクスポートをサポートする (site-survey/REQ-10.2)', async ({ page }) => {
@@ -1379,7 +1467,8 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       const exportButton = page.getByRole('button', { name: /エクスポート|export|ダウンロード/i });
-      if (await exportButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const exportVisible = await exportButton.isVisible();
+      if (exportVisible) {
         await exportButton.click();
         // エクスポートダイアログやメニューが開いたことを確認
         await page.waitForTimeout(500);
@@ -1402,7 +1491,8 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       const exportButton = page.getByRole('button', { name: /エクスポート|export|ダウンロード/i });
-      if (await exportButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const exportVisible = await exportButton.isVisible();
+      if (exportVisible) {
         await exportButton.click();
         // エクスポートダイアログやメニューが開いたことを確認
         await page.waitForTimeout(500);
@@ -1427,16 +1517,15 @@ test.describe('現場調査注釈ツール', () => {
         name: /元画像|original|オリジナル/i,
       });
 
-      const hasOriginalDownload = await originalDownloadButton
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+      const hasOriginalDownload = await originalDownloadButton.isVisible();
 
       // エクスポートメニューを開いて探す場合
       if (!hasOriginalDownload) {
         const exportButton = page.getByRole('button', {
           name: /エクスポート|export|ダウンロード/i,
         });
-        if (await exportButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        const exportVisible = await exportButton.isVisible();
+        if (exportVisible) {
           await exportButton.click();
           await page.waitForTimeout(500);
         }
@@ -1470,22 +1559,22 @@ test.describe('現場調査注釈ツール', () => {
 
       // エクスポートボタンをクリック
       const exportButton = page.getByRole('button', { name: /エクスポート|export|ダウンロード/i });
-      if (await exportButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // ダウンロードイベントを待機
-        const downloadPromise = page
-          .waitForEvent('download', { timeout: getTimeout(30000) })
-          .catch(() => null);
-        await exportButton.click();
+      await expect(exportButton).toBeVisible({ timeout: getTimeout(3000) });
+      await exportButton.click();
 
-        const download = await downloadPromise;
-        if (download) {
-          // ダウンロードが完了したことを確認
-          expect(download.suggestedFilename()).toBeTruthy();
-        }
-      }
+      // エクスポートダイアログが表示されるのを待機
+      const exportDialog = page.getByRole('dialog');
+      await expect(exportDialog).toBeVisible({ timeout: 5000 });
 
-      // エクスポート操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // ダウンロードイベントを待機してからダイアログ内のエクスポートボタンをクリック
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
+      const dialogExportButton = exportDialog.getByRole('button', { name: /エクスポート/i });
+      await expect(dialogExportButton).toBeVisible({ timeout: 3000 });
+      await dialogExportButton.click();
+
+      const download = await downloadPromise;
+      // ダウンロードが完了したことを確認
+      expect(download.suggestedFilename()).toBeTruthy();
     });
   });
 
@@ -1707,7 +1796,8 @@ test.describe('現場調査注釈ツール', () => {
       const undoButton = page.getByRole('button', { name: /元に戻す|undo|取り消し/i });
       await expect(undoButton).toBeVisible({ timeout: 5000 });
       for (let i = 0; i < 5; i++) {
-        if (await undoButton.isEnabled().catch(() => false)) {
+        const isEnabled = await undoButton.isEnabled();
+        if (isEnabled) {
           await undoButton.click();
           await page.waitForTimeout(200);
         }
@@ -1754,7 +1844,7 @@ test.describe('現場調査注釈ツール', () => {
 
       // 保存後のUndoボタンの状態を確認
       const undoButton = page.getByRole('button', { name: /元に戻す|undo|取り消し/i });
-      const isUndoEnabled = await undoButton.isEnabled().catch(() => true);
+      const isUndoEnabled = await undoButton.isEnabled();
 
       // 保存後は操作履歴がクリアされてUndoが無効になっている（または実装によっては有効のまま）
       expect(typeof isUndoEnabled === 'boolean').toBeTruthy();
@@ -1778,16 +1868,14 @@ test.describe('現場調査注釈ツール', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page.getByRole('dialog').getByRole('button', { name: '削除する' });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(5000) });
+        await deleteButton.click();
+
+        const confirmButton = page.getByRole('dialog').getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+
+        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       if (createdProjectId) {
@@ -1795,16 +1883,16 @@ test.describe('現場調査注釈ツール', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(5000) });
+        await deleteButton.click();
+
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "playwright install chromium && npx prisma generate",
+    "postinstall": "npx prisma generate",
     "dev:docker": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up",
     "dev:docker:build": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up --build",
     "dev:docker:down": "docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev down",
@@ -66,5 +66,8 @@
     "@node-rs/argon2": "^2.0.2",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0"
+  },
+  "overrides": {
+    "hono": "^4.11.4"
   }
 }

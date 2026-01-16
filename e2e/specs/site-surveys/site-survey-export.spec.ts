@@ -176,16 +176,16 @@ test.describe('現場調査エクスポート機能', () => {
         await cleanupPage.waitForLoadState('networkidle');
 
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible().catch(() => false)) {
-          await deleteButton.click();
-          const confirmButton = cleanupPage.getByRole('button', { name: /^削除する$|^削除$/i });
-          if (await confirmButton.isVisible().catch(() => false)) {
-            await confirmButton.click();
-            await cleanupPage
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
+        const dialog = cleanupPage
+          .getByTestId('focus-manager-overlay')
+          .or(cleanupPage.getByRole('dialog'));
+        const confirmButton = dialog.getByRole('button', { name: /^削除する$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       // プロジェクトを削除
@@ -194,18 +194,14 @@ test.describe('現場調査エクスポート機能', () => {
         await cleanupPage.waitForLoadState('networkidle');
 
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible().catch(() => false)) {
-          await deleteButton.click();
-          const confirmButton = cleanupPage
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible().catch(() => false)) {
-            await confirmButton.click();
-            await cleanupPage
-              .waitForURL(/\/projects$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = cleanupPage
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     } finally {
       await cleanupPage.close();
@@ -253,16 +249,15 @@ test.describe('現場調査エクスポート機能', () => {
         await includeInReportCheckbox.click();
         // 保存ボタンをクリック（手動保存方式）
         const saveButton1 = page.getByRole('button', { name: /^保存$|^保存中/ });
-        if (await saveButton1.isVisible({ timeout: 3000 }).catch(() => false)) {
-          const responsePromise1 = page.waitForResponse(
-            (response) =>
-              response.url().includes('/api/site-surveys/images') &&
-              response.request().method() === 'PATCH',
-            { timeout: getTimeout(15000) }
-          );
-          await saveButton1.click();
-          await responsePromise1;
-        }
+        await expect(saveButton1).toBeVisible({ timeout: getTimeout(5000) });
+        const responsePromise1 = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/site-surveys/images') &&
+            response.request().method() === 'PATCH',
+          { timeout: getTimeout(15000) }
+        );
+        await saveButton1.click();
+        await responsePromise1;
       }
 
       // チェックがオフであることを確認
@@ -540,18 +535,6 @@ test.describe('現場調査エクスポート機能', () => {
       const pdfButton = page.getByRole('button', { name: /調査報告書出力|PDF/i });
       await pdfButton.click();
 
-      // プログレス表示またはダウンロード完了のいずれかを確認
-      // （PDF生成が速い場合、プログレスがすぐに消える可能性がある）
-      const progressContainer = page.locator('[data-testid="pdf-export-progress"]');
-
-      // プログレスが表示されるか、すぐにダウンロードが開始されるかのいずれか
-      await Promise.race([
-        expect(progressContainer)
-          .toBeVisible({ timeout: getTimeout(10000) })
-          .catch(() => {}),
-        downloadPromise.catch(() => {}),
-      ]);
-
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
       const filename = download.suggestedFilename();
@@ -596,16 +579,17 @@ test.describe('現場調査エクスポート機能', () => {
     });
 
     /**
-     * 編集モード時のエクスポート実行テスト
+     * 編集モード時のエクスポートダイアログ表示テスト
      *
      * AnnotationEditorのエクスポートは、編集モード時にツールバーから実行可能。
-     * ツールバーのエクスポートボタンをクリックすると、PNG形式で直接ダウンロードされる。
-     * （ImageExportDialogではなく、直接ダウンロード方式）
+     * ツールバーのエクスポートボタンをクリックすると、ImageExportDialogが開く。
      *
      * @requirement site-survey/REQ-12.1
      * @requirement site-survey/REQ-12.5
      */
-    test('編集モード時にエクスポートボタンでダウンロードが開始される', async ({ page }) => {
+    test('編集モード時にエクスポートボタンでダイアログが開きダウンロードが開始される', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto(`/site-surveys/${createdSurveyId}`);
@@ -629,19 +613,221 @@ test.describe('現場調査エクスポート機能', () => {
       // Canvas準備のための待機
       await page.waitForTimeout(1000);
 
+      // エクスポートボタンをクリック（ImageExportDialogが開く）
+      const exportButton = page.getByRole('button', { name: /エクスポート/i });
+      await expect(exportButton).toBeVisible({ timeout: getTimeout(10000) });
+      await exportButton.click();
+
+      // ダイアログが表示されることを確認
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(dialog.getByText(/画像エクスポート/i)).toBeVisible();
+
       // ダウンロードイベントを待機
       const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+
+      // ダイアログ内のエクスポートボタンをクリック
+      const dialogExportButton = dialog.getByRole('button', { name: /^エクスポート$/i });
+      await expect(dialogExportButton).toBeVisible({ timeout: getTimeout(5000) });
+      await dialogExportButton.click();
+
+      // ダウンロードが開始されることを確認
+      const download = await downloadPromise;
+      const filename = download.suggestedFilename();
+      // ファイル名が画像形式（JPEG - デフォルト）であることを確認
+      expect(filename).toMatch(/\.(jpeg|jpg)$/i);
+    });
+
+    /**
+     * エクスポート形式選択テスト（JPEG/PNG）
+     *
+     * ImageExportDialogでJPEG/PNG形式を選択してエクスポートできることを確認。
+     *
+     * @requirement site-survey/REQ-12.2
+     */
+    test('エクスポートダイアログでJPEGまたはPNG形式を選択してエクスポートできる', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 画像をクリックしてビューアを開く
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
+      await imageButton.click();
+
+      await expect(page).toHaveURL(
+        new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`),
+        { timeout: getTimeout(10000) }
+      );
+
+      // 編集モードボタンをクリック
+      const editModeButton = page.getByRole('button', { name: /編集モード/i });
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(10000) });
+      await editModeButton.click();
+
+      await page.waitForTimeout(1000);
 
       // エクスポートボタンをクリック
       const exportButton = page.getByRole('button', { name: /エクスポート/i });
       await expect(exportButton).toBeVisible({ timeout: getTimeout(10000) });
       await exportButton.click();
 
+      // ダイアログが表示されることを確認
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+
+      // JPEG形式オプションが表示されることを確認
+      const jpegOption = dialog.getByLabel(/JPEG/i);
+      await expect(jpegOption).toBeVisible({ timeout: getTimeout(5000) });
+
+      // PNG形式オプションが表示されることを確認
+      const pngOption = dialog.getByLabel(/PNG/i);
+      await expect(pngOption).toBeVisible({ timeout: getTimeout(5000) });
+
+      // PNG形式を選択
+      await pngOption.click();
+      await expect(pngOption).toBeChecked();
+
+      // ダウンロードイベントを待機
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+
+      // エクスポートボタンをクリック
+      const dialogExportButton = dialog.getByRole('button', { name: /^エクスポート$/i });
+      await dialogExportButton.click();
+
+      // ダウンロードが開始されることを確認（PNG形式）
+      const download = await downloadPromise;
+      const filename = download.suggestedFilename();
+      expect(filename).toMatch(/\.png$/i);
+    });
+
+    /**
+     * エクスポート解像度（品質）選択テスト
+     *
+     * ImageExportDialogで解像度（低/中/高）を選択してエクスポートできることを確認。
+     *
+     * @requirement site-survey/REQ-12.3
+     */
+    test('エクスポートダイアログで解像度（品質）を選択してエクスポートできる', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 画像をクリックしてビューアを開く
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
+      await imageButton.click();
+
+      await expect(page).toHaveURL(
+        new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`),
+        { timeout: getTimeout(10000) }
+      );
+
+      // 編集モードボタンをクリック
+      const editModeButton = page.getByRole('button', { name: /編集モード/i });
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(10000) });
+      await editModeButton.click();
+
+      await page.waitForTimeout(1000);
+
+      // エクスポートボタンをクリック
+      const exportButton = page.getByRole('button', { name: /エクスポート/i });
+      await expect(exportButton).toBeVisible({ timeout: getTimeout(10000) });
+      await exportButton.click();
+
+      // ダイアログが表示されることを確認
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 低品質オプションが表示されることを確認
+      const lowOption = dialog.getByLabel(/低/i);
+      await expect(lowOption).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 中品質オプションが表示されることを確認
+      const mediumOption = dialog.getByLabel(/中/i);
+      await expect(mediumOption).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 高品質オプションが表示されることを確認
+      const highOption = dialog.getByLabel(/高/i);
+      await expect(highOption).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 高品質を選択
+      await highOption.click();
+      await expect(highOption).toBeChecked();
+
+      // ダウンロードイベントを待機
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+
+      // エクスポートボタンをクリック
+      const dialogExportButton = dialog.getByRole('button', { name: /^エクスポート$/i });
+      await dialogExportButton.click();
+
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
       const filename = download.suggestedFilename();
-      // ファイル名が画像形式（PNG）であることを確認
-      expect(filename).toMatch(/\.(png)$/i);
+      // 形式はデフォルトのJPEG
+      expect(filename).toMatch(/\.(jpeg|jpg)$/i);
+    });
+
+    /**
+     * 元画像ダウンロードテスト
+     *
+     * ImageExportDialogで元画像ダウンロードボタンをクリックして、
+     * 注釈なしの元画像をダウンロードできることを確認。
+     *
+     * @requirement site-survey/REQ-12.4
+     */
+    test('エクスポートダイアログから元画像をダウンロードできる', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 画像をクリックしてビューアを開く
+      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
+      await imageButton.click();
+
+      await expect(page).toHaveURL(
+        new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`),
+        { timeout: getTimeout(10000) }
+      );
+
+      // 編集モードボタンをクリック
+      const editModeButton = page.getByRole('button', { name: /編集モード/i });
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(10000) });
+      await editModeButton.click();
+
+      await page.waitForTimeout(1000);
+
+      // エクスポートボタンをクリック
+      const exportButton = page.getByRole('button', { name: /エクスポート/i });
+      await expect(exportButton).toBeVisible({ timeout: getTimeout(10000) });
+      await exportButton.click();
+
+      // ダイアログが表示されることを確認
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 元画像ダウンロードボタンが表示されることを確認
+      const downloadOriginalButton = dialog.getByRole('button', { name: /元画像をダウンロード/i });
+      await expect(downloadOriginalButton).toBeVisible({ timeout: getTimeout(5000) });
+
+      // ダウンロードイベントを待機
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+
+      // 元画像ダウンロードボタンをクリック
+      await downloadOriginalButton.click();
+
+      // ダウンロードが開始されることを確認
+      const download = await downloadPromise;
+      const filename = download.suggestedFilename();
+      // 元画像のファイル名（テスト画像のファイル名）であることを確認
+      expect(filename).toMatch(/\.(jpg|jpeg|png)$/i);
     });
   });
 });

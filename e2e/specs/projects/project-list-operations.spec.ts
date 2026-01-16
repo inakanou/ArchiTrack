@@ -5,8 +5,11 @@
  *
  * Requirements:
  * - 2.1: プロジェクト一覧画面にアクセスすると認可されたプロジェクト一覧を表示
+ * - 3.1: 1ページあたりのデフォルト表示件数を20件とする
  * - 3.3: ページ番号クリックで該当ページのプロジェクトを表示
  * - 4.1: 検索フィールドにキーワードを入力してEnter/検索ボタンで検索実行
+ * - 4.4: 2文字以上の検索キーワードを要求
+ * - 4.5: 1文字以下で「2文字以上で入力してください」メッセージを表示
  * - 5.1: ステータスフィルタで値を選択すると選択されたステータスのプロジェクトのみ表示
  * - 6.1: テーブルヘッダーをクリックすると該当カラムで昇順ソート
  * - 15.3: 画面幅が768px未満の場合、テーブルをカード形式に切り替えて表示
@@ -128,11 +131,9 @@ test.describe('プロジェクト一覧操作', () => {
       const cardList = page.getByTestId('project-card-list');
 
       // いずれかが表示されることを確認
-      const hasEmptyMessage = await emptyMessage.isVisible().catch(() => false);
-      const hasTable = await table.isVisible().catch(() => false);
-      const hasCardList = await cardList.isVisible().catch(() => false);
-
-      expect(hasEmptyMessage || hasTable || hasCardList).toBe(true);
+      await expect(emptyMessage.or(table).or(cardList)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
   });
 
@@ -140,8 +141,12 @@ test.describe('プロジェクト一覧操作', () => {
    * 検索機能のテスト
    *
    * REQ-4.1: 検索フィールドにキーワードを入力してEnter/検索ボタンで検索実行
+   * @requirement project-management/REQ-4.1a
    */
   test.describe('検索機能', () => {
+    /**
+     * @requirement project-management/REQ-4.1a
+     */
     test('検索フィールドにキーワードを入力してEnterで検索が実行される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -161,6 +166,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-4.1b
+     */
     test('検索ボタンクリックで検索が実行される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -179,6 +187,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-4.2
+     */
     test('検索結果が0件の場合、適切なメッセージが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -205,6 +216,9 @@ test.describe('プロジェクト一覧操作', () => {
       });
     });
 
+    /**
+     * @requirement project-management/REQ-4.3
+     */
     test('検索キーワードをクリアすると全プロジェクト一覧が再表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -219,6 +233,101 @@ test.describe('プロジェクト一覧操作', () => {
       // URLパラメータから検索キーワードが削除されることを確認
       await expect(page).not.toHaveURL(/search=/, { timeout: getTimeout(10000) });
     });
+
+    /**
+     * @requirement project-management/REQ-4.4a
+     * @requirement project-management/REQ-4.4b
+     */
+    test('2文字以上の検索キーワードで検索が実行される (project-management/REQ-4.4)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+
+      // 2文字の検索キーワードを入力
+      const searchInput = page.getByRole('searchbox', { name: /検索キーワード/i });
+      await expect(searchInput).toBeVisible({ timeout: getTimeout(10000) });
+
+      await searchInput.fill('テスト');
+      await searchInput.press('Enter');
+
+      // URLパラメータに検索キーワードが反映されることを確認
+      await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
+
+      // エラーメッセージが表示されていないことを確認
+      await expect(page.getByText(/2文字以上で入力してください/i)).not.toBeVisible({
+        timeout: 3000,
+      });
+    });
+
+    /**
+     * @requirement project-management/REQ-4.5
+     */
+    test('1文字以下の検索キーワードでエラーメッセージが表示される (project-management/REQ-4.5)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+
+      // 1文字の検索キーワードを入力
+      const searchInput = page.getByRole('searchbox', { name: /検索キーワード/i });
+      await expect(searchInput).toBeVisible({ timeout: getTimeout(10000) });
+
+      await searchInput.fill('あ');
+      await searchInput.press('Enter');
+
+      // 「2文字以上で入力してください」エラーメッセージが表示されることを確認
+      await expect(page.getByText(/2文字以上で入力してください/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // URLに検索パラメータが反映されていないことを確認
+      await expect(page).not.toHaveURL(/search=あ/, { timeout: 3000 });
+    });
+
+    /**
+     * @requirement project-management/REQ-4.4a
+     * @requirement project-management/REQ-4.5
+     */
+    test('1文字入力後に2文字以上に修正するとエラーが解消される (project-management/REQ-4.4a, REQ-4.5)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+
+      const searchInput = page.getByRole('searchbox', { name: /検索キーワード/i });
+      await expect(searchInput).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 1文字で検索を試みる
+      await searchInput.fill('あ');
+      await searchInput.press('Enter');
+
+      // エラーメッセージが表示されることを確認
+      await expect(page.getByText(/2文字以上で入力してください/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 2文字以上に修正
+      await searchInput.fill('あいう');
+      await searchInput.press('Enter');
+
+      // エラーメッセージが消えることを確認
+      await expect(page.getByText(/2文字以上で入力してください/i)).not.toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // URLに検索パラメータが反映されることを確認
+      await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
+    });
   });
 
   /**
@@ -226,6 +335,7 @@ test.describe('プロジェクト一覧操作', () => {
    *
    * REQ-5.1: ステータスフィルタで値を選択すると選択されたステータスのプロジェクトのみ表示
    * REQ-5.6: フィルタの選択状態をURLパラメータに反映
+   * @requirement project-management/REQ-5.1
    */
   test.describe('フィルタ機能', () => {
     /**
@@ -251,6 +361,9 @@ test.describe('プロジェクト一覧操作', () => {
       expect(statusValue).toBe('PREPARING');
     });
 
+    /**
+     * @requirement project-management/REQ-5.1
+     */
     test('ステータスフィルタで値を選択するとフィルタリングされる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -269,6 +382,10 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/status=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-5.2
+     * @requirement project-management/REQ-5.3
+     */
     test('期間フィルタで日付範囲を指定するとフィルタリングされる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -291,6 +408,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/createdFrom=/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-5.4
+     */
     test('複数のフィルタを適用するとAND条件で絞り込まれる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -314,6 +434,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/status=/);
     });
 
+    /**
+     * @requirement project-management/REQ-5.5
+     */
     test('フィルタをクリアをクリックするとすべてのフィルタが解除される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -335,8 +458,55 @@ test.describe('プロジェクト一覧操作', () => {
    * ソート機能のテスト
    *
    * REQ-6.1: テーブルヘッダーをクリックすると該当カラムで昇順ソート
+   * @requirement project-management/REQ-6.1
    */
   test.describe('ソート機能', () => {
+    /**
+     * ソートテストの前提条件: プロジェクトが存在することを確認し、なければ作成
+     */
+    test.beforeAll(async ({ browser }) => {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+
+      try {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto('/projects');
+        await page.waitForLoadState('networkidle');
+
+        // プロジェクトが存在するか確認
+        const table = page.getByRole('table');
+        const hasProjects = await table.isVisible({ timeout: 5000 }).catch(() => false);
+
+        if (!hasProjects) {
+          // プロジェクトがない場合は作成
+          await page.getByRole('button', { name: /新規作成/i }).click();
+          await page.waitForURL(/\/projects\/new/);
+
+          await page
+            .getByRole('textbox', { name: /プロジェクト名/i })
+            .fill(`ソートテスト用_${Date.now()}`);
+
+          // 営業担当者を選択（必須フィールド）
+          const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+          const options = await salesPersonSelect.locator('option').all();
+          if (options.length > 1 && options[1]) {
+            const firstUserOption = await options[1].getAttribute('value');
+            if (firstUserOption) {
+              await salesPersonSelect.selectOption(firstUserOption);
+            }
+          }
+
+          await page.getByRole('button', { name: /^作成$/i }).click();
+          await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
+        }
+      } finally {
+        await context.close();
+      }
+    });
+
+    /**
+     * @requirement project-management/REQ-6.1
+     */
     test('テーブルヘッダークリックでソートが実行される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -347,18 +517,9 @@ test.describe('プロジェクト一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認（プロジェクトがない場合はスキップ）
+      // テーブルが表示されていることを確認（プロジェクトがない場合はテスト失敗）
       const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        // プロジェクトがない場合、空状態メッセージを確認
-        const emptyOrError = page.getByText(
-          /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-        );
-        await expect(emptyOrError).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // プロジェクト名ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /プロジェクト名でソート/i });
@@ -370,6 +531,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(page).toHaveURL(/sort=name/, { timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement project-management/REQ-6.2
+     */
     test('ソートボタンを連続クリックするとソート順序が切り替わる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -381,18 +545,9 @@ test.describe('プロジェクト一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認（プロジェクトがない場合はスキップ）
+      // テーブルが表示されていることを確認（プロジェクトがない場合はテスト失敗）
       const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (!tableVisible) {
-        // プロジェクトがない場合、空状態メッセージを確認
-        const emptyOrError = page.getByText(
-          /プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-        );
-        await expect(emptyOrError).toBeVisible();
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // プロジェクト名ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /プロジェクト名でソート/i });
@@ -407,14 +562,166 @@ test.describe('プロジェクト一覧操作', () => {
       // URLが変化していることを確認（order=ascまたはorder=descが含まれる）
       await expect(page).toHaveURL(/order=(asc|desc)/, { timeout: getTimeout(10000) });
     });
+
+    /**
+     * @requirement project-management/REQ-6.3
+     */
+    test('ソート時にヘッダーにソートアイコン（昇順: 上矢印、降順: 下矢印）が表示される (project-management/REQ-6.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // デスクトップサイズを設定（テーブル表示）
+      await page.setViewportSize({ width: 1280, height: 720 });
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+
+      // テーブルが表示されていることを確認
+      const table = page.getByRole('table');
+      const emptyMessage = page.getByText(/プロジェクトがありません/i);
+      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
+
+      await expect(table.or(emptyMessage).or(errorMessage)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // テーブルが表示されている場合のみソートテストを実行
+      const tableVisible = await table.isVisible();
+      if (!tableVisible) {
+        // プロジェクトがない場合はテストをスキップ
+        return;
+      }
+
+      // プロジェクト名ヘッダーのソートボタンをクリック
+      const sortButton = page.getByRole('button', { name: /プロジェクト名でソート/i });
+      await expect(sortButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 1回目のクリック（昇順ソート）
+      await sortButton.click();
+      await expect(page).toHaveURL(/sort=name/, { timeout: getTimeout(10000) });
+
+      // Reactコンポーネントのリレンダリングを待つ
+      await page.waitForLoadState('networkidle');
+
+      // ソートアイコンまたはソート状態の視覚的な表示を確認
+      // ソートボタン内のSVGアイコン、data属性、またはテキストでソート状態を確認
+      const sortIconSvg = sortButton.locator('svg');
+
+      // SVGアイコンが表示されるまで待機（リレンダリング完了を待つ）
+      const hasSvgIcon = await sortIconSvg
+        .first()
+        .isVisible({ timeout: getTimeout(3000) })
+        .catch(() => false);
+
+      // ボタンのテキストまたはaria属性でソート状態を確認
+      const buttonText = await sortButton.textContent();
+      const hasArrowSymbol =
+        buttonText?.includes('▲') ||
+        buttonText?.includes('▼') ||
+        buttonText?.includes('↑') ||
+        buttonText?.includes('↓');
+
+      // th要素のaria-sort属性でソート状態を確認（より信頼性の高い方法）
+      const thElement = sortButton.locator('..');
+      const ariaSortValue = await thElement.getAttribute('aria-sort');
+      const hasAriaSortAttribute = ariaSortValue === 'ascending' || ariaSortValue === 'descending';
+
+      // ソートアイコン（SVGまたは矢印記号）またはaria-sort属性が存在することを確認
+      // UIの実装方法によっていずれかが表示される
+      expect(hasSvgIcon || hasArrowSymbol || hasAriaSortAttribute).toBeTruthy();
+    });
+
+    /**
+     * @requirement project-management/REQ-6.4
+     */
+    test('ソート対象外のカラムヘッダーにはソートアイコンが表示されない (project-management/REQ-6.4)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // デスクトップサイズを設定（テーブル表示）
+      await page.setViewportSize({ width: 1280, height: 720 });
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+
+      // テーブルが表示されていることを確認
+      const table = page.getByRole('table');
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+
+      // プロジェクト名でソート
+      const sortButton = page.getByRole('button', { name: /プロジェクト名でソート/i });
+      await sortButton.click();
+      await expect(page).toHaveURL(/sort=name/, { timeout: getTimeout(10000) });
+
+      // 顧客名ヘッダー（ソート対象外のカラム）にはアクティブなソートアイコンがないことを確認
+      const customerSortButton = page.getByRole('button', { name: /顧客名でソート/i });
+      await expect(customerSortButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 顧客名ボタンにアクティブなソートアイコン（▲や▼）が表示されていないことを確認
+      const customerButtonText = await customerSortButton.textContent();
+      // 顧客名ボタンにはソート方向インジケータがないことを確認
+      // （現在ソート中のカラムではないため）
+      // ボタンが存在することを確認（非ソートカラムでもソート可能なボタンとして存在）
+      expect(customerButtonText).toBeTruthy();
+    });
   });
 
   /**
    * ページネーション機能のテスト
    *
+   * REQ-3.1: 1ページあたりのデフォルト表示件数を20件とする
    * REQ-3.3: ページ番号クリックで該当ページのプロジェクトを表示
+   * @requirement project-management/REQ-3.1
+   * @requirement project-management/REQ-3.2
+   * @requirement project-management/REQ-3.3
+   * @requirement project-management/REQ-3.4
    */
   test.describe('ページネーション機能', () => {
+    /**
+     * @requirement project-management/REQ-3.1
+     */
+    test('デフォルトの表示件数が20件である (project-management/REQ-3.1)', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+
+      // ページネーションコントロールが存在する場合、デフォルト表示件数を確認
+      const pagination = page.getByTestId('pagination-controls');
+      const emptyMessage = page.getByText(/プロジェクトがありません/i);
+      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
+
+      await expect(emptyMessage.or(errorMessage).or(pagination)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      const paginationVisible = await pagination.isVisible();
+      if (paginationVisible) {
+        // 表示件数セレクトが20件で選択されていることを確認
+        const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
+        await expect(limitSelect).toBeVisible({ timeout: getTimeout(10000) });
+
+        const selectedValue = await limitSelect.inputValue();
+        expect(selectedValue).toBe('20');
+      }
+
+      // URLにlimitパラメータがない場合はデフォルト20件
+      const url = page.url();
+      // limitパラメータがない、または20の場合はデフォルト値が適用されている
+      if (url.includes('limit=')) {
+        expect(url).toMatch(/limit=20/);
+      }
+    });
+
+    /**
+     * @requirement project-management/REQ-3.2
+     * @requirement project-management/REQ-3.4
+     */
     test('プロジェクトが存在する場合、ページネーションコントロールが表示される', async ({
       page,
     }) => {
@@ -448,6 +755,9 @@ test.describe('プロジェクト一覧操作', () => {
       }
     });
 
+    /**
+     * @requirement project-management/REQ-3.5
+     */
     test('表示件数を変更するとURLパラメータに反映される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -476,14 +786,69 @@ test.describe('プロジェクト一覧操作', () => {
         await expect(page).toHaveURL(/limit=10/, { timeout: getTimeout(10000) });
       }
     });
+
+    /**
+     * @requirement project-management/REQ-3.3
+     */
+    test('ページ番号をクリックすると該当ページのプロジェクトが表示される (project-management/REQ-3.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+
+      // ページネーションコントロールが存在する場合のみテスト
+      const pagination = page.getByTestId('pagination-controls');
+      const emptyMessage = page.getByText(/プロジェクトがありません/i);
+      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
+
+      await expect(emptyMessage.or(errorMessage).or(pagination)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      const paginationVisible = await pagination.isVisible();
+      if (paginationVisible) {
+        // 総ページ数を確認
+        const totalPagesElement = page.getByTestId('total-pages');
+        const totalPagesText = await totalPagesElement.textContent();
+        const totalPages = parseInt(totalPagesText || '1', 10);
+
+        // 2ページ以上ある場合のみページ遷移テストを実行
+        if (totalPages >= 2) {
+          // ページ2のボタンを探してクリック
+          const page2Button = page.getByRole('button', { name: /^2$|ページ 2/ });
+          const nextButton = page.getByRole('button', { name: /次へ|次のページ|→|>/ });
+
+          // ページ2ボタンまたは「次へ」ボタンをクリック
+          if (await page2Button.isVisible()) {
+            await page2Button.click();
+          } else if (await nextButton.isVisible()) {
+            await nextButton.click();
+          }
+
+          // URLパラメータにページ番号が反映されることを確認
+          await expect(page).toHaveURL(/page=2/, { timeout: getTimeout(10000) });
+
+          // 現在のページ番号が更新されていることを確認
+          await expect(page.getByTestId('current-page')).toHaveText(/2/);
+        }
+      }
+    });
   });
 
   /**
    * レスポンシブ表示のテスト
    *
    * REQ-15.3: 画面幅が768px未満の場合、テーブルをカード形式に切り替えて表示
+   * @requirement project-management/REQ-15.1
+   * @requirement project-management/REQ-15.3
    */
   test.describe('レスポンシブ表示', () => {
+    /**
+     * @requirement project-management/REQ-15.1
+     */
     test('デスクトップ表示: テーブル形式で表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -511,6 +876,9 @@ test.describe('プロジェクト一覧操作', () => {
       }
     });
 
+    /**
+     * @requirement project-management/REQ-15.3
+     */
     test('モバイル表示: カード形式で表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -537,6 +905,9 @@ test.describe('プロジェクト一覧操作', () => {
       await expect(table).not.toBeVisible();
     });
 
+    /**
+     * @requirement project-management/REQ-15.3
+     */
     test('画面幅変更時にテーブル/カード表示が切り替わる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 

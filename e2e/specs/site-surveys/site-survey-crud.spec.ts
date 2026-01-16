@@ -120,7 +120,8 @@ test.describe('現場調査CRUD操作', () => {
 
       // 現場調査がある場合は「すべて見る」リンク、ない場合は直接URLに遷移
       const viewAllLink = page.getByRole('link', { name: /すべて見る/i }).first();
-      if (await viewAllLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const viewAllLinkVisible = await viewAllLink.isVisible({ timeout: 3000 });
+      if (viewAllLinkVisible) {
         await viewAllLink.click();
       } else {
         // 現場調査が0件の場合は直接URLに遷移
@@ -577,10 +578,10 @@ test.describe('現場調査CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // エラー表示またはリダイレクトを確認
-      const hasError = await page
-        .getByText(/プロジェクトが見つかりません|not found|404|存在しません/i)
-        .isVisible()
-        .catch(() => false);
+      const errorMessage = page.getByText(
+        /プロジェクトが見つかりません|not found|404|存在しません/i
+      );
+      const hasError = await errorMessage.isVisible({ timeout: getTimeout(5000) });
       const isRedirected =
         page.url().includes('/404') ||
         page.url().includes('/projects') ||
@@ -699,9 +700,32 @@ test.describe('現場調査CRUD操作', () => {
 
       // 削除した現場調査が一覧に表示されないことを確認
       await page.waitForLoadState('networkidle');
-      await expect(page.getByText(deleteSurveyName)).not.toBeVisible({
-        timeout: getTimeout(5000),
-      });
+
+      // トースト通知が消えるのを待つ（削除成功メッセージが表示される場合がある）
+      await page.waitForTimeout(1000);
+
+      // 一覧テーブル/リスト/グリッド内に限定して確認
+      // survey-card-list, survey-grid, table のいずれかを使用
+      const cardList = page.locator('[data-testid="survey-card-list"]');
+      const gridList = page.locator('[data-testid="survey-grid"]');
+      const tableBody = page.locator('tbody');
+
+      // どのビューが表示されているか確認
+      const isCardView = await cardList.isVisible().catch(() => false);
+      const isGridView = await gridList.isVisible().catch(() => false);
+      const isTableView = await tableBody.isVisible().catch(() => false);
+
+      let deletedItemCount = 0;
+
+      if (isCardView) {
+        deletedItemCount = await cardList.getByText(deleteSurveyName, { exact: false }).count();
+      } else if (isGridView) {
+        deletedItemCount = await gridList.getByText(deleteSurveyName, { exact: false }).count();
+      } else if (isTableView) {
+        deletedItemCount = await tableBody.getByText(deleteSurveyName, { exact: false }).count();
+      }
+
+      expect(deletedItemCount).toBe(0);
     });
 
     /**

@@ -20,3 +20,15 @@ console.error = (...args: unknown[]) => {
 };
 
 import '@testing-library/jest-dom/vitest';
+import { cleanup } from '@testing-library/react';
+import { afterEach, vi } from 'vitest';
+
+// Testing Library の cleanup を各テスト後に自動実行
+// これにより DOM 要素とイベントリスナーが確実にクリーンアップされる
+afterEach(() => {
+  cleanup();
+  // すべてのモックを元の実装に戻してメモリを完全に解放
+  // restoreAllMocks は clearAllMocks よりも徹底的で、
+  // モックの実装自体を削除してメモリリークを防ぐ
+  vi.restoreAllMocks();
+});

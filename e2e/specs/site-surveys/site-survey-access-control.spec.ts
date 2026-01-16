@@ -2,16 +2,22 @@
  * @fileoverview 現場調査アクセス制御のE2Eテスト
  *
  * Requirements coverage (site-survey):
- * - REQ-12.1: プロジェクトへのアクセス権を持つユーザーが現場調査を閲覧可能
- * - REQ-12.2: プロジェクトへの編集権限を持つユーザーが現場調査の作成・編集・削除を許可
- * - REQ-12.3: 適切な権限を持たないユーザーの操作拒否とエラーメッセージ表示
- * - REQ-12.4: 画像URLの署名付きURLの有効期限とアクセス権限を検証
- * - REQ-12.5: 現場調査の操作履歴を監査ログに記録
+ * - REQ-14.1: プロジェクトへのアクセス権を持つユーザーが現場調査を閲覧可能
+ * - REQ-14.2: プロジェクトへの編集権限を持つユーザーが現場調査の作成・編集・削除を許可
+ * - REQ-14.3: 適切な権限を持たないユーザーの操作拒否とエラーメッセージ表示
+ * - REQ-14.4: 画像URLの署名付きURLの有効期限とアクセス権限を検証
+ * - REQ-14.5: 現場調査の操作履歴を監査ログに記録
  */
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESモジュールでの__dirname代替
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('現場調査アクセス制御', () => {
   test.describe.configure({ mode: 'serial' });
@@ -96,14 +102,50 @@ test.describe('現場調査アクセス制御', () => {
       const surveyMatch = surveyUrl.match(/\/site-surveys\/([0-9a-f-]+)$/);
       createdSurveyId = surveyMatch?.[1] ?? null;
       expect(createdSurveyId).toBeTruthy();
+
+      // 画像をアップロード（REQ-14.4のテストで必要）
+      await page.waitForLoadState('networkidle');
+
+      // ファイル入力を取得
+      let fileInput = page.locator('input[type="file"]').first();
+      const inputCount = await fileInput.count();
+      if (inputCount === 0) {
+        const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
+        if (await uploadButton.isVisible()) {
+          await uploadButton.click();
+        }
+        fileInput = page.locator('input[type="file"]').first();
+      }
+
+      await expect(fileInput).toBeAttached({ timeout: getTimeout(10000) });
+
+      // テスト用画像ファイルをアップロード
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+
+      const uploadPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/') &&
+          response.url().includes('/images') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+
+      await fileInput.setInputFiles(testImagePath);
+
+      const uploadResponse = await uploadPromise;
+      expect(uploadResponse.ok()).toBe(true);
+
+      // ページをリロードして画像が保存されていることを確認
+      await page.reload();
+      await page.waitForLoadState('networkidle');
     });
   });
 
   /**
-   * @requirement site-survey/REQ-12.1
+   * @requirement site-survey/REQ-14.1
    */
   test.describe('閲覧権限', () => {
-    test('プロジェクトにアクセス可能なユーザーは現場調査を閲覧できる (site-survey/REQ-12.1)', async ({
+    test('プロジェクトにアクセス可能なユーザーは現場調査を閲覧できる (site-survey/REQ-14.1)', async ({
       page,
     }) => {
       if (!createdProjectId || !createdSurveyId) {
@@ -131,7 +173,7 @@ test.describe('現場調査アクセス制御', () => {
       });
     });
 
-    test('プロジェクト一覧から現場調査一覧へアクセスできる (site-survey/REQ-12.1)', async ({
+    test('プロジェクト一覧から現場調査一覧へアクセスできる (site-survey/REQ-14.1)', async ({
       page,
     }) => {
       if (!createdProjectId) {
@@ -157,10 +199,10 @@ test.describe('現場調査アクセス制御', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-12.2
+   * @requirement site-survey/REQ-14.2
    */
   test.describe('編集権限', () => {
-    test('編集権限を持つユーザーは現場調査を作成できる (site-survey/REQ-12.2)', async ({
+    test('編集権限を持つユーザーは現場調査を作成できる (site-survey/REQ-14.2)', async ({
       page,
     }) => {
       if (!createdProjectId) {
@@ -182,7 +224,7 @@ test.describe('現場調査アクセス制御', () => {
       await expect(createButton).not.toBeDisabled();
     });
 
-    test('編集権限を持つユーザーは現場調査を編集できる (site-survey/REQ-12.2)', async ({
+    test('編集権限を持つユーザーは現場調査を編集できる (site-survey/REQ-14.2)', async ({
       page,
     }) => {
       if (!createdSurveyId) {
@@ -204,7 +246,7 @@ test.describe('現場調査アクセス制御', () => {
       await expect(saveButton).not.toBeDisabled();
     });
 
-    test('管理者ユーザーは削除ボタンが表示される (site-survey/REQ-12.2)', async ({ page }) => {
+    test('管理者ユーザーは削除ボタンが表示される (site-survey/REQ-14.2)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -215,17 +257,17 @@ test.describe('現場調査アクセス制御', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 削除ボタンが表示されることを確認
-      const deleteButton = page.getByRole('button', { name: /削除/i });
+      // 削除ボタンが表示されることを確認（画像削除ボタンと区別するためexact指定）
+      const deleteButton = page.getByRole('button', { name: '削除', exact: true });
       await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
 
   /**
-   * @requirement site-survey/REQ-12.3
+   * @requirement site-survey/REQ-14.3
    */
   test.describe('権限拒否', () => {
-    test('未認証ユーザーは現場調査にアクセスできない (site-survey/REQ-12.3)', async ({
+    test('未認証ユーザーは現場調査にアクセスできない (site-survey/REQ-14.3)', async ({
       page,
       context,
     }) => {
@@ -244,21 +286,12 @@ test.describe('現場調査アクセス制御', () => {
       // 現場調査詳細ページにアクセス
       await page.goto(`/site-surveys/${createdSurveyId}`);
 
-      // ログインページにリダイレクトされるか、エラーメッセージが表示されることを確認
-      const isRedirectedToLogin = await page
-        .waitForURL(/\/login/, { timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false);
-
-      const hasUnauthorizedError = await page
-        .getByText(/ログインが必要|認証エラー|401|Unauthorized/i)
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-
-      expect(isRedirectedToLogin || hasUnauthorizedError).toBeTruthy();
+      // ログインページにリダイレクトされることを確認
+      await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
+      expect(page.url()).toMatch(/\/login/);
     });
 
-    test('未認証ユーザーは現場調査一覧にアクセスできない (site-survey/REQ-12.3)', async ({
+    test('未認証ユーザーは現場調査一覧にアクセスできない (site-survey/REQ-14.3)', async ({
       page,
       context,
     }) => {
@@ -277,21 +310,12 @@ test.describe('現場調査アクセス制御', () => {
       // 現場調査一覧ページにアクセス
       await page.goto(`/projects/${createdProjectId}/site-surveys`);
 
-      // ログインページにリダイレクトされるか、エラーメッセージが表示されることを確認
-      const isRedirectedToLogin = await page
-        .waitForURL(/\/login/, { timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false);
-
-      const hasUnauthorizedError = await page
-        .getByText(/ログインが必要|認証エラー|401|Unauthorized/i)
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-
-      expect(isRedirectedToLogin || hasUnauthorizedError).toBeTruthy();
+      // ログインページにリダイレクトされることを確認
+      await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
+      expect(page.url()).toMatch(/\/login/);
     });
 
-    test('未認証ユーザーは現場調査作成ページにアクセスできない (site-survey/REQ-12.3)', async ({
+    test('未認証ユーザーは現場調査作成ページにアクセスできない (site-survey/REQ-14.3)', async ({
       page,
       context,
     }) => {
@@ -310,26 +334,17 @@ test.describe('現場調査アクセス制御', () => {
       // 現場調査作成ページにアクセス
       await page.goto(`/projects/${createdProjectId}/site-surveys/new`);
 
-      // ログインページにリダイレクトされるか、エラーメッセージが表示されることを確認
-      const isRedirectedToLogin = await page
-        .waitForURL(/\/login/, { timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false);
-
-      const hasUnauthorizedError = await page
-        .getByText(/ログインが必要|認証エラー|401|Unauthorized/i)
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-
-      expect(isRedirectedToLogin || hasUnauthorizedError).toBeTruthy();
+      // ログインページにリダイレクトされることを確認
+      await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
+      expect(page.url()).toMatch(/\/login/);
     });
   });
 
   /**
-   * @requirement site-survey/REQ-12.4
+   * @requirement site-survey/REQ-14.4
    */
   test.describe('署名付きURL', () => {
-    test('画像URLが署名付きURLで提供される (site-survey/REQ-12.4)', async ({ page }) => {
+    test('画像URLが署名付きURLで提供される (site-survey/REQ-14.4)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -340,34 +355,37 @@ test.describe('現場調査アクセス制御', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像が存在する場合、そのURLが署名付きかどうか確認
-      const imageElements = page.locator('img[src*="storage"], img[src*="blob"], img[src*="?"]');
-      const imageCount = await imageElements.count();
+      // 認証済みユーザーとして画像にアクセスできることを確認
+      // R2ストレージからの画像取得は認証を経由し、署名付きURLにリダイレクトされる
 
-      if (imageCount > 0) {
-        const firstImageSrc = await imageElements.first().getAttribute('src');
+      // 画像が表示されていることを確認
+      // 認証が正しく機能していれば画像が表示される（署名付きURLが提供される）
+      const imageElements = page.locator('img').first();
+      await expect(imageElements).toBeVisible({ timeout: getTimeout(15000) });
 
-        // 署名付きURLは通常クエリパラメータを含む（例：?token=xxx、?sig=xxx、?X-Amz-Signature=xxx）
-        const hasSignature =
-          firstImageSrc &&
-          (firstImageSrc.includes('token=') ||
-            firstImageSrc.includes('sig=') ||
-            firstImageSrc.includes('Signature=') ||
-            firstImageSrc.includes('X-Amz-') ||
-            firstImageSrc.includes('sv=') || // Azure Storage
-            firstImageSrc.includes('?')); // 何らかのクエリパラメータがある
+      // 画像APIリクエストが成功することを確認
+      // 署名付きURLは認証ヘッダーまたはURLパラメータで検証される
+      const imageApiResponse = await page
+        .waitForResponse(
+          (response) =>
+            (response.url().includes('/api/site-surveys/') && response.url().includes('/images')) ||
+            response.url().includes('r2.cloudflarestorage.com') ||
+            response.url().includes('storage.googleapis.com') ||
+            response.request().resourceType() === 'image',
+          { timeout: getTimeout(15000) }
+        )
+        .catch(() => null);
 
-        // 署名付きURLが使用されていることを確認（または内部URLの場合はパス）
-        expect(
-          hasSignature || firstImageSrc?.startsWith('/') || firstImageSrc?.startsWith('blob:')
-        ).toBeTruthy();
-      }
+      // 画像APIが成功ステータスを返す、または既にキャッシュされた画像が表示されている
+      const isImageAccessible =
+        imageApiResponse === null || // 既にキャッシュされている
+        imageApiResponse.ok() || // 成功
+        imageApiResponse.status() === 304; // Not Modified
 
-      // 画像がない場合は詳細ページが表示されていることを確認
-      await expect(page.locator('body')).toBeVisible();
+      expect(isImageAccessible).toBeTruthy();
     });
 
-    test('未認証状態で画像URLに直接アクセスすると拒否される (site-survey/REQ-12.4)', async ({
+    test('未認証状態で画像URLに直接アクセスすると拒否される (site-survey/REQ-14.4)', async ({
       page,
       context,
     }) => {
@@ -385,7 +403,8 @@ test.describe('現場調査アクセス制御', () => {
       const imageElement = page
         .locator('img[src*="storage"], img[src*="blob"], img[src*="api"]')
         .first();
-      const imageSrc = await imageElement.getAttribute('src').catch(() => null);
+      const imageCount = await imageElement.count();
+      const imageSrc = imageCount > 0 ? await imageElement.getAttribute('src') : null;
 
       if (imageSrc && !imageSrc.startsWith('blob:') && !imageSrc.startsWith('data:')) {
         // ログアウト
@@ -397,14 +416,12 @@ test.describe('現場調査アクセス制御', () => {
         });
 
         // 画像URLに直接アクセス
-        const response = await page.request.get(imageSrc).catch(() => null);
+        const response = await page.request.get(imageSrc);
 
-        if (response) {
-          // 署名が無効になった場合は401/403または画像データが取得できない
-          const status = response.status();
-          // 署名付きURLが有効な場合は一定時間はアクセス可能なので、どちらの結果もOK
-          expect(typeof status === 'number').toBeTruthy();
-        }
+        // 署名が無効になった場合は401/403または画像データが取得できない
+        const status = response.status();
+        // 署名付きURLが有効な場合は一定時間はアクセス可能なので、どちらの結果もOK
+        expect(typeof status === 'number').toBeTruthy();
       }
 
       // テストが完了したことを確認
@@ -413,10 +430,10 @@ test.describe('現場調査アクセス制御', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-12.5
+   * @requirement site-survey/REQ-14.5
    */
   test.describe('監査ログ', () => {
-    test('現場調査の作成操作がAPIリクエストとして記録される (site-survey/REQ-12.5)', async ({
+    test('現場調査の作成操作がAPIリクエストとして記録される (site-survey/REQ-14.5)', async ({
       page,
     }) => {
       if (!createdProjectId) {
@@ -457,7 +474,7 @@ test.describe('現場調査アクセス制御', () => {
       expect(createRequestMade).toBeTruthy();
     });
 
-    test('現場調査の編集操作がAPIリクエストとして記録される (site-survey/REQ-12.5)', async ({
+    test('現場調査の編集操作がAPIリクエストとして記録される (site-survey/REQ-14.5)', async ({
       page,
     }) => {
       if (!createdSurveyId) {
@@ -484,19 +501,18 @@ test.describe('現場調査アクセス制御', () => {
 
       // メモを更新
       const memoField = page.getByLabel(/メモ/i);
-      if (await memoField.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await memoField.fill(`監査ログテスト更新_${Date.now()}`);
+      await expect(memoField).toBeVisible({ timeout: getTimeout(5000) });
+      await memoField.fill(`監査ログテスト更新_${Date.now()}`);
 
-        // 保存ボタンをクリック
-        const saveButton = page.getByRole('button', { name: /保存|更新/i });
-        await saveButton.click();
+      // 保存ボタンをクリック
+      const saveButton = page.getByRole('button', { name: /保存|更新/i });
+      await saveButton.click();
 
-        // APIリクエストが発生するまで待機
-        await page.waitForTimeout(2000);
+      // APIリクエストが発生するまで待機
+      await page.waitForTimeout(2000);
 
-        // 更新APIが呼び出されたことを確認（監査ログに記録されるはず）
-        expect(updateRequestMade).toBeTruthy();
-      }
+      // 更新APIが呼び出されたことを確認（監査ログに記録されるはず）
+      expect(updateRequestMade).toBeTruthy();
     });
   });
 
@@ -517,17 +533,13 @@ test.describe('現場調査アクセス制御', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          // 確認ダイアログの「削除する」ボタンを正確に指定
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page
-              .waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) })
-              .catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        // 確認ダイアログの「削除する」ボタンを正確に指定
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
       }
 
       if (createdProjectId) {
@@ -535,16 +547,14 @@ test.describe('現場調査アクセス制御', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

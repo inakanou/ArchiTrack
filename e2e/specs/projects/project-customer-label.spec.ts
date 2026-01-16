@@ -184,8 +184,7 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
         .locator('div')
         .filter({ hasText: /^取引先$/i })
         .first();
-      const isVisible = await oldLabel.isVisible().catch(() => false);
-      expect(isVisible).toBe(false);
+      await expect(oldLabel).not.toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 
@@ -262,22 +261,19 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
       await page.waitForLoadState('networkidle');
 
       const deleteButton = page.getByRole('button', { name: /削除/i });
-      const deleteButtonVisible = await deleteButton.isVisible().catch(() => false);
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
 
-      if (deleteButtonVisible) {
-        await deleteButton.click();
+      await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+      await page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i })
+        .click();
 
-        await page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i })
-          .click();
-
-        await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
     } catch (error) {
       console.error('Cleanup failed:', error);
     } finally {

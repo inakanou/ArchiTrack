@@ -1181,11 +1181,17 @@ describe('ProjectDetailPage', () => {
 
       // 新規作成リンクが表示されるまで待機
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /新規作成/ })).toBeInTheDocument();
+        const links = screen.getAllByRole('link', { name: /新規作成/ });
+        expect(links.length).toBeGreaterThan(0);
       });
 
-      const createLink = screen.getByRole('link', { name: /新規作成/ });
-      expect(createLink).toHaveAttribute('href', '/projects/project-1/site-surveys/new');
+      // 現場調査の新規作成リンクを取得（hrefで特定）
+      const createLinks = screen.getAllByRole('link', { name: /新規作成/ });
+      const siteSurveyCreateLink = createLinks.find(
+        (link) => link.getAttribute('href') === '/projects/project-1/site-surveys/new'
+      );
+      expect(siteSurveyCreateLink).toBeInTheDocument();
+      expect(siteSurveyCreateLink).toHaveAttribute('href', '/projects/project-1/site-surveys/new');
     });
 
     it('現場調査セクションにプロジェクトIDが正しく反映される', async () => {

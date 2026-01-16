@@ -182,6 +182,8 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
    * 営業担当者名での検索テスト
    *
    * REQ-4.1a, REQ-4.1b: 営業担当者を対象に部分一致検索を実行
+   * @requirement project-management/REQ-4.1a
+   * @requirement project-management/REQ-4.1b
    */
   test('営業担当者名での検索結果が正しいことを確認 (project-management/REQ-4.1a, REQ-4.1b)', async ({
     page,
@@ -214,44 +216,38 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
     // ローディング完了を待機
     await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // 営業担当者名での検索結果を確認
-      // テストで作成したプロジェクトが表示されることを確認
-      const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
+    // 営業担当者名での検索結果を確認
+    // テストで作成したプロジェクトが表示されることを確認
+    const rows = page.locator('tbody tr');
+    const rowCount = await rows.count();
 
-      // 少なくとも1件以上の結果があることを確認
-      expect(rowCount).toBeGreaterThan(0);
+    // 少なくとも1件以上の結果があることを確認
+    expect(rowCount).toBeGreaterThan(0);
 
-      // 検索結果に営業担当者名「田中」が含まれる行があることを確認
-      let foundSalesPersonMatch = false;
-      for (let i = 0; i < rowCount; i++) {
-        const row = rows.nth(i);
-        const rowText = await row.textContent();
-        if (rowText && (rowText.includes('田中') || rowText.includes(PROJECT_NAME_FOR_SALES))) {
-          foundSalesPersonMatch = true;
-          break;
-        }
+    // 検索結果に営業担当者名「田中」が含まれる行があることを確認
+    let foundSalesPersonMatch = false;
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows.nth(i);
+      const rowText = await row.textContent();
+      if (rowText && (rowText.includes('田中') || rowText.includes(PROJECT_NAME_FOR_SALES))) {
+        foundSalesPersonMatch = true;
+        break;
       }
-
-      expect(foundSalesPersonMatch).toBe(true);
-    } else {
-      // テーブルが表示されない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /検索結果がありません|プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
     }
+
+    expect(foundSalesPersonMatch).toBe(true);
   });
 
   /**
    * 工事担当者名での検索テスト
    *
    * REQ-4.1a, REQ-4.1b: 工事担当者を対象に部分一致検索を実行
+   * @requirement project-management/REQ-4.1a
+   * @requirement project-management/REQ-4.1b
    */
   test('工事担当者名での検索結果が正しいことを確認 (project-management/REQ-4.1a, REQ-4.1b)', async ({
     page,
@@ -286,46 +282,40 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
     // ローディング完了を待機
     await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      // 工事担当者名での検索結果を確認
-      const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
+    // 工事担当者名での検索結果を確認
+    const rows = page.locator('tbody tr');
+    const rowCount = await rows.count();
 
-      // 少なくとも1件以上の結果があることを確認
-      expect(rowCount).toBeGreaterThan(0);
+    // 少なくとも1件以上の結果があることを確認
+    expect(rowCount).toBeGreaterThan(0);
 
-      // 検索結果に工事担当者名「山田」が含まれる行があることを確認
-      let foundConstructionPersonMatch = false;
-      for (let i = 0; i < rowCount; i++) {
-        const row = rows.nth(i);
-        const rowText = await row.textContent();
-        if (
-          rowText &&
-          (rowText.includes('山田') || rowText.includes(PROJECT_NAME_FOR_CONSTRUCTION))
-        ) {
-          foundConstructionPersonMatch = true;
-          break;
-        }
+    // 検索結果に工事担当者名「山田」が含まれる行があることを確認
+    let foundConstructionPersonMatch = false;
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows.nth(i);
+      const rowText = await row.textContent();
+      if (
+        rowText &&
+        (rowText.includes('山田') || rowText.includes(PROJECT_NAME_FOR_CONSTRUCTION))
+      ) {
+        foundConstructionPersonMatch = true;
+        break;
       }
-
-      expect(foundConstructionPersonMatch).toBe(true);
-    } else {
-      // テーブルが表示されない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /検索結果がありません|プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
     }
+
+    expect(foundConstructionPersonMatch).toBe(true);
   });
 
   /**
    * 複数フィールドにまたがる検索のテスト
    *
    * REQ-4.1a, REQ-4.1b: プロジェクト名、顧客名、営業担当者、工事担当者を対象に部分一致検索を実行
+   * @requirement project-management/REQ-4.1a
+   * @requirement project-management/REQ-4.1b
    */
   test('複数フィールドにまたがる検索が動作することを確認 (project-management/REQ-4.1a, REQ-4.1b)', async ({
     page,
@@ -354,63 +344,55 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
     await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
     await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-    // テーブルが表示されているか確認
-    const table = page.getByRole('table');
-    let tableVisible = await table.isVisible().catch(() => false);
+    // テーブルが表示されていることを確認
+    const tableForStep1 = page.getByRole('table');
+    await expect(tableForStep1).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
+    const rows = page.locator('tbody tr');
+    const rowCount = await rows.count();
 
-      // テストプレフィックスを含むプロジェクトが少なくとも1件表示されることを確認
-      expect(rowCount).toBeGreaterThan(0);
+    // テストプレフィックスを含むプロジェクトが少なくとも1件表示されることを確認
+    expect(rowCount).toBeGreaterThan(0);
 
-      // Step 2: フィルタをクリアして営業担当者名で再検索
-      await page.getByRole('button', { name: /フィルタをクリア/i }).click();
-      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+    // Step 2: フィルタをクリアして営業担当者名で再検索
+    await page.getByRole('button', { name: /フィルタをクリア/i }).click();
+    await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // 営業担当者のユニークな名前で検索
-      await searchInput.fill('SalesPersonUnique');
-      await searchInput.press('Enter');
+    // 営業担当者のユニークな名前で検索
+    await searchInput.fill('SalesPersonUnique');
+    await searchInput.press('Enter');
 
-      await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
-      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+    await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
+    await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      tableVisible = await table.isVisible().catch(() => false);
-      if (tableVisible) {
-        const salesSearchRows = page.locator('tbody tr');
-        const salesSearchRowCount = await salesSearchRows.count();
+    const tableForStep2 = page.getByRole('table');
+    await expect(tableForStep2).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 営業担当者名での検索結果があることを確認
-        expect(salesSearchRowCount).toBeGreaterThan(0);
-      }
+    const salesSearchRows = page.locator('tbody tr');
+    const salesSearchRowCount = await salesSearchRows.count();
 
-      // Step 3: フィルタをクリアして工事担当者名で再検索
-      await page.getByRole('button', { name: /フィルタをクリア/i }).click();
-      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+    // 営業担当者名での検索結果があることを確認
+    expect(salesSearchRowCount).toBeGreaterThan(0);
 
-      // 工事担当者のユニークな名前で検索
-      await searchInput.fill('ConstructionPersonUnique');
-      await searchInput.press('Enter');
+    // Step 3: フィルタをクリアして工事担当者名で再検索
+    await page.getByRole('button', { name: /フィルタをクリア/i }).click();
+    await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
-      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+    // 工事担当者のユニークな名前で検索
+    await searchInput.fill('ConstructionPersonUnique');
+    await searchInput.press('Enter');
 
-      tableVisible = await table.isVisible().catch(() => false);
-      if (tableVisible) {
-        const constructionSearchRows = page.locator('tbody tr');
-        const constructionSearchRowCount = await constructionSearchRows.count();
+    await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
+    await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-        // 工事担当者名での検索結果があることを確認
-        expect(constructionSearchRowCount).toBeGreaterThan(0);
-      }
-    } else {
-      // テーブルが表示されない場合、空状態メッセージまたはエラーメッセージを確認
-      const emptyOrError = page.getByText(
-        /検索結果がありません|プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-      );
-      await expect(emptyOrError).toBeVisible();
-    }
+    const tableForStep3 = page.getByRole('table');
+    await expect(tableForStep3).toBeVisible({ timeout: getTimeout(10000) });
+
+    const constructionSearchRows = page.locator('tbody tr');
+    const constructionSearchRowCount = await constructionSearchRows.count();
+
+    // 工事担当者名での検索結果があることを確認
+    expect(constructionSearchRowCount).toBeGreaterThan(0);
   });
 
   /**
@@ -444,31 +426,23 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
     await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
     await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-    // テーブルが表示されているか確認
+    // テーブルが表示されていることを確認
     const table = page.getByRole('table');
-    const tableVisible = await table.isVisible().catch(() => false);
+    await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (tableVisible) {
-      const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
+    const rows = page.locator('tbody tr');
+    const rowCount = await rows.count();
 
-      // 担当者名のみで検索しても結果が返ることを確認
-      // これにより、検索対象が営業担当者・工事担当者に拡張されていることを確認
-      expect(rowCount).toBeGreaterThan(0);
+    // 担当者名のみで検索しても結果が返ることを確認
+    // これにより、検索対象が営業担当者・工事担当者に拡張されていることを確認
+    expect(rowCount).toBeGreaterThan(0);
 
-      // 検索結果の最初の行を確認
-      const firstRow = rows.first();
-      const firstRowText = await firstRow.textContent();
+    // 検索結果の最初の行を確認
+    const firstRow = rows.first();
+    const firstRowText = await firstRow.textContent();
 
-      // 検索結果に担当者名が含まれていることを確認
-      expect(firstRowText).toContain(uniqueSearchTerm);
-    } else {
-      // テーブルが表示されない場合は失敗
-      // 担当者名での検索が機能している場合、テーブルが表示されるはず
-      throw new Error(
-        '担当者名のみでの検索で結果が返されませんでした。検索対象の拡張が機能していない可能性があります。'
-      );
-    }
+    // 検索結果に担当者名が含まれていることを確認
+    expect(firstRowText).toContain(uniqueSearchTerm);
   });
 });
 

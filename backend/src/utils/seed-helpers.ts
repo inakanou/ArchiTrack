@@ -281,6 +281,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '現場調査の削除',
     },
+
+    // 数量表関連権限（quantity-table-generation）
+    {
+      resource: 'quantity_table',
+      action: 'create',
+      description: '数量表の作成',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'read',
+      description: '数量表の閲覧',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'update',
+      description: '数量表の更新',
+    },
+    {
+      resource: 'quantity_table',
+      action: 'delete',
+      description: '数量表の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -362,6 +384,12 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'site_survey', action: 'create' },
     { resource: 'site_survey', action: 'read' },
     { resource: 'site_survey', action: 'update' },
+    // 数量表関連権限（quantity-table-generation）
+    // 一般ユーザーは数量表の作成・閲覧・更新・削除が可能
+    { resource: 'quantity_table', action: 'create' },
+    { resource: 'quantity_table', action: 'read' },
+    { resource: 'quantity_table', action: 'update' },
+    { resource: 'quantity_table', action: 'delete' },
   ];
 
   // 権限IDを一括取得
@@ -410,13 +438,44 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     return;
   }
 
-  // 既に存在する場合はスキップ（冪等性）
+  // 既に存在する場合は監査ログのみ確認・作成（冪等性）
   const existingAdmin = await prisma.user.findUnique({
     where: { email: adminEmail },
   });
 
   if (existingAdmin) {
-    logger.info(`Admin user already exists: ${adminEmail}. Skipping.`);
+    // REQ-3.5: 既存の管理者に対しても監査ログが存在しない場合は作成
+    const existingAuditLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'USER_CREATED',
+        targetType: 'User',
+        targetId: existingAdmin.id,
+      },
+    });
+
+    if (!existingAuditLog) {
+      await prisma.auditLog.create({
+        data: {
+          action: 'USER_CREATED',
+          actorId: existingAdmin.id,
+          targetType: 'User',
+          targetId: existingAdmin.id,
+          after: {
+            email: adminEmail,
+            displayName: existingAdmin.displayName,
+            role: 'admin',
+          },
+          metadata: {
+            source: 'seed',
+            isInitialAdmin: true,
+            migratedFromExisting: true,
+          },
+        },
+      });
+      logger.info(`Admin user audit log created for existing user: ${adminEmail}`);
+    }
+
+    logger.info(`Admin user already exists: ${adminEmail}. Skipping user creation.`);
     return;
   }
 
@@ -450,6 +509,25 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     data: {
       userId: adminUser.id,
       roleId: adminRole.id,
+    },
+  });
+
+  // REQ-3.5: 初期管理者作成を監査ログに記録
+  await prisma.auditLog.create({
+    data: {
+      action: 'USER_CREATED',
+      actorId: adminUser.id, // 初期管理者は自身を作成者として記録
+      targetType: 'User',
+      targetId: adminUser.id,
+      after: {
+        email: adminEmail,
+        displayName: adminDisplayName,
+        role: 'admin',
+      },
+      metadata: {
+        source: 'seed',
+        isInitialAdmin: true,
+      },
     },
   });
 

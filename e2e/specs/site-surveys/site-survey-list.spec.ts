@@ -144,7 +144,7 @@ test.describe('現場調査一覧・検索', () => {
       const paginationElement = page.locator(
         '[data-testid="pagination"], .pagination, [role="navigation"][aria-label*="ページ"]'
       );
-      const hasPagination = await paginationElement.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasPagination = await paginationElement.isVisible({ timeout: 3000 });
 
       // ページネーションがない場合でも、一覧が正常に表示されていればOK
       if (!hasPagination) {
@@ -171,9 +171,7 @@ test.describe('現場調査一覧・検索', () => {
       // 検索入力フィールドを探す
       const searchInput = page.getByRole('searchbox').or(page.getByPlaceholder(/検索/i)).first();
 
-      if (!(await searchInput.isVisible({ timeout: 5000 }).catch(() => false))) {
-        throw new Error('検索入力フィールドが見つかりません');
-      }
+      await expect(searchInput).toBeVisible({ timeout: 5000 });
 
       // 「検索テスト」で検索
       await searchInput.fill('検索テスト');
@@ -207,9 +205,7 @@ test.describe('現場調査一覧・検索', () => {
 
       const searchInput = page.getByRole('searchbox').or(page.getByPlaceholder(/検索/i)).first();
 
-      if (!(await searchInput.isVisible({ timeout: 5000 }).catch(() => false))) {
-        throw new Error('検索入力フィールドが見つかりません');
-      }
+      await expect(searchInput).toBeVisible({ timeout: 5000 });
 
       // 「東棟」で検索
       await searchInput.fill('東棟');
@@ -242,11 +238,7 @@ test.describe('現場調査一覧・検索', () => {
       // 日付フィルターを探す（type="date"の入力フィールド）
       const dateFilterFrom = page.locator('input[type="date"]').first();
 
-      const hasDateFilter = await dateFilterFrom.isVisible({ timeout: 5000 }).catch(() => false);
-
-      if (!hasDateFilter) {
-        throw new Error('日付フィルターが見つかりません');
-      }
+      await expect(dateFilterFrom).toBeVisible({ timeout: 5000 });
 
       // 2024年2月以降でフィルタリング
       await dateFilterFrom.fill('2024-02-01');
@@ -280,15 +272,15 @@ test.describe('現場調査一覧・検索', () => {
       // ソートヘッダーまたはソートボタンを探す
       const sortByDate = page.getByRole('button', { name: /調査日/i });
       const sortHeader = page.getByRole('columnheader', { name: /調査日/i });
-      const sortSelect = page.getByRole('combobox', { name: /並び替え|ソート/i });
+      // ソート項目セレクトを取得（複数ある場合はfirst()）
+      const sortSelect = page.getByLabel(/ソート項目/i);
 
       const hasSortByDate = await sortByDate.isVisible({ timeout: 3000 }).catch(() => false);
       const hasSortHeader = await sortHeader.isVisible({ timeout: 3000 }).catch(() => false);
       const hasSortSelect = await sortSelect.isVisible({ timeout: 3000 }).catch(() => false);
 
-      if (!hasSortByDate && !hasSortHeader && !hasSortSelect) {
-        throw new Error('ソート機能が見つかりません');
-      }
+      // 少なくとも1つのソート機能が必須
+      expect(hasSortByDate || hasSortHeader || hasSortSelect).toBeTruthy();
 
       // ソートを実行
       if (hasSortHeader) {
@@ -359,18 +351,12 @@ test.describe('現場調査一覧・検索', () => {
         '.thumbnail-placeholder, .no-image, [aria-label*="画像なし"]'
       );
 
-      const hasThumbnail = await thumbnail
-        .first()
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-      const hasPlaceholder = await placeholder
-        .first()
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+      const hasThumbnail = await thumbnail.first().isVisible({ timeout: 3000 });
+      const hasPlaceholder = await placeholder.first().isVisible({ timeout: 3000 });
 
       // サムネイル要素かプレースホルダーのどちらかが存在することを確認
       // 画像がない場合はプレースホルダーが表示される
-      expect(hasThumbnail || hasPlaceholder || true).toBeTruthy();
+      expect(hasThumbnail || hasPlaceholder).toBeTruthy();
     });
   });
 
@@ -392,16 +378,13 @@ test.describe('現場調査一覧・検索', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await deleteButton.click();
-          // 削除確認ダイアログが表示されるのを待機
-          const confirmButton = page.getByRole('button', { name: '削除する' });
-          await expect(confirmButton).toBeVisible({ timeout: 5000 });
-          await confirmButton.click();
-          await page
-            .waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) })
-            .catch(() => {});
-        }
+        await expect(deleteButton).toBeVisible({ timeout: 5000 });
+        await deleteButton.click();
+        // 削除確認ダイアログが表示されるのを待機
+        const confirmButton = page.getByRole('button', { name: '削除する' });
+        await expect(confirmButton).toBeVisible({ timeout: 5000 });
+        await confirmButton.click();
+        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
       }
 
       // プロジェクトを削除
@@ -410,16 +393,14 @@ test.describe('現場調査一覧・検索', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible()) {
-          await deleteButton.click();
-          const confirmButton = page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
-          if (await confirmButton.isVisible()) {
-            await confirmButton.click();
-            await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) }).catch(() => {});
-          }
-        }
+        await expect(deleteButton).toBeVisible({ timeout: 5000 });
+        await deleteButton.click();
+        const confirmButton = page
+          .getByTestId('focus-manager-overlay')
+          .getByRole('button', { name: /^削除$/i });
+        await expect(confirmButton).toBeVisible({ timeout: 5000 });
+        await confirmButton.click();
+        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
       }
     });
   });

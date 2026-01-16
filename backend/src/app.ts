@@ -31,6 +31,10 @@ import tradingPartnersRoutes from './routes/trading-partners.routes.js';
 import siteSurveysRoutes from './routes/site-surveys.routes.js';
 import surveyImagesRoutes from './routes/survey-images.routes.js';
 import annotationRoutes from './routes/annotation.routes.js';
+import quantityTablesRoutes from './routes/quantity-tables.routes.js';
+import quantityGroupsRoutes from './routes/quantity-groups.routes.js';
+import quantityItemsRoutes from './routes/quantity-items.routes.js';
+import autocompleteRoutes from './routes/autocomplete.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -314,6 +318,21 @@ app.use('/api/site-surveys/images', surveyImagesRoutes);
 
 // Annotation management routes
 app.use('/api/site-surveys/images', annotationRoutes);
+
+// Quantity table management routes
+app.use('/api/projects/:projectId/quantity-tables', quantityTablesRoutes);
+app.use('/api/quantity-tables', quantityTablesRoutes);
+
+// Quantity group management routes
+app.use('/api/quantity-tables/:quantityTableId/groups', quantityGroupsRoutes);
+app.use('/api/quantity-groups', quantityGroupsRoutes);
+
+// Quantity item management routes
+app.use('/api/quantity-groups/:groupId/items', quantityItemsRoutes);
+app.use('/api/quantity-items', quantityItemsRoutes);
+
+// Autocomplete routes
+app.use('/api/autocomplete', autocompleteRoutes);
 
 // Local storage static file serving (development/test only)
 if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {

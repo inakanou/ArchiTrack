@@ -139,12 +139,14 @@ test.describe('取引先管理の追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
-      // 監査ログAPIの呼び出しを監視
-      const auditLogPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
-        { timeout: getTimeout(30000) }
-      );
+      // 監査ログAPIの呼び出しを監視（存在しない場合はtimeoutで終了）
+      const auditLogListener = page
+        .waitForResponse(
+          (response) =>
+            response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
+          { timeout: 5000 }
+        )
+        .catch(() => null);
 
       // 保存ボタンをクリック
       await page.getByRole('button', { name: /保存/i }).click();
@@ -153,18 +155,17 @@ test.describe('取引先管理の追加要件', () => {
       const updateResponse = await updatePromise;
       expect(updateResponse.status()).toBe(200);
 
-      // 監査ログAPIが呼び出されることを確認
-      const auditLogResponse = await auditLogPromise.catch(() => null);
-
-      // 監査ログが記録されたことを確認
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
-
       // 更新成功を確認（詳細ページに遷移することで確認）
       await expect(page).toHaveURL(new RegExp(`/trading-partners/${partnerId}$`), {
         timeout: getTimeout(10000),
       });
+
+      // 監査ログAPIの結果を確認（オプション - 実装されていなくても成功）
+      const auditLogResponse = await auditLogListener;
+      if (auditLogResponse) {
+        expect(auditLogResponse.status()).toBe(201);
+      }
+      // 注: 監査ログ機能は将来的に実装予定。現時点では更新操作の成功のみを確認
     });
 
     /**
@@ -223,12 +224,14 @@ test.describe('取引先管理の追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
-      // 監査ログAPIの呼び出しを監視
-      const auditLogPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
-        { timeout: getTimeout(30000) }
-      );
+      // 監査ログAPIの呼び出しを監視（存在しない場合はtimeoutで終了）
+      const auditLogListener = page
+        .waitForResponse(
+          (response) =>
+            response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
+          { timeout: 5000 }
+        )
+        .catch(() => null);
 
       // ダイアログ内の「削除」ボタンをクリック
       await page
@@ -244,13 +247,12 @@ test.describe('取引先管理の追加要件', () => {
         timeout: getTimeout(10000),
       });
 
-      // 監査ログAPIが呼び出されることを確認
-      const auditLogResponse = await auditLogPromise.catch(() => null);
-
-      // 監査ログが記録されたことを確認
+      // 監査ログAPIの結果を確認（オプション - 実装されていなくても成功）
+      const auditLogResponse = await auditLogListener;
       if (auditLogResponse) {
         expect(auditLogResponse.status()).toBe(201);
       }
+      // 注: 監査ログ機能は将来的に実装予定。現時点では削除操作の成功のみを確認
     });
   });
 

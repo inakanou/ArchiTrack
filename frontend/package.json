@@ -4,7 +4,6 @@
   "description": "ArchiTrack Frontend",
   "type": "module",
   "scripts": {
-    "postinstall": "playwright install chromium",
     "dev": "vite",
     "build": "tsc && vite build",
     "build:analyze": "tsc && vite build --mode production && echo 'Bundle analysis report generated at dist/stats.html'",
@@ -29,7 +28,7 @@
   "dependencies": {
     "@sentry/react": "^10.32.1",
     "fabric": "^6.9.1",
-    "jspdf": "^3.0.4",
+    "jspdf": "^4.0.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.9.6"

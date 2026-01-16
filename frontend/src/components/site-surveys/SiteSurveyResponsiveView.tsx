@@ -207,7 +207,7 @@ function GridItemThumbnail({ survey }: { survey: SiteSurveyInfo }) {
   return (
     <div
       data-testid="thumbnail-placeholder"
-      className="w-full h-32 sm:h-36 md:h-40 bg-gray-100 flex items-center justify-center"
+      className="thumbnail-placeholder w-full h-32 sm:h-36 md:h-40 bg-gray-100 flex items-center justify-center"
     >
       <svg
         width="48"

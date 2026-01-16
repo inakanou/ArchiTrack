@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-01-03（Steering Sync: 依存関係バージョン確認、手動保存モード対応）_
+_最終更新: 2026-01-11（Steering Sync: 数量表作成機能追加、依存関係バージョン更新）_
 
 ## アーキテクチャ
 
@@ -36,7 +36,7 @@ ArchiTrack/
 - `react-dom` ^19.2.3 - React DOM操作
 - `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
-- `jspdf` ^3.0.4 - PDF報告書生成（現場調査）
+- `jspdf` ^4.0.0 - PDF報告書生成（現場調査）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/react` ^19.2.7 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
@@ -122,6 +122,7 @@ ArchiTrack/
 - `cookie-parser` ^1.4.7 - Cookieパース
 - `@prisma/client` ^7.0.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `@prisma/adapter-pg` ^7.2.0 - Prisma Driver Adapter for PostgreSQL
+- `decimal.js` ^10.6.0 - 高精度10進数計算（数量計算）
 - `pg` ^8.11.3 - PostgreSQL クライアント
 - `ioredis` ^5.3.2 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）

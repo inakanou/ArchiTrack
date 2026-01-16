@@ -64,11 +64,11 @@ export default [
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
     files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['vitest.config.ts', 'vite.config.ts', '.storybook/**/*.ts'],
+    ignores: ['vitest.config.ts', 'vitest.workspace.ts', 'vite.config.ts', '.storybook/**/*.ts'],
   })),
   {
     files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['vitest.config.ts', 'vite.config.ts', '.storybook/**/*.ts'],
+    ignores: ['vitest.config.ts', 'vitest.workspace.ts', 'vite.config.ts', '.storybook/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -110,13 +110,13 @@ export default [
     },
   },
 
-  // Config files (vitest.config.ts, vite.config.ts) without project reference
+  // Config files (vitest.config.ts, vitest.workspace.ts, vite.config.ts) without project reference
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
-    files: ['vitest.config.ts', 'vite.config.ts'],
+    files: ['vitest.config.ts', 'vitest.workspace.ts', 'vite.config.ts'],
   })),
   {
-    files: ['vitest.config.ts', 'vite.config.ts'],
+    files: ['vitest.config.ts', 'vitest.workspace.ts', 'vite.config.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {

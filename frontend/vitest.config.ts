@@ -14,6 +14,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['**/node_modules/**'],
     // ============================================================================
     // Reporter設定（進捗表示の改善）
     // ============================================================================
@@ -24,6 +25,23 @@ export default defineConfig({
     reporter: isCI ? ['default', 'github-actions'] : ['verbose'],
     // WSL環境でのメモリ不足を防ぐため、並行実行を制限
     fileParallelism: false,
+    // ============================================================================
+    // メモリ管理設定（OOM対策）
+    // ============================================================================
+    // pool: 'forks' により各テストファイルを独立プロセスで実行
+    // これによりファイル間でメモリリークが蓄積されることを防ぐ
+    // isolate: true により各テストファイル間でモジュールキャッシュを分離
+    // ============================================================================
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        // 各テストファイルを別々のforkで実行し、完了後にメモリを解放
+        // maxForks: 1 により同時実行を1つに制限
+        maxForks: 1,
+        minForks: 1,
+        isolate: true, // 各テストファイルを分離
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

@@ -1066,19 +1066,16 @@ test.describe('2要素認証機能', () => {
         }
 
         // QRコードが表示されているか確認
-        const isQrVisible = await qrCode.isVisible().catch(() => false);
+        const isQrVisible = await qrCode.isVisible();
         if (isQrVisible) {
           break;
         }
 
         retries--;
-        if (retries === 0) {
-          // 最終試行でも失敗した場合は通常のアサートでエラーを表示
-          await expect(qrCode).toBeVisible({ timeout: getTimeout(5000) });
-        }
       }
 
-      await expect(qrCode).toBeVisible();
+      // QRコードが必ず表示されていることを検証（要素が見つからない場合はテスト失敗）
+      await expect(qrCode).toBeVisible({ timeout: getTimeout(5000) });
       await expect(qrCode).toHaveAttribute('alt', /二要素認証用QRコード/i);
     });
 
@@ -1110,17 +1107,16 @@ test.describe('2要素認証機能', () => {
         }
 
         // QRコードが表示されているか確認
-        const isQrVisible = await qrCode.isVisible().catch(() => false);
+        const isQrVisible = await qrCode.isVisible();
         if (isQrVisible) {
           break;
         }
 
         retries--;
-        if (retries === 0) {
-          // 最終試行でも失敗した場合は通常のアサートでエラーを表示
-          await expect(qrCode).toBeVisible({ timeout: getTimeout(5000) });
-        }
       }
+
+      // QRコードが必ず表示されていることを検証（要素が見つからない場合はテスト失敗）
+      await expect(qrCode).toBeVisible({ timeout: getTimeout(5000) });
 
       const totpGroup = page.getByRole('group', { name: /認証コード/i });
       await expect(totpGroup).toBeVisible();

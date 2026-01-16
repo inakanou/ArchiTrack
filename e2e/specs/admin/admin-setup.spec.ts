@@ -86,8 +86,8 @@ test.describe('初期管理者アカウントセットアップ', () => {
   });
 
   /**
-   * 要件3.5: 管理者作成のログ記録
-   * @requirement user-authentication/REQ-3.5
+   * 要件3.3: 管理者ロール（admin）の割り当て
+   * @requirement user-authentication/REQ-3.3
    */
   test('管理者アカウントにadminロールが正しく割り当てられている', async () => {
     const prisma = getPrismaClient();
@@ -132,5 +132,48 @@ test.describe('初期管理者アカウントセットアップ', () => {
       (rp) => rp.permission.resource === '*' && rp.permission.action === '*'
     );
     expect(hasWildcardPermission).toBe(true);
+  });
+
+  /**
+   * 要件3.5: 管理者作成のログ記録
+   * WHEN 初期管理者が作成される THEN Authentication Serviceはログに記録しなければならない
+   * @requirement user-authentication/REQ-3.5
+   */
+  test('初期管理者作成が監査ログに記録されている', async () => {
+    const prisma = getPrismaClient();
+
+    // 管理者ユーザーを取得
+    const adminUser = await prisma.user.findFirst({
+      where: {
+        userRoles: {
+          some: {
+            role: {
+              name: 'admin',
+            },
+          },
+        },
+      },
+    });
+
+    expect(adminUser).not.toBeNull();
+
+    // 初期管理者作成の監査ログが存在することを確認
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'USER_CREATED',
+        targetType: 'User',
+        targetId: adminUser!.id,
+      },
+    });
+
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.action).toBe('USER_CREATED');
+    expect(auditLog?.targetType).toBe('User');
+    expect(auditLog?.targetId).toBe(adminUser!.id);
+
+    // メタデータに初期管理者フラグが含まれていることを確認
+    const metadata = auditLog?.metadata as { source?: string; isInitialAdmin?: boolean } | null;
+    expect(metadata?.source).toBe('seed');
+    expect(metadata?.isInitialAdmin).toBe(true);
   });
 });

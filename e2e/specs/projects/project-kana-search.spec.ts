@@ -280,17 +280,15 @@ test.describe('プロジェクト検索のかな変換検索 (Task 30.2)', () =>
       // ひらがな検索の結果を取得
       const hiraganaResults: string[] = [];
       const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (tableVisible) {
-        const rows = page.locator('tbody tr');
-        const rowCount = await rows.count();
-        for (let i = 0; i < rowCount; i++) {
-          const row = rows.nth(i);
-          const rowText = await row.getAttribute('data-testid').catch(() => null);
-          if (rowText) {
-            hiraganaResults.push(rowText);
-          }
+      const rows = page.locator('tbody tr');
+      const rowCount = await rows.count();
+      for (let i = 0; i < rowCount; i++) {
+        const row = rows.nth(i);
+        const rowText = await row.getAttribute('data-testid');
+        if (rowText) {
+          hiraganaResults.push(rowText);
         }
       }
 
@@ -309,17 +307,15 @@ test.describe('プロジェクト検索のかな変換検索 (Task 30.2)', () =>
       // カタカナ検索の結果を取得
       const katakanaResults: string[] = [];
       const table2 = page.getByRole('table');
-      const tableVisible2 = await table2.isVisible().catch(() => false);
+      await expect(table2).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (tableVisible2) {
-        const rows2 = page.locator('tbody tr');
-        const rowCount2 = await rows2.count();
-        for (let i = 0; i < rowCount2; i++) {
-          const row = rows2.nth(i);
-          const rowText = await row.getAttribute('data-testid').catch(() => null);
-          if (rowText) {
-            katakanaResults.push(rowText);
-          }
+      const rows2 = page.locator('tbody tr');
+      const rowCount2 = await rows2.count();
+      for (let i = 0; i < rowCount2; i++) {
+        const row = rows2.nth(i);
+        const rowText = await row.getAttribute('data-testid');
+        if (rowText) {
+          katakanaResults.push(rowText);
         }
       }
 
@@ -327,22 +323,19 @@ test.describe('プロジェクト検索のかな変換検索 (Task 30.2)', () =>
       expect(hiraganaResults.length).toBe(katakanaResults.length);
       expect(hiraganaResults.sort()).toEqual(katakanaResults.sort());
 
-      // テスト用プロジェクトが両方の検索結果に表示されることを確認
-      // プロジェクト一覧の行にはdata-testid="project-row-{id}"が設定されている前提
-      if (tableVisible && tableVisible2) {
-        // 両方のテーブルでテスト用プロジェクトが表示されていることを確認
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-        await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+      // 両方のテーブルでテスト用プロジェクトが表示されていることを確認
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-        await searchInput.fill('とりひきさきてすと');
-        await searchInput.press('Enter');
-        await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+      const searchInput3 = page.getByRole('searchbox', { name: /検索キーワード/i });
+      await searchInput3.fill('とりひきさきてすと');
+      await searchInput3.press('Enter');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-        await expect(page.getByText(PROJECT_WITH_KANA_PARTNER).first()).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-      }
+      await expect(page.getByText(PROJECT_WITH_KANA_PARTNER).first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
@@ -434,37 +427,28 @@ test.describe('プロジェクト検索のかな変換検索 (Task 30.2)', () =>
       await expect(page).toHaveURL(/search=/, { timeout: getTimeout(10000) });
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されているか確認
+      // テーブルが表示されていることを確認
       const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (tableVisible) {
-        const rows = page.locator('tbody tr');
-        const rowCount = await rows.count();
+      const rows = page.locator('tbody tr');
+      const rowCount = await rows.count();
 
-        // 少なくとも1件以上の結果があることを確認
-        expect(rowCount).toBeGreaterThan(0);
+      // 少なくとも1件以上の結果があることを確認
+      expect(rowCount).toBeGreaterThan(0);
 
-        // 検索結果にテスト用プロジェクト名が含まれていることを確認
-        let foundTestProject = false;
-        for (let i = 0; i < rowCount; i++) {
-          const row = rows.nth(i);
-          const rowText = await row.textContent();
-          if (rowText && rowText.includes(PROJECT_WITH_KANA_PARTNER)) {
-            foundTestProject = true;
-            break;
-          }
+      // 検索結果にテスト用プロジェクト名が含まれていることを確認
+      let foundTestProject = false;
+      for (let i = 0; i < rowCount; i++) {
+        const row = rows.nth(i);
+        const rowText = await row.textContent();
+        if (rowText && rowText.includes(PROJECT_WITH_KANA_PARTNER)) {
+          foundTestProject = true;
+          break;
         }
-
-        expect(foundTestProject).toBe(true);
-      } else {
-        // テーブルが表示されない場合、空状態メッセージを確認
-        const emptyOrError = page.getByText(
-          /検索結果がありません|プロジェクトがありません|プロジェクト一覧を取得できませんでした/i
-        );
-        // テストデータが正しく作成されていればテーブルが表示されるはず
-        await expect(emptyOrError).not.toBeVisible();
       }
+
+      expect(foundTestProject).toBe(true);
     });
   });
 });

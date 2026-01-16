@@ -11,7 +11,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import { getAnnotation } from '../../api/survey-annotations';
-import type { SurveyImageInfo, AnnotationInfo } from '../../types/site-survey.types';
+import type { AnnotationInfo } from '../../types/site-survey.types';
 // カスタムシェイプをFabric.jsクラスレジストリに登録
 import './tools/registerCustomShapes';
 
@@ -19,9 +19,26 @@ import './tools/registerCustomShapes';
 // 型定義
 // ============================================================================
 
+/**
+ * 注釈付き画像サムネイル表示に必要な最小限の画像情報
+ * SurveyImageInfoとSurveyImageSummaryの両方に対応
+ */
+export interface AnnotatedImageInput {
+  /** 画像ID（注釈データ取得に使用） */
+  id: string;
+  /** オリジナル画像URL（署名付きURL） */
+  originalUrl?: string | null;
+  /** 中解像度画像URL（署名付きURL、優先使用） */
+  mediumUrl?: string | null;
+  /** オリジナル画像パス（フォールバック用） */
+  originalPath?: string;
+  /** ファイル名 */
+  fileName?: string;
+}
+
 export interface AnnotatedImageThumbnailProps {
   /** 画像情報 */
-  image: SurveyImageInfo;
+  image: AnnotatedImageInput;
   /** 画像のalt属性 */
   alt: string;
   /** スタイル */

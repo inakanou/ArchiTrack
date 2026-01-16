@@ -275,4 +275,115 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
 
     expect(permissionsResponse.ok()).toBeTruthy();
   });
+
+  /**
+   * 要件6.8: リソースレベルの権限チェックで所有者情報を考慮
+   * 要件21.6: 所有者フィルタリングの適用
+   * プロジェクトにはcreatedById（作成者ID）が正しく設定され、
+   * RBACシステムで所有者情報を考慮した権限チェックが可能であることを検証
+   * @requirement user-authentication/REQ-6.8 @requirement user-authentication/REQ-21.6
+   */
+  test('プロジェクトには所有者情報（createdById）が正しく設定される', async () => {
+    const prisma = getPrismaClient();
+
+    // テストユーザーを作成
+    const user1 = await createTestUser('REGULAR_USER');
+    const user2 = await createTestUser('REGULAR_USER_2');
+
+    // ユーザー1がプロジェクトを作成（データベース直接作成）
+    // status はデフォルト値 PREPARING が適用される
+    const project1 = await prisma.project.create({
+      data: {
+        name: 'ユーザー1のプロジェクト',
+        createdById: user1.id,
+        salesPersonId: user1.id,
+      },
+    });
+
+    // ユーザー2がプロジェクトを作成（データベース直接作成）
+    const project2 = await prisma.project.create({
+      data: {
+        name: 'ユーザー2のプロジェクト',
+        createdById: user2.id,
+        salesPersonId: user2.id,
+      },
+    });
+
+    // 各プロジェクトの所有者情報が正しく設定されていることを確認
+    expect(project1.createdById).toBe(user1.id);
+    expect(project2.createdById).toBe(user2.id);
+
+    // 所有者フィルタリングクエリ: ユーザー1の所有プロジェクトのみ取得
+    const user1Projects = await prisma.project.findMany({
+      where: { createdById: user1.id },
+    });
+    expect(user1Projects.length).toBe(1);
+    expect(user1Projects[0]?.id).toBe(project1.id);
+
+    // 所有者フィルタリングクエリ: ユーザー2の所有プロジェクトのみ取得
+    const user2Projects = await prisma.project.findMany({
+      where: { createdById: user2.id },
+    });
+    expect(user2Projects.length).toBe(1);
+    expect(user2Projects[0]?.id).toBe(project2.id);
+
+    // 所有者フィルタリングにより、ユーザー1のプロジェクト一覧にはユーザー2のプロジェクトが含まれない
+    const user1ProjectIds = user1Projects.map((p) => p.id);
+    expect(user1ProjectIds).not.toContain(project2.id);
+  });
+
+  /**
+   * 要件21.7: 権限チェックに失敗した場合、監査ログに記録
+   * 要件22.8: 権限チェック失敗をセキュリティログに記録
+   * @requirement user-authentication/REQ-21.7 @requirement user-authentication/REQ-22.8
+   */
+  test('権限チェック失敗時に監査ログが記録される', async ({ request }) => {
+    const prisma = getPrismaClient();
+
+    // 一般ユーザーを作成してログイン
+    await createTestUser('REGULAR_USER');
+
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
+      data: {
+        email: 'user@example.com',
+        password: 'Password123!',
+      },
+    });
+    const { accessToken } = await loginResponse.json();
+
+    // 権限チェック失敗前の監査ログ数を取得
+    const beforeCount = await prisma.auditLog.count({
+      where: { action: 'PERMISSION_CHECK_FAILED' },
+    });
+
+    // 権限が必要なエンドポイントにアクセス（403を期待）
+    const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    expect(rolesResponse.status()).toBe(403);
+
+    // 権限チェック失敗の監査ログが記録されたことを確認
+    const afterCount = await prisma.auditLog.count({
+      where: { action: 'PERMISSION_CHECK_FAILED' },
+    });
+
+    expect(afterCount).toBeGreaterThan(beforeCount);
+
+    // 監査ログの内容を確認
+    const auditLog = await prisma.auditLog.findFirst({
+      where: { action: 'PERMISSION_CHECK_FAILED' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.targetType).toBe('Permission');
+    expect(auditLog?.metadata).not.toBeNull();
+
+    // メタデータにrequiredパーミッションが含まれることを確認
+    const metadata = auditLog?.metadata as { required?: string } | null;
+    expect(metadata?.required).toBeDefined();
+  });
 });
