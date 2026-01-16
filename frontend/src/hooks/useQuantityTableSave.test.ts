@@ -157,7 +157,7 @@ describe('useQuantityTableSave', () => {
             items: [
               {
                 ...baseItem,
-                majorCategory: '', // 必須フィールドが空
+                majorCategory: '', // 任意フィールド（バリデーションエラーなし）
                 workType: '', // 必須フィールドが空
                 name: '', // 必須フィールドが空
                 unit: '', // 必須フィールドが空
@@ -177,12 +177,13 @@ describe('useQuantityTableSave', () => {
 
       const errors = result.current.validate();
 
-      expect(errors).toContainEqual(
+      // 大項目は任意フィールドなのでバリデーションエラーなし
+      expect(errors).not.toContainEqual(
         expect.objectContaining({
           path: expect.stringContaining('majorCategory'),
-          message: expect.stringContaining('必須'),
         })
       );
+      // 工種・名称・単位は必須フィールド
       expect(errors).toContainEqual(
         expect.objectContaining({
           path: expect.stringContaining('workType'),
@@ -227,7 +228,7 @@ describe('useQuantityTableSave', () => {
             items: [
               {
                 ...baseItem2,
-                majorCategory: '', // 必須フィールドが空
+                workType: '', // 必須フィールドが空（工種は必須）
               } as QuantityItemEdit,
             ],
           } as QuantityGroupEdit,

@@ -286,8 +286,9 @@ describe('QuantityTableEditPage', () => {
         renderWithRouter();
 
         // 数量と単位はinput要素のvalueとして表示されるため、getByDisplayValueを使用
+        // REQ-14.2: 数量は小数2桁でフォーマットされる
         await waitFor(() => {
-          expect(screen.getByDisplayValue('100.5')).toBeInTheDocument();
+          expect(screen.getByDisplayValue('100.50')).toBeInTheDocument();
           // m2 is used by multiple items
           expect(screen.getAllByDisplayValue('m2').length).toBeGreaterThanOrEqual(1);
           expect(screen.getByDisplayValue('m3')).toBeInTheDocument();
@@ -301,10 +302,11 @@ describe('QuantityTableEditPage', () => {
 
         renderWithRouter();
 
+        // 注釈表示のためoriginalUrlを使用する仕様に変更
         await waitFor(() => {
           const thumbnail = screen.getByAltText('photo1.jpg');
           expect(thumbnail).toBeInTheDocument();
-          expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
+          expect(thumbnail).toHaveAttribute('src', '/images/original-1.jpg');
         });
       });
 
@@ -1707,9 +1709,9 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 注釈オーバーレイコンテナが表示されることを確認
+      // 注釈バッジが表示されることを確認（REQ-3.3）
       await waitFor(() => {
-        expect(screen.getByTestId('annotation-overlay-group-1')).toBeInTheDocument();
+        expect(screen.getByTestId('annotation-badge-group-1')).toBeInTheDocument();
       });
     });
 

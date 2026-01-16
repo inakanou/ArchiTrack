@@ -215,11 +215,9 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         expect(screen.getByRole('link', { name: /第1回現場調査/ })).toBeInTheDocument();
       });
 
+      // 現場調査詳細へのリンクはプロジェクトIDなしの直接パスに変更（fix(site-survey)コミット）
       const surveyLink = screen.getByRole('link', { name: /第1回現場調査/ });
-      expect(surveyLink).toHaveAttribute(
-        'href',
-        '/projects/project-test-123/site-surveys/survey-1'
-      );
+      expect(surveyLink).toHaveAttribute('href', '/site-surveys/survey-1');
     });
 
     it('すべて見るリンクをクリックして現場調査一覧ページへ遷移できる', async () => {

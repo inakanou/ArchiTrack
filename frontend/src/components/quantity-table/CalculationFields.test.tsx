@@ -67,10 +67,11 @@ describe('CalculationFields', () => {
         />
       );
 
-      expect(screen.getByLabelText(/幅/i)).toHaveValue(10);
-      expect(screen.getByLabelText(/奥行き/i)).toHaveValue(20);
-      expect(screen.getByLabelText(/高さ/i)).toHaveValue(5);
-      expect(screen.getByLabelText(/重量/i)).toHaveValue(2.5);
+      // REQ-14.3: 数値入力時は小数2桁で表示されるため、文字列として比較
+      expect(screen.getByLabelText(/幅/i)).toHaveValue('10.00');
+      expect(screen.getByLabelText(/奥行き/i)).toHaveValue('20.00');
+      expect(screen.getByLabelText(/高さ/i)).toHaveValue('5.00');
+      expect(screen.getByLabelText(/重量/i)).toHaveValue('2.50');
     });
 
     it('disabledがtrueの場合、全てのフィールドが無効化される', () => {
@@ -103,6 +104,7 @@ describe('CalculationFields', () => {
 
       const widthInput = screen.getByLabelText(/幅/i);
       fireEvent.change(widthInput, { target: { value: '10' } });
+      fireEvent.blur(widthInput); // onBlur時にonChangeが呼ばれる
 
       expect(onChange).toHaveBeenCalledWith({ width: 10 });
     });
@@ -114,6 +116,7 @@ describe('CalculationFields', () => {
 
       const depthInput = screen.getByLabelText(/奥行き/i);
       fireEvent.change(depthInput, { target: { value: '20' } });
+      fireEvent.blur(depthInput);
 
       expect(onChange).toHaveBeenCalledWith({ depth: 20 });
     });
@@ -125,6 +128,7 @@ describe('CalculationFields', () => {
 
       const heightInput = screen.getByLabelText(/高さ/i);
       fireEvent.change(heightInput, { target: { value: '5' } });
+      fireEvent.blur(heightInput);
 
       expect(onChange).toHaveBeenCalledWith({ height: 5 });
     });
@@ -136,6 +140,7 @@ describe('CalculationFields', () => {
 
       const weightInput = screen.getByLabelText(/重量/i);
       fireEvent.change(weightInput, { target: { value: '2.5' } });
+      fireEvent.blur(weightInput);
 
       expect(onChange).toHaveBeenCalledWith({ weight: 2.5 });
     });
@@ -154,6 +159,7 @@ describe('CalculationFields', () => {
 
       const depthInput = screen.getByLabelText(/奥行き/i);
       fireEvent.change(depthInput, { target: { value: '20' } });
+      fireEvent.blur(depthInput);
 
       expect(onChange).toHaveBeenCalledWith({ width: 10, depth: 20 });
     });
@@ -172,6 +178,7 @@ describe('CalculationFields', () => {
 
       const widthInput = screen.getByLabelText(/幅/i);
       fireEvent.change(widthInput, { target: { value: '' } });
+      fireEvent.blur(widthInput);
 
       expect(onChange).toHaveBeenCalledWith({ width: undefined });
     });
@@ -217,12 +224,13 @@ describe('CalculationFields', () => {
         <CalculationFields method="PITCH" params={params} onChange={vi.fn()} disabled={false} />
       );
 
-      expect(screen.getByLabelText(/範囲長/i)).toHaveValue(1000);
-      expect(screen.getByLabelText(/端長1/i)).toHaveValue(50);
-      expect(screen.getByLabelText(/端長2/i)).toHaveValue(50);
-      expect(screen.getByLabelText(/ピッチ長/i)).toHaveValue(200);
-      expect(screen.getByLabelText('長さ')).toHaveValue(6);
-      expect(screen.getByLabelText(/重量/i)).toHaveValue(1.2);
+      // REQ-14.3: 数値入力時は小数2桁で表示されるため、文字列として比較
+      expect(screen.getByLabelText(/範囲長/i)).toHaveValue('1000.00');
+      expect(screen.getByLabelText(/端長1/i)).toHaveValue('50.00');
+      expect(screen.getByLabelText(/端長2/i)).toHaveValue('50.00');
+      expect(screen.getByLabelText(/ピッチ長/i)).toHaveValue('200.00');
+      expect(screen.getByLabelText('長さ')).toHaveValue('6.00');
+      expect(screen.getByLabelText(/重量/i)).toHaveValue('1.20');
     });
 
     it('disabledがtrueの場合、全てのフィールドが無効化される', () => {
@@ -253,6 +261,7 @@ describe('CalculationFields', () => {
 
       const input = screen.getByLabelText(/範囲長/i);
       fireEvent.change(input, { target: { value: '1000' } });
+      fireEvent.blur(input);
 
       expect(onChange).toHaveBeenCalledWith({ rangeLength: 1000 });
     });
@@ -262,6 +271,7 @@ describe('CalculationFields', () => {
 
       const input = screen.getByLabelText(/端長1/i);
       fireEvent.change(input, { target: { value: '50' } });
+      fireEvent.blur(input);
 
       expect(onChange).toHaveBeenCalledWith({ endLength1: 50 });
     });
@@ -271,6 +281,7 @@ describe('CalculationFields', () => {
 
       const input = screen.getByLabelText(/端長2/i);
       fireEvent.change(input, { target: { value: '50' } });
+      fireEvent.blur(input);
 
       expect(onChange).toHaveBeenCalledWith({ endLength2: 50 });
     });
@@ -280,6 +291,7 @@ describe('CalculationFields', () => {
 
       const input = screen.getByLabelText(/ピッチ長/i);
       fireEvent.change(input, { target: { value: '200' } });
+      fireEvent.blur(input);
 
       expect(onChange).toHaveBeenCalledWith({ pitchLength: 200 });
     });
@@ -289,6 +301,7 @@ describe('CalculationFields', () => {
 
       const input = screen.getByLabelText('長さ');
       fireEvent.change(input, { target: { value: '6' } });
+      fireEvent.blur(input);
 
       expect(onChange).toHaveBeenCalledWith({ length: 6 });
     });
@@ -302,6 +315,7 @@ describe('CalculationFields', () => {
 
       const input = screen.getByLabelText(/端長1/i);
       fireEvent.change(input, { target: { value: '50' } });
+      fireEvent.blur(input);
 
       expect(onChange).toHaveBeenCalledWith({ rangeLength: 1000, endLength1: 50 });
     });
@@ -336,26 +350,30 @@ describe('CalculationFields', () => {
   // ============================================================================
 
   describe('アクセシビリティ', () => {
-    it('面積・体積モードの各入力フィールドはtype="number"', () => {
+    it('面積・体積モードの各入力フィールドはtype="text"でinputMode="decimal"', () => {
       render(
         <CalculationFields method="AREA_VOLUME" params={{}} onChange={vi.fn()} disabled={false} />
       );
 
-      expect(screen.getByLabelText(/幅/i)).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText(/奥行き/i)).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText(/高さ/i)).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText(/重量/i)).toHaveAttribute('type', 'number');
+      // REQ-14.3: 小数入力対応のためtype="text" + inputMode="decimal"を使用
+      expect(screen.getByLabelText(/幅/i)).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText(/幅/i)).toHaveAttribute('inputMode', 'decimal');
+      expect(screen.getByLabelText(/奥行き/i)).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText(/高さ/i)).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText(/重量/i)).toHaveAttribute('type', 'text');
     });
 
-    it('ピッチモードの各入力フィールドはtype="number"', () => {
+    it('ピッチモードの各入力フィールドはtype="text"でinputMode="decimal"', () => {
       render(<CalculationFields method="PITCH" params={{}} onChange={vi.fn()} disabled={false} />);
 
-      expect(screen.getByLabelText(/範囲長/i)).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText(/端長1/i)).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText(/端長2/i)).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText(/ピッチ長/i)).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText('長さ')).toHaveAttribute('type', 'number');
-      expect(screen.getByLabelText(/重量/i)).toHaveAttribute('type', 'number');
+      // REQ-14.3: 小数入力対応のためtype="text" + inputMode="decimal"を使用
+      expect(screen.getByLabelText(/範囲長/i)).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText(/範囲長/i)).toHaveAttribute('inputMode', 'decimal');
+      expect(screen.getByLabelText(/端長1/i)).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText(/端長2/i)).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText(/ピッチ長/i)).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText('長さ')).toHaveAttribute('type', 'text');
+      expect(screen.getByLabelText(/重量/i)).toHaveAttribute('type', 'text');
     });
   });
 });

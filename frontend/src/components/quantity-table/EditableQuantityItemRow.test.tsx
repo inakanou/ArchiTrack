@@ -269,50 +269,65 @@ describe('EditableQuantityItemRow', () => {
 
   describe('数量変更', () => {
     it('数量入力時にonUpdateが呼ばれる', async () => {
+      const user = userEvent.setup();
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
-      const input = screen.getByRole('spinbutton', { name: /数量/ });
-      // 数字を追加入力（controlled componentなので clear + type は期待通りに動作しない）
-      await userEvent.type(input, '5');
+      // REQ-14.2: type="text" + inputMode="decimal"に変更されたためtextbox roleを使用
+      const input = screen.getByLabelText(/数量/);
+      // 値を変更してblurでonUpdateを発火
+      await user.clear(input);
+      await user.type(input, '150');
+      await user.tab(); // blur発火
 
       // onUpdateがquantityフィールドで呼ばれることを確認
       expect(onUpdate).toHaveBeenCalledWith(
         'item-1',
         expect.objectContaining({
-          quantity: expect.any(Number),
+          quantity: 150,
         })
       );
     });
 
-    it('無効な数量が入力された場合はonUpdateが呼ばれない', async () => {
+    it('無効な数量が入力された場合はデフォルト値が設定される', async () => {
+      const user = userEvent.setup();
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
-      const input = screen.getByRole('spinbutton', { name: /数量/ });
-      // 数字以外の文字を入力しても変換されないため、空の場合はNaNになる
-      // これはHTML5のtype="number"による制限
+      // REQ-14.2: type="text" + inputMode="decimal"に変更
+      const input = screen.getByLabelText(/数量/);
+      // 空入力後にblurでREQ-15.2: 空入力時は0を設定
+      await user.clear(input);
+      await user.tab();
 
-      // 明示的にNaNになるケースをシミュレート
-      // 入力フィールドに文字を入れようとしても、type="number"で無視される
-      expect(input).toBeInTheDocument();
+      // REQ-15.2: 空または無効な値の場合は0を設定
+      expect(onUpdate).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({
+          quantity: 0,
+        })
+      );
     });
   });
 
   describe('調整係数変更', () => {
     it('調整係数入力時にonUpdateが呼ばれる', async () => {
+      const user = userEvent.setup();
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
-      const input = screen.getByRole('spinbutton', { name: /調整係数/ });
-      // 数字を追加入力（controlled componentなのでclearは空文字がNaNとなり無視される）
-      await userEvent.type(input, '5');
+      // REQ-14.2: type="text" + inputMode="decimal"に変更
+      const input = screen.getByLabelText(/調整係数/);
+      // 値を変更してblurでonUpdateを発火
+      await user.clear(input);
+      await user.type(input, '1.5');
+      await user.tab(); // blur発火
 
-      // onUpdateがadjustmentFactorフィールドで呼ばれることを確認（元の値1に5が追加されて15）
+      // onUpdateがadjustmentFactorフィールドで呼ばれることを確認
       expect(onUpdate).toHaveBeenCalledWith(
         'item-1',
         expect.objectContaining({
-          adjustmentFactor: 15,
+          adjustmentFactor: 1.5,
         })
       );
     });
@@ -320,18 +335,22 @@ describe('EditableQuantityItemRow', () => {
 
   describe('丸め設定変更', () => {
     it('丸め設定入力時にonUpdateが呼ばれる', async () => {
+      const user = userEvent.setup();
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
-      const input = screen.getByRole('spinbutton', { name: /丸め設定/ });
-      // 数字を追加入力（controlled componentなので clear + type は期待通りに動作しない）
-      await userEvent.type(input, '5');
+      // REQ-14.2: type="text" + inputMode="decimal"に変更
+      const input = screen.getByLabelText(/丸め設定/);
+      // 値を変更してblurでonUpdateを発火
+      await user.clear(input);
+      await user.type(input, '0.1');
+      await user.tab(); // blur発火
 
       // onUpdateがroundingUnitフィールドで呼ばれることを確認
       expect(onUpdate).toHaveBeenCalledWith(
         'item-1',
         expect.objectContaining({
-          roundingUnit: expect.any(Number),
+          roundingUnit: 0.1,
         })
       );
     });

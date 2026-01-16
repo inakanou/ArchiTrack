@@ -123,9 +123,10 @@ describe('QuantityGroupCard', () => {
     it('紐付き画像がある場合はサムネイルが表示される', () => {
       render(<QuantityGroupCard {...defaultProps} />);
 
+      // 注釈表示のためoriginalUrlを使用する仕様に変更
       const thumbnail = screen.getByAltText('photo1.jpg');
       expect(thumbnail).toBeInTheDocument();
-      expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
+      expect(thumbnail).toHaveAttribute('src', '/images/original-1.jpg');
     });
 
     it('紐付き画像がない場合はプレースホルダーが表示される', () => {
