@@ -115,9 +115,8 @@ describe('QuantityTablesRoutes', () => {
     }));
 
     // Import route after mocks are setup
-    const { default: quantityTablesRoutes } = await import(
-      '../../../routes/quantity-tables.routes.js'
-    );
+    const { default: quantityTablesRoutes } =
+      await import('../../../routes/quantity-tables.routes.js');
 
     // Setup express app
     app = express();
@@ -172,9 +171,8 @@ describe('QuantityTablesRoutes', () => {
 
     it('should return 404 when project not found', async () => {
       const projectId = '123e4567-e89b-12d3-a456-426614174000';
-      const { ProjectNotFoundForQuantityTableError } = await import(
-        '../../../errors/quantityTableError.js'
-      );
+      const { ProjectNotFoundForQuantityTableError } =
+        await import('../../../errors/quantityTableError.js');
       mockService.create.mockRejectedValue(new ProjectNotFoundForQuantityTableError(projectId));
 
       const response = await request(app)
