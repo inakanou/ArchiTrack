@@ -260,11 +260,10 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       await expect(surveyCard).toBeVisible();
       await surveyCard.click();
 
-      // 詳細画面に遷移することを確認（/projects/:projectId/site-surveys/:surveyIdの形式）
-      await expect(page).toHaveURL(
-        new RegExp(`/projects/${createdProjectId}/site-surveys/${createdSurveyId}`),
-        { timeout: getTimeout(10000) }
-      );
+      // 詳細画面に遷移することを確認（/site-surveys/:surveyIdの形式）
+      await expect(page).toHaveURL(new RegExp(`/site-surveys/${createdSurveyId}`), {
+        timeout: getTimeout(10000),
+      });
     });
   });
 

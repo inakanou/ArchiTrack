@@ -170,33 +170,38 @@ test.describe('数量表CRUD操作', () => {
       const input = page.locator('input[type="file"]').first();
       const inputCount = await input.count();
 
-      if (inputCount > 0) {
-        // テスト用画像ファイルをアップロード
-        const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
-
-        // アップロードレスポンスのPromiseを先に作成
-        const uploadPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/') &&
-            response.url().includes('/images') &&
-            response.request().method() === 'POST',
-          { timeout: getTimeout(60000) }
+      // ファイル入力が見つからない場合は明示的にエラー（第3原則に従い無効化しない）
+      if (inputCount === 0) {
+        throw new Error(
+          'REQ-4.3/4.4事前準備: ファイル入力が見つかりません。現場調査画面のファイルアップロード機能を確認してください。'
         );
-
-        // テスト用画像ファイルをセット
-        await input.setInputFiles(testImagePath);
-
-        // アップロード完了を待機
-        await uploadPromise;
-
-        // ページをリロードして画像が保存されていることを確認
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-
-        // アップロードされた画像が表示されることを確認
-        const uploadedImage = page.locator('[data-testid="photo-panel-item"] img');
-        await expect(uploadedImage.first()).toBeVisible({ timeout: getTimeout(15000) });
       }
+
+      // テスト用画像ファイルをアップロード
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+
+      // アップロードレスポンスのPromiseを先に作成
+      const uploadPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/') &&
+          response.url().includes('/images') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+
+      // テスト用画像ファイルをセット
+      await input.setInputFiles(testImagePath);
+
+      // アップロード完了を待機
+      await uploadPromise;
+
+      // ページをリロードして画像が保存されていることを確認
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+
+      // アップロードされた画像が表示されることを確認
+      const uploadedImage = page.locator('[data-testid="photo-panel-item"] img');
+      await expect(uploadedImage.first()).toBeVisible({ timeout: getTimeout(15000) });
     });
   });
 
@@ -1283,7 +1288,7 @@ test.describe('数量表CRUD操作', () => {
       await expect(page.getByLabel(/計算方法/).first()).toBeVisible({ timeout: 3000 });
       await expect(page.getByLabel(/調整係数/).first()).toBeVisible({ timeout: 3000 });
       await expect(page.getByLabel(/丸め設定/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByRole('spinbutton', { name: /数量/ }).first()).toBeVisible({
+      await expect(page.locator('input[id$="-quantity"]').first()).toBeVisible({
         timeout: 3000,
       });
       await expect(page.getByLabel(/備考/).first()).toBeVisible({ timeout: 3000 });
@@ -2104,8 +2109,8 @@ test.describe('数量表CRUD操作', () => {
       const heightField = page.getByLabel(/高さ|H/i).first();
       await expect(heightField).toBeVisible({ timeout: 3000 });
 
-      // 数量フィールドを取得（spinbutton roleを使用）
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      // 数量フィールドを取得
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
       // 幅に10を入力
@@ -2118,11 +2123,13 @@ test.describe('数量表CRUD操作', () => {
 
       // 高さに2を入力
       await heightField.fill('2');
+      // blurイベントを発火させて計算をトリガー
+      await heightField.blur();
       await page.waitForTimeout(500);
 
       // 数量が10 * 5 * 2 = 100になることを確認（必須）
-      // 調整係数1、丸め設定0.01なので、最終値は100
-      await expect(quantityField).toHaveValue('100', { timeout: 5000 });
+      // 調整係数1、丸め設定0.01なので、最終値は100.00（小数2桁表示）
+      await expect(quantityField).toHaveValue('100.00', { timeout: 5000 });
     });
 
     test('標準モードで数量フィールドに直接数値を入力できる (quantity-table-generation/REQ-8.2)', async ({
@@ -2146,7 +2153,7 @@ test.describe('数量表CRUD操作', () => {
       await calcMethodSelect.selectOption({ value: 'STANDARD' });
 
       // 数量フィールドが表示されることを確認（必須）
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
       // 数量フィールドに直接数値を入力
@@ -2206,7 +2213,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
 
       // 数量フィールドに負の値を入力
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
       // APIレスポンスを待機するためのPromiseを設定
@@ -2261,7 +2268,7 @@ test.describe('数量表CRUD操作', () => {
       await calcMethodSelect.selectOption({ value: 'STANDARD' });
 
       // 数量フィールドを取得して現在値を記録
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
       const initialValue = await quantityField.inputValue();
 
@@ -2322,13 +2329,15 @@ test.describe('数量表CRUD操作', () => {
 
       // 面積・体積モードで計算列が空の場合、数量が0になる
       // 2番目の項目の数量フィールドを確認
-      const quantityFields = page.getByRole('spinbutton', { name: /数量/ });
+      const quantityFields = page.locator('input[id$="-quantity"]');
       const secondQuantityField = quantityFields.nth(1);
       const quantityValue = await secondQuantityField.inputValue();
 
       // 数量が0であること（計算用列未入力のため）を確認
-      // これは正常な動作 - 未入力時は0になる
-      expect(quantityValue === '0' || quantityValue === '').toBeTruthy();
+      // これは正常な動作 - 未入力時は0になる（小数2桁表示で0.00の場合も含む）
+      expect(
+        quantityValue === '0' || quantityValue === '0.00' || quantityValue === ''
+      ).toBeTruthy();
     });
 
     test('ピッチモードで自動計算が行われる (quantity-table-generation/REQ-8.9)', async ({
@@ -2368,10 +2377,13 @@ test.describe('数量表CRUD操作', () => {
       }
       if (await pitchField.isVisible({ timeout: 2000 })) {
         await pitchField.fill('200');
+        // blurイベントを発火させて計算をトリガー
+        await pitchField.blur();
       }
+      await page.waitForTimeout(500);
 
       // 数量フィールドに自動計算された値が設定される（必須）
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
       const quantityValue = await quantityField.inputValue();
@@ -2420,12 +2432,14 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
 
       // ピッチモードで必須項目（ピッチ長）が未入力の場合、計算ができないため数量が0になる
-      const quantityFields = page.getByRole('spinbutton', { name: /数量/ });
+      const quantityFields = page.locator('input[id$="-quantity"]');
       const secondQuantityField = quantityFields.nth(1);
       const quantityValue = await secondQuantityField.inputValue();
 
-      // 数量が0であること（必須項目未入力のため計算不可）を確認
-      expect(quantityValue === '0' || quantityValue === '').toBeTruthy();
+      // 数量が0であること（必須項目未入力のため計算不可）を確認（小数2桁表示で0.00の場合も含む）
+      expect(
+        quantityValue === '0' || quantityValue === '0.00' || quantityValue === ''
+      ).toBeTruthy();
     });
 
     test('計算用列の値変更時に数量が自動再計算される (quantity-table-generation/REQ-8.11)', async ({
@@ -2454,7 +2468,7 @@ test.describe('数量表CRUD操作', () => {
       await widthField.fill('10');
 
       // 数量フィールドを確認
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
       const initialQuantity = await quantityField.inputValue();
@@ -2526,7 +2540,7 @@ test.describe('数量表CRUD操作', () => {
       await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
 
       // 数量フィールドを取得
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
       // 現在の数量を取得
@@ -2715,7 +2729,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
 
       // 数量フィールドを確認
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
       // 初期値を取得（計算が完了した状態）
@@ -2801,7 +2815,7 @@ test.describe('数量表CRUD操作', () => {
       await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
 
       // 数量フィールドを取得し、現在の丸め前の値を記録
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
       const beforeRounding = await quantityField.inputValue();
       const beforeValue = parseFloat(beforeRounding);
@@ -2839,19 +2853,20 @@ test.describe('数量表CRUD操作', () => {
       const roundingField = page.getByLabel(/丸め設定|rounding/i).first();
       await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 0以下の値を入力
+      // 0の値を入力
       await roundingField.fill('0');
+
+      // blur前に警告が表示されることを確認（REQ-10.3）
+      const warningMessage = page.getByText(/0以下の値は使用できません/);
+      const hasWarning = await warningMessage.isVisible({ timeout: 3000 });
+      expect(hasWarning).toBeTruthy();
+
+      // blur時にデフォルト値（0.01）に自動補正されることを確認（REQ-10.4）
       await page.keyboard.press('Tab');
+      await page.waitForTimeout(200);
 
-      // エラーメッセージが表示されること（必須）
-      const errorMessage = page.getByText(/0以下|正の値|error|エラー/i);
-      const errorField = page.locator('[aria-invalid="true"], .error, .is-invalid');
-
-      const hasError = await errorMessage.isVisible({ timeout: 3000 });
-      const hasErrorField = await errorField.first().isVisible({ timeout: 2000 });
-
-      // エラー表示が行われること（必須）
-      expect(hasError || hasErrorField).toBeTruthy();
+      const correctedValue = await roundingField.inputValue();
+      expect(correctedValue).toBe('0.01');
     });
 
     test('丸め設定に数値以外を入力するとエラーが表示される (quantity-table-generation/REQ-10.4)', async ({
@@ -2957,7 +2972,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
 
       // 最後の数量フィールドを確認
-      const quantityFields = page.getByRole('spinbutton', { name: /数量/ });
+      const quantityFields = page.locator('input[id$="-quantity"]');
       const qCount = await quantityFields.count();
       const quantityField = quantityFields.nth(qCount > 0 ? qCount - 1 : 0);
       await expect(quantityField).toBeVisible({ timeout: 3000 });
@@ -3023,7 +3038,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
 
       // 数量フィールドの初期値を取得
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
       const initialQuantity = await quantityField.inputValue();
       const initialValue = parseFloat(initialQuantity);
@@ -3133,7 +3148,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
 
       // 数量フィールドの初期値を取得
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
       const initialQuantity = await quantityField.inputValue();
       const initialValue = parseFloat(initialQuantity);
@@ -3418,7 +3433,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 数量フィールドを取得
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: getTimeout(5000) });
 
       // 整数値を入力
@@ -3532,7 +3547,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 数量フィールドを取得
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: getTimeout(5000) });
 
       // CSSのtext-alignを確認
@@ -3581,7 +3596,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 数量フィールドを取得
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: getTimeout(5000) });
 
       // 範囲外の値（9999999.99より大きい値）を入力
@@ -3634,7 +3649,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
 
       // 数量フィールドを取得
-      const quantityField = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: getTimeout(5000) });
 
       // フィールドをクリア
@@ -3750,7 +3765,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 編集可能なフィールドを探す
       // 数量フィールドは計算モードではreadOnlyになるため、名称フィールドも試す
-      const quantityInput = page.getByRole('spinbutton', { name: /数量/ }).first();
+      const quantityInput = page.locator('input[id$="-quantity"]').first();
       const quantityVisible = await quantityInput.isVisible({ timeout: 3000 }).catch(() => false);
 
       let fieldEdited = false;
@@ -3829,32 +3844,29 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 丸め設定を0にしてエラーを発生させる（REQ-11.2: 整合性チェック）
-      const roundingInputs = page.getByLabel(/丸め/);
-      const count = await roundingInputs.count();
+      // 名称フィールド（必須）を空にしてエラーを発生させる（REQ-11.2: 整合性チェック）
+      const nameInputs = page.locator('input[id$="-name"]');
+      const count = await nameInputs.count();
       if (count > 0) {
-        // 最後の項目の丸め設定を0に変更
-        const lastInput = roundingInputs.nth(count - 1);
-        await lastInput.fill('0');
-        await page.keyboard.press('Tab');
+        // 最初の項目の名称を空に変更
+        const firstInput = nameInputs.first();
+        // focus→select all→delete で確実にクリア（Reactのイベントが発火するように）
+        await firstInput.click();
+        await firstInput.selectText();
+        await page.keyboard.press('Backspace');
+        await page.keyboard.press('Tab'); // blurをトリガー
         await page.waitForTimeout(500);
       }
 
-      // 保存ボタンをクリック
-      const saveButton = page.getByRole('button', { name: /保存/ });
-      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
-      await saveButton.click();
-
-      // エラーメッセージが表示されること（必須）
-      // 複数のエラー要素が表示される可能性があるので、first()を使用
-      const errorMessage = page.getByText(/エラー|必須|入力|保存できません/i).first();
-      const errorDialog = page.getByRole('dialog');
+      // バリデーションエラーが表示されることを確認（blur時に表示される）
+      const errorMessage = page.getByText(/名称は必須です/i).first();
+      const errorField = page.locator('[aria-invalid="true"]').first();
 
       const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasDialog = await errorDialog.isVisible({ timeout: 2000 }).catch(() => false);
+      const hasErrorField = await errorField.isVisible({ timeout: 2000 }).catch(() => false);
 
-      // エラー表示が行われること（保存が中断されたことを示す）（必須）
-      expect(hasError || hasDialog).toBeTruthy();
+      // バリデーションエラーが表示されること（保存が中断されることを示す）（必須）
+      expect(hasError || hasErrorField).toBeTruthy();
     });
 
     test('計算方法と入力値の不整合検出時にエラーが表示される (quantity-table-generation/REQ-11.3)', async ({
@@ -3923,37 +3935,40 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 丸め設定を0に変更して不整合を発生させる（REQ-10.3の警告表示をテスト）
+      // 注意: blur時に自動補正されるため、blur前に警告を確認する
       const roundingInputs = page.getByLabel(/丸め/);
       const count = await roundingInputs.count();
+      let hasWarning = false;
+      let hasHighlight = false;
+
       if (count > 0) {
         const lastInput = roundingInputs.nth(count - 1);
+        // 入力フィールドをクリックしてフォーカス
+        await lastInput.click();
         await lastInput.fill('0');
+        // blur前に警告を確認（入力中に警告が表示される）
+        await page.waitForTimeout(300);
+
+        // 警告メッセージの確認（blur前）
+        const warningMessage = page.getByText(/0以下.*使用できません/i);
+        hasWarning = await warningMessage
+          .first()
+          .isVisible({ timeout: 2000 })
+          .catch(() => false);
+
+        // aria-invalidの確認（blur前）
+        hasHighlight = await lastInput
+          .getAttribute('aria-invalid')
+          .then((val) => val === 'true')
+          .catch(() => false);
+
+        // blurをトリガー（自動補正が行われる）
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(300);
       }
 
-      // 警告メッセージまたはハイライト表示が行われること（必須）
-      const warningMessage = page.getByText(/警告|エラー|0以下|使用できません/i);
-      const highlightedField = page.locator(
-        '[aria-invalid="true"], .error, .is-invalid, .warning, .is-warning, .highlight'
-      );
-      const warningAlert = page.getByRole('alert');
-
-      const hasWarning = await warningMessage
-        .first()
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-      const hasHighlight = await highlightedField
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-      const hasAlert = await warningAlert
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-
-      // 警告またはハイライトが表示されること（必須）
-      expect(hasWarning || hasHighlight || hasAlert).toBeTruthy();
+      // 警告またはハイライトが表示されたこと（blur前の状態）（必須）
+      expect(hasWarning || hasHighlight).toBeTruthy();
     });
   });
 
