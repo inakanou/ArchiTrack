@@ -71,11 +71,11 @@ const styles = {
   } as React.CSSProperties,
   row: {
     display: 'grid',
-    // 要件順: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・調整係数・丸め設定・数量・備考・アクション
+    // 要件順: 大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考・アクション
+    // ※調整係数・丸め設定は面積・体積/ピッチ選択時のみ計算用フィールドエリアに表示
     // フィールド幅: 大項目5.5全角(76px)・中項目5.5全角(76px)・小項目5.5全角(76px)・任意分類5.5全角(76px)・工種6.5全角(88px)・
-    // 名称10.5全角(136px)・規格10.5全角(136px)・単位3全角(46px)・計算方法(80px)・調整係数5半角(45px)・丸め設定6半角(52px)・
-    // 数量10半角(80px)・備考5.5全角(76px)・アクション(80px)
-    gridTemplateColumns: '76px 76px 76px 76px 88px 136px 136px 46px 80px 45px 52px 80px 76px 80px',
+    // 名称10.5全角(136px)・規格10.5全角(136px)・計算方法(80px)・数量10半角(80px)・単位3全角(46px)・備考5.5全角(76px)・アクション(80px)
+    gridTemplateColumns: '76px 76px 76px 76px 88px 136px 136px 80px 80px 46px 76px 80px',
     gap: '2px',
     alignItems: 'start',
     padding: '2px 4px',
@@ -311,14 +311,6 @@ export default function EditableQuantityItemRow({
   // REQ-8.3: 数量フィールドのローカル状態（入力時に即座に警告を表示するため）
   // REQ-14.2: 小数2桁で常時表示（文字列として保持）
   const [localQuantity, setLocalQuantity] = useState(item.quantity.toFixed(2));
-  // REQ-9.3: 調整係数のローカル状態（入力時に即座に警告を表示するため）
-  // REQ-14.2: 小数2桁で常時表示（文字列として保持）
-  const [localAdjustmentFactor, setLocalAdjustmentFactor] = useState(
-    item.adjustmentFactor.toFixed(2)
-  );
-  // REQ-10.3: 丸め設定のローカル状態（入力時に即座に警告を表示するため）
-  // REQ-14.2: 小数2桁で常時表示（文字列として保持）
-  const [localRoundingUnit, setLocalRoundingUnit] = useState(item.roundingUnit.toFixed(2));
 
   // 親の値が変更された場合、ローカル状態を同期
   useEffect(() => {
@@ -332,34 +324,10 @@ export default function EditableQuantityItemRow({
     setLocalQuantity(item.quantity.toFixed(2));
   }, [item.quantity]);
 
-  // 親の調整係数が変更された場合、ローカル状態を同期（REQ-14.2: 小数2桁で表示）
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
-    setLocalAdjustmentFactor(item.adjustmentFactor.toFixed(2));
-  }, [item.adjustmentFactor]);
-
-  // 親の丸め設定が変更された場合、ローカル状態を同期（REQ-14.2: 小数2桁で表示）
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
-    setLocalRoundingUnit(item.roundingUnit.toFixed(2));
-  }, [item.roundingUnit]);
-
   // REQ-8.3: 負の値警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
   const negativeQuantityWarning = useMemo(
     () => parseFloat(localQuantity) < 0 && item.calculationMethod === 'STANDARD',
     [localQuantity, item.calculationMethod]
-  );
-
-  // REQ-9.3: 調整係数警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
-  const adjustmentFactorWarning = useMemo(
-    () => parseFloat(localAdjustmentFactor) <= 0,
-    [localAdjustmentFactor]
-  );
-
-  // REQ-10.3: 丸め設定警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
-  const roundingUnitWarning = useMemo(
-    () => parseFloat(localRoundingUnit) <= 0,
-    [localRoundingUnit]
   );
 
   // バリデーションエラー（名称はローカル状態でチェック）
@@ -490,106 +458,60 @@ export default function EditableQuantityItemRow({
   );
 
   /**
-   * 調整係数変更ハンドラ（入力中）
-   * REQ-9.3: 0以下の値が入力された場合は警告を表示（ローカル状態で即座に警告）
-   */
-  const handleAdjustmentFactorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // 入力中はそのままの値を保持（フォーマットしない）
-    setLocalAdjustmentFactor(e.target.value);
-  }, []);
-
-  /**
-   * 調整係数blurハンドラ
+   * 調整係数更新ハンドラ（CalculationFieldsから呼ばれる）
    * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
-   * REQ-14.2: blur時に小数2桁でフォーマット
    */
-  const handleAdjustmentFactorBlur = useCallback(() => {
-    let value = parseFloat(localAdjustmentFactor);
-    // 空または無効な値の場合は1を設定（デフォルト値）
-    if (isNaN(value) || localAdjustmentFactor.trim() === '') {
-      value = 1;
-    }
-    // REQ-14.2: 小数2桁でフォーマット
-    const formattedValue = value.toFixed(2);
-    setLocalAdjustmentFactor(formattedValue);
+  const handleAdjustmentFactorUpdate = useCallback(
+    (value: number) => {
+      const updates: Partial<QuantityItemDetail> = { adjustmentFactor: value };
 
-    const updates: Partial<QuantityItemDetail> = { adjustmentFactor: value };
-
-    // 面積・体積またはピッチモードの場合、再計算を実行
-    if (item.calculationMethod !== 'STANDARD' && item.calculationParams) {
-      try {
-        const result = calculate({
-          method: item.calculationMethod,
-          params: item.calculationParams,
-          adjustmentFactor: value,
-          roundingUnit: item.roundingUnit,
-        });
-        updates.quantity = result.finalValue;
-      } catch {
-        // 計算エラーの場合は数量を更新しない
+      // 面積・体積またはピッチモードの場合、再計算を実行
+      if (item.calculationMethod !== 'STANDARD' && item.calculationParams) {
+        try {
+          const result = calculate({
+            method: item.calculationMethod,
+            params: item.calculationParams,
+            adjustmentFactor: value,
+            roundingUnit: item.roundingUnit,
+          });
+          updates.quantity = result.finalValue;
+        } catch {
+          // 計算エラーの場合は数量を更新しない
+        }
       }
-    }
 
-    onUpdate?.(item.id, updates);
-  }, [
-    localAdjustmentFactor,
-    item.id,
-    item.calculationMethod,
-    item.calculationParams,
-    item.roundingUnit,
-    onUpdate,
-  ]);
+      onUpdate?.(item.id, updates);
+    },
+    [item.id, item.calculationMethod, item.calculationParams, item.roundingUnit, onUpdate]
+  );
 
   /**
-   * 丸め設定変更ハンドラ（入力中）
-   * REQ-10.3: 0以下の値が入力された場合は警告を表示（ローカル状態で即座に警告）
-   */
-  const handleRoundingUnitChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // 入力中はそのままの値を保持（フォーマットしない）
-    setLocalRoundingUnit(e.target.value);
-  }, []);
-
-  /**
-   * 丸め設定blurハンドラ
+   * 丸め設定更新ハンドラ（CalculationFieldsから呼ばれる）
    * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
-   * REQ-14.2: blur時に小数2桁でフォーマット
    */
-  const handleRoundingUnitBlur = useCallback(() => {
-    let value = parseFloat(localRoundingUnit);
-    // REQ-10.4: 0または空白でデフォルト値を自動入力
-    if (isNaN(value) || localRoundingUnit.trim() === '' || value === 0) {
-      value = 0.01;
-    }
-    // REQ-14.2: 小数2桁でフォーマット
-    const formattedValue = value.toFixed(2);
-    setLocalRoundingUnit(formattedValue);
+  const handleRoundingUnitUpdate = useCallback(
+    (value: number) => {
+      const updates: Partial<QuantityItemDetail> = { roundingUnit: value };
 
-    const updates: Partial<QuantityItemDetail> = { roundingUnit: value };
-
-    // 面積・体積またはピッチモードの場合、正の値でのみ再計算を実行
-    if (value > 0 && item.calculationMethod !== 'STANDARD' && item.calculationParams) {
-      try {
-        const result = calculate({
-          method: item.calculationMethod,
-          params: item.calculationParams,
-          adjustmentFactor: item.adjustmentFactor,
-          roundingUnit: value,
-        });
-        updates.quantity = result.finalValue;
-      } catch {
-        // 計算エラーの場合は数量を更新しない
+      // 面積・体積またはピッチモードの場合、正の値でのみ再計算を実行
+      if (value > 0 && item.calculationMethod !== 'STANDARD' && item.calculationParams) {
+        try {
+          const result = calculate({
+            method: item.calculationMethod,
+            params: item.calculationParams,
+            adjustmentFactor: item.adjustmentFactor,
+            roundingUnit: value,
+          });
+          updates.quantity = result.finalValue;
+        } catch {
+          // 計算エラーの場合は数量を更新しない
+        }
       }
-    }
 
-    onUpdate?.(item.id, updates);
-  }, [
-    localRoundingUnit,
-    item.id,
-    item.calculationMethod,
-    item.calculationParams,
-    item.adjustmentFactor,
-    onUpdate,
-  ]);
+      onUpdate?.(item.id, updates);
+    },
+    [item.id, item.calculationMethod, item.calculationParams, item.adjustmentFactor, onUpdate]
+  );
 
   /**
    * 削除ハンドラ
@@ -773,22 +695,7 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* 単位 - 要件順序: 規格の次 */}
-        <div style={styles.fieldGroup} role="cell">
-          <AutocompleteInput
-            id={`${item.id}-unit`}
-            label="単位"
-            value={item.unit}
-            onChange={createUpdateHandler('unit')}
-            endpoint="/api/autocomplete/units"
-            unsavedValues={unsavedUnits}
-            error={errors.unit}
-            required
-            placeholder="単位"
-          />
-        </div>
-
-        {/* 計算方法 - 要件順序: 単位の次 */}
+        {/* 計算方法 - 要件順序: 規格の次 */}
         <div style={styles.fieldGroup} role="cell">
           <CalculationMethodSelect
             id={`${item.id}-calculationMethod`}
@@ -797,73 +704,7 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* 調整係数 - 要件順序: 計算方法の次 */}
-        <div style={styles.fieldGroup} role="cell">
-          <div style={styles.directInputContainer}>
-            <label htmlFor={`${item.id}-adjustmentFactor`} style={styles.fieldLabel}>
-              調整係数
-            </label>
-            <div style={styles.inputWrapper}>
-              <input
-                id={`${item.id}-adjustmentFactor`}
-                type="text"
-                inputMode="decimal"
-                value={localAdjustmentFactor}
-                onChange={handleAdjustmentFactorChange}
-                onBlur={handleAdjustmentFactorBlur}
-                className="hide-spinner"
-                style={{
-                  ...styles.input,
-                  ...styles.quantityInput,
-                  ...styles.numberInput,
-                  ...(adjustmentFactorWarning ? styles.inputWarning : {}),
-                }}
-                aria-invalid={adjustmentFactorWarning}
-              />
-            </div>
-            {/* REQ-9.3: 0以下の値警告メッセージ */}
-            {adjustmentFactorWarning && (
-              <span style={styles.warningMessage} role="alert">
-                0以下の値は使用できません。正の値を入力してください。
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* 丸め設定 - 要件順序: 調整係数の次 */}
-        <div style={styles.fieldGroup} role="cell">
-          <div style={styles.directInputContainer}>
-            <label htmlFor={`${item.id}-roundingUnit`} style={styles.fieldLabel}>
-              丸め設定
-            </label>
-            <div style={styles.inputWrapper}>
-              <input
-                id={`${item.id}-roundingUnit`}
-                type="text"
-                inputMode="decimal"
-                value={localRoundingUnit}
-                onChange={handleRoundingUnitChange}
-                onBlur={handleRoundingUnitBlur}
-                className="hide-spinner"
-                style={{
-                  ...styles.input,
-                  ...styles.quantityInput,
-                  ...styles.numberInput,
-                  ...(roundingUnitWarning ? styles.inputWarning : {}),
-                }}
-                aria-invalid={roundingUnitWarning}
-              />
-            </div>
-            {/* REQ-10.3: 0以下の値警告メッセージ */}
-            {roundingUnitWarning && (
-              <span style={styles.warningMessage} role="alert">
-                0以下の値は使用できません。正の値を入力してください。
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* 数量 - 要件順序: 丸め設定の次 */}
+        {/* 数量 - 要件順序: 計算方法の次 */}
         <div style={styles.fieldGroup} role="cell">
           <div style={styles.directInputContainer}>
             <label htmlFor={`${item.id}-quantity`} style={styles.fieldLabel}>
@@ -897,7 +738,22 @@ export default function EditableQuantityItemRow({
           </div>
         </div>
 
-        {/* 備考 - 要件順序: 数量の次 */}
+        {/* 単位 - 要件順序: 数量の次 */}
+        <div style={styles.fieldGroup} role="cell">
+          <AutocompleteInput
+            id={`${item.id}-unit`}
+            label="単位"
+            value={item.unit}
+            onChange={createUpdateHandler('unit')}
+            endpoint="/api/autocomplete/units"
+            unsavedValues={unsavedUnits}
+            error={errors.unit}
+            required
+            placeholder="単位"
+          />
+        </div>
+
+        {/* 備考 - 要件順序: 単位の次 */}
         <div style={styles.fieldGroup} role="cell">
           <div style={styles.directInputContainer}>
             <label htmlFor={`${item.id}-remarks`} style={styles.fieldLabel}>
@@ -977,12 +833,17 @@ export default function EditableQuantityItemRow({
       </div>
 
       {/* 計算用フィールド（面積・体積またはピッチモード時のみ表示） */}
+      {/* REQ-9, REQ-10: 調整係数・丸め設定も計算用フィールドエリアに表示 */}
       {item.calculationMethod !== 'STANDARD' && (
         <div style={styles.calculationFieldsRow}>
           <CalculationFields
             method={item.calculationMethod}
             params={item.calculationParams || {}}
             onChange={handleCalculationParamsChange}
+            adjustmentFactor={item.adjustmentFactor}
+            onAdjustmentFactorChange={handleAdjustmentFactorUpdate}
+            roundingUnit={item.roundingUnit}
+            onRoundingUnitChange={handleRoundingUnitUpdate}
           />
         </div>
       )}

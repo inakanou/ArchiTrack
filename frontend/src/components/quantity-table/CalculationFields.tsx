@@ -31,6 +31,14 @@ export interface CalculationFieldsProps {
   onChange: (params: CalculationParams) => void;
   /** 無効化状態 */
   disabled?: boolean;
+  /** 調整係数（REQ-9: 面積・体積/ピッチ選択時のみ表示） */
+  adjustmentFactor?: number;
+  /** 調整係数変更時のコールバック */
+  onAdjustmentFactorChange?: (value: number) => void;
+  /** 丸め設定（REQ-10: 面積・体積/ピッチ選択時のみ表示） */
+  roundingUnit?: number;
+  /** 丸め設定変更時のコールバック */
+  onRoundingUnitChange?: (value: number) => void;
 }
 
 /**
@@ -123,6 +131,15 @@ const styles = {
     backgroundColor: '#f3f4f6',
     color: '#9ca3af',
     cursor: 'not-allowed',
+  } as React.CSSProperties,
+  inputWarning: {
+    borderColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
+  } as React.CSSProperties,
+  warningMessage: {
+    color: '#b45309',
+    fontSize: '10px',
+    marginTop: '1px',
   } as React.CSSProperties,
   standardMessage: {
     padding: '4px 8px',
@@ -238,18 +255,117 @@ function NumberInputField({
 // ============================================================================
 
 /**
+ * 調整係数・丸め設定用の数値入力フィールド
+ * REQ-9, REQ-10: 面積・体積/ピッチ選択時のみ表示
+ * REQ-14.2: 小数2桁で常時表示
+ */
+interface AdjustmentFieldProps {
+  id: string;
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  disabled: boolean;
+  defaultValue: number;
+  warningCondition?: (value: number) => boolean;
+  warningMessage?: string;
+}
+
+function AdjustmentField({
+  id,
+  label,
+  value,
+  onChange,
+  disabled,
+  defaultValue,
+  warningCondition,
+  warningMessage,
+}: AdjustmentFieldProps) {
+  // REQ-14.2: ローカル状態で表示値を管理（小数2桁）
+  const [localValue, setLocalValue] = useState<string>(value.toFixed(2));
+  // 前回のprops値を追跡
+  const [prevValue, setPrevValue] = useState(value);
+
+  // 親の値が変更された場合、レンダリング中にローカル状態を同期
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setLocalValue(value.toFixed(2));
+  }
+
+  // 警告表示判定
+  const showWarning = warningCondition ? warningCondition(parseFloat(localValue)) : false;
+
+  // 入力中はそのままの値を保持
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalValue(e.target.value);
+  }, []);
+
+  // blur時に小数2桁でフォーマットして親に通知
+  const handleBlur = useCallback(() => {
+    const trimmedValue = localValue.trim();
+    let numValue = parseFloat(trimmedValue);
+
+    // 無効な値または空の場合はデフォルト値を設定
+    if (isNaN(numValue) || trimmedValue === '') {
+      numValue = defaultValue;
+    }
+    // 0の場合もデフォルト値を設定（丸め設定用）
+    if (numValue === 0 && defaultValue !== 0) {
+      numValue = defaultValue;
+    }
+
+    // REQ-14.2: 小数2桁でフォーマット
+    setLocalValue(numValue.toFixed(2));
+    onChange(numValue);
+  }, [localValue, onChange, defaultValue]);
+
+  return (
+    <div style={styles.fieldWrapper}>
+      <label htmlFor={id} style={styles.label}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        value={localValue}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        disabled={disabled}
+        className="hide-spinner"
+        style={{
+          ...styles.input,
+          textAlign: 'right',
+          ...(disabled ? styles.inputDisabled : {}),
+          ...(showWarning ? styles.inputWarning : {}),
+        }}
+        aria-invalid={showWarning}
+      />
+      {showWarning && warningMessage && (
+        <span style={styles.warningMessage} role="alert">
+          {warningMessage}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * 計算用フィールドコンポーネント
  *
  * 計算方法に応じた入力フィールドを表示する。
  * - 標準モード: メッセージのみ表示
- * - 面積・体積モード: 幅、奥行き、高さ、重量の4フィールド
- * - ピッチモード: 範囲長、端長1、端長2、ピッチ長、長さ、重量の6フィールド
+ * - 面積・体積モード: 幅、奥行き、高さ、重量、調整係数、丸め設定
+ * - ピッチモード: 範囲長、端長1、端長2、ピッチ長、長さ、重量、調整係数、丸め設定
  */
 export default function CalculationFields({
   method,
   params,
   onChange,
   disabled = false,
+  adjustmentFactor = 1.0,
+  onAdjustmentFactorChange,
+  roundingUnit = 0.01,
+  onRoundingUnitChange,
 }: CalculationFieldsProps) {
   const idPrefix = useId();
 
@@ -262,6 +378,26 @@ export default function CalculationFields({
       onChange(newParams);
     },
     [params, onChange]
+  );
+
+  /**
+   * 調整係数変更ハンドラ
+   */
+  const handleAdjustmentFactorChange = useCallback(
+    (value: number) => {
+      onAdjustmentFactorChange?.(value);
+    },
+    [onAdjustmentFactorChange]
+  );
+
+  /**
+   * 丸め設定変更ハンドラ
+   */
+  const handleRoundingUnitChange = useCallback(
+    (value: number) => {
+      onRoundingUnitChange?.(value);
+    },
+    [onRoundingUnitChange]
   );
 
   // 標準モードの場合
@@ -282,6 +418,7 @@ export default function CalculationFields({
   return (
     <div style={styles.container}>
       <div style={styles.fieldsGrid}>
+        {/* 計算パラメータフィールド */}
         {fields.map((field) => (
           <NumberInputField
             key={field.key}
@@ -294,7 +431,39 @@ export default function CalculationFields({
             step={field.step}
           />
         ))}
+        {/* REQ-9: 調整係数（面積・体積/ピッチ選択時のみ表示） */}
+        <AdjustmentField
+          id={`${idPrefix}-adjustmentFactor`}
+          label="調整係数"
+          value={adjustmentFactor}
+          onChange={handleAdjustmentFactorChange}
+          disabled={disabled}
+          defaultValue={1.0}
+          warningCondition={(v) => v <= 0}
+          warningMessage="0以下の値は使用できません"
+        />
+        {/* REQ-10: 丸め設定（面積・体積/ピッチ選択時のみ表示） */}
+        <AdjustmentField
+          id={`${idPrefix}-roundingUnit`}
+          label="丸め設定"
+          value={roundingUnit}
+          onChange={handleRoundingUnitChange}
+          disabled={disabled}
+          defaultValue={0.01}
+          warningCondition={(v) => v <= 0}
+          warningMessage="0以下の値は使用できません"
+        />
       </div>
+      {/* 数値入力フィールドのスピナーを非表示にするスタイル */}
+      <style>
+        {`
+          .hide-spinner::-webkit-outer-spin-button,
+          .hide-spinner::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+          }
+        `}
+      </style>
     </div>
   );
 }
