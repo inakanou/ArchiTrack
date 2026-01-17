@@ -131,6 +131,21 @@ describe('SiteSurveySectionCard', () => {
   });
 
   describe('ナビゲーション', () => {
+    it('ヘッダーに「新規作成」ボタンを表示する', () => {
+      renderWithRouter(
+        <SiteSurveySectionCard
+          projectId={projectId}
+          totalCount={5}
+          latestSurveys={mockSurveys}
+          isLoading={false}
+        />
+      );
+
+      const link = screen.getByRole('link', { name: '現場調査を新規作成' });
+      expect(link).toHaveAttribute('href', `/projects/${projectId}/site-surveys/new`);
+      expect(link).toHaveTextContent('新規作成');
+    });
+
     it('「すべて見る」リンクが現場調査一覧に遷移する（Requirements: 2.2）', () => {
       renderWithRouter(
         <SiteSurveySectionCard
@@ -156,8 +171,11 @@ describe('SiteSurveySectionCard', () => {
       );
 
       // 現場調査詳細へのリンクはプロジェクトIDなしの直接パスに変更（fix(site-survey)コミット）
-      const surveyLinks = screen.getAllByRole('link', { name: /現場調査/ });
-      expect(surveyLinks[0]).toHaveAttribute('href', '/site-surveys/survey-1');
+      // 新規作成ボタンを除外して詳細リンクのみを取得
+      const surveyDetailLink = screen.getByRole('link', {
+        name: '第5回現場調査の現場調査詳細を見る',
+      });
+      expect(surveyDetailLink).toHaveAttribute('href', '/site-surveys/survey-1');
     });
   });
 

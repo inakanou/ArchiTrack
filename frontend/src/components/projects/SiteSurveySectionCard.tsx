@@ -80,6 +80,25 @@ const styles = {
     textDecoration: 'none',
     fontWeight: 500,
   } as React.CSSProperties,
+  headerActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  } as React.CSSProperties,
+  addButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    textDecoration: 'none',
+    fontSize: '13px',
+    fontWeight: 500,
+    border: 'none',
+    cursor: 'pointer',
+  } as React.CSSProperties,
   surveyList: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -359,9 +378,18 @@ export function SiteSurveySectionCard({
           {!isLoading && <span style={styles.count}>全{totalCount}件</span>}
         </div>
         {!isLoading && totalCount > 0 && (
-          <Link to={`/projects/${projectId}/site-surveys`} style={styles.viewAllLink}>
-            すべて見る
-          </Link>
+          <div style={styles.headerActions}>
+            <Link
+              to={`/projects/${projectId}/site-surveys/new`}
+              style={styles.addButton}
+              aria-label="現場調査を新規作成"
+            >
+              新規作成
+            </Link>
+            <Link to={`/projects/${projectId}/site-surveys`} style={styles.viewAllLink}>
+              すべて見る
+            </Link>
+          </div>
         )}
       </div>
 
