@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-01-17（Steering Sync: 数量表作成機能の実装完了を反映）_
+_最終更新: 2026-01-17（Steering Sync: E2Eテストカテゴリ追加、依存関係更新）_
 
 ## ルートディレクトリ構成
 
@@ -263,7 +263,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── trading-partners/ # 取引先管理テスト
 │   │   └── *.spec.ts
-│   └── site-surveys/     # 現場調査テスト（12ファイル）
+│   ├── site-surveys/     # 現場調査テスト（12ファイル）
+│   │   └── *.spec.ts
+│   └── quantity-tables/  # 数量表テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
