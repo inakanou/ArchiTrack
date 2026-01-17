@@ -1230,6 +1230,7 @@ test.describe('数量表CRUD操作', () => {
    * @requirement quantity-table-generation/REQ-5.1
    * @requirement quantity-table-generation/REQ-5.2
    * @requirement quantity-table-generation/REQ-5.4
+   * @requirement quantity-table-generation/REQ-5.5
    *
    * REQ-5: 数量項目の追加・編集
    */
@@ -1492,6 +1493,117 @@ test.describe('数量表CRUD操作', () => {
 
       // エラー表示が行われること（必須）
       expect(hasErrorMessage || hasErrorField).toBeTruthy();
+    });
+
+    /**
+     * REQ-5.5: 計算方法が「標準」の場合、メインの行に調整係数・丸め設定を表示しない
+     *
+     * 検証内容:
+     * - 計算方法が「標準」（デフォルト）の場合、調整係数フィールドが非表示であること
+     * - 計算方法が「標準」（デフォルト）の場合、丸め設定フィールドが非表示であること
+     * - これらのフィールドは「面積・体積」または「ピッチ」選択時にのみ表示される
+     *
+     * @requirement quantity-table-generation/REQ-5.5
+     */
+    test('計算方法が「標準」の場合、調整係数・丸め設定がメイン行に表示されない (quantity-table-generation/REQ-5.5)', async ({
+      page,
+    }) => {
+      if (!createdQuantityTableId) {
+        throw new Error(
+          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
+        );
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      // 既存の項目行、またはグループ内に項目がない場合は追加
+      const groups = page.getByTestId('quantity-group');
+      const groupCount = await groups.count();
+
+      if (groupCount === 0) {
+        // グループがない場合は追加
+        const addGroupButton = page.getByRole('button', { name: /グループを追加/ });
+        await expect(addGroupButton).toBeVisible({ timeout: getTimeout(5000) });
+        await addGroupButton.click();
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(500);
+      }
+
+      // 項目がない場合は追加
+      let itemRows = page.getByTestId('quantity-item-row');
+      const itemCount = await itemRows.count();
+      if (itemCount === 0) {
+        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
+        await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
+        await addItemButton.click();
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(500);
+      }
+
+      // 数量項目行が表示されることを確認（必須）
+      itemRows = page.getByTestId('quantity-item-row');
+      const firstItemRow = itemRows.first();
+      await expect(firstItemRow).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 計算方法フィールドを取得して「標準」であることを確認
+      // 新規項目のデフォルト値は「標準」(STANDARD)
+      const calculationMethodSelect = firstItemRow.getByLabel(/計算方法/i);
+      const calculationMethodDisplay = firstItemRow.locator('[data-field="calculationMethod"]');
+
+      // 計算方法フィールドが表示されている場合、値を確認
+      const hasSelect = await calculationMethodSelect
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      const hasDisplay = await calculationMethodDisplay
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+
+      if (hasSelect) {
+        // セレクトボックスの場合、「標準」を選択
+        await calculationMethodSelect.selectOption('STANDARD');
+        await page.waitForLoadState('networkidle');
+      } else if (hasDisplay) {
+        // 表示モードの場合、「標準」であることを確認
+        const displayText = await calculationMethodDisplay.textContent();
+        expect(displayText).toMatch(/標準|STANDARD/i);
+      }
+
+      // REQ-5.5 検証: 計算方法が「標準」の場合、調整係数・丸め設定が表示されない
+      // 項目行内の調整係数フィールドを検索
+      const adjustmentFactorInput = firstItemRow.getByLabel(/調整係数/i);
+      const adjustmentFactorCell = firstItemRow.locator('[data-field="adjustmentFactor"]');
+
+      // 丸め設定フィールドを検索
+      const roundingUnitInput = firstItemRow.getByLabel(/丸め設定/i);
+      const roundingUnitCell = firstItemRow.locator('[data-field="roundingUnit"]');
+
+      // 調整係数が非表示であることを確認（必須検証）
+      const hasAdjustmentInput = await adjustmentFactorInput
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      const hasAdjustmentCell = await adjustmentFactorCell
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+
+      // 丸め設定が非表示であることを確認（必須検証）
+      const hasRoundingInput = await roundingUnitInput
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      const hasRoundingCell = await roundingUnitCell
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+
+      // REQ-5.5: 計算方法が「標準」の場合、両フィールドともメイン行に表示されないこと
+      expect(
+        hasAdjustmentInput || hasAdjustmentCell,
+        '計算方法が「標準」の場合、調整係数はメイン行に表示されてはいけません'
+      ).toBeFalsy();
+      expect(
+        hasRoundingInput || hasRoundingCell,
+        '計算方法が「標準」の場合、丸め設定はメイン行に表示されてはいけません'
+      ).toBeFalsy();
     });
   });
 
