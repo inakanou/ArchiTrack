@@ -74,8 +74,8 @@ const styles = {
     // 要件順: 大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考・アクション
     // ※調整係数・丸め設定は面積・体積/ピッチ選択時のみ計算用フィールドエリアに表示
     // フィールド幅: 大項目5.5全角(76px)・中項目5.5全角(76px)・小項目5.5全角(76px)・任意分類5.5全角(76px)・工種6.5全角(88px)・
-    // 名称10.5全角(136px)・規格10.5全角(136px)・計算方法(80px)・数量10半角(80px)・単位3全角(46px)・備考5.5全角(76px)・アクション(80px)
-    gridTemplateColumns: '76px 76px 76px 76px 88px 136px 136px 80px 80px 46px 76px 80px',
+    // 名称15.5全角(202px)・規格15.5全角(202px)・計算方法(90px)・数量10半角(80px)・単位3全角(46px)・備考5.5全角(76px)・アクション(80px)
+    gridTemplateColumns: '76px 76px 76px 76px 88px 202px 202px 90px 80px 46px 76px 80px',
     gap: '2px',
     alignItems: 'start',
     padding: '2px 4px',
@@ -141,7 +141,7 @@ const styles = {
   actionsCell: {
     display: 'flex',
     gap: '4px',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
     alignItems: 'flex-start',
     paddingTop: '15px',
   } as React.CSSProperties,
