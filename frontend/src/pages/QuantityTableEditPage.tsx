@@ -806,12 +806,12 @@ export default function QuantityTableEditPage() {
           -1
         );
 
-        // デフォルト値で新規項目を作成（必須フィールドにデフォルト値を設定）
+        // デフォルト値で新規項目を作成（REQ-5.1: 大項目・工種・名称・単位は空白）
         const newItem = await createQuantityItem(groupId, {
-          majorCategory: '未設定',
-          workType: '未設定',
-          name: '新規項目',
-          unit: '式',
+          majorCategory: '',
+          workType: '',
+          name: '',
+          unit: '',
           quantity: 0,
           displayOrder: maxDisplayOrder + 1,
         });
