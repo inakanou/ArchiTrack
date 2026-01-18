@@ -170,13 +170,14 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await page.waitForLoadState('networkidle');
 
       // 現場調査タブまたはリンクが表示されることを確認
-      const surveyLink = page.getByRole('link', { name: /現場調査/i });
+      // 注意: getByRole('link', { name: /現場調査/i })は複数要素にマッチする可能性があるため.first()を使用
+      const surveyLink = page.getByRole('link', { name: /現場調査/i }).first();
       const surveyTab = page.getByRole('tab', { name: /現場調査/i });
       const surveySection = page.getByRole('heading', { name: '現場調査', exact: true });
 
-      const hasLink = await surveyLink.isVisible({ timeout: 5000 });
-      const hasTab = await surveyTab.isVisible();
-      const hasSection = await surveySection.isVisible();
+      const hasLink = await surveyLink.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasTab = await surveyTab.isVisible().catch(() => false);
+      const hasSection = await surveySection.isVisible().catch(() => false);
 
       expect(hasLink || hasTab || hasSection).toBeTruthy();
     });

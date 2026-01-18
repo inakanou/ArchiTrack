@@ -156,3 +156,17 @@ export const WithUnsavedValues: Story = {
     unsavedSpecifications: ['SD295A', 'SD345'],
   },
 };
+
+/**
+ * 移動ボタン表示
+ * 上下の移動が可能な状態（REQ-6.3）
+ */
+export const WithMoveButtons: Story = {
+  args: {
+    item: sampleItem,
+    canMoveUp: true,
+    canMoveDown: true,
+    onMoveUp: fn(),
+    onMoveDown: fn(),
+  },
+};

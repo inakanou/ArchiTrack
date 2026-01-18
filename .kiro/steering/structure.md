@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-01-11（Steering Sync: 数量表作成機能追加）_
+_最終更新: 2026-01-17（Steering Sync: E2Eテストカテゴリ追加、依存関係更新）_
 
 ## ルートディレクトリ構成
 
@@ -230,9 +230,9 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全26タスク完了）
   - 内容: 現場調査CRUD、画像アップロード・管理（R2）、Canvas注釈編集（寸法線・矢印・図形・テキスト）、PDF報告書エクスポート
 
-- `.kiro/specs/quantity-table-generation/` - 数量表作成機能 🚧開発中
-  - 状態: 要件定義✅、技術設計進行中
-  - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ
+- `.kiro/specs/quantity-table-generation/` - 数量表作成機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全48タスク完了）
+  - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ、フィールドバリデーション（文字数制限・数値範囲・表示書式）
 
 ### `e2e/`
 
@@ -263,7 +263,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── trading-partners/ # 取引先管理テスト
 │   │   └── *.spec.ts
-│   └── site-surveys/     # 現場調査テスト（12ファイル）
+│   ├── site-surveys/     # 現場調査テスト（12ファイル）
+│   │   └── *.spec.ts
+│   └── quantity-tables/  # 数量表テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -291,7 +293,7 @@ e2e/
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
 - `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
-- `quantity-tables/` - 数量表テスト（CRUD操作）
+- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様）
 
 **テストヘルパー:**
 
@@ -385,7 +387,8 @@ frontend/
 │   │       ├── ProjectSearchFilter.tsx # 検索・フィルタUI
 │   │       ├── PaginationUI.tsx    # ページネーションUI
 │   │       ├── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
-│   │       └── TradingPartnerSelect.tsx # 取引先選択（オートコンプリート）
+│   │       ├── TradingPartnerSelect.tsx # 取引先選択（オートコンプリート）
+│   │       └── QuantityTableSectionCard.tsx # 数量表セクションカード
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
 │   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
@@ -430,6 +433,21 @@ frontend/
 │   │           ├── TextTool.ts      # テキストツール
 │   │           ├── registerCustomShapes.ts # カスタムシェイプ登録
 │   │           └── index.ts         # エクスポート集約
+│   │   ├── quantity-table/          # 数量表コンポーネント（17ファイル）
+│   │       ├── QuantityInput.tsx    # 数量入力
+│   │       ├── QuantityGroupCard.tsx # 数量グループカード
+│   │       ├── QuantityItemRow.tsx  # 数量項目行
+│   │       ├── CalculationFields.tsx # 計算フィールド群
+│   │       ├── CalculationMethodSelect.tsx # 計算方法選択
+│   │       ├── AdjustmentFactorInput.tsx # 調整係数入力
+│   │       ├── RoundingUnitInput.tsx # 丸め単位入力
+│   │       ├── AutocompleteInput.tsx # オートコンプリート入力
+│   │       ├── ItemCopyMoveDialog.tsx # コピー・移動ダイアログ
+│   │       ├── NumericFieldInput.tsx # 数値フィールド入力
+│   │       ├── TextFieldInput.tsx   # テキストフィールド入力
+│   │       ├── CalculationNumericInput.tsx # 計算用数値入力
+│   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
+│   │       └── FieldValidatedItemRow.tsx # バリデーション付き項目行
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
 │   │       └── ResourceNotFound.tsx # リソース未発見表示
@@ -466,10 +484,13 @@ frontend/
 │   │   ├── QuantityTableEditPage.tsx # 数量表編集ページ
 │   │   └── QuantityTableRedirectPage.tsx # 数量表リダイレクトページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
-│   ├── utils/             # ユーティリティ関数
+│   ├── utils/             # ユーティリティ関数（18ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   │   ├── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
-│   │   └── accessibility.ts # アクセシビリティユーティリティ
+│   │   ├── accessibility.ts # アクセシビリティユーティリティ
+│   │   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
+│   │   ├── field-validation.ts # フィールドバリデーション（文字数制限）
+│   │   └── numeric-range-validation.ts # 数値範囲バリデーション
 │   ├── App.tsx            # メインAppコンポーネント（TypeScript）
 │   ├── main.tsx           # Reactエントリーポイント（TypeScript）
 │   └── vite-env.d.ts      # Vite環境変数型定義
@@ -502,7 +523,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（28ファイル）:**
+**Storybookストーリーファイル（61ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -537,14 +558,45 @@ frontend/
 - `ImageExportDialog.stories.tsx` - エクスポートダイアログ
 - `tools/DimensionValueInput.stories.tsx` - 寸法値入力
 
+数量表コンポーネント（quantity-table/）:
+- `AdjustmentFactorInput.stories.tsx` - 調整係数入力
+- `AutocompleteInput.stories.tsx` - オートコンプリート入力
+- `CalculationFields.stories.tsx` - 計算フィールド群
+- `CalculationMethodSelect.stories.tsx` - 計算方法選択
+- `CalculationNumericInput.stories.tsx` - 計算用数値入力
+- `EditableQuantityItemRow.stories.tsx` - 編集可能項目行
+- `FieldValidatedItemRow.stories.tsx` - バリデーション付き項目行
+- `ItemCopyMoveDialog.stories.tsx` - コピー・移動ダイアログ
+- `NumericFieldInput.stories.tsx` - 数値フィールド入力
+- `QuantityGroupCard.stories.tsx` - 数量グループカード
+- `QuantityInput.stories.tsx` - 数量入力
+- `QuantityItemRow.stories.tsx` - 数量項目行
+- `RoundingUnitInput.stories.tsx` - 丸め単位入力
+- `TextFieldInput.stories.tsx` - テキストフィールド入力
+
+プロジェクトコンポーネント（projects/）:
+- `QuantityTableSectionCard.stories.tsx` - 数量表セクションカード
+
 **実装済み拡張ディレクトリ:**
 
 ```
 frontend/src/
-├── api/               # APIクライアント（auth.ts、client.ts）
+├── api/               # APIクライアント（8ファイル）
+│   ├── auth.ts        # 認証API
+│   ├── client.ts      # 共通クライアント
+│   ├── projects.ts    # プロジェクトAPI
+│   ├── quantity-tables.ts # 数量表API
+│   ├── site-surveys.ts # 現場調査API
+│   ├── survey-annotations.ts # 注釈API
+│   ├── survey-images.ts # 調査画像API
+│   └── trading-partners.ts # 取引先API
 ├── hooks/             # カスタムフック（useMediaQuery.ts、useAuth.ts）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts等）
+├── utils/             # ユーティリティ関数
+│   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
+│   ├── field-validation.ts # フィールドバリデーション
+│   └── numeric-range-validation.ts # 数値範囲バリデーション
 └── assets/            # 静的アセット（今後追加予定）
 ```
 
@@ -641,7 +693,7 @@ backend/
 │   │   └── security.constants.ts # セキュリティ定数
 │   ├── schemas/           # Zodバリデーションスキーマ
 │   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
-│   ├── services/          # ビジネスロジック（33サービス）
+│   ├── services/          # ビジネスロジック（34サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -674,6 +726,7 @@ backend/
 │   │   ├── quantity-group.service.ts # 数量グループ管理（CRUD、写真紐づけ）
 │   │   ├── quantity-item.service.ts # 数量項目管理（CRUD、移動、コピー）
 │   │   ├── quantity-validation.service.ts # 数量バリデーション（必須項目、計算方法別検証）
+│   │   ├── quantity-field-validation.service.ts # フィールドバリデーション（文字数制限、数値範囲）
 │   │   └── calculation-engine.ts # 計算エンジン（標準、面積体積、ピッチ計算）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約

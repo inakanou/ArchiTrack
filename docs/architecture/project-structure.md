@@ -135,6 +135,7 @@ e2e/
 │   ├── projects/          # プロジェクト管理テスト
 │   ├── trading-partners/  # 取引先管理テスト
 │   ├── site-surveys/      # 現場調査テスト
+│   ├── quantity-tables/   # 数量表テスト
 │   ├── navigation/        # ナビゲーションテスト
 │   ├── performance/       # パフォーマンステスト
 │   └── security/          # セキュリティテスト
@@ -204,6 +205,7 @@ AI支援開発のためのスペック管理。
     ├── project-management/    # プロジェクト管理機能 ✅
     ├── trading-partner-management/  # 取引先管理機能 ✅
     ├── site-survey/           # 現場調査機能 ✅
+    ├── quantity-table-generation/  # 数量表作成機能 ✅
     └── ...
 ```
 

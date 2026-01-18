@@ -609,17 +609,18 @@ describe('QuantityTableEditPage', () => {
     it('項目追加ボタンをクリックすると項目が追加される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      // REQ-5.1: デフォルト値は空白
       mockCreateQuantityItem.mockResolvedValue({
         id: 'item-new',
         quantityGroupId: 'group-1',
-        majorCategory: '未設定',
+        majorCategory: '',
         middleCategory: null,
         minorCategory: null,
         customCategory: null,
-        workType: '未設定',
-        name: '新規項目',
+        workType: '',
+        name: '',
         specification: null,
-        unit: '式',
+        unit: '',
         calculationMethod: 'STANDARD',
         calculationParams: null,
         adjustmentFactor: 1.0,
@@ -642,12 +643,13 @@ describe('QuantityTableEditPage', () => {
       expect(addItemButton).toBeDefined();
       await user.click(addItemButton!);
 
+      // REQ-5.1: デフォルト値は空白
       await waitFor(() => {
         expect(mockCreateQuantityItem).toHaveBeenCalledWith('group-1', {
-          majorCategory: '未設定',
-          workType: '未設定',
-          name: '新規項目',
-          unit: '式',
+          majorCategory: '',
+          workType: '',
+          name: '',
+          unit: '',
           quantity: 0,
           displayOrder: 2,
         });

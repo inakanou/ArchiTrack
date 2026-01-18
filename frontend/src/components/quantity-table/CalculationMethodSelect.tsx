@@ -66,6 +66,7 @@ const styles = {
     height: '22px',
   } as React.CSSProperties,
   select: {
+    width: '100%',
     height: '22px',
     padding: '0 4px',
     fontSize: '12px',
@@ -76,6 +77,7 @@ const styles = {
     cursor: 'pointer',
     outline: 'none',
     transition: 'border-color 0.2s, box-shadow 0.2s',
+    boxSizing: 'border-box' as const,
   } as React.CSSProperties,
   selectFocus: {
     borderColor: '#2563eb',

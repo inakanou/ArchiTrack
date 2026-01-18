@@ -4,6 +4,22 @@
  * Task 13.4: フィールド仕様のE2Eテストを実装する
  *
  * Requirements coverage (quantity-table-generation):
+ * - REQ-5: 数量項目の追加・編集
+ *   - 5.1: デフォルト値（大項目：空白、工種：空白、名称：空白、単位：空白、計算方法：標準、数量：0）
+ *   - 5.5: 標準計算時は調整係数・丸め設定を非表示
+ * - REQ-8: 計算方法の選択
+ *   - 8.5: 面積・体積選択時のフィールド順序（幅・奥行き・高さ・重量・調整係数・丸め設定）
+ *   - 8.8: ピッチ選択時のフィールド順序（範囲長・端長1・端長2・ピッチ長・長さ・重量・調整係数・丸め設定）
+ * - REQ-9: 調整係数
+ *   - 9.1: 面積・体積/ピッチ選択時のみ表示、デフォルト値1.00
+ *   - 9.3: 調整係数は-9.99〜9.99の範囲
+ *   - 9.4: 調整係数が空白時は1.00を自動設定
+ *   - 9.8: 標準計算時は調整係数を非表示
+ * - REQ-10: 丸め設定
+ *   - 10.1: 面積・体積/ピッチ選択時のみ表示、デフォルト値0.01
+ *   - 10.3: 丸め設定は-99.99〜99.99の範囲
+ *   - 10.4: 丸め設定が0または空白時は0.01を自動設定
+ *   - 10.8: 標準計算時は丸め設定を非表示
  * - REQ-13: テキストフィールドの文字数制限
  *   - 13.1: 大項目・中項目等（全角25文字/半角50文字）
  *   - 13.2: 工種（全角8文字/半角16文字）
@@ -16,12 +32,6 @@
  *   - 15.1: 数量は-999999.99〜9999999.99の範囲
  *   - 15.2: 数量フィールドに空白が入力されると自動的に「0」を設定し「0.00」と表示
  *   - 15.3: 寸法・ピッチフィールドは0.01〜9999999.99の範囲
- * - REQ-9: 調整係数
- *   - 9.3: 調整係数は-9.99〜9.99の範囲
- *   - 9.4: 調整係数が空白時は1.00を自動設定
- * - REQ-10: 丸め設定
- *   - 10.3: 丸め設定は-99.99〜99.99の範囲
- *   - 10.4: 丸め設定が0または空白時は0.01を自動設定
  *
  * @module e2e/specs/quantity-tables/field-specification.spec
  */
@@ -279,9 +289,10 @@ test.describe('フィールド仕様', () => {
 
   /**
    * REQ-14: 数値フィールドの表示書式テスト
+   * 注: 調整係数・丸め設定は面積・体積/ピッチ選択時のみ表示される
    */
   test.describe('REQ-14: 数値フィールドの表示書式', () => {
-    test('14.2: 調整係数が小数2桁で表示される', async ({ page }) => {
+    test('14.2: 調整係数が小数2桁で表示される（面積・体積選択時）', async ({ page }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -293,6 +304,13 @@ test.describe('フィールド仕様', () => {
         await page.goto(`/projects/${testProjectId}`);
       }
       await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更（調整係数を表示するため）
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
 
       // 調整係数フィールドを取得
       const adjustmentFactorInput = page.getByLabel(/調整係数/i);
@@ -306,7 +324,7 @@ test.describe('フィールド仕様', () => {
       }
     });
 
-    test('14.2: 丸め設定が小数2桁で表示される', async ({ page }) => {
+    test('14.2: 丸め設定が小数2桁で表示される（面積・体積選択時）', async ({ page }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -318,6 +336,13 @@ test.describe('フィールド仕様', () => {
         await page.goto(`/projects/${testProjectId}`);
       }
       await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更（丸め設定を表示するため）
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
 
       // 丸め設定フィールドを取得
       const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
@@ -530,9 +555,12 @@ test.describe('フィールド仕様', () => {
 
   /**
    * REQ-9: 調整係数テスト
+   * 調整係数は「面積・体積」または「ピッチ」選択時のみ表示される
    */
   test.describe('REQ-9: 調整係数', () => {
-    test('9.3: 調整係数は-9.99〜9.99の範囲で入力できる', async ({ page }) => {
+    test('9.8: 標準計算時は調整係数フィールドが表示されない (quantity-table-generation/REQ-9.8)', async ({
+      page,
+    }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -544,6 +572,40 @@ test.describe('フィールド仕様', () => {
         await page.goto(`/projects/${testProjectId}`);
       }
       await page.waitForLoadState('networkidle');
+
+      // 計算方法が「標準」の場合、調整係数フィールドが表示されないことを確認
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('STANDARD');
+        await page.waitForLoadState('networkidle');
+      }
+
+      // 調整係数フィールドが表示されないことを確認
+      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
+      await expect(adjustmentFactorInput).not.toBeVisible({ timeout: 3000 });
+    });
+
+    test('9.1, 9.3: 面積・体積選択時に調整係数フィールドが表示され-9.99〜9.99の範囲で入力できる (quantity-table-generation/REQ-9.1, REQ-9.3)', async ({
+      page,
+    }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
 
       // 調整係数フィールドを取得
       const adjustmentFactorInput = page.getByLabel(/調整係数/i);
@@ -563,7 +625,9 @@ test.describe('フィールド仕様', () => {
       }
     });
 
-    test('9.4: 調整係数が空白時は1.00が自動設定される', async ({ page }) => {
+    test('9.4: 調整係数が空白時は1.00が自動設定される (quantity-table-generation/REQ-9.4)', async ({
+      page,
+    }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -575,6 +639,13 @@ test.describe('フィールド仕様', () => {
         await page.goto(`/projects/${testProjectId}`);
       }
       await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更（調整係数を表示するため）
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
 
       // 調整係数フィールドを取得
       const adjustmentFactorInput = page.getByLabel(/調整係数/i);
@@ -591,9 +662,12 @@ test.describe('フィールド仕様', () => {
 
   /**
    * REQ-10: 丸め設定テスト
+   * 丸め設定は「面積・体積」または「ピッチ」選択時のみ表示される
    */
   test.describe('REQ-10: 丸め設定', () => {
-    test('10.3: 丸め設定は-99.99〜99.99の範囲で入力できる', async ({ page }) => {
+    test('10.8: 標準計算時は丸め設定フィールドが表示されない (quantity-table-generation/REQ-10.8)', async ({
+      page,
+    }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -605,6 +679,40 @@ test.describe('フィールド仕様', () => {
         await page.goto(`/projects/${testProjectId}`);
       }
       await page.waitForLoadState('networkidle');
+
+      // 計算方法が「標準」の場合、丸め設定フィールドが表示されないことを確認
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('STANDARD');
+        await page.waitForLoadState('networkidle');
+      }
+
+      // 丸め設定フィールドが表示されないことを確認
+      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
+      await expect(roundingUnitInput).not.toBeVisible({ timeout: 3000 });
+    });
+
+    test('10.1, 10.3: 面積・体積選択時に丸め設定フィールドが表示され-99.99〜99.99の範囲で入力できる (quantity-table-generation/REQ-10.1, REQ-10.3)', async ({
+      page,
+    }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      } else {
+        await page.goto(`/projects/${testProjectId}`);
+      }
+      await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
 
       // 丸め設定フィールドを取得
       const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
@@ -624,7 +732,9 @@ test.describe('フィールド仕様', () => {
       }
     });
 
-    test('10.4: 丸め設定が空白時は0.01が自動設定される', async ({ page }) => {
+    test('10.4: 丸め設定が空白時は0.01が自動設定される (quantity-table-generation/REQ-10.4)', async ({
+      page,
+    }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -636,6 +746,13 @@ test.describe('フィールド仕様', () => {
         await page.goto(`/projects/${testProjectId}`);
       }
       await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更（丸め設定を表示するため）
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
 
       // 丸め設定フィールドを取得
       const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
@@ -649,7 +766,9 @@ test.describe('フィールド仕様', () => {
       }
     });
 
-    test('10.4: 丸め設定が0の時は0.01が自動設定される', async ({ page }) => {
+    test('10.4: 丸め設定が0の時は0.01が自動設定される (quantity-table-generation/REQ-10.4)', async ({
+      page,
+    }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -661,6 +780,13 @@ test.describe('フィールド仕様', () => {
         await page.goto(`/projects/${testProjectId}`);
       }
       await page.waitForLoadState('networkidle');
+
+      // 計算方法を「面積・体積」に変更（丸め設定を表示するため）
+      const calculationMethodSelect = page.getByLabel(/計算方法/i);
+      if (await calculationMethodSelect.isVisible()) {
+        await calculationMethodSelect.selectOption('AREA_VOLUME');
+        await page.waitForLoadState('networkidle');
+      }
 
       // 丸め設定フィールドを取得
       const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);

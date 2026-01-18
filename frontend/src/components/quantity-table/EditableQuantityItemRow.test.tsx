@@ -311,12 +311,26 @@ describe('EditableQuantityItemRow', () => {
   });
 
   describe('調整係数変更', () => {
-    it('調整係数入力時にonUpdateが呼ばれる', async () => {
+    it('標準モードでは調整係数フィールドが表示されない', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      // 標準モードでは調整係数フィールドは表示されない
+      expect(screen.queryByLabelText(/調整係数/)).not.toBeInTheDocument();
+    });
+
+    it('面積・体積モードで調整係数入力時にonUpdateが呼ばれる', async () => {
       const user = userEvent.setup();
       const onUpdate = vi.fn();
-      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(
+        <EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} onUpdate={onUpdate} />
+      );
 
-      // REQ-14.2: type="text" + inputMode="decimal"に変更
+      // REQ-9: 面積・体積/ピッチ選択時のみ調整係数フィールドが表示される
       const input = screen.getByLabelText(/調整係数/);
       // 値を変更してblurでonUpdateを発火
       await user.clear(input);
@@ -334,12 +348,26 @@ describe('EditableQuantityItemRow', () => {
   });
 
   describe('丸め設定変更', () => {
-    it('丸め設定入力時にonUpdateが呼ばれる', async () => {
+    it('標準モードでは丸め設定フィールドが表示されない', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      // 標準モードでは丸め設定フィールドは表示されない
+      expect(screen.queryByLabelText(/丸め設定/)).not.toBeInTheDocument();
+    });
+
+    it('面積・体積モードで丸め設定入力時にonUpdateが呼ばれる', async () => {
       const user = userEvent.setup();
       const onUpdate = vi.fn();
-      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(
+        <EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} onUpdate={onUpdate} />
+      );
 
-      // REQ-14.2: type="text" + inputMode="decimal"に変更
+      // REQ-10: 面積・体積/ピッチ選択時のみ丸め設定フィールドが表示される
       const input = screen.getByLabelText(/丸め設定/);
       // 値を変更してblurでonUpdateを発火
       await user.clear(input);
@@ -497,9 +525,11 @@ describe('EditableQuantityItemRow', () => {
   });
 
   describe('REQ-9.3: 調整係数警告', () => {
-    it('調整係数が0以下の場合、警告が表示される', () => {
+    it('面積・体積モードで調整係数が0以下の場合、警告が表示される', () => {
       const itemWithZeroFactor = {
         ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
         adjustmentFactor: 0,
       };
       render(<EditableQuantityItemRow {...defaultProps} item={itemWithZeroFactor} />);
@@ -507,9 +537,11 @@ describe('EditableQuantityItemRow', () => {
       expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
     });
 
-    it('調整係数が負の場合、警告が表示される', () => {
+    it('面積・体積モードで調整係数が負の場合、警告が表示される', () => {
       const itemWithNegativeFactor = {
         ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
         adjustmentFactor: -0.5,
       };
       render(<EditableQuantityItemRow {...defaultProps} item={itemWithNegativeFactor} />);
@@ -517,21 +549,27 @@ describe('EditableQuantityItemRow', () => {
       expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
     });
 
-    it('調整係数が正の場合、警告は表示されない', () => {
-      render(<EditableQuantityItemRow {...defaultProps} />);
+    it('面積・体積モードで調整係数が正の場合、警告は表示されない', () => {
+      const itemWithPositiveFactor = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+        adjustmentFactor: 1.5,
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithPositiveFactor} />);
 
       // 調整係数の警告が表示されないことを確認
       const warnings = screen.queryAllByText(/0以下の値は使用できません/);
-      // 丸め設定の警告も同じテキストを使用しているため、配列が空か、
-      // 調整係数入力フィールドに関連する警告がないことを確認
-      expect(warnings.length).toBeLessThanOrEqual(1); // 丸め設定の警告がある可能性
+      expect(warnings.length).toBe(0);
     });
   });
 
   describe('REQ-10.3: 丸め設定警告', () => {
-    it('丸め設定が0以下の場合、警告が表示される', () => {
+    it('面積・体積モードで丸め設定が0以下の場合、警告が表示される', () => {
       const itemWithZeroRounding = {
         ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
         roundingUnit: 0,
       };
       render(<EditableQuantityItemRow {...defaultProps} item={itemWithZeroRounding} />);
@@ -539,9 +577,11 @@ describe('EditableQuantityItemRow', () => {
       expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
     });
 
-    it('丸め設定が負の場合、警告が表示される', () => {
+    it('面積・体積モードで丸め設定が負の場合、警告が表示される', () => {
       const itemWithNegativeRounding = {
         ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
         roundingUnit: -0.1,
       };
       render(<EditableQuantityItemRow {...defaultProps} item={itemWithNegativeRounding} />);

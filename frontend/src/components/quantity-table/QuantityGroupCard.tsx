@@ -352,7 +352,7 @@ export default function QuantityGroupCard({
   const items = group.items ?? [];
 
   return (
-    <article style={styles.card}>
+    <article style={styles.card} data-testid="quantity-group-card">
       {/* ヘッダー */}
       <div style={styles.header}>
         {/* 展開/折りたたみボタン */}

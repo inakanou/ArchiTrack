@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-01-11（Steering Sync: 数量表作成機能追加、依存関係バージョン更新）_
+_最終更新: 2026-01-17（Steering Sync: 依存関係バージョン更新 - @types/node v25、jspdf v4）_
 
 ## アーキテクチャ
 
@@ -36,7 +36,7 @@ ArchiTrack/
 - `react-dom` ^19.2.3 - React DOM操作
 - `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
-- `jspdf` ^4.0.0 - PDF報告書生成（現場調査）
+- `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/react` ^19.2.7 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
@@ -45,7 +45,7 @@ ArchiTrack/
 - `@typescript-eslint/parser` ^8.47.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
-- `prettier` ^3.6.2 - コードフォーマッター
+- `prettier` ^3.7.4 - コードフォーマッター
 - `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
 - `tailwindcss` ^4.1.18 - ユーティリティファーストCSSフレームワーク
 - `@tailwindcss/postcss` ^4.1.17 - Tailwind CSS PostCSSプラグイン
@@ -102,6 +102,7 @@ ArchiTrack/
 - **JWT署名**: jose 5.10.0（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
+- **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
 - **バリデーション**: zod 4.1.12
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
@@ -147,14 +148,14 @@ ArchiTrack/
 - `tsx` ^4.20.6 - TypeScript実行環境
 - `@types/express` ^5.0.5 - Express型定義
 - `@types/cors` ^2.8.19 - CORS型定義
-- `@types/node` ^24.10.1 - Node.js型定義
+- `@types/node` ^25.0.3 - Node.js型定義
 - `@types/pg` ^8.15.6 - PostgreSQL型定義
 - `@types/swagger-jsdoc` ^6.0.4 - swagger-jsdoc型定義
 - `@types/swagger-ui-express` ^4.1.8 - swagger-ui-express型定義
 - `@typescript-eslint/eslint-plugin` ^8.49.0 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.49.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
-- `prettier` ^3.6.2 - コードフォーマッター
+- `prettier` ^3.7.4 - コードフォーマッター
 - `husky` ^9.1.7 - Git フックマネージャー
 - `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
@@ -365,7 +366,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 
 - `@playwright/test` ^1.57.0 - E2Eテストフレームワーク
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
-- `@types/node` ^24.10.1 - Node.js型定義
+- `@types/node` ^25.0.3 - Node.js型定義
 - `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.48.1 - TypeScript ESLintパーサー
 - `@prisma/client` ^7.0.1 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
