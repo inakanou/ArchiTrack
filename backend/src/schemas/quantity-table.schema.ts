@@ -329,15 +329,9 @@ export const createQuantityItemSchema = z.object({
     .nullable()
     .optional(),
 
-  workType: z
-    .string()
-    .min(1, QUANTITY_TABLE_VALIDATION_MESSAGES.WORK_TYPE_REQUIRED)
-    .max(100, QUANTITY_TABLE_VALIDATION_MESSAGES.WORK_TYPE_TOO_LONG),
+  workType: z.string().max(100, QUANTITY_TABLE_VALIDATION_MESSAGES.WORK_TYPE_TOO_LONG),
 
-  name: z
-    .string()
-    .min(1, QUANTITY_TABLE_VALIDATION_MESSAGES.ITEM_NAME_REQUIRED)
-    .max(200, QUANTITY_TABLE_VALIDATION_MESSAGES.ITEM_NAME_TOO_LONG),
+  name: z.string().max(200, QUANTITY_TABLE_VALIDATION_MESSAGES.ITEM_NAME_TOO_LONG),
 
   specification: z
     .string()
@@ -345,10 +339,7 @@ export const createQuantityItemSchema = z.object({
     .nullable()
     .optional(),
 
-  unit: z
-    .string()
-    .min(1, QUANTITY_TABLE_VALIDATION_MESSAGES.UNIT_REQUIRED)
-    .max(50, QUANTITY_TABLE_VALIDATION_MESSAGES.UNIT_TOO_LONG),
+  unit: z.string().max(50, QUANTITY_TABLE_VALIDATION_MESSAGES.UNIT_TOO_LONG),
 
   calculationMethod: z.enum(CALCULATION_METHODS).default('STANDARD'),
 
