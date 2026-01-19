@@ -89,6 +89,27 @@ export interface ItemizedStatementDetailInfo extends ItemizedStatementInfo {
 }
 
 /**
+ * ページネーション付き内訳書一覧
+ */
+export interface PaginatedItemizedStatements {
+  data: ItemizedStatementInfo[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+/**
+ * プロジェクト内訳書サマリー
+ */
+export interface ProjectItemizedStatementSummary {
+  totalCount: number;
+  latestStatements: ItemizedStatementInfo[];
+}
+
+/**
  * Prismaトランザクションクライアント型
  */
 type PrismaTransactionClient = Omit<
@@ -244,35 +265,104 @@ export class ItemizedStatementService {
   }
 
   /**
-   * プロジェクトに紐付く内訳書一覧を取得する
+   * プロジェクトに紐付く内訳書一覧を取得する（ページネーション対応）
    *
-   * Requirements: 3.1
+   * Requirements: 3.1, 3.2
    *
    * @param projectId - プロジェクトID
-   * @returns 内訳書一覧
+   * @param filter - 検索フィルター
+   * @param pagination - ページネーション設定
+   * @param sort - ソート設定
+   * @returns ページネーション付き内訳書一覧
    */
-  async findByProjectId(projectId: string): Promise<ItemizedStatementInfo[]> {
-    const statements = await this.prisma.itemizedStatement.findMany({
-      where: {
-        projectId,
-        deletedAt: null,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findByProjectId(
+    projectId: string,
+    filter: { search?: string },
+    pagination: { page: number; limit: number },
+    sort: { sort: 'createdAt' | 'name'; order: 'asc' | 'desc' }
+  ): Promise<PaginatedItemizedStatements> {
+    const where = {
+      projectId,
+      deletedAt: null,
+      ...(filter.search && {
+        OR: [
+          { name: { contains: filter.search, mode: 'insensitive' as const } },
+          { sourceQuantityTableName: { contains: filter.search, mode: 'insensitive' as const } },
+        ],
+      }),
+    };
 
-    return statements.map((statement) => this.toItemizedStatementInfo(statement));
+    const [statements, total] = await Promise.all([
+      this.prisma.itemizedStatement.findMany({
+        where,
+        orderBy: { [sort.sort]: sort.order },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+      }),
+      this.prisma.itemizedStatement.count({ where }),
+    ]);
+
+    return {
+      data: statements.map((statement) => this.toItemizedStatementInfo(statement)),
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
   }
 
   /**
-   * 内訳書を論理削除する
+   * プロジェクトに紐付く直近の内訳書とサマリー情報を取得する
    *
-   * Requirements: 5.1
+   * Requirements: 3.4
+   *
+   * @param projectId - プロジェクトID
+   * @param limit - 取得件数（デフォルト2）
+   * @returns プロジェクト内訳書サマリー
+   */
+  async findLatestByProjectId(
+    projectId: string,
+    limit: number = 2
+  ): Promise<ProjectItemizedStatementSummary> {
+    const [latestStatements, totalCount] = await Promise.all([
+      this.prisma.itemizedStatement.findMany({
+        where: {
+          projectId,
+          deletedAt: null,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      this.prisma.itemizedStatement.count({
+        where: {
+          projectId,
+          deletedAt: null,
+        },
+      }),
+    ]);
+
+    return {
+      totalCount,
+      latestStatements: latestStatements.map((statement) =>
+        this.toItemizedStatementInfo(statement)
+      ),
+    };
+  }
+
+  /**
+   * 内訳書を論理削除する（楽観的排他制御付き）
+   *
+   * Requirements: 5.1, 10.2, 10.3
    *
    * @param id - 内訳書ID
    * @param actorId - 実行者ID
+   * @param expectedUpdatedAt - 期待される更新日時（楽観的排他制御用）
    * @throws ItemizedStatementNotFoundError 内訳書が存在しないか既に削除済みの場合
+   * @throws ItemizedStatementConflictError 楽観的排他制御エラー
    */
-  async delete(id: string, actorId: string): Promise<void> {
+  async delete(id: string, actorId: string, expectedUpdatedAt: Date): Promise<void> {
     await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. 内訳書の存在確認
       const itemizedStatement = await tx.itemizedStatement.findUnique({
@@ -283,6 +373,7 @@ export class ItemizedStatementService {
           name: true,
           sourceQuantityTableId: true,
           sourceQuantityTableName: true,
+          updatedAt: true,
           deletedAt: true,
         },
       });
@@ -291,13 +382,21 @@ export class ItemizedStatementService {
         throw new ItemizedStatementNotFoundError(id);
       }
 
-      // 2. 論理削除
+      // 2. 楽観的排他制御: updatedAtの比較 (Requirements: 10.2, 10.3)
+      if (itemizedStatement.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+        throw new ItemizedStatementConflictError({
+          expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+          actualUpdatedAt: itemizedStatement.updatedAt.toISOString(),
+        });
+      }
+
+      // 3. 論理削除
       await tx.itemizedStatement.update({
         where: { id },
         data: { deletedAt: new Date() },
       });
 
-      // 3. 監査ログの記録
+      // 4. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'ITEMIZED_STATEMENT_DELETED',
         actorId,

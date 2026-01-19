@@ -35,6 +35,7 @@ import quantityTablesRoutes from './routes/quantity-tables.routes.js';
 import quantityGroupsRoutes from './routes/quantity-groups.routes.js';
 import quantityItemsRoutes from './routes/quantity-items.routes.js';
 import autocompleteRoutes from './routes/autocomplete.routes.js';
+import itemizedStatementsRoutes from './routes/itemized-statements.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -333,6 +334,10 @@ app.use('/api/quantity-items', quantityItemsRoutes);
 
 // Autocomplete routes
 app.use('/api/autocomplete', autocompleteRoutes);
+
+// Itemized statement management routes
+app.use('/api/projects/:projectId/itemized-statements', itemizedStatementsRoutes);
+app.use('/api/itemized-statements', itemizedStatementsRoutes);
 
 // Local storage static file serving (development/test only)
 if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {

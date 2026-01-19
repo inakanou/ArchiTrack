@@ -234,7 +234,7 @@ describe('Problem Details (RFC 9457)', () => {
       });
 
       // 期待されるプロパティ数を確認
-      expect(Object.keys(PROBLEM_TYPES).length).toBe(12);
+      expect(Object.keys(PROBLEM_TYPES).length).toBe(13);
     });
 
     it('PROJECT_NAME_DUPLICATE タイプが定義されている', () => {

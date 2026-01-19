@@ -450,24 +450,37 @@ describe('ItemizedStatementService', () => {
       ];
 
       vi.mocked(mockPrisma.itemizedStatement.findMany).mockResolvedValue(mockStatements as never);
+      vi.mocked(mockPrisma.itemizedStatement.count).mockResolvedValue(2 as never);
 
       // Act
-      const result = await service.findByProjectId(projectId);
+      const result = await service.findByProjectId(
+        projectId,
+        {},
+        { page: 1, limit: 20 },
+        { sort: 'createdAt', order: 'desc' }
+      );
 
       // Assert
-      expect(result).toHaveLength(2);
-      expect(result[0]!.name).toBe('内訳書1');
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0]!.name).toBe('内訳書1');
+      expect(result.pagination.total).toBe(2);
     });
 
     it('論理削除された内訳書は除外する', async () => {
       // Arrange
       vi.mocked(mockPrisma.itemizedStatement.findMany).mockResolvedValue([]);
+      vi.mocked(mockPrisma.itemizedStatement.count).mockResolvedValue(0 as never);
 
       // Act
-      const result = await service.findByProjectId('proj-001');
+      const result = await service.findByProjectId(
+        'proj-001',
+        {},
+        { page: 1, limit: 20 },
+        { sort: 'createdAt', order: 'desc' }
+      );
 
       // Assert
-      expect(result).toHaveLength(0);
+      expect(result.data).toHaveLength(0);
       expect(mockPrisma.itemizedStatement.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
@@ -479,10 +492,11 @@ describe('ItemizedStatementService', () => {
   });
 
   describe('delete', () => {
-    it('内訳書を論理削除する（Requirements: 5.1）', async () => {
+    it('内訳書を論理削除する（Requirements: 5.1, 10.2, 10.3）', async () => {
       // Arrange
       const statementId = 'is-001';
       const actorId = 'user-001';
+      const updatedAt = new Date('2026-01-19T00:00:00Z');
       const mockStatement = {
         id: 'is-001',
         projectId: 'proj-001',
@@ -490,7 +504,7 @@ describe('ItemizedStatementService', () => {
         sourceQuantityTableId: 'qt-001',
         sourceQuantityTableName: 'テスト数量表',
         createdAt: new Date(),
-        updatedAt: new Date(),
+        updatedAt,
         deletedAt: null,
       };
 
@@ -505,7 +519,7 @@ describe('ItemizedStatementService', () => {
       });
 
       // Act
-      await service.delete(statementId, actorId);
+      await service.delete(statementId, actorId, updatedAt);
 
       // Assert
       expect(mockAuditLogService.createLog).toHaveBeenCalled();
@@ -523,7 +537,7 @@ describe('ItemizedStatementService', () => {
       });
 
       // Act & Assert
-      await expect(service.delete('is-nonexistent', 'user-001')).rejects.toThrow(
+      await expect(service.delete('is-nonexistent', 'user-001', new Date())).rejects.toThrow(
         ItemizedStatementNotFoundError
       );
     });
@@ -551,8 +565,38 @@ describe('ItemizedStatementService', () => {
       });
 
       // Act & Assert
-      await expect(service.delete('is-001', 'user-001')).rejects.toThrow(
+      await expect(service.delete('is-001', 'user-001', new Date())).rejects.toThrow(
         ItemizedStatementNotFoundError
+      );
+    });
+
+    it('楽観的排他制御エラー時はItemizedStatementConflictErrorを発生させる', async () => {
+      // Arrange
+      const actualUpdatedAt = new Date('2026-01-19T00:00:00Z');
+      const expectedUpdatedAt = new Date('2026-01-18T00:00:00Z'); // 異なる日時
+      const mockStatement = {
+        id: 'is-001',
+        projectId: 'proj-001',
+        name: 'テスト内訳書',
+        sourceQuantityTableId: 'qt-001',
+        sourceQuantityTableName: 'テスト数量表',
+        createdAt: new Date(),
+        updatedAt: actualUpdatedAt,
+        deletedAt: null,
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue(mockStatement),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.delete('is-001', 'user-001', expectedUpdatedAt)).rejects.toThrow(
+        ItemizedStatementConflictError
       );
     });
   });
