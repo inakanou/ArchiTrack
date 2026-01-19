@@ -1910,10 +1910,8 @@ test.describe('内訳書CRUD操作', () => {
       // 作成を試行
       await createForm.getByRole('button', { name: /^作成$/i }).click();
 
-      // オーバーフローエラーメッセージを確認
-      await expect(
-        page.getByText(/オーバーフロー|数量の上限|上限を超え/i).or(page.locator('[role="alert"]'))
-      ).toBeVisible({
+      // オーバーフローエラーメッセージを確認（フロントエンド表示: 「数量の合計が許容範囲を超えています」）
+      await expect(page.getByText(/許容範囲を超えています/i)).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -2013,8 +2011,8 @@ test.describe('内訳書CRUD操作', () => {
       const pagination = page.getByRole('navigation', { name: /ページネーション/i });
       await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 現在のページ番号と総ページ数が表示されることを確認
-      await expect(page.getByText(/1.*\/.*2|ページ.*1.*2/i)).toBeVisible({
+      // 現在のページ番号と総ページ数が表示されることを確認（ページネーション内で検索）
+      await expect(pagination.getByText('1 / 2')).toBeVisible({
         timeout: getTimeout(5000),
       });
 
@@ -2144,7 +2142,7 @@ test.describe('内訳書CRUD操作', () => {
       const pagination = page.getByRole('navigation', { name: /ページネーション/i });
       if (await pagination.isVisible()) {
         // フィルタ後の総ページ数が変わることを確認（60件 -> 2ページ）
-        await expect(page.getByText(/1.*\/.*2|ページ.*1.*2/i)).toBeVisible({
+        await expect(pagination.getByText('1 / 2')).toBeVisible({
           timeout: getTimeout(5000),
         });
       }
