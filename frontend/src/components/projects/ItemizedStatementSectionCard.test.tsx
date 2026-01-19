@@ -163,8 +163,9 @@ describe('ItemizedStatementSectionCard', () => {
 
       const links = screen.getAllByRole('link', { name: /の内訳書詳細を見る/ });
       expect(links).toHaveLength(2);
-      expect(links[0]).toHaveAttribute('href', '/projects/project-1/itemized-statements/is-1');
-      expect(links[1]).toHaveAttribute('href', '/projects/project-1/itemized-statements/is-2');
+      // Task 7: 内訳書詳細画面へのルーティングを /itemized-statements/:id に統一
+      expect(links[0]).toHaveAttribute('href', '/itemized-statements/is-1');
+      expect(links[1]).toHaveAttribute('href', '/itemized-statements/is-2');
     });
   });
 

@@ -326,7 +326,7 @@ function EmptyState({
 function StatementCard({ statement }: { statement: ItemizedStatementInfo }) {
   return (
     <Link
-      to={`/projects/${statement.projectId}/itemized-statements/${statement.id}`}
+      to={`/itemized-statements/${statement.id}`}
       style={styles.statementCard}
       aria-label={`${statement.name}の内訳書詳細を見る`}
     >

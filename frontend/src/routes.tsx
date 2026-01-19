@@ -30,6 +30,7 @@ import QuantityTableListPage from './pages/QuantityTableListPage';
 import QuantityTableCreatePage from './pages/QuantityTableCreatePage';
 import QuantityTableEditPage from './pages/QuantityTableEditPage';
 import QuantityTableRedirectPage from './pages/QuantityTableRedirectPage';
+import ItemizedStatementDetailPage from './pages/ItemizedStatementDetailPage';
 
 /**
  * アプリケーションのルート設定
@@ -205,6 +206,16 @@ export const routes: RouteObject[] = [
       {
         path: '/quantity-tables/:id/edit',
         element: <QuantityTableEditPage />,
+      },
+
+      // 内訳書詳細画面
+      // REQ-4.1, 4.2, 4.3, 4.4, 4.5: 内訳書詳細表示、内訳項目テーブル
+      // REQ-8.4: 集計元数量表名を参照情報として表示
+      // REQ-9.1, 9.2, 9.3, 9.4: パンくずナビゲーション
+      // Task 7.1, 7.2: 内訳書詳細画面の実装
+      {
+        path: '/itemized-statements/:id',
+        element: <ItemizedStatementDetailPage />,
       },
 
       // 取引先一覧
