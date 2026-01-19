@@ -557,13 +557,17 @@ CREATE TABLE itemized_statements (
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMP NULL,
 
-  CONSTRAINT unique_name_per_project
-    UNIQUE (project_id, name, deleted_at)
+  -- 一意制約は部分インデックスで実装（deleted_atがNULLの場合のみ適用）
 );
 
 -- インデックス
 CREATE INDEX idx_itemized_statements_project_id ON itemized_statements(project_id);
 CREATE INDEX idx_itemized_statements_deleted_at ON itemized_statements(deleted_at);
+
+-- 同名内訳書の一意制約（論理削除されていないレコードのみ）
+CREATE UNIQUE INDEX idx_unique_name_per_project
+  ON itemized_statements(project_id, name)
+  WHERE deleted_at IS NULL;
 CREATE INDEX idx_itemized_statements_created_at ON itemized_statements(created_at);
 
 -- 内訳書項目テーブル
@@ -645,7 +649,7 @@ interface DeleteItemizedStatementRequest {
 | ItemizedStatementNotFoundError | 404 | 指定された内訳書が見つかりません | 一覧に戻る |
 | DuplicateNameError | 409 | 同名の内訳書が既に存在します | 名前変更 |
 | OptimisticLockError | 409 | 他のユーザーにより更新されました。画面を再読み込みしてください | 画面リロード |
-| QuantityOverflowError | 409 | 数量の合計が許容範囲を超えています | 数量表の項目修正 |
+| QuantityOverflowError | 422 | 数量の合計が許容範囲を超えています | 数量表の項目修正 |
 | EmptyQuantityItemsError | 400 | 選択された数量表に項目がありません | 別の数量表選択 |
 
 ### Error Categories and Responses
@@ -653,7 +657,8 @@ interface DeleteItemizedStatementRequest {
 **User Errors (4xx)**:
 - 400: Zodバリデーションエラー → フィールドレベルメッセージ表示
 - 404: リソース未発見 → 一覧画面へ誘導
-- 409: 競合エラー → 具体的なアクション指示
+- 409: 競合エラー（同名重複、楽観的排他制御） → 具体的なアクション指示
+- 422: 処理不可能エラー（オーバーフロー） → 入力データ修正指示
 
 **System Errors (5xx)**:
 - 500: 内部エラー → 一般的なエラーメッセージ、再試行ボタン
@@ -707,3 +712,4 @@ interface DeleteItemizedStatementRequest {
 - ピボット集計はバックエンドで実行（フロントエンドへの転送量削減）
 - 詳細画面のソート・フィルタはクライアントサイド（2000件以下のため）
 - インデックス最適化（projectId、deletedAt、createdAt）
+- **2000件制限**: サービス層でピボット集計結果が2000件を超える場合はエラーを返却（将来的な拡張に備えた安全策）
