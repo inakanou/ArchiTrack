@@ -82,9 +82,19 @@ export interface ItemizedStatementItemInfo {
 }
 
 /**
+ * プロジェクト情報（簡易）
+ */
+export interface ProjectInfoSummary {
+  id: string;
+  name: string;
+}
+
+/**
  * 内訳書詳細情報
  */
 export interface ItemizedStatementDetailInfo extends ItemizedStatementInfo {
+  project: ProjectInfoSummary;
+  itemCount: number;
   items: ItemizedStatementItemInfo[];
 }
 
@@ -251,6 +261,12 @@ export class ItemizedStatementService {
     const itemizedStatement = await this.prisma.itemizedStatement.findUnique({
       where: { id },
       include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         items: {
           orderBy: { displayOrder: 'asc' },
         },
@@ -532,6 +548,10 @@ export class ItemizedStatementService {
     sourceQuantityTableName: string;
     createdAt: Date;
     updatedAt: Date;
+    project: {
+      id: string;
+      name: string;
+    };
     items: Array<{
       id: string;
       itemizedStatementId: string;
@@ -547,11 +567,16 @@ export class ItemizedStatementService {
     return {
       id: statement.id,
       projectId: statement.projectId,
+      project: {
+        id: statement.project.id,
+        name: statement.project.name,
+      },
       name: statement.name,
       sourceQuantityTableId: statement.sourceQuantityTableId,
       sourceQuantityTableName: statement.sourceQuantityTableName,
       createdAt: statement.createdAt,
       updatedAt: statement.updatedAt,
+      itemCount: statement.items.length,
       items: statement.items.map((item) => ({
         id: item.id,
         itemizedStatementId: item.itemizedStatementId,

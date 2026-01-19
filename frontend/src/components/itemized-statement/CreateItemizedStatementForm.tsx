@@ -32,12 +32,21 @@ import type {
 // ============================================================================
 
 /**
- * エラーレスポンス型
+ * エラーレスポンス型（API Problem Details）
  */
-interface ApiError {
+interface ApiProblemDetails {
   status?: number;
   code?: string;
   detail?: string;
+}
+
+/**
+ * APIクライアントから投げられるエラー型
+ */
+interface ApiClientError {
+  statusCode?: number;
+  message?: string;
+  response?: ApiProblemDetails;
 }
 
 /**
@@ -202,17 +211,22 @@ const styles = {
 /**
  * APIエラーコードからユーザーフレンドリーなメッセージに変換
  */
-function getErrorMessage(error: ApiError): string {
-  if (error.code === 'DUPLICATE_ITEMIZED_STATEMENT_NAME') {
+function getErrorMessage(error: ApiClientError): string {
+  // responseプロパティからエラー詳細を取得
+  const problemDetails = error.response;
+  const code = problemDetails?.code;
+  const detail = problemDetails?.detail || error.message;
+
+  if (code === 'DUPLICATE_ITEMIZED_STATEMENT_NAME') {
     return '同名の内訳書が既に存在します';
   }
-  if (error.code === 'QUANTITY_OVERFLOW') {
+  if (code === 'QUANTITY_OVERFLOW') {
     return '数量の合計が許容範囲を超えています';
   }
-  if (error.code === 'EMPTY_QUANTITY_ITEMS') {
+  if (code === 'EMPTY_QUANTITY_ITEMS') {
     return '選択された数量表に項目がありません';
   }
-  return error.detail || '内訳書の作成中にエラーが発生しました';
+  return detail || '内訳書の作成中にエラーが発生しました';
 }
 
 // ============================================================================
@@ -339,7 +353,7 @@ export function CreateItemizedStatementForm({
 
         onSuccess(result);
       } catch (error) {
-        const apiError = error as ApiError;
+        const apiError = error as ApiClientError;
         setErrors({
           general: getErrorMessage(apiError),
         });
