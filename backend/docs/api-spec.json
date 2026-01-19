@@ -2615,6 +2615,321 @@
         }
       }
     },
+    "/api/projects/{projectId}/itemized-statements": {
+      "post": {
+        "summary": "内訳書作成",
+        "description": "数量表をピボット集計して内訳書を作成",
+        "tags": [
+          "Itemized Statements"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "quantityTableId"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "内訳書名"
+                  },
+                  "quantityTableId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "集計元の数量表ID"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "内訳書作成成功"
+          },
+          "400": {
+            "description": "バリデーションエラー、または数量表に項目がない"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "数量表が見つからない"
+          },
+          "409": {
+            "description": "同名の内訳書が既に存在"
+          },
+          "422": {
+            "description": "数量オーバーフロー"
+          }
+        }
+      },
+      "get": {
+        "summary": "内訳書一覧取得",
+        "description": "プロジェクトに紐付く内訳書の一覧を取得（ページネーション、検索、ソート対応）",
+        "tags": [
+          "Itemized Statements"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "ページ番号（1以上）"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            },
+            "description": "1ページあたりの表示件数（1〜100）"
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            },
+            "description": "検索キーワード（名前の部分一致）"
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "name"
+              ],
+              "default": "createdAt"
+            },
+            "description": "ソートフィールド"
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "ソート順序"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "内訳書一覧"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/itemized-statements/latest": {
+      "get": {
+        "summary": "内訳書サマリー取得",
+        "description": "プロジェクトに紐付く直近の内訳書と総数を取得",
+        "tags": [
+          "Itemized Statements"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 2,
+              "minimum": 1,
+              "maximum": 10
+            },
+            "description": "取得件数（デフォルト2、最大10）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "直近N件の内訳書と総数"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/itemized-statements/{id}": {
+      "get": {
+        "summary": "内訳書詳細取得",
+        "description": "内訳書の詳細情報を取得",
+        "tags": [
+          "Itemized Statements"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "内訳書ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "内訳書詳細"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "内訳書が見つからない"
+          }
+        }
+      },
+      "delete": {
+        "summary": "内訳書削除",
+        "description": "内訳書を論理削除（楽観的排他制御）",
+        "tags": [
+          "Itemized Statements"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "内訳書ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "updatedAt"
+                ],
+                "properties": {
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "楽観的排他制御用の更新日時"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "内訳書削除成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "内訳書が見つからない"
+          },
+          "409": {
+            "description": "楽観的排他制御エラー（競合）"
+          }
+        }
+      }
+    },
     "/api/v1/permissions": {
       "get": {
         "summary": "権限一覧取得",
