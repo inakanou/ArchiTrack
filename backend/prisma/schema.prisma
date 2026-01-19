@@ -274,6 +274,7 @@ model Project {
   statusHistory      ProjectStatusHistory[]
   siteSurveys        SiteSurvey[] // 現場調査リレーション
   quantityTables     QuantityTable[] // 数量表リレーション
+  itemizedStatements ItemizedStatement[] // 内訳書リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -677,4 +678,90 @@ model QuantityItem {
 
   @@index([quantityGroupId, displayOrder])
   @@map("quantity_items")
+}
+
+// ===== Itemized Statement Management Data Models =====
+
+/**
+ * 内訳書モデル
+ * 数量表の項目を「任意分類」「工種」「名称」「規格」「単位」の5項目でピボット集計し、
+ * 内訳書として保存・閲覧する。内訳書は作成時点のスナップショットとして独立して保持され、
+ * 元の数量表が変更されても影響を受けない。
+ * フィールド:
+ * - id: 内訳書の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - name: 内訳書名（必須、最大200文字）
+ * - sourceQuantityTableId: 集計元数量表ID（参照情報のみ、外部キー制約なし）
+ * - sourceQuantityTableName: 集計元数量表名（スナップショット、最大200文字）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位での内訳書検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * - createdAt: 作成日時でのソート用
+ * - 部分一意制約: 同一プロジェクト内での内訳書名重複を防ぐ（論理削除されていないレコードのみ）
+ * Requirements:
+ * - REQ-8.1: 内訳書作成時に集計時点の数量項目データを内訳書に保存する（スナップショット独立性）
+ * - REQ-10.1: 内訳書はupdatedAtフィールドを持つ（楽観的排他制御用）
+ */
+model ItemizedStatement {
+  id                      String    @id @default(uuid())
+  projectId               String
+  name                    String // 内訳書名（必須、最大200文字）
+  sourceQuantityTableId   String // 集計元数量表ID（参照情報のみ）
+  sourceQuantityTableName String // 集計元数量表名（スナップショット）
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  deletedAt               DateTime? // 論理削除
+
+  project Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   ItemizedStatementItem[]
+
+  // インデックス
+  @@index([projectId])
+  @@index([deletedAt])
+  @@index([createdAt])
+  // 同一プロジェクト内での内訳書名重複を防ぐ部分一意制約（論理削除されていないレコードのみ）
+  // PostgreSQLでは部分インデックスとしてマイグレーション時にSQLで追加
+  @@map("itemized_statements")
+}
+
+/**
+ * 内訳書項目モデル
+ * 内訳書に紐付く集計済み項目を管理する。
+ * ピボット集計の結果として生成され、「任意分類」「工種」「名称」「規格」「単位」の組み合わせをキーとして
+ * グループ化された数量の合計値を保持する。
+ * フィールド:
+ * - id: 項目の一意ID（UUID）
+ * - itemizedStatementId: 内訳書ID（外部キー、カスケード削除）
+ * - customCategory: 任意分類（任意、最大100文字）
+ * - workType: 工種（任意、最大100文字）
+ * - name: 名称（任意、最大200文字）
+ * - specification: 規格（任意、最大500文字）
+ * - unit: 単位（任意、最大50文字）
+ * - quantity: 数量（小数点以下2桁精度、必須）
+ * - displayOrder: 表示順序
+ * インデックス:
+ * - itemizedStatementId: 内訳書単位での項目取得用
+ * - displayOrder: 表示順序によるソート用
+ * Requirements:
+ * - REQ-2.4: 合計数量は小数点以下2桁の精度で計算する
+ */
+model ItemizedStatementItem {
+  id                  String  @id @default(uuid())
+  itemizedStatementId String
+  customCategory      String? // 任意分類（任意、最大100文字）
+  workType            String? // 工種（任意、最大100文字）
+  name                String? // 名称（任意、最大200文字）
+  specification       String? // 規格（任意、最大500文字）
+  unit                String? // 単位（任意、最大50文字）
+  quantity            Decimal @db.Decimal(10, 2) // 数量（小数点以下2桁精度）
+  displayOrder        Int // 表示順序
+
+  itemizedStatement ItemizedStatement @relation(fields: [itemizedStatementId], references: [id], onDelete: Cascade)
+
+  @@index([itemizedStatementId])
+  @@index([itemizedStatementId, displayOrder])
+  @@map("itemized_statement_items")
 }
