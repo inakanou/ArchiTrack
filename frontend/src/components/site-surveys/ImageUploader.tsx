@@ -28,7 +28,7 @@ import {
 } from './image-uploader.constants';
 
 // 定数の再エクスポート（後方互換性のため）
-// eslint-disable-next-line react-refresh/only-export-components
+
 export { ALLOWED_FILE_TYPES, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES };
 
 // ============================================================================
