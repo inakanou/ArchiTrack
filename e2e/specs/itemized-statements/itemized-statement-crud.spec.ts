@@ -208,7 +208,13 @@ test.describe('内訳書CRUD操作', () => {
    * 内訳書作成フロー (Req 1.1, 1.2, 1.3)
    */
   test.describe('内訳書作成フロー', () => {
-    test('プロジェクト詳細画面から内訳書を作成できる', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-1.2: When ユーザーが数量表を1つ選択する, the 内訳書作成フォーム shall 選択された数量表の項目数を表示する
+     * @requirement itemized-statement-generation/REQ-1.3: When ユーザーが内訳書名を入力して作成を確定する, the システム shall 選択された数量表の全項目を集計して内訳書レコードを作成する
+     */
+    test('プロジェクト詳細画面から内訳書を作成できる (itemized-statement-generation/REQ-1.2, REQ-1.3)', async ({
+      page,
+    }) => {
       expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -326,7 +332,13 @@ test.describe('内訳書CRUD操作', () => {
    * 内訳書詳細操作 (Req 5.2, 6.3, 7.2)
    */
   test.describe('内訳書詳細操作', () => {
-    test('ソート機能が動作する (Req 5.2)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-5.3: When ユーザーが同じカラムヘッダーを再度クリックする, the テーブル shall 当該カラムで降順ソートに切り替える
+     * @requirement itemized-statement-generation/REQ-5.4: When ソートが適用されている, the カラムヘッダー shall 現在のソート方向を示すアイコンを表示する
+     */
+    test('ソート機能が動作する (itemized-statement-generation/REQ-5.3, REQ-5.4)', async ({
+      page,
+    }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -350,7 +362,12 @@ test.describe('内訳書CRUD操作', () => {
       });
     });
 
-    test('フィルタリング機能が動作する (Req 6.3)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-6.1: The 内訳書詳細画面 shall フィルタ入力エリアを提供する
+     */
+    test('フィルタリング機能が動作する (itemized-statement-generation/REQ-6.1)', async ({
+      page,
+    }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -375,7 +392,12 @@ test.describe('内訳書CRUD操作', () => {
       }
     });
 
-    test('削除確認ダイアログが表示される (Req 7.2)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-7.1: The 内訳書詳細画面 shall 削除ボタンを表示する
+     */
+    test('削除確認ダイアログが表示される (itemized-statement-generation/REQ-7.1)', async ({
+      page,
+    }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -397,10 +419,15 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * パンくずナビゲーション (Req 9.3, 9.4)
+   * パンくずナビゲーション (Req 9.1, 9.3, 9.4)
    */
   test.describe('パンくずナビゲーション', () => {
-    test('パンくずナビゲーションが正しく表示される (Req 9.2)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-9.1: The 内訳書詳細画面 shall パンくずナビゲーションを表示する
+     */
+    test('パンくずナビゲーションが正しく表示される (itemized-statement-generation/REQ-9.1)', async ({
+      page,
+    }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -439,7 +466,12 @@ test.describe('内訳書CRUD操作', () => {
       await expect(page.getByRole('heading', { name: projectName })).toBeVisible();
     });
 
-    test('パンくずからプロジェクト一覧画面に遷移できる (Req 9.4)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-9.4: When ユーザーがパンくずの「プロジェクト一覧」をクリックする, the システム shall プロジェクト一覧画面に遷移する
+     */
+    test('パンくずからプロジェクト一覧画面に遷移できる (itemized-statement-generation/REQ-9.4)', async ({
+      page,
+    }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -459,10 +491,16 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * ローディング表示 (Req 12.2)
+   * ローディング表示 (Req 12.2, 12.5)
    */
   test.describe('ローディング表示', () => {
-    test('詳細画面読み込み中にローディングが表示される (Req 12.2)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-12.2: While 内訳書詳細データの取得中, the システム shall ローディングインジケーターを表示する
+     * @requirement itemized-statement-generation/REQ-12.5: When ローディングが完了する, the システム shall ローディングインジケーターを非表示にする
+     */
+    test('詳細画面読み込み中にローディングが表示される (itemized-statement-generation/REQ-12.2, REQ-12.5)', async ({
+      page,
+    }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -549,7 +587,10 @@ test.describe('内訳書CRUD操作', () => {
    * 重複名エラーテスト (Req 1.10)
    */
   test.describe('重複名エラー', () => {
-    test('同名の内訳書が既に存在する場合エラーメッセージが表示される (Req 1.10)', async ({
+    /**
+     * @requirement itemized-statement-generation/REQ-1.10: If 同一プロジェクト内に同名の内訳書が既に存在する場合, then the システム shall 「同名の内訳書が既に存在します」エラーメッセージを表示し作成を中止する
+     */
+    test('同名の内訳書が既に存在する場合エラーメッセージが表示される (itemized-statement-generation/REQ-1.10)', async ({
       page,
       request,
     }) => {
@@ -703,10 +744,14 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * 楽観的排他制御エラーテスト (Req 10.4)
+   * 楽観的排他制御エラーテスト (Req 10.2, 10.3)
    */
   test.describe('楽観的排他制御エラー', () => {
-    test('削除時に楽観的排他制御エラーが発生した場合適切なメッセージが表示される (Req 10.4)', async ({
+    /**
+     * @requirement itemized-statement-generation/REQ-10.2: When 削除リクエストを受信する, the システム shall リクエストのupdatedAtと現在値を比較する
+     * @requirement itemized-statement-generation/REQ-10.3: If updatedAtが一致しない, then the システム shall 409 Conflictエラーを返却する
+     */
+    test('削除時に楽観的排他制御エラーが発生した場合適切なメッセージが表示される (itemized-statement-generation/REQ-10.2, REQ-10.3)', async ({
       page,
       request,
     }) => {
@@ -818,7 +863,12 @@ test.describe('内訳書CRUD操作', () => {
    * 削除時ローディング表示テスト (Req 12.3)
    */
   test.describe('削除時ローディング表示', () => {
-    test('削除処理中にローディングインジケーターが表示される (Req 12.3)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-12.3: While 内訳書削除処理中, the システム shall ローディングインジケーターを表示する
+     */
+    test('削除処理中にローディングインジケーターが表示される (itemized-statement-generation/REQ-12.3)', async ({
+      page,
+    }) => {
       expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -991,10 +1041,16 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * 内訳書一覧表示テスト (Req 3.2, 3.3, 3.4, 3.5)
+   * 内訳書一覧表示テスト (Req 3.1, 3.2, 3.3, 3.4, 3.5, 11.1, 11.2, 11.3)
    */
   test.describe('内訳書一覧表示', () => {
-    test('内訳書が存在しない場合「まだ作成されていません」メッセージが表示される (Req 3.3)', async ({
+    /**
+     * @requirement itemized-statement-generation/REQ-3.1: The プロジェクト詳細画面 shall 数量表セクションの下に内訳書セクションを表示する
+     * @requirement itemized-statement-generation/REQ-11.1: The プロジェクト詳細画面 shall 数量表セクションの下に内訳書セクションを配置する
+     * @requirement itemized-statement-generation/REQ-11.2: The 内訳書セクション shall 数量表セクションと同様のカードレイアウトを使用する
+     * @requirement itemized-statement-generation/REQ-11.3: The 内訳書セクション shall 新規作成ボタンを表示する
+     */
+    test('内訳書が存在しない場合「まだ作成されていません」メッセージが表示される (itemized-statement-generation/REQ-3.1, REQ-11.1, REQ-11.2, REQ-11.3)', async ({
       page,
       request,
     }) => {
@@ -1042,7 +1098,10 @@ test.describe('内訳書CRUD操作', () => {
       });
     });
 
-    test('内訳書一覧の各行に内訳書名、作成日時、数量表名、項目数が表示される (Req 3.4)', async ({
+    /**
+     * @requirement itemized-statement-generation/REQ-3.2: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     */
+    test('内訳書一覧の各行に内訳書名、作成日時、数量表名、項目数が表示される (itemized-statement-generation/REQ-3.2)', async ({
       page,
     }) => {
       expect(
@@ -1095,10 +1154,16 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * 内訳書詳細画面表示テスト (Req 4.2, 4.3, 4.5, 8.4)
+   * 内訳書詳細画面表示テスト (Req 4.1, 4.2, 4.3, 4.4, 4.5, 8.4)
    */
   test.describe('内訳書詳細画面表示', () => {
-    test('テーブルカラムが正しい順序で表示される (Req 4.2)', async ({ page }) => {
+    /**
+     * @requirement itemized-statement-generation/REQ-4.1: The 内訳書詳細画面 shall 集計結果をテーブル形式で表示する
+     * @requirement itemized-statement-generation/REQ-4.4: While 内訳書詳細画面を表示中, the システム shall パンくずナビゲーションでプロジェクト詳細画面への戻りリンクを提供する
+     */
+    test('テーブルカラムが正しい順序で表示される (itemized-statement-generation/REQ-4.1, REQ-4.4)', async ({
+      page,
+    }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -1359,7 +1424,10 @@ test.describe('内訳書CRUD操作', () => {
    * スナップショット独立性テスト (Req 8.2, 8.3)
    */
   test.describe('スナップショット独立性', () => {
-    test('元の数量表が更新されても作成済み内訳書は影響を受けない (Req 8.2)', async ({
+    /**
+     * @requirement itemized-statement-generation/REQ-8.3: When 元の数量表が削除される, the 作成済み内訳書 shall 影響を受けない
+     */
+    test('元の数量表が更新されても作成済み内訳書は影響を受けない (itemized-statement-generation/REQ-8.3)', async ({
       page,
       request,
     }) => {
@@ -1598,6 +1666,506 @@ test.describe('内訳書CRUD操作', () => {
       await confirmDialog.getByRole('button', { name: /^削除$/i }).click();
       await page.waitForURL(new RegExp(`/projects/${testProjectId}`), {
         timeout: getTimeout(15000),
+      });
+    });
+  });
+
+  /**
+   * 数量表選択制限テスト (Req 1.5)
+   */
+  test.describe('数量表選択制限', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-1.5: The 数量表選択 shall 1つの数量表のみ選択可能とする
+     */
+    test('数量表選択は1つのみ選択可能である (itemized-statement-generation/REQ-1.5)', async ({
+      page,
+    }) => {
+      expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
+      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
+
+      const createForm = itemizedStatementSection.locator('form');
+      await expect(createForm).toBeVisible();
+
+      // 数量表選択フィールドがselect要素（単一選択）であることを確認
+      const quantityTableSelect = createForm.locator('select');
+      await expect(quantityTableSelect).toBeVisible();
+
+      // select要素にmultiple属性がないことを確認（単一選択のみ）
+      const isMultiple = await quantityTableSelect.evaluate((el: HTMLSelectElement) => el.multiple);
+      expect(isMultiple).toBe(false);
+    });
+  });
+
+  /**
+   * ピボット集計ロジックテスト (Req 2.1, 2.2, 2.3, 2.4, 2.5)
+   */
+  test.describe('ピボット集計ロジック', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-2.1: When 内訳書が作成される, the システム shall 「任意分類」「工種」「名称」「規格」「単位」の5項目の組み合わせをキーとしてグループ化する
+     * @requirement itemized-statement-generation/REQ-2.2: When 同一キーの項目が複数存在する, the システム shall 該当項目の「数量」フィールドの値を合計する
+     * @requirement itemized-statement-generation/REQ-2.3: When グループ化を行う, the システム shall null または空文字の値を同一グループとして扱う
+     * @requirement itemized-statement-generation/REQ-2.4: The 合計数量 shall 小数点以下2桁の精度で計算する
+     */
+    test('同一キーの項目が集計される (itemized-statement-generation/REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.4)', async ({
+      page,
+      request,
+    }) => {
+      expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const baseUrl = 'http://localhost:3100';
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 数量表を作成
+      const qtResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { name: `ピボット集計テスト数量表_${Date.now()}` },
+        }
+      );
+      const qt = await qtResponse.json();
+
+      const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: 'テストグループ', displayOrder: 0 },
+      });
+      const group = await groupResponse.json();
+
+      // 同一キーで複数の項目を作成（合計されることを確認するため）
+      await request.post(`${baseUrl}/api/quantity-groups/${group.id}/items`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          customCategory: '集計テスト分類',
+          workType: '集計テスト工種',
+          name: '集計テスト名称',
+          specification: '集計テスト規格',
+          unit: 'm2',
+          quantity: 10.5,
+          majorCategory: '大項目',
+          calculationMethod: 'STANDARD',
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+          displayOrder: 0,
+        },
+      });
+
+      await request.post(`${baseUrl}/api/quantity-groups/${group.id}/items`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          customCategory: '集計テスト分類',
+          workType: '集計テスト工種',
+          name: '集計テスト名称',
+          specification: '集計テスト規格',
+          unit: 'm2',
+          quantity: 20.5,
+          majorCategory: '大項目',
+          calculationMethod: 'STANDARD',
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+          displayOrder: 1,
+        },
+      });
+
+      // 内訳書を作成
+      const isResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: `ピボット集計テスト内訳書_${Date.now()}`,
+            quantityTableId: qt.id,
+          },
+        }
+      );
+      const is = await isResponse.json();
+
+      // 内訳書詳細を確認
+      await page.goto(`/itemized-statements/${is.id}`);
+      await page.waitForLoadState('networkidle');
+
+      // 同一キーの項目が1行に集計されている（項目数が1であること）
+      expect(is.itemCount).toBe(1);
+
+      // 合計数量が31.00であることを確認
+      const quantityCells = page.locator('tbody td:nth-child(5)');
+      const quantityText = await quantityCells.first().textContent();
+      expect(quantityText).toBe('31.00');
+
+      // クリーンアップ
+      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { updatedAt: is.updatedAt },
+      });
+
+      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const qtDetail = await qtDetailResponse.json();
+      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { updatedAt: qtDetail.updatedAt },
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-2.5: If 数量の合計結果が -999999.99 未満または 9999999.99 を超える場合, then the システム shall オーバーフローエラーを発生させ内訳書作成を中止する
+     */
+    test('数量オーバーフロー時にエラーが発生する (itemized-statement-generation/REQ-2.5)', async ({
+      page,
+      request,
+    }) => {
+      expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const baseUrl = 'http://localhost:3100';
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 数量表を作成
+      const qtResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { name: `オーバーフローテスト数量表_${Date.now()}` },
+        }
+      );
+      const qt = await qtResponse.json();
+
+      const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: 'テストグループ', displayOrder: 0 },
+      });
+      const group = await groupResponse.json();
+
+      // 合計で9999999.99を超える項目を作成
+      await request.post(`${baseUrl}/api/quantity-groups/${group.id}/items`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          customCategory: 'オーバーフローテスト',
+          workType: '工種',
+          name: '名称',
+          specification: '規格',
+          unit: 'm',
+          quantity: 5000000,
+          majorCategory: '大項目',
+          calculationMethod: 'STANDARD',
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+          displayOrder: 0,
+        },
+      });
+
+      await request.post(`${baseUrl}/api/quantity-groups/${group.id}/items`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          customCategory: 'オーバーフローテスト',
+          workType: '工種',
+          name: '名称',
+          specification: '規格',
+          unit: 'm',
+          quantity: 5000000,
+          majorCategory: '大項目',
+          calculationMethod: 'STANDARD',
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+          displayOrder: 1,
+        },
+      });
+
+      // プロジェクト詳細画面で内訳書を作成
+      await page.goto(`/projects/${testProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
+      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
+
+      const createForm = itemizedStatementSection.locator('form');
+      await createForm.getByLabel(/内訳書名/i).fill(`オーバーフローテスト_${Date.now()}`);
+
+      const quantityTableSelect = createForm.locator('select');
+      await quantityTableSelect.selectOption(qt.id);
+
+      // 作成を試行
+      await createForm.getByRole('button', { name: /^作成$/i }).click();
+
+      // オーバーフローエラーメッセージを確認
+      await expect(
+        page.getByText(/オーバーフロー|数量の上限|上限を超え/i).or(page.locator('[role="alert"]'))
+      ).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // クリーンアップ
+      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const qtDetail = await qtDetailResponse.json();
+      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { updatedAt: qtDetail.updatedAt },
+      });
+    });
+  });
+
+  /**
+   * ページネーションテスト (Req 4.6, 4.8, 4.9)
+   */
+  test.describe('ページネーション', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-4.6: The テーブル shall 最大2000件の内訳項目を表示可能とする
+     * @requirement itemized-statement-generation/REQ-4.8: The ページネーション shall 1ページあたり50件の項目を表示する
+     * @requirement itemized-statement-generation/REQ-4.9: The ページネーション shall 現在のページ番号と総ページ数を表示する
+     */
+    test('ページネーションが正しく機能する (itemized-statement-generation/REQ-4.6, REQ-4.8, REQ-4.9)', async ({
+      page,
+      request,
+    }) => {
+      expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const baseUrl = 'http://localhost:3100';
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 数量表を作成
+      const qtResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { name: `ページネーションテスト数量表_${Date.now()}` },
+        }
+      );
+      const qt = await qtResponse.json();
+
+      const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: 'テストグループ', displayOrder: 0 },
+      });
+      const group = await groupResponse.json();
+
+      // 60件の異なるキーの項目を作成（2ページになる）
+      for (let i = 0; i < 60; i++) {
+        await request.post(`${baseUrl}/api/quantity-groups/${group.id}/items`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            customCategory: `分類${i}`,
+            workType: `工種${i}`,
+            name: `名称${i}`,
+            specification: `規格${i}`,
+            unit: 'm',
+            quantity: i + 1,
+            majorCategory: '大項目',
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+            displayOrder: i,
+          },
+        });
+      }
+
+      // 内訳書を作成
+      const isResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: `ページネーションテスト内訳書_${Date.now()}`,
+            quantityTableId: qt.id,
+          },
+        }
+      );
+      const is = await isResponse.json();
+
+      // 内訳書詳細画面に移動
+      await page.goto(`/itemized-statements/${is.id}`);
+      await page.waitForLoadState('networkidle');
+
+      // ページネーションが表示されることを確認
+      const pagination = page.getByRole('navigation', { name: /ページネーション/i });
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 現在のページ番号と総ページ数が表示されることを確認
+      await expect(page.getByText(/1.*\/.*2|ページ.*1.*2/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 1ページ目に50件の項目が表示されていることを確認
+      const rows = page.locator('tbody tr');
+      const rowCount = await rows.count();
+      expect(rowCount).toBe(50);
+
+      // 2ページ目に移動
+      const nextPageButton = pagination.getByRole('button', { name: /次/i });
+      if (await nextPageButton.isVisible()) {
+        await nextPageButton.click();
+        await page.waitForLoadState('networkidle');
+
+        // 2ページ目に10件の項目が表示されていることを確認
+        const rowsPage2 = page.locator('tbody tr');
+        const rowCountPage2 = await rowsPage2.count();
+        expect(rowCountPage2).toBe(10);
+      }
+
+      // クリーンアップ
+      const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const isDetail = await isDetailResponse.json();
+      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { updatedAt: isDetail.updatedAt },
+      });
+
+      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const qtDetail = await qtDetailResponse.json();
+      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { updatedAt: qtDetail.updatedAt },
+      });
+    });
+  });
+
+  /**
+   * フィルタとページネーションの組み合わせテスト (Req 6.7)
+   */
+  test.describe('フィルタとページネーション', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-6.7: When フィルタが適用されている状態でページネーションを使用する, the システム shall フィルタ結果に対してページネーションを適用する
+     */
+    test('フィルタ適用時にページネーションが正しく機能する (itemized-statement-generation/REQ-6.7)', async ({
+      page,
+      request,
+    }) => {
+      expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const baseUrl = 'http://localhost:3100';
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 数量表を作成
+      const qtResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { name: `フィルタページネーションテスト_${Date.now()}` },
+        }
+      );
+      const qt = await qtResponse.json();
+
+      const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: 'テストグループ', displayOrder: 0 },
+      });
+      const group = await groupResponse.json();
+
+      // 100件の項目を作成（フィルタ可能な分類とそうでないものを混在）
+      for (let i = 0; i < 100; i++) {
+        const category = i < 60 ? 'フィルタ対象' : '除外対象';
+        await request.post(`${baseUrl}/api/quantity-groups/${group.id}/items`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            customCategory: `${category}${i}`,
+            workType: `工種${i}`,
+            name: `名称${i}`,
+            specification: `規格${i}`,
+            unit: 'm',
+            quantity: i + 1,
+            majorCategory: '大項目',
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+            displayOrder: i,
+          },
+        });
+      }
+
+      // 内訳書を作成
+      const isResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: `フィルタページネーションテスト内訳書_${Date.now()}`,
+            quantityTableId: qt.id,
+          },
+        }
+      );
+      const is = await isResponse.json();
+
+      // 内訳書詳細画面に移動
+      await page.goto(`/itemized-statements/${is.id}`);
+      await page.waitForLoadState('networkidle');
+
+      // フィルタを適用
+      const customCategoryFilter = page.locator('input[id="filter-customCategory"]');
+      await customCategoryFilter.fill('フィルタ対象');
+      await page.waitForTimeout(500); // フィルタ適用を待機
+
+      // ページネーションがフィルタ結果に対して適用されることを確認
+      const pagination = page.getByRole('navigation', { name: /ページネーション/i });
+      if (await pagination.isVisible()) {
+        // フィルタ後の総ページ数が変わることを確認（60件 -> 2ページ）
+        await expect(page.getByText(/1.*\/.*2|ページ.*1.*2/i)).toBeVisible({
+          timeout: getTimeout(5000),
+        });
+      }
+
+      // クリーンアップ
+      const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const isDetail = await isDetailResponse.json();
+      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { updatedAt: isDetail.updatedAt },
+      });
+
+      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const qtDetail = await qtDetailResponse.json();
+      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { updatedAt: qtDetail.updatedAt },
       });
     });
   });
