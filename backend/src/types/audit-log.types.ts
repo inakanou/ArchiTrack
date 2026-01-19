@@ -155,7 +155,11 @@ export type AuditLogAction =
   | 'QUANTITY_ITEM_UPDATED'
   | 'QUANTITY_ITEM_DELETED'
   | 'QUANTITY_ITEM_COPIED'
-  | 'QUANTITY_ITEM_MOVED';
+  | 'QUANTITY_ITEM_MOVED'
+  // 内訳書管理
+  | 'ITEMIZED_STATEMENT_CREATED'
+  | 'ITEMIZED_STATEMENT_UPDATED'
+  | 'ITEMIZED_STATEMENT_DELETED';
 
 /**
  * 取引先管理の監査ログアクション一覧
@@ -256,6 +260,26 @@ export type QuantityItemAuditAction = (typeof QUANTITY_ITEM_AUDIT_ACTIONS)[numbe
  * 数量項目監査ログのターゲットタイプ定数
  */
 export const QUANTITY_ITEM_TARGET_TYPE = 'QuantityItem' as const;
+
+/**
+ * 内訳書管理の監査ログアクション一覧
+ * ItemizedStatementServiceとの連携で使用
+ */
+export const ITEMIZED_STATEMENT_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'ITEMIZED_STATEMENT_CREATED',
+  'ITEMIZED_STATEMENT_UPDATED',
+  'ITEMIZED_STATEMENT_DELETED',
+] as const;
+
+/**
+ * 内訳書監査ログアクション型（サブセット）
+ */
+export type ItemizedStatementAuditAction = (typeof ITEMIZED_STATEMENT_AUDIT_ACTIONS)[number];
+
+/**
+ * 内訳書監査ログのターゲットタイプ定数
+ */
+export const ITEMIZED_STATEMENT_TARGET_TYPE = 'ItemizedStatement' as const;
 
 /**
  * 監査ログエラー種別

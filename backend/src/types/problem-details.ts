@@ -95,4 +95,5 @@ export const PROBLEM_TYPES = {
   INVALID_CREDENTIALS: 'https://api.architrack.com/errors/invalid-credentials',
   TOKEN_EXPIRED: 'https://api.architrack.com/errors/token-expired',
   PROJECT_NAME_DUPLICATE: 'https://api.architrack.com/errors/project-name-duplicate',
+  BUSINESS_RULE_VIOLATION: 'https://api.architrack.com/errors/business-rule-violation',
 } as const;
