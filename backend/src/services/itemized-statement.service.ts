@@ -62,6 +62,7 @@ export interface ItemizedStatementInfo {
   name: string;
   sourceQuantityTableId: string;
   sourceQuantityTableName: string;
+  itemCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -245,7 +246,7 @@ export class ItemizedStatementService {
         },
       });
 
-      return this.toItemizedStatementInfo(itemizedStatement);
+      return this.toItemizedStatementInfo(itemizedStatement, aggregationResult.items.length);
     });
   }
 
@@ -314,6 +315,11 @@ export class ItemizedStatementService {
         orderBy: { [sort.sort]: sort.order },
         skip: (pagination.page - 1) * pagination.limit,
         take: pagination.limit,
+        include: {
+          _count: {
+            select: { items: true },
+          },
+        },
       }),
       this.prisma.itemizedStatement.count({ where }),
     ]);
@@ -350,6 +356,11 @@ export class ItemizedStatementService {
         },
         orderBy: { createdAt: 'desc' },
         take: limit,
+        include: {
+          _count: {
+            select: { items: true },
+          },
+        },
       }),
       this.prisma.itemizedStatement.count({
         where: {
@@ -498,6 +509,11 @@ export class ItemizedStatementService {
       const updatedStatement = await tx.itemizedStatement.update({
         where: { id },
         data: { name: newName.trim() },
+        include: {
+          _count: {
+            select: { items: true },
+          },
+        },
       });
 
       // 5. 監査ログの記録
@@ -517,21 +533,26 @@ export class ItemizedStatementService {
   /**
    * データベースの結果をItemizedStatementInfoに変換
    */
-  private toItemizedStatementInfo(statement: {
-    id: string;
-    projectId: string;
-    name: string;
-    sourceQuantityTableId: string;
-    sourceQuantityTableName: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }): ItemizedStatementInfo {
+  private toItemizedStatementInfo(
+    statement: {
+      id: string;
+      projectId: string;
+      name: string;
+      sourceQuantityTableId: string;
+      sourceQuantityTableName: string;
+      createdAt: Date;
+      updatedAt: Date;
+      _count?: { items: number };
+    },
+    itemCount?: number
+  ): ItemizedStatementInfo {
     return {
       id: statement.id,
       projectId: statement.projectId,
       name: statement.name,
       sourceQuantityTableId: statement.sourceQuantityTableId,
       sourceQuantityTableName: statement.sourceQuantityTableName,
+      itemCount: itemCount ?? statement._count?.items ?? 0,
       createdAt: statement.createdAt,
       updatedAt: statement.updatedAt,
     };

@@ -1011,10 +1011,17 @@ test.describe('内訳書CRUD操作', () => {
       const loginBody = await loginResponse.json();
       const accessToken = loginBody.accessToken;
 
+      // ユーザー情報を取得（salesPersonId用）
+      const meResponse = await request.get(`${baseUrl}/api/v1/auth/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const meBody = await meResponse.json();
+      const userId = meBody.id;
+
       const projectName = `一覧表示テスト_${Date.now()}`;
       const createProjectResponse = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: projectName },
+        data: { name: projectName, salesPersonId: userId },
       });
       const newProject = await createProjectResponse.json();
 
@@ -1572,8 +1579,9 @@ test.describe('内訳書CRUD操作', () => {
       const submitButton = createForm.getByRole('button', { name: /^作成$/i });
       await submitButton.click();
 
-      // ローディング中はボタンが無効化されている
-      await expect(submitButton).toBeDisabled({ timeout: getTimeout(1000) });
+      // ローディング中はボタンが無効化されている（ボタンテキストが「作成中...」に変わる）
+      const loadingButton = createForm.getByRole('button', { name: /作成中/i });
+      await expect(loadingButton).toBeDisabled({ timeout: getTimeout(1000) });
 
       // キャンセルボタンも無効化されている
       const cancelButton = createForm.getByRole('button', { name: /キャンセル/i });
