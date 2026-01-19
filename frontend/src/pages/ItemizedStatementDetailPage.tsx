@@ -3,6 +3,7 @@
  *
  * Task 7.1, 7.2: 内訳書詳細画面の実装
  * Task 8: 内訳項目のソート機能実装
+ * Task 9: 内訳項目のフィルタリング機能実装
  *
  * Requirements:
  * - 4.1: 集計結果をテーブル形式で表示する
@@ -19,6 +20,13 @@
  * - 5.3: 同じカラムヘッダーを再度クリックした場合に降順ソートに切り替える
  * - 5.4: ソートが適用されているカラムヘッダーに現在のソート方向を示すアイコンを表示する
  * - 5.5: デフォルトのソート順として任意分類・工種・名称・規格の優先度で昇順を適用する
+ * - 6.1: フィルタ入力エリアを内訳書詳細画面に配置する
+ * - 6.2: フィルタは「任意分類」「工種」「名称」「規格」「単位」の全カラムに対応する
+ * - 6.3: フィルタに値を入力すると該当カラムで部分一致する項目のみを表示する
+ * - 6.4: 複数のフィルタが設定されている場合に全条件をAND結合して絞り込む
+ * - 6.5: フィルタ結果が0件の場合に「該当する項目はありません」メッセージを表示する
+ * - 6.6: クリアボタンで全フィルタを一括解除できる
+ * - 6.7: フィルタが適用されている状態でページネーションを使用する場合、フィルタ結果に対してページネーションを適用する
  * - 8.4: 集計元の数量表名を参照情報として表示する
  * - 9.1: パンくずナビゲーションを表示する
  * - 9.2: パンくずを「プロジェクト一覧 > {プロジェクト名} > 内訳書 > {内訳書名}」形式で表示する
@@ -60,6 +68,18 @@ interface ColumnDefinition {
   isQuantity?: boolean;
 }
 
+/** フィルタ可能なカラム (数量以外) */
+type FilterColumn = 'customCategory' | 'workType' | 'name' | 'specification' | 'unit';
+
+/** フィルタ状態 */
+interface FilterState {
+  customCategory: string;
+  workType: string;
+  name: string;
+  specification: string;
+  unit: string;
+}
+
 // ============================================================================
 // 定数定義
 // ============================================================================
@@ -76,6 +96,24 @@ const COLUMNS: ColumnDefinition[] = [
   { key: 'quantity', label: '数量', isQuantity: true },
   { key: 'unit', label: '単位' },
 ];
+
+/** フィルタ可能なカラム定義（数量以外） */
+const FILTER_COLUMNS: { key: FilterColumn; label: string }[] = [
+  { key: 'customCategory', label: '任意分類' },
+  { key: 'workType', label: '工種' },
+  { key: 'name', label: '名称' },
+  { key: 'specification', label: '規格' },
+  { key: 'unit', label: '単位' },
+];
+
+/** フィルタの初期値 */
+const INITIAL_FILTER_STATE: FilterState = {
+  customCategory: '',
+  workType: '',
+  name: '',
+  specification: '',
+  unit: '',
+};
 
 // ============================================================================
 // スタイル定義
@@ -267,6 +305,66 @@ const styles = {
     padding: '48px 24px',
     color: '#6b7280',
   } as React.CSSProperties,
+  filterContainer: {
+    backgroundColor: '#f9fafb',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px',
+    border: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  filterHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '12px',
+  } as React.CSSProperties,
+  filterTitle: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#374151',
+  } as React.CSSProperties,
+  filterGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+    gap: '12px',
+  } as React.CSSProperties,
+  filterField: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '4px',
+  } as React.CSSProperties,
+  filterLabel: {
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#6b7280',
+  } as React.CSSProperties,
+  filterInput: {
+    padding: '8px 12px',
+    fontSize: '14px',
+    border: '1px solid #d1d5db',
+    borderRadius: '6px',
+    backgroundColor: '#ffffff',
+    outline: 'none',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+  } as React.CSSProperties,
+  clearButton: {
+    padding: '6px 12px',
+    fontSize: '12px',
+    fontWeight: '500',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#6b7280',
+    border: '1px solid #d1d5db',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  noResults: {
+    textAlign: 'center' as const,
+    padding: '48px 24px',
+    color: '#6b7280',
+    backgroundColor: '#f9fafb',
+    borderRadius: '8px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -362,9 +460,83 @@ function applySingleColumnSort(
   });
 }
 
+/**
+ * フィルタを適用
+ * @param items - フィルタ対象の項目配列
+ * @param filters - フィルタ状態
+ * @returns フィルタ後の項目配列
+ */
+function applyFilters(
+  items: ItemizedStatementItemInfo[],
+  filters: FilterState
+): ItemizedStatementItemInfo[] {
+  return items.filter((item) => {
+    // 各フィルタ条件をAND結合
+    for (const column of FILTER_COLUMNS) {
+      const filterValue = filters[column.key].toLowerCase();
+      if (filterValue === '') continue; // 空のフィルタはスキップ
+
+      const itemValue = item[column.key];
+      // null値はフィルタにマッチしない
+      if (itemValue === null) return false;
+
+      // 部分一致（大文字小文字を区別しない）
+      if (!itemValue.toLowerCase().includes(filterValue)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
 // ============================================================================
 // サブコンポーネント
 // ============================================================================
+
+/**
+ * フィルタ入力エリア (Req 6.1, 6.2, 6.6)
+ */
+interface FilterAreaProps {
+  filters: FilterState;
+  onFilterChange: (column: FilterColumn, value: string) => void;
+  onClear: () => void;
+}
+
+function FilterArea({ filters, onFilterChange, onClear }: FilterAreaProps) {
+  return (
+    <section role="region" aria-label="フィルタ" style={styles.filterContainer}>
+      <div style={styles.filterHeader}>
+        <span style={styles.filterTitle}>フィルタ</span>
+        <button
+          type="button"
+          onClick={onClear}
+          style={styles.clearButton}
+          aria-label="フィルタをクリア"
+        >
+          クリア
+        </button>
+      </div>
+      <div style={styles.filterGrid}>
+        {FILTER_COLUMNS.map((column) => (
+          <div key={column.key} style={styles.filterField}>
+            <label htmlFor={`filter-${column.key}`} style={styles.filterLabel}>
+              {column.label}
+            </label>
+            <input
+              id={`filter-${column.key}`}
+              type="text"
+              value={filters[column.key]}
+              onChange={(e) => onFilterChange(column.key, e.target.value)}
+              placeholder={`${column.label}で絞り込み`}
+              style={styles.filterInput}
+              aria-label={column.label}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /**
  * ソート可能なカラムヘッダー
@@ -538,6 +710,9 @@ export default function ItemizedStatementDetailPage() {
     direction: 'asc',
   });
 
+  // フィルタ状態 (Req 6.1, 6.2)
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTER_STATE);
+
   /**
    * 内訳書詳細データを取得
    */
@@ -566,18 +741,24 @@ export default function ItemizedStatementDetailPage() {
     fetchStatement();
   }, [fetchStatement]);
 
-  // ソート済み項目（Req 5.2, 5.3, 5.5）
-  const sortedItems = useMemo(() => {
+  // フィルタ済み項目 (Req 6.3, 6.4)
+  const filteredItems = useMemo(() => {
     if (!statement) return [];
+    return applyFilters(statement.items, filters);
+  }, [statement, filters]);
+
+  // ソート済み項目（Req 5.2, 5.3, 5.5）- フィルタ後の項目に対してソート
+  const sortedItems = useMemo(() => {
+    if (filteredItems.length === 0) return [];
 
     if (sortState.column === null) {
       // デフォルトソート（Req 5.5）
-      return applyDefaultSort(statement.items);
+      return applyDefaultSort(filteredItems);
     }
 
     // 単一カラムソート（Req 5.2, 5.3）
-    return applySingleColumnSort(statement.items, sortState.column, sortState.direction);
-  }, [statement, sortState]);
+    return applySingleColumnSort(filteredItems, sortState.column, sortState.direction);
+  }, [filteredItems, sortState]);
 
   // ページネーション計算
   const totalPages = useMemo(() => {
@@ -615,6 +796,22 @@ export default function ItemizedStatementDetailPage() {
       };
     });
     // ソート変更時はページを1に戻さない（現在のページを維持）
+  }, []);
+
+  // フィルタ変更ハンドラ (Req 6.3)
+  const handleFilterChange = useCallback((column: FilterColumn, value: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      [column]: value,
+    }));
+    // フィルタ変更時はページを1に戻す
+    setCurrentPage(1);
+  }, []);
+
+  // フィルタクリアハンドラ (Req 6.6)
+  const handleClearFilters = useCallback(() => {
+    setFilters(INITIAL_FILTER_STATE);
+    setCurrentPage(1);
   }, []);
 
   // ローディング表示
@@ -685,7 +882,7 @@ export default function ItemizedStatementDetailPage() {
         </div>
       </div>
 
-      {/* 内訳項目テーブル (Req 4.1, 4.2, 4.3, 4.6, 5.1-5.5) */}
+      {/* 内訳項目テーブル (Req 4.1, 4.2, 4.3, 4.6, 5.1-5.5, 6.1-6.7) */}
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>内訳項目 ({statement.itemCount}件)</h2>
         {statement.items.length === 0 ? (
@@ -694,20 +891,35 @@ export default function ItemizedStatementDetailPage() {
           </div>
         ) : (
           <>
-            <ItemsTable
-              items={sortedItems}
-              currentPage={currentPage}
-              pageSize={PAGE_SIZE}
-              sortState={sortState}
-              onSort={handleSort}
+            {/* フィルタエリア (Req 6.1, 6.2, 6.6) */}
+            <FilterArea
+              filters={filters}
+              onFilterChange={handleFilterChange}
+              onClear={handleClearFilters}
             />
-            {/* ページネーション (Req 4.7, 4.8, 4.9) */}
-            {showPagination && (
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={handlePageChange}
-              />
+            {/* フィルタ結果が0件の場合 (Req 6.5) */}
+            {sortedItems.length === 0 ? (
+              <div style={styles.noResults}>
+                <p>該当する項目はありません</p>
+              </div>
+            ) : (
+              <>
+                <ItemsTable
+                  items={sortedItems}
+                  currentPage={currentPage}
+                  pageSize={PAGE_SIZE}
+                  sortState={sortState}
+                  onSort={handleSort}
+                />
+                {/* ページネーション (Req 4.7, 4.8, 4.9, 6.7) */}
+                {showPagination && (
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
+                  />
+                )}
+              </>
             )}
           </>
         )}
