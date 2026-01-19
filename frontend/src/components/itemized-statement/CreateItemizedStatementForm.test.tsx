@@ -447,9 +447,11 @@ describe('CreateItemizedStatementForm', () => {
       const user = userEvent.setup();
 
       const mockOnSubmitWithDuplicateError = vi.fn().mockRejectedValue({
-        status: 409,
-        code: 'DUPLICATE_ITEMIZED_STATEMENT_NAME',
-        detail: '同名の内訳書が既に存在します',
+        response: {
+          status: 409,
+          code: 'DUPLICATE_ITEMIZED_STATEMENT_NAME',
+          detail: '同名の内訳書が既に存在します',
+        },
       });
 
       render(
@@ -480,9 +482,11 @@ describe('CreateItemizedStatementForm', () => {
       const user = userEvent.setup();
 
       const mockOnSubmitWithOverflowError = vi.fn().mockRejectedValue({
-        status: 422,
-        code: 'QUANTITY_OVERFLOW',
-        detail: '数量の合計が許容範囲を超えています',
+        response: {
+          status: 422,
+          code: 'QUANTITY_OVERFLOW',
+          detail: '数量の合計が許容範囲を超えています',
+        },
       });
 
       render(
@@ -513,9 +517,11 @@ describe('CreateItemizedStatementForm', () => {
       const user = userEvent.setup();
 
       const mockOnSubmitWithEmptyItemsError = vi.fn().mockRejectedValue({
-        status: 400,
-        code: 'EMPTY_QUANTITY_ITEMS',
-        detail: '選択された数量表に項目がありません',
+        response: {
+          status: 400,
+          code: 'EMPTY_QUANTITY_ITEMS',
+          detail: '選択された数量表に項目がありません',
+        },
       });
 
       render(
