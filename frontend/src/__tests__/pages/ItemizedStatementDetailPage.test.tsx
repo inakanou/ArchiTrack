@@ -82,13 +82,15 @@ const mockStatementDetail: ItemizedStatementDetail = {
 };
 
 // 50件を超える項目を持つモックデータ
+// ゼロパディングを使用して、デフォルトソート後も数値順序を維持
 function createManyItems(count: number): ItemizedStatementItemInfo[] {
+  const padLength = String(count).length;
   return Array.from({ length: count }, (_, index) => ({
     id: `item-${index + 1}`,
-    customCategory: `分類${index + 1}`,
-    workType: `工種${index + 1}`,
-    name: `名称${index + 1}`,
-    specification: `規格${index + 1}`,
+    customCategory: `分類${String(index + 1).padStart(padLength, '0')}`,
+    workType: `工種${String(index + 1).padStart(padLength, '0')}`,
+    name: `名称${String(index + 1).padStart(padLength, '0')}`,
+    specification: `規格${String(index + 1).padStart(padLength, '0')}`,
     unit: '個',
     quantity: index + 1,
   }));
@@ -407,15 +409,16 @@ describe('ItemizedStatementDetailPage', () => {
 
         renderWithRouter();
 
+        // 1ページ目の項目が表示される（ゼロパディング対応）
         await waitFor(() => {
-          expect(screen.getByText('名称1')).toBeInTheDocument();
+          expect(screen.getByText('名称01')).toBeInTheDocument();
         });
 
         // 次のページへ
         const nextButton = screen.getByRole('button', { name: /次へ/ });
         await user.click(nextButton);
 
-        // 2ページ目の項目が表示される
+        // 2ページ目の項目が表示される（ゼロパディング対応）
         await waitFor(() => {
           expect(screen.getByText('名称51')).toBeInTheDocument();
         });

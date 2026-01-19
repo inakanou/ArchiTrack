@@ -2,6 +2,7 @@
  * @fileoverview 内訳書詳細ページ
  *
  * Task 7.1, 7.2: 内訳書詳細画面の実装
+ * Task 8: 内訳項目のソート機能実装
  *
  * Requirements:
  * - 4.1: 集計結果をテーブル形式で表示する
@@ -13,6 +14,11 @@
  * - 4.7: 内訳項目が50件を超える場合はページネーションを表示する
  * - 4.8: ページネーションは1ページあたり50件の項目を表示する
  * - 4.9: ページネーションは現在のページ番号と総ページ数を表示する
+ * - 5.1: 各カラムヘッダーにソートボタンを表示する
+ * - 5.2: カラムヘッダークリック時に該当カラムで昇順ソートを適用する
+ * - 5.3: 同じカラムヘッダーを再度クリックした場合に降順ソートに切り替える
+ * - 5.4: ソートが適用されているカラムヘッダーに現在のソート方向を示すアイコンを表示する
+ * - 5.5: デフォルトのソート順として任意分類・工種・名称・規格の優先度で昇順を適用する
  * - 8.4: 集計元の数量表名を参照情報として表示する
  * - 9.1: パンくずナビゲーションを表示する
  * - 9.2: パンくずを「プロジェクト一覧 > {プロジェクト名} > 内訳書 > {内訳書名}」形式で表示する
@@ -32,11 +38,44 @@ import type {
 } from '../types/itemized-statement.types';
 
 // ============================================================================
+// 型定義
+// ============================================================================
+
+/** ソート可能なカラム */
+type SortColumn = 'customCategory' | 'workType' | 'name' | 'specification' | 'unit' | 'quantity';
+
+/** ソート方向 */
+type SortDirection = 'asc' | 'desc';
+
+/** ソート状態（nullはデフォルトソート） */
+interface SortState {
+  column: SortColumn | null;
+  direction: SortDirection;
+}
+
+/** カラム定義 */
+interface ColumnDefinition {
+  key: SortColumn;
+  label: string;
+  isQuantity?: boolean;
+}
+
+// ============================================================================
 // 定数定義
 // ============================================================================
 
 /** ページあたりの項目数 */
 const PAGE_SIZE = 50;
+
+/** カラム定義一覧 */
+const COLUMNS: ColumnDefinition[] = [
+  { key: 'customCategory', label: '任意分類' },
+  { key: 'workType', label: '工種' },
+  { key: 'name', label: '名称' },
+  { key: 'specification', label: '規格' },
+  { key: 'quantity', label: '数量', isQuantity: true },
+  { key: 'unit', label: '単位' },
+];
 
 // ============================================================================
 // スタイル定義
@@ -134,9 +173,15 @@ const styles = {
     backgroundColor: '#f9fafb',
     borderBottom: '2px solid #e5e7eb',
     whiteSpace: 'nowrap' as const,
+    cursor: 'pointer',
+    userSelect: 'none' as const,
   } as React.CSSProperties,
   thQuantity: {
     textAlign: 'right' as const,
+  } as React.CSSProperties,
+  sortIcon: {
+    marginLeft: '4px',
+    fontSize: '10px',
   } as React.CSSProperties,
   td: {
     padding: '12px 16px',
@@ -248,9 +293,111 @@ function formatQuantity(quantity: number): string {
   return quantity.toFixed(2);
 }
 
+/**
+ * 文字列比較（null値は末尾に配置）
+ * @param a - 比較対象1
+ * @param b - 比較対象2
+ * @param direction - ソート方向
+ */
+function compareStrings(a: string | null, b: string | null, direction: SortDirection): number {
+  // null値は常に末尾に配置
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+
+  const result = a.localeCompare(b, 'ja');
+  return direction === 'asc' ? result : -result;
+}
+
+/**
+ * 数値比較
+ * @param a - 比較対象1
+ * @param b - 比較対象2
+ * @param direction - ソート方向
+ */
+function compareNumbers(a: number, b: number, direction: SortDirection): number {
+  const result = a - b;
+  return direction === 'asc' ? result : -result;
+}
+
+/**
+ * デフォルトソート（任意分類 > 工種 > 名称 > 規格 の優先度で昇順）
+ * @param items - ソート対象の項目配列
+ */
+function applyDefaultSort(items: ItemizedStatementItemInfo[]): ItemizedStatementItemInfo[] {
+  return [...items].sort((a, b) => {
+    // 任意分類で比較
+    const customCategoryResult = compareStrings(a.customCategory, b.customCategory, 'asc');
+    if (customCategoryResult !== 0) return customCategoryResult;
+
+    // 工種で比較
+    const workTypeResult = compareStrings(a.workType, b.workType, 'asc');
+    if (workTypeResult !== 0) return workTypeResult;
+
+    // 名称で比較
+    const nameResult = compareStrings(a.name, b.name, 'asc');
+    if (nameResult !== 0) return nameResult;
+
+    // 規格で比較
+    return compareStrings(a.specification, b.specification, 'asc');
+  });
+}
+
+/**
+ * 単一カラムでソート
+ * @param items - ソート対象の項目配列
+ * @param column - ソートカラム
+ * @param direction - ソート方向
+ */
+function applySingleColumnSort(
+  items: ItemizedStatementItemInfo[],
+  column: SortColumn,
+  direction: SortDirection
+): ItemizedStatementItemInfo[] {
+  return [...items].sort((a, b) => {
+    if (column === 'quantity') {
+      return compareNumbers(a.quantity, b.quantity, direction);
+    }
+    return compareStrings(a[column], b[column], direction);
+  });
+}
+
 // ============================================================================
 // サブコンポーネント
 // ============================================================================
+
+/**
+ * ソート可能なカラムヘッダー
+ */
+interface SortableHeaderProps {
+  column: ColumnDefinition;
+  sortState: SortState;
+  onSort: (column: SortColumn) => void;
+}
+
+function SortableHeader({ column, sortState, onSort }: SortableHeaderProps) {
+  const isActive = sortState.column === column.key;
+  const sortIcon = isActive ? (sortState.direction === 'asc' ? '▲' : '▼') : '';
+
+  const handleClick = useCallback(() => {
+    onSort(column.key);
+  }, [column.key, onSort]);
+
+  return (
+    <th
+      style={{
+        ...styles.th,
+        ...(column.isQuantity ? styles.thQuantity : {}),
+      }}
+      role="columnheader"
+      onClick={handleClick}
+      aria-sort={isActive ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      {column.label}
+      {sortIcon && <span style={styles.sortIcon}>{sortIcon}</span>}
+    </th>
+  );
+}
 
 /**
  * 内訳項目テーブル
@@ -259,9 +406,11 @@ interface ItemsTableProps {
   items: ItemizedStatementItemInfo[];
   currentPage: number;
   pageSize: number;
+  sortState: SortState;
+  onSort: (column: SortColumn) => void;
 }
 
-function ItemsTable({ items, currentPage, pageSize }: ItemsTableProps) {
+function ItemsTable({ items, currentPage, pageSize, sortState, onSort }: ItemsTableProps) {
   // ページネーションに基づいて表示する項目を取得
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = startIndex + pageSize;
@@ -271,24 +420,14 @@ function ItemsTable({ items, currentPage, pageSize }: ItemsTableProps) {
     <table style={styles.table} role="table">
       <thead>
         <tr>
-          <th style={styles.th} role="columnheader">
-            任意分類
-          </th>
-          <th style={styles.th} role="columnheader">
-            工種
-          </th>
-          <th style={styles.th} role="columnheader">
-            名称
-          </th>
-          <th style={styles.th} role="columnheader">
-            規格
-          </th>
-          <th style={{ ...styles.th, ...styles.thQuantity }} role="columnheader">
-            数量
-          </th>
-          <th style={styles.th} role="columnheader">
-            単位
-          </th>
+          {COLUMNS.map((column) => (
+            <SortableHeader
+              key={column.key}
+              column={column}
+              sortState={sortState}
+              onSort={onSort}
+            />
+          ))}
         </tr>
       </thead>
       <tbody>
@@ -393,6 +532,12 @@ export default function ItemizedStatementDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
+  // ソート状態（Req 5.5: デフォルトはnullでデフォルトソートを適用）
+  const [sortState, setSortState] = useState<SortState>({
+    column: null,
+    direction: 'asc',
+  });
+
   /**
    * 内訳書詳細データを取得
    */
@@ -421,23 +566,55 @@ export default function ItemizedStatementDetailPage() {
     fetchStatement();
   }, [fetchStatement]);
 
+  // ソート済み項目（Req 5.2, 5.3, 5.5）
+  const sortedItems = useMemo(() => {
+    if (!statement) return [];
+
+    if (sortState.column === null) {
+      // デフォルトソート（Req 5.5）
+      return applyDefaultSort(statement.items);
+    }
+
+    // 単一カラムソート（Req 5.2, 5.3）
+    return applySingleColumnSort(statement.items, sortState.column, sortState.direction);
+  }, [statement, sortState]);
+
   // ページネーション計算
   const totalPages = useMemo(() => {
     if (!statement) return 1;
-    return Math.ceil(statement.items.length / PAGE_SIZE);
-  }, [statement]);
+    return Math.ceil(sortedItems.length / PAGE_SIZE);
+  }, [statement, sortedItems.length]);
 
   // ページネーションが必要かどうか
   const showPagination = useMemo(() => {
     if (!statement) return false;
-    return statement.items.length > PAGE_SIZE;
-  }, [statement]);
+    return sortedItems.length > PAGE_SIZE;
+  }, [statement, sortedItems.length]);
 
   // ページ変更ハンドラ
   const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page);
     // ページ上部にスクロール
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // ソートハンドラ（Req 5.2, 5.3）
+  const handleSort = useCallback((column: SortColumn) => {
+    setSortState((prev) => {
+      if (prev.column === column) {
+        // 同じカラムの場合は方向を切り替え
+        return {
+          column,
+          direction: prev.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+      // 異なるカラムの場合は昇順でソート
+      return {
+        column,
+        direction: 'asc',
+      };
+    });
+    // ソート変更時はページを1に戻さない（現在のページを維持）
   }, []);
 
   // ローディング表示
@@ -508,7 +685,7 @@ export default function ItemizedStatementDetailPage() {
         </div>
       </div>
 
-      {/* 内訳項目テーブル (Req 4.1, 4.2, 4.3, 4.6) */}
+      {/* 内訳項目テーブル (Req 4.1, 4.2, 4.3, 4.6, 5.1-5.5) */}
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>内訳項目 ({statement.itemCount}件)</h2>
         {statement.items.length === 0 ? (
@@ -517,7 +694,13 @@ export default function ItemizedStatementDetailPage() {
           </div>
         ) : (
           <>
-            <ItemsTable items={statement.items} currentPage={currentPage} pageSize={PAGE_SIZE} />
+            <ItemsTable
+              items={sortedItems}
+              currentPage={currentPage}
+              pageSize={PAGE_SIZE}
+              sortState={sortState}
+              onSort={handleSort}
+            />
             {/* ページネーション (Req 4.7, 4.8, 4.9) */}
             {showPagination && (
               <Pagination
