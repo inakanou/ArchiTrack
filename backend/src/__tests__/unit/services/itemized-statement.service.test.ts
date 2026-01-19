@@ -360,6 +360,10 @@ describe('ItemizedStatementService', () => {
         createdAt: new Date('2026-01-19T00:00:00Z'),
         updatedAt: new Date('2026-01-19T00:00:00Z'),
         deletedAt: null,
+        project: {
+          id: 'proj-001',
+          name: 'テストプロジェクト',
+        },
         items: [
           {
             id: 'item-001',
@@ -384,6 +388,7 @@ describe('ItemizedStatementService', () => {
       expect(result).not.toBeNull();
       expect(result!.id).toBe('is-001');
       expect(result!.name).toBe('テスト内訳書');
+      expect(result!.project.name).toBe('テストプロジェクト');
       expect(result!.items).toHaveLength(1);
     });
 
