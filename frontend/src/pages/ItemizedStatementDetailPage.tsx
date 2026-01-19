@@ -4,6 +4,7 @@
  * Task 7.1, 7.2: 内訳書詳細画面の実装
  * Task 8: 内訳項目のソート機能実装
  * Task 9: 内訳項目のフィルタリング機能実装
+ * Task 10: 内訳書削除機能の実装
  *
  * Requirements:
  * - 4.1: 集計結果をテーブル形式で表示する
@@ -27,19 +28,29 @@
  * - 6.5: フィルタ結果が0件の場合に「該当する項目はありません」メッセージを表示する
  * - 6.6: クリアボタンで全フィルタを一括解除できる
  * - 6.7: フィルタが適用されている状態でページネーションを使用する場合、フィルタ結果に対してページネーションを適用する
+ * - 7.1: 内訳書詳細画面で削除ボタンを表示する
+ * - 7.2: 削除ボタンクリック時に確認ダイアログを表示する
+ * - 7.3: 確認ダイアログで削除を確定した場合に論理削除APIを呼び出す
+ * - 7.4: 削除処理中にエラーが発生した場合にエラーメッセージを表示し内訳書を削除しない
  * - 8.4: 集計元の数量表名を参照情報として表示する
  * - 9.1: パンくずナビゲーションを表示する
  * - 9.2: パンくずを「プロジェクト一覧 > {プロジェクト名} > 内訳書 > {内訳書名}」形式で表示する
  * - 9.3: プロジェクト名クリックでプロジェクト詳細画面に遷移する
  * - 9.4: プロジェクト一覧クリックでプロジェクト一覧画面に遷移する
+ * - 10.2: 削除リクエストを受信すると、システムはリクエストのupdatedAtと現在値を比較する
+ * - 10.3: updatedAtが一致しない場合は409 Conflictエラーを返却する
+ * - 10.4: 409エラーが返却されると「他のユーザーにより更新されました。画面を再読み込みしてください」メッセージを表示する
  * - 12.2: 内訳書詳細データの取得中はローディングインジケーターを表示する
+ * - 12.3: 削除処理中はローディングインジケーターを表示する
+ * - 12.4: ローディング中は操作ボタンを無効化する
  * - 12.5: ローディングが完了したらインジケーターを非表示にする
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { getItemizedStatementDetail } from '../api/itemized-statements';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { getItemizedStatementDetail, deleteItemizedStatement } from '../api/itemized-statements';
 import { Breadcrumb } from '../components/common';
+import ItemizedStatementDeleteDialog from '../components/itemized-statement/ItemizedStatementDeleteDialog';
 import type {
   ItemizedStatementDetail,
   ItemizedStatementItemInfo,
@@ -364,6 +375,18 @@ const styles = {
     color: '#6b7280',
     backgroundColor: '#f9fafb',
     borderRadius: '8px',
+  } as React.CSSProperties,
+  deleteErrorContainer: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  deleteErrorText: {
+    color: '#991b1b',
+    fontSize: '14px',
+    margin: 0,
   } as React.CSSProperties,
 };
 
@@ -695,6 +718,7 @@ function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) 
  */
 export default function ItemizedStatementDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   // データ状態
   const [statement, setStatement] = useState<ItemizedStatementDetail | null>(null);
@@ -703,6 +727,11 @@ export default function ItemizedStatementDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+
+  // 削除機能の状態 (Req 7.1, 7.2, 12.3, 12.4)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // ソート状態（Req 5.5: デフォルトはnullでデフォルトソートを適用）
   const [sortState, setSortState] = useState<SortState>({
@@ -814,6 +843,45 @@ export default function ItemizedStatementDetailPage() {
     setCurrentPage(1);
   }, []);
 
+  // 削除ダイアログを開く (Req 7.2)
+  const handleOpenDeleteDialog = useCallback(() => {
+    setDeleteError(null);
+    setIsDeleteDialogOpen(true);
+  }, []);
+
+  // 削除ダイアログを閉じる
+  const handleCloseDeleteDialog = useCallback(() => {
+    if (!isDeleting) {
+      setIsDeleteDialogOpen(false);
+    }
+  }, [isDeleting]);
+
+  // 削除を実行 (Req 7.3, 7.4, 10.4, 12.3, 12.4)
+  const handleConfirmDelete = useCallback(async () => {
+    if (!statement) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await deleteItemizedStatement(statement.id, statement.updatedAt);
+      // 削除成功後にプロジェクト詳細画面に遷移
+      navigate(`/projects/${statement.projectId}`);
+    } catch (err) {
+      // 楽観的排他制御エラー（409）の判定 (Req 10.4)
+      if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
+        setDeleteError('他のユーザーにより更新されました。画面を再読み込みしてください');
+      } else if (err instanceof Error) {
+        setDeleteError(err.message);
+      } else {
+        setDeleteError('削除に失敗しました');
+      }
+      setIsDeleteDialogOpen(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [statement, navigate]);
+
   // ローディング表示
   if (isLoading) {
     return (
@@ -875,12 +943,33 @@ export default function ItemizedStatementDetailPage() {
             <p style={styles.metaInfo}>集計元数量表: {statement.sourceQuantityTableName}</p>
           </div>
           <div style={styles.actionsContainer}>
-            <button type="button" style={styles.deleteButton} aria-label="削除">
+            <button
+              type="button"
+              style={styles.deleteButton}
+              aria-label="削除"
+              onClick={handleOpenDeleteDialog}
+            >
               削除
             </button>
           </div>
         </div>
       </div>
+
+      {/* 削除エラーメッセージ (Req 7.4, 10.4) */}
+      {deleteError && (
+        <div role="alert" style={styles.deleteErrorContainer}>
+          <p style={styles.deleteErrorText}>{deleteError}</p>
+        </div>
+      )}
+
+      {/* 削除確認ダイアログ (Req 7.2, 7.3, 12.3, 12.4) */}
+      <ItemizedStatementDeleteDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={handleCloseDeleteDialog}
+        onConfirm={handleConfirmDelete}
+        statementName={statement.name}
+        isDeleting={isDeleting}
+      />
 
       {/* 内訳項目テーブル (Req 4.1, 4.2, 4.3, 4.6, 5.1-5.5, 6.1-6.7) */}
       <section style={styles.section}>
