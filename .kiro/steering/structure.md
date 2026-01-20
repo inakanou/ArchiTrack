@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-01-17（Steering Sync: E2Eテストカテゴリ追加、依存関係更新）_
+_最終更新: 2026-01-20（Steering Sync: 内訳書作成機能の実装完了を反映）_
 
 ## ルートディレクトリ構成
 
@@ -234,6 +234,10 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全48タスク完了）
   - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ、フィールドバリデーション（文字数制限・数値範囲・表示書式）
 
+- `.kiro/specs/itemized-statement-generation/` - 内訳書作成機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全13タスク完了）
+  - 内容: 内訳書CRUD、数量表項目のピボット集計、分類軸（任意分類・工種・名称・規格・単位）によるグループ化、スナップショット独立性、ソート・フィルタリング・ページネーション、楽観的排他制御
+
 ### `e2e/`
 
 Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可能。
@@ -265,7 +269,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── site-surveys/     # 現場調査テスト（12ファイル）
 │   │   └── *.spec.ts
-│   └── quantity-tables/  # 数量表テスト
+│   ├── quantity-tables/  # 数量表テスト
+│   │   └── *.spec.ts
+│   └── itemized-statements/  # 内訳書テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -294,6 +300,7 @@ e2e/
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
 - `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
 - `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様）
+- `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
 
 **テストヘルパー:**
 
@@ -448,6 +455,9 @@ frontend/
 │   │       ├── CalculationNumericInput.tsx # 計算用数値入力
 │   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
 │   │       └── FieldValidatedItemRow.tsx # バリデーション付き項目行
+│   │   ├── itemized-statement/      # 内訳書コンポーネント
+│   │       ├── CreateItemizedStatementForm.tsx # 内訳書作成フォーム
+│   │       └── ItemizedStatementDeleteDialog.tsx # 削除確認ダイアログ
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
 │   │       └── ResourceNotFound.tsx # リソース未発見表示
@@ -482,7 +492,9 @@ frontend/
 │   │   ├── QuantityTableListPage.tsx # 数量表一覧ページ
 │   │   ├── QuantityTableCreatePage.tsx # 数量表作成ページ
 │   │   ├── QuantityTableEditPage.tsx # 数量表編集ページ
-│   │   └── QuantityTableRedirectPage.tsx # 数量表リダイレクトページ
+│   │   ├── QuantityTableRedirectPage.tsx # 数量表リダイレクトページ
+│   │   ├── ItemizedStatementListPage.tsx # 内訳書一覧ページ
+│   │   └── ItemizedStatementDetailPage.tsx # 内訳書詳細ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数（18ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -581,7 +593,7 @@ frontend/
 
 ```
 frontend/src/
-├── api/               # APIクライアント（8ファイル）
+├── api/               # APIクライアント（9ファイル）
 │   ├── auth.ts        # 認証API
 │   ├── client.ts      # 共通クライアント
 │   ├── projects.ts    # プロジェクトAPI
@@ -589,7 +601,8 @@ frontend/src/
 │   ├── site-surveys.ts # 現場調査API
 │   ├── survey-annotations.ts # 注釈API
 │   ├── survey-images.ts # 調査画像API
-│   └── trading-partners.ts # 取引先API
+│   ├── trading-partners.ts # 取引先API
+│   └── itemized-statements.ts # 内訳書API
 ├── hooks/             # カスタムフック（useMediaQuery.ts、useAuth.ts）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts等）
@@ -668,7 +681,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（19ファイル）
+│   ├── routes/            # ルート定義（20ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -687,13 +700,14 @@ backend/
 │   │   ├── quantity-tables.routes.ts # 数量表ルート（CRUD）
 │   │   ├── quantity-groups.routes.ts # 数量グループルート（CRUD）
 │   │   ├── quantity-items.routes.ts # 数量項目ルート（CRUD、移動）
-│   │   └── autocomplete.routes.ts # オートコンプリートルート（入力支援）
+│   │   ├── autocomplete.routes.ts # オートコンプリートルート（入力支援）
+│   │   └── itemized-statements.routes.ts # 内訳書ルート（CRUD、ピボット集計）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
 │   ├── schemas/           # Zodバリデーションスキーマ
 │   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
-│   ├── services/          # ビジネスロジック（34サービス）
+│   ├── services/          # ビジネスロジック（36サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -727,7 +741,9 @@ backend/
 │   │   ├── quantity-item.service.ts # 数量項目管理（CRUD、移動、コピー）
 │   │   ├── quantity-validation.service.ts # 数量バリデーション（必須項目、計算方法別検証）
 │   │   ├── quantity-field-validation.service.ts # フィールドバリデーション（文字数制限、数値範囲）
-│   │   └── calculation-engine.ts # 計算エンジン（標準、面積体積、ピッチ計算）
+│   │   ├── calculation-engine.ts # 計算エンジン（標準、面積体積、ピッチ計算）
+│   │   ├── itemized-statement.service.ts # 内訳書管理（CRUD、楽観的排他制御）
+│   │   └── itemized-statement-pivot.service.ts # 内訳書ピボット集計（分類軸グループ化）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -909,6 +925,13 @@ backend/src/
 
 **オートコンプリートAPI（autocomplete.routes.ts）:**
 - `GET /api/projects/:projectId/autocomplete/:field`: フィールド別入力候補取得
+
+**内訳書管理API（itemized-statements.routes.ts）:**
+- `GET /api/projects/:projectId/itemized-statements`: 内訳書一覧取得（ページネーション、検索）
+- `GET /api/projects/:projectId/itemized-statements/latest`: プロジェクト詳細用サマリー取得
+- `GET /api/itemized-statements/:id`: 内訳書詳細取得（全項目含む）
+- `POST /api/projects/:projectId/itemized-statements`: 内訳書作成（数量表ピボット集計）
+- `DELETE /api/itemized-statements/:id`: 内訳書論理削除（楽観的排他制御）
 
 **実装済みミドルウェア:**
 
