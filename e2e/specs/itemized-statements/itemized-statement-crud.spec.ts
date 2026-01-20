@@ -44,6 +44,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * 内訳書CRUD機能のE2Eテスト
@@ -152,7 +153,7 @@ test.describe('内訳書CRUD操作', () => {
       expect(testQuantityTableId).toBeTruthy();
 
       // APIを直接使用してグループと項目を作成（UI操作より安定）
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
 
       // APIトークンを取得（ログインAPIから）
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
@@ -599,7 +600,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 重複テスト用に内訳書を先に作成（APIで直接作成）
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -681,7 +682,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 空の数量表を作成（項目なし）
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -786,7 +787,7 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForURL(/\/itemized-statements\/[0-9a-f-]+/);
 
       // APIで先に更新を行い、updatedAtを変更する
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -1023,7 +1024,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // クリーンアップ：作成したプロジェクトを削除
       if (emptyProjectId) {
-        const baseUrl = 'http://localhost:3100';
+        const baseUrl = API_BASE_URL;
         const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
           data: {
             email: 'user@example.com',
@@ -1057,7 +1058,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 空のプロジェクトを作成
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -1435,7 +1436,7 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -1720,7 +1721,7 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -1833,7 +1834,7 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -1944,7 +1945,7 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -2069,7 +2070,7 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -2259,7 +2260,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 内訳書のない新規プロジェクトを作成
-      const baseUrl = 'http://localhost:3100';
+      const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
         data: {
           email: 'user@example.com',
@@ -2313,7 +2314,7 @@ test.describe('内訳書CRUD操作', () => {
     test('テストデータを削除する', async ({ request }) => {
       // テスト用プロジェクトをAPI経由で削除（カスケードで内訳書・数量表も削除される）
       if (testProjectId) {
-        const baseUrl = 'http://localhost:3100';
+        const baseUrl = API_BASE_URL;
 
         // ログインしてアクセストークンを取得
         const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {

@@ -156,18 +156,12 @@ test.describe('数量表CRUD操作', () => {
       expect(createdSurveyId).toBeTruthy();
 
       // 画像をアップロード
-      const fileInput = page.locator('input[type="file"]').first();
-
-      // ファイル入力が存在しない場合、アップロードボタンをクリック
-      if ((await fileInput.count()) === 0) {
-        const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
-        if (await uploadButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await uploadButton.click();
-        }
-      }
+      // ImageUploaderがレンダリングされるまで待機（認証状態のロード完了を待つ）
+      const imageUploader = page.locator('[data-testid="image-uploader"]');
+      await expect(imageUploader).toBeVisible({ timeout: getTimeout(15000) });
 
       // ファイル入力を取得
-      const input = page.locator('input[type="file"]').first();
+      const input = page.locator('[data-testid="file-input"]');
       const inputCount = await input.count();
 
       // ファイル入力が見つからない場合は明示的にエラー（第3原則に従い無効化しない）
