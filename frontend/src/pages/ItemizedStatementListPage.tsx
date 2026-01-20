@@ -12,11 +12,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getItemizedStatements, deleteItemizedStatement } from '../api/itemized-statements';
+import { getQuantityTables } from '../api/quantity-tables';
 import type {
   ItemizedStatementInfo,
   PaginatedItemizedStatements,
 } from '../types/itemized-statement.types';
+import type { QuantityTableInfo } from '../types/quantity-table.types';
 import { Breadcrumb } from '../components/common';
+import { CreateItemizedStatementForm } from '../components/itemized-statement/CreateItemizedStatementForm';
 
 // ============================================================================
 // スタイル定義
@@ -245,6 +248,17 @@ const styles = {
     color: '#ffffff',
     cursor: 'pointer',
   } as React.CSSProperties,
+  formWrapper: {
+    marginBottom: '24px',
+    padding: '24px',
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    border: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  createButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -419,6 +433,7 @@ export default function ItemizedStatementListPage() {
 
   // データ状態
   const [data, setData] = useState<PaginatedItemizedStatements | null>(null);
+  const [quantityTables, setQuantityTables] = useState<QuantityTableInfo[]>([]);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -428,6 +443,7 @@ export default function ItemizedStatementListPage() {
     updatedAt: string;
   } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   /**
    * 内訳書一覧を取得
@@ -440,11 +456,15 @@ export default function ItemizedStatementListPage() {
     setError(null);
 
     try {
-      const result = await getItemizedStatements(projectId, {
-        sort: 'createdAt',
-        order: 'desc',
-      });
-      setData(result);
+      const [statementsResult, tablesResult] = await Promise.all([
+        getItemizedStatements(projectId, {
+          sort: 'createdAt',
+          order: 'desc',
+        }),
+        getQuantityTables(projectId, { limit: 100 }),
+      ]);
+      setData(statementsResult);
+      setQuantityTables(tablesResult.data);
     } catch {
       setError('内訳書の取得に失敗しました');
     } finally {
@@ -497,6 +517,39 @@ export default function ItemizedStatementListPage() {
    */
   const handleCancelDelete = useCallback(() => {
     setStatementToDelete(null);
+  }, []);
+
+  /**
+   * 新規作成フォームを表示
+   */
+  const handleShowCreateForm = useCallback(() => {
+    setShowCreateForm(true);
+  }, []);
+
+  /**
+   * 新規作成フォームをキャンセル
+   */
+  const handleCancelCreate = useCallback(() => {
+    setShowCreateForm(false);
+  }, []);
+
+  /**
+   * 内訳書作成成功時
+   */
+  const handleCreateSuccess = useCallback((newStatement: ItemizedStatementInfo) => {
+    setShowCreateForm(false);
+    // 一覧を再取得して最新状態を反映
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        data: [newStatement, ...prev.data],
+        pagination: {
+          ...prev.pagination,
+          total: prev.pagination.total + 1,
+        },
+      };
+    });
   }, []);
 
   // ローディング表示
@@ -562,7 +615,33 @@ export default function ItemizedStatementListPage() {
           <h1 style={styles.title}>内訳書一覧</h1>
           <p style={styles.subtitle}>全{totalCount}件</p>
         </div>
+        <button
+          type="button"
+          onClick={handleShowCreateForm}
+          disabled={quantityTables.length === 0}
+          style={{
+            ...styles.createButton,
+            ...(quantityTables.length === 0 ? styles.createButtonDisabled : {}),
+          }}
+          aria-label="内訳書を新規作成"
+          title={quantityTables.length === 0 ? '数量表を先に作成してください' : '新規作成'}
+        >
+          <PlusIcon />
+          新規作成
+        </button>
       </div>
+
+      {/* 新規作成フォーム */}
+      {showCreateForm && (
+        <div style={styles.formWrapper}>
+          <CreateItemizedStatementForm
+            projectId={projectId!}
+            quantityTables={quantityTables}
+            onSuccess={handleCreateSuccess}
+            onCancel={handleCancelCreate}
+          />
+        </div>
+      )}
 
       {/* 一覧 */}
       {totalCount === 0 ? (
