@@ -15,9 +15,11 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import ItemizedStatementListPage from '../../pages/ItemizedStatementListPage';
 import * as itemizedStatementsApi from '../../api/itemized-statements';
+import * as quantityTablesApi from '../../api/quantity-tables';
 
 // APIモック
 vi.mock('../../api/itemized-statements');
+vi.mock('../../api/quantity-tables');
 
 // モックデータ
 const mockItemizedStatements = {
@@ -61,6 +63,27 @@ const mockEmptyStatements = {
   },
 };
 
+// 数量表モックデータ
+const mockQuantityTables = {
+  data: [
+    {
+      id: 'qt-1',
+      name: 'テスト数量表',
+      projectId: 'project-123',
+      itemCount: 10,
+      groupCount: 2,
+      createdAt: '2024-01-15T00:00:00.000Z',
+      updatedAt: '2024-01-15T00:00:00.000Z',
+    },
+  ],
+  pagination: {
+    page: 1,
+    limit: 100,
+    total: 1,
+    totalPages: 1,
+  },
+};
+
 // テストヘルパー
 const renderWithRouter = (initialEntry: string) => {
   return render(
@@ -93,6 +116,7 @@ describe('ItemizedStatementListPage', () => {
       mockItemizedStatements
     );
     vi.mocked(itemizedStatementsApi.deleteItemizedStatement).mockResolvedValue(undefined);
+    vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
   });
 
   describe('projectIdがない場合', () => {
