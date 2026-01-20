@@ -1,18 +1,19 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as jose from 'jose';
+import type { CryptoKey } from 'jose';
 import { TokenService } from '../../../services/token.service.js';
 import type { TokenPayload } from '../../../services/token.service.js';
 
 describe('TokenService', () => {
   let tokenService: TokenService;
-  let publicKey: jose.KeyLike;
-  let privateKey: jose.KeyLike;
+  let publicKey: CryptoKey;
+  let privateKey: CryptoKey;
 
   beforeAll(async () => {
-    // EdDSA (Ed25519) 鍵ペアを生成（テスト用）
-    const keyPair = await jose.generateKeyPair('EdDSA');
-    publicKey = keyPair.publicKey;
-    privateKey = keyPair.privateKey;
+    // EdDSA (Ed25519) 鍵ペアを生成（テスト用、jose v6ではextractable: trueが必要）
+    const keyPair = await jose.generateKeyPair('EdDSA', { extractable: true });
+    publicKey = keyPair.publicKey as CryptoKey;
+    privateKey = keyPair.privateKey as CryptoKey;
 
     // 環境変数をモック（Base64エンコードされたJWK形式）
     const publicJwk = await jose.exportJWK(publicKey);

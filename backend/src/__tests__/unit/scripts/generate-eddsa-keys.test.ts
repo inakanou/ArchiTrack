@@ -37,14 +37,14 @@ describe('generate-eddsa-keys script', () => {
       expect(fs.existsSync(scriptPath)).toBe(true);
     });
 
-    it('jose v5を使用していること（package.jsonで確認）', () => {
+    it('jose v6を使用していること（package.jsonで確認）', () => {
       const packageJsonPath = path.join(backendDir, 'package.json');
       const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
 
       // jose依存関係を確認
       expect(packageJson.dependencies.jose).toBeDefined();
-      // バージョンは^5.x.xであること
-      expect(packageJson.dependencies.jose).toMatch(/^\^?5\./);
+      // バージョンは^6.x.xであること
+      expect(packageJson.dependencies.jose).toMatch(/^\^?6\./);
     });
   });
 
