@@ -17,7 +17,7 @@ import { type StyleOptions, DEFAULT_STYLE_OPTIONS } from './style-panel.constant
 
 // 型と定数の再エクスポート（後方互換性のため）
 export type { StyleOptions };
-// eslint-disable-next-line react-refresh/only-export-components
+
 export { DEFAULT_STYLE_OPTIONS };
 
 /**

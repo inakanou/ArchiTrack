@@ -26,9 +26,11 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getProject, getStatusHistory, deleteProject, transitionStatus } from '../api/projects';
 import { getLatestSiteSurveys } from '../api/site-surveys';
 import { getLatestQuantityTables } from '../api/quantity-tables';
+import { getLatestItemizedStatements } from '../api/itemized-statements';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
+import type { ProjectItemizedStatementSummary } from '../types/itemized-statement.types';
 import { useToast } from '../hooks/useToast';
 import type {
   ProjectDetail,
@@ -41,6 +43,7 @@ import StatusTransitionUI from '../components/projects/StatusTransitionUI';
 import DeleteConfirmationDialog from '../components/projects/DeleteConfirmationDialog';
 import { SiteSurveySectionCard } from '../components/projects/SiteSurveySectionCard';
 import { QuantityTableSectionCard } from '../components/projects/QuantityTableSectionCard';
+import { ItemizedStatementSectionCard } from '../components/projects/ItemizedStatementSectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -290,6 +293,9 @@ export default function ProjectDetailPage() {
   const [quantityTableSummary, setQuantityTableSummary] =
     useState<ProjectQuantityTableSummary | null>(null);
   const [isQuantityTableLoading, setIsQuantityTableLoading] = useState(false);
+  const [itemizedStatementSummary, setItemizedStatementSummary] =
+    useState<ProjectItemizedStatementSummary | null>(null);
+  const [isItemizedStatementLoading, setIsItemizedStatementLoading] = useState(false);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -309,6 +315,7 @@ export default function ProjectDetailPage() {
     setIsLoading(true);
     setIsSurveyLoading(true);
     setIsQuantityTableLoading(true);
+    setIsItemizedStatementLoading(true);
     setError(null);
 
     try {
@@ -339,6 +346,17 @@ export default function ProjectDetailPage() {
         setQuantityTableSummary({ totalCount: 0, latestTables: [] });
       } finally {
         setIsQuantityTableLoading(false);
+      }
+
+      // 内訳書サマリー取得（Task 6: Requirements 3.1, 3.2, 3.3, 3.4, 11.1）
+      try {
+        const itemizedStatementData = await getLatestItemizedStatements(id);
+        setItemizedStatementSummary(itemizedStatementData);
+      } catch {
+        // 内訳書の取得に失敗しても、プロジェクト詳細は表示する
+        setItemizedStatementSummary({ totalCount: 0, latestStatements: [] });
+      } finally {
+        setIsItemizedStatementLoading(false);
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -619,6 +637,20 @@ export default function ProjectDetailPage() {
         totalCount={quantityTableSummary?.totalCount ?? 0}
         latestTables={quantityTableSummary?.latestTables ?? []}
         isLoading={isQuantityTableLoading}
+      />
+
+      {/* 内訳書セクション (Task 6, Requirements 3.1, 3.2, 3.3, 3.4, 11.1, 11.2, 11.3, 11.4, 11.5) */}
+      {/* Task 11: 内訳書作成成功時に詳細画面への自動遷移を実装 */}
+      <ItemizedStatementSectionCard
+        projectId={project.id}
+        totalCount={itemizedStatementSummary?.totalCount ?? 0}
+        latestStatements={itemizedStatementSummary?.latestStatements ?? []}
+        quantityTables={quantityTableSummary?.latestTables ?? []}
+        isLoading={isItemizedStatementLoading}
+        onSuccess={(statement) => {
+          // 内訳書作成成功時に作成された内訳書の詳細画面に遷移
+          navigate(`/itemized-statements/${statement.id}`);
+        }}
       />
 
       {/* 関連データ（機能フラグ対応、将来実装予定） */}

@@ -40,7 +40,7 @@ import {
 } from './image-viewer.constants';
 
 // 定数と型の再エクスポート（後方互換性のため）
-// eslint-disable-next-line react-refresh/only-export-components
+
 export { ZOOM_CONSTANTS, ROTATION_CONSTANTS, PAN_CONSTANTS, TOUCH_CONSTANTS };
 export type { RotationAngle, ImageViewerViewState, ImageViewerRef };
 

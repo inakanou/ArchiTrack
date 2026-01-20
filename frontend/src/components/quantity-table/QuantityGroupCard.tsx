@@ -99,6 +99,19 @@ const styles = {
     cursor: 'pointer',
     transition: 'opacity 0.2s',
   } as React.CSSProperties,
+  thumbnailWrapperSmall: {
+    width: '80px',
+    height: '60px',
+    borderRadius: '6px',
+    overflow: 'hidden',
+    flexShrink: 0,
+    backgroundColor: '#f3f4f6',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: 'opacity 0.2s',
+  } as React.CSSProperties,
   thumbnail: {
     width: '100%',
     height: '100%',
@@ -398,7 +411,11 @@ export default function QuantityGroupCard({
       >
         {/* 関連画像 / プレースホルダー（REQ-3.3: オリジナル画像を表示） */}
         <div
-          style={{ ...styles.thumbnailWrapper, position: 'relative' as const, margin: '16px' }}
+          style={{
+            ...(group.surveyImage ? styles.thumbnailWrapper : styles.thumbnailWrapperSmall),
+            position: 'relative' as const,
+            margin: '16px',
+          }}
           onClick={handleImageClick}
           role="button"
           tabIndex={0}
