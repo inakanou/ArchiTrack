@@ -1,4 +1,5 @@
 import * as jose from 'jose';
+import type { CryptoKey } from 'jose';
 import { randomUUID } from 'crypto';
 import { Result, Ok, Err } from '../types/result.js';
 import logger from '../utils/logger.js';
@@ -36,11 +37,11 @@ export type TokenError =
  * 依存関係:
  * - インバウンド: AuthService, authenticate middleware
  * - アウトバウンド: SessionService
- * - 外部: jose v5
+ * - 外部: jose v6
  */
 export class TokenService {
-  private publicKey!: jose.KeyLike;
-  private privateKey!: jose.KeyLike;
+  private publicKey!: CryptoKey;
+  private privateKey!: CryptoKey;
   private accessTokenExpiry: string;
   private refreshTokenExpiry: string;
   private keysInitialized: Promise<void>;
@@ -79,9 +80,9 @@ export class TokenService {
       const publicJwk = JSON.parse(Buffer.from(publicKeyBase64, 'base64').toString('utf-8'));
       const privateJwk = JSON.parse(Buffer.from(privateKeyBase64, 'base64').toString('utf-8'));
 
-      // JWKからKeyLikeオブジェクトに変換
-      this.publicKey = (await jose.importJWK(publicJwk, 'EdDSA')) as jose.KeyLike;
-      this.privateKey = (await jose.importJWK(privateJwk, 'EdDSA')) as jose.KeyLike;
+      // JWKからCryptoKeyオブジェクトに変換
+      this.publicKey = (await jose.importJWK(publicJwk, 'EdDSA')) as CryptoKey;
+      this.privateKey = (await jose.importJWK(privateJwk, 'EdDSA')) as CryptoKey;
 
       logger.info('JWT keys initialized successfully');
     } catch (error) {

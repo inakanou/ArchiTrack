@@ -9,8 +9,8 @@ async function generateEdDSAKeys() {
     console.error('Generating EdDSA (Ed25519) key pair...');
   }
 
-  // EdDSA鍵ペア生成
-  const { publicKey, privateKey } = await jose.generateKeyPair('EdDSA');
+  // EdDSA鍵ペア生成（jose v6ではextractable: trueが必要）
+  const { publicKey, privateKey } = await jose.generateKeyPair('EdDSA', { extractable: true });
 
   // JWK形式でエクスポート
   const publicJWK = await jose.exportJWK(publicKey);

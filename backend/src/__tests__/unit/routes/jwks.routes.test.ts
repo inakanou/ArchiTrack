@@ -28,8 +28,8 @@ describe('JWKS Endpoint', () => {
   });
 
   beforeAll(async () => {
-    // テスト用EdDSA鍵ペアを生成
-    const { publicKey, privateKey } = await jose.generateKeyPair('EdDSA');
+    // テスト用EdDSA鍵ペアを生成（jose v6ではextractable: trueが必要）
+    const { publicKey, privateKey } = await jose.generateKeyPair('EdDSA', { extractable: true });
     const publicJWK = await jose.exportJWK(publicKey);
     const privateJWK = await jose.exportJWK(privateKey);
 
@@ -91,8 +91,10 @@ describe('JWKS Endpoint', () => {
     });
 
     it('should include old public key when JWT_PUBLIC_KEY_OLD is set', async () => {
-      // 旧公開鍵を設定
-      const { publicKey: oldPublicKey } = await jose.generateKeyPair('EdDSA');
+      // 旧公開鍵を設定（jose v6ではextractable: trueが必要）
+      const { publicKey: oldPublicKey } = await jose.generateKeyPair('EdDSA', {
+        extractable: true,
+      });
       const oldPublicJWK = await jose.exportJWK(oldPublicKey);
       oldPublicJWK.kid = 'old-eddsa-key';
       oldPublicJWK.use = 'sig';

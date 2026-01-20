@@ -26,8 +26,8 @@ export async function setup() {
   // 1. 環境変数に既に設定されている場合: そのまま使用（GitHub Secrets, docker-entrypoint.sh, .env）
   // 2. 設定されていない場合: 新しい鍵を生成（ローカル環境用フォールバック）
   if (!process.env.JWT_PUBLIC_KEY || !process.env.JWT_PRIVATE_KEY) {
-    // テスト用JWT鍵を生成
-    const { publicKey, privateKey } = await generateKeyPair('EdDSA');
+    // テスト用JWT鍵を生成（jose v6ではextractable: trueが必要）
+    const { publicKey, privateKey } = await generateKeyPair('EdDSA', { extractable: true });
     const publicJWK = await exportJWK(publicKey);
     const privateJWK = await exportJWK(privateKey);
 
