@@ -2169,28 +2169,175 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
+   * 内訳書一覧画面テスト (Req 3.2, 3.3, 3.4, 3.5, 11.5)
+   */
+  test.describe('内訳書一覧画面', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-11.5: The 内訳書セクション shall 一覧画面へのリンクを表示する
+     * @requirement itemized-statement-generation/REQ-3.2: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     */
+    test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (itemized-statement-generation/REQ-11.5, REQ-3.2)', async ({
+      page,
+    }) => {
+      expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 内訳書セクションの「すべて見る」リンクをクリック
+      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
+      const viewAllLink = itemizedStatementSection.getByRole('link', { name: /すべて見る/i });
+      await expect(viewAllLink).toBeVisible();
+      await viewAllLink.click();
+
+      // 内訳書一覧画面に遷移したことを確認
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/itemized-statements`), {
+        timeout: getTimeout(10000),
+      });
+
+      // 一覧画面が表示されていることを確認
+      await expect(page.getByRole('heading', { name: /内訳書一覧/i })).toBeVisible();
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-3.4: The 内訳書一覧の各行 shall 内訳書名、作成日時、集計元数量表名、合計項目数を表示する
+     */
+    test('内訳書一覧の各行に必要な情報が表示される (itemized-statement-generation/REQ-3.4)', async ({
+      page,
+    }) => {
+      expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/itemized-statements`);
+      await page.waitForLoadState('networkidle');
+
+      // 一覧画面が表示されていることを確認
+      await expect(page.getByRole('heading', { name: /内訳書一覧/i })).toBeVisible();
+
+      // 内訳書カードが存在する場合、必要な情報が表示されているか確認
+      const statementList = page.getByTestId('statement-list');
+      if (await statementList.isVisible()) {
+        // 作成日時の形式（年月日）が表示されていることを確認
+        await expect(page.getByText(/\d{4}年\d{1,2}月\d{1,2}日/)).toBeVisible();
+        // 項目数が表示されていることを確認
+        await expect(page.getByText(/\d+項目/)).toBeVisible();
+      }
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-3.5: When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
+     */
+    test('内訳書行をクリックすると詳細画面に遷移する (itemized-statement-generation/REQ-3.5)', async ({
+      page,
+    }) => {
+      expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/itemized-statements`);
+      await page.waitForLoadState('networkidle');
+
+      // 内訳書カードのリンクをクリック
+      const statementLink = page.getByRole('link', { name: /内訳書詳細を見る/i }).first();
+      if (await statementLink.isVisible()) {
+        await statementLink.click();
+
+        // 詳細画面に遷移したことを確認
+        await expect(page).toHaveURL(/\/itemized-statements\/[0-9a-f-]+/, {
+          timeout: getTimeout(10000),
+        });
+      }
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-3.3: When 内訳書が存在しない場合, the 内訳書セクション shall 「内訳書はまだ作成されていません」メッセージを表示する
+     */
+    test('内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージが表示される (itemized-statement-generation/REQ-3.3)', async ({
+      page,
+      request,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 内訳書のない新規プロジェクトを作成
+      const baseUrl = 'http://localhost:3100';
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // ユーザー情報を取得（salesPersonId用）
+      const meResponse = await request.get(`${baseUrl}/api/v1/auth/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const meBody = await meResponse.json();
+      const userId = meBody.id;
+
+      // 新規プロジェクトを作成
+      const projectResponse = await request.post(`${baseUrl}/api/projects`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: `内訳書なしテスト_${Date.now()}`, salesPersonId: userId },
+      });
+      const project = await projectResponse.json();
+
+      try {
+        // 内訳書一覧画面に移動
+        await page.goto(`/projects/${project.id}/itemized-statements`);
+        await page.waitForLoadState('networkidle');
+
+        // 空状態のメッセージを確認
+        await expect(page.getByText(/内訳書はまだ作成されていません/i)).toBeVisible({
+          timeout: getTimeout(10000),
+        });
+      } finally {
+        // クリーンアップ: プロジェクトを削除
+        const projectDetailResponse = await request.get(`${baseUrl}/api/projects/${project.id}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const projectDetail = await projectDetailResponse.json();
+        await request.delete(`${baseUrl}/api/projects/${project.id}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { updatedAt: projectDetail.updatedAt },
+        });
+      }
+    });
+  });
+
+  /**
    * クリーンアップ
    */
   test.describe('クリーンアップ', () => {
-    test('テストデータを削除する', async ({ page }) => {
-      // テスト用プロジェクトを削除（カスケードで内訳書・数量表も削除される）
+    test('テストデータを削除する', async ({ request }) => {
+      // テスト用プロジェクトをAPI経由で削除（カスケードで内訳書・数量表も削除される）
       if (testProjectId) {
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
+        const baseUrl = 'http://localhost:3100';
 
-        // プロジェクト削除ボタンをクリック
-        const deleteButton = page.getByRole('button', { name: /削除/i });
-        if (await deleteButton.first().isVisible()) {
-          await deleteButton.first().click();
-          const confirmDialog = page.getByRole('dialog');
-          if (await confirmDialog.isVisible()) {
-            const confirmDeleteButton = confirmDialog.getByRole('button', { name: /削除/i });
-            if (await confirmDeleteButton.isVisible()) {
-              await confirmDeleteButton.click();
-              await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-            }
-          }
+        // ログインしてアクセストークンを取得
+        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+          data: {
+            email: 'user@example.com',
+            password: 'Password123!',
+          },
+        });
+        const loginBody = await loginResponse.json();
+        const accessToken = loginBody.accessToken;
+
+        // プロジェクトの最新情報を取得（updatedAt用）
+        const projectResponse = await request.get(`${baseUrl}/api/projects/${testProjectId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (projectResponse.ok()) {
+          const project = await projectResponse.json();
+
+          // プロジェクトを削除
+          await request.delete(`${baseUrl}/api/projects/${testProjectId}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            data: { updatedAt: project.updatedAt },
+          });
         }
       }
     });

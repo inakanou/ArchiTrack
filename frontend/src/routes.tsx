@@ -31,6 +31,7 @@ import QuantityTableCreatePage from './pages/QuantityTableCreatePage';
 import QuantityTableEditPage from './pages/QuantityTableEditPage';
 import QuantityTableRedirectPage from './pages/QuantityTableRedirectPage';
 import ItemizedStatementDetailPage from './pages/ItemizedStatementDetailPage';
+import ItemizedStatementListPage from './pages/ItemizedStatementListPage';
 
 /**
  * アプリケーションのルート設定
@@ -208,6 +209,16 @@ export const routes: RouteObject[] = [
         element: <QuantityTableEditPage />,
       },
 
+      // 内訳書一覧画面（/itemized-statements/:id より先に定義する必要あり）
+      // REQ-3.2: 作成済み内訳書を作成日時の降順で一覧表示する
+      // REQ-3.3: 内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージを表示する
+      // REQ-3.4: 内訳書一覧の各行は内訳書名、作成日時、集計元数量表名、合計項目数を表示する
+      // REQ-3.5: ユーザーが内訳書行をクリックすると内訳書詳細画面に遷移する
+      // REQ-11.5: 内訳書セクションは一覧画面へのリンクを表示する
+      {
+        path: '/projects/:projectId/itemized-statements',
+        element: <ItemizedStatementListPage />,
+      },
       // 内訳書詳細画面
       // REQ-4.1, 4.2, 4.3, 4.4, 4.5: 内訳書詳細表示、内訳項目テーブル
       // REQ-8.4: 集計元数量表名を参照情報として表示
