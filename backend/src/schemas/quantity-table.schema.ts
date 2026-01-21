@@ -378,9 +378,6 @@ export const updateQuantityItemSchema = z.object({
   majorCategory: z
     .string()
     .max(100, QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_TOO_LONG)
-    .refine((val) => val.trim().length > 0, {
-      message: QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_REQUIRED,
-    })
     .nullable()
     .optional(),
 

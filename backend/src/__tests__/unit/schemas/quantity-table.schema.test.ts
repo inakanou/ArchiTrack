@@ -15,7 +15,7 @@ import {
 
 describe('quantity-table.schema', () => {
   describe('updateQuantityItemSchema', () => {
-    describe('majorCategory フィールド（空白トリムバリデーション）', () => {
+    describe('majorCategory フィールド（任意フィールド）', () => {
       it('有効な値を受け入れる', () => {
         const result = updateQuantityItemSchema.safeParse({
           majorCategory: '土工',
@@ -23,30 +23,41 @@ describe('quantity-table.schema', () => {
         expect(result.success).toBe(true);
       });
 
-      it('空白のみの場合エラーになる', () => {
+      // Req: 大項目は必須ではない（フィールド仕様テーブル参照）
+      // デフォルト値は「空白」
+      it('空文字列を受け入れる', () => {
+        const result = updateQuantityItemSchema.safeParse({
+          majorCategory: '',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('空白のみでも受け入れる（必須ではない）', () => {
         const result = updateQuantityItemSchema.safeParse({
           majorCategory: '   ',
         });
-        expect(result.success).toBe(false);
-        if (!result.success) {
-          expect(result.error.issues[0]?.message).toBe(
-            QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_REQUIRED
-          );
-        }
+        expect(result.success).toBe(true);
       });
 
-      it('タブ文字のみの場合エラーになる', () => {
+      it('タブ文字のみでも受け入れる（必須ではない）', () => {
         const result = updateQuantityItemSchema.safeParse({
           majorCategory: '\t\t',
         });
-        expect(result.success).toBe(false);
+        expect(result.success).toBe(true);
       });
 
-      it('改行のみの場合エラーになる', () => {
+      it('改行のみでも受け入れる（必須ではない）', () => {
         const result = updateQuantityItemSchema.safeParse({
           majorCategory: '\n\n',
         });
-        expect(result.success).toBe(false);
+        expect(result.success).toBe(true);
+      });
+
+      it('nullを受け入れる', () => {
+        const result = updateQuantityItemSchema.safeParse({
+          majorCategory: null,
+        });
+        expect(result.success).toBe(true);
       });
     });
 
