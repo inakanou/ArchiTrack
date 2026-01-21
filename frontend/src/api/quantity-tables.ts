@@ -470,3 +470,84 @@ export async function deleteQuantityItem(itemId: string): Promise<void> {
 export async function copyQuantityItem(itemId: string): Promise<QuantityItemDetail> {
   return apiClient.post<QuantityItemDetail>(`/api/quantity-items/${itemId}/copy`, {});
 }
+
+// ============================================================================
+// バルク保存API
+// ============================================================================
+
+/**
+ * バルク保存用の項目入力型
+ */
+export interface BulkSaveItemInput {
+  id: string;
+  majorCategory?: string | null;
+  middleCategory?: string | null;
+  minorCategory?: string | null;
+  customCategory?: string | null;
+  workType?: string;
+  name?: string;
+  specification?: string | null;
+  unit?: string;
+  calculationMethod?: CalculationMethod;
+  calculationParams?: CalculationParams | null;
+  adjustmentFactor?: number;
+  roundingUnit?: number;
+  quantity?: number;
+  remarks?: string | null;
+  displayOrder?: number;
+}
+
+/**
+ * バルク保存用のグループ入力型
+ */
+export interface BulkSaveGroupInput {
+  id: string;
+  items: BulkSaveItemInput[];
+}
+
+/**
+ * バルク保存入力型
+ */
+export interface BulkSaveInput {
+  expectedUpdatedAt: string;
+  groups: BulkSaveGroupInput[];
+}
+
+/**
+ * バルク保存結果型
+ */
+export interface BulkSaveResult {
+  updatedItemCount: number;
+  updatedAt: string;
+}
+
+/**
+ * 数量表のバルク保存
+ *
+ * 数量表内の全項目を1回のリクエストで一括保存する。
+ * 楽観的排他制御は数量表レベルで実施される。
+ *
+ * @param quantityTableId - 数量表ID（UUID）
+ * @param input - バルク保存データ
+ * @returns バルク保存結果
+ * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）、数量表が見つからない（404）、競合（409）
+ *
+ * @example
+ * const result = await bulkSaveQuantityTable('table-id', {
+ *   expectedUpdatedAt: '2025-01-02T00:00:00.000Z',
+ *   groups: [
+ *     {
+ *       id: 'group-id',
+ *       items: [
+ *         { id: 'item-id', name: '更新された名前', displayOrder: 0 }
+ *       ]
+ *     }
+ *   ]
+ * });
+ */
+export async function bulkSaveQuantityTable(
+  quantityTableId: string,
+  input: BulkSaveInput
+): Promise<BulkSaveResult> {
+  return apiClient.put<BulkSaveResult>(`/api/quantity-tables/${quantityTableId}/bulk-save`, input);
+}
