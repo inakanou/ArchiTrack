@@ -75,6 +75,44 @@ const updateQuantityTableRequestSchema = updateQuantityTableSchema.extend({
 });
 
 /**
+ * バルク保存用の項目スキーマ
+ */
+const bulkSaveItemSchema = z.object({
+  id: z.string().uuid('項目IDの形式が不正です'),
+  majorCategory: z.string().max(100).nullable().optional(),
+  middleCategory: z.string().max(100).nullable().optional(),
+  minorCategory: z.string().max(100).nullable().optional(),
+  customCategory: z.string().max(100).nullable().optional(),
+  workType: z.string().max(100).optional(),
+  name: z.string().max(200).optional(),
+  specification: z.string().max(500).nullable().optional(),
+  unit: z.string().max(50).optional(),
+  calculationMethod: z.enum(['STANDARD', 'AREA_VOLUME', 'PITCH']).optional(),
+  calculationParams: z.record(z.string(), z.number()).nullable().optional(),
+  adjustmentFactor: z.number().positive().optional(),
+  roundingUnit: z.number().positive().optional(),
+  quantity: z.number().optional(),
+  remarks: z.string().nullable().optional(),
+  displayOrder: z.number().int().min(0).optional(),
+});
+
+/**
+ * バルク保存用のグループスキーマ
+ */
+const bulkSaveGroupSchema = z.object({
+  id: z.string().uuid('グループIDの形式が不正です'),
+  items: z.array(bulkSaveItemSchema),
+});
+
+/**
+ * バルク保存リクエストボディスキーマ
+ */
+const bulkSaveRequestSchema = z.object({
+  expectedUpdatedAt: z.string().datetime({ message: '日時の形式が不正です' }),
+  groups: z.array(bulkSaveGroupSchema),
+});
+
+/**
  * @swagger
  * /api/projects/{projectId}/quantity-tables:
  *   post:
@@ -509,6 +547,165 @@ router.put(
       logger.info({ userId: actorId, quantityTableId: id }, 'Quantity table updated successfully');
 
       res.json(quantityTable);
+    } catch (error) {
+      if (error instanceof QuantityTableNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/quantity-table-not-found',
+          title: 'Quantity Table Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_NOT_FOUND',
+        });
+        return;
+      }
+      if (error instanceof QuantityTableConflictError) {
+        const conflictDetails = error.details as Record<string, unknown> | undefined;
+        res.status(409).json({
+          type: 'https://architrack.example.com/problems/quantity-table-conflict',
+          title: 'Conflict',
+          status: 409,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_CONFLICT',
+          ...(conflictDetails ?? {}),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/quantity-tables/{id}/bulk-save:
+ *   put:
+ *     summary: 数量表バルク保存
+ *     description: 数量表内の全項目を1回のリクエストで一括保存（楽観的排他制御は数量表レベルで実施）
+ *     tags:
+ *       - Quantity Tables
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 数量表ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - expectedUpdatedAt
+ *               - groups
+ *             properties:
+ *               expectedUpdatedAt:
+ *                 type: string
+ *                 format: date-time
+ *               groups:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           majorCategory:
+ *                             type: string
+ *                           workType:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           unit:
+ *                             type: string
+ *                           quantity:
+ *                             type: number
+ *                           displayOrder:
+ *                             type: integer
+ *     responses:
+ *       200:
+ *         description: バルク保存成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 updatedItemCount:
+ *                   type: integer
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 数量表が見つからない
+ *       409:
+ *         description: 楽観的排他制御エラー（競合）
+ */
+router.put(
+  '/:id/bulk-save',
+  authenticate,
+  requirePermission('quantity_table:update'),
+  validate(quantityTableIdParamSchema, 'params'),
+  validate(bulkSaveRequestSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const actorId = req.user!.userId;
+      const { expectedUpdatedAt, groups } = req.validatedBody as {
+        expectedUpdatedAt: string;
+        groups: Array<{
+          id: string;
+          items: Array<{
+            id: string;
+            majorCategory?: string | null;
+            middleCategory?: string | null;
+            minorCategory?: string | null;
+            customCategory?: string | null;
+            workType?: string;
+            name?: string;
+            specification?: string | null;
+            unit?: string;
+            calculationMethod?: 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+            calculationParams?: Record<string, number> | null;
+            adjustmentFactor?: number;
+            roundingUnit?: number;
+            quantity?: number;
+            remarks?: string | null;
+            displayOrder?: number;
+          }>;
+        }>;
+      };
+
+      const result = await quantityTableService.bulkSave(
+        id,
+        { groups },
+        actorId,
+        new Date(expectedUpdatedAt)
+      );
+
+      logger.info(
+        { userId: actorId, quantityTableId: id, updatedItemCount: result.updatedItemCount },
+        'Quantity table bulk saved successfully'
+      );
+
+      res.json(result);
     } catch (error) {
       if (error instanceof QuantityTableNotFoundError) {
         res.status(404).json({

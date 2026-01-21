@@ -17,10 +17,10 @@ import {
   deleteQuantityGroup,
   updateQuantityGroup,
   createQuantityItem,
-  updateQuantityItem,
   deleteQuantityItem,
   copyQuantityItem,
   updateQuantityTable,
+  bulkSaveQuantityTable,
 } from '../api/quantity-tables';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import type {
@@ -985,11 +985,14 @@ export default function QuantityTableEditPage() {
    * Requirements: 11.1, 11.2
    *
    * ローカル状態の変更をまとめてAPIに保存する。
+   * バルク保存APIを使用して1回のリクエストで全ての変更を保存する。
    */
   const handleSave = useCallback(async () => {
+    if (!quantityTable || !id) return;
+
     // REQ-11.2: 整合性チェック
     const validationErrors: string[] = [];
-    const groups = quantityTable?.groups ?? [];
+    const groups = quantityTable.groups ?? [];
 
     for (const group of groups) {
       for (const item of group.items ?? []) {
@@ -1012,44 +1015,39 @@ export default function QuantityTableEditPage() {
       return;
     }
 
-    // 全ての項目をAPIに保存
+    // バルク保存APIを使用して1回のリクエストで全項目を保存
     setSaveMessage('保存中...');
     setOperationError(null);
 
     try {
-      const savePromises: Promise<void>[] = [];
+      // バルク保存用のデータを構築
+      const bulkSaveData = {
+        expectedUpdatedAt: quantityTable.updatedAt,
+        groups: groups.map((group) => ({
+          id: group.id,
+          items: (group.items ?? []).map((item) => ({
+            id: item.id,
+            majorCategory: item.majorCategory,
+            middleCategory: item.middleCategory,
+            minorCategory: item.minorCategory,
+            customCategory: item.customCategory,
+            workType: item.workType,
+            name: item.name,
+            specification: item.specification,
+            unit: item.unit,
+            calculationMethod: item.calculationMethod,
+            calculationParams: item.calculationParams,
+            adjustmentFactor: item.adjustmentFactor,
+            roundingUnit: item.roundingUnit,
+            quantity: item.quantity,
+            remarks: item.remarks,
+            displayOrder: item.displayOrder,
+          })),
+        })),
+      };
 
-      for (const group of groups) {
-        for (const item of group.items ?? []) {
-          savePromises.push(
-            (async () => {
-              await updateQuantityItem(
-                item.id,
-                {
-                  majorCategory: item.majorCategory,
-                  middleCategory: item.middleCategory,
-                  minorCategory: item.minorCategory,
-                  customCategory: item.customCategory,
-                  workType: item.workType,
-                  name: item.name,
-                  specification: item.specification,
-                  unit: item.unit,
-                  calculationMethod: item.calculationMethod,
-                  calculationParams: item.calculationParams,
-                  adjustmentFactor: item.adjustmentFactor,
-                  roundingUnit: item.roundingUnit,
-                  quantity: item.quantity,
-                  remarks: item.remarks,
-                  displayOrder: item.displayOrder,
-                },
-                item.updatedAt
-              );
-            })()
-          );
-        }
-      }
-
-      await Promise.all(savePromises);
+      // 1回のAPIリクエストで全項目を保存
+      await bulkSaveQuantityTable(id, bulkSaveData);
 
       // 保存後にデータを再取得して最新のupdatedAtを反映
       await fetchQuantityTableDetail();
@@ -1058,11 +1056,18 @@ export default function QuantityTableEditPage() {
       setTimeout(() => {
         setSaveMessage(null);
       }, 3000);
-    } catch {
-      setOperationError('保存に失敗しました。再度お試しください。');
+    } catch (error) {
+      // 競合エラーの場合は特別なメッセージを表示
+      if (error instanceof Error && error.message.includes('競合')) {
+        setOperationError(
+          '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
+        );
+      } else {
+        setOperationError('保存に失敗しました。再度お試しください。');
+      }
       setSaveMessage(null);
     }
-  }, [quantityTable, fetchQuantityTableDetail]);
+  }, [id, quantityTable, fetchQuantityTableDetail]);
 
   // ローディング表示
   if (isLoading) {

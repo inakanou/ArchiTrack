@@ -27,6 +27,7 @@ import {
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
 import { QUANTITY_TABLE_TARGET_TYPE } from '../types/audit-log.types.js';
+import Decimal from 'decimal.js';
 
 /**
  * QuantityTableService依存関係
@@ -189,6 +190,51 @@ export interface ProjectQuantityTableSummary {
   totalCount: number;
   /** 直近N件の数量表 */
   latestTables: QuantityTableInfo[];
+}
+
+/**
+ * バルク保存用の項目更新データ
+ */
+export interface BulkSaveItemInput {
+  id: string;
+  majorCategory?: string | null;
+  middleCategory?: string | null;
+  minorCategory?: string | null;
+  customCategory?: string | null;
+  workType?: string;
+  name?: string;
+  specification?: string | null;
+  unit?: string;
+  calculationMethod?: 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+  calculationParams?: Record<string, number> | null;
+  adjustmentFactor?: number;
+  roundingUnit?: number;
+  quantity?: number;
+  remarks?: string | null;
+  displayOrder?: number;
+}
+
+/**
+ * バルク保存用のグループ更新データ
+ */
+export interface BulkSaveGroupInput {
+  id: string;
+  items: BulkSaveItemInput[];
+}
+
+/**
+ * バルク保存入力
+ */
+export interface BulkSaveInput {
+  groups: BulkSaveGroupInput[];
+}
+
+/**
+ * バルク保存結果
+ */
+export interface BulkSaveResult {
+  updatedItemCount: number;
+  updatedAt: Date;
 }
 
 /**
@@ -605,6 +651,149 @@ export class QuantityTableService {
         groupCount: updatedQuantityTable._count.groups,
         itemCount,
         createdAt: updatedQuantityTable.createdAt,
+        updatedAt: updatedQuantityTable.updatedAt,
+      };
+    });
+  }
+
+  /**
+   * 数量表のバルク保存
+   *
+   * 数量表内の全項目を1つのトランザクションで一括更新する。
+   * これにより、複数のAPIリクエストを1回にまとめ、
+   * 楽観的排他制御を数量表レベルで行うことができる。
+   *
+   * トランザクション内で以下を実行:
+   * 1. 数量表の存在確認・楽観的排他制御
+   * 2. 各項目の更新
+   * 3. 数量表のupdatedAtを更新
+   * 4. 監査ログの記録
+   *
+   * @param id - 数量表ID
+   * @param input - バルク保存入力
+   * @param actorId - 実行者ID
+   * @param expectedUpdatedAt - 期待される更新日時（楽観的排他制御用）
+   * @returns バルク保存結果
+   * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
+   * @throws QuantityTableConflictError 楽観的排他制御エラー（他のユーザーによる更新との競合）
+   */
+  async bulkSave(
+    id: string,
+    input: BulkSaveInput,
+    actorId: string,
+    expectedUpdatedAt: Date
+  ): Promise<BulkSaveResult> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. 数量表の存在確認と楽観的排他制御
+      const quantityTable = await tx.quantityTable.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          updatedAt: true,
+          deletedAt: true,
+        },
+      });
+
+      if (!quantityTable || quantityTable.deletedAt !== null) {
+        throw new QuantityTableNotFoundError(id);
+      }
+
+      // 楽観的排他制御: updatedAtの比較
+      if (quantityTable.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+        throw new QuantityTableConflictError(
+          '数量表は他のユーザーによって更新されました。最新データを確認してください。',
+          {
+            expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+            actualUpdatedAt: quantityTable.updatedAt.toISOString(),
+          }
+        );
+      }
+
+      // 2. 各項目を順番に更新（トランザクション内で一括処理）
+      let updatedItemCount = 0;
+
+      for (const group of input.groups) {
+        for (const item of group.items) {
+          // 更新データの構築
+          const updateData: Record<string, unknown> = {};
+
+          if (item.majorCategory !== undefined) {
+            updateData.majorCategory = item.majorCategory?.trim() ?? null;
+          }
+          if (item.middleCategory !== undefined) {
+            updateData.middleCategory = item.middleCategory?.trim() ?? null;
+          }
+          if (item.minorCategory !== undefined) {
+            updateData.minorCategory = item.minorCategory?.trim() ?? null;
+          }
+          if (item.customCategory !== undefined) {
+            updateData.customCategory = item.customCategory?.trim() ?? null;
+          }
+          if (item.workType !== undefined) {
+            updateData.workType = item.workType.trim();
+          }
+          if (item.name !== undefined) {
+            updateData.name = item.name.trim();
+          }
+          if (item.specification !== undefined) {
+            updateData.specification = item.specification?.trim() ?? null;
+          }
+          if (item.unit !== undefined) {
+            updateData.unit = item.unit.trim();
+          }
+          if (item.calculationMethod !== undefined) {
+            updateData.calculationMethod = item.calculationMethod;
+          }
+          if (item.calculationParams !== undefined) {
+            updateData.calculationParams = item.calculationParams;
+          }
+          if (item.adjustmentFactor !== undefined) {
+            updateData.adjustmentFactor = new Decimal(item.adjustmentFactor);
+          }
+          if (item.roundingUnit !== undefined) {
+            updateData.roundingUnit = new Decimal(item.roundingUnit);
+          }
+          if (item.quantity !== undefined) {
+            updateData.quantity = new Decimal(item.quantity);
+          }
+          if (item.remarks !== undefined) {
+            updateData.remarks = item.remarks;
+          }
+          if (item.displayOrder !== undefined) {
+            updateData.displayOrder = item.displayOrder;
+          }
+
+          // 項目の更新
+          await tx.quantityItem.update({
+            where: { id: item.id },
+            data: updateData,
+          });
+
+          updatedItemCount++;
+        }
+      }
+
+      // 3. 数量表のupdatedAtを更新（バルク保存のタイムスタンプとして）
+      const updatedQuantityTable = await tx.quantityTable.update({
+        where: { id },
+        data: { updatedAt: new Date() },
+      });
+
+      // 4. 監査ログの記録
+      await this.auditLogService.createLog({
+        action: 'QUANTITY_TABLE_BULK_SAVED',
+        actorId,
+        targetType: QUANTITY_TABLE_TARGET_TYPE,
+        targetId: id,
+        before: null,
+        after: {
+          updatedItemCount,
+          groupCount: input.groups.length,
+        },
+      });
+
+      return {
+        updatedItemCount,
         updatedAt: updatedQuantityTable.updatedAt,
       };
     });
