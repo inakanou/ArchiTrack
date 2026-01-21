@@ -31,6 +31,9 @@ type MockPrismaClient = {
     update: Mock;
     count: Mock;
   };
+  quantityItem: {
+    update: Mock;
+  };
   project: {
     findUnique: Mock;
   };
@@ -51,6 +54,9 @@ describe('QuantityTableService', () => {
         findMany: vi.fn(),
         update: vi.fn(),
         count: vi.fn(),
+      },
+      quantityItem: {
+        update: vi.fn(),
       },
       project: {
         findUnique: vi.fn(),
@@ -876,6 +882,315 @@ describe('QuantityTableService', () => {
       // Assert
       expect(result.groupCount).toBe(2);
       expect(result.itemCount).toBe(5); // 3 + 2
+    });
+  });
+
+  describe('bulkSave', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174002';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+    const expectedUpdatedAt = new Date('2026-01-06T00:00:00.000Z');
+
+    it('複数のグループと項目を一括保存できる', async () => {
+      // Arrange
+      const existingQuantityTable = {
+        id: quantityTableId,
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      };
+
+      const updatedQuantityTable = {
+        id: quantityTableId,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+      };
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(existingQuantityTable);
+      mockPrisma.quantityItem.update.mockResolvedValue({});
+      mockPrisma.quantityTable.update.mockResolvedValue(updatedQuantityTable);
+
+      const input = {
+        groups: [
+          {
+            id: 'group-1',
+            items: [
+              { id: 'item-1', name: '更新項目1', displayOrder: 0 },
+              { id: 'item-2', name: '更新項目2', displayOrder: 1 },
+            ],
+          },
+          {
+            id: 'group-2',
+            items: [{ id: 'item-3', name: '更新項目3', displayOrder: 0 }],
+          },
+        ],
+      };
+
+      // Act
+      const result = await service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(result.updatedItemCount).toBe(3);
+      expect(result.updatedAt).toEqual(updatedQuantityTable.updatedAt);
+      expect(mockPrisma.quantityItem.update).toHaveBeenCalledTimes(3);
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'QUANTITY_TABLE_BULK_SAVED',
+          actorId,
+          targetType: 'QuantityTable',
+          targetId: quantityTableId,
+          after: expect.objectContaining({
+            updatedItemCount: 3,
+            groupCount: 2,
+          }),
+        })
+      );
+    });
+
+    it('数量表が存在しない場合はエラーをスローする', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(null);
+
+      const input = {
+        groups: [
+          {
+            id: 'group-1',
+            items: [{ id: 'item-1', name: '更新項目1' }],
+          },
+        ],
+      };
+
+      // Act & Assert
+      await expect(
+        service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt)
+      ).rejects.toThrow('数量表が見つかりません');
+    });
+
+    it('論理削除された数量表はエラーをスローする', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: expectedUpdatedAt,
+        deletedAt: new Date(), // 論理削除済み
+      });
+
+      const input = {
+        groups: [
+          {
+            id: 'group-1',
+            items: [{ id: 'item-1', name: '更新項目1' }],
+          },
+        ],
+      };
+
+      // Act & Assert
+      await expect(
+        service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt)
+      ).rejects.toThrow('数量表が見つかりません');
+    });
+
+    it('楽観的排他制御でタイムスタンプが一致しない場合はエラーをスローする', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: new Date('2026-01-06T02:00:00.000Z'), // 異なるタイムスタンプ
+        deletedAt: null,
+      });
+
+      const input = {
+        groups: [
+          {
+            id: 'group-1',
+            items: [{ id: 'item-1', name: '更新項目1' }],
+          },
+        ],
+      };
+
+      // Act & Assert
+      await expect(
+        service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt)
+      ).rejects.toThrow('他のユーザーによって更新されました');
+    });
+
+    it('全てのフィールドを更新できる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      });
+      mockPrisma.quantityItem.update.mockResolvedValue({});
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+      });
+
+      const input = {
+        groups: [
+          {
+            id: 'group-1',
+            items: [
+              {
+                id: 'item-1',
+                majorCategory: '大項目',
+                middleCategory: '中項目',
+                minorCategory: '小項目',
+                customCategory: '任意分類',
+                workType: '工種',
+                name: '名称',
+                specification: '規格',
+                unit: 'm',
+                calculationMethod: 'STANDARD' as const,
+                calculationParams: { width: 10, height: 5 },
+                adjustmentFactor: 1.1,
+                roundingUnit: 0.01,
+                quantity: 100,
+                remarks: '備考',
+                displayOrder: 0,
+              },
+            ],
+          },
+        ],
+      };
+
+      // Act
+      await service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(mockPrisma.quantityItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'item-1' },
+          data: expect.objectContaining({
+            majorCategory: '大項目',
+            middleCategory: '中項目',
+            minorCategory: '小項目',
+            customCategory: '任意分類',
+            workType: '工種',
+            name: '名称',
+            specification: '規格',
+            unit: 'm',
+            calculationMethod: 'STANDARD',
+            calculationParams: { width: 10, height: 5 },
+            remarks: '備考',
+            displayOrder: 0,
+          }),
+        })
+      );
+    });
+
+    it('null値を正しく処理する', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      });
+      mockPrisma.quantityItem.update.mockResolvedValue({});
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+      });
+
+      const input = {
+        groups: [
+          {
+            id: 'group-1',
+            items: [
+              {
+                id: 'item-1',
+                majorCategory: null,
+                middleCategory: null,
+                specification: null,
+                remarks: null,
+              },
+            ],
+          },
+        ],
+      };
+
+      // Act
+      await service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(mockPrisma.quantityItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'item-1' },
+          data: expect.objectContaining({
+            majorCategory: null,
+            middleCategory: null,
+            specification: null,
+            remarks: null,
+          }),
+        })
+      );
+    });
+
+    it('空のグループ配列でも正常に動作する', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      });
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+      });
+
+      const input = {
+        groups: [],
+      };
+
+      // Act
+      const result = await service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(result.updatedItemCount).toBe(0);
+      expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+    });
+
+    it('文字列フィールドがトリムされる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      });
+      mockPrisma.quantityItem.update.mockResolvedValue({});
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+      });
+
+      const input = {
+        groups: [
+          {
+            id: 'group-1',
+            items: [
+              {
+                id: 'item-1',
+                majorCategory: '  大項目  ',
+                workType: '  工種  ',
+                name: '  名称  ',
+                unit: '  m  ',
+              },
+            ],
+          },
+        ],
+      };
+
+      // Act
+      await service.bulkSave(quantityTableId, input, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(mockPrisma.quantityItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'item-1' },
+          data: expect.objectContaining({
+            majorCategory: '大項目',
+            workType: '工種',
+            name: '名称',
+            unit: 'm',
+          }),
+        })
+      );
     });
   });
 });
