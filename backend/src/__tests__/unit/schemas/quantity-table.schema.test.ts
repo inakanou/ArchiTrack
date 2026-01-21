@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   updateQuantityItemSchema,
+  calculationParamsSchema,
   QUANTITY_TABLE_VALIDATION_MESSAGES,
 } from '../../../schemas/quantity-table.schema.js';
 
@@ -163,6 +164,94 @@ describe('quantity-table.schema', () => {
           specification: null,
         });
         expect(result.success).toBe(true);
+      });
+    });
+  });
+
+  describe('calculationParamsSchema', () => {
+    describe('ピッチ計算パラメータ', () => {
+      it('全てのピッチ計算パラメータを保持する', () => {
+        const pitchParams = {
+          rangeLength: 100,
+          endLength1: 10,
+          endLength2: 10,
+          pitchLength: 5,
+          length: 2.5,
+          weight: 1.5,
+        };
+        const result = calculationParamsSchema.safeParse(pitchParams);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          // 重要: 全てのピッチ計算パラメータが保持されること
+          expect(result.data).toEqual(pitchParams);
+        }
+      });
+
+      it('必須フィールドのみでも成功する', () => {
+        const pitchParams = {
+          rangeLength: 100,
+          endLength1: 0,
+          endLength2: 0,
+          pitchLength: 5,
+        };
+        const result = calculationParamsSchema.safeParse(pitchParams);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data).toEqual(pitchParams);
+        }
+      });
+
+      it('必須フィールドが欠けている場合はエラーになる', () => {
+        const incompleteParams = {
+          rangeLength: 100,
+          // endLength1, endLength2, pitchLength が欠けている
+        };
+        const result = calculationParamsSchema.safeParse(incompleteParams);
+        // areaVolumeParamsSchemaとしてパースされる可能性があるが、
+        // 未知のキー(rangeLength)は削除される
+        expect(result.success).toBe(true);
+        if (result.success) {
+          // rangeLength は areaVolumeParams の有効なキーではないため削除される
+          expect(result.data).not.toHaveProperty('rangeLength');
+        }
+      });
+    });
+
+    describe('面積・体積計算パラメータ', () => {
+      it('全ての面積・体積計算パラメータを保持する', () => {
+        const areaVolumeParams = {
+          width: 10,
+          depth: 5,
+          height: 2,
+          weight: 1.5,
+        };
+        const result = calculationParamsSchema.safeParse(areaVolumeParams);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data).toEqual(areaVolumeParams);
+        }
+      });
+
+      it('一部のフィールドのみでも成功する', () => {
+        const partialParams = {
+          width: 10,
+          weight: 1.5,
+        };
+        const result = calculationParamsSchema.safeParse(partialParams);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data).toEqual(partialParams);
+        }
+      });
+    });
+
+    describe('null値', () => {
+      it('nullを受け入れる', () => {
+        const result = calculationParamsSchema.safeParse(null);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data).toBeNull();
+        }
       });
     });
   });

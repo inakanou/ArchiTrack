@@ -283,10 +283,15 @@ export const pitchParamsSchema = z.object({
 
 /**
  * 計算パラメータスキーマ（共用体）
+ *
+ * 重要: pitchParamsSchemaを先に評価する必要がある。
+ * areaVolumeParamsSchemaは全フィールドがオプショナルのため、
+ * 先に評価されると任意のオブジェクトを受け入れて未知のキーを削除してしまう。
+ * pitchParamsSchemaは必須フィールドがあるため、ピッチ計算パラメータがある場合のみマッチする。
  */
 export const calculationParamsSchema = z.union([
-  areaVolumeParamsSchema,
   pitchParamsSchema,
+  areaVolumeParamsSchema,
   z.null(),
 ]);
 
