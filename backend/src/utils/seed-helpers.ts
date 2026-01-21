@@ -16,6 +16,10 @@
  * Requirements (site-survey):
  * - REQ-12.1, 12.2, 12.3: 現場調査管理権限の定義
  *   - site_survey:create, site_survey:read, site_survey:update, site_survey:delete
+ *
+ * Requirements (itemized-statement):
+ * - 内訳書管理権限の定義
+ *   - itemized_statement:create, itemized_statement:read, itemized_statement:update, itemized_statement:delete
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -303,6 +307,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '数量表の削除',
     },
+
+    // 内訳書関連権限（itemized-statement）
+    {
+      resource: 'itemized_statement',
+      action: 'create',
+      description: '内訳書の作成',
+    },
+    {
+      resource: 'itemized_statement',
+      action: 'read',
+      description: '内訳書の閲覧',
+    },
+    {
+      resource: 'itemized_statement',
+      action: 'update',
+      description: '内訳書の更新',
+    },
+    {
+      resource: 'itemized_statement',
+      action: 'delete',
+      description: '内訳書の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -390,6 +416,12 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'quantity_table', action: 'read' },
     { resource: 'quantity_table', action: 'update' },
     { resource: 'quantity_table', action: 'delete' },
+    // 内訳書関連権限（itemized-statement）
+    // 一般ユーザーは内訳書の作成・閲覧・更新・削除が可能
+    { resource: 'itemized_statement', action: 'create' },
+    { resource: 'itemized_statement', action: 'read' },
+    { resource: 'itemized_statement', action: 'update' },
+    { resource: 'itemized_statement', action: 'delete' },
   ];
 
   // 権限IDを一括取得

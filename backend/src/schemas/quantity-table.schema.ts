@@ -283,10 +283,15 @@ export const pitchParamsSchema = z.object({
 
 /**
  * 計算パラメータスキーマ（共用体）
+ *
+ * 重要: pitchParamsSchemaを先に評価する必要がある。
+ * areaVolumeParamsSchemaは全フィールドがオプショナルのため、
+ * 先に評価されると任意のオブジェクトを受け入れて未知のキーを削除してしまう。
+ * pitchParamsSchemaは必須フィールドがあるため、ピッチ計算パラメータがある場合のみマッチする。
  */
 export const calculationParamsSchema = z.union([
-  areaVolumeParamsSchema,
   pitchParamsSchema,
+  areaVolumeParamsSchema,
   z.null(),
 ]);
 
@@ -378,9 +383,6 @@ export const updateQuantityItemSchema = z.object({
   majorCategory: z
     .string()
     .max(100, QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_TOO_LONG)
-    .refine((val) => val.trim().length > 0, {
-      message: QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_REQUIRED,
-    })
     .nullable()
     .optional(),
 
