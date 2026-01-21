@@ -31,6 +31,7 @@ const mockUpdateQuantityItem = vi.mocked(quantityTablesApi.updateQuantityItem);
 const mockDeleteQuantityItem = vi.mocked(quantityTablesApi.deleteQuantityItem);
 const mockCopyQuantityItem = vi.mocked(quantityTablesApi.copyQuantityItem);
 const mockUpdateQuantityGroup = vi.mocked(quantityTablesApi.updateQuantityGroup);
+const mockBulkSaveQuantityTable = vi.mocked(quantityTablesApi.bulkSaveQuantityTable);
 
 const mockGetSiteSurveys = vi.mocked(siteSurveysApi.getSiteSurveys);
 const mockGetSiteSurvey = vi.mocked(siteSurveysApi.getSiteSurvey);
@@ -714,9 +715,9 @@ describe('QuantityTableEditPage', () => {
     it('項目のフィールドを編集して保存ボタンをクリックすると更新APIが呼ばれる', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockUpdateQuantityItem.mockResolvedValue({
-        ...mockQuantityTableDetail.groups[0]!.items[0]!,
-        name: '足場（更新）',
+      mockBulkSaveQuantityTable.mockResolvedValue({
+        updatedItemCount: 3,
+        updatedAt: '2025-01-02T00:00:00Z',
       });
 
       renderWithRouter();
@@ -735,14 +736,14 @@ describe('QuantityTableEditPage', () => {
       await user.click(saveButton);
 
       await waitFor(() => {
-        expect(mockUpdateQuantityItem).toHaveBeenCalled();
+        expect(mockBulkSaveQuantityTable).toHaveBeenCalled();
       });
     });
 
     it('保存に失敗した場合はエラーが表示される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockUpdateQuantityItem.mockRejectedValue(new Error('Update failed'));
+      mockBulkSaveQuantityTable.mockRejectedValue(new Error('Update failed'));
 
       renderWithRouter();
 
@@ -916,8 +917,9 @@ describe('QuantityTableEditPage', () => {
     it('保存ボタンをクリックすると保存メッセージが表示される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockUpdateQuantityItem.mockResolvedValue({
-        ...mockQuantityTableDetail.groups[0]!.items[0]!,
+      mockBulkSaveQuantityTable.mockResolvedValue({
+        updatedItemCount: 3,
+        updatedAt: '2025-01-02T00:00:00Z',
       });
 
       renderWithRouter();
