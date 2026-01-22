@@ -1,13 +1,13 @@
 {
   "feature_name": "itemized-statement-generation",
   "created_at": "2026-01-19T14:08:58+09:00",
-  "updated_at": "2026-01-19T15:12:00+09:00",
+  "updated_at": "2026-01-22T12:00:00+09:00",
   "language": "ja",
-  "phase": "tasks-generated",
+  "phase": "requirements-updated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": true
+      "approved": false
     },
     "design": {
       "generated": true,
@@ -18,5 +18,5 @@
       "approved": true
     }
   },
-  "ready_for_implementation": true
+  "ready_for_implementation": false
 }
