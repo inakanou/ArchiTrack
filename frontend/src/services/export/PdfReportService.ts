@@ -277,39 +277,42 @@ export class PdfReportService {
 
     // 基本情報セクション
     const infoStartY = 135;
-    const labelX = centerX - 50;
-    const valueX = centerX + 10;
+    const labelX = PDF_REPORT_LAYOUT.PAGE_MARGIN + 25; // 左端に固定
     doc.setFontSize(PDF_REPORT_LAYOUT.HEADER_FONT_SIZE);
 
-    // 工事名（プロジェクト名）
+    // 「工事名：」の幅を測定して値の開始位置を計算（ラベルの右端から約1文字分離す）
     doc.setTextColor(80, 80, 80);
-    doc.text('工事名：', labelX, infoStartY, { align: 'right' });
+    const labelWidth = doc.getTextWidth('工事名：');
+    const valueX = labelX + labelWidth + 3; // ラベルの右端から3mm（約1文字分）離す
+
+    // 工事名（プロジェクト名）
+    doc.text('工事名：', labelX, infoStartY);
     doc.setTextColor(30, 30, 30);
     doc.text(survey.project.name, valueX, infoStartY);
 
     // 調査日
     doc.setTextColor(80, 80, 80);
-    doc.text('調査日：', labelX, infoStartY + 15, { align: 'right' });
+    doc.text('調査日：', labelX, infoStartY + 15);
     doc.setTextColor(30, 30, 30);
     doc.text(formatDateForPdf(survey.surveyDate), valueX, infoStartY + 15);
 
     // 画像件数（PDF出力対象の枚数を優先）
     const imageCount = outputImageCount ?? survey.imageCount;
     doc.setTextColor(80, 80, 80);
-    doc.text('画像数：', labelX, infoStartY + 30, { align: 'right' });
+    doc.text('画像数：', labelX, infoStartY + 30);
     doc.setTextColor(30, 30, 30);
     doc.text(`${imageCount}枚`, valueX, infoStartY + 30);
 
     // 作成日
     const createdDate = survey.createdAt.split('T')[0] ?? '';
     doc.setTextColor(80, 80, 80);
-    doc.text('作成日：', labelX, infoStartY + 45, { align: 'right' });
+    doc.text('作成日：', labelX, infoStartY + 45);
     doc.setTextColor(30, 30, 30);
     doc.text(formatDateForPdf(createdDate), valueX, infoStartY + 45);
 
     // メモ
     doc.setTextColor(80, 80, 80);
-    doc.text('メモ：', labelX, infoStartY + 60, { align: 'right' });
+    doc.text('メモ：', labelX, infoStartY + 60);
     doc.setTextColor(30, 30, 30);
     if (survey.memo && survey.memo.trim() !== '') {
       // メモを折り返して表示（最大幅を設定）
