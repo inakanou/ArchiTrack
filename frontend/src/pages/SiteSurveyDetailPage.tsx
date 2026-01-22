@@ -20,7 +20,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Breadcrumb } from '../components/common';
 import { buildSiteSurveyDetailBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getSiteSurvey, deleteSiteSurvey } from '../api/site-surveys';
@@ -232,6 +232,7 @@ function DeleteConfirmDialog({
 export default function SiteSurveyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // 権限チェック (Requirement 12.2)
   const { canEdit, canDelete } = useSiteSurveyPermission();
@@ -279,10 +280,10 @@ export default function SiteSurveyDetailPage() {
     }
   }, [id]);
 
-  // 初回読み込み
+  // 初回読み込みおよび画像編集画面から戻った時の再取得
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, location.key]);
 
   /**
    * 画像クリックハンドラ (Requirement 2.4)
