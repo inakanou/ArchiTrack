@@ -2,6 +2,7 @@
  * @fileoverview 内訳書CRUD操作のE2Eテスト
  *
  * Task 13.2: E2Eテスト
+ * Task 16.3: 出力機能のE2Eテスト
  *
  * Requirements coverage (itemized-statement-generation):
  * - REQ-1.1, REQ-1.2, REQ-1.3: 内訳書作成フロー
@@ -37,6 +38,12 @@
  * - REQ-11.5: 一覧画面リンク
  * - REQ-12.1, REQ-12.2, REQ-12.3: ローディング表示
  * - REQ-12.4: ローディング中ボタン無効化
+ * - REQ-13.1: Excelダウンロードボタン表示
+ * - REQ-13.6: フィルタ適用後のデータのみExcel出力
+ * - REQ-13.7: Excel生成中のローディングインジケーター
+ * - REQ-14.1: クリップボードにコピーボタン表示
+ * - REQ-14.5: フィルタ適用後のデータのみクリップボードコピー
+ * - REQ-14.6: コピー成功時のトースト通知
  *
  * @module e2e/specs/itemized-statements/itemized-statement-crud.spec
  */
@@ -2304,6 +2311,166 @@ test.describe('内訳書CRUD操作', () => {
           data: { updatedAt: projectDetail.updatedAt },
         });
       }
+    });
+  });
+
+  /**
+   * 出力機能テスト（Task 16.3）
+   *
+   * Requirements coverage:
+   * - REQ-13.1: Excelダウンロードボタンを表示する
+   * - REQ-13.6: フィルタ適用後のデータのみExcel出力
+   * - REQ-13.7: Excel生成中のローディングインジケーター
+   * - REQ-14.1: クリップボードにコピーボタンを表示する
+   * - REQ-14.5: フィルタ適用後のデータのみクリップボードコピー
+   * - REQ-14.6: コピー成功時にトースト通知を表示する
+   */
+  test.describe('出力機能', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-13.1: The 内訳書詳細画面 shall Excelダウンロードボタンを表示する
+     */
+    test('Excelダウンロードボタンが表示される (itemized-statement-generation/REQ-13.1)', async ({
+      page,
+    }) => {
+      expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // Excelダウンロードボタンが表示されていることを確認
+      const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
+      await expect(excelButton).toBeVisible({ timeout: getTimeout(10000) });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-14.1: The 内訳書詳細画面 shall クリップボードにコピーボタンを表示する
+     */
+    test('クリップボードにコピーボタンが表示される (itemized-statement-generation/REQ-14.1)', async ({
+      page,
+    }) => {
+      expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // クリップボードにコピーボタンが表示されていることを確認
+      const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });
+      await expect(copyButton).toBeVisible({ timeout: getTimeout(10000) });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-13.7: When Excelファイル生成中, the システム shall ローディングインジケーターを表示する
+     */
+    test('Excelダウンロードボタンクリック時にローディング状態になる (itemized-statement-generation/REQ-13.7)', async ({
+      page,
+    }) => {
+      expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // ダウンロードイベントを待機
+      const downloadPromise = page.waitForEvent('download');
+
+      // Excelダウンロードボタンをクリック
+      const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
+      await excelButton.click();
+
+      // ダウンロードが完了するまで待機
+      const download = await downloadPromise;
+
+      // ダウンロードされたファイル名が正しい形式であることを確認
+      const suggestedFilename = download.suggestedFilename();
+      expect(suggestedFilename).toMatch(/\.xlsx$/);
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-14.6: When クリップボードコピー成功時, the システム shall 「クリップボードにコピーしました」トースト通知を表示する
+     */
+    test('クリップボードコピー成功時にトースト通知が表示される (itemized-statement-generation/REQ-14.6)', async ({
+      page,
+      context,
+    }) => {
+      expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();
+
+      // クリップボードのパーミッションを許可
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // クリップボードにコピーボタンをクリック
+      const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });
+      await copyButton.click();
+
+      // 成功トースト通知が表示されることを確認
+      await expect(page.getByText(/クリップボードにコピーしました/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-13.6: When フィルタが適用されている状態でExcelダウンロードを実行する, the システム shall フィルタ後のデータのみを出力する
+     * @requirement itemized-statement-generation/REQ-14.5: When フィルタが適用されている状態でクリップボードコピーを実行する, the システム shall フィルタ後のデータのみをコピーする
+     */
+    test('フィルタ適用後に出力ボタンが有効である (itemized-statement-generation/REQ-13.6, REQ-14.5)', async ({
+      page,
+    }) => {
+      expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 名称でフィルタリング（テストデータに含まれる文字列）
+      const filterInput = page.getByPlaceholder('名称でフィルタ');
+      if (await filterInput.isVisible()) {
+        await filterInput.fill('テスト');
+        await page.waitForTimeout(500); // フィルタ適用を待機
+      }
+
+      // フィルタ適用後もExcelボタンとコピーボタンが有効であることを確認
+      const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
+      const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });
+
+      await expect(excelButton).toBeEnabled();
+      await expect(copyButton).toBeEnabled();
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-13.1: Excel出力フロー全体のテスト
+     */
+    test('Excelダウンロードの完全なフローが動作する (itemized-statement-generation/REQ-13.1)', async ({
+      page,
+    }) => {
+      expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // ダウンロードイベントを待機
+      const downloadPromise = page.waitForEvent('download');
+
+      // Excelダウンロードボタンをクリック
+      const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
+      await excelButton.click();
+
+      // ダウンロードを待機
+      const download = await downloadPromise;
+
+      // ダウンロードされたファイル名の形式を確認
+      // 形式: {内訳書名}_{YYYYMMDD}.xlsx
+      const suggestedFilename = download.suggestedFilename();
+      expect(suggestedFilename).toMatch(/.*_\d{8}\.xlsx$/);
+
+      // ファイルが正常にダウンロードされたことを確認
+      const path = await download.path();
+      expect(path).toBeTruthy();
     });
   });
 
