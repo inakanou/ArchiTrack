@@ -53,6 +53,7 @@ interface MockJsPDF {
   output: ReturnType<typeof vi.fn>;
   save: ReturnType<typeof vi.fn>;
   getTextDimensions: ReturnType<typeof vi.fn>;
+  getTextWidth: ReturnType<typeof vi.fn>;
   splitTextToSize: ReturnType<typeof vi.fn>;
 }
 
@@ -85,6 +86,7 @@ function createMockJsPDF(): MockJsPDF {
     output: vi.fn().mockReturnValue('pdf-blob-data'),
     save: vi.fn(),
     getTextDimensions: vi.fn().mockReturnValue({ w: 100, h: 5 }),
+    getTextWidth: vi.fn().mockReturnValue(30), // 「工事名：」等のラベル幅として30mmを返す
     splitTextToSize: vi.fn().mockImplementation((text: string) => [text]),
   };
 }

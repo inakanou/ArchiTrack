@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-01-20（Steering Sync: 内訳書作成機能の実装完了を反映）_
+_最終更新: 2026-01-22（Steering Sync: 内訳書Excel/クリップボード出力機能の実装完了を反映）_
 
 ## アーキテクチャ
 
@@ -37,6 +37,7 @@ ArchiTrack/
 - `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応）
+- `xlsx` 0.20.3 - Excelファイル生成（内訳書エクスポート、SheetJS）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/react` ^19.2.7 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
@@ -99,7 +100,7 @@ ArchiTrack/
 - **キャッシュクライアント**: ioredis 5.3.2
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
-- **JWT署名**: jose 5.10.0（EdDSA署名）
+- **JWT署名**: jose 6.1.3（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
@@ -130,7 +131,7 @@ ArchiTrack/
 - `nodemailer` ^7.0.12 - メール送信
 - `handlebars` ^4.7.8 - テンプレートエンジン
 - `dataloader` ^2.2.3 - データローダー（N+1問題対策）
-- `jose` ^5.10.0 - JWT EdDSA署名・検証
+- `jose` ^6.1.3 - JWT EdDSA署名・検証
 - `otplib` ^12.0.1 - TOTP 2FA
 - `qrcode` ^1.5.4 - QRコード生成
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化

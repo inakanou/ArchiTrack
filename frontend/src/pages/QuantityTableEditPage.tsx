@@ -668,15 +668,27 @@ export default function QuantityTableEditPage() {
         const surveysResult = await getSiteSurveys(quantityTable.projectId, { limit: 100 });
         const allPhotos: SurveyImageInfo[] = [];
 
-        // 各現場調査の詳細を取得して画像を集める
-        for (const survey of surveysResult.data) {
-          try {
-            const surveyDetail = await getSiteSurvey(survey.id);
-            if (surveyDetail.images && surveyDetail.images.length > 0) {
-              allPhotos.push(...surveyDetail.images);
+        // バッチサイズ（レートリミット回避のため一度に処理する件数を制限）
+        const BATCH_SIZE = 5;
+        const surveys = surveysResult.data;
+
+        // 各現場調査の詳細をバッチ処理で取得して画像を集める
+        // N+1クエリ問題を軽減するためPromise.allで並列処理し、
+        // レートリミット回避のためバッチサイズで分割
+        for (let i = 0; i < surveys.length; i += BATCH_SIZE) {
+          const batch = surveys.slice(i, i + BATCH_SIZE);
+          const batchResults = await Promise.allSettled(
+            batch.map((survey) => getSiteSurvey(survey.id))
+          );
+
+          for (const result of batchResults) {
+            if (result.status === 'fulfilled') {
+              const surveyDetail = result.value;
+              if (surveyDetail.images && surveyDetail.images.length > 0) {
+                allPhotos.push(...surveyDetail.images);
+              }
             }
-          } catch {
-            // 個別の現場調査取得エラーは無視
+            // rejected（エラー）の場合は無視して続行
           }
         }
 

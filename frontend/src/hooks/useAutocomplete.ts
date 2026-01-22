@@ -148,6 +148,8 @@ export function useAutocomplete(options: UseAutocompleteOptions): UseAutocomplet
   // 最新の値をrefで保持（useCallbackの依存配列を安定化するため）
   const unsavedValuesRef = useRef(unsavedValues);
   const additionalParamsRef = useRef(additionalParams);
+  // 初回マウントフラグ（初回マウント時のAPIリクエスト抑制用）
+  const isInitialMountRef = useRef(true);
 
   // refを最新の値で更新（レンダーごとに同期）
   unsavedValuesRef.current = unsavedValues;
@@ -206,11 +208,21 @@ export function useAutocomplete(options: UseAutocompleteOptions): UseAutocomplet
 
   /**
    * 入力値変更時にデバウンス付きでAPIを呼び出す
+   *
+   * 初回マウント時はAPIリクエストを発生させない。
+   * これにより、保存済みデータを含む画面を開いた際に
+   * 大量のAPIリクエストが同時発生することを防ぐ。
    */
   useEffect(() => {
     // 既存のタイマーをクリア
     if (timerRef.current) {
       clearTimeout(timerRef.current);
+    }
+
+    // 初回マウント時はAPIリクエストを発生させない
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
     }
 
     // 入力値が空の場合は即座にクリア

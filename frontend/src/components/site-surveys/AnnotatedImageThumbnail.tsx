@@ -12,6 +12,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import { getAnnotation } from '../../api/survey-annotations';
 import type { AnnotationInfo } from '../../types/site-survey.types';
+import { logger } from '../../utils/logger';
 // カスタムシェイプをFabric.jsクラスレジストリに登録
 import './tools/registerCustomShapes';
 
@@ -106,8 +107,12 @@ export function AnnotatedImageThumbnail({
       let annotationData: AnnotationInfo | null = null;
       try {
         annotationData = await getAnnotation(image.id);
-      } catch {
-        // 注釈取得に失敗した場合は元画像を表示（正常系のため無視）
+      } catch (annotationErr) {
+        // 注釈取得に失敗した場合は元画像を表示
+        logger.warn('注釈データの取得に失敗しました', {
+          imageId: image.id,
+          error: annotationErr instanceof Error ? annotationErr.message : String(annotationErr),
+        });
       }
 
       // マウント解除されていたら処理を中止
@@ -116,6 +121,7 @@ export function AnnotatedImageThumbnail({
       // 2. 注釈がない、またはオブジェクトが空の場合は元画像をそのまま使用
       if (
         !annotationData ||
+        !annotationData.data ||
         !annotationData.data.objects ||
         annotationData.data.objects.length === 0
       ) {
@@ -218,7 +224,10 @@ export function AnnotatedImageThumbnail({
       setRenderedUrl(dataUrl);
       setIsLoading(false);
     } catch (err) {
-      console.error(`Failed to render annotated image ${image.id}:`, err);
+      logger.error('注釈付き画像のレンダリングに失敗しました', {
+        imageId: image.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
       if (mountedRef.current) {
         // エラー時は元画像を表示
         setRenderedUrl(originalImageUrl);

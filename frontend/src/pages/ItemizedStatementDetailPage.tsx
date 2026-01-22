@@ -5,6 +5,8 @@
  * Task 8: 内訳項目のソート機能実装
  * Task 9: 内訳項目のフィルタリング機能実装
  * Task 10: 内訳書削除機能の実装
+ * Task 14: Excel出力機能の実装
+ * Task 15: クリップボード出力機能の実装
  *
  * Requirements:
  * - 4.1: 集計結果をテーブル形式で表示する
@@ -44,6 +46,14 @@
  * - 12.3: 削除処理中はローディングインジケーターを表示する
  * - 12.4: ローディング中は操作ボタンを無効化する
  * - 12.5: ローディングが完了したらインジケーターを非表示にする
+ * - 13.1: Excelダウンロードボタンを表示する
+ * - 13.6: フィルタが適用されている状態でExcelダウンロードを実行すると、フィルタ後のデータのみを出力する
+ * - 13.7: Excelファイル生成中のローディングインジケーターを表示する
+ * - 13.8: エラー発生時にエラーメッセージを表示する
+ * - 14.1: クリップボードにコピーボタンを表示する
+ * - 14.5: フィルタが適用されている状態でクリップボードコピーを実行すると、フィルタ後のデータのみをコピーする
+ * - 14.6: コピー成功時に「クリップボードにコピーしました」トースト通知を表示する
+ * - 14.7: コピー失敗時に「クリップボードへのコピーに失敗しました」エラーメッセージを表示する
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -51,6 +61,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getItemizedStatementDetail, deleteItemizedStatement } from '../api/itemized-statements';
 import { Breadcrumb } from '../components/common';
 import ItemizedStatementDeleteDialog from '../components/itemized-statement/ItemizedStatementDeleteDialog';
+import { exportToExcel } from '../utils/export-excel';
+import { copyToClipboard } from '../utils/copy-to-clipboard';
 import type {
   ItemizedStatementDetail,
   ItemizedStatementItemInfo,
@@ -192,6 +204,48 @@ const styles = {
     color: '#dc2626',
     border: '1px solid #dc2626',
     transition: 'all 0.2s',
+  } as React.CSSProperties,
+  excelButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: '500',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#16a34a',
+    border: '1px solid #16a34a',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  excelButtonDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  copyButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: '500',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#2563eb',
+    border: '1px solid #2563eb',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  copyButtonDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  successMessage: {
+    backgroundColor: '#f0fdf4',
+    border: '1px solid #86efac',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  successMessageText: {
+    color: '#166534',
+    fontSize: '14px',
+    margin: 0,
   } as React.CSSProperties,
   section: {
     backgroundColor: '#ffffff',
@@ -742,6 +796,15 @@ export default function ItemizedStatementDetailPage() {
   // フィルタ状態 (Req 6.1, 6.2)
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTER_STATE);
 
+  // Excel出力機能の状態 (Req 13.1, 13.7, 13.8)
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // クリップボードコピー機能の状態 (Req 14.1, 14.6, 14.7)
+  const [isCopying, setIsCopying] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+
   /**
    * 内訳書詳細データを取得
    */
@@ -882,6 +945,69 @@ export default function ItemizedStatementDetailPage() {
     }
   }, [statement, navigate]);
 
+  // Excelエクスポートハンドラ (Req 13.1, 13.6, 13.7, 13.8)
+  const handleExportToExcel = useCallback(() => {
+    if (!statement || isExporting) return;
+
+    setIsExporting(true);
+    setExportError(null);
+
+    try {
+      // フィルタ・ソート適用後のデータを出力 (Req 13.6)
+      const result = exportToExcel({
+        items: sortedItems,
+        statementName: statement.name,
+      });
+
+      if (!result.success) {
+        setExportError(result.error ?? 'Excelファイルの生成に失敗しました');
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setExportError(err.message);
+      } else {
+        setExportError('Excelファイルの生成に失敗しました');
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  }, [statement, isExporting, sortedItems]);
+
+  // クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
+  const handleCopyToClipboard = useCallback(async () => {
+    if (!statement || isCopying) return;
+
+    setIsCopying(true);
+    setCopyError(null);
+    setCopySuccess(false);
+
+    try {
+      // フィルタ・ソート適用後のデータをコピー (Req 14.5)
+      const result = await copyToClipboard({
+        items: sortedItems,
+      });
+
+      if (result.success) {
+        // コピー成功時にトースト通知 (Req 14.6)
+        setCopySuccess(true);
+        // 3秒後に成功メッセージを非表示
+        setTimeout(() => {
+          setCopySuccess(false);
+        }, 3000);
+      } else {
+        setCopyError(result.error ?? 'クリップボードへのコピーに失敗しました');
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setCopyError(err.message);
+      } else {
+        setCopyError('クリップボードへのコピーに失敗しました');
+      }
+    } finally {
+      setIsCopying(false);
+    }
+  }, [statement, isCopying, sortedItems]);
+
   // ローディング表示
   if (isLoading) {
     return (
@@ -943,6 +1069,32 @@ export default function ItemizedStatementDetailPage() {
             <p style={styles.metaInfo}>集計元数量表: {statement.sourceQuantityTableName}</p>
           </div>
           <div style={styles.actionsContainer}>
+            {/* クリップボードコピーボタン (Req 14.1, 14.6, 14.7) */}
+            <button
+              type="button"
+              style={{
+                ...styles.copyButton,
+                ...(isCopying ? styles.copyButtonDisabled : {}),
+              }}
+              aria-label="クリップボードにコピー"
+              onClick={handleCopyToClipboard}
+              disabled={isCopying}
+            >
+              {isCopying ? 'コピー中...' : 'コピー'}
+            </button>
+            {/* Excelダウンロードボタン (Req 13.1, 13.7) */}
+            <button
+              type="button"
+              style={{
+                ...styles.excelButton,
+                ...(isExporting ? styles.excelButtonDisabled : {}),
+              }}
+              aria-label="Excelダウンロード"
+              onClick={handleExportToExcel}
+              disabled={isExporting}
+            >
+              {isExporting ? 'Excel生成中...' : 'Excel'}
+            </button>
             <button
               type="button"
               style={styles.deleteButton}
@@ -959,6 +1111,27 @@ export default function ItemizedStatementDetailPage() {
       {deleteError && (
         <div role="alert" style={styles.deleteErrorContainer}>
           <p style={styles.deleteErrorText}>{deleteError}</p>
+        </div>
+      )}
+
+      {/* Excelエクスポートエラーメッセージ (Req 13.8) */}
+      {exportError && (
+        <div role="alert" style={styles.deleteErrorContainer}>
+          <p style={styles.deleteErrorText}>{exportError}</p>
+        </div>
+      )}
+
+      {/* クリップボードコピー成功メッセージ (Req 14.6) */}
+      {copySuccess && (
+        <div role="status" style={styles.successMessage}>
+          <p style={styles.successMessageText}>クリップボードにコピーしました</p>
+        </div>
+      )}
+
+      {/* クリップボードコピーエラーメッセージ (Req 14.7) */}
+      {copyError && (
+        <div role="alert" style={styles.deleteErrorContainer}>
+          <p style={styles.deleteErrorText}>{copyError}</p>
         </div>
       )}
 

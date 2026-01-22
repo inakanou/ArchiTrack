@@ -74,12 +74,24 @@ describe('useAutocomplete', () => {
     it('入力値が1文字の場合でもAPIを呼び出す (Req 7.1)', async () => {
       mockApiGet.mockResolvedValue({ suggestions: ['建築工事'] });
 
-      const { result } = renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建',
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウントし、
+      // その後入力値を変更してAPIリクエストをトリガーする
+      const { result, rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更（ユーザーが入力を開始した状態をシミュレート）
+      rerender({ inputValue: '建' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -98,13 +110,24 @@ describe('useAutocomplete', () => {
     it('デバウンス遅延中はAPIを呼び出さない', async () => {
       mockApiGet.mockResolvedValue({ suggestions: [] });
 
-      renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建築',
-          debounceMs: 300,
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+            debounceMs: 300,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '建築' });
 
       // デバウンス時間の半分だけ進める
       await act(async () => {
@@ -117,13 +140,24 @@ describe('useAutocomplete', () => {
     it('デバウンス時間経過後にAPIを呼び出す', async () => {
       mockApiGet.mockResolvedValue({ suggestions: ['建築工事'] });
 
-      renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建築',
-          debounceMs: 300,
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+            debounceMs: 300,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '建築' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -137,13 +171,24 @@ describe('useAutocomplete', () => {
     it('API結果とunsavedValuesをマージして重複を除去する', async () => {
       mockApiGet.mockResolvedValue({ suggestions: ['建築工事', '建設工事'] });
 
-      const { result } = renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建',
-          unsavedValues: unsavedValuesWithDuplicate,
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { result, rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+            unsavedValues: unsavedValuesWithDuplicate,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '建' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -201,12 +246,23 @@ describe('useAutocomplete', () => {
         suggestions: ['建築工事', '建設工事', '電気工事'],
       });
 
-      const { result } = renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建',
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { result, rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '建' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -222,12 +278,23 @@ describe('useAutocomplete', () => {
         suggestions: ['m2', 'M3', 'kg'],
       });
 
-      const { result } = renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/units',
-          inputValue: 'm',
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { result, rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/units',
+            inputValue,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: 'm' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -250,13 +317,24 @@ describe('useAutocomplete', () => {
     it('majorCategoryパラメータをクエリに含める', async () => {
       mockApiGet.mockResolvedValue({ suggestions: ['内装仕上工事'] });
 
-      renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/middle-categories',
-          inputValue: '内',
-          additionalParams: additionalParamsSingle,
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/middle-categories',
+            inputValue,
+            additionalParams: additionalParamsSingle,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '内' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -268,13 +346,24 @@ describe('useAutocomplete', () => {
     it('複数の追加パラメータをクエリに含める', async () => {
       mockApiGet.mockResolvedValue({ suggestions: ['塗装工事'] });
 
-      renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/minor-categories',
-          inputValue: '塗',
-          additionalParams: additionalParamsMultiple,
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/minor-categories',
+            inputValue,
+            additionalParams: additionalParamsMultiple,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '塗' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -294,12 +383,23 @@ describe('useAutocomplete', () => {
       const error = new Error('Network error');
       mockApiGet.mockRejectedValue(error);
 
-      const { result } = renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建',
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { result, rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '建' });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -319,12 +419,23 @@ describe('useAutocomplete', () => {
         })
       );
 
-      const { result } = renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建',
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { result, rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '建' });
 
       // タイマーを進めてAPIコールを発火
       await act(async () => {
@@ -349,13 +460,24 @@ describe('useAutocomplete', () => {
     it('limitパラメータをクエリに含める', async () => {
       mockApiGet.mockResolvedValue({ suggestions: [] });
 
-      renderHook(() =>
-        useAutocomplete({
-          endpoint: '/api/autocomplete/major-categories',
-          inputValue: '建',
-          limit: 20,
-        })
+      // 初回マウント時はAPIリクエストを抑制するため、空の入力値でマウント
+      const { rerender } = renderHook(
+        ({ inputValue }) =>
+          useAutocomplete({
+            endpoint: '/api/autocomplete/major-categories',
+            inputValue,
+            limit: 20,
+          }),
+        { initialProps: { inputValue: '' } }
       );
+
+      // 初回マウントを完了させる
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // 入力値を変更
+      rerender({ inputValue: '建' });
 
       await act(async () => {
         await vi.runAllTimersAsync();

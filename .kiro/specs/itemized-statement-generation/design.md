@@ -22,7 +22,8 @@
 - 複数の数量表をまたいだ集計機能（Requirement 1.5で1つのみ選択可能と定義）
 - 内訳書の編集機能（スナップショットの不変性を維持）
 - 数量表の自動再計算機能（スナップショット独立性の維持）
-- Excel/CSVエクスポート機能（将来拡張として検討）
+- バックエンドでのExcel生成（フロントエンドで完結）
+- CSVエクスポート機能（Excel出力とクリップボードコピーで代替）
 
 ## Architecture
 
@@ -86,6 +87,7 @@ graph TB
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
 | Frontend | React 19.2.0 / TypeScript 5.9.3 | 内訳書UI（作成フォーム、一覧、詳細） | 既存パターン踏襲 |
+| Frontend | xlsx 0.20.3 (SheetJS) | Excelファイル生成 | CDNからインストール（npm公式は古い） |
 | Backend | Express 5.2.0 / TypeScript 5.9.3 | API実装 | 既存ルーティングパターン |
 | Data | Prisma 7.0.0 / PostgreSQL 15 | 内訳書データ永続化 | 新規テーブル追加 |
 | Validation | Zod 4.1.12 | リクエストバリデーション | 既存スキーマパターン |
@@ -138,6 +140,53 @@ flowchart TD
     Save --> End
 ```
 
+### Excel出力フロー
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Page as ItemizedStatementDetailPage
+    participant Util as exportToExcel
+    participant Lib as xlsx library
+
+    User->>Page: Excelダウンロードボタンクリック
+    Page->>Page: isExporting = true
+    Page->>Util: exportToExcel(sortedItems, statementName)
+    Util->>Lib: XLSX.utils.json_to_sheet(data)
+    Lib-->>Util: worksheet
+    Util->>Lib: XLSX.utils.book_new()
+    Lib-->>Util: workbook
+    Util->>Lib: XLSX.writeFile(workbook, filename)
+    Lib-->>User: ブラウザでダウンロード
+    Util-->>Page: 完了
+    Page->>Page: isExporting = false
+```
+
+### クリップボードコピーフロー
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Page as ItemizedStatementDetailPage
+    participant Util as copyToClipboard
+    participant API as Clipboard API
+    participant Toast as useToast
+
+    User->>Page: クリップボードにコピーボタンクリック
+    Page->>Util: copyToClipboard(sortedItems)
+    Util->>Util: タブ区切りテキスト生成
+    Util->>API: navigator.clipboard.writeText(text)
+    alt 成功
+        API-->>Util: Promise resolved
+        Util-->>Page: 成功
+        Page->>Toast: success クリップボードにコピーしました
+    else 失敗
+        API-->>Util: Promise rejected
+        Util-->>Page: エラー
+        Page->>Toast: error クリップボードへのコピーに失敗しました
+    end
+```
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -154,6 +203,8 @@ flowchart TD
 | 10.1, 10.2, 10.3, 10.4 | 楽観的排他制御 | ItemizedStatementService | updatedAt | - |
 | 11.1, 11.2, 11.3, 11.4, 11.5 | プロジェクト詳細画面への統合 | ItemizedStatementSectionCard | - | - |
 | 12.1, 12.2, 12.3, 12.4, 12.5 | ローディング表示 | 全UI Components | isLoading state | - |
+| 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8 | Excel出力機能 | ItemizedStatementDetailPage, exportToExcel | ExportToExcelOptions | Excel出力フロー |
+| 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8 | クリップボード出力機能 | ItemizedStatementDetailPage, copyToClipboard | CopyToClipboardOptions | クリップボードコピーフロー |
 
 ## Components and Interfaces
 
@@ -164,7 +215,9 @@ flowchart TD
 | itemized-statements.routes | Backend/Routes | APIエンドポイント定義 | 1, 3, 4, 7, 10 | ItemizedStatementService (P0) | API |
 | CreateItemizedStatementForm | Frontend/UI | 内訳書作成フォーム | 1 | quantity-tables API (P1) | State |
 | ItemizedStatementSectionCard | Frontend/UI | プロジェクト詳細画面の内訳書セクション | 3, 11 | - | - |
-| ItemizedStatementDetailPage | Frontend/UI | 内訳書詳細・削除・ソート・フィルタ | 4, 5, 6, 7, 9, 12 | - | State |
+| ItemizedStatementDetailPage | Frontend/UI | 内訳書詳細・削除・ソート・フィルタ・出力 | 4, 5, 6, 7, 9, 12, 13, 14 | xlsx (P0), useToast (P1) | State |
+| exportToExcel | Frontend/Utility | Excelファイル生成・ダウンロード | 13 | xlsx (P0) | Function |
+| copyToClipboard | Frontend/Utility | タブ区切りテキストのクリップボードコピー | 14 | Clipboard API (P0) | Function |
 
 ### Backend / Service Layer
 
@@ -416,8 +469,8 @@ interface CreateItemizedStatementFormProps {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 内訳書詳細表示、ソート、フィルタリング、削除 |
-| Requirements | 4.1-4.9, 5.1-5.5, 6.1-6.7, 7.1-7.4, 9.1-9.4, 12.1-12.5 |
+| Intent | 内訳書詳細表示、ソート、フィルタリング、削除、Excel出力、クリップボードコピー |
+| Requirements | 4.1-4.9, 5.1-5.5, 6.1-6.7, 7.1-7.4, 9.1-9.4, 12.1-12.5, 13.1-13.8, 14.1-14.8 |
 
 **Responsibilities & Constraints**
 - テーブル形式での項目表示（任意分類、工種、名称、規格、数量、単位の順）
@@ -425,10 +478,15 @@ interface CreateItemizedStatementFormProps {
 - フィルタ入力によるAND条件絞り込み
 - ページネーション（50件/ページ、最大2000件）
 - 削除確認ダイアログと楽観的排他制御エラー表示
+- Excel出力ボタン（.xlsx形式でダウンロード）
+- クリップボードコピーボタン（タブ区切り形式）
 
 **Dependencies**
 - Outbound: itemized-statements API — 詳細取得、削除 (P0)
 - Outbound: Breadcrumb — ナビゲーション表示 (P1)
+- External: xlsx — Excel生成ライブラリ (P0)
+- External: Clipboard API — クリップボード操作 (P0)
+- Outbound: useToast — 成功・エラー通知 (P1)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
@@ -439,6 +497,7 @@ interface ItemizedStatementDetailPageState {
   statement: ItemizedStatementDetail | null;
   isLoading: boolean;
   isDeleting: boolean;
+  isExporting: boolean; // Excel出力中フラグ
   error: string | null;
   showDeleteDialog: boolean;
 
@@ -465,6 +524,138 @@ interface ItemizedStatementDetailPageState {
 - Integration: クライアントサイドでのソート・フィルタ実装（最大2000件のため）
 - Validation: フィルタ結果0件時のメッセージ表示
 - Risks: 大量データ時のレンダリングパフォーマンス（仮想スクロール検討可）
+- Excel出力・クリップボードコピーはフィルタ後のデータ（sortedItems）を対象とする
+
+### Frontend / Utility Layer
+
+#### exportToExcel
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書データをExcelファイル（.xlsx形式）として生成・ダウンロード |
+| Requirements | 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8 |
+
+**Responsibilities & Constraints**
+- フィルタ後のデータ（sortedItems）をExcelワークシートに変換
+- ヘッダー行を含む形式でシートを生成
+- 数量カラムは数値型として出力（小数点以下2桁精度維持）
+- ファイル名は `{内訳書名}_{YYYYMMDD}.xlsx` 形式
+- 生成中はローディングインジケーターを表示
+
+**Dependencies**
+- External: xlsx (SheetJS) — Excelファイル生成 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ] / Function [x]
+
+##### Function Interface
+
+```typescript
+/**
+ * Excelエクスポートオプション
+ */
+interface ExportToExcelOptions {
+  /** 内訳書項目一覧（フィルタ・ソート適用後） */
+  items: ItemizedStatementItemInfo[];
+  /** 内訳書名（ファイル名に使用） */
+  statementName: string;
+}
+
+/**
+ * Excelエクスポート結果
+ */
+interface ExportToExcelResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * 内訳書データをExcelファイルとしてダウンロード
+ *
+ * Requirements:
+ * - 13.2: .xlsx形式でファイル生成
+ * - 13.3: 任意分類、工種、名称、規格、数量、単位のカラム
+ * - 13.4: ファイル名は {内訳書名}_{YYYYMMDD}.xlsx
+ * - 13.5: 数量は数値として出力、小数点以下2桁精度
+ * - 13.6: フィルタ適用後のデータのみ出力
+ *
+ * @param options - エクスポートオプション
+ * @returns エクスポート結果
+ */
+function exportToExcel(options: ExportToExcelOptions): ExportToExcelResult;
+```
+
+- Preconditions: items配列が定義されていること
+- Postconditions: Excelファイルがダウンロードされる、またはエラーが返却される
+- Invariants: ファイルの内容はitemsの内容と一致
+
+**Implementation Notes**
+- Integration: SheetJS (xlsx) ライブラリを使用。npm公式ではなくSheetJS CDNからインストール
+- Validation: 項目が0件の場合でもヘッダーのみのExcelを生成
+- Risks: 大量データ（2000件）での生成時間（通常は1秒未満）
+
+#### copyToClipboard
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書データをタブ区切り形式でクリップボードにコピー |
+| Requirements | 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8 |
+
+**Responsibilities & Constraints**
+- フィルタ後のデータ（sortedItems）をタブ区切りテキストに変換
+- ヘッダー行（任意分類、工種、名称、規格、数量、単位）を含める
+- 各行はタブ文字（\t）で区切り、行末は改行文字（\n）で終端
+- 数量は小数点以下2桁の文字列として出力
+- コピー成功時はトースト通知を表示
+- コピー失敗時はエラートーストを表示
+
+**Dependencies**
+- External: Clipboard API (navigator.clipboard) — クリップボード操作 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ] / Function [x]
+
+##### Function Interface
+
+```typescript
+/**
+ * クリップボードコピーオプション
+ */
+interface CopyToClipboardOptions {
+  /** 内訳書項目一覧（フィルタ・ソート適用後） */
+  items: ItemizedStatementItemInfo[];
+}
+
+/**
+ * クリップボードコピー結果
+ */
+interface CopyToClipboardResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * 内訳書データをタブ区切り形式でクリップボードにコピー
+ *
+ * Requirements:
+ * - 14.2: タブ区切り形式でコピー
+ * - 14.3: ヘッダー行を含む
+ * - 14.4: 各行はタブ文字で区切り、行末は改行文字
+ * - 14.5: フィルタ適用後のデータのみコピー
+ * - 14.8: 数量は小数点以下2桁の文字列
+ *
+ * @param options - コピーオプション
+ * @returns コピー結果（Promise）
+ */
+async function copyToClipboard(options: CopyToClipboardOptions): Promise<CopyToClipboardResult>;
+```
+
+- Preconditions: items配列が定義されていること、Clipboard APIが利用可能
+- Postconditions: クリップボードにタブ区切りテキストがコピーされる、またはエラーが返却される
+- Invariants: コピーされたテキストはitemsの内容と一致
+
+**Implementation Notes**
+- Integration: navigator.clipboard.writeText() を使用（async/await）
+- Validation: Clipboard APIが利用不可の場合はエラーを返却
+- Risks: HTTPSでないローカル環境ではClipboard APIが制限される可能性あり（開発環境は除外）
 
 ## Data Models
 
@@ -651,6 +842,8 @@ interface DeleteItemizedStatementRequest {
 | OptimisticLockError | 409 | 他のユーザーにより更新されました。画面を再読み込みしてください | 画面リロード |
 | QuantityOverflowError | 422 | 数量の合計が許容範囲を超えています | 数量表の項目修正 |
 | EmptyQuantityItemsError | 400 | 選択された数量表に項目がありません | 別の数量表選択 |
+| ExcelExportError | N/A (Frontend) | Excelファイルの生成に失敗しました | 再試行ボタン |
+| ClipboardError | N/A (Frontend) | クリップボードへのコピーに失敗しました | 手動でコピー |
 
 ### Error Categories and Responses
 
@@ -676,6 +869,8 @@ interface DeleteItemizedStatementRequest {
 - ItemizedStatementService: CRUD操作、楽観的排他制御、エラーハンドリング
 - ItemizedStatementPivotService: グループ化ロジック、数量合計、オーバーフロー検出
 - Zodスキーマ: バリデーションルール（必須チェック、文字数制限、UUID形式）
+- exportToExcel: Excelファイル生成、カラム順序、数量精度、ファイル名形式
+- copyToClipboard: タブ区切り変換、ヘッダー行、数量精度、エラーハンドリング
 
 ### Integration Tests
 
@@ -688,11 +883,15 @@ interface DeleteItemizedStatementRequest {
 - 内訳書一覧表示: プロジェクト詳細からの遷移、ページネーション
 - 内訳書詳細操作: ソート、フィルタリング、削除
 - エラーケース: 重複名、空の数量表、楽観的排他制御エラー
+- Excel出力フロー: ボタンクリック → ファイルダウンロード → ファイル名検証
+- クリップボードコピーフロー: ボタンクリック → 成功トースト表示 → 貼り付け検証
+- フィルタ後の出力: フィルタ適用 → Excel/クリップボード出力 → フィルタ後データのみ出力検証
 
 ### Performance Tests
 
 - 大量項目集計: 2000件の項目を持つ数量表の集計時間
 - 一覧表示: 50件/ページのレンダリング時間
+- Excel出力: 2000件のExcel生成時間（目標: < 1秒）
 
 ## Security Considerations
 
@@ -713,3 +912,5 @@ interface DeleteItemizedStatementRequest {
 - 詳細画面のソート・フィルタはクライアントサイド（2000件以下のため）
 - インデックス最適化（projectId、deletedAt、createdAt）
 - **2000件制限**: サービス層でピボット集計結果が2000件を超える場合はエラーを返却（将来的な拡張に備えた安全策）
+- **Excel出力**: フロントエンドで完結（バックエンドAPI不要）、sortedItemsを直接利用してメモリ効率を維持
+- **クリップボードコピー**: 軽量なテキスト変換のみ（< 10ms）
