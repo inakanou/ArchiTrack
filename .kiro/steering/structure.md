@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-01-20（Steering Sync: 内訳書作成機能の実装完了を反映）_
+_最終更新: 2026-01-22（Steering Sync: 内訳書Excel/クリップボード出力機能の実装完了を反映）_
 
 ## ルートディレクトリ構成
 
@@ -235,8 +235,8 @@ git config core.hooksPath .husky
   - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ、フィールドバリデーション（文字数制限・数値範囲・表示書式）
 
 - `.kiro/specs/itemized-statement-generation/` - 内訳書作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全13タスク完了）
-  - 内容: 内訳書CRUD、数量表項目のピボット集計、分類軸（任意分類・工種・名称・規格・単位）によるグループ化、スナップショット独立性、ソート・フィルタリング・ページネーション、楽観的排他制御
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全16タスク完了）
+  - 内容: 内訳書CRUD、数量表項目のピボット集計、分類軸（任意分類・工種・名称・規格・単位）によるグループ化、スナップショット独立性、ソート・フィルタリング・ページネーション、楽観的排他制御、Excel出力（.xlsx形式）、クリップボードコピー（タブ区切りテキスト）
 
 ### `e2e/`
 
@@ -455,9 +455,11 @@ frontend/
 │   │       ├── CalculationNumericInput.tsx # 計算用数値入力
 │   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
 │   │       └── FieldValidatedItemRow.tsx # バリデーション付き項目行
-│   │   ├── itemized-statement/      # 内訳書コンポーネント
+│   │   ├── itemized-statement/      # 内訳書コンポーネント（6ファイル）
 │   │       ├── CreateItemizedStatementForm.tsx # 内訳書作成フォーム
-│   │       └── ItemizedStatementDeleteDialog.tsx # 削除確認ダイアログ
+│   │       ├── CreateItemizedStatementForm.stories.tsx # Storybook
+│   │       ├── ItemizedStatementDeleteDialog.tsx # 削除確認ダイアログ
+│   │       └── ItemizedStatementDeleteDialog.stories.tsx # Storybook
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
 │   │       └── ResourceNotFound.tsx # リソース未発見表示
@@ -496,13 +498,15 @@ frontend/
 │   │   ├── ItemizedStatementListPage.tsx # 内訳書一覧ページ
 │   │   └── ItemizedStatementDetailPage.tsx # 内訳書詳細ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
-│   ├── utils/             # ユーティリティ関数（18ファイル）
+│   ├── utils/             # ユーティリティ関数（20ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   │   ├── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
 │   │   ├── accessibility.ts # アクセシビリティユーティリティ
 │   │   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
 │   │   ├── field-validation.ts # フィールドバリデーション（文字数制限）
-│   │   └── numeric-range-validation.ts # 数値範囲バリデーション
+│   │   ├── numeric-range-validation.ts # 数値範囲バリデーション
+│   │   ├── export-excel.ts # Excelエクスポート（内訳書、SheetJS）
+│   │   └── copy-to-clipboard.ts # クリップボードコピー（タブ区切り）
 │   ├── App.tsx            # メインAppコンポーネント（TypeScript）
 │   ├── main.tsx           # Reactエントリーポイント（TypeScript）
 │   └── vite-env.d.ts      # Vite環境変数型定義
@@ -535,7 +539,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（61ファイル）:**
+**Storybookストーリーファイル（85ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -588,6 +592,10 @@ frontend/
 
 プロジェクトコンポーネント（projects/）:
 - `QuantityTableSectionCard.stories.tsx` - 数量表セクションカード
+
+内訳書コンポーネント（itemized-statement/）:
+- `CreateItemizedStatementForm.stories.tsx` - 内訳書作成フォーム
+- `ItemizedStatementDeleteDialog.stories.tsx` - 削除確認ダイアログ
 
 **実装済み拡張ディレクトリ:**
 
