@@ -629,7 +629,7 @@ export class PdfReportService {
 
       // コメントを行に分割
       const commentLines: string[] = image.comment
-        ? doc.splitTextToSize(image.comment, commentAreaWidth - 15)
+        ? doc.splitTextToSize(image.comment, commentAreaWidth - 8)
         : [];
 
       for (let lineIdx = 0; lineIdx < DOTTED_LINE_COUNT; lineIdx++) {
