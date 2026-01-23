@@ -7,6 +7,7 @@
  * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
  * Task 27.2: フィールドラベル変更（「取引先」→「顧客名」）
  * Task 10.1 (site-survey): 現場調査への導線追加
+ * Task 7.2 (estimate-request): 見積依頼への導線追加
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -19,6 +20,7 @@
  * - 21.21: 編集ボタンクリックで編集ページへ遷移
  * - 22: 顧客情報表示（ラベル「顧客名」）
  * - 2.1, 2.2: 現場調査タブ/セクション表示と遷移
+ * - 1.1 (estimate-request): プロジェクト詳細画面に見積依頼セクションを表示する
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -27,10 +29,12 @@ import { getProject, getStatusHistory, deleteProject, transitionStatus } from '.
 import { getLatestSiteSurveys } from '../api/site-surveys';
 import { getLatestQuantityTables } from '../api/quantity-tables';
 import { getLatestItemizedStatements } from '../api/itemized-statements';
+import { getLatestEstimateRequests } from '../api/estimate-requests';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
 import type { ProjectItemizedStatementSummary } from '../types/itemized-statement.types';
+import type { ProjectEstimateRequestSummary } from '../types/estimate-request.types';
 import { useToast } from '../hooks/useToast';
 import type {
   ProjectDetail,
@@ -44,6 +48,7 @@ import DeleteConfirmationDialog from '../components/projects/DeleteConfirmationD
 import { SiteSurveySectionCard } from '../components/projects/SiteSurveySectionCard';
 import { QuantityTableSectionCard } from '../components/projects/QuantityTableSectionCard';
 import { ItemizedStatementSectionCard } from '../components/projects/ItemizedStatementSectionCard';
+import { EstimateRequestSectionCard } from '../components/projects/EstimateRequestSectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -296,6 +301,9 @@ export default function ProjectDetailPage() {
   const [itemizedStatementSummary, setItemizedStatementSummary] =
     useState<ProjectItemizedStatementSummary | null>(null);
   const [isItemizedStatementLoading, setIsItemizedStatementLoading] = useState(false);
+  const [estimateRequestSummary, setEstimateRequestSummary] =
+    useState<ProjectEstimateRequestSummary | null>(null);
+  const [isEstimateRequestLoading, setIsEstimateRequestLoading] = useState(false);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -316,6 +324,7 @@ export default function ProjectDetailPage() {
     setIsSurveyLoading(true);
     setIsQuantityTableLoading(true);
     setIsItemizedStatementLoading(true);
+    setIsEstimateRequestLoading(true);
     setError(null);
 
     try {
@@ -357,6 +366,17 @@ export default function ProjectDetailPage() {
         setItemizedStatementSummary({ totalCount: 0, latestStatements: [] });
       } finally {
         setIsItemizedStatementLoading(false);
+      }
+
+      // 見積依頼サマリー取得（Task 7.2: Requirements 1.1）
+      try {
+        const estimateRequestData = await getLatestEstimateRequests(id);
+        setEstimateRequestSummary(estimateRequestData);
+      } catch {
+        // 見積依頼の取得に失敗しても、プロジェクト詳細は表示する
+        setEstimateRequestSummary({ totalCount: 0, latestRequests: [] });
+      } finally {
+        setIsEstimateRequestLoading(false);
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -651,6 +671,14 @@ export default function ProjectDetailPage() {
           // 内訳書作成成功時に作成された内訳書の詳細画面に遷移
           navigate(`/itemized-statements/${statement.id}`);
         }}
+      />
+
+      {/* 見積依頼セクション (Task 7.2, Requirements 1.1) */}
+      <EstimateRequestSectionCard
+        projectId={project.id}
+        totalCount={estimateRequestSummary?.totalCount ?? 0}
+        latestRequests={estimateRequestSummary?.latestRequests ?? []}
+        isLoading={isEstimateRequestLoading}
       />
 
       {/* 関連データ（機能フラグ対応、将来実装予定） */}

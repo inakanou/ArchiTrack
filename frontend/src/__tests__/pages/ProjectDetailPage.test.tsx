@@ -30,12 +30,18 @@ import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
 import * as tradingPartnersApi from '../../api/trading-partners';
 import * as siteSurveyApi from '../../api/site-surveys';
+import * as quantityTableApi from '../../api/quantity-tables';
+import * as itemizedStatementApi from '../../api/itemized-statements';
+import * as estimateRequestApi from '../../api/estimate-requests';
 import { ApiError } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/projects');
 vi.mock('../../api/trading-partners');
 vi.mock('../../api/site-surveys');
+vi.mock('../../api/quantity-tables');
+vi.mock('../../api/itemized-statements');
+vi.mock('../../api/estimate-requests');
 
 // useAuthフックのモック
 vi.mock('../../hooks/useAuth', () => ({
@@ -123,6 +129,21 @@ describe('ProjectDetailPage', () => {
     vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
       totalCount: 0,
       latestSurveys: [],
+    });
+    // 数量表サマリーのデフォルトモック（空の状態）
+    vi.mocked(quantityTableApi.getLatestQuantityTables).mockResolvedValue({
+      totalCount: 0,
+      latestTables: [],
+    });
+    // 内訳書サマリーのデフォルトモック（空の状態）
+    vi.mocked(itemizedStatementApi.getLatestItemizedStatements).mockResolvedValue({
+      totalCount: 0,
+      latestStatements: [],
+    });
+    // 見積依頼サマリーのデフォルトモック（空の状態）
+    vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
+      totalCount: 0,
+      latestRequests: [],
     });
   });
 
@@ -1356,6 +1377,189 @@ describe('ProjectDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByText('ステータス変更中にエラーが発生しました')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 7.2 (estimate-request): 見積依頼への導線
+  // プロジェクト詳細画面に「見積依頼」セクションを追加（内訳書セクションの下）
+  // Requirements: 1.1
+  // ==========================================================================
+
+  describe('見積依頼への導線（Task 7.2, Requirements 1.1）', () => {
+    it('「見積依頼」セクションが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 見積依頼セクションの見出しが表示される（h3要素、level: 3）
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 3, name: '見積依頼' })).toBeInTheDocument();
+      });
+    });
+
+    it('見積依頼が0件の場合は空状態メッセージを表示する', async () => {
+      // モックを見積依頼なし状態に設定（totalCount = 0）
+      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
+        totalCount: 0,
+        latestRequests: [],
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 空状態メッセージが表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByText(/見積依頼はまだありません/)).toBeInTheDocument();
+      });
+    });
+
+    it('見積依頼が0件でも「新規作成」リンクが表示される', async () => {
+      // モックを見積依頼なし状態に設定（totalCount = 0）
+      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
+        totalCount: 0,
+        latestRequests: [],
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 新規作成リンクが表示されるまで待機
+      await waitFor(() => {
+        const links = screen.getAllByRole('link', { name: /新規作成/ });
+        // 見積依頼の新規作成リンクを取得（hrefで特定）
+        const estimateRequestCreateLink = links.find(
+          (link) => link.getAttribute('href') === '/projects/project-1/estimate-requests/new'
+        );
+        expect(estimateRequestCreateLink).toBeInTheDocument();
+      });
+    });
+
+    it('「すべて見る」リンクが表示される（見積依頼あり時）', async () => {
+      // モックを見積依頼あり状態に設定（totalCount > 0）
+      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
+        totalCount: 3,
+        latestRequests: [
+          {
+            id: 'request-1',
+            projectId: 'project-1',
+            tradingPartnerId: 'partner-1',
+            tradingPartnerName: '株式会社ABC工業',
+            itemizedStatementId: 'statement-1',
+            itemizedStatementName: '第1回見積内訳書',
+            name: '見積依頼#1',
+            method: 'EMAIL',
+            includeBreakdownInBody: false,
+            createdAt: '2024-05-15T00:00:00.000Z',
+            updatedAt: '2024-05-15T00:00:00.000Z',
+          },
+        ],
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 「すべて見る」リンクが表示されるまで待機
+      await waitFor(() => {
+        const links = screen.getAllByRole('link', { name: /すべて見る/ });
+        const estimateRequestLink = links.find(
+          (link) => link.getAttribute('href') === '/projects/project-1/estimate-requests'
+        );
+        expect(estimateRequestLink).toBeInTheDocument();
+      });
+    });
+
+    it('見積依頼セクションに件数表示がある', async () => {
+      // モックを見積依頼あり状態に設定
+      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
+        totalCount: 5,
+        latestRequests: [
+          {
+            id: 'request-1',
+            projectId: 'project-1',
+            tradingPartnerId: 'partner-1',
+            tradingPartnerName: '株式会社ABC工業',
+            itemizedStatementId: 'statement-1',
+            itemizedStatementName: '第1回見積内訳書',
+            name: '見積依頼#1',
+            method: 'EMAIL',
+            includeBreakdownInBody: false,
+            createdAt: '2024-05-15T00:00:00.000Z',
+            updatedAt: '2024-05-15T00:00:00.000Z',
+          },
+        ],
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 見積依頼セクションの件数表示が表示されるまで待機
+      await waitFor(() => {
+        // 現場調査と見積依頼で「全5件」が表示される可能性があるため、
+        // 見積依頼セクション内で確認
+        const section = screen.getByTestId('estimate-request-section');
+        expect(within(section).getByText(/全5件/)).toBeInTheDocument();
+      });
+    });
+
+    it('見積依頼セクションが内訳書セクションの下に配置されている', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 3, name: '見積依頼' })).toBeInTheDocument();
+      });
+
+      // DOM順序を確認：内訳書セクションが見積依頼セクションの前にある
+      const allSections = screen.getAllByRole('region');
+      const itemizedStatementSection = allSections.find(
+        (section) => section.getAttribute('aria-labelledby') === 'itemized-statement-section-title'
+      );
+      const estimateRequestSection = allSections.find(
+        (section) => section.getAttribute('aria-labelledby') === 'estimate-request-section-title'
+      );
+
+      if (itemizedStatementSection && estimateRequestSection) {
+        // 内訳書セクションが見積依頼セクションより前にあることを確認
+        const itemizedIndex = allSections.indexOf(itemizedStatementSection);
+        const estimateIndex = allSections.indexOf(estimateRequestSection);
+        expect(itemizedIndex).toBeLessThan(estimateIndex);
+      }
+    });
+
+    it('見積依頼のAPI取得に失敗しても、他のセクションは表示される', async () => {
+      // 見積依頼APIのみ失敗させる
+      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockRejectedValue(
+        new ApiError(500, 'Server Error')
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 他のセクションは正常に表示される
+      expect(screen.getByRole('heading', { level: 3, name: '現場調査' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: '数量表' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: '内訳書' })).toBeInTheDocument();
     });
   });
 

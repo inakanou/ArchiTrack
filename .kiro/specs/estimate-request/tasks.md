@@ -178,7 +178,7 @@
   - /estimate-requests/:id/edit（編集）
   - _Requirements: 1.4, 1.5, 2.5_
 
-- [ ] 7.2 ProjectDetailPageへのセクション統合
+- [x] 7.2 ProjectDetailPageへのセクション統合
   - EstimateRequestSectionCardをプロジェクト詳細画面に追加
   - 内訳書セクションの下に配置
   - _Requirements: 1.1_
