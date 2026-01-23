@@ -119,7 +119,9 @@ export const updateEstimateRequestSchema = z.object({
 
   includeBreakdownInBody: z.boolean().optional(),
 
-  expectedUpdatedAt: z.string().datetime({ message: ESTIMATE_REQUEST_VALIDATION_MESSAGES.DATETIME_INVALID }),
+  expectedUpdatedAt: z
+    .string()
+    .datetime({ message: ESTIMATE_REQUEST_VALIDATION_MESSAGES.DATETIME_INVALID }),
 });
 
 /**
@@ -136,7 +138,9 @@ export const updateItemSelectionSchema = z.object({
   items: z
     .array(
       z.object({
-        itemId: z.string().regex(UUID_REGEX, ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEM_ID_INVALID_UUID),
+        itemId: z
+          .string()
+          .regex(UUID_REGEX, ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEM_ID_INVALID_UUID),
         selected: z.boolean(),
       })
     )
@@ -202,7 +206,9 @@ export type EstimateRequestListQuery = z.infer<typeof estimateRequestListQuerySc
  * 削除リクエストボディスキーマ（楽観的排他制御用）
  */
 export const deleteEstimateRequestBodySchema = z.object({
-  updatedAt: z.string().datetime({ message: ESTIMATE_REQUEST_VALIDATION_MESSAGES.DATETIME_INVALID }),
+  updatedAt: z
+    .string()
+    .datetime({ message: ESTIMATE_REQUEST_VALIDATION_MESSAGES.DATETIME_INVALID }),
 });
 
 /**

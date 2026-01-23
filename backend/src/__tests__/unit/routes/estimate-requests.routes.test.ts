@@ -203,11 +203,13 @@ describe('estimate-requests.routes', () => {
         .send(validCreateInput);
 
       expect(response.status).toBe(201);
-      expect(response.body).toEqual(expect.objectContaining({
-        id: validUUID,
-        name: 'テスト見積依頼',
-        tradingPartnerName: 'テスト協力業者',
-      }));
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          id: validUUID,
+          name: 'テスト見積依頼',
+          tradingPartnerName: 'テスト協力業者',
+        })
+      );
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: validCreateInput.name,
@@ -294,8 +296,7 @@ describe('estimate-requests.routes', () => {
       };
       mockFindByProjectId.mockResolvedValue(mockResult);
 
-      const response = await request(app)
-        .get(`/api/projects/${projectId}/estimate-requests`);
+      const response = await request(app).get(`/api/projects/${projectId}/estimate-requests`);
 
       expect(response.status).toBe(200);
       expect(response.body.data).toHaveLength(1);
@@ -313,8 +314,7 @@ describe('estimate-requests.routes', () => {
         },
       });
 
-      const response = await request(app)
-        .get(`/api/projects/${projectId}/estimate-requests`);
+      const response = await request(app).get(`/api/projects/${projectId}/estimate-requests`);
 
       expect(response.status).toBe(200);
       expect(response.body.data).toHaveLength(0);
@@ -339,10 +339,12 @@ describe('estimate-requests.routes', () => {
     });
 
     it('should require estimate_request:read permission', async () => {
-      mockFindByProjectId.mockResolvedValue({ data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } });
+      mockFindByProjectId.mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+      });
 
-      await request(app)
-        .get(`/api/projects/${projectId}/estimate-requests`);
+      await request(app).get(`/api/projects/${projectId}/estimate-requests`);
 
       expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:read');
     });
@@ -352,29 +354,28 @@ describe('estimate-requests.routes', () => {
     it('should return estimate request detail', async () => {
       mockFindById.mockResolvedValue(mockEstimateRequest);
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}`);
+      const response = await request(app).get(`/api/estimate-requests/${validUUID}`);
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual(expect.objectContaining({
-        id: validUUID,
-        name: 'テスト見積依頼',
-      }));
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          id: validUUID,
+          name: 'テスト見積依頼',
+        })
+      );
     });
 
     it('should return 404 when estimate request not found', async () => {
       mockFindById.mockResolvedValue(null);
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}`);
+      const response = await request(app).get(`/api/estimate-requests/${validUUID}`);
 
       expect(response.status).toBe(404);
       expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
     });
 
     it('should return 400 for invalid UUID', async () => {
-      const response = await request(app)
-        .get('/api/estimate-requests/invalid-uuid');
+      const response = await request(app).get('/api/estimate-requests/invalid-uuid');
 
       expect(response.status).toBe(400);
     });
@@ -410,10 +411,12 @@ describe('estimate-requests.routes', () => {
     });
 
     it('should return 409 for optimistic lock conflict', async () => {
-      mockUpdate.mockRejectedValue(new EstimateRequestConflictError({
-        expectedUpdatedAt: validUpdateInput.expectedUpdatedAt,
-        actualUpdatedAt: '2024-01-02T00:00:00.000Z',
-      }));
+      mockUpdate.mockRejectedValue(
+        new EstimateRequestConflictError({
+          expectedUpdatedAt: validUpdateInput.expectedUpdatedAt,
+          actualUpdatedAt: '2024-01-02T00:00:00.000Z',
+        })
+      );
 
       const response = await request(app)
         .put(`/api/estimate-requests/${validUUID}`)
@@ -426,9 +429,7 @@ describe('estimate-requests.routes', () => {
     it('should require estimate_request:update permission', async () => {
       mockUpdate.mockResolvedValue(mockEstimateRequest);
 
-      await request(app)
-        .put(`/api/estimate-requests/${validUUID}`)
-        .send(validUpdateInput);
+      await request(app).put(`/api/estimate-requests/${validUUID}`).send(validUpdateInput);
 
       expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:update');
     });
@@ -457,10 +458,12 @@ describe('estimate-requests.routes', () => {
     });
 
     it('should return 409 for optimistic lock conflict', async () => {
-      mockDelete.mockRejectedValue(new EstimateRequestConflictError({
-        expectedUpdatedAt: '2024-01-01T00:00:00.000Z',
-        actualUpdatedAt: '2024-01-02T00:00:00.000Z',
-      }));
+      mockDelete.mockRejectedValue(
+        new EstimateRequestConflictError({
+          expectedUpdatedAt: '2024-01-01T00:00:00.000Z',
+          actualUpdatedAt: '2024-01-02T00:00:00.000Z',
+        })
+      );
 
       const response = await request(app)
         .delete(`/api/estimate-requests/${validUUID}`)
@@ -548,18 +551,22 @@ describe('estimate-requests.routes', () => {
       ];
       mockFindItemsWithOtherRequestStatus.mockResolvedValue(mockItems);
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}/items-with-status`);
+      const response = await request(app).get(
+        `/api/estimate-requests/${validUUID}/items-with-status`
+      );
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockItems);
     });
 
     it('should return 404 when estimate request not found', async () => {
-      mockFindItemsWithOtherRequestStatus.mockRejectedValue(new EstimateRequestNotFoundError(validUUID));
+      mockFindItemsWithOtherRequestStatus.mockRejectedValue(
+        new EstimateRequestNotFoundError(validUUID)
+      );
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}/items-with-status`);
+      const response = await request(app).get(
+        `/api/estimate-requests/${validUUID}/items-with-status`
+      );
 
       expect(response.status).toBe(404);
     });
@@ -575,8 +582,7 @@ describe('estimate-requests.routes', () => {
       };
       mockGenerateText.mockResolvedValue(mockEmailText);
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}/text`);
+      const response = await request(app).get(`/api/estimate-requests/${validUUID}/text`);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockEmailText);
@@ -590,8 +596,7 @@ describe('estimate-requests.routes', () => {
       };
       mockGenerateText.mockResolvedValue(mockFaxText);
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}/text`);
+      const response = await request(app).get(`/api/estimate-requests/${validUUID}/text`);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockFaxText);
@@ -600,8 +605,7 @@ describe('estimate-requests.routes', () => {
     it('should return 404 when estimate request not found', async () => {
       mockGenerateText.mockRejectedValue(new EstimateRequestNotFoundError(validUUID));
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}/text`);
+      const response = await request(app).get(`/api/estimate-requests/${validUUID}/text`);
 
       expect(response.status).toBe(404);
     });
@@ -609,8 +613,7 @@ describe('estimate-requests.routes', () => {
     it('should return 422 when no items selected', async () => {
       mockGenerateText.mockRejectedValue(new NoItemsSelectedError(validUUID));
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}/text`);
+      const response = await request(app).get(`/api/estimate-requests/${validUUID}/text`);
 
       expect(response.status).toBe(422);
       expect(response.body.code).toBe('NO_ITEMS_SELECTED');
@@ -619,8 +622,7 @@ describe('estimate-requests.routes', () => {
     it('should return 422 when contact info is missing', async () => {
       mockGenerateText.mockRejectedValue(new MissingContactInfoError('email', tradingPartnerId));
 
-      const response = await request(app)
-        .get(`/api/estimate-requests/${validUUID}/text`);
+      const response = await request(app).get(`/api/estimate-requests/${validUUID}/text`);
 
       expect(response.status).toBe(422);
       expect(response.body.code).toBe('MISSING_CONTACT_INFO');
