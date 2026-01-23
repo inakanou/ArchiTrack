@@ -183,8 +183,8 @@
   - 内訳書セクションの下に配置
   - _Requirements: 1.1_
 
-- [ ] 8. APIクライアント実装
-- [ ] 8.1 estimate-requests APIクライアントの実装
+- [x] 8. APIクライアント実装
+- [x] 8.1 estimate-requests APIクライアントの実装
   - 見積依頼CRUD操作のAPIクライアント関数を実装
   - 項目選択更新のAPI呼び出し
   - 見積依頼文取得のAPI呼び出し
