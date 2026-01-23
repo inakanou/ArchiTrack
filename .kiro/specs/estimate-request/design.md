@@ -115,8 +115,8 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     User->>UI: 新規作成ボタンクリック
-    UI->>API: GET /api/trading-partners/search?type=SUBCONTRACTOR
-    API->>DB: 協力業者取引先検索
+    UI->>API: GET /api/trading-partners/search?types=SUBCONTRACTOR
+    API->>DB: 協力業者取引先検索（types配列にSUBCONTRACTORを含む）
     DB-->>API: 取引先一覧
     API-->>UI: 取引先一覧
     UI->>API: GET /api/projects/:projectId/itemized-statements
@@ -462,7 +462,7 @@ interface EstimateRequestTextService {
 - Outbound: ItemizedStatementSelect — 内訳書選択 (P1)
 
 **Implementation Notes**
-- Integration: TradingPartnerSelectを再利用し、type=SUBCONTRACTORでフィルタリング
+- Integration: TradingPartnerSelectを再利用し、types配列にSUBCONTRACTORを含む取引先をフィルタリング
 - Validation: 必須項目のバリデーション、協力業者/内訳書の存在チェック
 - Risks: なし
 
@@ -523,7 +523,14 @@ interface EstimateRequestTextService {
 **Business Rules & Invariants**:
 - 見積依頼は必ず1つのプロジェクト、1つの取引先、1つの内訳書に紐付く
 - 内訳書に項目がない場合は見積依頼を作成できない
-- 取引先は協力業者（SUBCONTRACTOR）タイプを持つ必要がある
+- 取引先は協力業者（SUBCONTRACTOR）タイプを持つ必要がある（types配列にSUBCONTRACTORを含む）
+
+**内訳書項目の整合性戦略（ロック戦略）**:
+- 見積依頼が紐付いている内訳書の項目は、追加・削除・編集が制限される
+- 内訳書項目の変更を試みた際に、紐付く見積依頼が存在する場合はエラーを返す
+- エラーメッセージ: 「この内訳書は見積依頼で使用されているため、項目を変更できません」
+- 内訳書自体の削除は、紐付く見積依頼が存在する場合は制限される（RESTRICT）
+- これにより、EstimateRequestItemとItemizedStatementItemの参照整合性を保証する
 
 ### Logical Data Model
 
@@ -542,6 +549,13 @@ ItemizedStatementItem 1--* EstimateRequestItem
 - EstimateRequest.itemizedStatementId -> ItemizedStatement.id (RESTRICT)
 - EstimateRequestItem.estimateRequestId -> EstimateRequest.id (CASCADE DELETE)
 - EstimateRequestItem.itemizedStatementItemId -> ItemizedStatementItem.id (RESTRICT)
+
+**内訳書項目ロック制約（既存サービスへの影響）**:
+- ItemizedStatementService.addItem(): 見積依頼が紐付いている内訳書への項目追加を禁止
+- ItemizedStatementService.updateItem(): 見積依頼が紐付いている内訳書項目の編集を禁止
+- ItemizedStatementService.deleteItem(): 見積依頼が紐付いている内訳書項目の削除を禁止
+- ItemizedStatementService.delete(): 見積依頼が紐付いている内訳書の削除を禁止
+- 判定ロジック: EstimateRequestテーブルでitemizedStatementIdの存在チェック（deletedAt IS NULL）
 
 ### Physical Data Model
 
