@@ -275,6 +275,7 @@ model Project {
   siteSurveys        SiteSurvey[] // 現場調査リレーション
   quantityTables     QuantityTable[] // 数量表リレーション
   itemizedStatements ItemizedStatement[] // 内訳書リレーション
+  estimateRequests   EstimateRequest[] // 見積依頼リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -376,8 +377,9 @@ model TradingPartner {
   deletedAt          DateTime? // 論理削除
 
   // リレーション
-  types    TradingPartnerTypeMapping[]
-  projects Project[] // この取引先に紐付くプロジェクト
+  types            TradingPartnerTypeMapping[]
+  projects         Project[] // この取引先に紐付くプロジェクト
+  estimateRequests EstimateRequest[] // この取引先宛の見積依頼
 
   // インデックス
   // Requirements: 2.11, 4.8 - 同一の取引先名+支店名の重複を防ぐ複合一意制約
@@ -715,8 +717,9 @@ model ItemizedStatement {
   updatedAt               DateTime  @updatedAt
   deletedAt               DateTime? // 論理削除
 
-  project Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  items   ItemizedStatementItem[]
+  project          Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items            ItemizedStatementItem[]
+  estimateRequests EstimateRequest[]
 
   // インデックス
   @@index([projectId])
@@ -759,9 +762,100 @@ model ItemizedStatementItem {
   quantity            Decimal @db.Decimal(10, 2) // 数量（小数点以下2桁精度）
   displayOrder        Int // 表示順序
 
-  itemizedStatement ItemizedStatement @relation(fields: [itemizedStatementId], references: [id], onDelete: Cascade)
+  itemizedStatement    ItemizedStatement     @relation(fields: [itemizedStatementId], references: [id], onDelete: Cascade)
+  estimateRequestItems EstimateRequestItem[]
 
   @@index([itemizedStatementId])
   @@index([itemizedStatementId, displayOrder])
   @@map("itemized_statement_items")
+}
+
+// ===== Estimate Request Management Data Models =====
+
+/**
+ * 見積依頼方法
+ * Requirements: 4.8, 4.9 - 見積依頼方法としてメールまたはFAXを選択可能
+ */
+enum EstimateRequestMethod {
+  EMAIL
+  FAX
+}
+
+/**
+ * 見積依頼モデル
+ * プロジェクトに紐付く協力業者への見積依頼を管理する。
+ * ユーザーは内訳書の項目を選択し、メールまたはFAX送信に必要な情報を生成できる。
+ * フィールド:
+ * - id: 見積依頼の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - tradingPartnerId: 宛先取引先ID（外部キー、RESTRICT）
+ * - itemizedStatementId: 参照内訳書ID（外部キー、RESTRICT）
+ * - name: 見積依頼名（必須、最大200文字）
+ * - method: 見積依頼方法（EMAIL/FAX）
+ * - includeBreakdownInBody: 内訳書を本文に含める
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位での見積依頼検索用
+ * - tradingPartnerId: 取引先単位での見積依頼検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * - createdAt: 作成日時でのソート用
+ * Requirements:
+ * - 8.1: 見積依頼をプロジェクトに紐づけて保存する
+ * - 8.3: 見積依頼の作成日時と更新日時を記録する
+ * - 8.4: 見積依頼の削除時に論理削除を行う
+ * - 8.5: 楽観的排他制御により同時更新を防止する
+ */
+model EstimateRequest {
+  id                     String                @id @default(uuid())
+  projectId              String
+  tradingPartnerId       String
+  itemizedStatementId    String
+  name                   String // 見積依頼名（必須、最大200文字）
+  method                 EstimateRequestMethod @default(EMAIL) // 見積依頼方法
+  includeBreakdownInBody Boolean               @default(false) // 内訳書を本文に含める
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  deletedAt              DateTime? // 論理削除
+
+  project           Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradingPartner    TradingPartner        @relation(fields: [tradingPartnerId], references: [id])
+  itemizedStatement ItemizedStatement     @relation(fields: [itemizedStatementId], references: [id])
+  selectedItems     EstimateRequestItem[]
+
+  @@index([projectId])
+  @@index([tradingPartnerId])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("estimate_requests")
+}
+
+/**
+ * 見積依頼項目モデル
+ * 見積依頼で選択された内訳書項目の参照を保持する。
+ * フィールド:
+ * - id: 項目の一意ID（UUID）
+ * - estimateRequestId: 見積依頼ID（外部キー、カスケード削除）
+ * - itemizedStatementItemId: 内訳書項目ID（外部キー、RESTRICT）
+ * - selected: 選択状態
+ * ユニーク制約: estimateRequestId + itemizedStatementItemId
+ * インデックス:
+ * - estimateRequestId: 見積依頼単位での項目取得用
+ * Requirements:
+ * - 8.2: 見積依頼に選択された項目リストを保存する
+ * - 4.4, 4.5: 項目の選択状態を記録
+ */
+model EstimateRequestItem {
+  id                      String  @id @default(uuid())
+  estimateRequestId       String
+  itemizedStatementItemId String
+  selected                Boolean @default(false)
+
+  estimateRequest       EstimateRequest       @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+  itemizedStatementItem ItemizedStatementItem @relation(fields: [itemizedStatementItemId], references: [id])
+
+  @@unique([estimateRequestId, itemizedStatementItemId])
+  @@index([estimateRequestId])
+  @@map("estimate_request_items")
 }

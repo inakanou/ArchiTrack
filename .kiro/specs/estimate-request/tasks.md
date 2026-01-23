@@ -2,8 +2,8 @@
 
 ## Tasks
 
-- [ ] 1. データベーススキーマとPrisma設定
-- [ ] 1.1 (P) EstimateRequestモデルの定義
+- [x] 1. データベーススキーマとPrisma設定
+- [x] 1.1 (P) EstimateRequestモデルの定義
   - 見積依頼のマスターデータを管理するテーブルを作成
   - プロジェクト、取引先、内訳書へのリレーションを設定
   - 見積依頼方法（EMAIL/FAX）のEnum型を定義
@@ -11,14 +11,14 @@
   - インデックス設定（projectId、tradingPartnerId、deletedAt、createdAt）
   - _Requirements: 8.1, 8.3, 8.4, 8.5_
 
-- [ ] 1.2 (P) EstimateRequestItemモデルの定義
+- [x] 1.2 (P) EstimateRequestItemモデルの定義
   - 見積依頼で選択された内訳書項目の参照を保持するテーブルを作成
   - 見積依頼と内訳書項目へのリレーションを設定
   - 選択状態（selected）フラグを実装
   - ユニーク制約（estimateRequestId + itemizedStatementItemId）を設定
   - _Requirements: 8.2_
 
-- [ ] 1.3 マイグレーションの実行と検証
+- [x] 1.3 マイグレーションの実行と検証
   - Prismaマイグレーションを作成して実行
   - 既存のItemizedStatementモデルにEstimateRequestリレーションを追加
   - 参照整合性制約（RESTRICT）の設定を確認
