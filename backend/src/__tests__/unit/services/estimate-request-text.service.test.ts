@@ -421,5 +421,386 @@ describe('EstimateRequestTextService', () => {
         EstimateRequestNotFoundError
       );
     });
+
+    it('削除済み見積依頼の場合、エラーを発生させる', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'EMAIL',
+        deletedAt: new Date(), // 削除済み
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: 'test@example.com',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: null },
+      };
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+
+      // Act & Assert
+      await expect(service.generateText('er-001')).rejects.toThrow(EstimateRequestNotFoundError);
+    });
+  });
+
+  describe('generateEmailBody edge cases', () => {
+    it('現場住所がない場合でも生成できる', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: 'test@example.com',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: {
+          id: 'proj-001',
+          name: 'テストプロジェクト',
+          siteAddress: null, // 現場住所なし
+        },
+      };
+
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: '電気工事',
+            name: '配線工事',
+            specification: null,
+            unit: 'm',
+            quantity: 100,
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateEmailText('er-001');
+
+      // Assert
+      expect(result.body).toContain('テストプロジェクト');
+      expect(result.body).not.toContain('現場住所');
+    });
+
+    it('項目の一部フィールドがnullでも生成できる', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: true,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: 'test@example.com',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: '東京都' },
+      };
+
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: null, // nullフィールド
+            name: '配線工事',
+            specification: null,
+            unit: null,
+            quantity: 50,
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateEmailText('er-001');
+
+      // Assert
+      expect(result.body).toContain('配線工事');
+      expect(result.body).toContain('50');
+    });
+
+    it('項目のnameがnullでも生成できる', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: true,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: 'test@example.com',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: '東京都' },
+      };
+
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: '電気工事',
+            name: null, // nameがnull
+            specification: 'VVF',
+            unit: 'm',
+            quantity: 100,
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateEmailText('er-001');
+
+      // Assert
+      expect(result.body).toContain('電気工事');
+      expect(result.body).toContain('VVF');
+      expect(result.body).toContain('100m');
+    });
+  });
+
+  describe('generateFaxText edge cases', () => {
+    it('内訳書を本文に含めて生成する', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'FAX',
+        includeBreakdownInBody: true, // 内訳を含める
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: null,
+          faxNumber: '03-1234-5678',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: '東京都渋谷区' },
+      };
+
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: '電気工事',
+            name: '配線工事',
+            specification: 'VVFケーブル',
+            unit: 'm',
+            quantity: new Decimal('100.00'),
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateFaxText('er-001');
+
+      // Assert
+      expect(result.body).toContain('配線工事');
+      expect(result.body).toContain('VVFケーブル');
+      expect(result.body).toContain('見積対象項目');
+    });
+
+    it('現場住所がない場合でも生成できる', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'FAX',
+        includeBreakdownInBody: false,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: null,
+          faxNumber: '03-1234-5678',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: {
+          id: 'proj-001',
+          name: 'テストプロジェクト',
+          siteAddress: null, // 現場住所なし
+        },
+      };
+
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: '電気工事',
+            name: '配線工事',
+            specification: null,
+            unit: 'm',
+            quantity: 100,
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateFaxText('er-001');
+
+      // Assert
+      expect(result.body).toContain('FAX');
+      expect(result.body).not.toContain('現場住所');
+    });
+
+    it('項目が選択されていない場合、エラーを発生させる', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'FAX',
+        includeBreakdownInBody: false,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: null,
+          faxNumber: '03-1234-5678',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: null },
+      };
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue([] as never);
+
+      // Act & Assert
+      await expect(service.generateFaxText('er-001')).rejects.toThrow(NoItemsSelectedError);
+    });
+
+    it('項目のnameがnullでも生成できる（FAX）', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'FAX',
+        includeBreakdownInBody: true,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: null,
+          faxNumber: '03-1234-5678',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: '東京都' },
+      };
+
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: '電気工事',
+            name: null, // nameがnull
+            specification: 'VVF',
+            unit: 'm',
+            quantity: 100,
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateFaxText('er-001');
+
+      // Assert
+      expect(result.body).toContain('電気工事');
+      expect(result.body).toContain('VVF');
+      expect(result.body).toContain('100m');
+    });
+
+    it('項目の全フィールドがnullでも生成できる（FAX）', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'FAX',
+        includeBreakdownInBody: true,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: null,
+          faxNumber: '03-1234-5678',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: '東京都' },
+      };
+
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: null, // 全てnull
+            name: null,
+            specification: null,
+            unit: null,
+            quantity: 50,
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateFaxText('er-001');
+
+      // Assert
+      expect(result.body).toContain('50');
+      expect(result.body).toContain('見積対象項目');
+    });
   });
 });
