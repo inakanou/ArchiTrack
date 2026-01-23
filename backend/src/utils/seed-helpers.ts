@@ -329,6 +329,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '内訳書の削除',
     },
+
+    // 見積依頼関連権限（estimate-request）
+    {
+      resource: 'estimate_request',
+      action: 'create',
+      description: '見積依頼の作成',
+    },
+    {
+      resource: 'estimate_request',
+      action: 'read',
+      description: '見積依頼の閲覧',
+    },
+    {
+      resource: 'estimate_request',
+      action: 'update',
+      description: '見積依頼の更新',
+    },
+    {
+      resource: 'estimate_request',
+      action: 'delete',
+      description: '見積依頼の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -422,6 +444,12 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'itemized_statement', action: 'read' },
     { resource: 'itemized_statement', action: 'update' },
     { resource: 'itemized_statement', action: 'delete' },
+    // 見積依頼関連権限（estimate-request）
+    // 一般ユーザーは見積依頼の作成・閲覧・更新・削除が可能
+    { resource: 'estimate_request', action: 'create' },
+    { resource: 'estimate_request', action: 'read' },
+    { resource: 'estimate_request', action: 'update' },
+    { resource: 'estimate_request', action: 'delete' },
   ];
 
   // 権限IDを一括取得
