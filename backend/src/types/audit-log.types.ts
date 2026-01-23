@@ -160,7 +160,12 @@ export type AuditLogAction =
   // 内訳書管理
   | 'ITEMIZED_STATEMENT_CREATED'
   | 'ITEMIZED_STATEMENT_UPDATED'
-  | 'ITEMIZED_STATEMENT_DELETED';
+  | 'ITEMIZED_STATEMENT_DELETED'
+  // 見積依頼管理
+  | 'ESTIMATE_REQUEST_CREATED'
+  | 'ESTIMATE_REQUEST_UPDATED'
+  | 'ESTIMATE_REQUEST_DELETED'
+  | 'ESTIMATE_REQUEST_ITEMS_UPDATED';
 
 /**
  * 取引先管理の監査ログアクション一覧
@@ -281,6 +286,27 @@ export type ItemizedStatementAuditAction = (typeof ITEMIZED_STATEMENT_AUDIT_ACTI
  * 内訳書監査ログのターゲットタイプ定数
  */
 export const ITEMIZED_STATEMENT_TARGET_TYPE = 'ItemizedStatement' as const;
+
+/**
+ * 見積依頼管理の監査ログアクション一覧
+ * EstimateRequestServiceとの連携で使用
+ */
+export const ESTIMATE_REQUEST_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'ESTIMATE_REQUEST_CREATED',
+  'ESTIMATE_REQUEST_UPDATED',
+  'ESTIMATE_REQUEST_DELETED',
+  'ESTIMATE_REQUEST_ITEMS_UPDATED',
+] as const;
+
+/**
+ * 見積依頼監査ログアクション型（サブセット）
+ */
+export type EstimateRequestAuditAction = (typeof ESTIMATE_REQUEST_AUDIT_ACTIONS)[number];
+
+/**
+ * 見積依頼監査ログのターゲットタイプ定数
+ */
+export const ESTIMATE_REQUEST_TARGET_TYPE = 'EstimateRequest' as const;
 
 /**
  * 監査ログエラー種別
