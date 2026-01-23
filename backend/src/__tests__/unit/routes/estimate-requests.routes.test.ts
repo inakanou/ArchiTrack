@@ -575,7 +575,7 @@ describe('estimate-requests.routes', () => {
   describe('GET /api/estimate-requests/:id/text', () => {
     it('should return email text for EMAIL method', async () => {
       const mockEmailText = {
-        type: 'email',
+        type: 'email' as const,
         to: 'partner@example.com',
         subject: '【お見積りご依頼】テストプロジェクト',
         body: 'お見積り依頼本文',
@@ -585,12 +585,17 @@ describe('estimate-requests.routes', () => {
       const response = await request(app).get(`/api/estimate-requests/${validUUID}/text`);
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual(mockEmailText);
+      // Route transforms response to frontend format
+      expect(response.body).toEqual({
+        recipient: 'partner@example.com',
+        subject: '【お見積りご依頼】テストプロジェクト',
+        body: 'お見積り依頼本文',
+      });
     });
 
     it('should return fax text for FAX method', async () => {
       const mockFaxText = {
-        type: 'fax',
+        type: 'fax' as const,
         faxNumber: '03-1234-5678',
         body: 'FAX本文',
       };
@@ -599,7 +604,12 @@ describe('estimate-requests.routes', () => {
       const response = await request(app).get(`/api/estimate-requests/${validUUID}/text`);
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual(mockFaxText);
+      // Route transforms response to frontend format (subject is empty for fax)
+      expect(response.body).toEqual({
+        recipient: '03-1234-5678',
+        subject: '',
+        body: 'FAX本文',
+      });
     });
 
     it('should return 404 when estimate request not found', async () => {

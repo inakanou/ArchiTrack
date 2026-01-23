@@ -512,6 +512,7 @@ describe('ItemizedStatementService', () => {
         createdAt: new Date(),
         updatedAt,
         deletedAt: null,
+        _count: { estimateRequests: 0 },
       };
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
@@ -589,6 +590,7 @@ describe('ItemizedStatementService', () => {
         createdAt: new Date(),
         updatedAt: actualUpdatedAt,
         deletedAt: null,
+        _count: { estimateRequests: 0 },
       };
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
