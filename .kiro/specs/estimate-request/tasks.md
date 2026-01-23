@@ -145,15 +145,15 @@
   - 項目未選択時のエラー表示
   - _Requirements: 5.1, 5.2, 5.3_
 
-- [ ] 6. フロントエンドページ実装
-- [ ] 6.1 EstimateRequestCreatePageの実装
+- [x] 6. フロントエンドページ実装
+- [x] 6.1 EstimateRequestCreatePageの実装
   - 見積依頼作成ページのレイアウトを実装
   - EstimateRequestFormの統合
   - 作成成功時の詳細画面への遷移
   - パンくずナビゲーションの表示
   - _Requirements: 3.6_
 
-- [ ] 6.2 EstimateRequestDetailPageの実装
+- [x] 6.2 EstimateRequestDetailPageの実装
   - 見積依頼詳細画面のレイアウトを実装
   - パンくずナビゲーションの表示
   - ItemSelectionPanelの統合
@@ -163,14 +163,14 @@
   - 削除確認ダイアログの実装
   - _Requirements: 4.1, 9.1, 9.2, 9.4, 9.5_
 
-- [ ] 6.3 EstimateRequestEditPageの実装
+- [x] 6.3 EstimateRequestEditPageの実装
   - 見積依頼編集ページのレイアウトを実装
   - EstimateRequestFormの統合（編集モード）
   - 更新成功時の詳細画面への遷移
   - _Requirements: 9.3, 9.6_
 
-- [ ] 7. ルーティングとナビゲーション統合
-- [ ] 7.1 フロントエンドルーティングの設定
+- [x] 7. ルーティングとナビゲーション統合
+- [x] 7.1 フロントエンドルーティングの設定
   - 見積依頼関連のルートを追加
   - /projects/:projectId/estimate-requests（一覧）
   - /projects/:projectId/estimate-requests/new（作成）
