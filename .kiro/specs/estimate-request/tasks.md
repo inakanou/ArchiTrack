@@ -79,8 +79,8 @@
   - GET /api/estimate-requests/:id/excel（Excel出力）
   - _Requirements: 4.4, 4.5, 4.10, 5.1, 5.2, 6.1_
 
-- [ ] 4. TradingPartnerSelectコンポーネントの拡張
-- [ ] 4.1 filterTypesプロパティの追加
+- [x] 4. TradingPartnerSelectコンポーネントの拡張
+- [x] 4.1 filterTypesプロパティの追加
   - TradingPartnerSelectにfilterTypesプロパティを追加
   - 指定された取引先種別でフィルタリング可能にする
   - 既存の使用箇所への影響がないことを確認
