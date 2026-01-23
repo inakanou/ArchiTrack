@@ -56,14 +56,14 @@
   - 適切なエラーメッセージを返却
   - _Requirements: 8.1_
 
-- [ ] 3. バックエンドAPI実装
-- [ ] 3.1 (P) Zodバリデーションスキーマの定義
+- [x] 3. バックエンドAPI実装
+- [x] 3.1 (P) Zodバリデーションスキーマの定義
   - 見積依頼作成・更新リクエストのバリデーションスキーマを定義
   - 項目選択更新リクエストのバリデーションスキーマを定義
   - 見積依頼方法のEnum型バリデーションを実装
   - _Requirements: 3.7_
 
-- [ ] 3.2 estimate-requests.routesの基本エンドポイント実装
+- [x] 3.2 estimate-requests.routesの基本エンドポイント実装
   - POST /api/projects/:projectId/estimate-requests（作成）
   - GET /api/projects/:projectId/estimate-requests（一覧取得）
   - GET /api/estimate-requests/:id（詳細取得）
@@ -72,7 +72,7 @@
   - 認証・認可ミドルウェアの適用
   - _Requirements: 3.6, 8.1, 9.3, 9.5, 9.6, 10.1, 10.2, 10.3, 10.4_
 
-- [ ] 3.3 estimate-requests.routesの追加エンドポイント実装
+- [x] 3.3 estimate-requests.routesの追加エンドポイント実装
   - PATCH /api/estimate-requests/:id/items（項目選択更新）
   - GET /api/estimate-requests/:id/items-with-status（他依頼選択状態付き項目一覧）
   - GET /api/estimate-requests/:id/text（見積依頼文生成）
