@@ -28,6 +28,7 @@ import {
   updateItemSelection,
   deleteEstimateRequest,
 } from '../api/estimate-requests';
+import { ApiError } from '../api/client';
 import {
   ItemSelectionPanel,
   EstimateRequestTextPanel,
@@ -423,7 +424,25 @@ export default function EstimateRequestDetailPage() {
     try {
       const textData = await getEstimateRequestText(id);
       setEstimateText(textData);
-    } catch {
+    } catch (error) {
+      // MISSING_CONTACT_INFO エラーの場合は適切なエラーメッセージを表示
+      if (error instanceof ApiError && error.response) {
+        const response = error.response as { code?: string; contactType?: string };
+        if (response.code === 'MISSING_CONTACT_INFO') {
+          const contactType = response.contactType;
+          const errorMessage =
+            contactType === 'email'
+              ? 'メールアドレスが登録されていません'
+              : 'FAX番号が登録されていません';
+          setEstimateText({
+            recipient: '',
+            subject: '',
+            body: '',
+            recipientError: errorMessage,
+          });
+          return;
+        }
+      }
       setEstimateText(null);
     } finally {
       setIsTextLoading(false);
@@ -459,11 +478,43 @@ export default function EstimateRequestDetailPage() {
       try {
         const updated = await updateEstimateRequest(id, { method }, request.updatedAt);
         setRequest(updated);
+        // テキストパネルが開いている場合は再取得
+        if (showTextPanel) {
+          setIsTextLoading(true);
+          try {
+            const textData = await getEstimateRequestText(id);
+            setEstimateText(textData);
+          } catch (error) {
+            // MISSING_CONTACT_INFO エラーの場合は適切なエラーメッセージを表示
+            if (error instanceof ApiError && error.response) {
+              const response = error.response as { code?: string; contactType?: string };
+              if (response.code === 'MISSING_CONTACT_INFO') {
+                const contactType = response.contactType;
+                const errorMessage =
+                  contactType === 'email'
+                    ? 'メールアドレスが登録されていません'
+                    : 'FAX番号が登録されていません';
+                setEstimateText({
+                  recipient: '',
+                  subject: '',
+                  body: '',
+                  recipientError: errorMessage,
+                });
+              } else {
+                setEstimateText(null);
+              }
+            } else {
+              setEstimateText(null);
+            }
+          } finally {
+            setIsTextLoading(false);
+          }
+        }
       } catch {
         // エラー処理（必要に応じて）
       }
     },
-    [id, request]
+    [id, request, showTextPanel]
   );
 
   /**
@@ -480,11 +531,43 @@ export default function EstimateRequestDetailPage() {
           request.updatedAt
         );
         setRequest(updated);
+        // テキストパネルが開いている場合は再取得
+        if (showTextPanel) {
+          setIsTextLoading(true);
+          try {
+            const textData = await getEstimateRequestText(id);
+            setEstimateText(textData);
+          } catch (error) {
+            // MISSING_CONTACT_INFO エラーの場合は適切なエラーメッセージを表示
+            if (error instanceof ApiError && error.response) {
+              const response = error.response as { code?: string; contactType?: string };
+              if (response.code === 'MISSING_CONTACT_INFO') {
+                const contactType = response.contactType;
+                const errorMessage =
+                  contactType === 'email'
+                    ? 'メールアドレスが登録されていません'
+                    : 'FAX番号が登録されていません';
+                setEstimateText({
+                  recipient: '',
+                  subject: '',
+                  body: '',
+                  recipientError: errorMessage,
+                });
+              } else {
+                setEstimateText(null);
+              }
+            } else {
+              setEstimateText(null);
+            }
+          } finally {
+            setIsTextLoading(false);
+          }
+        }
       } catch {
         // エラー処理（必要に応じて）
       }
     },
-    [id, request]
+    [id, request, showTextPanel]
   );
 
   /**

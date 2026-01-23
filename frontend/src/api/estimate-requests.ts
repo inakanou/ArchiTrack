@@ -153,7 +153,7 @@ export async function getEstimateRequestDetail(id: string): Promise<EstimateRequ
  * const items = await getEstimateRequestItems('er-123');
  */
 export async function getEstimateRequestItems(id: string): Promise<ItemWithSelectionInfo[]> {
-  return apiClient.get<ItemWithSelectionInfo[]>(`/api/estimate-requests/${id}/items`);
+  return apiClient.get<ItemWithSelectionInfo[]>(`/api/estimate-requests/${id}/items-with-status`);
 }
 
 /**
@@ -206,7 +206,7 @@ export async function updateEstimateRequest(
   input: UpdateEstimateRequestInput,
   updatedAt: string
 ): Promise<EstimateRequestInfo> {
-  return apiClient.patch<EstimateRequestInfo>(`/api/estimate-requests/${id}`, {
+  return apiClient.put<EstimateRequestInfo>(`/api/estimate-requests/${id}`, {
     ...input,
     expectedUpdatedAt: updatedAt,
   });

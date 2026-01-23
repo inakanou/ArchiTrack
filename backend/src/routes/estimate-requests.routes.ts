@@ -265,7 +265,12 @@ router.get(
       const result = await estimateRequestService.findByProjectId(projectId, validatedQuery);
 
       logger.debug(
-        { userId: req.user?.userId, projectId, page: validatedQuery.page, total: result.pagination.total },
+        {
+          userId: req.user?.userId,
+          projectId,
+          page: validatedQuery.page,
+          total: result.pagination.total,
+        },
         'Estimate requests list retrieved'
       );
 
@@ -419,7 +424,10 @@ router.put(
         new Date(expectedUpdatedAt)
       );
 
-      logger.info({ userId: actorId, estimateRequestId: id }, 'Estimate request updated successfully');
+      logger.info(
+        { userId: actorId, estimateRequestId: id },
+        'Estimate request updated successfully'
+      );
 
       res.json(estimateRequest);
     } catch (error) {
@@ -603,7 +611,9 @@ router.patch(
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
-      const { items } = req.validatedBody as { items: Array<{ itemId: string; selected: boolean }> };
+      const { items } = req.validatedBody as {
+        items: Array<{ itemId: string; selected: boolean }>;
+      };
 
       await estimateRequestService.updateItemSelection(id, items, actorId);
 
@@ -761,7 +771,13 @@ router.get(
         'Estimate request text generated'
       );
 
-      res.json(text);
+      // Transform backend response to frontend expected format
+      const recipient = text.type === 'email' ? text.to : text.faxNumber;
+      res.json({
+        recipient,
+        subject: text.type === 'email' ? text.subject : '',
+        body: text.body,
+      });
     } catch (error) {
       if (error instanceof EstimateRequestNotFoundError) {
         res.status(404).json({
