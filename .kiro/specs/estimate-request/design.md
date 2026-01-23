@@ -160,7 +160,8 @@ sequenceDiagram
 | 1.1-1.5 | 見積依頼セクション表示 | ProjectDetailPage, EstimateRequestSectionCard | - | プロジェクト詳細表示 |
 | 2.1-2.7 | 見積依頼一覧画面 | EstimateRequestListPage, EstimateRequestListTable | GET /api/projects/:id/estimate-requests | 一覧取得 |
 | 3.1-3.9 | 見積依頼新規作成 | EstimateRequestCreatePage, EstimateRequestForm | POST /api/projects/:id/estimate-requests | 作成フロー |
-| 4.1-4.10 | 見積依頼詳細画面 - 項目選択 | EstimateRequestDetailPage, ItemSelectionPanel | GET/PATCH /api/estimate-requests/:id | 項目選択 |
+| 4.1-4.9 | 見積依頼詳細画面 - 項目選択（基本） | EstimateRequestDetailPage, ItemSelectionPanel | GET/PATCH /api/estimate-requests/:id | 項目選択 |
+| 4.10-4.12 | 見積依頼詳細画面 - 他依頼選択状態表示 | ItemSelectionPanel | GET /api/estimate-requests/:id/items-with-status | 項目選択状態表示 |
 | 5.1-5.3 | 内訳書Excel出力 | ExcelExportButton, export-excel.ts | - | Excel生成 |
 | 6.1-6.10 | 見積依頼文表示 | EstimateRequestTextPanel | GET /api/estimate-requests/:id/text | テキスト生成 |
 | 7.1-7.6 | クリップボードコピー機能 | ClipboardCopyButton, copy-to-clipboard.ts | - | クリップボード操作 |
@@ -180,7 +181,7 @@ sequenceDiagram
 | EstimateRequestSectionCard | Frontend | プロジェクト詳細セクション | 1.1-1.5 | - | - |
 | EstimateRequestListPage | Frontend | 一覧画面 | 2.1-2.7 | EstimateRequestListTable (P0) | - |
 | EstimateRequestForm | Frontend | 作成・編集フォーム | 3.1-3.9 | TradingPartnerSelect (P0), ItemizedStatementSelect (P1) | - |
-| EstimateRequestDetailPage | Frontend | 詳細画面 | 4.1-4.10, 5.1-5.3, 6.1-6.10, 7.1-7.6 | ItemSelectionPanel (P0), EstimateRequestTextPanel (P0) | - |
+| EstimateRequestDetailPage | Frontend | 詳細画面 | 4.1-4.12, 5.1-5.3, 6.1-6.10, 7.1-7.6 | ItemSelectionPanel (P0), EstimateRequestTextPanel (P0) | - |
 
 ### Data Layer
 
@@ -324,6 +325,20 @@ interface EstimateRequestInfo {
   updatedAt: Date;
 }
 
+interface OtherRequestInfo {
+  estimateRequestId: string;
+  estimateRequestName: string;
+  tradingPartnerName: string;
+}
+
+interface ItemWithOtherRequestStatus {
+  id: string;
+  itemizedStatementItemId: string;
+  itemizedStatementItem: ItemizedStatementItemInfo;
+  selected: boolean;
+  otherRequests: OtherRequestInfo[];
+}
+
 interface EstimateRequestService {
   create(input: CreateEstimateRequestInput, actorId: string): Promise<EstimateRequestInfo>;
   findById(id: string): Promise<EstimateRequestDetailInfo | null>;
@@ -343,6 +358,8 @@ interface EstimateRequestService {
     itemSelections: Array<{ itemId: string; selected: boolean }>,
     actorId: string
   ): Promise<void>;
+  // 4.10-4.12: 他の見積依頼での選択状態を含む項目一覧を取得
+  findItemsWithOtherRequestStatus(id: string): Promise<ItemWithOtherRequestStatus[]>;
 }
 ```
 
@@ -416,6 +433,7 @@ interface EstimateRequestTextService {
 | PUT | /api/estimate-requests/:id | UpdateEstimateRequestInput + updatedAt | EstimateRequestInfo | 400, 401, 403, 404, 409 |
 | DELETE | /api/estimate-requests/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
 | PATCH | /api/estimate-requests/:id/items | { items: [{ itemId, selected }] } | 200 OK | 400, 401, 403, 404 |
+| GET | /api/estimate-requests/:id/items-with-status | - | ItemWithOtherRequestStatus[] | 401, 403, 404 |
 | GET | /api/estimate-requests/:id/text | - | EstimateRequestText | 401, 403, 404, 422 |
 | GET | /api/estimate-requests/:id/excel | - | Blob (xlsx) | 400, 401, 403, 404 |
 
@@ -462,7 +480,9 @@ interface EstimateRequestTextService {
 - Outbound: ItemizedStatementSelect — 内訳書選択 (P1)
 
 **Implementation Notes**
-- Integration: TradingPartnerSelectを再利用し、types配列にSUBCONTRACTORを含む取引先をフィルタリング
+- Integration: TradingPartnerSelectを再利用し、`filterTypes`プロパティに`['SUBCONTRACTOR']`を指定して協力業者のみをフィルタリング
+- Integration: TradingPartnerSelectコンポーネントに`filterTypes?: TradingPartnerType[]`プロパティを追加拡張する
+- Integration: 内訳書選択時に項目数を事前取得し、項目が0件の内訳書は選択不可として表示（disabled + ツールチップ「項目がありません」）
 - Validation: 必須項目のバリデーション、協力業者/内訳書の存在チェック
 - Risks: なし
 
@@ -471,7 +491,7 @@ interface EstimateRequestTextService {
 | Field | Detail |
 |-------|--------|
 | Intent | 見積依頼詳細画面（項目選択、テキスト表示、各種アクション）を提供 |
-| Requirements | 4.1-4.10, 5.1-5.3, 6.1-6.10, 7.1-7.6, 9.1, 9.2, 9.4, 9.5 |
+| Requirements | 4.1-4.13, 5.1-5.3, 6.1-6.10, 7.1-7.6, 9.1, 9.2, 9.4, 9.5 |
 
 **Dependencies**
 - Outbound: ItemSelectionPanel — 項目選択UI (P0)
@@ -481,6 +501,7 @@ interface EstimateRequestTextService {
 
 **Implementation Notes**
 - Integration: 項目選択の自動保存（チェックボックス変更時にPATCH API呼び出し）
+- Integration: GET /api/estimate-requests/:id/items-with-status で他の見積依頼での選択状態を取得
 - Validation: 項目未選択時のExcel出力エラー
 - Risks: ネットワークエラー時の自動保存失敗に対するリトライ
 
@@ -488,13 +509,61 @@ interface EstimateRequestTextService {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 内訳書項目の選択UIを提供 |
-| Requirements | 4.2, 4.3, 4.4, 4.5, 4.10 |
+| Intent | 内訳書項目の選択UIを提供（他の見積依頼での選択状態表示を含む） |
+| Requirements | 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 4.13 |
+
+**Responsibilities & Constraints**
+- 内訳書項目の一覧表示とチェックボックスによる選択
+- 他の見積依頼で選択済みの項目の視覚的な区別（背景色変更）
+- 他の見積依頼の依頼先取引先名の表示（一番右の列）
+- 複数の見積依頼で選択されている場合は全ての取引先名を表示
+
+**Dependencies**
+- Inbound: EstimateRequestDetailPage — 項目選択UI埋め込み (P0)
+- Outbound: estimate-requests API — 項目選択状態・他依頼情報取得 (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface ItemWithOtherRequestStatus {
+  id: string;
+  itemizedStatementItemId: string;
+  itemizedStatementItem: {
+    id: string;
+    category: string | null;
+    workType: string;
+    name: string;
+    specification: string | null;
+    unit: string;
+    quantity: number;
+    unitPrice: number | null;
+    amount: number | null;
+  };
+  selected: boolean;
+  // 他の見積依頼での選択状態
+  otherRequests: Array<{
+    estimateRequestId: string;
+    estimateRequestName: string;
+    tradingPartnerName: string;
+  }>;
+}
+
+interface ItemSelectionPanelProps {
+  estimateRequestId: string;
+  items: ItemWithOtherRequestStatus[];
+  onSelectionChange: (itemId: string, selected: boolean) => void;
+  disabled?: boolean;
+}
+```
 
 **Implementation Notes**
 - Integration: チェックボックス変更時にdebounceしてAPI呼び出し
 - Validation: 項目が存在しない場合のメッセージ表示
 - Risks: 大量項目時のパフォーマンス（仮想スクロール検討）
+- Visual: 他の見積依頼で選択済みの項目は背景色を薄いオレンジ（bg-orange-50）で区別
+- Display: 依頼先取引先名はカンマ区切りで表示（複数の場合）
 
 #### EstimateRequestTextPanel
 
@@ -525,12 +594,11 @@ interface EstimateRequestTextService {
 - 内訳書に項目がない場合は見積依頼を作成できない
 - 取引先は協力業者（SUBCONTRACTOR）タイプを持つ必要がある（types配列にSUBCONTRACTORを含む）
 
-**内訳書項目の整合性戦略（ロック戦略）**:
-- 見積依頼が紐付いている内訳書の項目は、追加・削除・編集が制限される
-- 内訳書項目の変更を試みた際に、紐付く見積依頼が存在する場合はエラーを返す
-- エラーメッセージ: 「この内訳書は見積依頼で使用されているため、項目を変更できません」
-- 内訳書自体の削除は、紐付く見積依頼が存在する場合は制限される（RESTRICT）
-- これにより、EstimateRequestItemとItemizedStatementItemの参照整合性を保証する
+**内訳書削除制限**:
+- 見積依頼が紐付いている内訳書の削除は制限される（RESTRICT）
+- 内訳書削除を試みた際に、紐付く見積依頼が存在する場合はエラーを返す
+- エラーメッセージ: 「この内訳書は見積依頼で使用されているため、削除できません」
+- 注: 内訳書には項目の追加・削除機能がないため、項目レベルのロックは不要
 
 ### Logical Data Model
 
@@ -550,10 +618,7 @@ ItemizedStatementItem 1--* EstimateRequestItem
 - EstimateRequestItem.estimateRequestId -> EstimateRequest.id (CASCADE DELETE)
 - EstimateRequestItem.itemizedStatementItemId -> ItemizedStatementItem.id (RESTRICT)
 
-**内訳書項目ロック制約（既存サービスへの影響）**:
-- ItemizedStatementService.addItem(): 見積依頼が紐付いている内訳書への項目追加を禁止
-- ItemizedStatementService.updateItem(): 見積依頼が紐付いている内訳書項目の編集を禁止
-- ItemizedStatementService.deleteItem(): 見積依頼が紐付いている内訳書項目の削除を禁止
+**内訳書削除制約（既存サービスへの影響）**:
 - ItemizedStatementService.delete(): 見積依頼が紐付いている内訳書の削除を禁止
 - 判定ロジック: EstimateRequestテーブルでitemizedStatementIdの存在チェック（deletedAt IS NULL）
 
@@ -619,9 +684,11 @@ ItemizedStatementItem 1--* EstimateRequestItem
 ### Unit Tests
 
 - EstimateRequestService: 作成、取得、更新、削除、項目選択更新
+- EstimateRequestService.findItemsWithOtherRequestStatus: 他の見積依頼での選択状態取得
 - EstimateRequestTextService: テキスト生成（メール/FAX、内訳書含む/含まない）
 - Zodスキーマ: バリデーションルールのテスト
 - エラークラス: カスタムエラーのテスト
+- ItemSelectionPanel: 他依頼選択状態の背景色表示、取引先名表示
 
 ### Integration Tests
 
@@ -633,6 +700,7 @@ ItemizedStatementItem 1--* EstimateRequestItem
 
 - 見積依頼作成フロー: フォーム入力→保存→詳細画面遷移
 - 項目選択・テキスト表示: チェックボックス操作→自動保存→テキスト生成
+- 他依頼選択状態表示: 複数の見積依頼作成→項目選択→背景色・取引先名の確認
 - Excel出力: 項目選択→ダウンロード
 - クリップボードコピー: 各項目のコピー操作
 
