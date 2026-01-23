@@ -86,15 +86,15 @@
   - 既存の使用箇所への影響がないことを確認
   - _Requirements: 3.4_
 
-- [ ] 5. フロントエンドコンポーネント実装
-- [ ] 5.1 (P) EstimateRequestSectionCardの実装
+- [x] 5. フロントエンドコンポーネント実装
+- [x] 5.1 (P) EstimateRequestSectionCardの実装
   - プロジェクト詳細画面の見積依頼セクションを表示
   - 「新規作成」ボタンの表示と遷移処理
   - 「すべて見る」リンクの表示と遷移処理
   - QuantityTableSectionCardと同様のレイアウトを踏襲
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 5.2 (P) EstimateRequestListPageの実装
+- [x] 5.2 (P) EstimateRequestListPageの実装
   - 見積依頼一覧画面のレイアウトを実装
   - パンくずナビゲーションの表示
   - 「新規作成」ボタンの配置
@@ -103,7 +103,7 @@
   - ItemizedStatementListPageと同様のパターンを踏襲
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
 
-- [ ] 5.3 EstimateRequestFormの実装
+- [x] 5.3 EstimateRequestFormの実装
   - 見積依頼の作成・編集フォームを実装
   - 名前入力フィールドの実装
   - 宛先（取引先）選択フィールドの実装（協力業者のみ表示）
@@ -114,7 +114,7 @@
   - 協力業者/内訳書が存在しない場合のメッセージ表示
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9_
 
-- [ ] 5.4 ItemSelectionPanelの実装
+- [x] 5.4 ItemSelectionPanelの実装
   - 内訳書項目の一覧表示とチェックボックスによる選択UI
   - チェックボックス変更時の自動保存（debounce処理）
   - 他の見積依頼で選択済みの項目の背景色変更（bg-orange-50）
@@ -125,20 +125,20 @@
   - 項目が存在しない場合のメッセージ表示
   - _Requirements: 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 4.13_
 
-- [ ] 5.5 EstimateRequestTextPanelの実装
+- [x] 5.5 EstimateRequestTextPanelの実装
   - 見積依頼文（宛先、表題、本文）の表示UI
   - メールアドレス/FAX番号未登録時のエラー表示
   - Clipboard APIが利用不可の場合のフォールバック
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10_
 
-- [ ] 5.6 (P) ClipboardCopyButtonの実装
+- [x] 5.6 (P) ClipboardCopyButtonの実装
   - 宛先・表題・本文それぞれのコピーボタンを実装
   - クリップボードへのコピー処理
   - コピー完了のフィードバック表示
   - Clipboard API非対応時のフォールバック（テキスト選択状態）
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
-- [ ] 5.7 (P) ExcelExportButtonの実装
+- [x] 5.7 (P) ExcelExportButtonの実装
   - Excel出力ボタンの実装
   - チェックした項目のみを含むExcelファイル生成
   - ファイルダウンロード処理
