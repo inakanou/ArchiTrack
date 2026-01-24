@@ -44,7 +44,7 @@ const styles = {
     cursor: 'pointer',
     transition: 'background-color 0.2s',
     border: 'none',
-    backgroundColor: '#059669',
+    backgroundColor: '#047857', // emerald-700 (WCAG AA contrast ratio)
     color: '#ffffff',
   } as React.CSSProperties,
   buttonDisabled: {
@@ -52,7 +52,7 @@ const styles = {
     cursor: 'not-allowed',
   } as React.CSSProperties,
   buttonExporting: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#047857', // emerald-700 (WCAG AA contrast ratio)
   } as React.CSSProperties,
 };
 
