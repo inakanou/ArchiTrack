@@ -1,13 +1,13 @@
 {
   "feature_name": "estimate-request",
   "created_at": "2026-01-23T00:00:00Z",
-  "updated_at": "2026-01-23T16:00:00Z",
+  "updated_at": "2026-01-24T00:00:00Z",
   "language": "ja",
-  "phase": "tasks-generated",
+  "phase": "requirements-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": true
+      "approved": false
     },
     "design": {
       "generated": true,
@@ -18,5 +18,5 @@
       "approved": true
     }
   },
-  "ready_for_implementation": true
+  "ready_for_implementation": false
 }
