@@ -430,8 +430,8 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 見積書セクションの存在を確認
-      const quoteSection = page.getByText(/見積|見積書一覧/i);
+      // 見積依頼セクションの存在を確認（見積依頼ヘッダーを使用）
+      const quoteSection = page.getByRole('heading', { name: '見積依頼' });
       await expect(quoteSection).toBeVisible({ timeout: getTimeout(10000) });
     });
 

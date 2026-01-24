@@ -119,8 +119,10 @@ test.describe('現場調査CRUD操作', () => {
       await expect(surveySectionHeading).toBeVisible({ timeout: getTimeout(10000) });
 
       // 現場調査がある場合は「すべて見る」リンク、ない場合は直接URLに遷移
-      const viewAllLink = page.getByRole('link', { name: /すべて見る/i }).first();
-      const viewAllLinkVisible = await viewAllLink.isVisible({ timeout: 3000 });
+      // 現場調査セクション内の「すべて見る」リンクを取得
+      const siteSurveySection = page.getByLabel('現場調査', { exact: true });
+      const viewAllLink = siteSurveySection.getByRole('link', { name: /すべて見る/i });
+      const viewAllLinkVisible = await viewAllLink.isVisible({ timeout: 3000 }).catch(() => false);
       if (viewAllLinkVisible) {
         await viewAllLink.click();
       } else {
