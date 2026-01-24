@@ -1039,6 +1039,182 @@ test.describe('受領見積書・ステータス管理機能', () => {
       const count = await statusBadges.count();
       expect(count).toBeGreaterThan(0);
     });
+
+    /**
+     * @requirement REQ-12.2
+     * 見積依頼のステータスとして「依頼前」「依頼済」「見積受領済」の3種類を提供する
+     */
+    test('REQ-12.2: 3種類のステータスが存在する', async ({ page, request }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      const baseUrl = API_BASE_URL;
+
+      // 各ステータスに遷移させて表示を確認
+
+      // 1. 依頼前
+      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { status: 'BEFORE_REQUEST' },
+      });
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      const statusBadge = page.getByTestId('status-badge');
+      await expect(statusBadge).toHaveText(/依頼前/i, { timeout: getTimeout(10000) });
+
+      // 2. 依頼済
+      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { status: 'REQUESTED' },
+      });
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(statusBadge).toHaveText(/依頼済/i, { timeout: getTimeout(10000) });
+
+      // 3. 見積受領済
+      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { status: 'QUOTATION_RECEIVED' },
+      });
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(statusBadge).toHaveText(/見積受領済/i, { timeout: getTimeout(10000) });
+    });
+
+    /**
+     * @requirement REQ-12.3
+     * 新規作成時の見積依頼のデフォルトステータスを「依頼前」とする
+     */
+    test('REQ-12.3: 新規作成時のデフォルトステータスが「依頼前」である', async ({
+      page,
+      request,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      const baseUrl = API_BASE_URL;
+
+      // 新しい見積依頼を作成
+      const newEstimateRequestResponse = await request.post(
+        `${baseUrl}/api/projects/${createdProjectId}/estimate-requests`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: 'REQ-12.3デフォルトステータステスト',
+            tradingPartnerId: createdTradingPartnerId,
+            itemizedStatementId: createdItemizedStatementId,
+            requestMethod: 'EMAIL',
+          },
+        }
+      );
+      expect(newEstimateRequestResponse.status()).toBe(201);
+
+      const newEstimateRequest = await newEstimateRequestResponse.json();
+
+      // デフォルトステータスが「依頼前」であることを確認
+      expect(newEstimateRequest.status).toBe('BEFORE_REQUEST');
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${newEstimateRequest.id}`);
+      await page.waitForLoadState('networkidle');
+
+      const statusBadge = page.getByTestId('status-badge');
+      await expect(statusBadge).toHaveText(/依頼前/i, { timeout: getTimeout(10000) });
+
+      // クリーンアップ
+      await request.delete(`${baseUrl}/api/estimate-requests/${newEstimateRequest.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    });
+
+    /**
+     * @requirement REQ-12.11
+     * ステータス変更履歴を記録する
+     */
+    test('REQ-12.11: ステータス変更がサーバーで記録される', async ({ page, request }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      const baseUrl = API_BASE_URL;
+
+      // ステータスを「依頼前」にリセット
+      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { status: 'BEFORE_REQUEST' },
+      });
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // ステータスを変更
+      const transitionButton = page.getByRole('button', { name: /ステータスを依頼済に変更する/i });
+      await expect(transitionButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      const statusUpdatePromise = page.waitForResponse(
+        (response) => response.url().includes('/status') && response.request().method() === 'PATCH',
+        { timeout: getTimeout(30000) }
+      );
+
+      await transitionButton.click();
+      const response = await statusUpdatePromise;
+      expect(response.status()).toBe(200);
+
+      // レスポンスにステータス情報が含まれることを確認（履歴記録の間接確認）
+      const responseData = await response.json();
+      expect(responseData.status).toBe('REQUESTED');
+      // updatedAtが更新されていることで履歴の記録を間接的に確認
+      expect(responseData.updatedAt).toBeTruthy();
+    });
+  });
+
+  // ============================================================================
+  // 19.4 受領見積書ファイル形式制限
+  // ============================================================================
+
+  test.describe('19.4 受領見積書ファイル形式制限', () => {
+    /**
+     * @requirement REQ-11.8
+     * アップロード可能なファイル形式としてPDF、Excel（.xlsx、.xls）、画像（.jpg、.jpeg、.png）を許可する
+     */
+    test('REQ-11.8: ファイルアップロードフィールドに許可された形式が設定されている', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // ファイルラジオボタンをクリック
+      const fileRadio = page.locator('input[type="radio"][value="FILE"]');
+      await fileRadio.click();
+
+      // ファイル入力フィールドを確認
+      const fileInput = page.locator('input[type="file"][data-testid="file-input"]');
+      await expect(fileInput).toBeVisible({ timeout: getTimeout(5000) });
+
+      // accept属性を確認（PDF、Excel、画像形式が許可されていること）
+      const acceptAttribute = await fileInput.getAttribute('accept');
+      expect(acceptAttribute).toBeTruthy();
+
+      // 許可された形式が含まれていることを確認
+      // PDF
+      expect(acceptAttribute).toMatch(/pdf/i);
+      // Excel
+      expect(acceptAttribute).toMatch(/xlsx|xls|spreadsheet/i);
+      // 画像
+      expect(acceptAttribute).toMatch(/image|jpg|jpeg|png/i);
+    });
   });
 
   // ============================================================================
