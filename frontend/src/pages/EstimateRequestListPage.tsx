@@ -10,6 +10,7 @@
  * - 2.3: 見積依頼一覧の各行をクリックすると見積依頼詳細画面に遷移する
  * - 2.4: 一覧に見積依頼の名前、宛先、見積依頼方法、参照内訳書名、作成日時を表示
  * - 2.5: 新規作成ボタンをクリックすると見積依頼作成画面に遷移する
+ * - 2.6: 一覧表示にページネーションを提供する
  * - 12.12: 見積依頼一覧画面に各見積依頼のステータスを表示する
  */
 
@@ -20,10 +21,22 @@ import type {
   EstimateRequestInfo,
   EstimateRequestMethod,
   PaginatedEstimateRequests,
+  EstimateRequestPaginationInfo,
 } from '../types/estimate-request.types';
 import { Breadcrumb } from '../components/common';
 import { StatusBadge } from '../components/estimate-request';
 import type { EstimateRequestStatus } from '../components/estimate-request';
+import PaginationUI from '../components/projects/PaginationUI';
+
+// ============================================================================
+// 定数定義
+// ============================================================================
+
+/** デフォルトのページ番号 */
+const DEFAULT_PAGE = 1;
+
+/** デフォルトの表示件数 */
+const DEFAULT_LIMIT = 20;
 
 // ============================================================================
 // スタイル定義
@@ -326,6 +339,10 @@ function RequestCard({ request }: { request: EstimateRequestInfo }) {
 export default function EstimateRequestListPage() {
   const { projectId } = useParams<{ projectId: string }>();
 
+  // ページネーション状態
+  const [page, setPage] = useState(DEFAULT_PAGE);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
+
   // データ状態
   const [data, setData] = useState<PaginatedEstimateRequests | null>(null);
 
@@ -335,7 +352,7 @@ export default function EstimateRequestListPage() {
 
   /**
    * 見積依頼一覧を取得
-   * Requirements: 2.1
+   * Requirements: 2.1, 2.6
    */
   const fetchEstimateRequests = useCallback(async () => {
     if (!projectId) return;
@@ -344,19 +361,36 @@ export default function EstimateRequestListPage() {
     setError(null);
 
     try {
-      const result = await getEstimateRequests(projectId);
+      const result = await getEstimateRequests(projectId, { page, limit });
       setData(result);
     } catch {
       setError('見積依頼の取得に失敗しました');
     } finally {
       setIsLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, page, limit]);
 
   // 初回読み込み
   useEffect(() => {
     fetchEstimateRequests();
   }, [fetchEstimateRequests]);
+
+  /**
+   * ページ変更ハンドラー
+   * Requirements: 2.6
+   */
+  const handlePageChange = useCallback((newPage: number) => {
+    setPage(newPage);
+  }, []);
+
+  /**
+   * 表示件数変更ハンドラー
+   * Requirements: 2.6
+   */
+  const handleLimitChange = useCallback((newLimit: number) => {
+    setLimit(newLimit);
+    setPage(DEFAULT_PAGE); // 表示件数変更時は1ページ目に戻る
+  }, []);
 
   // ローディング表示
   if (isLoading) {
@@ -394,6 +428,12 @@ export default function EstimateRequestListPage() {
 
   const estimateRequests = data?.data ?? [];
   const totalCount = data?.pagination.total ?? 0;
+  const pagination: EstimateRequestPaginationInfo = data?.pagination ?? {
+    page: DEFAULT_PAGE,
+    limit: DEFAULT_LIMIT,
+    total: 0,
+    totalPages: 0,
+  };
 
   return (
     <main role="main" style={styles.container} data-testid="estimate-request-list-page">
@@ -435,11 +475,24 @@ export default function EstimateRequestListPage() {
       {totalCount === 0 ? (
         <EmptyState projectId={projectId!} />
       ) : (
-        <div style={styles.requestList} data-testid="request-list">
-          {estimateRequests.map((request) => (
-            <RequestCard key={request.id} request={request} />
-          ))}
-        </div>
+        <>
+          <div style={styles.requestList} data-testid="request-list">
+            {estimateRequests.map((request) => (
+              <RequestCard key={request.id} request={request} />
+            ))}
+          </div>
+
+          {/* ページネーション (Requirements: 2.6) */}
+          {pagination.totalPages > 0 && (
+            <div style={{ marginTop: '24px' }}>
+              <PaginationUI
+                pagination={pagination}
+                onPageChange={handlePageChange}
+                onLimitChange={handleLimitChange}
+              />
+            </div>
+          )}
+        </>
       )}
     </main>
   );
