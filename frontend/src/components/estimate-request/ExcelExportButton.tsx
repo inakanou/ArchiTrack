@@ -48,7 +48,7 @@ const styles = {
     color: '#ffffff',
   } as React.CSSProperties,
   buttonDisabled: {
-    backgroundColor: '#9ca3af',
+    backgroundColor: '#6b7280', // gray-500 (WCAG AA contrast ratio)
     cursor: 'not-allowed',
   } as React.CSSProperties,
   buttonExporting: {
