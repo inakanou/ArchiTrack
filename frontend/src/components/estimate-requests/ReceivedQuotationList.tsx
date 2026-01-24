@@ -491,7 +491,7 @@ export function ReceivedQuotationList({
       ) : (
         <div style={styles.list}>
           {quotations.map((quotation) => (
-            <div key={quotation.id} style={styles.listItem}>
+            <div key={quotation.id} style={styles.listItem} data-testid="received-quotation-item">
               {/* ファイルタイプアイコン */}
               <div style={styles.iconContainer}>
                 <FileTypeIcon quotation={quotation} />
