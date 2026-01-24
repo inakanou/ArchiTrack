@@ -27,6 +27,20 @@ export const ESTIMATE_REQUEST_METHODS = ['EMAIL', 'FAX'] as const;
  */
 export type EstimateRequestMethod = (typeof ESTIMATE_REQUEST_METHODS)[number];
 
+/**
+ * 見積依頼ステータス
+ */
+export const ESTIMATE_REQUEST_STATUSES = [
+  'BEFORE_REQUEST',
+  'REQUESTED',
+  'QUOTATION_RECEIVED',
+] as const;
+
+/**
+ * 見積依頼ステータス型
+ */
+export type EstimateRequestStatus = (typeof ESTIMATE_REQUEST_STATUSES)[number];
+
 // ============================================================================
 // 基本型定義
 // ============================================================================
@@ -55,6 +69,8 @@ export interface EstimateRequestInfo {
   method: EstimateRequestMethod;
   /** 内訳書を本文に含める */
   includeBreakdownInBody: boolean;
+  /** ステータス */
+  status?: EstimateRequestStatus;
   /** 作成日時（ISO8601形式） */
   createdAt: string;
   /** 更新日時（ISO8601形式） */

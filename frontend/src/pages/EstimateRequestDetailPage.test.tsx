@@ -37,6 +37,7 @@ vi.mock('../api/estimate-requests', () => ({
     name: 'テスト見積依頼',
     method: 'EMAIL',
     includeBreakdownInBody: false,
+    status: 'BEFORE_REQUEST',
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
   }),
@@ -89,11 +90,29 @@ vi.mock('../api/estimate-requests', () => ({
     name: 'テスト見積依頼',
     method: 'EMAIL',
     includeBreakdownInBody: false,
+    status: 'BEFORE_REQUEST',
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
   }),
   updateItemSelection: vi.fn().mockResolvedValue(undefined),
   deleteEstimateRequest: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../api/received-quotations', () => ({
+  getReceivedQuotations: vi.fn().mockResolvedValue([]),
+  createReceivedQuotation: vi.fn().mockResolvedValue({}),
+  updateReceivedQuotation: vi.fn().mockResolvedValue({}),
+  deleteReceivedQuotation: vi.fn().mockResolvedValue(undefined),
+  getPreviewUrl: vi.fn().mockResolvedValue('https://example.com/preview'),
+}));
+
+vi.mock('../api/estimate-request-status', () => ({
+  transitionStatus: vi.fn().mockResolvedValue({
+    id: 'er-123',
+    status: 'REQUESTED',
+    updatedAt: new Date(),
+  }),
+  getStatusHistory: vi.fn().mockResolvedValue([]),
 }));
 
 describe('EstimateRequestDetailPage', () => {
@@ -169,7 +188,9 @@ describe('EstimateRequestDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /削除/i })).toBeInTheDocument();
+      // ヘッダーの削除ボタンを取得（最初の削除ボタン）
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      expect(deleteButtons[0]).toBeInTheDocument();
     });
   });
 
@@ -187,10 +208,13 @@ describe('EstimateRequestDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /削除/i })).toBeInTheDocument();
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      expect(deleteButtons[0]).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /削除/i }));
+    // ヘッダーの削除ボタンを取得（最初の削除ボタン）
+    const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+    fireEvent.click(deleteButtons[0]!);
 
     await waitFor(() => {
       expect(screen.getByText(/削除してよろしいですか/i)).toBeInTheDocument();

@@ -21,10 +21,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import EstimateRequestDetailPage from '../../pages/EstimateRequestDetailPage';
 import * as estimateRequestApi from '../../api/estimate-requests';
+import * as receivedQuotationApi from '../../api/received-quotations';
+import * as estimateRequestStatusApi from '../../api/estimate-request-status';
 import { ApiError } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/estimate-requests');
+vi.mock('../../api/received-quotations');
+vi.mock('../../api/estimate-request-status');
 
 // useNavigateモック
 const mockNavigate = vi.fn();
@@ -47,9 +51,39 @@ const mockEstimateRequest = {
   itemizedStatementName: 'テスト内訳書',
   method: 'EMAIL' as const,
   includeBreakdownInBody: false,
+  status: 'BEFORE_REQUEST' as const,
   createdAt: '2025-01-01T00:00:00.000Z',
   updatedAt: '2025-01-02T00:00:00.000Z',
 };
+
+const mockReceivedQuotations = [
+  {
+    id: 'rq-1',
+    estimateRequestId: 'er-1',
+    name: 'テスト受領見積書1',
+    submittedAt: new Date('2025-01-05'),
+    contentType: 'TEXT' as const,
+    textContent: '見積内容テキスト',
+    fileName: null,
+    fileMimeType: null,
+    fileSize: null,
+    createdAt: new Date('2025-01-05T10:00:00.000Z'),
+    updatedAt: new Date('2025-01-05T10:00:00.000Z'),
+  },
+  {
+    id: 'rq-2',
+    estimateRequestId: 'er-1',
+    name: 'テスト受領見積書2',
+    submittedAt: new Date('2025-01-06'),
+    contentType: 'FILE' as const,
+    textContent: null,
+    fileName: 'quotation.pdf',
+    fileMimeType: 'application/pdf',
+    fileSize: 1024 * 500,
+    createdAt: new Date('2025-01-06T10:00:00.000Z'),
+    updatedAt: new Date('2025-01-06T10:00:00.000Z'),
+  },
+];
 
 const mockItems = [
   {
@@ -120,6 +154,14 @@ describe('EstimateRequestDetailPage', () => {
     });
     vi.mocked(estimateRequestApi.updateItemSelection).mockResolvedValue(undefined);
     vi.mocked(estimateRequestApi.deleteEstimateRequest).mockResolvedValue(undefined);
+    vi.mocked(receivedQuotationApi.getReceivedQuotations).mockResolvedValue(mockReceivedQuotations);
+    vi.mocked(receivedQuotationApi.deleteReceivedQuotation).mockResolvedValue(undefined);
+    vi.mocked(receivedQuotationApi.getPreviewUrl).mockResolvedValue('https://example.com/preview');
+    vi.mocked(estimateRequestStatusApi.transitionStatus).mockResolvedValue({
+      id: 'er-1',
+      status: 'REQUESTED',
+      updatedAt: new Date('2025-01-03T00:00:00.000Z'),
+    });
   });
 
   describe('ローディング状態', () => {
@@ -252,7 +294,9 @@ describe('EstimateRequestDetailPage', () => {
         expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole('button', { name: '削除' }));
+      // ヘッダーの削除ボタンを取得（最初の削除ボタン）
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
       expect(screen.getByText('見積依頼の削除')).toBeInTheDocument();
@@ -269,7 +313,9 @@ describe('EstimateRequestDetailPage', () => {
         expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole('button', { name: '削除' }));
+      // ヘッダーの削除ボタンを取得（最初の削除ボタン）
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
       expect(screen.getByRole('dialog')).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'キャンセル' }));
@@ -287,7 +333,9 @@ describe('EstimateRequestDetailPage', () => {
         expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole('button', { name: '削除' }));
+      // ヘッダーの削除ボタンを取得（最初の削除ボタン）
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
 
       // ダイアログが表示されるのを待つ
       await waitFor(() => {
@@ -321,7 +369,9 @@ describe('EstimateRequestDetailPage', () => {
         expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole('button', { name: '削除' }));
+      // ヘッダーの削除ボタンを取得（最初の削除ボタン）
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      await user.click(deleteButtons[0]!);
 
       // ダイアログが表示されるのを待つ
       await waitFor(() => {
@@ -673,6 +723,223 @@ describe('EstimateRequestDetailPage', () => {
 
       // useParamsでidがundefinedになるケースをテスト
       // fetchDataはidがない場合早期リターンする
+    });
+  });
+
+  // Task 16.1: 受領見積書セクションのテスト
+  describe('受領見積書セクション (Requirements 11.1, 11.2, 11.12, 11.14)', () => {
+    it('受領見積書一覧を表示する', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // 受領見積書セクションのタイトルが表示される
+      expect(screen.getByText('受領見積書')).toBeInTheDocument();
+      // 受領見積書一覧が表示される
+      expect(screen.getByText('テスト受領見積書1')).toBeInTheDocument();
+      expect(screen.getByText('テスト受領見積書2')).toBeInTheDocument();
+    });
+
+    it('受領見積書登録ボタンを表示する', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /受領見積書登録/i })).toBeInTheDocument();
+    });
+
+    it('受領見積書登録ボタンをクリックするとフォームを表示する', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /受領見積書登録/i }));
+
+      await waitFor(() => {
+        // フォームが表示される（モーダル内のフォーム要素）
+        expect(screen.getByLabelText(/受領見積書名/i)).toBeInTheDocument();
+      });
+    });
+
+    it('受領見積書が存在しない場合はメッセージを表示する', async () => {
+      vi.mocked(receivedQuotationApi.getReceivedQuotations).mockResolvedValue([]);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('受領見積書はまだ登録されていません')).toBeInTheDocument();
+    });
+
+    it('ファイルプレビューボタンをクリックするとプレビューを開く', async () => {
+      const user = userEvent.setup();
+      // window.openのモック
+      const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // プレビューボタンをクリック（ファイルタイプの受領見積書のみプレビュー可能）
+      const previewButtons = screen.getAllByRole('button', { name: /プレビュー/i });
+      await user.click(previewButtons[0]!);
+
+      await waitFor(() => {
+        expect(receivedQuotationApi.getPreviewUrl).toHaveBeenCalledWith('rq-2');
+      });
+
+      expect(windowOpenSpy).toHaveBeenCalledWith('https://example.com/preview', '_blank');
+      windowOpenSpy.mockRestore();
+    });
+
+    it('受領見積書の編集ボタンをクリックすると編集フォームを表示する', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // 編集ボタンをクリック
+      const editButtons = screen.getAllByRole('button', { name: /編集/i });
+      // 最初の編集ボタンは見積依頼の編集（リンク）、受領見積書の編集ボタンを選択
+      await user.click(editButtons[0]!);
+
+      await waitFor(() => {
+        // 編集フォームが表示される
+        expect(screen.getByLabelText(/受領見積書名/i)).toBeInTheDocument();
+      });
+    });
+
+    it('受領見積書の削除ボタンをクリックすると確認ダイアログを表示する', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // 削除ボタンをクリック
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      // 見積依頼の削除ボタンと受領見積書の削除ボタンがある
+      // 受領見積書の削除ボタンをクリック（リストの中のボタン）
+      await user.click(deleteButtons[1]!);
+
+      await waitFor(() => {
+        expect(screen.getByText(/受領見積書の削除/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // Task 16.2: ステータス管理のテスト
+  describe('ステータス管理 (Requirements 12.1, 12.4, 12.5-12.10)', () => {
+    it('現在のステータスバッジを表示する', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // ステータスバッジが表示される
+      expect(screen.getByTestId('status-badge')).toBeInTheDocument();
+      expect(screen.getByText('依頼前')).toBeInTheDocument();
+    });
+
+    it('依頼前ステータスのとき「依頼済にする」ボタンを表示する', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // aria-labelを使用してボタンを検索（または表示テキスト）
+      expect(
+        screen.getByRole('button', { name: /ステータスを依頼済に変更する|依頼済にする/i })
+      ).toBeInTheDocument();
+    });
+
+    it('依頼済ステータスのとき「見積受領済にする」ボタンを表示する', async () => {
+      vi.mocked(estimateRequestApi.getEstimateRequestDetail).mockResolvedValue({
+        ...mockEstimateRequest,
+        status: 'REQUESTED',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      expect(
+        screen.getByRole('button', { name: /ステータスを見積受領済に変更する|見積受領済にする/i })
+      ).toBeInTheDocument();
+      // 依頼前に戻すボタンは表示しない
+      expect(
+        screen.queryByRole('button', { name: /ステータスを依頼前に戻す|依頼前に戻す/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it('見積受領済ステータスのとき「依頼済に戻す」ボタンを表示する', async () => {
+      vi.mocked(estimateRequestApi.getEstimateRequestDetail).mockResolvedValue({
+        ...mockEstimateRequest,
+        status: 'QUOTATION_RECEIVED',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      expect(
+        screen.getByRole('button', { name: /ステータスを依頼済に戻す|依頼済に戻す/i })
+      ).toBeInTheDocument();
+    });
+
+    it('ステータス遷移ボタンをクリックするとステータスを変更する', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: /ステータスを依頼済に変更する|依頼済にする/i })
+      );
+
+      await waitFor(() => {
+        expect(estimateRequestStatusApi.transitionStatus).toHaveBeenCalledWith('er-1', 'REQUESTED');
+      });
+    });
+
+    it('ステータス変更完了後にトースト通知を表示する', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: /ステータスを依頼済に変更する|依頼済にする/i })
+      );
+
+      await waitFor(() => {
+        // トースト通知またはフィードバックメッセージが表示される
+        expect(screen.getByText(/ステータスを「依頼済」に変更しました/i)).toBeInTheDocument();
+      });
     });
   });
 });

@@ -21,3 +21,9 @@ export type { ItemSelectionPanelProps } from './ItemSelectionPanel';
 
 export { EstimateRequestTextPanel } from './EstimateRequestTextPanel';
 export type { EstimateRequestTextPanelProps } from './EstimateRequestTextPanel';
+
+export { StatusBadge } from './StatusBadge';
+export type { StatusBadgeProps, EstimateRequestStatus, BadgeSize } from './StatusBadge';
+
+export { StatusTransitionButton } from './StatusTransitionButton';
+export type { StatusTransitionButtonProps } from './StatusTransitionButton';

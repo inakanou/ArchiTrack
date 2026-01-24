@@ -349,21 +349,21 @@
   - 更新完了時のトースト通知表示
   - _Requirements: 12.5, 12.6, 12.7, 12.8, 12.9, 12.10_
 
-- [ ] 16. フロントエンドページ統合
-- [ ] 16.1 EstimateRequestDetailPageへの受領見積書セクション追加
+- [x] 16. フロントエンドページ統合
+- [x] 16.1 EstimateRequestDetailPageへの受領見積書セクション追加
   - 見積依頼詳細画面にReceivedQuotationListを統合
   - 受領見積書登録フォーム（モーダル）の統合
   - 受領見積書の追加・編集・削除操作の統合
   - ファイルプレビュー機能の統合
   - _Requirements: 11.1, 11.2, 11.12, 11.14_
 
-- [ ] 16.2 EstimateRequestDetailPageへのステータス管理追加
+- [x] 16.2 EstimateRequestDetailPageへのステータス管理追加
   - StatusBadgeによるステータス表示の統合
   - StatusTransitionButtonによるステータス遷移の統合
   - ステータス表示エリアのレイアウト調整
   - _Requirements: 12.1, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10_
 
-- [ ] 16.3 EstimateRequestListTableへのステータス列追加
+- [x] 16.3 EstimateRequestListTableへのステータス列追加
   - 一覧テーブルにステータス列を追加
   - StatusBadgeによるステータス表示
   - _Requirements: 12.12_

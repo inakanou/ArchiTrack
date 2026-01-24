@@ -2,6 +2,7 @@
  * @fileoverview 見積依頼一覧画面
  *
  * Task 5.2: EstimateRequestListPageコンポーネントを実装する
+ * Task 16.3: EstimateRequestListTableへのステータス列追加
  *
  * Requirements:
  * - 2.1: プロジェクトに関連する見積依頼一覧を表示する
@@ -9,6 +10,7 @@
  * - 2.3: 見積依頼一覧の各行をクリックすると見積依頼詳細画面に遷移する
  * - 2.4: 一覧に見積依頼の名前、宛先、見積依頼方法、参照内訳書名、作成日時を表示
  * - 2.5: 新規作成ボタンをクリックすると見積依頼作成画面に遷移する
+ * - 12.12: 見積依頼一覧画面に各見積依頼のステータスを表示する
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -20,6 +22,8 @@ import type {
   PaginatedEstimateRequests,
 } from '../types/estimate-request.types';
 import { Breadcrumb } from '../components/common';
+import { StatusBadge } from '../components/estimate-request';
+import type { EstimateRequestStatus } from '../components/estimate-request';
 
 // ============================================================================
 // スタイル定義
@@ -119,6 +123,13 @@ const styles = {
   requestMeta: {
     fontSize: '14px',
     color: '#6b7280',
+  } as React.CSSProperties,
+  statusWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+    marginLeft: 'auto',
+    paddingLeft: '16px',
   } as React.CSSProperties,
   emptyState: {
     textAlign: 'center' as const,
@@ -267,7 +278,7 @@ function EmptyState({ projectId }: { projectId: string }) {
 
 /**
  * 見積依頼カード
- * Requirements: 2.3, 2.4
+ * Requirements: 2.3, 2.4, 12.12
  */
 function RequestCard({ request }: { request: EstimateRequestInfo }) {
   return (
@@ -286,6 +297,13 @@ function RequestCard({ request }: { request: EstimateRequestInfo }) {
           {formatDate(request.createdAt)} / {request.tradingPartnerName} /{' '}
           {formatMethod(request.method)} / {request.itemizedStatementName}
         </p>
+      </div>
+      {/* ステータスバッジ (Requirements 12.12) */}
+      <div style={styles.statusWrapper}>
+        <StatusBadge
+          status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus}
+          size="sm"
+        />
       </div>
     </Link>
   );

@@ -2,6 +2,8 @@
  * @fileoverview 見積依頼詳細画面
  *
  * Task 6.2: EstimateRequestDetailPageの実装
+ * Task 16.1: 受領見積書セクション追加
+ * Task 16.2: ステータス管理追加
  *
  * Requirements:
  * - 4.1: 見積依頼詳細画面にパンくずナビゲーションを表示する
@@ -16,6 +18,8 @@
  * - 9.2: 見積依頼詳細画面に削除ボタンを表示する
  * - 9.4: ユーザーが削除ボタンをクリックしたとき、削除確認ダイアログを表示する
  * - 9.5: ユーザーが削除を確認したとき、見積依頼を論理削除し一覧画面に遷移する
+ * - 11.1, 11.2, 11.12, 11.14: 受領見積書セクション表示
+ * - 12.1, 12.4, 12.5-12.10: ステータス管理
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -28,13 +32,30 @@ import {
   updateItemSelection,
   deleteEstimateRequest,
 } from '../api/estimate-requests';
+import {
+  getReceivedQuotations,
+  createReceivedQuotation,
+  updateReceivedQuotation,
+  deleteReceivedQuotation,
+  getPreviewUrl,
+} from '../api/received-quotations';
+import type {
+  ReceivedQuotationInfo,
+  CreateReceivedQuotationInput,
+  UpdateReceivedQuotationInput,
+} from '../api/received-quotations';
+import { transitionStatus } from '../api/estimate-request-status';
+import type { EstimateRequestStatus } from '../api/estimate-request-status';
 import { ApiError } from '../api/client';
 import {
   ItemSelectionPanel,
   EstimateRequestTextPanel,
   ExcelExportButton,
   ClipboardCopyButton,
+  StatusBadge,
+  StatusTransitionButton,
 } from '../components/estimate-request';
+import { ReceivedQuotationList, ReceivedQuotationForm } from '../components/estimate-requests';
 import { Breadcrumb } from '../components/common';
 import type {
   EstimateRequestInfo,
@@ -275,6 +296,57 @@ const styles = {
     border: 'none',
     cursor: 'pointer',
   } as React.CSSProperties,
+  statusSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  statusLabel: {
+    fontSize: '14px',
+    fontWeight: 500,
+    color: '#6b7280',
+  } as React.CSSProperties,
+  toastMessage: {
+    position: 'fixed' as const,
+    bottom: '24px',
+    right: '24px',
+    padding: '12px 20px',
+    borderRadius: '8px',
+    backgroundColor: '#10b981',
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: 500,
+    zIndex: 2000,
+    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+  } as React.CSSProperties,
+  modal: {
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  } as React.CSSProperties,
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    padding: '24px',
+    maxWidth: '500px',
+    width: '100%',
+    maxHeight: '90vh',
+    overflow: 'auto',
+  } as React.CSSProperties,
+  modalTitle: {
+    fontSize: '18px',
+    fontWeight: 600,
+    color: '#1f2937',
+    marginBottom: '16px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -370,6 +442,7 @@ export default function EstimateRequestDetailPage() {
   const [request, setRequest] = useState<EstimateRequestInfo | null>(null);
   const [items, setItems] = useState<ItemWithSelectionInfo[]>([]);
   const [estimateText, setEstimateText] = useState<EstimateRequestText | null>(null);
+  const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -378,6 +451,14 @@ export default function EstimateRequestDetailPage() {
   const [isTextLoading, setIsTextLoading] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // 受領見積書関連
+  const [showQuotationForm, setShowQuotationForm] = useState(false);
+  const [editingQuotation, setEditingQuotation] = useState<ReceivedQuotationInfo | null>(null);
+  const [isQuotationSubmitting, setIsQuotationSubmitting] = useState(false);
+
+  // ステータス関連
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   /**
    * データ取得
@@ -389,12 +470,14 @@ export default function EstimateRequestDetailPage() {
     setError(null);
 
     try {
-      const [requestData, itemsData] = await Promise.all([
+      const [requestData, itemsData, quotationsData] = await Promise.all([
         getEstimateRequestDetail(id),
         getEstimateRequestItems(id),
+        getReceivedQuotations(id),
       ]);
       setRequest(requestData);
       setItems(itemsData);
+      setQuotations(quotationsData);
     } catch {
       setError('見積依頼の取得に失敗しました');
     } finally {
@@ -589,6 +672,125 @@ export default function EstimateRequestDetailPage() {
     }
   }, [id, request, navigate]);
 
+  /**
+   * ステータス遷移処理
+   */
+  const handleStatusTransition = useCallback(
+    async (newStatus: EstimateRequestStatus) => {
+      if (!id) return;
+
+      const result = await transitionStatus(id, newStatus);
+      setRequest((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: result.status,
+              updatedAt: result.updatedAt.toISOString(),
+            }
+          : null
+      );
+    },
+    [id]
+  );
+
+  /**
+   * ステータス変更成功時のハンドラ
+   */
+  const handleStatusSuccess = useCallback((message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(null), 3000);
+  }, []);
+
+  /**
+   * 受領見積書追加フォーム表示
+   */
+  const handleAddQuotationClick = useCallback(() => {
+    setEditingQuotation(null);
+    setShowQuotationForm(true);
+  }, []);
+
+  /**
+   * 受領見積書編集フォーム表示
+   */
+  const handleEditQuotationClick = useCallback((quotation: ReceivedQuotationInfo) => {
+    setEditingQuotation(quotation);
+    setShowQuotationForm(true);
+  }, []);
+
+  /**
+   * 受領見積書フォーム送信
+   */
+  const handleQuotationSubmit = useCallback(
+    async (data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput) => {
+      if (!id) return;
+
+      setIsQuotationSubmitting(true);
+
+      try {
+        if (editingQuotation) {
+          // 編集
+          await updateReceivedQuotation(
+            editingQuotation.id,
+            data as UpdateReceivedQuotationInput,
+            editingQuotation.updatedAt.toISOString()
+          );
+        } else {
+          // 新規作成
+          await createReceivedQuotation(id, data as CreateReceivedQuotationInput);
+        }
+        // 受領見積書一覧を再取得
+        const updatedQuotations = await getReceivedQuotations(id);
+        setQuotations(updatedQuotations);
+        setShowQuotationForm(false);
+        setEditingQuotation(null);
+      } catch {
+        // エラー処理
+      } finally {
+        setIsQuotationSubmitting(false);
+      }
+    },
+    [id, editingQuotation]
+  );
+
+  /**
+   * 受領見積書削除
+   */
+  const handleDeleteQuotation = useCallback(
+    async (quotation: ReceivedQuotationInfo) => {
+      if (!id) return;
+
+      try {
+        await deleteReceivedQuotation(quotation.id, quotation.updatedAt.toISOString());
+        // 受領見積書一覧を再取得
+        const updatedQuotations = await getReceivedQuotations(id);
+        setQuotations(updatedQuotations);
+      } catch {
+        // エラー処理
+      }
+    },
+    [id]
+  );
+
+  /**
+   * 受領見積書プレビュー
+   */
+  const handlePreviewQuotation = useCallback(async (quotation: ReceivedQuotationInfo) => {
+    try {
+      const url = await getPreviewUrl(quotation.id);
+      window.open(url, '_blank');
+    } catch {
+      // エラー処理
+    }
+  }, []);
+
+  /**
+   * 受領見積書フォームキャンセル
+   */
+  const handleQuotationCancel = useCallback(() => {
+    setShowQuotationForm(false);
+    setEditingQuotation(null);
+  }, []);
+
   // ローディング表示
   if (isLoading) {
     return (
@@ -678,6 +880,20 @@ export default function EstimateRequestDetailPage() {
       <div style={styles.content}>
         {/* メインセクション */}
         <div style={styles.mainSection}>
+          {/* ステータス管理 */}
+          <div style={styles.card}>
+            <h2 style={styles.sectionTitle}>ステータス</h2>
+            <div style={styles.statusSection}>
+              <span style={styles.statusLabel}>現在のステータス:</span>
+              <StatusBadge status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus} />
+              <StatusTransitionButton
+                status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus}
+                onTransition={handleStatusTransition}
+                onSuccess={handleStatusSuccess}
+              />
+            </div>
+          </div>
+
           {/* 基本情報 */}
           <div style={styles.card}>
             <h2 style={styles.sectionTitle}>基本情報</h2>
@@ -757,6 +973,18 @@ export default function EstimateRequestDetailPage() {
               {items.filter((item) => item.selected).length} / {items.length} 項目選択中
             </p>
           </div>
+
+          {/* 受領見積書セクション */}
+          <div style={styles.card}>
+            <ReceivedQuotationList
+              estimateRequestId={request.id}
+              quotations={quotations}
+              onAddClick={handleAddQuotationClick}
+              onEditClick={handleEditQuotationClick}
+              onDeleteClick={handleDeleteQuotation}
+              onPreviewClick={handlePreviewQuotation}
+            />
+          </div>
         </div>
       </div>
 
@@ -767,6 +995,28 @@ export default function EstimateRequestDetailPage() {
         onCancel={() => setIsDeleteDialogOpen(false)}
         onConfirm={handleDelete}
       />
+
+      {/* 受領見積書フォームモーダル */}
+      {showQuotationForm && (
+        <div style={styles.modal}>
+          <div style={styles.modalContent}>
+            <h3 style={styles.modalTitle}>
+              {editingQuotation ? '受領見積書の編集' : '受領見積書の登録'}
+            </h3>
+            <ReceivedQuotationForm
+              mode={editingQuotation ? 'edit' : 'create'}
+              estimateRequestId={request.id}
+              initialData={editingQuotation || undefined}
+              onSubmit={handleQuotationSubmit}
+              onCancel={handleQuotationCancel}
+              isSubmitting={isQuotationSubmitting}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* トースト通知 */}
+      {toastMessage && <div style={styles.toastMessage}>{toastMessage}</div>}
     </main>
   );
 }
