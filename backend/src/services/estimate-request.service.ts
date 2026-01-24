@@ -63,6 +63,12 @@ export interface UpdateEstimateRequestInput {
 }
 
 /**
+ * 見積依頼ステータス
+ * Requirements: 12.2, 12.3
+ */
+export type EstimateRequestStatus = 'BEFORE_REQUEST' | 'REQUESTED' | 'QUOTATION_RECEIVED';
+
+/**
  * 見積依頼情報（一覧用）
  */
 export interface EstimateRequestInfo {
@@ -75,8 +81,10 @@ export interface EstimateRequestInfo {
   name: string;
   method: EstimateRequestMethod;
   includeBreakdownInBody: boolean;
+  status: EstimateRequestStatus;
   createdAt: Date;
   updatedAt: Date;
+  receivedQuotationCount?: number;
 }
 
 /**
@@ -265,6 +273,9 @@ export class EstimateRequestService {
   /**
    * 見積依頼詳細を取得する
    *
+   * Task 13.4: ステータスと受領見積書数を含める
+   * Requirements: 12.1, 12.4
+   *
    * @param id - 見積依頼ID
    * @returns 見積依頼詳細情報（存在しない場合はnull）
    */
@@ -274,6 +285,13 @@ export class EstimateRequestService {
       include: {
         tradingPartner: { select: { id: true, name: true } },
         itemizedStatement: { select: { id: true, name: true } },
+        _count: {
+          select: {
+            receivedQuotations: {
+              where: { deletedAt: null },
+            },
+          },
+        },
       },
     });
 
@@ -631,6 +649,8 @@ export class EstimateRequestService {
 
   /**
    * データベースの結果をEstimateRequestInfoに変換
+   *
+   * Task 13.4: ステータスと受領見積書数を追加
    */
   private toEstimateRequestInfo(request: {
     id: string;
@@ -640,10 +660,14 @@ export class EstimateRequestService {
     name: string;
     method: EstimateRequestMethod;
     includeBreakdownInBody: boolean;
+    status: string;
     createdAt: Date;
     updatedAt: Date;
     tradingPartner: { id: string; name: string };
     itemizedStatement: { id: string; name: string };
+    _count?: {
+      receivedQuotations: number;
+    };
   }): EstimateRequestInfo {
     return {
       id: request.id,
@@ -655,8 +679,10 @@ export class EstimateRequestService {
       name: request.name,
       method: request.method,
       includeBreakdownInBody: request.includeBreakdownInBody,
+      status: request.status as EstimateRequestStatus,
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
+      receivedQuotationCount: request._count?.receivedQuotations,
     };
   }
 }

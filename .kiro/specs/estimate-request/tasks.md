@@ -282,14 +282,14 @@
   - 監査ログの記録を統合
   - _Requirements: 12.2, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 12.11_
 
-- [ ] 13. 受領見積書・ステータス管理バックエンドAPI実装
-- [ ] 13.1 (P) Zodバリデーションスキーマの定義
+- [x] 13. 受領見積書・ステータス管理バックエンドAPI実装
+- [x] 13.1 (P) Zodバリデーションスキーマの定義
   - 受領見積書作成・更新リクエストのバリデーションスキーマを定義
   - ステータス遷移リクエストのバリデーションスキーマを定義
   - ファイルアップロード（multipart/form-data）のバリデーションを定義
   - _Requirements: 11.10, 12.9_
 
-- [ ] 13.2 受領見積書エンドポイントの実装
+- [x] 13.2 受領見積書エンドポイントの実装
   - POST /api/estimate-requests/:id/quotations（受領見積書作成、multipart）
   - GET /api/estimate-requests/:id/quotations（受領見積書一覧取得）
   - GET /api/quotations/:id（受領見積書詳細取得）
@@ -300,13 +300,13 @@
   - 認証・認可ミドルウェアの適用
   - _Requirements: 11.1, 11.2, 11.9, 11.12, 11.13, 11.14, 11.15, 11.16, 11.17_
 
-- [ ] 13.3 ステータス管理エンドポイントの実装
+- [x] 13.3 ステータス管理エンドポイントの実装
   - PATCH /api/estimate-requests/:id/status（ステータス遷移）
   - GET /api/estimate-requests/:id/status-history（ステータス変更履歴取得）
   - 認証・認可ミドルウェアの適用
   - _Requirements: 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 12.11_
 
-- [ ] 13.4 見積依頼一覧・詳細APIにステータス情報を追加
+- [x] 13.4 見積依頼一覧・詳細APIにステータス情報を追加
   - GET /api/projects/:projectId/estimate-requestsのレスポンスにステータスを含める
   - GET /api/estimate-requests/:idのレスポンスにステータスと受領見積書数を含める
   - _Requirements: 12.1, 12.4, 12.12_
