@@ -942,4 +942,161 @@ describe('EstimateRequestDetailPage', () => {
       });
     });
   });
+
+  describe('受領見積書フォーム操作', () => {
+    it('受領見積書フォームでキャンセルをクリックするとフォームを閉じる', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // 登録ボタンをクリックしてフォームを開く
+      await user.click(screen.getByRole('button', { name: /受領見積書登録/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/受領見積書名/i)).toBeInTheDocument();
+      });
+
+      // キャンセルボタンをクリック
+      await user.click(screen.getByRole('button', { name: /キャンセル/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/受領見積書名/i)).not.toBeInTheDocument();
+      });
+    });
+
+    it('受領見積書を新規作成できる', async () => {
+      const user = userEvent.setup();
+      vi.mocked(receivedQuotationApi.createReceivedQuotation).mockResolvedValue({
+        id: 'rq-new',
+        estimateRequestId: 'er-1',
+        name: '新規見積書',
+        submittedAt: new Date('2025-01-10'),
+        contentType: 'TEXT',
+        textContent: 'テスト内容',
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // 登録ボタンをクリック
+      await user.click(screen.getByRole('button', { name: /受領見積書登録/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/受領見積書名/i)).toBeInTheDocument();
+      });
+
+      // フォームに入力
+      await user.type(screen.getByLabelText(/受領見積書名/i), '新規見積書');
+      await user.type(screen.getByLabelText(/提出日/i), '2025-01-10');
+
+      // テキストラジオボタンを選択（デフォルトで選択されている場合がある）
+      const textRadio = screen.getByLabelText(/テキスト/i);
+      await user.click(textRadio);
+
+      // テキストエリアに入力（プレースホルダーで検索）
+      const textArea = screen.getByPlaceholderText(/見積内容を入力/i);
+      await user.type(textArea, 'テスト内容');
+
+      // 送信（フォーム内のsubmitボタン）
+      const submitButton = screen.getByRole('button', { name: /^登録$/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(receivedQuotationApi.createReceivedQuotation).toHaveBeenCalled();
+      });
+    });
+
+    it('受領見積書を編集できる', async () => {
+      const user = userEvent.setup();
+      vi.mocked(receivedQuotationApi.updateReceivedQuotation).mockResolvedValue({
+        ...mockReceivedQuotations[0]!,
+        name: '更新された見積書',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // 編集ボタンをクリック
+      const editButtons = screen.getAllByRole('button', { name: /編集/i });
+      await user.click(editButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/受領見積書名/i)).toBeInTheDocument();
+      });
+
+      // 名前を変更
+      const nameInput = screen.getByLabelText(/受領見積書名/i);
+      await user.clear(nameInput);
+      await user.type(nameInput, '更新された見積書');
+
+      // 更新ボタンをクリック
+      await user.click(screen.getByRole('button', { name: /更新/i }));
+
+      await waitFor(() => {
+        expect(receivedQuotationApi.updateReceivedQuotation).toHaveBeenCalled();
+      });
+    });
+
+    it('受領見積書削除を確認すると削除APIを呼び出す', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      // 削除ボタンをクリック
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      await user.click(deleteButtons[1]!);
+
+      await waitFor(() => {
+        expect(screen.getByText(/受領見積書の削除/i)).toBeInTheDocument();
+      });
+
+      // 削除を確認（「削除する」ボタン）
+      const confirmButton = screen.getByRole('button', { name: /削除する/i });
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(receivedQuotationApi.deleteReceivedQuotation).toHaveBeenCalled();
+      });
+    });
+
+    it('プレビューAPIがエラーでも処理を継続する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(receivedQuotationApi.getPreviewUrl).mockRejectedValue(new Error('Preview failed'));
+      const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      const previewButtons = screen.getAllByRole('button', { name: /プレビュー/i });
+      await user.click(previewButtons[0]!);
+
+      await waitFor(() => {
+        expect(receivedQuotationApi.getPreviewUrl).toHaveBeenCalled();
+      });
+
+      // エラーでもクラッシュしない
+      expect(windowOpenSpy).not.toHaveBeenCalled();
+      windowOpenSpy.mockRestore();
+    });
+  });
 });
