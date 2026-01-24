@@ -586,6 +586,7 @@ interface EstimateRequestTextService {
 - 受領見積書の作成・取得・更新・削除
 - テキストまたはファイル内容の排他的管理
 - ファイルアップロード（StorageProvider経由）
+- ファイル物理削除（削除時にStorageProviderから物理削除）
 - 署名付きURL生成（ファイルプレビュー用）
 - 論理削除の実装
 - 楽観的排他制御の実装
@@ -664,7 +665,10 @@ interface ReceivedQuotationService {
 ```
 
 - Preconditions: 有効な見積依頼IDが必要、ファイル形式とサイズの検証
-- Postconditions: ファイルがStorageProviderに保存される（FILE の場合）
+- Postconditions:
+  - 作成時: ファイルがStorageProviderに保存される（FILEの場合）
+  - 削除時: DBレコード論理削除後、StorageProviderからファイルを物理削除（FILEの場合）
+  - 更新時: 新ファイルアップロード後、旧ファイルを物理削除（ファイル変更時）
 - Invariants: contentTypeとcontent（text/file）の整合性
 
 ##### API Contract
@@ -681,7 +685,11 @@ interface ReceivedQuotationService {
 **Implementation Notes**
 - Integration: StorageProviderを使用してファイルをアップロード（パス: `quotations/{estimateRequestId}/{quotationId}/{fileName}`）
 - Validation: 許可ファイル形式（PDF, Excel, 画像）、サイズ上限10MB、contentTypeとcontentの整合性
-- Risks: ファイル削除時のストレージとDBの整合性（トランザクション管理）
+- File Deletion Strategy:
+  - 削除時: DBレコード論理削除（deletedAt設定）→ StorageProvider.delete()でファイル物理削除
+  - 更新時（ファイル変更）: 新ファイルアップロード → DB更新 → 旧ファイル物理削除
+  - エラー時: DB更新成功・ファイル削除失敗の場合はログ記録し、バックグラウンドジョブで再試行
+- Risks: ファイル削除時のストレージとDBの整合性（DB更新を先に実行し、ファイル削除失敗は許容）
 
 #### EstimateRequestStatusService
 
