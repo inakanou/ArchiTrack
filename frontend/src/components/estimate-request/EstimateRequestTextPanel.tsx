@@ -88,7 +88,7 @@ const styles = {
     lineHeight: 1.6,
   },
   errorText: {
-    color: 'rgb(239, 68, 68)',
+    color: '#dc2626', // red-600 (WCAG AA contrast ratio)
     fontSize: '14px',
   },
   copyButton: {
