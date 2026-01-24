@@ -12,7 +12,7 @@
  * - 11.16: 受領見積書削除
  */
 
-import { apiClient } from './client';
+import { apiClient, ApiError } from './client';
 
 // ============================================================================
 // 型定義
@@ -63,6 +63,88 @@ export interface UpdateReceivedQuotationInput {
 }
 
 // ============================================================================
+// 内部ヘルパー関数
+// ============================================================================
+
+/**
+ * ベースURLを取得
+ */
+function getBaseUrl(): string {
+  return import.meta.env.VITE_API_URL || 'http://localhost:3000';
+}
+
+/**
+ * multipart/form-data形式のリクエストを送信する
+ *
+ * apiClientはJSON.stringifyを使用するためFormDataを直接送信できない。
+ * この関数は直接fetchを使用してFormDataを送信する。
+ *
+ * @param path - APIパス
+ * @param method - HTTPメソッド
+ * @param formData - 送信するFormData
+ * @returns レスポンスデータ
+ */
+async function sendFormData<T>(
+  path: string,
+  method: 'POST' | 'PUT',
+  formData: FormData
+): Promise<T> {
+  const url = `${getBaseUrl()}${path}`;
+
+  // アクセストークンを取得
+  const accessToken = apiClient.getAccessToken();
+
+  const headers: HeadersInit = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  // Note: Content-Typeは設定しない（ブラウザが自動でmultipart/form-dataとboundaryを設定）
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    // レスポンスボディを取得
+    const contentType = response.headers.get('content-type');
+    let data: unknown;
+
+    if (contentType?.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    // エラーレスポンスの処理
+    if (!response.ok) {
+      // RFC 7807 Problem Details形式のdetailフィールド、または従来のerrorフィールドを優先的に使用
+      const errorMessage =
+        (data && typeof data === 'object'
+          ? 'detail' in data && typeof data.detail === 'string'
+            ? data.detail
+            : 'error' in data && typeof data.error === 'string'
+              ? data.error
+              : null
+          : null) || response.statusText;
+      throw new ApiError(response.status, errorMessage, data);
+    }
+
+    return data as T;
+  } catch (error) {
+    // ApiErrorはそのままスロー
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    // ネットワークエラー等
+    throw new ApiError(0, 'Network error', error);
+  }
+}
+
+// ============================================================================
 // APIクライアント関数
 // ============================================================================
 
@@ -105,9 +187,15 @@ export async function getReceivedQuotation(id: string): Promise<ReceivedQuotatio
 /**
  * 受領見積書を作成する
  *
+ * multipart/form-data形式でファイルアップロードに対応。
+ *
  * @param estimateRequestId - 見積依頼ID
  * @param input - 受領見積書作成入力
  * @returns 作成された受領見積書
+ *
+ * @throws ApiError 見積依頼が見つからない（404）、バリデーションエラー（400）、
+ *                  ファイルサイズ上限超過（413）、ファイル形式エラー（415）、
+ *                  コンテンツタイプ整合性エラー（422）
  */
 export async function createReceivedQuotation(
   estimateRequestId: string,
@@ -124,14 +212,11 @@ export async function createReceivedQuotation(
     formData.append('file', input.file);
   }
 
-  const response = await apiClient.post<ReceivedQuotationInfo>(
+  // 直接fetchを使用してFormDataを送信
+  const response = await sendFormData<ReceivedQuotationInfo>(
     `/api/estimate-requests/${estimateRequestId}/quotations`,
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    }
+    'POST',
+    formData
   );
 
   return {
@@ -145,10 +230,16 @@ export async function createReceivedQuotation(
 /**
  * 受領見積書を更新する
  *
+ * multipart/form-data形式でファイルアップロードに対応。
+ * 楽観的排他制御を使用。
+ *
  * @param id - 受領見積書ID
  * @param input - 受領見積書更新入力
- * @param updatedAt - 楽観的排他制御用の更新日時
+ * @param updatedAt - 楽観的排他制御用の更新日時（ISO8601形式）
  * @returns 更新された受領見積書
+ *
+ * @throws ApiError 受領見積書が見つからない（404）、競合（409）、
+ *                  ファイルサイズ上限超過（413）、ファイル形式エラー（415）
  */
 export async function updateReceivedQuotation(
   id: string,
@@ -156,7 +247,8 @@ export async function updateReceivedQuotation(
   updatedAt: string
 ): Promise<ReceivedQuotationInfo> {
   const formData = new FormData();
-  formData.append('updatedAt', updatedAt);
+  // バックエンドはexpectedUpdatedAtを期待する
+  formData.append('expectedUpdatedAt', updatedAt);
 
   if (input.name) {
     formData.append('name', input.name);
@@ -173,11 +265,12 @@ export async function updateReceivedQuotation(
     formData.append('file', input.file);
   }
 
-  const response = await apiClient.put<ReceivedQuotationInfo>(`/api/quotations/${id}`, formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  // 直接fetchを使用してFormDataを送信
+  const response = await sendFormData<ReceivedQuotationInfo>(
+    `/api/quotations/${id}`,
+    'PUT',
+    formData
+  );
 
   return {
     ...response,
@@ -188,10 +281,14 @@ export async function updateReceivedQuotation(
 }
 
 /**
- * 受領見積書を削除する
+ * 受領見積書を削除する（論理削除）
+ *
+ * 楽観的排他制御を使用。ファイルコンテンツの場合は物理削除も行われる。
  *
  * @param id - 受領見積書ID
- * @param updatedAt - 楽観的排他制御用の更新日時
+ * @param updatedAt - 楽観的排他制御用の更新日時（ISO8601形式）
+ *
+ * @throws ApiError 受領見積書が見つからない（404）、競合（409）
  */
 export async function deleteReceivedQuotation(id: string, updatedAt: string): Promise<void> {
   return apiClient.delete<void>(`/api/quotations/${id}`, {
@@ -202,8 +299,13 @@ export async function deleteReceivedQuotation(id: string, updatedAt: string): Pr
 /**
  * ファイルプレビューURLを取得する
  *
+ * Cloudflare R2（または同等のストレージ）の署名付きURLを取得する。
+ *
  * @param id - 受領見積書ID
  * @returns 署名付きプレビューURL
+ *
+ * @throws ApiError 受領見積書が見つからない（404）、
+ *                  テキストコンテンツの場合ファイルなし（422）
  */
 export async function getPreviewUrl(id: string): Promise<string> {
   const response = await apiClient.get<{ url: string }>(`/api/quotations/${id}/preview`);
