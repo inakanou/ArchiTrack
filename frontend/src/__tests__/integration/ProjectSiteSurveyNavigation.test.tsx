@@ -194,13 +194,14 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 「すべて見る」リンクが表示されるまで待機
+      // 現場調査用の「すべて見る」リンクが表示されるまで待機
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+        const links = screen.getAllByRole('link', { name: /すべて見る/ });
+        const siteSurveyLink = links.find(
+          (link) => link.getAttribute('href') === '/projects/project-test-123/site-surveys'
+        );
+        expect(siteSurveyLink).toBeInTheDocument();
       });
-
-      const listLink = screen.getByRole('link', { name: /すべて見る/ });
-      expect(listLink).toHaveAttribute('href', '/projects/project-test-123/site-surveys');
     });
 
     it('現場調査詳細へのリンクが正しいURLを持つ', async () => {
@@ -228,12 +229,17 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
+      // 現場調査用の「すべて見る」リンクを特定して待機
+      let siteSurveyLink: HTMLElement | undefined;
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+        const links = screen.getAllByRole('link', { name: /すべて見る/ });
+        siteSurveyLink = links.find(
+          (link) => link.getAttribute('href') === '/projects/project-test-123/site-surveys'
+        );
+        expect(siteSurveyLink).toBeInTheDocument();
       });
 
-      const listLink = screen.getByRole('link', { name: /すべて見る/ });
-      await user.click(listLink);
+      await user.click(siteSurveyLink!);
 
       // 現場調査一覧ページへ遷移
       await waitFor(() => {
@@ -349,14 +355,18 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         ).toBeInTheDocument();
       });
 
-      // 「すべて見る」リンクが表示されるまで待機
+      // 現場調査用の「すべて見る」リンクが表示されるまで待機
+      let siteSurveyLink: HTMLElement | undefined;
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+        const links = screen.getAllByRole('link', { name: /すべて見る/ });
+        siteSurveyLink = links.find(
+          (link) => link.getAttribute('href') === '/projects/project-test-123/site-surveys'
+        );
+        expect(siteSurveyLink).toBeInTheDocument();
       });
 
       // Step 2: すべて見るリンクをクリック
-      const listLink = screen.getByRole('link', { name: /すべて見る/ });
-      await user.click(listLink);
+      await user.click(siteSurveyLink!);
 
       // Step 3: 現場調査一覧ページへ遷移したことを確認
       await waitFor(() => {

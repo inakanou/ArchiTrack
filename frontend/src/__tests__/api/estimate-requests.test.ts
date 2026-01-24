@@ -307,7 +307,7 @@ describe('estimate-requests API client', () => {
 
       const result = await getEstimateRequestItems('er-1');
 
-      expect(apiClient.get).toHaveBeenCalledWith('/api/estimate-requests/er-1/items');
+      expect(apiClient.get).toHaveBeenCalledWith('/api/estimate-requests/er-1/items-with-status');
       expect(result).toEqual(mockItems);
     });
 
@@ -458,7 +458,7 @@ describe('estimate-requests API client', () => {
     };
 
     it('見積依頼を更新できること', async () => {
-      vi.mocked(apiClient.patch).mockResolvedValueOnce(mockUpdatedRequest);
+      vi.mocked(apiClient.put).mockResolvedValueOnce(mockUpdatedRequest);
 
       const input = {
         name: '更新した見積依頼',
@@ -467,7 +467,7 @@ describe('estimate-requests API client', () => {
       };
       const result = await updateEstimateRequest('er-1', input, '2025-01-02T00:00:00.000Z');
 
-      expect(apiClient.patch).toHaveBeenCalledWith('/api/estimate-requests/er-1', {
+      expect(apiClient.put).toHaveBeenCalledWith('/api/estimate-requests/er-1', {
         ...input,
         expectedUpdatedAt: '2025-01-02T00:00:00.000Z',
       });
@@ -476,7 +476,7 @@ describe('estimate-requests API client', () => {
 
     it('存在しない見積依頼を更新しようとした場合、404エラーがスローされること', async () => {
       const mockError = new ApiError(404, '見積依頼が見つかりません');
-      vi.mocked(apiClient.patch).mockRejectedValueOnce(mockError);
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
 
       await expect(
         updateEstimateRequest('non-existent', { name: '更新' }, '2025-01-01T00:00:00.000Z')
@@ -492,7 +492,7 @@ describe('estimate-requests API client', () => {
           code: 'ESTIMATE_REQUEST_CONFLICT',
         }
       );
-      vi.mocked(apiClient.patch).mockRejectedValueOnce(mockError);
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
 
       try {
         await updateEstimateRequest('er-1', { name: '更新' }, '2025-01-01T00:00:00.000Z');
@@ -505,7 +505,7 @@ describe('estimate-requests API client', () => {
 
     it('認証エラーの場合、401エラーがスローされること', async () => {
       const mockError = new ApiError(401, '認証が必要です');
-      vi.mocked(apiClient.patch).mockRejectedValueOnce(mockError);
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
 
       await expect(
         updateEstimateRequest('er-1', { name: '更新' }, '2025-01-01T00:00:00.000Z')

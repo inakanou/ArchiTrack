@@ -1141,13 +1141,14 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 「すべて見る」リンクが表示されるまで待機
+      // 「すべて見る」リンクが表示されるまで待機（現場調査用のリンクを特定）
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+        const links = screen.getAllByRole('link', { name: /すべて見る/ });
+        const siteSurveyLink = links.find(
+          (link) => link.getAttribute('href') === '/projects/project-1/site-surveys'
+        );
+        expect(siteSurveyLink).toBeInTheDocument();
       });
-
-      const link = screen.getByRole('link', { name: /すべて見る/ });
-      expect(link).toHaveAttribute('href', '/projects/project-1/site-surveys');
     });
 
     it('すべて見るリンクをクリックすると現場調査一覧ページへ遷移する', async () => {
@@ -1176,15 +1177,20 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
+      // 現場調査用の「すべて見る」リンクを特定して待機
+      let siteSurveyLink: HTMLElement | undefined;
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+        const links = screen.getAllByRole('link', { name: /すべて見る/ });
+        siteSurveyLink = links.find(
+          (link) => link.getAttribute('href') === '/projects/project-1/site-surveys'
+        );
+        expect(siteSurveyLink).toBeInTheDocument();
       });
 
-      const link = screen.getByRole('link', { name: /すべて見る/ });
-      await user.click(link);
+      await user.click(siteSurveyLink!);
 
       // MemoryRouterを使用しているため、実際のナビゲーションはリンクのhref属性で確認
-      expect(link).toHaveAttribute('href', '/projects/project-1/site-surveys');
+      expect(siteSurveyLink).toHaveAttribute('href', '/projects/project-1/site-surveys');
     });
 
     it('「新規作成」ボタンが表示される（現場調査0件時）', async () => {
@@ -1240,13 +1246,21 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
+      // 現場調査用の「すべて見る」リンクを特定して待機
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /すべて見る/ })).toBeInTheDocument();
+        const links = screen.getAllByRole('link', { name: /すべて見る/ });
+        const siteSurveyLink = links.find((link) =>
+          link.getAttribute('href')?.includes('site-surveys')
+        );
+        expect(siteSurveyLink).toBeInTheDocument();
       });
 
       // URLにproject-1のIDが含まれている
-      const link = screen.getByRole('link', { name: /すべて見る/ });
-      expect(link.getAttribute('href')).toContain('project-1');
+      const links = screen.getAllByRole('link', { name: /すべて見る/ });
+      const siteSurveyLink = links.find((link) =>
+        link.getAttribute('href')?.includes('site-surveys')
+      );
+      expect(siteSurveyLink?.getAttribute('href')).toContain('project-1');
     });
 
     it('現場調査セクションに件数表示がある', async () => {
