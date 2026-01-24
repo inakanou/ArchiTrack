@@ -15,14 +15,16 @@
 - メール/FAX送信に必要な情報のクリップボードコピーを提供する
 - 選択項目のExcelファイル出力機能を提供する
 - 既存の内訳書・取引先・プロジェクト機能との統合を実現する
+- 協力業者から届いた受領見積書を登録・管理できる
+- 見積依頼のステータスを管理し、進捗状況を把握できる
 
 ### Non-Goals
 
 - メールの直接送信機能（外部メールクライアントを使用）
 - FAXの直接送信機能（外部FAXサービスを使用）
-- 見積回答の管理機能（将来の拡張として検討）
 - 見積依頼のテンプレート管理機能
 - 複数の協力業者への一括見積依頼
+- 受領見積書の金額分析・比較機能（将来の拡張として検討）
 
 ## Architecture
 
@@ -57,11 +59,16 @@ graph TB
         EstimateRequestRoutes[estimate-requests.routes]
         EstimateRequestService[estimate-request.service]
         EstimateRequestTextService[estimate-request-text.service]
+        ReceivedQuotationService[received-quotation.service]
+        EstimateRequestStatusService[estimate-request-status.service]
+        StorageProvider[StorageProvider]
     end
 
     subgraph Database
         EstimateRequest[EstimateRequest Model]
         EstimateRequestItem[EstimateRequestItem Model]
+        ReceivedQuotation[ReceivedQuotation Model]
+        EstimateRequestStatusHistory[EstimateRequestStatusHistory Model]
         TradingPartner[TradingPartner Model]
         ItemizedStatement[ItemizedStatement Model]
         Project[Project Model]
@@ -78,6 +85,13 @@ graph TB
 
     EstimateRequestRoutes --> EstimateRequestService
     EstimateRequestRoutes --> EstimateRequestTextService
+    EstimateRequestRoutes --> ReceivedQuotationService
+    EstimateRequestRoutes --> EstimateRequestStatusService
+
+    ReceivedQuotationService --> ReceivedQuotation
+    ReceivedQuotationService --> StorageProvider
+    EstimateRequestStatusService --> EstimateRequestStatusHistory
+    EstimateRequestStatusService --> EstimateRequest
 
     EstimateRequestService --> EstimateRequest
     EstimateRequestService --> EstimateRequestItem
@@ -168,6 +182,16 @@ sequenceDiagram
 | 8.1-8.5 | 見積依頼データ管理 | EstimateRequestService | CRUD APIs | データ管理 |
 | 9.1-9.6 | 見積依頼編集・削除 | EstimateRequestEditPage | PUT/DELETE APIs | 編集・削除 |
 | 10.1-10.4 | 権限管理 | authorize.middleware | RBAC | 権限制御 |
+| 11.1-11.6 | 受領見積書登録（フォーム） | ReceivedQuotationForm, ReceivedQuotationList | POST /api/estimate-requests/:id/quotations | 受領見積書登録 |
+| 11.7-11.10 | 受領見積書登録（入力） | ReceivedQuotationForm | POST /api/estimate-requests/:id/quotations | 登録バリデーション |
+| 11.11-11.13 | 受領見積書一覧表示 | ReceivedQuotationList | GET /api/estimate-requests/:id/quotations | 一覧取得 |
+| 11.14 | 受領見積書ファイルプレビュー | ReceivedQuotationService, SignedUrlService | GET /api/quotations/:id/preview | ファイルプレビュー |
+| 11.15-11.17 | 受領見積書編集・削除 | ReceivedQuotationForm | PUT/DELETE /api/quotations/:id | 編集・削除 |
+| 12.1-12.4 | ステータス表示 | StatusBadge, StatusTransitionButton | GET /api/estimate-requests/:id | ステータス表示 |
+| 12.5-12.8 | ステータス遷移ボタン | StatusTransitionButton | PATCH /api/estimate-requests/:id/status | ステータス遷移 |
+| 12.9-12.10 | ステータス遷移実行 | EstimateRequestStatusService | PATCH /api/estimate-requests/:id/status | ステータス更新 |
+| 12.11 | ステータス変更履歴 | EstimateRequestStatusHistory Model | GET /api/estimate-requests/:id/status-history | 履歴管理 |
+| 12.12 | 一覧画面ステータス表示 | EstimateRequestListTable | GET /api/projects/:id/estimate-requests | 一覧表示 |
 
 ## Components and Interfaces
 
@@ -181,7 +205,15 @@ sequenceDiagram
 | EstimateRequestSectionCard | Frontend | プロジェクト詳細セクション | 1.1-1.5 | - | - |
 | EstimateRequestListPage | Frontend | 一覧画面 | 2.1-2.7 | EstimateRequestListTable (P0) | - |
 | EstimateRequestForm | Frontend | 作成・編集フォーム | 3.1-3.9 | TradingPartnerSelect (P0), ItemizedStatementSelect (P1) | - |
-| EstimateRequestDetailPage | Frontend | 詳細画面 | 4.1-4.12, 5.1-5.3, 6.1-6.10, 7.1-7.6 | ItemSelectionPanel (P0), EstimateRequestTextPanel (P0) | - |
+| EstimateRequestDetailPage | Frontend | 詳細画面 | 4.1-4.12, 5.1-5.3, 6.1-6.10, 7.1-7.6, 11.1-11.17, 12.1-12.10 | ItemSelectionPanel (P0), EstimateRequestTextPanel (P0), ReceivedQuotationList (P0), StatusBadge (P0), StatusTransitionButton (P0) | - |
+| ReceivedQuotation (Model) | Data | 受領見積書データの永続化 | 11.1-11.17 | EstimateRequest (P0), StorageProvider (P1) | State |
+| EstimateRequestStatusHistory (Model) | Data | ステータス変更履歴の永続化 | 12.11 | EstimateRequest (P0) | State |
+| ReceivedQuotationService | Backend | 受領見積書CRUD操作 | 11.1-11.17 | Prisma (P0), StorageProvider (P0), SignedUrlService (P1) | Service, API |
+| EstimateRequestStatusService | Backend | ステータス遷移管理 | 12.1-12.11 | Prisma (P0), AuditLogService (P1) | Service |
+| ReceivedQuotationForm | Frontend | 受領見積書登録フォーム | 11.2-11.10, 11.15-11.17 | FileUploader (P0) | - |
+| ReceivedQuotationList | Frontend | 受領見積書一覧表示 | 11.11-11.14 | ReceivedQuotationForm (P1) | - |
+| StatusBadge | Frontend | ステータス表示バッジ | 12.1, 12.4, 12.12 | - | - |
+| StatusTransitionButton | Frontend | ステータス遷移ボタン | 12.5-12.10 | EstimateRequestStatusService (P0) | - |
 
 ### Data Layer
 
@@ -260,6 +292,137 @@ model EstimateRequestItem {
   @@unique([estimateRequestId, itemizedStatementItemId])
   @@index([estimateRequestId])
   @@map("estimate_request_items")
+}
+```
+
+#### EstimateRequestStatus (Enum)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼のステータスを定義 |
+| Requirements | 12.2, 12.3 |
+
+**Prisma Schema Definition**:
+```prisma
+enum EstimateRequestStatus {
+  BEFORE_REQUEST  // 依頼前
+  REQUESTED       // 依頼済
+  QUOTATION_RECEIVED  // 見積受領済
+}
+```
+
+#### ReceivedQuotation (Prisma Model)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 協力業者から届いた受領見積書データを永続化 |
+| Requirements | 11.1-11.17 |
+
+**Responsibilities & Constraints**
+- 見積依頼に紐付く受領見積書の管理
+- テキストまたはファイル（PDF/Excel/画像）の排他的保存
+- 論理削除（deletedAt）による削除管理
+- 楽観的排他制御（updatedAt）による同時更新防止
+
+**Dependencies**
+- Inbound: ReceivedQuotationService — CRUD操作 (P0)
+- Outbound: EstimateRequest — 見積依頼参照 (P0)
+- External: StorageProvider — ファイルストレージ (P1)
+
+**Contracts**: State [x]
+
+##### State Management
+
+**Prisma Schema Definition**:
+```prisma
+model ReceivedQuotation {
+  id                  String    @id @default(uuid())
+  estimateRequestId   String
+  name                String    // 受領見積書名（必須、最大200文字）
+  submittedAt         DateTime  // 提出日
+  contentType         String    // 'TEXT' | 'FILE'
+  textContent         String?   // テキスト内容（contentType='TEXT'の場合）
+  filePath            String?   // ファイルパス（contentType='FILE'の場合）
+  fileName            String?   // 元のファイル名
+  fileMimeType        String?   // ファイルのMIMEタイプ
+  fileSize            Int?      // ファイルサイズ（バイト）
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime? // 論理削除
+
+  estimateRequest EstimateRequest @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+
+  @@index([estimateRequestId])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("received_quotations")
+}
+```
+
+**Business Rules**:
+- contentTypeが'TEXT'の場合、textContentは必須、filePath/fileName/fileMimeType/fileSizeはnull
+- contentTypeが'FILE'の場合、filePath/fileName/fileMimeTypeは必須、textContentはnull
+- 許可されるファイル形式: PDF (.pdf)、Excel (.xlsx, .xls)、画像 (.jpg, .jpeg, .png)
+- ファイルサイズ上限: 10MB
+
+#### EstimateRequestStatusHistory (Prisma Model)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼ステータス変更履歴を永続化 |
+| Requirements | 12.11 |
+
+**Responsibilities & Constraints**
+- ステータス変更履歴の記録
+- 変更者と変更日時の追跡
+
+**Dependencies**
+- Inbound: EstimateRequestStatusService — 履歴記録 (P0)
+- Outbound: EstimateRequest — 見積依頼参照 (P0)
+- Outbound: User — 変更者参照 (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+**Prisma Schema Definition**:
+```prisma
+model EstimateRequestStatusHistory {
+  id                String               @id @default(uuid())
+  estimateRequestId String
+  fromStatus        EstimateRequestStatus?  // 変更前ステータス（nullable: 初回は null）
+  toStatus          EstimateRequestStatus
+  changedById       String
+  changedAt         DateTime             @default(now())
+
+  estimateRequest EstimateRequest @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+  changedBy       User            @relation("EstimateRequestStatusChangedByUser", fields: [changedById], references: [id])
+
+  @@index([estimateRequestId])
+  @@index([changedAt])
+  @@map("estimate_request_status_histories")
+}
+```
+
+#### EstimateRequest (Prisma Model) - 拡張
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼モデルにステータスフィールドとリレーションを追加 |
+| Requirements | 12.1-12.12 |
+
+**追加フィールドとリレーション**:
+```prisma
+model EstimateRequest {
+  // 既存フィールド...
+  status                 EstimateRequestStatus @default(BEFORE_REQUEST) // ステータス（12.3）
+
+  // 既存リレーション...
+  receivedQuotations     ReceivedQuotation[]   // 受領見積書リレーション
+  statusHistory          EstimateRequestStatusHistory[] // ステータス変更履歴
+
+  // 追加インデックス
+  @@index([status])
 }
 ```
 
@@ -412,6 +575,200 @@ interface EstimateRequestTextService {
 - Validation: 見積依頼方法がメールの場合はメールアドレス、FAXの場合はFAX番号の存在を検証
 - Risks: 取引先にメールアドレス/FAX番号が未登録の場合のエラーハンドリング
 
+#### ReceivedQuotationService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書のCRUD操作とファイル管理を提供 |
+| Requirements | 11.1-11.17 |
+
+**Responsibilities & Constraints**
+- 受領見積書の作成・取得・更新・削除
+- テキストまたはファイル内容の排他的管理
+- ファイルアップロード（StorageProvider経由）
+- 署名付きURL生成（ファイルプレビュー用）
+- 論理削除の実装
+- 楽観的排他制御の実装
+
+**Dependencies**
+- Inbound: estimate-requests.routes — API呼び出し (P0)
+- Outbound: Prisma — データアクセス (P0)
+- Outbound: StorageProvider — ファイルストレージ (P0)
+- Outbound: SignedUrlService — 署名付きURL生成 (P1)
+- External: - (外部依存なし)
+
+**Contracts**: Service [x], API [x]
+
+##### Service Interface
+
+```typescript
+interface ReceivedQuotationServiceDependencies {
+  prisma: PrismaClient;
+  storageProvider: IStorageProvider;
+}
+
+interface CreateReceivedQuotationInput {
+  estimateRequestId: string;
+  name: string;
+  submittedAt: Date;
+  contentType: 'TEXT' | 'FILE';
+  textContent?: string;
+  file?: {
+    buffer: Buffer;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  };
+}
+
+interface UpdateReceivedQuotationInput {
+  name?: string;
+  submittedAt?: Date;
+  contentType?: 'TEXT' | 'FILE';
+  textContent?: string;
+  file?: {
+    buffer: Buffer;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  };
+}
+
+interface ReceivedQuotationInfo {
+  id: string;
+  estimateRequestId: string;
+  name: string;
+  submittedAt: Date;
+  contentType: 'TEXT' | 'FILE';
+  textContent: string | null;
+  fileName: string | null;
+  fileMimeType: string | null;
+  fileSize: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface ReceivedQuotationService {
+  create(input: CreateReceivedQuotationInput, actorId: string): Promise<ReceivedQuotationInfo>;
+  findById(id: string): Promise<ReceivedQuotationInfo | null>;
+  findByEstimateRequestId(estimateRequestId: string): Promise<ReceivedQuotationInfo[]>;
+  update(
+    id: string,
+    input: UpdateReceivedQuotationInput,
+    actorId: string,
+    expectedUpdatedAt: Date
+  ): Promise<ReceivedQuotationInfo>;
+  delete(id: string, actorId: string, expectedUpdatedAt: Date): Promise<void>;
+  getFilePreviewUrl(id: string): Promise<string>;
+}
+```
+
+- Preconditions: 有効な見積依頼IDが必要、ファイル形式とサイズの検証
+- Postconditions: ファイルがStorageProviderに保存される（FILE の場合）
+- Invariants: contentTypeとcontent（text/file）の整合性
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| POST | /api/estimate-requests/:id/quotations | CreateReceivedQuotationInput (multipart) | ReceivedQuotationInfo | 400, 401, 403, 404, 413, 415 |
+| GET | /api/estimate-requests/:id/quotations | - | ReceivedQuotationInfo[] | 401, 403, 404 |
+| GET | /api/quotations/:id | - | ReceivedQuotationInfo | 401, 403, 404 |
+| PUT | /api/quotations/:id | UpdateReceivedQuotationInput (multipart) + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
+| DELETE | /api/quotations/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
+| GET | /api/quotations/:id/preview | - | { url: string } | 401, 403, 404, 422 |
+
+**Implementation Notes**
+- Integration: StorageProviderを使用してファイルをアップロード（パス: `quotations/{estimateRequestId}/{quotationId}/{fileName}`）
+- Validation: 許可ファイル形式（PDF, Excel, 画像）、サイズ上限10MB、contentTypeとcontentの整合性
+- Risks: ファイル削除時のストレージとDBの整合性（トランザクション管理）
+
+#### EstimateRequestStatusService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼ステータスの遷移ロジックと履歴管理 |
+| Requirements | 12.1-12.11 |
+
+**Responsibilities & Constraints**
+- ステータス遷移ルールの検証
+- ステータス更新と履歴記録
+- 許可された遷移のみ実行
+- 監査ログの記録
+
+**Dependencies**
+- Inbound: estimate-requests.routes — API呼び出し (P0)
+- Outbound: Prisma — データアクセス (P0)
+- Outbound: AuditLogService — 監査ログ記録 (P1)
+
+**Contracts**: Service [x]
+
+##### Service Interface
+
+```typescript
+type EstimateRequestStatus = 'BEFORE_REQUEST' | 'REQUESTED' | 'QUOTATION_RECEIVED';
+
+interface EstimateRequestStatusServiceDependencies {
+  prisma: PrismaClient;
+  auditLogService: IAuditLogService;
+}
+
+interface AllowedStatusTransition {
+  status: EstimateRequestStatus;
+}
+
+interface EstimateRequestStatusHistory {
+  id: string;
+  estimateRequestId: string;
+  fromStatus: EstimateRequestStatus | null;
+  toStatus: EstimateRequestStatus;
+  changedById: string;
+  changedAt: Date;
+  changedBy?: {
+    id: string;
+    displayName: string;
+  };
+}
+
+interface EstimateRequestStatusService {
+  getAllowedTransitions(currentStatus: EstimateRequestStatus): AllowedStatusTransition[];
+  transitionStatus(
+    estimateRequestId: string,
+    newStatus: EstimateRequestStatus,
+    actorId: string
+  ): Promise<{ id: string; status: EstimateRequestStatus; updatedAt: Date }>;
+  getStatusHistory(estimateRequestId: string): Promise<EstimateRequestStatusHistory[]>;
+}
+```
+
+**Status Transition Rules**:
+```
+BEFORE_REQUEST → REQUESTED (依頼前 → 依頼済)
+REQUESTED → QUOTATION_RECEIVED (依頼済 → 見積受領済)
+QUOTATION_RECEIVED → REQUESTED (見積受領済 → 依頼済)
+```
+
+- 依頼前から依頼済への遷移は可能
+- 依頼済から依頼前への遷移は不可（12.7）
+- 見積受領済から依頼済への遷移は可能（12.8）
+
+```typescript
+const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]> = {
+  BEFORE_REQUEST: ['REQUESTED'],
+  REQUESTED: ['QUOTATION_RECEIVED'],
+  QUOTATION_RECEIVED: ['REQUESTED'],
+};
+```
+
+- Preconditions: 有効な見積依頼ID、許可された遷移先ステータス
+- Postconditions: ステータス更新、履歴記録、監査ログ記録
+- Invariants: 遷移ルールの厳守
+
+**Implementation Notes**
+- Integration: ProjectStatusServiceパターンを踏襲
+- Validation: 遷移ルールに基づく検証、無効な遷移は400エラー
+- Risks: 同時更新時のステータス不整合（楽観的排他制御で対応）
+
 ### Backend Routes
 
 #### estimate-requests.routes
@@ -436,6 +793,14 @@ interface EstimateRequestTextService {
 | GET | /api/estimate-requests/:id/items-with-status | - | ItemWithOtherRequestStatus[] | 401, 403, 404 |
 | GET | /api/estimate-requests/:id/text | - | EstimateRequestText | 401, 403, 404, 422 |
 | GET | /api/estimate-requests/:id/excel | - | Blob (xlsx) | 400, 401, 403, 404 |
+| POST | /api/estimate-requests/:id/quotations | multipart/form-data | ReceivedQuotationInfo | 400, 401, 403, 404, 413, 415 |
+| GET | /api/estimate-requests/:id/quotations | - | ReceivedQuotationInfo[] | 401, 403, 404 |
+| GET | /api/quotations/:id | - | ReceivedQuotationInfo | 401, 403, 404 |
+| PUT | /api/quotations/:id | multipart/form-data + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
+| DELETE | /api/quotations/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
+| GET | /api/quotations/:id/preview | - | { url: string } | 401, 403, 404, 422 |
+| PATCH | /api/estimate-requests/:id/status | { status: EstimateRequestStatus } | { id, status, updatedAt } | 400, 401, 403, 404 |
+| GET | /api/estimate-requests/:id/status-history | - | EstimateRequestStatusHistory[] | 401, 403, 404 |
 
 **Implementation Notes**
 - Integration: authenticate + requirePermission ミドルウェアで認証・認可を実装
@@ -577,6 +942,193 @@ interface ItemSelectionPanelProps {
 - Validation: メールアドレス/FAX番号未登録時のエラー表示
 - Risks: Clipboard APIがブラウザで利用不可の場合のフォールバック
 
+#### ReceivedQuotationList
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書の一覧表示と操作UIを提供 |
+| Requirements | 11.1, 11.11-11.14 |
+
+**Responsibilities & Constraints**
+- 登録済み受領見積書の一覧表示
+- 「受領見積書登録」ボタンの表示
+- ファイルプレビューリンクの表示
+- 編集・削除アクションの提供
+
+**Dependencies**
+- Inbound: EstimateRequestDetailPage — 一覧埋め込み (P0)
+- Outbound: ReceivedQuotationForm — 登録/編集フォーム (P1)
+- Outbound: estimate-requests API — 一覧取得 (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface ReceivedQuotationInfo {
+  id: string;
+  estimateRequestId: string;
+  name: string;
+  submittedAt: Date;
+  contentType: 'TEXT' | 'FILE';
+  textContent: string | null;
+  fileName: string | null;
+  fileMimeType: string | null;
+  fileSize: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface ReceivedQuotationListProps {
+  estimateRequestId: string;
+  quotations: ReceivedQuotationInfo[];
+  onAddClick: () => void;
+  onEditClick: (quotation: ReceivedQuotationInfo) => void;
+  onDeleteClick: (quotation: ReceivedQuotationInfo) => void;
+  onPreviewClick: (quotation: ReceivedQuotationInfo) => void;
+  disabled?: boolean;
+}
+```
+
+**Implementation Notes**
+- Integration: 一覧表示には受領見積書名、提出日、登録日時を表示（11.13）
+- Validation: 削除確認ダイアログを表示（11.17）
+- Visual: ファイルタイプに応じたアイコン表示（PDF/Excel/画像）
+
+#### ReceivedQuotationForm
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書の登録・編集フォームを提供 |
+| Requirements | 11.2-11.10, 11.15, 11.16 |
+
+**Responsibilities & Constraints**
+- 受領見積書名、提出日、内容（テキスト/ファイル）の入力
+- テキストとファイルの排他的選択UI
+- ファイル形式とサイズのバリデーション
+- フォームの表示切り替え（モーダル/インライン）
+
+**Dependencies**
+- Inbound: ReceivedQuotationList — フォーム呼び出し (P0)
+- Outbound: FileUploader — ファイルアップロード (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface ReceivedQuotationFormProps {
+  mode: 'create' | 'edit';
+  estimateRequestId: string;
+  initialData?: ReceivedQuotationInfo;
+  onSubmit: (data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput) => Promise<void>;
+  onCancel: () => void;
+  isSubmitting?: boolean;
+}
+
+interface ReceivedQuotationFormState {
+  name: string;
+  submittedAt: Date;
+  contentType: 'TEXT' | 'FILE';
+  textContent: string;
+  file: File | null;
+  errors: {
+    name?: string;
+    submittedAt?: string;
+    content?: string;
+    file?: string;
+  };
+}
+```
+
+**Validation Rules**:
+- 受領見積書名: 必須、最大200文字
+- 提出日: 必須
+- 内容: テキストまたはファイルのいずれかが必須（11.7, 11.10）
+- ファイル形式: PDF (.pdf), Excel (.xlsx, .xls), 画像 (.jpg, .jpeg, .png)（11.8）
+- ファイルサイズ: 最大10MB
+
+**Implementation Notes**
+- Integration: テキストとファイル選択のラジオボタンによる排他制御（11.7）
+- Validation: 必須項目チェック、ファイル形式・サイズチェック
+- Visual: ファイル選択時にファイル名とサイズを表示
+
+#### StatusBadge
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼のステータスを視覚的に表示 |
+| Requirements | 12.1, 12.4, 12.12 |
+
+**Responsibilities & Constraints**
+- 現在のステータスをバッジ形式で表示
+- ステータスごとに異なる色で視覚的に区別
+
+**Dependencies**
+- Inbound: EstimateRequestDetailPage — ステータス表示 (P0)
+- Inbound: EstimateRequestListTable — 一覧ステータス表示 (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+type EstimateRequestStatus = 'BEFORE_REQUEST' | 'REQUESTED' | 'QUOTATION_RECEIVED';
+
+interface StatusBadgeProps {
+  status: EstimateRequestStatus;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+const STATUS_DISPLAY: Record<EstimateRequestStatus, { label: string; color: string }> = {
+  BEFORE_REQUEST: { label: '依頼前', color: 'bg-gray-100 text-gray-800' },
+  REQUESTED: { label: '依頼済', color: 'bg-blue-100 text-blue-800' },
+  QUOTATION_RECEIVED: { label: '見積受領済', color: 'bg-green-100 text-green-800' },
+};
+```
+
+**Implementation Notes**
+- Visual: Tailwind CSSによるバッジスタイリング
+- Accessibility: ステータス変更時のaria-live通知
+
+#### StatusTransitionButton
+
+| Field | Detail |
+|-------|--------|
+| Intent | ステータス遷移ボタンを提供 |
+| Requirements | 12.5-12.10 |
+
+**Responsibilities & Constraints**
+- 現在のステータスに応じた遷移ボタンの表示/非表示
+- 遷移実行とフィードバック表示
+
+**Dependencies**
+- Inbound: EstimateRequestDetailPage — 遷移ボタン表示 (P0)
+- Outbound: EstimateRequestStatusService — ステータス更新 (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface StatusTransitionButtonProps {
+  currentStatus: EstimateRequestStatus;
+  estimateRequestId: string;
+  onStatusChange: (newStatus: EstimateRequestStatus) => void;
+  disabled?: boolean;
+}
+
+// ボタン表示ルール
+// BEFORE_REQUEST: 「依頼済にする」ボタンを表示（12.5）
+// REQUESTED: 「見積受領済にする」ボタンを表示（12.6）、「依頼前に戻す」は非表示（12.7）
+// QUOTATION_RECEIVED: 「依頼済に戻す」ボタンを表示（12.8）
+```
+
+**Implementation Notes**
+- Integration: PATCH /api/estimate-requests/:id/status APIを呼び出し
+- Validation: 遷移ルールに基づくボタン表示制御
+- Visual: 更新完了時のトースト通知（12.10）
+
 ## Data Models
 
 ### Domain Model
@@ -593,6 +1145,8 @@ interface ItemSelectionPanelProps {
 - 見積依頼は必ず1つのプロジェクト、1つの取引先、1つの内訳書に紐付く
 - 内訳書に項目がない場合は見積依頼を作成できない
 - 取引先は協力業者（SUBCONTRACTOR）タイプを持つ必要がある（types配列にSUBCONTRACTORを含む）
+- 受領見積書はテキストまたはファイルのいずれか一方のみを持つ（排他的）
+- 見積依頼のステータスは定義された遷移ルールに従う
 
 **内訳書削除制限**:
 - 見積依頼が紐付いている内訳書の削除は制限される（RESTRICT）
@@ -608,7 +1162,10 @@ Project 1--* EstimateRequest
 TradingPartner 1--* EstimateRequest
 ItemizedStatement 1--* EstimateRequest
 EstimateRequest 1--* EstimateRequestItem
+EstimateRequest 1--* ReceivedQuotation
+EstimateRequest 1--* EstimateRequestStatusHistory
 ItemizedStatementItem 1--* EstimateRequestItem
+User 1--* EstimateRequestStatusHistory (changedBy)
 ```
 
 **Referential Integrity**:
@@ -617,6 +1174,9 @@ ItemizedStatementItem 1--* EstimateRequestItem
 - EstimateRequest.itemizedStatementId -> ItemizedStatement.id (RESTRICT)
 - EstimateRequestItem.estimateRequestId -> EstimateRequest.id (CASCADE DELETE)
 - EstimateRequestItem.itemizedStatementItemId -> ItemizedStatementItem.id (RESTRICT)
+- ReceivedQuotation.estimateRequestId -> EstimateRequest.id (CASCADE DELETE)
+- EstimateRequestStatusHistory.estimateRequestId -> EstimateRequest.id (CASCADE DELETE)
+- EstimateRequestStatusHistory.changedById -> User.id (RESTRICT)
 
 **内訳書削除制約（既存サービスへの影響）**:
 - ItemizedStatementService.delete(): 見積依頼が紐付いている内訳書の削除を禁止
@@ -658,6 +1218,53 @@ ItemizedStatementItem 1--* EstimateRequestItem
 - idx_estimate_request_items_estimate_request_id (estimate_request_id)
 - UNIQUE (estimate_request_id, itemized_statement_item_id)
 
+**Table: received_quotations**
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| id | UUID | PK, NOT NULL | 主キー |
+| estimate_request_id | UUID | FK, NOT NULL | 見積依頼参照 |
+| name | VARCHAR(200) | NOT NULL | 受領見積書名 |
+| submitted_at | DATE | NOT NULL | 提出日 |
+| content_type | VARCHAR(10) | NOT NULL | TEXT/FILE |
+| text_content | TEXT | NULL | テキスト内容 |
+| file_path | VARCHAR(500) | NULL | ファイルパス |
+| file_name | VARCHAR(255) | NULL | 元ファイル名 |
+| file_mime_type | VARCHAR(100) | NULL | MIMEタイプ |
+| file_size | INT | NULL | ファイルサイズ |
+| created_at | TIMESTAMP | NOT NULL | 作成日時 |
+| updated_at | TIMESTAMP | NOT NULL | 更新日時 |
+| deleted_at | TIMESTAMP | NULL | 論理削除日時 |
+
+**Indexes**:
+- idx_received_quotations_estimate_request_id (estimate_request_id)
+- idx_received_quotations_deleted_at (deleted_at)
+- idx_received_quotations_created_at (created_at)
+
+**Table: estimate_request_status_histories**
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| id | UUID | PK, NOT NULL | 主キー |
+| estimate_request_id | UUID | FK, NOT NULL | 見積依頼参照 |
+| from_status | VARCHAR(30) | NULL | 変更前ステータス |
+| to_status | VARCHAR(30) | NOT NULL | 変更後ステータス |
+| changed_by_id | UUID | FK, NOT NULL | 変更者参照 |
+| changed_at | TIMESTAMP | NOT NULL | 変更日時 |
+
+**Indexes**:
+- idx_estimate_request_status_histories_estimate_request_id (estimate_request_id)
+- idx_estimate_request_status_histories_changed_at (changed_at)
+
+**Modifications to estimate_requests table**:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| status | VARCHAR(30) | NOT NULL, DEFAULT 'BEFORE_REQUEST' | ステータス |
+
+**Additional Indexes**:
+- idx_estimate_requests_status (status)
+
 ## Error Handling
 
 ### Error Categories and Responses
@@ -673,6 +1280,13 @@ ItemizedStatementItem 1--* EstimateRequestItem
 - 内訳書に項目がない場合（EMPTY_ITEMIZED_STATEMENT_ITEMS）
 - 取引先にメールアドレス/FAX番号が未登録（MISSING_CONTACT_INFO）
 - 項目が1つも選択されていない場合のExcel出力（NO_ITEMS_SELECTED）
+- 無効なステータス遷移（INVALID_STATUS_TRANSITION）
+- 受領見積書のテキストとファイルが両方指定されている（CONFLICTING_CONTENT_TYPE）
+- 受領見積書の内容が未指定（MISSING_CONTENT）
+
+**File Upload Errors (413, 415)**:
+- ファイルサイズ超過（FILE_TOO_LARGE）- 413 Payload Too Large
+- 許可されていないファイル形式（UNSUPPORTED_FILE_TYPE）- 415 Unsupported Media Type
 
 ### Monitoring
 
@@ -686,15 +1300,23 @@ ItemizedStatementItem 1--* EstimateRequestItem
 - EstimateRequestService: 作成、取得、更新、削除、項目選択更新
 - EstimateRequestService.findItemsWithOtherRequestStatus: 他の見積依頼での選択状態取得
 - EstimateRequestTextService: テキスト生成（メール/FAX、内訳書含む/含まない）
-- Zodスキーマ: バリデーションルールのテスト
+- ReceivedQuotationService: CRUD操作、ファイルアップロード、プレビューURL生成
+- EstimateRequestStatusService: ステータス遷移、許可遷移取得、履歴記録
+- Zodスキーマ: バリデーションルールのテスト（受領見積書、ステータス含む）
 - エラークラス: カスタムエラーのテスト
 - ItemSelectionPanel: 他依頼選択状態の背景色表示、取引先名表示
+- ReceivedQuotationForm: フォームバリデーション、ファイル選択、排他制御
+- StatusBadge: ステータス表示、色分け
+- StatusTransitionButton: 遷移ボタン表示制御
 
 ### Integration Tests
 
 - API統合テスト: 認証・認可フロー、CRUD操作
 - データベーストランザクション: 見積依頼作成時の項目自動初期化
 - 楽観的排他制御: 同時更新時の409エラー
+- 受領見積書API統合テスト: ファイルアップロード、プレビューURL
+- ステータス遷移API統合テスト: 遷移実行、履歴取得、無効遷移拒否
+- ストレージ統合テスト: ファイルアップロード・削除の整合性
 
 ### E2E Tests
 
@@ -703,6 +1325,11 @@ ItemizedStatementItem 1--* EstimateRequestItem
 - 他依頼選択状態表示: 複数の見積依頼作成→項目選択→背景色・取引先名の確認
 - Excel出力: 項目選択→ダウンロード
 - クリップボードコピー: 各項目のコピー操作
+- 受領見積書登録フロー: ボタンクリック→フォーム入力→テキスト/ファイル選択→保存
+- 受領見積書一覧表示: 登録済み見積書の確認、ファイルプレビュー
+- 受領見積書編集・削除: 編集→保存、削除確認→削除
+- ステータス遷移フロー: 依頼前→依頼済→見積受領済の遷移
+- ステータス表示: 詳細画面・一覧画面でのステータスバッジ確認
 
 ## Security Considerations
 
