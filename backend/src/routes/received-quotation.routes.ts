@@ -41,16 +41,30 @@ import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js'
 // mergeParams: true を設定してネストされたルートからestimateRequestIdを取得できるようにする
 const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
-const storageProvider = getStorageProvider();
 
-if (!storageProvider) {
-  throw new Error('Storage provider is not configured. Check environment settings.');
+// 遅延初期化: テスト時にストレージが未設定でもルート定義が可能
+let receivedQuotationService: ReceivedQuotationService | null = null;
+
+/**
+ * サービスインスタンスを取得（遅延初期化）
+ * @throws Error ストレージプロバイダーが設定されていない場合
+ */
+function getReceivedQuotationService(): ReceivedQuotationService {
+  if (receivedQuotationService) {
+    return receivedQuotationService;
+  }
+
+  const storageProvider = getStorageProvider();
+  if (!storageProvider) {
+    throw new Error('Storage provider is not configured. Check environment settings.');
+  }
+
+  receivedQuotationService = new ReceivedQuotationService({
+    prisma,
+    storageProvider,
+  });
+  return receivedQuotationService;
 }
-
-const receivedQuotationService = new ReceivedQuotationService({
-  prisma,
-  storageProvider,
-});
 
 // multerの設定（メモリストレージ）
 const upload = multer({
@@ -159,7 +173,7 @@ router.post(
           : undefined,
       };
 
-      const quotation = await receivedQuotationService.create(input);
+      const quotation = await getReceivedQuotationService().create(input);
 
       logger.info(
         {
@@ -252,7 +266,8 @@ router.get(
     try {
       const { id: estimateRequestId } = req.validatedParams as { id: string };
 
-      const quotations = await receivedQuotationService.findByEstimateRequestId(estimateRequestId);
+      const quotations =
+        await getReceivedQuotationService().findByEstimateRequestId(estimateRequestId);
 
       logger.debug(
         {
@@ -306,7 +321,7 @@ router.get(
     try {
       const { id } = req.validatedParams as { id: string };
 
-      const quotation = await receivedQuotationService.findById(id);
+      const quotation = await getReceivedQuotationService().findById(id);
 
       if (!quotation) {
         res.status(404).json({
@@ -428,7 +443,7 @@ router.put(
           : undefined,
       };
 
-      const quotation = await receivedQuotationService.update(
+      const quotation = await getReceivedQuotationService().update(
         id,
         input,
         new Date(expectedUpdatedAt)
@@ -549,7 +564,7 @@ router.delete(
       const { id } = req.validatedParams as { id: string };
       const { updatedAt } = req.validatedBody as { updatedAt: string };
 
-      await receivedQuotationService.delete(id, new Date(updatedAt));
+      await getReceivedQuotationService().delete(id, new Date(updatedAt));
 
       logger.info({ quotationId: id }, 'Received quotation deleted successfully');
 
@@ -628,7 +643,7 @@ router.get(
     try {
       const { id } = req.validatedParams as { id: string };
 
-      const url = await receivedQuotationService.getFilePreviewUrl(id);
+      const url = await getReceivedQuotationService().getFilePreviewUrl(id);
 
       logger.debug({ quotationId: id }, 'Received quotation preview URL generated');
 

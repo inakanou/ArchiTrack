@@ -102,6 +102,14 @@ export async function setup() {
     process.env.PORT = '3000';
   }
 
+  // LOCAL_STORAGE_PATH未設定の場合はテスト用一時ディレクトリを設定
+  if (!process.env.LOCAL_STORAGE_PATH) {
+    const os = await import('os');
+    const path = await import('path');
+    process.env.LOCAL_STORAGE_PATH = path.join(os.tmpdir(), 'architrack-test-storage');
+    console.log('[GLOBAL SETUP] LOCAL_STORAGE_PATH set for tests:', process.env.LOCAL_STORAGE_PATH);
+  }
+
   // TWO_FACTOR_ENCRYPTION_KEY未設定の場合は.env.testから読み込み
   // テスト環境では固定値を使用してテストの一貫性を保つ
   if (!process.env.TWO_FACTOR_ENCRYPTION_KEY) {
