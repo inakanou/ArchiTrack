@@ -103,7 +103,7 @@ describe('EstimateRequestTextPanel', () => {
       render(<EstimateRequestTextPanel text={mockTextWithError} />);
 
       const errorMessage = screen.getByText(/メールアドレスが登録されていません/);
-      expect(errorMessage).toHaveStyle({ color: 'rgb(239, 68, 68)' }); // red-500
+      expect(errorMessage).toHaveStyle({ color: 'rgb(220, 38, 38)' }); // red-600
     });
   });
 
