@@ -236,8 +236,8 @@
   - 削除確認ダイアログと削除処理の確認
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 11. 受領見積書機能のデータベーススキーマ追加
-- [ ] 11.1 (P) ReceivedQuotationモデルの定義
+- [x] 11. 受領見積書機能のデータベーススキーマ追加
+- [x] 11.1 (P) ReceivedQuotationモデルの定義
   - 受領見積書のマスターデータを管理するテーブルを作成
   - 見積依頼へのリレーションを設定
   - テキストまたはファイルの排他的コンテンツ管理を実装
@@ -246,14 +246,14 @@
   - インデックス設定（estimateRequestId、deletedAt、createdAt）
   - _Requirements: 11.1, 11.3, 11.4, 11.5, 11.6, 11.7, 11.11_
 
-- [ ] 11.2 (P) EstimateRequestStatusHistoryモデルの定義
+- [x] 11.2 (P) EstimateRequestStatusHistoryモデルの定義
   - ステータス変更履歴を管理するテーブルを作成
   - 見積依頼とユーザーへのリレーションを設定
   - 変更前ステータス（nullable）、変更後ステータス、変更者、変更日時を定義
   - インデックス設定（estimateRequestId、changedAt）
   - _Requirements: 12.11_
 
-- [ ] 11.3 EstimateRequestモデルにステータスフィールドを追加
+- [x] 11.3 EstimateRequestモデルにステータスフィールドを追加
   - EstimateRequestStatusのEnum型を定義（BEFORE_REQUEST、REQUESTED、QUOTATION_RECEIVED）
   - EstimateRequestモデルにstatusフィールドとデフォルト値を追加
   - ReceivedQuotation、EstimateRequestStatusHistoryへのリレーションを追加

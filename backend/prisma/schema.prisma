@@ -42,6 +42,9 @@ model User {
   createdProjects            Project[]              @relation("CreatedProjects")
   statusChangedHistories     ProjectStatusHistory[] @relation("StatusChangedByUser")
 
+  // Estimate Request Management リレーション
+  estimateRequestStatusChanges EstimateRequestStatusHistory[] @relation("EstimateRequestStatusChangedByUser")
+
   @@index([email])
   @@index([isLocked])
   @@map("users")
@@ -782,6 +785,26 @@ enum EstimateRequestMethod {
 }
 
 /**
+ * 見積依頼ステータス
+ * Requirements: 12.2 - 見積依頼のステータス（依頼前、依頼済、見積受領済）
+ * ワークフロー: 依頼前 → 依頼済 → 見積受領済
+ */
+enum EstimateRequestStatus {
+  BEFORE_REQUEST // 依頼前（初期値）
+  REQUESTED // 依頼済
+  QUOTATION_RECEIVED // 見積受領済
+}
+
+/**
+ * 受領見積書コンテンツタイプ
+ * Requirements: 11.7 - テキスト入力とファイルアップロードの排他的選択
+ */
+enum ReceivedQuotationContentType {
+  TEXT // テキスト入力
+  FILE // ファイルアップロード
+}
+
+/**
  * 見積依頼モデル
  * プロジェクトに紐付く協力業者への見積依頼を管理する。
  * ユーザーは内訳書の項目を選択し、メールまたはFAX送信に必要な情報を生成できる。
@@ -807,6 +830,35 @@ enum EstimateRequestMethod {
  * - 8.4: 見積依頼の削除時に論理削除を行う
  * - 8.5: 楽観的排他制御により同時更新を防止する
  */
+/**
+ * 見積依頼モデル
+ * プロジェクトに紐付く協力業者への見積依頼を管理する。
+ * ユーザーは内訳書の項目を選択し、メールまたはFAX送信に必要な情報を生成できる。
+ * フィールド:
+ * - id: 見積依頼の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - tradingPartnerId: 宛先取引先ID（外部キー、RESTRICT）
+ * - itemizedStatementId: 参照内訳書ID（外部キー、RESTRICT）
+ * - name: 見積依頼名（必須、最大200文字）
+ * - method: 見積依頼方法（EMAIL/FAX）
+ * - status: 見積依頼ステータス（BEFORE_REQUEST/REQUESTED/QUOTATION_RECEIVED）
+ * - includeBreakdownInBody: 内訳書を本文に含める
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位での見積依頼検索用
+ * - tradingPartnerId: 取引先単位での見積依頼検索用
+ * - status: ステータスによるフィルタリング用
+ * - deletedAt: 論理削除フィルタリング用
+ * - createdAt: 作成日時でのソート用
+ * Requirements:
+ * - 8.1: 見積依頼をプロジェクトに紐づけて保存する
+ * - 8.3: 見積依頼の作成日時と更新日時を記録する
+ * - 8.4: 見積依頼の削除時に論理削除を行う
+ * - 8.5: 楽観的排他制御により同時更新を防止する
+ * - 12.1-12.12: 見積依頼ステータス管理機能
+ */
 model EstimateRequest {
   id                     String                @id @default(uuid())
   projectId              String
@@ -814,18 +866,22 @@ model EstimateRequest {
   itemizedStatementId    String
   name                   String // 見積依頼名（必須、最大200文字）
   method                 EstimateRequestMethod @default(EMAIL) // 見積依頼方法
+  status                 EstimateRequestStatus @default(BEFORE_REQUEST) // 見積依頼ステータス（Requirements: 12.3）
   includeBreakdownInBody Boolean               @default(false) // 内訳書を本文に含める
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
   deletedAt              DateTime? // 論理削除
 
-  project           Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tradingPartner    TradingPartner        @relation(fields: [tradingPartnerId], references: [id])
-  itemizedStatement ItemizedStatement     @relation(fields: [itemizedStatementId], references: [id])
-  selectedItems     EstimateRequestItem[]
+  project            Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradingPartner     TradingPartner                 @relation(fields: [tradingPartnerId], references: [id])
+  itemizedStatement  ItemizedStatement              @relation(fields: [itemizedStatementId], references: [id])
+  selectedItems      EstimateRequestItem[]
+  receivedQuotations ReceivedQuotation[] // Requirements: 11.11 - 複数の受領見積書
+  statusHistory      EstimateRequestStatusHistory[] // Requirements: 12.11 - ステータス変更履歴
 
   @@index([projectId])
   @@index([tradingPartnerId])
+  @@index([status])
   @@index([deletedAt])
   @@index([createdAt])
   @@map("estimate_requests")
@@ -858,4 +914,90 @@ model EstimateRequestItem {
   @@unique([estimateRequestId, itemizedStatementItemId])
   @@index([estimateRequestId])
   @@map("estimate_request_items")
+}
+
+/**
+ * 受領見積書モデル
+ * 見積依頼に対する協力業者からの返答として届いた受領見積書を管理する。
+ * テキスト入力またはファイルアップロードのいずれかでコンテンツを保存する。
+ * フィールド:
+ * - id: 受領見積書の一意ID（UUID）
+ * - estimateRequestId: 見積依頼ID（外部キー、カスケード削除）
+ * - name: 受領見積書名（必須、最大200文字）
+ * - submittedAt: 提出日（必須）
+ * - contentType: コンテンツタイプ（TEXT/FILE）
+ * - textContent: テキストコンテンツ（contentType=TEXTの場合に必須）
+ * - filePath: R2オブジェクトパス（contentType=FILEの場合に必須）
+ * - fileName: 元ファイル名（contentType=FILEの場合に必須）
+ * - fileMimeType: MIMEタイプ（contentType=FILEの場合に必須）
+ * - fileSize: ファイルサイズ（バイト、contentType=FILEの場合に必須）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - estimateRequestId: 見積依頼単位での受領見積書検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * - createdAt: 作成日時でのソート用
+ * Requirements:
+ * - 11.1-11.17: 受領見積書登録機能
+ * - 11.3: 受領見積書名（必須）
+ * - 11.4: 提出日（必須）
+ * - 11.5: テキスト入力フィールド
+ * - 11.6, 11.8: ファイルアップロード
+ * - 11.7: テキストとファイルの排他的選択
+ * - 11.11: 1つの見積依頼に対して複数の受領見積書を許可
+ */
+model ReceivedQuotation {
+  id                String                       @id @default(uuid())
+  estimateRequestId String
+  name              String // 受領見積書名（必須、最大200文字）
+  submittedAt       DateTime                     @db.Date // 提出日
+  contentType       ReceivedQuotationContentType // コンテンツタイプ（TEXT/FILE）
+  textContent       String? // テキストコンテンツ（contentType=TEXTの場合）
+  filePath          String? // R2オブジェクトパス（contentType=FILEの場合）
+  fileName          String? // 元ファイル名（contentType=FILEの場合）
+  fileMimeType      String? // MIMEタイプ（contentType=FILEの場合）
+  fileSize          Int? // ファイルサイズ（バイト、contentType=FILEの場合）
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  deletedAt         DateTime? // 論理削除
+
+  estimateRequest EstimateRequest @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+
+  @@index([estimateRequestId])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("received_quotations")
+}
+
+/**
+ * 見積依頼ステータス変更履歴モデル
+ * 見積依頼のステータス変更履歴を記録する。
+ * フィールド:
+ * - id: 履歴レコードの一意ID（UUID）
+ * - estimateRequestId: 対象見積依頼ID（外部キー、カスケード削除）
+ * - fromStatus: 変更前のステータス（nullable: 初期ステータス設定時はnull）
+ * - toStatus: 変更後のステータス（必須）
+ * - changedById: 変更実行者ID（外部キー）
+ * - changedAt: 変更日時（自動設定）
+ * インデックス:
+ * - estimateRequestId: 見積依頼単位での履歴検索用
+ * - changedAt: タイムライン検索用
+ * Requirements:
+ * - 12.11: ステータス変更履歴を記録する
+ */
+model EstimateRequestStatusHistory {
+  id                String                 @id @default(uuid())
+  estimateRequestId String
+  fromStatus        EstimateRequestStatus? // nullable: 初期ステータス設定時はnull
+  toStatus          EstimateRequestStatus
+  changedById       String
+  changedAt         DateTime               @default(now())
+
+  estimateRequest EstimateRequest @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+  changedBy       User            @relation("EstimateRequestStatusChangedByUser", fields: [changedById], references: [id])
+
+  @@index([estimateRequestId])
+  @@index([changedAt])
+  @@map("estimate_request_status_histories")
 }
