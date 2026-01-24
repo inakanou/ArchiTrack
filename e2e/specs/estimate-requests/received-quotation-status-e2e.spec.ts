@@ -1045,44 +1045,71 @@ test.describe('受領見積書・ステータス管理機能', () => {
      * 見積依頼のステータスとして「依頼前」「依頼済」「見積受領済」の3種類を提供する
      */
     test('REQ-12.2: 3種類のステータスが存在する', async ({ page, request }) => {
-      expect(createdEstimateRequestId).toBeTruthy();
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
 
       const baseUrl = API_BASE_URL;
 
-      // 各ステータスに遷移させて表示を確認
-
-      // 1. 依頼前
-      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { status: 'BEFORE_REQUEST' },
-      });
+      // 新しい見積依頼を作成してステータス遷移を確認する
+      // （既存の見積依頼は他のテストでステータスが変更されている可能性があるため）
+      const createResponse = await request.post(
+        `${baseUrl}/api/projects/${createdProjectId}/estimate-requests`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: 'REQ-12.2ステータス遷移テスト',
+            tradingPartnerId: createdTradingPartnerId,
+            itemizedStatementId: createdItemizedStatementId,
+            requestMethod: 'EMAIL',
+          },
+        }
+      );
+      expect(createResponse.status()).toBe(201);
+      const newEstimateRequest = await createResponse.json();
+      const testEstimateRequestId = newEstimateRequest.id;
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+
+      // 1. 依頼前（初期状態）
+      await page.goto(`/estimate-requests/${testEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
       const statusBadge = page.getByTestId('status-badge');
       await expect(statusBadge).toHaveText(/依頼前/i, { timeout: getTimeout(10000) });
 
-      // 2. 依頼済
-      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { status: 'REQUESTED' },
-      });
+      // 2. 依頼済に遷移
+      const response2 = await request.patch(
+        `${baseUrl}/api/estimate-requests/${testEstimateRequestId}/status`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { status: 'REQUESTED' },
+        }
+      );
+      expect(response2.ok()).toBeTruthy();
 
       await page.reload();
       await page.waitForLoadState('networkidle');
       await expect(statusBadge).toHaveText(/依頼済/i, { timeout: getTimeout(10000) });
 
-      // 3. 見積受領済
-      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { status: 'QUOTATION_RECEIVED' },
-      });
+      // 3. 見積受領済に遷移
+      const response3 = await request.patch(
+        `${baseUrl}/api/estimate-requests/${testEstimateRequestId}/status`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { status: 'QUOTATION_RECEIVED' },
+        }
+      );
+      expect(response3.ok()).toBeTruthy();
 
       await page.reload();
       await page.waitForLoadState('networkidle');
       await expect(statusBadge).toHaveText(/見積受領済/i, { timeout: getTimeout(10000) });
+
+      // クリーンアップ
+      await request.delete(`${baseUrl}/api/estimate-requests/${testEstimateRequestId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
     });
 
     /**
@@ -1137,18 +1164,31 @@ test.describe('受領見積書・ステータス管理機能', () => {
      * ステータス変更履歴を記録する
      */
     test('REQ-12.11: ステータス変更がサーバーで記録される', async ({ page, request }) => {
-      expect(createdEstimateRequestId).toBeTruthy();
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
 
       const baseUrl = API_BASE_URL;
 
-      // ステータスを「依頼前」にリセット
-      await request.patch(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/status`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { status: 'BEFORE_REQUEST' },
-      });
+      // 新しい見積依頼を作成（依頼前ステータスで開始）
+      const createResponse = await request.post(
+        `${baseUrl}/api/projects/${createdProjectId}/estimate-requests`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: 'REQ-12.11ステータス履歴テスト',
+            tradingPartnerId: createdTradingPartnerId,
+            itemizedStatementId: createdItemizedStatementId,
+            requestMethod: 'EMAIL',
+          },
+        }
+      );
+      expect(createResponse.status()).toBe(201);
+      const newEstimateRequest = await createResponse.json();
+      const testEstimateRequestId = newEstimateRequest.id;
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.goto(`/estimate-requests/${testEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
       // ステータスを変更
@@ -1169,6 +1209,11 @@ test.describe('受領見積書・ステータス管理機能', () => {
       expect(responseData.status).toBe('REQUESTED');
       // updatedAtが更新されていることで履歴の記録を間接的に確認
       expect(responseData.updatedAt).toBeTruthy();
+
+      // クリーンアップ
+      await request.delete(`${baseUrl}/api/estimate-requests/${testEstimateRequestId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
     });
   });
 
@@ -1199,9 +1244,9 @@ test.describe('受領見積書・ステータス管理機能', () => {
       const fileRadio = page.locator('input[type="radio"][value="FILE"]');
       await fileRadio.click();
 
-      // ファイル入力フィールドを確認
+      // ファイル入力フィールドを確認（スタイリングのためhiddenだがDOMには存在）
       const fileInput = page.locator('input[type="file"][data-testid="file-input"]');
-      await expect(fileInput).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(fileInput).toBeAttached({ timeout: getTimeout(5000) });
 
       // accept属性を確認（PDF、Excel、画像形式が許可されていること）
       const acceptAttribute = await fileInput.getAttribute('accept');
