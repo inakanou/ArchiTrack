@@ -126,7 +126,7 @@ const styles = {
   },
   otherRequestsCell: {
     fontSize: '12px',
-    color: '#f97316', // orange-500
+    color: '#c2410c', // orange-700 (WCAG AA contrast ratio)
   },
   emptyMessage: {
     padding: '32px',
