@@ -276,6 +276,10 @@ describe('EstimateRequestForm', () => {
   });
 
   describe('エラー状態表示', () => {
+    /**
+     * @requirement estimate-request/REQ-3.8
+     * 協力業者の取引先が存在しない場合、「協力業者が登録されていません」というメッセージを表示する
+     */
     it('協力業者が存在しない場合メッセージを表示する（Requirements: 3.8）', async () => {
       mockedGetTradingPartners.mockResolvedValue({
         data: [],

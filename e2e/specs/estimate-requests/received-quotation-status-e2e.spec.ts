@@ -272,7 +272,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
   test.describe('19.1 受領見積書登録フロー', () => {
     /**
-     * @requirement REQ-11.1
+     * @requirement estimate-request/REQ-11.1
      * 見積依頼詳細画面に「受領見積書登録」ボタンを表示する
      */
     test('REQ-11.1: 見積依頼詳細画面に受領見積書登録ボタンが表示される', async ({ page }) => {
@@ -293,7 +293,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.2
+     * @requirement estimate-request/REQ-11.2
      * 「受領見積書登録」ボタンをクリックで登録フォームが表示される
      */
     test('REQ-11.2: 受領見積書登録ボタンクリックでフォームが表示される', async ({ page }) => {
@@ -312,7 +312,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.3
+     * @requirement estimate-request/REQ-11.3
      * 受領見積書登録フォームに受領見積書名入力フィールドを表示する
      */
     test('REQ-11.3: 受領見積書名入力フィールドが表示される', async ({ page }) => {
@@ -331,7 +331,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.4
+     * @requirement estimate-request/REQ-11.4
      * 受領見積書登録フォームに提出日入力フィールドを表示する
      */
     test('REQ-11.4: 提出日入力フィールドが表示される', async ({ page }) => {
@@ -350,7 +350,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.5
+     * @requirement estimate-request/REQ-11.5
      * テキスト入力フィールドを表示する
      */
     test('REQ-11.5: テキスト入力フィールドが表示される', async ({ page }) => {
@@ -374,7 +374,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.6
+     * @requirement estimate-request/REQ-11.6
      * ファイルアップロードフィールドを表示する
      */
     test('REQ-11.6: ファイルアップロードフィールドが表示される', async ({ page }) => {
@@ -397,7 +397,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.7
+     * @requirement estimate-request/REQ-11.7
      * テキストとファイルの排他的選択を確認する
      */
     test('REQ-11.7: テキストとファイルの排他選択が機能する', async ({ page }) => {
@@ -430,7 +430,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.9
+     * @requirement estimate-request/REQ-11.9
      * テキスト入力による登録フロー
      */
     test('REQ-11.9: テキスト入力で受領見積書を登録できる', async ({ page }) => {
@@ -469,7 +469,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.10
+     * @requirement estimate-request/REQ-11.10
      * 必須項目バリデーションの確認
      */
     test('REQ-11.10: 必須項目未入力でバリデーションエラーが表示される', async ({ page }) => {
@@ -548,7 +548,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
   test.describe('19.2 受領見積書一覧・編集・削除', () => {
     /**
-     * @requirement REQ-11.11
+     * @requirement estimate-request/REQ-11.11
      * 1つの見積依頼に対して複数の受領見積書の登録を許可する
      */
     test('REQ-11.11: 複数の受領見積書が一覧に表示される', async ({ page }) => {
@@ -567,7 +567,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.12
+     * @requirement estimate-request/REQ-11.12
      * 見積依頼詳細画面に登録済み受領見積書の一覧を表示する
      */
     test('REQ-11.12: 受領見積書一覧が表示される', async ({ page }) => {
@@ -585,7 +585,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.13
+     * @requirement estimate-request/REQ-11.13
      * 受領見積書名、提出日、登録日時を表示する
      */
     test('REQ-11.13: 受領見積書の詳細情報が表示される', async ({ page }) => {
@@ -606,7 +606,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.14
+     * @requirement estimate-request/REQ-11.14
      * ファイルプレビュー動作確認（ファイルがある場合のみ）
      */
     test('REQ-11.14: ファイルプレビューボタンが表示される', async ({ page }) => {
@@ -629,7 +629,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.15
+     * @requirement estimate-request/REQ-11.15
      * 受領見積書の編集と保存の確認
      */
     test('REQ-11.15: 受領見積書を編集できる', async ({ page }) => {
@@ -681,7 +681,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.16
+     * @requirement estimate-request/REQ-11.16
      * 受領見積書の削除機能を提供する
      */
     test('REQ-11.16: 受領見積書の削除ボタンが表示される', async ({ page }) => {
@@ -699,7 +699,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-11.17
+     * @requirement estimate-request/REQ-11.17
      * 削除確認ダイアログと削除処理の確認
      */
     test('REQ-11.17: 削除確認ダイアログが表示され削除APIが成功する', async ({ page }) => {
@@ -762,7 +762,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
   test.describe('19.3 ステータス管理', () => {
     /**
-     * @requirement REQ-12.1
+     * @requirement estimate-request/REQ-12.1
      * 見積依頼詳細画面にステータス表示エリアを表示する
      */
     test('REQ-12.1: 詳細画面にステータスが表示される', async ({ page }) => {
@@ -778,7 +778,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.4
+     * @requirement estimate-request/REQ-12.4
      * 現在のステータスを視覚的に区別可能な形式で表示する
      */
     test('REQ-12.4: ステータスが視覚的に区別可能に表示される', async ({ page }) => {
@@ -799,7 +799,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.5
+     * @requirement estimate-request/REQ-12.5
      * 依頼前から依頼済への遷移確認
      */
     test('REQ-12.5: 依頼前から依頼済に遷移できる', async ({ page, request }) => {
@@ -842,7 +842,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.6
+     * @requirement estimate-request/REQ-12.6
      * 依頼済から見積受領済への遷移確認
      */
     test('REQ-12.6: 依頼済から見積受領済に遷移できる', async ({ page }) => {
@@ -878,7 +878,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.7
+     * @requirement estimate-request/REQ-12.7
      * 依頼済から依頼前への遷移不可の確認
      */
     test('REQ-12.7: 依頼前に戻すボタンは表示されない', async ({ page, request }) => {
@@ -906,7 +906,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.8
+     * @requirement estimate-request/REQ-12.8
      * 見積受領済から依頼済への遷移確認
      */
     test('REQ-12.8: 見積受領済から依頼済に戻せる', async ({ page, request }) => {
@@ -947,7 +947,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.9
+     * @requirement estimate-request/REQ-12.9
      * ステータス遷移ボタンをクリックするとステータスを更新する
      * Note: 既に12.5, 12.6, 12.8で遷移のテストを実施しているため、
      *       ここでは遷移ボタンがAPI呼び出しを行うことを確認する
@@ -985,7 +985,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.10
+     * @requirement estimate-request/REQ-12.10
      * ステータス遷移後のフィードバック表示確認
      */
     test('REQ-12.10: ステータス遷移後にフィードバックが表示される', async ({ page, request }) => {
@@ -1018,7 +1018,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.12
+     * @requirement estimate-request/REQ-12.12
      * 一覧画面でのステータス表示確認
      */
     test('REQ-12.12: 一覧画面にステータスが表示される', async ({ page }) => {
@@ -1041,7 +1041,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.2
+     * @requirement estimate-request/REQ-12.2
      * 見積依頼のステータスとして「依頼前」「依頼済」「見積受領済」の3種類を提供する
      */
     test('REQ-12.2: 3種類のステータスが存在する', async ({ page, request }) => {
@@ -1113,7 +1113,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.3
+     * @requirement estimate-request/REQ-12.3
      * 新規作成時の見積依頼のデフォルトステータスを「依頼前」とする
      */
     test('REQ-12.3: 新規作成時のデフォルトステータスが「依頼前」である', async ({
@@ -1160,7 +1160,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement REQ-12.11
+     * @requirement estimate-request/REQ-12.11
      * ステータス変更履歴を記録する
      */
     test('REQ-12.11: ステータス変更がサーバーで記録される', async ({ page, request }) => {
@@ -1223,7 +1223,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
   test.describe('19.4 受領見積書ファイル形式制限', () => {
     /**
-     * @requirement REQ-11.8
+     * @requirement estimate-request/REQ-11.8
      * アップロード可能なファイル形式としてPDF、Excel（.xlsx、.xls）、画像（.jpg、.jpeg、.png）を許可する
      */
     test('REQ-11.8: ファイルアップロードフィールドに許可された形式が設定されている', async ({

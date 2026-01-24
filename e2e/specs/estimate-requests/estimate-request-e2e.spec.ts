@@ -297,7 +297,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 1: 見積依頼セクション表示', () => {
     /**
-     * @requirement REQ-1.1
+     * @requirement estimate-request/REQ-1.1
      * プロジェクト詳細画面の内訳書セクションの下に見積依頼セクションを表示する
      */
     test('REQ-1.1: プロジェクト詳細画面に見積依頼セクションが表示される', async ({ page }) => {
@@ -315,7 +315,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-1.2
+     * @requirement estimate-request/REQ-1.2
      * 見積依頼セクションに「新規作成」ボタンを表示する
      */
     test('REQ-1.2: 見積依頼セクションに「新規作成」ボタンが表示される', async ({ page }) => {
@@ -335,7 +335,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-1.3
+     * @requirement estimate-request/REQ-1.3
      * 見積依頼セクションに「すべて見る」リンクを表示する
      */
     test('REQ-1.3: 見積依頼セクションに「すべて見る」リンクが表示される', async ({ page }) => {
@@ -354,7 +354,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-1.4
+     * @requirement estimate-request/REQ-1.4
      * 「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
      */
     test('REQ-1.4: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する', async ({ page }) => {
@@ -377,7 +377,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-1.5
+     * @requirement estimate-request/REQ-1.5
      * 「すべて見る」リンクをクリックしたとき、見積依頼一覧画面に遷移する
      */
     test('REQ-1.5: 「すべて見る」リンクをクリックで見積依頼一覧画面に遷移する', async ({
@@ -408,7 +408,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 2: 見積依頼一覧画面', () => {
     /**
-     * @requirement REQ-2.1
+     * @requirement estimate-request/REQ-2.1
      * 見積依頼一覧画面にパンくずナビゲーションを表示する
      */
     test('REQ-2.1: 見積依頼一覧画面にパンくずナビゲーションが表示される', async ({ page }) => {
@@ -426,7 +426,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-2.2
+     * @requirement estimate-request/REQ-2.2
      * 見積依頼一覧画面に「新規作成」ボタンを表示する
      */
     test('REQ-2.2: 見積依頼一覧画面に「新規作成」ボタンが表示される', async ({ page }) => {
@@ -443,7 +443,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-2.7
+     * @requirement estimate-request/REQ-2.7
      * 見積依頼が存在しない場合、「見積依頼がありません」というメッセージを表示する
      */
     test('REQ-2.7: 見積依頼がない場合のメッセージが表示される', async ({ page }) => {
@@ -472,7 +472,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 3: 見積依頼新規作成', () => {
     /**
-     * @requirement REQ-3.1
+     * @requirement estimate-request/REQ-3.1
      * 新規作成時に見積依頼の名前入力フィールドを表示する
      */
     test('REQ-3.1: 見積依頼作成フォームに名前入力フィールドが表示される', async ({ page }) => {
@@ -493,7 +493,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-3.2
+     * @requirement estimate-request/REQ-3.2
      * 新規作成時に宛先（取引先）選択フィールドを表示する
      */
     test('REQ-3.2: 見積依頼作成フォームに宛先選択フィールドが表示される', async ({ page }) => {
@@ -513,7 +513,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-3.3
+     * @requirement estimate-request/REQ-3.3
      * 新規作成時に参照する内訳書の選択フィールドを表示する
      */
     test('REQ-3.3: 見積依頼作成フォームに内訳書選択フィールドが表示される', async ({ page }) => {
@@ -533,7 +533,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-3.4
+     * @requirement estimate-request/REQ-3.4
      * 宛先の候補として協力業者である取引先のみを表示する
      */
     test('REQ-3.4: 宛先選択フィールドに協力業者が表示される', async ({ page }) => {
@@ -561,7 +561,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-3.6
+     * @requirement estimate-request/REQ-3.6
      * 必須項目を入力して保存したとき、見積依頼を作成し詳細画面に遷移する
      */
     test('REQ-3.6: 必須項目入力後に保存すると詳細画面に遷移する', async ({ page }) => {
@@ -614,7 +614,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-3.7
+     * @requirement estimate-request/REQ-3.7
      * 必須項目が未入力の場合、バリデーションエラーを表示する
      */
     test('REQ-3.7: 必須項目が未入力の場合バリデーションエラーが表示される', async ({ page }) => {
@@ -646,7 +646,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 見積依頼詳細画面 - 項目選択', () => {
     /**
-     * @requirement REQ-4.1
+     * @requirement estimate-request/REQ-4.1
      * 見積依頼詳細画面にパンくずナビゲーションを表示する
      */
     test('REQ-4.1: 見積依頼詳細画面にパンくずナビゲーションが表示される', async ({ page }) => {
@@ -664,7 +664,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-4.2
+     * @requirement estimate-request/REQ-4.2
      * 見積依頼詳細画面に指定した内訳書の項目一覧を表示する
      */
     test('REQ-4.2: 見積依頼詳細画面に内訳書項目一覧が表示される', async ({ page }) => {
@@ -683,7 +683,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-4.3
+     * @requirement estimate-request/REQ-4.3
      * 各項目に選択用のチェックボックスを表示する
      */
     test('REQ-4.3: 各項目に選択用チェックボックスが表示される', async ({ page }) => {
@@ -704,7 +704,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-4.6
+     * @requirement estimate-request/REQ-4.6
      * 項目一覧の下に「内訳書を本文に含める」チェックボックスを表示する
      */
     test('REQ-4.6: 「内訳書を本文に含める」チェックボックスが表示される', async ({ page }) => {
@@ -722,7 +722,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-4.8
+     * @requirement estimate-request/REQ-4.8
      * 見積依頼方法としてラジオボタン（メール/FAX）を表示する
      */
     test('REQ-4.8: 見積依頼方法ラジオボタン（メール/FAX）が表示される', async ({ page }) => {
@@ -741,7 +741,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-4.9
+     * @requirement estimate-request/REQ-4.9
      * 見積依頼方法のデフォルト値をメールとする
      */
     test('REQ-4.9: 見積依頼方法のデフォルト値がメールである', async ({ page }) => {
@@ -764,7 +764,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 6: 見積依頼文表示', () => {
     /**
-     * @requirement REQ-6.1
+     * @requirement estimate-request/REQ-6.1
      * 見積依頼文表示パネルに宛先、表題、本文を表示する
      */
     test('REQ-6.1: 見積依頼文表示パネルが表示される', async ({ page }) => {
@@ -800,7 +800,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-6.2
+     * @requirement estimate-request/REQ-6.2
      * 見積依頼方法がメールのとき、宛先として宛先取引先のメールアドレスを表示する
      */
     test('REQ-6.2: メール選択時にメールアドレスが表示される', async ({ page }) => {
@@ -831,7 +831,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-6.3
+     * @requirement estimate-request/REQ-6.3
      * 見積依頼方法がFAXのとき、宛先として宛先取引先のFAX番号を表示する
      */
     test('REQ-6.3: FAX選択時にFAX番号が表示される', async ({ page }) => {
@@ -867,7 +867,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-6.6
+     * @requirement estimate-request/REQ-6.6
      * 表題として「[プロジェクト名] 御見積依頼」を表示する
      * ※ 実際の表題フォーマットは「【お見積りご依頼】{プロジェクト名}」
      */
@@ -902,7 +902,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-6.10
+     * @requirement estimate-request/REQ-6.10
      * 本文の【現場】セクションにプロジェクトの現場住所を表示する
      */
     test('REQ-6.10: 本文に現場住所が表示される', async ({ page }) => {
@@ -936,9 +936,9 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 7: クリップボードコピー機能', () => {
     /**
-     * @requirement REQ-7.1
-     * @requirement REQ-7.2
-     * @requirement REQ-7.3
+     * @requirement estimate-request/REQ-7.1
+     * @requirement estimate-request/REQ-7.2
+     * @requirement estimate-request/REQ-7.3
      * 宛先・表題・本文の横にクリップボードコピーボタンを表示する
      */
     test('REQ-7.1, REQ-7.2, REQ-7.3: クリップボードコピーボタンが表示される', async ({ page }) => {
@@ -968,7 +968,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-7.5
+     * @requirement estimate-request/REQ-7.5
      * クリップボードへのコピーが成功したとき、コピー完了のフィードバックを表示する
      */
     test('REQ-7.5: コピー成功時にフィードバックが表示される', async ({ page, context }) => {
@@ -1008,7 +1008,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 2: 見積依頼一覧画面（作成後）', () => {
     /**
-     * @requirement REQ-2.3
+     * @requirement estimate-request/REQ-2.3
      * 作成済みの見積依頼を一覧形式で表示する
      */
     test('REQ-2.3: 作成済みの見積依頼が一覧に表示される', async ({ page }) => {
@@ -1029,7 +1029,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-2.4
+     * @requirement estimate-request/REQ-2.4
      * 一覧に見積依頼の名前、宛先（取引先名）、見積依頼方法（メール/FAX）、参照内訳書名、作成日時を表示する
      */
     test('REQ-2.4: 一覧に必要な情報が表示される', async ({ page }) => {
@@ -1052,7 +1052,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-2.5
+     * @requirement estimate-request/REQ-2.5
      * 見積依頼項目をクリックしたとき、該当する見積依頼詳細画面に遷移する
      */
     test('REQ-2.5: 見積依頼項目クリックで詳細画面に遷移する', async ({ page }) => {
@@ -1084,7 +1084,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 9: 見積依頼編集・削除', () => {
     /**
-     * @requirement REQ-9.1
+     * @requirement estimate-request/REQ-9.1
      * 見積依頼詳細画面に編集ボタン（リンク）を表示する
      */
     test('REQ-9.1: 見積依頼詳細画面に編集ボタンが表示される', async ({ page }) => {
@@ -1103,7 +1103,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-9.2
+     * @requirement estimate-request/REQ-9.2
      * 見積依頼詳細画面に削除ボタンを表示する
      */
     test('REQ-9.2: 見積依頼詳細画面に削除ボタンが表示される', async ({ page }) => {
@@ -1121,7 +1121,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-9.3
+     * @requirement estimate-request/REQ-9.3
      * 編集ボタンをクリックしたとき、見積依頼の名前・宛先・内訳書を編集可能にする
      */
     test('REQ-9.3: 編集ボタンクリックで編集画面に遷移する', async ({ page }) => {
@@ -1141,7 +1141,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-9.4
+     * @requirement estimate-request/REQ-9.4
      * 削除ボタンをクリックしたとき、削除確認ダイアログを表示する
      */
     test('REQ-9.4: 削除ボタンクリックで確認ダイアログが表示される', async ({ page }) => {
@@ -1163,7 +1163,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-9.5
+     * @requirement estimate-request/REQ-9.5
      * 削除を確認したとき、見積依頼を論理削除し一覧画面に遷移する
      */
     test('REQ-9.5: 削除確認で論理削除し一覧画面に遷移する', async ({ page }) => {
@@ -1210,7 +1210,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 8: 見積依頼データ管理', () => {
     /**
-     * @requirement REQ-8.1
+     * @requirement estimate-request/REQ-8.1
      * 見積依頼をプロジェクトに紐づけて保存する
      */
     test('REQ-8.1: 見積依頼がプロジェクトに紐づいて保存される', async ({ page }) => {
@@ -1255,7 +1255,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-8.3
+     * @requirement estimate-request/REQ-8.3
      * 見積依頼の作成日時と更新日時を記録する
      */
     test('REQ-8.3: 見積依頼の作成日時と更新日時が記録される', async ({ page }) => {
@@ -1306,8 +1306,8 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 10: 権限管理', () => {
     /**
-     * @requirement REQ-10.1
-     * @requirement REQ-10.2
+     * @requirement estimate-request/REQ-10.1
+     * @requirement estimate-request/REQ-10.2
      * プロジェクトの閲覧・編集権限を持つユーザーのみに見積依頼の閲覧・作成・編集・削除を許可する
      */
     test('REQ-10.1, REQ-10.2: 認証済みユーザーが見積依頼にアクセスできる', async ({ page }) => {
@@ -1326,7 +1326,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-10.3
+     * @requirement estimate-request/REQ-10.3
      * 権限のないユーザーが見積依頼にアクセスした場合、アクセス拒否エラーを表示する
      */
     test('REQ-10.3: 未認証ユーザーはログインページにリダイレクトされる', async ({ page }) => {
@@ -1346,7 +1346,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 3: 見積依頼新規作成（追加テスト）', () => {
     /**
-     * @requirement REQ-3.9
+     * @requirement estimate-request/REQ-3.9
      * プロジェクトに内訳書が存在しない場合、「内訳書が登録されていません」というメッセージを表示する
      * 注意: このテストは新しいプロジェクトを使用して検証
      */
@@ -1411,8 +1411,8 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 見積依頼詳細画面 - 項目選択（追加テスト）', () => {
     /**
-     * @requirement REQ-4.4
-     * @requirement REQ-4.5
+     * @requirement estimate-request/REQ-4.4
+     * @requirement estimate-request/REQ-4.5
      * チェックボックスを変更したとき、該当項目を見積依頼対象として記録し、選択状態を自動的に保存する
      */
     test('REQ-4.4, REQ-4.5: チェックボックス変更で自動保存される', async ({ page }) => {
@@ -1480,7 +1480,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-4.7
+     * @requirement estimate-request/REQ-4.7
      * 項目一覧の下にExcel出力ボタンを表示する
      */
     test('REQ-4.7: Excel出力ボタンが表示される', async ({ page }) => {
@@ -1537,8 +1537,8 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 5: 内訳書Excel出力', () => {
     /**
-     * @requirement REQ-5.1
-     * @requirement REQ-5.2
+     * @requirement estimate-request/REQ-5.1
+     * @requirement estimate-request/REQ-5.2
      * Excel出力ボタンをクリックしたとき、チェックした項目のみを含むExcelファイルを生成し、ダウンロードさせる
      */
     test('REQ-5.1, REQ-5.2: Excel出力ボタンでファイルがダウンロードされる', async ({ page }) => {
@@ -1604,7 +1604,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-5.3
+     * @requirement estimate-request/REQ-5.3
      * 項目が1つも選択されていない場合、エラーメッセージを表示する
      */
     test('REQ-5.3: 項目未選択時にエラーメッセージが表示される', async ({ page }) => {
@@ -1677,7 +1677,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 6: 見積依頼文表示（追加テスト）', () => {
     /**
-     * @requirement REQ-6.8
+     * @requirement estimate-request/REQ-6.8
      * 「内訳書を本文に含める」がチェックされているとき、本文の【内容】セクションにチェックされた内訳書項目を成形して表示する
      */
     test('REQ-6.8: 「内訳書を本文に含める」チェック時に項目が本文に表示される', async ({
@@ -1749,7 +1749,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-6.9
+     * @requirement estimate-request/REQ-6.9
      * 「内訳書を本文に含める」がチェックされていないとき、本文の【内容】セクションに「添付内訳書の通り」と表示する
      */
     test('REQ-6.9: 「内訳書を本文に含める」未チェック時に「添付内訳書の通り」が表示される', async ({
@@ -1835,7 +1835,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 9: 見積依頼編集・削除（追加テスト）', () => {
     /**
-     * @requirement REQ-9.6
+     * @requirement estimate-request/REQ-9.6
      * 編集内容を保存したとき、変更を保存し詳細画面を更新する
      */
     test('REQ-9.6: 編集内容を保存すると変更が反映される', async ({ page }) => {
@@ -1916,7 +1916,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 8: 見積依頼データ管理（追加テスト）', () => {
     /**
-     * @requirement REQ-8.2
+     * @requirement estimate-request/REQ-8.2
      * 見積依頼に選択された項目リストを保存する
      */
     test('REQ-8.2: 見積依頼に項目リストが保存される', async ({ page }) => {
@@ -1973,7 +1973,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-8.4
+     * @requirement estimate-request/REQ-8.4
      * 見積依頼の削除時に論理削除を行う
      */
     test('REQ-8.4: 見積依頼削除時に論理削除が行われる', async ({ page }) => {
@@ -2052,9 +2052,9 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 他の見積依頼との重複表示', () => {
     /**
-     * @requirement REQ-4.10
-     * @requirement REQ-4.11
-     * @requirement REQ-4.12
+     * @requirement estimate-request/REQ-4.10
+     * @requirement estimate-request/REQ-4.11
+     * @requirement estimate-request/REQ-4.12
      * 他の見積依頼で選択済みの項目の背景色変更と依頼先取引先名表示
      */
     test('REQ-4.10, REQ-4.11, REQ-4.12: 他の見積依頼で選択済み項目が視覚的に区別される', async ({
@@ -2146,7 +2146,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 6: 見積依頼文表示（エラーメッセージ）', () => {
     /**
-     * @requirement REQ-6.4
+     * @requirement estimate-request/REQ-6.4
      * 見積依頼方法がメールで取引先にメールアドレスが未登録の場合、
      * 「メールアドレスが登録されていません」というエラーメッセージを表示する
      */
@@ -2209,7 +2209,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-6.5
+     * @requirement estimate-request/REQ-6.5
      * 見積依頼方法がFAXで取引先にFAX番号が未登録の場合、
      * 「FAX番号が登録されていません」というエラーメッセージを表示する
      */
@@ -2273,7 +2273,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement REQ-6.7
+     * @requirement estimate-request/REQ-6.7
      * 本文を所定のフォーマットで表示する
      */
     test('REQ-6.7: 本文が所定のフォーマットで表示される', async ({ page }) => {
@@ -2342,7 +2342,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 7: クリップボードコピー機能（追加）', () => {
     /**
-     * @requirement REQ-7.4
+     * @requirement estimate-request/REQ-7.4
      * クリップボードコピーボタンをクリックしたとき、該当する項目の内容をクリップボードにコピーする
      */
     test('REQ-7.4: クリップボードに内容がコピーされる', async ({ page, context }) => {
@@ -2420,7 +2420,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 8: 見積依頼データ管理（楽観的排他制御）', () => {
     /**
-     * @requirement REQ-8.5
+     * @requirement estimate-request/REQ-8.5
      * 楽観的排他制御により同時更新を防止する
      */
     test('REQ-8.5: 楽観的排他制御がバージョン情報で管理される', async ({ page }) => {
@@ -2470,7 +2470,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 2: ページネーション', () => {
     /**
-     * @requirement REQ-2.6
+     * @requirement estimate-request/REQ-2.6
      * 一覧表示にページネーションを提供する
      */
     test('REQ-2.6: 一覧画面にページネーションUIが存在する', async ({ page }) => {
@@ -2505,7 +2505,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 3: 取引先検索機能', () => {
     /**
-     * @requirement REQ-3.5
+     * @requirement estimate-request/REQ-3.5
      * 取引先の検索機能を提供する（プロジェクト新規作成時の顧客名検索と同様）
      */
     test('REQ-3.5: 宛先選択で取引先の候補が表示される', async ({ page }) => {
@@ -2542,7 +2542,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 内訳書項目なし', () => {
     /**
-     * @requirement REQ-4.13
+     * @requirement estimate-request/REQ-4.13
      * 参照内訳書に項目が存在しない場合、「内訳書に項目がありません」というメッセージを表示する
      *
      * Note: 現在のAPI設計では空の数量表から内訳書を作成することは許可されていない
@@ -2631,7 +2631,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 7: クリップボードフォールバック', () => {
     /**
-     * @requirement REQ-7.6
+     * @requirement estimate-request/REQ-7.6
      * クリップボードAPIが利用できない場合、テキストを選択状態にしてコピーを促すフォールバックを提供する
      * Note: このテストは通常の環境では実行が難しいため、コピー機能の基本動作を確認
      */
@@ -2706,7 +2706,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 10: 権限管理（操作拒否）', () => {
     /**
-     * @requirement REQ-10.4
+     * @requirement estimate-request/REQ-10.4
      * 権限のないユーザーが見積依頼を操作しようとした場合、操作拒否エラーを表示する
      */
     test('REQ-10.4: 未認証状態での操作はログインにリダイレクトされる', async ({ page }) => {
