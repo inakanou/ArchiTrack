@@ -456,11 +456,9 @@ test.describe('プロジェクト詳細画面', () => {
 
       // 「すべて見る」リンク（現場調査がある場合）または「新規作成」リンク（ない場合）を探す
       // 現場調査セクション内のリンクを使用
-      const viewAllLink = page.getByRole('link', { name: /すべて見る/i }).first();
-      const createLink = page
-        .locator('section')
-        .filter({ has: surveySection })
-        .getByRole('link', { name: /新規作成/i });
+      const siteSurveySection = page.getByLabel('現場調査', { exact: true });
+      const viewAllLink = siteSurveySection.getByRole('link', { name: /すべて見る/i });
+      const createLink = siteSurveySection.getByRole('link', { name: /新規作成/i });
 
       // どちらかのリンクをクリックして現場調査関連画面に遷移
       const viewAllVisible = await viewAllLink.isVisible().catch(() => false);
