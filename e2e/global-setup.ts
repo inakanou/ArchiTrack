@@ -21,7 +21,9 @@ import { createAllTestUsers } from './fixtures/auth.fixtures';
  * @param delayMs - リトライ間隔（ミリ秒、デフォルト: 2000）
  */
 async function waitForBackend(maxRetries = 30, delayMs = 2000): Promise<void> {
-  const healthUrl = 'http://localhost:3100/health';
+  // CI環境ではポート3000、ローカルテスト環境ではポート3100を使用
+  const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:3100';
+  const healthUrl = `${apiBaseUrl.replace(/\/$/, '')}/health`;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
