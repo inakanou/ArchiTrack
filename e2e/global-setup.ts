@@ -11,6 +11,69 @@ import { getPrismaClient, cleanDatabase } from './fixtures/database';
 import { createAllTestUsers } from './fixtures/auth.fixtures';
 
 /**
+ * バックエンドAPIの準備完了を待機
+ *
+ * バックエンドコンテナがヘルスチェックに応答するまで待機します。
+ * これにより、マイグレーションの完了も保証されます。
+ * 最大60秒間、2秒間隔でリトライします。
+ *
+ * @param maxRetries - 最大リトライ回数（デフォルト: 30）
+ * @param delayMs - リトライ間隔（ミリ秒、デフォルト: 2000）
+ */
+async function waitForBackend(maxRetries = 30, delayMs = 2000): Promise<void> {
+  const healthUrl = 'http://localhost:3100/health';
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(healthUrl);
+      if (response.ok) {
+        console.log(`  - Backend API ready (attempt ${attempt}/${maxRetries})`);
+        return;
+      }
+    } catch {
+      // Connection refused or other network error
+    }
+
+    if (attempt === maxRetries) {
+      throw new Error(`Backend API not ready after ${maxRetries} attempts`);
+    }
+    console.log(`  - Waiting for backend API... (attempt ${attempt}/${maxRetries})`);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+/**
+ * データベース接続が確立されるまでリトライ
+ *
+ * PostgreSQLコンテナが完全に起動するまで待機します。
+ * 最大30秒間、1秒間隔でリトライします。
+ *
+ * @param prisma - Prismaクライアントインスタンス
+ * @param maxRetries - 最大リトライ回数（デフォルト: 30）
+ * @param delayMs - リトライ間隔（ミリ秒、デフォルト: 1000）
+ */
+async function waitForDatabase(
+  prisma: ReturnType<typeof getPrismaClient>,
+  maxRetries = 30,
+  delayMs = 1000
+): Promise<void> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // 簡単なクエリを実行して接続を確認
+      await prisma.$queryRaw`SELECT 1`;
+      console.log(`  - Database connection established (attempt ${attempt}/${maxRetries})`);
+      return;
+    } catch {
+      if (attempt === maxRetries) {
+        throw new Error(`Database connection failed after ${maxRetries} attempts`);
+      }
+      console.log(`  - Waiting for database... (attempt ${attempt}/${maxRetries})`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+/**
  * Playwright グローバルセットアップ
  *
  * テストスイート実行前に以下を実行:
@@ -36,6 +99,12 @@ export default async function globalSetup() {
   const prisma = getPrismaClient();
 
   try {
+    // 0. バックエンドAPIの準備完了を待機（マイグレーション完了を保証）
+    await waitForBackend();
+
+    // 0.5. データベース接続を確立
+    await waitForDatabase(prisma);
+
     // 1. データベースをクリーンアップ
     // 全テストデータを削除（マスターデータは後で再作成）
     console.log('  - Cleaning database...');
