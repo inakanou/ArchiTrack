@@ -36,6 +36,9 @@ import quantityGroupsRoutes from './routes/quantity-groups.routes.js';
 import quantityItemsRoutes from './routes/quantity-items.routes.js';
 import autocompleteRoutes from './routes/autocomplete.routes.js';
 import itemizedStatementsRoutes from './routes/itemized-statements.routes.js';
+import estimateRequestsRoutes from './routes/estimate-requests.routes.js';
+import receivedQuotationRoutes from './routes/received-quotation.routes.js';
+import estimateRequestStatusRoutes from './routes/estimate-request-status.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -338,6 +341,17 @@ app.use('/api/autocomplete', autocompleteRoutes);
 // Itemized statement management routes
 app.use('/api/projects/:projectId/itemized-statements', itemizedStatementsRoutes);
 app.use('/api/itemized-statements', itemizedStatementsRoutes);
+
+// Estimate request management routes
+app.use('/api/projects/:projectId/estimate-requests', estimateRequestsRoutes);
+app.use('/api/estimate-requests', estimateRequestsRoutes);
+
+// Received quotation management routes (nested under estimate-requests)
+app.use('/api/estimate-requests/:id/quotations', receivedQuotationRoutes);
+app.use('/api/quotations', receivedQuotationRoutes);
+
+// Estimate request status management routes
+app.use('/api/estimate-requests', estimateRequestStatusRoutes);
 
 // Local storage static file serving (development/test only)
 if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {

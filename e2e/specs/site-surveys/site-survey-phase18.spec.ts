@@ -225,8 +225,9 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       const skeleton = page.locator('[data-testid="site-survey-section-skeleton"]');
       await expect(skeleton).not.toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「すべて見る」リンクをクリック
-      const viewAllLink = page.getByRole('link', { name: /すべて見る/i });
+      // 「すべて見る」リンクをクリック（現場調査セクション内を指定）
+      const siteSurveySection = page.getByLabel('現場調査', { exact: true });
+      const viewAllLink = siteSurveySection.getByRole('link', { name: /すべて見る/i });
       await expect(viewAllLink).toBeVisible();
       await viewAllLink.click();
 

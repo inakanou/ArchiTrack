@@ -35,6 +35,7 @@ import {
   DuplicateItemizedStatementNameError,
   ItemizedStatementConflictError,
 } from '../../../errors/itemizedStatementError.js';
+import { ItemizedStatementHasEstimateRequestsError } from '../../../errors/estimateRequestError.js';
 import { QuantityTableNotFoundError } from '../../../errors/quantityTableError.js';
 
 // PrismaClientモック
@@ -511,6 +512,7 @@ describe('ItemizedStatementService', () => {
         createdAt: new Date(),
         updatedAt,
         deletedAt: null,
+        _count: { estimateRequests: 0 },
       };
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
@@ -588,6 +590,7 @@ describe('ItemizedStatementService', () => {
         createdAt: new Date(),
         updatedAt: actualUpdatedAt,
         deletedAt: null,
+        _count: { estimateRequests: 0 },
       };
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
@@ -712,6 +715,78 @@ describe('ItemizedStatementService', () => {
       await expect(
         service.updateName(statementId, newName, 'user-001', expectedUpdatedAt)
       ).rejects.toThrow(DuplicateItemizedStatementNameError);
+    });
+  });
+
+  describe('delete - 見積依頼制約', () => {
+    it('見積依頼に使用されている内訳書の削除時、エラーを発生させる（Task 2.4）', async () => {
+      // Arrange
+      const statementId = 'is-001';
+      const actorId = 'user-001';
+      const updatedAt = new Date('2026-01-23T00:00:00Z');
+      const mockStatement = {
+        id: 'is-001',
+        projectId: 'proj-001',
+        name: 'テスト内訳書',
+        sourceQuantityTableId: 'qt-001',
+        sourceQuantityTableName: 'テスト数量表',
+        createdAt: new Date(),
+        updatedAt,
+        deletedAt: null,
+        _count: {
+          estimateRequests: 2, // 見積依頼に使用されている
+        },
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue(mockStatement),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.delete(statementId, actorId, updatedAt)).rejects.toThrow(
+        ItemizedStatementHasEstimateRequestsError
+      );
+    });
+
+    it('見積依頼に使用されていない内訳書は正常に削除できる', async () => {
+      // Arrange
+      const statementId = 'is-001';
+      const actorId = 'user-001';
+      const updatedAt = new Date('2026-01-23T00:00:00Z');
+      const mockStatement = {
+        id: 'is-001',
+        projectId: 'proj-001',
+        name: 'テスト内訳書',
+        sourceQuantityTableId: 'qt-001',
+        sourceQuantityTableName: 'テスト数量表',
+        createdAt: new Date(),
+        updatedAt,
+        deletedAt: null,
+        _count: {
+          estimateRequests: 0, // 見積依頼に使用されていない
+        },
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue(mockStatement),
+            update: vi.fn().mockResolvedValue({ ...mockStatement, deletedAt: new Date() }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      await service.delete(statementId, actorId, updatedAt);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalled();
     });
   });
 });

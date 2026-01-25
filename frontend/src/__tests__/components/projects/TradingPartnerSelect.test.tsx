@@ -4,6 +4,7 @@
  * Requirements:
  * - 16.3: フリガナ検索でひらがな・カタカナ両対応
  * - 22.5: ひらがな・カタカナどちらの入力でも顧客を検索
+ * - 3.4 (estimate-request): 宛先の候補として協力業者である取引先のみを表示
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -441,6 +442,180 @@ describe('TradingPartnerSelect', () => {
 
       const input = screen.getByRole('combobox');
       expect(input).toHaveAttribute('aria-invalid', 'true');
+    });
+  });
+
+  describe('filterTypesプロパティ (3.4)', () => {
+    // 協力業者テストデータ
+    const mockSubcontractors: TradingPartnerInfo[] = [
+      {
+        id: '10',
+        name: '田中建設株式会社',
+        nameKana: 'タナカケンセツカブシキガイシャ',
+        branchName: null,
+        branchNameKana: null,
+        representativeName: null,
+        representativeNameKana: null,
+        types: ['SUBCONTRACTOR'],
+        address: '東京都新宿区1-1-1',
+        phoneNumber: null,
+        faxNumber: null,
+        email: 'tanaka@example.com',
+        billingClosingDay: null,
+        paymentMonthOffset: null,
+        paymentDay: null,
+        notes: null,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: '11',
+        name: '高橋工務店',
+        nameKana: 'タカハシコウムテン',
+        branchName: '大阪支店',
+        branchNameKana: 'オオサカシテン',
+        representativeName: '高橋次郎',
+        representativeNameKana: 'タカハシジロウ',
+        types: ['SUBCONTRACTOR'],
+        address: '大阪府大阪市3-3-3',
+        phoneNumber: null,
+        faxNumber: '06-1234-5678',
+        email: null,
+        billingClosingDay: null,
+        paymentMonthOffset: null,
+        paymentDay: null,
+        notes: null,
+        createdAt: '2024-01-02T00:00:00Z',
+        updatedAt: '2024-01-02T00:00:00Z',
+      },
+    ];
+
+    it('filterTypesを指定すると指定した種別でフィルタリングされる', async () => {
+      // 協力業者のみを返すようモック設定
+      vi.mocked(tradingPartnersApi.getTradingPartners).mockResolvedValue({
+        data: mockSubcontractors,
+        pagination: {
+          page: 1,
+          limit: 100,
+          total: mockSubcontractors.length,
+          totalPages: 1,
+        },
+      });
+
+      render(<TradingPartnerSelect value="" onChange={vi.fn()} filterTypes={['SUBCONTRACTOR']} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      // APIが協力業者種別でフィルタリングされて呼ばれたことを確認
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: { type: ['SUBCONTRACTOR'] },
+        })
+      );
+    });
+
+    it('filterTypesが未指定の場合はデフォルトでCUSTOMERでフィルタリングされる', async () => {
+      render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      // APIが顧客種別でフィルタリングされて呼ばれたことを確認
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: { type: ['CUSTOMER'] },
+        })
+      );
+    });
+
+    it('filterTypesで複数の種別を指定できる', async () => {
+      render(
+        <TradingPartnerSelect
+          value=""
+          onChange={vi.fn()}
+          filterTypes={['CUSTOMER', 'SUBCONTRACTOR']}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      // APIが両方の種別でフィルタリングされて呼ばれたことを確認
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: { type: ['CUSTOMER', 'SUBCONTRACTOR'] },
+        })
+      );
+    });
+
+    it('協力業者をフィルタリングして表示できる', async () => {
+      // 協力業者のみを返すようモック設定
+      vi.mocked(tradingPartnersApi.getTradingPartners).mockResolvedValue({
+        data: mockSubcontractors,
+        pagination: {
+          page: 1,
+          limit: 100,
+          total: mockSubcontractors.length,
+          totalPages: 1,
+        },
+      });
+
+      render(<TradingPartnerSelect value="" onChange={vi.fn()} filterTypes={['SUBCONTRACTOR']} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      // ドロップダウンを開く
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+
+      // 協力業者が表示される
+      await waitFor(() => {
+        const listbox = screen.getByRole('listbox');
+        expect(within(listbox).getByText('田中建設株式会社')).toBeInTheDocument();
+        expect(within(listbox).getByText('高橋工務店')).toBeInTheDocument();
+      });
+    });
+
+    it('filterTypesを指定しても既存の機能（検索、選択）が動作する', async () => {
+      const user = userEvent.setup();
+      const handleChange = vi.fn();
+
+      // 協力業者のみを返すようモック設定
+      vi.mocked(tradingPartnersApi.getTradingPartners).mockResolvedValue({
+        data: mockSubcontractors,
+        pagination: {
+          page: 1,
+          limit: 100,
+          total: mockSubcontractors.length,
+          totalPages: 1,
+        },
+      });
+
+      render(
+        <TradingPartnerSelect value="" onChange={handleChange} filterTypes={['SUBCONTRACTOR']} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      const input = screen.getByRole('combobox');
+
+      // 検索機能が動作する
+      await user.type(input, 'たなか');
+
+      await waitFor(() => {
+        const listbox = screen.getByRole('listbox');
+        expect(within(listbox).getByText('田中建設株式会社')).toBeInTheDocument();
+        // 高橋工務店は表示されない（検索に一致しない）
+        expect(within(listbox).queryByText('高橋工務店')).not.toBeInTheDocument();
+      });
     });
   });
 });

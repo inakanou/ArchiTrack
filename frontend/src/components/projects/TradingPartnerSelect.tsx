@@ -3,7 +3,8 @@
  *
  * プロジェクトフォームで使用する取引先選択用のコンポーネントを提供します。
  * ドロップダウンとオートコンプリート機能を併用したUIで、
- * 顧客種別（CUSTOMER）を含む取引先のみを選択肢として表示します。
+ * filterTypesプロパティで指定した取引先種別を選択肢として表示します。
+ * デフォルトでは顧客種別（CUSTOMER）を含む取引先のみを表示します。
  *
  * Requirements:
  * - 16.1: ドロップダウン選択UIとオートコンプリート機能を併用したUIを提供
@@ -15,11 +16,21 @@
  * - 20.2: フォーム要素にaria-label属性を適切に設定
  * - 20.4: フォーカス状態を視覚的に明確に表示
  * - 22.5-7: 表示形式のフォールバック処理
+ * - 3.4 (estimate-request): 宛先の候補として協力業者である取引先のみを表示
  */
 
-import { useState, useEffect, useId, useRef, useCallback, KeyboardEvent, FocusEvent } from 'react';
+import {
+  useState,
+  useEffect,
+  useId,
+  useRef,
+  useCallback,
+  useMemo,
+  KeyboardEvent,
+  FocusEvent,
+} from 'react';
 import { getTradingPartners } from '../../api/trading-partners';
-import type { TradingPartnerInfo } from '../../types/trading-partner.types';
+import type { TradingPartnerInfo, TradingPartnerType } from '../../types/trading-partner.types';
 import { toKatakana, toHiragana } from '../../utils/kana-converter';
 
 // ============================================================================
@@ -40,6 +51,14 @@ export interface TradingPartnerSelectProps {
   disabled?: boolean;
   /** エラーメッセージ */
   error?: string;
+  /**
+   * 取引先種別フィルタ
+   * 指定した種別を含む取引先のみを候補として表示します。
+   * デフォルトは['CUSTOMER']（顧客のみ）
+   *
+   * Requirements: 3.4 (estimate-request)
+   */
+  filterTypes?: TradingPartnerType[];
 }
 
 // ============================================================================
@@ -163,7 +182,11 @@ export default function TradingPartnerSelect({
   onBlur,
   disabled = false,
   error,
+  filterTypes = ['CUSTOMER'],
 }: TradingPartnerSelectProps) {
+  // filterTypesをメモ化（配列の同一性を保持）
+  const filterTypesKey = useMemo(() => JSON.stringify(filterTypes), [filterTypes]);
+
   // 取引先一覧
   const [tradingPartners, setTradingPartners] = useState<TradingPartnerInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -203,10 +226,10 @@ export default function TradingPartnerSelect({
         setIsLoading(true);
         setFetchError(null);
 
-        // 顧客種別を含む取引先を取得（最大100件）
+        // 指定された取引先種別を含む取引先を取得（最大100件）
         const result = await getTradingPartners({
           limit: 100,
-          filter: { type: ['CUSTOMER'] },
+          filter: { type: filterTypes },
           sort: 'nameKana',
           order: 'asc',
         });
@@ -230,7 +253,8 @@ export default function TradingPartnerSelect({
     return () => {
       mounted = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterTypesKey]);
 
   // クリックアウトサイドで閉じる
   useEffect(() => {

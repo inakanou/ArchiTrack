@@ -32,6 +32,10 @@ import QuantityTableEditPage from './pages/QuantityTableEditPage';
 import QuantityTableRedirectPage from './pages/QuantityTableRedirectPage';
 import ItemizedStatementDetailPage from './pages/ItemizedStatementDetailPage';
 import ItemizedStatementListPage from './pages/ItemizedStatementListPage';
+import EstimateRequestListPage from './pages/EstimateRequestListPage';
+import EstimateRequestCreatePage from './pages/EstimateRequestCreatePage';
+import EstimateRequestDetailPage from './pages/EstimateRequestDetailPage';
+import EstimateRequestEditPage from './pages/EstimateRequestEditPage';
 
 /**
  * アプリケーションのルート設定
@@ -227,6 +231,35 @@ export const routes: RouteObject[] = [
       {
         path: '/itemized-statements/:id',
         element: <ItemizedStatementDetailPage />,
+      },
+
+      // 見積依頼新規作成（/projects/:projectId/estimate-requests より先に定義する必要あり）
+      // REQ-3.6: 見積依頼作成
+      // Task 6.1: EstimateRequestCreatePageの実装
+      {
+        path: '/projects/:projectId/estimate-requests/new',
+        element: <EstimateRequestCreatePage />,
+      },
+      // 見積依頼一覧
+      // REQ-2.1: プロジェクトに関連する見積依頼一覧を表示
+      // Task 5.2: EstimateRequestListPageの実装
+      {
+        path: '/projects/:projectId/estimate-requests',
+        element: <EstimateRequestListPage />,
+      },
+      // 見積依頼編集（/estimate-requests/:id より先に定義する必要あり）
+      // REQ-9.3: 見積依頼の名前を編集可能にする
+      // Task 6.3: EstimateRequestEditPageの実装
+      {
+        path: '/estimate-requests/:id/edit',
+        element: <EstimateRequestEditPage />,
+      },
+      // 見積依頼詳細
+      // REQ-4.1-4.12: 見積依頼詳細画面、項目選択
+      // Task 6.2: EstimateRequestDetailPageの実装
+      {
+        path: '/estimate-requests/:id',
+        element: <EstimateRequestDetailPage />,
       },
 
       // 取引先一覧

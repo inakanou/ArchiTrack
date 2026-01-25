@@ -34,6 +34,7 @@ import {
   ItemizedStatementConflictError,
 } from '../errors/itemizedStatementError.js';
 import { QuantityTableNotFoundError } from '../errors/quantityTableError.js';
+import { ItemizedStatementHasEstimateRequestsError } from '../errors/estimateRequestError.js';
 
 /**
  * 内訳書サービス依存関係
@@ -382,16 +383,18 @@ export class ItemizedStatementService {
    * 内訳書を論理削除する（楽観的排他制御付き）
    *
    * Requirements: 5.1, 10.2, 10.3
+   * Task 2.4: 見積依頼で使用されている場合は削除を拒否
    *
    * @param id - 内訳書ID
    * @param actorId - 実行者ID
    * @param expectedUpdatedAt - 期待される更新日時（楽観的排他制御用）
    * @throws ItemizedStatementNotFoundError 内訳書が存在しないか既に削除済みの場合
    * @throws ItemizedStatementConflictError 楽観的排他制御エラー
+   * @throws ItemizedStatementHasEstimateRequestsError 見積依頼で使用されている場合
    */
   async delete(id: string, actorId: string, expectedUpdatedAt: Date): Promise<void> {
     await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 1. 内訳書の存在確認
+      // 1. 内訳書の存在確認（見積依頼数も取得）
       const itemizedStatement = await tx.itemizedStatement.findUnique({
         where: { id },
         select: {
@@ -402,6 +405,13 @@ export class ItemizedStatementService {
           sourceQuantityTableName: true,
           updatedAt: true,
           deletedAt: true,
+          _count: {
+            select: {
+              estimateRequests: {
+                where: { deletedAt: null }, // 論理削除されていない見積依頼のみカウント
+              },
+            },
+          },
         },
       });
 
@@ -409,7 +419,13 @@ export class ItemizedStatementService {
         throw new ItemizedStatementNotFoundError(id);
       }
 
-      // 2. 楽観的排他制御: updatedAtの比較 (Requirements: 10.2, 10.3)
+      // 2. 見積依頼で使用されているかチェック (Task 2.4)
+      const estimateRequestCount = itemizedStatement._count.estimateRequests;
+      if (estimateRequestCount > 0) {
+        throw new ItemizedStatementHasEstimateRequestsError(id, estimateRequestCount);
+      }
+
+      // 3. 楽観的排他制御: updatedAtの比較 (Requirements: 10.2, 10.3)
       if (itemizedStatement.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
         throw new ItemizedStatementConflictError({
           expectedUpdatedAt: expectedUpdatedAt.toISOString(),
@@ -417,13 +433,13 @@ export class ItemizedStatementService {
         });
       }
 
-      // 3. 論理削除
+      // 4. 論理削除
       await tx.itemizedStatement.update({
         where: { id },
         data: { deletedAt: new Date() },
       });
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'ITEMIZED_STATEMENT_DELETED',
         actorId,

@@ -268,6 +268,50 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'delete',
       description: '内訳書の削除',
     },
+
+    // 見積依頼関連権限
+    {
+      resource: 'estimate_request',
+      action: 'create',
+      description: '見積依頼の作成',
+    },
+    {
+      resource: 'estimate_request',
+      action: 'read',
+      description: '見積依頼の閲覧',
+    },
+    {
+      resource: 'estimate_request',
+      action: 'update',
+      description: '見積依頼の更新',
+    },
+    {
+      resource: 'estimate_request',
+      action: 'delete',
+      description: '見積依頼の削除',
+    },
+
+    // 受領見積書関連権限
+    {
+      resource: 'received_quotation',
+      action: 'create',
+      description: '受領見積書の作成',
+    },
+    {
+      resource: 'received_quotation',
+      action: 'read',
+      description: '受領見積書の閲覧',
+    },
+    {
+      resource: 'received_quotation',
+      action: 'update',
+      description: '受領見積書の更新',
+    },
+    {
+      resource: 'received_quotation',
+      action: 'delete',
+      description: '受領見積書の削除',
+    },
   ];
 
   for (const permission of permissions) {
@@ -355,6 +399,16 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'itemized_statement', action: 'read' },
     { resource: 'itemized_statement', action: 'update' },
     { resource: 'itemized_statement', action: 'delete' },
+    // 見積依頼関連権限
+    { resource: 'estimate_request', action: 'create' },
+    { resource: 'estimate_request', action: 'read' },
+    { resource: 'estimate_request', action: 'update' },
+    { resource: 'estimate_request', action: 'delete' },
+    // 受領見積書関連権限
+    { resource: 'received_quotation', action: 'create' },
+    { resource: 'received_quotation', action: 'read' },
+    { resource: 'received_quotation', action: 'update' },
+    { resource: 'received_quotation', action: 'delete' },
   ];
 
   for (const { resource, action } of basicPermissions) {
