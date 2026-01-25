@@ -274,12 +274,13 @@ describe('received-quotation.routes', () => {
       expect(response.body).toHaveLength(0);
     });
 
-    it('should require received_quotation:read permission', async () => {
+    it('should require estimate_request:read permission', async () => {
+      // 見積依頼詳細画面で受領見積書一覧を表示するため、estimate_request:read権限でアクセス可能
       mockFindByEstimateRequestId.mockResolvedValue([]);
 
       await request(app).get(`/api/estimate-requests/${estimateRequestId}/quotations`);
 
-      expect(mockRequirePermission).toHaveBeenCalledWith('received_quotation:read');
+      expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:read');
     });
   });
 
