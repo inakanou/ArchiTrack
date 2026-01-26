@@ -996,15 +996,10 @@ describe('EstimateRequestDetailPage', () => {
         expect(screen.getByLabelText(/受領見積書名/i)).toBeInTheDocument();
       });
 
-      // フォームに入力
-      await user.type(screen.getByLabelText(/受領見積書名/i), '新規見積書');
-      await user.type(screen.getByLabelText(/提出日/i), '2025-01-10');
+      // フォームに入力（名前はデフォルト値があるのでそのまま使用）
+      // 提出日もデフォルト値（今日）があるのでそのまま使用
 
-      // テキストラジオボタンを選択（デフォルトで選択されている場合がある）
-      const textRadio = screen.getByLabelText(/テキスト/i);
-      await user.click(textRadio);
-
-      // テキストエリアに入力（プレースホルダーで検索）
+      // テキストエリアに入力（デフォルトでTEXTモードが選択されている）
       const textArea = screen.getByPlaceholderText(/見積内容を入力/i);
       await user.type(textArea, 'テスト内容');
 

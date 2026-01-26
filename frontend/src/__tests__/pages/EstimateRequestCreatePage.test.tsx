@@ -222,7 +222,7 @@ describe('EstimateRequestCreatePage', () => {
       });
     });
 
-    it('フォーム内に名前入力フィールドが表示される', async () => {
+    it('フォーム内に見積依頼名入力フィールドが表示される', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -230,7 +230,7 @@ describe('EstimateRequestCreatePage', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
     });
   });

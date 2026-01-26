@@ -2192,10 +2192,10 @@ test.describe('内訳書CRUD操作', () => {
    */
   test.describe('内訳書一覧画面', () => {
     /**
-     * @requirement itemized-statement-generation/REQ-11.5: The 内訳書セクション shall 一覧画面へのリンクを表示する
+     * @requirement itemized-statement-generation/REQ-11.6: The 内訳書セクション shall 一覧画面へのリンクを表示する
      * @requirement itemized-statement-generation/REQ-3.2: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
      */
-    test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (itemized-statement-generation/REQ-11.5, REQ-3.2)', async ({
+    test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (itemized-statement-generation/REQ-11.6, REQ-3.2)', async ({
       page,
     }) => {
       expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
@@ -2245,9 +2245,9 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-3.5: When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
+     * @requirement itemized-statement-generation/REQ-3.6: When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
      */
-    test('内訳書行をクリックすると詳細画面に遷移する (itemized-statement-generation/REQ-3.5)', async ({
+    test('内訳書行をクリックすると詳細画面に遷移する (itemized-statement-generation/REQ-3.6)', async ({
       page,
     }) => {
       expect(testProjectId, 'テストデータが不足しています').toBeTruthy();

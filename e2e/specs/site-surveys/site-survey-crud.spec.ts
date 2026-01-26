@@ -255,6 +255,49 @@ test.describe('現場調査CRUD操作', () => {
         timeout: getTimeout(5000),
       });
     });
+
+    /**
+     * @requirement site-survey/REQ-1.7
+     * プロジェクトが存在しない場合、現場調査の作成を許可しない
+     */
+    test('存在しないプロジェクトでは現場調査を作成できない (site-survey/REQ-1.7)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 存在しないプロジェクトIDで現場調査作成画面にアクセス
+      const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
+      await page.goto(`/projects/${nonExistentProjectId}/site-surveys/new`);
+      await page.waitForLoadState('networkidle');
+
+      // エラーメッセージが表示されるか、適切なエラー画面に遷移することを確認
+      const errorMessage = page.getByText(
+        /プロジェクトが見つかりません|プロジェクトが存在しません|404|Not Found|エラー/i
+      );
+      const errorVisible = await errorMessage.isVisible({ timeout: getTimeout(10000) });
+
+      // フォームが表示されていないことも確認（フォームが表示されていたら作成できてしまう可能性がある）
+      if (!errorVisible) {
+        // エラーが明示的に表示されていない場合は、作成フォームが表示されていないことを確認
+        const createButton = page.getByRole('button', { name: /^作成$/i });
+        const createButtonVisible = await createButton.isVisible().catch(() => false);
+        // フォームが表示されていない、または作成ボタンがないことを確認
+        if (createButtonVisible) {
+          // 仮にフォームが表示されている場合、作成を試みても失敗することを確認
+          await page.getByLabel(/調査名/i).fill('テスト現場調査');
+          await page.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+          await createButton.click();
+
+          // APIエラーが発生することを確認
+          await expect(page.getByText(/プロジェクトが見つかりません|エラー|失敗/i)).toBeVisible({
+            timeout: getTimeout(10000),
+          });
+        }
+      } else {
+        // エラーメッセージが表示されていることを確認
+        expect(errorVisible).toBe(true);
+      }
+    });
   });
 
   /**

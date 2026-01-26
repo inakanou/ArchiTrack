@@ -641,6 +641,92 @@ test.describe('見積依頼機能', () => {
   });
 
   // ============================================================================
+  // Requirement 1: 見積依頼セクション表示（見積依頼存在時）
+  // ============================================================================
+
+  test.describe('Requirement 1: 見積依頼セクション表示（見積依頼存在時）', () => {
+    /**
+     * @requirement estimate-request/REQ-1.6
+     * 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する
+     */
+    test('REQ-1.6: 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する (estimate-request/REQ-1.6)', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 見積依頼セクションが表示される
+      const section = page.getByTestId('estimate-request-section');
+      await expect(section).toBeVisible({ timeout: getTimeout(10000) });
+
+      // セクションヘッダー内に「新規作成」リンクが表示される
+      const headerNewButton = section.getByRole('link', { name: /新規作成/i });
+      await expect(headerNewButton).toBeVisible();
+
+      // 「すべて見る」リンクが表示される
+      const allLink = section.getByRole('link', { name: /すべて見る|見積依頼一覧/i });
+      await expect(allLink).toBeVisible();
+    });
+
+    /**
+     * @requirement estimate-request/REQ-1.7
+     * ユーザーが「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
+     */
+    test('REQ-1.7: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する (estimate-request/REQ-1.7)', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      const section = page.getByTestId('estimate-request-section');
+      await expect(section).toBeVisible({ timeout: getTimeout(10000) });
+
+      const newButton = section.getByRole('link', { name: /新規作成/i });
+      await newButton.click();
+
+      await expect(page).toHaveURL(/\/estimate-requests\/new/, {
+        timeout: getTimeout(10000),
+      });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-1.8
+     * ユーザーが「すべて見る」リンクをクリックしたとき、見積依頼一覧画面に遷移する
+     */
+    test('REQ-1.8: 「すべて見る」リンクをクリックで見積依頼一覧画面に遷移する (estimate-request/REQ-1.8)', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
+
+      const section = page.getByTestId('estimate-request-section');
+      await expect(section).toBeVisible({ timeout: getTimeout(10000) });
+
+      const allLink = section.getByRole('link', { name: /すべて見る|見積依頼一覧/i });
+      await allLink.click();
+
+      await expect(page).toHaveURL(/\/estimate-requests$/, {
+        timeout: getTimeout(10000),
+      });
+    });
+  });
+
+  // ============================================================================
   // Requirement 4: 見積依頼詳細画面 - 項目選択
   // ============================================================================
 

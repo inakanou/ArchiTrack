@@ -279,6 +279,158 @@ test.describe('内訳書専用作成画面', () => {
   });
 
   /**
+   * REQ-15.2: 内訳書新規作成画面にプロジェクト詳細画面に戻るリンクを表示する
+   */
+  test.describe('戻るリンク表示', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-15.2
+     */
+    test('内訳書新規作成画面にプロジェクト詳細画面に戻るリンクが表示される (itemized-statement-generation/REQ-15.2)', async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // プロジェクト詳細画面に戻るリンクが表示される
+      const backLink = page.getByRole('link', { name: /戻る|キャンセル/i });
+      await expect(backLink).toBeVisible({ timeout: getTimeout(10000) });
+    });
+  });
+
+  /**
+   * REQ-15.3: 内訳書新規作成画面に内訳書名入力フィールドを表示する
+   */
+  test.describe('内訳書名入力フィールド表示', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-15.3
+     */
+    test('内訳書新規作成画面に内訳書名入力フィールドが表示される (itemized-statement-generation/REQ-15.3)', async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 内訳書名入力フィールドが表示される
+      const nameInput = page.locator('input#name');
+      await expect(nameInput).toBeVisible({ timeout: getTimeout(10000) });
+
+      // ラベルも確認
+      await expect(page.getByText(/内訳書名/i)).toBeVisible();
+    });
+  });
+
+  /**
+   * REQ-15.5: 内訳書新規作成画面に数量表選択リストを表示する
+   */
+  test.describe('数量表選択リスト表示', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-15.5
+     */
+    test('内訳書新規作成画面に数量表選択リストが表示される (itemized-statement-generation/REQ-15.5)', async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 数量表選択リストが表示される
+      const quantityTableSelect = page.locator('select#quantityTableId');
+      await expect(quantityTableSelect).toBeVisible({ timeout: getTimeout(10000) });
+
+      // ラベルも確認
+      await expect(page.getByText(/数量表/i)).toBeVisible();
+    });
+  });
+
+  /**
+   * REQ-9.5: 内訳書新規作成画面にパンくずナビゲーションを表示する
+   */
+  test.describe('パンくずナビゲーション', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-9.5
+     */
+    test('内訳書新規作成画面にパンくずナビゲーションが表示される (itemized-statement-generation/REQ-9.5)', async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // パンくずナビゲーションが表示される
+      await expect(page.getByText(/プロジェクト一覧/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-9.6
+     */
+    test('内訳書新規作成画面のパンくずが正しい形式で表示される (itemized-statement-generation/REQ-9.6)', async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectIdが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // パンくず要素を確認
+      // 「プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成」形式
+      await expect(page.getByText(/プロジェクト一覧/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(page.getByText(projectName)).toBeVisible();
+      await expect(page.getByText(/内訳書/i).first()).toBeVisible();
+      await expect(page.getByText(/新規作成/i).first()).toBeVisible();
+    });
+  });
+
+  /**
    * REQ-15.6: 作成成功後に内訳書詳細画面へ遷移
    */
   test.describe('作成成功後の遷移', () => {
