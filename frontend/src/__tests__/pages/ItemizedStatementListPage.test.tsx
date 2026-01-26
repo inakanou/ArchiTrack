@@ -3,10 +3,12 @@
  *
  * Requirements:
  * - 3.2: 内訳書セクションは作成済み内訳書を作成日時の降順で一覧表示する
- * - 3.3: 内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージを表示する
- * - 3.4: 内訳書一覧の各行は内訳書名、作成日時、集計元数量表名、合計項目数を表示する
+ * - 3.3: 数量表が存在しない場合、内訳書セクションは「まず数量表を作成してください」メッセージを表示する
+ * - 3.4: 数量表は存在するが内訳書が存在しない場合、内訳書セクションは「内訳書はまだありません」メッセージを表示する
  * - 3.5: ユーザーが内訳書行をクリックすると内訳書詳細画面に遷移する
  * - 11.5: 内訳書セクションは一覧画面へのリンクを表示する
+ * - 15.8: 内訳書一覧画面の新規作成ボタンは内訳書新規作成画面に遷移する
+ * - 15.9: 内訳書一覧画面からキャンセルする場合、システムは内訳書一覧画面に遷移する
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -84,6 +86,16 @@ const mockQuantityTables = {
   },
 };
 
+const mockEmptyQuantityTables = {
+  data: [],
+  pagination: {
+    page: 1,
+    limit: 100,
+    total: 0,
+    totalPages: 0,
+  },
+};
+
 // テストヘルパー
 const renderWithRouter = (initialEntry: string) => {
   return render(
@@ -92,6 +104,14 @@ const renderWithRouter = (initialEntry: string) => {
         <Route
           path="/projects/:projectId/itemized-statements"
           element={<ItemizedStatementListPage />}
+        />
+        <Route
+          path="/projects/:projectId/itemized-statements/new"
+          element={<div data-testid="create-page">内訳書作成画面</div>}
+        />
+        <Route
+          path="/projects/:projectId/quantity-tables/new"
+          element={<div data-testid="quantity-table-create-page">数量表作成画面</div>}
         />
       </Routes>
     </MemoryRouter>
@@ -177,27 +197,106 @@ describe('ItemizedStatementListPage', () => {
     });
   });
 
-  describe('空状態表示 (Requirement 3.3)', () => {
-    it('内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージが表示されること', async () => {
+  describe('数量表がない場合 (Requirement 3.3)', () => {
+    beforeEach(() => {
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockEmptyQuantityTables);
+    });
+
+    it('数量表がない場合「まず数量表を作成してください」メッセージが表示されること', async () => {
       vi.mocked(itemizedStatementsApi.getItemizedStatements).mockResolvedValue(mockEmptyStatements);
+
+      renderWithRouter('/projects/project-123/itemized-statements');
+
+      await waitFor(() => {
+        expect(screen.getByText('まず数量表を作成してください')).toBeInTheDocument();
+      });
+    });
+
+    it('数量表がない場合、新規作成ボタンが非表示であること', async () => {
+      vi.mocked(itemizedStatementsApi.getItemizedStatements).mockResolvedValue(mockEmptyStatements);
+
+      renderWithRouter('/projects/project-123/itemized-statements');
+
+      await waitFor(() => {
+        expect(screen.getByText('まず数量表を作成してください')).toBeInTheDocument();
+      });
+
+      // 新規作成ボタンが表示されていないことを確認（ヘッダー部分のボタンはdisabled）
+      const createButton = screen.queryByRole('button', { name: /新規作成/i });
+      if (createButton) {
+        expect(createButton).toBeDisabled();
+      }
+    });
+
+    it('数量表がない場合、数量表作成へのリンクが表示されること', async () => {
+      vi.mocked(itemizedStatementsApi.getItemizedStatements).mockResolvedValue(mockEmptyStatements);
+
+      renderWithRouter('/projects/project-123/itemized-statements');
+
+      await waitFor(() => {
+        const link = screen.getByRole('link', { name: /数量表を作成/i });
+        expect(link).toBeInTheDocument();
+        expect(link).toHaveAttribute('href', '/projects/project-123/quantity-tables/new');
+      });
+    });
+  });
+
+  describe('数量表あり・内訳書なしの場合 (Requirement 3.4)', () => {
+    it('数量表あり・内訳書なしの場合「内訳書はまだありません」メッセージが表示されること', async () => {
+      vi.mocked(itemizedStatementsApi.getItemizedStatements).mockResolvedValue(mockEmptyStatements);
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
 
       renderWithRouter('/projects/project-123/itemized-statements');
 
       await waitFor(() => {
         expect(screen.getByTestId('empty-state')).toBeInTheDocument();
-        expect(screen.getByText('内訳書はまだ作成されていません')).toBeInTheDocument();
+        expect(screen.getByText('内訳書はまだありません')).toBeInTheDocument();
       });
     });
 
-    it('空状態時にプロジェクト詳細へのリンクが表示されること', async () => {
+    it('数量表あり・内訳書なしの場合、新規作成ボタンが表示されること', async () => {
       vi.mocked(itemizedStatementsApi.getItemizedStatements).mockResolvedValue(mockEmptyStatements);
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
 
       renderWithRouter('/projects/project-123/itemized-statements');
 
       await waitFor(() => {
-        const link = screen.getByRole('link', { name: /プロジェクト詳細で作成/i });
-        expect(link).toBeInTheDocument();
-        expect(link).toHaveAttribute('href', '/projects/project-123');
+        // 空状態とヘッダー両方に新規作成リンクが表示される
+        const createLinks = screen.getAllByRole('link', { name: /新規作成/i });
+        expect(createLinks.length).toBeGreaterThanOrEqual(1);
+      });
+    });
+  });
+
+  describe('新規作成ボタンのLink遷移 (Requirements 15.8, 15.9)', () => {
+    it('新規作成ボタンが/projects/${projectId}/itemized-statements/new?from=listへのLinkであること', async () => {
+      vi.mocked(itemizedStatementsApi.getItemizedStatements).mockResolvedValue(mockEmptyStatements);
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter('/projects/project-123/itemized-statements');
+
+      await waitFor(() => {
+        // ヘッダーと空状態の両方に新規作成リンクがある
+        const createLinks = screen.getAllByRole('link', { name: /新規作成/i });
+        // すべてのリンクが正しいhrefを持っているか確認
+        createLinks.forEach((link) => {
+          expect(link).toHaveAttribute(
+            'href',
+            '/projects/project-123/itemized-statements/new?from=list'
+          );
+        });
+      });
+    });
+
+    it('内訳書があるときのヘッダーの新規作成ボタンもLinkであること', async () => {
+      renderWithRouter('/projects/project-123/itemized-statements');
+
+      await waitFor(() => {
+        const createLink = screen.getByRole('link', { name: /内訳書を新規作成/i });
+        expect(createLink).toHaveAttribute(
+          'href',
+          '/projects/project-123/itemized-statements/new?from=list'
+        );
       });
     });
   });

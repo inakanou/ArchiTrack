@@ -659,18 +659,14 @@ export default function ProjectDetailPage() {
         isLoading={isQuantityTableLoading}
       />
 
-      {/* 内訳書セクション (Task 6, Requirements 3.1, 3.2, 3.3, 3.4, 11.1, 11.2, 11.3, 11.4, 11.5) */}
-      {/* Task 11: 内訳書作成成功時に詳細画面への自動遷移を実装 */}
+      {/* 内訳書セクション (Task 6, Task 18.1, Requirements 1.8, 3.1, 3.2, 3.3, 3.4, 11.1, 11.2, 11.3, 11.4, 11.5) */}
+      {/* 新規作成ボタンは内訳書新規作成画面へのLinkに変更（Task 18.1） */}
       <ItemizedStatementSectionCard
         projectId={project.id}
         totalCount={itemizedStatementSummary?.totalCount ?? 0}
         latestStatements={itemizedStatementSummary?.latestStatements ?? []}
         quantityTables={quantityTableSummary?.latestTables ?? []}
         isLoading={isItemizedStatementLoading}
-        onSuccess={(statement) => {
-          // 内訳書作成成功時に作成された内訳書の詳細画面に遷移
-          navigate(`/itemized-statements/${statement.id}`);
-        }}
       />
 
       {/* 見積依頼セクション (Task 7.2, Requirements 1.1) */}

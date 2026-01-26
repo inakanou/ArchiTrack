@@ -1,15 +1,16 @@
 /**
- * @fileoverview プロジェクト詳細ページの内訳書作成後のナビゲーションテスト
+ * @fileoverview プロジェクト詳細ページの内訳書ナビゲーションテスト
  *
  * Task 11: 内訳書機能のルーティング設定
+ * Task 18.1: 新規作成ボタンを専用作成画面へのLinkに変更
  *
  * Requirements:
  * - 3.5: 内訳書行をクリックで詳細画面に遷移する
- * - 内訳書作成成功時に詳細画面への自動遷移を実装する
+ * - 11.4: ユーザーが新規作成ボタンをクリックすると、システムは内訳書新規作成画面に遷移する
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { ToastProvider } from '../../components/ToastProvider';
@@ -76,24 +77,13 @@ const mockQuantityTables = [
   },
 ];
 
-const mockCreatedStatement = {
-  id: 'is-new',
-  projectId: 'project-1',
-  name: '新規内訳書',
-  sourceQuantityTableId: 'qt-1',
-  sourceQuantityTableName: 'テスト数量表',
-  itemCount: 20,
-  createdAt: '2026-01-19T12:00:00.000Z',
-  updatedAt: '2026-01-19T12:00:00.000Z',
-};
-
 // 現在のパスを表示するヘルパーコンポーネント
 function LocationDisplay() {
   const location = useLocation();
   return <div data-testid="location-display">{location.pathname}</div>;
 }
 
-describe('ProjectDetailPage - 内訳書作成後のナビゲーション', () => {
+describe('ProjectDetailPage - 内訳書ナビゲーション', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
@@ -126,6 +116,15 @@ describe('ProjectDetailPage - 内訳書作成後のナビゲーション', () =>
           <Routes>
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route
+              path="/projects/:projectId/itemized-statements/new"
+              element={
+                <div>
+                  <h1>内訳書新規作成</h1>
+                  <LocationDisplay />
+                </div>
+              }
+            />
+            <Route
               path="/itemized-statements/:id"
               element={
                 <div>
@@ -140,12 +139,9 @@ describe('ProjectDetailPage - 内訳書作成後のナビゲーション', () =>
     );
   }
 
-  describe('Task 11: 内訳書作成成功時に詳細画面への自動遷移', () => {
-    it('内訳書作成成功時に作成された内訳書の詳細画面に遷移する', async () => {
+  describe('Task 18.1: 新規作成ボタンで専用作成画面への遷移', () => {
+    it('内訳書セクションの新規作成リンクが専用作成画面に遷移する', async () => {
       const user = userEvent.setup();
-      vi.mocked(itemizedStatementsApi.createItemizedStatement).mockResolvedValue(
-        mockCreatedStatement
-      );
 
       renderWithRouter();
 
@@ -161,44 +157,44 @@ describe('ProjectDetailPage - 内訳書作成後のナビゲーション', () =>
         expect(screen.getByTestId('itemized-statement-section')).toBeInTheDocument();
       });
 
-      // 内訳書セクション内の新規作成ボタンをクリック
+      // 内訳書セクション内の新規作成リンクを確認
       const itemizedStatementSection = screen.getByTestId('itemized-statement-section');
-      const createButton = within(itemizedStatementSection).getByRole('button', {
-        name: /新規作成/,
-      });
-      await user.click(createButton);
+      const createLink = itemizedStatementSection.querySelector(
+        'a[href*="itemized-statements/new"]'
+      );
+      expect(createLink).not.toBeNull();
+      expect(createLink).toHaveAttribute('href', '/projects/project-1/itemized-statements/new');
 
-      // フォームが表示される（内訳書名フィールド）
+      // リンクをクリック
+      await user.click(createLink!);
+
+      // 内訳書新規作成画面に遷移する
       await waitFor(() => {
-        expect(within(itemizedStatementSection).getByLabelText(/内訳書名/)).toBeInTheDocument();
-      });
-
-      // フォームに入力
-      const nameInput = within(itemizedStatementSection).getByLabelText(/内訳書名/);
-      await user.type(nameInput, '新規内訳書');
-
-      // 数量表を選択（id="quantityTableId"で特定）
-      const select = screen.getByRole('combobox', { name: /数量表/ });
-      await user.selectOptions(select, 'qt-1');
-
-      // 送信
-      const submitButton = within(itemizedStatementSection).getByRole('button', { name: '作成' });
-      await user.click(submitButton);
-
-      // 内訳書詳細画面に遷移する
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { name: '内訳書詳細' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: '内訳書新規作成' })).toBeInTheDocument();
         expect(screen.getByTestId('location-display')).toHaveTextContent(
-          '/itemized-statements/is-new'
+          '/projects/project-1/itemized-statements/new'
         );
       });
     });
 
-    it('内訳書作成APIが正しいパラメータで呼び出される', async () => {
+    it('内訳書があるときのヘッダーの新規作成リンクも専用作成画面に遷移する', async () => {
       const user = userEvent.setup();
-      vi.mocked(itemizedStatementsApi.createItemizedStatement).mockResolvedValue(
-        mockCreatedStatement
-      );
+      const mockExistingStatements = [
+        {
+          id: 'is-1',
+          projectId: 'project-1',
+          name: '既存内訳書',
+          sourceQuantityTableId: 'qt-1',
+          sourceQuantityTableName: 'テスト数量表',
+          itemCount: 15,
+          createdAt: '2026-01-18T10:00:00.000Z',
+          updatedAt: '2026-01-18T10:00:00.000Z',
+        },
+      ];
+      vi.mocked(itemizedStatementsApi.getLatestItemizedStatements).mockResolvedValue({
+        totalCount: 1,
+        latestStatements: mockExistingStatements,
+      });
 
       renderWithRouter();
 
@@ -209,41 +205,24 @@ describe('ProjectDetailPage - 内訳書作成後のナビゲーション', () =>
         ).toBeInTheDocument();
       });
 
-      // 内訳書セクションが表示されるまで待機
+      // 内訳書リストが表示されるまで待機
       await waitFor(() => {
-        expect(screen.getByTestId('itemized-statement-section')).toBeInTheDocument();
+        expect(screen.getByText('既存内訳書')).toBeInTheDocument();
       });
 
-      // 内訳書セクション内の新規作成ボタンをクリック
-      const itemizedStatementSection = screen.getByTestId('itemized-statement-section');
-      const createButton = within(itemizedStatementSection).getByRole('button', {
-        name: /新規作成/,
-      });
-      await user.click(createButton);
+      // ヘッダーの新規作成リンクを確認
+      const createLink = screen.getByRole('link', { name: /内訳書を新規作成/ });
+      expect(createLink).toHaveAttribute('href', '/projects/project-1/itemized-statements/new');
 
-      // フォームが表示される
+      // リンクをクリック
+      await user.click(createLink);
+
+      // 内訳書新規作成画面に遷移する
       await waitFor(() => {
-        expect(within(itemizedStatementSection).getByLabelText(/内訳書名/)).toBeInTheDocument();
-      });
-
-      // フォームに入力
-      const nameInput = within(itemizedStatementSection).getByLabelText(/内訳書名/);
-      await user.type(nameInput, '新規内訳書');
-
-      // 数量表を選択（id="quantityTableId"で特定）
-      const select = screen.getByRole('combobox', { name: /数量表/ });
-      await user.selectOptions(select, 'qt-1');
-
-      // 送信
-      const submitButton = within(itemizedStatementSection).getByRole('button', { name: '作成' });
-      await user.click(submitButton);
-
-      // APIが正しく呼び出される
-      await waitFor(() => {
-        expect(itemizedStatementsApi.createItemizedStatement).toHaveBeenCalledWith('project-1', {
-          name: '新規内訳書',
-          quantityTableId: 'qt-1',
-        });
+        expect(screen.getByRole('heading', { name: '内訳書新規作成' })).toBeInTheDocument();
+        expect(screen.getByTestId('location-display')).toHaveTextContent(
+          '/projects/project-1/itemized-statements/new'
+        );
       });
     });
   });
