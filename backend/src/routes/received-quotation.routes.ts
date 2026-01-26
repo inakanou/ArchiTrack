@@ -260,7 +260,8 @@ router.post(
 router.get(
   '/',
   authenticate,
-  requirePermission('received_quotation:read'),
+  // 見積依頼詳細画面で受領見積書一覧を表示するため、estimate_request:read権限でアクセス可能とする
+  requirePermission('estimate_request:read'),
   validate(estimateRequestIdForQuotationSchema, 'params'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
