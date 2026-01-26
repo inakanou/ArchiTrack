@@ -908,15 +908,15 @@
   - 削除後の順序を再計算してローカル状態を更新
   - _Requirements: 10.11, 10.12_
 
-- [ ] 38. サーバーサイドdisplayOrder正規化の実装
-- [ ] 38.1 バッチ更新APIでdisplayOrderを連番に再計算する
+- [x] 38. サーバーサイドdisplayOrder正規化の実装
+- [x] 38.1 バッチ更新APIでdisplayOrderを連番に再計算する
   - ImageMetadataService.batchUpdateMetadataでdisplayOrder重複チェック
   - 送信された相対順序を1, 2, 3...の連番に正規化
   - 欠番や重複があっても正しくソート・再番号付け
   - 大量リクエスト回避のためバッチAPI使用を強制
   - _Requirements: 10.9_
 
-- [ ] 38.2 displayOrder正規化の単体テストを実装する
+- [x] 38.2 displayOrder正規化の単体テストを実装する
   - 重複displayOrder時の正規化テスト
   - 欠番displayOrder時の正規化テスト
   - 順序保持の確認テスト

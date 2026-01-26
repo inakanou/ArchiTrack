@@ -181,6 +181,7 @@ const imageMetadataUpdateBodySchema = z
  * 画像メタデータ一括更新スキーマ
  *
  * Task 33.1: 写真一覧管理パネルを手動保存方式に変更する
+ * Task 38.1: displayOrderサポート追加（連番に正規化される）
  */
 const batchImageMetadataUpdateBodySchema = z.object({
   updates: z
@@ -194,10 +195,21 @@ const batchImageMetadataUpdateBodySchema = z.object({
             .nullable()
             .optional(),
           includeInReport: z.boolean().optional(),
+          displayOrder: z
+            .number()
+            .int()
+            .positive('表示順序は正の整数で指定してください')
+            .optional(),
         })
-        .refine((data) => data.comment !== undefined || data.includeInReport !== undefined, {
-          message: 'commentまたはincludeInReportのいずれかを指定してください',
-        })
+        .refine(
+          (data) =>
+            data.comment !== undefined ||
+            data.includeInReport !== undefined ||
+            data.displayOrder !== undefined,
+          {
+            message: 'comment、includeInReport、displayOrderのいずれかを指定してください',
+          }
+        )
     )
     .min(1, '更新データが指定されていません'),
 });
@@ -497,7 +509,10 @@ router.put(
  * /api/site-surveys/images/batch:
  *   patch:
  *     summary: 画像メタデータ一括更新
- *     description: 複数の画像のコメントと報告書出力フラグを一括で更新
+ *     description: |
+ *       複数の画像のコメント、報告書出力フラグ、表示順序を一括で更新します。
+ *       displayOrderが指定された場合、サーバー側で1, 2, 3...の連番に正規化されます。
+ *       重複や欠番があっても、相対的な順序を保持して正規化されます。
  *     tags:
  *       - Survey Images
  *     security:
@@ -530,6 +545,10 @@ router.put(
  *                     includeInReport:
  *                       type: boolean
  *                       description: 報告書出力フラグ
+ *                     displayOrder:
+ *                       type: integer
+ *                       minimum: 1
+ *                       description: 表示順序（相対的な順序、サーバー側で連番に正規化）
  *     responses:
  *       200:
  *         description: 一括更新成功
@@ -548,6 +567,9 @@ router.put(
  *                     nullable: true
  *                   includeInReport:
  *                     type: boolean
+ *                   displayOrder:
+ *                     type: integer
+ *                     description: 正規化された表示順序（1から始まる連番）
  *       400:
  *         description: バリデーションエラー
  *       401:
@@ -569,6 +591,7 @@ router.patch(
           id: string;
           comment?: string | null;
           includeInReport?: boolean;
+          displayOrder?: number;
         }>;
       };
 
