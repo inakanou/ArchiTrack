@@ -7128,7 +7128,7 @@
     "/api/site-surveys/images/batch": {
       "patch": {
         "summary": "画像メタデータ一括更新",
-        "description": "複数の画像のコメントと報告書出力フラグを一括で更新",
+        "description": "複数の画像のコメント、報告書出力フラグ、表示順序を一括で更新します。\ndisplayOrderが指定された場合、サーバー側で1, 2, 3...の連番に正規化されます。\n重複や欠番があっても、相対的な順序を保持して正規化されます。\n",
         "tags": [
           "Survey Images"
         ],
@@ -7169,6 +7169,11 @@
                         "includeInReport": {
                           "type": "boolean",
                           "description": "報告書出力フラグ"
+                        },
+                        "displayOrder": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "表示順序（相対的な順序、サーバー側で連番に正規化）"
                         }
                       }
                     }
@@ -7198,6 +7203,10 @@
                       },
                       "includeInReport": {
                         "type": "boolean"
+                      },
+                      "displayOrder": {
+                        "type": "integer",
+                        "description": "正規化された表示順序（1から始まる連番）"
                       }
                     }
                   }
