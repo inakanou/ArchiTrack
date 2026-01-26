@@ -278,10 +278,13 @@ function RequestSkeleton() {
 /**
  * 空状態表示
  */
-function EmptyState() {
+function EmptyState({ projectId }: { projectId: string }) {
   return (
     <div style={styles.emptyState}>
       <p style={styles.emptyText}>見積依頼はまだありません</p>
+      <Link to={`/projects/${projectId}/estimate-requests/new`} style={styles.createLink}>
+        新規作成
+      </Link>
     </div>
   );
 }
@@ -349,7 +352,7 @@ export function EstimateRequestSectionCard({
           </h3>
           {!isLoading && <span style={styles.count}>全{totalCount}件</span>}
         </div>
-        {!isLoading && (
+        {!isLoading && totalCount > 0 && (
           <div style={styles.headerActions}>
             <Link
               to={`/projects/${projectId}/estimate-requests/new`}
@@ -368,7 +371,7 @@ export function EstimateRequestSectionCard({
       {isLoading ? (
         <RequestSkeleton />
       ) : totalCount === 0 ? (
-        <EmptyState />
+        <EmptyState projectId={projectId} />
       ) : (
         <div style={styles.requestList}>
           {latestRequests.map((request) => (

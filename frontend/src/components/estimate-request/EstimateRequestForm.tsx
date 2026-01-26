@@ -303,7 +303,7 @@ export function EstimateRequestForm({
   const [dataFetchError, setDataFetchError] = useState<string | null>(null);
 
   // フォーム状態
-  const [name, setName] = useState(initialData?.name || '');
+  const [name, setName] = useState(initialData?.name || '見積依頼');
   const [tradingPartnerId, setTradingPartnerId] = useState(initialData?.tradingPartnerId || '');
   const [itemizedStatementId, setItemizedStatementId] = useState(
     initialData?.itemizedStatementId || ''
@@ -376,7 +376,7 @@ export function EstimateRequestForm({
     const newErrors: FormErrors = {};
 
     if (!name.trim()) {
-      newErrors.name = '名前を入力してください';
+      newErrors.name = '見積依頼名を入力してください';
     }
 
     if (!tradingPartnerId) {
@@ -480,10 +480,10 @@ export function EstimateRequestForm({
       {/* 一般エラー表示 */}
       {errors.general && <div style={styles.generalError}>{errors.general}</div>}
 
-      {/* 名前入力（Requirements: 3.1） */}
+      {/* 見積依頼名入力（Requirements: 3.1） */}
       <div style={styles.fieldGroup}>
         <label htmlFor="name" style={styles.label}>
-          名前<span style={styles.required}>*</span>
+          見積依頼名<span style={styles.required}>*</span>
         </label>
         <input
           id="name"

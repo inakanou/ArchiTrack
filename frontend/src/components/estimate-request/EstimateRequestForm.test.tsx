@@ -137,11 +137,19 @@ describe('EstimateRequestForm', () => {
   });
 
   describe('基本レンダリング', () => {
-    it('名前入力フィールドを表示する（Requirements: 3.1）', async () => {
+    it('見積依頼名入力フィールドを表示する（Requirements: 3.1）', async () => {
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
+      });
+    });
+
+    it('見積依頼名のデフォルト値が「見積依頼」である（Requirements: 3.1）', async () => {
+      render(<EstimateRequestForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/見積依頼名/)).toHaveValue('見積依頼');
       });
     });
 
@@ -212,18 +220,22 @@ describe('EstimateRequestForm', () => {
   });
 
   describe('バリデーション', () => {
-    it('名前が未入力の場合エラーを表示する（Requirements: 3.7）', async () => {
+    it('見積依頼名が未入力の場合エラーを表示する（Requirements: 3.7）', async () => {
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
+
+      // デフォルト値をクリア
+      const nameInput = screen.getByLabelText(/見積依頼名/);
+      fireEvent.change(nameInput, { target: { value: '' } });
 
       const submitButton = screen.getByRole('button', { name: /作成/ });
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/名前を入力してください/)).toBeInTheDocument();
+        expect(screen.getByText(/見積依頼名を入力してください/)).toBeInTheDocument();
       });
     });
 
@@ -231,11 +243,11 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
 
       // 名前を入力
-      const nameInput = screen.getByLabelText(/名前/);
+      const nameInput = screen.getByLabelText(/見積依頼名/);
       fireEvent.change(nameInput, { target: { value: '見積依頼#1' } });
 
       const submitButton = screen.getByRole('button', { name: /作成/ });
@@ -255,11 +267,11 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
 
       // 名前を入力
-      const nameInput = screen.getByLabelText(/名前/);
+      const nameInput = screen.getByLabelText(/見積依頼名/);
       fireEvent.change(nameInput, { target: { value: '見積依頼#1' } });
 
       // 宛先を選択（モック）
@@ -326,11 +338,11 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} onSubmit={mockOnSubmit} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
 
       // 名前を入力
-      const nameInput = screen.getByLabelText(/名前/);
+      const nameInput = screen.getByLabelText(/見積依頼名/);
       fireEvent.change(nameInput, { target: { value: '見積依頼#1' } });
 
       // 宛先を選択
@@ -376,11 +388,11 @@ describe('EstimateRequestForm', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
 
       // フォーム入力
-      fireEvent.change(screen.getByLabelText(/名前/), { target: { value: '見積依頼#1' } });
+      fireEvent.change(screen.getByLabelText(/見積依頼名/), { target: { value: '見積依頼#1' } });
       fireEvent.change(screen.getByLabelText(/宛先/), { target: { value: 'tp-1' } });
       fireEvent.change(screen.getByLabelText(/内訳書/), { target: { value: 'is-1' } });
 
@@ -426,11 +438,11 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} onSubmit={mockOnSubmit} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
 
       // フォーム入力
-      fireEvent.change(screen.getByLabelText(/名前/), { target: { value: '見積依頼#1' } });
+      fireEvent.change(screen.getByLabelText(/見積依頼名/), { target: { value: '見積依頼#1' } });
       fireEvent.change(screen.getByLabelText(/宛先/), { target: { value: 'tp-1' } });
       fireEvent.change(screen.getByLabelText(/内訳書/), { target: { value: 'is-1' } });
 
@@ -454,7 +466,7 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} initialData={initialData} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toHaveValue('編集する見積依頼');
+        expect(screen.getByLabelText(/見積依頼名/)).toHaveValue('編集する見積依頼');
       });
     });
   });
@@ -464,7 +476,7 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
-        const nameInput = screen.getByLabelText(/名前/);
+        const nameInput = screen.getByLabelText(/見積依頼名/);
         expect(nameInput).toHaveAttribute('aria-required', 'true');
       });
     });
@@ -473,14 +485,16 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
       });
 
-      // 空の状態で送信
+      // デフォルト値をクリアして空の状態で送信
+      const nameInput = screen.getByLabelText(/見積依頼名/);
+      fireEvent.change(nameInput, { target: { value: '' } });
       fireEvent.click(screen.getByRole('button', { name: /作成/ }));
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/名前/)).toHaveAttribute('aria-invalid', 'true');
+        expect(screen.getByLabelText(/見積依頼名/)).toHaveAttribute('aria-invalid', 'true');
       });
     });
   });
