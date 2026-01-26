@@ -82,7 +82,7 @@
     "sharp": "^0.34.5",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "ua-parser-js": "^2.0.7",
+    "ua-parser-js": "^2.0.8",
     "zod": "^4.1.12"
   },
   "devDependencies": {
