@@ -366,8 +366,8 @@ test.describe('内訳書専用作成画面', () => {
       const quantityTableSelect = page.locator('select#quantityTableId');
       await expect(quantityTableSelect).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ラベルも確認
-      await expect(page.getByText(/数量表/i)).toBeVisible();
+      // ラベルも確認（複数要素にマッチするため最初のものを使用）
+      await expect(page.getByLabel(/数量表/i)).toBeVisible();
     });
   });
 
