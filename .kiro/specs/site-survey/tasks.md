@@ -879,8 +879,8 @@
 
 ### Phase 20: 画像順序変更機能の拡充（要件4.10-4.13、10.5-10.9）
 
-- [ ] 37. 画像順序変更のローカル状態管理実装
-- [ ] 37.1 (P) PhotoManagementPanelに「上へ移動」「下へ移動」ボタンを追加する
+- [x] 37. 画像順序変更のローカル状態管理実装
+- [x] 37.1 (P) PhotoManagementPanelに「上へ移動」「下へ移動」ボタンを追加する
   - 各写真カードに「上へ移動」「下へ移動」ボタンを配置
   - 先頭画像の「上へ移動」ボタンを無効化
   - 末尾画像の「下へ移動」ボタンを無効化
@@ -888,21 +888,21 @@
   - useUnsavedChangesフックでisDirty状態をマーク
   - _Requirements: 4.12, 4.13, 10.6, 10.7_
 
-- [ ] 37.2 (P) ドラッグ&ドロップ順序変更をローカル状態のみに変更する
+- [x] 37.2 (P) ドラッグ&ドロップ順序変更をローカル状態のみに変更する
   - 既存のドラッグ&ドロップ実装の即時保存を削除
   - 順序変更完了時にローカル状態のみ更新
   - useUnsavedChangesフックでisDirty状態をマーク
   - 視覚的フィードバック（並び替え中のハイライト）を維持
   - _Requirements: 4.11, 10.5_
 
-- [ ] 37.3 pendingOrderRefパターンを実装する
+- [x] 37.3 pendingOrderRefパターンを実装する
   - SurveyDetailPageにpendingOrderRef（useRef）を追加
   - 順序変更時にpendingOrderRefに変更内容を記録
   - 保存ボタンクリック時にpendingOrderRefの内容をAPIリクエストに含める
   - 保存成功後にpendingOrderRefをクリア
   - _Requirements: 4.11, 4.12, 4.13, 10.5, 10.6, 10.7_
 
-- [ ] 37.4 画像削除時のpendingOrderRef/pendingChangesクリアを実装する
+- [x] 37.4 画像削除時のpendingOrderRef/pendingChangesクリアを実装する
   - handleImageDelete内で削除対象imageIdをpendingOrderRefから除外
   - pendingChanges（メタデータ変更）からも削除対象を除外
   - 削除後の順序を再計算してローカル状態を更新
