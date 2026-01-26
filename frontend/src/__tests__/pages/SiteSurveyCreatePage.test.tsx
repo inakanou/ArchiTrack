@@ -117,6 +117,19 @@ describe('SiteSurveyCreatePage', () => {
       expect(screen.getByLabelText(/調査日/)).toBeInTheDocument();
     });
 
+    it('調査名欄にデフォルト値「現場調査」が設定される (Requirement 1.1)', async () => {
+      vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '新規現場調査' })).toBeInTheDocument();
+      });
+
+      const nameInput = screen.getByLabelText(/調査名/) as HTMLInputElement;
+      expect(nameInput.value).toBe('現場調査');
+    });
+
     it('ブレッドクラムナビゲーションを表示する (Requirement 2.5)', async () => {
       vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
 

@@ -9,12 +9,13 @@
 **Objective:** As a プロジェクト担当者, I want プロジェクトに紐付く現場調査を作成・編集・削除できること, so that 工事に必要な現場情報を体系的に管理できる
 
 #### Acceptance Criteria
-1. When ユーザーが現場調査作成フォームを送信する, the Site Survey Service shall プロジェクトに紐付く新規現場調査レコードを作成する
-2. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 現場調査の基本情報と関連する画像一覧を表示する
-3. When ユーザーが現場調査情報を編集して保存する, the Site Survey Service shall 楽観的排他制御を用いて現場調査レコードを更新する
-4. When ユーザーが現場調査を削除する, the Site Survey Service shall 現場調査と関連する画像データを論理削除する
-5. If 同時編集による競合が検出される, then the Site Survey Service shall 競合エラーを表示して再読み込みを促す
-6. While プロジェクトが存在しない, the Site Survey Service shall 現場調査の作成を許可しない
+1. When ユーザーが現場調査作成フォームを表示する, the Site Survey Service shall 調査名欄にデフォルト値「現場調査」を設定する
+2. When ユーザーが現場調査作成フォームを送信する, the Site Survey Service shall プロジェクトに紐付く新規現場調査レコードを作成する
+3. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 現場調査の基本情報と関連する画像一覧を表示する
+4. When ユーザーが現場調査情報を編集して保存する, the Site Survey Service shall 楽観的排他制御を用いて現場調査レコードを更新する
+5. When ユーザーが現場調査を削除する, the Site Survey Service shall 現場調査と関連する画像データを論理削除する
+6. If 同時編集による競合が検出される, then the Site Survey Service shall 競合エラーを表示して再読み込みを促す
+7. While プロジェクトが存在しない, the Site Survey Service shall 現場調査の作成を許可しない
 
 ### Requirement 2: 画面遷移・ナビゲーション
 **Objective:** As a プロジェクト担当者, I want 現場調査機能への画面遷移が分かりやすいこと, so that 目的の画面に迷わずたどり着ける

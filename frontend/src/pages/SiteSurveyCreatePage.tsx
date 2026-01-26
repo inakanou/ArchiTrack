@@ -246,6 +246,7 @@ export default function SiteSurveyCreatePage() {
       <div style={styles.section}>
         <SiteSurveyForm
           mode="create"
+          initialData={{ name: '現場調査' }}
           onSubmit={handleSubmit}
           onCancel={handleCancel}
           isSubmitting={isSubmitting}
