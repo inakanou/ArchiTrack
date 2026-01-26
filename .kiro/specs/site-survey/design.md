@@ -251,22 +251,24 @@ stateDiagram-v2
 - localStorageへの一時保存は継続（データ損失防止）
 - オンライン復帰後に手動で保存操作を実行
 
-### 写真メタデータ更新フロー（要件10対応）
+### 写真メタデータ・順序更新フロー（要件4.10-4.13、10対応）
 
 ```mermaid
 sequenceDiagram
     participant User
+    participant SurveyDetailPage
     participant PhotoManagementPanel
+    participant pendingOrderRef
     participant useUnsavedChanges
     participant Backend
     participant PostgreSQL
 
     User->>PhotoManagementPanel: 現場調査詳細画面を開く
     PhotoManagementPanel->>Backend: GET /api/site-surveys/:id/images
-    Backend->>PostgreSQL: 画像一覧取得（comment, includeInReport含む）
+    Backend->>PostgreSQL: 画像一覧取得（comment, includeInReport, displayOrder含む）
     PostgreSQL-->>Backend: 画像データ
     Backend-->>PhotoManagementPanel: 画像一覧（署名付きURL付き）
-    PhotoManagementPanel-->>User: フルサイズ写真一覧表示（コメント、チェックボックス、削除ボタン）
+    PhotoManagementPanel-->>User: フルサイズ写真一覧表示（上へ/下へボタン付き）
 
     User->>PhotoManagementPanel: コメント入力
     PhotoManagementPanel->>useUnsavedChanges: markAsChanged()
@@ -276,16 +278,35 @@ sequenceDiagram
     PhotoManagementPanel->>useUnsavedChanges: markAsChanged()
     PhotoManagementPanel-->>User: 未保存インジケーター表示
 
+    User->>PhotoManagementPanel: 「上へ移動」/「下へ移動」ボタン
+    PhotoManagementPanel->>SurveyDetailPage: handleOrderChange(newImages)
+    SurveyDetailPage->>SurveyDetailPage: setImages(newImages) ローカル状態更新
+    SurveyDetailPage->>pendingOrderRef: 順序変更を記録
+    SurveyDetailPage->>useUnsavedChanges: markAsChanged()
+    SurveyDetailPage-->>User: 未保存インジケーター表示（即時保存しない）
+
+    User->>PhotoManagementPanel: ドラッグ&ドロップで並び替え
+    PhotoManagementPanel->>SurveyDetailPage: handleOrderChange(newImages)
+    SurveyDetailPage->>SurveyDetailPage: setImages(newImages) ローカル状態更新
+    SurveyDetailPage->>pendingOrderRef: 順序変更を記録
+    SurveyDetailPage->>useUnsavedChanges: markAsChanged()
+    SurveyDetailPage-->>User: 未保存インジケーター表示（即時保存しない）
+
     User->>PhotoManagementPanel: 保存ボタンクリック
-    PhotoManagementPanel->>Backend: PATCH /api/site-surveys/images/batch
-    Backend->>PostgreSQL: 一括更新（comment, includeInReport）
+    PhotoManagementPanel->>SurveyDetailPage: handleSaveMetadata(changes)
+    SurveyDetailPage->>SurveyDetailPage: changesにpendingOrderRefの順序変更を追加
+    SurveyDetailPage->>Backend: PATCH /api/site-surveys/images/batch
+    Backend->>PostgreSQL: 一括更新（comment, includeInReport, displayOrder）
     PostgreSQL-->>Backend: 更新完了
-    Backend-->>PhotoManagementPanel: 更新結果
-    PhotoManagementPanel->>useUnsavedChanges: markAsSaved()
+    Backend-->>SurveyDetailPage: 更新結果
+    SurveyDetailPage->>pendingOrderRef: クリア（null）
+    SurveyDetailPage->>useUnsavedChanges: markAsSaved()
 ```
 
 **Key Decisions**:
-- **手動保存方式**: コメント入力・フラグ変更は未保存状態としてマーク、保存ボタンで一括保存
+- **手動保存方式**: コメント入力・フラグ変更・**順序変更**は未保存状態としてマーク、保存ボタンで一括保存
+- **順序変更の即時保存廃止**: ドラッグ&ドロップ、「上へ移動」「下へ移動」ボタンはローカル状態のみ更新（要件4.11-4.13、10.5-10.7）
+- **pendingOrderRefパターン**: 未保存の順序変更をRefで追跡し、保存時にメタデータ変更と統合
 - **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理
 - **ページ離脱警告**: 未保存変更がある場合は確認ダイアログを表示
 - 現場調査詳細画面ではサムネイル一覧タブを設けず、フルサイズ写真を直接表示（要件10.1準拠）
@@ -323,6 +344,7 @@ sequenceDiagram
 - 画像削除時は関連する注釈データも連動削除
 - PostgreSQLとR2は非トランザクション（R2削除失敗時は孤立ファイルとしてログ記録）
 - 既存のDELETE /api/site-surveys/images/:imageIdエンドポイントを利用
+- **画像削除成功時にpendingOrderRef/pendingChangesから該当imageIdをクリア**（未保存変更の整合性確保）
 
 ### PDF報告書生成フロー（要件11対応）
 
@@ -410,9 +432,13 @@ sequenceDiagram
 | **2.1** | **プロジェクト詳細画面の現場調査セクション** | **SiteSurveySectionCard, ProjectDetailPage** | **SurveyListAPI** | - |
 | 2.2-2.7 | 画面遷移・ナビゲーション | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
 | 3.1-3.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
-| 4.1-4.6, 4.9, 4.10 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
+| 4.1-4.6, 4.9 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
 | **4.7** | **画像削除** | **ImageDeleteService, PhotoManagementPanel** | **ImageDeleteAPI** | **画像削除フロー** |
 | **4.8** | **R2孤立ファイル処理** | **ImageDeleteService** | **R2 Lifecycle Rule** | **R2孤立ファイル処理フロー** |
+| **4.10** | **画像一覧の固定表示順序** | **PhotoManagementPanel, SurveyDetailPage** | **ImageAPI** | - |
+| **4.11** | **ドラッグ&ドロップ順序変更（ローカル状態のみ）** | **PhotoManagementPanel, SurveyDetailPage** | - | - |
+| **4.12** | **「上へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
+| **4.13** | **「下へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | 5.1-5.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
 | 6.1-6.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
@@ -422,10 +448,14 @@ sequenceDiagram
 | **9.3** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges, SurveyDetailPage** | - | - |
 | 9.4-9.6 | 保存インジケーター・リトライ・エクスポート | AnnotationService | AnnotationAPI | 注釈編集フロー |
 | **10.1** | **写真一覧管理（削除ボタン付き）** | **PhotoManagementPanel** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
-| 10.2-10.7 | コメント・フラグ・並び替え | PhotoManagementPanel, ImageMetadataService | ImageMetadataAPI | 写真メタデータ更新フロー |
-| **10.8** | **手動保存（保存ボタン）** | **PhotoManagementPanel, useUnsavedChanges** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
-| **10.9** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges** | - | - |
-| **10.10, 10.11** | **画像削除（確認ダイアログ付き）** | **PhotoManagementPanel, ImageDeleteService** | **ImageDeleteAPI** | **画像削除フロー** |
+| 10.2-10.4 | コメント・フラグ入力 | PhotoManagementPanel, ImageMetadataService | ImageMetadataAPI | 写真メタデータ更新フロー |
+| **10.5** | **ドラッグ順序変更（ローカル状態のみ）** | **PhotoManagementPanel, SurveyDetailPage** | - | - |
+| **10.6** | **「上へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
+| **10.7** | **「下へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
+| **10.8** | **写真一覧の表示順序** | **PhotoManagementPanel** | - | - |
+| **10.9** | **保存ボタン（メタデータ+順序一括保存）** | **PhotoManagementPanel, SurveyDetailPage, useUnsavedChanges** | **ImageMetadataAPI, ImageOrderAPI** | **写真メタデータ更新フロー** |
+| **10.10** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges** | - | - |
+| **10.11, 10.12** | **画像削除（確認ダイアログ付き）** | **PhotoManagementPanel, ImageDeleteService** | **ImageDeleteAPI** | **画像削除フロー** |
 | **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService** | **ExportAPI** | **PDF報告書生成フロー** |
 | **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService** | **ExportAPI** | **個別画像エクスポートフロー** |
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
@@ -452,8 +482,8 @@ sequenceDiagram
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
 | SurveyListPage | Frontend/Page | 一覧表示 | 2, 3 | SurveyAPI (P0) | State |
-| SurveyDetailPage | Frontend/Page | 詳細・編集 | 1, 4, 5, 9, 10, 11 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
-| **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（削除ボタン付き） | 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
+| SurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
+| **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
 | AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0) | State |
 | ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12 | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
@@ -858,13 +888,14 @@ Cloudflare R2ダッシュボードまたはAPIで設定:
 
 | Field | Detail |
 |-------|--------|
-| Intent | 画像のコメントと報告書出力フラグを管理 |
-| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8 |
+| Intent | 画像のコメント、報告書出力フラグ、表示順序を管理 |
+| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9 |
 
 **Responsibilities & Constraints**
 - 画像単位でのコメント保存・取得
 - 報告書出力フラグ（includeInReport）の管理
-- 複数画像の一括更新サポート
+- **表示順序（displayOrder）の管理**（要件10.9対応: 保存時に順序変更も一括保存）
+- 複数画像の一括更新サポート（メタデータ+順序）
 - 既存のImageServiceと連携（画像自体の操作はImageServiceに委譲）
 
 **Dependencies**
@@ -885,6 +916,7 @@ interface BatchUpdateImageMetadataInput {
   imageId: string;
   comment?: string | null;
   includeInReport?: boolean;
+  displayOrder?: number;  // 要件10.9対応: 順序変更も一括保存
 }
 
 interface IImageMetadataService {
@@ -893,7 +925,7 @@ interface IImageMetadataService {
     input: UpdateImageMetadataInput
   ): Promise<SurveyImageInfo>;
 
-  /** 要件10.8対応: 複数画像の一括更新 */
+  /** 要件10.9対応: 複数画像のメタデータ+順序を一括更新 */
   batchUpdateMetadata(
     inputs: BatchUpdateImageMetadataInput[]
   ): Promise<SurveyImageInfo[]>;
@@ -922,17 +954,22 @@ const updateImageMetadataSchema = z.object({
   includeInReport: z.boolean().optional(),
 });
 
+// 要件10.9対応: displayOrderをオプショナルで追加
 const batchUpdateImageMetadataSchema = z.array(z.object({
   imageId: z.string().uuid(),
   comment: z.string().max(2000).nullable().optional(),
   includeInReport: z.boolean().optional(),
+  displayOrder: z.number().int().positive().optional(),
 }));
 ```
 
 **Implementation Notes**
 - Integration: 既存のsurvey-images.routes.tsにエンドポイントを追加
-- Validation: コメント最大長2000文字
+- Validation: コメント最大長2000文字、displayOrderは正の整数
 - Risks: 大量の同時更新時のデータベース負荷
+- **順序変更の一括保存**: batchUpdateMetadataはdisplayOrderが指定された場合、メタデータと順序を単一トランザクションで更新
+- **displayOrder重複対策**: サーバーサイドで順序を再計算して連番（1, 2, 3, ...）を保証。フロントエンドから送られたdisplayOrderは相対順序として扱い、重複や欠番があっても正規化する
+- **大量リクエスト回避**: 順序変更APIは個別呼び出しではなくバッチAPIを使用。ループ処理での個別API呼び出しは禁止
 
 #### AnnotationService
 
@@ -1305,20 +1342,133 @@ interface SiteSurveySectionCardState {
 - Validation: 現場調査が0件の場合は新規作成リンクを表示
 - Risks: APIレスポンス遅延時のUX（ローディングスケルトン表示）
 
-#### PhotoManagementPanel（要件10対応）
+#### SurveyDetailPage（要件4.10-4.13、10対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 現場調査詳細画面の写真一覧管理UIを提供（フルサイズ写真表示、コメント入力、報告書出力フラグ、削除ボタン、ドラッグ&ドロップ並び替え） |
-| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10, 10.11 |
+| Intent | 現場調査詳細画面の状態管理と順序変更・保存処理を担当 |
+| Requirements | 4.10, 4.11, 4.12, 4.13, 10.5, 10.6, 10.7, 10.8, 10.9 |
+
+**Responsibilities & Constraints**
+- 画像一覧の表示状態管理
+- **pendingOrderRefによる未保存順序変更の追跡**
+- **handleOrderChange**: ローカル状態のみを更新（サーバー保存しない）
+- **handleSaveMetadata**: メタデータと順序変更を一括保存
+- useUnsavedChangesフックとの統合
+
+**Dependencies**
+- Inbound: Router — ページ遷移 (P0)
+- Outbound: PhotoManagementPanel — 子コンポーネント (P0)
+- Outbound: ImageMetadataAPI — 一括保存 (P0)
+- Outbound: useUnsavedChanges — 未保存変更検出 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface SurveyDetailPageState {
+  survey: SurveyDetail | null;
+  images: SurveyImageInfo[];
+  isLoading: boolean;
+  isSaving: boolean;
+  error: string | null;
+}
+
+/**
+ * 未保存の順序変更を追跡するRef
+ * @requirement 4.11, 4.12, 4.13, 10.5, 10.6, 10.7
+ */
+interface PendingOrderRef {
+  current: Map<string, number> | null;  // imageId -> newDisplayOrder
+}
+
+/**
+ * 順序変更ハンドラー（ローカル状態のみ更新、即時保存しない）
+ * @requirement 4.11, 4.12, 4.13, 10.5, 10.6, 10.7
+ */
+const handleOrderChange = (newImages: SurveyImageInfo[]): void => {
+  // 1. ローカル状態を更新
+  setImages(newImages);
+
+  // 2. 未保存の順序変更をpendingOrderRefに記録
+  const newOrderMap = new Map<string, number>();
+  newImages.forEach((img, index) => {
+    newOrderMap.set(img.id, index + 1);
+  });
+  pendingOrderRef.current = newOrderMap;
+
+  // 3. 未保存フラグを立てる
+  markAsChanged();
+};
+
+/**
+ * 保存ハンドラー（メタデータ+順序変更を一括保存）
+ * @requirement 10.9
+ */
+const handleSaveMetadata = async (
+  changes: Map<string, UpdateImageMetadataInput>
+): Promise<void> => {
+  const batchInput: BatchUpdateImageMetadataInput[] = [];
+
+  // 1. メタデータ変更を収集
+  changes.forEach((change, imageId) => {
+    const input: BatchUpdateImageMetadataInput = {
+      imageId,
+      ...change,
+    };
+    batchInput.push(input);
+  });
+
+  // 2. 順序変更がある場合、displayOrderを追加
+  if (pendingOrderRef.current) {
+    pendingOrderRef.current.forEach((newOrder, imageId) => {
+      const existingInput = batchInput.find(i => i.imageId === imageId);
+      if (existingInput) {
+        existingInput.displayOrder = newOrder;
+      } else {
+        batchInput.push({ imageId, displayOrder: newOrder });
+      }
+    });
+  }
+
+  // 3. 一括保存API呼び出し
+  await batchUpdateMetadata(batchInput);
+
+  // 4. 保存成功時にpendingOrderRefをクリア
+  pendingOrderRef.current = null;
+  markAsSaved();
+};
+```
+
+**Implementation Notes**
+- Integration: PhotoManagementPanelの親コンポーネントとして機能
+- Validation: 保存前にpendingOrderRefをチェックして順序変更があれば一括保存に含める
+- Risks: 大量の画像+順序変更時のAPIペイロードサイズ
+- **順序変更の即時保存廃止**: ドラッグ&ドロップ、上へ/下へボタンは即時サーバー保存せず、保存ボタンクリック時に一括保存
+- **handleImageDelete（画像削除コールバック）**: 削除確認ダイアログで削除確定後、以下の処理を実行:
+  1. DELETE APIを呼び出し画像を削除
+  2. 削除成功時にpendingOrderRef.currentから該当imageIdを削除
+  3. 削除成功時にpendingChangesRefから該当imageIdを削除
+  4. ローカルのimages stateから該当画像を除去
+
+#### PhotoManagementPanel（要件4.10-4.13、10対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 現場調査詳細画面の写真一覧管理UIを提供（フルサイズ写真表示、コメント入力、報告書出力フラグ、削除ボタン、並び替え機能） |
+| Requirements | 4.10, 4.11, 4.12, 4.13, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10, 10.11, 10.12 |
 
 **Responsibilities & Constraints**
 - **フルサイズの写真を直接表示**（サムネイル一覧タブは表示しない、要件10.1準拠）
 - 写真ごとのコメント入力テキストエリア
 - 報告書出力フラグ（チェックボックス）の管理
 - **削除ボタンと確認ダイアログ**
-- ドラッグ&ドロップによる順序変更
-- **手動保存方式**: 変更の一括保存（保存ボタンクリック）
+- **並び替え機能（3種類）**（要件4.11-4.13、10.5-10.7）:
+  - ドラッグ&ドロップによる順序変更（ローカル状態のみ更新、即時保存しない）
+  - 「上へ移動」ボタン（当該画像を1つ上の位置に移動、ローカル状態のみ更新）
+  - 「下へ移動」ボタン（当該画像を1つ下の位置に移動、ローカル状態のみ更新）
+- **手動保存方式**: コメント、報告書出力フラグ、**表示順序**を一括保存（保存ボタンクリック）
 - **未保存変更検出**: useUnsavedChangesフックとの統合
 - 現場調査詳細画面のメイン表示コンポーネントとして機能
 
@@ -1340,7 +1490,8 @@ interface PhotoManagementState {
   isSaving: boolean;
   errors: Record<string, string | null>; // imageId -> error message
   draggedImageId: string | null;
-  pendingChanges: Map<string, UpdateImageMetadataInput>; // 未保存の変更
+  pendingChanges: Map<string, UpdateImageMetadataInput>; // 未保存のメタデータ変更
+  pendingOrderChanges: boolean; // 未保存の順序変更があるかどうか
   deleteDialogImageId: string | null; // 削除確認ダイアログの対象
 }
 
@@ -1353,6 +1504,16 @@ interface PhotoManagementPanelProps {
   isDirty: boolean;
   onDirtyChange: (isDirty: boolean) => void;
 }
+
+/** 順序変更ハンドラー（ローカル状態のみ更新、即時保存しない） */
+interface OrderChangeHandlers {
+  /** ドラッグ&ドロップによる順序変更 @requirement 4.11, 10.5 */
+  handleDragReorder: (sourceIndex: number, destinationIndex: number) => void;
+  /** 「上へ移動」ボタンクリック @requirement 4.12, 10.6 */
+  handleMoveUp: (imageId: string) => void;
+  /** 「下へ移動」ボタンクリック @requirement 4.13, 10.7 */
+  handleMoveDown: (imageId: string) => void;
+}
 ```
 
 **Implementation Notes**
@@ -1361,6 +1522,7 @@ interface PhotoManagementPanelProps {
 - Risks: 大量画像時のレンダリングパフォーマンス（遅延読み込み、仮想スクロール検討）
 - **UI設計の注意点**: サムネイル一覧は別タブとして用意せず、フルサイズ写真のみを表示する単一ビュー構成
 - **ナビゲーション削除**: 「プロジェクトに戻る」「現場調査一覧に戻る」ボタンは表示しない（ブレッドクラムのみ）
+- **順序変更の動作**: ドラッグ&ドロップ、「上へ移動」「下へ移動」ボタンはローカル状態のみを更新し、即時サーバー保存しない。保存ボタンクリック時にメタデータと順序変更を一括保存する（要件4.11-4.13、10.5-10.7、10.9）
 
 ##### UI仕様
 
@@ -1372,7 +1534,7 @@ interface PhotoManagementPanelProps {
 │ 調査日: YYYY-MM-DD  |  画像数: N枚                              │
 │ ※ 未保存の変更があります（isDirty=trueの場合）                  │
 ├─────────────────────────────────────────────────────────────────┤
-│ 写真一覧（フルサイズ表示、表示順序でドラッグ可能）                │
+│ 写真一覧（フルサイズ表示、ドラッグ並び替え、上/下移動ボタン）      │
 ├─────────────────────────────────────────────────────────────────┤
 │ ┌───┐ ┌──────────────────────────────────────────────────────┐ │
 │ │ ☐ │ │ ┌─────────────────────┐  ┌────────────────────────┐ │ │
@@ -1382,7 +1544,7 @@ interface PhotoManagementPanelProps {
 │ │   │ │ │   ビューア/エディタ) │  │ │                    │ │ │ │
 │ │   │ │ │                     │  │ └────────────────────┘ │ │ │
 │ │   │ │ └─────────────────────┘  └────────────────────────┘ │ │
-│ │   │ │                                              [🗑削除] │ │
+│ │   │ │   [△上へ] [▽下へ]                          [🗑削除] │ │
 │ └───┘ └──────────────────────────────────────────────────────┘ │
 │   ↑                                                             │
 │ 報告書出力フラグ                                                 │
@@ -1394,7 +1556,7 @@ interface PhotoManagementPanelProps {
 │ │   │ │ │                     │  │ │                    │ │ │ │
 │ │   │ │ │                     │  │ │                    │ │ │ │
 │ │   │ │ └─────────────────────┘  └────────────────────────┘ │ │
-│ │   │ │                                              [🗑削除] │ │
+│ │   │ │   [△上へ] [▽下へ]                          [🗑削除] │ │
 │ └───┘ └──────────────────────────────────────────────────────┘ │
 │   ↑                                                             │
 │ 報告書出力フラグ                                                 │
@@ -1405,6 +1567,8 @@ interface PhotoManagementPanelProps {
 ※ サムネイル一覧タブは表示しない（要件10.1準拠）
 ※ フルサイズ写真をクリックすると画像ビューア/注釈エディタが開く
 ※ 「プロジェクトに戻る」「現場調査一覧に戻る」ボタンは表示しない
+※ 並び替え操作（ドラッグ、上へ/下へボタン）はローカル状態のみ更新（要件4.11-4.13、10.5-10.7）
+※ 保存ボタンでコメント、報告書出力フラグ、表示順序を一括保存（要件10.9）
 ```
 
 ##### 削除確認ダイアログ
@@ -2176,18 +2340,19 @@ interface FabricSerializedObject {
 
 - **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携、**直近N件取得**
 - **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
-- **ImageMetadataService**: コメント更新、報告書フラグ更新、バリデーション、**一括更新**
+- **ImageMetadataService**: コメント更新、報告書フラグ更新、**順序更新**、バリデーション、**一括更新（メタデータ+順序）**
 - **ImageDeleteService**: 画像削除、注釈連動削除、R2連携、**孤立ファイルorphaned/移動（4.8）**
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート
 - **PdfReportService**: 3組レイアウト、コメント表示、ページ分割
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
 - **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視、**QuotaExceededError LRUリトライ（15.7）、プライベートブラウジング検出（15.9）、クロスブラウザエラー検出（15.10）**
 - **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation
+- **SurveyDetailPage**: **handleOrderChange（ローカル状態更新）**、**handleSaveMetadata（メタデータ+順序一括保存）**、**pendingOrderRefパターン**
 
 ### Integration Tests
 
 - **画像アップロードフロー**: Multer → Sharp → R2 → PostgreSQL
-- **画像メタデータ更新フロー**: PATCH API → PostgreSQL → レスポンス
+- **画像メタデータ・順序更新フロー**: PATCH API → PostgreSQL（メタデータ+displayOrder一括更新） → レスポンス
 - **画像削除フロー**: DELETE API → PostgreSQL → R2 → レスポンス
 - **注釈保存・復元**: Frontend ↔ Backend ↔ PostgreSQL
 - **PDFエクスポート**: 画像取得 → 注釈合成 → 3組レイアウト → PDF生成
@@ -2201,8 +2366,9 @@ interface FabricSerializedObject {
 
 - 現場調査作成・編集・削除フロー
 - **プロジェクト詳細画面の現場調査セクション表示**
-- 画像アップロード・削除・順序変更
-- **写真コメント入力・報告書フラグ切り替え・手動保存**
+- 画像アップロード・削除
+- **画像順序変更（ドラッグ&ドロップ、上へ/下へボタン）がローカル状態のみ更新されること（4.11-4.13、10.5-10.7）**
+- **写真コメント入力・報告書フラグ切り替え・順序変更後の一括保存（10.9）**
 - **画像削除（確認ダイアログ）**
 - **ページ離脱時の未保存変更確認ダイアログ**
 - 注釈編集（各ツール）とUndo/Redo
@@ -2289,7 +2455,7 @@ interface FabricSerializedObject {
 
 1. ImageMetadataServiceの実装
 2. PATCH /api/site-surveys/images/:imageId エンドポイントの追加
-3. PATCH /api/site-surveys/images/batch エンドポイントの追加
+3. PATCH /api/site-surveys/images/batch エンドポイントの追加（**displayOrderを含む一括更新対応**）
 4. GET /api/projects/:projectId/site-surveys/latest エンドポイントの追加
 5. 画像一覧APIのレスポンスに新フィールドを追加
 6. **ImageDeleteServiceにorphaned/移動ロジックを追加（4.8）**
@@ -2306,9 +2472,13 @@ interface FabricSerializedObject {
 ### Phase 3: フロントエンド実装
 
 1. SiteSurveySectionCardコンポーネントの実装
-2. PhotoManagementPanelコンポーネントの拡張（削除ボタン、手動保存）
+2. PhotoManagementPanelコンポーネントの拡張（削除ボタン、手動保存、**「上へ移動」「下へ移動」ボタン**）
 3. useUnsavedChangesフックとの統合
-4. SurveyDetailPageの変更（手動保存、ナビゲーション削除）
+4. **SurveyDetailPageの変更**:
+   - 手動保存、ナビゲーション削除
+   - **pendingOrderRefパターンの実装（未保存順序変更の追跡）**
+   - **handleOrderChange（ローカル状態のみ更新）**
+   - **handleSaveMetadata（メタデータ+順序一括保存）**
 5. PdfReportServiceの3組レイアウト対応
 6. ImageExportDialogコンポーネントの実装
 7. ProjectDetailPageへのSiteSurveySectionCard統合

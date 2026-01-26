@@ -40,7 +40,7 @@ export interface PhotoManagementPanelProps {
   onImageMetadataChange: (imageId: string, metadata: UpdateImageMetadataInput) => void;
   /** 画像クリック時のハンドラ */
   onImageClick?: (image: SurveyImageInfo) => void;
-  /** 順序変更時のハンドラ（Task 27.5） */
+  /** 順序変更時のハンドラ（Task 27.5）- ローカル状態のみ更新、保存はonSaveで行う */
   onOrderChange?: (newOrders: ImageOrderItem[]) => void;
   /** ローディング状態 */
   isLoading?: boolean;
@@ -56,6 +56,8 @@ export interface PhotoManagementPanelProps {
   isSaving?: boolean;
   /** 画像削除時のハンドラ（Task 34: 画像削除機能） */
   onDelete?: (imageId: string) => Promise<void>;
+  /** 順序変更ボタンを表示するか */
+  showOrderButtons?: boolean;
 }
 
 // ============================================================================
@@ -363,6 +365,33 @@ const styles = {
     justifyContent: 'flex-end',
     gap: '12px',
   } as React.CSSProperties,
+  // 順序変更ボタン関連スタイル
+  orderButtonsContainer: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '4px',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  orderButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    padding: 0,
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    backgroundColor: '#ffffff',
+    color: '#6b7280',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  } as React.CSSProperties,
+  orderButtonDisabled: {
+    backgroundColor: '#f3f4f6',
+    color: '#d1d5db',
+    cursor: 'not-allowed',
+    border: '1px solid #e5e7eb',
+  } as React.CSSProperties,
   cancelButton: {
     padding: '8px 16px',
     fontSize: '14px',
@@ -392,6 +421,7 @@ const styles = {
 interface PhotoItemProps {
   image: SurveyImageInfo;
   index: number;
+  totalImages: number;
   showOrderNumber: boolean;
   readOnly: boolean;
   onMetadataChange: (imageId: string, metadata: UpdateImageMetadataInput) => void;
@@ -408,11 +438,15 @@ interface PhotoItemProps {
   onDragEnd: () => void;
   // 画像削除用props（Task 34）
   onDeleteClick?: (imageId: string) => void;
+  // 順序変更ボタン用props
+  onMoveUp?: (imageId: string) => void;
+  onMoveDown?: (imageId: string) => void;
 }
 
 function PhotoItem({
   image,
   index,
+  totalImages,
   showOrderNumber,
   readOnly,
   onMetadataChange,
@@ -427,6 +461,8 @@ function PhotoItem({
   onDrop,
   onDragEnd,
   onDeleteClick,
+  onMoveUp,
+  onMoveDown,
 }: PhotoItemProps) {
   const [comment, setComment] = useState(image.comment ?? '');
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -572,6 +608,66 @@ function PhotoItem({
         </div>
       )}
 
+      {/* 順序変更ボタン */}
+      {(onMoveUp || onMoveDown) && !readOnly && (
+        <div style={styles.orderButtonsContainer} data-testid="order-buttons">
+          <button
+            type="button"
+            onClick={() => onMoveUp?.(image.id)}
+            disabled={index === 0}
+            style={{
+              ...styles.orderButton,
+              ...(index === 0 ? styles.orderButtonDisabled : {}),
+            }}
+            aria-label="上へ移動"
+            title="上へ移動"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 15l7-7 7 7"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => onMoveDown?.(image.id)}
+            disabled={index === totalImages - 1}
+            style={{
+              ...styles.orderButton,
+              ...(index === totalImages - 1 ? styles.orderButtonDisabled : {}),
+            }}
+            aria-label="下へ移動"
+            title="下へ移動"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* 画像セクション */}
       <div style={styles.imageSection}>
         {showOrderNumber && (
@@ -710,6 +806,7 @@ export function PhotoManagementPanel({
   isDirty = false,
   isSaving = false,
   onDelete,
+  showOrderButtons = true,
 }: PhotoManagementPanelProps) {
   // 削除確認ダイアログの状態（Task 34）
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
@@ -876,6 +973,54 @@ export function PhotoManagementPanel({
     setDragOverId(null);
   }, []);
 
+  // 上へ移動ハンドラ
+  const handleMoveUp = useCallback(
+    (imageId: string) => {
+      const currentIndex = sortedImages.findIndex((img) => img.id === imageId);
+      if (currentIndex <= 0 || !onOrderChange) return;
+
+      // 配列を再構築
+      const newImages = [...sortedImages];
+      const [removed] = newImages.splice(currentIndex, 1);
+      if (removed) {
+        newImages.splice(currentIndex - 1, 0, removed);
+      }
+
+      // 新しいorder配列を生成
+      const newOrders: ImageOrderItem[] = newImages.map((img, index) => ({
+        id: img.id,
+        order: index + 1,
+      }));
+
+      onOrderChange(newOrders);
+    },
+    [sortedImages, onOrderChange]
+  );
+
+  // 下へ移動ハンドラ
+  const handleMoveDown = useCallback(
+    (imageId: string) => {
+      const currentIndex = sortedImages.findIndex((img) => img.id === imageId);
+      if (currentIndex >= sortedImages.length - 1 || !onOrderChange) return;
+
+      // 配列を再構築
+      const newImages = [...sortedImages];
+      const [removed] = newImages.splice(currentIndex, 1);
+      if (removed) {
+        newImages.splice(currentIndex + 1, 0, removed);
+      }
+
+      // 新しいorder配列を生成
+      const newOrders: ImageOrderItem[] = newImages.map((img, index) => ({
+        id: img.id,
+        order: index + 1,
+      }));
+
+      onOrderChange(newOrders);
+    },
+    [sortedImages, onOrderChange]
+  );
+
   // 削除ボタンクリックハンドラ（Task 34）
   const handleDeleteClick = useCallback((imageId: string) => {
     setDeleteTargetId(imageId);
@@ -988,6 +1133,7 @@ export function PhotoManagementPanel({
             key={image.id}
             image={image}
             index={index}
+            totalImages={sortedImages.length}
             showOrderNumber={showOrderNumbers}
             readOnly={readOnly}
             onMetadataChange={onImageMetadataChange}
@@ -1004,6 +1150,9 @@ export function PhotoManagementPanel({
             onDragEnd={handleDragEnd}
             // 画像削除用props（Task 34）
             onDeleteClick={onDelete ? handleDeleteClick : undefined}
+            // 順序変更ボタン用props
+            onMoveUp={showOrderButtons && onOrderChange ? handleMoveUp : undefined}
+            onMoveDown={showOrderButtons && onOrderChange ? handleMoveDown : undefined}
           />
         ))}
       </div>
