@@ -93,6 +93,16 @@ describe('QuantityTableCreatePage', () => {
       });
     });
 
+    it('数量表名にデフォルト値「数量表」が設定される', async () => {
+      // REQ-2.1: 数量表名フィールドにデフォルト値「数量表」を設定
+      renderWithRouter();
+
+      await waitFor(() => {
+        const input = screen.getByLabelText(/数量表名/i);
+        expect(input).toHaveValue('数量表');
+      });
+    });
+
     it('作成ボタンが表示される', async () => {
       renderWithRouter();
 
@@ -198,9 +208,13 @@ describe('QuantityTableCreatePage', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        const createButton = screen.getByRole('button', { name: /作成/i });
-        expect(createButton).toBeDisabled();
+        // デフォルト値を空にする
+        const input = screen.getByLabelText(/数量表名/i);
+        fireEvent.change(input, { target: { value: '' } });
       });
+
+      const createButton = screen.getByRole('button', { name: /作成/i });
+      expect(createButton).toBeDisabled();
     });
   });
 
