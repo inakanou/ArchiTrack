@@ -86,6 +86,23 @@ vi.mock('../../pages/TradingPartnerEditPage', () => ({
   default: () => <div data-testid="trading-partner-edit-page">Trading Partner Edit Page</div>,
 }));
 
+// 内訳書ページコンポーネントモック
+vi.mock('../../pages/ItemizedStatementListPage', () => ({
+  default: () => <div data-testid="itemized-statement-list-page">Itemized Statement List Page</div>,
+}));
+
+vi.mock('../../pages/ItemizedStatementDetailPage', () => ({
+  default: () => (
+    <div data-testid="itemized-statement-detail-page">Itemized Statement Detail Page</div>
+  ),
+}));
+
+vi.mock('../../pages/ItemizedStatementCreatePage', () => ({
+  default: () => (
+    <div data-testid="itemized-statement-create-page">Itemized Statement Create Page</div>
+  ),
+}));
+
 vi.mock('../../components/ProtectedRoute', () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -356,6 +373,103 @@ describe('Routes - Trading Partner Management', () => {
       });
 
       expect(screen.queryByTestId('trading-partner-detail-page')).not.toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * 内訳書管理ルートのテスト
+ *
+ * Task 17.2: ルーティング設定の更新
+ *
+ * Requirements:
+ * - 15.1: 内訳書新規作成画面を /projects/:projectId/itemized-statements/new のURLで提供する
+ */
+describe('Routes - Itemized Statement Management', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('/projects/:projectId/itemized-statements/new ルート (REQ-15.1)', () => {
+    it('/projects/:projectId/itemized-statements/new にアクセスすると内訳書作成ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/itemized-statements/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('itemized-statement-create-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/projects/:projectId/itemized-statements/new はProtectedLayoutでラップされている', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/itemized-statements/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('/projects/:projectId/itemized-statements ルート', () => {
+    it('/projects/:projectId/itemized-statements にアクセスすると内訳書一覧ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/itemized-statements'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('itemized-statement-list-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/projects/:projectId/itemized-statements はProtectedLayoutでラップされている', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/itemized-statements'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('/itemized-statements/:id ルート', () => {
+    it('/itemized-statements/:id にアクセスすると内訳書詳細ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/itemized-statements/test-statement-id'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('itemized-statement-detail-page')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('ルート順序', () => {
+    it('/projects/:projectId/itemized-statements/new は /projects/:projectId/itemized-statements より先にマッチする', async () => {
+      // /projects/:projectId/itemized-statements/new が正しくマッチすることを確認
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/itemized-statements/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('itemized-statement-create-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('itemized-statement-list-page')).not.toBeInTheDocument();
     });
   });
 });

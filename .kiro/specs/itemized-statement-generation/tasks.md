@@ -277,7 +277,7 @@
 
 ## Task 17: 内訳書新規作成画面（設計更新対応）
 
-- [ ] 17.1 (P) 内訳書新規作成ページの実装
+- [x] 17.1 (P) 内訳書新規作成ページの実装
   - ItemizedStatementCreatePageコンポーネントを新規作成する
   - プロジェクト情報を取得し、数量表一覧を取得する
   - パンくずナビゲーション「プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成」を表示する
@@ -287,13 +287,13 @@
   - キャンセル時の遷移先をlocation.stateまたは?from=listで判定し、未指定時はプロジェクト詳細画面へ戻る
   - _Requirements: 15.1, 15.2, 15.3, 15.5, 15.6, 15.7, 9.5, 9.6_
 
-- [ ] 17.2 ルーティング設定の更新
+- [x] 17.2 ルーティング設定の更新
   - routes.tsxに内訳書新規作成画面へのルート（/projects/:projectId/itemized-statements/new）を追加する
   - 内訳書一覧画面より先にルートを定義し、パスマッチングの優先順位を確保する
   - SiteSurveyCreatePage・QuantityTableCreatePageと同様のルーティングパターンを適用する
   - _Requirements: 15.1_
 
-- [ ] 17.3 CreateItemizedStatementFormのデフォルト名対応
+- [x] 17.3 CreateItemizedStatementFormのデフォルト名対応
   - defaultNameプロパティを追加し、内訳書名フィールドのデフォルト値として使用する
   - デフォルト値として「内訳書」を設定する
   - 既存のフォームバリデーションとの整合性を確保する
@@ -317,7 +317,7 @@
 
 ## Task 19: 専用作成画面のテスト
 
-- [ ] 19.1 (P) ItemizedStatementCreatePageの単体テスト
+- [x] 19.1 (P) ItemizedStatementCreatePageの単体テスト
   - 画面初期表示時のデータ取得とローディング状態をテストする
   - パンくずナビゲーションの表示形式をテストする
   - 作成成功時の詳細画面遷移をテストする

@@ -32,6 +32,7 @@ import QuantityTableEditPage from './pages/QuantityTableEditPage';
 import QuantityTableRedirectPage from './pages/QuantityTableRedirectPage';
 import ItemizedStatementDetailPage from './pages/ItemizedStatementDetailPage';
 import ItemizedStatementListPage from './pages/ItemizedStatementListPage';
+import ItemizedStatementCreatePage from './pages/ItemizedStatementCreatePage';
 import EstimateRequestListPage from './pages/EstimateRequestListPage';
 import EstimateRequestCreatePage from './pages/EstimateRequestCreatePage';
 import EstimateRequestDetailPage from './pages/EstimateRequestDetailPage';
@@ -213,6 +214,19 @@ export const routes: RouteObject[] = [
         element: <QuantityTableEditPage />,
       },
 
+      // 内訳書新規作成（/projects/:projectId/itemized-statements より先に定義する必要あり）
+      // REQ-15.1: 内訳書新規作成画面を独立したページとして提供する
+      // REQ-15.2: プロジェクト詳細画面に戻るリンクを表示する
+      // REQ-15.3: 内訳書名入力フィールドを表示する
+      // REQ-15.4: 内訳書名フィールドのデフォルト値として「内訳書」を設定する
+      // REQ-15.5: 数量表選択リストを表示する
+      // REQ-15.6: 作成成功時に内訳書詳細画面へ遷移する
+      // REQ-15.7: キャンセル時にプロジェクト詳細画面に遷移する
+      // Task 17.1, 17.2: 内訳書新規作成画面の実装とルーティング設定
+      {
+        path: '/projects/:projectId/itemized-statements/new',
+        element: <ItemizedStatementCreatePage />,
+      },
       // 内訳書一覧画面（/itemized-statements/:id より先に定義する必要あり）
       // REQ-3.2: 作成済み内訳書を作成日時の降順で一覧表示する
       // REQ-3.3: 内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージを表示する
