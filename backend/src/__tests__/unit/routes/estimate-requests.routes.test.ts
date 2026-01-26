@@ -26,6 +26,7 @@ const {
   mockCreate,
   mockFindById,
   mockFindByProjectId,
+  mockFindLatestByProjectId,
   mockUpdate,
   mockDelete,
   mockUpdateItemSelection,
@@ -38,6 +39,7 @@ const {
   mockCreate: vi.fn(),
   mockFindById: vi.fn(),
   mockFindByProjectId: vi.fn(),
+  mockFindLatestByProjectId: vi.fn(),
   mockUpdate: vi.fn(),
   mockDelete: vi.fn(),
   mockUpdateItemSelection: vi.fn(),
@@ -67,6 +69,7 @@ vi.mock('../../../services/estimate-request.service.js', () => ({
     create = mockCreate;
     findById = mockFindById;
     findByProjectId = mockFindByProjectId;
+    findLatestByProjectId = mockFindLatestByProjectId;
     update = mockUpdate;
     delete = mockDelete;
     updateItemSelection = mockUpdateItemSelection;
@@ -347,6 +350,75 @@ describe('estimate-requests.routes', () => {
       await request(app).get(`/api/projects/${projectId}/estimate-requests`);
 
       expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:read');
+    });
+  });
+
+  describe('GET /api/projects/:projectId/estimate-requests/latest', () => {
+    it('should return latest estimate requests with total count', async () => {
+      const mockResult = {
+        totalCount: 5,
+        latestRequests: [mockEstimateRequest],
+      };
+      mockFindLatestByProjectId.mockResolvedValue(mockResult);
+
+      const response = await request(app).get(
+        `/api/projects/${projectId}/estimate-requests/latest`
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.totalCount).toBe(5);
+      expect(response.body.latestRequests).toHaveLength(1);
+      expect(mockFindLatestByProjectId).toHaveBeenCalledWith(projectId, 2);
+    });
+
+    it('should accept limit query parameter', async () => {
+      mockFindLatestByProjectId.mockResolvedValue({
+        totalCount: 10,
+        latestRequests: [],
+      });
+
+      const response = await request(app)
+        .get(`/api/projects/${projectId}/estimate-requests/latest`)
+        .query({ limit: 5 });
+
+      expect(response.status).toBe(200);
+      expect(mockFindLatestByProjectId).toHaveBeenCalledWith(projectId, 5);
+    });
+
+    it('should return empty list when no estimate requests exist', async () => {
+      mockFindLatestByProjectId.mockResolvedValue({
+        totalCount: 0,
+        latestRequests: [],
+      });
+
+      const response = await request(app).get(
+        `/api/projects/${projectId}/estimate-requests/latest`
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.totalCount).toBe(0);
+      expect(response.body.latestRequests).toHaveLength(0);
+    });
+
+    it('should require estimate_request:read permission', async () => {
+      mockFindLatestByProjectId.mockResolvedValue({
+        totalCount: 0,
+        latestRequests: [],
+      });
+
+      await request(app).get(`/api/projects/${projectId}/estimate-requests/latest`);
+
+      expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:read');
+    });
+
+    it('should return 403 when user lacks permission', async () => {
+      mockState.shouldRejectPermission = true;
+
+      const response = await request(app).get(
+        `/api/projects/${projectId}/estimate-requests/latest`
+      );
+
+      expect(response.status).toBe(403);
     });
   });
 
