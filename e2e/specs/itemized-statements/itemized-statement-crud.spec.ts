@@ -1143,7 +1143,9 @@ test.describe('内訳書CRUD操作', () => {
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
       // 内訳書カードに必要な情報が含まれていることを確認
-      const statementCard = itemizedStatementSection.locator('a[href*="/itemized-statements/"]');
+      // 「/itemized-statements/」で始まるリンク（詳細画面へのリンク）を対象とし、
+      // 「/projects/.../itemized-statements/new」（新規作成リンク）を除外
+      const statementCard = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
       if ((await statementCard.count()) > 0) {
         const firstCard = statementCard.first();
         await expect(firstCard).toBeVisible();
@@ -1168,8 +1170,8 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 内訳書リンクをクリック
-      const statementLink = itemizedStatementSection.locator('a[href*="/itemized-statements/"]');
+      // 内訳書リンクをクリック（詳細画面へのリンク、新規作成リンクを除外）
+      const statementLink = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
       if ((await statementLink.count()) > 0) {
         await statementLink.first().click();
         await page.waitForURL(/\/itemized-statements\/[0-9a-f-]+/, {
@@ -1610,8 +1612,8 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 内訳書へのリンクが存在する
-      const statementLinks = itemizedStatementSection.locator('a[href*="/itemized-statements/"]');
+      // 内訳書へのリンクが存在する（新規作成リンクを除外するため ^= を使用）
+      const statementLinks = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
       const linkCount = await statementLinks.count();
       expect(linkCount).toBeGreaterThan(0);
     });
@@ -2309,6 +2311,16 @@ test.describe('内訳書CRUD操作', () => {
       });
       const project = await projectResponse.json();
 
+      // 数量表を作成（内訳書一覧で「内訳書はまだありません」を表示するには数量表が必要）
+      const quantityTableResponse = await request.post(
+        `${baseUrl}/api/projects/${project.id}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { name: `数量表_${Date.now()}` },
+        }
+      );
+      const quantityTable = await quantityTableResponse.json();
+
       try {
         // 内訳書一覧画面に移動
         await page.goto(`/projects/${project.id}/itemized-statements`);
@@ -2319,6 +2331,22 @@ test.describe('内訳書CRUD操作', () => {
           timeout: getTimeout(10000),
         });
       } finally {
+        // クリーンアップ: 数量表を削除
+        const qtDetailResponse = await request.get(
+          `${baseUrl}/api/projects/${project.id}/quantity-tables/${quantityTable.id}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }
+        );
+        const qtDetail = await qtDetailResponse.json();
+        await request.delete(
+          `${baseUrl}/api/projects/${project.id}/quantity-tables/${quantityTable.id}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            data: { updatedAt: qtDetail.updatedAt },
+          }
+        );
+
         // クリーンアップ: プロジェクトを削除
         const projectDetailResponse = await request.get(`${baseUrl}/api/projects/${project.id}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
