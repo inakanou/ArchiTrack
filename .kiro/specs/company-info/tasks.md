@@ -64,8 +64,8 @@
 
 ---
 
-- [ ] 4. バックエンドAPI層の実装
-- [ ] 4.1 APIルートのテスト作成
+- [x] 4. バックエンドAPI層の実装
+- [x] 4.1 APIルートのテスト作成
   - GET /api/company-info: 認証チェックテストを作成
   - GET /api/company-info: 権限チェックテスト（company_info:read）を作成
   - GET /api/company-info: 登録済みデータ取得成功テストを作成
@@ -80,7 +80,7 @@
   - 権限不足時の403テストを作成
   - _Requirements: 6.1, 6.2, 6.4, 6.7, 6.8, 6.9, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10_
 
-- [ ] 4.2 APIルートの実装
+- [x] 4.2 APIルートの実装
   - テストが通過するようにcompany-info.routes.tsを実装
   - authenticateミドルウェアで認証を検証
   - requirePermissionミドルウェアで権限を検証
