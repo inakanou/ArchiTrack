@@ -99,7 +99,7 @@ sequenceDiagram
 
     User->>UI: /company-info にアクセス
     UI->>API: GET /api/company-info
-    API->>API: authenticate + requirePermission(company-info:read)
+    API->>API: authenticate + requirePermission(company_info:read)
     API->>DB: findFirst(CompanyInfo)
     alt 自社情報が存在
         DB-->>API: CompanyInfo data
@@ -113,7 +113,7 @@ sequenceDiagram
 
     User->>UI: フォーム入力 + 保存ボタンクリック
     UI->>API: PUT /api/company-info (+ version)
-    API->>API: authenticate + requirePermission(company-info:update)
+    API->>API: authenticate + requirePermission(company_info:update)
     API->>API: Zodバリデーション
     API->>DB: upsert(CompanyInfo) with version check
     alt 楽観的排他制御OK
@@ -678,8 +678,8 @@ interface CompanyInfoAuditLog {
 
 2. **認証・権限テスト**
    - 未認証アクセス → 401
-   - company-info:read 権限なし → 403
-   - company-info:update 権限なし → 403
+   - company_info:read 権限なし → 403
+   - company_info:update 権限なし → 403
 
 3. **楽観的排他制御テスト**
    - 正常な更新（versionマッチ）
@@ -712,24 +712,24 @@ interface CompanyInfoAuditLog {
 ### Permission Design
 
 新規権限の定義:
-- `company-info:read`: 自社情報の閲覧権限
-- `company-info:update`: 自社情報の更新権限（作成も含む）
+- `company_info:read`: 自社情報の閲覧権限
+- `company_info:update`: 自社情報の更新権限（作成も含む）
 
 **権限割り当て**
-- admin ロール: company-info:read, company-info:update
-- user ロール: company-info:read, company-info:update
+- admin ロール: company_info:read, company_info:update
+- user ロール: company_info:read, company_info:update
 
 **seed-helpers.ts への追加**
 ```typescript
 // 自社情報権限の定義
 const companyInfoPermissions = [
-  { name: 'company-info:read', description: '自社情報の閲覧' },
-  { name: 'company-info:update', description: '自社情報の更新' },
+  { name: 'company_info:read', description: '自社情報の閲覧' },
+  { name: 'company_info:update', description: '自社情報の更新' },
 ];
 
 // ロールへの権限割り当て
-// admin: company-info:read, company-info:update
-// user: company-info:read, company-info:update
+// admin: company_info:read, company_info:update
+// user: company_info:read, company_info:update
 ```
 
 ### Audit Logging

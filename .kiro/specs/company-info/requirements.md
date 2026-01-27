@@ -98,9 +98,9 @@
 3. The 自社情報管理サービス shall 自社情報ページにProtectedLayout（AppHeader付き）を適用する
 4. If 未認証ユーザーが自社情報ページにアクセスした場合, then the 自社情報管理サービス shall ログインページにリダイレクトする
 5. When ログイン後, the 自社情報管理サービス shall 元のページ（/company-info）に遷移する
-6. The 自社情報管理サービス shall 「company-info:read」「company-info:update」の権限をシステムに定義する
-7. The 自社情報管理サービス shall 自社情報の閲覧に「company-info:read」権限を要求する
-8. The 自社情報管理サービス shall 自社情報の保存に「company-info:update」権限を要求する
+6. The 自社情報管理サービス shall 「company_info:read」「company_info:update」の権限をシステムに定義する
+7. The 自社情報管理サービス shall 自社情報の閲覧に「company_info:read」権限を要求する
+8. The 自社情報管理サービス shall 自社情報の保存に「company_info:update」権限を要求する
 9. If 権限のないユーザーが操作を試みた場合, then the 自社情報管理サービス shall 403 Forbiddenエラーを返却する
 10. The 自社情報管理サービス shall 自社情報の保存操作を監査ログに記録する
 
