@@ -9,9 +9,15 @@
  * - コメント最大2000文字のバリデーション
  * - includeInReportのデフォルト値をfalseに設定
  *
+ * Task 38.1: バッチ更新APIでdisplayOrderを連番に再計算する
+ * - displayOrder重複チェック
+ * - 送信された相対順序を1, 2, 3...の連番に正規化
+ * - 欠番や重複があっても正しくソート・再番号付け
+ *
  * Requirements:
  * - 10.4: 写真コメント（最大2000文字）
  * - 10.8: 報告書出力対象画像の選択
+ * - 10.9: displayOrderの正規化（連番に再計算）
  *
  * @module services/image-metadata
  */
@@ -62,10 +68,13 @@ export interface UpdateImageMetadataInput {
  * 一括更新用メタデータ入力
  *
  * Task 33.1: 一括更新機能
+ * Task 38.1: displayOrderサポート追加
  */
 export interface BatchUpdateImageMetadataInput extends UpdateImageMetadataInput {
   /** 画像ID */
   id: string;
+  /** 表示順序（送信された値は連番に正規化される） */
+  displayOrder?: number;
 }
 
 /**
@@ -222,8 +231,13 @@ export class ImageMetadataService {
    * - トランザクション内で一括更新
    * - 更新結果を返却
    *
+   * Task 38.1: バッチ更新APIでdisplayOrderを連番に再計算する
+   * - displayOrderが含まれる場合は相対順序を1, 2, 3...の連番に正規化
+   * - 欠番や重複があっても正しくソート・再番号付け
+   *
    * Requirements:
    * - 10.8: 保存ボタンで一括保存
+   * - 10.9: displayOrderの正規化（連番に再計算）
    *
    * @param inputs - 更新データの配列
    * @returns 更新後の画像メタデータの配列
@@ -262,12 +276,20 @@ export class ImageMetadataService {
       }
     }
 
+    // displayOrder正規化: displayOrderが指定されたものを抽出しソート
+    const inputsWithDisplayOrder = inputs.filter((input) => input.displayOrder !== undefined);
+    const normalizedDisplayOrders = this.normalizeDisplayOrders(inputsWithDisplayOrder);
+
     // トランザクション内で一括更新
     const updatedImages = await this.prisma.$transaction(async (tx) => {
       const results: SurveyImage[] = [];
 
       for (const input of inputs) {
-        const updateData: { comment?: string | null; includeInReport?: boolean } = {};
+        const updateData: {
+          comment?: string | null;
+          includeInReport?: boolean;
+          displayOrder?: number;
+        } = {};
 
         if (input.comment !== undefined) {
           updateData.comment = input.comment;
@@ -275,6 +297,12 @@ export class ImageMetadataService {
 
         if (input.includeInReport !== undefined) {
           updateData.includeInReport = input.includeInReport;
+        }
+
+        // displayOrderが指定されている場合は正規化された値を使用
+        const normalizedOrder = normalizedDisplayOrders.get(input.id);
+        if (normalizedOrder !== undefined) {
+          updateData.displayOrder = normalizedOrder;
         }
 
         // 更新データがある場合のみ更新を実行
@@ -299,6 +327,42 @@ export class ImageMetadataService {
     });
 
     return updatedImages.map((image) => this.mapToImageMetadata(image));
+  }
+
+  /**
+   * displayOrderを1から始まる連番に正規化する
+   *
+   * Task 38.1: バッチ更新APIでdisplayOrderを連番に再計算する
+   *
+   * @param inputs - displayOrderが指定された更新データの配列
+   * @returns 画像IDと正規化されたdisplayOrderのマップ
+   */
+  private normalizeDisplayOrders(inputs: BatchUpdateImageMetadataInput[]): Map<string, number> {
+    const result = new Map<string, number>();
+
+    if (inputs.length === 0) {
+      return result;
+    }
+
+    // displayOrderでソート（元の配列順序を保持するためにindexも含める）
+    const sortedInputs = inputs
+      .map((input, index) => ({ input, originalIndex: index }))
+      .sort((a, b) => {
+        const orderA = a.input.displayOrder ?? 0;
+        const orderB = b.input.displayOrder ?? 0;
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        // 同じdisplayOrderの場合は元の配列順序を保持
+        return a.originalIndex - b.originalIndex;
+      });
+
+    // 1から始まる連番を割り当て
+    sortedInputs.forEach(({ input }, index) => {
+      result.set(input.id, index + 1);
+    });
+
+    return result;
   }
 
   /**

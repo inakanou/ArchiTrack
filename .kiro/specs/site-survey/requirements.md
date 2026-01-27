@@ -9,12 +9,13 @@
 **Objective:** As a プロジェクト担当者, I want プロジェクトに紐付く現場調査を作成・編集・削除できること, so that 工事に必要な現場情報を体系的に管理できる
 
 #### Acceptance Criteria
-1. When ユーザーが現場調査作成フォームを送信する, the Site Survey Service shall プロジェクトに紐付く新規現場調査レコードを作成する
-2. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 現場調査の基本情報と関連する画像一覧を表示する
-3. When ユーザーが現場調査情報を編集して保存する, the Site Survey Service shall 楽観的排他制御を用いて現場調査レコードを更新する
-4. When ユーザーが現場調査を削除する, the Site Survey Service shall 現場調査と関連する画像データを論理削除する
-5. If 同時編集による競合が検出される, then the Site Survey Service shall 競合エラーを表示して再読み込みを促す
-6. While プロジェクトが存在しない, the Site Survey Service shall 現場調査の作成を許可しない
+1. When ユーザーが現場調査作成フォームを表示する, the Site Survey Service shall 調査名欄にデフォルト値「現場調査」を設定する
+2. When ユーザーが現場調査作成フォームを送信する, the Site Survey Service shall プロジェクトに紐付く新規現場調査レコードを作成する
+3. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 現場調査の基本情報と関連する画像一覧を表示する
+4. When ユーザーが現場調査情報を編集して保存する, the Site Survey Service shall 楽観的排他制御を用いて現場調査レコードを更新する
+5. When ユーザーが現場調査を削除する, the Site Survey Service shall 現場調査と関連する画像データを論理削除する
+6. If 同時編集による競合が検出される, then the Site Survey Service shall 競合エラーを表示して再読み込みを促す
+7. While プロジェクトが存在しない, the Site Survey Service shall 現場調査の作成を許可しない
 
 ### Requirement 2: 画面遷移・ナビゲーション
 **Objective:** As a プロジェクト担当者, I want 現場調査機能への画面遷移が分かりやすいこと, so that 目的の画面に迷わずたどり着ける
@@ -52,7 +53,9 @@
 8. If R2ストレージからのオブジェクト削除に失敗する, then the Site Survey Service shall 孤立ファイルとして専用プレフィックス（orphaned/）に移動し、Object Lifecycle Ruleにより7日後に自動削除する
 9. The Site Survey Service shall JPEG、PNG、WEBP形式の画像ファイルをサポートする
 10. The Site Survey Service shall 画像一覧を固定の表示順序で表示する
-11. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更して保存する
+11. When ユーザーが画像をドラッグアンドドロップする, the Site Survey Service shall 画像の表示順序を変更する（未保存状態になる）
+12. When ユーザーが画像の「上へ移動」ボタンをクリックする, the Site Survey Service shall 当該画像を1つ上の位置に移動する（未保存状態になる）
+13. When ユーザーが画像の「下へ移動」ボタンをクリックする, the Site Survey Service shall 当該画像を1つ下の位置に移動する（未保存状態になる）
 
 ### Requirement 5: 画像ビューア
 **Objective:** As a 現場調査担当者, I want アップロードした画像を拡大・縮小・回転して閲覧できること, so that 画像の詳細を確認できる
@@ -123,13 +126,14 @@
 2. When ユーザーが報告書出力フラグのチェックボックスをONにする, the Site Survey Service shall 当該写真をPDF出力対象として設定する（未保存状態になる）
 3. When ユーザーが報告書出力フラグのチェックボックスをOFFにする, the Site Survey Service shall 当該写真をPDF出力対象から除外する（未保存状態になる）
 4. When ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付ける（未保存状態になる）
-5. When ユーザーが写真をマウスドラッグで移動する, the Site Survey Service shall 写真の表示順序を変更する
-6. When ユーザーが写真の並び替え操作を完了する, the Site Survey Service shall 変更された表示順序をデータベースに保存する
-7. The Site Survey Service shall 写真一覧を保存された表示順序の通りに表示する
-8. When ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメントと報告書出力フラグの状態をデータベースに保存する
-9. While 未保存の変更がある状態でユーザーがページを離れようとする, the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する
-10. When ユーザーが写真の削除ボタンをクリックする, the Site Survey Service shall 確認ダイアログを表示する
-11. When ユーザーが削除確認ダイアログで削除を確定する, the Site Survey Service shall 当該写真と関連する注釈データを削除する
+5. When ユーザーが写真をマウスドラッグで移動する, the Site Survey Service shall 写真の表示順序を変更する（未保存状態になる）
+6. When ユーザーが写真の「上へ移動」ボタンをクリックする, the Site Survey Service shall 当該写真を1つ上の位置に移動する（未保存状態になる）
+7. When ユーザーが写真の「下へ移動」ボタンをクリックする, the Site Survey Service shall 当該写真を1つ下の位置に移動する（未保存状態になる）
+8. The Site Survey Service shall 写真一覧を保存された表示順序の通りに表示する
+9. When ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメント、報告書出力フラグ、表示順序の状態をデータベースに一括保存する
+10. While 未保存の変更がある状態でユーザーがページを離れようとする, the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する
+11. When ユーザーが写真の削除ボタンをクリックする, the Site Survey Service shall 確認ダイアログを表示する
+12. When ユーザーが削除確認ダイアログで削除を確定する, the Site Survey Service shall 当該写真と関連する注釈データを削除する
 
 ### Requirement 11: 調査報告書PDF出力
 **Objective:** As a 現場調査担当者, I want 注釈を含めた画像を選択的にPDF報告書としてエクスポートできること, so that 報告書や数量表作成に利用できる

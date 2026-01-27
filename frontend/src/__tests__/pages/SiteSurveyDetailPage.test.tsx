@@ -1423,4 +1423,222 @@ describe('SiteSurveyDetailPage', () => {
       }
     });
   });
+
+  // ============================================================================
+  // Task 37: 画像順序変更のローカル状態管理テスト
+  // ============================================================================
+  describe('画像順序変更のローカル状態管理 (Task 37)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canEdit: true,
+      });
+      vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
+      vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([]);
+      mockUseUnsavedChanges.isDirty = false;
+      mockUseUnsavedChanges.markAsChanged.mockClear();
+      mockUseUnsavedChanges.markAsSaved.mockClear();
+    });
+
+    // -------------------------------------------------------------------------
+    // Task 37.3: pendingOrderRefパターン
+    // -------------------------------------------------------------------------
+    describe('pendingOrderRefパターン (Task 37.3)', () => {
+      it('順序変更時にmarkAsChangedが呼ばれること (要件4.11, 10.5)', async () => {
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+        });
+
+        // ドラッグハンドルを使用して順序変更
+        const dragHandles = screen.getAllByTestId('photo-drag-handle');
+        const items = screen.getAllByTestId('photo-panel-item');
+
+        fireEvent.dragStart(dragHandles[0] as HTMLElement, {
+          dataTransfer: { setData: vi.fn(), effectAllowed: 'move', getData: () => 'img-1' },
+        });
+
+        fireEvent.drop(items[1] as HTMLElement, {
+          preventDefault: vi.fn(),
+          dataTransfer: { getData: () => 'img-1' },
+        });
+
+        // markAsChangedが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+        });
+      });
+
+      it('保存ボタンクリック時に順序変更APIが呼ばれること (要件10.6, 10.7)', async () => {
+        mockUseUnsavedChanges.isDirty = true;
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+        });
+
+        // ドラッグ&ドロップで順序変更
+        const dragHandles = screen.getAllByTestId('photo-drag-handle');
+        const items = screen.getAllByTestId('photo-panel-item');
+
+        fireEvent.dragStart(dragHandles[0] as HTMLElement, {
+          dataTransfer: { setData: vi.fn(), effectAllowed: 'move', getData: () => 'img-1' },
+        });
+
+        fireEvent.drop(items[1] as HTMLElement, {
+          preventDefault: vi.fn(),
+          dataTransfer: { getData: () => 'img-1' },
+        });
+
+        // 保存ボタンをクリック
+        const saveButton = screen.getByRole('button', { name: /保存/i });
+        fireEvent.click(saveButton);
+
+        // updateSurveyImageOrderが呼ばれることを確認
+        await waitFor(() => {
+          expect(surveyImagesApi.updateSurveyImageOrder).toHaveBeenCalled();
+        });
+      });
+
+      it('保存成功後にmarkAsSavedが呼ばれること', async () => {
+        mockUseUnsavedChanges.isDirty = true;
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+        });
+
+        // 順序変更
+        const dragHandles = screen.getAllByTestId('photo-drag-handle');
+        const items = screen.getAllByTestId('photo-panel-item');
+
+        fireEvent.dragStart(dragHandles[0] as HTMLElement, {
+          dataTransfer: { setData: vi.fn(), effectAllowed: 'move', getData: () => 'img-1' },
+        });
+
+        fireEvent.drop(items[1] as HTMLElement, {
+          preventDefault: vi.fn(),
+          dataTransfer: { getData: () => 'img-1' },
+        });
+
+        // 保存ボタンをクリック
+        const saveButton = screen.getByRole('button', { name: /保存/i });
+        fireEvent.click(saveButton);
+
+        // markAsSavedが呼ばれることを確認
+        await waitFor(() => {
+          expect(mockUseUnsavedChanges.markAsSaved).toHaveBeenCalled();
+        });
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // Task 37.4: 画像削除時のpendingOrderRef/pendingChangesクリア
+    // -------------------------------------------------------------------------
+    describe('画像削除時のpendingクリア (Task 37.4)', () => {
+      beforeEach(() => {
+        vi.mocked(surveyImagesApi.deleteSurveyImage).mockResolvedValue(undefined);
+        vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+          ...mockPermission,
+          canEdit: true,
+          canDelete: true,
+        });
+      });
+
+      it('画像削除後もエラーなく保存できること (要件10.11, 10.12)', async () => {
+        mockUseUnsavedChanges.isDirty = true;
+
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+        });
+
+        // まず順序変更を行う
+        const dragHandles = screen.getAllByTestId('photo-drag-handle');
+        const items = screen.getAllByTestId('photo-panel-item');
+
+        fireEvent.dragStart(dragHandles[0] as HTMLElement, {
+          dataTransfer: { setData: vi.fn(), effectAllowed: 'move', getData: () => 'img-1' },
+        });
+
+        fireEvent.drop(items[1] as HTMLElement, {
+          preventDefault: vi.fn(),
+          dataTransfer: { getData: () => 'img-1' },
+        });
+
+        // 削除ボタンをクリック（パネル内の最初の画像アイテムの削除ボタン）
+        // image1.jpgの削除ボタンを取得
+        const deleteButton = screen.getByRole('button', { name: /画像を削除: image1\.jpg/i });
+        expect(deleteButton).toBeInTheDocument();
+        fireEvent.click(deleteButton);
+
+        // 確認ダイアログで削除を確認
+        await waitFor(() => {
+          expect(screen.getByText(/この画像を削除しますか？/i)).toBeInTheDocument();
+        });
+
+        const confirmButton = screen.getByRole('button', { name: /削除する/i });
+        fireEvent.click(confirmButton);
+
+        // 削除APIが呼ばれることを確認
+        await waitFor(() => {
+          expect(surveyImagesApi.deleteSurveyImage).toHaveBeenCalled();
+        });
+      });
+
+      it('画像削除後にローカル状態が更新されること', async () => {
+        renderComponent();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+        });
+
+        // 最初に2枚の画像があることを確認
+        expect(screen.getAllByTestId('photo-panel-item')).toHaveLength(2);
+
+        // 削除ボタンをクリック（image1.jpgの削除ボタン）
+        const deleteButton = screen.getByRole('button', { name: /画像を削除: image1\.jpg/i });
+        expect(deleteButton).toBeInTheDocument();
+        fireEvent.click(deleteButton);
+
+        // 確認ダイアログで削除を確認
+        await waitFor(() => {
+          expect(screen.getByText(/この画像を削除しますか？/i)).toBeInTheDocument();
+        });
+
+        const confirmButton = screen.getByRole('button', { name: /削除する/i });
+        fireEvent.click(confirmButton);
+
+        // 削除後、画像が1枚になることを確認
+        await waitFor(() => {
+          expect(screen.getAllByTestId('photo-panel-item')).toHaveLength(1);
+        });
+      });
+    });
+  });
 });

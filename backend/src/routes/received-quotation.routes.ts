@@ -143,7 +143,8 @@ const upload = multer({
 router.post(
   '/',
   authenticate,
-  requirePermission('received_quotation:create'),
+  // 受領見積書の追加は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
+  requirePermission('estimate_request:update'),
   upload.single('file'),
   validate(estimateRequestIdForQuotationSchema, 'params'),
   validate(createReceivedQuotationSchema, 'body'),
@@ -316,7 +317,8 @@ router.get(
 router.get(
   '/:id',
   authenticate,
-  requirePermission('received_quotation:read'),
+  // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
+  requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -416,7 +418,8 @@ router.get(
 router.put(
   '/:id',
   authenticate,
-  requirePermission('received_quotation:update'),
+  // 受領見積書の更新は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
+  requirePermission('estimate_request:update'),
   upload.single('file'),
   validate(receivedQuotationIdParamSchema, 'params'),
   validate(updateReceivedQuotationSchema, 'body'),
@@ -557,7 +560,8 @@ router.put(
 router.delete(
   '/:id',
   authenticate,
-  requirePermission('received_quotation:delete'),
+  // 受領見積書の削除は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
+  requirePermission('estimate_request:update'),
   validate(receivedQuotationIdParamSchema, 'params'),
   validate(deleteReceivedQuotationBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -638,7 +642,8 @@ router.delete(
 router.get(
   '/:id/preview',
   authenticate,
-  requirePermission('received_quotation:read'),
+  // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
+  requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

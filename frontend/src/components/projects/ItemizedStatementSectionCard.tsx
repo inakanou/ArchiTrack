@@ -2,26 +2,25 @@
  * @fileoverview 内訳書セクションカードコンポーネント
  *
  * Task 6: 内訳書セクションカードの実装
+ * Task 18.1: 既存コンポーネントの表示ロジック更新
  *
  * Requirements:
+ * - 1.8: プロジェクトに数量表が存在しない場合、「まず数量表を作成してください」メッセージを表示し新規作成ボタンを非表示
  * - 3.1: プロジェクト詳細画面に数量表セクションの下に内訳書セクションを表示する
  * - 3.2: 作成済み内訳書を作成日時の降順で一覧表示する
- * - 3.3: 内訳書が存在しない場合は「内訳書はまだ作成されていません」メッセージを表示する
- * - 3.4: 各行に内訳書名、作成日時、集計元数量表名、合計項目数を表示する
+ * - 3.3: 数量表が存在しない場合「まず数量表を作成してください」メッセージを表示する
+ * - 3.4: 数量表は存在するが内訳書が存在しない場合「内訳書はまだありません」メッセージを表示する
  * - 3.5: 内訳書行をクリックで詳細画面に遷移する
  * - 11.1: プロジェクト詳細画面に数量表セクションの下に内訳書セクションを配置する
  * - 11.2: 数量表セクションと同様のカードレイアウトを使用する
- * - 11.3: 新規作成ボタンを表示する
- * - 11.4: 作成済み内訳書へのリンクをリスト表示する
+ * - 11.3: 数量表が存在する場合、新規作成ボタンを表示する
+ * - 11.4: ユーザーが新規作成ボタンをクリックすると、システムは内訳書新規作成画面に遷移する
  * - 11.5: 一覧画面へのリンクを表示する
  */
 
-import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import type { ItemizedStatementInfo } from '../../types/itemized-statement.types';
 import type { QuantityTableInfo } from '../../types/quantity-table.types';
-import { CreateItemizedStatementForm } from '../itemized-statement/CreateItemizedStatementForm';
-import type { CreateItemizedStatementInput } from '../../types/itemized-statement.types';
 
 // ============================================================================
 // 型定義
@@ -41,10 +40,6 @@ export interface ItemizedStatementSectionCardProps {
   quantityTables: QuantityTableInfo[];
   /** ローディング状態 */
   isLoading: boolean;
-  /** 作成成功時のコールバック（オプション） */
-  onSuccess?: (statement: ItemizedStatementInfo) => void;
-  /** テスト用の送信関数（オプション） */
-  mockSubmit?: (input: CreateItemizedStatementInput) => Promise<ItemizedStatementInfo>;
 }
 
 // ============================================================================
@@ -103,12 +98,7 @@ const styles = {
     borderRadius: '6px',
     fontSize: '13px',
     fontWeight: 500,
-    border: 'none',
-    cursor: 'pointer',
-  } as React.CSSProperties,
-  addButtonDisabled: {
-    backgroundColor: '#9ca3af',
-    cursor: 'not-allowed',
+    textDecoration: 'none',
   } as React.CSSProperties,
   statementList: {
     display: 'flex',
@@ -208,13 +198,6 @@ const styles = {
     backgroundColor: '#e5e7eb',
     borderRadius: '4px',
   } as React.CSSProperties,
-  formWrapper: {
-    marginTop: '16px',
-    padding: '16px',
-    backgroundColor: '#f9fafb',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb',
-  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -283,38 +266,46 @@ function StatementSkeleton() {
 
 /**
  * 空状態表示
+ *
+ * Requirements:
+ * - 1.8, 3.3: 数量表が存在しない場合「まず数量表を作成してください」メッセージを表示し新規作成ボタンを非表示
+ * - 3.4: 数量表は存在するが内訳書が存在しない場合「内訳書はまだありません」メッセージを表示
+ * - 11.3: 数量表が存在する場合、新規作成ボタンを表示
+ * - 11.4: 新規作成ボタンクリックで内訳書新規作成画面に遷移
  */
 function EmptyState({
   projectId,
   quantityTables,
-  onCreateClick,
 }: {
   projectId: string;
   quantityTables: QuantityTableInfo[];
-  onCreateClick: () => void;
 }) {
   const hasQuantityTables = quantityTables.length > 0;
 
   return (
     <div style={styles.emptyState}>
-      <p style={styles.emptyText}>内訳書はまだ作成されていません</p>
       {hasQuantityTables ? (
-        <button
-          type="button"
-          onClick={onCreateClick}
-          style={styles.createLink}
-          aria-label="新規作成"
-        >
-          新規作成
-        </button>
+        <>
+          <p style={styles.emptyText}>内訳書はまだありません</p>
+          <Link
+            to={`/projects/${projectId}/itemized-statements/new`}
+            style={styles.createLink}
+            aria-label="新規作成"
+          >
+            新規作成
+          </Link>
+        </>
       ) : (
-        <Link
-          to={`/projects/${projectId}/quantity-tables/new`}
-          style={styles.createLink}
-          aria-label="新規作成"
-        >
-          数量表を作成
-        </Link>
+        <>
+          <p style={styles.emptyText}>まず数量表を作成してください</p>
+          <Link
+            to={`/projects/${projectId}/quantity-tables/new`}
+            style={styles.createLink}
+            aria-label="数量表を作成"
+          >
+            数量表を作成
+          </Link>
+        </>
       )}
     </div>
   );
@@ -354,6 +345,10 @@ function StatementCard({ statement }: { statement: ItemizedStatementInfo }) {
  * プロジェクト詳細画面で直近の内訳書と総数を表示する。
  * 数量表セクションカードと同様のレイアウトを使用してUIの一貫性を保つ。
  *
+ * Task 18.1: 既存コンポーネントの表示ロジック更新
+ * - 数量表有無に応じた条件分岐表示を実装
+ * - 新規作成ボタンを内訳書新規作成画面へのLinkに変更
+ *
  * @example
  * ```tsx
  * <ItemizedStatementSectionCard
@@ -371,30 +366,8 @@ export function ItemizedStatementSectionCard({
   latestStatements,
   quantityTables,
   isLoading,
-  onSuccess,
-  mockSubmit,
 }: ItemizedStatementSectionCardProps) {
-  const [showForm, setShowForm] = useState(false);
-
   const hasQuantityTables = quantityTables.length > 0;
-
-  const handleCreateClick = useCallback(() => {
-    setShowForm(true);
-  }, []);
-
-  const handleCancelClick = useCallback(() => {
-    setShowForm(false);
-  }, []);
-
-  const handleSuccess = useCallback(
-    (statement: ItemizedStatementInfo) => {
-      setShowForm(false);
-      if (onSuccess) {
-        onSuccess(statement);
-      }
-    },
-    [onSuccess]
-  );
 
   return (
     <section
@@ -412,18 +385,15 @@ export function ItemizedStatementSectionCard({
         </div>
         {!isLoading && totalCount > 0 && (
           <div style={styles.headerActions}>
-            <button
-              type="button"
-              onClick={handleCreateClick}
-              disabled={!hasQuantityTables}
-              style={{
-                ...styles.addButton,
-                ...(hasQuantityTables ? {} : styles.addButtonDisabled),
-              }}
-              aria-label="内訳書を新規作成"
-            >
-              新規作成
-            </button>
+            {hasQuantityTables && (
+              <Link
+                to={`/projects/${projectId}/itemized-statements/new`}
+                style={styles.addButton}
+                aria-label="内訳書を新規作成"
+              >
+                新規作成
+              </Link>
+            )}
             <Link to={`/projects/${projectId}/itemized-statements`} style={styles.viewAllLink}>
               すべて見る
             </Link>
@@ -431,34 +401,17 @@ export function ItemizedStatementSectionCard({
         )}
       </div>
 
-      {/* 作成フォーム */}
-      {showForm && (
-        <div style={styles.formWrapper}>
-          <CreateItemizedStatementForm
-            projectId={projectId}
-            quantityTables={quantityTables}
-            onSuccess={handleSuccess}
-            onCancel={handleCancelClick}
-            onSubmit={mockSubmit}
-          />
-        </div>
-      )}
-
       {isLoading ? (
         <StatementSkeleton />
-      ) : totalCount === 0 && !showForm ? (
-        <EmptyState
-          projectId={projectId}
-          quantityTables={quantityTables}
-          onCreateClick={handleCreateClick}
-        />
-      ) : !showForm ? (
+      ) : totalCount === 0 ? (
+        <EmptyState projectId={projectId} quantityTables={quantityTables} />
+      ) : (
         <div style={styles.statementList}>
           {latestStatements.map((statement) => (
             <StatementCard key={statement.id} statement={statement} />
           ))}
         </div>
-      ) : null}
+      )}
     </section>
   );
 }

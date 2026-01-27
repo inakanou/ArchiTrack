@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { MemoryRouter } from 'react-router-dom';
-import { fn } from 'storybook/test';
 import { ItemizedStatementSectionCard } from './ItemizedStatementSectionCard';
 import type { ItemizedStatementInfo } from '../../types/itemized-statement.types';
 import type { QuantityTableInfo } from '../../types/quantity-table.types';
@@ -84,9 +83,6 @@ const meta = {
       </MemoryRouter>
     ),
   ],
-  args: {
-    onSuccess: fn(),
-  },
 } satisfies Meta<typeof ItemizedStatementSectionCard>;
 
 export default meta;

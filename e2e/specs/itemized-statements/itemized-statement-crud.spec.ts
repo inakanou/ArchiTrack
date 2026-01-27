@@ -244,22 +244,34 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
+      await itemizedStatementSection.getByRole('link', { name: /新規作成/i }).click();
 
-      // 作成フォームが展開される（モーダルではなくインラインフォーム）
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible({ timeout: getTimeout(5000) });
+      // 内訳書新規作成画面に遷移する
+      await expect(page).toHaveURL(
+        new RegExp(`/projects/${testProjectId}/itemized-statements/new`),
+        {
+          timeout: getTimeout(10000),
+        }
+      );
+      await page.waitForLoadState('networkidle');
 
-      // 内訳書名を入力
+      // ローディング完了を待機
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 内訳書名を入力（デフォルト値「内訳書」があるのでクリアしてから入力）
       itemizedStatementName = `テスト内訳書_${Date.now()}`;
-      await createForm.getByLabel(/内訳書名/i).fill(itemizedStatementName);
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(itemizedStatementName);
 
       // 数量表を選択 (Req 1.1)
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 }); // 最初のオプション以外を選択
 
       // 項目数が表示される (Req 1.2)
-      await expect(createForm.getByText(/項目/i)).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(page.getByText(/項目/i)).toBeVisible({ timeout: getTimeout(5000) });
 
       // 作成ボタンをクリック
       const createPromise = page.waitForResponse(
@@ -271,15 +283,7 @@ test.describe('内訳書CRUD操作', () => {
         { timeout: getTimeout(30000) }
       );
 
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
-
-      // ローディング表示の確認（Req 12.1）- 短時間で終わる可能性があるためソフトチェック
-      // 別のテストケース（ローディング表示専用テスト）でより詳細にテストする
-      try {
-        await expect(createForm.getByText(/作成中/i)).toBeVisible({ timeout: 500 });
-      } catch {
-        // ローディングが高速で終わった場合はスキップ
-      }
+      await page.getByRole('button', { name: /^作成$/i }).click();
 
       const createResponse = await createPromise;
       const responseBody = await createResponse.json();
@@ -300,23 +304,26 @@ test.describe('内訳書CRUD操作', () => {
       expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/projects/${testProjectId}`);
+
+      // 内訳書新規作成画面に直接移動
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible();
+      // 内訳書名をクリアして空にする（デフォルト値「内訳書」があるため）
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
 
       // 数量表のみ選択して内訳書名は空のまま作成を試行
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 });
 
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
 
       // エラーメッセージを確認
-      await expect(createForm.getByText(/内訳書名を入力してください/i)).toBeVisible({
+      await expect(page.getByText(/内訳書名を入力してください|内訳書名は必須です/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
@@ -325,23 +332,22 @@ test.describe('内訳書CRUD操作', () => {
       expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/projects/${testProjectId}`);
+
+      // 内訳書新規作成画面に直接移動
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
-
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible();
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 内訳書名のみ入力して作成を試行
-      await createForm.getByLabel(/内訳書名/i).fill('エラーテスト');
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill('エラーテスト');
+      await page.getByRole('button', { name: /^作成$/i }).click();
 
-      // エラーメッセージを確認（role="alert"を使用して厳密に特定）
-      await expect(
-        createForm.locator('[role="alert"]').filter({ hasText: /数量表を選択/ })
-      ).toBeVisible({
+      // エラーメッセージを確認（role="alert"のエラーメッセージを特定）
+      await expect(page.locator('[role="alert"]').filter({ hasText: /数量表を選択/ })).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
@@ -554,18 +560,19 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 削除用の内訳書を新規作成
-      await page.goto(`/projects/${testProjectId}`);
+      // 削除用の内訳書を新規作成（専用作成画面に直接移動）
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
       const deletableName = `削除テスト内訳書_${Date.now()}`;
-      await createForm.getByLabel(/内訳書名/i).fill(deletableName);
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(deletableName);
 
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 });
 
       const createPromise = page.waitForResponse(
@@ -574,7 +581,7 @@ test.describe('内訳書CRUD操作', () => {
           response.request().method() === 'POST' &&
           response.status() === 201
       );
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
       await createPromise;
 
       await page.waitForURL(/\/itemized-statements\/[0-9a-f-]+/);
@@ -654,28 +661,27 @@ test.describe('内訳書CRUD操作', () => {
       expect(createResponse.status()).toBe(201);
       const createdStatement = await createResponse.json();
 
-      // プロジェクト詳細画面に移動
-      await page.goto(`/projects/${testProjectId}`);
+      // 内訳書新規作成画面に移動
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
-
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible();
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 既に存在する名前を入力
-      await createForm.getByLabel(/内訳書名/i).fill(duplicateTestName);
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(duplicateTestName);
 
       // 数量表を選択
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 });
 
       // 作成を試行
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
 
       // エラーメッセージを確認
-      await expect(createForm.getByText(/同名の内訳書が既に存在します/i)).toBeVisible({
+      await expect(page.getByText(/同名の内訳書が既に存在します/i)).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -724,32 +730,31 @@ test.describe('内訳書CRUD操作', () => {
       const emptyTableId = emptyTableBody.id;
       expect(emptyTableId).toBeTruthy();
 
-      // プロジェクト詳細画面に移動
-      await page.goto(`/projects/${testProjectId}`);
+      // 内訳書新規作成画面に移動
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
-
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible();
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 内訳書名を入力
-      await createForm.getByLabel(/内訳書名/i).fill('空の数量表テスト');
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill('空の数量表テスト');
 
       // 空の数量表を選択（IDで直接選択）
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption(emptyTableId);
 
       // 作成を試行
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
 
       // エラーメッセージを確認
       // フロントエンドバリデーションまたはAPIエラー両方のケースを考慮
       await expect(
-        createForm
+        page
           .getByText(/選択された数量表に項目がありません/i)
-          .or(createForm.locator('[role="alert"]').filter({ hasText: /項目がありません/ }))
+          .or(page.locator('[role="alert"]').filter({ hasText: /項目がありません/ }))
       ).toBeVisible({
         timeout: getTimeout(10000),
       });
@@ -778,18 +783,19 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 楽観的排他制御テスト用の内訳書を作成
-      await page.goto(`/projects/${testProjectId}`);
+      // 楽観的排他制御テスト用の内訳書を作成（専用作成画面に直接移動）
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
       const conflictTestName = `排他制御テスト_${Date.now()}`;
-      await createForm.getByLabel(/内訳書名/i).fill(conflictTestName);
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(conflictTestName);
 
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 });
 
       const createPromise = page.waitForResponse(
@@ -798,7 +804,7 @@ test.describe('内訳書CRUD操作', () => {
           response.request().method() === 'POST' &&
           response.status() === 201
       );
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
       const createResponse = await createPromise;
       const createdStatement = await createResponse.json();
 
@@ -892,18 +898,19 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 削除用の内訳書を新規作成
-      await page.goto(`/projects/${testProjectId}`);
+      // 削除用の内訳書を新規作成（専用作成画面に直接移動）
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
       const loadingTestName = `ローディングテスト_${Date.now()}`;
-      await createForm.getByLabel(/内訳書名/i).fill(loadingTestName);
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(loadingTestName);
 
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 });
 
       const createPromise = page.waitForResponse(
@@ -912,7 +919,7 @@ test.describe('内訳書CRUD操作', () => {
           response.request().method() === 'POST' &&
           response.status() === 201
       );
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
       await createPromise;
 
       await page.waitForURL(/\/itemized-statements\/[0-9a-f-]+/);
@@ -954,21 +961,21 @@ test.describe('内訳書CRUD操作', () => {
       expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/projects/${testProjectId}`);
+
+      // 内訳書新規作成画面に直接移動
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
-
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible();
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 内訳書名フィールドにmaxLength属性があることを確認
-      const nameInput = createForm.getByLabel(/内訳書名/i);
+      const nameInput = page.locator('input#name');
       await expect(nameInput).toHaveAttribute('maxLength', '200');
 
       // 201文字を入力しようとしても200文字に制限される
       const longText = 'あ'.repeat(201);
+      await nameInput.clear();
       await nameInput.fill(longText);
       const inputValue = await nameInput.inputValue();
       expect(inputValue.length).toBeLessThanOrEqual(200);
@@ -1031,7 +1038,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 新規作成ボタンが無効化またはクリック時にメッセージが表示されることを確認
       // 空状態ではフォームを開いた際に「数量表がありません」メッセージが表示される
-      const createButton = itemizedStatementSection.getByRole('button', { name: /新規作成/i });
+      const createButton = itemizedStatementSection.getByRole('link', { name: /新規作成/i });
       if (await createButton.isVisible()) {
         await createButton.click();
         // 数量表がない旨のメッセージが表示される
@@ -1106,10 +1113,10 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「まだ作成されていません」メッセージを確認
-      await expect(
-        itemizedStatementSection.getByText(/内訳書はまだ作成されていません/i)
-      ).toBeVisible({ timeout: getTimeout(5000) });
+      // 空のプロジェクト（数量表なし）では「まず数量表を作成してください」メッセージを確認
+      await expect(itemizedStatementSection.getByText(/まず数量表を作成してください/i)).toBeVisible(
+        { timeout: getTimeout(5000) }
+      );
 
       // クリーンアップ
       await request.delete(`${baseUrl}/api/projects/${newProject.id}`, {
@@ -1136,7 +1143,9 @@ test.describe('内訳書CRUD操作', () => {
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
       // 内訳書カードに必要な情報が含まれていることを確認
-      const statementCard = itemizedStatementSection.locator('a[href*="/itemized-statements/"]');
+      // 「/itemized-statements/」で始まるリンク（詳細画面へのリンク）を対象とし、
+      // 「/projects/.../itemized-statements/new」（新規作成リンク）を除外
+      const statementCard = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
       if ((await statementCard.count()) > 0) {
         const firstCard = statementCard.first();
         await expect(firstCard).toBeVisible();
@@ -1161,8 +1170,8 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 内訳書リンクをクリック
-      const statementLink = itemizedStatementSection.locator('a[href*="/itemized-statements/"]');
+      // 内訳書リンクをクリック（詳細画面へのリンク、新規作成リンクを除外）
+      const statementLink = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
       if ((await statementLink.count()) > 0) {
         await statementLink.first().click();
         await page.waitForURL(/\/itemized-statements\/[0-9a-f-]+/, {
@@ -1368,18 +1377,19 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 削除テスト用の内訳書を作成
-      await page.goto(`/projects/${testProjectId}`);
+      // 削除テスト用の内訳書を作成（専用作成画面に直接移動）
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
       const errorTestName = `削除エラーテスト_${Date.now()}`;
-      await createForm.getByLabel(/内訳書名/i).fill(errorTestName);
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(errorTestName);
 
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 });
 
       const createPromise = page.waitForResponse(
@@ -1388,7 +1398,7 @@ test.describe('内訳書CRUD操作', () => {
           response.request().method() === 'POST' &&
           response.status() === 201
       );
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
       await createPromise;
 
       await page.waitForURL(/\/itemized-statements\/[0-9a-f-]+/);
@@ -1602,8 +1612,8 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 内訳書へのリンクが存在する
-      const statementLinks = itemizedStatementSection.locator('a[href*="/itemized-statements/"]');
+      // 内訳書へのリンクが存在する（新規作成リンクを除外するため ^= を使用）
+      const statementLinks = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
       const linkCount = await statementLinks.count();
       expect(linkCount).toBeGreaterThan(0);
     });
@@ -1638,19 +1648,18 @@ test.describe('内訳書CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 作成フォームでローディング中のボタン無効化を確認
-      await page.goto(`/projects/${testProjectId}`);
+      // 作成フォームでローディング中のボタン無効化を確認（専用作成画面に直接移動）
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
-
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible();
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // フォーム入力
-      await createForm.getByLabel(/内訳書名/i).fill(`ローディング無効化テスト_${Date.now()}`);
-      const quantityTableSelect = createForm.locator('select');
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(`ローディング無効化テスト_${Date.now()}`);
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption({ index: 1 });
 
       // APIを遅延させる
@@ -1663,15 +1672,15 @@ test.describe('内訳書CRUD操作', () => {
       });
 
       // 作成ボタンをクリック
-      const submitButton = createForm.getByRole('button', { name: /^作成$/i });
+      const submitButton = page.getByRole('button', { name: /^作成$/i });
       await submitButton.click();
 
       // ローディング中はボタンが無効化されている（ボタンテキストが「作成中...」に変わる）
-      const loadingButton = createForm.getByRole('button', { name: /作成中/i });
+      const loadingButton = page.getByRole('button', { name: /作成中/i });
       await expect(loadingButton).toBeDisabled({ timeout: getTimeout(1000) });
 
       // キャンセルボタンも無効化されている
-      const cancelButton = createForm.getByRole('button', { name: /キャンセル/i });
+      const cancelButton = page.getByRole('button', { name: /キャンセル/i });
       await expect(cancelButton).toBeDisabled();
 
       // テスト完了のためにルートを解除して待機
@@ -1702,17 +1711,16 @@ test.describe('内訳書CRUD操作', () => {
       expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/projects/${testProjectId}`);
+
+      // 内訳書新規作成画面に直接移動
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
-
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
-
-      const createForm = itemizedStatementSection.locator('form');
-      await expect(createForm).toBeVisible();
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
       // 数量表選択フィールドがselect要素（単一選択）であることを確認
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await expect(quantityTableSelect).toBeVisible();
 
       // select要素にmultiple属性がないことを確認（単一選択のみ）
@@ -1913,21 +1921,22 @@ test.describe('内訳書CRUD操作', () => {
         },
       });
 
-      // プロジェクト詳細画面で内訳書を作成
-      await page.goto(`/projects/${testProjectId}`);
+      // 内訳書新規作成画面で内訳書を作成
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
       await page.waitForLoadState('networkidle');
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      const itemizedStatementSection = page.getByTestId('itemized-statement-section');
-      await itemizedStatementSection.getByRole('button', { name: /新規作成/i }).click();
+      const nameInput = page.locator('input#name');
+      await nameInput.clear();
+      await nameInput.fill(`オーバーフローテスト_${Date.now()}`);
 
-      const createForm = itemizedStatementSection.locator('form');
-      await createForm.getByLabel(/内訳書名/i).fill(`オーバーフローテスト_${Date.now()}`);
-
-      const quantityTableSelect = createForm.locator('select');
+      const quantityTableSelect = page.locator('select#quantityTableId');
       await quantityTableSelect.selectOption(qt.id);
 
       // 作成を試行
-      await createForm.getByRole('button', { name: /^作成$/i }).click();
+      await page.getByRole('button', { name: /^作成$/i }).click();
 
       // オーバーフローエラーメッセージを確認（フロントエンド表示: 「数量の合計が許容範囲を超えています」）
       await expect(page.getByText(/許容範囲を超えています/i)).toBeVisible({
@@ -2192,10 +2201,10 @@ test.describe('内訳書CRUD操作', () => {
    */
   test.describe('内訳書一覧画面', () => {
     /**
-     * @requirement itemized-statement-generation/REQ-11.5: The 内訳書セクション shall 一覧画面へのリンクを表示する
+     * @requirement itemized-statement-generation/REQ-11.6: The 内訳書セクション shall 一覧画面へのリンクを表示する
      * @requirement itemized-statement-generation/REQ-3.2: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
      */
-    test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (itemized-statement-generation/REQ-11.5, REQ-3.2)', async ({
+    test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (itemized-statement-generation/REQ-11.6, REQ-3.2)', async ({
       page,
     }) => {
       expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
@@ -2245,9 +2254,9 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-3.5: When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
+     * @requirement itemized-statement-generation/REQ-3.6: When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
      */
-    test('内訳書行をクリックすると詳細画面に遷移する (itemized-statement-generation/REQ-3.5)', async ({
+    test('内訳書行をクリックすると詳細画面に遷移する (itemized-statement-generation/REQ-3.6)', async ({
       page,
     }) => {
       expect(testProjectId, 'テストデータが不足しています').toBeTruthy();
@@ -2302,16 +2311,42 @@ test.describe('内訳書CRUD操作', () => {
       });
       const project = await projectResponse.json();
 
+      // 数量表を作成（内訳書一覧で「内訳書はまだありません」を表示するには数量表が必要）
+      const quantityTableResponse = await request.post(
+        `${baseUrl}/api/projects/${project.id}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { name: `数量表_${Date.now()}` },
+        }
+      );
+      const quantityTable = await quantityTableResponse.json();
+
       try {
         // 内訳書一覧画面に移動
         await page.goto(`/projects/${project.id}/itemized-statements`);
         await page.waitForLoadState('networkidle');
 
         // 空状態のメッセージを確認
-        await expect(page.getByText(/内訳書はまだ作成されていません/i)).toBeVisible({
+        await expect(page.getByText(/内訳書はまだありません/i)).toBeVisible({
           timeout: getTimeout(10000),
         });
       } finally {
+        // クリーンアップ: 数量表を削除
+        const qtDetailResponse = await request.get(
+          `${baseUrl}/api/projects/${project.id}/quantity-tables/${quantityTable.id}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }
+        );
+        const qtDetail = await qtDetailResponse.json();
+        await request.delete(
+          `${baseUrl}/api/projects/${project.id}/quantity-tables/${quantityTable.id}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            data: { updatedAt: qtDetail.updatedAt },
+          }
+        );
+
         // クリーンアップ: プロジェクトを削除
         const projectDetailResponse = await request.get(`${baseUrl}/api/projects/${project.id}`, {
           headers: { Authorization: `Bearer ${accessToken}` },

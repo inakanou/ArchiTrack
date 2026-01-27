@@ -177,7 +177,7 @@ describe('EstimateRequestSectionCard', () => {
   });
 
   describe('空状態', () => {
-    it('見積依頼が0件の場合はメッセージを表示する（Requirements: 2.1）', () => {
+    it('見積依頼が0件の場合はメッセージを表示する（Requirements: 1.2）', () => {
       renderWithRouter(
         <EstimateRequestSectionCard
           projectId={projectId}
@@ -190,7 +190,7 @@ describe('EstimateRequestSectionCard', () => {
       expect(screen.getByText(/見積依頼はまだありません/)).toBeInTheDocument();
     });
 
-    it('見積依頼が0件でも新規作成リンクを表示する（Requirements: 2.2）', () => {
+    it('見積依頼が0件の場合、メッセージの下に新規作成リンクを表示する（Requirements: 1.3）', () => {
       renderWithRouter(
         <EstimateRequestSectionCard
           projectId={projectId}
@@ -202,6 +202,64 @@ describe('EstimateRequestSectionCard', () => {
 
       const link = screen.getByRole('link', { name: /新規作成/ });
       expect(link).toHaveAttribute('href', `/projects/${projectId}/estimate-requests/new`);
+    });
+
+    it('見積依頼が0件の場合、セクション右上の「すべて見る」リンクを非表示にする（Requirements: 1.4）', () => {
+      renderWithRouter(
+        <EstimateRequestSectionCard
+          projectId={projectId}
+          totalCount={0}
+          latestRequests={[]}
+          isLoading={false}
+        />
+      );
+
+      expect(screen.queryByRole('link', { name: /すべて見る/ })).not.toBeInTheDocument();
+    });
+
+    it('見積依頼が0件の場合、セクション右上の「新規作成」ボタン（aria-label付き）を非表示にする（Requirements: 1.4）', () => {
+      renderWithRouter(
+        <EstimateRequestSectionCard
+          projectId={projectId}
+          totalCount={0}
+          latestRequests={[]}
+          isLoading={false}
+        />
+      );
+
+      expect(screen.queryByLabelText('見積依頼を新規作成')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('データが存在する場合', () => {
+    it('見積依頼が存在する場合、セクション右上に「新規作成」ボタンを表示する（Requirements: 1.6）', () => {
+      renderWithRouter(
+        <EstimateRequestSectionCard
+          projectId={projectId}
+          totalCount={5}
+          latestRequests={mockEstimateRequests}
+          isLoading={false}
+        />
+      );
+
+      const button = screen.getByLabelText('見積依頼を新規作成');
+      expect(button).toBeInTheDocument();
+      expect(button).toHaveAttribute('href', `/projects/${projectId}/estimate-requests/new`);
+    });
+
+    it('見積依頼が存在する場合、セクション右上に「すべて見る」リンクを表示する（Requirements: 1.6）', () => {
+      renderWithRouter(
+        <EstimateRequestSectionCard
+          projectId={projectId}
+          totalCount={5}
+          latestRequests={mockEstimateRequests}
+          isLoading={false}
+        />
+      );
+
+      const link = screen.getByRole('link', { name: /すべて見る/ });
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', `/projects/${projectId}/estimate-requests`);
     });
   });
 

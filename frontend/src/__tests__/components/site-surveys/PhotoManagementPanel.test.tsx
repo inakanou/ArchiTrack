@@ -846,4 +846,230 @@ describe('PhotoManagementPanel', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 37: 画像順序変更のローカル状態管理テスト
+  // 要件: 4.11, 4.12, 4.13, 10.5, 10.6, 10.7
+  // ==========================================================================
+
+  describe('画像順序変更のローカル状態管理 (Task 37)', () => {
+    // -----------------------------------------------------------------------
+    // Task 37.1: 「上へ移動」「下へ移動」ボタン
+    // -----------------------------------------------------------------------
+    describe('上へ移動/下へ移動ボタン (Task 37.1)', () => {
+      it('showOrderButtonsがtrueかつonOrderChangeが定義されている場合、順序変更ボタンが表示されること', () => {
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={true}
+          />
+        );
+
+        const orderButtonGroups = screen.getAllByTestId('order-buttons');
+        expect(orderButtonGroups).toHaveLength(3);
+      });
+
+      it('showOrderButtonsがfalseの場合、順序変更ボタンが表示されないこと', () => {
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={false}
+          />
+        );
+
+        const orderButtonGroups = screen.queryAllByTestId('order-buttons');
+        expect(orderButtonGroups).toHaveLength(0);
+      });
+
+      it('先頭画像の「上へ移動」ボタンが無効化されていること (要件4.12)', () => {
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={true}
+          />
+        );
+
+        const items = screen.getAllByTestId('photo-panel-item');
+        const firstItemButtons = within(items[0]!).getAllByRole('button', { name: /移動/i });
+        const upButton = firstItemButtons.find(
+          (btn) => btn.getAttribute('aria-label') === '上へ移動'
+        );
+        expect(upButton).toBeDisabled();
+      });
+
+      it('末尾画像の「下へ移動」ボタンが無効化されていること (要件4.13)', () => {
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={true}
+          />
+        );
+
+        const items = screen.getAllByTestId('photo-panel-item');
+        const lastItemButtons = within(items[2]!).getAllByRole('button', { name: /移動/i });
+        const downButton = lastItemButtons.find(
+          (btn) => btn.getAttribute('aria-label') === '下へ移動'
+        );
+        expect(downButton).toBeDisabled();
+      });
+
+      it('中間画像の両方のボタンが有効化されていること', () => {
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={true}
+          />
+        );
+
+        const items = screen.getAllByTestId('photo-panel-item');
+        const middleItemButtons = within(items[1]!).getAllByRole('button', { name: /移動/i });
+        middleItemButtons.forEach((btn) => {
+          expect(btn).not.toBeDisabled();
+        });
+      });
+
+      it('「上へ移動」ボタンクリック時にonOrderChangeが呼ばれること (要件10.6)', async () => {
+        const user = userEvent.setup();
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={true}
+          />
+        );
+
+        const items = screen.getAllByTestId('photo-panel-item');
+        const secondItemButtons = within(items[1]!).getAllByRole('button', { name: /移動/i });
+        const upButton = secondItemButtons.find(
+          (btn) => btn.getAttribute('aria-label') === '上へ移動'
+        );
+
+        await user.click(upButton!);
+
+        // img-2が先頭に移動するため、新しい順序が[img-2, img-1, img-3]になる
+        expect(onOrderChange).toHaveBeenCalledWith([
+          { id: 'img-2', order: 1 },
+          { id: 'img-1', order: 2 },
+          { id: 'img-3', order: 3 },
+        ]);
+      });
+
+      it('「下へ移動」ボタンクリック時にonOrderChangeが呼ばれること (要件10.7)', async () => {
+        const user = userEvent.setup();
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={true}
+          />
+        );
+
+        const items = screen.getAllByTestId('photo-panel-item');
+        const secondItemButtons = within(items[1]!).getAllByRole('button', { name: /移動/i });
+        const downButton = secondItemButtons.find(
+          (btn) => btn.getAttribute('aria-label') === '下へ移動'
+        );
+
+        await user.click(downButton!);
+
+        // img-2が下に移動するため、新しい順序が[img-1, img-3, img-2]になる
+        expect(onOrderChange).toHaveBeenCalledWith([
+          { id: 'img-1', order: 1 },
+          { id: 'img-3', order: 2 },
+          { id: 'img-2', order: 3 },
+        ]);
+      });
+
+      it('readOnlyモードでは順序変更ボタンが表示されないこと', () => {
+        const onOrderChange = vi.fn();
+        render(
+          <PhotoManagementPanel
+            {...defaultProps}
+            onOrderChange={onOrderChange}
+            showOrderButtons={true}
+            readOnly={true}
+          />
+        );
+
+        const orderButtonGroups = screen.queryAllByTestId('order-buttons');
+        expect(orderButtonGroups).toHaveLength(0);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Task 37.2: ドラッグ&ドロップがローカル状態のみ更新
+    // -----------------------------------------------------------------------
+    describe('ドラッグ&ドロップローカル状態更新 (Task 37.2)', () => {
+      it('ドラッグ&ドロップ完了時にonOrderChangeのみが呼ばれAPIは呼ばれないこと (要件4.11, 10.5)', () => {
+        const onOrderChange = vi.fn();
+        render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+        const items = screen.getAllByTestId('photo-panel-item');
+        const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+        const thirdItem = items[2]!;
+
+        // ドラッグ開始
+        fireEvent.dragStart(firstDragHandle, {
+          dataTransfer: {
+            setData: vi.fn(),
+            effectAllowed: 'move',
+            getData: () => 'img-1',
+          },
+        });
+
+        // ドロップ
+        fireEvent.drop(thirdItem, {
+          preventDefault: vi.fn(),
+          dataTransfer: {
+            getData: () => 'img-1',
+          },
+        });
+
+        // onOrderChangeのみが呼ばれる（APIは呼ばれない）
+        expect(onOrderChange).toHaveBeenCalledTimes(1);
+        // 新しい順序が返される
+        expect(onOrderChange).toHaveBeenCalledWith([
+          { id: 'img-2', order: 1 },
+          { id: 'img-3', order: 2 },
+          { id: 'img-1', order: 3 },
+        ]);
+      });
+
+      it('並び替え中のハイライトが維持されること (視覚的フィードバック)', () => {
+        const onOrderChange = vi.fn();
+        render(<PhotoManagementPanel {...defaultProps} onOrderChange={onOrderChange} />);
+
+        const items = screen.getAllByTestId('photo-panel-item');
+        const firstDragHandle = within(items[0]!).getByTestId('photo-drag-handle');
+        const secondItem = items[1]!;
+
+        // ドラッグ開始
+        fireEvent.dragStart(firstDragHandle, {
+          dataTransfer: {
+            setData: vi.fn(),
+            effectAllowed: 'move',
+          },
+        });
+
+        // ドラッグ中のアイテムにスタイルが適用
+        expect(items[0]).toHaveAttribute('data-dragging', 'true');
+
+        // ドラッグオーバー先にハイライト
+        fireEvent.dragEnter(secondItem, { preventDefault: vi.fn() });
+        expect(secondItem).toHaveAttribute('data-drag-over', 'true');
+      });
+    });
+  });
 });

@@ -224,14 +224,15 @@ describe('received-quotation.routes', () => {
       expect(response.body.code).toBe('INVALID_CONTENT_TYPE');
     });
 
-    it('should require received_quotation:create permission', async () => {
+    it('should require estimate_request:update permission', async () => {
+      // 受領見積書の追加は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
       mockCreate.mockResolvedValue(mockQuotation);
 
       await request(app)
         .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
         .send(validCreateInput);
 
-      expect(mockRequirePermission).toHaveBeenCalledWith('received_quotation:create');
+      expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:update');
     });
 
     it('should return 403 when user lacks permission', async () => {
@@ -360,12 +361,13 @@ describe('received-quotation.routes', () => {
       expect(response.body.code).toBe('RECEIVED_QUOTATION_CONFLICT');
     });
 
-    it('should require received_quotation:update permission', async () => {
+    it('should require estimate_request:update permission', async () => {
+      // 受領見積書の更新は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
       mockUpdate.mockResolvedValue(mockQuotation);
 
       await request(app).put(`/api/quotations/${validUUID}`).send(validUpdateInput);
 
-      expect(mockRequirePermission).toHaveBeenCalledWith('received_quotation:update');
+      expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:update');
     });
   });
 
@@ -407,14 +409,15 @@ describe('received-quotation.routes', () => {
       expect(response.body.code).toBe('RECEIVED_QUOTATION_CONFLICT');
     });
 
-    it('should require received_quotation:delete permission', async () => {
+    it('should require estimate_request:update permission', async () => {
+      // 受領見積書の削除は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
       mockDelete.mockResolvedValue(undefined);
 
       await request(app)
         .delete(`/api/quotations/${validUUID}`)
         .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
 
-      expect(mockRequirePermission).toHaveBeenCalledWith('received_quotation:delete');
+      expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:update');
     });
   });
 
@@ -452,12 +455,13 @@ describe('received-quotation.routes', () => {
       expect(response.body.code).toBe('INVALID_CONTENT_TYPE');
     });
 
-    it('should require received_quotation:read permission', async () => {
+    it('should require estimate_request:read permission', async () => {
+      // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
       mockGetFilePreviewUrl.mockResolvedValue('https://example.com/signed-url');
 
       await request(app).get(`/api/quotations/${validUUID}/preview`);
 
-      expect(mockRequirePermission).toHaveBeenCalledWith('received_quotation:read');
+      expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:read');
     });
   });
 });

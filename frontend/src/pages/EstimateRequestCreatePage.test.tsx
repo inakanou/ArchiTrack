@@ -129,8 +129,8 @@ describe('EstimateRequestCreatePage', () => {
     );
 
     await waitFor(() => {
-      // フォームの存在を確認（名前入力フィールド）
-      expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+      // フォームの存在を確認（見積依頼名入力フィールド）
+      expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
     });
   });
 });

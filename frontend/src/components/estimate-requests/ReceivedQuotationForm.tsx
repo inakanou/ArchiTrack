@@ -382,8 +382,12 @@ export function ReceivedQuotationForm({
   isSubmitting = false,
 }: ReceivedQuotationFormProps) {
   // フォーム状態
-  const [name, setName] = useState(initialData?.name ?? '');
-  const [submittedAt, setSubmittedAt] = useState(formatDateForInput(initialData?.submittedAt));
+  // Requirement 11.3.1: 受領見積書名のデフォルト値を「見積書」とする
+  const [name, setName] = useState(initialData?.name ?? '見積書');
+  // Requirement 11.4.1: 提出日のデフォルト値を現在日付とする
+  const [submittedAt, setSubmittedAt] = useState(
+    formatDateForInput(initialData?.submittedAt ?? new Date())
+  );
   const [contentType, setContentType] = useState<ContentType>(initialData?.contentType ?? 'TEXT');
   const [textContent, setTextContent] = useState(initialData?.textContent ?? '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);

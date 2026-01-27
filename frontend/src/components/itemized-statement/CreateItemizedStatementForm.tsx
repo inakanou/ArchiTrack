@@ -66,6 +66,11 @@ export interface CreateItemizedStatementFormProps {
    * デフォルトではAPIクライアントを使用
    */
   onSubmit?: (input: CreateItemizedStatementInput) => Promise<ItemizedStatementInfo>;
+  /**
+   * 内訳書名のデフォルト値
+   * Requirements: 15.4 - デフォルト値として「内訳書」を設定する
+   */
+  defaultName?: string;
 }
 
 /**
@@ -289,9 +294,10 @@ export function CreateItemizedStatementForm({
   onSuccess,
   onCancel,
   onSubmit,
+  defaultName = '',
 }: CreateItemizedStatementFormProps) {
   // フォーム状態
-  const [name, setName] = useState('');
+  const [name, setName] = useState(defaultName);
   const [quantityTableId, setQuantityTableId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});

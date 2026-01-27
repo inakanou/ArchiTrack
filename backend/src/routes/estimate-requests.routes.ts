@@ -283,6 +283,80 @@ router.get(
 
 /**
  * @swagger
+ * /api/projects/{projectId}/estimate-requests/latest:
+ *   get:
+ *     summary: 直近の見積依頼一覧と総数を取得
+ *     description: プロジェクト詳細画面の見積依頼セクション用に、直近N件の見積依頼と総数を取得
+ *     tags:
+ *       - Estimate Requests
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: プロジェクトID
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 2
+ *           minimum: 1
+ *           maximum: 10
+ *         description: 取得件数（1〜10、デフォルト: 2）
+ *     responses:
+ *       200:
+ *         description: 見積依頼サマリー
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalCount:
+ *                   type: integer
+ *                   description: 見積依頼の総数
+ *                 latestRequests:
+ *                   type: array
+ *                   description: 直近N件の見積依頼
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ */
+router.get(
+  '/latest',
+  authenticate,
+  requirePermission('estimate_request:read'),
+  validate(projectIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { projectId } = req.validatedParams as { projectId: string };
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 2;
+
+      const result = await estimateRequestService.findLatestByProjectId(projectId, limit);
+
+      logger.debug(
+        {
+          userId: req.user?.userId,
+          projectId,
+          limit,
+          totalCount: result.totalCount,
+        },
+        'Latest estimate requests retrieved'
+      );
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
  * /api/estimate-requests/{id}:
  *   get:
  *     summary: 見積依頼詳細取得

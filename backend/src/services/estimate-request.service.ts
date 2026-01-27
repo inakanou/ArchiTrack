@@ -101,6 +101,17 @@ export interface PaginatedEstimateRequests {
 }
 
 /**
+ * プロジェクト別見積依頼サマリー
+ * プロジェクト詳細画面で直近の見積依頼一覧と総数を表示するために使用
+ */
+export interface ProjectEstimateRequestSummary {
+  /** 見積依頼の総数 */
+  totalCount: number;
+  /** 直近N件の見積依頼 */
+  latestRequests: EstimateRequestInfo[];
+}
+
+/**
  * 項目選択入力
  */
 export interface ItemSelectionInput {
@@ -340,6 +351,45 @@ export class EstimateRequestService {
         total,
         totalPages: Math.ceil(total / pagination.limit),
       },
+    };
+  }
+
+  /**
+   * プロジェクトの直近の見積依頼一覧と総数を取得する
+   *
+   * プロジェクト詳細画面の見積依頼セクションで使用します。
+   *
+   * @param projectId - プロジェクトID
+   * @param limit - 取得件数（デフォルト: 2、最大: 10）
+   * @returns 見積依頼サマリー（総数と直近N件）
+   */
+  async findLatestByProjectId(
+    projectId: string,
+    limit: number = 2
+  ): Promise<ProjectEstimateRequestSummary> {
+    const safeLimit = Math.min(Math.max(1, limit), 10);
+
+    const where = {
+      projectId,
+      deletedAt: null,
+    };
+
+    const [requests, total] = await Promise.all([
+      this.prisma.estimateRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: safeLimit,
+        include: {
+          tradingPartner: { select: { id: true, name: true } },
+          itemizedStatement: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.estimateRequest.count({ where }),
+    ]);
+
+    return {
+      totalCount: total,
+      latestRequests: requests.map((request) => this.toEstimateRequestInfo(request)),
     };
   }
 

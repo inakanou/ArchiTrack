@@ -8,14 +8,15 @@
 
 **Users**: プロジェクト担当者がプロジェクト詳細画面から内訳書を作成・閲覧・削除する。
 
-**Impact**: 既存のプロジェクト詳細画面に内訳書セクションを追加し、数量表セクションと同様の操作感を提供する。
+**Impact**: 既存のプロジェクト詳細画面に内訳書セクションを追加し、数量表セクションと同様の操作感を提供する。専用の内訳書新規作成画面により、現場調査・数量表機能と統一されたUI体験を実現する。
 
 ### Goals
 
 - 数量表の項目を5項目の組み合わせでグループ化し、数量を合計した内訳書を作成する
 - 内訳書をスナップショットとして独立保持し、数量表変更の影響を受けないようにする
 - 内訳書詳細画面でのソート・フィルタリング・ページネーションを提供する
-- 既存UIパターンとの一貫性を保ち、操作性を統一する
+- 既存UIパターン（現場調査・数量表）との一貫性を保ち、操作性を統一する
+- 専用作成画面により、数量表有無に応じた適切なユーザーガイダンスを提供する
 
 ### Non-Goals
 
@@ -35,6 +36,7 @@
 - **楽観的排他制御**: 既存の`updatedAt`ベースのパターンを踏襲
 - **論理削除**: `deletedAt`フィールドによる論理削除パターンを踏襲
 - **監査ログ**: 既存の`auditLogService`を使用した操作記録
+- **専用作成画面パターン**: `SiteSurveyCreatePage`、`QuantityTableCreatePage`と同様の画面構成
 
 ### Architecture Pattern & Boundary Map
 
@@ -45,7 +47,8 @@ graph TB
         ISC[ItemizedStatementSectionCard]
         ISL[ItemizedStatementListPage]
         ISD[ItemizedStatementDetailPage]
-        ISF[CreateItemizedStatementForm]
+        ISCP[ItemizedStatementCreatePage]
+        CISF[CreateItemizedStatementForm]
     end
 
     subgraph Backend
@@ -65,8 +68,10 @@ graph TB
     PDP --> ISC
     ISC --> ISR
     ISL --> ISR
+    ISL --> CISF
     ISD --> ISR
-    ISF --> ISR
+    ISCP --> CISF
+    CISF --> ISR
     ISR --> ISS
     ISS --> ISP
     ISS --> DB
@@ -78,15 +83,15 @@ graph TB
 **Architecture Integration**:
 - Selected pattern: レイヤードアーキテクチャ（既存パターンの踏襲）
 - Domain boundaries: 内訳書ドメインは数量表ドメインを参照するが、作成後は独立
-- Existing patterns preserved: 楽観的排他制御、論理削除、監査ログ、ページネーション
-- New components rationale: ピボット集計ロジックの分離（`ItemizedStatementPivotService`）
+- Existing patterns preserved: 楽観的排他制御、論理削除、監査ログ、ページネーション、専用作成画面パターン
+- New components rationale: ピボット集計ロジックの分離（`ItemizedStatementPivotService`）、専用作成画面（`ItemizedStatementCreatePage`）
 - Steering compliance: TypeScript型安全性、Zodバリデーション、Prisma ORM統合
 
 ### Technology Stack
 
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
-| Frontend | React 19.2.0 / TypeScript 5.9.3 | 内訳書UI（作成フォーム、一覧、詳細） | 既存パターン踏襲 |
+| Frontend | React 19.2.0 / TypeScript 5.9.3 | 内訳書UI（作成画面、一覧、詳細） | 既存パターン踏襲 |
 | Frontend | xlsx 0.20.3 (SheetJS) | Excelファイル生成 | CDNからインストール（npm公式は古い） |
 | Backend | Express 5.2.0 / TypeScript 5.9.3 | API実装 | 既存ルーティングパターン |
 | Data | Prisma 7.0.0 / PostgreSQL 15 | 内訳書データ永続化 | 新規テーブル追加 |
@@ -95,19 +100,22 @@ graph TB
 
 ## System Flows
 
-### 内訳書作成フロー
+### 内訳書作成フロー（専用作成画面経由）
 
 ```mermaid
 sequenceDiagram
     participant User
+    participant SectionCard as ItemizedStatementSectionCard
+    participant CreatePage as ItemizedStatementCreatePage
     participant Form as CreateItemizedStatementForm
     participant API as Backend API
     participant Pivot as PivotService
     participant DB as PostgreSQL
 
-    User->>Form: 新規作成ボタンクリック
-    Form->>API: GET /projects/:id/quantity-tables
-    API-->>Form: 数量表一覧
+    User->>SectionCard: 新規作成ボタンクリック
+    SectionCard->>CreatePage: 作成画面へ遷移
+    CreatePage->>API: GET /projects/:id/quantity-tables
+    API-->>CreatePage: 数量表一覧
     User->>Form: 数量表選択、内訳書名入力
     Form->>API: POST /projects/:id/itemized-statements
     API->>DB: 数量表存在確認
@@ -118,6 +126,24 @@ sequenceDiagram
     API->>DB: 内訳書・項目保存
     API-->>Form: 作成完了
     Form->>User: 詳細画面へ遷移
+```
+
+### 数量表有無による条件分岐フロー
+
+```mermaid
+flowchart TD
+    Start[プロジェクト詳細画面]
+    CheckQT{数量表が存在?}
+    NoQT[まず数量表を作成してください<br/>新規作成ボタン非表示]
+    HasQT{内訳書が存在?}
+    NoIS[内訳書はまだありません<br/>新規作成ボタン表示]
+    HasIS[内訳書一覧表示<br/>新規作成ボタン表示]
+
+    Start --> CheckQT
+    CheckQT -->|No| NoQT
+    CheckQT -->|Yes| HasQT
+    HasQT -->|No| NoIS
+    HasQT -->|Yes| HasIS
 ```
 
 ### ピボット集計ロジック
@@ -191,20 +217,23 @@ sequenceDiagram
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10 | 内訳書の新規作成 | CreateItemizedStatementForm, ItemizedStatementService | createItemizedStatementSchema, POST /itemized-statements | 作成フロー |
+| 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.9, 1.10 | 内訳書の新規作成 | ItemizedStatementCreatePage, CreateItemizedStatementForm, ItemizedStatementService | createItemizedStatementSchema, POST /itemized-statements | 作成フロー |
+| 1.8 | 数量表未存在時のメッセージ | ItemizedStatementSectionCard, ItemizedStatementListPage | - | 条件分岐フロー |
 | 2.1, 2.2, 2.3, 2.4, 2.5 | ピボット集計ロジック | ItemizedStatementPivotService | PivotResult, groupAndSum | 集計ロジック |
-| 3.1, 3.2, 3.3, 3.4, 3.5 | 内訳書一覧表示 | ItemizedStatementSectionCard, ItemizedStatementListPage | GET /itemized-statements | - |
+| 3.1, 3.2, 3.4, 3.5, 3.6 | 内訳書一覧表示 | ItemizedStatementSectionCard, ItemizedStatementListPage | GET /itemized-statements | - |
+| 3.3 | 数量表有無による表示分岐 | ItemizedStatementSectionCard | - | 条件分岐フロー |
 | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9 | 内訳書詳細画面 | ItemizedStatementDetailPage | GET /itemized-statements/:id | - |
 | 5.1, 5.2, 5.3, 5.4, 5.5 | 内訳項目の並び替え | ItemizedStatementDetailPage | sortBy, sortOrder | - |
 | 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7 | 内訳項目のフィルタリング | ItemizedStatementDetailPage | filterParams | - |
 | 7.1, 7.2, 7.3, 7.4 | 内訳書の削除 | ItemizedStatementDetailPage, ItemizedStatementService | DELETE /itemized-statements/:id | - |
 | 8.1, 8.2, 8.3, 8.4 | スナップショット独立性 | ItemizedStatementService | ItemizedStatementItem | - |
-| 9.1, 9.2, 9.3, 9.4 | パンくずナビゲーション | ItemizedStatementDetailPage, Breadcrumb | - | - |
+| 9.1, 9.2, 9.3, 9.4, 9.5, 9.6 | パンくずナビゲーション | ItemizedStatementDetailPage, ItemizedStatementCreatePage, Breadcrumb | - | - |
 | 10.1, 10.2, 10.3, 10.4 | 楽観的排他制御 | ItemizedStatementService | updatedAt | - |
-| 11.1, 11.2, 11.3, 11.4, 11.5 | プロジェクト詳細画面への統合 | ItemizedStatementSectionCard | - | - |
+| 11.1, 11.2, 11.3, 11.4, 11.5, 11.6 | プロジェクト詳細画面への統合 | ItemizedStatementSectionCard | - | - |
 | 12.1, 12.2, 12.3, 12.4, 12.5 | ローディング表示 | 全UI Components | isLoading state | - |
 | 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8 | Excel出力機能 | ItemizedStatementDetailPage, exportToExcel | ExportToExcelOptions | Excel出力フロー |
 | 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8 | クリップボード出力機能 | ItemizedStatementDetailPage, copyToClipboard | CopyToClipboardOptions | クリップボードコピーフロー |
+| 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9 | 内訳書新規作成画面 | ItemizedStatementCreatePage, CreateItemizedStatementForm | - | 作成フロー |
 
 ## Components and Interfaces
 
@@ -213,8 +242,10 @@ sequenceDiagram
 | ItemizedStatementService | Backend/Service | 内訳書CRUD、ビジネスロジック | 1, 3, 4, 7, 8, 10 | PrismaClient (P0), AuditLogService (P1), PivotService (P0) | Service |
 | ItemizedStatementPivotService | Backend/Service | ピボット集計専用ロジック | 2 | PrismaClient (P0), Decimal.js (P0) | Service |
 | itemized-statements.routes | Backend/Routes | APIエンドポイント定義 | 1, 3, 4, 7, 10 | ItemizedStatementService (P0) | API |
-| CreateItemizedStatementForm | Frontend/UI | 内訳書作成フォーム | 1 | quantity-tables API (P1) | State |
-| ItemizedStatementSectionCard | Frontend/UI | プロジェクト詳細画面の内訳書セクション | 3, 11 | - | - |
+| ItemizedStatementCreatePage | Frontend/Page | 内訳書新規作成画面 | 15 | CreateItemizedStatementForm (P0), quantity-tables API (P1) | State |
+| CreateItemizedStatementForm | Frontend/UI | 内訳書作成フォーム | 1, 15 | quantity-tables API (P1) | State |
+| ItemizedStatementSectionCard | Frontend/UI | プロジェクト詳細画面の内訳書セクション | 1.8, 3, 11 | - | - |
+| ItemizedStatementListPage | Frontend/Page | 内訳書一覧画面 | 3, 15.8, 15.9 | itemized-statements API (P0) | State |
 | ItemizedStatementDetailPage | Frontend/UI | 内訳書詳細・削除・ソート・フィルタ・出力 | 4, 5, 6, 7, 9, 12, 13, 14 | xlsx (P0), useToast (P1) | State |
 | exportToExcel | Frontend/Utility | Excelファイル生成・ダウンロード | 13 | xlsx (P0) | Function |
 | copyToClipboard | Frontend/Utility | タブ区切りテキストのクリップボードコピー | 14 | Clipboard API (P0) | Function |
@@ -226,7 +257,7 @@ sequenceDiagram
 | Field | Detail |
 |-------|--------|
 | Intent | 内訳書のCRUD操作とビジネスロジックを担当 |
-| Requirements | 1.1-1.10, 3.1-3.5, 4.1-4.9, 7.1-7.4, 8.1-8.4, 10.1-10.4 |
+| Requirements | 1.1-1.10, 3.1-3.6, 4.1-4.9, 7.1-7.4, 8.1-8.4, 10.1-10.4 |
 
 **Responsibilities & Constraints**
 - 内訳書の作成・取得・削除を担当
@@ -387,7 +418,7 @@ class ItemizedStatementPivotService {
 | Field | Detail |
 |-------|--------|
 | Intent | 内訳書APIエンドポイントの定義 |
-| Requirements | 1.1-1.10, 3.1-3.5, 4.1-4.9, 7.1-7.4, 10.1-10.4 |
+| Requirements | 1.1-1.10, 3.1-3.6, 4.1-4.9, 7.1-7.4, 10.1-10.4 |
 
 **Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
 
@@ -407,23 +438,72 @@ class ItemizedStatementPivotService {
 - 409 Conflict: 同名の内訳書が既に存在、楽観的排他制御エラー、オーバーフローエラー
 - 500 Internal Server Error: サーバー内部エラー
 
+### Frontend / Page Layer
+
+#### ItemizedStatementCreatePage
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書新規作成画面（専用ページ） |
+| Requirements | 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 9.5, 9.6 |
+
+**Responsibilities & Constraints**
+- 内訳書名入力フィールド（デフォルト値「内訳書」）
+- 数量表選択リスト
+- 作成/キャンセルボタン
+- パンくずナビゲーション（プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成）
+- プロジェクト詳細画面への戻りリンク
+- SiteSurveyCreatePage、QuantityTableCreatePageと同様のレイアウト
+
+**Dependencies**
+- Outbound: quantity-tables API — 数量表一覧取得 (P1)
+- Outbound: CreateItemizedStatementForm — フォームコンポーネント (P0)
+- Outbound: Breadcrumb — ナビゲーション表示 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ItemizedStatementCreatePageState {
+  // プロジェクト情報
+  project: ProjectDetail | null;
+  isLoadingProject: boolean;
+  projectError: string | null;
+
+  // 数量表情報
+  quantityTables: QuantityTableInfo[];
+  isLoadingQuantityTables: boolean;
+  quantityTablesError: string | null;
+
+  // 作成状態
+  isCreating: boolean;
+  createError: string | null;
+}
+```
+
+**Implementation Notes**
+- Integration: 既存のSiteSurveyCreatePage、QuantityTableCreatePageと同様の構造を採用
+- Validation: 数量表が存在しない場合の適切なエラーメッセージ表示
+- Risks: 数量表が0件の場合はフォームを表示しつつ、選択必須のバリデーションで対応
+
 ### Frontend / UI Layer
 
 #### CreateItemizedStatementForm
 
 | Field | Detail |
 |-------|--------|
-| Intent | 内訳書作成フォームUI |
-| Requirements | 1.1-1.10 |
+| Intent | 内訳書作成フォームUI（再利用可能コンポーネント） |
+| Requirements | 1.1-1.10, 15.3, 15.4, 15.5, 15.6, 15.7 |
 
 **Responsibilities & Constraints**
 - 数量表選択ドロップダウン（1つのみ選択可能）
-- 内訳書名入力（最大200文字）
+- 内訳書名入力（最大200文字、デフォルト「内訳書」）
 - バリデーションエラー表示
 - ローディング状態の管理
+- 作成成功時のコールバック実行
 
 **Dependencies**
-- Outbound: quantity-tables API — 数量表一覧取得 (P1)
 - Outbound: itemized-statements API — 内訳書作成 (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
@@ -447,6 +527,10 @@ interface CreateItemizedStatementFormProps {
   quantityTables: Array<{ id: string; name: string; itemCount: number }>;
   onSuccess: (statement: ItemizedStatementInfo) => void;
   onCancel: () => void;
+  /** 内訳書名のデフォルト値（デフォルト: "内訳書"） */
+  defaultName?: string;
+  /** テスト用送信関数（オプション） */
+  onSubmit?: (input: CreateItemizedStatementInput) => Promise<ItemizedStatementInfo>;
 }
 ```
 
@@ -459,11 +543,67 @@ interface CreateItemizedStatementFormProps {
 | Field | Detail |
 |-------|--------|
 | Intent | プロジェクト詳細画面の内訳書セクション |
-| Requirements | 3.1-3.5, 11.1-11.5 |
+| Requirements | 1.8, 3.1-3.6, 11.1-11.6 |
+
+**Responsibilities & Constraints**
+- QuantityTableSectionCardと同様のレイアウト・スタイル
+- 数量表有無に応じた条件分岐表示:
+  - 数量表なし: 「まず数量表を作成してください」（新規作成ボタン非表示）
+  - 数量表あり・内訳書なし: 「内訳書はまだありません」（新規作成ボタン表示）
+  - 数量表あり・内訳書あり: 内訳書一覧（新規作成ボタン表示）
+- 新規作成ボタンクリックで内訳書新規作成画面へ遷移
+
+**Dependencies**
+- Outbound: itemized-statements API — 最新内訳書取得 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+
+```typescript
+interface ItemizedStatementSectionCardProps {
+  /** プロジェクトID */
+  projectId: string;
+  /** 内訳書の総数 */
+  totalCount: number;
+  /** 直近N件の内訳書 */
+  latestStatements: ItemizedStatementInfo[];
+  /** 利用可能な数量表一覧 */
+  quantityTables: QuantityTableInfo[];
+  /** ローディング状態 */
+  isLoading: boolean;
+}
+```
 
 **Implementation Notes**
-- Integration: QuantityTableSectionCardと同様のレイアウト・スタイル
-- Validation: 数量表が存在しない場合は新規作成ボタン無効化
+- Integration: 新規作成ボタンは`/projects/${projectId}/itemized-statements/new`へのLinkとして実装
+- Validation: 数量表が存在しない場合は新規作成ボタンを非表示
+- 変更点: インライン作成フォームから専用作成画面へのナビゲーションに変更
+
+#### ItemizedStatementListPage
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書一覧画面（専用ページ） |
+| Requirements | 3.2-3.6, 15.8, 15.9 |
+
+**Responsibilities & Constraints**
+- 作成済み内訳書を作成日時の降順で一覧表示
+- 数量表有無に応じた条件分岐表示:
+  - 数量表なし: 「まず数量表を作成してください」（新規作成ボタン非表示）
+  - 数量表あり・内訳書なし: 「内訳書はまだありません」（新規作成ボタン表示）
+- 新規作成ボタンクリックで内訳書新規作成画面へ遷移
+- キャンセル時は内訳書一覧画面に戻る
+
+**Dependencies**
+- Outbound: itemized-statements API — 内訳書一覧取得 (P0)
+- Outbound: quantity-tables API — 数量表一覧取得 (P1)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+**Implementation Notes**
+- Integration: 新規作成ボタンは`/projects/${projectId}/itemized-statements/new`へのLinkとして実装
+- 変更点: インライン作成フォームから専用作成画面へのナビゲーションに変更
 
 #### ItemizedStatementDetailPage
 
@@ -656,6 +796,31 @@ async function copyToClipboard(options: CopyToClipboardOptions): Promise<CopyToC
 - Integration: navigator.clipboard.writeText() を使用（async/await）
 - Validation: Clipboard APIが利用不可の場合はエラーを返却
 - Risks: HTTPSでないローカル環境ではClipboard APIが制限される可能性あり（開発環境は除外）
+
+### Frontend / Routing Layer
+
+#### ルーティング設定
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書機能のルーティング定義 |
+| Requirements | 15.1, 15.8, 15.9 |
+
+**新規追加ルート**:
+
+```typescript
+// 内訳書新規作成画面（/projects/:projectId/itemized-statements より先に定義する必要あり）
+// REQ-15.1: 内訳書新規作成画面を独立したページとして提供する
+// REQ-9.5, 9.6: パンくずナビゲーション「プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成」
+{
+  path: '/projects/:projectId/itemized-statements/new',
+  element: <ItemizedStatementCreatePage />,
+}
+```
+
+**Implementation Notes**
+- Integration: 既存のルーティングパターン（`/projects/:projectId/quantity-tables/new`、`/projects/:projectId/site-surveys/new`）を踏襲
+- 変更点: 内訳書一覧画面（`/projects/:projectId/itemized-statements`）より先に定義
 
 ## Data Models
 
@@ -871,6 +1036,9 @@ interface DeleteItemizedStatementRequest {
 - Zodスキーマ: バリデーションルール（必須チェック、文字数制限、UUID形式）
 - exportToExcel: Excelファイル生成、カラム順序、数量精度、ファイル名形式
 - copyToClipboard: タブ区切り変換、ヘッダー行、数量精度、エラーハンドリング
+- ItemizedStatementCreatePage: 画面レンダリング、フォーム送信、ナビゲーション
+- ItemizedStatementSectionCard: 数量表有無による条件分岐表示
+- ItemizedStatementListPage: 数量表有無による条件分岐表示、ナビゲーション
 
 ### Integration Tests
 
@@ -879,10 +1047,11 @@ interface DeleteItemizedStatementRequest {
 
 ### E2E Tests
 
-- 内訳書作成フロー: 数量表選択 → 名前入力 → 作成 → 詳細画面表示
+- 内訳書作成フロー: プロジェクト詳細画面 → 作成画面 → 数量表選択 → 名前入力 → 作成 → 詳細画面表示
 - 内訳書一覧表示: プロジェクト詳細からの遷移、ページネーション
 - 内訳書詳細操作: ソート、フィルタリング、削除
 - エラーケース: 重複名、空の数量表、楽観的排他制御エラー
+- 数量表有無による条件分岐: 数量表なし時のメッセージ表示、数量表あり・内訳書なし時のメッセージ表示
 - Excel出力フロー: ボタンクリック → ファイルダウンロード → ファイル名検証
 - クリップボードコピーフロー: ボタンクリック → 成功トースト表示 → 貼り付け検証
 - フィルタ後の出力: フィルタ適用 → Excel/クリップボード出力 → フィルタ後データのみ出力検証

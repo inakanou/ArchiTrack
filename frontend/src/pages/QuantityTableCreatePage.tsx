@@ -160,7 +160,7 @@ export default function QuantityTableCreatePage() {
   const [projectError, setProjectError] = useState<string | null>(null);
 
   // フォーム状態
-  const [name, setName] = useState('');
+  const [name, setName] = useState('数量表');
   const [isInputFocused, setIsInputFocused] = useState(false);
 
   // 送信状態

@@ -48,6 +48,39 @@ describe('ReceivedQuotationForm', () => {
       expect(screen.getByRole('button', { name: /キャンセル/ })).toBeInTheDocument();
     });
 
+    it('新規作成モードで受領見積書名のデフォルト値が「見積書」になる (11.3.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      expect(screen.getByLabelText(/受領見積書名/)).toHaveValue('見積書');
+    });
+
+    it('新規作成モードで提出日のデフォルト値が今日の日付になる (11.4.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 今日の日付をyyyy-MM-dd形式で取得
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      const expectedDate = `${year}-${month}-${day}`;
+
+      expect(screen.getByLabelText(/提出日/)).toHaveValue(expectedDate);
+    });
+
     it('編集モードで初期データが表示される', () => {
       const initialData = {
         id: 'rq-123',
@@ -150,6 +183,10 @@ describe('ReceivedQuotationForm', () => {
         />
       );
 
+      // デフォルト値「見積書」をクリアして空にする
+      const nameInput = screen.getByLabelText(/受領見積書名/);
+      await userEvent.clear(nameInput);
+
       const submitButton = screen.getByRole('button', { name: /登録/ });
       await userEvent.click(submitButton);
 
@@ -167,8 +204,9 @@ describe('ReceivedQuotationForm', () => {
         />
       );
 
-      // 名前のみ入力
-      await userEvent.type(screen.getByLabelText(/受領見積書名/), 'テスト見積書');
+      // デフォルト値（今日の日付）をクリアして空にする
+      const dateInput = screen.getByLabelText(/提出日/);
+      fireEvent.change(dateInput, { target: { value: '' } });
 
       const submitButton = screen.getByRole('button', { name: /登録/ });
       await userEvent.click(submitButton);
@@ -409,8 +447,10 @@ describe('ReceivedQuotationForm', () => {
         />
       );
 
-      // フォーム入力
-      await userEvent.type(screen.getByLabelText(/受領見積書名/), 'テスト見積書');
+      // フォーム入力（デフォルト値をクリアしてから入力）
+      const nameInput = screen.getByLabelText(/受領見積書名/);
+      await userEvent.clear(nameInput);
+      await userEvent.type(nameInput, 'テスト見積書');
       const dateInput = screen.getByLabelText(/提出日/);
       fireEvent.change(dateInput, { target: { value: '2025-01-15' } });
       const textRadio = screen.getByRole('radio', { name: /テキスト/ });
@@ -443,8 +483,10 @@ describe('ReceivedQuotationForm', () => {
         />
       );
 
-      // フォーム入力
-      await userEvent.type(screen.getByLabelText(/受領見積書名/), 'テスト見積書');
+      // フォーム入力（デフォルト値をクリアしてから入力）
+      const nameInput = screen.getByLabelText(/受領見積書名/);
+      await userEvent.clear(nameInput);
+      await userEvent.type(nameInput, 'テスト見積書');
       const dateInput = screen.getByLabelText(/提出日/);
       fireEvent.change(dateInput, { target: { value: '2025-01-15' } });
 

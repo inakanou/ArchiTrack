@@ -254,6 +254,8 @@ export default function SiteSurveyDetailPage() {
   const [isSavingMetadata, setIsSavingMetadata] = useState(false);
   // 未保存の変更をトラッキングするためのMap: imageId -> { comment?, includeInReport? }
   const pendingChangesRef = useRef<Map<string, UpdateImageMetadataInput>>(new Map());
+  // 未保存の順序変更をトラッキング
+  const pendingOrderRef = useRef<ImageOrderItem[] | null>(null);
 
   // ページ離脱警告フック (Task 33.2: ページ離脱時の確認ダイアログ)
   const { isDirty, markAsChanged, markAsSaved } = useUnsavedChanges({
@@ -298,26 +300,36 @@ export default function SiteSurveyDetailPage() {
   );
 
   /**
-   * 画像順序変更ハンドラ (Requirement 10.5, 10.6)
+   * 画像順序変更ハンドラ (Requirement 10.5, 10.6, 10.7)
    *
-   * ドラッグアンドドロップで順序が変更された時に呼び出され、
-   * APIを呼び出して順序を保存します。
+   * ドラッグアンドドロップまたは上へ移動/下へ移動ボタンで順序が変更された時に呼び出され、
+   * ローカル状態のみを更新します。APIへの保存は保存ボタンで一括実行されます。
    */
-  // ドラッグ&ドロップのシミュレーションが複雑なためカバレッジから除外
   const handleOrderChange = useCallback(
-    /* v8 ignore next 10 */
-    async (newOrders: ImageOrderItem[]) => {
+    (newOrders: ImageOrderItem[]) => {
       if (!id || !survey) return;
 
-      try {
-        await updateSurveyImageOrder(id, newOrders);
-        // 順序変更後、データを再取得して表示を更新
-        await fetchData();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '順序の保存に失敗しました');
-      }
+      // ローカル状態を即座に更新（UI反映用）
+      setSurvey((prev) => {
+        if (!prev) return prev;
+        // newOrdersに基づいてimagesのdisplayOrderを更新
+        const orderMap = new Map(newOrders.map((o) => [o.id, o.order]));
+        return {
+          ...prev,
+          images: prev.images.map((img) => ({
+            ...img,
+            displayOrder: orderMap.get(img.id) ?? img.displayOrder,
+          })),
+        };
+      });
+
+      // pendingOrderに変更を保存
+      pendingOrderRef.current = newOrders;
+
+      // 未保存フラグを設定
+      markAsChanged();
     },
-    [id, survey, fetchData]
+    [id, survey, markAsChanged]
   );
 
   /**
@@ -362,39 +374,51 @@ export default function SiteSurveyDetailPage() {
   );
 
   /**
-   * メタデータ一括保存ハンドラ (Task 33.1: 手動保存方式)
+   * メタデータ・順序一括保存ハンドラ (Task 33.1: 手動保存方式)
    *
-   * 保存ボタンクリック時に、pendingChangesにある全ての変更を
+   * 保存ボタンクリック時に、pendingChangesとpendingOrderにある全ての変更を
    * batch APIを使用して一括保存します。
    */
   const handleSaveMetadata = useCallback(async () => {
-    if (pendingChangesRef.current.size === 0) return;
+    const hasMetadataChanges = pendingChangesRef.current.size > 0;
+    const hasOrderChanges = pendingOrderRef.current !== null;
+
+    if (!hasMetadataChanges && !hasOrderChanges) return;
 
     setIsSavingMetadata(true);
     setError(null);
 
     try {
-      // pendingChangesをBatchUpdateImageMetadataInput[]に変換
-      const updates: BatchUpdateImageMetadataInput[] = [];
-      pendingChangesRef.current.forEach((changes, imageId) => {
-        updates.push({
-          id: imageId,
-          ...changes,
+      // メタデータの保存
+      if (hasMetadataChanges) {
+        // pendingChangesをBatchUpdateImageMetadataInput[]に変換
+        const updates: BatchUpdateImageMetadataInput[] = [];
+        pendingChangesRef.current.forEach((changes, imageId) => {
+          updates.push({
+            id: imageId,
+            ...changes,
+          });
         });
-      });
 
-      // 一括更新APIを呼び出し
-      await updateImageMetadataBatch(updates);
+        // 一括更新APIを呼び出し
+        await updateImageMetadataBatch(updates);
+      }
 
-      // 成功したらpendingChangesをクリア
+      // 順序の保存
+      if (hasOrderChanges && id && pendingOrderRef.current) {
+        await updateSurveyImageOrder(id, pendingOrderRef.current);
+      }
+
+      // 成功したらpendingChangesとpendingOrderをクリア
       pendingChangesRef.current.clear();
+      pendingOrderRef.current = null;
       markAsSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'メタデータの保存に失敗しました');
+      setError(err instanceof Error ? err.message : '保存に失敗しました');
     } finally {
       setIsSavingMetadata(false);
     }
-  }, [markAsSaved]);
+  }, [id, markAsSaved]);
 
   /**
    * 編集ボタンクリックハンドラ
@@ -462,6 +486,16 @@ export default function SiteSurveyDetailPage() {
 
       // pendingChangesから該当画像の変更を削除
       pendingChangesRef.current.delete(imageId);
+
+      // pendingOrderRefから該当画像を削除し、順序を再計算
+      if (pendingOrderRef.current) {
+        const filteredOrders = pendingOrderRef.current.filter((o) => o.id !== imageId);
+        // 順序を1から連番に再計算
+        pendingOrderRef.current = filteredOrders.map((o, index) => ({
+          ...o,
+          order: index + 1,
+        }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '画像の削除に失敗しました');
       throw err; // PhotoManagementPanelにエラーを伝播

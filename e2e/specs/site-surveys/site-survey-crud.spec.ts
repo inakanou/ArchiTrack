@@ -235,6 +235,8 @@ test.describe('現場調査CRUD操作', () => {
 
     /**
      * @requirement site-survey/REQ-1.1
+     * Note: 要件により調査名にはデフォルト値「現場調査」が設定されているため、
+     *       調査名をクリアしてからバリデーションエラーの表示を確認する
      */
     test('必須項目未入力時にバリデーションエラーが表示される', async ({ page }) => {
       if (!createdProjectId) {
@@ -247,13 +249,59 @@ test.describe('現場調査CRUD操作', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // 何も入力せずに作成ボタンをクリック
+      // 調査名フィールドをクリアする（デフォルト値「現場調査」が設定されているため）
+      await page.getByLabel(/調査名/i).clear();
+
+      // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
 
       // バリデーションエラーが表示されることを確認
       await expect(page.getByText(/調査名は必須です|名前は必須です/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
+    });
+
+    /**
+     * @requirement site-survey/REQ-1.7
+     * プロジェクトが存在しない場合、現場調査の作成を許可しない
+     */
+    test('存在しないプロジェクトでは現場調査を作成できない (site-survey/REQ-1.7)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 存在しないプロジェクトIDで現場調査作成画面にアクセス
+      const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
+      await page.goto(`/projects/${nonExistentProjectId}/site-surveys/new`);
+      await page.waitForLoadState('networkidle');
+
+      // エラーメッセージが表示されるか、適切なエラー画面に遷移することを確認
+      const errorMessage = page.getByText(
+        /プロジェクトが見つかりません|プロジェクトが存在しません|404|Not Found|エラー/i
+      );
+      const errorVisible = await errorMessage.isVisible({ timeout: getTimeout(10000) });
+
+      // フォームが表示されていないことも確認（フォームが表示されていたら作成できてしまう可能性がある）
+      if (!errorVisible) {
+        // エラーが明示的に表示されていない場合は、作成フォームが表示されていないことを確認
+        const createButton = page.getByRole('button', { name: /^作成$/i });
+        const createButtonVisible = await createButton.isVisible().catch(() => false);
+        // フォームが表示されていない、または作成ボタンがないことを確認
+        if (createButtonVisible) {
+          // 仮にフォームが表示されている場合、作成を試みても失敗することを確認
+          await page.getByLabel(/調査名/i).fill('テスト現場調査');
+          await page.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+          await createButton.click();
+
+          // APIエラーが発生することを確認
+          await expect(page.getByText(/プロジェクトが見つかりません|エラー|失敗/i)).toBeVisible({
+            timeout: getTimeout(10000),
+          });
+        }
+      } else {
+        // エラーメッセージが表示されていることを確認
+        expect(errorVisible).toBe(true);
+      }
     });
   });
 
