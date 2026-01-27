@@ -275,8 +275,8 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
       // 有効なデータを入力
       await fillCompanyInfoForm(page, { companyName: 'ローディングテスト株式会社' });
 
-      // 保存ボタンをクリック
-      const saveButton = page.getByRole('button', { name: /保存/ });
+      // 保存ボタンをクリック（exact: trueでToast通知の閉じるボタンと区別）
+      const saveButton = page.getByRole('button', { name: '保存', exact: true });
 
       // クリック直後のボタン状態を確認（一瞬なので検証が難しい場合がある）
       const clickPromise = saveButton.click();
@@ -545,7 +545,8 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
       // APIリクエストの時間を計測
       const startTime = Date.now();
       const responsePromise = page.waitForResponse(
-        (response) => response.url().includes('/api/company-info') && response.request().method() === 'PUT'
+        (response) =>
+          response.url().includes('/api/company-info') && response.request().method() === 'PUT'
       );
 
       const saveButton = page.getByRole('button', { name: /保存/ });
