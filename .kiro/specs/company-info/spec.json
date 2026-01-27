@@ -1,16 +1,16 @@
 {
   "feature_name": "company-info",
   "created_at": "2026-01-27T00:00:00.000Z",
-  "updated_at": "2026-01-27T00:00:00.000Z",
+  "updated_at": "2026-01-27T12:00:00.000Z",
   "language": "ja",
-  "phase": "requirements-generated",
+  "phase": "design-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "tasks": {
