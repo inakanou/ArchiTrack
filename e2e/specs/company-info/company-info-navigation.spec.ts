@@ -235,7 +235,7 @@ test.describe('自社情報ナビゲーション・画面遷移', () => {
       await breadcrumb.getByRole('link', { name: /ダッシュボード/i }).click();
 
       // ダッシュボードに遷移することを確認
-      await expect(page).toHaveURL(/^\/$/, { timeout: getTimeout(10000) });
+      await expect(page).toHaveURL(/\/dashboard$/, { timeout: getTimeout(10000) });
     });
   });
 
