@@ -61,10 +61,17 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
         await expect(page1.getByLabel(/会社名/)).toBeVisible({ timeout: getTimeout(10000) });
         await expect(page2.getByLabel(/会社名/)).toBeVisible({ timeout: getTimeout(10000) });
 
-        // page1で更新して保存
+        // page1で必須項目を全て入力して保存
         const companyNameField1 = page1.getByLabel(/会社名/);
+        const addressField1 = page1.getByLabel(/住所/);
+        const representativeField1 = page1.getByLabel(/代表者/);
+
         await companyNameField1.clear();
         await companyNameField1.fill('ユーザー1による更新');
+        await addressField1.clear();
+        await addressField1.fill('東京都渋谷区1-1-1');
+        await representativeField1.clear();
+        await representativeField1.fill('テスト代表者1');
 
         const saveButton1 = page1.getByRole('button', { name: /保存/ });
         await saveButton1.click();
@@ -74,20 +81,29 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
           timeout: getTimeout(10000),
         });
 
-        // page2で更新して保存（競合が発生するはず）
+        // page2で必須項目を全て入力して保存（競合が発生するはず）
         const companyNameField2 = page2.getByLabel(/会社名/);
+        const addressField2 = page2.getByLabel(/住所/);
+        const representativeField2 = page2.getByLabel(/代表者/);
+
         await companyNameField2.clear();
         await companyNameField2.fill('ユーザー2による更新（競合）');
+        await addressField2.clear();
+        await addressField2.fill('大阪府大阪市2-2-2');
+        await representativeField2.clear();
+        await representativeField2.fill('テスト代表者2');
 
         const saveButton2 = page2.getByRole('button', { name: /保存/ });
         await saveButton2.click();
 
-        // 競合エラーメッセージが表示されることを確認
-        await expect(
-          page2.getByText(/他のユーザーによって更新されました|画面を更新してください|競合/)
-        ).toBeVisible({
+        // 競合エラーダイアログが表示されることを確認
+        await expect(page2.getByRole('heading', { name: /編集の競合/ })).toBeVisible({
           timeout: getTimeout(10000),
         });
+        // 競合の説明メッセージも確認
+        await expect(
+          page2.getByText(/この自社情報は他のユーザーによって更新されました/)
+        ).toBeVisible();
       } finally {
         await context1.close();
         await context2.close();
@@ -115,7 +131,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
       await companyNameField.fill('未保存テスト株式会社');
 
       // 別のページに遷移しようとする
-      const dashboardLink = page.getByRole('link', { name: /ダッシュボード/ });
+      const dashboardLink = page.getByRole('banner').getByRole('link', { name: /ダッシュボード/ });
       await dashboardLink.click();
 
       // 確認ダイアログが表示されることを確認
@@ -124,8 +140,8 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
       );
       await expect(dialog.first()).toBeVisible({ timeout: getTimeout(5000) });
 
-      // ダイアログに「変更が保存されていません」のようなメッセージがあることを確認
-      await expect(page.getByText(/変更.*保存.*ない|ページを離れ/)).toBeVisible({
+      // ダイアログに「変更が保存されていません」のメッセージがあることを確認
+      await expect(page.getByText('変更が保存されていません。ページを離れますか？')).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
@@ -146,7 +162,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
       await companyNameField.fill('とどまるテスト株式会社');
 
       // 別のページに遷移しようとする
-      const dashboardLink = page.getByRole('link', { name: /ダッシュボード/ });
+      const dashboardLink = page.getByRole('banner').getByRole('link', { name: /ダッシュボード/ });
       await dashboardLink.click();
 
       // ダイアログが表示されるまで待機
@@ -179,7 +195,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
       await companyNameField.fill('離れるテスト株式会社');
 
       // 別のページに遷移しようとする
-      const dashboardLink = page.getByRole('link', { name: /ダッシュボード/ });
+      const dashboardLink = page.getByRole('banner').getByRole('link', { name: /ダッシュボード/ });
       await dashboardLink.click();
 
       // ダイアログが表示されるまで待機
@@ -190,7 +206,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
       await leaveButton.click();
 
       // ダッシュボードに遷移することを確認
-      await expect(page).toHaveURL(/^\/$/, { timeout: getTimeout(10000) });
+      await expect(page).toHaveURL(/\/(dashboard)?$/, { timeout: getTimeout(10000) });
     });
 
     /**
@@ -216,13 +232,11 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
       });
 
       // 別のページに遷移
-      const dashboardLink = page.getByRole('link', { name: /ダッシュボード/ });
+      const dashboardLink = page.getByRole('banner').getByRole('link', { name: /ダッシュボード/ });
       await dashboardLink.click();
 
       // 確認ダイアログなしでダッシュボードに遷移することを確認
-      await expect(page).toHaveURL(/^\/$/, { timeout: getTimeout(10000) });
+      await expect(page).toHaveURL(/\/(dashboard)?$/, { timeout: getTimeout(10000) });
     });
   });
-
-  });
-
+});
