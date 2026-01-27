@@ -878,6 +878,174 @@ describe('AppHeader - タスク23.2: ナビゲーションコンポーネント�
     });
   });
 
+  /**
+   * タスク7.1: AppHeaderへの自社情報リンク追加テスト
+   *
+   * 要件:
+   * - 5.1: AppHeaderのメインナビゲーションに「自社情報」リンクを表示する
+   * - 5.2: 「自社情報」リンクを「取引先」リンクの右側に配置する
+   * - 5.3: 認証済みユーザーがAppHeaderの「自社情報」リンクをクリックしたとき、自社情報ページ（/company-info）に遷移する
+   * - 5.4: 「自社情報」リンクにアイコン（ビルディングアイコン）を付与して視認性を高める
+   */
+  describe('自社情報リンク（タスク7.1）', () => {
+    /**
+     * REQ-5.1: AppHeaderのメインナビゲーションに「自社情報」リンクを表示する
+     */
+    it('should render company info link in navigation', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByRole('link', { name: /自社情報/i })).toBeInTheDocument();
+    });
+
+    /**
+     * REQ-5.3: 認証済みユーザーがAppHeaderの「自社情報」リンクをクリックしたとき、
+     * 自社情報ページ（/company-info）に遷移する
+     */
+    it('should have correct href to /company-info', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const companyInfoLink = screen.getByRole('link', { name: /自社情報/i });
+      expect(companyInfoLink).toHaveAttribute('href', '/company-info');
+    });
+
+    /**
+     * REQ-5.4: 「自社情報」リンクにアイコン（ビルディングアイコン）を付与して視認性を高める
+     */
+    it('should render company info link with icon', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const companyInfoLink = screen.getByRole('link', { name: /自社情報/i });
+      // SVGアイコンが含まれていることを確認
+      const svg = companyInfoLink.querySelector('svg');
+      expect(svg).toBeInTheDocument();
+      expect(svg).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    /**
+     * REQ-5.2: 「自社情報」リンクを「取引先」リンクの右側に配置する
+     */
+    it('should render company info link after trading partner link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const tradingPartnerLink = screen.getByRole('link', { name: /取引先/i });
+      const companyInfoLink = screen.getByRole('link', { name: /自社情報/i });
+
+      // DOM順序で自社情報リンクが取引先リンクの後に来ることを確認
+      const nav = screen.getByRole('navigation');
+      const links = nav.querySelectorAll('a.app-header-nav-link');
+
+      // linksをArrayに変換
+      const linksArray = Array.from(links);
+
+      const tradingPartnerIndex = linksArray.indexOf(tradingPartnerLink);
+      const companyInfoIndex = linksArray.indexOf(companyInfoLink);
+
+      expect(tradingPartnerIndex).toBeLessThan(companyInfoIndex);
+      expect(companyInfoIndex).toBe(tradingPartnerIndex + 1);
+    });
+
+    /**
+     * 自社情報リンクが正しいCSSクラスを持つ
+     */
+    it('should have correct CSS class on company info link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const companyInfoLink = screen.getByRole('link', { name: /自社情報/i });
+      expect(companyInfoLink).toHaveClass('app-header-nav-link');
+    });
+
+    /**
+     * 自社情報リンクにテキスト「自社情報」が表示される
+     */
+    it('should display text "自社情報" in link', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByText('自社情報')).toBeInTheDocument();
+    });
+
+    /**
+     * ナビゲーションリンクの順序が正しい（ダッシュボード → プロジェクト → 取引先 → 自社情報）
+     */
+    it('should have correct navigation link order: Dashboard > Project > Trading Partner > Company Info', () => {
+      const mockAuthValue = createMockAuthContextValue();
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      const nav = screen.getByRole('navigation');
+      const links = nav.querySelectorAll('a.app-header-nav-link');
+      const linksArray = Array.from(links);
+
+      const dashboardLink = screen.getByRole('link', { name: /ダッシュボード/i });
+      const projectLink = screen.getByRole('link', { name: /プロジェクト/i });
+      const tradingPartnerLink = screen.getByRole('link', { name: /取引先/i });
+      const companyInfoLink = screen.getByRole('link', { name: /自社情報/i });
+
+      const dashboardIndex = linksArray.indexOf(dashboardLink);
+      const projectIndex = linksArray.indexOf(projectLink);
+      const tradingPartnerIndex = linksArray.indexOf(tradingPartnerLink);
+      const companyInfoIndex = linksArray.indexOf(companyInfoLink);
+
+      expect(dashboardIndex).toBe(0);
+      expect(projectIndex).toBe(1);
+      expect(tradingPartnerIndex).toBe(2);
+      expect(companyInfoIndex).toBe(3);
+    });
+  });
+
   describe('イニシャル表示', () => {
     /**
      * displayNameがundefinedの場合「U」が表示される
