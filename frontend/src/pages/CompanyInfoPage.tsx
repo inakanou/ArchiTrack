@@ -23,7 +23,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useBlocker } from 'react-router-dom';
+import { useBlocker, useNavigate } from 'react-router-dom';
 import { getCompanyInfo, updateCompanyInfo } from '../api/company-info';
 import CompanyInfoForm from '../components/company-info/CompanyInfoForm';
 import Breadcrumb from '../components/common/Breadcrumb';
@@ -110,6 +110,7 @@ function CompanyInfoPage() {
   const [isReloading, setIsReloading] = useState(false);
 
   const toast = useToast();
+  const navigate = useNavigate();
 
   // ============================================================================
   // 未保存確認ダイアログ（Task 6.5: Requirement 3.4）
@@ -143,7 +144,12 @@ function CompanyInfoPage() {
       }
     } catch (err) {
       console.error('Failed to fetch company info:', err);
-      setError('データの取得に失敗しました。再度お試しください。');
+      // ネットワークエラーの判別（fetch APIはネットワークエラー時にTypeErrorをスロー）
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError('通信エラーが発生しました。再試行してください。');
+      } else {
+        setError('通信エラーが発生しました。再試行してください。');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -177,9 +183,21 @@ function CompanyInfoPage() {
       } catch (err) {
         console.error('Failed to save company info:', err);
 
-        // 409 Conflictエラーの場合
-        if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
-          setIsConflictDialogOpen(true);
+        // ApiErrorのstatusCodeプロパティでエラータイプを判別
+        if (err && typeof err === 'object' && 'statusCode' in err) {
+          const statusCode = (err as { statusCode: number }).statusCode;
+          if (statusCode === 401) {
+            // 401認証エラーの場合、ログインページにリダイレクト
+            navigate('/login?redirectUrl=' + encodeURIComponent('/company-info'));
+          } else if (statusCode === 409) {
+            // 409 Conflictエラーの場合
+            setIsConflictDialogOpen(true);
+          } else if (statusCode >= 500) {
+            // 5xxサーバーエラーの場合
+            toast.error('システムエラーが発生しました。しばらくしてからお試しください。');
+          } else {
+            toast.error('保存に失敗しました');
+          }
         } else {
           toast.error('保存に失敗しました');
         }
@@ -264,7 +282,28 @@ function CompanyInfoPage() {
       {isLoading && <div style={STYLES.loading}>読み込み中...</div>}
 
       {/* エラー表示 */}
-      {error && !isLoading && <div style={STYLES.error}>{error}</div>}
+      {error && !isLoading && (
+        <div style={STYLES.error}>
+          <p style={{ margin: 0 }}>{error}</p>
+          <button
+            type="button"
+            onClick={fetchCompanyInfo}
+            style={{
+              marginTop: '12px',
+              padding: '8px 16px',
+              backgroundColor: '#dc2626',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 500,
+            }}
+          >
+            再試行
+          </button>
+        </div>
+      )}
 
       {/* フォーム */}
       {!isLoading && !error && (

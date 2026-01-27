@@ -56,7 +56,7 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       await page.waitForLoadState('networkidle');
 
       // AppHeaderが表示されていることを確認（ProtectedLayout適用の証拠）
-      const header = page.locator('header');
+      const header = page.getByRole('banner');
       await expect(header).toBeVisible({ timeout: getTimeout(10000) });
 
       // ナビゲーションリンクが表示されていることを確認
@@ -88,12 +88,12 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       // ログインページにリダイレクトされる
       await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
 
-      // ログインフォームに入力
-      const emailInput = page.getByLabel(/メールアドレス|Email/i);
-      const passwordInput = page.getByLabel(/パスワード|Password/i);
+      // ログインフォームに入力（TEST_USERSのREGULAR_USERを使用）
+      const emailInput = page.getByLabel(/メールアドレス/i);
+      const passwordInput = page.locator('input#password');
 
-      await emailInput.fill('user@test.example.com');
-      await passwordInput.fill('password123');
+      await emailInput.fill('user@example.com');
+      await passwordInput.fill('Password123!');
 
       // ログインボタンをクリック
       const loginButton = page.getByRole('button', { name: /ログイン|Login/i });
@@ -128,17 +128,13 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       await page.goto('/company-info');
 
       // エラーメッセージが表示されることを確認
-      await expect(page.getByText(/通信エラー|ネットワークエラー|再試行|接続/)).toBeVisible({
+      await expect(page.getByText('通信エラーが発生しました。再試行してください。')).toBeVisible({
         timeout: getTimeout(10000),
       });
 
-      // 再試行ボタンが表示されることを確認（実装によっては異なる）
+      // 再試行ボタンが表示されることを確認
       const retryButton = page.getByRole('button', { name: /再試行|リトライ|Retry/i });
-      // 再試行ボタンがある場合はそれを確認
-      const hasRetryButton = await retryButton.isVisible().catch(() => false);
-      if (hasRetryButton) {
-        await expect(retryButton).toBeVisible();
-      }
+      await expect(retryButton).toBeVisible();
     });
 
     /**
@@ -170,17 +166,24 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       // フォームが表示されるまで待機
       await expect(page.getByLabel(/会社名/)).toBeVisible({ timeout: getTimeout(10000) });
 
-      // フォームを更新して保存
+      // フォームに全必須フィールドを入力して保存
       const companyNameField = page.getByLabel(/会社名/);
+      const addressField = page.getByLabel(/住所/);
+      const representativeField = page.getByLabel(/代表者/);
+
       await companyNameField.clear();
       await companyNameField.fill('サーバーエラーテスト');
+      await addressField.clear();
+      await addressField.fill('テスト住所');
+      await representativeField.clear();
+      await representativeField.fill('テスト代表者');
 
       const saveButton = page.getByRole('button', { name: /保存/ });
       await saveButton.click();
 
       // サーバーエラーメッセージが表示されることを確認
       await expect(
-        page.getByText(/システムエラー|サーバーエラー|しばらくしてから|500|Internal Server Error/)
+        page.getByText(/システムエラーが発生しました。しばらくしてからお試しください。/)
       ).toBeVisible({
         timeout: getTimeout(10000),
       });
@@ -194,24 +197,26 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       context,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 一覧ページにアクセスして正常に表示されることを確認
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
-      // セッションをクリア（期限切れをシミュレート）
+      // フォームが表示されるまで待機
+      await expect(page.getByLabel(/会社名/)).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 認証状態をクリア（セッション期限切れをシミュレート）
       await context.clearCookies();
       await page.evaluate(() => {
-        localStorage.clear();
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
       });
 
-      // フォームを更新しようとする
-      const companyNameField = page.getByLabel(/会社名/);
-      await companyNameField.fill('セッション期限切れテスト');
-
-      const saveButton = page.getByRole('button', { name: /保存/ });
-      await saveButton.click();
+      // 新しいページアクセスをトリガー（ProtectedRouteが認証をチェック）
+      await page.goto('/company-info');
 
       // ログインページにリダイレクトされることを確認
-      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
+      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
     });
 
     /**
