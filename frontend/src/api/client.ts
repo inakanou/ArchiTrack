@@ -87,11 +87,12 @@ class ApiClient {
       }
 
       // 401エラーの場合、トークンリフレッシュを試みる
+      // TokenRefreshManagerが内部でエクスポネンシャルバックオフ付きリトライを行う
       if (response.status === 401 && this.tokenRefreshCallback) {
         // 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
         logger.debug('Access token expired or invalid, attempting refresh...');
         try {
-          // トークンをリフレッシュ
+          // トークンをリフレッシュ（TokenRefreshManagerがリトライを処理）
           const newAccessToken = await this.tokenRefreshCallback();
 
           // 新しいアクセストークンを設定
@@ -106,8 +107,11 @@ class ApiClient {
           } finally {
             this.tokenRefreshCallback = originalCallback;
           }
-        } catch {
-          // リフレッシュ失敗時は401エラーをそのままスロー
+        } catch (refreshError) {
+          // リフレッシュ失敗時のエラーログ
+          logger.debug('Token refresh failed after all retry attempts', {
+            error: refreshError instanceof Error ? refreshError.message : 'Unknown error',
+          });
           // RFC 7807 Problem Details形式のdetailフィールド、または従来のerrorフィールドを優先的に使用
           const errorMessage =
             (data && typeof data === 'object'

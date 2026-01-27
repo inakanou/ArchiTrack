@@ -746,10 +746,14 @@ describe('AuthContext', () => {
       localStorage.setItem('accessToken', 'valid-access-token');
 
       // 最初のリフレッシュAPIがネットワークエラー（401や認証エラーではない）
+      // リトライ機構により最大4回（初回 + 3回リトライ）試行されるため、4回分のネットワークエラーをモック
       globalThis.fetch = vi
         .fn()
         .mockRejectedValueOnce(new Error('Network error'))
-        // 2回目：既存トークンでユーザー情報取得成功
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error('Network error'))
+        // 5回目：既存トークンでユーザー情報取得成功（フォールバック）
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
@@ -779,10 +783,14 @@ describe('AuthContext', () => {
       localStorage.setItem('accessToken', 'invalid-access-token');
 
       // 最初のリフレッシュAPIがネットワークエラー
+      // リトライ機構により最大4回（初回 + 3回リトライ）試行されるため、4回分のネットワークエラーをモック
       globalThis.fetch = vi
         .fn()
         .mockRejectedValueOnce(new Error('Network error'))
-        // 2回目：既存トークンでもユーザー情報取得失敗
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error('Network error'))
+        // 5回目：既存トークンでもユーザー情報取得失敗（フォールバック失敗）
         .mockRejectedValueOnce(new Error('Token invalid'));
 
       const { result } = renderHook(() => useAuth(), {

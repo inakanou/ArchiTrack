@@ -8,9 +8,122 @@ import {
   ReactNode,
   ReactElement,
 } from 'react';
-import { apiClient } from '../api/client';
+import { apiClient, ApiError } from '../api/client';
 import { TokenRefreshManager } from '../services/TokenRefreshManager';
 import { logger } from '../utils/logger';
+
+/**
+ * リトライ設定
+ */
+interface RetryConfig {
+  maxRetries: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
+}
+
+/**
+ * リトライ可能なエラーかどうかを判定
+ * サーバーsleep状態からの復帰待機やネットワークエラーはリトライ対象
+ */
+function isRetryableError(error: unknown): boolean {
+  // ApiErrorの場合、ステータスコードで判定
+  if (error instanceof ApiError) {
+    // 0: ネットワークエラー, 5xx: サーバーエラーはリトライ可能
+    if (error.statusCode === 0 || (error.statusCode >= 500 && error.statusCode < 600)) {
+      return true;
+    }
+    // 401, 403等の認証エラーはリトライ不可
+    return false;
+  }
+
+  // 一般的なエラーの場合、メッセージで判定
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+
+    // 明確な認証エラーはリトライ不可
+    if (
+      message.includes('invalid') ||
+      message.includes('expired') ||
+      message.includes('unauthorized')
+    ) {
+      return false;
+    }
+
+    // ネットワークエラー、タイムアウトはリトライ可能
+    if (
+      message.includes('network') ||
+      message.includes('timeout') ||
+      message.includes('aborted') ||
+      message.includes('fetch') ||
+      message.includes('connection')
+    ) {
+      return true;
+    }
+
+    // REFRESH_ERRORはサーバー側の一時的なエラーの可能性
+    if (message.includes('refresh_error') || message.includes('refresh error')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * テスト環境かどうかを判定
+ */
+const isTestEnvironment = import.meta.env.MODE === 'test';
+
+/**
+ * エクスポネンシャルバックオフ付きリトライ関数
+ * サーバーsleep状態からの復帰待機に対応
+ *
+ * @param fn 実行する非同期関数
+ * @param config リトライ設定
+ * @returns 関数の戻り値
+ */
+async function retryWithBackoff<T>(fn: () => Promise<T>, config: RetryConfig): Promise<T> {
+  let lastError: unknown = null;
+  let currentDelay = config.initialDelayMs;
+
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      // リトライ時はログを出力
+      if (attempt > 0) {
+        logger.debug(`Retry attempt ${attempt}/${config.maxRetries} after ${currentDelay}ms delay`);
+      }
+
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // 最後の試行の場合、またはリトライ不可能なエラーの場合はエラーをスロー
+      if (attempt >= config.maxRetries || !isRetryableError(error)) {
+        logger.debug(
+          `Operation failed${attempt > 0 ? ` after ${attempt} retries` : ''}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+        throw error;
+      }
+
+      // リトライ可能なエラーの場合、待機してから再試行
+      logger.debug(
+        `Operation failed (attempt ${attempt + 1}), will retry after ${currentDelay}ms: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+
+      // テスト環境では遅延をスキップして高速化
+      if (!isTestEnvironment) {
+        await new Promise((resolve) => setTimeout(resolve, currentDelay));
+      }
+
+      // エクスポネンシャルバックオフで次の遅延を計算
+      currentDelay = Math.min(currentDelay * config.backoffMultiplier, config.maxDelayMs);
+    }
+  }
+
+  // ここには到達しないはずだが、念のため
+  throw lastError;
+}
 
 /**
  * ユーザー情報の型定義
@@ -483,12 +596,23 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         // 注意: リフレッシュAPIは認証不要なので、accessTokenをクリアしてから呼び出す
         // 古いaccessTokenがAuthorizationヘッダーに付加されると401が返される可能性がある
         apiClient.setAccessToken(null);
-        const refreshResponse = await apiClient.post<{
-          accessToken: string;
-          refreshToken?: string;
-        }>('/api/v1/auth/refresh', {
-          refreshToken: storedRefreshToken,
-        });
+
+        // サーバーsleep状態からの復帰待機のためエクスポネンシャルバックオフ付きリトライ
+        const refreshResponse = await retryWithBackoff(
+          async () =>
+            apiClient.post<{
+              accessToken: string;
+              refreshToken?: string;
+            }>('/api/v1/auth/refresh', {
+              refreshToken: storedRefreshToken,
+            }),
+          {
+            maxRetries: 3,
+            initialDelayMs: 1000,
+            maxDelayMs: 10000,
+            backoffMultiplier: 2,
+          }
+        );
 
         // アクセストークンを更新
         apiClient.setAccessToken(refreshResponse.accessToken);
@@ -502,7 +626,13 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         }
 
         // ユーザー情報を取得（APIは直接ユーザーオブジェクトを返す）
-        const userResponse = await apiClient.get<User>('/api/v1/auth/me');
+        // サーバーsleep復帰待機のためリトライ付き
+        const userResponse = await retryWithBackoff(() => apiClient.get<User>('/api/v1/auth/me'), {
+          maxRetries: 3,
+          initialDelayMs: 1000,
+          maxDelayMs: 10000,
+          backoffMultiplier: 2,
+        });
         setUser(userResponse);
 
         // TokenRefreshManagerを初期化

@@ -68,8 +68,8 @@ describe('AuthContext - セッション復元とUIチラつき防止', () => {
     // localStorageをクリア
     localStorage.clear();
 
-    // モックをリセット
-    vi.clearAllMocks();
+    // モックをリセット（実装も含めてリセット）
+    vi.resetAllMocks();
     vi.restoreAllMocks();
 
     // 新しいspyを作成
@@ -230,11 +230,13 @@ describe('AuthContext - セッション復元とUIチラつき防止', () => {
     });
 
     // APIクライアントのモック応答を設定（認証エラーでリフレッシュ失敗）
-    // 「Invalid」を含むエラーは認証エラーとして扱われ、フォールバックは試行されない
-    vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Invalid refresh token'));
+    // 「Invalid」を含むエラーは認証エラーとして扱われ、リトライされない
+    // mockRejectedValueで全ての呼び出しに対応（リトライ機構対応）
+    vi.mocked(apiClient.post).mockRejectedValue(new Error('Invalid refresh token'));
 
-    // 注: 認証エラー（エラーメッセージに'Invalid'を含む）の場合、
-    // フォールバックは試行されないため、apiClient.getのモックは不要
+    // 認証エラーの場合フォールバックは試行されないはずだが、
+    // 念のためgetもエラーを返すようにしておく
+    vi.mocked(apiClient.get).mockRejectedValue(new Error('Invalid token'));
 
     render(
       <AuthProvider>
