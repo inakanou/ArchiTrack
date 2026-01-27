@@ -471,6 +471,8 @@ test.describe('受領見積書・ステータス管理機能', () => {
     /**
      * @requirement estimate-request/REQ-11.10
      * 必須項目バリデーションの確認
+     * Note: フォームには受領見積書名と提出日にデフォルト値が設定されているため、
+     *       テキスト内容のバリデーションエラーが表示される
      */
     test('REQ-11.10: 必須項目未入力でバリデーションエラーが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -483,11 +485,11 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 何も入力せずに登録ボタンをクリック
+      // デフォルト値が設定されているため、テキスト内容のみ空の状態で登録ボタンをクリック
       await page.getByRole('button', { name: /^登録$/i }).click();
 
-      // バリデーションエラーが表示される
-      await expect(page.getByText(/受領見積書名を入力してください/i)).toBeVisible({
+      // バリデーションエラーが表示される（テキスト内容のエラー）
+      await expect(page.getByText(/テキスト内容を入力してください/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
