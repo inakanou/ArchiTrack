@@ -128,9 +128,7 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       await page.goto('/company-info');
 
       // エラーメッセージが表示されることを確認
-      await expect(
-        page.getByText(/通信エラー|ネットワークエラー|再試行|接続/)
-      ).toBeVisible({
+      await expect(page.getByText(/通信エラー|ネットワークエラー|再試行|接続/)).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -152,9 +150,7 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 最初のGETリクエストは通常通り処理させる
-      let requestCount = 0;
       await page.route('**/api/company-info', async (route, request) => {
-        requestCount++;
         if (request.method() === 'PUT') {
           // PUTリクエストでサーバーエラーをシミュレート
           await route.fulfill({
