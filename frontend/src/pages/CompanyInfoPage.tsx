@@ -23,10 +23,12 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useBlocker } from 'react-router-dom';
 import { getCompanyInfo, updateCompanyInfo } from '../api/company-info';
 import CompanyInfoForm from '../components/company-info/CompanyInfoForm';
 import Breadcrumb from '../components/common/Breadcrumb';
 import ConflictDialog from '../components/common/ConflictDialog';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useToast } from '../hooks/useToast';
 import type { CompanyInfo, CompanyInfoFormData } from '../types/company-info.types';
 import {
@@ -41,10 +43,7 @@ import {
 // ============================================================================
 
 /** パンくずナビゲーション項目 */
-const BREADCRUMB_ITEMS = [
-  { label: 'ダッシュボード', path: '/' },
-  { label: '自社情報' },
-];
+const BREADCRUMB_ITEMS = [{ label: 'ダッシュボード', path: '/' }, { label: '自社情報' }];
 
 /** スタイル定数 */
 const STYLES = {
@@ -106,11 +105,21 @@ function CompanyInfoPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [_isDirty, setIsDirty] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
 
   const toast = useToast();
+
+  // ============================================================================
+  // 未保存確認ダイアログ（Task 6.5: Requirement 3.4）
+  // ============================================================================
+
+  /**
+   * ページ離脱時のナビゲーションブロッカー
+   * フォームに未保存の変更がある場合、ナビゲーションをブロックする
+   */
+  const blocker = useBlocker(isDirty);
 
   // ============================================================================
   // データ取得
@@ -217,6 +226,20 @@ function CompanyInfoPage() {
     setIsConflictDialogOpen(false);
   }, []);
 
+  /**
+   * 未保存確認ダイアログの「ページを離れる」ハンドラ
+   */
+  const handleUnsavedLeave = useCallback(() => {
+    blocker.proceed?.();
+  }, [blocker]);
+
+  /**
+   * 未保存確認ダイアログの「このページにとどまる」ハンドラ
+   */
+  const handleUnsavedStay = useCallback(() => {
+    blocker.reset?.();
+  }, [blocker]);
+
   // ============================================================================
   // フォームデータ変換
   // ============================================================================
@@ -261,6 +284,13 @@ function CompanyInfoPage() {
         onClose={handleConflictClose}
         resourceName="自社情報"
         isReloading={isReloading}
+      />
+
+      {/* 未保存確認ダイアログ (Task 6.5: Requirement 3.4) */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={handleUnsavedLeave}
+        onStay={handleUnsavedStay}
       />
     </div>
   );
