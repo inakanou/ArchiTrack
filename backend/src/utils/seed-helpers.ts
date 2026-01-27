@@ -20,6 +20,10 @@
  * Requirements (itemized-statement):
  * - 内訳書管理権限の定義
  *   - itemized_statement:create, itemized_statement:read, itemized_statement:update, itemized_statement:delete
+ *
+ * Requirements (company-info):
+ * - REQ-6.6, 6.7, 6.8: 自社情報管理権限の定義
+ *   - company_info:read, company_info:update
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -351,6 +355,18 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '見積依頼の削除',
     },
+
+    // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
+    {
+      resource: 'company_info',
+      action: 'read',
+      description: '自社情報の閲覧',
+    },
+    {
+      resource: 'company_info',
+      action: 'update',
+      description: '自社情報の更新',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -450,6 +466,10 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'estimate_request', action: 'read' },
     { resource: 'estimate_request', action: 'update' },
     { resource: 'estimate_request', action: 'delete' },
+    // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
+    // 一般ユーザーは自社情報の閲覧・更新が可能
+    { resource: 'company_info', action: 'read' },
+    { resource: 'company_info', action: 'update' },
   ];
 
   // 権限IDを一括取得
