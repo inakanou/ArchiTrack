@@ -167,13 +167,23 @@ test.describe('自社情報ナビゲーション・画面遷移', () => {
 
   /**
    * URL直接アクセスのテスト
+   *
+   * REQ-5.7: 自社情報ページを `/company-info` のURLで提供する
    */
   test.describe('URL直接アクセス', () => {
-    test('/company-info にアクセスすると自社情報ページが表示される', async ({ page }) => {
+    /**
+     * @requirement company-info/REQ-5.7
+     */
+    test('REQ-5.7: /company-info にアクセスすると自社情報ページが表示される (company-info/REQ-5.7)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
+
+      // URLが /company-info であることを確認
+      await expect(page).toHaveURL(/\/company-info$/);
 
       // 自社情報ページが表示されることを確認
       await expect(page.getByRole('heading', { name: /自社情報/i })).toBeVisible({
@@ -184,9 +194,17 @@ test.describe('自社情報ナビゲーション・画面遷移', () => {
 
   /**
    * パンくずナビゲーションのテスト
+   *
+   * REQ-5.5: 自社情報ページに「ダッシュボード > 自社情報」のパンくずナビゲーションを表示する
+   * REQ-5.6: ユーザーがパンくずナビゲーションの「ダッシュボード」をクリックしたとき、ダッシュボードページに遷移する
    */
   test.describe('パンくずナビゲーション', () => {
-    test('自社情報ページでパンくず「ダッシュボード > 自社情報」が表示される', async ({ page }) => {
+    /**
+     * @requirement company-info/REQ-5.5
+     */
+    test('REQ-5.5: 自社情報ページでパンくず「ダッシュボード > 自社情報」が表示される (company-info/REQ-5.5)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/company-info');
@@ -201,7 +219,10 @@ test.describe('自社情報ナビゲーション・画面遷移', () => {
       await expect(breadcrumb.getByText('自社情報')).toBeVisible();
     });
 
-    test('パンくずの「ダッシュボード」リンクをクリックするとダッシュボードに遷移する', async ({
+    /**
+     * @requirement company-info/REQ-5.6
+     */
+    test('REQ-5.6: パンくずの「ダッシュボード」リンクをクリックするとダッシュボードに遷移する (company-info/REQ-5.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
