@@ -37,6 +37,7 @@ import EstimateRequestListPage from './pages/EstimateRequestListPage';
 import EstimateRequestCreatePage from './pages/EstimateRequestCreatePage';
 import EstimateRequestDetailPage from './pages/EstimateRequestDetailPage';
 import EstimateRequestEditPage from './pages/EstimateRequestEditPage';
+import CompanyInfoPage from './pages/CompanyInfoPage';
 
 /**
  * アプリケーションのルート設定
@@ -304,6 +305,15 @@ export const routes: RouteObject[] = [
       {
         path: '/trading-partners/:id',
         element: <TradingPartnerDetailPage />,
+      },
+
+      // 自社情報
+      // REQ-6.1: 認証済みユーザーのみが自社情報画面にアクセス可能
+      // REQ-5.1: AppHeaderに「自社情報」リンクを表示
+      // Task 7.1: ルーティング設定を実装する
+      {
+        path: '/company-info',
+        element: <CompanyInfoPage />,
       },
     ],
   },
