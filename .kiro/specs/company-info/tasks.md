@@ -44,8 +44,8 @@
 
 ---
 
-- [ ] 3. バックエンドサービス層の実装
-- [ ] 3.1 サービス層のテスト作成
+- [x] 3. バックエンドサービス層の実装
+- [x] 3.1 サービス層のテスト作成
   - getCompanyInfo: 登録済みデータの取得成功テストを作成
   - getCompanyInfo: 未登録時にnullを返却するテストを作成
   - upsertCompanyInfo: 新規作成成功のテストを作成
@@ -54,7 +54,7 @@
   - 監査ログ記録のテストを作成（company_info_created、company_info_updated）
   - _Requirements: 2.1, 2.2, 2.3, 2.7, 2.8, 6.10_
 
-- [ ] 3.2 サービス層の実装
+- [x] 3.2 サービス層の実装
   - テストが通過するようにcompany-info.service.tsを実装
   - Prismaのupsertを使用してシングルトンパターンを実現
   - versionフィールドによる楽観的排他制御を実装

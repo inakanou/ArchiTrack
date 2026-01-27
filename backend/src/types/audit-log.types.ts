@@ -170,7 +170,10 @@ export type AuditLogAction =
   // 受領見積書管理
   | 'RECEIVED_QUOTATION_CREATED'
   | 'RECEIVED_QUOTATION_UPDATED'
-  | 'RECEIVED_QUOTATION_DELETED';
+  | 'RECEIVED_QUOTATION_DELETED'
+  // 自社情報管理
+  | 'COMPANY_INFO_CREATED'
+  | 'COMPANY_INFO_UPDATED';
 
 /**
  * 取引先管理の監査ログアクション一覧
@@ -332,6 +335,25 @@ export type ReceivedQuotationAuditAction = (typeof RECEIVED_QUOTATION_AUDIT_ACTI
  * 受領見積書監査ログのターゲットタイプ定数
  */
 export const RECEIVED_QUOTATION_TARGET_TYPE = 'ReceivedQuotation' as const;
+
+/**
+ * 自社情報管理の監査ログアクション一覧
+ * CompanyInfoServiceとの連携で使用
+ */
+export const COMPANY_INFO_AUDIT_ACTIONS: readonly AuditLogAction[] = [
+  'COMPANY_INFO_CREATED',
+  'COMPANY_INFO_UPDATED',
+] as const;
+
+/**
+ * 自社情報監査ログアクション型（サブセット）
+ */
+export type CompanyInfoAuditAction = (typeof COMPANY_INFO_AUDIT_ACTIONS)[number];
+
+/**
+ * 自社情報監査ログのターゲットタイプ定数
+ */
+export const COMPANY_INFO_TARGET_TYPE = 'CompanyInfo' as const;
 
 /**
  * 監査ログエラー種別
