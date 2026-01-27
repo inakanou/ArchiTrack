@@ -235,6 +235,8 @@ test.describe('現場調査CRUD操作', () => {
 
     /**
      * @requirement site-survey/REQ-1.1
+     * Note: 要件により調査名にはデフォルト値「現場調査」が設定されているため、
+     *       調査名をクリアしてからバリデーションエラーの表示を確認する
      */
     test('必須項目未入力時にバリデーションエラーが表示される', async ({ page }) => {
       if (!createdProjectId) {
@@ -247,7 +249,10 @@ test.describe('現場調査CRUD操作', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // 何も入力せずに作成ボタンをクリック
+      // 調査名フィールドをクリアする（デフォルト値「現場調査」が設定されているため）
+      await page.getByLabel(/調査名/i).clear();
+
+      // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
 
       // バリデーションエラーが表示されることを確認
