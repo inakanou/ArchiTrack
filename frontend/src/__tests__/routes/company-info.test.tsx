@@ -27,7 +27,9 @@ describe('Company Info Routes', () => {
       // 保護されたルート（ProtectedLayoutの子要素）内を検索
       const protectedRouteWithLayout = routes.find(
         (route) =>
-          route.element && route.children && route.children.some((child) => child.path !== undefined)
+          route.element &&
+          route.children &&
+          route.children.some((child) => child.path !== undefined)
       );
 
       expect(protectedRouteWithLayout).toBeDefined();
@@ -45,7 +47,9 @@ describe('Company Info Routes', () => {
       // 保護されたルート（ProtectedLayoutの子要素）内に/company-infoがある
       const protectedRouteWithLayout = routes.find(
         (route) =>
-          route.element && route.children && route.children.some((child) => child.path !== undefined)
+          route.element &&
+          route.children &&
+          route.children.some((child) => child.path !== undefined)
       );
 
       const companyInfoRoute = protectedRouteWithLayout?.children?.find(
@@ -65,7 +69,9 @@ describe('Company Info Routes', () => {
       // 保護されたルート（ProtectedLayoutの子要素）を取得
       const protectedRouteWithLayout = routes.find(
         (route) =>
-          route.element && route.children && route.children.some((child) => child.path !== undefined)
+          route.element &&
+          route.children &&
+          route.children.some((child) => child.path !== undefined)
       );
 
       // ダッシュボードルートの存在確認
