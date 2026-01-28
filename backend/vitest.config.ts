@@ -27,13 +27,25 @@ export default defineConfig({
     // Setup files: 各テストファイルの前に実行される
     // 環境変数の検証などを行う
     setupFiles: ['./vitest.setup.ts'],
-    // Integration tests use shared database, run sequentially to avoid data conflicts
+    // ============================================================================
+    // 並列実行設定（環境別最適化）
+    // ============================================================================
+    // ベストプラクティス: 環境に応じた並列実行の制御
+    // - CI環境: 十分なリソースがあるため並列実行を有効化
+    // - ローカル（WSL2）: メモリ制約のため順序実行を維持
+    // ============================================================================
     pool: 'forks',
     poolOptions: {
       forks: {
-        singleFork: true,
+        // CI環境では並列実行を有効化（CPUコア数に応じて自動調整）
+        // ローカルでは共有DB対応のため順序実行
+        singleFork: !isCI,
+        // CI環境ではワーカー数を自動調整、ローカルでは1に制限
+        ...(isCI ? {} : { maxForks: 1, minForks: 1 }),
       },
     },
+    // CI環境ではファイル並列実行を有効化
+    fileParallelism: isCI,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
