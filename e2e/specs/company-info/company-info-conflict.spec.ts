@@ -30,7 +30,8 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
    */
   test.describe('Requirement 2.7, 2.8: 楽観的排他制御', () => {
     /**
-     * @requirement company-info/REQ-2.7, REQ-2.8
+     * @requirement company-info/REQ-2.7
+     * @requirement company-info/REQ-2.8
      *
      * このテストは実際の競合状況をシミュレートするため、
      * 2つのブラウザコンテキストで同時に更新を試みます。

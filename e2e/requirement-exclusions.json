@@ -1524,6 +1524,97 @@
         "description": "新規作成画面でパンくず「プロジェクト一覧 > {プロジェクト名} > 数量表 > 新規作成」が表示されることを確認",
         "threshold": "breadcrumb: displayed"
       }
+    },
+    {
+      "id": "company-info/REQ-6.9",
+      "requirement": "REQ-6: アクセス制御",
+      "title": "権限のないユーザーが操作を試みた場合の403エラー",
+      "reason": "権限のないユーザーを作成するテストインフラが不足。APIレベルの権限チェックは統合テストで検証",
+      "category": "security",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Supertest",
+        "description": "権限のないユーザーが操作を試みた場合に403 Forbiddenエラーが返されることを確認",
+        "threshold": "http_status: 403"
+      }
+    },
+    {
+      "id": "company-info/REQ-9.5",
+      "requirement": "REQ-9: API設計",
+      "title": "自社情報が存在しない状態でPUTリクエストを受信したとき、新規レコードを作成",
+      "reason": "API直接呼び出しのテスト。UI経由の保存テスト(REQ-2.2)でカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Supertest",
+        "description": "PUTリクエストで新規レコードが作成されることを確認",
+        "threshold": "http_status: 200, record_created: true"
+      }
+    },
+    {
+      "id": "company-info/REQ-9.6",
+      "requirement": "REQ-9: API設計",
+      "title": "自社情報が存在する状態でPUTリクエストを受信したとき、既存レコードを更新",
+      "reason": "API直接呼び出しのテスト。UI経由の更新テスト(REQ-2.3)でカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Supertest",
+        "description": "PUTリクエストで既存レコードが更新されることを確認",
+        "threshold": "http_status: 200, record_updated: true"
+      }
+    },
+    {
+      "id": "company-info/REQ-9.7",
+      "requirement": "REQ-9: API設計",
+      "title": "APIレスポンスに必要なフィールドを含める",
+      "reason": "APIレスポンス構造の検証は統合テストで実施",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Supertest",
+        "description": "APIレスポンスに必要なフィールド(id, companyName等)が含まれることを確認",
+        "threshold": "fields: all_required"
+      }
+    },
+    {
+      "id": "company-info/REQ-9.8",
+      "requirement": "REQ-9: API設計",
+      "title": "PUTリクエストのボディにversionフィールドを含め、楽観的排他制御を実行",
+      "reason": "楽観的排他制御のテストはUI経由(REQ-2.7, 2.8)と競合テストでカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Supertest",
+        "description": "versionフィールドによる楽観的排他制御を確認",
+        "threshold": "version_incremented: true"
+      }
+    },
+    {
+      "id": "company-info/REQ-9.9",
+      "requirement": "REQ-9: API設計",
+      "title": "versionが一致しない場合、409 Conflictエラーを返却",
+      "reason": "競合検出のテストはUI経由(REQ-2.8)と競合テストでカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Supertest",
+        "description": "version不一致時に409エラーが返されることを確認",
+        "threshold": "http_status: 409"
+      }
+    },
+    {
+      "id": "company-info/REQ-9.10",
+      "requirement": "REQ-9: API設計",
+      "title": "自社情報の削除APIを提供しない",
+      "reason": "削除APIの非提供確認は統合テストで実施",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Supertest",
+        "description": "DELETEリクエストで404または405エラーが返されることを確認",
+        "threshold": "http_status: 404 or 405"
+      }
     }
   ],
   "categories": {

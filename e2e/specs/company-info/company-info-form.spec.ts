@@ -154,7 +154,8 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
    */
   test.describe('Requirement 2: 自社情報の保存', () => {
     /**
-     * @requirement company-info/REQ-2.1, REQ-2.2
+     * @requirement company-info/REQ-2.1
+     * @requirement company-info/REQ-2.2
      */
     test('REQ-2.1, REQ-2.2: 有効なデータを入力して保存ボタンをクリックしたとき、自社情報をデータベースに保存する（新規作成）', async ({
       page,
@@ -177,7 +178,8 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     });
 
     /**
-     * @requirement company-info/REQ-1.3, REQ-2.3
+     * @requirement company-info/REQ-1.3
+     * @requirement company-info/REQ-2.3
      */
     test('REQ-1.3, REQ-2.3: 自社情報が登録されている場合、登録済み情報をプリセット表示し、更新できる', async ({
       page,
@@ -435,7 +437,8 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     });
 
     /**
-     * @requirement company-info/REQ-4.6, REQ-4.7
+     * @requirement company-info/REQ-4.6
+     * @requirement company-info/REQ-4.7
      */
     test('REQ-4.6, REQ-4.7: メールアドレスの形式バリデーションを実行し、不正な場合エラーを表示する', async ({
       page,
@@ -470,7 +473,8 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     });
 
     /**
-     * @requirement company-info/REQ-4.9, REQ-4.10
+     * @requirement company-info/REQ-4.9
+     * @requirement company-info/REQ-4.10
      */
     test('REQ-4.9, REQ-4.10: 適格請求書発行事業者登録番号の形式バリデーション（T + 13桁の数字）を実行し、不正な場合エラーを表示する', async ({
       page,

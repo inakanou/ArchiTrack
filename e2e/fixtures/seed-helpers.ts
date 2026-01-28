@@ -312,6 +312,18 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'delete',
       description: '受領見積書の削除',
     },
+
+    // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
+    {
+      resource: 'company_info',
+      action: 'read',
+      description: '自社情報の閲覧',
+    },
+    {
+      resource: 'company_info',
+      action: 'update',
+      description: '自社情報の更新',
+    },
   ];
 
   for (const permission of permissions) {
@@ -409,6 +421,9 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'received_quotation', action: 'read' },
     { resource: 'received_quotation', action: 'update' },
     { resource: 'received_quotation', action: 'delete' },
+    // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
+    { resource: 'company_info', action: 'read' },
+    { resource: 'company_info', action: 'update' },
   ];
 
   for (const { resource, action } of basicPermissions) {

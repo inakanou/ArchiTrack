@@ -45,7 +45,8 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
     });
 
     /**
-     * @requirement company-info/REQ-6.2, REQ-6.3
+     * @requirement company-info/REQ-6.2
+     * @requirement company-info/REQ-6.3
      */
     test('REQ-6.2, REQ-6.3: 自社情報ページをProtectedRouteで保護し、ProtectedLayout（AppHeader付き）を適用する', async ({
       page,
