@@ -1298,7 +1298,6 @@ test.describe('現場調査注釈ツール', () => {
      */
     test('注釈データの保存に失敗するとエラーメッセージが表示される (site-survey/REQ-9.5)', async ({
       page,
-      context,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -1318,8 +1317,10 @@ test.describe('現場調査注釈ツール', () => {
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
-      // ネットワークをオフラインにして保存失敗をシミュレート
-      await context.setOffline(true);
+      // 注釈保存APIをモックして失敗させる（localhostではsetOfflineが効かないため）
+      await page.route('**/api/site-surveys/images/*/annotations', (route) => {
+        route.abort('failed');
+      });
 
       // 保存ボタンをクリック
       const saveButton = page.getByRole('button', { name: /保存/i });
@@ -1327,29 +1328,21 @@ test.describe('現場調査注釈ツール', () => {
       await saveButton.click();
 
       // エラーメッセージが表示されるまで待機
-      const errorMessage = page.locator(
-        '[role="alert"], .error-message, [data-testid="error-toast"]'
-      );
-      const errorText = page.getByText(
-        /保存に失敗|エラー|失敗しました|ネットワーク|接続できません|save.*failed/i
-      );
+      const errorMessage = page.locator('[role="alert"]');
 
-      // 少し待ってからエラー表示を確認
-      await page.waitForTimeout(3000);
+      // role="alert"を持つエラーメッセージが表示されることを確認
+      await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
 
-      const hasErrorMessage = await errorMessage.isVisible();
-      const hasErrorText = await errorText.isVisible();
+      // エラーメッセージにエラー内容が含まれていることを確認
+      const errorContent = await errorMessage.textContent();
+      expect(errorContent).toBeTruthy();
 
-      // ネットワークをオンラインに戻す
-      await context.setOffline(false);
-
-      // エラーメッセージが表示されたことを確認
-      expect(hasErrorMessage || hasErrorText).toBeTruthy();
+      // ルートモックを解除
+      await page.unroute('**/api/site-surveys/images/*/annotations');
     });
 
     test('保存失敗後にリトライボタンまたは保存ボタンが有効になる (site-survey/REQ-9.5)', async ({
       page,
-      context,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -1369,19 +1362,22 @@ test.describe('現場調査注釈ツール', () => {
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
-      // ネットワークをオフラインにして保存失敗をシミュレート
-      await context.setOffline(true);
+      // 注釈保存APIをモックして失敗させる（localhostではsetOfflineが効かないため）
+      await page.route('**/api/site-surveys/images/*/annotations', (route) => {
+        route.abort('failed');
+      });
 
       // 保存ボタンをクリック
       const saveButton = page.getByRole('button', { name: /保存/i });
       await expect(saveButton).toBeVisible({ timeout: 5000 });
       await saveButton.click();
 
-      // エラー発生を待機
-      await page.waitForTimeout(3000);
+      // エラーメッセージが表示されるまで待機
+      const errorMessage = page.locator('[role="alert"]');
+      await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ネットワークをオンラインに戻す
-      await context.setOffline(false);
+      // ルートモックを解除
+      await page.unroute('**/api/site-surveys/images/*/annotations');
 
       // リトライボタンまたは保存ボタンが有効になっていることを確認
       const retryButton = page.getByRole('button', { name: /リトライ|再試行|retry/i });
