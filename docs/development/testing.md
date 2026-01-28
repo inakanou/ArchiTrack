@@ -485,14 +485,62 @@ E2Eテストで検証できない要件（パフォーマンス、インフラ�
 
 GitHub Actionsで自動的に以下が実行されます：
 
-1. **Lint & Format Check**: コード品質チェック（backend, frontend, e2e）
-2. **Requirement Coverage**: 要件カバレッジチェック（100%必須）
-3. **Type Check**: TypeScript型チェック（backend, frontend, e2e）
-4. **Unit Tests**: ユニットテスト + カバレッジ検証（backend, frontend）
-5. **Build Test**: ビルド成功確認 + ESモジュール検証
-6. **Storybook Tests**: コンポーネントのビジュアル・アクセシビリティテスト
-7. **Integration & E2E Tests**: Docker環境（docker-compose.ci.yml）で統合・E2Eテスト
-8. **Security Scan**: npm audit によるセキュリティスキャン
+1. **Lint & Format Check**: コード品質チェック（backend, frontend, e2e - 3並列）
+2. **Type Check**: TypeScript型チェック（backend, frontend, e2e - 3並列）
+3. **Requirement Coverage**: 要件カバレッジチェック（100%必須）
+4. **Security Scan**: npm audit によるセキュリティスキャン
+5. **Unit Tests**: ユニットテスト（4シャード×2ワークスペース = 8並列）+ カバレッジ80%検証
+6. **Build Test**: ビルド成功確認 + ESモジュール検証（backend, frontend - 2並列）
+7. **Storybook Tests**: コンポーネントのビジュアル・アクセシビリティテスト
+8. **Integration Tests**: Docker環境（docker-compose.ci.yml）で統合テスト
+9. **E2E Tests**: Playwright E2Eテスト（4シャード並列）
+
+### CI環境での並列実行
+
+CI環境では、テスト実行時間を短縮するために以下の最適化が行われています：
+
+#### 単体テストのシャード分割
+
+```bash
+# Vitestの--shardオプションを使用
+npm --prefix backend run test:unit -- --shard=1/4  # シャード1/4を実行
+npm --prefix backend run test:unit -- --shard=2/4  # シャード2/4を実行
+# ...
+```
+
+CI環境では、backendとfrontendそれぞれ4シャードに分割され、合計8ジョブが並列実行されます。
+
+#### E2Eテストのシャード分割
+
+```bash
+# Playwrightの--shardオプションを使用
+npx playwright test --shard=1/4  # シャード1/4を実行
+npx playwright test --shard=2/4  # シャード2/4を実行
+# ...
+```
+
+4シャードに分割されたE2Eテストが並列実行され、テスト時間を約1/4に短縮します。
+
+#### Vitest並列設定（CI環境）
+
+CI環境では、Vitestの`fileParallelism`と`pool: 'forks'`が有効化され、ファイル間の並列実行が行われます：
+
+```typescript
+// vitest.config.ts
+const isCI = process.env.CI === 'true';
+
+export default defineConfig({
+  test: {
+    pool: 'forks',
+    fileParallelism: isCI,  // CI環境でのみ有効
+    poolOptions: {
+      forks: {
+        singleFork: !isCI,  // ローカルではシングルフォーク
+      },
+    },
+  },
+});
+```
 
 ### CI環境のDocker構成
 
@@ -503,7 +551,15 @@ CI環境では `docker-compose.ci.yml` を使用し、標準ポート（3000, 51
 docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
 ```
 
-詳細は `.github/workflows/ci.yml` を参照してください。
+### GitHub Job Summary
+
+テスト結果は GitHub Actions の **Job Summary** に出力され、PRページで視覚的に確認できます：
+
+- カバレッジレポート（Backend/Frontend）
+- E2Eテストのシャード別結果
+- 全ジョブのステータス一覧
+
+詳細は `.github/workflows/ci.yml` および [CI/CD設定](../deployment/cicd-github-actions.md) を参照してください。
 
 ---
 
