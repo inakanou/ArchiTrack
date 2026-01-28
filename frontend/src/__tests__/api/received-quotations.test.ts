@@ -534,7 +534,12 @@ describe('received-quotations API client', () => {
   // ==========================================================================
   describe('エラーハンドリング', () => {
     it('ネットワークエラーの場合、statusCode 0のApiErrorがスローされること', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+      // apiClientは最大3回リトライするので、4回分のモックが必要
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error('Network error'));
 
       try {
         await getReceivedQuotation('quotation-1');
@@ -546,13 +551,19 @@ describe('received-quotations API client', () => {
     });
 
     it('サーバーエラー（5xx）の場合、適切なApiErrorがスローされること', async () => {
-      mockFetch.mockResolvedValueOnce({
+      // apiClientは5xxエラーで最大3回リトライするので、4回分のモックが必要
+      const errorResponse = {
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',
         headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({ detail: 'Internal Server Error' }),
-      });
+      };
+      mockFetch
+        .mockResolvedValueOnce(errorResponse)
+        .mockResolvedValueOnce(errorResponse)
+        .mockResolvedValueOnce(errorResponse)
+        .mockResolvedValueOnce(errorResponse);
 
       try {
         await getReceivedQuotation('quotation-1');

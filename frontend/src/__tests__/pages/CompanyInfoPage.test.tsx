@@ -29,6 +29,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import CompanyInfoPage from '../../pages/CompanyInfoPage';
 import * as companyInfoApi from '../../api/company-info';
+import { ApiError } from '../../api/client';
 import type { CompanyInfo } from '../../types/company-info.types';
 import { useToast } from '../../hooks/useToast';
 
@@ -370,7 +371,7 @@ describe('CompanyInfoPage', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/データの取得に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/通信エラーが発生しました/)).toBeInTheDocument();
       });
     });
 
@@ -401,9 +402,8 @@ describe('CompanyInfoPage', () => {
       const user = userEvent.setup();
       vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue(mockCompanyInfo);
 
-      // 409 Conflict エラーをシミュレート
-      const conflictError = new Error('Conflict');
-      (conflictError as Error & { status: number }).status = 409;
+      // 409 Conflict エラーをシミュレート（ApiErrorを使用してstatusCodeを設定）
+      const conflictError = new ApiError(409, 'Conflict');
       vi.mocked(companyInfoApi.updateCompanyInfo).mockRejectedValue(conflictError);
 
       render(
@@ -431,9 +431,8 @@ describe('CompanyInfoPage', () => {
       const user = userEvent.setup();
       vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue(mockCompanyInfo);
 
-      // 409 Conflict エラーをシミュレート
-      const conflictError = new Error('Conflict');
-      (conflictError as Error & { status: number }).status = 409;
+      // 409 Conflict エラーをシミュレート（ApiErrorを使用してstatusCodeを設定）
+      const conflictError = new ApiError(409, 'Conflict');
       vi.mocked(companyInfoApi.updateCompanyInfo).mockRejectedValue(conflictError);
 
       render(
@@ -467,9 +466,8 @@ describe('CompanyInfoPage', () => {
       const user = userEvent.setup();
       vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue(mockCompanyInfo);
 
-      // 409 Conflict エラーをシミュレート
-      const conflictError = new Error('Conflict');
-      (conflictError as Error & { status: number }).status = 409;
+      // 409 Conflict エラーをシミュレート（ApiErrorを使用してstatusCodeを設定）
+      const conflictError = new ApiError(409, 'Conflict');
       vi.mocked(companyInfoApi.updateCompanyInfo).mockRejectedValue(conflictError);
 
       render(

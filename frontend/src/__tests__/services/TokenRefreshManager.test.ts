@@ -61,17 +61,36 @@ describe('TokenRefreshManager', () => {
       });
       const errorManager = new TokenRefreshManager(errorMockFn);
 
-      await expect(errorManager.refreshToken()).rejects.toThrow('Refresh failed');
-
-      errorManager.cleanup();
+      try {
+        await errorManager.refreshToken();
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Refresh failed');
+      } finally {
+        errorManager.cleanup();
+      }
     });
   });
 
   describe('scheduleAutoRefresh', () => {
+    // scheduleAutoRefreshのテストでは、テスト環境でも自動リフレッシュを有効化
+    let autoRefreshManager: TokenRefreshManager;
+
+    beforeEach(() => {
+      autoRefreshManager = new TokenRefreshManager(mockRefreshFn, {
+        forceAutoRefreshInTest: true,
+      });
+    });
+
+    afterEach(() => {
+      autoRefreshManager.cleanup();
+    });
+
     it('should schedule auto-refresh 5 minutes before expiry', () => {
       const expiresIn = 15 * 60 * 1000; // 15分
 
-      manager.scheduleAutoRefresh(expiresIn);
+      autoRefreshManager.scheduleAutoRefresh(expiresIn);
 
       // 9分59秒経過（5分前の直前）
       vi.advanceTimersByTime(9 * 60 * 1000 + 59 * 1000);
@@ -84,10 +103,10 @@ describe('TokenRefreshManager', () => {
 
     it('should cancel previous auto-refresh when a new one is scheduled', () => {
       // 1回目のスケジュール
-      manager.scheduleAutoRefresh(15 * 60 * 1000);
+      autoRefreshManager.scheduleAutoRefresh(15 * 60 * 1000);
 
       // 2回目のスケジュール（1回目をキャンセル）
-      manager.scheduleAutoRefresh(15 * 60 * 1000);
+      autoRefreshManager.scheduleAutoRefresh(15 * 60 * 1000);
 
       // 10分経過
       vi.advanceTimersByTime(10 * 60 * 1000);
@@ -97,7 +116,7 @@ describe('TokenRefreshManager', () => {
     });
 
     it('should not schedule auto-refresh if expiresIn is less than 5 minutes', () => {
-      manager.scheduleAutoRefresh(4 * 60 * 1000); // 4分
+      autoRefreshManager.scheduleAutoRefresh(4 * 60 * 1000); // 4分
 
       // 4分経過
       vi.advanceTimersByTime(4 * 60 * 1000);

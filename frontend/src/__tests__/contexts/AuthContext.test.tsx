@@ -3,6 +3,7 @@ import { waitFor } from '@testing-library/react';
 import { renderHook, act } from '@testing-library/react';
 import { AuthProvider } from '../../contexts/AuthContext';
 import { useAuth } from '../../hooks/useAuth';
+import { apiClient } from '../../api/client';
 
 // loggerをモック（テスト出力をクリーンに保つため）
 vi.mock('../../utils/logger', () => ({
@@ -33,6 +34,9 @@ describe('AuthContext', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     localStorage.clear();
+    // apiClientの状態をクリア（テスト間で共有されるため）
+    apiClient.setTokenRefreshCallback(null);
+    apiClient.setAccessToken(null);
     vi.clearAllMocks();
   });
 
