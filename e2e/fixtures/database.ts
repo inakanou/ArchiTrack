@@ -88,6 +88,8 @@ export async function cleanDatabase(): Promise<void> {
     client.project.deleteMany(),
     // 取引先関連テーブルを削除
     client.tradingPartner.deleteMany(),
+    // 自社情報テーブルを削除
+    client.companyInfo.deleteMany(),
     // 認証・ユーザー関連テーブル
     client.auditLog.deleteMany(),
     client.refreshToken.deleteMany(),
@@ -168,6 +170,7 @@ export async function cleanSpecificTables(
     | 'twoFactorBackupCode'
     | 'userRole'
     | 'auditLog'
+    | 'companyInfo'
   >
 ): Promise<void> {
   const client = getPrismaClient();
@@ -197,6 +200,9 @@ export async function cleanSpecificTables(
         break;
       case 'user':
         await client.user.deleteMany();
+        break;
+      case 'companyInfo':
+        await client.companyInfo.deleteMany();
         break;
     }
   }
@@ -251,5 +257,6 @@ export async function getDatabaseStats(): Promise<Record<string, number>> {
     permissions: await client.permission.count(),
     rolePermissions: await client.rolePermission.count(),
     auditLogs: await client.auditLog.count(),
+    companyInfo: await client.companyInfo.count(),
   };
 }

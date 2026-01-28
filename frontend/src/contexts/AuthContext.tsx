@@ -483,6 +483,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         // 注意: リフレッシュAPIは認証不要なので、accessTokenをクリアしてから呼び出す
         // 古いaccessTokenがAuthorizationヘッダーに付加されると401が返される可能性がある
         apiClient.setAccessToken(null);
+
+        // リフレッシュAPIを呼び出し（APIクライアントがリトライを自動処理）
         const refreshResponse = await apiClient.post<{
           accessToken: string;
           refreshToken?: string;
@@ -501,7 +503,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           localStorage.setItem('refreshToken', refreshResponse.refreshToken);
         }
 
-        // ユーザー情報を取得（APIは直接ユーザーオブジェクトを返す）
+        // ユーザー情報を取得（APIクライアントがリトライを自動処理）
         const userResponse = await apiClient.get<User>('/api/v1/auth/me');
         setUser(userResponse);
 

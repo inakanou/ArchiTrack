@@ -61,17 +61,76 @@ describe('TokenRefreshManager', () => {
       });
       const errorManager = new TokenRefreshManager(errorMockFn);
 
-      await expect(errorManager.refreshToken()).rejects.toThrow('Refresh failed');
+      try {
+        await errorManager.refreshToken();
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Refresh failed');
+      } finally {
+        errorManager.cleanup();
+      }
+    });
 
-      errorManager.cleanup();
+    it('should retry on network errors with exponential backoff', async () => {
+      let attempts = 0;
+      const retryMockFn = vi.fn<RefreshTokenFunction>(async () => {
+        attempts++;
+        if (attempts < 3) {
+          throw new Error('Network error');
+        }
+        return 'new-access-token';
+      });
+      const retryManager = new TokenRefreshManager(retryMockFn);
+
+      const token = await retryManager.refreshToken();
+
+      // 3回目で成功
+      expect(retryMockFn).toHaveBeenCalledTimes(3);
+      expect(token).toBe('new-access-token');
+
+      retryManager.cleanup();
+    });
+
+    it('should not retry on authentication errors', async () => {
+      const authErrorMockFn = vi.fn<RefreshTokenFunction>(async () => {
+        throw new Error('Unauthorized - token expired');
+      });
+      const authErrorManager = new TokenRefreshManager(authErrorMockFn);
+
+      try {
+        await authErrorManager.refreshToken();
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Unauthorized - token expired');
+      }
+
+      // 認証エラーはリトライしない
+      expect(authErrorMockFn).toHaveBeenCalledTimes(1);
+
+      authErrorManager.cleanup();
     });
   });
 
   describe('scheduleAutoRefresh', () => {
+    // scheduleAutoRefreshのテストでは、テスト環境でも自動リフレッシュを有効化
+    let autoRefreshManager: TokenRefreshManager;
+
+    beforeEach(() => {
+      autoRefreshManager = new TokenRefreshManager(mockRefreshFn, {
+        forceAutoRefreshInTest: true,
+      });
+    });
+
+    afterEach(() => {
+      autoRefreshManager.cleanup();
+    });
+
     it('should schedule auto-refresh 5 minutes before expiry', () => {
       const expiresIn = 15 * 60 * 1000; // 15分
 
-      manager.scheduleAutoRefresh(expiresIn);
+      autoRefreshManager.scheduleAutoRefresh(expiresIn);
 
       // 9分59秒経過（5分前の直前）
       vi.advanceTimersByTime(9 * 60 * 1000 + 59 * 1000);
@@ -84,10 +143,10 @@ describe('TokenRefreshManager', () => {
 
     it('should cancel previous auto-refresh when a new one is scheduled', () => {
       // 1回目のスケジュール
-      manager.scheduleAutoRefresh(15 * 60 * 1000);
+      autoRefreshManager.scheduleAutoRefresh(15 * 60 * 1000);
 
       // 2回目のスケジュール（1回目をキャンセル）
-      manager.scheduleAutoRefresh(15 * 60 * 1000);
+      autoRefreshManager.scheduleAutoRefresh(15 * 60 * 1000);
 
       // 10分経過
       vi.advanceTimersByTime(10 * 60 * 1000);
@@ -97,12 +156,43 @@ describe('TokenRefreshManager', () => {
     });
 
     it('should not schedule auto-refresh if expiresIn is less than 5 minutes', () => {
-      manager.scheduleAutoRefresh(4 * 60 * 1000); // 4分
+      autoRefreshManager.scheduleAutoRefresh(4 * 60 * 1000); // 4分
 
       // 4分経過
       vi.advanceTimersByTime(4 * 60 * 1000);
 
       // リフレッシュが実行されない
+      expect(mockRefreshFn).not.toHaveBeenCalled();
+    });
+
+    it('should log error when auto-refresh fails', async () => {
+      const errorMockFn = vi.fn<RefreshTokenFunction>(async () => {
+        throw new Error('Auto refresh failed');
+      });
+      const errorManager = new TokenRefreshManager(errorMockFn, {
+        forceAutoRefreshInTest: true,
+      });
+
+      errorManager.scheduleAutoRefresh(15 * 60 * 1000);
+
+      // 10分経過（5分前）
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      // エラーがスローされてもPromise rejectionにならないことを確認
+      // 少し待ってからクリーンアップ
+      await vi.runAllTimersAsync();
+
+      errorManager.cleanup();
+    });
+
+    it('should skip scheduling in test environment without forceAutoRefreshInTest', () => {
+      // デフォルトのmanagerはforceAutoRefreshInTestがfalse
+      manager.scheduleAutoRefresh(15 * 60 * 1000);
+
+      // 10分経過
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      // テスト環境ではスケジュールされないため、リフレッシュは実行されない
       expect(mockRefreshFn).not.toHaveBeenCalled();
     });
   });

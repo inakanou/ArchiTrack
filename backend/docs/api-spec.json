@@ -2474,6 +2474,92 @@
         }
       }
     },
+    "/api/company-info": {
+      "get": {
+        "summary": "自社情報取得",
+        "description": "自社情報を取得する。未登録の場合は空オブジェクトを返却",
+        "tags": [
+          "CompanyInfo"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "自社情報（未登録時は空オブジェクト）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CompanyInfoResponse"
+                    },
+                    {
+                      "type": "object",
+                      "description": "未登録時の空オブジェクト"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      },
+      "put": {
+        "summary": "自社情報作成・更新",
+        "description": "自社情報を作成または更新する（楽観的排他制御）",
+        "tags": [
+          "CompanyInfo"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCompanyInfoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "自社情報作成・更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "409": {
+            "description": "楽観的排他制御エラー（競合）"
+          }
+        }
+      }
+    },
     "/api/estimate-requests/{id}/status": {
       "patch": {
         "summary": "ステータス遷移",

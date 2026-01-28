@@ -39,6 +39,7 @@ import itemizedStatementsRoutes from './routes/itemized-statements.routes.js';
 import estimateRequestsRoutes from './routes/estimate-requests.routes.js';
 import receivedQuotationRoutes from './routes/received-quotation.routes.js';
 import estimateRequestStatusRoutes from './routes/estimate-request-status.routes.js';
+import companyInfoRoutes from './routes/company-info.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -352,6 +353,9 @@ app.use('/api/quotations', receivedQuotationRoutes);
 
 // Estimate request status management routes
 app.use('/api/estimate-requests', estimateRequestStatusRoutes);
+
+// Company info management routes
+app.use('/api/company-info', companyInfoRoutes);
 
 // Local storage static file serving (development/test only)
 if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {

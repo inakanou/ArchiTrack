@@ -314,6 +314,20 @@ const Icons = {
       />
     </svg>
   ),
+  /**
+   * 自社情報アイコン（ビルディング - オフィスビル）
+   * REQ-5.4: 「自社情報」リンクにアイコン（ビルディングアイコン）を付与して視認性を高める
+   */
+  CompanyInfo: () => (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M14 16h1M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16"
+      />
+    </svg>
+  ),
 };
 
 /**
@@ -464,6 +478,12 @@ export function AppHeader(): ReactElement {
             <Link to="/trading-partners" className="app-header-nav-link">
               <Icons.TradingPartner />
               <span>取引先</span>
+            </Link>
+
+            {/* 自社情報リンク - REQ-5.1, 5.2, 5.3, 5.4 */}
+            <Link to="/company-info" className="app-header-nav-link">
+              <Icons.CompanyInfo />
+              <span>自社情報</span>
             </Link>
 
             {/* 管理者メニュー（admin ロールを持つユーザーのみ） */}
