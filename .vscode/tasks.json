@@ -338,6 +338,53 @@
     },
 
     // ========================================================================
+    // 単体テスト（CI並列実行モード）
+    // PRE_PUSH=trueでCI同等の並列実行を有効化（フォーク数=2）
+    // ========================================================================
+    {
+      "label": "Test: Backend Unit (Parallel)",
+      "type": "shell",
+      "command": "bash",
+      "args": ["-c", "PRE_PUSH=true npm --prefix backend run test:unit"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "バックエンド単体テスト（CI同等の並列実行、フォーク数=2）"
+    },
+    {
+      "label": "Test: Frontend Unit (Parallel)",
+      "type": "shell",
+      "command": "bash",
+      "args": ["-c", "PRE_PUSH=true npm --prefix frontend run test"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "フロントエンド単体テスト（CI同等の並列実行、フォーク数=2）"
+    },
+    {
+      "label": "Test: All Unit (Parallel + Coverage)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "PRE_PUSH=true npm --prefix backend run test:unit:coverage && PRE_PUSH=true npm --prefix frontend run test:coverage"
+      ],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "全単体テスト（CI同等の並列実行+カバレッジ、フォーク数=2）"
+    },
+
+    // ========================================================================
     // 統合テスト
     // ========================================================================
     {

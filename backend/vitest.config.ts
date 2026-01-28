@@ -6,6 +6,19 @@ import { defineConfig } from 'vitest/config';
  */
 const isCI = !!process.env.CI;
 
+/**
+ * Pre-Push環境かどうかを判定
+ * pre-push hookから実行される場合にPRE_PUSH=trueが設定される
+ * CI同等の並列実行を有効化しつつ、WSL2メモリ制約に配慮してフォーク数を制限
+ */
+const isPrePush = !!process.env.PRE_PUSH;
+
+/**
+ * 並列実行を有効化するかどうか
+ * CI環境またはPre-Push環境で有効化される
+ */
+const enableParallel = isCI || isPrePush;
+
 export default defineConfig({
   test: {
     globals: true,
@@ -28,24 +41,31 @@ export default defineConfig({
     // 環境変数の検証などを行う
     setupFiles: ['./vitest.setup.ts'],
     // ============================================================================
-    // 並列実行設定（環境別最適化）
+    // 並列実行設定（環境別最適化 - 3段階モード）
     // ============================================================================
     // ベストプラクティス: 環境に応じた並列実行の制御
-    // - CI環境: 十分なリソースがあるため並列実行を有効化
+    // - CI環境: 十分なリソースがあるため完全並列実行（CPUコア数に応じて自動調整）
+    // - Pre-Push環境: CI同等の並列実行でバグ検出、フォーク数制限でOOM防止
     // - ローカル（WSL2）: メモリ制約のため順序実行を維持
     // ============================================================================
     pool: 'forks',
     poolOptions: {
       forks: {
-        // CI環境では並列実行を有効化（CPUコア数に応じて自動調整）
+        // CI/Pre-Push環境では並列実行を有効化
         // ローカルでは共有DB対応のため順序実行
-        singleFork: !isCI,
-        // CI環境ではワーカー数を自動調整、ローカルでは1に制限
-        ...(isCI ? {} : { maxForks: 1, minForks: 1 }),
+        singleFork: !enableParallel,
+        // CI環境: ワーカー数を自動調整（CPUコア数）
+        // Pre-Push環境: WSL2メモリ制約のためフォーク数を2に制限
+        // ローカル: 1に制限
+        ...(isCI
+          ? {}
+          : enableParallel
+            ? { maxForks: 2, minForks: 1 }
+            : { maxForks: 1, minForks: 1 }),
       },
     },
-    // CI環境ではファイル並列実行を有効化
-    fileParallelism: isCI,
+    // CI/Pre-Push環境ではファイル並列実行を有効化
+    fileParallelism: enableParallel,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

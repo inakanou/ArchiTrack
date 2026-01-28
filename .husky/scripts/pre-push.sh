@@ -373,10 +373,19 @@ if [ $SECURITY_AUDIT_EXIT -ne 0 ]; then
 fi
 echo ""
 
+# ============================================================================
+# 単体テスト（CI同等の並列実行モード）
+# ============================================================================
+# ベストプラクティス: PRE_PUSH=trueでCI同等の並列実行を有効化
+# - CIでは複数フォーク+ファイル並列実行でテスト間の暗黙的依存を検出
+# - Pre-Pushでもフォーク数=2の制御された並列実行で同等のバグ検出力を確保
+# - WSL2メモリ制約（6GB）に配慮してフォーク数を制限
+# ============================================================================
+
 # Backend unit tests with coverage
 if [ -d "backend" ]; then
-  echo "🧪 Running backend unit tests with coverage..."
-  npm --prefix backend run test:unit:coverage
+  echo "🧪 Running backend unit tests with coverage (parallel mode)..."
+  PRE_PUSH=true npm --prefix backend run test:unit:coverage
   if [ $? -ne 0 ]; then
     echo "❌ Backend unit tests or coverage check failed. Push aborted."
     echo "   Coverage thresholds: statements 80%, branches 80%, functions 80%, lines 80%"
@@ -393,7 +402,7 @@ if [ -d "backend" ]; then
   # ============================================================================
   echo "🔍 Checking backend coverage gaps..."
   COVERAGE_EXIT=0
-  npm --prefix backend run coverage:check || COVERAGE_EXIT=$?
+  PRE_PUSH=true npm --prefix backend run coverage:check || COVERAGE_EXIT=$?
   if [ $COVERAGE_EXIT -ne 0 ]; then
     echo ""
     echo "❌ Coverage below target (80%) - blocking push"
@@ -408,8 +417,8 @@ fi
 
 # Frontend unit tests with coverage
 if [ -d "frontend" ]; then
-  echo "🧪 Running frontend unit tests with coverage..."
-  npm --prefix frontend run test:coverage
+  echo "🧪 Running frontend unit tests with coverage (parallel mode)..."
+  PRE_PUSH=true npm --prefix frontend run test:coverage
   if [ $? -ne 0 ]; then
     echo "❌ Frontend unit tests or coverage check failed. Push aborted."
     echo "   Run 'npm --prefix frontend run test:coverage' to check coverage locally."
@@ -421,7 +430,7 @@ if [ -d "frontend" ]; then
   # ============================================================================
   echo "🔍 Checking frontend coverage gaps..."
   COVERAGE_EXIT=0
-  npm --prefix frontend run coverage:check || COVERAGE_EXIT=$?
+  PRE_PUSH=true npm --prefix frontend run coverage:check || COVERAGE_EXIT=$?
   if [ $COVERAGE_EXIT -ne 0 ]; then
     echo ""
     echo "❌ Coverage below target (80%) - blocking push"

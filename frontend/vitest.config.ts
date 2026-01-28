@@ -7,6 +7,19 @@ import react from '@vitejs/plugin-react';
  */
 const isCI = !!process.env.CI;
 
+/**
+ * Pre-Push環境かどうかを判定
+ * pre-push hookから実行される場合にPRE_PUSH=trueが設定される
+ * CI同等の並列実行を有効化しつつ、WSL2メモリ制約に配慮してフォーク数を制限
+ */
+const isPrePush = !!process.env.PRE_PUSH;
+
+/**
+ * 並列実行を有効化するかどうか
+ * CI環境またはPre-Push環境で有効化される
+ */
+const enableParallel = isCI || isPrePush;
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -24,13 +37,14 @@ export default defineConfig({
     // ============================================================================
     reporter: isCI ? ['default', 'github-actions'] : ['verbose'],
     // ============================================================================
-    // 並列実行設定（環境別最適化）
+    // 並列実行設定（環境別最適化 - 3段階モード）
     // ============================================================================
     // ベストプラクティス: 環境に応じた並列実行の制御
-    // - CI環境: 十分なリソースがあるため並列実行を有効化
+    // - CI環境: 十分なリソースがあるため完全並列実行（CPUコア数に応じて自動調整）
+    // - Pre-Push環境: CI同等の並列実行でバグ検出、フォーク数制限でOOM防止
     // - ローカル（WSL2）: メモリ制約のため順序実行を維持
     // ============================================================================
-    fileParallelism: isCI,
+    fileParallelism: enableParallel,
     // ============================================================================
     // メモリ管理設定（OOM対策）
     // ============================================================================
@@ -41,9 +55,10 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: {
       forks: {
-        // CI環境では並列実行を有効化（CPUコア数に応じて自動調整）
-        // ローカル（WSL2）ではメモリ制約のため1に制限
-        maxForks: isCI ? undefined : 1,
+        // CI環境: ワーカー数を自動調整（CPUコア数）
+        // Pre-Push環境: WSL2メモリ制約のためフォーク数を2に制限
+        // ローカル: 1に制限
+        maxForks: isCI ? undefined : enableParallel ? 2 : 1,
         minForks: isCI ? undefined : 1,
         isolate: true, // 各テストファイルを分離
       },
