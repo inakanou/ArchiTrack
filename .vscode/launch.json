@@ -1,181 +1,35 @@
 {
+  // ============================================================================
+  // VS Code デバッグ設定
+  // ============================================================================
+  // 設計方針:
+  // - 単体テスト: Vitest Explorer拡張機能（vitest.explorer）を使用
+  // - E2Eテスト: Playwright Test拡張機能（ms-playwright.playwright）を使用
+  // - このファイルは上記拡張機能でカバーできないケースのみ定義
+  // ============================================================================
   "version": "0.2.0",
   "configurations": [
+    // ========================================================================
+    // バックエンドサーバー
+    // ========================================================================
     {
-      "name": "Run Playwright E2E Tests (Headed)",
+      "name": "Backend: Dev Server",
       "type": "node",
       "request": "launch",
-      "preLaunchTask": "Ensure Docker Ready for E2E",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "test:e2e",
-        "--",
-        "--headed"
-      ],
+      "runtimeArgs": ["--prefix", "backend", "run", "dev"],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "presentation": {
-        "group": "e2e",
-        "order": 1
-      }
-    },
-    {
-      "name": "Run Current Playwright Test File (Headed)",
-      "type": "node",
-      "request": "launch",
-      "preLaunchTask": "Ensure Docker Ready for E2E",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "test:e2e",
-        "--",
-        "${relativeFile}",
-        "--headed"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "presentation": {
-        "group": "e2e",
-        "order": 2
-      }
-    },
-    {
-      "name": "Debug Playwright E2E Tests (Inspector)",
-      "type": "node",
-      "request": "launch",
-      "preLaunchTask": "Ensure Docker Ready for E2E",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "test:e2e",
-        "--",
-        "--debug",
-        "--headed"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "env": {
-        "PWDEBUG": "1"
-      },
-      "presentation": {
-        "group": "e2e",
-        "order": 3
-      }
-    },
-    {
-      "name": "Debug Current Playwright Test File (Inspector)",
-      "type": "node",
-      "request": "launch",
-      "preLaunchTask": "Ensure Docker Ready for E2E",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "test:e2e",
-        "--",
-        "${relativeFile}",
-        "--debug",
-        "--headed"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "env": {
-        "PWDEBUG": "1"
-      },
-      "presentation": {
-        "group": "e2e",
-        "order": 4
-      }
-    },
-    {
-      "name": "Debug Frontend Vitest Tests",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "${workspaceFolder}/frontend",
-        "test",
-        "--",
-        "--run"
-      ],
-      "cwd": "${workspaceFolder}/frontend",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "presentation": {
-        "group": "unit",
-        "order": 1
-      }
-    },
-    {
-      "name": "Debug Current Frontend Test File",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "${workspaceFolder}/frontend",
-        "test",
-        "--",
-        "${relativeFile}"
-      ],
-      "cwd": "${workspaceFolder}/frontend",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "presentation": {
-        "group": "unit",
-        "order": 2
-      }
-    },
-    {
-      "name": "Debug Backend Vitest Tests",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "${workspaceFolder}/backend",
-        "run",
-        "test:unit",
-        "--",
-        "--run"
-      ],
-      "cwd": "${workspaceFolder}/backend",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "presentation": {
-        "group": "unit",
-        "order": 3
-      }
-    },
-    {
-      "name": "Debug Backend Server (Local)",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "${workspaceFolder}/backend",
-        "run",
-        "dev"
-      ],
-      "cwd": "${workspaceFolder}/backend",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
       "env": {
         "NODE_ENV": "development"
       },
       "presentation": {
-        "group": "server",
+        "group": "1_server",
         "order": 1
       }
     },
     {
-      "name": "Attach to Docker Backend (Dev)",
+      "name": "Backend: Attach to Docker (Dev)",
       "type": "node",
       "request": "attach",
       "port": 9229,
@@ -184,17 +38,14 @@
       "remoteRoot": "/app",
       "restart": true,
       "sourceMaps": true,
-      "skipFiles": [
-        "<node_internals>/**",
-        "**/node_modules/**"
-      ],
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
       "presentation": {
-        "group": "docker",
-        "order": 1
+        "group": "1_server",
+        "order": 2
       }
     },
     {
-      "name": "Attach to Docker Backend (Test)",
+      "name": "Backend: Attach to Docker (Test)",
       "type": "node",
       "request": "attach",
       "port": 9230,
@@ -203,53 +54,198 @@
       "remoteRoot": "/app",
       "restart": true,
       "sourceMaps": true,
-      "skipFiles": [
-        "<node_internals>/**",
-        "**/node_modules/**"
-      ],
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
       "presentation": {
-        "group": "docker",
+        "group": "1_server",
+        "order": 3
+      }
+    },
+
+    // ========================================================================
+    // 単体テスト（Vitest）
+    // 推奨: Vitest Explorer拡張機能のテストエクスプローラーを使用
+    // 以下は拡張機能がない場合やカスタムデバッグ用
+    // ========================================================================
+    {
+      "name": "Vitest: Backend (Current File)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vitest",
+        "run",
+        "${relativeFile}",
+        "--config",
+        "backend/vitest.config.ts"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "presentation": {
+        "group": "2_unit",
+        "order": 1
+      }
+    },
+    {
+      "name": "Vitest: Frontend (Current File)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vitest",
+        "run",
+        "${relativeFile}",
+        "--config",
+        "frontend/vitest.config.ts"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "presentation": {
+        "group": "2_unit",
         "order": 2
       }
     },
     {
-      "name": "Attach to Chrome (Frontend)",
-      "type": "chrome",
-      "request": "attach",
-      "port": 9222,
-      "webRoot": "${workspaceFolder}/frontend/src",
-      "sourceMapPathOverrides": {
-        "webpack:///./src/*": "${webRoot}/*"
+      "name": "Vitest: Backend (All)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "run", "test:unit"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "presentation": {
+        "group": "2_unit",
+        "order": 3
+      }
+    },
+    {
+      "name": "Vitest: Frontend (All)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "test"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "presentation": {
+        "group": "2_unit",
+        "order": 4
+      }
+    },
+
+    // ========================================================================
+    // 統合テスト
+    // ========================================================================
+    {
+      "name": "Integration: Backend (Docker)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "Docker: Ensure Test Ready",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": [
+        "exec",
+        "-e",
+        "NODE_ENV=test",
+        "architrack-backend-test",
+        "npm",
+        "run",
+        "test:integration"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "presentation": {
+        "group": "3_integration",
+        "order": 1
+      }
+    },
+
+    // ========================================================================
+    // E2Eテスト（Playwright）
+    // 推奨: Playwright Test拡張機能のテストエクスプローラーを使用
+    // 以下は拡張機能がない場合やカスタム実行用
+    // ========================================================================
+    {
+      "name": "Playwright: E2E (All, Headed)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "Docker: Ensure Test Ready",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["playwright", "test", "--headed"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "NODE_ENV": "test",
+        "DISABLE_RATE_LIMIT": "true"
       },
       "presentation": {
-        "group": "frontend",
+        "group": "4_e2e",
         "order": 1
+      }
+    },
+    {
+      "name": "Playwright: E2E (Current File, Headed)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "Docker: Ensure Test Ready",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["playwright", "test", "${relativeFile}", "--headed"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "NODE_ENV": "test",
+        "DISABLE_RATE_LIMIT": "true"
+      },
+      "presentation": {
+        "group": "4_e2e",
+        "order": 2
+      }
+    },
+    {
+      "name": "Playwright: E2E (Debug)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "Docker: Ensure Test Ready",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["playwright", "test", "--debug"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "NODE_ENV": "test",
+        "DISABLE_RATE_LIMIT": "true",
+        "PWDEBUG": "1"
+      },
+      "presentation": {
+        "group": "4_e2e",
+        "order": 3
+      }
+    },
+    {
+      "name": "Playwright: E2E (UI Mode)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "Docker: Ensure Test Ready",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["playwright", "test", "--ui"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "NODE_ENV": "test",
+        "DISABLE_RATE_LIMIT": "true"
+      },
+      "presentation": {
+        "group": "4_e2e",
+        "order": 4
       }
     }
   ],
   "compounds": [
     {
-      "name": "Full Stack Debug (Local)",
-      "configurations": [
-        "Debug Backend Server (Local)"
-      ],
+      "name": "Full Stack: Dev (Docker + Attach)",
+      "configurations": ["Backend: Attach to Docker (Dev)"],
+      "preLaunchTask": "Docker: Dev Up (Debug)",
+      "stopAll": true,
       "presentation": {
-        "group": "compound",
+        "group": "5_compound",
         "order": 1
-      },
-      "stopAll": true
-    },
-    {
-      "name": "Full Stack Debug (Docker Dev)",
-      "configurations": [
-        "Attach to Docker Backend (Dev)"
-      ],
-      "preLaunchTask": "Dev: Docker Compose Up (Debug)",
-      "presentation": {
-        "group": "compound",
-        "order": 2
-      },
-      "stopAll": true
+      }
     }
   ]
 }
