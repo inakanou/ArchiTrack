@@ -18,26 +18,26 @@ ci.yml
 │   ├── requirement-coverage（要件カバレッジ100%チェック）
 │   └── security（セキュリティ監査）
 │
-├── Phase 2: 単体テスト（シャード分割）
-│   ├── test-unit-backend（4シャード並列）
-│   ├── test-unit-frontend（4シャード並列）
-│   └── test-unit-results（カバレッジ集約・80%チェック）
+├── Phase 2: 単体テスト（シャード分割 + blob reporter）
+│   ├── test-unit-backend（4シャード並列、blob report出力）
+│   ├── test-unit-frontend（4シャード並列、blob report出力）
+│   └── test-unit-results（--merge-reportsで全シャード集約・カバレッジ80%チェック）
 │
 ├── Phase 3: ビルド（並列実行）
 │   └── build（backend, frontend - 2並列 + ES Module検証）
 │
-├── Phase 4: Storybookテスト
+├── Phase 4: Storybookテスト ← needs: [lint, typecheck]
 │   └── test-storybook（アクセシビリティ + カバレッジ80%）
 │
 ├── Phase 5: 統合テスト
 │   └── test-integration（Docker環境）
 │
-├── Phase 6: E2Eテスト（シャード分割）
-│   ├── test-e2e（4シャード並列）
-│   └── test-e2e-results（結果集約）
+├── Phase 6: E2Eテスト（シャード分割 + blob reporter）← needs: [build, test-unit-results]
+│   ├── test-e2e（4シャード並列、blob report出力）
+│   └── test-e2e-results（merge-reportsで統合HTMLレポート生成）
 │
 ├── Phase 7: CI成功判定
-│   └── ci-success（GitHub Job Summary出力）
+│   └── ci-success（フェーズ別ステータスをGitHub Job Summary出力）
 │
 └── Phase 8: デプロイ（CI成功後）
     ├── deploy-staging（developブランチ→Railway Staging）
@@ -49,6 +49,9 @@ ci.yml
 | 最適化手法 | 対象 | 効果 |
 |-----------|------|------|
 | **シャード分割** | 単体テスト、E2Eテスト | 4並列実行で実行時間を約1/4に短縮 |
+| **単一テスト実行** | 単体テスト | カバレッジ付きテストを1回で実行（二重実行を排除） |
+| **blob reporter + merge-reports** | 単体テスト、E2Eテスト | 全シャードのレポート・カバレッジを正確に集約 |
+| **CI依存関係最適化** | E2E、Storybook | クリティカルパスの短縮（不要な待ち合わせを削除） |
 | **Playwrightブラウザキャッシュ** | Storybook、E2E | ブラウザのダウンロード時間を削減 |
 | **Prismaキャッシュ** | 全ジョブ | Prismaバイナリの再ダウンロードを回避 |
 | **依存関係キャッシュ** | 全ジョブ | npm ciの実行時間を短縮 |
@@ -62,11 +65,11 @@ ci.yml
 |-------|------------|
 | requirement-coverage | 要件カバレッジチェック結果 |
 | security | セキュリティ監査ポリシー |
-| test-unit-results | Backend/Frontend カバレッジレポート |
+| test-unit-results | Backend/Frontend カバレッジレポート（全シャードマージ済み） |
 | test-storybook | Storybookカバレッジ |
-| test-integration | 統合テスト結果 |
-| test-e2e-results | シャード別E2E結果一覧 |
-| ci-success | 全ジョブのステータス一覧 |
+| test-integration | 統合テスト結果（詳細テーブル） |
+| test-e2e-results | E2E統合HTMLレポート（全シャードマージ済み） |
+| ci-success | 全ジョブのフェーズ別ステータス一覧（Phase 1〜8） |
 
 ### トリガー
 
@@ -125,7 +128,7 @@ env:
   NODE_VERSION: '22'
 
 jobs:
-  # Phase 2: 単体テスト（シャード分割で並列実行）
+  # Phase 2: 単体テスト（シャード分割で並列実行 + blob reporter）
   test-unit-backend:
     name: Unit Tests Backend (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
@@ -141,18 +144,33 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm --prefix backend ci
-      - run: npm --prefix backend run test:unit -- --shard=${{ matrix.shard }}/4
-      - run: npm --prefix backend run test:unit:coverage -- --shard=${{ matrix.shard }}/4
+      # カバレッジ付きテストを1回で実行（blob reporterで結果出力）
+      - name: Run unit tests with coverage (shard ${{ matrix.shard }}/4)
+        run: npm --prefix backend run test:unit:coverage -- --shard=${{ matrix.shard }}/4 --reporter=blob --reporter=github-actions
+      # blob reportをアーティファクトとしてアップロード
       - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
         with:
-          name: backend-coverage-shard-${{ matrix.shard }}
-          path: backend/coverage/
+          name: backend-blob-shard-${{ matrix.shard }}
+          path: backend/.vitest-reports/
+          retention-days: 1
 
-  # Phase 6: E2Eテスト（シャード分割で並列実行）
+  # Phase 2: 結果集約（全シャードのblob reportをマージ）
+  test-unit-results:
+    name: Unit Test Results
+    runs-on: ubuntu-latest
+    needs: [test-unit-backend, test-unit-frontend]
+    if: ${{ !cancelled() }}
+    steps:
+      # 全blob reportをダウンロード → Vitest --merge-reportsで集約
+      - name: Merge backend test reports and coverage
+        run: npx vitest --merge-reports --reporter=default --coverage
+
+  # Phase 6: E2Eテスト（シャード分割で並列実行 + blob reporter）
   test-e2e:
     name: E2E Tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    needs: [build, test-integration, test-storybook, requirement-coverage]
+    needs: [build, test-unit-results]  # 依存関係を最適化
     if: github.actor != 'dependabot[bot]'
     strategy:
       fail-fast: false
@@ -161,25 +179,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # ... setup steps ...
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install chromium --with-deps
-      - name: Start Docker Compose
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
-          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
-          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
       - name: Run E2E tests (shard ${{ matrix.shard }}/4)
         run: npx playwright test --shard=${{ matrix.shard }}/4
         env:
           CI: true
           BASE_URL: http://localhost:5173
+      # blob reportをアーティファクトとしてアップロード
+      - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: e2e-blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
+
+  # Phase 6: E2E結果集約（blob reportからHTML reportを生成）
+  test-e2e-results:
+    name: E2E Test Results
+    needs: [test-e2e]
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Merge into HTML Report
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
 ```
 
 詳細は `.github/workflows/ci.yml` を参照してください。

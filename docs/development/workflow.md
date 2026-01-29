@@ -287,23 +287,26 @@ curl http://localhost:3000/health
 
 ### Step 7: テストの実行
 
+#### 推奨: pre-push hookによる一括チェック
+
+`git push` 時にpre-push hookが自動実行され、CI同等のチェックが並列で行われます。手動で事前に実行する場合：
+
 ```bash
-# フォーマット・Lint・型チェック
-npm --prefix backend run format:check
-npm --prefix backend run lint
-npm --prefix backend run type-check
+# pre-push hookと同じチェックを手動実行（並列実行）
+echo '' | bash .husky/scripts/pre-push.sh
+```
 
-npm --prefix frontend run format:check
-npm --prefix frontend run lint
-npm --prefix frontend run type-check
+#### 個別実行
 
-# テスト実行
-npm --prefix backend run test:unit
-npm --prefix frontend run test
+VSCodeのタスク（`Ctrl+Shift+P` → `Tasks: Run Task`）から実行するか、コマンドラインで個別に実行できます：
 
-# ビルド確認
-npm --prefix backend run build
-npm --prefix frontend run build
+```bash
+# 静的解析（VSCode: "Check: Static All (Parallel)"）
+# ※ 3ワークスペースが並列実行されます
+
+# 単体テスト（VSCode: "Test: All Unit (Coverage + Parallel)"）
+PRE_PUSH=true npm --prefix backend run test:unit:coverage
+PRE_PUSH=true npm --prefix frontend run test:coverage
 
 # 要件カバレッジ確認
 npx tsx scripts/check-requirement-coverage.ts --threshold=0 --feature=user-auth

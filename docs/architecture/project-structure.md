@@ -221,7 +221,7 @@ Claude Codeのプロジェクト固有設定。
 
 ```
 .claude/
-├── CLAUDE.md              # AI運用6原則
+├── CLAUDE.md              # AI運用7原則
 └── commands/              # カスタムスラッシュコマンド
 ```
 
@@ -237,13 +237,15 @@ GitHub ActionsによるCI/CDパイプライン。
 └── dependabot.yml         # 依存関係自動更新
 ```
 
-**CIワークフロー:**
-1. Lint & Format チェック
-2. 型チェック
-3. ユニットテスト
-4. 統合テスト
-5. E2Eテスト
-6. ビルド検証
+**CIワークフロー（8フェーズ）:**
+1. 静的解析（lint/typecheck/requirement-coverage/security）
+2. 単体テスト（4シャード並列 + blob reporter → merge-reports集約）
+3. ビルド（backend/frontend並列 + ESM検証）
+4. Storybookテスト
+5. 統合テスト（Docker環境）
+6. E2Eテスト（4シャード並列 + blob reporter → merge-reports集約）
+7. CI成功判定（フェーズ別ステータスSummary）
+8. デプロイ（main/develop→Railway）
 
 **CDワークフロー:**
 1. Railwayへの自動デプロイ（mainブランチ）
@@ -268,15 +270,12 @@ Git操作時の自動チェック。
 - lint-staged（変更ファイルのみ）
 - 型チェック
 
-**pre-push（包括的）:**
-- フォーマットチェック
-- 型チェック（全体）
-- Lint（全体）
-- ビルド
-- ユニットテスト（カバレッジ）
-- 統合テスト
-- E2Eテスト
-- セキュリティスキャン
+**pre-push（包括的、並列実行）:**
+- 静的解析（format/type/lint - 3ワークスペース並列）
+- ビルド（backend/frontend並列）
+- ユニットテスト（カバレッジ + CI同等並列実行）
+- Storybookテスト
+- セキュリティ監査・要件カバレッジ
 
 ### `scripts/` - ユーティリティスクリプト
 
@@ -377,7 +376,9 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
 | `coverage/` | テストカバレッジレポート |
 | `playwright-report/` | Playwright HTMLレポート |
 | `test-results/` | テスト結果（スクリーンショット、ビデオ） |
-| `.logs/` | ログファイル |
+| `.vitest-reports/` | Vitest blob reporter出力（CI用シャード間マージ中間ファイル） |
+| `blob-report/` | Playwright blob reporter出力（CI用シャード間マージ中間ファイル） |
+| `.logs/` | ログファイル（pre-pushチェック結果など） |
 
 ---
 

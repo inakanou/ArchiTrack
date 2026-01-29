@@ -256,6 +256,34 @@ npm install
 
 プッシュ前に以下のチェックが自動実行されます。CIワークフローと完全に整合しており、ローカルで問題を早期発見できます。
 
+### 並列実行アーキテクチャ
+
+pre-push hookは **3段階の並列実行** で効率的にチェックを行います：
+
+```
+Stage 1: 静的解析（3ワークスペース並列）
+├── [backend]  format:check → type-check → lint
+├── [frontend] format:check → type-check → lint
+└── [e2e]      format:check → type-check → lint
+
+Stage 2: ビルド（2ワークスペース並列）
+├── [backend]  build → ESM validation
+└── [frontend] build
+
+Stage 3: テスト（2ワークスペース並列）
+├── [backend]  test:unit:coverage → coverage:check
+└── [frontend] test:coverage → coverage:check
+
+Stage 4: Storybook（順次実行）
+└── test-storybook:ci → storybook:coverage
+
+Stage 5: セキュリティ・要件（順次実行）
+├── security audit
+└── requirement coverage
+```
+
+各ステージ内では独立したワークスペースがバックグラウンドプロセス（`&`）で並列実行され、`wait`で全プロセスの完了を待機します。いずれかのプロセスが失敗した場合、即座にエラーを報告してチェックを中断します。
+
 ### 実行内容
 
 1. **Git操作タイプ検出**
@@ -269,20 +297,24 @@ npm install
 3. **環境変数整合性チェック**
    - `docker-compose.yml`で使用する変数が`.env.example`に記載されているか確認
 
-4. **コード品質チェック（CIと同一）**
+4. **静的解析（3ワークスペース並列）**
    - Format check（Prettier）
    - Type check（TypeScript）
    - Lint（ESLint）
+
+5. **ビルド（2ワークスペース並列）**
    - Build（Backend・Frontend）
    - ES Module検証（Backend）
 
-5. **テスト実行**
-   - ユニットテスト（Backend・Frontend）
+6. **単体テスト（2ワークスペース並列、CI同等の並列実行）**
+   - ユニットテスト（Backend・Frontend、`PRE_PUSH=true`でフォーク数=2の並列実行）
    - カバレッジチェック（80%ターゲット）
+
+7. **Storybookテスト**
    - Storybookテスト（アクセシビリティ含む）
    - Storybookストーリーカバレッジチェック（80%ターゲット）
 
-6. **セキュリティ・要件チェック**
+8. **セキュリティ・要件チェック**
    - セキュリティ監査（npm audit）
    - 要件カバレッジチェック
 
@@ -303,10 +335,6 @@ export NODE_OPTIONS="--max-old-space-size=1024"
 # 最新のログを確認
 cat .logs/pre-push-latest.log
 ```
-
-### 所要時間
-
-フルチェックには約5-10分かかります。ブランチ削除操作はチェックをスキップします。
 
 ---
 
