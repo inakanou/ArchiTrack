@@ -208,13 +208,20 @@ jobs:
       - name: Generate Prisma Client
         run: npm --prefix backend run prisma:generate
 
-      - name: Run unit tests (shard ${{ matrix.shard }}/4)
-        run: npm --prefix backend run test:unit -- --shard=${{ matrix.shard }}/4
+      - name: Run unit tests with coverage (shard ${{ matrix.shard }}/4)
+        run: npm --prefix backend run test:unit:coverage -- --shard=${{ matrix.shard }}/4 --reporter=blob --reporter=github-actions
 
-      - name: Generate coverage report (shard ${{ matrix.shard }}/4)
-        run: npm --prefix backend run test:unit:coverage -- --shard=${{ matrix.shard }}/4
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-blob-shard-${{ matrix.shard }}
+          path: backend/.vitest-reports/
+          include-hidden-files: true
+          retention-days: 1
 
       - name: Upload coverage artifact
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
           name: backend-coverage-shard-${{ matrix.shard }}
@@ -241,13 +248,20 @@ jobs:
       - name: Install dependencies
         run: npm --prefix frontend ci
 
-      - name: Run unit tests (shard ${{ matrix.shard }}/4)
-        run: npm --prefix frontend run test -- --shard=${{ matrix.shard }}/4
+      - name: Run unit tests with coverage (shard ${{ matrix.shard }}/4)
+        run: npm --prefix frontend run test:coverage -- --shard=${{ matrix.shard }}/4 --reporter=blob --reporter=github-actions
 
-      - name: Generate coverage report (shard ${{ matrix.shard }}/4)
-        run: npm --prefix frontend run test:coverage -- --shard=${{ matrix.shard }}/4
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-blob-shard-${{ matrix.shard }}
+          path: frontend/.vitest-reports/
+          include-hidden-files: true
+          retention-days: 1
 
       - name: Upload coverage artifact
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
           name: frontend-coverage-shard-${{ matrix.shard }}
@@ -276,12 +290,47 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
+      - name: Generate Prisma Client
+        run: npm --prefix backend run prisma:generate
+
+      # ====================================================================
+      # Backend: blob レポートマージ + カバレッジマージ
+      # ====================================================================
+      # ベストプラクティス: Vitest公式の --merge-reports を使用して
+      # 全シャードのテスト結果とカバレッジを正確にマージする
+      # @see https://vitest.dev/guide/improving-performance
+      # ====================================================================
+      - name: Download backend blob reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-blob-shard-*
+          path: backend/.vitest-reports/
+          merge-multiple: true
+
       - name: Download backend coverage artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: backend-coverage-shard-*
           path: backend-coverage-shards/
           merge-multiple: false
+
+      - name: Merge backend test reports and coverage
+        working-directory: backend
+        run: |
+          echo "## Backend Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          npx vitest --merge-reports --reporter=default --coverage 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      # ====================================================================
+      # Frontend: blob レポートマージ + カバレッジマージ
+      # ====================================================================
+      - name: Download frontend blob reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: frontend-blob-shard-*
+          path: frontend/.vitest-reports/
+          merge-multiple: true
 
       - name: Download frontend coverage artifacts
         uses: actions/download-artifact@v4
@@ -290,21 +339,17 @@ jobs:
           path: frontend-coverage-shards/
           merge-multiple: false
 
-      - name: Merge backend coverage
+      - name: Merge frontend test reports and coverage
+        working-directory: frontend
         run: |
-          mkdir -p backend/coverage
-          # 最初のシャードのカバレッジを使用（完全なマージには追加ツールが必要）
-          if [ -d "backend-coverage-shards/backend-coverage-shard-1" ]; then
-            cp -r backend-coverage-shards/backend-coverage-shard-1/* backend/coverage/ || true
-          fi
+          echo "## Frontend Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          npx vitest --merge-reports --reporter=default --coverage 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Merge frontend coverage
-        run: |
-          mkdir -p frontend/coverage
-          if [ -d "frontend-coverage-shards/frontend-coverage-shard-1" ]; then
-            cp -r frontend-coverage-shards/frontend-coverage-shard-1/* frontend/coverage/ || true
-          fi
-
+      # ====================================================================
+      # Codecov アップロード
+      # ====================================================================
       - name: Upload backend coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -319,9 +364,12 @@ jobs:
           directory: frontend/coverage
           flags: frontend-unit
 
+      # ====================================================================
+      # カバレッジギャップチェック
+      # ====================================================================
       - name: Check backend coverage gaps
         run: |
-          echo "## Backend Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "## Backend Coverage Gaps" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           EXIT_CODE=0
           npm --prefix backend run coverage:check >> $GITHUB_STEP_SUMMARY 2>&1 || EXIT_CODE=$?
@@ -335,7 +383,7 @@ jobs:
 
       - name: Check frontend coverage gaps
         run: |
-          echo "## Frontend Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "## Frontend Coverage Gaps" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           EXIT_CODE=0
           npm --prefix frontend run coverage:check >> $GITHUB_STEP_SUMMARY 2>&1 || EXIT_CODE=$?
@@ -409,7 +457,8 @@ jobs:
   test-storybook:
     name: Storybook Tests
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, build]
+    # Storybookは独自にビルドするため、production buildの完了を待つ必要がない
+    needs: [lint, typecheck]
     steps:
       - uses: actions/checkout@v6
 
@@ -531,8 +580,12 @@ jobs:
         run: |
           echo "## Integration Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Database: PostgreSQL" >> $GITHUB_STEP_SUMMARY
-          echo "Cache: Redis" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Database | PostgreSQL 15 (Docker) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cache | Redis 7 (Docker) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | NODE_ENV=test, Rate Limit disabled |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test DB | architrack_test |" >> $GITHUB_STEP_SUMMARY
 
       - name: Stop services
         if: always()
@@ -544,7 +597,9 @@ jobs:
   test-e2e:
     name: E2E Tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    needs: [build, test-integration, test-storybook, requirement-coverage]
+    # E2Eはbuildとunit-resultsの完了後に開始（integration/storybookの完了は不要）
+    # integration/storybook失敗はci-successゲートで最終的に検知される
+    needs: [build, test-unit-results]
     if: github.actor != 'dependabot[bot]'
     strategy:
       fail-fast: false
@@ -637,14 +692,20 @@ jobs:
           API_BASE_URL: http://127.0.0.1:3000
           DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
 
-      - name: Upload test results
-        if: always()
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
+
+      - name: Upload test results (screenshots, traces)
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
           name: e2e-test-results-shard-${{ matrix.shard }}
-          path: |
-            test-results/
-            playwright-report/
+          path: test-results/
 
       - name: Stop Docker Compose
         if: always()
@@ -659,32 +720,71 @@ jobs:
     needs: [test-e2e]
     if: always() && github.actor != 'dependabot[bot]'
     steps:
-      - name: Download all E2E test artifacts
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ====================================================================
+      # Playwright blob レポートマージ
+      # ====================================================================
+      # ベストプラクティス: Playwright公式の merge-reports を使用して
+      # 全シャードのテスト結果を統合HTMLレポートにマージする
+      # @see https://playwright.dev/docs/test-sharding
+      # ====================================================================
+      - name: Download blob reports
         uses: actions/download-artifact@v4
         with:
-          pattern: e2e-test-results-shard-*
-          path: e2e-results/
-          merge-multiple: false
+          path: all-blob-reports
+          pattern: e2e-blob-report-*
+          merge-multiple: true
 
-      - name: E2E test summary
+      - name: Merge into HTML Report
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - name: Generate E2E test summary
         run: |
           echo "## E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Shard | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           for shard in 1 2 3 4; do
-            if [ -d "e2e-results/e2e-test-results-shard-$shard" ]; then
-              echo "| Shard $shard | Completed |" >> $GITHUB_STEP_SUMMARY
+            ARTIFACT_NAME="e2e-blob-report-$shard"
+            if ls all-blob-reports/report-*shard${shard}* 1>/dev/null 2>&1 || ls all-blob-reports/report-*.zip 1>/dev/null 2>&1; then
+              echo "| Shard $shard | :white_check_mark: Completed |" >> $GITHUB_STEP_SUMMARY
             else
-              echo "| Shard $shard | Missing |" >> $GITHUB_STEP_SUMMARY
+              echo "| Shard $shard | :x: Missing |" >> $GITHUB_STEP_SUMMARY
             fi
           done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See the merged HTML report artifact for detailed results." >> $GITHUB_STEP_SUMMARY
 
-      - name: Merge HTML reports
+      - name: Upload merged HTML report
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-html-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Download test results (screenshots, traces)
+        uses: actions/download-artifact@v4
+        with:
+          path: all-test-results
+          pattern: e2e-test-results-shard-*
+          merge-multiple: true
+
+      - name: Upload merged test results
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: e2e-test-results-merged
-          path: e2e-results/
+          path: all-test-results/
 
   # ==========================================================================
   # Phase 7: CI成功判定
@@ -697,19 +797,31 @@ jobs:
     steps:
       - name: Check all job status
         run: |
+          # ステータスアイコン関数
+          status_icon() {
+            case "$1" in
+              success)  echo ":white_check_mark: success" ;;
+              failure)  echo ":x: failure" ;;
+              skipped)  echo ":fast_forward: skipped" ;;
+              cancelled) echo ":no_entry_sign: cancelled" ;;
+              *)        echo ":question: $1" ;;
+            esac
+          }
+
           echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| TypeCheck | ${{ needs.typecheck.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Unit Tests | ${{ needs.test-unit-results.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Storybook | ${{ needs.test-storybook.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Integration | ${{ needs.test-integration.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| E2E | ${{ needs.test-e2e-results.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Security | ${{ needs.security.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Req Coverage | ${{ needs.requirement-coverage.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Phase | Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 1. Static Analysis | Lint | $(status_icon "${{ needs.lint.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1. Static Analysis | TypeCheck | $(status_icon "${{ needs.typecheck.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1. Static Analysis | Security | $(status_icon "${{ needs.security.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1. Static Analysis | Req Coverage | $(status_icon "${{ needs.requirement-coverage.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2. Unit Tests | Unit Tests | $(status_icon "${{ needs.test-unit-results.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3. Build | Build | $(status_icon "${{ needs.build.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4. Component | Storybook | $(status_icon "${{ needs.test-storybook.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 5. Integration | Integration | $(status_icon "${{ needs.test-integration.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6. E2E | E2E | $(status_icon "${{ needs.test-e2e-results.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Verify success
         run: |

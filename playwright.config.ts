@@ -72,11 +72,21 @@ export default defineConfig({
   // - HTMLレポーター: 詳細な結果をファイルに保存
   // - CI環境: GitHub Actionsとの統合
   // ============================================================================
-  reporter: [
-    ['./e2e/reporters/progress-reporter.ts'],
-    ['html', { outputFolder: `playwright-report/${timestamp}`, open: 'never' }],
-    ...(isCI ? [['github'] as const] : []),
-  ],
+  // ============================================================================
+  // レポーター設定（環境別最適化）
+  // ============================================================================
+  // ベストプラクティス: CI環境ではblob reporterを使用してシャード間のレポートマージを可能にする
+  // - blob: シャード分割されたテスト結果を後でマージするための中間フォーマット
+  // - github: GitHub Actionsとの統合（アノテーション表示）
+  // - ローカル: カスタム進捗レポーター + HTMLレポート
+  // @see https://playwright.dev/docs/test-sharding
+  // ============================================================================
+  reporter: isCI
+    ? [['blob'], ['github'], ['./e2e/reporters/progress-reporter.ts']]
+    : [
+        ['./e2e/reporters/progress-reporter.ts'],
+        ['html', { outputFolder: `playwright-report/${timestamp}`, open: 'never' }],
+      ],
 
   // すべてのテストで共通の設定
   use: {
