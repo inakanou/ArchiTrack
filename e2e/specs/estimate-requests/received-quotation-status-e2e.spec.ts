@@ -643,6 +643,14 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
+      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(`/estimate-requests/${createdEstimateRequestId}`, {
+          waitUntil: 'networkidle',
+        });
+      }
+
       // テキスト型受領見積書の編集ボタンをクリック（last()を使用してテキスト型を選択）
       // ファイルアップロードテストで作成されたファイル型が最初に表示されるため
       const editButtons = page
@@ -691,8 +699,17 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-      await page.waitForLoadState('networkidle');
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`, {
+        waitUntil: 'networkidle',
+      });
+
+      // 並列テストによる認証失敗でログインページにリダイレクトされた場合は再ログイン
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(`/estimate-requests/${createdEstimateRequestId}`, {
+          waitUntil: 'networkidle',
+        });
+      }
 
       // 削除ボタンが表示される
       await expect(page.getByRole('button', { name: /削除/i }).first()).toBeVisible({

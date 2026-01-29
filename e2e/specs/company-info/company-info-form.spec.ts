@@ -541,19 +541,34 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
      */
     test('REQ-8.2: 自社情報の保存操作のAPI応答を500ミリ秒以内に完了する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/company-info');
-      await page.waitForLoadState('networkidle');
+      await page.goto('/company-info', { waitUntil: 'networkidle' });
+
+      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto('/company-info', { waitUntil: 'networkidle' });
+      }
+
+      // フォームが完全にロードされるまで待機
+      await expect(page.getByLabel(/会社名/)).toBeVisible({ timeout: getTimeout(10000) });
 
       await fillCompanyInfoForm(page, { companyName: 'パフォーマンステスト株式会社' });
+
+      // フォーム変更検知のため少し待機（Reactの状態更新を待つ）
+      await page.waitForTimeout(300);
+
+      // 保存ボタンが操作可能であることを確認
+      const saveButton = page.getByRole('button', { name: /保存/ });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
 
       // APIリクエストの時間を計測
       const startTime = Date.now();
       const responsePromise = page.waitForResponse(
         (response) =>
-          response.url().includes('/api/company-info') && response.request().method() === 'PUT'
+          response.url().includes('/api/company-info') && response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
       );
 
-      const saveButton = page.getByRole('button', { name: /保存/ });
       await saveButton.click();
 
       const response = await responsePromise;

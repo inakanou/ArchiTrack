@@ -246,19 +246,27 @@ test.describe('ユーザーへのロール割り当て', () => {
   test('最後の管理者からadminロールは削除できない', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // 管理者ユーザーとadminロールを取得
-    const adminUser = await prisma.user.findFirst({
-      where: {
-        userRoles: {
-          some: {
-            role: { name: 'admin' },
-          },
-        },
-      },
-    });
+    // adminロールを取得
     const adminRole = await prisma.role.findUnique({
       where: { name: 'admin' },
     });
+
+    // ADMIN_USERを取得
+    const adminUser = await prisma.user.findUnique({
+      where: { email: 'admin@example.com' },
+    });
+
+    // テスト前提条件: adminロール保持者が1人だけであることを保証
+    // 先行テストや並列テストがadminロールを他ユーザーに割り当てている場合があるため、
+    // ADMIN_USER以外からadminロール割り当てを削除する
+    if (adminRole && adminUser) {
+      await prisma.userRole.deleteMany({
+        where: {
+          roleId: adminRole.id,
+          NOT: { userId: adminUser.id },
+        },
+      });
+    }
 
     // 管理者ロールの削除を試みる
     const deleteResponse = await request.delete(

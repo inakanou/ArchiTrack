@@ -211,6 +211,14 @@ test.describe('見積依頼機能', () => {
       await page.goto(`/projects/${createdProjectId}/quantity-tables/new`);
       await page.waitForLoadState('networkidle');
 
+      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(`/projects/${createdProjectId}/quantity-tables/new`, {
+          waitUntil: 'networkidle',
+        });
+      }
+
       // 数量表作成フォームを入力
       const quantityTableName = '見積依頼テスト用数量表';
       await page.getByRole('textbox', { name: /数量表名/i }).fill(quantityTableName);
@@ -325,6 +333,12 @@ test.describe('見積依頼機能', () => {
 
       await page.goto(`/projects/${createdProjectId}`);
       await page.waitForLoadState('networkidle');
+
+      // CI並列実行時のセッション無効化対応
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(`/projects/${createdProjectId}`, { waitUntil: 'networkidle' });
+      }
 
       // 見積依頼セクション内の新規作成ボタン/リンクが表示される
       const section = page.getByTestId('estimate-request-section');
@@ -1562,8 +1576,15 @@ test.describe('見積依頼機能', () => {
       await page.waitForTimeout(1000);
 
       // ページをリロードして状態が保存されていることを確認
+      const detailUrl = page.url();
       await page.reload();
       await page.waitForLoadState('networkidle');
+
+      // 並列テスト時のセッション無効化対応
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(detailUrl, { waitUntil: 'networkidle' });
+      }
 
       const checkboxesAfterReload = page.locator(
         'table[aria-label="内訳書項目一覧"] input[type="checkbox"]'
@@ -1860,6 +1881,14 @@ test.describe('見積依頼機能', () => {
       // 見積依頼を作成
       await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
       await page.waitForLoadState('networkidle');
+
+      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(`/projects/${createdProjectId}/estimate-requests/new`, {
+          waitUntil: 'networkidle',
+        });
+      }
 
       await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
         timeout: getTimeout(15000),

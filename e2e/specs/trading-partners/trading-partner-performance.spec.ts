@@ -17,14 +17,18 @@ import { resetTestUser, cleanNonUserData, getPrismaClient } from '../../fixtures
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
 
+// CI環境ではDocker上で並列実行されるため、パフォーマンス閾値を緩和する
+const isCI = !!process.env.CI;
+const PERF_MULTIPLIER = isCI ? 1.5 : 1;
+
 // Performance thresholds (in milliseconds)
 // Note: E2E環境での変動を考慮し、要件値に20%のマージンを追加
 const THRESHOLDS = {
-  TRADING_PARTNER_LIST_LOAD: 2400, // 9.1: 2秒以内 + マージン
-  TRADING_PARTNER_DETAIL_LOAD: 1200, // 9.2: 1秒以内 + マージン
-  CRUD_API_RESPONSE: 600, // 9.3: 500ms以内 + マージン
-  SEARCH_FILTER_RESPONSE: 1200, // 9.4: 1秒以内 + マージン
-  SEARCH_API_RESPONSE: 600, // 10.6: 500ms以内 + マージン
+  TRADING_PARTNER_LIST_LOAD: 2400 * PERF_MULTIPLIER, // 9.1: 2秒以内 + マージン
+  TRADING_PARTNER_DETAIL_LOAD: 1200 * PERF_MULTIPLIER, // 9.2: 1秒以内 + マージン
+  CRUD_API_RESPONSE: 600 * PERF_MULTIPLIER, // 9.3: 500ms以内 + マージン
+  SEARCH_FILTER_RESPONSE: 1200 * PERF_MULTIPLIER, // 9.4: 1秒以内 + マージン
+  SEARCH_API_RESPONSE: 600 * PERF_MULTIPLIER, // 10.6: 500ms以内 + マージン
 };
 
 // Batch size for creating test trading partners

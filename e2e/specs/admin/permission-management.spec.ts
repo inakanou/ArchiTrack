@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { resetTestUser, getPrismaClient } from '../../fixtures/database';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -239,12 +240,18 @@ test.describe('権限管理', () => {
     await loginAsUser(page, 'ADMIN_USER');
 
     // 管理者メニューまたはユーザー管理ページに移動
-    await page.goto('/admin/users');
+    await page.goto('/admin/users', { waitUntil: 'networkidle' });
+
+    // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+    if (page.url().includes('/login')) {
+      await loginAsUser(page, 'ADMIN_USER');
+      await page.goto('/admin/users', { waitUntil: 'networkidle' });
+    }
 
     // 権限管理セクションが表示されることを確認
     // ユーザー・ロール管理ページには権限に関連する情報が含まれる
     await expect(page.getByRole('heading', { name: /ユーザー・ロール管理/i })).toBeVisible({
-      timeout: 10000,
+      timeout: getTimeout(10000),
     });
 
     // 権限一覧APIが正常に動作していることを確認（管理者はアクセス可能）

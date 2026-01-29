@@ -145,6 +145,12 @@ test.describe('セキュリティテスト', () => {
     // ページをリロード（ネットワーク完了まで待機）
     await page.reload({ waitUntil: 'networkidle' });
 
+    // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+    if (page.url().includes('/login')) {
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto('/profile', { waitUntil: 'networkidle' });
+    }
+
     // プロフィールページのロード完了を待機
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
       timeout: getTimeout(10000),
@@ -200,12 +206,16 @@ test.describe('セキュリティテスト', () => {
    * THEN アカウントを15分間ロックする
    */
   test('レート制限により5回失敗後アカウントがロックされる', async ({ page }) => {
+    // 直前にリセットして並列テストによるカウンターリセットの影響を最小化
+    await resetTestUser('REGULAR_USER');
+
     await page.goto('/login');
 
     const email = 'user@example.com';
     const wrongPassword = 'WrongPassword123!';
 
     // 5回連続でログイン失敗
+    // page.reload()を避け、高速に連続実行して並列テストの干渉を最小化
     for (let i = 0; i < 5; i++) {
       await page.getByLabel(/メールアドレス/i).fill(email);
       await page.locator('input#password').fill(wrongPassword);
@@ -215,7 +225,6 @@ test.describe('セキュリティテスト', () => {
         await expect(
           page.getByText(/メールアドレスまたはパスワードが正しくありません/i)
         ).toBeVisible();
-        await page.reload();
       }
     }
 

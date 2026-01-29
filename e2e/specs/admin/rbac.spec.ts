@@ -44,10 +44,27 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
    */
   test('一般ユーザーは管理者専用ページにアクセスできない', async ({ page }) => {
     await resetTestUser('REGULAR_USER');
+
+    // 並列テストによりREGULAR_USERにadminロールが割り当てられている場合があるため、
+    // user以外のロール割り当てを削除して初期状態を保証する
+    const prisma = getPrismaClient();
+    const regularUser = await prisma.user.findUnique({ where: { email: 'user@example.com' } });
+    if (regularUser) {
+      const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
+      if (userRole) {
+        await prisma.userRole.deleteMany({
+          where: {
+            userId: regularUser.id,
+            NOT: { roleId: userRole.id },
+          },
+        });
+      }
+    }
+
     await loginAsUser(page, 'REGULAR_USER');
 
     // ユーザー管理ページにアクセス試行
-    await page.goto('/admin/users');
+    await page.goto('/admin/users', { waitUntil: 'networkidle' });
 
     // 認証状態の初期化が完了し、アクセス拒否メッセージが表示されるまで待機
     // ProtectedRouteコンポーネントはh1タグで「アクセス権限がありません」を表示する
