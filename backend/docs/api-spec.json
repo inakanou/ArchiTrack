@@ -2474,6 +2474,31 @@
         }
       }
     },
+    "/api/autocomplete/all-suggestions": {
+      "get": {
+        "summary": "全オートコンプリート候補一括取得",
+        "description": "全フィールドのオートコンプリート候補を一括取得。画面初回ロード時に1度だけ呼び出し、以降はクライアントサイドでフィルタリングする。",
+        "tags": [
+          "Autocomplete"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "全フィールドのオートコンプリート候補"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
     "/api/company-info": {
       "get": {
         "summary": "自社情報取得",
