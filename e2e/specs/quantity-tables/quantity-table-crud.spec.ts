@@ -1367,12 +1367,16 @@ test.describe('数量表CRUD操作', () => {
       const majorCategoryInput = page.getByLabel(/大項目/).first();
       const majorCategoryCell = itemRow.getByRole('cell').first();
 
-      const hasInput = await majorCategoryInput.isVisible({ timeout: 2000 }).catch(() => false);
+      // isVisible()は即座に返すため、要素のレンダリング完了を待ってから判定する
+      const hasInput = await majorCategoryInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false);
 
       if (hasInput) {
         // 編集可能な入力フィールドがある場合
         await majorCategoryInput.fill('建築工事');
-        await expect(majorCategoryInput).toHaveValue('建築工事');
+        await expect(majorCategoryInput).toHaveValue('建築工事', { timeout: getTimeout(5000) });
       } else {
         // 表示モードの場合、項目行にデータが表示されていることを確認
         await expect(majorCategoryCell).toBeVisible();

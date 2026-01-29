@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
-import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
+import { resetTestUser } from '../../fixtures/database';
 
 /**
  * 画面遷移とナビゲーション機能のE2Eテスト
@@ -14,12 +12,8 @@ test.describe('画面遷移とナビゲーション', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
-    const prisma = getPrismaClient();
-    await cleanDatabase();
-    await seedRoles(prisma);
-    await seedPermissions(prisma);
-    await seedRolePermissions(prisma);
-    await createAllTestUsers(prisma);
+    await resetTestUser('REGULAR_USER');
+    await resetTestUser('ADMIN_USER');
   });
 
   test.beforeEach(async ({ context }) => {

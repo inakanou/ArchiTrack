@@ -13,8 +13,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { resetTestUser, cleanNonUserData, getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
 
@@ -38,10 +37,8 @@ test.describe('取引先機能パフォーマンステスト', () => {
   let accessToken: string;
 
   test.beforeAll(async ({ request }) => {
-    await cleanDatabase();
-
-    // Create admin user for authentication (has trading-partner permissions)
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
+    await cleanNonUserData();
 
     // Login to get access token
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -57,7 +54,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup is handled by cleanDatabase in next test suite
+    // Cleanup is handled by resetTestUser/cleanNonUserData in next test suite
   });
 
   /**
@@ -199,10 +196,8 @@ test.describe('大量データでのパフォーマンステスト', () => {
   let createdTradingPartnerId: string;
 
   test.beforeAll(async ({ request }) => {
-    await cleanDatabase();
-
-    // Create admin user for authentication
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
+    await cleanNonUserData();
 
     // Login
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -505,10 +500,8 @@ test.describe('フロントエンドページロードパフォーマンス', ()
   let tradingPartnerId: string;
 
   test.beforeAll(async ({ request }) => {
-    await cleanDatabase();
-
-    // Create admin user for authentication
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
+    await cleanNonUserData();
 
     // Login
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {

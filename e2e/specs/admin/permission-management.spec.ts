@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { resetTestUser, getPrismaClient } from '../../fixtures/database';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { API_BASE_URL } from '../../config';
 
@@ -25,8 +24,7 @@ test.describe('権限管理', () => {
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
   });
 
   /**

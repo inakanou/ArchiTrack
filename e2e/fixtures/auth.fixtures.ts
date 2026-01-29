@@ -169,12 +169,14 @@ export async function createCustomUser(userData: TestUser, prisma?: PrismaClient
   const passwordHash = await hashPassword(userData.password);
 
   // ユーザー作成
+  // 2FA有効ユーザーにはダミー秘密鍵を設定（E2Eテストでは固定コードでバイパス）
   const user = await client.user.create({
     data: {
       email: userData.email,
       displayName: userData.displayName,
       passwordHash,
       twoFactorEnabled: userData.twoFactorEnabled || false,
+      twoFactorSecret: userData.twoFactorEnabled ? DUMMY_TWO_FACTOR_SECRET : null,
     },
   });
 

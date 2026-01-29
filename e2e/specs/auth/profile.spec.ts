@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { resetTestUser } from '../../fixtures/database';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
@@ -342,14 +340,9 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
   // 並列実行を無効化（データベースリセットの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
-  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
+  // テストグループ終了後にテストユーザーをリセットして後続テストに影響を与えないようにする
   test.afterAll(async () => {
-    const prisma = getPrismaClient();
-    await cleanDatabase();
-    await seedRoles(prisma);
-    await seedPermissions(prisma);
-    await seedRolePermissions(prisma);
-    await createAllTestUsers(prisma);
+    await resetTestUser('REGULAR_USER');
   });
 
   // 各テストの前にデータベースをリセットしてユーザーを再作成
@@ -364,13 +357,8 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       sessionStorage.clear();
     });
 
-    // データベースをクリーンアップし、テストユーザーを再作成
-    const prisma = getPrismaClient();
-    await cleanDatabase();
-    await seedRoles(prisma);
-    await seedPermissions(prisma);
-    await seedRolePermissions(prisma);
-    await createAllTestUsers(prisma);
+    // テストユーザーをリセット（パスワードを初期状態に戻す）
+    await resetTestUser('REGULAR_USER');
   });
 
   /**

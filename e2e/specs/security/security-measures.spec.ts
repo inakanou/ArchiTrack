@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { resetTestUser } from '../../fixtures/database';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
@@ -17,8 +16,7 @@ test.describe('セキュリティ対策', () => {
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
   });
 
   /**
@@ -287,7 +285,7 @@ test.describe('XSS対策', () => {
    */
   test.afterAll(async () => {
     console.log('  - Restoring test data after security tests...');
-    await cleanDatabaseAndRestoreTestData();
+    await resetTestUser('ADMIN_USER');
     console.log('  ✓ Test data restored successfully');
   });
 });

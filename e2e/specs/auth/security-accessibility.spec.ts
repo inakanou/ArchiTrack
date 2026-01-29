@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { resetTestUser, getTestUser } from '../../fixtures/database';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
@@ -25,8 +24,7 @@ test.describe('セキュリティテスト', () => {
     });
     // ページをリロードして状態をクリア
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
+    await resetTestUser('REGULAR_USER');
   });
 
   /**
@@ -302,8 +300,7 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
       sessionStorage.clear();
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
+    await resetTestUser('REGULAR_USER');
   });
 
   /**
@@ -330,7 +327,7 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
     const { getPrismaClient } = await import('../../fixtures/database');
     const prisma = getPrismaClient();
 
-    const admin = await createTestUser('ADMIN_USER');
+    const admin = await getTestUser('ADMIN_USER');
     const invitation = await prisma.invitation.create({
       data: {
         email: 'accessibility-test@example.com',
@@ -474,8 +471,7 @@ test.describe('レスポンシブデザインテスト', () => {
       sessionStorage.clear();
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
+    await resetTestUser('REGULAR_USER');
   });
 
   /**
@@ -546,8 +542,7 @@ test.describe('モーダルとトーストメッセージテスト', () => {
       sessionStorage.clear();
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
+    await resetTestUser('REGULAR_USER');
   });
 
   /**

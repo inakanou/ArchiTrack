@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { resetTestUser } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -95,8 +94,7 @@ test.describe('APIパフォーマンス', () => {
   let accessToken: string;
 
   test.beforeAll(async ({ request }) => {
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
 
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
@@ -204,7 +202,7 @@ test.describe('APIパフォーマンス', () => {
    */
   test.afterAll(async () => {
     console.log('  - Restoring test data after page-load performance tests...');
-    await cleanDatabaseAndRestoreTestData();
+    await resetTestUser('ADMIN_USER');
     console.log('  ✓ Test data restored successfully');
   });
 });
