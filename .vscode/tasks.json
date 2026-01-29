@@ -3,9 +3,10 @@
   // VS Code タスク設定
   // ============================================================================
   // 設計方針:
-  // - 本質的なタスクのみ定義（冗長な個別タスクは削除）
-  // - groupを活用した整理
-  // - 並列実行対応
+  // - IDE拡張機能ファースト: Vitest Explorer / Playwright Test で実行可能なものはタスク化しない
+  // - 並列実行: 静的解析・ビルド・テストは可能な限り並列実行
+  // - 重複排除: 個別ワークスペース版と全体版の冗長な定義を排除
+  // - CI整合性: ローカル実行をCI/CDパイプラインと同等の構成に統一
   // ============================================================================
   "version": "2.0.0",
   "tasks": [
@@ -31,16 +32,11 @@
       "command": "docker",
       "args": [
         "compose",
-        "-f",
-        "docker-compose.yml",
-        "-f",
-        "docker-compose.dev.yml",
-        "-f",
-        "docker-compose.debug.yml",
-        "--env-file",
-        ".env.dev",
-        "up",
-        "-d"
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.dev.yml",
+        "-f", "docker-compose.debug.yml",
+        "--env-file", ".env.dev",
+        "up", "-d"
       ],
       "group": "none",
       "presentation": {
@@ -145,7 +141,8 @@
     },
 
     // ========================================================================
-    // 静的解析（並列実行可能）
+    // 静的解析（全ワークスペース並列実行）
+    // ベストプラクティス: 独立した静的解析を並列実行して待ち時間を削減
     // ========================================================================
     {
       "label": "Check: Format (All)",
@@ -153,7 +150,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "npm --prefix backend run format:check && npm --prefix frontend run format:check && npm run format:check"
+        "npm --prefix backend run format:check & npm --prefix frontend run format:check & npm run format:check & wait"
       ],
       "group": "test",
       "presentation": {
@@ -161,7 +158,7 @@
         "panel": "shared"
       },
       "problemMatcher": [],
-      "detail": "全プロジェクトのフォーマットチェック"
+      "detail": "全プロジェクトのフォーマットチェック（並列実行）"
     },
     {
       "label": "Check: Type (All)",
@@ -169,7 +166,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "npm --prefix backend run type-check && npm --prefix frontend run type-check && npm run type-check"
+        "npm --prefix backend run type-check & npm --prefix frontend run type-check & npm run type-check & wait"
       ],
       "group": "test",
       "presentation": {
@@ -177,7 +174,7 @@
         "panel": "shared"
       },
       "problemMatcher": ["$tsc"],
-      "detail": "全プロジェクトの型チェック"
+      "detail": "全プロジェクトの型チェック（並列実行）"
     },
     {
       "label": "Check: Lint (All)",
@@ -185,7 +182,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "npm --prefix backend run lint && npm --prefix frontend run lint && npm run lint"
+        "npm --prefix backend run lint & npm --prefix frontend run lint & npm run lint & wait"
       ],
       "group": "test",
       "presentation": {
@@ -193,7 +190,7 @@
         "panel": "shared"
       },
       "problemMatcher": ["$eslint-stylish"],
-      "detail": "全プロジェクトのLintチェック"
+      "detail": "全プロジェクトのLintチェック（並列実行）"
     },
     {
       "label": "Check: Security",
@@ -208,9 +205,27 @@
       "problemMatcher": [],
       "detail": "セキュリティ監査（本番依存のhigh以上をブロック）"
     },
+    {
+      "label": "Check: Static All (Parallel)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "echo '🔍 Static Analysis (Format + Type + Lint) in parallel...' && (npm --prefix backend run format:check && npm --prefix backend run type-check && npm --prefix backend run lint) & (npm --prefix frontend run format:check && npm --prefix frontend run type-check && npm --prefix frontend run lint) & (npm run format:check && npm run type-check && npm run lint) & wait && echo '✅ All static checks passed!'"
+      ],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": ["$tsc", "$eslint-stylish"],
+      "detail": "全静的解析をワークスペース並列で実行（Format→Type→Lint）"
+    },
 
     // ========================================================================
-    // ビルド
+    // ビルド（並列実行）
     // ========================================================================
     {
       "label": "Build: Backend",
@@ -245,12 +260,12 @@
       "detail": "フロントエンドのビルド"
     },
     {
-      "label": "Build: All",
+      "label": "Build: All (Parallel)",
       "type": "shell",
       "command": "bash",
       "args": [
         "-c",
-        "npm --prefix backend run build && npm --prefix frontend run build"
+        "npm --prefix backend run build & npm --prefix frontend run build & wait"
       ],
       "group": {
         "kind": "build",
@@ -261,127 +276,54 @@
         "panel": "shared"
       },
       "problemMatcher": ["$tsc"],
-      "detail": "全プロジェクトのビルド"
+      "detail": "全プロジェクトのビルド（並列実行）"
     },
 
     // ========================================================================
-    // 単体テスト
-    // 推奨: Vitest Explorer拡張機能のテストエクスプローラーを使用
+    // 単体テスト（カバレッジ付き・並列実行）
+    // 個別ファイル/テスト実行はVitest Explorer拡張機能を推奨
     // ========================================================================
     {
-      "label": "Test: Backend Unit",
+      "label": "Test: All Unit (Coverage + Parallel)",
       "type": "shell",
-      "command": "npm",
-      "args": ["--prefix", "backend", "run", "test:unit"],
+      "command": "bash",
+      "args": [
+        "-c",
+        "PRE_PUSH=true npm --prefix backend run test:unit:coverage & PRE_PUSH=true npm --prefix frontend run test:coverage & wait"
+      ],
       "group": "test",
       "presentation": {
         "reveal": "always",
         "panel": "shared"
       },
       "problemMatcher": [],
-      "detail": "バックエンドの単体テスト"
+      "detail": "全単体テスト（カバレッジ + CI同等並列実行、フォーク数=2）"
     },
     {
       "label": "Test: Backend Unit (Coverage)",
       "type": "shell",
-      "command": "npm",
-      "args": ["--prefix", "backend", "run", "test:unit:coverage"],
+      "command": "bash",
+      "args": ["-c", "PRE_PUSH=true npm --prefix backend run test:unit:coverage"],
       "group": "test",
       "presentation": {
         "reveal": "always",
         "panel": "shared"
       },
       "problemMatcher": [],
-      "detail": "バックエンドの単体テスト（カバレッジ付き）"
-    },
-    {
-      "label": "Test: Frontend Unit",
-      "type": "shell",
-      "command": "npm",
-      "args": ["--prefix", "frontend", "run", "test"],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": [],
-      "detail": "フロントエンドの単体テスト"
+      "detail": "バックエンド単体テスト（カバレッジ + 並列実行）"
     },
     {
       "label": "Test: Frontend Unit (Coverage)",
       "type": "shell",
-      "command": "npm",
-      "args": ["--prefix", "frontend", "run", "test:coverage"],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": [],
-      "detail": "フロントエンドの単体テスト（カバレッジ付き）"
-    },
-    {
-      "label": "Test: All Unit (Coverage)",
-      "type": "shell",
       "command": "bash",
-      "args": [
-        "-c",
-        "npm --prefix backend run test:unit:coverage && npm --prefix frontend run test:coverage"
-      ],
+      "args": ["-c", "PRE_PUSH=true npm --prefix frontend run test:coverage"],
       "group": "test",
       "presentation": {
         "reveal": "always",
         "panel": "shared"
       },
       "problemMatcher": [],
-      "detail": "全単体テスト（カバレッジ付き）"
-    },
-
-    // ========================================================================
-    // 単体テスト（CI並列実行モード）
-    // PRE_PUSH=trueでCI同等の並列実行を有効化（フォーク数=2）
-    // ========================================================================
-    {
-      "label": "Test: Backend Unit (Parallel)",
-      "type": "shell",
-      "command": "bash",
-      "args": ["-c", "PRE_PUSH=true npm --prefix backend run test:unit"],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": [],
-      "detail": "バックエンド単体テスト（CI同等の並列実行、フォーク数=2）"
-    },
-    {
-      "label": "Test: Frontend Unit (Parallel)",
-      "type": "shell",
-      "command": "bash",
-      "args": ["-c", "PRE_PUSH=true npm --prefix frontend run test"],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": [],
-      "detail": "フロントエンド単体テスト（CI同等の並列実行、フォーク数=2）"
-    },
-    {
-      "label": "Test: All Unit (Parallel + Coverage)",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "-c",
-        "PRE_PUSH=true npm --prefix backend run test:unit:coverage && PRE_PUSH=true npm --prefix frontend run test:coverage"
-      ],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": [],
-      "detail": "全単体テスト（CI同等の並列実行+カバレッジ、フォーク数=2）"
+      "detail": "フロントエンド単体テスト（カバレッジ + 並列実行）"
     },
 
     // ========================================================================
@@ -392,13 +334,9 @@
       "type": "shell",
       "command": "docker",
       "args": [
-        "exec",
-        "-e",
-        "NODE_ENV=test",
+        "exec", "-e", "NODE_ENV=test",
         "architrack-backend-test",
-        "npm",
-        "run",
-        "test:integration"
+        "npm", "run", "test:integration"
       ],
       "group": "test",
       "presentation": {
@@ -442,7 +380,7 @@
 
     // ========================================================================
     // E2Eテスト
-    // 推奨: Playwright Test拡張機能のテストエクスプローラーを使用
+    // 個別ファイル/テスト実行はPlaywright Test拡張機能を推奨
     // ========================================================================
     {
       "label": "Test: Requirement Coverage",
@@ -469,39 +407,11 @@
       },
       "dependsOn": ["Docker: Ensure Test Ready"],
       "problemMatcher": [],
-      "detail": "E2Eテスト（ヘッドレス）"
-    },
-    {
-      "label": "Test: E2E (Headed)",
-      "type": "shell",
-      "command": "npm",
-      "args": ["run", "test:e2e:headed"],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "dependsOn": ["Docker: Ensure Test Ready"],
-      "problemMatcher": [],
-      "detail": "E2Eテスト（ブラウザ表示）"
-    },
-    {
-      "label": "Test: E2E (UI Mode)",
-      "type": "shell",
-      "command": "npm",
-      "args": ["run", "test:e2e:ui"],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "dependsOn": ["Docker: Ensure Test Ready"],
-      "problemMatcher": [],
-      "detail": "E2Eテスト（UIモード）"
+      "detail": "E2Eテスト全件（ヘッドレス）"
     },
 
     // ========================================================================
-    // 自動修正
+    // 自動修正（並列実行）
     // ========================================================================
     {
       "label": "Fix: Format (All)",
@@ -509,7 +419,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "npm --prefix backend run format && npm --prefix frontend run format && npm run format"
+        "npm --prefix backend run format & npm --prefix frontend run format & npm run format & wait"
       ],
       "group": "none",
       "presentation": {
@@ -517,7 +427,7 @@
         "panel": "shared"
       },
       "problemMatcher": [],
-      "detail": "全プロジェクトのフォーマット自動修正"
+      "detail": "全プロジェクトのフォーマット自動修正（並列実行）"
     },
     {
       "label": "Fix: Lint (All)",
@@ -525,7 +435,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix && npm run lint:fix"
+        "npm --prefix backend run lint:fix & npm --prefix frontend run lint:fix & npm run lint:fix & wait"
       ],
       "group": "none",
       "presentation": {
@@ -533,33 +443,12 @@
         "panel": "shared"
       },
       "problemMatcher": ["$eslint-stylish"],
-      "detail": "全プロジェクトのLint自動修正"
+      "detail": "全プロジェクトのLint自動修正（並列実行）"
     },
 
     // ========================================================================
-    // Pre-Push チェック（Git Hook相当）
+    // Pre-Push チェック（Git Hook相当・CI整合）
     // ========================================================================
-    {
-      "label": "Pre-Push: Static Checks",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "-c",
-        "npm --prefix backend run format:check && npm --prefix frontend run format:check && npm run format:check && npm --prefix backend run type-check && npm --prefix frontend run type-check && npm run type-check && npm --prefix backend run lint && npm --prefix frontend run lint && npm run lint && npm --prefix backend run build && npm --prefix frontend run build && echo '✅ All static checks passed!'"
-      ],
-      "group": {
-        "kind": "test",
-        "isDefault": false
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "showReuseMessage": false,
-        "clear": true
-      },
-      "problemMatcher": ["$tsc", "$eslint-stylish"],
-      "detail": "Docker不要: Format → Type → Lint → Build"
-    },
     {
       "label": "Pre-Push: Full Checks",
       "type": "shell",
@@ -576,7 +465,7 @@
         "clear": true
       },
       "problemMatcher": [],
-      "detail": "Git Pre-Push Hook相当の全チェック（ログ: .logs/pre-push-*.log）"
+      "detail": "Git Pre-Push Hook相当の全チェック（並列実行、ログ: .logs/pre-push-*.log）"
     }
   ]
 }

@@ -3,9 +3,10 @@
   // VS Code デバッグ設定
   // ============================================================================
   // 設計方針:
-  // - 単体テスト: Vitest Explorer拡張機能（vitest.explorer）を使用
-  // - E2Eテスト: Playwright Test拡張機能（ms-playwright.playwright）を使用
-  // - このファイルは上記拡張機能でカバーできないケースのみ定義
+  // - 単体テスト: Vitest Explorer拡張機能（vitest.explorer）を使用 → デバッグ構成不要
+  // - E2Eテスト: Playwright Test拡張機能（ms-playwright.playwright）を使用 → デバッグ構成不要
+  // - このファイルはIDE拡張機能でカバーできないケースのみ定義:
+  //   サーバー起動、Dockerアタッチ、統合テスト
   // ============================================================================
   "version": "0.2.0",
   "configurations": [
@@ -62,77 +63,8 @@
     },
 
     // ========================================================================
-    // 単体テスト（Vitest）
-    // 推奨: Vitest Explorer拡張機能のテストエクスプローラーを使用
-    // 以下は拡張機能がない場合やカスタムデバッグ用
-    // ========================================================================
-    {
-      "name": "Vitest: Backend (Current File)",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vitest",
-        "run",
-        "${relativeFile}",
-        "--config",
-        "backend/vitest.config.ts"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "presentation": {
-        "group": "2_unit",
-        "order": 1
-      }
-    },
-    {
-      "name": "Vitest: Frontend (Current File)",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vitest",
-        "run",
-        "${relativeFile}",
-        "--config",
-        "frontend/vitest.config.ts"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "presentation": {
-        "group": "2_unit",
-        "order": 2
-      }
-    },
-    {
-      "name": "Vitest: Backend (All)",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "backend", "run", "test:unit"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "presentation": {
-        "group": "2_unit",
-        "order": 3
-      }
-    },
-    {
-      "name": "Vitest: Frontend (All)",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "test"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "presentation": {
-        "group": "2_unit",
-        "order": 4
-      }
-    },
-
-    // ========================================================================
     // 統合テスト
+    // Docker環境で実行するため、IDE拡張機能ではカバーできない
     // ========================================================================
     {
       "name": "Integration: Backend (Docker)",
@@ -142,97 +74,15 @@
       "runtimeExecutable": "docker",
       "runtimeArgs": [
         "exec",
-        "-e",
-        "NODE_ENV=test",
+        "-e", "NODE_ENV=test",
         "architrack-backend-test",
-        "npm",
-        "run",
-        "test:integration"
+        "npm", "run", "test:integration"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "presentation": {
-        "group": "3_integration",
+        "group": "2_integration",
         "order": 1
-      }
-    },
-
-    // ========================================================================
-    // E2Eテスト（Playwright）
-    // 推奨: Playwright Test拡張機能のテストエクスプローラーを使用
-    // 以下は拡張機能がない場合やカスタム実行用
-    // ========================================================================
-    {
-      "name": "Playwright: E2E (All, Headed)",
-      "type": "node",
-      "request": "launch",
-      "preLaunchTask": "Docker: Ensure Test Ready",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["playwright", "test", "--headed"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "env": {
-        "NODE_ENV": "test",
-        "DISABLE_RATE_LIMIT": "true"
-      },
-      "presentation": {
-        "group": "4_e2e",
-        "order": 1
-      }
-    },
-    {
-      "name": "Playwright: E2E (Current File, Headed)",
-      "type": "node",
-      "request": "launch",
-      "preLaunchTask": "Docker: Ensure Test Ready",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["playwright", "test", "${relativeFile}", "--headed"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "env": {
-        "NODE_ENV": "test",
-        "DISABLE_RATE_LIMIT": "true"
-      },
-      "presentation": {
-        "group": "4_e2e",
-        "order": 2
-      }
-    },
-    {
-      "name": "Playwright: E2E (Debug)",
-      "type": "node",
-      "request": "launch",
-      "preLaunchTask": "Docker: Ensure Test Ready",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["playwright", "test", "--debug"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "env": {
-        "NODE_ENV": "test",
-        "DISABLE_RATE_LIMIT": "true",
-        "PWDEBUG": "1"
-      },
-      "presentation": {
-        "group": "4_e2e",
-        "order": 3
-      }
-    },
-    {
-      "name": "Playwright: E2E (UI Mode)",
-      "type": "node",
-      "request": "launch",
-      "preLaunchTask": "Docker: Ensure Test Ready",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["playwright", "test", "--ui"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "env": {
-        "NODE_ENV": "test",
-        "DISABLE_RATE_LIMIT": "true"
-      },
-      "presentation": {
-        "group": "4_e2e",
-        "order": 4
       }
     }
   ],
@@ -243,7 +93,7 @@
       "preLaunchTask": "Docker: Dev Up (Debug)",
       "stopAll": true,
       "presentation": {
-        "group": "5_compound",
+        "group": "3_compound",
         "order": 1
       }
     }
