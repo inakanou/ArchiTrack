@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-01-28（Steering Sync: CI/CDシャーディング、テスト並列実行最適化を反映）_
+_最終更新: 2026-01-30（Steering Sync: Pre-Push並列実行3段階モード、会社情報管理機能、見積依頼機能完了を反映）_
 
 ## アーキテクチャ
 
@@ -230,11 +230,12 @@ ArchiTrack/
 - `backend/vitest.config.ts` - Node.js環境設定、カバレッジ閾値設定、CI環境別並列実行
 - `backend/vitest.setup.ts` - グローバルセットアップ
 
-**CI環境別並列実行設定:**
-- **CI環境**: 並列実行有効（CPUコア数に応じて自動調整、シャーディング対応）
+**並列実行設定（3段階モード）:**
+- **CI環境**: 完全並列実行（CPUコア数に応じて自動調整、シャーディング対応）
+- **Pre-Push環境**: CI同等の並列実行でバグ検出、フォーク数を2に制限（WSL2メモリ制約対応）
 - **ローカル（WSL2）**: 順序実行（メモリ制約/DB競合対応）
 - **pool**: `forks`（各テストファイルを独立プロセスで実行）
-- **fileParallelism**: CI環境のみ有効
+- **fileParallelism**: CI/Pre-Push環境で有効
 
 **カバレッジ閾値（2025-11-11更新）:**
 ```typescript
@@ -284,7 +285,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 1800+テストケース（単体、92ファイル）+ 70+テスト（統合、12ファイル）
+**テスト合計:** 1800+テストケース（単体、115ファイル）+ 70+テスト（統合、12ファイル）
 
 **実行方法:**
 ```bash
@@ -322,8 +323,9 @@ npm --prefix backend run coverage:check  # カバレッジギャップ検出（0
 - `frontend/vitest.config.ts` - jsdom環境、React プラグイン設定、CI環境別並列実行
 - `frontend/vitest.setup.ts` - @testing-library/jest-dom グローバルセットアップ
 
-**CI環境別並列実行設定:**
-- **CI環境**: 並列実行有効（CPUコア数に応じて自動調整、シャーディング対応）
+**並列実行設定（3段階モード）:**
+- **CI環境**: 完全並列実行（CPUコア数に応じて自動調整、シャーディング対応）
+- **Pre-Push環境**: CI同等の並列実行、フォーク数を2に制限（WSL2メモリ制約対応）
 - **ローカル（WSL2）**: 順序実行（メモリ制約対応、OOM防止）
 - **pool**: `forks`（各テストファイルを独立プロセスで実行、メモリリーク防止）
 - **isolate**: true（各テストファイル間でモジュールキャッシュを分離）
@@ -348,7 +350,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 800+テストケース（包括的なユニットテスト群、145テストファイル）
+- 合計: 800+テストケース（包括的なユニットテスト群、170+テストファイル）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
