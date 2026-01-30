@@ -744,6 +744,9 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
    * @requirement user-authentication/REQ-7.6 @requirement user-authentication/REQ-7.8
    */
   test('過去4回前のパスワードは再利用できる', async ({ page }) => {
+    // 5回のパスワード変更を順次実行するため、デフォルトタイムアウトでは不足する
+    test.setTimeout(300000);
+
     // ログイン
     await loginAsUser(page, 'REGULAR_USER');
     await page.goto('/profile');
