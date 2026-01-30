@@ -844,20 +844,28 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
       // 新しいパスワードで再ログイン（リトライあり）
       // CI並列実行時、パスワード変更のDB書き込み完了までにラグがある場合があるためリトライする
+      // 指数バックオフ（2→4→8→16秒）で最大5回リトライ
       await page.evaluate(() => {
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
       });
-      for (let loginRetry = 0; loginRetry < 3; loginRetry++) {
+      const maxLoginRetries = 5;
+      for (let loginRetry = 0; loginRetry < maxLoginRetries; loginRetry++) {
         try {
+          // リトライ時はログインページに明示的に遷移して状態をリセット
+          if (loginRetry > 0) {
+            await page.goto('/login');
+            await page.waitForLoadState('networkidle');
+          }
           await loginWithCredentials(page, 'user@example.com', newPwd);
           break;
         } catch {
-          if (loginRetry < 2) {
-            // DB書き込み完了を待ってからリトライ
-            await page.waitForTimeout(2000);
+          if (loginRetry < maxLoginRetries - 1) {
+            // 指数バックオフ: 2秒, 4秒, 8秒, 16秒
+            const delay = 2000 * Math.pow(2, loginRetry);
+            await page.waitForTimeout(delay);
           } else {
-            throw new Error(`Failed to login with new password after 3 attempts`);
+            throw new Error(`Failed to login with new password after ${maxLoginRetries} attempts`);
           }
         }
       }

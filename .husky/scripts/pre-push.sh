@@ -662,8 +662,9 @@ if [ -d "backend" ]; then
   # インテグレーションテストはテスト用Dockerコンテナ内で実行
   # テスト環境コンテナ名: architrack-backend-test
   # NODE_ENV=test を設定してレート制限を無効化
+  # PRE_PUSH=true を設定してCI同等の並列実行を有効化（singleFork回避）
   # DATABASE_URL は docker-compose.test.yml で architrack_test に設定済み
-  docker exec -e NODE_ENV=test architrack-backend-test npm run test:integration
+  docker exec -e NODE_ENV=test -e PRE_PUSH=true architrack-backend-test npm run test:integration
   if [ $? -ne 0 ]; then
     echo "❌ Backend integration tests failed. Push aborted."
     npm run test:docker:down > /dev/null 2>&1

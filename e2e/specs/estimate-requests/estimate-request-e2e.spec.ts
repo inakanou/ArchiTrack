@@ -1979,6 +1979,7 @@ test.describe('見積依頼機能', () => {
       });
 
       const nameInput = page.locator('input#name');
+      await nameInput.waitFor({ state: 'visible', timeout: getTimeout(10000) });
       await nameInput.fill('REQ-9.6テスト見積依頼');
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
