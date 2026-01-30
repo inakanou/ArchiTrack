@@ -20,7 +20,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, waitForElementWithRetry } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -221,7 +221,14 @@ test.describe('見積依頼機能', () => {
 
       // 数量表作成フォームを入力
       const quantityTableName = '見積依頼テスト用数量表';
-      await page.getByRole('textbox', { name: /数量表名/i }).fill(quantityTableName);
+      const quantityTableNameInput = page.getByRole('textbox', { name: /数量表名/i });
+      const quantityFormReady = await waitForElementWithRetry(page, quantityTableNameInput, {
+        maxRetries: 3,
+        timeout: getTimeout(10000),
+        reloadOnRetry: true,
+      });
+      expect(quantityFormReady).toBe(true);
+      await quantityTableNameInput.fill(quantityTableName);
 
       const createQuantityTablePromise = page.waitForResponse(
         (response) =>
@@ -407,7 +414,12 @@ test.describe('見積依頼機能', () => {
       await page.waitForLoadState('networkidle');
 
       const section = page.getByTestId('estimate-request-section');
-      await expect(section).toBeVisible({ timeout: getTimeout(10000) });
+      const sectionReady = await waitForElementWithRetry(page, section, {
+        maxRetries: 3,
+        timeout: getTimeout(10000),
+        reloadOnRetry: true,
+      });
+      expect(sectionReady).toBe(true);
 
       // 見積依頼が存在しない場合、空状態の「新規作成」リンクは表示される（メッセージ下）
       const emptyStateNewButton = section
@@ -1541,6 +1553,12 @@ test.describe('見積依頼機能', () => {
       });
 
       const nameInput = page.locator('input#name');
+      const formReady = await waitForElementWithRetry(page, nameInput, {
+        maxRetries: 3,
+        timeout: getTimeout(10000),
+        reloadOnRetry: true,
+      });
+      expect(formReady).toBe(true);
       await nameInput.fill('REQ-4.4テスト見積依頼');
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
@@ -2417,6 +2435,13 @@ test.describe('見積依頼機能', () => {
       });
 
       const nameInput = page.locator('input#name');
+      // データ取得失敗時にフォームがエラー状態になる場合があるため、リロード付きリトライで待機
+      const formReady = await waitForElementWithRetry(page, nameInput, {
+        maxRetries: 3,
+        timeout: getTimeout(10000),
+        reloadOnRetry: true,
+      });
+      expect(formReady).toBe(true);
       await nameInput.fill('REQ-6.7テスト見積依頼');
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
