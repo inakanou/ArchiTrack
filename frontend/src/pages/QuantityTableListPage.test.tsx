@@ -396,6 +396,11 @@ describe('QuantityTableListPage', () => {
       await waitFor(() => {
         expect(screen.getByText('削除中...')).toBeInTheDocument();
       });
+
+      // 非同期削除処理の完了を待機（jsdom破棄後のsetState呼び出しを防止）
+      await waitFor(() => {
+        expect(screen.queryByText('削除中...')).not.toBeInTheDocument();
+      });
     });
   });
 
