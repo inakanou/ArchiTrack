@@ -173,16 +173,16 @@ jobs:
           echo "- Allowlist: .security-audit-allowlist.json" >> $GITHUB_STEP_SUMMARY
 
   # ==========================================================================
-  # Phase 2: 単体テスト（シャード分割で並列実行）
+  # Phase 2: 単体テスト（カバレッジ付き）
   # ==========================================================================
-  test-unit-backend:
-    name: Unit Tests Backend (shard ${{ matrix.shard }}/4)
+  test-unit:
+    name: Unit Tests (${{ matrix.workspace }})
     runs-on: ubuntu-latest
     needs: [typecheck]
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        workspace: [backend, frontend]
     steps:
       - uses: actions/checkout@v6
 
@@ -193,6 +193,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache Prisma binaries
+        if: matrix.workspace == 'backend'
         uses: actions/cache@v5
         with:
           path: |
@@ -203,190 +204,33 @@ jobs:
             prisma-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm --prefix backend ci
+        run: npm --prefix ${{ matrix.workspace }} ci
 
       - name: Generate Prisma Client
+        if: matrix.workspace == 'backend'
         run: npm --prefix backend run prisma:generate
 
-      - name: Run unit tests with coverage (shard ${{ matrix.shard }}/4)
-        run: npm --prefix backend run test:unit:coverage -- --shard=${{ matrix.shard }}/4 --reporter=blob --reporter=github-actions
-
-      - name: Upload blob report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: backend-blob-shard-${{ matrix.shard }}
-          path: backend/.vitest-reports/
-          include-hidden-files: true
-          retention-days: 1
-
-      - name: Upload coverage artifact
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: backend-coverage-shard-${{ matrix.shard }}
-          path: backend/coverage/
-          retention-days: 1
-
-  test-unit-frontend:
-    name: Unit Tests Frontend (shard ${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
-    needs: [typecheck]
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm --prefix frontend ci
-
-      - name: Run unit tests with coverage (shard ${{ matrix.shard }}/4)
-        run: npm --prefix frontend run test:coverage -- --shard=${{ matrix.shard }}/4 --reporter=blob --reporter=github-actions
-
-      - name: Upload blob report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: frontend-blob-shard-${{ matrix.shard }}
-          path: frontend/.vitest-reports/
-          include-hidden-files: true
-          retention-days: 1
-
-      - name: Upload coverage artifact
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: frontend-coverage-shard-${{ matrix.shard }}
-          path: frontend/coverage/
-          retention-days: 1
-
-  # ==========================================================================
-  # Phase 2b: 単体テスト結果集約
-  # ==========================================================================
-  test-unit-results:
-    name: Unit Test Results
-    runs-on: ubuntu-latest
-    needs: [test-unit-backend, test-unit-frontend]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install backend dependencies
-        run: npm --prefix backend ci
-
-      - name: Install frontend dependencies
-        run: npm --prefix frontend ci
-
-      - name: Generate Prisma Client
-        run: npm --prefix backend run prisma:generate
-
-      # ====================================================================
-      # Backend: blob レポートマージ + カバレッジマージ
-      # ====================================================================
-      # ベストプラクティス: Vitest公式の --merge-reports を使用して
-      # 全シャードのテスト結果とカバレッジを正確にマージする
-      # @see https://vitest.dev/guide/improving-performance
-      # ====================================================================
-      - name: Download backend blob reports
-        uses: actions/download-artifact@v4
-        with:
-          pattern: backend-blob-shard-*
-          path: backend/.vitest-reports/
-          merge-multiple: true
-
-      - name: Download backend coverage artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: backend-coverage-shard-*
-          path: backend-coverage-shards/
-          merge-multiple: false
-
-      - name: Merge backend test reports and coverage
-        working-directory: backend
+      - name: Run unit tests with coverage
         run: |
-          echo "## Backend Unit Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          npx vitest --merge-reports --reporter=default --coverage 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-      # ====================================================================
-      # Frontend: blob レポートマージ + カバレッジマージ
-      # ====================================================================
-      - name: Download frontend blob reports
-        uses: actions/download-artifact@v4
-        with:
-          pattern: frontend-blob-shard-*
-          path: frontend/.vitest-reports/
-          merge-multiple: true
-
-      - name: Download frontend coverage artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: frontend-coverage-shard-*
-          path: frontend-coverage-shards/
-          merge-multiple: false
-
-      - name: Merge frontend test reports and coverage
-        working-directory: frontend
-        run: |
-          echo "## Frontend Unit Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          npx vitest --merge-reports --reporter=default --coverage 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-      # ====================================================================
-      # Codecov アップロード
-      # ====================================================================
-      - name: Upload backend coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: backend/coverage
-          flags: backend-unit
-
-      - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: frontend/coverage
-          flags: frontend-unit
-
-      # ====================================================================
-      # カバレッジギャップチェック
-      # ====================================================================
-      - name: Check backend coverage gaps
-        run: |
-          echo "## Backend Coverage Gaps" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          EXIT_CODE=0
-          npm --prefix backend run coverage:check >> $GITHUB_STEP_SUMMARY 2>&1 || EXIT_CODE=$?
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Status: FAILED** - Coverage below 80%" >> $GITHUB_STEP_SUMMARY
-            exit 1
+          if [ "${{ matrix.workspace }}" = "backend" ]; then
+            npm --prefix backend run test:unit:coverage
+          else
+            npm --prefix frontend run test:coverage
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status: PASSED**" >> $GITHUB_STEP_SUMMARY
 
-      - name: Check frontend coverage gaps
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ${{ matrix.workspace }}/coverage
+          flags: ${{ matrix.workspace }}-unit
+
+      - name: Check coverage gaps
         run: |
-          echo "## Frontend Coverage Gaps" >> $GITHUB_STEP_SUMMARY
+          echo "## ${{ matrix.workspace }} Coverage Gaps" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           EXIT_CODE=0
-          npm --prefix frontend run coverage:check >> $GITHUB_STEP_SUMMARY 2>&1 || EXIT_CODE=$?
+          npm --prefix ${{ matrix.workspace }} run coverage:check >> $GITHUB_STEP_SUMMARY 2>&1 || EXIT_CODE=$?
           if [ $EXIT_CODE -ne 0 ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Status: FAILED** - Coverage below 80%" >> $GITHUB_STEP_SUMMARY
@@ -512,7 +356,7 @@ jobs:
   test-integration:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: [build, test-unit-results]
+    needs: [build, test-unit]
     if: github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v6
@@ -599,7 +443,7 @@ jobs:
     runs-on: ubuntu-latest
     # E2Eはbuildとunit-resultsの完了後に開始（integration/storybookの完了は不要）
     # integration/storybook失敗はci-successゲートで最終的に検知される
-    needs: [build, test-unit-results]
+    needs: [build, test-unit]
     if: github.actor != 'dependabot[bot]'
     strategy:
       fail-fast: false
@@ -746,7 +590,13 @@ jobs:
           merge-multiple: true
 
       - name: Merge into HTML Report
-        run: npx playwright merge-reports --reporter html ./all-blob-reports
+        run: |
+          if [ -d "all-blob-reports" ] && [ "$(ls -A all-blob-reports 2>/dev/null)" ]; then
+            npx playwright merge-reports --reporter html ./all-blob-reports
+          else
+            echo "No blob reports found — E2E tests may have been skipped"
+            echo "::warning::E2E blob reports not found. E2E tests may have been skipped due to upstream failures."
+          fi
 
       - name: Generate E2E test summary
         run: |
@@ -792,7 +642,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit-results, build, test-storybook, test-integration, test-e2e-results, security, requirement-coverage]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, test-e2e-results, security, requirement-coverage]
     if: always()
     steps:
       - name: Check all job status
@@ -816,7 +666,7 @@ jobs:
           echo "| 1. Static Analysis | TypeCheck | $(status_icon "${{ needs.typecheck.result }}") |" >> $GITHUB_STEP_SUMMARY
           echo "| 1. Static Analysis | Security | $(status_icon "${{ needs.security.result }}") |" >> $GITHUB_STEP_SUMMARY
           echo "| 1. Static Analysis | Req Coverage | $(status_icon "${{ needs.requirement-coverage.result }}") |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2. Unit Tests | Unit Tests | $(status_icon "${{ needs.test-unit-results.result }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2. Unit Tests | Unit Tests | $(status_icon "${{ needs.test-unit.result }}") |" >> $GITHUB_STEP_SUMMARY
           echo "| 3. Build | Build | $(status_icon "${{ needs.build.result }}") |" >> $GITHUB_STEP_SUMMARY
           echo "| 4. Component | Storybook | $(status_icon "${{ needs.test-storybook.result }}") |" >> $GITHUB_STEP_SUMMARY
           echo "| 5. Integration | Integration | $(status_icon "${{ needs.test-integration.result }}") |" >> $GITHUB_STEP_SUMMARY
@@ -841,7 +691,7 @@ jobs:
 
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.typecheck.result }}" != "success" ]] || \
-             [[ "${{ needs.test-unit-results.result }}" != "success" ]] || \
+             [[ "${{ needs.test-unit.result }}" != "success" ]] || \
              [[ "${{ needs.build.result }}" != "success" ]] || \
              [[ "${{ needs.test-storybook.result }}" != "success" ]] || \
              [[ "$integration_ok" != "true" ]] || \
