@@ -2442,24 +2442,25 @@ test.describe('見積依頼機能', () => {
         reloadOnRetry: true,
       });
       expect(formReady).toBe(true);
-      await nameInput.fill('REQ-6.7テスト見積依頼');
+      await nameInput.fill(`REQ-6.7テスト見積依頼_${Date.now()}`);
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
+      await expect(tradingPartnerSelect).toBeVisible({ timeout: getTimeout(5000) });
       await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await expect(itemizedStatementSelect).toBeVisible({ timeout: getTimeout(5000) });
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
 
       const createPromise = page.waitForResponse(
         (response) =>
-          response.url().includes('/estimate-requests') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
+          response.url().includes('/estimate-requests') && response.request().method() === 'POST',
         { timeout: getTimeout(30000) }
       );
 
       await page.getByRole('button', { name: /作成/i }).click();
-      await createPromise;
+      const createResponse = await createPromise;
+      expect(createResponse.status()).toBe(201);
 
       await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
 
