@@ -1966,8 +1966,10 @@ test.describe('数量表CRUD操作', () => {
       } else {
         // データがない場合でも、オートコンプリートコンポーネントが機能していることを確認
         // （候補がないためlistboxは表示されないが、入力は受け付ける）
-        const inputValue = await majorCategoryInput.inputValue();
-        expect(inputValue).toBe('建');
+        // 再レンダリングによるDOM更新に対応するため、リトライ付きアサーションを使用
+        await expect(page.getByRole('combobox', { name: /大項目/ }).first()).toHaveValue('建', {
+          timeout: getTimeout(5000),
+        });
         console.log(
           'オートコンプリート: 候補データがないか、API作成に失敗したためlistboxは表示されませんでした。' +
             'コンポーネント自体は機能しています。'

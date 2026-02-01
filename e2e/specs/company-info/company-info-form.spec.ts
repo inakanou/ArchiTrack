@@ -208,6 +208,9 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
       await page.reload();
       await page.waitForLoadState('networkidle');
 
+      // フォームがレンダリングされるまで待機
+      await expect(page.getByLabel(/会社名/)).toBeVisible({ timeout: getTimeout(15000) });
+
       await expect(page.getByLabel(/会社名/)).toHaveValue(UPDATED_COMPANY_INFO.companyName, {
         timeout: getTimeout(10000),
       });
