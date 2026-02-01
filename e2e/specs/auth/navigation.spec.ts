@@ -364,9 +364,9 @@ test.describe('画面遷移とナビゲーション', () => {
 
     // ダッシュボード → プロジェクト一覧 → ダッシュボードと遷移
     // React Router Linkを使ったSPAナビゲーションで履歴を正しく作成
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await expect(page).toHaveURL(/\/(dashboard)?$/);
+    // loginAsUser後は既にダッシュボードにいるため、全ページリロードを避ける
+    // （全ページリロードはリソース負荷時に認証チェックがタイムアウトする場合がある）
+    await expect(page).toHaveURL(/\/(dashboard)?$/, { timeout: getTimeout(10000) });
 
     // プロジェクト一覧へ遷移（ヘッダーナビゲーションから - React Router Link）
     await page.locator('.app-header-nav-link', { hasText: 'プロジェクト' }).click();
