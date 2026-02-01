@@ -13,6 +13,13 @@ export default defineConfig({
     // Setup files: 各テストファイルの前に実行される
     // 環境変数の検証などを行う
     setupFiles: ['./vitest.setup.ts'],
+    // Integration tests use shared database, run sequentially to avoid data conflicts
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

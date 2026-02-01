@@ -2135,8 +2135,11 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
+      // リトライ時に前回作成分と名前が重複しないようユニーク名を使用
+      const uniqueName = `REQ-8.4テスト見積依頼_${Date.now()}`;
+
       const nameInput = page.locator('input#name');
-      await nameInput.fill('REQ-8.4テスト見積依頼');
+      await nameInput.fill(uniqueName);
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
       await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
@@ -2186,7 +2189,7 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      await expect(page.getByText('REQ-8.4テスト見積依頼')).not.toBeVisible();
+      await expect(page.getByText(uniqueName)).not.toBeVisible();
     });
   });
 
