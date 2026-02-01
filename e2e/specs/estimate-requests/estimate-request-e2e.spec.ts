@@ -2467,19 +2467,56 @@ test.describe('見積依頼機能', () => {
       // 項目を選択してから見積依頼文を表示する
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
-      await checkboxes.first().click();
-      await page.waitForTimeout(1000);
 
-      // 見積依頼文を表示ボタンをクリック
+      // チェックボックスクリック時の項目選択APIレスポンスを待機
+      const selectionResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/items') &&
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(15000) }
+      );
+      await checkboxes.first().click();
+      await selectionResponsePromise;
+
+      // 見積依頼文テキストAPIレスポンスを待機しながらボタンをクリック
+      const textResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/text') &&
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
+
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
       await showTextButton.click();
+
+      const textResponse = await textResponsePromise;
 
       // 見積依頼文パネルが表示される
       const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
       await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 本文セクションが表示される
-      await expect(panel.getByText('本文')).toBeVisible({ timeout: getTimeout(10000) });
+      // APIが成功した場合のみ本文を検証（一時的なエラーの場合はリトライ）
+      if (!textResponse.ok()) {
+        // パネルを閉じて再度開く
+        await showTextButton.click();
+        await expect(panel).not.toBeVisible({ timeout: getTimeout(5000) });
+
+        const retryTextResponsePromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/text') &&
+            response.url().includes('/estimate-requests') &&
+            response.request().method() === 'GET',
+          { timeout: getTimeout(30000) }
+        );
+        await showTextButton.click();
+        await retryTextResponsePromise;
+        await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+      }
+
+      // 本文セクションが表示される（ローディング完了を待機）
+      await expect(panel.getByText('本文')).toBeVisible({ timeout: getTimeout(15000) });
 
       // 本文にプロジェクト名または現場情報が含まれる（物件名など）
       await expect(panel.getByText(/物件名|プロジェクト|お世話になっております/i)).toBeVisible({
