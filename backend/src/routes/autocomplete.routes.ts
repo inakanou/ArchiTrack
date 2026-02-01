@@ -556,4 +556,137 @@ router.get(
   }
 );
 
+/**
+ * @swagger
+ * /api/autocomplete/all-suggestions:
+ *   get:
+ *     summary: 全オートコンプリート候補一括取得
+ *     description: 全フィールドのオートコンプリート候補を一括取得。画面初回ロード時に1度だけ呼び出し、以降はクライアントサイドでフィルタリングする。
+ *     tags:
+ *       - Autocomplete
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: 全フィールドのオートコンプリート候補
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ */
+router.get(
+  '/all-suggestions',
+  authenticate,
+  requirePermission('quantity_table:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const activeTableCondition = {
+        quantityGroup: {
+          quantityTable: {
+            deletedAt: null,
+          },
+        },
+      };
+
+      const PREFETCH_LIMIT = 1000;
+
+      const [
+        majorCategoryResults,
+        middleCategoryResults,
+        minorCategoryResults,
+        workTypeResults,
+        unitResults,
+        specificationResults,
+      ] = await Promise.all([
+        prisma.quantityItem.groupBy({
+          by: ['majorCategory'],
+          where: activeTableCondition,
+          orderBy: { _count: { majorCategory: 'desc' } },
+          take: PREFETCH_LIMIT,
+        }),
+        prisma.quantityItem.groupBy({
+          by: ['majorCategory', 'middleCategory'],
+          where: {
+            ...activeTableCondition,
+            middleCategory: { not: null },
+          },
+          orderBy: { _count: { middleCategory: 'desc' } },
+          take: PREFETCH_LIMIT,
+        }),
+        prisma.quantityItem.groupBy({
+          by: ['majorCategory', 'middleCategory', 'minorCategory'],
+          where: {
+            ...activeTableCondition,
+            minorCategory: { not: null },
+          },
+          orderBy: { _count: { minorCategory: 'desc' } },
+          take: PREFETCH_LIMIT,
+        }),
+        prisma.quantityItem.groupBy({
+          by: ['workType'],
+          where: activeTableCondition,
+          orderBy: { _count: { workType: 'desc' } },
+          take: PREFETCH_LIMIT,
+        }),
+        prisma.quantityItem.groupBy({
+          by: ['unit'],
+          where: activeTableCondition,
+          orderBy: { _count: { unit: 'desc' } },
+          take: PREFETCH_LIMIT,
+        }),
+        prisma.quantityItem.groupBy({
+          by: ['specification'],
+          where: {
+            ...activeTableCondition,
+            specification: { not: null },
+          },
+          orderBy: { _count: { specification: 'desc' } },
+          take: PREFETCH_LIMIT,
+        }),
+      ]);
+
+      const response = {
+        majorCategories: majorCategoryResults.map((r) => r.majorCategory),
+        middleCategories: middleCategoryResults
+          .filter((r) => r.middleCategory !== null)
+          .map((r) => ({
+            value: r.middleCategory as string,
+            majorCategory: r.majorCategory,
+          })),
+        minorCategories: minorCategoryResults
+          .filter((r) => r.minorCategory !== null && r.middleCategory !== null)
+          .map((r) => ({
+            value: r.minorCategory as string,
+            majorCategory: r.majorCategory,
+            middleCategory: r.middleCategory as string,
+          })),
+        workTypes: workTypeResults.map((r) => r.workType),
+        units: unitResults.map((r) => r.unit),
+        specifications: specificationResults
+          .filter((r) => r.specification !== null)
+          .map((r) => r.specification as string),
+      };
+
+      logger.debug(
+        {
+          userId: req.user?.userId,
+          counts: {
+            majorCategories: response.majorCategories.length,
+            middleCategories: response.middleCategories.length,
+            minorCategories: response.minorCategories.length,
+            workTypes: response.workTypes.length,
+            units: response.units.length,
+            specifications: response.specifications.length,
+          },
+        },
+        'All suggestions prefetch'
+      );
+
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 export default router;

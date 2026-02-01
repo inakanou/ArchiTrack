@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import {
+  resetTestUser,
+  getTestUser,
+  cleanNonSystemRoles,
+  getPrismaClient,
+} from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -27,8 +31,9 @@ test.describe('ユーザーへのロール割り当て', () => {
 
   test.beforeEach(async ({ context, request }) => {
     await context.clearCookies();
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
+    // テストで作成されたカスタムロールをクリーンアップ
+    await cleanNonSystemRoles();
 
     // 管理者としてログイン
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -54,7 +59,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     const prisma = getPrismaClient();
 
     // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    const testUser = await getTestUser('REGULAR_USER');
 
     // 新しいロールを作成
     const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -98,7 +103,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     const prisma = getPrismaClient();
 
     // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    const testUser = await getTestUser('REGULAR_USER');
 
     // userロールを取得
     const userRole = await prisma.role.findUnique({
@@ -140,7 +145,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     const prisma = getPrismaClient();
 
     // テストユーザーを作成（userロールを持つ）
-    const testUser = await createTestUser('REGULAR_USER');
+    const testUser = await getTestUser('REGULAR_USER');
 
     // 追加のロールを作成して割り当て
     const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -241,19 +246,27 @@ test.describe('ユーザーへのロール割り当て', () => {
   test('最後の管理者からadminロールは削除できない', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // 管理者ユーザーとadminロールを取得
-    const adminUser = await prisma.user.findFirst({
-      where: {
-        userRoles: {
-          some: {
-            role: { name: 'admin' },
-          },
-        },
-      },
-    });
+    // adminロールを取得
     const adminRole = await prisma.role.findUnique({
       where: { name: 'admin' },
     });
+
+    // ADMIN_USERを取得
+    const adminUser = await prisma.user.findUnique({
+      where: { email: 'admin@example.com' },
+    });
+
+    // テスト前提条件: adminロール保持者が1人だけであることを保証
+    // 先行テストや並列テストがadminロールを他ユーザーに割り当てている場合があるため、
+    // ADMIN_USER以外からadminロール割り当てを削除する
+    if (adminRole && adminUser) {
+      await prisma.userRole.deleteMany({
+        where: {
+          roleId: adminRole.id,
+          NOT: { userId: adminUser.id },
+        },
+      });
+    }
 
     // 管理者ロールの削除を試みる
     const deleteResponse = await request.delete(
@@ -277,7 +290,7 @@ test.describe('ユーザーへのロール割り当て', () => {
    */
   test('管理者はユーザーのロール一覧を取得できる', async ({ request }) => {
     // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    const testUser = await getTestUser('REGULAR_USER');
 
     // ユーザーのロール一覧を取得
     const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/users/${testUser.id}/roles`, {
@@ -302,7 +315,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     const prisma = getPrismaClient();
 
     // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    const testUser = await getTestUser('REGULAR_USER');
 
     // 複数の新しいロールを作成
     const role1Response = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -348,7 +361,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     const prisma = getPrismaClient();
 
     // テストユーザーを作成してログイン
-    const testUser = await createTestUser('REGULAR_USER');
+    const testUser = await getTestUser('REGULAR_USER');
     const userLoginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
         email: 'user@example.com',

@@ -79,7 +79,7 @@ interface AutocompleteResponse {
  *
  * Requirements: 7.2, 7.3
  */
-function generateSuggestions(
+export function generateSuggestions(
   apiValues: string[],
   unsavedValues: string[],
   inputText: string

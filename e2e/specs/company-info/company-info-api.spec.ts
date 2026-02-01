@@ -233,10 +233,11 @@ test.describe('自社情報API・権限・監査ログ', () => {
     }) => {
       const prisma = getPrismaClient();
 
-      // 自社情報を削除
-      await prisma.companyInfo.deleteMany();
-
       await loginAsUser(page, 'REGULAR_USER');
+
+      // CI並列実行時に他テストがcompany_infoを作成する場合があるため
+      // ログイン完了直後（ページ遷移直前）にクリアして競合を最小化
+      await prisma.companyInfo.deleteMany();
 
       // 自社情報ページに遷移してAPIレスポンスを監視
       const responsePromise = page.waitForResponse(
@@ -250,6 +251,13 @@ test.describe('自社情報API・権限・監査ログ', () => {
 
       // ステータスは200または304（キャッシュ）
       expect(response.ok() || response.status() === 304).toBe(true);
+
+      // CI並列実行時に他テストがdeleteMany〜goto間にcompany_infoを再作成した場合の対応
+      const currentValue = await page.getByLabel(/会社名/).inputValue();
+      if (currentValue !== '') {
+        await prisma.companyInfo.deleteMany();
+        await page.reload({ waitUntil: 'networkidle' });
+      }
 
       // UIで空フォームが表示されることを確認
       await expect(page.getByLabel(/会社名/)).toHaveValue('', { timeout: getTimeout(10000) });

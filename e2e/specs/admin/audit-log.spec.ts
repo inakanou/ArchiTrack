@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import {
+  resetTestUser,
+  cleanNonSystemRoles,
+  getPrismaClient,
+  getTestUser,
+} from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -19,8 +23,9 @@ test.describe('監査ログとコンプライアンス', () => {
 
   test.beforeEach(async ({ context, request }) => {
     await context.clearCookies();
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
+    // テストで作成されたカスタムロールをクリーンアップ
+    await cleanNonSystemRoles();
 
     // 管理者としてログイン
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -85,8 +90,8 @@ test.describe('監査ログとコンプライアンス', () => {
   test('ユーザーへのロール割り当て時に監査ログが記録される', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    // テストユーザーを取得
+    const testUser = await getTestUser('REGULAR_USER');
 
     // 新しいロールを作成
     const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -264,9 +269,6 @@ test.describe('監査ログとコンプライアンス', () => {
    * @requirement user-authentication/REQ-22.9
    */
   test('一般ユーザーは監査ログにアクセスできない', async ({ request }) => {
-    // 一般ユーザーを作成
-    await createTestUser('REGULAR_USER');
-
     // 一般ユーザーとしてログイン
     const userLoginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
@@ -294,8 +296,8 @@ test.describe('監査ログとコンプライアンス', () => {
   test('監査ログに変更前後の値（before/after）が記録される', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    // テストユーザーを取得
+    const testUser = await getTestUser('REGULAR_USER');
 
     // 新しいロールを作成
     const createRoleResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -399,8 +401,8 @@ test.describe('監査ログとコンプライアンス', () => {
   test('センシティブ操作は監査ログに記録される', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    // テストユーザーを取得
+    const testUser = await getTestUser('REGULAR_USER');
 
     // 管理者ロールを取得
     const adminRole = await prisma.role.findUnique({

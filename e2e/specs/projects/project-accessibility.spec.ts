@@ -16,8 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { resetTestUser, cleanNonUserData } from '../../fixtures/database';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 
@@ -31,9 +30,9 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
   let testProjectId: string | null = null;
 
   test.beforeAll(async () => {
-    await cleanDatabase();
-    await createTestUser('REGULAR_USER');
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('REGULAR_USER');
+    await resetTestUser('ADMIN_USER');
+    await cleanNonUserData();
   });
 
   test.beforeEach(async ({ context, page }) => {

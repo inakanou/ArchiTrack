@@ -94,6 +94,13 @@ test.describe('内訳書CRUD操作', () => {
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
+      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto('/projects');
+        await page.waitForLoadState('networkidle');
+      }
+
       await page.getByRole('button', { name: /新規作成/i }).click();
       await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
 
@@ -426,8 +433,17 @@ test.describe('内訳書CRUD操作', () => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
-      await page.waitForLoadState('networkidle');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`, {
+        waitUntil: 'networkidle',
+      });
+
+      // 並列テストによる認証失敗でログインページにリダイレクトされた場合は再ログイン
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(`/itemized-statements/${createdItemizedStatementId}`, {
+          waitUntil: 'networkidle',
+        });
+      }
 
       // 削除ボタンをクリック
       await page.getByRole('button', { name: /削除/i }).first().click();
@@ -726,6 +742,10 @@ test.describe('内訳書CRUD操作', () => {
           },
         }
       );
+      expect(
+        createEmptyTableResponse.ok(),
+        `空の数量表の作成に失敗しました: ${createEmptyTableResponse.status()}`
+      ).toBeTruthy();
       const emptyTableBody = await createEmptyTableResponse.json();
       const emptyTableId = emptyTableBody.id;
       expect(emptyTableId).toBeTruthy();
@@ -1438,6 +1458,13 @@ test.describe('内訳書CRUD操作', () => {
       await page.unroute('**/api/itemized-statements/**');
       await page.reload();
       await page.waitForLoadState('networkidle');
+
+      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goBack();
+        await page.waitForLoadState('networkidle');
+      }
 
       await page.getByRole('button', { name: /削除/i }).first().click();
       const cleanupDialog = page.getByRole('dialog');
@@ -2456,8 +2483,17 @@ test.describe('内訳書CRUD操作', () => {
       await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
-      await page.waitForLoadState('networkidle');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`, {
+        waitUntil: 'networkidle',
+      });
+
+      // 並列テストによる認証失敗でログインページにリダイレクトされた場合は再ログイン
+      if (page.url().includes('/login')) {
+        await loginAsUser(page, 'REGULAR_USER');
+        await page.goto(`/itemized-statements/${createdItemizedStatementId}`, {
+          waitUntil: 'networkidle',
+        });
+      }
 
       // クリップボードにコピーボタンをクリック
       const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });

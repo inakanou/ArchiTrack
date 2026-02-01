@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-01-27（Steering Sync: 見積依頼機能の実装進行中を反映）_
+_最終更新: 2026-01-30（Steering Sync: Pre-Push並列実行3段階モード、会社情報管理機能、見積依頼機能完了を反映）_
 
 ## アーキテクチャ
 
@@ -227,8 +227,15 @@ ArchiTrack/
 - `@vitest/coverage-v8` ^4.0.6 - カバレッジツール（V8プロバイダー）
 
 **設定ファイル:**
-- `backend/vitest.config.ts` - Node.js環境設定、カバレッジ閾値設定
+- `backend/vitest.config.ts` - Node.js環境設定、カバレッジ閾値設定、CI環境別並列実行
 - `backend/vitest.setup.ts` - グローバルセットアップ
+
+**並列実行設定（3段階モード）:**
+- **CI環境**: 完全並列実行（CPUコア数に応じて自動調整、シャーディング対応）
+- **Pre-Push環境**: CI同等の並列実行でバグ検出、フォーク数を2に制限（WSL2メモリ制約対応）
+- **ローカル（WSL2）**: 順序実行（メモリ制約/DB競合対応）
+- **pool**: `forks`（各テストファイルを独立プロセスで実行）
+- **fileParallelism**: CI/Pre-Push環境で有効
 
 **カバレッジ閾値（2025-11-11更新）:**
 ```typescript
@@ -278,7 +285,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 1800+テストケース（単体、92ファイル）+ 70+テスト（統合、12ファイル）
+**テスト合計:** 1800+テストケース（単体、115ファイル）+ 70+テスト（統合、12ファイル）
 
 **実行方法:**
 ```bash
@@ -313,8 +320,15 @@ npm --prefix backend run coverage:check  # カバレッジギャップ検出（0
 - `@vitest/ui` ^4.0.15 - 対話的UIツール
 
 **設定ファイル:**
-- `frontend/vitest.config.ts` - jsdom環境、React プラグイン設定
+- `frontend/vitest.config.ts` - jsdom環境、React プラグイン設定、CI環境別並列実行
 - `frontend/vitest.setup.ts` - @testing-library/jest-dom グローバルセットアップ
+
+**並列実行設定（3段階モード）:**
+- **CI環境**: 完全並列実行（CPUコア数に応じて自動調整、シャーディング対応）
+- **Pre-Push環境**: CI同等の並列実行、フォーク数を2に制限（WSL2メモリ制約対応）
+- **ローカル（WSL2）**: 順序実行（メモリ制約対応、OOM防止）
+- **pool**: `forks`（各テストファイルを独立プロセスで実行、メモリリーク防止）
+- **isolate**: true（各テストファイル間でモジュールキャッシュを分離）
 
 **テスト構成:**
 - `frontend/src/__tests__/` - テストファイル配置
@@ -336,7 +350,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 800+テストケース（包括的なユニットテスト群、145テストファイル）
+- 合計: 800+テストケース（包括的なユニットテスト群、170+テストファイル）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
@@ -428,6 +442,9 @@ E2Eテストでは、CI環境での安定性を確保するため、`e2e/helpers
 - **`waitForApiResponse(page, action, urlPattern)`**: APIレスポンス待機付きアクション実行
 
 **playwright.config.ts のCI対応:**
+- **シャーディング**: CI環境では4シャードに分割して並列実行（`--shard=n/4`）
+- **fullyParallel**: CI環境のみ有効（ローカルはDB競合防止でシリアル実行）
+- **workers**: CI環境では各シャード内2ワーカー（4シャード x 2ワーカー = 最大8並列）
 - タイムアウト: CI環境では2倍に延長（120秒 / 60秒）
 - リトライ: CI環境では3回 / ローカルでは1回
 - actionTimeout: CI 30秒 / ローカル 15秒
@@ -995,34 +1012,50 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 `.github/workflows/ci.yml` で統合CI/CDパイプラインを定義しています（CDはCIワークフロー内に統合）。
 
-**CIワークフロー（最適化された並列実行）:**
+**CIワークフロー（シャーディングによる並列実行最適化）:**
 
 プッシュ・PR時に自動実行されます。
 
-**主要ジョブ:**
+**主要ジョブ（9フェーズ構成）:**
 1. **lint** - フォーマット・構文チェック（backend/frontend/e2e並列）
    - Matrix strategy活用で並列実行
    - Prettier + ESLint
 2. **typecheck** - TypeScript型チェック（backend/frontend/e2e並列）
    - Matrix strategy活用で並列実行
-3. **test-unit** - ユニットテスト（backend/frontend並列）
-   - Matrix strategy活用で並列実行
+3. **requirement-coverage** - 要件カバレッジチェック
+   - E2E対象の受入基準100%検証
+4. **security** - セキュリティスキャン
+   - npm audit実行（production deps: high以上でブロック）
+5. **test-unit-backend/frontend** - ユニットテスト（シャーディング分割）
+   - Backend: 4シャードに分割して並列実行
+   - Frontend: 4シャードに分割して並列実行
    - Codecov連携でカバレッジ自動アップロード
-4. **build** - ビルドテスト（backend/frontend並列）
+6. **test-unit-results** - ユニットテスト結果集約
+   - カバレッジレポートのマージ
+   - カバレッジギャップチェック（80%閾値）
+7. **build** - ビルドテスト（backend/frontend並列）
    - Matrix strategy活用で並列実行
    - ビルド成果物をartifactとしてアップロード
-5. **test-integration** - 統合・E2Eテスト（順次実行）
+   - ES Module検証（バックエンド）
+8. **test-storybook** - Storybookテスト
+   - インタラクションテスト
+   - アクセシビリティテスト
+   - カバレッジチェック（80%閾値）
+9. **test-integration** - 統合テスト
    - Docker Composeでサービス起動
-   - Backend統合テスト + Playwright E2Eテスト
+   - Backend統合テスト
    - ヘルスチェック待機（最大120秒）
+10. **test-e2e** - E2Eテスト（シャーディング分割）
+   - 4シャードに分割して並列実行（各シャード内2ワーカー）
+   - Playwright E2Eテスト
    - 失敗時にスクリーンショット・ビデオをartifactとしてアップロード
-6. **security** - セキュリティスキャン（backend/frontend並列）
-   - Matrix strategy活用で並列実行
-   - npm audit実行
-7. **ci-success** - 全ジョブ成功確認ゲート
+11. **test-e2e-results** - E2Eテスト結果集約
+   - HTMLレポートのマージ
+12. **ci-success** - 全ジョブ成功確認ゲート
 
 **ワークフローの特徴:**
-- **Matrix Strategy**: 並列実行による高速化
+- **シャーディング分割**: テスト実行時間短縮（Backend 4シャード、Frontend 4シャード、E2E 4シャード）
+- **CI環境別最適化**: Vitest/Playwrightが環境に応じて並列実行を自動調整
 - **Concurrency設定**: 同一ワークフロー内での重複実行を自動キャンセル
 - **Codecov連携**: テストカバレッジの自動アップロード・レポート
 - **Fail-fast戦略**: 早期ステージでの失敗で即座に終了
