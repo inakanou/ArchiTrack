@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { resetTestUser, cleanNonSystemRoles, getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -26,8 +25,9 @@ test.describe('ロールへの権限割り当て', () => {
 
   test.beforeEach(async ({ context, request }) => {
     await context.clearCookies();
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
+    // テストで作成されたカスタムロールをクリーンアップ
+    await cleanNonSystemRoles();
 
     // 管理者としてログイン
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {

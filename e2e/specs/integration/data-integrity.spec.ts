@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
 import {
-  cleanDatabase,
-  cleanDatabaseAndRestoreTestData,
+  resetTestUser,
+  getTestUser,
+  cleanNonUserData,
+  cleanNonSystemRoles,
   getPrismaClient,
 } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -22,8 +23,10 @@ test.describe('データ整合性とトランザクション管理', () => {
 
   test.beforeEach(async ({ context, request }) => {
     await context.clearCookies();
-    await cleanDatabase();
-    await createTestUser('ADMIN_USER');
+    await resetTestUser('ADMIN_USER');
+    await resetTestUser('REGULAR_USER');
+    await cleanNonUserData();
+    await cleanNonSystemRoles();
 
     // 管理者としてログイン
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -44,8 +47,8 @@ test.describe('データ整合性とトランザクション管理', () => {
   test('ユーザー登録時にユーザー作成とロール割り当てが一貫して行われる', async () => {
     const prisma = getPrismaClient();
 
-    // テストユーザーを作成
-    const user = await createTestUser('REGULAR_USER');
+    // テストユーザーを取得（beforeEachで既にリセット済み）
+    const user = await getTestUser('REGULAR_USER');
 
     // ユーザーが作成されていることを確認
     const createdUser = await prisma.user.findUnique({
@@ -73,8 +76,8 @@ test.describe('データ整合性とトランザクション管理', () => {
   test('複数ロールの一括割り当てはアトミックに行われる', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    // テストユーザーを取得（beforeEachで既にリセット済み）
+    const testUser = await getTestUser('REGULAR_USER');
 
     // 複数の新しいロールを作成
     const role1Response = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -218,8 +221,8 @@ test.describe('データ整合性とトランザクション管理', () => {
   test('ユーザー削除時に関連データが適切に処理される', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // テストユーザーを作成
-    const testUser = await createTestUser('REGULAR_USER');
+    // テストユーザーを取得（beforeEachで既にリセット済み）
+    const testUser = await getTestUser('REGULAR_USER');
 
     // ユーザーの存在を確認
     const userBefore = await prisma.user.findUnique({
@@ -255,7 +258,10 @@ test.describe('データ整合性とトランザクション管理', () => {
    */
   test.afterAll(async () => {
     console.log('  - Restoring test data after data-integrity tests...');
-    await cleanDatabaseAndRestoreTestData();
+    await resetTestUser('ADMIN_USER');
+    await resetTestUser('REGULAR_USER');
+    await cleanNonUserData();
+    await cleanNonSystemRoles();
     console.log('  ✓ Test data restored successfully');
   });
 });

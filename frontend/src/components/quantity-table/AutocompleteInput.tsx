@@ -10,7 +10,7 @@
  */
 
 import { useState, useRef, useCallback, useId, useEffect } from 'react';
-import { useAutocomplete } from '../../hooks/useAutocomplete';
+import { useAutocomplete } from '../../hooks/usePrefetchedAutocomplete';
 
 // ============================================================================
 // 型定義

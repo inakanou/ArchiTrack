@@ -233,6 +233,10 @@ test.describe('パスワード管理機能', () => {
     });
 
     const resetToken = 'valid-ui-test-token';
+    // リトライ時に重複制約エラーを防ぐため、既存トークンを削除してから作成
+    await prisma.passwordResetToken.deleteMany({
+      where: { token: resetToken },
+    });
     await prisma.passwordResetToken.create({
       data: {
         token: resetToken,
@@ -241,13 +245,14 @@ test.describe('パスワード管理機能', () => {
       },
     });
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    // トークン検証APIが完了するまで待機
+    await page.goto(`/password-reset?token=${resetToken}`, { waitUntil: 'networkidle' });
 
-    // パスワード入力フィールドが表示される
-    await expect(page.locator('input#password')).toBeVisible();
-    await expect(page.locator('input#password')).toBeEnabled();
-    await expect(page.locator('input#passwordConfirm')).toBeVisible();
-    await expect(page.locator('input#passwordConfirm')).toBeEnabled();
+    // パスワード入力フィールドが表示・有効化される（トークン検証完了後）
+    await expect(page.locator('input#password')).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+    await expect(page.locator('input#passwordConfirm')).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page.locator('input#passwordConfirm')).toBeEnabled({ timeout: getTimeout(10000) });
 
     // パスワード入力にフォーカスできる
     await page.locator('input#password').fill('TestPass123!');

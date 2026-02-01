@@ -42,7 +42,8 @@ export default defineConfig({
   outputDir: `test-results/${timestamp}`,
 
   // 並列実行の設定
-  // データベースクリーンアップの競合を防ぐため無効化
+  // テストがユーザー・DB状態を共有しているため、シリアル実行を維持
+  // CI高速化はシャーディング（4分割）で実現する
   fullyParallel: false,
 
   // CI環境では3回、ローカルでは1回リトライ
@@ -50,6 +51,7 @@ export default defineConfig({
   retries: isCI ? 3 : 1,
 
   // ワーカー数の設定（シリアル実行のため1に固定）
+  // シャーディングで並列化するため、各シャード内は1ワーカーで安定性を確保
   workers: 1,
 
   // ============================================================================
@@ -60,11 +62,21 @@ export default defineConfig({
   // - HTMLレポーター: 詳細な結果をファイルに保存
   // - CI環境: GitHub Actionsとの統合
   // ============================================================================
-  reporter: [
-    ['./e2e/reporters/progress-reporter.ts'],
-    ['html', { outputFolder: `playwright-report/${timestamp}`, open: 'never' }],
-    ...(isCI ? [['github'] as const] : []),
-  ],
+  // ============================================================================
+  // レポーター設定（環境別最適化）
+  // ============================================================================
+  // ベストプラクティス: CI環境ではblob reporterを使用してシャード間のレポートマージを可能にする
+  // - blob: シャード分割されたテスト結果を後でマージするための中間フォーマット
+  // - github: GitHub Actionsとの統合（アノテーション表示）
+  // - ローカル: カスタム進捗レポーター + HTMLレポート
+  // @see https://playwright.dev/docs/test-sharding
+  // ============================================================================
+  reporter: isCI
+    ? [['blob'], ['github'], ['./e2e/reporters/progress-reporter.ts']]
+    : [
+        ['./e2e/reporters/progress-reporter.ts'],
+        ['html', { outputFolder: `playwright-report/${timestamp}`, open: 'never' }],
+      ],
 
   // すべてのテストで共通の設定
   use: {

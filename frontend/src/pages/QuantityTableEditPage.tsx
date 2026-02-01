@@ -31,6 +31,7 @@ import type {
 import type { SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb } from '../components/common';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
+import { AutocompletePrefetchProvider } from '../contexts/AutocompletePrefetchContext';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 
 // ============================================================================
@@ -1129,323 +1130,325 @@ export default function QuantityTableEditPage() {
   const groups = quantityTable.groups ?? [];
 
   return (
-    <main role="main" style={styles.container} data-testid="quantity-table-edit-area">
-      {/* パンくずナビゲーション */}
-      <div style={styles.breadcrumbWrapper}>
-        <Breadcrumb
-          items={[
-            { label: 'ダッシュボード', path: '/' },
-            { label: 'プロジェクト', path: '/projects' },
-            { label: quantityTable.project.name, path: `/projects/${quantityTable.projectId}` },
-            { label: '数量表一覧', path: `/projects/${quantityTable.projectId}/quantity-tables` },
-            { label: quantityTable.name },
-          ]}
-        />
-      </div>
-
-      {/* ヘッダー */}
-      <div style={styles.header}>
-        <div style={styles.headerLeft}>
-          <Link
-            to={`/projects/${quantityTable.projectId}/quantity-tables`}
-            style={styles.backLink}
-            aria-label="数量表一覧に戻る"
-          >
-            ← 数量表一覧に戻る
-          </Link>
-          <h1 style={{ margin: 0 }}>
-            <input
-              type="text"
-              value={editingName}
-              onChange={handleNameChange}
-              onBlur={handleNameBlur}
-              onFocus={handleNameFocus}
-              onKeyDown={handleNameKeyDown}
-              style={{
-                ...styles.titleInput,
-                ...(isNameFocused ? styles.titleInputFocused : {}),
-              }}
-              aria-label="数量表名"
-              disabled={isSavingName}
-            />
-          </h1>
-          <p style={styles.subtitle}>
-            {quantityTable.groupCount}グループ / {quantityTable.itemCount}項目
-          </p>
+    <AutocompletePrefetchProvider>
+      <main role="main" style={styles.container} data-testid="quantity-table-edit-area">
+        {/* パンくずナビゲーション */}
+        <div style={styles.breadcrumbWrapper}>
+          <Breadcrumb
+            items={[
+              { label: 'ダッシュボード', path: '/' },
+              { label: 'プロジェクト', path: '/projects' },
+              { label: quantityTable.project.name, path: `/projects/${quantityTable.projectId}` },
+              { label: '数量表一覧', path: `/projects/${quantityTable.projectId}/quantity-tables` },
+              { label: quantityTable.name },
+            ]}
+          />
         </div>
-        <div style={styles.headerActions}>
-          {saveMessage && (
-            <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: 500 }}>
-              {saveMessage}
-            </span>
-          )}
-          <button type="button" style={styles.saveButton} onClick={handleSave} aria-label="保存">
-            保存
-          </button>
-          <button
-            type="button"
-            style={{
-              ...styles.addGroupButton,
-              opacity: isAddingGroup ? 0.7 : 1,
-              cursor: isAddingGroup ? 'wait' : 'pointer',
-            }}
-            onClick={handleAddGroup}
-            disabled={isAddingGroup}
-            aria-busy={isAddingGroup}
-          >
-            <PlusIcon />
-            {isAddingGroup ? '追加中...' : 'グループを追加'}
-          </button>
-        </div>
-      </div>
 
-      {/* 操作エラー表示（インライン） */}
-      {operationError && (
-        <div role="alert" style={styles.operationErrorContainer}>
-          <p style={styles.operationErrorText}>{operationError}</p>
-          <button
-            type="button"
-            style={styles.operationErrorDismiss}
-            onClick={() => setOperationError(null)}
-            aria-label="エラーを閉じる"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* グループ一覧 */}
-      {groups.length === 0 ? (
-        <EmptyState onAddGroup={handleAddGroup} />
-      ) : (
-        <div style={styles.groupList} data-testid="quantity-group-section">
-          {groups.map((group, index) => (
-            <div key={group.id} data-testid="quantity-group">
-              <QuantityGroupCard
-                group={group}
-                groupDisplayName={getGroupDisplayName(group, index)}
-                isEditable
-                onAddItem={handleAddItem}
-                onDeleteGroup={handleDeleteGroup}
-                onSelectImage={handleSelectImage}
-                onUpdateItem={handleUpdateItem}
-                onDeleteItem={handleDeleteItem}
-                onCopyItem={handleCopyItem}
-                onMoveItem={handleMoveItem}
-                onOpenAnnotationViewer={handleOpenAnnotationViewer}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 削除確認ダイアログ (REQ-4.5) */}
-      {groupToDelete && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-dialog-title"
-          style={styles.dialogOverlay}
-          onClick={handleCancelDelete}
-        >
-          <div style={styles.dialogContent} onClick={(e) => e.stopPropagation()}>
-            <h2 id="delete-dialog-title" style={styles.dialogTitle}>
-              グループを削除しますか？
-            </h2>
-            <p style={styles.dialogMessage}>
-              このグループとその中のすべての項目が削除されます。この操作は元に戻せません。
-            </p>
-            <div style={styles.dialogActions}>
-              <button
-                type="button"
-                style={styles.cancelButton}
-                onClick={handleCancelDelete}
-                disabled={isDeletingGroup}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                style={{
-                  ...styles.deleteButton,
-                  opacity: isDeletingGroup ? 0.7 : 1,
-                  cursor: isDeletingGroup ? 'wait' : 'pointer',
-                }}
-                onClick={handleConfirmDeleteGroup}
-                disabled={isDeletingGroup}
-              >
-                {isDeletingGroup ? '削除中...' : '削除する'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 写真選択ダイアログ (REQ-4.3) */}
-      {isPhotoDialogOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="photo-dialog-title"
-          style={styles.dialogOverlay}
-          onClick={handleClosePhotoDialog}
-        >
-          <div style={styles.photoDialogContent} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.photoDialogHeader}>
-              <h2 id="photo-dialog-title" style={styles.dialogTitle}>
-                写真を選択
-              </h2>
-              <button
-                type="button"
-                style={styles.closeButton}
-                onClick={handleClosePhotoDialog}
-                aria-label="ダイアログを閉じる"
-              >
-                ×
-              </button>
-            </div>
-            {isLoadingPhotos ? (
-              <div style={styles.emptyPhotos}>
-                <p>写真を読み込み中...</p>
-              </div>
-            ) : availablePhotos.length === 0 ? (
-              <div style={styles.emptyPhotos}>
-                <p>利用可能な写真がありません</p>
-                <p style={{ fontSize: '12px', marginTop: '8px' }}>
-                  現場調査で写真をアップロードしてください
-                </p>
-              </div>
-            ) : (
-              <div style={styles.photoGrid} data-testid="photo-list">
-                {availablePhotos.map((photo) => {
-                  const hasPhotoAnnotations =
-                    photo.hasAnnotations || (photo.annotations?.length ?? 0) > 0;
-                  return (
-                    <div
-                      key={photo.id}
-                      style={{ ...styles.photoItem, position: 'relative' as const }}
-                      onClick={() => handlePhotoSelect(photo.id)}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${photo.fileName}を選択`}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          handlePhotoSelect(photo.id);
-                        }
-                      }}
-                    >
-                      <img
-                        src={photo.thumbnailUrl || photo.originalUrl || ''}
-                        alt={photo.fileName}
-                        style={styles.photoImage}
-                        data-testid={`photo-item-${photo.id}`}
-                      />
-                      {/* 注釈バッジ (REQ-3.3) */}
-                      {hasPhotoAnnotations && (
-                        <span
-                          data-testid={`photo-annotation-badge-${photo.id}`}
-                          style={{
-                            position: 'absolute',
-                            top: '4px',
-                            right: '4px',
-                            backgroundColor: '#dc2626',
-                            color: '#ffffff',
-                            borderRadius: '9999px',
-                            padding: '2px 6px',
-                            fontSize: '10px',
-                            fontWeight: 'bold',
-                            minWidth: '16px',
-                            textAlign: 'center',
-                          }}
-                        >
-                          注
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 注釈ビューアモーダル (REQ-4.4) */}
-      {annotationViewerGroupId &&
-        (() => {
-          const viewerGroup = groups.find((g) => g.id === annotationViewerGroupId);
-          if (!viewerGroup?.surveyImage) return null;
-          return (
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="annotation-viewer-title"
-              style={styles.dialogOverlay}
-              onClick={handleCloseAnnotationViewer}
-              data-testid="annotation-viewer-modal"
+        {/* ヘッダー */}
+        <div style={styles.header}>
+          <div style={styles.headerLeft}>
+            <Link
+              to={`/projects/${quantityTable.projectId}/quantity-tables`}
+              style={styles.backLink}
+              aria-label="数量表一覧に戻る"
             >
-              <div
+              ← 数量表一覧に戻る
+            </Link>
+            <h1 style={{ margin: 0 }}>
+              <input
+                type="text"
+                value={editingName}
+                onChange={handleNameChange}
+                onBlur={handleNameBlur}
+                onFocus={handleNameFocus}
+                onKeyDown={handleNameKeyDown}
                 style={{
-                  ...styles.photoDialogContent,
-                  maxWidth: '90vw',
-                  maxHeight: '90vh',
+                  ...styles.titleInput,
+                  ...(isNameFocused ? styles.titleInputFocused : {}),
                 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div style={styles.photoDialogHeader}>
-                  <h2 id="annotation-viewer-title" style={styles.dialogTitle}>
-                    {getGroupDisplayName(viewerGroup, groups.indexOf(viewerGroup))} - 紐付け画像
-                  </h2>
-                  <button
-                    type="button"
-                    style={styles.closeButton}
-                    onClick={handleCloseAnnotationViewer}
-                    aria-label="ダイアログを閉じる"
-                  >
-                    ×
-                  </button>
+                aria-label="数量表名"
+                disabled={isSavingName}
+              />
+            </h1>
+            <p style={styles.subtitle}>
+              {quantityTable.groupCount}グループ / {quantityTable.itemCount}項目
+            </p>
+          </div>
+          <div style={styles.headerActions}>
+            {saveMessage && (
+              <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: 500 }}>
+                {saveMessage}
+              </span>
+            )}
+            <button type="button" style={styles.saveButton} onClick={handleSave} aria-label="保存">
+              保存
+            </button>
+            <button
+              type="button"
+              style={{
+                ...styles.addGroupButton,
+                opacity: isAddingGroup ? 0.7 : 1,
+                cursor: isAddingGroup ? 'wait' : 'pointer',
+              }}
+              onClick={handleAddGroup}
+              disabled={isAddingGroup}
+              aria-busy={isAddingGroup}
+            >
+              <PlusIcon />
+              {isAddingGroup ? '追加中...' : 'グループを追加'}
+            </button>
+          </div>
+        </div>
+
+        {/* 操作エラー表示（インライン） */}
+        {operationError && (
+          <div role="alert" style={styles.operationErrorContainer}>
+            <p style={styles.operationErrorText}>{operationError}</p>
+            <button
+              type="button"
+              style={styles.operationErrorDismiss}
+              onClick={() => setOperationError(null)}
+              aria-label="エラーを閉じる"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* グループ一覧 */}
+        {groups.length === 0 ? (
+          <EmptyState onAddGroup={handleAddGroup} />
+        ) : (
+          <div style={styles.groupList} data-testid="quantity-group-section">
+            {groups.map((group, index) => (
+              <div key={group.id} data-testid="quantity-group">
+                <QuantityGroupCard
+                  group={group}
+                  groupDisplayName={getGroupDisplayName(group, index)}
+                  isEditable
+                  onAddItem={handleAddItem}
+                  onDeleteGroup={handleDeleteGroup}
+                  onSelectImage={handleSelectImage}
+                  onUpdateItem={handleUpdateItem}
+                  onDeleteItem={handleDeleteItem}
+                  onCopyItem={handleCopyItem}
+                  onMoveItem={handleMoveItem}
+                  onOpenAnnotationViewer={handleOpenAnnotationViewer}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 削除確認ダイアログ (REQ-4.5) */}
+        {groupToDelete && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+            style={styles.dialogOverlay}
+            onClick={handleCancelDelete}
+          >
+            <div style={styles.dialogContent} onClick={(e) => e.stopPropagation()}>
+              <h2 id="delete-dialog-title" style={styles.dialogTitle}>
+                グループを削除しますか？
+              </h2>
+              <p style={styles.dialogMessage}>
+                このグループとその中のすべての項目が削除されます。この操作は元に戻せません。
+              </p>
+              <div style={styles.dialogActions}>
+                <button
+                  type="button"
+                  style={styles.cancelButton}
+                  onClick={handleCancelDelete}
+                  disabled={isDeletingGroup}
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.deleteButton,
+                    opacity: isDeletingGroup ? 0.7 : 1,
+                    cursor: isDeletingGroup ? 'wait' : 'pointer',
+                  }}
+                  onClick={handleConfirmDeleteGroup}
+                  disabled={isDeletingGroup}
+                >
+                  {isDeletingGroup ? '削除中...' : '削除する'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 写真選択ダイアログ (REQ-4.3) */}
+        {isPhotoDialogOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="photo-dialog-title"
+            style={styles.dialogOverlay}
+            onClick={handleClosePhotoDialog}
+          >
+            <div style={styles.photoDialogContent} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.photoDialogHeader}>
+                <h2 id="photo-dialog-title" style={styles.dialogTitle}>
+                  写真を選択
+                </h2>
+                <button
+                  type="button"
+                  style={styles.closeButton}
+                  onClick={handleClosePhotoDialog}
+                  aria-label="ダイアログを閉じる"
+                >
+                  ×
+                </button>
+              </div>
+              {isLoadingPhotos ? (
+                <div style={styles.emptyPhotos}>
+                  <p>写真を読み込み中...</p>
                 </div>
+              ) : availablePhotos.length === 0 ? (
+                <div style={styles.emptyPhotos}>
+                  <p>利用可能な写真がありません</p>
+                  <p style={{ fontSize: '12px', marginTop: '8px' }}>
+                    現場調査で写真をアップロードしてください
+                  </p>
+                </div>
+              ) : (
+                <div style={styles.photoGrid} data-testid="photo-list">
+                  {availablePhotos.map((photo) => {
+                    const hasPhotoAnnotations =
+                      photo.hasAnnotations || (photo.annotations?.length ?? 0) > 0;
+                    return (
+                      <div
+                        key={photo.id}
+                        style={{ ...styles.photoItem, position: 'relative' as const }}
+                        onClick={() => handlePhotoSelect(photo.id)}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${photo.fileName}を選択`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handlePhotoSelect(photo.id);
+                          }
+                        }}
+                      >
+                        <img
+                          src={photo.thumbnailUrl || photo.originalUrl || ''}
+                          alt={photo.fileName}
+                          style={styles.photoImage}
+                          data-testid={`photo-item-${photo.id}`}
+                        />
+                        {/* 注釈バッジ (REQ-3.3) */}
+                        {hasPhotoAnnotations && (
+                          <span
+                            data-testid={`photo-annotation-badge-${photo.id}`}
+                            style={{
+                              position: 'absolute',
+                              top: '4px',
+                              right: '4px',
+                              backgroundColor: '#dc2626',
+                              color: '#ffffff',
+                              borderRadius: '9999px',
+                              padding: '2px 6px',
+                              fontSize: '10px',
+                              fontWeight: 'bold',
+                              minWidth: '16px',
+                              textAlign: 'center',
+                            }}
+                          >
+                            注
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 注釈ビューアモーダル (REQ-4.4) */}
+        {annotationViewerGroupId &&
+          (() => {
+            const viewerGroup = groups.find((g) => g.id === annotationViewerGroupId);
+            if (!viewerGroup?.surveyImage) return null;
+            return (
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="annotation-viewer-title"
+                style={styles.dialogOverlay}
+                onClick={handleCloseAnnotationViewer}
+                data-testid="annotation-viewer-modal"
+              >
                 <div
                   style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    flex: 1,
-                    overflow: 'auto',
-                    padding: '16px',
+                    ...styles.photoDialogContent,
+                    maxWidth: '90vw',
+                    maxHeight: '90vh',
                   }}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <AnnotatedImageThumbnail
-                    image={{
-                      id: viewerGroup.surveyImage.id,
-                      originalUrl: viewerGroup.surveyImage.originalUrl,
-                    }}
-                    alt={viewerGroup.surveyImage.fileName}
+                  <div style={styles.photoDialogHeader}>
+                    <h2 id="annotation-viewer-title" style={styles.dialogTitle}>
+                      {getGroupDisplayName(viewerGroup, groups.indexOf(viewerGroup))} - 紐付け画像
+                    </h2>
+                    <button
+                      type="button"
+                      style={styles.closeButton}
+                      onClick={handleCloseAnnotationViewer}
+                      aria-label="ダイアログを閉じる"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div
                     style={{
-                      maxWidth: '100%',
-                      maxHeight: '70vh',
-                      objectFit: 'contain',
-                    }}
-                    loading="eager"
-                  />
-                </div>
-                <div style={{ padding: '16px', borderTop: '1px solid #e5e7eb' }}>
-                  <button
-                    type="button"
-                    style={styles.actionButton}
-                    onClick={() => {
-                      handleCloseAnnotationViewer();
-                      handleSelectImage(annotationViewerGroupId);
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      flex: 1,
+                      overflow: 'auto',
+                      padding: '16px',
                     }}
                   >
-                    別の写真を選択
-                  </button>
+                    <AnnotatedImageThumbnail
+                      image={{
+                        id: viewerGroup.surveyImage.id,
+                        originalUrl: viewerGroup.surveyImage.originalUrl,
+                      }}
+                      alt={viewerGroup.surveyImage.fileName}
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '70vh',
+                        objectFit: 'contain',
+                      }}
+                      loading="eager"
+                    />
+                  </div>
+                  <div style={{ padding: '16px', borderTop: '1px solid #e5e7eb' }}>
+                    <button
+                      type="button"
+                      style={styles.actionButton}
+                      onClick={() => {
+                        handleCloseAnnotationViewer();
+                        handleSelectImage(annotationViewerGroupId);
+                      }}
+                    >
+                      別の写真を選択
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })()}
-    </main>
+            );
+          })()}
+      </main>
+    </AutocompletePrefetchProvider>
   );
 }

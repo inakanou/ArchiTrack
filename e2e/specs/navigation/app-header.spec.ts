@@ -1,11 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import {
-  cleanDatabase,
-  cleanDatabaseAndRestoreTestData,
-  getPrismaClient,
-} from '../../fixtures/database';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { resetTestUser } from '../../fixtures/database';
 
 /**
  * 管理者としてログイン
@@ -42,9 +37,8 @@ test.describe('AppHeader ナビゲーション', () => {
    * パスワード変更の影響を防止
    */
   test.beforeAll(async () => {
-    const prisma = getPrismaClient();
-    await cleanDatabase();
-    await createAllTestUsers(prisma);
+    await resetTestUser('REGULAR_USER');
+    await resetTestUser('ADMIN_USER');
   });
 
   /**
@@ -308,7 +302,8 @@ test.describe('AppHeader ナビゲーション', () => {
    */
   test.afterAll(async () => {
     console.log('  - Restoring test data after app-header tests...');
-    await cleanDatabaseAndRestoreTestData();
+    await resetTestUser('REGULAR_USER');
+    await resetTestUser('ADMIN_USER');
     console.log('  ✓ Test data restored successfully');
   });
 });

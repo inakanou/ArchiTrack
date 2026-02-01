@@ -12,77 +12,63 @@ VSCodeで効率的にデバッグするために、以下の拡張機能をイ�
 
 | 拡張機能 | ID | 用途 |
 |---------|-----|------|
-| Playwright Test for VSCode | `ms-playwright.playwright` | E2Eテストのデバッグ |
+| **Vitest** | `vitest.explorer` | ユニットテストの実行・デバッグ（**推奨**） |
+| **Playwright Test for VSCode** | `ms-playwright.playwright` | E2Eテストの実行・デバッグ（**推奨**） |
 | ESLint | `dbaeumer.vscode-eslint` | コード品質チェック |
 | Prettier | `esbenp.prettier-vscode` | コードフォーマット |
-| Vitest | `vitest.explorer` | ユニットテストの実行・デバッグ |
+
+> **推奨**: 単体テストはVitest Explorer、E2EテストはPlaywright Test拡張機能のテストエクスプローラーを使用することを推奨します。これらの拡張機能は、テストの実行・デバッグをGUIで直感的に行うことができます。
 
 ---
 
 ## デバッグ設定
 
+VS Codeの「実行とデバッグ」パネルには、IDE拡張機能でカバーできないケースのみが定義されています：
+
+| グループ | 用途 |
+|---------|------|
+| **1_server** | バックエンドサーバー（ローカル起動/Dockerアタッチ） |
+| **2_integration** | 統合テスト（Docker環境） |
+| **3_compound** | 複合構成（Full Stack） |
+
+> **設計方針**: 単体テスト（Vitest）とE2Eテスト（Playwright）はIDE拡張機能のテストエクスプローラーが最も効率的なため、launch.jsonからは除外されています。
+
 ### 1. Playwright E2Eテストのデバッグ
 
-#### 方法1: VSCode拡張機能を使用（推奨）
+Playwright Test拡張機能（`ms-playwright.playwright`）のテストエクスプローラーを使用します：
 
 1. Playwright拡張機能をインストール
 2. テストファイルを開く
-3. テストの左側に表示される▶ボタンをクリック
-4. デバッグするには、右クリックして「Debug Test」を選択
+3. テストエクスプローラーでテストを選択
+4. ▶ボタンで実行、または右クリックして「Debug Test」を選択
 
-#### 方法2: デバッグ設定を使用
-
-1. **F5**キーを押すか、デバッグパネルを開く
-2. 「**Run Playwright E2E Tests (Headed)**」を選択
-3. ブレークポイントを設定したい行番号の左側をクリック
-4. デバッグを開始
-
-#### 方法3: 現在のファイルのみデバッグ
-
-1. デバッグしたいテストファイルを開く
-2. 「**Run Current Playwright Test File (Headed)**」を選択
-3. **F5**キーでデバッグ開始
+テストエクスプローラーから、ヘッドフルモード、デバッグモード、UIモードなど各種実行方法を選択できます。
 
 #### 環境変数
 
 | 変数 | 説明 |
 |------|------|
-| `PWDEBUG=1` | Playwright Inspectorを起動 |
+| `PWDEBUG=1` | Playwright Inspectorを起動（`.vscode/settings.json`で自動設定済み） |
 | `--headed` | ヘッドレスモードを無効化（ブラウザを表示） |
 
 ### 2. Vitestユニットテストのデバッグ
 
-#### フロントエンドテスト
+Vitest Explorer拡張機能（`vitest.explorer`）のテストエクスプローラーを使用します：
 
-1. 「**Debug Frontend Vitest Tests**」を選択
-2. または、特定のファイルをデバッグする場合は「**Debug Current Frontend Test File**」を選択
-3. **F5**キーでデバッグ開始
+1. Vitest拡張機能をインストール
+2. `backend/vitest.config.ts`と`frontend/vitest.config.ts`が自動検出される
+3. テストファイルを開く
+4. テストエクスプローラーでテストを選択
+5. ▶ボタンで実行、またはデバッグアイコンでデバッグ
 
-#### バックエンドテスト
-
-1. 「**Debug Backend Vitest Tests**」を選択
-2. **F5**キーでデバッグ開始
+テストエクスプローラーから、watch mode・個別テスト実行・デバッグが直感的に行えます。
 
 ### 3. バックエンドサーバーのデバッグ
 
-1. 「**Debug Backend Server**」を選択
+1. 「**Backend: Dev Server**」を選択
 2. **F5**キーでデバッグ開始
 3. サーバーコードにブレークポイントを設定
 4. APIエンドポイントにリクエストを送信すると、ブレークポイントで停止
-
-### 4. フロントエンドのデバッグ
-
-#### ブラウザデバッグ
-
-1. Chromeを以下のコマンドで起動:
-   ```bash
-   google-chrome --remote-debugging-port=9222
-   ```
-
-2. 「**Attach to Chrome (Frontend)**」を選択
-3. **F5**キーでデバッグ開始
-4. ブラウザでアプリケーションを開く
-5. VSCodeでブレークポイントを設定
 
 ---
 
@@ -130,9 +116,11 @@ Docker内で動作するバックエンドにVSCodeからアタッチしてデ�
 
 #### 方法1: デバッグ環境で起動
 
+VS Codeのタスク「**Docker: Dev Up (Debug)**」を実行、または以下のコマンドを実行：
+
 ```bash
-# デバッグ用オーバーライドを追加して起動（-p オプションでプロジェクト名を指定）
-docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.debug.yml --env-file .env.dev up -d
+# デバッグ用オーバーライドを追加して起動
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.debug.yml --env-file .env.dev up -d
 ```
 
 このコマンドは `npm run dev:debug` でバックエンドを起動し、Node.js inspectorが有効になります（ポート: 9229）。
@@ -140,7 +128,9 @@ docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml
 #### 方法2: VSCodeでアタッチ
 
 1. デバッグパネルを開く（Ctrl+Shift+D）
-2. 「**Attach to Docker Backend (Dev)**」を選択
+2. 以下の設定から選択：
+   - **Backend: Attach to Docker (Dev)** - 開発環境（ポート9229）
+   - **Backend: Attach to Docker (Test)** - テスト環境（ポート9230）
 3. F5キーでアタッチ
 4. ブレークポイントを設定してAPIリクエストを送信
 
@@ -151,25 +141,36 @@ docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml
 | **開発環境** | 9229 |
 | **テスト環境** | 9230 |
 
+### Full Stack デバッグ（Compound構成）
+
+「**Full Stack: Dev (Docker + Attach)**」を選択すると、以下が自動的に実行されます：
+
+1. Docker環境がデバッグモードで起動（`preLaunchTask`）
+2. バックエンドへのデバッガアタッチ
+
 ---
 
 ## Docker環境の自動準備
 
-VSCodeからE2Eテストをデバッグ実行する際、Dockerコンテナは自動的に準備されます。
+VSCodeからテストをデバッグ実行する際、Dockerコンテナの準備が必要です。
 
 ### 仕組み
 
-launch.jsonの各E2Eテスト設定には`preLaunchTask`が設定されており、テスト実行前に`scripts/ensure-docker-ready.sh`が自動実行されます。
+launch.jsonの統合テスト設定には`preLaunchTask`が設定されており、テスト実行前に`scripts/ensure-docker-ready.sh`が自動実行されます。
 
 ```json
 {
-  "name": "Run Playwright E2E Tests (Headed)",
-  "preLaunchTask": "Ensure Docker Ready for E2E",
+  "name": "Integration: Backend (Docker)",
+  "preLaunchTask": "Docker: Ensure Test Ready",
   ...
 }
 ```
 
+E2Eテスト（Playwright拡張機能から実行）の場合は、事前にDocker環境を手動で準備してください。
+
 ### 手動でDocker環境を準備する場合
+
+VS Codeのタスクメニューから実行するか、以下のコマンドを使用：
 
 ```bash
 # スクリプトを直接実行
@@ -178,9 +179,27 @@ launch.jsonの各E2Eテスト設定には`preLaunchTask`が設定されており
 # または npm scripts を使用して開発環境を起動（推奨）
 npm run dev:docker
 
-# または直接コマンドを使用する場合
-# docker compose -p architrack-dev -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.dev up -d
+# テスト環境を起動
+npm run test:docker
 ```
+
+### VS Code タスク一覧
+
+タスクは `Ctrl+Shift+P` → `Tasks: Run Task` から実行できます。
+
+| カテゴリ | タスク | 説明 |
+|---------|--------|------|
+| **Docker** | Docker: Dev Up | 開発環境のDockerコンテナを起動 |
+| | Docker: Dev Up (Debug) | デバッグモードで起動（debugger: 9229） |
+| | Docker: Dev Down | 開発環境のDockerコンテナを停止 |
+| | Docker: Test Up | テスト環境のDockerコンテナを起動 |
+| | Docker: Test Down | テスト環境のDockerコンテナを停止 |
+| | Docker: Ensure Test Ready | E2E/統合テスト用のDockerを準備 |
+| **静的解析** | Check: Static All (Parallel) | 全静的解析をワークスペース並列で一括実行 |
+| **ビルド** | Build: All (Parallel) | backend/frontendを並列ビルド |
+| **テスト** | Test: All Unit (Coverage + Parallel) | 全単体テスト（カバレッジ + CI同等並列実行） |
+| | Test: Backend Integration | 統合テスト（Docker環境） |
+| **Pre-Push** | Pre-Push: Full Checks | Git Pre-Push Hook相当の全チェック（並列実行） |
 
 ---
 

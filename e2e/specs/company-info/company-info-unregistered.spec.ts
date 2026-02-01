@@ -28,6 +28,10 @@ test.describe('自社情報未登録状態のテスト', () => {
   });
 
   test.beforeEach(async ({ context, page }) => {
+    // CI並列実行時に他テストがcompany_infoを作成する場合があるため、毎回クリアする
+    const prisma = getPrismaClient();
+    await prisma.companyInfo.deleteMany();
+
     await context.clearCookies();
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/login');

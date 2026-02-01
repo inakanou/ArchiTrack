@@ -485,14 +485,76 @@ E2Eテストで検証できない要件（パフォーマンス、インフラ�
 
 GitHub Actionsで自動的に以下が実行されます：
 
-1. **Lint & Format Check**: コード品質チェック（backend, frontend, e2e）
-2. **Requirement Coverage**: 要件カバレッジチェック（100%必須）
-3. **Type Check**: TypeScript型チェック（backend, frontend, e2e）
-4. **Unit Tests**: ユニットテスト + カバレッジ検証（backend, frontend）
-5. **Build Test**: ビルド成功確認 + ESモジュール検証
-6. **Storybook Tests**: コンポーネントのビジュアル・アクセシビリティテスト
-7. **Integration & E2E Tests**: Docker環境（docker-compose.ci.yml）で統合・E2Eテスト
-8. **Security Scan**: npm audit によるセキュリティスキャン
+1. **Lint & Format Check**: コード品質チェック（backend, frontend, e2e - 3並列）
+2. **Type Check**: TypeScript型チェック（backend, frontend, e2e - 3並列）
+3. **Requirement Coverage**: 要件カバレッジチェック（100%必須）
+4. **Security Scan**: npm audit によるセキュリティスキャン
+5. **Unit Tests**: ユニットテスト（4シャード×2ワークスペース = 8並列）+ blob reporter + カバレッジ80%検証
+6. **Build Test**: ビルド成功確認 + ESモジュール検証（backend, frontend - 2並列）
+7. **Storybook Tests**: コンポーネントのビジュアル・アクセシビリティテスト
+8. **Integration Tests**: Docker環境（docker-compose.ci.yml）で統合テスト
+9. **E2E Tests**: Playwright E2Eテスト（4シャード並列）+ blob reporter
+
+### CI環境での並列実行
+
+CI環境では、テスト実行時間を短縮するために以下の最適化が行われています：
+
+#### 単体テストのシャード分割
+
+```bash
+# Vitestの--shardオプションを使用（カバレッジとblob reporterを1回で実行）
+npm --prefix backend run test:unit:coverage -- --shard=1/4 --reporter=blob --reporter=github-actions
+npm --prefix backend run test:unit:coverage -- --shard=2/4 --reporter=blob --reporter=github-actions
+# ...
+```
+
+CI環境では、backendとfrontendそれぞれ4シャードに分割され、合計8ジョブが並列実行されます。各シャードのblob reportは`test-unit-results`ジョブでVitestの`--merge-reports`により集約され、正確な全シャードカバレッジが算出されます。
+
+#### E2Eテストのシャード分割
+
+```bash
+# Playwrightの--shardオプションを使用（blob reporterで結果を出力）
+npx playwright test --shard=1/4  # blob-report/に結果を出力
+npx playwright test --shard=2/4
+# ...
+```
+
+4シャードに分割されたE2Eテストが並列実行され、テスト時間を約1/4に短縮します。各シャードのblob reportは`test-e2e-results`ジョブで`playwright merge-reports`により統合HTMLレポートに集約されます。
+
+#### Vitest並列設定（3段階モード）
+
+Vitestの並列実行は環境に応じて3段階で制御されます：
+
+| 環境 | モード | フォーク数 | 用途 |
+|------|--------|-----------|------|
+| **CI** | 完全並列 | CPUコア数（自動） | GitHub Actions（十分なリソース） |
+| **Pre-Push** | 制限付き並列 | 2 | ローカルpre-push hook（WSL2メモリ制約配慮） |
+| **ローカル** | 順次実行 | 1 | 通常のローカル開発（DB競合防止） |
+
+```typescript
+// vitest.config.ts
+const isCI = !!process.env.CI;
+const isPrePush = !!process.env.PRE_PUSH;
+const enableParallel = isCI || isPrePush;
+
+export default defineConfig({
+  test: {
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: !enableParallel,
+        // CI: 自動調整、Pre-Push: 2に制限、ローカル: 1
+        ...(isCI
+          ? {}
+          : enableParallel
+            ? { maxForks: 2, minForks: 1 }
+            : { maxForks: 1, minForks: 1 }),
+      },
+    },
+    fileParallelism: enableParallel,
+  },
+});
+```
 
 ### CI環境のDocker構成
 
@@ -503,7 +565,15 @@ CI環境では `docker-compose.ci.yml` を使用し、標準ポート（3000, 51
 docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
 ```
 
-詳細は `.github/workflows/ci.yml` を参照してください。
+### GitHub Job Summary
+
+テスト結果は GitHub Actions の **Job Summary** に出力され、PRページで視覚的に確認できます：
+
+- カバレッジレポート（Backend/Frontend、全シャードマージ済み）
+- E2Eテストの統合HTMLレポート（全シャードマージ済み）
+- 全ジョブのフェーズ別ステータス一覧（Phase 1〜8）
+
+詳細は `.github/workflows/ci.yml` および [CI/CD設定](../deployment/cicd-github-actions.md) を参照してください。
 
 ---
 
@@ -517,16 +587,18 @@ npm --prefix backend run test:unit -- --watch
 npm --prefix frontend run test -- --watch
 ```
 
-### PR作成前
+### PR作成前（pre-push hookを推奨）
 
 ```bash
-# すべてのテストを実行
-npm --prefix backend run test:unit
-npm --prefix frontend run test
-npm run test:e2e
+# 推奨: pre-push hookによる一括チェック（CI同等、並列実行）
+# git push 時に自動実行されます
+# 手動で実行する場合:
+echo '' | bash .husky/scripts/pre-push.sh
 
-# カバレッジ確認
-npm run test:coverage
+# または個別に実行:
+PRE_PUSH=true npm --prefix backend run test:unit:coverage
+PRE_PUSH=true npm --prefix frontend run test:coverage
+npm run test:e2e
 ```
 
 ### デプロイ前

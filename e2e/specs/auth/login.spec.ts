@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { getPrismaClient } from '../../fixtures/database';
+import { createCustomUser } from '../../fixtures/auth.fixtures';
 
 /**
  * ログイン機能のE2Eテスト
@@ -134,7 +134,15 @@ test.describe('ログイン機能', () => {
    * THEN アカウントが15分間ロックされ、ログインできなくなる
    */
   test('5回連続でログイン失敗後、アカウントがロックされる', async ({ page }) => {
-    const email = 'user@example.com';
+    // 並列実行時に共有ユーザー(user@example.com)に影響を与えないよう、専用ユーザーを作成
+    const lockoutUser = await createCustomUser({
+      email: 'lockout-test@example.com',
+      password: 'Password123!',
+      displayName: 'Lockout Test User',
+      roles: ['user'],
+    });
+
+    const email = 'lockout-test@example.com';
     const wrongPassword = 'WrongPassword123!';
 
     // 5回連続でログイン失敗
@@ -170,10 +178,15 @@ test.describe('ログイン機能', () => {
     // アカウントロックメッセージが再び表示される
     await expect(page.getByText(/アカウントがロックされています/i)).toBeVisible();
 
-    // テスト後のクリーンアップ（アカウントロックをリセットして後続テストへの影響を防ぐ）
+    // テスト後のクリーンアップ（専用ユーザーのみ削除、共有ユーザーに影響なし）
     const prisma = getPrismaClient();
-    await cleanDatabase();
-    await createAllTestUsers(prisma);
+    await prisma.$transaction([
+      prisma.auditLog.deleteMany({ where: { actorId: lockoutUser.id } }),
+      prisma.refreshToken.deleteMany({ where: { userId: lockoutUser.id } }),
+      prisma.passwordHistory.deleteMany({ where: { userId: lockoutUser.id } }),
+      prisma.userRole.deleteMany({ where: { userId: lockoutUser.id } }),
+      prisma.user.delete({ where: { id: lockoutUser.id } }),
+    ]);
   });
 
   /**

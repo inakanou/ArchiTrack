@@ -9,7 +9,8 @@ import { PrismaPg } from '@prisma/adapter-pg';
 // Prisma 7: Use root's generated client with driver adapter pattern
 import { PrismaClient } from '../../src/generated/prisma/client.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from './seed-helpers';
-import { createAllTestUsers } from './auth.fixtures';
+import { createTestUser, createAllTestUsers } from './auth.fixtures';
+import { TEST_USERS, hashPassword } from '../helpers/test-users';
 
 /**
  * Prismaクライアントのシングルトンインスタンス
@@ -120,6 +121,66 @@ export async function cleanDatabase(): Promise<void> {
 }
 
 /**
+ * ユーザー以外のビジネスデータをクリーンアップ
+ *
+ * プロジェクト、取引先、自社情報、監査ログなどのビジネスデータのみを削除し、
+ * ユーザー・認証関連テーブルは保持します。
+ * 並列テスト実行時にユーザーデータを破壊しないために使用します。
+ *
+ * @example
+ * ```typescript
+ * test.beforeEach(async () => {
+ *   await cleanNonUserData();
+ * });
+ * ```
+ */
+export async function cleanNonUserData(): Promise<void> {
+  const client = getPrismaClient();
+
+  await client.$transaction([
+    client.projectStatusHistory.deleteMany(),
+    client.project.deleteMany(),
+    client.tradingPartner.deleteMany(),
+    client.companyInfo.deleteMany(),
+    client.auditLog.deleteMany(),
+  ]);
+}
+
+/**
+ * テストで作成された非システムロールをクリーンアップ
+ *
+ * システムロールとユーザーを保持しながら、テストで作成されたカスタムロールと
+ * 関連する権限割り当て・ユーザーロール割り当てを削除します。
+ * admin系テストのbeforeEachで使用し、前回テストの残留データを除去します。
+ *
+ * @example
+ * ```typescript
+ * test.beforeEach(async () => {
+ *   await cleanNonSystemRoles();
+ * });
+ * ```
+ */
+export async function cleanNonSystemRoles(): Promise<void> {
+  const client = getPrismaClient();
+
+  // 非システムロールのIDを取得
+  const nonSystemRoles = await client.role.findMany({
+    where: { isSystem: false },
+    select: { id: true },
+  });
+  const roleIds = nonSystemRoles.map((r) => r.id);
+
+  if (roleIds.length === 0) return;
+
+  // カスタムロールの関連データを順序付きで削除
+  await client.$transaction([
+    client.userRole.deleteMany({ where: { roleId: { in: roleIds } } }),
+    client.rolePermission.deleteMany({ where: { roleId: { in: roleIds } } }),
+    client.role.deleteMany({ where: { isSystem: false } }),
+  ]);
+}
+
+/**
  * データベースをクリーンアップし、テストデータを復元
  *
  * cleanDatabase()を実行した後、マスターデータとテストユーザーを再作成します。
@@ -145,6 +206,99 @@ export async function cleanDatabaseAndRestoreTestData(): Promise<void> {
 
   // 全テストユーザーを再作成
   await createAllTestUsers(client);
+}
+
+/**
+ * 特定のテストユーザーを初期状態にリセット
+ *
+ * 並列テスト実行時にcleanDatabase()が他テストのデータを破壊する問題を防ぐため、
+ * ユーザーを削除せずにUPDATEで初期状態に復元します。
+ * これにより、他の並列テストがユーザーを一時的に参照できなくなる問題を回避します。
+ *
+ * - 既存ユーザー: パスワード・2FA設定をリセットし、staleなトークン/バックアップコードを削除
+ * - 未存在ユーザー: createTestUserで新規作成
+ *
+ * @param userKey - TEST_USERSのキー（'REGULAR_USER', 'ADMIN_USER'など）
+ * @returns リセットされたユーザー情報
+ *
+ * @example
+ * ```typescript
+ * test.beforeEach(async () => {
+ *   const user = await resetTestUser('TWO_FA_USER');
+ * });
+ * ```
+ */
+export async function resetTestUser(userKey: keyof typeof TEST_USERS) {
+  const client = getPrismaClient();
+  const userData = TEST_USERS[userKey];
+
+  const existingUser = await client.user.findUnique({
+    where: { email: userData.email },
+  });
+
+  if (existingUser) {
+    // staleな認証関連レコードをクリーンアップ（セッション、バックアップコード）
+    await client.$transaction([
+      client.refreshToken.deleteMany({ where: { userId: existingUser.id } }),
+      client.twoFactorBackupCode.deleteMany({ where: { userId: existingUser.id } }),
+    ]);
+
+    // ユーザーの状態を初期値にリセット（パスワード、2FA設定、ロック状態等）
+    const newPasswordHash = await hashPassword(userData.password);
+    return await client.user.update({
+      where: { id: existingUser.id },
+      data: {
+        passwordHash: newPasswordHash,
+        displayName: userData.displayName,
+        twoFactorEnabled: userData.twoFactorEnabled || false,
+        twoFactorSecret: userData.twoFactorEnabled ? 'dummy:secret:for-e2e-test' : null,
+        // アカウントロック状態をリセット
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+      },
+    });
+  }
+
+  // ユーザーが存在しない場合は新規作成
+  return await createTestUser(userKey);
+}
+
+/**
+ * テストユーザーの情報を読み取り専用で取得
+ *
+ * resetTestUserと異なり、データベースを一切変更しません。
+ * テスト本文内でユーザーID等の参照が必要な場合に使用します。
+ * beforeEach/beforeAllで既にresetTestUserを呼んでいる場合、
+ * テスト本文ではこちらを使用することで並列テストへの副作用を防ぎます。
+ *
+ * @param userKey - TEST_USERSのキー（'REGULAR_USER', 'ADMIN_USER'など）
+ * @returns ユーザー情報
+ * @throws ユーザーが見つからない場合はエラー
+ *
+ * @example
+ * ```typescript
+ * test('ユーザー情報を確認', async () => {
+ *   const user = await getTestUser('REGULAR_USER');
+ *   expect(user.id).toBeDefined();
+ * });
+ * ```
+ */
+export async function getTestUser(userKey: keyof typeof TEST_USERS) {
+  const client = getPrismaClient();
+  const userData = TEST_USERS[userKey];
+
+  const user = await client.user.findUnique({
+    where: { email: userData.email },
+  });
+
+  if (!user) {
+    throw new Error(`Test user ${userKey} (${userData.email}) not found in database`);
+  }
+
+  return user;
 }
 
 /**

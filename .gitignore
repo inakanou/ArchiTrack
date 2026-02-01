@@ -1,32 +1,49 @@
+# =============================================================================
 # Dependencies
+# =============================================================================
 node_modules/
 .pnp
 .pnp.js
 
-# Testing
-coverage/
-*.log
-
-# Playwright
-playwright-report/
-test-results/
-
-# Production
+# =============================================================================
+# Build Output
+# =============================================================================
 dist/
 build/
-
-# Generated API Documentation (api-spec.json is tracked for CI tests)
-# backend/docs/
-
-# Storybook
 storybook-static/
 .storybook-cache/
-
-# TypeScript
 *.tsbuildinfo
 .tsbuildinfo
 
-# Environment variables
+# =============================================================================
+# Testing & Coverage
+# =============================================================================
+# Unit test coverage (Vitest)
+coverage/
+
+# Playwright E2E test results & reports
+playwright-report/
+test-results/
+
+# Blob reporters (CI sharded test merging)
+blob-report/
+.vitest-reports/
+
+# =============================================================================
+# Logs
+# =============================================================================
+.logs/
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =============================================================================
+# Environment Variables
+# =============================================================================
 .env
 .env.local
 .env.*.local
@@ -34,10 +51,9 @@ storybook-static/
 .env.test
 .env.ci
 
-# MCP (Model Context Protocol)
-.mcp.local.json
-
+# =============================================================================
 # IDE
+# =============================================================================
 # .vscode/ は選択的に共有（extensions.json, settings.json, launch.json, tasks.json）
 .vscode/*.code-workspace
 .vscode/history/
@@ -48,27 +64,33 @@ storybook-static/
 *.swo
 *~
 
+# =============================================================================
 # Storage (user-uploaded files)
+# =============================================================================
 storage-dev/
 backend/storage/
 
+# =============================================================================
 # OS
+# =============================================================================
 .DS_Store
 Thumbs.db
 
-# Logs
-logs/
-.logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
+# =============================================================================
+# Infrastructure & Tools
+# =============================================================================
 # Railway
 .railway/
 
+# MCP (Model Context Protocol)
+.mcp.local.json
+
+# Playwright MCP server
+.playwright-mcp/
+
+# Prisma generated (backend-specific, also in backend/.gitignore)
 /generated/prisma
 /src/generated/
-.playwright-mcp/
+
+# Generated API Documentation (api-spec.json is tracked for CI tests)
+# backend/docs/

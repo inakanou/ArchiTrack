@@ -12,23 +12,64 @@ ArchiTrackは、GitHub ActionsでCI/CDパイプラインを実装しています
 
 ```
 ci.yml
-├── CI Jobs（並列実行）
-│   ├── lint（backend, frontend, e2e）
+├── Phase 1: 静的解析（並列実行）
+│   ├── lint（backend, frontend, e2e - 3並列）
+│   ├── typecheck（backend, frontend, e2e - 3並列）
 │   ├── requirement-coverage（要件カバレッジ100%チェック）
-│   ├── typecheck（backend, frontend, e2e）
-│   ├── test-unit（backend, frontend + カバレッジ80%チェック）
-│   ├── build（backend, frontend + ES Module検証）
 │   └── security（セキュリティ監査）
-├── test-storybook（lint, typecheck, build 完了後）
-│   ├── Storybookテスト（アクセシビリティ含む）
-│   └── Storybookストーリーカバレッジチェック（80%ターゲット）
-├── test-integration（全CI Jobs + test-storybook + requirement-coverage 完了後）
-│   ├── 統合テスト（Docker環境）
-│   └── E2Eテスト（Playwright）
-└── CD Jobs（ci-success後）
+│
+├── Phase 2: 単体テスト（シャード分割 + blob reporter）
+│   ├── test-unit-backend（4シャード並列、blob report出力）
+│   ├── test-unit-frontend（4シャード並列、blob report出力）
+│   └── test-unit-results（--merge-reportsで全シャード集約・カバレッジ80%チェック）
+│
+├── Phase 3: ビルド（並列実行）
+│   └── build（backend, frontend - 2並列 + ES Module検証）
+│
+├── Phase 4: Storybookテスト ← needs: [lint, typecheck]
+│   └── test-storybook（アクセシビリティ + カバレッジ80%）
+│
+├── Phase 5: 統合テスト
+│   └── test-integration（Docker環境）
+│
+├── Phase 6: E2Eテスト（シャード分割 + blob reporter）← needs: [build, test-unit-results]
+│   ├── test-e2e（4シャード並列、blob report出力）
+│   └── test-e2e-results（merge-reportsで統合HTMLレポート生成）
+│
+├── Phase 7: CI成功判定
+│   └── ci-success（フェーズ別ステータスをGitHub Job Summary出力）
+│
+└── Phase 8: デプロイ（CI成功後）
     ├── deploy-staging（developブランチ→Railway Staging）
     └── deploy-production（mainブランチ→Railway Production）
 ```
+
+### パフォーマンス最適化
+
+| 最適化手法 | 対象 | 効果 |
+|-----------|------|------|
+| **シャード分割** | 単体テスト、E2Eテスト | 4並列実行で実行時間を約1/4に短縮 |
+| **単一テスト実行** | 単体テスト | カバレッジ付きテストを1回で実行（二重実行を排除） |
+| **blob reporter + merge-reports** | 単体テスト、E2Eテスト | 全シャードのレポート・カバレッジを正確に集約 |
+| **CI依存関係最適化** | E2E、Storybook | クリティカルパスの短縮（不要な待ち合わせを削除） |
+| **Playwrightブラウザキャッシュ** | Storybook、E2E | ブラウザのダウンロード時間を削減 |
+| **Prismaキャッシュ** | 全ジョブ | Prismaバイナリの再ダウンロードを回避 |
+| **依存関係キャッシュ** | 全ジョブ | npm ciの実行時間を短縮 |
+| **fail-fast: false** | マトリクスジョブ | 1シャードの失敗で他を中断しない |
+
+### GitHub Job Summary
+
+各ジョブの結果は GitHub Actions の **Job Summary** に出力され、PRページやActionsページで視覚的に確認できます。
+
+| ジョブ | Summary内容 |
+|-------|------------|
+| requirement-coverage | 要件カバレッジチェック結果 |
+| security | セキュリティ監査ポリシー |
+| test-unit-results | Backend/Frontend カバレッジレポート（全シャードマージ済み） |
+| test-storybook | Storybookカバレッジ |
+| test-integration | 統合テスト結果（詳細テーブル） |
+| test-e2e-results | E2E統合HTMLレポート（全シャードマージ済み） |
+| ci-success | 全ジョブのフェーズ別ステータス一覧（Phase 1〜8） |
 
 ### トリガー
 
@@ -43,14 +84,15 @@ ci.yml
 
 ### 実行内容
 
-1. **Lint & Format Check**: Prettier、ESLint（backend, frontend, e2e並列）
-2. **Requirement Coverage**: 要件カバレッジ100%チェック
-3. **Type Check**: TypeScript型チェック（backend, frontend, e2e並列）
-4. **Unit Tests**: ユニットテスト + カバレッジ80%チェック（backend, frontend並列）
-5. **Build Test**: ビルド成功確認 + ESモジュール検証（backend）
-6. **Storybook Tests**: コンポーネントテスト + アクセシビリティテスト + ストーリーカバレッジ80%チェック
-7. **Integration & E2E Tests**: Docker環境（docker-compose.ci.yml）で統合・E2Eテスト
-8. **Security Scan**: npm audit によるセキュリティスキャン（allowlist対応）
+1. **Lint & Format Check**: Prettier、ESLint（backend, frontend, e2e - 3並列）
+2. **Type Check**: TypeScript型チェック（backend, frontend, e2e - 3並列）
+3. **Requirement Coverage**: 要件カバレッジ100%チェック
+4. **Security Scan**: npm audit によるセキュリティスキャン（allowlist対応）
+5. **Unit Tests**: ユニットテスト（backend 4シャード + frontend 4シャード = 8並列）+ カバレッジ80%チェック
+6. **Build Test**: ビルド成功確認 + ESモジュール検証（backend, frontend - 2並列）
+7. **Storybook Tests**: コンポーネントテスト + アクセシビリティテスト + ストーリーカバレッジ80%チェック
+8. **Integration Tests**: Docker環境（docker-compose.ci.yml）で統合テスト
+9. **E2E Tests**: Playwright E2Eテスト（4シャード並列）
 
 ### CI環境のDocker構成
 
@@ -82,40 +124,82 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NODE_VERSION: '22'
+
 jobs:
-  lint:
-    name: Lint & Format Check
+  # Phase 2: 単体テスト（シャード分割で並列実行 + blob reporter）
+  test-unit-backend:
+    name: Unit Tests Backend (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    needs: [typecheck]
     strategy:
+      fail-fast: false
       matrix:
-        workspace: [backend, frontend, e2e]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-      - run: npm --prefix ${{ matrix.workspace }} ci
-      - run: npm --prefix ${{ matrix.workspace }} run format:check
-      - run: npm --prefix ${{ matrix.workspace }} run lint
+      - run: npm --prefix backend ci
+      # カバレッジ付きテストを1回で実行（blob reporterで結果出力）
+      - name: Run unit tests with coverage (shard ${{ matrix.shard }}/4)
+        run: npm --prefix backend run test:unit:coverage -- --shard=${{ matrix.shard }}/4 --reporter=blob --reporter=github-actions
+      # blob reportをアーティファクトとしてアップロード
+      - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: backend-blob-shard-${{ matrix.shard }}
+          path: backend/.vitest-reports/
+          retention-days: 1
 
-  test-integration:
-    name: Integration & E2E Tests
+  # Phase 2: 結果集約（全シャードのblob reportをマージ）
+  test-unit-results:
+    name: Unit Test Results
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook]
-    if: github.actor != 'dependabot[bot]'
+    needs: [test-unit-backend, test-unit-frontend]
+    if: ${{ !cancelled() }}
     steps:
-      # ... 省略 ...
-      - name: Start Docker Compose for E2E
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
-          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-backend"; do sleep 2; done'
-          timeout 120 bash -c 'until docker ps | grep -q "healthy.*architrack-frontend"; do sleep 2; done'
-      - name: Run E2E tests
-        run: npm run test:e2e
+      # 全blob reportをダウンロード → Vitest --merge-reportsで集約
+      - name: Merge backend test reports and coverage
+        run: npx vitest --merge-reports --reporter=default --coverage
+
+  # Phase 6: E2Eテスト（シャード分割で並列実行 + blob reporter）
+  test-e2e:
+    name: E2E Tests (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    needs: [build, test-unit-results]  # 依存関係を最適化
+    if: github.actor != 'dependabot[bot]'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v6
+      # ... setup steps ...
+      - name: Run E2E tests (shard ${{ matrix.shard }}/4)
+        run: npx playwright test --shard=${{ matrix.shard }}/4
         env:
           CI: true
           BASE_URL: http://localhost:5173
+      # blob reportをアーティファクトとしてアップロード
+      - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: e2e-blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
+
+  # Phase 6: E2E結果集約（blob reportからHTML reportを生成）
+  test-e2e-results:
+    name: E2E Test Results
+    needs: [test-e2e]
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Merge into HTML Report
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
 ```
 
 詳細は `.github/workflows/ci.yml` を参照してください。

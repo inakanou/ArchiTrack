@@ -14,8 +14,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AutocompleteInput from './AutocompleteInput';
 
-// Mock useAutocomplete hook
-vi.mock('../../hooks/useAutocomplete', () => ({
+// Mock usePrefetchedAutocomplete hook (AutocompleteInputが使用するhook)
+vi.mock('../../hooks/usePrefetchedAutocomplete', () => ({
   useAutocomplete: vi.fn(() => ({
     suggestions: [],
     isLoading: false,
@@ -23,7 +23,7 @@ vi.mock('../../hooks/useAutocomplete', () => ({
   })),
 }));
 
-import { useAutocomplete } from '../../hooks/useAutocomplete';
+import { useAutocomplete } from '../../hooks/usePrefetchedAutocomplete';
 
 const mockUseAutocomplete = vi.mocked(useAutocomplete);
 
