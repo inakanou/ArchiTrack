@@ -653,8 +653,13 @@ interface EstimateRequestService {
 ```
 
 - Preconditions: 有効なプロジェクトID、取引先ID、内訳書IDが必要
-- Postconditions: 作成時に内訳書項目がEstimateRequestItemとして自動初期化される
+- Postconditions: 作成時に内訳書項目がEstimateRequestItemとして自動初期化される。**作成時にEstimateRequestStatusHistoryへ初期ステータスレコード（fromStatus: null, toStatus: BEFORE_REQUEST）を記録する**。これによりステータス変更履歴が作成時点から完全に追跡可能となる（Requirement 12.11）
 - Invariants: 内訳書項目が0件の場合は作成エラー
+
+**Initial Status History Recording**:
+- EstimateRequestService.create()内で、見積依頼レコード作成と同一トランザクション内で初期ステータス履歴レコードを作成する
+- 履歴レコード: `{ fromStatus: null, toStatus: 'BEFORE_REQUEST', changedById: actorId }`
+- EstimateRequestStatusServiceは呼び出さず、create()内で直接EstimateRequestStatusHistoryを作成する（サービス間の循環依存を回避するため）
 
 #### EstimateRequestTextService
 
@@ -843,12 +848,13 @@ interface ReceivedQuotationService {
 **Implementation Notes**
 - Integration: StorageProviderを使用してファイルをアップロード（パス: `quotations/{estimateRequestId}/{quotationId}/{fileName}`）
 - Validation: 許可ファイル形式（PDF, Excel, 画像）、サイズ上限10MB、ファイルまたは明細行の存在検証
-- LineItem Update Strategy: 更新時は既存明細行を全削除（DELETE）し、新しい明細行を一括作成（INSERT）する。全量置換により差分管理の複雑さを回避
+- **Transaction Management**: 明細行の全量置換（DELETE + INSERT）およびReceivedQuotation本体の更新は、Prismaの`$transaction()`（interactive transaction）内で実行し、部分更新によるデータ不整合を防止する。ファイルアップロード（StorageProvider）はトランザクション外で先行実行し、DB更新失敗時はアップロード済みファイルをロールバック（削除）する
+- LineItem Update Strategy: 更新時は既存明細行を全削除（DELETE）し、新しい明細行を一括作成（INSERT）する。全量置換により差分管理の複雑さを回避。DELETE + INSERTはinteractive transaction内で原子的に実行される
 - File Deletion Strategy:
   - 削除時: DBレコード論理削除（deletedAt設定）→ StorageProvider.delete()でファイル物理削除
-  - 更新時（ファイル変更）: 新ファイルアップロード → DB更新 → 旧ファイル物理削除
-  - エラー時: DB更新成功・ファイル削除失敗の場合はログ記録し、バックグラウンドジョブで再試行
-- Risks: ファイル削除時のストレージとDBの整合性（DB更新を先に実行し、ファイル削除失敗は許容）
+  - 更新時（ファイル変更）: 新ファイルアップロード → DB更新（interactive transaction内）→ 旧ファイル物理削除
+  - **エラー時リカバリスコープ（初期リリース）**: DB更新成功・ファイル削除失敗の場合はログ記録（`logger.error`）のみとし、孤立ファイルは定期的な手動クリーンアップで対応する。バックグラウンドジョブによる自動リトライは将来の拡張として検討し、初期リリースのスコープには含めない
+- Risks: ファイル削除時のストレージとDBの整合性（DB更新を先に実行し、ファイル削除失敗は許容。初期リリースではログ記録+手動クリーンアップで対応）
 
 #### EstimateRequestStatusService
 
@@ -1280,6 +1286,11 @@ interface OcrDataExtractorState {
 - Integration: ExcelパースはXLSX.read() + XLSX.utils.sheet_to_jsonで構造化データを抽出
 - Validation: OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示
 - Risks: OCR精度は入力画像品質に依存。テキスト解析は完全自動化ではなく、ユーザー確認・修正を前提とする
+- **バンドルサイズ・WASM初期化対策**:
+  - OcrDataExtractorコンポーネントは`React.lazy()`による動的インポートで遅延ロードし、フロントエンド全体のバンドルサイズへの影響を回避する
+  - Tesseract.jsのワーカーおよび日本語OCRモデル（15MB超）は、受領見積書登録フォームの表示時に非同期プリフェッチを開始する（`useEffect`内でワーカー初期化を事前実行）
+  - OCR処理の初回実行時にWASMバイナリとトレーニングデータのダウンロードが発生するため、プリフェッチ中はUI上に「OCR準備中...」のインジケーターを表示し、ユーザーの待機体験を改善する
+  - `React.Suspense`のfallbackにはスケルトンUIを表示し、コンポーネント遅延ロード中の視覚的フィードバックを提供する
 
 #### LineItemEditor - 新規
 
