@@ -69,8 +69,8 @@
   - 手入力での上書き許可処理
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 4. APIルートの実装
-- [ ] 4.1 見積書CRUD APIエンドポイントの実装
+- [x] 4. APIルートの実装
+- [x] 4.1 見積書CRUD APIエンドポイントの実装
   - GET /api/projects/:projectId/estimates（一覧取得、ページネーション、検索）
   - POST /api/projects/:projectId/estimates（新規作成、内訳書参照オプション）
   - GET /api/estimates/:id（詳細取得、見積項目含む）
@@ -79,7 +79,7 @@
   - Zodバリデーションスキーマの定義
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7_
 
-- [ ] 4.2 見積項目CRUD APIエンドポイントの実装
+- [x] 4.2 見積項目CRUD APIエンドポイントの実装
   - GET /api/estimates/:id/items（階層取得オプション）
   - POST /api/estimates/:id/items（新規項目作成）
   - PUT /api/estimates/:id/items/:itemId（項目更新）
@@ -89,7 +89,7 @@
   - PUT /api/estimates/:id/items/batch（バッチ更新、楽観的排他制御）
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
 
-- [ ] 4.3 (P) 計算・転記APIエンドポイントの実装
+- [x] 4.3 (P) 計算・転記APIエンドポイントの実装
   - POST /api/estimates/:id/transfer-quotation（受領見積書転記）
   - POST /api/estimates/:id/calculate-net（NET金額案分）
   - POST /api/estimates/:id/apply-profit-rate（利益率適用）

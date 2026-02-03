@@ -596,6 +596,46 @@ export class EstimateService {
   }
 
   /**
+   * プロジェクトに紐付く直近の見積書と総数を取得する
+   *
+   * プロジェクト詳細画面の見積書セクション用に、直近N件の見積書と総数を返す。
+   *
+   * Requirements: REQ-16.3, REQ-16.4, REQ-16.5, REQ-16.12
+   *
+   * @param projectId - プロジェクトID
+   * @param limit - 取得件数（デフォルト: 2）
+   * @returns 直近の見積書一覧と総数
+   */
+  async findLatestByProjectId(
+    projectId: string,
+    limit: number = 2
+  ): Promise<{ estimates: EstimateInfo[]; totalCount: number }> {
+    const where = {
+      projectId,
+      deletedAt: null,
+    };
+
+    const [estimates, totalCount] = await Promise.all([
+      this.prisma.estimate.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: {
+          _count: {
+            select: { items: true },
+          },
+        },
+      }),
+      this.prisma.estimate.count({ where }),
+    ]);
+
+    return {
+      estimates: estimates.map((estimate) => this.toEstimateInfo(estimate)),
+      totalCount,
+    };
+  }
+
+  /**
    * データベースの結果をEstimateInfoに変換
    */
   private toEstimateInfo(
