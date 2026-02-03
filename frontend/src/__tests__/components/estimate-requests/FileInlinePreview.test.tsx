@@ -12,45 +12,32 @@
  * @module __tests__/components/estimate-requests/FileInlinePreview
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
 
-// react-pdfをモック
+// react-pdfをモック（軽量版）
 vi.mock('react-pdf', () => ({
   Document: ({
     children,
     loading,
     error,
   }: {
-    children: React.ReactNode;
-    loading: React.ReactNode;
-    error: React.ReactNode;
+    children?: React.ReactNode;
+    loading?: React.ReactNode;
+    error?: React.ReactNode;
   }) => <div data-testid="mock-pdf-document">{children || loading || error}</div>,
   Page: ({ pageNumber }: { pageNumber: number }) => (
     <div data-testid="mock-pdf-page">Page {pageNumber}</div>
   ),
-  pdfjs: {
-    GlobalWorkerOptions: {
-      workerSrc: '',
-    },
-  },
+  pdfjs: { GlobalWorkerOptions: { workerSrc: '' } },
 }));
 
-// xlsxをモック
+// xlsxをモック（軽量版）
+const mockXlsxRead = vi.fn();
+const mockSheetToJson = vi.fn();
 vi.mock('xlsx', () => ({
-  read: vi.fn(() => ({
-    SheetNames: ['Sheet1'],
-    Sheets: {
-      Sheet1: {},
-    },
-  })),
-  utils: {
-    sheet_to_json: vi.fn(() => [
-      ['列A', '列B', '列C'],
-      ['データ1', 'データ2', 'データ3'],
-      ['データ4', 'データ5', 'データ6'],
-    ]),
-  },
+  read: mockXlsxRead,
+  utils: { sheet_to_json: mockSheetToJson },
 }));
 
 import { FileInlinePreview } from '../../../components/estimate-requests/FileInlinePreview';
@@ -61,6 +48,21 @@ describe('FileInlinePreview', () => {
     // URL.createObjectURLをモック
     global.URL.createObjectURL = vi.fn(() => 'blob:test-url');
     global.URL.revokeObjectURL = vi.fn();
+    // xlsxモックのデフォルト実装
+    mockXlsxRead.mockReturnValue({
+      SheetNames: ['Sheet1'],
+      Sheets: { Sheet1: {} },
+    });
+    mockSheetToJson.mockReturnValue([
+      ['列A', '列B', '列C'],
+      ['データ1', 'データ2', 'データ3'],
+      ['データ4', 'データ5', 'データ6'],
+    ]);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
   });
 
   describe('ファイルタイプ判定ロジックのテスト', () => {
@@ -218,8 +220,7 @@ describe('FileInlinePreview', () => {
   describe('エラーハンドリングテスト', () => {
     it('Excelファイル読み込みに失敗した場合はエラーメッセージを表示する', async () => {
       // xlsxのreadをエラーを投げるようにモック
-      const xlsx = await import('xlsx');
-      vi.mocked(xlsx.read).mockImplementationOnce(() => {
+      mockXlsxRead.mockImplementationOnce(() => {
         throw new Error('読み込みエラー');
       });
 

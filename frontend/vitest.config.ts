@@ -40,8 +40,14 @@ export default defineConfig({
         maxForks: 1,
         minForks: 1,
         isolate: true, // 各テストファイルを分離
+        // メモリ制限を設定（512MB）
+        execArgv: ['--max-old-space-size=512'],
       },
     },
+    // テストタイムアウト設定
+    testTimeout: 10000,
+    // フック（beforeAll/afterAll等）のタイムアウト
+    hookTimeout: 10000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

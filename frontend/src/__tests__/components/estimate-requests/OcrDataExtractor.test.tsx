@@ -19,29 +19,22 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-// tesseract.jsをモック
+// tesseract.jsをモック（軽量版）
 const mockCreateWorker = vi.fn();
 vi.mock('tesseract.js', () => ({
   createWorker: mockCreateWorker,
 }));
 
-// xlsxをモック
+// xlsxをモック（軽量版）
+const mockXlsxRead = vi.fn();
+const mockSheetToJson = vi.fn();
 vi.mock('xlsx', () => ({
-  read: vi.fn(() => ({
-    SheetNames: ['Sheet1'],
-    Sheets: {
-      Sheet1: {},
-    },
-  })),
+  read: mockXlsxRead,
   utils: {
-    sheet_to_json: vi.fn(() => [
-      ['名称', '規格', '単位', '数量', '単価', '金額', '備考'],
-      ['外壁塗装工事', 'シリコン系', 'm2', '150', '3500', '525000', '足場込み'],
-      ['防水工事', 'ウレタン防水', 'm2', '50', '8000', '400000', ''],
-    ]),
+    sheet_to_json: mockSheetToJson,
   },
 }));
 
@@ -53,6 +46,17 @@ describe('OcrDataExtractor', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // xlsxモックのデフォルト実装
+    mockXlsxRead.mockReturnValue({
+      SheetNames: ['Sheet1'],
+      Sheets: { Sheet1: {} },
+    });
+    mockSheetToJson.mockReturnValue([
+      ['名称', '規格', '単位', '数量', '単価', '金額', '備考'],
+      ['外壁塗装工事', 'シリコン系', 'm2', '150', '3500', '525000', '足場込み'],
+      ['防水工事', 'ウレタン防水', 'm2', '50', '8000', '400000', ''],
+    ]);
 
     // Tesseract.jsワーカーのモック
     mockWorker = {
@@ -67,6 +71,7 @@ describe('OcrDataExtractor', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
   });
 
@@ -281,8 +286,7 @@ describe('OcrDataExtractor', () => {
 
     it('Excelパースが失敗した場合はエラーメッセージを表示する', async () => {
       // xlsxのreadをエラーを投げるようにモック
-      const xlsx = await import('xlsx');
-      vi.mocked(xlsx.read).mockImplementationOnce(() => {
+      mockXlsxRead.mockImplementationOnce(() => {
         throw new Error('Excelデータの解析に失敗しました');
       });
 

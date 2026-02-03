@@ -32,8 +32,12 @@ export default defineConfig({
     poolOptions: {
       forks: {
         singleFork: true,
+        // メモリ制限を設定（512MB）
+        execArgv: ['--max-old-space-size=512'],
       },
     },
+    // フック（beforeAll/afterAll等）のタイムアウト
+    hookTimeout: 20000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
