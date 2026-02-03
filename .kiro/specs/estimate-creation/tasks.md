@@ -2,8 +2,8 @@
 
 ## Tasks
 
-- [ ] 1. データベーススキーマとPrismaモデルの実装
-- [ ] 1.1 見積書関連テーブルのスキーマ定義とマイグレーション作成
+- [x] 1. データベーススキーマとPrismaモデルの実装
+- [x] 1.1 見積書関連テーブルのスキーマ定義とマイグレーション作成
   - Estimateテーブル（見積書マスター）の定義: id, projectId, name, sourceItemizedStatementId, sourceItemizedStatementName, createdAt, updatedAt, deletedAt
   - EstimateItemテーブル（見積項目、階層構造）の定義: id, estimateId, parentId, displayOrder, createdAt, updatedAt
   - EstimateItemLineテーブル（3行1セット）の定義: id, estimateItemId, lineType（ESTIMATE/EXECUTION/VENDOR）, name, specification, unit, quantity, unitPrice, amount, remarks, sourceReceivedQuotationLineItemId, sourceVendorName

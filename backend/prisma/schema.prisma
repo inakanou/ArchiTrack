@@ -279,6 +279,7 @@ model Project {
   quantityTables     QuantityTable[] // 数量表リレーション
   itemizedStatements ItemizedStatement[] // 内訳書リレーション
   estimateRequests   EstimateRequest[] // 見積依頼リレーション
+  estimates          Estimate[] // 見積書リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -1077,4 +1078,158 @@ model CompanyInfo {
   updatedAt                 DateTime @updatedAt @map("updated_at")
 
   @@map("company_info")
+}
+
+// ===== Estimate (見積書) Management Data Models =====
+
+/**
+ * 見積項目行タイプ
+ * 見積項目は3行1セット（見積金額行・実行金額行・業者金額行）で構成される。
+ * Requirements (estimate-creation):
+ * - REQ-1.2: 見積項目行を「見積金額行」「実行金額行」「業者金額行」の3行1セットで構成する
+ */
+enum EstimateItemLineType {
+  ESTIMATE // 見積金額行（顧客へ提出する金額）
+  EXECUTION // 実行金額行（実際に業者へ発注する想定金額）
+  VENDOR // 業者金額行（業者から受け取った金額そのまま）
+}
+
+/**
+ * 見積書モデル
+ * プロジェクトに紐付く見積書のマスターデータを管理する。
+ * 見積書は内訳書を参照して初期作成できるが、作成後はスナップショットとして独立して保持される。
+ * フィールド:
+ * - id: 見積書の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - name: 見積書名（必須、最大200文字）
+ * - sourceItemizedStatementId: 参照内訳書ID（任意、外部キー制約なし）
+ * - sourceItemizedStatementName: 参照内訳書名（スナップショット、最大200文字）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位での見積書検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * - createdAt: 作成日時でのソート用
+ * Requirements (estimate-creation):
+ * - REQ-11.1: プロジェクトに紐付く見積書の一覧を表示する
+ * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
+ * - REQ-11.5: 見積書に見積名称を設定可能とする
+ * - REQ-11.6: 楽観的排他制御により競合を検出する
+ * - REQ-3.2: 選択した内訳書の項目を見積金額行の初期値として設定する
+ */
+model Estimate {
+  id                          String    @id @default(uuid())
+  projectId                   String
+  name                        String // 見積書名（必須、最大200文字）
+  sourceItemizedStatementId   String? // 参照内訳書ID（任意、参照情報のみ）
+  sourceItemizedStatementName String? // 参照内訳書名（スナップショット）
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  deletedAt                   DateTime? // 論理削除
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   EstimateItem[]
+
+  @@index([projectId])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("estimates")
+}
+
+/**
+ * 見積項目モデル
+ * 見積書に紐付く見積項目（階層構造）を管理する。
+ * 各項目は親子関係を持ち、建設工事特有の工事区分（建築工事、電気設備工事等）に対応する。
+ * フィールド:
+ * - id: 見積項目の一意ID（UUID）
+ * - estimateId: 所属する見積書ID（外部キー、カスケード削除）
+ * - parentId: 親項目ID（自己参照外部キー、ルート項目はnull、カスケード削除）
+ * - displayOrder: 表示順序
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * インデックス:
+ * - estimateId: 見積書単位での項目取得用
+ * - parentId: 親項目による子項目取得用
+ * - estimateId, displayOrder: 表示順序によるソート用
+ * Requirements (estimate-creation):
+ * - REQ-2.1: 見積項目に親子関係を設定可能とする
+ * - REQ-2.2: その項目を親項目の子として階層表示する
+ * - REQ-2.3: 親項目の金額として子項目の金額合計を自動計算して表示する
+ * - REQ-2.4: 複数階層のネスト（例：建築工事 > 直接仮設工事 > 遣り方）をサポートする
+ * - REQ-12.2: ドラッグ&ドロップで順序を変更可能とする
+ */
+model EstimateItem {
+  id           String   @id @default(uuid())
+  estimateId   String
+  parentId     String? // 親項目ID（ルート項目はnull）
+  displayOrder Int // 表示順序
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  estimate Estimate           @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  parent   EstimateItem?      @relation("EstimateItemHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children EstimateItem[]     @relation("EstimateItemHierarchy")
+  lines    EstimateItemLine[]
+
+  @@index([estimateId])
+  @@index([parentId])
+  @@index([estimateId, displayOrder])
+  @@map("estimate_items")
+}
+
+/**
+ * 見積項目行モデル
+ * 見積項目の3行1セット（見積金額行・実行金額行・業者金額行）を管理する。
+ * 各行は名称・規格・単位・数量・単価・金額・備考の属性を持つ。
+ * 業者金額行は受領見積書明細行への参照を保持可能。
+ * フィールド:
+ * - id: 見積項目行の一意ID（UUID）
+ * - estimateItemId: 所属する見積項目ID（外部キー、カスケード削除）
+ * - lineType: 行タイプ（ESTIMATE/EXECUTION/VENDOR）
+ * - name: 名称（任意、最大200文字）
+ * - specification: 規格（任意、最大500文字）
+ * - unit: 単位（任意、最大50文字）
+ * - quantity: 数量（Decimal(15,4)、高精度）
+ * - unitPrice: 単価（Decimal(15,2)）
+ * - amount: 金額（Decimal(15,2)、自動計算：数量×単価）
+ * - remarks: 備考
+ * - sourceReceivedQuotationLineItemId: 転記元の受領見積書明細行ID（任意）
+ * - sourceVendorName: 転記元業者名（スナップショット）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * インデックス:
+ * - estimateItemId: 見積項目単位での行取得用
+ * - lineType: 行タイプによるフィルタリング用
+ * - ユニーク制約: estimateItemId + lineType（1項目につき各タイプ1行のみ）
+ * Requirements (estimate-creation):
+ * - REQ-1.2: 見積項目行を「見積金額行」「実行金額行」「業者金額行」の3行1セットで構成する
+ * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
+ * - REQ-1.4: 金額フィールドを入力不可として表示する
+ * - REQ-1.6: 各見積項目行に名称・規格・単位・数量・単価・備考の入力フィールドを提供する
+ * - REQ-4.3: 受領見積書から名称・規格・単位・数量・単価を転記対象とする
+ * - REQ-13.6: 高精度な10進数計算により丸め誤差を最小化する
+ */
+model EstimateItemLine {
+  id                                String               @id @default(uuid())
+  estimateItemId                    String
+  lineType                          EstimateItemLineType
+  name                              String? // 名称（最大200文字）
+  specification                     String? // 規格（最大500文字）
+  unit                              String? // 単位（最大50文字）
+  quantity                          Decimal?             @db.Decimal(15, 4) // 数量（高精度）
+  unitPrice                         Decimal?             @db.Decimal(15, 2) // 単価
+  amount                            Decimal?             @db.Decimal(15, 2) // 金額（自動計算：数量×単価）
+  remarks                           String? // 備考
+  sourceReceivedQuotationLineItemId String? // 転記元の受領見積書明細行ID
+  sourceVendorName                  String? // 転記元業者名（スナップショット）
+  createdAt                         DateTime             @default(now())
+  updatedAt                         DateTime             @updatedAt
+
+  estimateItem EstimateItem @relation(fields: [estimateItemId], references: [id], onDelete: Cascade)
+
+  @@unique([estimateItemId, lineType])
+  @@index([estimateItemId])
+  @@index([lineType])
+  @@map("estimate_item_lines")
 }
