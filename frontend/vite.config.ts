@@ -52,6 +52,10 @@ export default defineConfig(({ mode }) => {
             ? {
                 // React関連を別チャンクに分離
                 react: ['react', 'react-dom'],
+                // PDF.js関連を別チャンクに分離（react-pdf + pdfjs-dist）
+                'pdf-viewer': ['react-pdf', 'pdfjs-dist'],
+                // OCR関連を別チャンクに分離（Tesseract.js）
+                ocr: ['tesseract.js'],
               }
             : undefined,
         },
@@ -69,6 +73,12 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': '/src',
       },
+    },
+
+    // 依存関係の事前バンドル最適化
+    optimizeDeps: {
+      // pdfjs-distとtesseract.jsのESMモジュールを事前バンドル対象に含める
+      include: ['pdfjs-dist', 'react-pdf'],
     },
 
     // 環境変数のプレフィックス
