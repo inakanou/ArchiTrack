@@ -2,6 +2,7 @@
  * @fileoverview 受領見積書一覧コンポーネント
  *
  * Task 14.2: ReceivedQuotationListの実装
+ * Task 26.2: ReceivedQuotationListの改訂（明細行数・合計金額表示追加）
  *
  * Requirements:
  * - 11.1: 受領見積書登録ボタン
@@ -11,6 +12,9 @@
  * - 11.14: ファイルプレビューリンク（署名付きURL）
  * - 11.16: 編集・削除アクションボタン
  * - 11.17: 削除確認ダイアログ
+ * - 11.25: 一覧表示に明細行数と合計金額を追加表示
+ * - 11.26: 見積依頼詳細画面に登録済み受領見積書の一覧を表示する
+ * - 11.27: 受領見積書一覧に受領見積書名、提出日、登録日時を表示する
  */
 
 import { useState, useCallback } from 'react';
@@ -137,6 +141,30 @@ const styles = {
     alignItems: 'center',
     gap: '4px',
   },
+  // Task 26.2: 明細行情報表示用スタイル
+  lineItemInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginLeft: '8px',
+    paddingLeft: '8px',
+    borderLeft: '1px solid #e5e7eb',
+    fontSize: '12px',
+    color: '#374151',
+  },
+  lineItemCount: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    color: '#6b7280',
+  },
+  totalAmount: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontWeight: 500,
+    color: '#059669',
+  },
   actionsContainer: {
     display: 'flex',
     gap: '8px',
@@ -240,6 +268,16 @@ function formatFileSize(bytes: number): string {
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * 金額をカンマ区切りでフォーマット (Task 26.2)
+ *
+ * @param amount - 金額
+ * @returns カンマ区切りの金額文字列
+ */
+function formatAmount(amount: number): string {
+  return amount.toLocaleString('ja-JP');
 }
 
 /**
@@ -504,6 +542,17 @@ export function ReceivedQuotationList({
                   <span style={styles.metaItem}>提出日: {formatDate(quotation.submittedAt)}</span>
                   {quotation.fileName && quotation.fileSize && (
                     <span style={styles.metaItem}>{formatFileSize(quotation.fileSize)}</span>
+                  )}
+                  {/* Task 26.2: 明細行数と合計金額の表示 (11.25) */}
+                  {quotation.lineItems.length > 0 && (
+                    <span style={styles.lineItemInfo}>
+                      <span style={styles.lineItemCount}>{quotation.lineItems.length}行</span>
+                      {quotation.totalAmount !== null && (
+                        <span style={styles.totalAmount}>
+                          {formatAmount(quotation.totalAmount)}円
+                        </span>
+                      )}
+                    </span>
                   )}
                 </div>
               </div>

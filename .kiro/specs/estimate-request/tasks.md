@@ -536,8 +536,8 @@
   - OCR/パース処理失敗時にエラーメッセージを表示し手動入力を促す
   - _Requirements: 13.10, 13.11, 13.12, 13.13, 13.14_
 
-- [ ] 26. 受領見積書フォーム・一覧の改訂統合
-- [ ] 26.1 ReceivedQuotationFormの改訂統合
+- [x] 26. 受領見積書フォーム・一覧の改訂統合
+- [x] 26.1 ReceivedQuotationFormの改訂統合
   - テキスト/ファイル排他選択UIをファイル+明細行共存UIに改修
   - ファイルアップロードエリアの下に構造化データ入力エリア（LineItemEditor）を配置
   - ファイルアップロード時にFileInlinePreviewとOcrDataExtractorを起動
@@ -547,12 +547,12 @@
   - ドラッグ&ドロップによるファイル選択のサポート
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8, 11.9, 11.14, 11.22, 11.23, 11.24, 11.25_
 
-- [ ] 26.2 ReceivedQuotationListの改訂
+- [x] 26.2 ReceivedQuotationListの改訂
   - 一覧表示に明細行数と合計金額を追加表示
   - ファイル有無のアイコン表示を維持しつつ明細行情報を併記
   - _Requirements: 11.25, 11.26, 11.27_
 
-- [ ] 26.3 EstimateRequestDetailPageの受領見積書セクション再統合
+- [x] 26.3 EstimateRequestDetailPageの受領見積書セクション再統合
   - 改訂済みReceivedQuotationFormとReceivedQuotationListを詳細画面に再統合
   - 受領見積書の追加・編集時にファイル+明細行統合フォームを表示
   - ファイルプレビューとOCR結果表示の統合

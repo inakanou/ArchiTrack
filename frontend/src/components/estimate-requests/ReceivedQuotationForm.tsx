@@ -1,26 +1,46 @@
 /**
- * @fileoverview 受領見積書登録・編集フォームコンポーネント
+ * @fileoverview 受領見積書登録・編集フォームコンポーネント（改訂版）
  *
  * Task 14.1: ReceivedQuotationFormの実装
+ * Task 26.1: ReceivedQuotationFormの改訂統合
  *
  * Requirements:
+ * - 11.1: 受領見積書登録ボタン表示
  * - 11.2: 受領見積書登録フォーム
  * - 11.3: 受領見積書名（必須）
  * - 11.4: 提出日（必須）
- * - 11.5: テキスト入力フィールド
- * - 11.6: ファイルアップロード
- * - 11.7: テキストとファイルの排他的選択
- * - 11.8: ファイル形式制限（PDF、Excel、画像）
- * - 11.10: バリデーションエラー表示
- * - 11.15: 受領見積書編集
+ * - 11.5: ファイルアップロードフィールド表示
+ * - 11.6: ドラッグ&ドロップによるファイル選択のサポート
+ * - 11.7: ファイル形式制限（PDF、Excel、画像）
+ * - 11.8: ファイルサイズ上限10MB
+ * - 11.9: 構造化データ入力エリア表示
+ * - 11.14: フォーム初期表示時に1行の空明細行表示
+ * - 11.22: ファイルまたは明細行データのいずれか入力で保存可能
+ * - 11.23: 必須項目バリデーション
+ * - 11.24: ファイル未アップロード・全明細行空の場合のエラー表示
+ * - 11.25: 受領見積書の編集機能
  */
 
-import { useState, useCallback, useRef, type ChangeEvent } from 'react';
+import {
+  useState,
+  useCallback,
+  useRef,
+  Suspense,
+  lazy,
+  type ChangeEvent,
+  type DragEvent,
+} from 'react';
 import type {
   ReceivedQuotationInfo,
   CreateReceivedQuotationInput,
   UpdateReceivedQuotationInput,
+  LineItemInput,
 } from '../../api/received-quotations';
+import { LineItemEditor, createEmptyLineItem, type LineItemFormData } from './LineItemEditor';
+import { FileInlinePreview } from './FileInlinePreview';
+
+// OcrDataExtractorを遅延ロード（バンドルサイズ影響回避）
+const OcrDataExtractor = lazy(() => import('./OcrDataExtractor'));
 
 // ============================================================================
 // 定数定義
@@ -51,11 +71,6 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 // ============================================================================
 // 型定義
 // ============================================================================
-
-/**
- * コンテンツタイプ（フォーム内部状態用）
- */
-type ContentType = 'TEXT' | 'FILE';
 
 /**
  * 受領見積書情報をAPIクライアントから再エクスポート
@@ -129,33 +144,6 @@ const styles = {
   inputError: {
     borderColor: '#ef4444',
   },
-  textarea: {
-    padding: '8px 12px',
-    borderRadius: '6px',
-    border: '1px solid #d1d5db',
-    fontSize: '14px',
-    outline: 'none',
-    resize: 'vertical' as const,
-    minHeight: '120px',
-  },
-  radioGroup: {
-    display: 'flex',
-    gap: '16px',
-    marginTop: '4px',
-  },
-  radioLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '14px',
-    color: '#374151',
-    cursor: 'pointer',
-  },
-  radioInput: {
-    width: '16px',
-    height: '16px',
-    accentColor: '#2563eb',
-  },
   errorText: {
     fontSize: '12px',
     color: '#ef4444',
@@ -213,6 +201,10 @@ const styles = {
     cursor: 'pointer',
     transition: 'all 0.2s ease',
   },
+  fileUploadAreaDragOver: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+  },
   fileUploadAreaError: {
     borderColor: '#ef4444',
     backgroundColor: '#fef2f2',
@@ -257,6 +249,32 @@ const styles = {
   },
   hiddenInput: {
     display: 'none',
+  },
+  sectionTitle: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: '#374151',
+    marginTop: '16px',
+    marginBottom: '8px',
+  },
+  previewSection: {
+    marginTop: '16px',
+  },
+  ocrSection: {
+    marginTop: '16px',
+  },
+  lineItemsSection: {
+    marginTop: '16px',
+  },
+  suspenseFallback: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '16px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '8px',
+    color: '#6b7280',
+    fontSize: '14px',
   },
 };
 
@@ -303,6 +321,52 @@ function formatDateForInput(date: Date | undefined): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * 明細行が有効なデータを持つか判定
+ */
+function hasValidLineItemData(items: LineItemFormData[]): boolean {
+  return items.some((item) => item.name.trim() !== '');
+}
+
+/**
+ * LineItemFormDataをLineItemInputに変換
+ */
+function convertToLineItemInput(items: LineItemFormData[]): LineItemInput[] {
+  return items
+    .filter((item) => item.name.trim() !== '')
+    .map((item, index) => ({
+      name: item.name.trim(),
+      specification: item.specification.trim() || undefined,
+      unit: item.unit.trim() || undefined,
+      quantity: item.quantity ? parseFloat(item.quantity) : undefined,
+      unitPrice: item.unitPrice ? parseFloat(item.unitPrice) : undefined,
+      amount: item.amount ?? undefined,
+      remarks: item.remarks.trim() || undefined,
+      sortOrder: index,
+    }));
+}
+
+/**
+ * ReceivedQuotationInfoのlineItemsをLineItemFormDataに変換
+ */
+function convertToLineItemFormData(
+  items: ReceivedQuotationInfo['lineItems'] | undefined
+): LineItemFormData[] {
+  if (!items || items.length === 0) {
+    return [createEmptyLineItem()];
+  }
+  return items.map((item) => ({
+    id: item.id,
+    name: item.name,
+    specification: item.specification ?? '',
+    unit: item.unit ?? '',
+    quantity: item.quantity !== null ? String(item.quantity) : '',
+    unitPrice: item.unitPrice !== null ? String(item.unitPrice) : '',
+    amount: item.amount,
+    remarks: item.remarks ?? '',
+  }));
+}
+
 // ============================================================================
 // ローディングスピナー
 // ============================================================================
@@ -336,7 +400,10 @@ function LoadingSpinner() {
 // ============================================================================
 
 /**
- * 受領見積書登録・編集フォーム
+ * 受領見積書登録・編集フォーム（改訂版）
+ *
+ * ファイルアップロードと構造化データ入力（明細行）の共存UIを提供する。
+ * ファイルまたは明細行データのいずれかが入力されていれば保存可能。
  *
  * @example
  * ```tsx
@@ -363,12 +430,21 @@ export function ReceivedQuotationForm({
   const [submittedAt, setSubmittedAt] = useState(
     formatDateForInput(initialData?.submittedAt ?? new Date())
   );
-  // contentType廃止に伴い、ファイル有無で初期モードを判定（タスク26でフォーム全体改訂予定）
-  const [contentType, setContentType] = useState<ContentType>(
-    initialData?.fileName ? 'FILE' : 'TEXT'
-  );
-  const [textContent, setTextContent] = useState('');
+
+  // ファイル状態
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [existingFileName] = useState<string | null>(initialData?.fileName ?? null);
+  const [removeFile, setRemoveFile] = useState(false);
+
+  // 明細行状態（11.14: 初期表示時に1行の空明細行）
+  const [lineItems, setLineItems] = useState<LineItemFormData[]>(
+    convertToLineItemFormData(initialData?.lineItems)
+  );
+
+  // ドラッグ&ドロップ状態
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // エラー状態
   const [errors, setErrors] = useState<FormErrors>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -385,20 +461,17 @@ export function ReceivedQuotationForm({
       newErrors.submittedAt = '提出日を入力してください';
     }
 
-    if (contentType === 'TEXT') {
-      if (!textContent.trim()) {
-        newErrors.content = 'テキスト内容を入力してください';
-      }
-    } else {
-      // FILEモード
-      if (!selectedFile && (!initialData || !initialData.fileName)) {
-        newErrors.content = 'ファイルを選択してください';
-      }
+    // 11.24: ファイル未アップロード・全明細行空の場合のエラー
+    const hasFile = selectedFile !== null || (existingFileName !== null && !removeFile);
+    const hasLineItems = hasValidLineItemData(lineItems);
+
+    if (!hasFile && !hasLineItems) {
+      newErrors.content = 'ファイルのアップロードまたは明細行データの入力が必要です';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [name, submittedAt, contentType, textContent, selectedFile, initialData]);
+  }, [name, submittedAt, selectedFile, existingFileName, removeFile, lineItems]);
 
   // フォーム送信
   const handleSubmit = useCallback(
@@ -409,15 +482,19 @@ export function ReceivedQuotationForm({
         return;
       }
 
+      const lineItemInputs = convertToLineItemInput(lineItems);
+
       const data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput = {
         name: name.trim(),
         submittedAt: new Date(submittedAt),
-        ...(contentType === 'FILE' ? { file: selectedFile ?? undefined } : {}),
+        ...(selectedFile ? { file: selectedFile } : {}),
+        ...(removeFile ? { removeFile: true } : {}),
+        ...(lineItemInputs.length > 0 ? { lineItems: lineItemInputs } : {}),
       };
 
       await onSubmit(data);
     },
-    [name, submittedAt, contentType, textContent, selectedFile, validate, onSubmit]
+    [name, submittedAt, selectedFile, removeFile, lineItems, validate, onSubmit]
   );
 
   // 名前変更ハンドラ
@@ -432,30 +509,8 @@ export function ReceivedQuotationForm({
     setErrors((prev) => ({ ...prev, submittedAt: undefined }));
   }, []);
 
-  // コンテンツタイプ変更ハンドラ
-  const handleContentTypeChange = useCallback((type: ContentType) => {
-    setContentType(type);
-    setErrors((prev) => ({ ...prev, content: undefined, file: undefined }));
-    // 切り替え時にコンテンツをクリア
-    if (type === 'TEXT') {
-      setSelectedFile(null);
-      setTextContent('');
-    } else {
-      setTextContent('');
-    }
-  }, []);
-
-  // テキスト内容変更ハンドラ
-  const handleTextContentChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
-    setTextContent(e.target.value);
-    setErrors((prev) => ({ ...prev, content: undefined }));
-  }, []);
-
   // ファイル選択ハンドラ
-  const handleFileChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const handleFileSelect = useCallback((file: File) => {
     // ファイル形式バリデーション
     if (!isValidFileType(file)) {
       setErrors((prev) => ({
@@ -475,24 +530,83 @@ export function ReceivedQuotationForm({
     }
 
     setSelectedFile(file);
+    setRemoveFile(false);
     setErrors((prev) => ({ ...prev, content: undefined, file: undefined }));
   }, []);
+
+  // ファイルinput変更ハンドラ
+  const handleFileChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        handleFileSelect(file);
+      }
+    },
+    [handleFileSelect]
+  );
 
   // ファイル削除ハンドラ
   const handleRemoveFile = useCallback(() => {
     setSelectedFile(null);
+    if (mode === 'edit' && existingFileName) {
+      setRemoveFile(true);
+    }
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  }, []);
+  }, [mode, existingFileName]);
 
   // ファイルアップロードエリアクリックハンドラ
   const handleUploadAreaClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
 
+  // ドラッグ&ドロップハンドラ (11.6)
+  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      const file = e.dataTransfer.files?.[0];
+      if (file) {
+        handleFileSelect(file);
+      }
+    },
+    [handleFileSelect]
+  );
+
+  // 明細行変更ハンドラ
+  const handleLineItemsChange = useCallback((items: LineItemFormData[]) => {
+    setLineItems(items);
+    setErrors((prev) => ({ ...prev, content: undefined }));
+  }, []);
+
+  // OCR一括取り込みハンドラ
+  const handleImportLineItems = useCallback((items: LineItemFormData[]) => {
+    setLineItems(items);
+    setErrors((prev) => ({ ...prev, content: undefined }));
+  }, []);
+
   const submitButtonText = mode === 'create' ? '登録' : '更新';
   const submitButtonLoadingText = mode === 'create' ? '登録中...' : '更新中...';
+
+  // ファイル表示判定
+  const hasCurrentFile = selectedFile !== null || (existingFileName !== null && !removeFile);
+  const displayFileName = selectedFile?.name ?? existingFileName;
+  const displayFileSize = selectedFile?.size ?? initialData?.fileSize;
 
   return (
     <form onSubmit={handleSubmit} style={styles.form}>
@@ -548,74 +662,23 @@ export function ReceivedQuotationForm({
         )}
       </div>
 
-      {/* コンテンツタイプ選択 */}
+      {/* ファイルアップロード (11.5, 11.6) */}
       <div style={styles.fieldGroup}>
-        <span style={styles.label}>
-          内容<span style={styles.required}>*</span>
-        </span>
-        <div style={styles.radioGroup}>
-          <label style={styles.radioLabel}>
-            <input
-              type="radio"
-              name="contentType"
-              value="TEXT"
-              checked={contentType === 'TEXT'}
-              onChange={() => handleContentTypeChange('TEXT')}
-              disabled={isSubmitting}
-              style={styles.radioInput}
-            />
-            テキスト
-          </label>
-          <label style={styles.radioLabel}>
-            <input
-              type="radio"
-              name="contentType"
-              value="FILE"
-              checked={contentType === 'FILE'}
-              onChange={() => handleContentTypeChange('FILE')}
-              disabled={isSubmitting}
-              style={styles.radioInput}
-            />
-            ファイル
-          </label>
-        </div>
-      </div>
+        <span style={styles.label}>ファイル</span>
 
-      {/* テキスト入力 */}
-      {contentType === 'TEXT' && (
-        <div style={styles.fieldGroup}>
-          <textarea
-            id="text-content"
-            value={textContent}
-            onChange={handleTextContentChange}
-            placeholder="見積内容を入力してください"
-            disabled={isSubmitting}
-            style={{
-              ...styles.textarea,
-              ...(errors.content ? styles.inputError : {}),
-            }}
-            aria-invalid={!!errors.content}
-            aria-describedby={errors.content ? 'content-error' : undefined}
-          />
-          {errors.content && (
-            <p id="content-error" style={styles.errorText} role="alert">
-              {errors.content}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* ファイルアップロード */}
-      {contentType === 'FILE' && (
-        <div style={styles.fieldGroup}>
+        {!hasCurrentFile && (
           <div
             onClick={handleUploadAreaClick}
             onKeyDown={(e) => e.key === 'Enter' && handleUploadAreaClick()}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
             role="button"
             tabIndex={0}
             style={{
               ...styles.fileUploadArea,
-              ...(errors.content || errors.file ? styles.fileUploadAreaError : {}),
+              ...(isDragOver ? styles.fileUploadAreaDragOver : {}),
+              ...(errors.file ? styles.fileUploadAreaError : {}),
             }}
           >
             <svg
@@ -632,55 +695,81 @@ export function ReceivedQuotationForm({
                 d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3v11.25"
               />
             </svg>
-            <span style={styles.fileUploadText}>ファイルを選択</span>
+            <span style={styles.fileUploadText}>ファイルを選択またはドラッグ&ドロップ</span>
             <span style={styles.fileUploadHint}>PDF、Excel、画像（JPEG、PNG）/ 最大10MB</span>
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            data-testid="file-input"
-            accept={ALLOWED_FILE_EXTENSIONS}
-            onChange={handleFileChange}
-            disabled={isSubmitting}
-            style={styles.hiddenInput}
-          />
+        )}
 
-          {/* 選択されたファイル表示 */}
-          {selectedFile && (
-            <div style={styles.selectedFile}>
-              <div>
-                <div style={styles.selectedFileName}>{selectedFile.name}</div>
-                <div style={styles.selectedFileSize}>{formatFileSize(selectedFile.size)}</div>
-              </div>
-              <button
-                type="button"
-                onClick={handleRemoveFile}
-                style={styles.removeFileButton}
-                disabled={isSubmitting}
-              >
-                削除
-              </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          data-testid="file-input"
+          accept={ALLOWED_FILE_EXTENSIONS}
+          onChange={handleFileChange}
+          disabled={isSubmitting}
+          style={styles.hiddenInput}
+        />
+
+        {/* 選択されたファイル表示 */}
+        {hasCurrentFile && displayFileName && (
+          <div style={styles.selectedFile}>
+            <div>
+              <div style={styles.selectedFileName}>{displayFileName}</div>
+              {displayFileSize && (
+                <div style={styles.selectedFileSize}>{formatFileSize(displayFileSize)}</div>
+              )}
             </div>
-          )}
+            <button
+              type="button"
+              onClick={handleRemoveFile}
+              style={styles.removeFileButton}
+              disabled={isSubmitting}
+            >
+              削除
+            </button>
+          </div>
+        )}
 
-          {/* 編集モードで既存ファイルがある場合 */}
-          {!selectedFile && mode === 'edit' && initialData?.fileName && (
-            <div style={styles.selectedFile}>
-              <div>
-                <div style={styles.selectedFileName}>{initialData.fileName}</div>
-                {initialData.fileSize && (
-                  <div style={styles.selectedFileSize}>{formatFileSize(initialData.fileSize)}</div>
-                )}
-              </div>
-            </div>
-          )}
+        {errors.file && (
+          <p style={styles.errorText} role="alert">
+            {errors.file}
+          </p>
+        )}
+      </div>
 
-          {(errors.content || errors.file) && (
-            <p style={styles.errorText} role="alert">
-              {errors.file || errors.content}
-            </p>
-          )}
+      {/* ファイルインラインプレビュー (11.5) */}
+      {selectedFile && (
+        <div style={styles.previewSection}>
+          <FileInlinePreview file={selectedFile} />
         </div>
+      )}
+
+      {/* OcrDataExtractor（遅延ロード） */}
+      {selectedFile && (
+        <div style={styles.ocrSection}>
+          <Suspense
+            fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
+          >
+            <OcrDataExtractor file={selectedFile} onImportLineItems={handleImportLineItems} />
+          </Suspense>
+        </div>
+      )}
+
+      {/* 構造化データ入力エリア（明細行エディタ） (11.9) */}
+      <div style={styles.lineItemsSection}>
+        <div style={styles.sectionTitle}>明細行</div>
+        <LineItemEditor
+          lineItems={lineItems}
+          onLineItemsChange={handleLineItemsChange}
+          disabled={isSubmitting}
+        />
+      </div>
+
+      {/* コンテンツエラー（ファイルも明細行もない場合） */}
+      {errors.content && (
+        <p style={styles.errorText} role="alert">
+          {errors.content}
+        </p>
       )}
 
       {/* ボタングループ */}
