@@ -13,11 +13,51 @@
  * - REQ-13.4: 必須フィールド（名称等）のバリデーション
  *
  * Task 4.1: 見積書CRUD APIエンドポイントの実装
+ * Task 5.1: 入力バリデーションスキーマの定義
  *
  * @module schemas/estimate
  */
 
 import { z } from 'zod';
+
+/**
+ * 見積書バリデーションメッセージ定数
+ *
+ * 一貫性のあるエラーメッセージを提供するための定数定義。
+ *
+ * Requirements: REQ-13.1, REQ-13.2, REQ-13.3, REQ-13.4
+ * Task 5.1: 入力バリデーションスキーマの定義
+ */
+export const ESTIMATE_VALIDATION_MESSAGES = {
+  // 名称関連
+  NAME_REQUIRED: '見積書名は必須です',
+  NAME_TOO_LONG: '見積書名は200文字以内で入力してください',
+
+  // 規格関連
+  SPECIFICATION_TOO_LONG: '規格は500文字以内で入力してください',
+
+  // 単位関連
+  UNIT_TOO_LONG: '単位は50文字以内で入力してください',
+
+  // 数量関連（REQ-13.1）
+  QUANTITY_INVALID: '数量は数値を入力してください',
+
+  // 単価関連（REQ-13.2）
+  UNIT_PRICE_INVALID: '単価は数値を入力してください',
+
+  // 利益率関連（REQ-13.3）
+  PROFIT_RATE_INVALID: '利益率は0〜500の範囲で入力してください',
+
+  // NET金額関連
+  NET_AMOUNT_INVALID: 'NET金額は0以上の数値を入力してください',
+
+  // 行タイプ関連
+  LINE_TYPE_INVALID: '行タイプが無効です',
+
+  // その他
+  UUID_INVALID: 'IDの形式が無効です',
+  DATE_INVALID: '日時の形式が無効です',
+} as const;
 
 /**
  * UUIDスキーマ
@@ -57,7 +97,10 @@ export const estimateItemIdParamSchema = z.object({
  * Requirements: REQ-11.5, REQ-13.4
  */
 export const createEstimateSchema = z.object({
-  name: z.string().min(1, '見積書名は必須です').max(200, '見積書名は200文字以内で入力してください'),
+  name: z
+    .string()
+    .min(1, ESTIMATE_VALIDATION_MESSAGES.NAME_REQUIRED)
+    .max(200, ESTIMATE_VALIDATION_MESSAGES.NAME_TOO_LONG),
   sourceItemizedStatementId: uuidSchema.optional(),
 });
 
@@ -67,7 +110,10 @@ export const createEstimateSchema = z.object({
  * Requirements: REQ-11.5, REQ-11.6
  */
 export const updateEstimateSchema = z.object({
-  name: z.string().min(1, '見積書名は必須です').max(200, '見積書名は200文字以内で入力してください'),
+  name: z
+    .string()
+    .min(1, ESTIMATE_VALIDATION_MESSAGES.NAME_REQUIRED)
+    .max(200, ESTIMATE_VALIDATION_MESSAGES.NAME_TOO_LONG),
   expectedUpdatedAt: isoDateTimeSchema,
 });
 
@@ -102,12 +148,17 @@ export const lineTypeSchema = z.enum(['ESTIMATE', 'EXECUTION', 'VENDOR']);
  * 見積項目行入力スキーマ
  *
  * Requirements: REQ-13.1, REQ-13.2
+ * Task 5.1: 入力バリデーションスキーマの定義
  */
 export const estimateItemLineSchema = z.object({
   lineType: lineTypeSchema,
-  name: z.string().max(200, '名称は200文字以内で入力してください').nullable().optional(),
-  specification: z.string().max(500, '規格は500文字以内で入力してください').nullable().optional(),
-  unit: z.string().max(50, '単位は50文字以内で入力してください').nullable().optional(),
+  name: z.string().max(200, ESTIMATE_VALIDATION_MESSAGES.NAME_TOO_LONG).nullable().optional(),
+  specification: z
+    .string()
+    .max(500, ESTIMATE_VALIDATION_MESSAGES.SPECIFICATION_TOO_LONG)
+    .nullable()
+    .optional(),
+  unit: z.string().max(50, ESTIMATE_VALIDATION_MESSAGES.UNIT_TOO_LONG).nullable().optional(),
   quantity: z.number().nullable().optional(),
   unitPrice: z.number().nullable().optional(),
   remarks: z.string().nullable().optional(),
@@ -214,6 +265,7 @@ export const transferQuotationSchema = z.object({
  * NET金額計算スキーマ
  *
  * Requirements: REQ-5.1, REQ-5.2, REQ-5.3, REQ-5.4
+ * Task 5.1: 入力バリデーションスキーマの定義
  */
 export const calculateNetSchema = z.object({
   vendorName: z.string().min(1, '業者名は必須です'),
@@ -224,7 +276,7 @@ export const calculateNetSchema = z.object({
       const num = parseFloat(val);
       return !isNaN(num) && num >= 0;
     },
-    { message: 'NET金額は0以上の数値を入力してください' }
+    { message: ESTIMATE_VALIDATION_MESSAGES.NET_AMOUNT_INVALID }
   ),
 });
 
@@ -232,6 +284,7 @@ export const calculateNetSchema = z.object({
  * 利益率適用スキーマ
  *
  * Requirements: REQ-6.1, REQ-13.3
+ * Task 5.1: 入力バリデーションスキーマの定義
  */
 export const applyProfitRateSchema = z.object({
   profitRate: z.string().refine(
@@ -239,7 +292,7 @@ export const applyProfitRateSchema = z.object({
       const num = parseFloat(val);
       return !isNaN(num) && num >= 0 && num <= 500;
     },
-    { message: '利益率は0〜500の範囲で入力してください' }
+    { message: ESTIMATE_VALIDATION_MESSAGES.PROFIT_RATE_INVALID }
   ),
   overwriteOption: z.enum(['all', 'empty_only', 'unit_price_only']),
 });
