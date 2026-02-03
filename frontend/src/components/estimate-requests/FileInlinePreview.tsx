@@ -72,7 +72,7 @@ const MAX_EXCEL_ROWS = 100;
  * @param mimeType - ファイルのMIMEタイプ
  * @returns プレビュータイプ
  */
-export function detectPreviewType(mimeType: string): PreviewType {
+function detectPreviewType(mimeType: string): PreviewType {
   if (mimeType === 'application/pdf') {
     return 'pdf';
   }
@@ -270,9 +270,7 @@ function ImagePreview({ fileUrl, fileName }: { fileUrl: string; fileName: string
  */
 function ExcelPreview({ data, totalRows }: { data: ExcelRow[]; totalRows: number }) {
   if (data.length === 0) {
-    return (
-      <div style={styles.noPreview}>データが空です</div>
-    );
+    return <div style={styles.noPreview}>データが空です</div>;
   }
 
   // 最初の行をヘッダーとして使用
@@ -427,7 +425,7 @@ export function FileInlinePreview({
 
         setTotalExcelRows(rows.length);
         setExcelData(rows);
-      } catch (err) {
+      } catch {
         setError('プレビューを表示できません。ファイルの読み込みに失敗しました。');
       } finally {
         setIsLoading(false);
