@@ -30,6 +30,12 @@ import { EstimateService } from '../services/estimate.service.js';
 import { EstimateItemService } from '../services/estimate-item.service.js';
 import { EstimateCalculationService } from '../services/estimate-calculation.service.js';
 import { OverheadCostService, OverheadCostType } from '../services/overhead-cost.service.js';
+import {
+  EstimateExportService,
+  ExportFormat,
+  type EstimateExportData,
+  type EstimateExportItem,
+} from '../services/estimate-export.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -52,6 +58,7 @@ import {
   calculateOverheadSchema,
   addOverheadItemSchema,
   getItemsQuerySchema,
+  exportEstimateQuerySchema,
 } from '../schemas/estimate.schema.js';
 import {
   EstimateNotFoundError,
@@ -78,6 +85,7 @@ const estimateService = new EstimateService({
 const estimateItemService = new EstimateItemService({ prisma });
 const estimateCalculationService = new EstimateCalculationService();
 const overheadCostService = new OverheadCostService();
+const estimateExportService = new EstimateExportService();
 
 // ==========================================
 // 見積書CRUD API (Task 4.1)
@@ -1617,5 +1625,179 @@ router.post(
     }
   }
 );
+
+// ==========================================
+// 見積書出力API (Task 6.3)
+// ==========================================
+
+/**
+ * @swagger
+ * /api/estimates/{id}/export:
+ *   get:
+ *     summary: 見積書出力
+ *     description: 見積書をPDFまたはExcel形式で出力
+ *     tags:
+ *       - Estimates
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 見積書ID
+ *       - in: query
+ *         name: format
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [pdf, xlsx]
+ *         description: 出力形式
+ *     responses:
+ *       200:
+ *         description: ファイルバイナリ
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない
+ *       500:
+ *         description: 出力処理エラー
+ */
+router.get(
+  '/:id/export',
+  authenticate,
+  requirePermission('estimate:read'),
+  validate(estimateIdParamSchema, 'params'),
+  validate(exportEstimateQuerySchema, 'query'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const { format } = req.validatedQuery as { format: 'pdf' | 'xlsx' };
+
+      // 見積書を取得
+      const estimate = await estimateService.findById(id);
+
+      if (!estimate) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/estimate-not-found',
+          title: 'Estimate Not Found',
+          status: 404,
+          detail: `見積書が見つかりません: ${id}`,
+          code: 'ESTIMATE_NOT_FOUND',
+          estimateId: id,
+        });
+        return;
+      }
+
+      // 見積項目を階層構造で取得
+      const items = await estimateItemService.getHierarchy(id);
+
+      // 出力用データを構築
+      const exportData: EstimateExportData = {
+        id: estimate.id,
+        name: estimate.name,
+        projectName: (estimate as unknown as { project?: { name: string } }).project?.name ?? '',
+        createdAt: estimate.createdAt,
+        items: items.map((item) => convertToExportItem(item)),
+        totalAmount: null, // サービス内で計算される
+      };
+
+      // 出力形式に応じてエクスポート
+      const exportFormat = format === 'pdf' ? ExportFormat.PDF : ExportFormat.XLSX;
+      const buffer = await estimateExportService.export(exportData, exportFormat);
+
+      // ファイル名を生成
+      const fileName = estimateExportService.generateFileName(exportData, exportFormat);
+
+      // Content-TypeとContent-Dispositionを設定
+      const contentType =
+        format === 'pdf'
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`
+      );
+      res.setHeader('Content-Length', buffer.length);
+
+      logger.info(
+        { userId: req.user?.userId, estimateId: id, format },
+        'Estimate exported successfully'
+      );
+
+      res.send(buffer);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('見積書')) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/export-error',
+          title: 'Export Error',
+          status: 400,
+          detail: error.message,
+          code: 'EXPORT_ERROR',
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * EstimateItemをEstimateExportItemに変換するヘルパー関数
+ */
+function convertToExportItem(item: {
+  id: string;
+  parentId: string | null;
+  displayOrder: number;
+  lines: Array<{
+    id: string;
+    lineType: string;
+    name: string | null;
+    specification: string | null;
+    unit: string | null;
+    quantity: unknown;
+    unitPrice: unknown;
+    amount: unknown;
+    remarks: string | null;
+  }>;
+  children?: unknown[];
+}): EstimateExportItem {
+  return {
+    id: item.id,
+    parentId: item.parentId,
+    displayOrder: item.displayOrder,
+    lines: item.lines.map((line) => ({
+      id: line.id,
+      lineType: line.lineType as 'ESTIMATE' | 'EXECUTION' | 'VENDOR',
+      name: line.name,
+      specification: line.specification,
+      unit: line.unit,
+      quantity: line.quantity !== null ? Number(line.quantity) : null,
+      unitPrice: line.unitPrice !== null ? Number(line.unitPrice) : null,
+      amount: line.amount !== null ? Number(line.amount) : null,
+      remarks: line.remarks,
+    })),
+    children: Array.isArray(item.children)
+      ? item.children.map((child) => convertToExportItem(child as typeof item))
+      : [],
+  };
+}
 
 export default router;

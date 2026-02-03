@@ -112,8 +112,8 @@
   - 高精度10進数計算の精度検証
   - _Requirements: 13.5, 13.6_
 
-- [ ] 6. 見積書出力サービスの実装
-- [ ] 6.1 EstimateExportServiceの実装（PDF出力）
+- [x] 6. 見積書出力サービスの実装
+- [x] 6.1 EstimateExportServiceの実装（PDF出力）
   - jsPDFによるPDF生成基盤
   - 表紙ページの生成（プロジェクト情報、見積書名、合計金額）
   - 第1階層項目一覧ページの生成
@@ -122,14 +122,14 @@
   - 出力処理中状態の管理
   - _Requirements: 10.1, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8_
 
-- [ ] 6.2 (P) Excel出力機能の実装
+- [x] 6.2 (P) Excel出力機能の実装
   - xlsxライブラリによるExcel生成
   - 表紙シートの生成
   - 階層別シートの生成
   - 見積金額行のみ出力
   - _Requirements: 10.2, 10.3, 10.4, 10.5, 10.6, 10.7_
 
-- [ ] 6.3 出力APIエンドポイントの実装
+- [x] 6.3 出力APIエンドポイントの実装
   - GET /api/estimates/:id/export（format: pdf | xlsx）
   - ファイルバイナリレスポンスの処理
   - Content-Disposition、Content-Typeヘッダーの設定
