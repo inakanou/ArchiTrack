@@ -1,22 +1,24 @@
 /**
- * @fileoverview 受領見積書サービス
+ * @fileoverview 受領見積書サービス（改訂版: Task 20.2）
  *
  * 受領見積書のCRUD操作とファイル管理を担当します。
+ * 改訂版ではcontentType/textContentを廃止し、ファイルと明細行の共存モデルへ移行。
  *
  * Requirements:
  * - 11.1: 受領見積書登録ボタン
  * - 11.2: 受領見積書登録フォーム
  * - 11.3: 受領見積書名（必須）
  * - 11.4: 提出日（必須）
- * - 11.5: テキスト入力フィールド
  * - 11.6, 11.8: ファイルアップロード
- * - 11.7: テキストとファイルの排他的選択
- * - 11.9, 11.10: バリデーションエラー
+ * - 11.9: 構造化データ入力エリア
+ * - 11.10: バリデーションエラー
  * - 11.11: 複数の受領見積書を許可
  * - 11.14: ファイルプレビュー
  * - 11.15, 11.16, 11.17: 編集・削除
+ * - 11.22: ファイルまたは明細行データのいずれかが必須
  *
  * Task 12.1: ReceivedQuotationServiceの実装
+ * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  *
  * @module services/received-quotation
  */
@@ -54,11 +56,6 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 /**
- * コンテンツタイプ
- */
-type ContentType = 'TEXT' | 'FILE';
-
-/**
  * 受領見積書サービス依存関係
  */
 export interface ReceivedQuotationServiceDependencies {
@@ -77,38 +74,33 @@ export interface FileInfo {
 }
 
 /**
- * 受領見積書作成入力
+ * 受領見積書作成入力（改訂版）
  */
 export interface CreateReceivedQuotationInput {
   estimateRequestId: string;
   name: string;
   submittedAt: Date;
-  contentType: ContentType;
-  textContent?: string;
   file?: FileInfo;
 }
 
 /**
- * 受領見積書更新入力
+ * 受領見積書更新入力（改訂版）
  */
 export interface UpdateReceivedQuotationInput {
   name?: string;
   submittedAt?: Date;
-  contentType?: ContentType;
-  textContent?: string;
   file?: FileInfo;
+  removeFile?: boolean;
 }
 
 /**
- * 受領見積書情報
+ * 受領見積書情報（改訂版）
  */
 export interface ReceivedQuotationInfo {
   id: string;
   estimateRequestId: string;
   name: string;
   submittedAt: Date;
-  contentType: ContentType;
-  textContent: string | null;
   fileName: string | null;
   fileMimeType: string | null;
   fileSize: number | null;
@@ -125,9 +117,10 @@ type PrismaTransactionClient = Omit<
 >;
 
 /**
- * 受領見積書サービス
+ * 受領見積書サービス（改訂版）
  *
  * 受領見積書のCRUD操作とファイル管理を担当します。
+ * contentType/textContentを廃止し、ファイルと明細行データの共存を許可します。
  */
 export class ReceivedQuotationService {
   private readonly prisma: PrismaClient;
@@ -136,27 +129,6 @@ export class ReceivedQuotationService {
   constructor(deps: ReceivedQuotationServiceDependencies) {
     this.prisma = deps.prisma;
     this.storageProvider = deps.storageProvider;
-  }
-
-  /**
-   * コンテンツの整合性を検証する
-   *
-   * Requirements: 11.7
-   */
-  private validateContentIntegrity(
-    contentType: ContentType,
-    textContent?: string,
-    file?: FileInfo
-  ): void {
-    if (contentType === 'TEXT') {
-      if (!textContent || textContent.trim().length === 0) {
-        throw new InvalidContentTypeError('TEXT');
-      }
-    } else {
-      if (!file) {
-        throw new InvalidContentTypeError('FILE');
-      }
-    }
   }
 
   /**
@@ -220,29 +192,25 @@ export class ReceivedQuotationService {
   }
 
   /**
-   * 受領見積書を作成する
+   * 受領見積書を作成する（改訂版）
    *
-   * Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8, 11.9, 11.10
+   * Requirements: 11.1, 11.2, 11.3, 11.4, 11.6, 11.8, 11.9, 11.10, 11.22
    *
    * @param input - 作成入力
    * @returns 作成された受領見積書情報
    * @throws EstimateRequestNotFoundError 見積依頼が存在しない場合
-   * @throws InvalidContentTypeError コンテンツタイプの整合性エラー
    * @throws InvalidFileTypeError ファイル形式エラー
    * @throws FileSizeLimitExceededError ファイルサイズ超過
    */
   async create(input: CreateReceivedQuotationInput): Promise<ReceivedQuotationInfo> {
-    // 1. コンテンツの整合性を検証
-    this.validateContentIntegrity(input.contentType, input.textContent, input.file);
-
-    // 2. ファイルのバリデーション
-    if (input.contentType === 'FILE' && input.file) {
+    // 1. ファイルのバリデーション
+    if (input.file) {
       this.validateFileType(input.file);
       this.validateFileSize(input.file);
     }
 
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 3. 見積依頼の存在確認
+      // 2. 見積依頼の存在確認
       const estimateRequest = await tx.estimateRequest.findUnique({
         where: { id: input.estimateRequestId },
         select: { id: true, deletedAt: true },
@@ -252,24 +220,22 @@ export class ReceivedQuotationService {
         throw new EstimateRequestNotFoundError(input.estimateRequestId);
       }
 
-      // 4. 仮のIDでレコードを作成（ファイルパス生成のため）
+      // 3. レコードを作成
       const quotation = await tx.receivedQuotation.create({
         data: {
           estimateRequestId: input.estimateRequestId,
           name: input.name.trim(),
           submittedAt: input.submittedAt,
-          contentType: input.contentType,
-          textContent: input.contentType === 'TEXT' ? input.textContent!.trim() : null,
           filePath: null,
-          fileName: input.contentType === 'FILE' ? input.file!.originalName : null,
-          fileMimeType: input.contentType === 'FILE' ? input.file!.mimeType : null,
-          fileSize: input.contentType === 'FILE' ? input.file!.size : null,
+          fileName: input.file ? input.file.originalName : null,
+          fileMimeType: input.file ? input.file.mimeType : null,
+          fileSize: input.file ? input.file.size : null,
         },
       });
 
-      // 5. ファイルをアップロードしてパスを更新
+      // 4. ファイルをアップロードしてパスを更新
       let filePath: string | null = null;
-      if (input.contentType === 'FILE' && input.file) {
+      if (input.file) {
         filePath = await this.uploadFile(input.estimateRequestId, quotation.id, input.file);
 
         await tx.receivedQuotation.update({
@@ -324,7 +290,7 @@ export class ReceivedQuotationService {
   }
 
   /**
-   * 受領見積書を更新する（楽観的排他制御付き）
+   * 受領見積書を更新する（楽観的排他制御付き、改訂版）
    *
    * Requirements: 11.15, 11.16
    *
@@ -340,11 +306,6 @@ export class ReceivedQuotationService {
     input: UpdateReceivedQuotationInput,
     expectedUpdatedAt: Date
   ): Promise<ReceivedQuotationInfo> {
-    // コンテンツタイプが変更される場合の検証
-    if (input.contentType) {
-      this.validateContentIntegrity(input.contentType, input.textContent, input.file);
-    }
-
     // ファイルのバリデーション
     if (input.file) {
       this.validateFileType(input.file);
@@ -373,8 +334,6 @@ export class ReceivedQuotationService {
       const updateData: {
         name?: string;
         submittedAt?: Date;
-        contentType?: 'TEXT' | 'FILE';
-        textContent?: string | null;
         filePath?: string | null;
         fileName?: string | null;
         fileMimeType?: string | null;
@@ -388,29 +347,18 @@ export class ReceivedQuotationService {
         updateData.submittedAt = input.submittedAt;
       }
 
-      // 4. コンテンツタイプの変更処理
+      // 4. ファイル更新処理
       const oldFilePath = quotation.filePath;
       let newFilePath: string | null = null;
 
-      if (input.contentType !== undefined) {
-        updateData.contentType = input.contentType;
-
-        if (input.contentType === 'TEXT') {
-          updateData.textContent = input.textContent!.trim();
-          updateData.filePath = null;
-          updateData.fileName = null;
-          updateData.fileMimeType = null;
-          updateData.fileSize = null;
-        } else if (input.file) {
-          newFilePath = await this.uploadFile(quotation.estimateRequestId, id, input.file);
-          updateData.textContent = null;
-          updateData.filePath = newFilePath;
-          updateData.fileName = input.file.originalName;
-          updateData.fileMimeType = input.file.mimeType;
-          updateData.fileSize = input.file.size;
-        }
-      } else if (input.file && quotation.contentType === 'FILE') {
-        // ファイルの更新のみ
+      if (input.removeFile) {
+        // ファイル削除要求
+        updateData.filePath = null;
+        updateData.fileName = null;
+        updateData.fileMimeType = null;
+        updateData.fileSize = null;
+      } else if (input.file) {
+        // 新しいファイルのアップロード
         newFilePath = await this.uploadFile(quotation.estimateRequestId, id, input.file);
         updateData.filePath = newFilePath;
         updateData.fileName = input.file.originalName;
@@ -424,11 +372,8 @@ export class ReceivedQuotationService {
         data: updateData,
       });
 
-      // 6. 旧ファイルの削除（新しいファイルがアップロードされた場合）
-      if (oldFilePath && newFilePath && oldFilePath !== newFilePath) {
-        await this.deleteFile(oldFilePath);
-      } else if (oldFilePath && input.contentType === 'TEXT') {
-        // テキストに変更された場合も旧ファイルを削除
+      // 6. 旧ファイルの削除（新しいファイルがアップロードされた場合またはファイル削除要求）
+      if (oldFilePath && (newFilePath || input.removeFile)) {
         await this.deleteFile(oldFilePath);
       }
 
@@ -484,14 +429,14 @@ export class ReceivedQuotationService {
   }
 
   /**
-   * ファイルプレビュー用の署名付きURLを取得する
+   * ファイルプレビュー用の署名付きURLを取得する（改訂版）
    *
    * Requirements: 11.14
    *
    * @param id - 受領見積書ID
    * @returns 署名付きURL
    * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合
-   * @throws InvalidContentTypeError テキストコンテンツの場合
+   * @throws InvalidContentTypeError ファイルが存在しない場合
    */
   async getFilePreviewUrl(id: string): Promise<string> {
     const quotation = await this.prisma.receivedQuotation.findUnique({
@@ -502,7 +447,7 @@ export class ReceivedQuotationService {
       throw new ReceivedQuotationNotFoundError(id);
     }
 
-    if (quotation.contentType !== 'FILE' || !quotation.filePath) {
+    if (!quotation.filePath) {
       throw new InvalidContentTypeError(
         'FILE',
         'この受領見積書にはプレビュー可能なファイルがありません'
@@ -518,15 +463,13 @@ export class ReceivedQuotationService {
   }
 
   /**
-   * データベースの結果をReceivedQuotationInfoに変換
+   * データベースの結果をReceivedQuotationInfoに変換（改訂版）
    */
   private toReceivedQuotationInfo(quotation: {
     id: string;
     estimateRequestId: string;
     name: string;
     submittedAt: Date;
-    contentType: string;
-    textContent: string | null;
     filePath: string | null;
     fileName: string | null;
     fileMimeType: string | null;
@@ -539,8 +482,6 @@ export class ReceivedQuotationService {
       estimateRequestId: quotation.estimateRequestId,
       name: quotation.name,
       submittedAt: quotation.submittedAt,
-      contentType: quotation.contentType as ContentType,
-      textContent: quotation.textContent,
       fileName: quotation.fileName,
       fileMimeType: quotation.fileMimeType,
       fileSize: quotation.fileSize,

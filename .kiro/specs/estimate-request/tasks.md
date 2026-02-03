@@ -436,8 +436,8 @@
   - 一覧画面でのステータス表示確認
   - _Requirements: 12.1, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 12.12_
 
-- [ ] 20. 受領見積書スキーマ改訂（構造化データ入力・OCR対応）
-- [ ] 20.1 ReceivedQuotationLineItemモデルの定義
+- [x] 20. 受領見積書スキーマ改訂（構造化データ入力・OCR対応）
+- [x] 20.1 ReceivedQuotationLineItemモデルの定義
   - 受領見積書の明細行データを永続化するテーブルを新規作成
   - 名称、規格、単位、数量、単価、金額、備考の各フィールドを定義
   - 表示順序（sortOrder）による行順序管理を実装
@@ -446,7 +446,7 @@
   - インデックス設定（receivedQuotationId、sortOrder）
   - _Requirements: 11.9, 11.10, 14.2_
 
-- [ ] 20.2 ReceivedQuotationモデルの改訂マイグレーション
+- [x] 20.2 ReceivedQuotationモデルの改訂マイグレーション
   - contentType列とtextContent列を廃止し、ファイルと明細行の共存モデルへ移行
   - 既存のcontentType='TEXT'レコードのテキストデータを明細行データに変換
   - 既存のcontentType='FILE'レコードはファイル情報をそのまま保持

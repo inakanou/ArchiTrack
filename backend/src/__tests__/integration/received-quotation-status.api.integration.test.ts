@@ -335,9 +335,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const response = await request(app)
           .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', new Date().toISOString())
-          .field('contentType', 'TEXT')
-          .field('textContent', 'テスト内容');
+          .field('submittedAt', new Date().toISOString());
 
         expect(response.status).toBe(401);
       });
@@ -370,9 +368,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
           .set('Authorization', `Bearer ${noPermissionToken}`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', new Date().toISOString())
-          .field('contentType', 'TEXT')
-          .field('textContent', 'テスト内容');
+          .field('submittedAt', new Date().toISOString());
 
         expect(response.status).toBe(403);
       });
@@ -391,20 +387,16 @@ describe('Received Quotation & Status API Integration Tests', () => {
     });
 
     describe('受領見積書作成 (POST /api/estimate-requests/:id/quotations)', () => {
-      it('テキストコンテンツで受領見積書を正常に作成できる', async () => {
+      it('受領見積書を正常に作成できる（ファイルなし）', async () => {
         const response = await request(app)
           .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'TEXT')
-          .field('textContent', '見積金額: 1,000,000円');
+          .field('submittedAt', '2026-01-23T00:00:00.000Z');
 
         expect(response.status).toBe(201);
         expect(response.body).toMatchObject({
           name: 'テスト受領見積書',
-          contentType: 'TEXT',
-          textContent: '見積金額: 1,000,000円',
         });
         expect(response.body.id).toBeDefined();
         expect(response.body.createdAt).toBeDefined();
@@ -414,7 +406,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         testQuotationUpdatedAt = response.body.updatedAt;
       });
 
-      it('ファイルコンテンツで受領見積書を作成できる（multipart/form-data）', async () => {
+      it('ファイル付きで受領見積書を作成できる（multipart/form-data）', async () => {
         const pdfBuffer = Buffer.from('%PDF-1.4 test content');
 
         const response = await request(app)
@@ -422,7 +414,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'PDF受領見積書')
           .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'FILE')
           .attach('file', pdfBuffer, {
             filename: 'quotation.pdf',
             contentType: 'application/pdf',
@@ -431,7 +422,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(response.status).toBe(201);
         expect(response.body).toMatchObject({
           name: 'PDF受領見積書',
-          contentType: 'FILE',
           fileName: 'quotation.pdf',
           fileMimeType: 'application/pdf',
         });
@@ -442,36 +432,10 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .post('/api/estimate-requests/12345678-1234-4234-a234-123456789012/quotations')
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'TEXT')
-          .field('textContent', 'テスト');
+          .field('submittedAt', '2026-01-23T00:00:00.000Z');
 
         expect(response.status).toBe(404);
         expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
-      });
-
-      it('TEXTタイプでテキストがない場合は422を返す', async () => {
-        const response = await request(app)
-          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'TEXT');
-
-        expect(response.status).toBe(422);
-        expect(response.body.code).toBe('INVALID_CONTENT_TYPE');
-      });
-
-      it('FILEタイプでファイルがない場合は422を返す', async () => {
-        const response = await request(app)
-          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'FILE');
-
-        expect(response.status).toBe(422);
-        expect(response.body.code).toBe('INVALID_CONTENT_TYPE');
       });
 
       it('許可されていないファイル形式の場合は415を返す（Requirements: 11.8）', async () => {
@@ -482,7 +446,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
           .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'FILE')
           .attach('file', exeBuffer, {
             filename: 'test.exe',
             contentType: 'application/x-msdownload',
@@ -501,8 +464,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '受領見積書1',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: 'テスト1',
           },
         });
         await prisma.receivedQuotation.create({
@@ -510,8 +471,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '受領見積書2',
             submittedAt: new Date('2026-01-24'),
-            contentType: 'TEXT',
-            textContent: 'テスト2',
           },
         });
       });
@@ -534,8 +493,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '詳細取得テスト',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: 'テスト内容',
           },
         });
         testQuotationId = quotation.id;
@@ -551,7 +508,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(response.body).toMatchObject({
           id: testQuotationId,
           name: '詳細取得テスト',
-          contentType: 'TEXT',
         });
       });
 
@@ -572,8 +528,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '更新テスト',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: '更新前テスト内容',
           },
         });
         testQuotationId = quotation.id;
@@ -610,8 +564,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '削除テスト',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: '削除テスト内容',
           },
         });
         testQuotationId = quotation.id;
@@ -660,8 +612,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           estimateRequestId: testEstimateRequestId,
           name: '楽観的排他制御テスト',
           submittedAt: new Date('2026-01-23'),
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         },
       });
       testQuotationId = quotation.id;
@@ -860,7 +810,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           estimateRequestId: testEstimateRequestId,
           name: 'ファイルプレビューテスト',
           submittedAt: new Date('2026-01-23'),
-          contentType: 'FILE',
           filePath: 'quotations/test/file.pdf',
           fileName: 'file.pdf',
           fileMimeType: 'application/pdf',
@@ -879,20 +828,18 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(response.body).toHaveProperty('url');
     });
 
-    it('テキストコンテンツの受領見積書の場合は422を返す', async () => {
-      // テキストコンテンツの受領見積書を作成
-      const textQuotation = await prisma.receivedQuotation.create({
+    it('ファイルなしの受領見積書の場合は422を返す', async () => {
+      // ファイルなしの受領見積書を作成
+      const noFileQuotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
-          name: 'テキストプレビューテスト',
+          name: 'ファイルなしプレビューテスト',
           submittedAt: new Date('2026-01-23'),
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         },
       });
 
       const response = await request(app)
-        .get(`/api/quotations/${textQuotation.id}/preview`)
+        .get(`/api/quotations/${noFileQuotation.id}/preview`)
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(response.status).toBe(422);

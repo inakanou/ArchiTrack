@@ -795,14 +795,8 @@ enum EstimateRequestStatus {
   QUOTATION_RECEIVED // 見積受領済
 }
 
-/**
- * 受領見積書コンテンツタイプ
- * Requirements: 11.7 - テキスト入力とファイルアップロードの排他的選択
- */
-enum ReceivedQuotationContentType {
-  TEXT // テキスト入力
-  FILE // ファイルアップロード
-}
+// ReceivedQuotationContentType enum は廃止（Task 20.2: ファイルと明細行の共存モデルへ移行）
+// 旧定義: TEXT / FILE の排他的選択 → 新設計: ファイルと明細行の共存を許可
 
 /**
  * 見積依頼モデル
@@ -917,20 +911,19 @@ model EstimateRequestItem {
 }
 
 /**
- * 受領見積書モデル
+ * 受領見積書モデル（改訂版: Task 20.2）
  * 見積依頼に対する協力業者からの返答として届いた受領見積書を管理する。
- * テキスト入力またはファイルアップロードのいずれかでコンテンツを保存する。
+ * ファイルアップロード（任意）と構造化明細行データ（任意）の共存を許可する。
+ * ファイルまたは明細行データのいずれか一方は必須。
  * フィールド:
  * - id: 受領見積書の一意ID（UUID）
  * - estimateRequestId: 見積依頼ID（外部キー、カスケード削除）
  * - name: 受領見積書名（必須、最大200文字）
  * - submittedAt: 提出日（必須）
- * - contentType: コンテンツタイプ（TEXT/FILE）
- * - textContent: テキストコンテンツ（contentType=TEXTの場合に必須）
- * - filePath: R2オブジェクトパス（contentType=FILEの場合に必須）
- * - fileName: 元ファイル名（contentType=FILEの場合に必須）
- * - fileMimeType: MIMEタイプ（contentType=FILEの場合に必須）
- * - fileSize: ファイルサイズ（バイト、contentType=FILEの場合に必須）
+ * - filePath: R2オブジェクトパス（ファイルアップロード時）
+ * - fileName: 元ファイル名
+ * - fileMimeType: MIMEタイプ
+ * - fileSize: ファイルサイズ（バイト）
  * - createdAt: 作成日時
  * - updatedAt: 更新日時（楽観的排他制御用）
  * - deletedAt: 論理削除日時
@@ -939,35 +932,78 @@ model EstimateRequestItem {
  * - deletedAt: 論理削除フィルタリング用
  * - createdAt: 作成日時でのソート用
  * Requirements:
- * - 11.1-11.17: 受領見積書登録機能
+ * - 11.1-11.30: 受領見積書登録機能
  * - 11.3: 受領見積書名（必須）
  * - 11.4: 提出日（必須）
- * - 11.5: テキスト入力フィールド
- * - 11.6, 11.8: ファイルアップロード
- * - 11.7: テキストとファイルの排他的選択
- * - 11.11: 1つの見積依頼に対して複数の受領見積書を許可
+ * - 11.9: 構造化データ入力エリア
+ * - 11.22: ファイルまたは明細行データのいずれかが必須
+ * - 11.25: 1つの見積依頼に対して複数の受領見積書を許可
+ * - 14.1-14.2: 受領見積書データ管理
  */
 model ReceivedQuotation {
-  id                String                       @id @default(uuid())
+  id                String    @id @default(uuid())
   estimateRequestId String
   name              String // 受領見積書名（必須、最大200文字）
-  submittedAt       DateTime                     @db.Date // 提出日
-  contentType       ReceivedQuotationContentType // コンテンツタイプ（TEXT/FILE）
-  textContent       String? // テキストコンテンツ（contentType=TEXTの場合）
-  filePath          String? // R2オブジェクトパス（contentType=FILEの場合）
-  fileName          String? // 元ファイル名（contentType=FILEの場合）
-  fileMimeType      String? // MIMEタイプ（contentType=FILEの場合）
-  fileSize          Int? // ファイルサイズ（バイト、contentType=FILEの場合）
-  createdAt         DateTime                     @default(now())
-  updatedAt         DateTime                     @updatedAt
+  submittedAt       DateTime  @db.Date // 提出日
+  // contentType列を廃止: ファイルと明細行の共存を許可 (Task 20.2)
+  filePath          String? // R2オブジェクトパス（ファイルアップロード時）
+  fileName          String? // 元ファイル名
+  fileMimeType      String? // MIMEタイプ
+  fileSize          Int? // ファイルサイズ（バイト）
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   deletedAt         DateTime? // 論理削除
 
-  estimateRequest EstimateRequest @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+  estimateRequest EstimateRequest             @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+  lineItems       ReceivedQuotationLineItem[] // 明細行リレーション (11.9)
 
   @@index([estimateRequestId])
   @@index([deletedAt])
   @@index([createdAt])
   @@map("received_quotations")
+}
+
+/**
+ * 受領見積書明細行モデル
+ * 受領見積書に紐付く構造化明細行データを管理する。
+ * 名称、規格、単位、数量、単価、金額、備考の各フィールドを保持し、
+ * 表示順序（sortOrder）で行の並び順を管理する。
+ * フィールド:
+ * - id: 明細行の一意ID（UUID）
+ * - receivedQuotationId: 受領見積書ID（外部キー、カスケード削除）
+ * - sortOrder: 表示順序（0始まり）
+ * - name: 名称（必須）
+ * - specification: 規格（任意）
+ * - unit: 単位（任意）
+ * - quantity: 数量（Decimal(15, 4)、任意）
+ * - unitPrice: 単価（Decimal(15, 2)、任意）
+ * - amount: 金額（Decimal(15, 2)、数量 x 単価の自動計算値、任意）
+ * - remarks: 備考（任意）
+ * インデックス:
+ * - receivedQuotationId: 受領見積書単位での明細行検索用
+ * - sortOrder: 表示順序によるソート用
+ * Requirements:
+ * - 11.9: 構造化データ入力エリアに明細行を表示
+ * - 11.10: 名称、規格、単位、数量、単価、金額、備考フィールド
+ * - 14.2: 受領見積書の明細行データをデータベースに永続化
+ */
+model ReceivedQuotationLineItem {
+  id                  String   @id @default(uuid())
+  receivedQuotationId String
+  sortOrder           Int // 表示順序（0始まり）
+  name                String // 名称（必須）
+  specification       String? // 規格
+  unit                String? // 単位
+  quantity            Decimal? @db.Decimal(15, 4) // 数量
+  unitPrice           Decimal? @db.Decimal(15, 2) // 単価
+  amount              Decimal? @db.Decimal(15, 2) // 金額（数量 x 単価、自動計算）
+  remarks             String? // 備考
+
+  receivedQuotation ReceivedQuotation @relation(fields: [receivedQuotationId], references: [id], onDelete: Cascade)
+
+  @@index([receivedQuotationId])
+  @@index([sortOrder])
+  @@map("received_quotation_line_items")
 }
 
 /**

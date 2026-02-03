@@ -1,5 +1,5 @@
 /**
- * @fileoverview 受領見積書・ステータス管理バリデーションスキーマのテスト
+ * @fileoverview 受領見積書・ステータス管理バリデーションスキーマのテスト（改訂版: Task 20.2）
  *
  * TDD: RED phase - テストを先に書く
  *
@@ -8,6 +8,7 @@
  * - 12.9: ステータス遷移のバリデーション
  *
  * Task 13.1: Zodバリデーションスキーマの定義
+ * Task 20.2: contentType/textContent廃止対応
  *
  * @module __tests__/unit/schemas/received-quotation.schema
  */
@@ -31,8 +32,6 @@ describe('received-quotation.schema', () => {
         const input = {
           name: 'テスト受領見積書',
           submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         };
 
         const result = createReceivedQuotationSchema.safeParse(input);
@@ -47,8 +46,6 @@ describe('received-quotation.schema', () => {
         const input = {
           name: '',
           submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         };
 
         const result = createReceivedQuotationSchema.safeParse(input);
@@ -65,8 +62,6 @@ describe('received-quotation.schema', () => {
         const input = {
           name: 'a'.repeat(201),
           submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         };
 
         const result = createReceivedQuotationSchema.safeParse(input);
@@ -83,8 +78,6 @@ describe('received-quotation.schema', () => {
         const input = {
           name: '   ',
           submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         };
 
         const result = createReceivedQuotationSchema.safeParse(input);
@@ -98,8 +91,6 @@ describe('received-quotation.schema', () => {
         const input = {
           name: 'テスト受領見積書',
           submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         };
 
         const result = createReceivedQuotationSchema.safeParse(input);
@@ -111,8 +102,6 @@ describe('received-quotation.schema', () => {
         const input = {
           name: 'テスト受領見積書',
           submittedAt: 'not-a-date',
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         };
 
         const result = createReceivedQuotationSchema.safeParse(input);
@@ -126,8 +115,25 @@ describe('received-quotation.schema', () => {
       });
     });
 
-    describe('contentType field', () => {
-      it('should accept TEXT content type', () => {
+    describe('simplified schema (Task 20.2: contentType/textContent removed)', () => {
+      it('should accept input without contentType or textContent', () => {
+        const input = {
+          name: 'テスト受領見積書',
+          submittedAt: '2024-01-15T00:00:00.000Z',
+        };
+
+        const result = createReceivedQuotationSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data).toEqual({
+            name: 'テスト受領見積書',
+            submittedAt: '2024-01-15T00:00:00.000Z',
+          });
+        }
+      });
+
+      it('should strip unknown fields like contentType', () => {
         const input = {
           name: 'テスト受領見積書',
           submittedAt: '2024-01-15T00:00:00.000Z',
@@ -137,65 +143,12 @@ describe('received-quotation.schema', () => {
 
         const result = createReceivedQuotationSchema.safeParse(input);
 
+        // Zod strips unknown fields by default
         expect(result.success).toBe(true);
         if (result.success) {
-          expect(result.data.contentType).toBe('TEXT');
+          expect('contentType' in result.data).toBe(false);
+          expect('textContent' in result.data).toBe(false);
         }
-      });
-
-      it('should accept FILE content type', () => {
-        const input = {
-          name: 'テスト受領見積書',
-          submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'FILE',
-        };
-
-        const result = createReceivedQuotationSchema.safeParse(input);
-
-        expect(result.success).toBe(true);
-        if (result.success) {
-          expect(result.data.contentType).toBe('FILE');
-        }
-      });
-
-      it('should reject invalid content type', () => {
-        const input = {
-          name: 'テスト受領見積書',
-          submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'INVALID',
-          textContent: 'テスト内容',
-        };
-
-        const result = createReceivedQuotationSchema.safeParse(input);
-
-        expect(result.success).toBe(false);
-      });
-    });
-
-    describe('textContent field', () => {
-      it('should accept textContent when contentType is TEXT', () => {
-        const input = {
-          name: 'テスト受領見積書',
-          submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
-        };
-
-        const result = createReceivedQuotationSchema.safeParse(input);
-
-        expect(result.success).toBe(true);
-      });
-
-      it('should accept empty textContent field for FILE type', () => {
-        const input = {
-          name: 'テスト受領見積書',
-          submittedAt: '2024-01-15T00:00:00.000Z',
-          contentType: 'FILE',
-        };
-
-        const result = createReceivedQuotationSchema.safeParse(input);
-
-        expect(result.success).toBe(true);
       });
     });
   });
@@ -236,16 +189,18 @@ describe('received-quotation.schema', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should accept content type change', () => {
+    it('should accept removeFile flag (Task 20.2)', () => {
       const input = {
-        contentType: 'TEXT',
-        textContent: '新しいテキスト内容',
+        removeFile: true,
         expectedUpdatedAt: '2024-01-15T00:00:00.000Z',
       };
 
       const result = updateReceivedQuotationSchema.safeParse(input);
 
       expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.removeFile).toBe(true);
+      }
     });
   });
 

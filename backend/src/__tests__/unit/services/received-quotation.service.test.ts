@@ -1,5 +1,5 @@
 /**
- * @fileoverview ReceivedQuotationService ユニットテスト
+ * @fileoverview ReceivedQuotationService ユニットテスト（改訂版: Task 20.2）
  *
  * TDD: RED phase - テストを先に書く
  *
@@ -8,15 +8,15 @@
  * - 11.2: 受領見積書登録フォーム
  * - 11.3: 受領見積書名（必須）
  * - 11.4: 提出日（必須）
- * - 11.5: テキスト入力フィールド
  * - 11.6, 11.8: ファイルアップロード
- * - 11.7: テキストとファイルの排他的選択
  * - 11.9, 11.10: バリデーションエラー
  * - 11.11: 複数の受領見積書を許可
  * - 11.14: ファイルプレビュー
  * - 11.15, 11.16, 11.17: 編集・削除
+ * - 11.22: ファイルまたは明細行データのいずれかが必須
  *
  * Task 12.1: ReceivedQuotationServiceの実装
+ * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  *
  * @module tests/unit/services/received-quotation.service
  */
@@ -93,14 +93,12 @@ describe('ReceivedQuotationService', () => {
   });
 
   describe('create', () => {
-    it('テキストコンテンツで受領見積書を作成する（Requirements: 11.3, 11.4, 11.5）', async () => {
+    it('ファイルなしで受領見積書を作成する（Requirements: 11.3, 11.4）', async () => {
       // Arrange
       const input = {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT' as const,
-        textContent: '見積金額: 1,000,000円',
       };
 
       const mockEstimateRequest = {
@@ -113,8 +111,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT',
-        textContent: '見積金額: 1,000,000円',
         filePath: null,
         fileName: null,
         fileMimeType: null,
@@ -142,18 +138,15 @@ describe('ReceivedQuotationService', () => {
       // Assert
       expect(result.id).toBe('rq-001');
       expect(result.name).toBe('テスト受領見積書');
-      expect(result.contentType).toBe('TEXT');
-      expect(result.textContent).toBe('見積金額: 1,000,000円');
       expect(result.fileName).toBeNull();
     });
 
-    it('ファイルコンテンツで受領見積書を作成する（Requirements: 11.6, 11.8）', async () => {
+    it('ファイル付きで受領見積書を作成する（Requirements: 11.6, 11.8）', async () => {
       // Arrange
       const input = {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（PDF）',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE' as const,
         file: {
           buffer: Buffer.from('PDF content'),
           originalName: '見積書.pdf',
@@ -172,8 +165,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（PDF）',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE',
-        textContent: null,
         filePath: 'quotations/er-001/rq-002/見積書.pdf',
         fileName: '見積書.pdf',
         fileMimeType: 'application/pdf',
@@ -201,7 +192,6 @@ describe('ReceivedQuotationService', () => {
 
       // Assert
       expect(result.id).toBe('rq-002');
-      expect(result.contentType).toBe('FILE');
       expect(result.fileName).toBe('見積書.pdf');
       expect(result.fileMimeType).toBe('application/pdf');
       expect(mockStorageProvider.upload).toHaveBeenCalled();
@@ -213,8 +203,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-nonexistent',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT' as const,
-        textContent: '見積金額: 1,000,000円',
       };
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
@@ -230,41 +218,12 @@ describe('ReceivedQuotationService', () => {
       await expect(service.create(input)).rejects.toThrow(EstimateRequestNotFoundError);
     });
 
-    it('TEXTコンテンツタイプでテキストが未入力の場合、エラーを発生させる（Requirements: 11.7）', async () => {
-      // Arrange
-      const input = {
-        estimateRequestId: 'er-001',
-        name: 'テスト受領見積書',
-        submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT' as const,
-        textContent: undefined,
-      };
-
-      // Act & Assert
-      await expect(service.create(input)).rejects.toThrow(InvalidContentTypeError);
-    });
-
-    it('FILEコンテンツタイプでファイルが未指定の場合、エラーを発生させる（Requirements: 11.7）', async () => {
-      // Arrange
-      const input = {
-        estimateRequestId: 'er-001',
-        name: 'テスト受領見積書',
-        submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE' as const,
-        file: undefined,
-      };
-
-      // Act & Assert
-      await expect(service.create(input)).rejects.toThrow(InvalidContentTypeError);
-    });
-
     it('許可されていないファイル形式の場合、エラーを発生させる（Requirements: 11.8）', async () => {
       // Arrange
       const input = {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE' as const,
         file: {
           buffer: Buffer.from('invalid content'),
           originalName: 'test.exe',
@@ -283,7 +242,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE' as const,
         file: {
           buffer: Buffer.from('large content'),
           originalName: 'large.pdf',
@@ -302,7 +260,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（Excel）',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE' as const,
         file: {
           buffer: Buffer.from('Excel content'),
           originalName: '見積書.xlsx',
@@ -321,8 +278,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（Excel）',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE',
-        textContent: null,
         filePath: 'quotations/er-001/rq-003/見積書.xlsx',
         fileName: '見積書.xlsx',
         fileMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -360,7 +315,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（画像）',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE' as const,
         file: {
           buffer: Buffer.from('Image content'),
           originalName: '見積書.jpg',
@@ -379,8 +333,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（画像）',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE',
-        textContent: null,
         filePath: 'quotations/er-001/rq-004/見積書.jpg',
         fileName: '見積書.jpg',
         fileMimeType: 'image/jpeg',
@@ -420,8 +372,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT',
-        textContent: '見積金額: 1,000,000円',
         filePath: null,
         fileName: null,
         fileMimeType: null,
@@ -460,8 +410,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT',
-        textContent: '見積金額',
         filePath: null,
         fileName: null,
         fileMimeType: null,
@@ -491,8 +439,6 @@ describe('ReceivedQuotationService', () => {
           estimateRequestId: 'er-001',
           name: '受領見積書1',
           submittedAt: new Date('2026-01-23'),
-          contentType: 'TEXT',
-          textContent: '見積金額1',
           filePath: null,
           fileName: null,
           fileMimeType: null,
@@ -506,8 +452,6 @@ describe('ReceivedQuotationService', () => {
           estimateRequestId: 'er-001',
           name: '受領見積書2',
           submittedAt: new Date('2026-01-22'),
-          contentType: 'FILE',
-          textContent: null,
           filePath: 'quotations/er-001/rq-002/見積書.pdf',
           fileName: '見積書.pdf',
           fileMimeType: 'application/pdf',
@@ -563,8 +507,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: '元の受領見積書名',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT',
-        textContent: '見積金額',
         filePath: null,
         fileName: null,
         fileMimeType: null,
@@ -608,8 +550,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: '受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT',
-        textContent: '見積金額',
         filePath: null,
         fileName: null,
         fileMimeType: null,
@@ -639,7 +579,6 @@ describe('ReceivedQuotationService', () => {
       const quotationId = 'rq-001';
       const expectedUpdatedAt = new Date('2026-01-23T00:00:00Z');
       const input = {
-        contentType: 'FILE' as const,
         file: {
           buffer: Buffer.from('New PDF content'),
           originalName: '新しい見積書.pdf',
@@ -653,8 +592,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: '受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE',
-        textContent: null,
         filePath: 'quotations/er-001/rq-001/旧見積書.pdf', // 旧ファイル
         fileName: '旧見積書.pdf',
         fileMimeType: 'application/pdf',
@@ -704,8 +641,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE',
-        textContent: null,
         filePath: 'quotations/er-001/rq-001/見積書.pdf',
         fileName: '見積書.pdf',
         fileMimeType: 'application/pdf',
@@ -734,7 +669,7 @@ describe('ReceivedQuotationService', () => {
       );
     });
 
-    it('テキストコンテンツの場合、ファイル削除は行わない', async () => {
+    it('ファイルなしの受領見積書の場合、ファイル削除は行わない', async () => {
       // Arrange
       const quotationId = 'rq-001';
       const expectedUpdatedAt = new Date('2026-01-23T00:00:00Z');
@@ -744,8 +679,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT',
-        textContent: '見積金額',
         filePath: null,
         fileName: null,
         fileMimeType: null,
@@ -799,8 +732,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'FILE',
-        textContent: null,
         filePath: 'quotations/er-001/rq-001/見積書.pdf',
         fileName: '見積書.pdf',
         fileMimeType: 'application/pdf',
@@ -826,7 +757,7 @@ describe('ReceivedQuotationService', () => {
       );
     });
 
-    it('テキストコンテンツの受領見積書の場合、エラーを発生させる', async () => {
+    it('ファイルなしの受領見積書の場合、エラーを発生させる', async () => {
       // Arrange
       const quotationId = 'rq-001';
       const mockQuotation = {
@@ -834,8 +765,6 @@ describe('ReceivedQuotationService', () => {
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
-        contentType: 'TEXT',
-        textContent: '見積金額',
         filePath: null,
         fileName: null,
         fileMimeType: null,

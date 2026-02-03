@@ -101,7 +101,6 @@ const upload = multer({
  *             required:
  *               - name
  *               - submittedAt
- *               - contentType
  *             properties:
  *               name:
  *                 type: string
@@ -111,17 +110,10 @@ const upload = multer({
  *                 type: string
  *                 format: date-time
  *                 description: 提出日
- *               contentType:
- *                 type: string
- *                 enum: [TEXT, FILE]
- *                 description: コンテンツタイプ
- *               textContent:
- *                 type: string
- *                 description: テキスト内容（contentType=TEXTの場合）
  *               file:
  *                 type: string
  *                 format: binary
- *                 description: ファイル（contentType=FILEの場合）
+ *                 description: ファイル（任意）
  *     responses:
  *       201:
  *         description: 受領見積書作成成功
@@ -154,16 +146,12 @@ router.post(
       const validatedBody = req.validatedBody as {
         name: string;
         submittedAt: string;
-        contentType: 'TEXT' | 'FILE';
-        textContent?: string;
       };
 
       const input = {
         estimateRequestId,
         name: validatedBody.name,
         submittedAt: new Date(validatedBody.submittedAt),
-        contentType: validatedBody.contentType,
-        textContent: validatedBody.textContent,
         file: req.file
           ? {
               buffer: req.file.buffer,
@@ -382,17 +370,13 @@ router.get(
  *                 type: string
  *                 format: date-time
  *                 description: 提出日
- *               contentType:
- *                 type: string
- *                 enum: [TEXT, FILE]
- *                 description: コンテンツタイプ
- *               textContent:
- *                 type: string
- *                 description: テキスト内容
  *               file:
  *                 type: string
  *                 format: binary
- *                 description: ファイル
+ *                 description: ファイル（任意）
+ *               removeFile:
+ *                 type: boolean
+ *                 description: ファイル削除フラグ
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
@@ -430,8 +414,7 @@ router.put(
         expectedUpdatedAt: string;
         name?: string;
         submittedAt?: string;
-        contentType?: 'TEXT' | 'FILE';
-        textContent?: string;
+        removeFile?: boolean;
       };
 
       const input = {

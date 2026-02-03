@@ -1,23 +1,18 @@
 /**
- * @fileoverview 受領見積書・ステータス管理バリデーションスキーマ
+ * @fileoverview 受領見積書・ステータス管理バリデーションスキーマ（改訂版: Task 20.2）
  *
  * Requirements:
  * - 11.10: バリデーションエラー表示
+ * - 11.22: ファイルまたは明細行データのいずれかが必須
  * - 12.9: ステータス遷移のバリデーション
  *
  * Task 13.1: Zodバリデーションスキーマの定義
+ * Task 20.2: contentType/textContent廃止対応
  *
  * @module schemas/received-quotation
  */
 
 import { z } from 'zod';
-
-/**
- * コンテンツタイプのEnum型
- * Requirements: 11.7
- */
-export const CONTENT_TYPES = ['TEXT', 'FILE'] as const;
-export type ContentType = (typeof CONTENT_TYPES)[number];
 
 /**
  * 見積依頼ステータスのEnum型
@@ -43,12 +38,6 @@ export const RECEIVED_QUOTATION_VALIDATION_MESSAGES = {
   SUBMITTED_AT_REQUIRED: '提出日は必須です',
   SUBMITTED_AT_INVALID: '提出日の形式が不正です',
 
-  // コンテンツタイプ
-  CONTENT_TYPE_INVALID: '無効なコンテンツタイプです',
-
-  // テキスト内容
-  TEXT_CONTENT_REQUIRED: 'テキスト内容は必須です',
-
   // ファイル
   FILE_REQUIRED: 'ファイルは必須です',
   FILE_TYPE_INVALID:
@@ -73,9 +62,9 @@ export const RECEIVED_QUOTATION_VALIDATION_MESSAGES = {
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * 受領見積書作成スキーマ
+ * 受領見積書作成スキーマ（改訂版）
  *
- * Requirements: 11.3, 11.4, 11.5, 11.6, 11.7, 11.10
+ * Requirements: 11.3, 11.4, 11.6, 11.10, 11.22
  */
 export const createReceivedQuotationSchema = z.object({
   name: z
@@ -89,10 +78,6 @@ export const createReceivedQuotationSchema = z.object({
   submittedAt: z
     .string()
     .datetime({ message: RECEIVED_QUOTATION_VALIDATION_MESSAGES.SUBMITTED_AT_INVALID }),
-
-  contentType: z.enum(CONTENT_TYPES, RECEIVED_QUOTATION_VALIDATION_MESSAGES.CONTENT_TYPE_INVALID),
-
-  textContent: z.string().optional(),
 });
 
 /**
@@ -101,7 +86,7 @@ export const createReceivedQuotationSchema = z.object({
 export type CreateReceivedQuotationInput = z.infer<typeof createReceivedQuotationSchema>;
 
 /**
- * 受領見積書更新スキーマ
+ * 受領見積書更新スキーマ（改訂版）
  * expectedUpdatedAtは楽観的排他制御用
  *
  * Requirements: 11.15, 11.16
@@ -121,11 +106,7 @@ export const updateReceivedQuotationSchema = z.object({
     .datetime({ message: RECEIVED_QUOTATION_VALIDATION_MESSAGES.SUBMITTED_AT_INVALID })
     .optional(),
 
-  contentType: z
-    .enum(CONTENT_TYPES, RECEIVED_QUOTATION_VALIDATION_MESSAGES.CONTENT_TYPE_INVALID)
-    .optional(),
-
-  textContent: z.string().optional(),
+  removeFile: z.boolean().optional(),
 
   expectedUpdatedAt: z
     .string()
