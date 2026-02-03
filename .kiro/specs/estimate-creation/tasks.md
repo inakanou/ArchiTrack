@@ -135,8 +135,8 @@
   - Content-Disposition、Content-Typeヘッダーの設定
   - _Requirements: 10.1, 10.2, 10.8_
 
-- [ ] 7. フロントエンド計算ユーティリティの実装
-- [ ] 7.1 EstimateCalculator（クライアントサイド計算モジュール）の実装
+- [x] 7. フロントエンド計算ユーティリティの実装
+- [x] 7.1 EstimateCalculator（クライアントサイド計算モジュール）の実装
   - Decimal.jsによる金額計算（calculateAmount）
   - 合計金額計算（calculateSubtotal）
   - 階層金額計算（calculateHierarchyAmounts）
