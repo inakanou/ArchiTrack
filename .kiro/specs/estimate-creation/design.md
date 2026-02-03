@@ -19,6 +19,9 @@
 - 国土交通省の公共建築工事共通費積算基準に準じた諸経費（共通仮設費・現場管理費・一般管理費）の自動計算機能を提供する
 - 建設工事見積書形式でのPDF/Excel出力機能を提供する
 - 高精度な10進数計算（Decimal.js）により丸め誤差を最小化する
+- 見積書一覧画面と見積書詳細画面により見積書を効率的に閲覧・管理できる
+- パンくずナビゲーションによりアプリケーション内の現在位置を把握しスムーズに移動できる
+- プロジェクト詳細画面の見積書セクションにより関連する見積書への素早いアクセスを提供する
 
 ### Non-Goals
 
@@ -57,7 +60,7 @@
 
 ```mermaid
 graph TB
-    subgraph Frontend
+    subgraph Frontend_Pages[Frontend - Pages]
         ProjectDetailPage[ProjectDetailPage]
         EstimateListPage[EstimateListPage]
         EstimateCreatePage[EstimateCreatePage]
@@ -65,7 +68,13 @@ graph TB
         EstimateEditPage[EstimateEditPage]
     end
 
-    subgraph Frontend_Components[Frontend - Estimate Components]
+    subgraph Frontend_SectionComponents[Frontend - Section Components]
+        EstimateSectionCard[EstimateSectionCard]
+        EstimateCard[EstimateCard]
+        Breadcrumb[Breadcrumb]
+    end
+
+    subgraph Frontend_EstimateComponents[Frontend - Estimate Components]
         EstimateItemTable[EstimateItemTable]
         EstimateItemRow[EstimateItemRow]
         NetCalculationPanel[NetCalculationPanel]
@@ -92,9 +101,14 @@ graph TB
         ReceivedQuotation[ReceivedQuotation Model]
     end
 
-    ProjectDetailPage --> EstimateListPage
+    ProjectDetailPage --> EstimateSectionCard
+    EstimateSectionCard --> EstimateCard
+    EstimateSectionCard --> EstimateListPage
+    EstimateListPage --> EstimateCard
+    EstimateListPage --> Breadcrumb
     EstimateListPage --> EstimateCreatePage
     EstimateListPage --> EstimateDetailPage
+    EstimateDetailPage --> Breadcrumb
     EstimateDetailPage --> EstimateEditPage
 
     EstimateDetailPage --> EstimateItemTable
@@ -294,6 +308,9 @@ sequenceDiagram
 | 11.1-11.7 | 見積書CRUD操作 | EstimateListPage, EstimateDetailPage, EstimateService | CRUD APIs | データ管理 |
 | 12.1-12.6 | 見積項目操作 | EstimateItemTable, EstimateItemRow, EstimateItemService | /api/estimates/:id/items/* | 項目操作 |
 | 13.1-13.6 | データ検証 | バリデーションスキーマ, EstimateCalculationService | 全API | バリデーション |
+| 14.1-14.10 | 画面構成 | EstimateListPage, EstimateDetailPage, EstimateCard | GET /api/projects/:id/estimates, GET /api/estimates/:id | 画面遷移 |
+| 15.1-15.8 | パンくずナビゲーション | Breadcrumb（共通コンポーネント利用）, EstimateListPage, EstimateDetailPage | - | ナビゲーション |
+| 16.1-16.13 | プロジェクト詳細画面の見積書セクション | EstimateSectionCard, ProjectDetailPage | GET /api/projects/:id/estimates/latest | セクション表示 |
 
 ## Components and Interfaces
 
@@ -302,7 +319,7 @@ sequenceDiagram
 | Estimate (Model) | Data | 見積書マスターデータの永続化 | 11.1-11.7 | Project (P0), ItemizedStatement (P1) | State |
 | EstimateItem (Model) | Data | 見積項目（階層構造）の永続化 | 1.1-1.6, 2.1-2.6, 12.1-12.6 | Estimate (P0), EstimateItem (self, P1) | State |
 | EstimateItemLine (Model) | Data | 見積項目行（見積/実行/業者）の永続化 | 1.2-1.6 | EstimateItem (P0), ReceivedQuotationLineItem (P1) | State |
-| EstimateService | Backend | 見積書CRUD操作 | 11.1-11.7, 3.1-3.5 | Prisma (P0), ItemizedStatementService (P1) | Service |
+| EstimateService | Backend | 見積書CRUD操作 | 11.1-11.7, 3.1-3.5, 16.3-16.5 | Prisma (P0), ItemizedStatementService (P1) | Service |
 | EstimateItemService | Backend | 見積項目CRUD・転記操作 | 1.1-1.6, 4.1-4.5, 12.1-12.6 | Prisma (P0), ReceivedQuotationService (P1) | Service |
 | EstimateCalculationService | Backend | NET金額案分・利益率計算 | 5.1-5.7, 6.1-6.6, 13.6 | Decimal.js (P0) | Service |
 | OverheadCostService | Backend | 諸経費自動計算 | 7.1-7.6, 8.1-8.6, 9.1-9.6 | Decimal.js (P0) | Service |
@@ -310,9 +327,11 @@ sequenceDiagram
 | estimate.routes | Backend | API エンドポイント | All API reqs | Services (P0), Middleware (P0) | API |
 | EstimateCalculator | Frontend | クライアントサイド金額計算 | 1.3, 2.3, 13.6 | Decimal.js (P0) | Utility |
 | useEstimateEditor | Frontend | 見積書編集状態管理フック | All edit reqs | EstimateCalculator (P0), React (P0) | State |
-| EstimateListPage | Frontend | 見積書一覧画面 | 11.1 | EstimateListTable (P0) | - |
-| EstimateCreatePage | Frontend | 見積書作成画面 | 3.1-3.5 | ItemizedStatementSelect (P1) | - |
-| EstimateDetailPage | Frontend | 見積書詳細画面 | All UI reqs | EstimateItemTable (P0), Panels (P0) | - |
+| EstimateListPage | Frontend | 見積書一覧画面 | 14.1-14.7 | EstimateCard (P0), Breadcrumb (P0), PaginationUI (P0) | State |
+| EstimateCreatePage | Frontend | 見積書作成画面 | 3.1-3.5 | ItemizedStatementSelect (P1), Breadcrumb (P0) | - |
+| EstimateDetailPage | Frontend | 見積書詳細画面 | 14.8-14.10, 15.4-15.8 | EstimateItemTable (P0), Panels (P0), Breadcrumb (P0) | State |
+| EstimateCard | Frontend | 見積書カード表示 | 14.3-14.4, 16.4-16.6 | - | - |
+| EstimateSectionCard | Frontend | プロジェクト詳細画面の見積書セクション | 16.1-16.13 | EstimateCard (P0) | State |
 | EstimateItemTable | Frontend | 見積項目テーブル | 1.1-1.6, 2.1-2.6 | EstimateItemRow (P0) | State |
 | EstimateItemRow | Frontend | 見積項目行（3行表示） | 1.2-1.6 | - | State |
 | NetCalculationPanel | Frontend | NET金額計算UI | 5.1-5.7 | EstimateCalculationService (P0) | State |
@@ -674,6 +693,7 @@ interface OverheadCostResult {
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
 | GET | /api/projects/:projectId/estimates | query: page, limit, search | EstimateList | 400, 404 |
+| GET | /api/projects/:projectId/estimates/latest | - | EstimateSummary | 404 |
 | POST | /api/projects/:projectId/estimates | CreateEstimateRequest | Estimate | 400, 404, 409 |
 | GET | /api/estimates/:id | - | EstimateWithItems | 404 |
 | PUT | /api/estimates/:id | UpdateEstimateRequest | Estimate | 400, 404, 409 |
@@ -900,6 +920,229 @@ interface OverheadCostPanelProps {
 ```
 
 **Note**: 諸経費計算（国土交通省基準）は計算式が複雑かつ係数テーブルを参照するため、バックエンドAPIで計算を行う。ただし、計算ボタン押下時のみAPI呼び出しとし、パラメータ入力中はAPI呼び出しを行わない。
+
+### Frontend Pages (Requirements 14, 15, 16)
+
+#### EstimateListPage
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積書一覧画面: プロジェクトに紐付く見積書の一覧表示とナビゲーション |
+| Requirements | 14.1-14.7, 15.1-15.3 |
+
+**Responsibilities & Constraints**
+- プロジェクトに紐付く見積書一覧をカード形式で表示
+- 見積書名、作成日時、合計金額の表示
+- ページネーション機能の提供
+- 見積書が存在しない場合の空状態表示
+- パンくずナビゲーション（プロジェクト一覧 > プロジェクト詳細 > 見積書一覧）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — プロジェクト詳細からの遷移 (P0)
+- Outbound: EstimateDetailPage — 見積書詳細への遷移 (P0)
+- Outbound: EstimateCreatePage — 見積書作成への遷移 (P0)
+- Outbound: Breadcrumb — パンくずナビゲーション (P0)
+- External: estimate.routes — API通信 (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface EstimateListPageState {
+  estimates: EstimateInfo[];
+  pagination: PaginationInfo;
+  isLoading: boolean;
+  error: string | null;
+}
+
+interface EstimateInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  totalAmount: string | null; // 見積金額行の合計
+}
+```
+
+**Implementation Notes**
+- パンくずナビゲーションは既存のBreadcrumbコンポーネントを使用（`frontend/src/components/common/Breadcrumb.tsx`）
+- ルーティング: `/projects/:projectId/estimates`
+- EstimateRequestListPageのパターンを踏襲
+
+#### EstimateCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積書カード表示: 見積書の概要情報をカード形式で表示 |
+| Requirements | 14.3-14.4, 16.4-16.6 |
+
+**Responsibilities & Constraints**
+- 見積書名、作成日時、合計金額の表示
+- クリックで見積書詳細画面へ遷移
+- 見積依頼カード（EstimateRequestSectionCard内のRequestCard）と同様のスタイル
+
+**Dependencies**
+- Inbound: EstimateListPage, EstimateSectionCard — 親コンポーネント (P0)
+- External: react-router-dom — ルーティング (P0)
+
+**Contracts**: -
+
+##### Props Interface
+
+```typescript
+interface EstimateCardProps {
+  id: string;
+  name: string;
+  createdAt: string;
+  totalAmount: string | null;
+}
+```
+
+**Implementation Notes**
+- 既存のEstimateRequestSectionCard内のRequestCardコンポーネントのパターンを踏襲
+- アイコンは見積書を表すドキュメントアイコン（封筒アイコンではない）
+
+#### EstimateSectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面の見積書セクション表示 |
+| Requirements | 16.1-16.13 |
+
+**Responsibilities & Constraints**
+- プロジェクト詳細画面の見積依頼セクションの下に配置
+- セクションタイトル「見積書」と総数表示
+- 直近の見積書をカード形式で表示
+- 「すべて見る」リンク（見積書一覧画面へ遷移）
+- 新規作成ボタン（見積書作成画面へ遷移）
+- 見積書が存在しない場合の空状態表示
+- ローディング中のスケルトンローダー表示
+- 既存のEstimateRequestSectionCardと同様のスタイル
+
+**Dependencies**
+- Inbound: ProjectDetailPage — 親コンポーネント (P0)
+- Outbound: EstimateCard — 見積書カード (P0)
+- Outbound: EstimateListPage — 一覧画面への遷移 (P0)
+- Outbound: EstimateCreatePage — 作成画面への遷移 (P0)
+
+**Contracts**: State [x]
+
+##### Props Interface
+
+```typescript
+interface EstimateSectionCardProps {
+  /** プロジェクトID */
+  projectId: string;
+  /** 見積書の総数 */
+  totalCount: number;
+  /** 直近N件の見積書 */
+  latestEstimates: EstimateInfo[];
+  /** ローディング状態 */
+  isLoading: boolean;
+}
+
+interface EstimateInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  totalAmount: string | null;
+}
+```
+
+**Implementation Notes**
+- 実装パターンは`frontend/src/components/projects/EstimateRequestSectionCard.tsx`を参照
+- プロジェクト詳細画面（ProjectDetailPage）で`<EstimateRequestSectionCard />`の直後に配置
+- API: `GET /api/projects/:projectId/estimates/latest`でサマリーデータ取得
+
+#### EstimateDetailPage（パンくずナビゲーション拡張）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積書詳細画面: 見積書の詳細情報と編集機能を提供（パンくずナビゲーション対応） |
+| Requirements | 14.8-14.10, 15.4-15.8 |
+
+**Responsibilities & Constraints**
+- 見積書の詳細情報（見積項目一覧、合計金額等）を表示
+- 編集・削除・出力ボタンを提供
+- パンくずナビゲーション（プロジェクト一覧 > プロジェクト詳細 > 見積書一覧 > [見積書名]）
+
+**Dependencies**
+- Inbound: EstimateListPage — 見積書一覧からの遷移 (P0)
+- Outbound: Breadcrumb — パンくずナビゲーション (P0)
+- Outbound: EstimateItemTable — 見積項目テーブル (P0)
+- Outbound: NetCalculationPanel, ProfitRatePanel, OverheadCostPanel — 計算パネル群 (P0)
+- External: estimate.routes — API通信 (P0)
+
+**Contracts**: State [x]
+
+##### Breadcrumb Configuration
+
+```typescript
+// EstimateDetailPageのパンくず設定
+const breadcrumbItems = [
+  { label: 'プロジェクト一覧', path: '/projects' },
+  { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+  { label: '見積書一覧', path: `/projects/${projectId}/estimates` },
+  { label: estimate.name } // 現在位置（リンクなし）
+];
+```
+
+**Implementation Notes**
+- ルーティング: `/estimates/:id`
+- パンくずは既存のBreadcrumbコンポーネントを使用
+- EstimateRequestDetailPageのパンくず実装を参照
+
+### Backend Extensions (Requirements 16)
+
+#### EstimateService拡張（getLatestByProjectId）
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面用のサマリーデータ取得 |
+| Requirements | 16.3-16.5, 16.12 |
+
+**Responsibilities & Constraints**
+- プロジェクトIDに基づく見積書の総数取得
+- 直近N件の見積書取得（作成日時降順）
+- 各見積書の合計金額計算
+
+**Dependencies**
+- Outbound: Prisma — データベースアクセス (P0)
+
+**Contracts**: Service [x]
+
+##### Service Interface Extension
+
+```typescript
+interface EstimateServiceInterface {
+  // 既存メソッド...
+
+  /**
+   * プロジェクト詳細画面用のサマリーデータ取得
+   * Requirements: 16.3-16.5, 16.12
+   */
+  getLatestByProjectId(projectId: string, limit?: number): Promise<Result<EstimateSummary, EstimateError>>;
+}
+
+interface EstimateSummary {
+  /** 見積書の総数 */
+  totalCount: number;
+  /** 直近N件の見積書 */
+  latestEstimates: EstimateInfo[];
+}
+
+interface EstimateInfo {
+  id: string;
+  name: string;
+  createdAt: Date;
+  totalAmount: Decimal | null;
+}
+```
+
+**Implementation Notes**
+- 実装パターンは`itemized-statement.service.ts`の`getLatestByProjectId`を参照
+- 合計金額は見積金額行（lineType='ESTIMATE'）のamount合計
+- 空の場合はtotalCount: 0、latestEstimates: []を返却
 
 ## Data Models
 
