@@ -519,64 +519,83 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   // OCR処理（PDF/画像ファイル）
   // --------------------------------------------------------------------------
 
-  const processOcr = useCallback(async (targetFile: File) => {
-    setStatus('processing');
-    setProgress(10);
-    setExtractedText(null);
-    setParsedLineItems(null);
-    setErrorMessage(null);
-    setImportCompleted(false);
-    abortedRef.current = false;
+  const processOcr = useCallback(
+    async (targetFile: File) => {
+      setStatus('processing');
+      setProgress(10);
+      setExtractedText(null);
+      setParsedLineItems(null);
+      setErrorMessage(null);
+      setImportCompleted(false);
+      abortedRef.current = false;
 
-    try {
-      // ワーカー初期化（プリフェッチ）
-      setProgress(20);
-      const worker = await createWorker('jpn');
-      workerRef.current = worker as unknown as typeof workerRef.current;
+      try {
+        // ワーカー初期化（プリフェッチ）
+        setProgress(20);
+        const worker = await createWorker('jpn');
+        workerRef.current = worker as unknown as typeof workerRef.current;
 
-      if (abortedRef.current) return;
+        if (abortedRef.current) {
+          // 中断された場合はワーカーを終了してメモリを解放
+          await cleanup();
+          return;
+        }
 
-      // タイムアウト設定（30秒）
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutRef.current = setTimeout(() => {
-          abortedRef.current = true;
-          reject(new Error('OCR処理がタイムアウトしました（30秒超過）'));
-        }, OCR_TIMEOUT_MS);
-      });
+        // タイムアウト設定（30秒）
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutRef.current = setTimeout(() => {
+            abortedRef.current = true;
+            reject(new Error('OCR処理がタイムアウトしました（30秒超過）'));
+          }, OCR_TIMEOUT_MS);
+        });
 
-      setProgress(40);
+        setProgress(40);
 
-      // OCR処理実行（タイムアウト付き）
-      const result = await Promise.race([worker.recognize(targetFile), timeoutPromise]);
+        // OCR処理実行（タイムアウト付き）
+        const result = await Promise.race([worker.recognize(targetFile), timeoutPromise]);
 
-      if (abortedRef.current) return;
+        if (abortedRef.current) {
+          // 中断された場合はワーカーを終了してメモリを解放
+          await cleanup();
+          return;
+        }
 
-      // タイムアウトタイマークリア
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
+        // タイムアウトタイマークリア
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+
+        setProgress(80);
+
+        const text = result.data.text;
+        setExtractedText(text);
+
+        // テキストから構造化データへ変換
+        const items = convertOcrTextToLineItems(text);
+        setParsedLineItems(items);
+
+        setProgress(100);
+        setStatus('completed');
+
+        // 処理完了後にワーカーを終了してメモリを解放
+        await cleanup();
+      } catch (err) {
+        if (abortedRef.current && !(err instanceof Error && err.message.includes('タイムアウト'))) {
+          // 中断された場合はワーカーを終了してメモリを解放
+          await cleanup();
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'OCR処理に失敗しました';
+        setErrorMessage(message);
+        setStatus('error');
+
+        // エラー時もワーカーを終了してメモリを解放
+        await cleanup();
       }
-
-      setProgress(80);
-
-      const text = result.data.text;
-      setExtractedText(text);
-
-      // テキストから構造化データへ変換
-      const items = convertOcrTextToLineItems(text);
-      setParsedLineItems(items);
-
-      setProgress(100);
-      setStatus('completed');
-    } catch (err) {
-      if (abortedRef.current && !(err instanceof Error && err.message.includes('タイムアウト'))) {
-        return;
-      }
-      const message = err instanceof Error ? err.message : 'OCR処理に失敗しました';
-      setErrorMessage(message);
-      setStatus('error');
-    }
-  }, []);
+    },
+    [cleanup]
+  );
 
   // --------------------------------------------------------------------------
   // Excelデータパース処理
