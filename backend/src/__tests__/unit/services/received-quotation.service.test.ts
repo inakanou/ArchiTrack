@@ -1282,4 +1282,747 @@ describe('ReceivedQuotationService', () => {
       });
     });
   });
+
+  /**
+   * Task 27.1: ReceivedQuotationServiceの明細行管理テスト追加
+   *
+   * Requirements:
+   * - 11.9: 構造化データ入力エリア
+   * - 11.10: 金額フィールドを入力不可とし自動計算する
+   * - 11.11: 数量または単価変更時に金額を自動再計算する
+   * - 11.12: 全明細行の金額合計を自動計算して表示する
+   * - 11.13: フォーム初期表示時に1行の空の明細行を表示する（フロントエンド）
+   * - 11.22: ファイルまたは明細行データのいずれかが必須
+   * - 11.24: ファイルも明細行もない場合のバリデーションエラー
+   * - 14.2: 明細行データをDBに永続化
+   */
+  describe('明細行管理テスト - Task 27.1', () => {
+    describe('create - 明細行を含む受領見積書の作成', () => {
+      it('明細行を含む受領見積書を正常に作成する（Requirements: 11.9, 14.2）', async () => {
+        // Arrange
+        const lineItems = [
+          {
+            name: '外壁塗装工事',
+            sortOrder: 0,
+            specification: 'シリコン系',
+            unit: 'm2',
+            quantity: 150,
+            unitPrice: 3500,
+            amount: 525000,
+            remarks: '足場込み',
+          },
+          {
+            name: '防水工事',
+            sortOrder: 1,
+            specification: 'ウレタン防水',
+            unit: 'm2',
+            quantity: 50,
+            unitPrice: 8000,
+            amount: 400000,
+            remarks: null,
+          },
+        ];
+
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '外壁改修見積書',
+          submittedAt: new Date('2026-02-01'),
+          lineItems,
+        };
+
+        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockCreatedQuotation = {
+          id: 'rq-new-001',
+          estimateRequestId: 'er-001',
+          name: '外壁改修見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          createdAt: new Date('2026-02-01T00:00:00Z'),
+          updatedAt: new Date('2026-02-01T00:00:00Z'),
+          deletedAt: null,
+          lineItems: lineItems.map((li, idx) => ({
+            id: `li-${idx}`,
+            receivedQuotationId: 'rq-new-001',
+            ...li,
+          })),
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            },
+            receivedQuotationLineItem: {
+              createMany: vi.fn().mockResolvedValue({ count: 2 }),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.create(input);
+
+        // Assert
+        expect(result.id).toBe('rq-new-001');
+        expect(result.lineItems).toHaveLength(2);
+        expect(result.lineItems[0]!.name).toBe('外壁塗装工事');
+        expect(result.lineItems[1]!.name).toBe('防水工事');
+        expect(result.totalAmount).toBe(925000);
+      });
+
+      it('ファイルと明細行の共存登録テスト', async () => {
+        // Arrange: ファイルと明細行の両方を含む入力
+        const lineItems = [
+          { name: '設備工事', sortOrder: 0, quantity: 3, unitPrice: 120000, amount: 360000 },
+        ];
+
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '設備工事見積書',
+          submittedAt: new Date('2026-02-01'),
+          file: {
+            buffer: Buffer.from('PDF content'),
+            originalName: '設備見積.pdf',
+            mimeType: 'application/pdf',
+            size: 8000,
+          },
+          lineItems,
+        };
+
+        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockCreatedQuotation = {
+          id: 'rq-new-002',
+          estimateRequestId: 'er-001',
+          name: '設備工事見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: 'quotations/er-001/rq-new-002/設備見積.pdf',
+          fileName: '設備見積.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 8000,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: [{ id: 'li-1', receivedQuotationId: 'rq-new-002', ...lineItems[0] }],
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+              update: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            },
+            receivedQuotationLineItem: {
+              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.create(input);
+
+        // Assert: ファイルと明細行の両方が存在
+        expect(result.fileName).toBe('設備見積.pdf');
+        expect(result.lineItems).toHaveLength(1);
+        expect(result.totalAmount).toBe(360000);
+        expect(mockStorageProvider.upload).toHaveBeenCalled();
+      });
+
+      it('ファイルのみの登録テスト（明細行なし）', async () => {
+        // Arrange: ファイルのみで明細行なし
+        const input = {
+          estimateRequestId: 'er-001',
+          name: 'ファイルのみ見積書',
+          submittedAt: new Date('2026-02-01'),
+          file: {
+            buffer: Buffer.from('Excel content'),
+            originalName: '見積書.xlsx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size: 6000,
+          },
+          // lineItemsは指定しない
+        };
+
+        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockCreatedQuotation = {
+          id: 'rq-new-003',
+          estimateRequestId: 'er-001',
+          name: 'ファイルのみ見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: 'quotations/er-001/rq-new-003/見積書.xlsx',
+          fileName: '見積書.xlsx',
+          fileMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          fileSize: 6000,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: [],
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+              update: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.create(input);
+
+        // Assert: ファイルのみで明細行なし
+        expect(result.fileName).toBe('見積書.xlsx');
+        expect(result.lineItems).toHaveLength(0);
+        expect(result.totalAmount).toBeNull();
+      });
+
+      it('明細行のみの登録テスト（ファイルなし）', async () => {
+        // Arrange: 明細行のみでファイルなし
+        const lineItems = [
+          { name: '材料費', sortOrder: 0, quantity: 1, unitPrice: 250000, amount: 250000 },
+          { name: '人件費', sortOrder: 1, quantity: 1, unitPrice: 150000, amount: 150000 },
+        ];
+
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '明細のみ見積書',
+          submittedAt: new Date('2026-02-01'),
+          lineItems,
+        };
+
+        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockCreatedQuotation = {
+          id: 'rq-new-004',
+          estimateRequestId: 'er-001',
+          name: '明細のみ見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: lineItems.map((li, idx) => ({
+            id: `li-${idx}`,
+            receivedQuotationId: 'rq-new-004',
+            ...li,
+          })),
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            },
+            receivedQuotationLineItem: {
+              createMany: vi.fn().mockResolvedValue({ count: 2 }),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.create(input);
+
+        // Assert: 明細行のみでファイルなし
+        expect(result.fileName).toBeNull();
+        expect(result.lineItems).toHaveLength(2);
+        expect(result.totalAmount).toBe(400000);
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+      });
+
+      it('ファイルも明細行もない場合のバリデーションエラーテスト（Requirements: 11.22, 11.24）', async () => {
+        // Arrange: ファイルも明細行もなし
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '空の見積書',
+          submittedAt: new Date('2026-02-01'),
+          // ファイルなし、明細行なし
+        };
+
+        // Act & Assert
+        await expect(service.create(input)).rejects.toThrow(
+          'ファイルのアップロードまたは明細行データの入力が必要です'
+        );
+      });
+
+      it('空の明細行配列の場合もバリデーションエラーになる', async () => {
+        // Arrange: 空の明細行配列
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '空配列見積書',
+          submittedAt: new Date('2026-02-01'),
+          lineItems: [],
+        };
+
+        // Act & Assert
+        await expect(service.create(input)).rejects.toThrow(
+          'ファイルのアップロードまたは明細行データの入力が必要です'
+        );
+      });
+    });
+
+    describe('create - 明細行データのサーバーサイド金額検証', () => {
+      it('クライアント送信の金額が誤っている場合、サーバーサイドで再計算する（Requirements: 11.10, 11.11）', async () => {
+        // Arrange: クライアントから誤った金額を送信
+        const lineItems = [
+          {
+            name: '工事A',
+            sortOrder: 0,
+            quantity: 5,
+            unitPrice: 20000,
+            amount: 99999, // 誤った金額（正しくは100000）
+          },
+        ];
+
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '金額検証テスト見積書',
+          submittedAt: new Date('2026-02-01'),
+          lineItems,
+        };
+
+        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+
+        // サーバー側で金額補正後の明細行データ
+        const correctedLineItem = {
+          id: 'li-corrected',
+          receivedQuotationId: 'rq-corrected',
+          name: '工事A',
+          sortOrder: 0,
+          specification: null,
+          unit: null,
+          quantity: 5,
+          unitPrice: 20000,
+          amount: 100000, // サーバーサイドで再計算
+          remarks: null,
+        };
+
+        const mockCreatedQuotation = {
+          id: 'rq-corrected',
+          estimateRequestId: 'er-001',
+          name: '金額検証テスト見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: [correctedLineItem],
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            },
+            receivedQuotationLineItem: {
+              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.create(input);
+
+        // Assert: 金額がサーバーサイドで再計算されている
+        expect(result.lineItems[0]!.amount).toBe(100000);
+        expect(result.totalAmount).toBe(100000);
+      });
+
+      it('数量または単価がnullの場合、金額はnullとなる', async () => {
+        // Arrange: 数量または単価がnull
+        const lineItems = [
+          {
+            name: '見積項目',
+            sortOrder: 0,
+            quantity: null, // 数量なし
+            unitPrice: 10000,
+            amount: null,
+          },
+        ];
+
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '数量null見積書',
+          submittedAt: new Date('2026-02-01'),
+          lineItems,
+        };
+
+        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockCreatedQuotation = {
+          id: 'rq-null',
+          estimateRequestId: 'er-001',
+          name: '数量null見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: [
+            {
+              id: 'li-null',
+              receivedQuotationId: 'rq-null',
+              name: '見積項目',
+              sortOrder: 0,
+              specification: null,
+              unit: null,
+              quantity: null,
+              unitPrice: 10000,
+              amount: null,
+              remarks: null,
+            },
+          ],
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            },
+            receivedQuotationLineItem: {
+              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.create(input);
+
+        // Assert: 金額はnull
+        expect(result.lineItems[0]!.amount).toBeNull();
+      });
+    });
+
+    describe('明細行の全量置換（更新）テスト', () => {
+      it('明細行の全量置換でDELETE + INSERTが実行される', async () => {
+        // Arrange
+        const quotationId = 'rq-update-001';
+        const expectedUpdatedAt = new Date('2026-02-01T00:00:00Z');
+        const newLineItems = [
+          { name: '新工事A', sortOrder: 0, quantity: 3, unitPrice: 50000, amount: 150000 },
+          { name: '新工事B', sortOrder: 1, quantity: 2, unitPrice: 75000, amount: 150000 },
+        ];
+
+        const mockQuotation = {
+          id: quotationId,
+          estimateRequestId: 'er-001',
+          name: '更新前見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          createdAt: new Date('2026-01-30T00:00:00Z'),
+          updatedAt: expectedUpdatedAt,
+          deletedAt: null,
+        };
+
+        const mockUpdatedQuotation = {
+          ...mockQuotation,
+          name: '更新前見積書',
+          updatedAt: new Date('2026-02-01T01:00:00Z'),
+          lineItems: newLineItems.map((li, idx) => ({
+            id: `li-new-${idx}`,
+            receivedQuotationId: quotationId,
+            ...li,
+          })),
+        };
+
+        const mockDeleteMany = vi.fn().mockResolvedValue({ count: 3 });
+        const mockCreateMany = vi.fn().mockResolvedValue({ count: 2 });
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            receivedQuotation: {
+              findUnique: vi.fn().mockResolvedValue(mockQuotation),
+              update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
+            },
+            receivedQuotationLineItem: {
+              deleteMany: mockDeleteMany,
+              createMany: mockCreateMany,
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.update(
+          quotationId,
+          { lineItems: newLineItems },
+          expectedUpdatedAt
+        );
+
+        // Assert
+        expect(mockDeleteMany).toHaveBeenCalledWith({
+          where: { receivedQuotationId: quotationId },
+        });
+        expect(mockCreateMany).toHaveBeenCalledWith({
+          data: expect.arrayContaining([
+            expect.objectContaining({ name: '新工事A', sortOrder: 0 }),
+            expect.objectContaining({ name: '新工事B', sortOrder: 1 }),
+          ]),
+        });
+        expect(result.lineItems).toHaveLength(2);
+        expect(result.totalAmount).toBe(300000);
+      });
+
+      it('明細行を空配列で更新（全削除）', async () => {
+        // Arrange
+        const quotationId = 'rq-update-002';
+        const expectedUpdatedAt = new Date('2026-02-01T00:00:00Z');
+
+        const mockQuotation = {
+          id: quotationId,
+          estimateRequestId: 'er-001',
+          name: '全削除テスト見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: 'quotations/er-001/rq-update-002/file.pdf', // ファイルありなので明細なしでもOK
+          fileName: 'file.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 5000,
+          createdAt: new Date('2026-01-30T00:00:00Z'),
+          updatedAt: expectedUpdatedAt,
+          deletedAt: null,
+        };
+
+        const mockUpdatedQuotation = {
+          ...mockQuotation,
+          updatedAt: new Date('2026-02-01T01:00:00Z'),
+          lineItems: [],
+        };
+
+        const mockDeleteMany = vi.fn().mockResolvedValue({ count: 5 });
+        const mockCreateMany = vi.fn().mockResolvedValue({ count: 0 });
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            receivedQuotation: {
+              findUnique: vi.fn().mockResolvedValue(mockQuotation),
+              update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
+            },
+            receivedQuotationLineItem: {
+              deleteMany: mockDeleteMany,
+              createMany: mockCreateMany,
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        // Act
+        const result = await service.update(quotationId, { lineItems: [] }, expectedUpdatedAt);
+
+        // Assert: 全削除される
+        expect(mockDeleteMany).toHaveBeenCalledWith({
+          where: { receivedQuotationId: quotationId },
+        });
+        expect(result.lineItems).toHaveLength(0);
+        expect(result.totalAmount).toBeNull();
+      });
+    });
+
+    describe('合計金額算出テスト', () => {
+      it('複数明細行の合計金額を正しく算出する（Requirements: 11.12）', async () => {
+        // Arrange
+        const mockQuotation = {
+          id: 'rq-total',
+          estimateRequestId: 'er-001',
+          name: '合計テスト見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: [
+            {
+              id: 'li-1',
+              receivedQuotationId: 'rq-total',
+              sortOrder: 0,
+              name: '項目1',
+              specification: null,
+              unit: null,
+              quantity: 10,
+              unitPrice: 1000,
+              amount: 10000,
+              remarks: null,
+            },
+            {
+              id: 'li-2',
+              receivedQuotationId: 'rq-total',
+              sortOrder: 1,
+              name: '項目2',
+              specification: null,
+              unit: null,
+              quantity: 20,
+              unitPrice: 500,
+              amount: 10000,
+              remarks: null,
+            },
+            {
+              id: 'li-3',
+              receivedQuotationId: 'rq-total',
+              sortOrder: 2,
+              name: '項目3',
+              specification: null,
+              unit: null,
+              quantity: 5,
+              unitPrice: 10000,
+              amount: 50000,
+              remarks: null,
+            },
+          ],
+        };
+
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          mockQuotation as never
+        );
+
+        // Act
+        const result = await service.findById('rq-total');
+
+        // Assert: 合計金額 = 10000 + 10000 + 50000 = 70000
+        expect(result!.totalAmount).toBe(70000);
+      });
+
+      it('金額がnullの明細行は合計計算から除外される', async () => {
+        // Arrange
+        const mockQuotation = {
+          id: 'rq-null-amount',
+          estimateRequestId: 'er-001',
+          name: 'null金額テスト見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: [
+            {
+              id: 'li-1',
+              receivedQuotationId: 'rq-null-amount',
+              sortOrder: 0,
+              name: '項目1（金額あり）',
+              specification: null,
+              unit: null,
+              quantity: 10,
+              unitPrice: 1000,
+              amount: 10000,
+              remarks: null,
+            },
+            {
+              id: 'li-2',
+              receivedQuotationId: 'rq-null-amount',
+              sortOrder: 1,
+              name: '項目2（金額なし）',
+              specification: null,
+              unit: null,
+              quantity: null, // 数量なしのため金額null
+              unitPrice: 500,
+              amount: null,
+              remarks: null,
+            },
+            {
+              id: 'li-3',
+              receivedQuotationId: 'rq-null-amount',
+              sortOrder: 2,
+              name: '項目3（金額あり）',
+              specification: null,
+              unit: null,
+              quantity: 5,
+              unitPrice: 2000,
+              amount: 10000,
+              remarks: null,
+            },
+          ],
+        };
+
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          mockQuotation as never
+        );
+
+        // Act
+        const result = await service.findById('rq-null-amount');
+
+        // Assert: 合計金額 = 10000 + 10000 = 20000（null金額の行は除外）
+        expect(result!.totalAmount).toBe(20000);
+      });
+
+      it('すべての明細行の金額がnullの場合、合計はnull', async () => {
+        // Arrange
+        const mockQuotation = {
+          id: 'rq-all-null',
+          estimateRequestId: 'er-001',
+          name: '全null金額テスト見積書',
+          submittedAt: new Date('2026-02-01'),
+          filePath: 'quotations/er-001/rq-all-null/file.pdf',
+          fileName: 'file.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 1000,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          lineItems: [
+            {
+              id: 'li-1',
+              receivedQuotationId: 'rq-all-null',
+              sortOrder: 0,
+              name: '項目1',
+              specification: null,
+              unit: null,
+              quantity: null,
+              unitPrice: null,
+              amount: null,
+              remarks: null,
+            },
+          ],
+        };
+
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          mockQuotation as never
+        );
+
+        // Act
+        const result = await service.findById('rq-all-null');
+
+        // Assert: 全金額nullなので合計もnull
+        expect(result!.totalAmount).toBeNull();
+      });
+    });
+  });
 });
