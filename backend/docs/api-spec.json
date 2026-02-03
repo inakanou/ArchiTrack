@@ -5780,8 +5780,7 @@
                 "type": "object",
                 "required": [
                   "name",
-                  "submittedAt",
-                  "contentType"
+                  "submittedAt"
                 ],
                 "properties": {
                   "name": {
@@ -5794,22 +5793,10 @@
                     "format": "date-time",
                     "description": "提出日"
                   },
-                  "contentType": {
-                    "type": "string",
-                    "enum": [
-                      "TEXT",
-                      "FILE"
-                    ],
-                    "description": "コンテンツタイプ"
-                  },
-                  "textContent": {
-                    "type": "string",
-                    "description": "テキスト内容（contentType=TEXTの場合）"
-                  },
                   "file": {
                     "type": "string",
                     "format": "binary",
-                    "description": "ファイル（contentType=FILEの場合）"
+                    "description": "ファイル（任意）"
                   }
                 }
               }
@@ -5961,22 +5948,14 @@
                     "format": "date-time",
                     "description": "提出日"
                   },
-                  "contentType": {
-                    "type": "string",
-                    "enum": [
-                      "TEXT",
-                      "FILE"
-                    ],
-                    "description": "コンテンツタイプ"
-                  },
-                  "textContent": {
-                    "type": "string",
-                    "description": "テキスト内容"
-                  },
                   "file": {
                     "type": "string",
                     "format": "binary",
-                    "description": "ファイル"
+                    "description": "ファイル（任意）"
+                  },
+                  "removeFile": {
+                    "type": "boolean",
+                    "description": "ファイル削除フラグ"
                   },
                   "expectedUpdatedAt": {
                     "type": "string",

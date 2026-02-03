@@ -421,6 +421,224 @@ describe('received-quotation.routes', () => {
     });
   });
 
+  /**
+   * Task 21.3: 受領見積書APIエンドポイントの明細行対応改修テスト
+   *
+   * Requirements:
+   * - 11.9: 構造化データ入力エリア
+   * - 11.22: ファイルまたは明細行データのいずれかが必須
+   * - 11.25: レスポンスに明細行データを含める
+   * - 11.26: レスポンスに合計金額を含める
+   * - 11.27: 一覧レスポンスに明細行データを含める
+   * - 14.2: 明細行データをDBに永続化
+   */
+  describe('POST /api/estimate-requests/:id/quotations - 明細行対応（Task 21.3）', () => {
+    it('lineItemsフィールド（JSON文字列）を含むmultipartリクエストで受領見積書を作成する', async () => {
+      const lineItems = [
+        { name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 50000, amount: 50000 },
+        { name: '工事B', sortOrder: 1, quantity: 10, unitPrice: 1000, amount: 10000 },
+      ];
+
+      const mockResult = {
+        id: validUUID,
+        estimateRequestId,
+        name: '明細行付き見積書',
+        submittedAt: new Date('2024-01-15T00:00:00Z'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: lineItems.map((item, i) => ({
+          id: `li-00${i}`,
+          receivedQuotationId: validUUID,
+          ...item,
+          specification: null,
+          unit: null,
+          remarks: null,
+        })),
+        totalAmount: 60000,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        updatedAt: new Date('2024-01-01T00:00:00Z'),
+      };
+
+      mockCreate.mockResolvedValue(mockResult);
+
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .field('name', '明細行付き見積書')
+        .field('submittedAt', '2024-01-15T00:00:00.000Z')
+        .field('lineItems', JSON.stringify(lineItems));
+
+      expect(response.status).toBe(201);
+      expect(response.body.lineItems).toHaveLength(2);
+      expect(response.body.totalAmount).toBe(60000);
+      // サービスにlineItemsが渡されていることを検証
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lineItems: expect.arrayContaining([
+            expect.objectContaining({ name: '工事A', sortOrder: 0 }),
+          ]),
+        })
+      );
+    });
+
+    it('lineItemsが不正なJSONの場合に400エラーを返す', async () => {
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .field('name', 'テスト見積書')
+        .field('submittedAt', '2024-01-15T00:00:00.000Z')
+        .field('lineItems', 'invalid-json');
+
+      expect(response.status).toBe(400);
+    });
+
+    it('ファイルも明細行もない場合にサービスからのエラーを返す', async () => {
+      mockCreate.mockRejectedValue(
+        new Error('ファイルのアップロードまたは明細行データの入力が必要です')
+      );
+
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .field('name', 'テスト見積書')
+        .field('submittedAt', '2024-01-15T00:00:00.000Z');
+
+      // サービスからのエラーがnextに渡され、エラーハンドラーで500を返す
+      expect(response.status).toBe(500);
+    });
+  });
+
+  describe('PUT /api/quotations/:id - 明細行全量置換対応（Task 21.3）', () => {
+    it('lineItemsフィールドを含むmultipartリクエストで明細行を全量置換する', async () => {
+      const newLineItems = [
+        { name: '新工事A', sortOrder: 0, quantity: 2, unitPrice: 30000, amount: 60000 },
+      ];
+
+      const mockResult = {
+        id: validUUID,
+        estimateRequestId,
+        name: 'テスト受領見積書',
+        submittedAt: new Date('2024-01-15T00:00:00Z'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: newLineItems.map((item, i) => ({
+          id: `li-new-00${i}`,
+          receivedQuotationId: validUUID,
+          ...item,
+          specification: null,
+          unit: null,
+          remarks: null,
+        })),
+        totalAmount: 60000,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        updatedAt: new Date('2024-01-02T00:00:00Z'),
+      };
+
+      mockUpdate.mockResolvedValue(mockResult);
+
+      const response = await request(app)
+        .put(`/api/quotations/${validUUID}`)
+        .field('expectedUpdatedAt', '2024-01-01T00:00:00.000Z')
+        .field('lineItems', JSON.stringify(newLineItems));
+
+      expect(response.status).toBe(200);
+      expect(response.body.lineItems).toHaveLength(1);
+      expect(response.body.totalAmount).toBe(60000);
+      // サービスにlineItemsが渡されていることを検証
+      expect(mockUpdate).toHaveBeenCalledWith(
+        validUUID,
+        expect.objectContaining({
+          lineItems: expect.arrayContaining([expect.objectContaining({ name: '新工事A' })]),
+        }),
+        expect.any(Date)
+      );
+    });
+  });
+
+  describe('GET /api/quotations/:id - 明細行レスポンス（Task 21.3）', () => {
+    it('レスポンスに明細行データとtotalAmountを含める', async () => {
+      const mockQuotationWithLineItems = {
+        id: validUUID,
+        estimateRequestId,
+        name: 'テスト受領見積書',
+        submittedAt: new Date('2024-01-15T00:00:00Z'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-001',
+            receivedQuotationId: validUUID,
+            sortOrder: 0,
+            name: '工事A',
+            specification: null,
+            unit: '式',
+            quantity: 1,
+            unitPrice: 100000,
+            amount: 100000,
+            remarks: null,
+          },
+        ],
+        totalAmount: 100000,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        updatedAt: new Date('2024-01-01T00:00:00Z'),
+      };
+
+      mockFindById.mockResolvedValue(mockQuotationWithLineItems);
+
+      const response = await request(app).get(`/api/quotations/${validUUID}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('lineItems');
+      expect(response.body.lineItems).toHaveLength(1);
+      expect(response.body.lineItems[0].name).toBe('工事A');
+      expect(response.body).toHaveProperty('totalAmount', 100000);
+    });
+  });
+
+  describe('GET /api/estimate-requests/:id/quotations - 一覧の明細行レスポンス（Task 21.3）', () => {
+    it('一覧レスポンスに明細行データとtotalAmountを含める', async () => {
+      const mockQuotationsWithLineItems = [
+        {
+          id: validUUID,
+          estimateRequestId,
+          name: '受領見積書1',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          lineItems: [
+            {
+              id: 'li-001',
+              receivedQuotationId: validUUID,
+              sortOrder: 0,
+              name: '工事A',
+              specification: null,
+              unit: null,
+              quantity: 5,
+              unitPrice: 20000,
+              amount: 100000,
+              remarks: null,
+            },
+          ],
+          totalAmount: 100000,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z'),
+        },
+      ];
+
+      mockFindByEstimateRequestId.mockResolvedValue(mockQuotationsWithLineItems);
+
+      const response = await request(app).get(
+        `/api/estimate-requests/${estimateRequestId}/quotations`
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body[0]).toHaveProperty('lineItems');
+      expect(response.body[0].lineItems).toHaveLength(1);
+      expect(response.body[0]).toHaveProperty('totalAmount', 100000);
+    });
+  });
+
   describe('GET /api/quotations/:id/preview', () => {
     it('should return signed URL for file preview', async () => {
       const signedUrl = 'https://example.com/signed-url';

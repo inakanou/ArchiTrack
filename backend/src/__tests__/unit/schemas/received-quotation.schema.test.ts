@@ -13,7 +13,7 @@
  * @module __tests__/unit/schemas/received-quotation.schema
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createReceivedQuotationSchema,
   updateReceivedQuotationSchema,
@@ -300,6 +300,282 @@ describe('received-quotation.schema', () => {
       const result = statusTransitionSchema.safeParse(input);
 
       expect(result.success).toBe(false);
+    });
+  });
+
+  /**
+   * Task 21.2: 明細行バリデーションスキーマのテスト
+   *
+   * Requirements:
+   * - 11.10: 明細行データのバリデーション
+   * - 11.22: ファイルまたは明細行データのいずれかが必須
+   * - 11.23: 必須項目バリデーション
+   * - 11.24: ファイルも明細行もない場合のバリデーションエラー
+   */
+  describe('lineItemSchema (Task 21.2)', () => {
+    // lineItemSchemaをインポートするため、テスト内で動的にインポート
+    let lineItemSchema: (typeof import('../../../schemas/received-quotation.schema.js'))['lineItemSchema'];
+    let lineItemsArraySchema: (typeof import('../../../schemas/received-quotation.schema.js'))['lineItemsArraySchema'];
+    let parseLineItemsFromMultipart: (typeof import('../../../schemas/received-quotation.schema.js'))['parseLineItemsFromMultipart'];
+    let validateFileOrLineItemsRequired: (typeof import('../../../schemas/received-quotation.schema.js'))['validateFileOrLineItemsRequired'];
+    let LINE_ITEM_VALIDATION_MESSAGES: (typeof import('../../../schemas/received-quotation.schema.js'))['LINE_ITEM_VALIDATION_MESSAGES'];
+
+    beforeAll(async () => {
+      const mod = await import('../../../schemas/received-quotation.schema.js');
+      lineItemSchema = mod.lineItemSchema;
+      lineItemsArraySchema = mod.lineItemsArraySchema;
+      parseLineItemsFromMultipart = mod.parseLineItemsFromMultipart;
+      validateFileOrLineItemsRequired = mod.validateFileOrLineItemsRequired;
+      LINE_ITEM_VALIDATION_MESSAGES = mod.LINE_ITEM_VALIDATION_MESSAGES;
+    });
+
+    describe('lineItemSchema', () => {
+      it('名称が必須であること（Requirements: 11.10）', () => {
+        const input = {
+          sortOrder: 0,
+          specification: '規格A',
+          unit: '個',
+          quantity: 10,
+          unitPrice: 1000,
+          amount: 10000,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+
+      it('名称が空文字の場合にバリデーションエラーとなること', () => {
+        const input = {
+          name: '',
+          sortOrder: 0,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]!.message).toBe(LINE_ITEM_VALIDATION_MESSAGES.NAME_REQUIRED);
+        }
+      });
+
+      it('有効な明細行データを受け入れること', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          specification: '規格A',
+          unit: '個',
+          quantity: 10,
+          unitPrice: 1000,
+          amount: 10000,
+          remarks: '備考',
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.name).toBe('テスト項目');
+          expect(result.data.quantity).toBe(10);
+          expect(result.data.unitPrice).toBe(1000);
+          expect(result.data.amount).toBe(10000);
+        }
+      });
+
+      it('任意フィールドが省略可能であること', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.specification).toBeUndefined();
+          expect(result.data.unit).toBeUndefined();
+          expect(result.data.quantity).toBeUndefined();
+          expect(result.data.unitPrice).toBeUndefined();
+          expect(result.data.amount).toBeUndefined();
+          expect(result.data.remarks).toBeUndefined();
+        }
+      });
+
+      it('数量が数値型であること（Requirements: 11.10）', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          quantity: 'abc',
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+
+      it('単価が数値型であること（Requirements: 11.10）', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          unitPrice: 'abc',
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+
+      it('金額が数値型であること（Requirements: 11.10）', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          amount: 'abc',
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+
+      it('sortOrderが0以上の整数であること', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: -1,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+
+      it('nullの任意フィールドを受け入れること', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+      });
+    });
+
+    describe('lineItemsArraySchema', () => {
+      it('有効な明細行配列を受け入れること', () => {
+        const input = [
+          { name: '項目1', sortOrder: 0, quantity: 10, unitPrice: 1000, amount: 10000 },
+          { name: '項目2', sortOrder: 1, quantity: 5, unitPrice: 2000, amount: 10000 },
+        ];
+
+        const result = lineItemsArraySchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data).toHaveLength(2);
+        }
+      });
+
+      it('空配列を受け入れること', () => {
+        const input: unknown[] = [];
+
+        const result = lineItemsArraySchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+      });
+
+      it('無効な明細行を含む配列を拒否すること', () => {
+        const input = [
+          { name: '', sortOrder: 0 }, // 名称が空
+        ];
+
+        const result = lineItemsArraySchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+    });
+
+    describe('parseLineItemsFromMultipart', () => {
+      it('有効なJSON文字列をパースできること', () => {
+        const jsonString = JSON.stringify([
+          { name: '項目1', sortOrder: 0, quantity: 10, unitPrice: 1000, amount: 10000 },
+        ]);
+
+        const result = parseLineItemsFromMultipart(jsonString);
+
+        expect(result).toHaveLength(1);
+        expect(result![0]!.name).toBe('項目1');
+      });
+
+      it('undefinedの場合はundefinedを返すこと', () => {
+        const result = parseLineItemsFromMultipart(undefined);
+
+        expect(result).toBeUndefined();
+      });
+
+      it('空文字列の場合はundefinedを返すこと', () => {
+        const result = parseLineItemsFromMultipart('');
+
+        expect(result).toBeUndefined();
+      });
+
+      it('無効なJSON文字列の場合にエラーをスローすること', () => {
+        expect(() => parseLineItemsFromMultipart('invalid json')).toThrow();
+      });
+
+      it('JSONパース後のバリデーションエラーでスローすること', () => {
+        const jsonString = JSON.stringify([
+          { sortOrder: 0 }, // 名称が欠落
+        ]);
+
+        expect(() => parseLineItemsFromMultipart(jsonString)).toThrow();
+      });
+    });
+
+    describe('validateFileOrLineItemsRequired', () => {
+      it('ファイルがある場合はバリデーションを通過すること（Requirements: 11.22）', () => {
+        const hasFile = true;
+        const lineItems = undefined;
+
+        expect(() => validateFileOrLineItemsRequired(hasFile, lineItems)).not.toThrow();
+      });
+
+      it('明細行がある場合はバリデーションを通過すること（Requirements: 11.22）', () => {
+        const hasFile = false;
+        const lineItems = [{ name: '項目1', sortOrder: 0 }];
+
+        expect(() => validateFileOrLineItemsRequired(hasFile, lineItems)).not.toThrow();
+      });
+
+      it('ファイルと明細行の両方がある場合はバリデーションを通過すること', () => {
+        const hasFile = true;
+        const lineItems = [{ name: '項目1', sortOrder: 0 }];
+
+        expect(() => validateFileOrLineItemsRequired(hasFile, lineItems)).not.toThrow();
+      });
+
+      it('ファイルも明細行もない場合にエラーをスローすること（Requirements: 11.24）', () => {
+        const hasFile = false;
+        const lineItems = undefined;
+
+        expect(() => validateFileOrLineItemsRequired(hasFile, lineItems)).toThrow(
+          LINE_ITEM_VALIDATION_MESSAGES.FILE_OR_LINE_ITEMS_REQUIRED
+        );
+      });
+
+      it('空の明細行配列の場合にエラーをスローすること（Requirements: 11.24）', () => {
+        const hasFile = false;
+        const lineItems: Parameters<typeof validateFileOrLineItemsRequired>[1] = [];
+
+        expect(() => validateFileOrLineItemsRequired(hasFile, lineItems)).toThrow(
+          LINE_ITEM_VALIDATION_MESSAGES.FILE_OR_LINE_ITEMS_REQUIRED
+        );
+      });
     });
   });
 });

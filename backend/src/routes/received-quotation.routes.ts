@@ -28,6 +28,7 @@ import {
   receivedQuotationIdParamSchema,
   estimateRequestIdForQuotationSchema,
   deleteReceivedQuotationBodySchema,
+  parseLineItemsFromMultipart,
 } from '../schemas/received-quotation.schema.js';
 import {
   ReceivedQuotationNotFoundError,
@@ -148,6 +149,21 @@ router.post(
         submittedAt: string;
       };
 
+      // Task 21.3: multipart内のlineItemsフィールド（JSON文字列）をパース・検証
+      let lineItems;
+      try {
+        lineItems = parseLineItemsFromMultipart(req.body?.lineItems as string | undefined);
+      } catch (error) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error instanceof Error ? error.message : '明細行データのバリデーションエラー',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+
       const input = {
         estimateRequestId,
         name: validatedBody.name,
@@ -160,6 +176,7 @@ router.post(
               size: req.file.size,
             }
           : undefined,
+        lineItems,
       };
 
       const quotation = await getReceivedQuotationService().create(input);
@@ -417,6 +434,21 @@ router.put(
         removeFile?: boolean;
       };
 
+      // Task 21.3: multipart内のlineItemsフィールド（JSON文字列）をパース・検証
+      let lineItems;
+      try {
+        lineItems = parseLineItemsFromMultipart(req.body?.lineItems as string | undefined);
+      } catch (error) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error instanceof Error ? error.message : '明細行データのバリデーションエラー',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+
       const input = {
         ...updateData,
         submittedAt: updateData.submittedAt ? new Date(updateData.submittedAt) : undefined,
@@ -428,6 +460,7 @@ router.put(
               size: req.file.size,
             }
           : undefined,
+        lineItems,
       };
 
       const quotation = await getReceivedQuotationService().update(
