@@ -204,7 +204,7 @@ sequenceDiagram
 sequenceDiagram
     participant User as ユーザー
     participant UI as NET金額計算パネル
-    participant Calc as CalculationService
+    participant ClientCalc as EstimateCalculator（Client）
     participant API as Backend API
     participant DB as PostgreSQL
 
@@ -212,18 +212,21 @@ sequenceDiagram
     User->>UI: 案分対象行選択
     User->>UI: 除外諸経費行指定
     User->>UI: NET金額入力
+    UI->>ClientCalc: プレビュー計算（API呼び出しなし）
+    ClientCalc->>ClientCalc: 除外行を除いた合計算出
+    ClientCalc->>ClientCalc: 各行の按分率計算
+    ClientCalc->>ClientCalc: 按分後単価計算（Decimal.js）
+    ClientCalc-->>UI: プレビュー結果
+    UI->>UI: プレビュー表示（案分率・金額）
     User->>UI: 案分実行ボタンクリック
     UI->>API: POST /api/estimates/:id/calculate-net
-    API->>Calc: NET金額案分計算
-    Calc->>Calc: 除外行を除いた合計算出
-    Calc->>Calc: 各行の按分率計算
-    Calc->>Calc: 按分後単価計算（Decimal.js）
-    Calc-->>API: 計算結果
-    API->>DB: 実行金額行を更新
+    API->>DB: 実行金額行を一括更新
     DB-->>API: 更新結果
     API-->>UI: 200 OK（更新後の見積項目）
-    UI->>UI: 金額自動再計算・表示更新
+    UI->>UI: 確定結果表示
 ```
+
+**ポイント**: NET金額入力時のプレビューはクライアントサイドで即時計算。「案分実行」ボタン押下時のみバックエンドAPIを呼び出し、一括更新を実行。
 
 ### 諸経費自動計算フロー
 
@@ -305,6 +308,8 @@ sequenceDiagram
 | OverheadCostService | Backend | 諸経費自動計算 | 7.1-7.6, 8.1-8.6, 9.1-9.6 | Decimal.js (P0) | Service |
 | EstimateExportService | Backend | PDF/Excel出力生成 | 10.1-10.8 | jsPDF (P0), xlsx (P0) | Service |
 | estimate.routes | Backend | API エンドポイント | All API reqs | Services (P0), Middleware (P0) | API |
+| EstimateCalculator | Frontend | クライアントサイド金額計算 | 1.3, 2.3, 13.6 | Decimal.js (P0) | Utility |
+| useEstimateEditor | Frontend | 見積書編集状態管理フック | All edit reqs | EstimateCalculator (P0), React (P0) | State |
 | EstimateListPage | Frontend | 見積書一覧画面 | 11.1 | EstimateListTable (P0) | - |
 | EstimateCreatePage | Frontend | 見積書作成画面 | 3.1-3.5 | ItemizedStatementSelect (P1) | - |
 | EstimateDetailPage | Frontend | 見積書詳細画面 | All UI reqs | EstimateItemTable (P0), Panels (P0) | - |
@@ -679,12 +684,47 @@ interface OverheadCostResult {
 | DELETE | /api/estimates/:id/items/:itemId | - | - | 404 |
 | POST | /api/estimates/:id/items/:itemId/duplicate | - | EstimateItem | 404 |
 | PUT | /api/estimates/:id/items/reorder | ItemOrder[] | - | 400, 404 |
+| PUT | /api/estimates/:id/items/batch | BatchUpdateItemsRequest | EstimateItem[] | 400, 404, 409 |
 | POST | /api/estimates/:id/transfer-quotation | TransferQuotationRequest | EstimateItem[] | 400, 404 |
 | POST | /api/estimates/:id/calculate-net | CalculateNetRequest | CalculationResult | 400, 404 |
 | POST | /api/estimates/:id/apply-profit-rate | ApplyProfitRateRequest | - | 400, 404 |
 | POST | /api/estimates/:id/calculate-overhead | CalculateOverheadRequest | OverheadCostResult | 400, 404 |
 | POST | /api/estimates/:id/overhead-items | AddOverheadItemRequest | EstimateItem | 400, 404 |
 | GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx' | File | 404, 500 |
+
+### Frontend Utilities
+
+#### EstimateCalculator (Client-Side Calculation Module)
+
+| Field | Detail |
+|-------|--------|
+| Intent | クライアントサイドでの高精度金額計算を提供し、API呼び出しを最小化 |
+| Requirements | 1.3, 2.3, 13.6（金額自動計算、高精度計算） |
+
+**Responsibilities & Constraints**
+- 金額計算（数量×単価）のクライアントサイド即時計算
+- 合計金額（子項目合計）のクライアントサイド計算
+- NET金額案分のプレビュー計算
+- 利益率適用のプレビュー計算
+- Decimal.jsによる高精度10進数計算（バックエンドと同一精度）
+
+**Dependencies**
+- External: Decimal.js 10.6 — 高精度10進数計算 (P0)
+
+**Contracts**: Utility [x]
+
+##### Utility Interface
+
+```typescript
+// frontend/src/utils/estimate-calculation.ts
+interface EstimateCalculatorInterface {
+  calculateAmount(quantity: string | null, unitPrice: string | null): Decimal | null;
+  calculateSubtotal(items: EstimateItemWithLines[]): Decimal;
+  calculateHierarchyAmounts(hierarchy: EstimateItemHierarchy[]): EstimateItemHierarchy[];
+  previewNetAllocation(targetLines: VendorLineInfo[], excludeIds: string[], netAmount: string): AllocationPreview[];
+  previewProfitRate(executionLines: ExecutionLineInfo[], profitRate: string): ProfitRatePreview[];
+}
+```
 
 ### Frontend Components
 
@@ -717,14 +757,23 @@ interface EstimateItemTableState {
   selectedItemId: string | null;
   editingLineId: string | null;
   isDragging: boolean;
+  isDirty: boolean; // 未保存の変更があるか
+  pendingChanges: Map<string, ItemChange>; // 変更差分の追跡
 }
 
 interface EstimateItemTableProps {
   estimateId: string;
   onItemSelect: (itemId: string) => void;
   onItemsChange: () => void;
+  onSaveRequest: () => Promise<void>; // バッチ保存トリガー
 }
 ```
+
+**Client-Side Calculation Integration**:
+- 数量/単価の変更時は`EstimateCalculator.calculateAmount()`でローカル計算
+- 子項目変更時は`EstimateCalculator.calculateSubtotal()`で親の合計を再計算
+- すべての計算はクライアントサイドで即時実行（API呼び出しなし）
+- 保存ボタン押下時のみ`PUT /api/estimates/:id/items/batch`で一括送信
 
 #### NetCalculationPanel
 
@@ -755,6 +804,7 @@ interface NetCalculationPanelState {
   excludeLineIds: string[];
   netAmount: string;
   isCalculating: boolean;
+  previewResults: AllocationPreview[] | null; // クライアント計算結果
 }
 
 interface NetCalculationPanelProps {
@@ -763,6 +813,52 @@ interface NetCalculationPanelProps {
   onCalculationComplete: () => void;
 }
 ```
+
+**Client-Side Preview Strategy**:
+- NET金額入力変更時は`EstimateCalculator.previewNetAllocation()`でプレビュー計算（API呼び出しなし）
+- プレビュー結果をUIに即時反映（案分率、案分後金額の表示）
+- 「適用」ボタン押下時のみ`POST /api/estimates/:id/calculate-net`でバックエンド確定処理
+
+#### ProfitRatePanel
+
+| Field | Detail |
+|-------|--------|
+| Intent | 利益率適用のUI |
+| Requirements | 6.1-6.6 |
+
+**Responsibilities & Constraints**
+- 利益率の入力（0.00〜500.00%）
+- 上書きオプションの選択（全て/空のみ/単価のみ）
+- プレビュー表示（クライアント計算）
+- 適用処理の実行
+
+**Dependencies**
+- Inbound: EstimateDetailPage — 親コンポーネント (P0)
+- External: estimate.routes — API通信 (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface ProfitRatePanelState {
+  profitRate: string;
+  overwriteOption: 'all' | 'empty_only' | 'unit_price_only';
+  previewResults: ProfitRatePreview[] | null; // クライアント計算結果
+  isApplying: boolean;
+}
+
+interface ProfitRatePanelProps {
+  estimateId: string;
+  executionLines: ExecutionLineInfo[];
+  onApplyComplete: () => void;
+}
+```
+
+**Client-Side Preview Strategy**:
+- 利益率入力変更時は`EstimateCalculator.previewProfitRate()`でプレビュー計算（API呼び出しなし）
+- プレビュー結果をUIに即時反映（適用後の単価表示）
+- 「適用」ボタン押下時のみ`POST /api/estimates/:id/apply-profit-rate`でバックエンド確定処理
 
 #### OverheadCostPanel
 
@@ -774,7 +870,7 @@ interface NetCalculationPanelProps {
 **Responsibilities & Constraints**
 - 諸経費種別の選択
 - 計算パラメータの入力（直接工事費、工期等）
-- 自動計算の実行
+- 自動計算の実行（諸経費計算式は複雑なためバックエンドで実行）
 - 計算結果の表示
 - 手入力での上書き
 
@@ -802,6 +898,8 @@ interface OverheadCostPanelProps {
   onItemAdded: () => void;
 }
 ```
+
+**Note**: 諸経費計算（国土交通省基準）は計算式が複雑かつ係数テーブルを参照するため、バックエンドAPIで計算を行う。ただし、計算ボタン押下時のみAPI呼び出しとし、パラメータ入力中はAPI呼び出しを行わない。
 
 ## Data Models
 
@@ -971,6 +1069,219 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 
 ## Performance & Scalability
 
-- 階層データの効率的な取得（再帰CTE使用）
-- 大量項目時のページネーション対応
+### API呼び出し最小化戦略
+
+本機能では、リクエスト数を極力減らし、クライアント側で出来ることは出来るだけクライアント側で行うことを方針とする。
+
+#### 1. クライアントサイド計算（Client-Side Calculation）
+
+金額の自動計算（数量×単価）はフロントエンドでDecimal.jsを使用してローカル計算する。バックエンドAPIは保存時のみ呼び出す。
+
+```typescript
+// frontend/src/utils/estimate-calculation.ts
+import Decimal from 'decimal.js';
+
+export class EstimateCalculator {
+  /**
+   * 金額計算（数量 × 単価）
+   * クライアントサイドで即座に計算し、UI表示を更新
+   */
+  static calculateAmount(quantity: string | null, unitPrice: string | null): Decimal | null {
+    if (!quantity || !unitPrice) return null;
+    const q = new Decimal(quantity);
+    const p = new Decimal(unitPrice);
+    return q.mul(p).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  }
+
+  /**
+   * 合計金額計算（子項目の金額合計）
+   * クライアントサイドで階層を走査して計算
+   */
+  static calculateSubtotal(items: EstimateItemWithLines[]): Decimal {
+    return items.reduce((sum, item) => {
+      const amount = item.lines.find(l => l.lineType === 'ESTIMATE')?.amount;
+      return amount ? sum.add(new Decimal(amount)) : sum;
+    }, new Decimal(0));
+  }
+
+  /**
+   * NET金額案分計算（プレビュー用）
+   * 確定前のプレビュー計算はクライアントサイドで実行
+   */
+  static previewNetAllocation(
+    targetLines: VendorLineInfo[],
+    excludeIds: string[],
+    netAmount: string
+  ): AllocationPreview[] {
+    const net = new Decimal(netAmount);
+    const activeLines = targetLines.filter(l => !excludeIds.includes(l.id));
+    const totalAmount = activeLines.reduce(
+      (sum, l) => sum.add(new Decimal(l.amount || 0)), new Decimal(0)
+    );
+
+    return activeLines.map(line => {
+      const ratio = totalAmount.isZero()
+        ? new Decimal(0)
+        : new Decimal(line.amount || 0).div(totalAmount);
+      const allocatedAmount = net.mul(ratio).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      return {
+        lineId: line.id,
+        originalAmount: line.amount,
+        allocatedAmount: allocatedAmount.toString(),
+        ratio: ratio.mul(100).toDecimalPlaces(2).toString() + '%',
+      };
+    });
+  }
+
+  /**
+   * 利益率適用プレビュー
+   * 確定前のプレビュー計算はクライアントサイドで実行
+   */
+  static previewProfitRate(
+    executionLines: ExecutionLineInfo[],
+    profitRate: string
+  ): ProfitRatePreview[] {
+    const rate = new Decimal(profitRate).div(100).add(1); // 例: 10% → 1.10
+    return executionLines.map(line => ({
+      lineId: line.id,
+      originalUnitPrice: line.unitPrice,
+      newUnitPrice: new Decimal(line.unitPrice || 0).mul(rate).toDecimalPlaces(2).toString(),
+    }));
+  }
+}
+```
+
+#### 2. バッチ保存戦略
+
+見積項目の編集はクライアントサイドで状態管理し、一括保存APIで送信する。
+
+```typescript
+// API呼び出しタイミング
+// ❌ 悪い例: 各フィールド変更ごとにAPI呼び出し
+// onChange → PUT /api/estimates/:id/items/:itemId （毎回呼び出し）
+
+// ✅ 良い例: ローカル状態管理 + 一括保存
+// onChange → ローカルstate更新 + クライアント計算
+// onSave → PUT /api/estimates/:id/items/batch （一括送信）
+```
+
+**バッチ保存API**:
+```typescript
+// PUT /api/estimates/:id/items/batch
+interface BatchUpdateItemsRequest {
+  items: {
+    id: string;
+    lines: {
+      id: string;
+      lineType: EstimateItemLineType;
+      name: string | null;
+      specification: string | null;
+      unit: string | null;
+      quantity: string | null;
+      unitPrice: string | null;
+      remarks: string | null;
+    }[];
+  }[];
+  updatedAt: Date; // 楽観的排他制御
+}
+```
+
+#### 3. 階層データ取得の最適化
+
+N+1問題を回避するため、Prismaのeager loadingを使用して単一クエリで階層データを取得する。
+
+```typescript
+// EstimateItemService.getHierarchy() 実装戦略
+async getHierarchy(estimateId: string): Promise<EstimateItemHierarchy[]> {
+  // 単一クエリで全項目を取得（N+1回避）
+  const items = await this.prisma.estimateItem.findMany({
+    where: { estimateId },
+    include: {
+      lines: true, // 3行1セットをeager load
+    },
+    orderBy: [
+      { parentId: 'asc' },
+      { displayOrder: 'asc' },
+    ],
+  });
+
+  // クライアントサイドで階層構造を構築
+  return this.buildHierarchyTree(items);
+}
+
+private buildHierarchyTree(items: EstimateItemWithLines[]): EstimateItemHierarchy[] {
+  const itemMap = new Map<string, EstimateItemHierarchy>();
+  const roots: EstimateItemHierarchy[] = [];
+
+  // 1パス目: マップ作成
+  items.forEach(item => {
+    itemMap.set(item.id, { ...item, children: [] });
+  });
+
+  // 2パス目: 親子関係構築
+  items.forEach(item => {
+    const node = itemMap.get(item.id)!;
+    if (item.parentId) {
+      const parent = itemMap.get(item.parentId);
+      parent?.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+
+  return roots;
+}
+```
+
+#### 4. 一括操作API設計
+
+並び替え、転記、利益率適用などの一括操作は、単一リクエストで処理する。
+
+| 操作 | エンドポイント | リクエスト形式 | 処理方式 |
+|------|---------------|---------------|---------|
+| 並び替え | PUT /api/estimates/:id/items/reorder | `{ itemOrders: [{id, displayOrder}[]] }` | 単一トランザクション |
+| 転記 | POST /api/estimates/:id/transfer-quotation | `{ lineItemIds: string[] }` | 単一トランザクション |
+| 利益率適用 | POST /api/estimates/:id/apply-profit-rate | `{ profitRate, overwriteOption }` | 一括計算・一括更新 |
+| NET金額案分 | POST /api/estimates/:id/calculate-net | `{ targetLineIds[], excludeLineIds[], netAmount }` | 一括計算・一括更新 |
+| バッチ保存 | PUT /api/estimates/:id/items/batch | `{ items: ItemUpdate[] }` | 単一トランザクション |
+
+#### 5. フロントエンド状態管理
+
+編集中のデータはReact状態で管理し、変更の差分のみをAPI送信する。
+
+```typescript
+// useEstimateEditor hook
+interface UseEstimateEditorReturn {
+  // 状態
+  items: EstimateItemHierarchy[];
+  isDirty: boolean;
+  pendingChanges: Map<string, ItemChange>;
+
+  // ローカル操作（API呼び出しなし）
+  updateLine: (itemId: string, lineId: string, field: string, value: string) => void;
+  reorderItems: (sourceId: string, targetId: string) => void;
+  addItem: (parentId?: string) => void;
+  deleteItem: (itemId: string) => void;
+
+  // API呼び出し（保存時のみ）
+  save: () => Promise<void>; // 変更があるものだけバッチ送信
+  discard: () => void; // ローカル変更を破棄
+}
+```
+
+### リクエスト最小化の効果
+
+| シナリオ | 従来設計 | 最適化後 |
+|---------|---------|---------|
+| 50項目の数値入力 | 50回 | 1回（バッチ保存） |
+| 50項目の並び替え | 50回 | 1回（一括並び替え） |
+| NET金額案分プレビュー | 毎回API | 0回（クライアント計算） |
+| 利益率プレビュー | 毎回API | 0回（クライアント計算） |
+| 階層データ取得 | N+1（項目数×4） | 1回（eager loading） |
+
+### その他のパフォーマンス考慮事項
+
+- 階層データの効率的な取得（Prisma eager loading + クライアントサイド階層構築）
+- 大量項目時のページネーション対応（将来拡張）
+- 仮想スクロール対応（100項目以上の場合、react-windowを検討）
 - PDF/Excel生成は非同期処理を検討（将来拡張）
