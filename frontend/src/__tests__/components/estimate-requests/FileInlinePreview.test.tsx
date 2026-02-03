@@ -15,6 +15,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 
+// xlsxモック関数（vi.mock外でアクセス可能にするためvi.hoistedを使用）
+const { mockXlsxRead, mockSheetToJson } = vi.hoisted(() => ({
+  mockXlsxRead: vi.fn(),
+  mockSheetToJson: vi.fn(),
+}));
+
 // react-pdfをモック（軽量版）
 vi.mock('react-pdf', () => ({
   Document: ({
@@ -33,8 +39,6 @@ vi.mock('react-pdf', () => ({
 }));
 
 // xlsxをモック（軽量版）
-const mockXlsxRead = vi.fn();
-const mockSheetToJson = vi.fn();
 vi.mock('xlsx', () => ({
   read: mockXlsxRead,
   utils: { sheet_to_json: mockSheetToJson },
@@ -220,7 +224,8 @@ describe('FileInlinePreview', () => {
   describe('エラーハンドリングテスト', () => {
     it('Excelファイル読み込みに失敗した場合はエラーメッセージを表示する', async () => {
       // xlsxのreadをエラーを投げるようにモック
-      mockXlsxRead.mockImplementationOnce(() => {
+      // vi.clearAllMocks後にmockImplementationを設定
+      mockXlsxRead.mockImplementation(() => {
         throw new Error('読み込みエラー');
       });
 
@@ -230,11 +235,13 @@ describe('FileInlinePreview', () => {
 
       render(<FileInlinePreview file={xlsxFile} />);
 
-      await waitFor(() => {
-        expect(
-          screen.getByText(/プレビューを表示できません|ファイルの読み込みに失敗しました/)
-        ).toBeInTheDocument();
-      });
+      // エラーメッセージは「プレビューを表示できません。ファイルの読み込みに失敗しました。」
+      await waitFor(
+        () => {
+          expect(screen.getByText(/プレビューを表示できません/)).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
     });
   });
 

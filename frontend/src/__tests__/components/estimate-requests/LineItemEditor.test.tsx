@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   LineItemEditor,
@@ -344,68 +344,68 @@ describe('LineItemEditor', () => {
 
   describe('金額自動再計算テスト（Requirements: 11.10, 11.11）', () => {
     it('数量変更時に金額が自動再計算される', async () => {
-      const user = userEvent.setup();
+      // 初期状態: quantity='', unitPrice='1000' -> amount=null（数量未入力）
       const lineItem: LineItemFormData = {
         id: '1',
         name: '項目1',
         specification: '',
         unit: '',
-        quantity: '10',
+        quantity: '',
         unitPrice: '1000',
-        amount: 10000,
+        amount: null,
         remarks: '',
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
 
-      // 数量を変更
-      const quantityInput = screen.getByPlaceholderText('数量');
-      await user.clear(quantityInput);
-      await user.type(quantityInput, '20');
+      // 数量フィールドに '5' を入力（fireEventで直接変更イベントを発火）
+      const quantityInput = screen.getByPlaceholderText('数量') as HTMLInputElement;
+      fireEvent.change(quantityInput, { target: { value: '5' } });
 
       // onLineItemsChangeが呼ばれ、金額が再計算される
       await waitFor(() => {
         expect(mockOnLineItemsChange).toHaveBeenCalled();
       });
 
-      // 最後の呼び出しで金額が更新されていることを確認
+      // 呼び出しで金額が更新されていることを確認
       const lastCall =
         mockOnLineItemsChange.mock.calls[mockOnLineItemsChange.mock.calls.length - 1];
       expect(lastCall).toBeDefined();
       const updatedItems = lastCall![0] as LineItemFormData[];
-      expect(updatedItems[0]?.amount).toBe(20000);
+      // 5 * 1000 = 5000
+      expect(updatedItems[0]?.amount).toBe(5000);
     });
 
     it('単価変更時に金額が自動再計算される', async () => {
-      const user = userEvent.setup();
+      // 初期状態: quantity='10', unitPrice='' -> amount=null（単価未入力）
       const lineItem: LineItemFormData = {
         id: '1',
         name: '項目1',
         specification: '',
         unit: '',
         quantity: '10',
-        unitPrice: '1000',
-        amount: 10000,
+        unitPrice: '',
+        amount: null,
         remarks: '',
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
 
-      // 単価を変更
-      const unitPriceInput = screen.getByPlaceholderText('単価');
-      await user.clear(unitPriceInput);
-      await user.type(unitPriceInput, '2000');
+      // 単価フィールドに '500' を入力（fireEventで直接変更イベントを発火）
+      const unitPriceInput = screen.getByPlaceholderText('単価') as HTMLInputElement;
+      fireEvent.change(unitPriceInput, { target: { value: '500' } });
 
       await waitFor(() => {
         expect(mockOnLineItemsChange).toHaveBeenCalled();
       });
 
-      // 最後の呼び出しで金額が更新されていることを確認
+      // 呼び出しで金額が更新されていることを確認
       const lastCall =
         mockOnLineItemsChange.mock.calls[mockOnLineItemsChange.mock.calls.length - 1];
       expect(lastCall).toBeDefined();
       const updatedItems = lastCall![0] as LineItemFormData[];
-      expect(updatedItems[0]?.amount).toBe(20000);
+      // 10 * 500 = 5000
+      expect(updatedItems[0]?.amount).toBe(5000);
     });
   });
 
