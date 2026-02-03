@@ -87,11 +87,11 @@ describe('ReceivedQuotationForm', () => {
         estimateRequestId,
         name: 'テスト見積書',
         submittedAt: new Date('2025-01-15'),
-        contentType: 'TEXT' as const,
-        textContent: 'テスト内容',
         fileName: null,
         fileMimeType: null,
         fileSize: null,
+        lineItems: [],
+        totalAmount: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -464,8 +464,6 @@ describe('ReceivedQuotationForm', () => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'テスト見積書',
-            contentType: 'TEXT',
-            textContent: 'テスト内容',
           })
         );
       });
@@ -510,7 +508,6 @@ describe('ReceivedQuotationForm', () => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'テスト見積書',
-            contentType: 'FILE',
             file: expect.any(File),
           })
         );

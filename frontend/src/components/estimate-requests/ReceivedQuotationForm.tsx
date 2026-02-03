@@ -16,6 +16,11 @@
  */
 
 import { useState, useCallback, useRef, type ChangeEvent } from 'react';
+import type {
+  ReceivedQuotationInfo,
+  CreateReceivedQuotationInput,
+  UpdateReceivedQuotationInput,
+} from '../../api/received-quotations';
 
 // ============================================================================
 // 定数定義
@@ -48,48 +53,18 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 // ============================================================================
 
 /**
- * コンテンツタイプ
+ * コンテンツタイプ（フォーム内部状態用）
  */
 type ContentType = 'TEXT' | 'FILE';
 
 /**
- * 受領見積書情報（既存データ）
+ * 受領見積書情報をAPIクライアントから再エクスポート
  */
-export interface ReceivedQuotationInfo {
-  id: string;
-  estimateRequestId: string;
-  name: string;
-  submittedAt: Date;
-  contentType: ContentType;
-  textContent: string | null;
-  fileName: string | null;
-  fileMimeType: string | null;
-  fileSize: number | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-/**
- * 受領見積書作成入力
- */
-export interface CreateReceivedQuotationInput {
-  name: string;
-  submittedAt: Date;
-  contentType: ContentType;
-  textContent?: string;
-  file?: File;
-}
-
-/**
- * 受領見積書更新入力
- */
-export interface UpdateReceivedQuotationInput {
-  name?: string;
-  submittedAt?: Date;
-  contentType?: ContentType;
-  textContent?: string;
-  file?: File;
-}
+export type {
+  ReceivedQuotationInfo,
+  CreateReceivedQuotationInput,
+  UpdateReceivedQuotationInput,
+} from '../../api/received-quotations';
 
 /**
  * ReceivedQuotationFormコンポーネントのProps
@@ -388,8 +363,11 @@ export function ReceivedQuotationForm({
   const [submittedAt, setSubmittedAt] = useState(
     formatDateForInput(initialData?.submittedAt ?? new Date())
   );
-  const [contentType, setContentType] = useState<ContentType>(initialData?.contentType ?? 'TEXT');
-  const [textContent, setTextContent] = useState(initialData?.textContent ?? '');
+  // contentType廃止に伴い、ファイル有無で初期モードを判定（タスク26でフォーム全体改訂予定）
+  const [contentType, setContentType] = useState<ContentType>(
+    initialData?.fileName ? 'FILE' : 'TEXT'
+  );
+  const [textContent, setTextContent] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
 
@@ -413,7 +391,7 @@ export function ReceivedQuotationForm({
       }
     } else {
       // FILEモード
-      if (!selectedFile && (!initialData || initialData.contentType !== 'FILE')) {
+      if (!selectedFile && (!initialData || !initialData.fileName)) {
         newErrors.content = 'ファイルを選択してください';
       }
     }
@@ -434,10 +412,7 @@ export function ReceivedQuotationForm({
       const data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput = {
         name: name.trim(),
         submittedAt: new Date(submittedAt),
-        contentType,
-        ...(contentType === 'TEXT'
-          ? { textContent: textContent.trim() }
-          : { file: selectedFile ?? undefined }),
+        ...(contentType === 'FILE' ? { file: selectedFile ?? undefined } : {}),
       };
 
       await onSubmit(data);
@@ -689,21 +664,16 @@ export function ReceivedQuotationForm({
           )}
 
           {/* 編集モードで既存ファイルがある場合 */}
-          {!selectedFile &&
-            mode === 'edit' &&
-            initialData?.contentType === 'FILE' &&
-            initialData.fileName && (
-              <div style={styles.selectedFile}>
-                <div>
-                  <div style={styles.selectedFileName}>{initialData.fileName}</div>
-                  {initialData.fileSize && (
-                    <div style={styles.selectedFileSize}>
-                      {formatFileSize(initialData.fileSize)}
-                    </div>
-                  )}
-                </div>
+          {!selectedFile && mode === 'edit' && initialData?.fileName && (
+            <div style={styles.selectedFile}>
+              <div>
+                <div style={styles.selectedFileName}>{initialData.fileName}</div>
+                {initialData.fileSize && (
+                  <div style={styles.selectedFileSize}>{formatFileSize(initialData.fileSize)}</div>
+                )}
               </div>
-            )}
+            </div>
+          )}
 
           {(errors.content || errors.file) && (
             <p style={styles.errorText} role="alert">

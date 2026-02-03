@@ -14,7 +14,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { ReceivedQuotationInfo } from './ReceivedQuotationForm';
+import type { ReceivedQuotationInfo } from '../../api/received-quotations';
 
 // ============================================================================
 // 型定義
@@ -348,7 +348,7 @@ function ImageIcon() {
 }
 
 function FileTypeIcon({ quotation }: { quotation: ReceivedQuotationInfo }) {
-  if (quotation.contentType === 'TEXT') {
+  if (!quotation.fileName) {
     return <TextIcon />;
   }
 
@@ -502,7 +502,7 @@ export function ReceivedQuotationList({
                 <div style={styles.quotationName}>{quotation.name}</div>
                 <div style={styles.metaInfo}>
                   <span style={styles.metaItem}>提出日: {formatDate(quotation.submittedAt)}</span>
-                  {quotation.contentType === 'FILE' && quotation.fileSize && (
+                  {quotation.fileName && quotation.fileSize && (
                     <span style={styles.metaItem}>{formatFileSize(quotation.fileSize)}</span>
                   )}
                 </div>
@@ -510,7 +510,7 @@ export function ReceivedQuotationList({
 
               {/* アクションボタン */}
               <div style={styles.actionsContainer}>
-                {quotation.contentType === 'FILE' && (
+                {quotation.fileName && (
                   <button
                     type="button"
                     onClick={() => onPreviewClick(quotation)}

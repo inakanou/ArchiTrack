@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReceivedQuotationList } from './ReceivedQuotationList';
-import type { ReceivedQuotationInfo } from './ReceivedQuotationForm';
+import type { ReceivedQuotationInfo } from '../../api/received-quotations';
 
 describe('ReceivedQuotationList', () => {
   const mockOnAddClick = vi.fn();
@@ -32,11 +32,11 @@ describe('ReceivedQuotationList', () => {
       estimateRequestId,
       name: '見積書A',
       submittedAt: new Date('2025-01-15'),
-      contentType: 'TEXT',
-      textContent: 'テキスト内容',
       fileName: null,
       fileMimeType: null,
       fileSize: null,
+      lineItems: [],
+      totalAmount: null,
       createdAt: new Date('2025-01-16T10:00:00'),
       updatedAt: new Date('2025-01-16T10:00:00'),
     },
@@ -45,11 +45,11 @@ describe('ReceivedQuotationList', () => {
       estimateRequestId,
       name: '見積書B（PDF）',
       submittedAt: new Date('2025-01-17'),
-      contentType: 'FILE',
-      textContent: null,
       fileName: 'estimate.pdf',
       fileMimeType: 'application/pdf',
       fileSize: 1024 * 500, // 500KB
+      lineItems: [],
+      totalAmount: null,
       createdAt: new Date('2025-01-18T11:30:00'),
       updatedAt: new Date('2025-01-18T11:30:00'),
     },
@@ -58,11 +58,11 @@ describe('ReceivedQuotationList', () => {
       estimateRequestId,
       name: '見積書C（Excel）',
       submittedAt: new Date('2025-01-19'),
-      contentType: 'FILE',
-      textContent: null,
       fileName: 'estimate.xlsx',
       fileMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       fileSize: 1024 * 1024 * 2, // 2MB
+      lineItems: [],
+      totalAmount: null,
       createdAt: new Date('2025-01-20T09:00:00'),
       updatedAt: new Date('2025-01-20T09:00:00'),
     },
@@ -71,11 +71,11 @@ describe('ReceivedQuotationList', () => {
       estimateRequestId,
       name: '見積書D（画像）',
       submittedAt: new Date('2025-01-21'),
-      contentType: 'FILE',
-      textContent: null,
       fileName: 'photo.jpg',
       fileMimeType: 'image/jpeg',
       fileSize: 1024 * 300, // 300KB
+      lineItems: [],
+      totalAmount: null,
       createdAt: new Date('2025-01-22T14:00:00'),
       updatedAt: new Date('2025-01-22T14:00:00'),
     },
