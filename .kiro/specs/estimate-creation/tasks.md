@@ -144,8 +144,8 @@
   - 利益率適用プレビュー計算（previewProfitRate）
   - _Requirements: 1.3, 2.3, 13.6_
 
-- [ ] 8. フロントエンド状態管理の実装
-- [ ] 8.1 useEstimateEditorフックの実装
+- [x] 8. フロントエンド状態管理の実装
+- [x] 8.1 useEstimateEditorフックの実装
   - 見積項目の編集状態管理
   - ローカル操作（API呼び出しなし）: updateLine, reorderItems, addItem, deleteItem
   - 変更差分の追跡（pendingChanges）
