@@ -86,11 +86,7 @@ import { FileInlinePreview } from './FileInlinePreview';
 /**
  * テスト用のFileオブジェクトを生成する
  */
-function createMockFile(
-  name: string,
-  type: string,
-  _size: number = 1024
-): File {
+function createMockFile(name: string, type: string, _size: number = 1024): File {
   const blob = new Blob(['dummy content'], { type });
   return new File([blob], name, { type, lastModified: Date.now() });
 }
@@ -284,10 +280,7 @@ describe('FileInlinePreview', () => {
     it('Excelデータは先頭100行のみ表示する (13.4)', async () => {
       // 200行のデータを返すようにモックを設定
       const XLSX = await import('xlsx');
-      const manyRows = Array.from({ length: 200 }, (_, i) => [
-        `行${i + 1}`,
-        `値${i + 1}`,
-      ]);
+      const manyRows = Array.from({ length: 200 }, (_, i) => [`行${i + 1}`, `値${i + 1}`]);
       vi.mocked(XLSX.utils.sheet_to_json).mockReturnValueOnce(manyRows);
 
       const excelFile = createMockFile(
