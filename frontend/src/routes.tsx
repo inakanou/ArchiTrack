@@ -37,6 +37,9 @@ import EstimateRequestListPage from './pages/EstimateRequestListPage';
 import EstimateRequestCreatePage from './pages/EstimateRequestCreatePage';
 import EstimateRequestDetailPage from './pages/EstimateRequestDetailPage';
 import EstimateRequestEditPage from './pages/EstimateRequestEditPage';
+import EstimateListPage from './pages/EstimateListPage';
+import EstimateCreatePage from './pages/EstimateCreatePage';
+import EstimateDetailPage from './pages/EstimateDetailPage';
 import CompanyInfoPage from './pages/CompanyInfoPage';
 
 /**
@@ -275,6 +278,37 @@ export const routes: RouteObject[] = [
       {
         path: '/estimate-requests/:id',
         element: <EstimateRequestDetailPage />,
+      },
+
+      // 見積書新規作成（/projects/:projectId/estimates より先に定義する必要あり）
+      // REQ-3.1: 見積書新規作成を選択した場合、内訳書の選択画面を表示する
+      // REQ-3.2: 内訳書を選択した場合、見積金額行の初期値として設定する
+      // REQ-3.3: 内訳書を選択せずに作成した場合、空の見積書を作成する
+      // REQ-14.5: 新規作成ボタンを提供する
+      // Task 16.1: フロントエンドルーティング設定
+      {
+        path: '/projects/:projectId/estimates/new',
+        element: <EstimateCreatePage />,
+      },
+      // 見積書一覧
+      // REQ-11.1: プロジェクトに紐付く見積書の一覧を表示する
+      // REQ-14.1: 見積書一覧画面を提供する
+      // REQ-14.2: 見積書の一覧をカード形式で表示する
+      // REQ-14.6: ページネーションを提供する
+      // Task 16.1: フロントエンドルーティング設定
+      {
+        path: '/projects/:projectId/estimates',
+        element: <EstimateListPage />,
+      },
+      // 見積書詳細画面
+      // REQ-4.1-4.9: 見積書詳細表示、見積金額行テーブル
+      // REQ-5.1-5.8: 見積金額行の編集機能
+      // REQ-6.1-6.4: 見積書の合計金額計算
+      // REQ-14.4: 見積書カードクリックで詳細画面へ遷移
+      // Task 16.1: フロントエンドルーティング設定
+      {
+        path: '/estimates/:id',
+        element: <EstimateDetailPage />,
       },
 
       // 取引先一覧
