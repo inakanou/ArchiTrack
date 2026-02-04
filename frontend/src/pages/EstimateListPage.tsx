@@ -20,9 +20,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getEstimates } from '../api/estimates';
-import type { EstimateInfo, EstimatesResponse } from '../api/estimates';
+import type { EstimatesResponse } from '../api/estimates';
 import { Breadcrumb } from '../components/common';
 import PaginationUI from '../components/projects/PaginationUI';
+import { EstimateCard } from '../components/estimate';
 
 // ============================================================================
 // 定数定義
@@ -96,43 +97,6 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '12px',
   } as React.CSSProperties,
-  estimateCard: {
-    display: 'flex',
-    gap: '16px',
-    padding: '16px',
-    backgroundColor: '#ffffff',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb',
-    textDecoration: 'none',
-    color: 'inherit',
-    transition: 'box-shadow 0.2s, border-color 0.2s',
-  } as React.CSSProperties,
-  iconWrapper: {
-    width: '56px',
-    height: '56px',
-    borderRadius: '8px',
-    backgroundColor: '#f3f4f6',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#6b7280',
-    flexShrink: 0,
-  } as React.CSSProperties,
-  estimateInfo: {
-    flex: 1,
-    minWidth: 0,
-  } as React.CSSProperties,
-  estimateName: {
-    fontSize: '16px',
-    fontWeight: 600,
-    color: '#1f2937',
-    margin: 0,
-    marginBottom: '4px',
-  } as React.CSSProperties,
-  estimateMeta: {
-    fontSize: '14px',
-    color: '#6b7280',
-  } as React.CSSProperties,
   emptyState: {
     textAlign: 'center' as const,
     padding: '64px 24px',
@@ -192,29 +156,8 @@ const styles = {
 };
 
 // ============================================================================
-// ヘルパー関数
+// ヘルパー関数は components/estimate/EstimateCard.tsx に移動
 // ============================================================================
-
-/**
- * 日付を日本語形式でフォーマット
- */
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('ja-JP', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-/**
- * 金額をフォーマット
- */
-function formatAmount(amount: string | null | undefined): string {
-  if (!amount) return '-';
-  const num = parseFloat(amount);
-  if (isNaN(num)) return '-';
-  return num.toLocaleString('ja-JP') + '円';
-}
 
 // ============================================================================
 // サブコンポーネント
@@ -284,31 +227,7 @@ function EmptyState({ projectId }: { projectId: string }) {
   );
 }
 
-/**
- * 見積書カード
- * Requirements: REQ-14.2, REQ-14.3, REQ-14.4
- */
-function EstimateCard({ estimate }: { estimate: EstimateInfo & { totalAmount?: string } }) {
-  return (
-    <Link
-      to={`/estimates/${estimate.id}`}
-      style={styles.estimateCard}
-      aria-label={`${estimate.name}の見積書詳細を見る`}
-      data-testid={`estimate-card-${estimate.id}`}
-    >
-      <div style={styles.iconWrapper}>
-        <EstimateIcon size={28} />
-      </div>
-      <div style={styles.estimateInfo}>
-        <h2 style={styles.estimateName}>{estimate.name}</h2>
-        <p style={styles.estimateMeta}>
-          {formatDate(estimate.createdAt)}
-          {estimate.totalAmount && ` / ${formatAmount(estimate.totalAmount)}`}
-        </p>
-      </div>
-    </Link>
-  );
-}
+// Note: EstimateCardコンポーネントは components/estimate/EstimateCard.tsx からインポート
 
 // ============================================================================
 // メインコンポーネント
@@ -468,7 +387,13 @@ export default function EstimateListPage() {
         <>
           <div style={styles.estimateList} data-testid="estimate-list">
             {estimates.map((estimate) => (
-              <EstimateCard key={estimate.id} estimate={estimate} />
+              <EstimateCard
+                key={estimate.id}
+                id={estimate.id}
+                name={estimate.name}
+                createdAt={estimate.createdAt}
+                totalAmount={estimate.totalAmount ?? null}
+              />
             ))}
           </div>
 

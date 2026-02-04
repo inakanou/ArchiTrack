@@ -73,6 +73,8 @@ export interface EstimateInfo {
   sourceItemizedStatementName: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 見積金額行の合計金額（一覧表示用、オプション） */
+  totalAmount?: string | null;
 }
 
 /**
