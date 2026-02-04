@@ -363,3 +363,28 @@ export async function getPreviewUrl(id: string): Promise<string> {
   const response = await apiClient.get<{ url: string }>(`/api/quotations/${id}/preview`);
   return response.url;
 }
+
+/**
+ * プロジェクトに紐付く受領見積書一覧を取得する
+ *
+ * 見積書作成時の転記機能で使用。
+ * 見積依頼経由で登録された受領見積書のみを取得。
+ *
+ * Requirements: REQ-4.5
+ *
+ * @param projectId - プロジェクトID
+ * @returns 受領見積書一覧
+ */
+export async function getReceivedQuotationsByProject(
+  projectId: string
+): Promise<ReceivedQuotationInfo[]> {
+  const response = await apiClient.get<ReceivedQuotationInfo[]>(
+    `/api/projects/${projectId}/quotations`
+  );
+  return response.map((q) => ({
+    ...q,
+    submittedAt: new Date(q.submittedAt),
+    createdAt: new Date(q.createdAt),
+    updatedAt: new Date(q.updatedAt),
+  }));
+}
