@@ -157,7 +157,7 @@ export async function getEstimates(
   if (options?.search) params.set('search', options.search);
 
   const queryString = params.toString();
-  const url = `/projects/${projectId}/estimates${queryString ? `?${queryString}` : ''}`;
+  const url = `/api/projects/${projectId}/estimates${queryString ? `?${queryString}` : ''}`;
 
   return apiClient.get<EstimatesResponse>(url);
 }
@@ -173,7 +173,9 @@ export async function getEstimatesSummary(
   projectId: string,
   limit: number = 3
 ): Promise<EstimateSummary> {
-  return apiClient.get<EstimateSummary>(`/projects/${projectId}/estimates/latest?limit=${limit}`);
+  return apiClient.get<EstimateSummary>(
+    `/api/projects/${projectId}/estimates/latest?limit=${limit}`
+  );
 }
 
 /**
@@ -184,7 +186,7 @@ export async function getEstimatesSummary(
  * @returns 見積書詳細
  */
 export async function getEstimateDetail(id: string): Promise<EstimateDetail> {
-  return apiClient.get<EstimateDetail>(`/estimates/${id}`);
+  return apiClient.get<EstimateDetail>(`/api/estimates/${id}`);
 }
 
 /**
@@ -199,7 +201,7 @@ export async function createEstimate(
   projectId: string,
   input: CreateEstimateInput
 ): Promise<EstimateInfo> {
-  return apiClient.post<EstimateInfo>(`/projects/${projectId}/estimates`, input);
+  return apiClient.post<EstimateInfo>(`/api/projects/${projectId}/estimates`, input);
 }
 
 /**
@@ -216,7 +218,7 @@ export async function updateEstimate(
   input: UpdateEstimateInput,
   updatedAt: string
 ): Promise<EstimateInfo> {
-  return apiClient.put<EstimateInfo>(`/estimates/${id}`, { ...input, updatedAt });
+  return apiClient.put<EstimateInfo>(`/api/estimates/${id}`, { ...input, updatedAt });
 }
 
 /**
@@ -227,7 +229,7 @@ export async function updateEstimate(
  * @param updatedAt - 楽観的排他制御用更新日時
  */
 export async function deleteEstimate(id: string, updatedAt: string): Promise<void> {
-  await apiClient.delete(`/estimates/${id}?updatedAt=${encodeURIComponent(updatedAt)}`);
+  await apiClient.delete(`/api/estimates/${id}?updatedAt=${encodeURIComponent(updatedAt)}`);
 }
 
 // ============================================================================
@@ -247,7 +249,7 @@ export async function transferFromQuotation(
   input: TransferQuotationInput
 ): Promise<EstimateItemHierarchy[]> {
   return apiClient.post<EstimateItemHierarchy[]>(
-    `/estimates/${estimateId}/transfer-quotation`,
+    `/api/estimates/${estimateId}/transfer-quotation`,
     input
   );
 }
