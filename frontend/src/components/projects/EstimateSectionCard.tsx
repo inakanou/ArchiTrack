@@ -310,6 +310,7 @@ function EstimateCard({ estimate }: { estimate: EstimateInfo }) {
       to={`/estimates/${estimate.id}`}
       style={styles.estimateCard}
       aria-label={`${estimate.name}の見積書詳細を見る`}
+      data-testid={`estimate-card-${estimate.id}`}
     >
       <div style={styles.iconWrapper}>
         <EstimateIcon />
