@@ -104,7 +104,7 @@ const styles = {
   },
   lineTypeLabelExecution: {
     backgroundColor: '#dcfce7',
-    color: '#15803d',
+    color: '#166534', // Changed from #15803d for better contrast (4.5:1+ on #dcfce7)
   },
   lineTypeLabelVendor: {
     backgroundColor: '#fef3c7',
@@ -203,79 +203,86 @@ function LineRow({ itemId, line, onLineChange }: LineRowProps) {
   );
 
   return (
-    <div style={styles.lineRow} role="row" data-testid={`line-type-${line.lineType}`}>
+    <div style={styles.lineRow} data-testid={`line-type-${line.lineType}`}>
       {/* 行タイプラベル */}
       <div style={getLabelStyle(line.lineType)}>{LINE_TYPE_LABELS[line.lineType]}</div>
 
       {/* 名称 */}
-      <input
-        type="text"
-        value={line.name ?? ''}
-        onChange={handleFieldChange('name')}
-        style={styles.input}
-        aria-label="名称"
-        placeholder="名称を入力"
-      />
+      <div>
+        <input
+          type="text"
+          value={line.name ?? ''}
+          onChange={handleFieldChange('name')}
+          style={styles.input}
+          aria-label="名称"
+          placeholder="名称を入力"
+        />
+      </div>
 
       {/* 規格 */}
-      <input
-        type="text"
-        value={line.specification ?? ''}
-        onChange={handleFieldChange('specification')}
-        style={styles.input}
-        aria-label="規格"
-        placeholder="規格"
-      />
+      <div>
+        <input
+          type="text"
+          value={line.specification ?? ''}
+          onChange={handleFieldChange('specification')}
+          style={styles.input}
+          aria-label="規格"
+          placeholder="規格"
+        />
+      </div>
 
       {/* 単位 */}
-      <input
-        type="text"
-        value={line.unit ?? ''}
-        onChange={handleFieldChange('unit')}
-        style={styles.input}
-        aria-label="単位"
-        placeholder="単位"
-      />
+      <div>
+        <input
+          type="text"
+          value={line.unit ?? ''}
+          onChange={handleFieldChange('unit')}
+          style={styles.input}
+          aria-label="単位"
+          placeholder="単位"
+        />
+      </div>
 
       {/* 数量 */}
-      <input
-        type="text"
-        value={line.quantity ?? ''}
-        onChange={handleFieldChange('quantity')}
-        style={styles.input}
-        aria-label="数量"
-        placeholder="数量"
-      />
+      <div>
+        <input
+          type="text"
+          value={line.quantity ?? ''}
+          onChange={handleFieldChange('quantity')}
+          style={styles.input}
+          aria-label="数量"
+          placeholder="数量"
+        />
+      </div>
 
       {/* 単価 */}
-      <input
-        type="text"
-        value={line.unitPrice ?? ''}
-        onChange={handleFieldChange('unitPrice')}
-        style={styles.input}
-        aria-label="単価"
-        placeholder="単価"
-      />
+      <div>
+        <input
+          type="text"
+          value={line.unitPrice ?? ''}
+          onChange={handleFieldChange('unitPrice')}
+          style={styles.input}
+          aria-label="単価"
+          placeholder="単価"
+        />
+      </div>
 
       {/* 金額（自動計算、入力不可） */}
-      <div
-        style={styles.amountField}
-        data-testid="amount-field"
-        aria-readonly="true"
-        aria-label="金額"
-      >
+      <div style={styles.amountField} data-testid="amount-field" aria-label="金額">
         {formatAmount(line.amount)}
       </div>
 
       {/* 備考 */}
-      <input
-        type="text"
-        value={line.remarks ?? ''}
-        onChange={handleFieldChange('remarks')}
-        style={styles.input}
-        aria-label="備考"
-        placeholder="備考"
-      />
+      <div>
+        <input
+          type="text"
+          value={line.remarks ?? ''}
+          onChange={handleFieldChange('remarks')}
+          style={styles.input}
+          aria-label="備考"
+          placeholder="備考"
+        />
+      </div>
     </div>
   );
 }

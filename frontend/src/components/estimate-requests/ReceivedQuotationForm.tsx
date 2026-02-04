@@ -130,7 +130,7 @@ const styles = {
     color: '#374151',
   },
   required: {
-    color: '#ef4444',
+    color: '#dc2626',
     marginLeft: '4px',
   },
   input: {
@@ -142,11 +142,11 @@ const styles = {
     transition: 'border-color 0.2s',
   },
   inputError: {
-    borderColor: '#ef4444',
+    borderColor: '#dc2626',
   },
   errorText: {
     fontSize: '12px',
-    color: '#ef4444',
+    color: '#dc2626',
     marginTop: '4px',
   },
   buttonGroup: {
@@ -169,7 +169,7 @@ const styles = {
     color: '#ffffff',
   },
   submitButtonDisabled: {
-    backgroundColor: '#9ca3af',
+    backgroundColor: '#6b7280',
     cursor: 'not-allowed',
   },
   cancelButton: {
@@ -179,7 +179,7 @@ const styles = {
   },
   cancelButtonDisabled: {
     backgroundColor: '#f3f4f6',
-    color: '#9ca3af',
+    color: '#6b7280',
     cursor: 'not-allowed',
   },
   loadingWrapper: {
@@ -206,7 +206,7 @@ const styles = {
     backgroundColor: '#eff6ff',
   },
   fileUploadAreaError: {
-    borderColor: '#ef4444',
+    borderColor: '#dc2626',
     backgroundColor: '#fef2f2',
   },
   fileUploadText: {
@@ -216,7 +216,7 @@ const styles = {
   },
   fileUploadHint: {
     fontSize: '12px',
-    color: '#9ca3af',
+    color: '#6b7280',
     marginTop: '4px',
   },
   selectedFile: {
@@ -235,15 +235,15 @@ const styles = {
   },
   selectedFileSize: {
     fontSize: '12px',
-    color: '#6b7280',
+    color: '#4b5563', // Changed from #6b7280 for better contrast on #f3f4f6 background
   },
   removeFileButton: {
     marginLeft: 'auto',
     padding: '4px 8px',
     fontSize: '12px',
-    color: '#ef4444',
+    color: '#b91c1c', // Changed from #dc2626 for better contrast on #f3f4f6 background
     backgroundColor: 'transparent',
-    border: '1px solid #ef4444',
+    border: '1px solid #b91c1c',
     borderRadius: '4px',
     cursor: 'pointer',
   },
@@ -383,6 +383,7 @@ function LoadingSpinner() {
       strokeLinecap="round"
       strokeLinejoin="round"
       style={{ animation: 'spin 1s linear infinite' }}
+      aria-hidden="true"
     >
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
       <style>{`
@@ -688,6 +689,7 @@ export function ReceivedQuotationForm({
               viewBox="0 0 24 24"
               stroke="#6b7280"
               strokeWidth={1.5}
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"

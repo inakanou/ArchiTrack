@@ -114,7 +114,8 @@ const styles = {
     width: '40px',
     height: '40px',
     borderRadius: '8px',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#ffffff', // Changed from #f3f4f6 for better icon contrast
+    border: '1px solid #e5e7eb',
     flexShrink: 0,
   },
   contentContainer: {
@@ -163,7 +164,7 @@ const styles = {
     alignItems: 'center',
     gap: '4px',
     fontWeight: 500,
-    color: '#059669',
+    color: '#047857', // Changed from #059669 for better contrast (4.5:1+ on white)
   },
   actionsContainer: {
     display: 'flex',
@@ -186,8 +187,8 @@ const styles = {
     borderColor: '#2563eb',
   },
   deleteButton: {
-    color: '#ef4444',
-    borderColor: '#ef4444',
+    color: '#dc2626', // Changed from #ef4444 for better contrast (4.5:1+ on white)
+    borderColor: '#dc2626',
   },
   dialogOverlay: {
     position: 'fixed' as const,
@@ -237,7 +238,7 @@ const styles = {
     padding: '8px 16px',
     fontSize: '14px',
     fontWeight: 500,
-    backgroundColor: '#ef4444',
+    backgroundColor: '#dc2626', // Changed from #ef4444 for better contrast (4.5:1+ with white text)
     color: '#ffffff',
     border: 'none',
     borderRadius: '6px',
@@ -312,6 +313,7 @@ function TextIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
@@ -334,6 +336,7 @@ function PdfIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
@@ -355,6 +358,7 @@ function ExcelIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
@@ -377,6 +381,7 @@ function ImageIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
@@ -414,6 +419,7 @@ function PlusIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5" y1="12" x2="19" y2="12" />
@@ -441,9 +447,17 @@ function DeleteConfirmDialog({
   if (!isOpen) return null;
 
   return (
-    <div style={styles.dialogOverlay} onClick={onCancel} role="dialog" aria-modal="true">
+    <div
+      style={styles.dialogOverlay}
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-dialog-title"
+    >
       <div style={styles.dialogContent} onClick={(e) => e.stopPropagation()}>
-        <h3 style={styles.dialogTitle}>受領見積書の削除</h3>
+        <h3 id="delete-dialog-title" style={styles.dialogTitle}>
+          受領見積書の削除
+        </h3>
         <p style={styles.dialogMessage}>
           「{quotationName}」を削除しますか？この操作は取り消せません。
         </p>
@@ -527,9 +541,14 @@ export function ReceivedQuotationList({
       {quotations.length === 0 ? (
         <div style={styles.emptyMessage}>受領見積書はまだ登録されていません</div>
       ) : (
-        <div style={styles.list}>
+        <div style={styles.list} role="list" aria-label="受領見積書一覧">
           {quotations.map((quotation) => (
-            <div key={quotation.id} style={styles.listItem} data-testid="received-quotation-item">
+            <div
+              key={quotation.id}
+              style={styles.listItem}
+              data-testid="received-quotation-item"
+              role="listitem"
+            >
               {/* ファイルタイプアイコン */}
               <div style={styles.iconContainer}>
                 <FileTypeIcon quotation={quotation} />

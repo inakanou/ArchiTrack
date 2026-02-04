@@ -239,9 +239,9 @@ const styles = {
   deleteButton: {
     padding: '4px 8px',
     fontSize: '12px',
-    color: '#ef4444',
+    color: '#dc2626', // Changed from #ef4444 for better contrast (4.5:1+ on white)
     backgroundColor: 'transparent',
-    border: '1px solid #ef4444',
+    border: '1px solid #dc2626',
     borderRadius: '4px',
     cursor: 'pointer',
     transition: 'background-color 0.15s',
@@ -273,8 +273,8 @@ const styles = {
     transition: 'background-color 0.15s',
   },
   addButtonDisabled: {
-    color: '#9ca3af',
-    borderColor: '#9ca3af',
+    color: '#6b7280',
+    borderColor: '#6b7280',
     cursor: 'not-allowed',
   },
   totalRow: {
@@ -411,15 +411,33 @@ export function LineItemEditor({
       <table ref={tableRef} style={styles.table}>
         <thead style={styles.thead}>
           <tr>
-            <th style={{ ...styles.th, ...styles.thNo }}>No</th>
-            <th style={{ ...styles.th, ...styles.thName }}>名称</th>
-            <th style={{ ...styles.th, ...styles.thSpec }}>規格</th>
-            <th style={{ ...styles.th, ...styles.thUnit }}>単位</th>
-            <th style={{ ...styles.th, ...styles.thQuantity }}>数量</th>
-            <th style={{ ...styles.th, ...styles.thUnitPrice }}>単価</th>
-            <th style={{ ...styles.th, ...styles.thAmount }}>金額</th>
-            <th style={{ ...styles.th, ...styles.thRemarks }}>備考</th>
-            <th style={{ ...styles.th, ...styles.thAction }}>操作</th>
+            <th scope="col" style={{ ...styles.th, ...styles.thNo }}>
+              No
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thName }}>
+              名称
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thSpec }}>
+              規格
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thUnit }}>
+              単位
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thQuantity }}>
+              数量
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thUnitPrice }}>
+              単価
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thAmount }}>
+              金額
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thRemarks }}>
+              備考
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thAction }}>
+              操作
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -442,6 +460,7 @@ export function LineItemEditor({
                   style={styles.input}
                   data-row={index}
                   data-field="name"
+                  aria-label={`行${index + 1} 名称`}
                 />
               </td>
 
@@ -459,6 +478,7 @@ export function LineItemEditor({
                   style={styles.input}
                   data-row={index}
                   data-field="specification"
+                  aria-label={`行${index + 1} 規格`}
                 />
               </td>
 
@@ -476,6 +496,7 @@ export function LineItemEditor({
                   style={styles.input}
                   data-row={index}
                   data-field="unit"
+                  aria-label={`行${index + 1} 単位`}
                 />
               </td>
 
@@ -494,6 +515,7 @@ export function LineItemEditor({
                   style={{ ...styles.input, ...styles.inputNumber }}
                   data-row={index}
                   data-field="quantity"
+                  aria-label={`行${index + 1} 数量`}
                 />
               </td>
 
@@ -512,6 +534,7 @@ export function LineItemEditor({
                   style={{ ...styles.input, ...styles.inputNumber }}
                   data-row={index}
                   data-field="unitPrice"
+                  aria-label={`行${index + 1} 単価`}
                 />
               </td>
 
@@ -534,6 +557,7 @@ export function LineItemEditor({
                   style={styles.input}
                   data-row={index}
                   data-field="remarks"
+                  aria-label={`行${index + 1} 備考`}
                 />
               </td>
 

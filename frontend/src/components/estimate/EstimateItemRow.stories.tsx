@@ -5,9 +5,9 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
 import { EstimateItemRow } from './EstimateItemRow';
-import type { EstimateItemLine } from '../../api/estimates';
+import type { EstimateItemLineEdit } from '../../hooks/useEstimateEditor';
 
-const mockEstimateLines: EstimateItemLine[] = [
+const mockEstimateLines: EstimateItemLineEdit[] = [
   {
     id: 'line-1',
     estimateItemId: 'item-1',
@@ -19,14 +19,10 @@ const mockEstimateLines: EstimateItemLine[] = [
     unitPrice: '500000',
     amount: '500000',
     remarks: null,
-    sourceReceivedQuotationLineItemId: null,
-    sourceVendorName: null,
-    createdAt: '2025-01-01T00:00:00Z',
-    updatedAt: '2025-01-01T00:00:00Z',
   },
 ];
 
-const mockExecutionLines: EstimateItemLine[] = [
+const mockExecutionLines: EstimateItemLineEdit[] = [
   {
     id: 'line-2',
     estimateItemId: 'item-1',
@@ -38,14 +34,10 @@ const mockExecutionLines: EstimateItemLine[] = [
     unitPrice: '450000',
     amount: '450000',
     remarks: '原価',
-    sourceReceivedQuotationLineItemId: null,
-    sourceVendorName: null,
-    createdAt: '2025-01-01T00:00:00Z',
-    updatedAt: '2025-01-01T00:00:00Z',
   },
 ];
 
-const mockVendorLines: EstimateItemLine[] = [
+const mockVendorLines: EstimateItemLineEdit[] = [
   {
     id: 'line-3',
     estimateItemId: 'item-1',
@@ -57,10 +49,6 @@ const mockVendorLines: EstimateItemLine[] = [
     unitPrice: '400000',
     amount: '400000',
     remarks: null,
-    sourceReceivedQuotationLineItemId: 'rq-line-1',
-    sourceVendorName: '株式会社サンプル',
-    createdAt: '2025-01-01T00:00:00Z',
-    updatedAt: '2025-01-01T00:00:00Z',
   },
 ];
 
@@ -69,11 +57,9 @@ const meta = {
   component: EstimateItemRow,
   decorators: [
     (Story) => (
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <tbody>
-          <Story />
-        </tbody>
-      </table>
+      <div aria-label="見積項目テーブル">
+        <Story />
+      </div>
     ),
   ],
   parameters: {

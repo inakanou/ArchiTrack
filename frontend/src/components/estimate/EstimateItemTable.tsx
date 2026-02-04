@@ -160,6 +160,7 @@ function ChevronIcon({ isExpanded }: { isExpanded: boolean }) {
         transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
         transition: 'transform 0.2s',
       }}
+      aria-hidden="true"
     >
       <polyline points="9 18 15 12 9 6" />
     </svg>
@@ -181,6 +182,7 @@ function EmptyIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       style={styles.emptyIcon}
+      aria-hidden="true"
     >
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
       <line x1="16" y1="2" x2="16" y2="6" />
@@ -329,37 +331,23 @@ export function EstimateItemTable({
   onLineChange,
 }: EstimateItemTableProps) {
   return (
-    <div style={styles.table} role="table" aria-label="見積項目テーブル">
+    <div style={styles.table} aria-label="見積項目テーブル">
       {/* ヘッダー行 */}
-      <div style={styles.headerRow} role="rowgroup" aria-label="ヘッダー">
-        <div style={styles.headerCellType} role="columnheader">
-          種別
-        </div>
-        <div style={styles.headerCell} role="columnheader">
-          名称
-        </div>
-        <div style={styles.headerCell} role="columnheader">
-          規格
-        </div>
-        <div style={styles.headerCell} role="columnheader">
-          単位
-        </div>
-        <div style={styles.headerCell} role="columnheader">
-          数量
-        </div>
-        <div style={styles.headerCell} role="columnheader">
-          単価
-        </div>
-        <div style={styles.headerCell} role="columnheader">
-          金額
-        </div>
-        <div style={styles.headerCell} role="columnheader">
-          備考
+      <div aria-hidden="true">
+        <div style={styles.headerRow}>
+          <div style={styles.headerCellType}>種別</div>
+          <div style={styles.headerCell}>名称</div>
+          <div style={styles.headerCell}>規格</div>
+          <div style={styles.headerCell}>単位</div>
+          <div style={styles.headerCell}>数量</div>
+          <div style={styles.headerCell}>単価</div>
+          <div style={styles.headerCell}>金額</div>
+          <div style={styles.headerCell}>備考</div>
         </div>
       </div>
 
       {/* ボディ */}
-      <div style={styles.body} role="rowgroup">
+      <div style={styles.body}>
         {items.length === 0 ? (
           <div style={styles.emptyState}>
             <EmptyIcon />
