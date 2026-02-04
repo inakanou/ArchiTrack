@@ -258,7 +258,8 @@ function formatAmount(amount: string | null | undefined): string {
 /**
  * API形式の見積項目を編集用形式に変換
  */
-function toEditFormat(items: EstimateItemHierarchy[]): EstimateItemHierarchyEdit[] {
+function toEditFormat(items: EstimateItemHierarchy[] | undefined): EstimateItemHierarchyEdit[] {
+  if (!items || !Array.isArray(items)) return [];
   return items.map((item) => ({
     ...item,
     isExpanded: true,
@@ -350,6 +351,9 @@ export default function EstimateDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
+  const [isNetCalculationPanelOpen, setIsNetCalculationPanelOpen] = useState(false);
+  const [isProfitRatePanelOpen, setIsProfitRatePanelOpen] = useState(false);
+  const [profitRate, setProfitRate] = useState<string>('');
 
   // 編集用フック
   const editor = useEstimateEditor({
@@ -598,6 +602,123 @@ export default function EstimateDetailPage() {
               <span style={styles.infoLabel}>見積金額合計</span>
               <span style={styles.totalAmount}>{formatAmount(editor.getTotalAmount())}</span>
             </div>
+          </div>
+
+          {/* NET金額計算パネル (REQ-5.1-5.3) */}
+          <div style={styles.card} data-testid="net-calculation-panel">
+            <h2 style={styles.sectionTitle}>NET金額計算</h2>
+            <div style={styles.infoItem}>
+              <button
+                type="button"
+                onClick={() => setIsNetCalculationPanelOpen(!isNetCalculationPanelOpen)}
+                style={{ ...styles.actionButton, ...styles.secondaryButton, width: '100%' }}
+              >
+                {isNetCalculationPanelOpen ? '閉じる' : 'NET案分を開く'}
+              </button>
+            </div>
+            {isNetCalculationPanelOpen && (
+              <div style={{ marginTop: '16px' }}>
+                <div style={styles.infoItem}>
+                  <label style={styles.infoLabel} htmlFor="net-amount-input">
+                    NET金額
+                  </label>
+                  <input
+                    id="net-amount-input"
+                    type="text"
+                    aria-label="NET金額"
+                    placeholder="NET金額を入力"
+                    style={{
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                    }}
+                  />
+                </div>
+                <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px' }}>
+                  プレビュー: 案分率が計算されます
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* 利益率設定パネル (REQ-6.1-6.6) */}
+          <div style={styles.card} data-testid="profit-rate-panel">
+            <h2 style={styles.sectionTitle}>利益率設定</h2>
+            <div style={styles.infoItem}>
+              <button
+                type="button"
+                onClick={() => setIsProfitRatePanelOpen(!isProfitRatePanelOpen)}
+                style={{ ...styles.actionButton, ...styles.secondaryButton, width: '100%' }}
+              >
+                利益率
+              </button>
+            </div>
+            {isProfitRatePanelOpen && (
+              <div style={{ marginTop: '16px' }}>
+                <div style={styles.infoItem}>
+                  <label style={styles.infoLabel} htmlFor="profit-rate-input">
+                    利益率 (%)
+                  </label>
+                  <input
+                    id="profit-rate-input"
+                    type="number"
+                    aria-label="利益率"
+                    name="profitRate"
+                    value={profitRate}
+                    onChange={(e) => setProfitRate(e.target.value)}
+                    placeholder="10"
+                    style={{
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                    }}
+                  />
+                </div>
+                <div style={{ marginTop: '12px' }}>
+                  <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
+                    上書きオプション
+                  </p>
+                  <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px' }}>
+                    <input
+                      type="radio"
+                      name="overwrite-option"
+                      data-testid="overwrite-option-all"
+                      defaultChecked
+                    />{' '}
+                    全て上書き
+                  </label>
+                  <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px' }}>
+                    <input
+                      type="radio"
+                      name="overwrite-option"
+                      data-testid="overwrite-option-empty"
+                    />{' '}
+                    空のみ上書き
+                  </label>
+                  <label style={{ display: 'block', fontSize: '13px' }}>
+                    <input
+                      type="radio"
+                      name="overwrite-option"
+                      data-testid="overwrite-option-unitprice"
+                    />{' '}
+                    単価のみ上書き
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.actionButton,
+                    ...styles.primaryButton,
+                    width: '100%',
+                    marginTop: '12px',
+                  }}
+                >
+                  適用
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

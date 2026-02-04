@@ -323,8 +323,15 @@ test.describe('見積書機能', () => {
         // 見積書詳細画面に遷移することを確認
         await page.waitForURL(/\/estimates\/[0-9a-f-]+$/);
 
-        // 見積書名が表示されることを確認
-        await expect(page.getByText(estimateName)).toBeVisible({ timeout: getTimeout(15000) });
+        // 詳細ページが表示されることを確認
+        await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+
+        // 見積書名がヘッダーに表示されることを確認
+        await expect(page.getByRole('heading', { level: 1, name: estimateName })).toBeVisible({
+          timeout: getTimeout(5000),
+        });
 
         expect(createdEstimateId).toBeTruthy();
       });
@@ -366,6 +373,11 @@ test.describe('見積書機能', () => {
 
         // 見積書詳細画面に遷移することを確認
         await page.waitForURL(/\/estimates\/[0-9a-f-]+$/);
+
+        // 詳細ページが表示されることを確認
+        await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
+          timeout: getTimeout(15000),
+        });
 
         expect(createdEstimateIdWithoutItemizedStatement).toBeTruthy();
       });
@@ -430,9 +442,14 @@ test.describe('見積書機能', () => {
         // 編集モードに切り替え
         await page.getByRole('button', { name: /編集/i }).click();
 
-        // 数量と単価の入力フィールドを探す
-        const quantityInputs = page.locator('input[aria-label*="数量"]');
-        const unitPriceInputs = page.locator('input[aria-label*="単価"]');
+        // 編集モードに切り替わったことを確認（キャンセルボタンが表示される）
+        await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
+          timeout: getTimeout(5000),
+        });
+
+        // 数量と単価の入力フィールドを探す（aria-labelで検索）
+        const quantityInputs = page.locator('input[aria-label="数量"]');
+        const unitPriceInputs = page.locator('input[aria-label="単価"]');
 
         const quantityCount = await quantityInputs.count();
         const unitPriceCount = await unitPriceInputs.count();
@@ -445,8 +462,14 @@ test.describe('見積書機能', () => {
           // 最初の単価フィールドに値を入力
           await unitPriceInputs.first().fill('1000');
 
-          // 金額が5000と計算されることを確認（UIに反映されるまで待機）
-          await expect(page.getByText(/5,000/)).toBeVisible({ timeout: getTimeout(5000) });
+          // フォーカスを外して計算をトリガー
+          await unitPriceInputs.first().blur();
+
+          // 金額が5,000と計算されることを確認（UIに反映されるまで待機）
+          // 見積項目テーブル内の金額欄を確認
+          await expect(
+            page.locator('[data-testid="estimate-detail-page"]').getByText('5,000').first()
+          ).toBeVisible({ timeout: getTimeout(10000) });
         }
       });
     });
@@ -517,22 +540,24 @@ test.describe('見積書機能', () => {
         });
 
         // 出力ボタンをクリック
-        await page.getByRole('button', { name: /出力/i }).click();
+        await page.getByRole('button', { name: /^出力$/i }).click();
 
         // 出力ダイアログが表示されることを確認
-        await expect(page.getByText(/出力形式/i)).toBeVisible({ timeout: getTimeout(10000) });
+        await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
+        await expect(page.getByText(/出力形式を選択/i)).toBeVisible({ timeout: getTimeout(5000) });
 
-        // PDFオプションを選択
-        const pdfOption = page.getByRole('radio', { name: /PDF/i });
-        if (await pdfOption.isVisible()) {
-          await pdfOption.click();
-        }
+        // PDFオプションを選択（input[value="pdf"]を直接クリック）
+        const pdfOption = page.locator('input[type="radio"][value="pdf"]');
+        await pdfOption.click();
 
         // ダウンロードの待機設定
         const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
 
-        // 出力実行ボタンをクリック
-        await page.getByRole('button', { name: /出力実行|ダウンロード/i }).click();
+        // 出力ボタンをクリック（ダイアログ内の「出力」ボタン）
+        await page
+          .getByRole('dialog')
+          .getByRole('button', { name: /^出力$/i })
+          .click();
 
         // ダウンロードが開始されることを確認
         const download = await downloadPromise;
@@ -558,22 +583,24 @@ test.describe('見積書機能', () => {
         });
 
         // 出力ボタンをクリック
-        await page.getByRole('button', { name: /出力/i }).click();
+        await page.getByRole('button', { name: /^出力$/i }).click();
 
         // 出力ダイアログが表示されることを確認
-        await expect(page.getByText(/出力形式/i)).toBeVisible({ timeout: getTimeout(10000) });
+        await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
+        await expect(page.getByText(/出力形式を選択/i)).toBeVisible({ timeout: getTimeout(5000) });
 
-        // Excelオプションを選択
-        const excelOption = page.getByRole('radio', { name: /Excel/i });
-        if (await excelOption.isVisible()) {
-          await excelOption.click();
-        }
+        // Excelオプションを選択（input[value="xlsx"]を直接クリック）
+        const excelOption = page.locator('input[type="radio"][value="xlsx"]');
+        await excelOption.click();
 
         // ダウンロードの待機設定
         const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
 
-        // 出力実行ボタンをクリック
-        await page.getByRole('button', { name: /出力実行|ダウンロード/i }).click();
+        // 出力ボタンをクリック（ダイアログ内の「出力」ボタン）
+        await page
+          .getByRole('dialog')
+          .getByRole('button', { name: /^出力$/i })
+          .click();
 
         // ダウンロードが開始されることを確認
         const download = await downloadPromise;

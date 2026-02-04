@@ -292,7 +292,7 @@ export default function EstimateCreatePage() {
         >
           ← 一覧に戻る
         </Link>
-        <h1 style={styles.title}>見積書 新規作成</h1>
+        <h1 style={styles.title}>見積書作成</h1>
       </div>
 
       {/* フォームカード */}
@@ -326,7 +326,7 @@ export default function EstimateCreatePage() {
           {/* 内訳書選択 */}
           <div style={styles.formGroup}>
             <label htmlFor="itemized-statement" style={styles.label}>
-              参照する内訳書
+              内訳書を選択
             </label>
             {isLoadingStatements ? (
               <div style={styles.loadingContainer}>
@@ -345,6 +345,7 @@ export default function EstimateCreatePage() {
               <>
                 <select
                   id="itemized-statement"
+                  aria-label="内訳書を選択"
                   value={sourceItemizedStatementId}
                   onChange={(e) => setSourceItemizedStatementId(e.target.value)}
                   style={styles.select}
