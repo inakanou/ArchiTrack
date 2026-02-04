@@ -725,7 +725,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.4, REQ-16.5
+     * @requirement estimate-creation/REQ-16.4 @requirement estimate-creation/REQ-16.5
      * 見積書カードの表示確認（名称、作成日時、合計金額）
      */
     test('REQ-16.4-16.5：見積書カードが表示される', async ({ page }) => {
@@ -739,12 +739,23 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       await page.waitForLoadState('networkidle');
 
       // 見積書セクションが表示されることを確認
-      await expect(page.locator('[data-testid="estimate-section"]')).toBeVisible({
+      const section = page.locator('[data-testid="estimate-section"]');
+      await expect(section).toBeVisible({
         timeout: getTimeout(15000),
       });
 
-      // 見積書名が表示されることを確認（どちらか1つが表示されればOK）
-      await expect(page.getByText(estimateName).first()).toBeVisible();
+      // 見積書カードを取得
+      const card = section.locator('[data-testid^="estimate-card-"]').first();
+      await expect(card).toBeVisible();
+
+      // 見積書名が表示されることを確認
+      await expect(card.getByText(estimateName)).toBeVisible();
+
+      // 作成日時が表示されることを確認（日付形式）
+      await expect(card.getByText(/\d{4}[年\/\-]\d{1,2}[月\/\-]\d{1,2}/)).toBeVisible();
+
+      // 合計金額が表示されることを確認（円表記または数字）
+      await expect(card.getByText(/円|¥|合計|金額|\d{1,3}(,\d{3})*/)).toBeVisible();
     });
 
     /**
@@ -792,7 +803,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.7, REQ-16.8
+     * @requirement estimate-creation/REQ-16.7 @requirement estimate-creation/REQ-16.8
      * 「すべて見る」リンクで一覧画面へ遷移
      */
     test('REQ-16.7-16.8：「すべて見る」リンクで一覧画面へ遷移する', async ({ page }) => {
@@ -824,7 +835,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.9, REQ-16.10
+     * @requirement estimate-creation/REQ-16.9 @requirement estimate-creation/REQ-16.10
      * 新規作成ボタンクリックで作成画面へ遷移
      */
     test('REQ-16.9-16.10：新規作成ボタンで作成画面へ遷移する', async ({ page }) => {
