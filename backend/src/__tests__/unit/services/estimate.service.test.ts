@@ -624,4 +624,137 @@ describe('EstimateService', () => {
       );
     });
   });
+
+  describe('findLatestByProjectId', () => {
+    it('プロジェクトに紐付く直近の見積書と総数を取得する（Requirements: REQ-16.3, REQ-16.4）', async () => {
+      // Arrange
+      const projectId = 'proj-001';
+      const mockEstimates = [
+        {
+          id: 'est-002',
+          projectId: 'proj-001',
+          name: '見積書2',
+          sourceItemizedStatementId: null,
+          sourceItemizedStatementName: null,
+          createdAt: new Date('2026-02-04T00:00:00Z'),
+          updatedAt: new Date('2026-02-04T00:00:00Z'),
+          deletedAt: null,
+          _count: { items: 3 },
+        },
+        {
+          id: 'est-001',
+          projectId: 'proj-001',
+          name: '見積書1',
+          sourceItemizedStatementId: 'is-001',
+          sourceItemizedStatementName: '内訳書1',
+          createdAt: new Date('2026-02-03T00:00:00Z'),
+          updatedAt: new Date('2026-02-03T00:00:00Z'),
+          deletedAt: null,
+          _count: { items: 5 },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimate.findMany).mockResolvedValue(mockEstimates as never);
+      vi.mocked(mockPrisma.estimate.count).mockResolvedValue(5); // 総数は5件
+
+      // Act
+      const result = await service.findLatestByProjectId(projectId, 2);
+
+      // Assert
+      expect(result.estimates).toHaveLength(2);
+      expect(result.totalCount).toBe(5);
+      expect(result.estimates[0]!.id).toBe('est-002');
+      expect(result.estimates[1]!.id).toBe('est-001');
+    });
+
+    it('デフォルトで2件取得する', async () => {
+      // Arrange
+      const projectId = 'proj-001';
+      const mockEstimates = [
+        {
+          id: 'est-002',
+          projectId: 'proj-001',
+          name: '見積書2',
+          sourceItemizedStatementId: null,
+          sourceItemizedStatementName: null,
+          createdAt: new Date('2026-02-04T00:00:00Z'),
+          updatedAt: new Date('2026-02-04T00:00:00Z'),
+          deletedAt: null,
+          _count: { items: 3 },
+        },
+        {
+          id: 'est-001',
+          projectId: 'proj-001',
+          name: '見積書1',
+          sourceItemizedStatementId: null,
+          sourceItemizedStatementName: null,
+          createdAt: new Date('2026-02-03T00:00:00Z'),
+          updatedAt: new Date('2026-02-03T00:00:00Z'),
+          deletedAt: null,
+          _count: { items: 5 },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimate.findMany).mockResolvedValue(mockEstimates as never);
+      vi.mocked(mockPrisma.estimate.count).mockResolvedValue(10);
+
+      // Act
+      const result = await service.findLatestByProjectId(projectId);
+
+      // Assert
+      expect(result.estimates).toHaveLength(2);
+      expect(result.totalCount).toBe(10);
+      expect(mockPrisma.estimate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 2,
+          orderBy: { createdAt: 'desc' },
+        })
+      );
+    });
+
+    it('見積書がない場合は空配列と総数0を返す', async () => {
+      // Arrange
+      const projectId = 'proj-001';
+
+      vi.mocked(mockPrisma.estimate.findMany).mockResolvedValue([]);
+      vi.mocked(mockPrisma.estimate.count).mockResolvedValue(0);
+
+      // Act
+      const result = await service.findLatestByProjectId(projectId, 2);
+
+      // Assert
+      expect(result.estimates).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+    });
+
+    it('論理削除された見積書は除外する', async () => {
+      // Arrange
+      const projectId = 'proj-001';
+
+      // findManyとcountはdeletedAt: nullの条件でフィルタリングされている
+      vi.mocked(mockPrisma.estimate.findMany).mockResolvedValue([]);
+      vi.mocked(mockPrisma.estimate.count).mockResolvedValue(0);
+
+      // Act
+      await service.findLatestByProjectId(projectId, 2);
+
+      // Assert
+      expect(mockPrisma.estimate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            projectId,
+            deletedAt: null,
+          }),
+        })
+      );
+      expect(mockPrisma.estimate.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            projectId,
+            deletedAt: null,
+          }),
+        })
+      );
+    });
+  });
 });
