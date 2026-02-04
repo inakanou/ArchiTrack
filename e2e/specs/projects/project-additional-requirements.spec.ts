@@ -316,10 +316,12 @@ test.describe('プロジェクト管理 追加要件', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // API呼び出しを監視
+      // API呼び出しを監視（URLパスを厳密にマッチング）
       const apiPromise = page.waitForResponse(
-        (response: Response) =>
-          response.url().includes('/api/projects') && response.request().method() === 'GET',
+        (response: Response) => {
+          const url = new URL(response.url());
+          return url.pathname === '/api/projects' && response.request().method() === 'GET';
+        },
         { timeout: getTimeout(30000) }
       );
 
@@ -333,7 +335,8 @@ test.describe('プロジェクト管理 追加要件', () => {
       // 304の場合はキャッシュレスポンスなのでjsonがない可能性あり
       if (response.status() === 200) {
         const responseData = await response.json();
-        expect(responseData).toHaveProperty('projects');
+        // APIレスポンス形式: { data: [...], pagination: {...} }
+        expect(responseData).toHaveProperty('data');
         expect(responseData).toHaveProperty('pagination');
       }
     });
