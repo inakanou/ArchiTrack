@@ -24,6 +24,7 @@ import {
   applyProfitRateSchema,
   calculateNetSchema,
   batchUpdateItemsSchema,
+  calculateOverheadSchema,
   ESTIMATE_VALIDATION_MESSAGES,
 } from '../../../schemas/estimate.schema.js';
 
@@ -504,6 +505,247 @@ describe('estimate.schema', () => {
         ],
       });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('calculateOverheadSchema', () => {
+    describe('costType field', () => {
+      it('COMMON_TEMPORARYを受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('SITE_MANAGEMENTを受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'SITE_MANAGEMENT',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('GENERAL_ADMINを受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'GENERAL_ADMIN',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('無効な諸経費種別を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'INVALID',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(false);
+      });
+    });
+
+    describe('directCost field', () => {
+      it('有効な直接工事費を受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('0以下の直接工事費を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '0',
+        });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]!.message).toBe(
+            '直接工事費は0より大きい数値を入力してください'
+          );
+        }
+      });
+
+      it('数値以外の直接工事費を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: 'abc',
+        });
+        expect(result.success).toBe(false);
+      });
+    });
+
+    describe('pureConstructionCost field', () => {
+      it('有効な純工事費を受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'SITE_MANAGEMENT',
+          directCost: '100000',
+          pureConstructionCost: '150000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('0以下の純工事費を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'SITE_MANAGEMENT',
+          directCost: '100000',
+          pureConstructionCost: '0',
+        });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]!.message).toBe(
+            '純工事費は0より大きい数値を入力してください'
+          );
+        }
+      });
+
+      it('負の純工事費を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'SITE_MANAGEMENT',
+          directCost: '100000',
+          pureConstructionCost: '-1000',
+        });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]!.message).toBe(
+            '純工事費は0より大きい数値を入力してください'
+          );
+        }
+      });
+
+      it('数値以外の純工事費を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'SITE_MANAGEMENT',
+          directCost: '100000',
+          pureConstructionCost: 'abc',
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it('純工事費はオプショナルである', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'SITE_MANAGEMENT',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+      });
+    });
+
+    describe('constructionCost field', () => {
+      it('有効な工事原価を受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'GENERAL_ADMIN',
+          directCost: '100000',
+          constructionCost: '200000',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('0以下の工事原価を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'GENERAL_ADMIN',
+          directCost: '100000',
+          constructionCost: '0',
+        });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]!.message).toBe(
+            '工事原価は0より大きい数値を入力してください'
+          );
+        }
+      });
+
+      it('負の工事原価を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'GENERAL_ADMIN',
+          directCost: '100000',
+          constructionCost: '-5000',
+        });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]!.message).toBe(
+            '工事原価は0より大きい数値を入力してください'
+          );
+        }
+      });
+
+      it('数値以外の工事原価を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'GENERAL_ADMIN',
+          directCost: '100000',
+          constructionCost: 'xyz',
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it('工事原価はオプショナルである', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'GENERAL_ADMIN',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+      });
+    });
+
+    describe('constructionPeriod field', () => {
+      it('有効な工期を受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+          constructionPeriod: 30,
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('0以下の工期を拒否する', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+          constructionPeriod: 0,
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it('工期はオプショナルである', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+      });
+    });
+
+    describe('isRenovation field', () => {
+      it('trueを受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+          isRenovation: true,
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.isRenovation).toBe(true);
+        }
+      });
+
+      it('falseを受け入れる', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+          isRenovation: false,
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('デフォルト値はfalseである', () => {
+        const result = calculateOverheadSchema.safeParse({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '100000',
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.isRenovation).toBe(false);
+        }
+      });
     });
   });
 });

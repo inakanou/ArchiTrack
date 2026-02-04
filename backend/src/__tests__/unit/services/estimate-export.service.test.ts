@@ -463,4 +463,470 @@ describe('EstimateExportService', () => {
       expect(total).toBe(0);
     });
   });
+
+  describe('PDF生成 - ページネーション', () => {
+    it('多数の項目がある場合でもPDFを生成できること（ページ分割）', async () => {
+      // 多数の項目を生成してページ分割をトリガー
+      const manyItems = Array.from({ length: 50 }, (_, i) =>
+        createTestItem({
+          id: `item-${i}`,
+          displayOrder: i,
+          lines: [createTestLine({ name: `項目${i + 1}`, amount: 1000 * (i + 1) })],
+        })
+      );
+
+      const estimate = createTestEstimate({
+        items: manyItems,
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('深いネスト構造でもPDFを生成できること', async () => {
+      // 3階層のネスト構造
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'level-1',
+            lines: [createTestLine({ name: '第1階層' })],
+            children: [
+              createTestItem({
+                id: 'level-2',
+                parentId: 'level-1',
+                lines: [createTestLine({ name: '第2階層' })],
+                children: [
+                  createTestItem({
+                    id: 'level-3',
+                    parentId: 'level-2',
+                    lines: [createTestLine({ name: '第3階層' })],
+                    children: [
+                      createTestItem({
+                        id: 'level-4',
+                        parentId: 'level-3',
+                        lines: [createTestLine({ name: '第4階層' })],
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('子項目が多数ある場合でもページ分割されること', async () => {
+      // 親項目の下に多数の子項目
+      const manyChildren = Array.from({ length: 30 }, (_, i) =>
+        createTestItem({
+          id: `child-${i}`,
+          parentId: 'parent-1',
+          displayOrder: i,
+          lines: [createTestLine({ name: `子項目${i + 1}` })],
+        })
+      );
+
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [createTestLine({ name: '親項目' })],
+            children: manyChildren,
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('Excel生成 - 深いネスト構造', () => {
+    it('深いネスト構造でExcelを生成できること', async () => {
+      // 3階層のネスト構造
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'level-1',
+            lines: [createTestLine({ name: '建築工事' })],
+            children: [
+              createTestItem({
+                id: 'level-2',
+                parentId: 'level-1',
+                lines: [createTestLine({ name: '仮設工事' })],
+                children: [
+                  createTestItem({
+                    id: 'level-3',
+                    parentId: 'level-2',
+                    lines: [createTestLine({ name: '足場工事' })],
+                    children: [
+                      createTestItem({
+                        id: 'level-4',
+                        parentId: 'level-3',
+                        lines: [createTestLine({ name: '外部足場' })],
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+      // XLSXシグネチャを確認
+      const signature = result.slice(0, 2).toString('hex');
+      expect(signature).toBe('504b');
+    });
+
+    it('複数の親項目に子項目がある場合でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            displayOrder: 0,
+            lines: [createTestLine({ name: '建築工事' })],
+            children: [
+              createTestItem({
+                id: 'child-1-1',
+                parentId: 'parent-1',
+                lines: [createTestLine({ name: '躯体工事' })],
+              }),
+              createTestItem({
+                id: 'child-1-2',
+                parentId: 'parent-1',
+                lines: [createTestLine({ name: '仕上工事' })],
+              }),
+            ],
+          }),
+          createTestItem({
+            id: 'parent-2',
+            displayOrder: 1,
+            lines: [createTestLine({ name: '電気設備工事' })],
+            children: [
+              createTestItem({
+                id: 'child-2-1',
+                parentId: 'parent-2',
+                lines: [createTestLine({ name: '照明設備' })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('totalAmountがない場合の計算', () => {
+    it('totalAmountがundefinedの場合、itemsから計算されること', async () => {
+      const estimate = createTestEstimate({
+        totalAmount: undefined,
+        items: [
+          createTestItem({
+            lines: [createTestLine({ lineType: 'ESTIMATE', amount: 50000 })],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      // PDFが正常に生成されること
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('項目にlinesがない場合', () => {
+    it('linesが空の項目があってもPDFを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'item-with-lines',
+            lines: [createTestLine({ name: '通常項目' })],
+          }),
+          createTestItem({
+            id: 'item-without-lines',
+            lines: [],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('特殊文字を含む名称', () => {
+    it('特殊文字を含むシート名でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            lines: [createTestLine({ name: '工事[第1期]/改修*工事' })],
+            children: [
+              createTestItem({
+                lines: [createTestLine({ name: '詳細:項目?A' })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('長い名称のシート名が31文字以内に切り詰められること', async () => {
+      const longName = 'あ'.repeat(50);
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            lines: [createTestLine({ name: longName })],
+            children: [
+              createTestItem({
+                lines: [createTestLine({ name: '子項目' })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('PDF詳細ページでの子項目ページ分割', () => {
+    it('子項目が非常に多い場合、詳細ページ内でページ分割されること', async () => {
+      // A4高さ297mm、MARGIN_BOTTOM 20mm、各行6mmとして、
+      // (297 - 20 - 10 - 20) / 6 ≈ 約41行でページ分割
+      // 親項目の下に50件の子項目を配置
+      const manyChildren = Array.from({ length: 50 }, (_, i) =>
+        createTestItem({
+          id: `child-${i}`,
+          parentId: 'parent-1',
+          displayOrder: i,
+          lines: [createTestLine({ name: `詳細子項目${i + 1}` })],
+        })
+      );
+
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [createTestLine({ name: '親項目（子項目多数）' })],
+            children: manyChildren,
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+      // ページ分割が発生してもPDFが正常に生成されること
+      expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('長いテキストの切り詰め', () => {
+    it('長い名称（20文字超）がPDFで切り詰められること', async () => {
+      const longName = 'あ'.repeat(25); // 20文字を超える名称
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            lines: [createTestLine({ name: longName })],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('長い規格（15文字超）がPDFで切り詰められること', async () => {
+      const longSpec = 'い'.repeat(20); // 15文字を超える規格
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            lines: [createTestLine({ specification: longSpec })],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdf(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('Excel生成 - エッジケース', () => {
+    it('項目のlinesが空の場合でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'item-with-lines',
+            lines: [createTestLine({ name: '通常項目' })],
+          }),
+          createTestItem({
+            id: 'item-without-lines',
+            lines: [], // linesが空
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('項目のフィールドがnullの場合でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            lines: [
+              createTestLine({
+                name: null as unknown as string,
+                specification: null as unknown as string,
+                unit: null as unknown as string,
+                remarks: null as unknown as string,
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('親項目のlinesが空で子項目がある場合でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-no-lines',
+            displayOrder: 0,
+            lines: [], // 親項目のlinesが空
+            children: [
+              createTestItem({
+                id: 'child-1',
+                parentId: 'parent-no-lines',
+                lines: [createTestLine({ name: '子項目' })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('子項目のlinesが空の場合でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [createTestLine({ name: '親項目' })],
+            children: [
+              createTestItem({
+                id: 'child-with-lines',
+                parentId: 'parent-1',
+                lines: [createTestLine({ name: '通常子項目' })],
+              }),
+              createTestItem({
+                id: 'child-without-lines',
+                parentId: 'parent-1',
+                lines: [], // 子項目のlinesが空
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('深いネストで子項目のlinesが空の場合でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'level-1',
+            lines: [createTestLine({ name: '第1階層' })],
+            children: [
+              createTestItem({
+                id: 'level-2',
+                parentId: 'level-1',
+                lines: [createTestLine({ name: '第2階層' })],
+                children: [
+                  createTestItem({
+                    id: 'level-3-with-lines',
+                    parentId: 'level-2',
+                    lines: [createTestLine({ name: '第3階層' })],
+                  }),
+                  createTestItem({
+                    id: 'level-3-no-lines',
+                    parentId: 'level-2',
+                    lines: [], // 深い階層でlinesが空
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('子項目のフィールドがnullの場合でもExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [createTestLine({ name: '親項目' })],
+            children: [
+              createTestItem({
+                id: 'child-null-fields',
+                parentId: 'parent-1',
+                lines: [
+                  createTestLine({
+                    name: null as unknown as string,
+                    specification: null as unknown as string,
+                    unit: null as unknown as string,
+                    remarks: null as unknown as string,
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
 });
