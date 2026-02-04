@@ -184,13 +184,16 @@ describe('EstimateItemRow', () => {
         expect(amountField).toHaveTextContent('376,250');
       });
 
-      it('金額フィールドは入力不可（readOnly）', () => {
+      it('金額フィールドは入力不可（input要素ではなくテキスト表示）', () => {
         const lines = createMockLines();
         render(<EstimateItemRow itemId="item-1" lines={lines} />);
 
         const estimateRow = screen.getByTestId('line-type-ESTIMATE');
         const amountField = within(estimateRow).getByTestId('amount-field');
-        expect(amountField).toHaveAttribute('aria-readonly', 'true');
+        // Note: aria-readonlyは削除された（WCAG準拠のため）
+        // 金額フィールドはinput要素ではなく、テキスト表示のdivなので編集不可
+        expect(amountField.tagName.toLowerCase()).toBe('div');
+        expect(amountField.querySelector('input')).toBeNull();
       });
 
       it('金額がnullの場合はハイフンが表示される', () => {
@@ -330,12 +333,14 @@ describe('EstimateItemRow', () => {
     });
 
     describe('アクセシビリティ', () => {
-      it('各行にrole="row"が設定される', () => {
+      it('3行分の行（見積/実行/業者）が表示される', () => {
         const lines = createMockLines();
         render(<EstimateItemRow itemId="item-1" lines={lines} />);
 
-        const rows = screen.getAllByRole('row');
-        expect(rows.length).toBeGreaterThanOrEqual(3);
+        // Note: ARIA rowロールは削除されたが、3行分のline-typeがdata-testidで存在する
+        expect(screen.getByTestId('line-type-ESTIMATE')).toBeInTheDocument();
+        expect(screen.getByTestId('line-type-EXECUTION')).toBeInTheDocument();
+        expect(screen.getByTestId('line-type-VENDOR')).toBeInTheDocument();
       });
 
       it('入力フィールドにaria-labelが設定される', () => {

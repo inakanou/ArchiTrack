@@ -650,18 +650,23 @@ describe('EstimateItemTable', () => {
     });
 
     describe('アクセシビリティ', () => {
-      it('テーブルにrole="table"が設定される', () => {
+      it('テーブルにaria-labelが設定される', () => {
         const items = createMockHierarchy();
         render(<EstimateItemTable items={items} />);
 
-        expect(screen.getByRole('table')).toBeInTheDocument();
+        // Note: ARIA tableロールは削除されたが、aria-labelで識別可能
+        expect(screen.getByLabelText('見積項目テーブル')).toBeInTheDocument();
       });
 
-      it('ヘッダー行にrole="rowgroup"が設定される', () => {
+      it('ヘッダー行がaria-hiddenで装飾的要素として設定される', () => {
         const items = createMockHierarchy();
         render(<EstimateItemTable items={items} />);
 
-        expect(screen.getByRole('rowgroup', { name: 'ヘッダー' })).toBeInTheDocument();
+        // ヘッダー行はaria-hidden="true"で装飾的要素として設定
+        // 各入力フィールドはaria-labelで個別にアクセシブル
+        const table = screen.getByLabelText('見積項目テーブル');
+        const headerSection = table.querySelector('[aria-hidden="true"]');
+        expect(headerSection).toBeInTheDocument();
       });
     });
 
