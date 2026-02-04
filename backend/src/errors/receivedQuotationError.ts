@@ -122,3 +122,22 @@ export class FilePreviewNotAvailableError extends ApiError {
     this.name = 'FilePreviewNotAvailableError';
   }
 }
+
+/**
+ * ファイルまたは明細行必須エラー
+ * 400 Bad Request
+ *
+ * Requirements: 11.22, 11.24
+ */
+export class FileOrLineItemsRequiredError extends ApiError {
+  constructor() {
+    super(
+      400,
+      'ファイルのアップロードまたは明細行データの入力が必要です',
+      'FILE_OR_LINE_ITEMS_REQUIRED',
+      {},
+      PROBLEM_TYPES.VALIDATION_ERROR
+    );
+    this.name = 'FileOrLineItemsRequiredError';
+  }
+}

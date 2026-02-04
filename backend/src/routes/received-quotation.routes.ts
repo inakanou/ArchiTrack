@@ -36,6 +36,7 @@ import {
   InvalidContentTypeError,
   InvalidFileTypeError,
   FileSizeLimitExceededError,
+  FileOrLineItemsRequiredError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 
@@ -229,6 +230,17 @@ router.post(
           status: 413,
           detail: error.message,
           code: 'FILE_SIZE_LIMIT_EXCEEDED',
+        });
+        return;
+      }
+      if (error instanceof FileOrLineItemsRequiredError) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error.message,
+          message: error.message,
+          code: 'FILE_OR_LINE_ITEMS_REQUIRED',
         });
         return;
       }

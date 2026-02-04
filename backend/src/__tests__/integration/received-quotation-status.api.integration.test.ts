@@ -387,12 +387,23 @@ describe('Received Quotation & Status API Integration Tests', () => {
     });
 
     describe('受領見積書作成 (POST /api/estimate-requests/:id/quotations)', () => {
-      it('受領見積書を正常に作成できる（ファイルなし）', async () => {
+      it('受領見積書を正常に作成できる（ファイルなし、明細行あり）', async () => {
+        // Requirements 11.22, 11.24: ファイルまたは明細行のいずれかが必須
+        const lineItems = JSON.stringify([
+          {
+            name: 'テスト明細行',
+            sortOrder: 0,
+            quantity: 10,
+            unitPrice: 1000,
+          },
+        ]);
+
         const response = await request(app)
           .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z');
+          .field('submittedAt', '2026-01-23T00:00:00.000Z')
+          .field('lineItems', lineItems);
 
         expect(response.status).toBe(201);
         expect(response.body).toMatchObject({
@@ -401,6 +412,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(response.body.id).toBeDefined();
         expect(response.body.createdAt).toBeDefined();
         expect(response.body.updatedAt).toBeDefined();
+        expect(response.body.lineItems).toHaveLength(1);
+        expect(response.body.totalAmount).toBe(10000);
 
         testQuotationId = response.body.id;
         testQuotationUpdatedAt = response.body.updatedAt;
@@ -428,11 +441,22 @@ describe('Received Quotation & Status API Integration Tests', () => {
       });
 
       it('存在しない見積依頼IDで作成しようとすると404を返す', async () => {
+        // Requirements 11.22, 11.24: ファイルまたは明細行のいずれかが必須
+        const lineItems = JSON.stringify([
+          {
+            name: 'テスト明細行',
+            sortOrder: 0,
+            quantity: 1,
+            unitPrice: 100,
+          },
+        ]);
+
         const response = await request(app)
           .post('/api/estimate-requests/12345678-1234-4234-a234-123456789012/quotations')
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z');
+          .field('submittedAt', '2026-01-23T00:00:00.000Z')
+          .field('lineItems', lineItems);
 
         expect(response.status).toBe(404);
         expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');

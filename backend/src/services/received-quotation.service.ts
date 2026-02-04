@@ -42,6 +42,7 @@ import {
   InvalidContentTypeError,
   InvalidFileTypeError,
   FileSizeLimitExceededError,
+  FileOrLineItemsRequiredError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 import logger from '../utils/logger.js';
@@ -305,7 +306,7 @@ export class ReceivedQuotationService {
   ): void {
     const hasLineItems = lineItems !== undefined && lineItems.length > 0;
     if (!hasFile && !hasLineItems) {
-      throw new Error('ファイルのアップロードまたは明細行データの入力が必要です');
+      throw new FileOrLineItemsRequiredError();
     }
   }
 
