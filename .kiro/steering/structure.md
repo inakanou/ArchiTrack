@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-01-27（Steering Sync: 見積依頼機能の実装進行中を反映）_
+_最終更新: 2026-02-04（Steering Sync: 見積書作成・自社情報登録機能の実装完了を反映）_
 
 ## ルートディレクトリ構成
 
@@ -238,9 +238,17 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全16タスク完了）
   - 内容: 内訳書CRUD、数量表項目のピボット集計、分類軸（任意分類・工種・名称・規格・単位）によるグループ化、スナップショット独立性、ソート・フィルタリング・ページネーション、楽観的排他制御、Excel出力（.xlsx形式）、クリップボードコピー（タブ区切りテキスト）
 
-- `.kiro/specs/estimate-request/` - 見積依頼機能 🚧実装中
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装中🚧**
-  - 内容: 見積依頼CRUD、内訳書項目選択、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（ファイルアップロード）、ステータス管理（依頼前/依頼済/見積受領済）
+- `.kiro/specs/estimate-request/` - 見積依頼機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全24タスク完了）
+  - 内容: 見積依頼CRUD、内訳書項目選択、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（OCR構造化データ抽出）、ステータス管理（依頼前/依頼済/見積受領済）
+
+- `.kiro/specs/company-info/` - 自社情報登録機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全22タスク完了）
+  - 内容: 会社名・住所・連絡先管理（シングルトンパターン）、見積依頼文への自動挿入、楽観的排他制御
+
+- `.kiro/specs/estimate-creation/` - 見積書作成機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全76タスク完了）
+  - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、Excel出力
 
 ### `e2e/`
 
@@ -277,7 +285,11 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── itemized-statements/  # 内訳書テスト
 │   │   └── *.spec.ts
-│   └── estimate-requests/  # 見積依頼テスト
+│   ├── estimate-requests/  # 見積依頼テスト
+│   │   └── *.spec.ts
+│   ├── company-info/       # 自社情報テスト
+│   │   └── *.spec.ts
+│   └── estimate/           # 見積書テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -307,7 +319,9 @@ e2e/
 - `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
 - `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様）
 - `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
-- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書）
+- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ）
+- `company-info/` - 自社情報テスト（CRUD、アクセス制御、楽観的排他制御）
+- `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
 
 **テストヘルパー:**
 
@@ -476,8 +490,12 @@ frontend/
 │   │       ├── StatusBadge.tsx       # ステータスバッジ
 │   │       ├── StatusTransitionButton.tsx # ステータス遷移ボタン
 │   │       └── index.ts              # エクスポート集約
+│   │   ├── company-info/            # 自社情報コンポーネント
+│   │       └── CompanyInfoForm.tsx   # 自社情報設定フォーム
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
+│   │       ├── ConflictDialog.tsx    # 楽観的排他制御競合ダイアログ
+│   │       ├── UnsavedChangesDialog.tsx # 未保存変更警告ダイアログ
 │   │       └── ResourceNotFound.tsx # リソース未発見表示
 │   ├── contexts/          # Reactコンテキスト
 │   │   └── AuthContext.tsx # 認証コンテキスト
@@ -516,7 +534,11 @@ frontend/
 │   │   ├── EstimateRequestListPage.tsx # 見積依頼一覧ページ
 │   │   ├── EstimateRequestCreatePage.tsx # 見積依頼作成ページ
 │   │   ├── EstimateRequestDetailPage.tsx # 見積依頼詳細ページ
-│   │   └── EstimateRequestEditPage.tsx # 見積依頼編集ページ
+│   │   ├── EstimateRequestEditPage.tsx # 見積依頼編集ページ
+│   │   ├── CompanyInfoPage.tsx # 自社情報設定ページ
+│   │   ├── EstimateListPage.tsx # 見積書一覧ページ
+│   │   ├── EstimateCreatePage.tsx # 見積書作成ページ
+│   │   └── EstimateDetailPage.tsx # 見積書詳細ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数（20ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -781,7 +803,14 @@ backend/
 │   │   ├── estimate-request.service.ts # 見積依頼管理（CRUD、項目選択、楽観的排他制御）
 │   │   ├── estimate-request-status.service.ts # 見積依頼ステータス管理
 │   │   ├── estimate-request-text.service.ts # 見積依頼文生成（メール/FAX対応）
-│   │   └── received-quotation.service.ts # 受領見積書管理（ファイルアップロード）
+│   │   ├── received-quotation.service.ts # 受領見積書管理（ファイルアップロード）
+│   │   ├── company-info.service.ts # 自社情報管理（シングルトンパターン、楽観的排他制御）
+│   │   ├── estimate.service.ts # 見積書管理（CRUD、楽観的排他制御）
+│   │   ├── estimate-item.service.ts # 見積項目管理（3行1セット、階層構造）
+│   │   ├── estimate-calculation.service.ts # 見積金額計算（NET金額案分）
+│   │   ├── estimate-validation.service.ts # 見積書バリデーション
+│   │   ├── estimate-export.service.ts # 見積書Excel出力
+│   │   └── overhead-cost.service.ts # 諸経費行管理
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -990,6 +1019,24 @@ backend/src/
 - `POST /api/estimate-requests/:estimateRequestId/received-quotations`: 受領見積書登録（ファイルアップロード）
 - `PUT /api/received-quotations/:id`: 受領見積書更新
 - `DELETE /api/received-quotations/:id`: 受領見積書削除
+- `POST /api/received-quotations/:id/structured-data`: OCR構造化データ登録
+
+**自社情報API（company-info.routes.ts）:**
+- `GET /api/company-info`: 自社情報取得
+- `PUT /api/company-info`: 自社情報更新（楽観的排他制御）
+
+**見積書管理API（estimates.routes.ts）:**
+- `GET /api/projects/:projectId/estimates`: 見積書一覧取得
+- `GET /api/estimates/:id`: 見積書詳細取得（階層構造含む）
+- `POST /api/projects/:projectId/estimates`: 見積書作成（内訳書参照オプション）
+- `PUT /api/estimates/:id`: 見積書更新（楽観的排他制御）
+- `DELETE /api/estimates/:id`: 見積書論理削除
+- `POST /api/estimates/:id/items`: 見積項目追加（3行1セット自動生成）
+- `PUT /api/estimates/:id/items/:itemId`: 見積項目更新
+- `DELETE /api/estimates/:id/items/:itemId`: 見積項目削除
+- `POST /api/estimates/:id/items/:itemId/transfer`: 受領見積書転記
+- `POST /api/estimates/:id/prorate`: NET金額案分計算
+- `GET /api/estimates/:id/export`: Excel出力
 
 **実装済みミドルウェア:**
 

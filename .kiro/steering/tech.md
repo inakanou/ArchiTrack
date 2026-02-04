@@ -2,7 +2,7 @@
 
 ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-01-27（Steering Sync: 見積依頼機能の実装進行中を反映）_
+_最終更新: 2026-02-04（Steering Sync: 見積書作成・自社情報登録機能の実装完了を反映）_
 
 ## アーキテクチャ
 
@@ -37,7 +37,9 @@ ArchiTrack/
 - `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応）
-- `xlsx` 0.20.3 - Excelファイル生成（内訳書エクスポート、SheetJS）
+- `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書エクスポート、SheetJS）
+- `react-pdf` ^10.3.0 - PDFビューア（受領見積書プレビュー）
+- `tesseract.js` ^7.0.0 - OCR文字認識（受領見積書構造化データ抽出）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/react` ^19.2.7 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
