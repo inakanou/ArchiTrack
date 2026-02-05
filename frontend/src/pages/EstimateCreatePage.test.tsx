@@ -91,7 +91,7 @@ describe('EstimateCreatePage', () => {
       expect(screen.getByTestId('estimate-create-page')).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('heading', { name: /見積書.*新規作成/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /見積書作成/i })).toBeInTheDocument();
   });
 
   /**
@@ -107,7 +107,7 @@ describe('EstimateCreatePage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/参照する内訳書/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/内訳書を選択/i)).toBeInTheDocument();
     });
   });
 
@@ -126,11 +126,11 @@ describe('EstimateCreatePage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/参照する内訳書/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/内訳書を選択/i)).toBeInTheDocument();
     });
 
     // セレクトボックスをクリック
-    const select = screen.getByLabelText(/参照する内訳書/i);
+    const select = screen.getByLabelText(/内訳書を選択/i);
     await user.click(select);
 
     // 内訳書オプションを確認
@@ -222,7 +222,7 @@ describe('EstimateCreatePage', () => {
     await user.type(nameInput, '新規見積書');
 
     // 内訳書を選択
-    const select = screen.getByLabelText(/参照する内訳書/i);
+    const select = screen.getByLabelText(/内訳書を選択/i);
     await user.selectOptions(select, 'is-001');
 
     // 作成ボタンをクリック
