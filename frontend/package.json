@@ -31,7 +31,9 @@
     "jspdf": "^4.0.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "react-pdf": "^10.3.0",
     "react-router-dom": "^7.9.6",
+    "tesseract.js": "^7.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {

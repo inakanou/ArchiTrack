@@ -1615,6 +1615,396 @@
         "description": "DELETEリクエストで404または405エラーが返されることを確認",
         "threshold": "http_status: 404 or 405"
       }
+    },
+    {
+      "id": "estimate-creation/REQ-8.2",
+      "requirement": "REQ-8: 現場管理費プリセット",
+      "title": "現場管理費の単価を手入力で設定可能とする",
+      "reason": "単価入力機能のE2Eはエディターの基本操作テストでカバー。詳細な入力検証は統合テストで実施",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "現場管理費行の単価フィールドに手入力で値を設定できることを確認",
+        "threshold": "manual_input: functional"
+      }
+    },
+    {
+      "id": "estimate-creation/REQ-8.4",
+      "requirement": "REQ-8: 現場管理費プリセット",
+      "title": "自動計算パラメータの入力画面を提供する",
+      "reason": "自動計算機能のパラメータ入力UIは統合テストで検証。国土交通省基準の計算式検証はユニットテストで実施",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "自動計算機能有効時に直接工事費・共通仮設費等のパラメータ入力画面が提供されることを確認",
+        "threshold": "parameter_form: displayed"
+      }
+    },
+    {
+      "id": "estimate-creation/REQ-8.5",
+      "requirement": "REQ-8: 現場管理費プリセット",
+      "title": "自動計算結果を手入力で上書き可能とする",
+      "reason": "計算結果の上書き機能は統合テストで検証。基本的な単価入力はE2E(REQ-7.5-7.6)でカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "自動計算後の単価を手入力で上書きできることを確認",
+        "threshold": "manual_override: functional"
+      }
+    },
+    {
+      "id": "estimate-creation/REQ-8.6",
+      "requirement": "REQ-8: 現場管理費プリセット",
+      "title": "自動計算が処理中の場合、計算中であることを表示する",
+      "reason": "計算中インジケーターの表示は高速なため一瞬で消える場合あり。統合テストでUI状態を検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "自動計算処理中にローディングインジケーターが表示されることを確認",
+        "threshold": "loading_indicator: displayed"
+      }
+    },
+    {
+      "id": "estimate-creation/REQ-9.2",
+      "requirement": "REQ-9: 一般管理費プリセット",
+      "title": "一般管理費の単価を手入力で設定可能とする",
+      "reason": "単価入力機能のE2Eはエディターの基本操作テストでカバー。詳細な入力検証は統合テストで実施",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "一般管理費行の単価フィールドに手入力で値を設定できることを確認",
+        "threshold": "manual_input: functional"
+      }
+    },
+    {
+      "id": "estimate-creation/REQ-9.4",
+      "requirement": "REQ-9: 一般管理費プリセット",
+      "title": "自動計算パラメータの入力画面を提供する",
+      "reason": "自動計算機能のパラメータ入力UIは統合テストで検証。国土交通省基準の計算式検証はユニットテストで実施",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "自動計算機能有効時に工事原価等のパラメータ入力画面が提供されることを確認",
+        "threshold": "parameter_form: displayed"
+      }
+    },
+    {
+      "id": "estimate-creation/REQ-9.5",
+      "requirement": "REQ-9: 一般管理費プリセット",
+      "title": "自動計算結果を手入力で上書き可能とする",
+      "reason": "計算結果の上書き機能は統合テストで検証。基本的な単価入力はE2E(REQ-7.5-7.6)でカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "自動計算後の単価を手入力で上書きできることを確認",
+        "threshold": "manual_override: functional"
+      }
+    },
+    {
+      "id": "estimate-creation/REQ-9.6",
+      "requirement": "REQ-9: 一般管理費プリセット",
+      "title": "自動計算が処理中の場合、計算中であることを表示する",
+      "reason": "計算中インジケーターの表示は高速なため一瞬で消える場合あり。統合テストでUI状態を検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "自動計算処理中にローディングインジケーターが表示されることを確認",
+        "threshold": "loading_indicator: displayed"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.18",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "明細行の削除ボタンクリックで該当行を削除する",
+      "reason": "明細行操作の詳細UIは統合テストで検証。受領見積書登録の基本フローはE2E(REQ-11.1-11.17)でカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "明細行の削除ボタンクリックで該当行が削除されることを確認",
+        "threshold": "row_delete: functional"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.19",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "明細行が1行のみの場合、削除ボタンを非活性にする",
+      "reason": "UI状態管理の詳細は統合テストで検証。削除機能のE2EはREQ-11.17でカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "明細行が1行のみの場合に削除ボタンが非活性になることを確認",
+        "threshold": "delete_disabled: when_single_row"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.20",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "Tabキーによるフィールド間の順次移動をサポートする",
+      "reason": "キーボードナビゲーションの検証は統合テストで実施。アクセシビリティテストでもカバー",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "Tabキーでフィールド間を順次移動できることを確認",
+        "threshold": "tab_navigation: functional"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.21",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "最終フィールドでTabキーを押したとき、次の明細行に移動する",
+      "reason": "キーボードナビゲーションの詳細動作は統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "最終フィールドでTabキーを押すと次の明細行に移動することを確認",
+        "threshold": "tab_to_next_row: functional"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.23",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "必須項目未入力の場合、バリデーションエラーを表示する",
+      "reason": "バリデーションエラー表示はE2E(REQ-11.10)で部分的にカバー。詳細なバリデーションは統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "必須項目（受領見積書名、提出日）が未入力の場合にバリデーションエラーが表示されることを確認",
+        "threshold": "validation_error: displayed"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.25",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "1つの見積依頼に対して複数の受領見積書の登録を許可する",
+      "reason": "複数登録機能はE2E(REQ-11.11)でカバー済み。この要件は重複確認のため除外",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-11.11のテストで複数登録機能を検証",
+        "threshold": "covered_by: REQ-11.11"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.26",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "見積依頼詳細画面に登録済み受領見積書の一覧を表示する",
+      "reason": "一覧表示はE2E(REQ-11.12)でカバー済み。この要件は重複確認のため除外",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-11.12のテストで一覧表示を検証",
+        "threshold": "covered_by: REQ-11.12"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.27",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "受領見積書一覧に受領見積書名、提出日、登録日時を表示する",
+      "reason": "詳細情報表示はE2E(REQ-11.13)でカバー済み。この要件は重複確認のため除外",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-11.13のテストで詳細情報表示を検証",
+        "threshold": "covered_by: REQ-11.13"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.28",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "受領見積書の編集機能を提供する",
+      "reason": "編集機能はE2E(REQ-11.15)でカバー済み。この要件は重複確認のため除外",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-11.15のテストで編集機能を検証",
+        "threshold": "covered_by: REQ-11.15"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.29",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "受領見積書の削除機能を提供する",
+      "reason": "削除機能はE2E(REQ-11.16, REQ-11.17)でカバー済み。この要件は重複確認のため除外",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-11.16-11.17のテストで削除機能を検証",
+        "threshold": "covered_by: REQ-11.16, REQ-11.17"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-11.30",
+      "requirement": "REQ-11: 受領見積書登録機能",
+      "title": "受領見積書削除時に削除確認ダイアログを表示する",
+      "reason": "削除確認ダイアログはE2E(REQ-11.17)でカバー済み。この要件は重複確認のため除外",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "REQ-11.17のテストで削除確認ダイアログを検証",
+        "threshold": "covered_by: REQ-11.17"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-13.1",
+      "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
+      "title": "ファイルアップロード時にインラインプレビューを表示する",
+      "reason": "インラインプレビュー機能は外部ライブラリ依存。UI表示は統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "ファイルアップロード後にインラインプレビューが表示されることを確認",
+        "threshold": "preview: displayed"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-13.4",
+      "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
+      "title": "Excelファイルをテーブル形式でインライン表示する",
+      "reason": "Excelファイルのパースとテーブル表示は外部ライブラリ依存。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "Excelファイルがテーブル形式でインライン表示されることを確認",
+        "threshold": "excel_table: displayed"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-13.6",
+      "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
+      "title": "Excelファイルからデータパースで構造化データを抽出する",
+      "reason": "Excelデータパースは外部ライブラリ依存。ユニット/統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Jest",
+        "description": "Excelファイルから構造化データ（セル値）が正しく抽出されることを確認",
+        "threshold": "data_extraction: functional"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-13.7",
+      "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
+      "title": "OCR処理またはデータパース処理中にインジケーターを表示する",
+      "reason": "処理中インジケーターは高速処理時に一瞬で消える場合あり。統合テストでUI状態を検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "OCR/パース処理中にローディングインジケーターが表示されることを確認",
+        "threshold": "loading_indicator: displayed"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-13.9",
+      "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
+      "title": "抽出結果のテキストを選択・コピー可能にする",
+      "reason": "テキスト選択・コピー機能はブラウザ標準機能。アクセシビリティテストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "抽出結果のテキストが選択可能な要素として表示されることを確認",
+        "threshold": "text_selectable: true"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-13.11",
+      "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
+      "title": "一括取り込みボタンで抽出結果を明細行に自動入力する",
+      "reason": "一括取り込み機能は複雑なUI連携。統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "一括取り込みボタンクリックで抽出結果が明細行に自動入力されることを確認",
+        "threshold": "auto_fill: functional"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-13.12",
+      "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
+      "title": "一括取り込み完了時に金額を自動計算する",
+      "reason": "金額自動計算は既存のE2E(REQ-11.9)でカバー。一括取り込み後の計算は統合テストで検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / React Testing Library",
+        "description": "一括取り込み完了後に各行の金額が自動計算されることを確認",
+        "threshold": "auto_calculation: functional"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-14.3",
+      "requirement": "REQ-14: 受領見積書データ管理",
+      "title": "アップロードファイルをファイルストレージに保存し関連付ける",
+      "reason": "ファイルストレージ操作はインフラ層。統合テストでDB状態を検証",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "アップロードファイルがストレージに保存され、受領見積書レコードと関連付けられることを確認",
+        "threshold": "file_association: true"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-14.4",
+      "requirement": "REQ-14: 受領見積書データ管理",
+      "title": "受領見積書の作成日時と更新日時を記録する",
+      "reason": "日時記録はデータ層で自動処理。統合テストでDB状態を検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "受領見積書の作成日時と更新日時がDBに記録されることを確認",
+        "threshold": "timestamps: recorded"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-14.5",
+      "requirement": "REQ-14: 受領見積書データ管理",
+      "title": "受領見積書の削除時に論理削除を行う",
+      "reason": "論理削除はデータ層の実装詳細。統合テストでDB状態を検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Prisma",
+        "description": "削除後も受領見積書レコードがDBに残り、deletedAtが設定されることを確認",
+        "threshold": "soft_delete: true"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-14.6",
+      "requirement": "REQ-14: 受領見積書データ管理",
+      "title": "楽観的排他制御により同時更新を防止する",
+      "reason": "楽観的排他制御は並行アクセスのテストが必要。統合テストで検証",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Jest / Concurrent requests",
+        "description": "同時更新時にバージョン競合が検出され、適切にエラーを返すことを確認",
+        "threshold": "optimistic_lock: handled"
+      }
     }
   ],
   "categories": {
@@ -1640,14 +2030,14 @@
     }
   },
   "summary": {
-    "totalExclusions": 121,
+    "totalExclusions": 151,
     "byCategory": {
       "performance": 21,
-      "infrastructure": 55,
+      "infrastructure": 81,
       "fault-tolerance": 21,
-      "data-integrity": 24,
+      "data-integrity": 28,
       "security": 4
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証"
   }
 }

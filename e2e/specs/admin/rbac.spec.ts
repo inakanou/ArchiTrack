@@ -1,10 +1,6 @@
 import { test, expect } from '@playwright/test';
-import {
-  resetTestUser,
-  getTestUser,
-  cleanNonSystemRoles,
-  getPrismaClient,
-} from '../../fixtures/database';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -28,9 +24,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
-    // 並列テストで作成されたカスタムロール（role:read権限付き等）をクリーンアップ
-    // これにより一般ユーザーが一時的に余計な権限を持つ問題を防ぐ
-    await cleanNonSystemRoles();
+    await cleanDatabase();
   });
 
   /**
@@ -43,28 +37,11 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
    * @requirement user-authentication/REQ-28.45 未認証状態で保護URL直接アクセス → ログイン画面リダイレクト
    */
   test('一般ユーザーは管理者専用ページにアクセスできない', async ({ page }) => {
-    await resetTestUser('REGULAR_USER');
-
-    // 並列テストによりREGULAR_USERにadminロールが割り当てられている場合があるため、
-    // user以外のロール割り当てを削除して初期状態を保証する
-    const prisma = getPrismaClient();
-    const regularUser = await prisma.user.findUnique({ where: { email: 'user@example.com' } });
-    if (regularUser) {
-      const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
-      if (userRole) {
-        await prisma.userRole.deleteMany({
-          where: {
-            userId: regularUser.id,
-            NOT: { roleId: userRole.id },
-          },
-        });
-      }
-    }
-
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // ユーザー管理ページにアクセス試行
-    await page.goto('/admin/users', { waitUntil: 'networkidle' });
+    await page.goto('/admin/users');
 
     // 認証状態の初期化が完了し、アクセス拒否メッセージが表示されるまで待機
     // ProtectedRouteコンポーネントはh1タグで「アクセス権限がありません」を表示する
@@ -79,7 +56,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
    * @requirement user-authentication/REQ-28.37 ユーザー管理リンククリック → ユーザー管理画面遷移
    */
   test('管理者はユーザー管理ページにアクセスできる', async ({ page }) => {
-    await resetTestUser('ADMIN_USER');
+    await createTestUser('ADMIN_USER');
     await loginAsUser(page, 'ADMIN_USER');
 
     // ユーザー管理ページにアクセス
@@ -100,7 +77,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     const prisma = getPrismaClient();
 
     // テストユーザーを作成
-    const user = await getTestUser('REGULAR_USER');
+    const user = await createTestUser('REGULAR_USER');
 
     // ユーザーにロールが割り当てられていることを確認
     const userWithRoles = await prisma.user.findUnique({
@@ -129,7 +106,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     const prisma = getPrismaClient();
 
     // 管理者ユーザーを作成（admin + user ロール）
-    const admin = await getTestUser('ADMIN_USER');
+    const admin = await createTestUser('ADMIN_USER');
 
     // ユーザーのロールと権限を取得
     const userWithRoles = await prisma.user.findUnique({
@@ -171,7 +148,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     const prisma = getPrismaClient();
 
     // 管理者ユーザーを作成してログイン
-    const admin = await getTestUser('ADMIN_USER');
+    const admin = await createTestUser('ADMIN_USER');
 
     // 管理者ロールを取得
     const adminRole = await prisma.role.findUnique({
@@ -236,7 +213,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
    */
   test('権限のないユーザーはAPIエンドポイントにアクセスできない', async ({ request }) => {
     // 一般ユーザーを作成してトークンを取得
-    await resetTestUser('REGULAR_USER');
+    await createTestUser('REGULAR_USER');
 
     // ログインしてトークンを取得
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -267,7 +244,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
    */
   test('管理者はワイルドカード権限で全てのAPIにアクセスできる', async ({ request }) => {
     // 管理者ユーザーを作成
-    await resetTestUser('ADMIN_USER');
+    await createTestUser('ADMIN_USER');
 
     // ログインしてトークンを取得
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -310,8 +287,8 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     const prisma = getPrismaClient();
 
     // テストユーザーを作成
-    const user1 = await getTestUser('REGULAR_USER');
-    const user2 = await getTestUser('REGULAR_USER_2');
+    const user1 = await createTestUser('REGULAR_USER');
+    const user2 = await createTestUser('REGULAR_USER_2');
 
     // ユーザー1がプロジェクトを作成（データベース直接作成）
     // status はデフォルト値 PREPARING が適用される
@@ -364,7 +341,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     const prisma = getPrismaClient();
 
     // 一般ユーザーを作成してログイン
-    await resetTestUser('REGULAR_USER');
+    await createTestUser('REGULAR_USER');
 
     const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {

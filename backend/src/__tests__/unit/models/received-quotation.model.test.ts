@@ -1,48 +1,45 @@
 /**
- * @fileoverview ReceivedQuotationモデルのスキーマ定義テスト
+ * @fileoverview ReceivedQuotationモデルのスキーマ定義テスト（改訂版: Task 20.2）
  *
- * TDD: RED Phase - Prismaスキーマで定義するReceivedQuotationモデルの型検証
+ * TDD: Prismaスキーマで定義するReceivedQuotationモデルの型検証
  *
  * Requirements (estimate-request):
- * - REQ-11.1-11.17: 受領見積書登録機能
+ * - REQ-11.1-11.30: 受領見積書登録機能
  *   - 見積依頼に対する返答として協力業者から届いた受領見積書を登録
- *   - 複数の受領見積書を一元管理し、比較検討できる
+ *   - ファイルアップロードと構造化データ入力の共存モデル
  *
  * Design Specification:
- * - ReceivedQuotationテーブル: 見積依頼との関連付け、受領見積書名、提出日、内容（テキストまたはファイル）
- * - テキストまたはファイルの排他的コンテンツ管理
+ * - ReceivedQuotationテーブル: 見積依頼との関連付け、受領見積書名、提出日
+ * - ファイルアップロード（任意）と構造化明細行データ（任意）の共存を許可
+ * - ファイルまたは明細行データのいずれか一方は必須
  * - ファイル情報フィールド（パス、名前、MIMEタイプ、サイズ）
  * - 論理削除（deletedAt）と楽観的排他制御（updatedAt）
  * - インデックス設定（estimateRequestId、deletedAt、createdAt）
+ * - lineItemsリレーション（ReceivedQuotationLineItem）
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Prisma } from '../../../generated/prisma/client.js';
+import { Prisma } from '../../../generated/prisma/client.js';
 
 describe('ReceivedQuotation Model Schema', () => {
   describe('ReceivedQuotation CreateInput type structure', () => {
-    it('should require mandatory fields for text content', () => {
-      // REQ-11.3, 11.4, 11.5: 受領見積書の必須フィールドの検証（テキストコンテンツ）
+    it('should require mandatory fields for creation without file', () => {
+      // REQ-11.3, 11.4: 受領見積書の必須フィールドの検証
       const validInput: Prisma.ReceivedQuotationCreateInput = {
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-20'),
-        contentType: 'TEXT',
-        textContent: 'これは受領見積書のテキスト内容です',
         estimateRequest: { connect: { id: 'estimate-request-id' } },
       };
 
       expect(validInput.name).toBe('テスト受領見積書');
       expect(validInput.submittedAt).toBeInstanceOf(Date);
-      expect(validInput.contentType).toBe('TEXT');
-      expect(validInput.textContent).toBe('これは受領見積書のテキスト内容です');
     });
 
-    it('should require mandatory fields for file content', () => {
-      // REQ-11.6, 11.8: 受領見積書の必須フィールドの検証（ファイルコンテンツ）
+    it('should accept file information fields', () => {
+      // REQ-11.6, 11.8: ファイルアップロード
       const validInput: Prisma.ReceivedQuotationCreateInput = {
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-20'),
-        contentType: 'FILE',
         filePath: 'quotations/uuid/filename.pdf',
         fileName: 'quotation.pdf',
         fileMimeType: 'application/pdf',
@@ -51,7 +48,6 @@ describe('ReceivedQuotation Model Schema', () => {
       };
 
       expect(validInput.name).toBe('テスト受領見積書');
-      expect(validInput.contentType).toBe('FILE');
       expect(validInput.filePath).toBe('quotations/uuid/filename.pdf');
       expect(validInput.fileName).toBe('quotation.pdf');
       expect(validInput.fileMimeType).toBe('application/pdf');
@@ -63,12 +59,34 @@ describe('ReceivedQuotation Model Schema', () => {
       const input: Prisma.ReceivedQuotationCreateInput = {
         name: 'テスト受領見積書',
         submittedAt: new Date(),
-        contentType: 'TEXT',
-        textContent: 'テキスト内容',
         estimateRequest: { connect: { id: 'estimate-request-id' } },
       };
 
       expect(input.estimateRequest).toBeDefined();
+    });
+
+    it('should accept nested lineItems creation', () => {
+      // REQ-11.9: 構造化データ入力エリア
+      const input: Prisma.ReceivedQuotationCreateInput = {
+        name: 'テスト受領見積書',
+        submittedAt: new Date(),
+        estimateRequest: { connect: { id: 'estimate-request-id' } },
+        lineItems: {
+          create: [
+            {
+              sortOrder: 0,
+              name: '外壁塗装',
+              specification: 'シリコン樹脂塗料',
+              unit: 'm2',
+              quantity: 150.5,
+              unitPrice: 3500,
+              amount: 526750,
+            },
+          ],
+        },
+      };
+
+      expect(input.lineItems).toBeDefined();
     });
   });
 
@@ -95,22 +113,6 @@ describe('ReceivedQuotation Model Schema', () => {
         submittedAt: true,
       };
       expect(quotationSelect.submittedAt).toBe(true);
-    });
-
-    it('should have contentType field', () => {
-      // REQ-11.7: テキスト入力とファイルアップロードの排他的選択
-      const quotationSelect: Prisma.ReceivedQuotationSelect = {
-        contentType: true,
-      };
-      expect(quotationSelect.contentType).toBe(true);
-    });
-
-    it('should have text content field', () => {
-      // REQ-11.5: テキスト入力フィールド
-      const quotationSelect: Prisma.ReceivedQuotationSelect = {
-        textContent: true,
-      };
-      expect(quotationSelect.textContent).toBe(true);
     });
 
     it('should have file information fields', () => {
@@ -152,6 +154,14 @@ describe('ReceivedQuotation Model Schema', () => {
       };
       expect(quotationSelect.estimateRequestId).toBe(true);
     });
+
+    it('should have lineItems relation', () => {
+      // REQ-11.9: 明細行リレーション
+      const quotationSelect: Prisma.ReceivedQuotationSelect = {
+        lineItems: true,
+      };
+      expect(quotationSelect.lineItems).toBe(true);
+    });
   });
 
   describe('ReceivedQuotation relations', () => {
@@ -183,12 +193,12 @@ describe('ReceivedQuotation Model Schema', () => {
       expect(where.name).toBeDefined();
     });
 
-    it('should allow filtering by contentType', () => {
-      // コンテンツタイプでのフィルタリング
+    it('should allow filtering by file presence', () => {
+      // ファイルの有無でのフィルタリング
       const where: Prisma.ReceivedQuotationWhereInput = {
-        contentType: 'TEXT',
+        filePath: { not: null },
       };
-      expect(where.contentType).toBe('TEXT');
+      expect(where.filePath).toBeDefined();
     });
 
     it('should allow filtering by deletedAt (soft delete)', () => {

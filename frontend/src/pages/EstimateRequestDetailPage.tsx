@@ -4,6 +4,7 @@
  * Task 6.2: EstimateRequestDetailPageの実装
  * Task 16.1: 受領見積書セクション追加
  * Task 16.2: ステータス管理追加
+ * Task 26.3: 受領見積書セクション再統合（ファイル+明細行共存フォーム対応）
  *
  * Requirements:
  * - 4.1: 見積依頼詳細画面にパンくずナビゲーションを表示する
@@ -19,6 +20,7 @@
  * - 9.4: ユーザーが削除ボタンをクリックしたとき、削除確認ダイアログを表示する
  * - 9.5: ユーザーが削除を確認したとき、見積依頼を論理削除し一覧画面に遷移する
  * - 11.1, 11.2, 11.12, 11.14: 受領見積書セクション表示
+ * - 11.25, 11.28, 11.29, 11.30: 受領見積書ファイル+明細行統合フォーム
  * - 12.1, 12.4, 12.5-12.10: ステータス管理
  */
 
@@ -332,12 +334,13 @@ const styles = {
     justifyContent: 'center',
     zIndex: 1000,
   } as React.CSSProperties,
+  // Task 26.3: モーダルサイズを拡大してファイル+明細行統合フォームを表示
   modalContent: {
     backgroundColor: '#ffffff',
     borderRadius: '12px',
     padding: '24px',
-    maxWidth: '500px',
-    width: '100%',
+    maxWidth: '900px',
+    width: '95%',
     maxHeight: '90vh',
     overflow: 'auto',
   } as React.CSSProperties,

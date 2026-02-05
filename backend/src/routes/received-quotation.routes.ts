@@ -28,6 +28,7 @@ import {
   receivedQuotationIdParamSchema,
   estimateRequestIdForQuotationSchema,
   deleteReceivedQuotationBodySchema,
+  parseLineItemsFromMultipart,
 } from '../schemas/received-quotation.schema.js';
 import {
   ReceivedQuotationNotFoundError,
@@ -35,6 +36,7 @@ import {
   InvalidContentTypeError,
   InvalidFileTypeError,
   FileSizeLimitExceededError,
+  FileOrLineItemsRequiredError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 
@@ -101,7 +103,6 @@ const upload = multer({
  *             required:
  *               - name
  *               - submittedAt
- *               - contentType
  *             properties:
  *               name:
  *                 type: string
@@ -111,17 +112,10 @@ const upload = multer({
  *                 type: string
  *                 format: date-time
  *                 description: 提出日
- *               contentType:
- *                 type: string
- *                 enum: [TEXT, FILE]
- *                 description: コンテンツタイプ
- *               textContent:
- *                 type: string
- *                 description: テキスト内容（contentType=TEXTの場合）
  *               file:
  *                 type: string
  *                 format: binary
- *                 description: ファイル（contentType=FILEの場合）
+ *                 description: ファイル（任意）
  *     responses:
  *       201:
  *         description: 受領見積書作成成功
@@ -154,16 +148,27 @@ router.post(
       const validatedBody = req.validatedBody as {
         name: string;
         submittedAt: string;
-        contentType: 'TEXT' | 'FILE';
-        textContent?: string;
       };
+
+      // Task 21.3: multipart内のlineItemsフィールド（JSON文字列）をパース・検証
+      let lineItems;
+      try {
+        lineItems = parseLineItemsFromMultipart(req.body?.lineItems as string | undefined);
+      } catch (error) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error instanceof Error ? error.message : '明細行データのバリデーションエラー',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       const input = {
         estimateRequestId,
         name: validatedBody.name,
         submittedAt: new Date(validatedBody.submittedAt),
-        contentType: validatedBody.contentType,
-        textContent: validatedBody.textContent,
         file: req.file
           ? {
               buffer: req.file.buffer,
@@ -172,6 +177,7 @@ router.post(
               size: req.file.size,
             }
           : undefined,
+        lineItems,
       };
 
       const quotation = await getReceivedQuotationService().create(input);
@@ -224,6 +230,17 @@ router.post(
           status: 413,
           detail: error.message,
           code: 'FILE_SIZE_LIMIT_EXCEEDED',
+        });
+        return;
+      }
+      if (error instanceof FileOrLineItemsRequiredError) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error.message,
+          message: error.message,
+          code: 'FILE_OR_LINE_ITEMS_REQUIRED',
         });
         return;
       }
@@ -382,17 +399,13 @@ router.get(
  *                 type: string
  *                 format: date-time
  *                 description: 提出日
- *               contentType:
- *                 type: string
- *                 enum: [TEXT, FILE]
- *                 description: コンテンツタイプ
- *               textContent:
- *                 type: string
- *                 description: テキスト内容
  *               file:
  *                 type: string
  *                 format: binary
- *                 description: ファイル
+ *                 description: ファイル（任意）
+ *               removeFile:
+ *                 type: boolean
+ *                 description: ファイル削除フラグ
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
@@ -430,9 +443,23 @@ router.put(
         expectedUpdatedAt: string;
         name?: string;
         submittedAt?: string;
-        contentType?: 'TEXT' | 'FILE';
-        textContent?: string;
+        removeFile?: boolean;
       };
+
+      // Task 21.3: multipart内のlineItemsフィールド（JSON文字列）をパース・検証
+      let lineItems;
+      try {
+        lineItems = parseLineItemsFromMultipart(req.body?.lineItems as string | undefined);
+      } catch (error) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error instanceof Error ? error.message : '明細行データのバリデーションエラー',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       const input = {
         ...updateData,
@@ -445,6 +472,7 @@ router.put(
               size: req.file.size,
             }
           : undefined,
+        lineItems,
       };
 
       const quotation = await getReceivedQuotationService().update(

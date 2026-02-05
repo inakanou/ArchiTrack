@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { resetTestUser, cleanNonSystemRoles, getPrismaClient } from '../../fixtures/database';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -27,9 +28,8 @@ test.describe('動的ロール管理', () => {
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
-    await resetTestUser('ADMIN_USER');
-    // テストで作成されたカスタムロールをクリーンアップ
-    await cleanNonSystemRoles();
+    await cleanDatabase();
+    await createTestUser('ADMIN_USER');
   });
 
   /**

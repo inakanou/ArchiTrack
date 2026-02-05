@@ -335,9 +335,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const response = await request(app)
           .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', new Date().toISOString())
-          .field('contentType', 'TEXT')
-          .field('textContent', 'テスト内容');
+          .field('submittedAt', new Date().toISOString());
 
         expect(response.status).toBe(401);
       });
@@ -370,9 +368,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
           .set('Authorization', `Bearer ${noPermissionToken}`)
           .field('name', 'テスト受領見積書')
-          .field('submittedAt', new Date().toISOString())
-          .field('contentType', 'TEXT')
-          .field('textContent', 'テスト内容');
+          .field('submittedAt', new Date().toISOString());
 
         expect(response.status).toBe(403);
       });
@@ -391,30 +387,39 @@ describe('Received Quotation & Status API Integration Tests', () => {
     });
 
     describe('受領見積書作成 (POST /api/estimate-requests/:id/quotations)', () => {
-      it('テキストコンテンツで受領見積書を正常に作成できる', async () => {
+      it('受領見積書を正常に作成できる（ファイルなし、明細行あり）', async () => {
+        // Requirements 11.22, 11.24: ファイルまたは明細行のいずれかが必須
+        const lineItems = JSON.stringify([
+          {
+            name: 'テスト明細行',
+            sortOrder: 0,
+            quantity: 10,
+            unitPrice: 1000,
+          },
+        ]);
+
         const response = await request(app)
           .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
           .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'TEXT')
-          .field('textContent', '見積金額: 1,000,000円');
+          .field('lineItems', lineItems);
 
         expect(response.status).toBe(201);
         expect(response.body).toMatchObject({
           name: 'テスト受領見積書',
-          contentType: 'TEXT',
-          textContent: '見積金額: 1,000,000円',
         });
         expect(response.body.id).toBeDefined();
         expect(response.body.createdAt).toBeDefined();
         expect(response.body.updatedAt).toBeDefined();
+        expect(response.body.lineItems).toHaveLength(1);
+        expect(response.body.totalAmount).toBe(10000);
 
         testQuotationId = response.body.id;
         testQuotationUpdatedAt = response.body.updatedAt;
       });
 
-      it('ファイルコンテンツで受領見積書を作成できる（multipart/form-data）', async () => {
+      it('ファイル付きで受領見積書を作成できる（multipart/form-data）', async () => {
         const pdfBuffer = Buffer.from('%PDF-1.4 test content');
 
         const response = await request(app)
@@ -422,7 +427,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'PDF受領見積書')
           .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'FILE')
           .attach('file', pdfBuffer, {
             filename: 'quotation.pdf',
             contentType: 'application/pdf',
@@ -431,47 +435,31 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(response.status).toBe(201);
         expect(response.body).toMatchObject({
           name: 'PDF受領見積書',
-          contentType: 'FILE',
           fileName: 'quotation.pdf',
           fileMimeType: 'application/pdf',
         });
       });
 
       it('存在しない見積依頼IDで作成しようとすると404を返す', async () => {
+        // Requirements 11.22, 11.24: ファイルまたは明細行のいずれかが必須
+        const lineItems = JSON.stringify([
+          {
+            name: 'テスト明細行',
+            sortOrder: 0,
+            quantity: 1,
+            unitPrice: 100,
+          },
+        ]);
+
         const response = await request(app)
           .post('/api/estimate-requests/12345678-1234-4234-a234-123456789012/quotations')
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
           .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'TEXT')
-          .field('textContent', 'テスト');
+          .field('lineItems', lineItems);
 
         expect(response.status).toBe(404);
         expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
-      });
-
-      it('TEXTタイプでテキストがない場合は422を返す', async () => {
-        const response = await request(app)
-          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'TEXT');
-
-        expect(response.status).toBe(422);
-        expect(response.body.code).toBe('INVALID_CONTENT_TYPE');
-      });
-
-      it('FILEタイプでファイルがない場合は422を返す', async () => {
-        const response = await request(app)
-          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .field('name', 'テスト受領見積書')
-          .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'FILE');
-
-        expect(response.status).toBe(422);
-        expect(response.body.code).toBe('INVALID_CONTENT_TYPE');
       });
 
       it('許可されていないファイル形式の場合は415を返す（Requirements: 11.8）', async () => {
@@ -482,7 +470,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .field('name', 'テスト受領見積書')
           .field('submittedAt', '2026-01-23T00:00:00.000Z')
-          .field('contentType', 'FILE')
           .attach('file', exeBuffer, {
             filename: 'test.exe',
             contentType: 'application/x-msdownload',
@@ -501,8 +488,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '受領見積書1',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: 'テスト1',
           },
         });
         await prisma.receivedQuotation.create({
@@ -510,8 +495,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '受領見積書2',
             submittedAt: new Date('2026-01-24'),
-            contentType: 'TEXT',
-            textContent: 'テスト2',
           },
         });
       });
@@ -534,8 +517,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '詳細取得テスト',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: 'テスト内容',
           },
         });
         testQuotationId = quotation.id;
@@ -551,7 +532,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(response.body).toMatchObject({
           id: testQuotationId,
           name: '詳細取得テスト',
-          contentType: 'TEXT',
         });
       });
 
@@ -572,8 +552,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '更新テスト',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: '更新前テスト内容',
           },
         });
         testQuotationId = quotation.id;
@@ -610,8 +588,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
             estimateRequestId: testEstimateRequestId,
             name: '削除テスト',
             submittedAt: new Date('2026-01-23'),
-            contentType: 'TEXT',
-            textContent: '削除テスト内容',
           },
         });
         testQuotationId = quotation.id;
@@ -660,8 +636,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           estimateRequestId: testEstimateRequestId,
           name: '楽観的排他制御テスト',
           submittedAt: new Date('2026-01-23'),
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         },
       });
       testQuotationId = quotation.id;
@@ -860,7 +834,6 @@ describe('Received Quotation & Status API Integration Tests', () => {
           estimateRequestId: testEstimateRequestId,
           name: 'ファイルプレビューテスト',
           submittedAt: new Date('2026-01-23'),
-          contentType: 'FILE',
           filePath: 'quotations/test/file.pdf',
           fileName: 'file.pdf',
           fileMimeType: 'application/pdf',
@@ -879,24 +852,285 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(response.body).toHaveProperty('url');
     });
 
-    it('テキストコンテンツの受領見積書の場合は422を返す', async () => {
-      // テキストコンテンツの受領見積書を作成
-      const textQuotation = await prisma.receivedQuotation.create({
+    it('ファイルなしの受領見積書の場合は422を返す', async () => {
+      // ファイルなしの受領見積書を作成
+      const noFileQuotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
-          name: 'テキストプレビューテスト',
+          name: 'ファイルなしプレビューテスト',
           submittedAt: new Date('2026-01-23'),
-          contentType: 'TEXT',
-          textContent: 'テスト内容',
         },
       });
 
       const response = await request(app)
-        .get(`/api/quotations/${textQuotation.id}/preview`)
+        .get(`/api/quotations/${noFileQuotation.id}/preview`)
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(response.status).toBe(422);
       expect(response.body.code).toBe('INVALID_CONTENT_TYPE');
+    });
+  });
+
+  /**
+   * Task 27.2: 受領見積書API統合テストの明細行対応追加
+   *
+   * Requirements:
+   * - 11.9: 構造化データ入力エリア
+   * - 11.22: ファイルまたは明細行データのいずれかが必須
+   * - 11.24: ファイルも明細行もない場合のバリデーションエラー
+   * - 14.2: 明細行データをDBに永続化
+   */
+  describe('受領見積書API統合テスト - 明細行対応（Task 27.2）', () => {
+    beforeEach(async () => {
+      // 各テスト前に受領見積書をクリーンアップ
+      await prisma.receivedQuotation.deleteMany({
+        where: { estimateRequestId: testEstimateRequestId },
+      });
+    });
+
+    describe('明細行データを含むmultipartリクエストの統合テスト', () => {
+      it('明細行データを含む受領見積書を正常に作成できる（Requirements: 11.9, 14.2）', async () => {
+        const lineItems = JSON.stringify([
+          {
+            name: '外壁塗装工事',
+            sortOrder: 0,
+            specification: 'シリコン系',
+            unit: 'm2',
+            quantity: 150,
+            unitPrice: 3500,
+            amount: 525000,
+            remarks: '足場込み',
+          },
+          {
+            name: '防水工事',
+            sortOrder: 1,
+            specification: 'ウレタン防水',
+            unit: 'm2',
+            quantity: 50,
+            unitPrice: 8000,
+            amount: 400000,
+            remarks: null,
+          },
+        ]);
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', '明細付き受領見積書')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z')
+          .field('lineItems', lineItems);
+
+        expect(response.status).toBe(201);
+        expect(response.body).toMatchObject({
+          name: '明細付き受領見積書',
+        });
+        expect(response.body.lineItems).toBeDefined();
+        expect(response.body.lineItems).toHaveLength(2);
+        expect(response.body.lineItems[0].name).toBe('外壁塗装工事');
+        expect(response.body.lineItems[1].name).toBe('防水工事');
+        expect(response.body.totalAmount).toBe(925000);
+      });
+
+      it('ファイルと明細行の両方を含む受領見積書を作成できる', async () => {
+        const lineItems = JSON.stringify([
+          {
+            name: '設備工事',
+            sortOrder: 0,
+            specification: '電気設備',
+            unit: '式',
+            quantity: 1,
+            unitPrice: 500000,
+            amount: 500000,
+          },
+        ]);
+
+        const pdfBuffer = Buffer.from('%PDF-1.4 test content');
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', 'ファイル+明細受領見積書')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z')
+          .field('lineItems', lineItems)
+          .attach('file', pdfBuffer, {
+            filename: 'quotation.pdf',
+            contentType: 'application/pdf',
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.fileName).toBe('quotation.pdf');
+        expect(response.body.lineItems).toHaveLength(1);
+        expect(response.body.totalAmount).toBe(500000);
+      });
+    });
+
+    describe('明細行バリデーションエラーの統合テスト', () => {
+      it('ファイルも明細行もない場合は400を返す（Requirements: 11.22, 11.24）', async () => {
+        const response = await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', 'バリデーションエラーテスト')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z');
+        // ファイルも明細行も送信しない
+
+        expect(response.status).toBe(400);
+        expect(response.body.message).toContain(
+          'ファイルのアップロードまたは明細行データの入力が必要です'
+        );
+      });
+
+      it('空の明細行配列の場合も400を返す', async () => {
+        const response = await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', '空配列バリデーションエラーテスト')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z')
+          .field('lineItems', '[]'); // 空配列
+
+        expect(response.status).toBe(400);
+        expect(response.body.message).toContain(
+          'ファイルのアップロードまたは明細行データの入力が必要です'
+        );
+      });
+
+      it('明細行のnameが空の場合はバリデーションエラーを返す', async () => {
+        const lineItems = JSON.stringify([
+          {
+            name: '', // 名称が空
+            sortOrder: 0,
+            quantity: 10,
+            unitPrice: 1000,
+          },
+        ]);
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', '名称空バリデーションエラーテスト')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z')
+          .field('lineItems', lineItems);
+
+        expect(response.status).toBe(400);
+      });
+    });
+
+    describe('明細行全量置換の統合テスト', () => {
+      it('受領見積書更新時に明細行が全量置換される', async () => {
+        // まず受領見積書を作成
+        const initialLineItems = JSON.stringify([
+          { name: '初期項目A', sortOrder: 0, quantity: 1, unitPrice: 10000, amount: 10000 },
+          { name: '初期項目B', sortOrder: 1, quantity: 2, unitPrice: 20000, amount: 40000 },
+        ]);
+
+        const createResponse = await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', '全量置換テスト見積書')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z')
+          .field('lineItems', initialLineItems);
+
+        expect(createResponse.status).toBe(201);
+        const createdId = createResponse.body.id;
+        const updatedAt = createResponse.body.updatedAt;
+        expect(createResponse.body.lineItems).toHaveLength(2);
+
+        // 新しい明細行で更新
+        const newLineItems = JSON.stringify([
+          { name: '新項目X', sortOrder: 0, quantity: 5, unitPrice: 5000, amount: 25000 },
+          { name: '新項目Y', sortOrder: 1, quantity: 3, unitPrice: 15000, amount: 45000 },
+          { name: '新項目Z', sortOrder: 2, quantity: 1, unitPrice: 100000, amount: 100000 },
+        ]);
+
+        const updateResponse = await request(app)
+          .put(`/api/quotations/${createdId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('expectedUpdatedAt', updatedAt)
+          .field('lineItems', newLineItems);
+
+        expect(updateResponse.status).toBe(200);
+        expect(updateResponse.body.lineItems).toHaveLength(3);
+        expect(updateResponse.body.lineItems[0].name).toBe('新項目X');
+        expect(updateResponse.body.lineItems[1].name).toBe('新項目Y');
+        expect(updateResponse.body.lineItems[2].name).toBe('新項目Z');
+        expect(updateResponse.body.totalAmount).toBe(170000);
+      });
+    });
+
+    describe('レスポンスに明細行データと合計金額が含まれることの検証', () => {
+      it('受領見積書詳細取得時に明細行と合計金額が含まれる', async () => {
+        // 受領見積書を作成
+        const lineItems = JSON.stringify([
+          { name: '工事A', sortOrder: 0, quantity: 10, unitPrice: 10000, amount: 100000 },
+          { name: '工事B', sortOrder: 1, quantity: 5, unitPrice: 20000, amount: 100000 },
+        ]);
+
+        const createResponse = await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', '詳細取得テスト見積書')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z')
+          .field('lineItems', lineItems);
+
+        expect(createResponse.status).toBe(201);
+        const createdId = createResponse.body.id;
+
+        // 詳細取得
+        const getResponse = await request(app)
+          .get(`/api/quotations/${createdId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(getResponse.status).toBe(200);
+        expect(getResponse.body.lineItems).toBeDefined();
+        expect(getResponse.body.lineItems).toHaveLength(2);
+        expect(getResponse.body.totalAmount).toBe(200000);
+      });
+
+      it('受領見積書一覧取得時に明細行と合計金額が含まれる', async () => {
+        // 複数の受領見積書を作成
+        const lineItems1 = JSON.stringify([
+          { name: '項目1', sortOrder: 0, quantity: 1, unitPrice: 50000, amount: 50000 },
+        ]);
+        const lineItems2 = JSON.stringify([
+          { name: '項目2', sortOrder: 0, quantity: 2, unitPrice: 30000, amount: 60000 },
+          { name: '項目3', sortOrder: 1, quantity: 3, unitPrice: 10000, amount: 30000 },
+        ]);
+
+        await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', '一覧テスト見積書1')
+          .field('submittedAt', '2026-02-01T00:00:00.000Z')
+          .field('lineItems', lineItems1);
+
+        await request(app)
+          .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .field('name', '一覧テスト見積書2')
+          .field('submittedAt', '2026-02-02T00:00:00.000Z')
+          .field('lineItems', lineItems2);
+
+        // 一覧取得
+        const listResponse = await request(app)
+          .get(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(listResponse.status).toBe(200);
+        expect(listResponse.body).toBeInstanceOf(Array);
+        expect(listResponse.body.length).toBe(2);
+
+        // 各レコードに明細行と合計金額が含まれていることを確認
+        const quotation1 = listResponse.body.find(
+          (q: { name: string }) => q.name === '一覧テスト見積書1'
+        );
+        const quotation2 = listResponse.body.find(
+          (q: { name: string }) => q.name === '一覧テスト見積書2'
+        );
+
+        expect(quotation1.lineItems).toHaveLength(1);
+        expect(quotation1.totalAmount).toBe(50000);
+        expect(quotation2.lineItems).toHaveLength(2);
+        expect(quotation2.totalAmount).toBe(90000);
+      });
     });
   });
 });

@@ -351,9 +351,9 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
     /**
      * @requirement estimate-request/REQ-11.5
-     * テキスト入力フィールドを表示する
+     * ファイルアップロードフィールドを表示する
      */
-    test('REQ-11.5: テキスト入力フィールドが表示される', async ({ page }) => {
+    test('REQ-11.5: ファイルアップロードフィールドが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -364,20 +364,19 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // テキストラジオボタンが選択されていることを確認
-      const textRadio = page.locator('input[type="radio"][value="TEXT"]');
-      await expect(textRadio).toBeChecked();
+      // ファイルアップロードエリアが表示される
+      await expect(page.getByText(/ファイルを選択またはドラッグ/i)).toBeVisible();
 
-      // テキスト入力フィールドが表示される
-      const textContent = page.locator('#text-content');
-      await expect(textContent).toBeVisible();
+      // ファイル入力フィールドが存在する（hidden input）
+      const fileInput = page.locator('input[type="file"][data-testid="file-input"]');
+      await expect(fileInput).toBeAttached();
     });
 
     /**
      * @requirement estimate-request/REQ-11.6
-     * ファイルアップロードフィールドを表示する
+     * ドラッグ&ドロップによるファイル選択をサポートする
      */
-    test('REQ-11.6: ファイルアップロードフィールドが表示される', async ({ page }) => {
+    test('REQ-11.6: ドラッグ&ドロップエリアが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -388,19 +387,15 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ファイルラジオボタンをクリック
-      const fileRadio = page.locator('input[type="radio"][value="FILE"]');
-      await fileRadio.click();
-
-      // ファイルアップロードエリアが表示される
-      await expect(page.getByText(/ファイルを選択/i)).toBeVisible();
+      // ドラッグ&ドロップ対応のファイルアップロードエリアが表示される
+      await expect(page.getByText(/ファイルを選択またはドラッグ&ドロップ/i)).toBeVisible();
     });
 
     /**
      * @requirement estimate-request/REQ-11.7
-     * テキストとファイルの排他的選択を確認する
+     * アップロード可能なファイル形式としてPDF、Excel（.xlsx、.xls）、画像（.jpg、.jpeg、.png）を許可する
      */
-    test('REQ-11.7: テキストとファイルの排他選択が機能する', async ({ page }) => {
+    test('REQ-11.7: ファイル形式制限が設定されている', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -411,29 +406,25 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 初期状態でテキストが選択されている
-      const textRadio = page.locator('input[type="radio"][value="TEXT"]');
-      const fileRadio = page.locator('input[type="radio"][value="FILE"]');
-      await expect(textRadio).toBeChecked();
-      await expect(fileRadio).not.toBeChecked();
+      // ファイル入力フィールドを確認
+      const fileInput = page.locator('input[type="file"][data-testid="file-input"]');
+      await expect(fileInput).toBeAttached({ timeout: getTimeout(5000) });
 
-      // テキスト入力が表示、ファイルアップロードは非表示
-      await expect(page.locator('#text-content')).toBeVisible();
-      await expect(page.getByText(/ファイルを選択/i)).not.toBeVisible();
+      // accept属性を確認（PDF、Excel、画像形式が許可されていること）
+      const acceptAttribute = await fileInput.getAttribute('accept');
+      expect(acceptAttribute).toBeTruthy();
 
-      // ファイルを選択
-      await fileRadio.click();
-
-      // ファイルアップロードが表示、テキスト入力は非表示
-      await expect(page.getByText(/ファイルを選択/i)).toBeVisible();
-      await expect(page.locator('#text-content')).not.toBeVisible();
+      // 許可された形式が含まれていることを確認
+      expect(acceptAttribute).toMatch(/pdf/i);
+      expect(acceptAttribute).toMatch(/xlsx|xls/i);
+      expect(acceptAttribute).toMatch(/jpg|jpeg|png/i);
     });
 
     /**
      * @requirement estimate-request/REQ-11.9
-     * テキスト入力による登録フロー
+     * 構造化データ入力エリア（明細行）を表示する
      */
-    test('REQ-11.9: テキスト入力で受領見積書を登録できる', async ({ page }) => {
+    test('REQ-11.9: 構造化データ入力エリア（明細行）で受領見積書を登録できる', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -448,7 +439,13 @@ test.describe('受領見積書・ステータス管理機能', () => {
       const quotationName = `テスト受領見積書_${Date.now()}`;
       await page.locator('#quotation-name').fill(quotationName);
       await page.locator('#submitted-at').fill('2026-01-24');
-      await page.locator('#text-content').fill('テスト見積内容です。合計金額: 100,000円');
+
+      // 明細行セクションが表示されることを確認
+      await expect(page.getByText(/明細行/i)).toBeVisible();
+
+      // 明細行に名称を入力（1行目の名称フィールド）
+      const nameInput = page.getByRole('textbox', { name: /名称/i }).first();
+      await nameInput.fill('テスト明細項目');
 
       // 登録ボタンをクリック
       const createPromise = page.waitForResponse(
@@ -469,12 +466,14 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.10
+     * @requirement estimate-request/REQ-11.24
      * 必須項目バリデーションの確認
      * Note: フォームには受領見積書名と提出日にデフォルト値が設定されているため、
-     *       テキスト内容のバリデーションエラーが表示される
+     *       ファイルと明細行の両方が空の場合のバリデーションエラーが表示される
      */
-    test('REQ-11.10: 必須項目未入力でバリデーションエラーが表示される', async ({ page }) => {
+    test('REQ-11.24: ファイル・明細行未入力でバリデーションエラーが表示される', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -485,11 +484,13 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // デフォルト値が設定されているため、テキスト内容のみ空の状態で登録ボタンをクリック
+      // デフォルト値が設定されているため、ファイルと明細行の両方が空の状態で登録ボタンをクリック
       await page.getByRole('button', { name: /^登録$/i }).click();
 
-      // バリデーションエラーが表示される（テキスト内容のエラー）
-      await expect(page.getByText(/テキスト内容を入力してください/i)).toBeVisible({
+      // バリデーションエラーが表示される（ファイルまたは明細行データが必要）
+      await expect(
+        page.getByText(/ファイルのアップロードまたは明細行データの入力が必要です/i)
+      ).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
@@ -513,15 +514,12 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.locator('#quotation-name').fill(quotationName);
       await page.locator('#submitted-at').fill('2026-01-24');
 
-      // ファイルラジオボタンをクリック
-      await page.locator('input[type="radio"][value="FILE"]').click();
-
       // テスト用PDFファイル（e2e/fixtures/に配置）
       const testFilePath = path.join(__dirname, '../../fixtures/test-file.pdf');
       // 第3原則: テストファイルが存在しない場合は失敗させる
       expect(fs.existsSync(testFilePath)).toBe(true);
 
-      // ファイルをアップロード
+      // ファイルをアップロード（現在のUIではファイルアップロードエリアが常に表示）
       const fileInput = page.locator('input[type="file"][data-testid="file-input"]');
       await fileInput.setInputFiles(testFilePath);
 
@@ -643,14 +641,6 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
-      if (page.url().includes('/login')) {
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto(`/estimate-requests/${createdEstimateRequestId}`, {
-          waitUntil: 'networkidle',
-        });
-      }
-
       // テキスト型受領見積書の編集ボタンをクリック（last()を使用してテキスト型を選択）
       // ファイルアップロードテストで作成されたファイル型が最初に表示されるため
       const editButtons = page
@@ -699,17 +689,8 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`, {
-        waitUntil: 'networkidle',
-      });
-
-      // 並列テストによる認証失敗でログインページにリダイレクトされた場合は再ログイン
-      if (page.url().includes('/login')) {
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto(`/estimate-requests/${createdEstimateRequestId}`, {
-          waitUntil: 'networkidle',
-        });
-      }
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
 
       // 削除ボタンが表示される
       await expect(page.getByRole('button', { name: /削除/i }).first()).toBeVisible({
@@ -736,7 +717,10 @@ test.describe('受領見積書・ステータス管理機能', () => {
       const deleteTestName = `削除テスト用受領見積書_${Date.now()}`;
       await page.locator('#quotation-name').fill(deleteTestName);
       await page.locator('#submitted-at').fill('2026-01-24');
-      await page.locator('#text-content').fill('削除テスト用');
+
+      // 明細行に名称を入力
+      const nameInput = page.getByRole('textbox', { name: /名称/i }).first();
+      await nameInput.fill('削除テスト用明細');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -1243,9 +1227,10 @@ test.describe('受領見積書・ステータス管理機能', () => {
   test.describe('19.4 受領見積書ファイル形式制限', () => {
     /**
      * @requirement estimate-request/REQ-11.8
-     * アップロード可能なファイル形式としてPDF、Excel（.xlsx、.xls）、画像（.jpg、.jpeg、.png）を許可する
+     * アップロード可能なファイルサイズの上限を10MBとする
+     * Note: REQ-11.7のファイル形式テストと補完的な関係
      */
-    test('REQ-11.8: ファイルアップロードフィールドに許可された形式が設定されている', async ({
+    test('REQ-11.8: ファイルアップロードフィールドにサイズ制限の説明が表示される', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -1259,25 +1244,12 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ファイルラジオボタンをクリック
-      const fileRadio = page.locator('input[type="radio"][value="FILE"]');
-      await fileRadio.click();
+      // ファイルアップロードエリアにサイズ制限の説明が表示されている
+      await expect(page.getByText(/最大10MB/i)).toBeVisible();
 
       // ファイル入力フィールドを確認（スタイリングのためhiddenだがDOMには存在）
       const fileInput = page.locator('input[type="file"][data-testid="file-input"]');
       await expect(fileInput).toBeAttached({ timeout: getTimeout(5000) });
-
-      // accept属性を確認（PDF、Excel、画像形式が許可されていること）
-      const acceptAttribute = await fileInput.getAttribute('accept');
-      expect(acceptAttribute).toBeTruthy();
-
-      // 許可された形式が含まれていることを確認
-      // PDF
-      expect(acceptAttribute).toMatch(/pdf/i);
-      // Excel
-      expect(acceptAttribute).toMatch(/xlsx|xls|spreadsheet/i);
-      // 画像
-      expect(acceptAttribute).toMatch(/image|jpg|jpeg|png/i);
     });
   });
 

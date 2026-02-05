@@ -1,23 +1,18 @@
 /**
- * @fileoverview 受領見積書・ステータス管理バリデーションスキーマ
+ * @fileoverview 受領見積書・ステータス管理バリデーションスキーマ（改訂版: Task 20.2）
  *
  * Requirements:
  * - 11.10: バリデーションエラー表示
+ * - 11.22: ファイルまたは明細行データのいずれかが必須
  * - 12.9: ステータス遷移のバリデーション
  *
  * Task 13.1: Zodバリデーションスキーマの定義
+ * Task 20.2: contentType/textContent廃止対応
  *
  * @module schemas/received-quotation
  */
 
 import { z } from 'zod';
-
-/**
- * コンテンツタイプのEnum型
- * Requirements: 11.7
- */
-export const CONTENT_TYPES = ['TEXT', 'FILE'] as const;
-export type ContentType = (typeof CONTENT_TYPES)[number];
 
 /**
  * 見積依頼ステータスのEnum型
@@ -43,12 +38,6 @@ export const RECEIVED_QUOTATION_VALIDATION_MESSAGES = {
   SUBMITTED_AT_REQUIRED: '提出日は必須です',
   SUBMITTED_AT_INVALID: '提出日の形式が不正です',
 
-  // コンテンツタイプ
-  CONTENT_TYPE_INVALID: '無効なコンテンツタイプです',
-
-  // テキスト内容
-  TEXT_CONTENT_REQUIRED: 'テキスト内容は必須です',
-
   // ファイル
   FILE_REQUIRED: 'ファイルは必須です',
   FILE_TYPE_INVALID:
@@ -73,9 +62,9 @@ export const RECEIVED_QUOTATION_VALIDATION_MESSAGES = {
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * 受領見積書作成スキーマ
+ * 受領見積書作成スキーマ（改訂版）
  *
- * Requirements: 11.3, 11.4, 11.5, 11.6, 11.7, 11.10
+ * Requirements: 11.3, 11.4, 11.6, 11.10, 11.22
  */
 export const createReceivedQuotationSchema = z.object({
   name: z
@@ -89,10 +78,6 @@ export const createReceivedQuotationSchema = z.object({
   submittedAt: z
     .string()
     .datetime({ message: RECEIVED_QUOTATION_VALIDATION_MESSAGES.SUBMITTED_AT_INVALID }),
-
-  contentType: z.enum(CONTENT_TYPES, RECEIVED_QUOTATION_VALIDATION_MESSAGES.CONTENT_TYPE_INVALID),
-
-  textContent: z.string().optional(),
 });
 
 /**
@@ -101,7 +86,7 @@ export const createReceivedQuotationSchema = z.object({
 export type CreateReceivedQuotationInput = z.infer<typeof createReceivedQuotationSchema>;
 
 /**
- * 受領見積書更新スキーマ
+ * 受領見積書更新スキーマ（改訂版）
  * expectedUpdatedAtは楽観的排他制御用
  *
  * Requirements: 11.15, 11.16
@@ -121,11 +106,7 @@ export const updateReceivedQuotationSchema = z.object({
     .datetime({ message: RECEIVED_QUOTATION_VALIDATION_MESSAGES.SUBMITTED_AT_INVALID })
     .optional(),
 
-  contentType: z
-    .enum(CONTENT_TYPES, RECEIVED_QUOTATION_VALIDATION_MESSAGES.CONTENT_TYPE_INVALID)
-    .optional(),
-
-  textContent: z.string().optional(),
+  removeFile: z.boolean().optional(),
 
   expectedUpdatedAt: z
     .string()
@@ -205,3 +186,108 @@ export const ALLOWED_MIME_TYPES = [
  * Requirements: 11.9
  */
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+/**
+ * 明細行バリデーションエラーメッセージ定数
+ * Task 21.2: 明細行バリデーションスキーマ対応
+ *
+ * Requirements: 11.10, 11.22, 11.23, 11.24
+ */
+export const LINE_ITEM_VALIDATION_MESSAGES = {
+  NAME_REQUIRED: '明細行の名称は必須です',
+  SORT_ORDER_REQUIRED: '表示順序は必須です',
+  SORT_ORDER_MIN: '表示順序は0以上の整数で指定してください',
+  QUANTITY_INVALID: '数量は数値で入力してください',
+  UNIT_PRICE_INVALID: '単価は数値で入力してください',
+  AMOUNT_INVALID: '金額は数値で入力してください',
+  LINE_ITEMS_INVALID_JSON: '明細行データのJSON形式が不正です',
+  FILE_OR_LINE_ITEMS_REQUIRED: 'ファイルのアップロードまたは明細行データの入力が必要です',
+} as const;
+
+/**
+ * 明細行データバリデーションスキーマ
+ *
+ * Requirements: 11.10 - 各フィールドのバリデーション
+ * Task 21.2: 明細行データのバリデーションスキーマを定義
+ */
+export const lineItemSchema = z.object({
+  name: z.string().min(1, LINE_ITEM_VALIDATION_MESSAGES.NAME_REQUIRED),
+  sortOrder: z.number().int().min(0, LINE_ITEM_VALIDATION_MESSAGES.SORT_ORDER_MIN),
+  specification: z.string().nullish(),
+  unit: z.string().nullish(),
+  quantity: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.QUANTITY_INVALID }).nullish(),
+  unitPrice: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.UNIT_PRICE_INVALID }).nullish(),
+  amount: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.AMOUNT_INVALID }).nullish(),
+  remarks: z.string().nullish(),
+});
+
+/**
+ * 明細行データ型
+ */
+export type LineItemInput = z.infer<typeof lineItemSchema>;
+
+/**
+ * 明細行データ配列バリデーションスキーマ
+ *
+ * Task 21.2: 明細行データ（JSON配列）のバリデーションスキーマ
+ */
+export const lineItemsArraySchema = z.array(lineItemSchema);
+
+/**
+ * 明細行データ配列型
+ */
+export type LineItemsArrayInput = z.infer<typeof lineItemsArraySchema>;
+
+/**
+ * multipart内のlineItemsフィールド（JSON文字列）をパース・検証する
+ *
+ * Requirements: 11.22 - multipart内のlineItemsフィールドのパース・検証
+ * Task 21.2: multipart内のlineItemsフィールド（JSON文字列）のパース・検証を実装
+ *
+ * @param lineItemsJson - JSON文字列（undefined、空文字列の場合はundefinedを返す）
+ * @returns パース・検証済みの明細行データ配列、またはundefined
+ * @throws Error - JSONパースまたはバリデーションに失敗した場合
+ */
+export function parseLineItemsFromMultipart(
+  lineItemsJson: string | undefined
+): LineItemInput[] | undefined {
+  if (lineItemsJson === undefined || lineItemsJson === '') {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(lineItemsJson);
+  } catch {
+    throw new Error(LINE_ITEM_VALIDATION_MESSAGES.LINE_ITEMS_INVALID_JSON);
+  }
+
+  const result = lineItemsArraySchema.safeParse(parsed);
+  if (!result.success) {
+    const firstIssue = result.error.issues[0];
+    throw new Error(firstIssue?.message ?? LINE_ITEM_VALIDATION_MESSAGES.LINE_ITEMS_INVALID_JSON);
+  }
+
+  return result.data;
+}
+
+/**
+ * ファイルまたは明細行データのいずれか一方が必須のバリデーション
+ *
+ * Requirements: 11.22, 11.24
+ * Task 21.2: ファイルも明細行もない場合のエラーバリデーション
+ *
+ * @param hasFile - ファイルが存在するか
+ * @param lineItems - 明細行データ配列
+ * @throws Error - ファイルも明細行もない場合
+ */
+export function validateFileOrLineItemsRequired(
+  hasFile: boolean,
+  lineItems: LineItemInput[] | undefined
+): void {
+  const hasLineItems = lineItems !== undefined && lineItems.length > 0;
+
+  if (!hasFile && !hasLineItems) {
+    throw new Error(LINE_ITEM_VALIDATION_MESSAGES.FILE_OR_LINE_ITEMS_REQUIRED);
+  }
+}

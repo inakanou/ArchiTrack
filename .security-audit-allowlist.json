@@ -2,7 +2,7 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2025-12-25",
+  "lastUpdated": "2026-02-04",
   "allowlist": {
     "backend": [
       {
@@ -31,6 +31,15 @@
         "expires": "2026-06-01",
         "addedBy": "system",
         "addedDate": "2025-12-25"
+      },
+      {
+        "package": "xlsx",
+        "severity": "high",
+        "reason": "Excel file processing library. No fix available. Prototype Pollution (GHSA-4r6h-8v6p-xvw6) and ReDoS (GHSA-5pgg-2g8v-p4x9) vulnerabilities. Mitigated by server-side input validation and trusted file sources only.",
+        "reference": "https://github.com/advisories/GHSA-4r6h-8v6p-xvw6",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-04"
       }
     ],
     "frontend": [

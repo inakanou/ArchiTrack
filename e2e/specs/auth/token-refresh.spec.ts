@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { resetTestUser } from '../../fixtures/database';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createTestUser, createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForAuthState, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -20,14 +22,19 @@ import { API_BASE_URL } from '../../config';
 test.describe('トークンリフレッシュ機能', () => {
   test.describe.configure({ mode: 'serial' });
 
-  // テストグループ終了後にテストユーザーをリセットして後続テストに影響を与えないようにする
+  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
   test.afterAll(async () => {
-    await resetTestUser('REGULAR_USER');
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
   });
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
-    await resetTestUser('REGULAR_USER');
+    await cleanDatabase();
   });
 
   /**
@@ -40,6 +47,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * @requirement user-authentication/REQ-5.1 @requirement user-authentication/REQ-16.1 @requirement user-authentication/REQ-16.2 @requirement user-authentication/REQ-16.3
    */
   test('アクセストークン期限切れ時に自動的にリフレッシュされる', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // プロフィールページに移動して認証済み状態を確認
@@ -127,6 +135,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * 検証されるべき実装詳細であり、E2Eでは結果（セッション維持）を検証する
    */
   test('複数の同時APIリクエストでリフレッシュが1回のみ実行される', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // プロフィールページに移動して認証済み状態を確認
@@ -174,6 +183,8 @@ test.describe('トークンリフレッシュ機能', () => {
   test('マルチタブ環境でトークン更新が全タブに同期される', async ({ context }) => {
     // テストタイムアウトを延長（CI環境での安定性向上）
     test.setTimeout(getTimeout(120000));
+
+    await createTestUser('REGULAR_USER');
 
     // タブ1を作成してログイン
     const page1 = await context.newPage();
@@ -256,6 +267,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * @requirement user-authentication/REQ-5.2 @requirement user-authentication/REQ-5.3 @requirement user-authentication/REQ-16.4 @requirement user-authentication/REQ-16.5 @requirement user-authentication/REQ-16.6 @requirement user-authentication/REQ-16.8 @requirement user-authentication/REQ-24.5
    */
   test('リフレッシュトークンが無効な場合ログイン画面にリダイレクトされる', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // アクセストークンとリフレッシュトークンを両方無効化
@@ -281,6 +293,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * @requirement user-authentication/REQ-5.7 @requirement user-authentication/REQ-5.8 @requirement user-authentication/REQ-16.16 @requirement user-authentication/REQ-16.17
    */
   test('アクセストークン有効期限の5分前に自動リフレッシュされる', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // リフレッシュAPIの呼び出しを監視
@@ -325,6 +338,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * @requirement user-authentication/REQ-5.9 @requirement user-authentication/REQ-5.10 @requirement user-authentication/REQ-16.19 @requirement user-authentication/REQ-16.20
    */
   test('401エラー時にトークンがクリアされる', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // 両方のトークンを無効化（リフレッシュも失敗する状況）
@@ -371,6 +385,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * これにより、AuthContextが再初期化され、localStorageの状態が正しく反映されます。
    */
   test('セッション期限切れ後の再ログインで元のページに戻る', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // プロフィールページに移動（これが再ログイン後の戻り先となる）
@@ -432,6 +447,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * 全デバイスログアウト機能を使用して明示的なログアウトをテストします。
    */
   test('明示的なログアウト時はリダイレクト先情報が設定されない', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // セッション管理ページに移動（ネットワーク安定化を待つ）
@@ -470,6 +486,7 @@ test.describe('トークンリフレッシュ機能', () => {
    * @requirement user-authentication/REQ-16.21
    */
   test('開発環境でトークン期限切れがコンソールログに記録される', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // コンソールログを監視（debug, log, warningを含む）
@@ -508,6 +525,8 @@ test.describe('トークンリフレッシュ機能', () => {
    * @requirement user-authentication/REQ-16.18
    */
   test('401レスポンスに正しいWWW-Authenticateヘッダーが含まれる', async ({ playwright }) => {
+    await createTestUser('REGULAR_USER');
+
     // 新しいAPIコンテキストを作成（ブラウザのCookieを持たない）
     const apiContext = await playwright.request.newContext({
       baseURL: API_BASE_URL,
@@ -541,6 +560,8 @@ test.describe('トークンリフレッシュ機能', () => {
    * @requirement user-authentication/REQ-5.4 @requirement user-authentication/REQ-5.5 @requirement user-authentication/REQ-5.6
    */
   test('リフレッシュトークンがHTTPOnly Cookieで送信される', async ({ page }) => {
+    await createTestUser('REGULAR_USER');
+
     // ログイン
     await page.goto('/login');
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
@@ -570,6 +591,8 @@ test.describe('トークンリフレッシュ機能', () => {
  */
 test.describe('トークンリフレッシュパフォーマンス', () => {
   test('トークンリフレッシュが300ms以内に完了する', async ({ page }) => {
+    await cleanDatabase();
+    await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
     // 認証状態が確立するまで待機

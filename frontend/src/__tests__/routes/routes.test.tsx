@@ -103,6 +103,23 @@ vi.mock('../../pages/ItemizedStatementCreatePage', () => ({
   ),
 }));
 
+// 見積依頼ページコンポーネントモック（react-pdfの依存関係を回避）
+vi.mock('../../pages/EstimateRequestListPage', () => ({
+  default: () => <div data-testid="estimate-request-list-page">Estimate Request List Page</div>,
+}));
+
+vi.mock('../../pages/EstimateRequestCreatePage', () => ({
+  default: () => <div data-testid="estimate-request-create-page">Estimate Request Create Page</div>,
+}));
+
+vi.mock('../../pages/EstimateRequestDetailPage', () => ({
+  default: () => <div data-testid="estimate-request-detail-page">Estimate Request Detail Page</div>,
+}));
+
+vi.mock('../../pages/EstimateRequestEditPage', () => ({
+  default: () => <div data-testid="estimate-request-edit-page">Estimate Request Edit Page</div>,
+}));
+
 vi.mock('../../components/ProtectedRoute', () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -470,6 +487,132 @@ describe('Routes - Itemized Statement Management', () => {
       });
 
       expect(screen.queryByTestId('itemized-statement-list-page')).not.toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * 見積書管理ルートのテスト
+ *
+ * Task 16.1: フロントエンドルーティング設定
+ *
+ * Requirements:
+ * - REQ-14.1: 見積書一覧画面を提供する
+ * - REQ-14.4: 見積書カードクリックで詳細画面へ遷移
+ * - REQ-14.5: 新規作成ボタンを提供する
+ * - REQ-15.1-15.3: パンくずナビゲーション
+ */
+
+// 見積書ページコンポーネントモック
+vi.mock('../../pages/EstimateListPage', () => ({
+  default: () => <div data-testid="estimate-list-page">Estimate List Page</div>,
+}));
+
+vi.mock('../../pages/EstimateDetailPage', () => ({
+  default: () => <div data-testid="estimate-detail-page">Estimate Detail Page</div>,
+}));
+
+vi.mock('../../pages/EstimateCreatePage', () => ({
+  default: () => <div data-testid="estimate-create-page">Estimate Create Page</div>,
+}));
+
+describe('Routes - Estimate Management', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('/projects/:projectId/estimates/new ルート (REQ-14.5)', () => {
+    it('/projects/:projectId/estimates/new にアクセスすると見積書作成ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/estimates/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-create-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/projects/:projectId/estimates/new はProtectedLayoutでラップされている', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/estimates/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('/projects/:projectId/estimates ルート (REQ-14.1)', () => {
+    it('/projects/:projectId/estimates にアクセスすると見積書一覧ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/estimates'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-list-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/projects/:projectId/estimates はProtectedLayoutでラップされている', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/estimates'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('/estimates/:id ルート (REQ-14.4)', () => {
+    it('/estimates/:id にアクセスすると見積書詳細ページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/estimates/test-estimate-id'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+      });
+    });
+
+    it('/estimates/:id はProtectedLayoutでラップされている', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/estimates/test-estimate-id'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('ルート順序', () => {
+    it('/projects/:projectId/estimates/new は /projects/:projectId/estimates より先にマッチする', async () => {
+      // /projects/:projectId/estimates/new が正しくマッチすることを確認
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/projects/test-project-id/estimates/new'],
+      });
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-create-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('estimate-list-page')).not.toBeInTheDocument();
     });
   });
 });

@@ -465,7 +465,7 @@ describe('ProjectDetailPage', () => {
   // ==========================================================================
 
   describe('関連データ表示（機能フラグ対応）', () => {
-    it('関連データ件数セクションが存在する', async () => {
+    it('関連データセクション（現場調査、数量表、内訳書、見積依頼、見積書）が存在する', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -474,9 +474,13 @@ describe('ProjectDetailPage', () => {
         ).toBeInTheDocument();
       });
 
-      // 機能フラグで非表示の場合、セクションが表示されないことを確認
-      // または将来実装予定のプレースホルダーを確認
-      expect(screen.getByRole('heading', { level: 2, name: '関連データ' })).toBeInTheDocument();
+      // 関連データは個別のセクションとして表示される
+      // 各セクションの見出しが存在することを確認
+      expect(screen.getByRole('heading', { level: 3, name: '現場調査' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: '数量表' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: '内訳書' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: '見積依頼' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: '見積書' })).toBeInTheDocument();
     });
   });
 

@@ -2,14 +2,17 @@
  * @fileoverview 受領見積書用APIクライアントのユニットテスト
  *
  * Task 17.1: 受領見積書APIクライアントの実装
+ * Task 22.1: 受領見積書APIクライアントの明細行対応追加
  *
  * Requirements:
  * - 11.1: 受領見積書登録
  * - 11.2: 受領見積書フォーム
- * - 11.9: 受領見積書更新
+ * - 11.9: 構造化データ入力（明細行管理）
  * - 11.14: ファイルプレビュー
  * - 11.15: 受領見積書編集
  * - 11.16: 受領見積書削除
+ * - 11.22: 受領見積書バリデーション（ファイルまたは明細行必須）
+ * - 14.2: 明細行データの永続化
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -22,7 +25,11 @@ import {
   deleteReceivedQuotation,
   getPreviewUrl,
 } from '../../api/received-quotations';
-import type { ReceivedQuotationInfo } from '../../api/received-quotations';
+import type {
+  ReceivedQuotationInfo,
+  LineItemInfo,
+  LineItemInput,
+} from '../../api/received-quotations';
 
 // fetch のモック
 const mockFetch = vi.fn();
@@ -38,17 +45,45 @@ describe('received-quotations API client', () => {
     vi.restoreAllMocks();
   });
 
-  // テスト用のモックデータ
-  const mockQuotation: ReceivedQuotationInfo = {
+  // テスト用の明細行データ
+  const mockLineItems: LineItemInfo[] = [
+    {
+      id: 'li-1',
+      receivedQuotationId: 'quotation-1',
+      sortOrder: 0,
+      name: '鉄筋工事',
+      specification: 'D13',
+      unit: 'kg',
+      quantity: 100,
+      unitPrice: 150,
+      amount: 15000,
+      remarks: null,
+    },
+    {
+      id: 'li-2',
+      receivedQuotationId: 'quotation-1',
+      sortOrder: 1,
+      name: 'コンクリート工事',
+      specification: '21-8-20',
+      unit: 'm3',
+      quantity: 50,
+      unitPrice: 12000,
+      amount: 600000,
+      remarks: '現場打ち',
+    },
+  ];
+
+  // テスト用のモックデータ（改訂版：contentType廃止、lineItems追加）
+  const mockQuotationWithLineItems: ReceivedQuotationInfo = {
     id: 'quotation-1',
     estimateRequestId: 'er-1',
     name: '受領見積書#1',
     submittedAt: new Date('2025-01-15T00:00:00.000Z'),
-    contentType: 'TEXT',
-    textContent: 'テスト見積内容',
     fileName: null,
     fileMimeType: null,
     fileSize: null,
+    lineItems: mockLineItems,
+    totalAmount: 615000,
     createdAt: new Date('2025-01-20T00:00:00.000Z'),
     updatedAt: new Date('2025-01-20T00:00:00.000Z'),
   };
@@ -58,13 +93,27 @@ describe('received-quotations API client', () => {
     estimateRequestId: 'er-1',
     name: '受領見積書#2',
     submittedAt: new Date('2025-01-16T00:00:00.000Z'),
-    contentType: 'FILE',
-    textContent: null,
     fileName: 'estimate.pdf',
     fileMimeType: 'application/pdf',
     fileSize: 1024000,
+    lineItems: [],
+    totalAmount: null,
     createdAt: new Date('2025-01-21T00:00:00.000Z'),
     updatedAt: new Date('2025-01-21T00:00:00.000Z'),
+  };
+
+  const mockQuotationWithFileAndLineItems: ReceivedQuotationInfo = {
+    id: 'quotation-3',
+    estimateRequestId: 'er-1',
+    name: '受領見積書#3',
+    submittedAt: new Date('2025-01-17T00:00:00.000Z'),
+    fileName: 'estimate.pdf',
+    fileMimeType: 'application/pdf',
+    fileSize: 2048000,
+    lineItems: mockLineItems,
+    totalAmount: 615000,
+    createdAt: new Date('2025-01-22T00:00:00.000Z'),
+    updatedAt: new Date('2025-01-22T00:00:00.000Z'),
   };
 
   // ==========================================================================
@@ -74,7 +123,7 @@ describe('received-quotations API client', () => {
     it('見積依頼IDを指定して受領見積書一覧を取得できること', async () => {
       const mockResponse = [
         {
-          ...mockQuotation,
+          ...mockQuotationWithLineItems,
           submittedAt: '2025-01-15T00:00:00.000Z',
           createdAt: '2025-01-20T00:00:00.000Z',
           updatedAt: '2025-01-20T00:00:00.000Z',
@@ -105,6 +154,52 @@ describe('received-quotations API client', () => {
       expect(result).toHaveLength(2);
       expect(result[0]?.submittedAt).toBeInstanceOf(Date);
       expect(result[0]?.createdAt).toBeInstanceOf(Date);
+    });
+
+    it('レスポンスに明細行データと合計金額が含まれること（Requirements: 14.2）', async () => {
+      const mockResponse = [
+        {
+          ...mockQuotationWithLineItems,
+          submittedAt: '2025-01-15T00:00:00.000Z',
+          createdAt: '2025-01-20T00:00:00.000Z',
+          updatedAt: '2025-01-20T00:00:00.000Z',
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await getReceivedQuotations('er-1');
+
+      expect(result[0]?.lineItems).toHaveLength(2);
+      expect(result[0]?.lineItems[0]?.name).toBe('鉄筋工事');
+      expect(result[0]?.lineItems[0]?.amount).toBe(15000);
+      expect(result[0]?.totalAmount).toBe(615000);
+    });
+
+    it('明細行がない場合、totalAmountがnullであること', async () => {
+      const mockResponse = [
+        {
+          ...mockQuotationWithFile,
+          submittedAt: '2025-01-16T00:00:00.000Z',
+          createdAt: '2025-01-21T00:00:00.000Z',
+          updatedAt: '2025-01-21T00:00:00.000Z',
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await getReceivedQuotations('er-1');
+
+      expect(result[0]?.lineItems).toHaveLength(0);
+      expect(result[0]?.totalAmount).toBeNull();
     });
 
     it('認証エラーの場合、401エラーがスローされること', async () => {
@@ -138,7 +233,7 @@ describe('received-quotations API client', () => {
   describe('getReceivedQuotation', () => {
     it('受領見積書IDを指定して詳細を取得できること', async () => {
       const mockResponse = {
-        ...mockQuotation,
+        ...mockQuotationWithLineItems,
         submittedAt: '2025-01-15T00:00:00.000Z',
         createdAt: '2025-01-20T00:00:00.000Z',
         updatedAt: '2025-01-20T00:00:00.000Z',
@@ -163,6 +258,56 @@ describe('received-quotations API client', () => {
       expect(result.submittedAt).toBeInstanceOf(Date);
     });
 
+    it('レスポンスに明細行データと合計金額が含まれること（Requirements: 14.2）', async () => {
+      const mockResponse = {
+        ...mockQuotationWithLineItems,
+        submittedAt: '2025-01-15T00:00:00.000Z',
+        createdAt: '2025-01-20T00:00:00.000Z',
+        updatedAt: '2025-01-20T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await getReceivedQuotation('quotation-1');
+
+      expect(result.lineItems).toHaveLength(2);
+      expect(result.lineItems[0]?.id).toBe('li-1');
+      expect(result.lineItems[0]?.name).toBe('鉄筋工事');
+      expect(result.lineItems[0]?.specification).toBe('D13');
+      expect(result.lineItems[0]?.unit).toBe('kg');
+      expect(result.lineItems[0]?.quantity).toBe(100);
+      expect(result.lineItems[0]?.unitPrice).toBe(150);
+      expect(result.lineItems[0]?.amount).toBe(15000);
+      expect(result.lineItems[0]?.sortOrder).toBe(0);
+      expect(result.totalAmount).toBe(615000);
+    });
+
+    it('ファイルと明細行を両方持つ受領見積書の詳細を取得できること（Requirements: 11.9）', async () => {
+      const mockResponse = {
+        ...mockQuotationWithFileAndLineItems,
+        submittedAt: '2025-01-17T00:00:00.000Z',
+        createdAt: '2025-01-22T00:00:00.000Z',
+        updatedAt: '2025-01-22T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await getReceivedQuotation('quotation-3');
+
+      expect(result.fileName).toBe('estimate.pdf');
+      expect(result.fileMimeType).toBe('application/pdf');
+      expect(result.lineItems).toHaveLength(2);
+      expect(result.totalAmount).toBe(615000);
+    });
+
     it('存在しない受領見積書IDを指定した場合、404エラーがスローされること', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -180,9 +325,9 @@ describe('received-quotations API client', () => {
   // createReceivedQuotation - 受領見積書作成
   // ==========================================================================
   describe('createReceivedQuotation', () => {
-    it('テキストコンテンツの受領見積書を作成できること', async () => {
+    it('明細行データを含む受領見積書を作成できること（Requirements: 11.9, 14.2）', async () => {
       const mockResponse = {
-        ...mockQuotation,
+        ...mockQuotationWithLineItems,
         submittedAt: '2025-01-15T00:00:00.000Z',
         createdAt: '2025-01-20T00:00:00.000Z',
         updatedAt: '2025-01-20T00:00:00.000Z',
@@ -195,11 +340,32 @@ describe('received-quotations API client', () => {
         json: () => Promise.resolve(mockResponse),
       });
 
+      const lineItemInputs: LineItemInput[] = [
+        {
+          name: '鉄筋工事',
+          specification: 'D13',
+          unit: 'kg',
+          quantity: 100,
+          unitPrice: 150,
+          amount: 15000,
+          sortOrder: 0,
+        },
+        {
+          name: 'コンクリート工事',
+          specification: '21-8-20',
+          unit: 'm3',
+          quantity: 50,
+          unitPrice: 12000,
+          amount: 600000,
+          remarks: '現場打ち',
+          sortOrder: 1,
+        },
+      ];
+
       const input = {
         name: '受領見積書#1',
         submittedAt: new Date('2025-01-15T00:00:00.000Z'),
-        contentType: 'TEXT' as const,
-        textContent: 'テスト見積内容',
+        lineItems: lineItemInputs,
       };
 
       const result = await createReceivedQuotation('er-1', input);
@@ -214,13 +380,24 @@ describe('received-quotations API client', () => {
 
       // FormDataが送信されていることを確認
       const callArgs = mockFetch.mock.calls[0];
-      expect(callArgs?.[1]?.body).toBeInstanceOf(FormData);
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData).toBeInstanceOf(FormData);
+
+      // lineItemsがJSON文字列としてFormDataに含まれていることを確認（Requirements: 11.22）
+      const lineItemsJson = sentFormData.get('lineItems');
+      expect(lineItemsJson).toBeTruthy();
+      expect(typeof lineItemsJson).toBe('string');
+      const parsedLineItems = JSON.parse(lineItemsJson as string);
+      expect(parsedLineItems).toHaveLength(2);
+      expect(parsedLineItems[0].name).toBe('鉄筋工事');
 
       expect(result.id).toBe('quotation-1');
+      expect(result.lineItems).toHaveLength(2);
+      expect(result.totalAmount).toBe(615000);
       expect(result.submittedAt).toBeInstanceOf(Date);
     });
 
-    it('ファイルコンテンツの受領見積書を作成できること', async () => {
+    it('ファイルのみで受領見積書を作成できること', async () => {
       const mockResponse = {
         ...mockQuotationWithFile,
         submittedAt: '2025-01-16T00:00:00.000Z',
@@ -242,7 +419,6 @@ describe('received-quotations API client', () => {
       const input = {
         name: '受領見積書#2',
         submittedAt: new Date('2025-01-16T00:00:00.000Z'),
-        contentType: 'FILE' as const,
         file: mockFile,
       };
 
@@ -256,8 +432,99 @@ describe('received-quotations API client', () => {
         })
       );
 
-      expect(result.contentType).toBe('FILE');
+      // FormDataにファイルが含まれていることを確認
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData.get('file')).toBeInstanceOf(File);
+
       expect(result.fileName).toBe('estimate.pdf');
+      expect(result.lineItems).toHaveLength(0);
+      expect(result.totalAmount).toBeNull();
+    });
+
+    it('ファイルと明細行の両方を含む受領見積書を作成できること（Requirements: 11.9）', async () => {
+      const mockResponse = {
+        ...mockQuotationWithFileAndLineItems,
+        submittedAt: '2025-01-17T00:00:00.000Z',
+        createdAt: '2025-01-22T00:00:00.000Z',
+        updatedAt: '2025-01-22T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const mockFile = new File(['test content'], 'estimate.pdf', {
+        type: 'application/pdf',
+      });
+
+      const lineItemInputs: LineItemInput[] = [
+        {
+          name: '鉄筋工事',
+          specification: 'D13',
+          unit: 'kg',
+          quantity: 100,
+          unitPrice: 150,
+          amount: 15000,
+          sortOrder: 0,
+        },
+      ];
+
+      const input = {
+        name: '受領見積書#3',
+        submittedAt: new Date('2025-01-17T00:00:00.000Z'),
+        file: mockFile,
+        lineItems: lineItemInputs,
+      };
+
+      const result = await createReceivedQuotation('er-1', input);
+
+      // FormDataにファイルと明細行の両方が含まれていることを確認
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData.get('file')).toBeInstanceOf(File);
+      expect(sentFormData.get('lineItems')).toBeTruthy();
+
+      expect(result.fileName).toBe('estimate.pdf');
+      expect(result.lineItems).toHaveLength(2);
+      expect(result.totalAmount).toBe(615000);
+    });
+
+    it('明細行データのないlineItemsパラメータが省略されること', async () => {
+      const mockResponse = {
+        ...mockQuotationWithFile,
+        submittedAt: '2025-01-16T00:00:00.000Z',
+        createdAt: '2025-01-21T00:00:00.000Z',
+        updatedAt: '2025-01-21T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const mockFile = new File(['test content'], 'estimate.pdf', {
+        type: 'application/pdf',
+      });
+
+      const input = {
+        name: '受領見積書',
+        submittedAt: new Date('2025-01-16T00:00:00.000Z'),
+        file: mockFile,
+        // lineItemsは指定しない
+      };
+
+      await createReceivedQuotation('er-1', input);
+
+      // FormDataにlineItemsが含まれていないことを確認
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData.get('lineItems')).toBeNull();
     });
 
     it('見積依頼が見つからない場合、404エラーがスローされること', async () => {
@@ -272,8 +539,7 @@ describe('received-quotations API client', () => {
       const input = {
         name: '受領見積書',
         submittedAt: new Date(),
-        contentType: 'TEXT' as const,
-        textContent: 'テスト',
+        lineItems: [{ name: 'テスト', sortOrder: 0 }],
       };
 
       await expect(createReceivedQuotation('non-existent', input)).rejects.toThrow(ApiError);
@@ -295,7 +561,6 @@ describe('received-quotations API client', () => {
       const input = {
         name: '大きなファイル',
         submittedAt: new Date(),
-        contentType: 'FILE' as const,
         file: mockFile,
       };
 
@@ -318,27 +583,7 @@ describe('received-quotations API client', () => {
       const input = {
         name: '不正なファイル',
         submittedAt: new Date(),
-        contentType: 'FILE' as const,
         file: mockFile,
-      };
-
-      await expect(createReceivedQuotation('er-1', input)).rejects.toThrow(ApiError);
-    });
-
-    it('コンテンツタイプの整合性エラーの場合、422エラーがスローされること', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 422,
-        statusText: 'Unprocessable Entity',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({ detail: 'テキストとファイルの両方は指定できません' }),
-      });
-
-      const input = {
-        name: '不整合なコンテンツ',
-        submittedAt: new Date(),
-        contentType: 'TEXT' as const,
-        textContent: 'テスト',
       };
 
       await expect(createReceivedQuotation('er-1', input)).rejects.toThrow(ApiError);
@@ -351,7 +596,7 @@ describe('received-quotations API client', () => {
   describe('updateReceivedQuotation', () => {
     it('受領見積書を更新できること', async () => {
       const mockResponse = {
-        ...mockQuotation,
+        ...mockQuotationWithLineItems,
         name: '更新された見積書',
         submittedAt: '2025-01-15T00:00:00.000Z',
         createdAt: '2025-01-20T00:00:00.000Z',
@@ -383,6 +628,102 @@ describe('received-quotations API client', () => {
       );
 
       expect(result.name).toBe('更新された見積書');
+    });
+
+    it('明細行全量置換パラメータで更新できること（Requirements: 11.22）', async () => {
+      const updatedLineItems: LineItemInfo[] = [
+        {
+          id: 'li-new-1',
+          receivedQuotationId: 'quotation-1',
+          sortOrder: 0,
+          name: '新しい鉄筋工事',
+          specification: 'D16',
+          unit: 'kg',
+          quantity: 200,
+          unitPrice: 180,
+          amount: 36000,
+          remarks: null,
+        },
+      ];
+
+      const mockResponse = {
+        ...mockQuotationWithLineItems,
+        lineItems: updatedLineItems,
+        totalAmount: 36000,
+        submittedAt: '2025-01-15T00:00:00.000Z',
+        createdAt: '2025-01-20T00:00:00.000Z',
+        updatedAt: '2025-01-25T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const lineItemInputs: LineItemInput[] = [
+        {
+          name: '新しい鉄筋工事',
+          specification: 'D16',
+          unit: 'kg',
+          quantity: 200,
+          unitPrice: 180,
+          amount: 36000,
+          sortOrder: 0,
+        },
+      ];
+
+      const input = {
+        lineItems: lineItemInputs,
+      };
+
+      const result = await updateReceivedQuotation(
+        'quotation-1',
+        input,
+        '2025-01-20T00:00:00.000Z'
+      );
+
+      // FormDataにlineItemsがJSON文字列として含まれていることを確認
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      const lineItemsJson = sentFormData.get('lineItems');
+      expect(lineItemsJson).toBeTruthy();
+      expect(typeof lineItemsJson).toBe('string');
+      const parsedLineItems = JSON.parse(lineItemsJson as string);
+      expect(parsedLineItems).toHaveLength(1);
+      expect(parsedLineItems[0].name).toBe('新しい鉄筋工事');
+
+      expect(result.lineItems).toHaveLength(1);
+      expect(result.totalAmount).toBe(36000);
+    });
+
+    it('ファイル削除フラグを指定して更新できること', async () => {
+      const mockResponse = {
+        ...mockQuotationWithLineItems,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        submittedAt: '2025-01-15T00:00:00.000Z',
+        createdAt: '2025-01-20T00:00:00.000Z',
+        updatedAt: '2025-01-25T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const input = {
+        removeFile: true,
+      };
+
+      await updateReceivedQuotation('quotation-1', input, '2025-01-20T00:00:00.000Z');
+
+      // FormDataにremoveFileが含まれていることを確認
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData.get('removeFile')).toBe('true');
     });
 
     it('楽観的排他制御エラーの場合、409エラーがスローされること', async () => {
@@ -513,7 +854,7 @@ describe('received-quotations API client', () => {
       await expect(getPreviewUrl('non-existent')).rejects.toThrow(ApiError);
     });
 
-    it('テキストコンテンツの受領見積書の場合、422エラーがスローされること', async () => {
+    it('ファイルがない受領見積書のプレビューURLを取得しようとした場合、422エラーがスローされること', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 422,
@@ -521,7 +862,7 @@ describe('received-quotations API client', () => {
         headers: new Headers({ 'content-type': 'application/json' }),
         json: () =>
           Promise.resolve({
-            detail: 'テキストコンテンツの受領見積書にはファイルがありません',
+            detail: 'ファイルがない受領見積書にはプレビューURLを生成できません',
           }),
       });
 

@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { resetTestUser, getPrismaClient } from '../../fixtures/database';
-import { createTwoFactorBackupCodes } from '../../fixtures/auth.fixtures';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import {
+  createTestUser,
+  createTwoFactorBackupCodes,
+  createAllTestUsers,
+} from '../../fixtures/auth.fixtures';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
@@ -29,12 +34,14 @@ test.describe('2要素認証機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
-  // テストグループ終了後にテストで変更されたユーザーをリセット
-  // cleanDatabase()は他の並列テストのデータを破壊するため、個別ユーザーのみリセット
+  // テストグループ終了後にデータベースをリセットして後続テストに影響を与えないようにする
   test.afterAll(async () => {
-    await resetTestUser('REGULAR_USER');
-    await resetTestUser('TWO_FA_USER');
-    await resetTestUser('ADMIN_USER');
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
   });
 
   /**
@@ -53,8 +60,9 @@ test.describe('2要素認証機能', () => {
         sessionStorage.clear();
       });
 
-      // テストユーザーをリセット（並列テストに影響を与えないよう個別リセット）
-      await resetTestUser('REGULAR_USER');
+      // テストデータをクリーンアップして、テストユーザーを作成
+      await cleanDatabase();
+      await createTestUser('REGULAR_USER');
 
       // 認証済みユーザーとしてログイン
       await loginAsUser(page, 'REGULAR_USER');
@@ -417,8 +425,9 @@ test.describe('2要素認証機能', () => {
         sessionStorage.clear();
       });
 
-      // 2FA有効ユーザーをリセット（並列テストに影響を与えないよう個別リセット）
-      await resetTestUser('TWO_FA_USER');
+      // テストデータをクリーンアップして、2FA有効ユーザーを作成
+      await cleanDatabase();
+      await createTestUser('TWO_FA_USER');
     });
 
     /**
@@ -586,8 +595,9 @@ test.describe('2要素認証機能', () => {
         sessionStorage.clear();
       });
 
-      // 2FA有効ユーザーをリセットしてログイン（並列テストに影響を与えないよう個別リセット）
-      const user = await resetTestUser('TWO_FA_USER');
+      // 2FA有効ユーザーを作成してログイン
+      await cleanDatabase();
+      const user = await createTestUser('TWO_FA_USER');
       // バックアップコードを作成
       const backupCodes = await createTwoFactorBackupCodes({ userId: user.id, count: 10 });
       // 一部のバックアップコードを使用済みに設定（テスト用）
@@ -975,8 +985,9 @@ test.describe('2要素認証機能', () => {
      * @requirement user-authentication/REQ-27.3 @requirement user-authentication/REQ-27C.4 @requirement user-authentication/REQ-27C.5 @requirement user-authentication/REQ-27C.6
      */
     test('2FA有効化・無効化が監査ログに記録される', async ({ page }) => {
-      // 管理者ユーザーをリセットしてログイン（並列テストに影響を与えないよう個別リセット）
-      await resetTestUser('ADMIN_USER');
+      // 管理者でログイン
+      await cleanDatabase();
+      await createTestUser('ADMIN_USER');
       await loginAsUser(page, 'ADMIN_USER');
 
       // 監査ログページにアクセス
@@ -1006,8 +1017,8 @@ test.describe('2要素認証機能', () => {
         sessionStorage.clear();
       });
 
-      // テストユーザーをリセット（並列テストに影響を与えないよう個別リセット）
-      await resetTestUser('REGULAR_USER');
+      await cleanDatabase();
+      await createTestUser('REGULAR_USER');
       await loginAsUser(page, 'REGULAR_USER');
     });
 
@@ -1118,20 +1129,11 @@ test.describe('2要素認証機能', () => {
      * @requirement user-authentication/REQ-27E.4
      */
     test('2FA検証エラーがスクリーンリーダーに通知される', async ({ page }) => {
-      // 2FA有効ユーザーをリセットしてログイン試行（並列テストに影響を与えないよう個別リセット）
-      await resetTestUser('TWO_FA_USER');
-
-      // beforeEachでログイン済みのセッションをクリア（ログインページにアクセスするため）
-      await page.context().clearCookies();
-      await page.evaluate(() => {
-        localStorage.clear();
-        sessionStorage.clear();
-      });
+      // 2FA有効ユーザーでログイン試行
+      await cleanDatabase();
+      await createTestUser('TWO_FA_USER');
 
       await page.goto('/login');
-      await page
-        .getByLabel(/メールアドレス/i)
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) });
       await page.getByLabel(/メールアドレス/i).fill('2fa-user@example.com');
       await page.locator('input#password').fill('Password123!');
       await page.getByRole('button', { name: /ログイン/i }).click();

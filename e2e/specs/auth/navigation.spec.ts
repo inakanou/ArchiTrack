@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { resetTestUser } from '../../fixtures/database';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 
 /**
  * 画面遷移とナビゲーション機能のE2Eテスト
@@ -13,8 +14,12 @@ test.describe('画面遷移とナビゲーション', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
-    await resetTestUser('REGULAR_USER');
-    await resetTestUser('ADMIN_USER');
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
   });
 
   test.beforeEach(async ({ context }) => {
@@ -36,14 +41,8 @@ test.describe('画面遷移とナビゲーション', () => {
     // ルートURLにアクセス
     await page.goto('/');
 
-    // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/');
-    }
-
     // ダッシュボードまたはホームページにリダイレクトされる
-    await expect(page).toHaveURL(/\/dashboard|\/$/, { timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(/\/dashboard|\/$/);
   });
 
   /**
@@ -55,18 +54,10 @@ test.describe('画面遷移とナビゲーション', () => {
   test('認証済みユーザーに共通ヘッダーナビゲーションが表示される', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
-    await page.goto('/profile', { waitUntil: 'networkidle' });
-
-    // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/profile', { waitUntil: 'networkidle' });
-    }
+    await page.goto('/profile');
 
     // 要件28.22: ダッシュボードへのリンク
-    await expect(page.getByRole('link', { name: /ダッシュボード|ホーム/i })).toBeVisible({
-      timeout: getTimeout(10000),
-    });
+    await expect(page.getByRole('link', { name: /ダッシュボード|ホーム/i })).toBeVisible();
 
     // 要件28.23: ログイン中のユーザー名とアバター
     const userMenuButton = page.getByRole('button', { name: /Test User|user@example\.com/i });
@@ -111,18 +102,10 @@ test.describe('画面遷移とナビゲーション', () => {
   test('ダッシュボード画面に主要機能へのクイックアクセスが表示される', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
-    await page.goto('/', { waitUntil: 'networkidle' });
-
-    // CI並列実行時のセッション無効化対応
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/', { waitUntil: 'networkidle' });
-    }
+    await page.goto('/');
 
     // ダッシュボードが表示される（ウェルカムメッセージとクイックアクセスセクション）
-    await expect(page.getByRole('heading', { name: /ようこそ/i })).toBeVisible({
-      timeout: getTimeout(10000),
-    });
+    await expect(page.getByRole('heading', { name: /ようこそ/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /クイックアクセス/i })).toBeVisible();
   });
 
@@ -185,18 +168,7 @@ test.describe('画面遷移とナビゲーション', () => {
   test('プロフィールからセッション管理画面に遷移できる', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
-    await page.goto('/profile', { waitUntil: 'networkidle' });
-
-    // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/profile', { waitUntil: 'networkidle' });
-    }
-
-    // セッション管理リンクが表示されるまで待機
-    await expect(page.getByRole('link', { name: /セッション管理/i })).toBeVisible({
-      timeout: getTimeout(10000),
-    });
+    await page.goto('/profile');
 
     // セッション管理リンクをクリック
     await page.getByRole('link', { name: /セッション管理/i }).click();
@@ -364,9 +336,9 @@ test.describe('画面遷移とナビゲーション', () => {
 
     // ダッシュボード → プロジェクト一覧 → ダッシュボードと遷移
     // React Router Linkを使ったSPAナビゲーションで履歴を正しく作成
-    // loginAsUser後は既にダッシュボードにいるため、全ページリロードを避ける
-    // （全ページリロードはリソース負荷時に認証チェックがタイムアウトする場合がある）
-    await expect(page).toHaveURL(/\/(dashboard)?$/, { timeout: getTimeout(10000) });
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    await expect(page).toHaveURL(/\/(dashboard)?$/);
 
     // プロジェクト一覧へ遷移（ヘッダーナビゲーションから - React Router Link）
     await page.locator('.app-header-nav-link', { hasText: 'プロジェクト' }).click();

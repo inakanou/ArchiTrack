@@ -30,11 +30,13 @@ import { getLatestSiteSurveys } from '../api/site-surveys';
 import { getLatestQuantityTables } from '../api/quantity-tables';
 import { getLatestItemizedStatements } from '../api/itemized-statements';
 import { getLatestEstimateRequests } from '../api/estimate-requests';
+import { getEstimatesSummary } from '../api/estimates';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
 import type { ProjectItemizedStatementSummary } from '../types/itemized-statement.types';
 import type { ProjectEstimateRequestSummary } from '../types/estimate-request.types';
+import type { EstimateSummary } from '../api/estimates';
 import { useToast } from '../hooks/useToast';
 import type {
   ProjectDetail,
@@ -49,6 +51,7 @@ import { SiteSurveySectionCard } from '../components/projects/SiteSurveySectionC
 import { QuantityTableSectionCard } from '../components/projects/QuantityTableSectionCard';
 import { ItemizedStatementSectionCard } from '../components/projects/ItemizedStatementSectionCard';
 import { EstimateRequestSectionCard } from '../components/projects/EstimateRequestSectionCard';
+import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -304,6 +307,8 @@ export default function ProjectDetailPage() {
   const [estimateRequestSummary, setEstimateRequestSummary] =
     useState<ProjectEstimateRequestSummary | null>(null);
   const [isEstimateRequestLoading, setIsEstimateRequestLoading] = useState(false);
+  const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
+  const [isEstimateLoading, setIsEstimateLoading] = useState(false);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -325,6 +330,7 @@ export default function ProjectDetailPage() {
     setIsQuantityTableLoading(true);
     setIsItemizedStatementLoading(true);
     setIsEstimateRequestLoading(true);
+    setIsEstimateLoading(true);
     setError(null);
 
     try {
@@ -377,6 +383,17 @@ export default function ProjectDetailPage() {
         setEstimateRequestSummary({ totalCount: 0, latestRequests: [] });
       } finally {
         setIsEstimateRequestLoading(false);
+      }
+
+      // 見積書サマリー取得（Task 19.3: Requirements 16.1, 16.3, 16.4）
+      try {
+        const estimateData = await getEstimatesSummary(id);
+        setEstimateSummary(estimateData);
+      } catch {
+        // 見積書の取得に失敗しても、プロジェクト詳細は表示する
+        setEstimateSummary({ totalCount: 0, latestEstimates: [] });
+      } finally {
+        setIsEstimateLoading(false);
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -677,13 +694,13 @@ export default function ProjectDetailPage() {
         isLoading={isEstimateRequestLoading}
       />
 
-      {/* 関連データ（機能フラグ対応、将来実装予定） */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>関連データ</h2>
-        <div style={styles.relatedDataSection}>
-          <p>見積書などの関連データ機能は今後実装予定です。</p>
-        </div>
-      </section>
+      {/* 見積書セクション (Task 19.3, Requirements 16.1, 16.3, 16.4, 16.13) */}
+      <EstimateSectionCard
+        projectId={project.id}
+        totalCount={estimateSummary?.totalCount ?? 0}
+        latestEstimates={estimateSummary?.latestEstimates ?? []}
+        isLoading={isEstimateLoading}
+      />
 
       {/* 削除確認ダイアログ */}
       <DeleteConfirmationDialog

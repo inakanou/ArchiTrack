@@ -2474,31 +2474,6 @@
         }
       }
     },
-    "/api/autocomplete/all-suggestions": {
-      "get": {
-        "summary": "全オートコンプリート候補一括取得",
-        "description": "全フィールドのオートコンプリート候補を一括取得。画面初回ロード時に1度だけ呼び出し、以降はクライアントサイドでフィルタリングする。",
-        "tags": [
-          "Autocomplete"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "全フィールドのオートコンプリート候補"
-          },
-          "401": {
-            "description": "認証エラー"
-          },
-          "403": {
-            "description": "権限不足"
-          }
-        }
-      }
-    },
     "/api/company-info": {
       "get": {
         "summary": "自社情報取得",
@@ -3360,6 +3335,1149 @@
           },
           "422": {
             "description": "項目が選択されていない"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/estimates": {
+      "post": {
+        "summary": "見積書作成",
+        "description": "プロジェクトに紐付く見積書を作成",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "見積書名"
+                  },
+                  "sourceItemizedStatementId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "参照する内訳書ID（任意）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "見積書作成成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトまたは内訳書が見つからない"
+          },
+          "409": {
+            "description": "同名の見積書が存在"
+          }
+        }
+      },
+      "get": {
+        "summary": "見積書一覧取得",
+        "description": "プロジェクトに紐付く見積書の一覧を取得（ページネーション対応）",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "name"
+              ],
+              "default": "createdAt"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "見積書一覧"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/estimates/latest": {
+      "get": {
+        "summary": "直近の見積書一覧と総数を取得",
+        "description": "プロジェクト詳細画面の見積書セクション用に、直近N件の見積書と総数を取得",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 2,
+              "minimum": 1,
+              "maximum": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "見積書サマリー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}": {
+      "get": {
+        "summary": "見積書詳細取得",
+        "description": "見積書の詳細情報（見積項目含む）を取得",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "見積書詳細"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          }
+        }
+      },
+      "put": {
+        "summary": "見積書更新",
+        "description": "見積書の情報を更新（楽観的排他制御）",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "expectedUpdatedAt"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "見積書更新成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          },
+          "409": {
+            "description": "楽観的排他制御エラーまたは同名の見積書が存在"
+          }
+        }
+      },
+      "delete": {
+        "summary": "見積書削除",
+        "description": "見積書を論理削除（楽観的排他制御）",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "updatedAt"
+                ],
+                "properties": {
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "見積書削除成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          },
+          "409": {
+            "description": "楽観的排他制御エラー"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/items": {
+      "get": {
+        "summary": "見積項目一覧取得",
+        "description": "見積書の見積項目一覧を取得（階層構造オプション）",
+        "tags": [
+          "Estimate Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hierarchy",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "見積項目一覧"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          }
+        }
+      },
+      "post": {
+        "summary": "見積項目作成",
+        "description": "見積書に新規見積項目（3行1セット）を追加",
+        "tags": [
+          "Estimate Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "displayOrder",
+                  "lines"
+                ],
+                "properties": {
+                  "parentId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "displayOrder": {
+                    "type": "integer"
+                  },
+                  "lines": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "lineType": {
+                          "type": "string",
+                          "enum": [
+                            "ESTIMATE",
+                            "EXECUTION",
+                            "VENDOR"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "specification": {
+                          "type": "string"
+                        },
+                        "unit": {
+                          "type": "string"
+                        },
+                        "quantity": {
+                          "type": "number"
+                        },
+                        "unitPrice": {
+                          "type": "number"
+                        },
+                        "remarks": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "見積項目作成成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/items/{itemId}": {
+      "delete": {
+        "summary": "見積項目削除",
+        "description": "見積項目（3行1セット）を削除",
+        "tags": [
+          "Estimate Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "forceDelete": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "見積項目削除成功"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積項目が見つからない"
+          },
+          "422": {
+            "description": "子項目が存在（forceDelete=falseの場合）"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/items/{itemId}/duplicate": {
+      "post": {
+        "summary": "見積項目複製",
+        "description": "見積項目（3行1セット）を複製",
+        "tags": [
+          "Estimate Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "見積項目複製成功"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積項目が見つからない"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/items/reorder": {
+      "put": {
+        "summary": "見積項目並び替え",
+        "description": "見積項目の表示順序を一括変更",
+        "tags": [
+          "Estimate Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "itemOrders"
+                ],
+                "properties": {
+                  "itemOrders": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "displayOrder"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "displayOrder": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "並び替え成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/transfer-quotation": {
+      "post": {
+        "summary": "受領見積書転記",
+        "description": "受領見積書の明細行を見積書の業者金額行に転記",
+        "tags": [
+          "Estimate Calculation"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "receivedQuotationId",
+                  "lineItemIds"
+                ],
+                "properties": {
+                  "receivedQuotationId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "lineItemIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "targetEstimateItemId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "転記成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書、受領見積書、または転記先が見つからない"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/calculate-net": {
+      "post": {
+        "summary": "NET金額計算・案分",
+        "description": "業者金額行をNET金額に基づいて案分計算",
+        "tags": [
+          "Estimate Calculation"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "vendorName",
+                  "targetLineIds",
+                  "netAmount"
+                ],
+                "properties": {
+                  "vendorName": {
+                    "type": "string"
+                  },
+                  "targetLineIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "excludeLineIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "netAmount": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "計算成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/apply-profit-rate": {
+      "post": {
+        "summary": "利益率適用",
+        "description": "実行金額行に利益率を適用して見積金額行に反映",
+        "tags": [
+          "Estimate Calculation"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "profitRate",
+                  "overwriteOption"
+                ],
+                "properties": {
+                  "profitRate": {
+                    "type": "string",
+                    "description": "利益率（0〜500%）"
+                  },
+                  "overwriteOption": {
+                    "type": "string",
+                    "enum": [
+                      "all",
+                      "empty_only",
+                      "unit_price_only"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "適用成功"
+          },
+          "400": {
+            "description": "バリデーションエラー（利益率範囲外など）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/calculate-overhead": {
+      "post": {
+        "summary": "諸経費計算",
+        "description": "国土交通省基準に準じた諸経費（共通仮設費・現場管理費・一般管理費）を計算",
+        "tags": [
+          "Estimate Calculation"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "costType",
+                  "directCost"
+                ],
+                "properties": {
+                  "costType": {
+                    "type": "string",
+                    "enum": [
+                      "COMMON_TEMPORARY",
+                      "SITE_MANAGEMENT",
+                      "GENERAL_ADMIN"
+                    ]
+                  },
+                  "directCost": {
+                    "type": "string",
+                    "description": "直接工事費（千円単位）"
+                  },
+                  "constructionPeriod": {
+                    "type": "integer",
+                    "description": "工期（月）"
+                  },
+                  "pureConstructionCost": {
+                    "type": "string",
+                    "description": "純工事費（千円単位）"
+                  },
+                  "constructionCost": {
+                    "type": "string",
+                    "description": "工事原価（千円単位）"
+                  },
+                  "isRenovation": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "計算成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/overhead-items": {
+      "post": {
+        "summary": "諸経費行追加",
+        "description": "プリセット値を使用して諸経費行を追加",
+        "tags": [
+          "Estimate Calculation"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "costType"
+                ],
+                "properties": {
+                  "costType": {
+                    "type": "string",
+                    "enum": [
+                      "COMMON_TEMPORARY",
+                      "SITE_MANAGEMENT",
+                      "GENERAL_ADMIN"
+                    ]
+                  },
+                  "unitPrice": {
+                    "type": "number",
+                    "description": "単価（任意、自動計算結果を上書き）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "諸経費行追加成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          }
+        }
+      }
+    },
+    "/api/estimates/{id}/export": {
+      "get": {
+        "summary": "見積書出力",
+        "description": "見積書をPDFまたはExcel形式で出力",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "見積書ID"
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pdf",
+                "xlsx"
+              ]
+            },
+            "description": "出力形式"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ファイルバイナリ",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          },
+          "500": {
+            "description": "出力処理エラー"
           }
         }
       }
@@ -5805,8 +6923,7 @@
                 "type": "object",
                 "required": [
                   "name",
-                  "submittedAt",
-                  "contentType"
+                  "submittedAt"
                 ],
                 "properties": {
                   "name": {
@@ -5819,22 +6936,10 @@
                     "format": "date-time",
                     "description": "提出日"
                   },
-                  "contentType": {
-                    "type": "string",
-                    "enum": [
-                      "TEXT",
-                      "FILE"
-                    ],
-                    "description": "コンテンツタイプ"
-                  },
-                  "textContent": {
-                    "type": "string",
-                    "description": "テキスト内容（contentType=TEXTの場合）"
-                  },
                   "file": {
                     "type": "string",
                     "format": "binary",
-                    "description": "ファイル（contentType=FILEの場合）"
+                    "description": "ファイル（任意）"
                   }
                 }
               }
@@ -5986,22 +7091,14 @@
                     "format": "date-time",
                     "description": "提出日"
                   },
-                  "contentType": {
-                    "type": "string",
-                    "enum": [
-                      "TEXT",
-                      "FILE"
-                    ],
-                    "description": "コンテンツタイプ"
-                  },
-                  "textContent": {
-                    "type": "string",
-                    "description": "テキスト内容"
-                  },
                   "file": {
                     "type": "string",
                     "format": "binary",
-                    "description": "ファイル"
+                    "description": "ファイル（任意）"
+                  },
+                  "removeFile": {
+                    "type": "boolean",
+                    "description": "ファイル削除フラグ"
                   },
                   "expectedUpdatedAt": {
                     "type": "string",

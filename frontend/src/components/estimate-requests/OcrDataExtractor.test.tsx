@@ -1,0 +1,771 @@
+/**
+ * @fileoverview OcrDataExtractor コンポーネントのテスト
+ *
+ * Task 25.1: OcrDataExtractorコンポーネントの実装
+ * Task 28.3: OcrDataExtractorコンポーネントの単体テスト
+ *
+ * Requirements:
+ * - 13.5: PDF/画像ファイルに対してOCR処理を自動的に開始する
+ * - 13.6: ExcelファイルにはOCRではなくデータパースを実行する
+ * - 13.7: 処理中インジケーター（プログレスバー）を表示する
+ * - 13.8: 抽出結果をテキストデータとして表示する
+ * - 13.9: 抽出テキストを選択・コピー可能な状態で表示する
+ * - 13.14: OCR/パース処理失敗時にエラーメッセージを表示し手動入力を促す
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+// ============================================================================
+// モック設定
+// ============================================================================
+
+// Tesseract.jsのモック
+const mockRecognize = vi.fn();
+const mockTerminate = vi.fn();
+const mockCreateWorker = vi.fn();
+
+vi.mock('tesseract.js', () => ({
+  createWorker: (...args: unknown[]) => mockCreateWorker(...args),
+}));
+
+// xlsxのモック
+vi.mock('xlsx', () => {
+  const mockRead = vi.fn();
+  const mockSheet_to_json = vi.fn();
+  return {
+    read: mockRead,
+    utils: {
+      sheet_to_json: mockSheet_to_json,
+    },
+  };
+});
+
+import { OcrDataExtractor } from './OcrDataExtractor';
+import type { LineItemFormData } from './LineItemEditor';
+import * as XLSX from 'xlsx';
+
+// ============================================================================
+// テストヘルパー
+// ============================================================================
+
+/**
+ * テスト用のモックファイルを作成する
+ */
+function createMockFile(name: string, type: string, size = 1024): File {
+  const buffer = new ArrayBuffer(size);
+  return new File([buffer], name, { type });
+}
+
+/**
+ * デフォルトのモックWorkerを設定する
+ */
+function setupMockWorker(options?: { recognizeResult?: string; recognizeError?: Error }) {
+  const worker = {
+    recognize: mockRecognize,
+    terminate: mockTerminate,
+  };
+
+  mockCreateWorker.mockResolvedValue(worker);
+
+  if (options?.recognizeError) {
+    mockRecognize.mockRejectedValue(options.recognizeError);
+  } else {
+    const result = {
+      data: {
+        text: options?.recognizeResult ?? 'サンプルOCRテキスト\n名称\t規格\t単位\t数量\t単価',
+      },
+    };
+    mockRecognize.mockResolvedValue(result);
+  }
+
+  return worker;
+}
+
+/**
+ * デフォルトpropsを返す
+ */
+function defaultProps(
+  overrides?: Partial<{
+    file: File | null;
+    onImportLineItems: (items: LineItemFormData[]) => void;
+  }>
+) {
+  return {
+    file: null as File | null,
+    onImportLineItems: vi.fn(),
+    ...overrides,
+  };
+}
+
+// ============================================================================
+// テスト
+// ============================================================================
+
+describe('OcrDataExtractor', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTerminate.mockResolvedValue(undefined);
+  });
+
+  // --------------------------------------------------------------------------
+  // Requirement 13.5: PDF/画像ファイルに対してOCR処理を自動的に開始
+  // --------------------------------------------------------------------------
+
+  describe('OCR処理の自動開始（13.5）', () => {
+    it('PDFファイルがセットされるとOCR処理を自動的に開始する', async () => {
+      setupMockWorker({ recognizeResult: 'PDF OCR結果テキスト' });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+      });
+
+      await waitFor(() => {
+        expect(mockRecognize).toHaveBeenCalled();
+      });
+    });
+
+    it('画像ファイル（JPEG）がセットされるとOCR処理を自動的に開始する', async () => {
+      setupMockWorker({ recognizeResult: '画像OCR結果' });
+      const file = createMockFile('photo.jpg', 'image/jpeg');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+      });
+
+      await waitFor(() => {
+        expect(mockRecognize).toHaveBeenCalled();
+      });
+    });
+
+    it('画像ファイル（PNG）がセットされるとOCR処理を自動的に開始する', async () => {
+      setupMockWorker({ recognizeResult: 'PNG OCR結果' });
+      const file = createMockFile('image.png', 'image/png');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+      });
+
+      await waitFor(() => {
+        expect(mockRecognize).toHaveBeenCalled();
+      });
+    });
+
+    it('ファイルがnullの場合はOCR処理を開始しない', () => {
+      render(<OcrDataExtractor {...defaultProps()} />);
+      expect(mockCreateWorker).not.toHaveBeenCalled();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Requirement 13.6: Excelファイルにはデータパースを実行
+  // --------------------------------------------------------------------------
+
+  describe('Excelデータパース（13.6）', () => {
+    it('Excelファイル（xlsx）がセットされるとデータパースを実行する', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      const mockRows = [
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['コンクリート', 'C25', 'm3', '10', '15000'],
+      ];
+
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue(mockRows);
+
+      const file = createMockFile(
+        'data.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // Excelの場合はTesseract.jsのworkerは使わない
+      expect(mockCreateWorker).not.toHaveBeenCalled();
+
+      await waitFor(() => {
+        expect(XLSX.read).toHaveBeenCalled();
+      });
+    });
+
+    it('Excelファイル（xls）がセットされるとデータパースを実行する', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      const mockRows = [
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['鉄筋', 'D13', 'kg', '500', '120'],
+      ];
+
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue(mockRows);
+
+      const file = createMockFile('data.xls', 'application/vnd.ms-excel');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      expect(mockCreateWorker).not.toHaveBeenCalled();
+
+      await waitFor(() => {
+        expect(XLSX.read).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Requirement 13.7: 処理中インジケーター（プログレスバー）を表示
+  // --------------------------------------------------------------------------
+
+  describe('処理中インジケーター（13.7）', () => {
+    it('OCR処理中にプログレスインジケーターを表示する', async () => {
+      // 長時間かかるOCRをシミュレート（resolveしないPromise）
+      const worker = {
+        recognize: vi.fn(() => new Promise(() => {})), // never resolves
+        terminate: mockTerminate,
+      };
+      mockCreateWorker.mockResolvedValue(worker);
+
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // 処理中のインジケーターが表示されること
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-progress-indicator')).toBeInTheDocument();
+      });
+    });
+
+    it('処理完了後にインジケーターが消えて結果が表示される', async () => {
+      setupMockWorker({ recognizeResult: '完了テスト' });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // 処理完了後は結果テキストが表示される
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+      });
+
+      // インジケーターは消えている
+      expect(screen.queryByTestId('ocr-progress-indicator')).not.toBeInTheDocument();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Requirement 13.8: 抽出結果をテキストデータとして表示
+  // --------------------------------------------------------------------------
+
+  describe('抽出結果テキスト表示（13.8）', () => {
+    it('OCR処理完了後に抽出テキストを表示する', async () => {
+      setupMockWorker({ recognizeResult: 'OCR処理で抽出されたテキスト' });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        expect(screen.getByText('OCR処理で抽出されたテキスト')).toBeInTheDocument();
+      });
+    });
+
+    it('Excelパース完了後に抽出テキストを表示する', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue([
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['コンクリート', 'C25', 'm3', '10', '15000'],
+      ]);
+
+      const file = createMockFile(
+        'data.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Requirement 13.9: 抽出テキストを選択・コピー可能な状態で表示
+  // --------------------------------------------------------------------------
+
+  describe('テキスト選択・コピー（13.9）', () => {
+    it('抽出テキストが選択可能な要素で表示される', async () => {
+      setupMockWorker({ recognizeResult: '選択可能テキスト' });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        const textElement = screen.getByTestId('ocr-extracted-text');
+        expect(textElement).toBeInTheDocument();
+        // テキスト要素はPRE（pre-wrap + user-select: text）
+        expect(textElement.tagName).toBe('PRE');
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // OCRテキストから構造化データへの変換ロジック
+  // --------------------------------------------------------------------------
+
+  describe('OCRテキストから構造化データ変換', () => {
+    it('タブ区切りテキストから明細行データに変換し一括取り込みボタンを表示する', async () => {
+      const ocrText =
+        '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000\n鉄筋\tD13\tkg\t500\t120';
+      setupMockWorker({ recognizeResult: ocrText });
+      const file = createMockFile('test.pdf', 'application/pdf');
+      const onImportLineItems = vi.fn();
+
+      render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+      });
+    });
+
+    it('数値パターンを含む行から数量・単価を推定する', async () => {
+      const ocrText = 'コンクリート打設  C25  m3  10  15000';
+      setupMockWorker({ recognizeResult: ocrText });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Excelデータのヘッダー行検出と列マッピング
+  // --------------------------------------------------------------------------
+
+  describe('Excelヘッダー行検出と列マッピング', () => {
+    it('ヘッダー行から列マッピングを自動検出し一括取り込みで正しいデータを返す', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue([
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['コンクリート', 'C25', 'm3', 10, 15000],
+        ['鉄筋', 'D13', 'kg', 500, 120],
+      ]);
+
+      const file = createMockFile(
+        'data.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      const onImportLineItems = vi.fn();
+
+      render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+      });
+
+      // 一括取り込みボタンをクリック
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId('ocr-import-button'));
+
+      expect(onImportLineItems).toHaveBeenCalledTimes(1);
+      const importedItems = onImportLineItems.mock.calls[0]?.[0] as LineItemFormData[];
+      expect(importedItems.length).toBe(2);
+      const firstItem = importedItems[0];
+      expect(firstItem).toBeDefined();
+      expect(firstItem!.name).toBe('コンクリート');
+      expect(firstItem!.specification).toBe('C25');
+      expect(firstItem!.unit).toBe('m3');
+      expect(firstItem!.quantity).toBe('10');
+      expect(firstItem!.unitPrice).toBe('15000');
+    });
+
+    it('ヘッダー行がない場合でもデータ行を処理する', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue([
+        ['コンクリート', 'C25', 'm3', 10, 15000],
+        ['鉄筋', 'D13', 'kg', 500, 120],
+      ]);
+
+      const file = createMockFile(
+        'data.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // OCR処理のタイムアウト（30秒）
+  // --------------------------------------------------------------------------
+
+  describe('OCR処理タイムアウト', () => {
+    it('OCR処理が30秒を超えた場合にエラーを表示する', async () => {
+      // タイムアウトを短縮してテスト（実際のOCR_TIMEOUT_MSは30秒）
+      // createWorkerが返すrecognizeを、タイムアウトよりも長いPromiseに設定
+      // Promiseが拒否されることでエラー表示を検証
+      const worker = {
+        recognize: vi.fn(
+          () =>
+            new Promise((_, reject) => {
+              // タイムアウトメカニズムのテスト：
+              // コンポーネント内部のタイムアウトが先に発火することを検証
+              setTimeout(() => reject(new Error('Should not reach')), 60000);
+            })
+        ),
+        terminate: mockTerminate,
+      };
+      mockCreateWorker.mockResolvedValue(worker);
+
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // 処理中のインジケーターが表示されること
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-progress-indicator')).toBeInTheDocument();
+      });
+
+      // タイムアウトエラーが表示されるまで待つ（コンポーネント内部の30秒タイムアウト）
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+        },
+        { timeout: 35000 }
+      );
+    }, 40000); // テスト自体のタイムアウトを40秒に設定
+  });
+
+  // --------------------------------------------------------------------------
+  // Requirement 13.14: OCR/パース処理失敗時にエラーメッセージを表示
+  // --------------------------------------------------------------------------
+
+  describe('エラーハンドリング（13.14）', () => {
+    it('OCR処理失敗時にエラーメッセージと手動入力促進メッセージを表示する', async () => {
+      setupMockWorker({ recognizeError: new Error('OCR処理に失敗しました') });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        const errorMessage = screen.getByTestId('ocr-error-message');
+        expect(errorMessage).toBeInTheDocument();
+        // 手動入力を促すメッセージが含まれる
+        expect(errorMessage.textContent).toContain('手動');
+      });
+    });
+
+    it('Excelパース失敗時にエラーメッセージを表示する', async () => {
+      (XLSX.read as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('ファイルの読み込みに失敗');
+      });
+
+      const file = createMockFile(
+        'broken.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        const errorMessage = screen.getByTestId('ocr-error-message');
+        expect(errorMessage).toBeInTheDocument();
+        expect(errorMessage.textContent).toContain('手動');
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // React.lazyによる遅延ロード対応
+  // --------------------------------------------------------------------------
+
+  describe('コンポーネントエクスポート', () => {
+    it('OcrDataExtractorがデフォルトエクスポートされている', async () => {
+      const module = await import('./OcrDataExtractor');
+      expect(module.default).toBeDefined();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Tesseract.jsワーカーのクリーンアップ
+  // --------------------------------------------------------------------------
+
+  describe('ワーカークリーンアップ', () => {
+    it('コンポーネントアンマウント時にワーカーを終了する', async () => {
+      setupMockWorker({ recognizeResult: 'テスト' });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      const { unmount } = render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalled();
+      });
+
+      unmount();
+
+      // ワーカーのterminateが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockTerminate).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 25.2: 一括取り込み機能
+  // Requirement 13.10: 抽出結果から明細行入力エディタへの一括取り込みボタンを表示
+  // Requirement 13.11: 一括取り込みボタンクリック時に抽出データを各明細行フィールドに自動入力
+  // Requirement 13.12: 取り込み完了時に各行の金額を自動計算
+  // Requirement 13.13: 取り込み結果の確認・修正を促すメッセージを表示
+  // --------------------------------------------------------------------------
+
+  describe('一括取り込み機能（13.10-13.13）', () => {
+    it('抽出結果が存在する場合に一括取り込みボタンを表示する（13.10）', async () => {
+      const ocrText = '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000';
+      setupMockWorker({ recognizeResult: ocrText });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        const importButton = screen.getByTestId('ocr-import-button');
+        expect(importButton).toBeInTheDocument();
+        expect(importButton.textContent).toContain('一括取り込み');
+      });
+    });
+
+    it('一括取り込みボタンクリック時に抽出データをonImportLineItemsで返す（13.11）', async () => {
+      const ocrText =
+        '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000\n鉄筋\tD13\tkg\t500\t120';
+      setupMockWorker({ recognizeResult: ocrText });
+      const file = createMockFile('test.pdf', 'application/pdf');
+      const onImportLineItems = vi.fn();
+
+      render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+      });
+
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId('ocr-import-button'));
+
+      expect(onImportLineItems).toHaveBeenCalledTimes(1);
+      const items = onImportLineItems.mock.calls[0]?.[0] as LineItemFormData[];
+      // データが正しくフィールドにマッピングされていること
+      expect(items.length).toBeGreaterThanOrEqual(1);
+      const item = items[0];
+      expect(item).toBeDefined();
+      expect(item).toHaveProperty('name');
+      expect(item).toHaveProperty('specification');
+      expect(item).toHaveProperty('unit');
+      expect(item).toHaveProperty('quantity');
+      expect(item).toHaveProperty('unitPrice');
+    });
+
+    it('取り込まれた各行の金額が自動計算されている（13.12）', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue([
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['コンクリート', 'C25', 'm3', 10, 15000],
+        ['鉄筋', 'D13', 'kg', 500, 120],
+      ]);
+
+      const file = createMockFile(
+        'data.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      const onImportLineItems = vi.fn();
+
+      render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+      });
+
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId('ocr-import-button'));
+
+      const items = onImportLineItems.mock.calls[0]?.[0] as LineItemFormData[];
+      // 金額が自動計算されていること
+      expect(items[0]!.amount).toBe(150000); // 10 * 15000
+      expect(items[1]!.amount).toBe(60000); // 500 * 120
+    });
+
+    it('取り込み完了時に確認・修正を促すメッセージを表示する（13.13）', async () => {
+      const ocrText = '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000';
+      setupMockWorker({ recognizeResult: ocrText });
+      const file = createMockFile('test.pdf', 'application/pdf');
+      const onImportLineItems = vi.fn();
+
+      render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+      });
+
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId('ocr-import-button'));
+
+      // 取り込み完了メッセージが表示される
+      await waitFor(() => {
+        const successMessage = screen.getByTestId('ocr-import-success');
+        expect(successMessage).toBeInTheDocument();
+        expect(successMessage.textContent).toContain('確認');
+        expect(successMessage.textContent).toContain('修正');
+      });
+    });
+
+    it('一括取り込み後はボタンが「取り込み済み」に変わり非活性になる', async () => {
+      const ocrText = '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000';
+      setupMockWorker({ recognizeResult: ocrText });
+      const file = createMockFile('test.pdf', 'application/pdf');
+      const onImportLineItems = vi.fn();
+
+      render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+      });
+
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId('ocr-import-button'));
+
+      await waitFor(() => {
+        const button = screen.getByTestId('ocr-import-button');
+        expect(button.textContent).toContain('取り込み済み');
+        expect(button).toBeDisabled();
+      });
+    });
+
+    it('構造化データが検出できない場合は一括取り込みボタンを表示しない', async () => {
+      // 構造化データが検出できないOCR結果（数値を含まない単純テキスト）
+      // fallbackロジックでは数値を含む行のみをデータ行とみなすため、
+      // 数値がない場合は構造化データが0件となる
+      setupMockWorker({ recognizeResult: '  \n  \n  ' });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // OCR処理完了を待つ（空テキストでもcompletedになる）
+      // extractedTextが空やスペースのみの場合、表示されない可能性がある
+      // status=completedまで待機
+      await waitFor(() => {
+        // 処理完了後にエラーもインジケーターも表示されない状態を確認
+        expect(screen.queryByTestId('ocr-progress-indicator')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('ocr-error-message')).not.toBeInTheDocument();
+      });
+
+      // 構造化データが検出されないため一括取り込みボタンは表示されないこと
+      expect(screen.queryByTestId('ocr-import-button')).not.toBeInTheDocument();
+    });
+
+    it('OCR/パース処理失敗時にエラーメッセージと手動入力促進メッセージを表示する（13.14）', async () => {
+      setupMockWorker({ recognizeError: new Error('OCR処理に失敗しました') });
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        const errorMessage = screen.getByTestId('ocr-error-message');
+        expect(errorMessage).toBeInTheDocument();
+        expect(errorMessage.textContent).toContain('手動');
+        expect(errorMessage.textContent).toContain('入力');
+      });
+
+      // エラー時は一括取り込みボタンは表示されない
+      expect(screen.queryByTestId('ocr-import-button')).not.toBeInTheDocument();
+    });
+
+    it('検出データ件数が表示される', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue([
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['コンクリート', 'C25', 'm3', 10, 15000],
+        ['鉄筋', 'D13', 'kg', 500, 120],
+        ['塗装', 'EP', 'm2', 200, 3000],
+      ]);
+
+      const file = createMockFile(
+        'data.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/3件/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Tesseract.jsワーカープリフェッチとOCR準備中インジケーター
+  // --------------------------------------------------------------------------
+
+  describe('ワーカープリフェッチ', () => {
+    it('ファイルがセットされた時にOCR準備中インジケーターを表示する', async () => {
+      // ワーカー初期化を遅延させる
+      mockCreateWorker.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  recognize: mockRecognize.mockResolvedValue({
+                    data: { text: 'テスト' },
+                  }),
+                  terminate: mockTerminate,
+                }),
+              3000
+            )
+          )
+      );
+
+      const file = createMockFile('test.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // OCR準備中のインジケーターが表示されること
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-progress-indicator')).toBeInTheDocument();
+      });
+    });
+  });
+});

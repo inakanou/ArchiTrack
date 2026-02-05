@@ -313,6 +313,28 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       description: '受領見積書の削除',
     },
 
+    // 見積書関連権限（estimate-creation）
+    {
+      resource: 'estimate',
+      action: 'create',
+      description: '見積書の作成',
+    },
+    {
+      resource: 'estimate',
+      action: 'read',
+      description: '見積書の閲覧',
+    },
+    {
+      resource: 'estimate',
+      action: 'update',
+      description: '見積書の更新',
+    },
+    {
+      resource: 'estimate',
+      action: 'delete',
+      description: '見積書の削除',
+    },
+
     // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
     {
       resource: 'company_info',
@@ -421,6 +443,11 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'received_quotation', action: 'read' },
     { resource: 'received_quotation', action: 'update' },
     { resource: 'received_quotation', action: 'delete' },
+    // 見積書関連権限（estimate-creation）
+    { resource: 'estimate', action: 'create' },
+    { resource: 'estimate', action: 'read' },
+    { resource: 'estimate', action: 'update' },
+    { resource: 'estimate', action: 'delete' },
     // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
     { resource: 'company_info', action: 'read' },
     { resource: 'company_info', action: 'update' },

@@ -20,7 +20,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, waitForElementWithRetry } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -211,24 +211,9 @@ test.describe('見積依頼機能', () => {
       await page.goto(`/projects/${createdProjectId}/quantity-tables/new`);
       await page.waitForLoadState('networkidle');
 
-      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
-      if (page.url().includes('/login')) {
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto(`/projects/${createdProjectId}/quantity-tables/new`, {
-          waitUntil: 'networkidle',
-        });
-      }
-
       // 数量表作成フォームを入力
       const quantityTableName = '見積依頼テスト用数量表';
-      const quantityTableNameInput = page.getByRole('textbox', { name: /数量表名/i });
-      const quantityFormReady = await waitForElementWithRetry(page, quantityTableNameInput, {
-        maxRetries: 3,
-        timeout: getTimeout(10000),
-        reloadOnRetry: true,
-      });
-      expect(quantityFormReady).toBe(true);
-      await quantityTableNameInput.fill(quantityTableName);
+      await page.getByRole('textbox', { name: /数量表名/i }).fill(quantityTableName);
 
       const createQuantityTablePromise = page.waitForResponse(
         (response) =>
@@ -341,12 +326,6 @@ test.describe('見積依頼機能', () => {
       await page.goto(`/projects/${createdProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // CI並列実行時のセッション無効化対応
-      if (page.url().includes('/login')) {
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto(`/projects/${createdProjectId}`, { waitUntil: 'networkidle' });
-      }
-
       // 見積依頼セクション内の新規作成ボタン/リンクが表示される
       const section = page.getByTestId('estimate-request-section');
       await expect(section).toBeVisible({ timeout: getTimeout(10000) });
@@ -414,12 +393,7 @@ test.describe('見積依頼機能', () => {
       await page.waitForLoadState('networkidle');
 
       const section = page.getByTestId('estimate-request-section');
-      const sectionReady = await waitForElementWithRetry(page, section, {
-        maxRetries: 3,
-        timeout: getTimeout(10000),
-        reloadOnRetry: true,
-      });
-      expect(sectionReady).toBe(true);
+      await expect(section).toBeVisible({ timeout: getTimeout(10000) });
 
       // 見積依頼が存在しない場合、空状態の「新規作成」リンクは表示される（メッセージ下）
       const emptyStateNewButton = section
@@ -1553,12 +1527,6 @@ test.describe('見積依頼機能', () => {
       });
 
       const nameInput = page.locator('input#name');
-      const formReady = await waitForElementWithRetry(page, nameInput, {
-        maxRetries: 3,
-        timeout: getTimeout(10000),
-        reloadOnRetry: true,
-      });
-      expect(formReady).toBe(true);
       await nameInput.fill('REQ-4.4テスト見積依頼');
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
@@ -1594,15 +1562,8 @@ test.describe('見積依頼機能', () => {
       await page.waitForTimeout(1000);
 
       // ページをリロードして状態が保存されていることを確認
-      const detailUrl = page.url();
       await page.reload();
       await page.waitForLoadState('networkidle');
-
-      // 並列テスト時のセッション無効化対応
-      if (page.url().includes('/login')) {
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto(detailUrl, { waitUntil: 'networkidle' });
-      }
 
       const checkboxesAfterReload = page.locator(
         'table[aria-label="内訳書項目一覧"] input[type="checkbox"]'
@@ -1900,14 +1861,6 @@ test.describe('見積依頼機能', () => {
       await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
       await page.waitForLoadState('networkidle');
 
-      // CI並列実行時にセッションが無効化されてログインページにリダイレクトされた場合は再認証
-      if (page.url().includes('/login')) {
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto(`/projects/${createdProjectId}/estimate-requests/new`, {
-          waitUntil: 'networkidle',
-        });
-      }
-
       await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
         timeout: getTimeout(15000),
       });
@@ -1997,7 +1950,6 @@ test.describe('見積依頼機能', () => {
       });
 
       const nameInput = page.locator('input#name');
-      await nameInput.waitFor({ state: 'visible', timeout: getTimeout(10000) });
       await nameInput.fill('REQ-9.6テスト見積依頼');
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
@@ -2135,11 +2087,8 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // リトライ時に前回作成分と名前が重複しないようユニーク名を使用
-      const uniqueName = `REQ-8.4テスト見積依頼_${Date.now()}`;
-
       const nameInput = page.locator('input#name');
-      await nameInput.fill(uniqueName);
+      await nameInput.fill('REQ-8.4テスト見積依頼');
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
       await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
@@ -2189,7 +2138,7 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      await expect(page.getByText(uniqueName)).not.toBeVisible();
+      await expect(page.getByText('REQ-8.4テスト見積依頼')).not.toBeVisible();
     });
   });
 
@@ -2438,88 +2387,43 @@ test.describe('見積依頼機能', () => {
       });
 
       const nameInput = page.locator('input#name');
-      // データ取得失敗時にフォームがエラー状態になる場合があるため、リロード付きリトライで待機
-      const formReady = await waitForElementWithRetry(page, nameInput, {
-        maxRetries: 3,
-        timeout: getTimeout(10000),
-        reloadOnRetry: true,
-      });
-      expect(formReady).toBe(true);
-      await nameInput.fill(`REQ-6.7テスト見積依頼_${Date.now()}`);
+      await nameInput.fill('REQ-6.7テスト見積依頼');
 
       const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await expect(tradingPartnerSelect).toBeVisible({ timeout: getTimeout(5000) });
       await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
-      await expect(itemizedStatementSelect).toBeVisible({ timeout: getTimeout(5000) });
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
 
       const createPromise = page.waitForResponse(
         (response) =>
-          response.url().includes('/estimate-requests') && response.request().method() === 'POST',
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
         { timeout: getTimeout(30000) }
       );
 
       await page.getByRole('button', { name: /作成/i }).click();
-      const createResponse = await createPromise;
-      expect(createResponse.status()).toBe(201);
+      await createPromise;
 
       await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
 
       // 項目を選択してから見積依頼文を表示する
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
-
-      // チェックボックスクリック時の項目選択APIレスポンスを待機
-      const selectionResponsePromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/items') &&
-          response.url().includes('/estimate-requests') &&
-          response.request().method() === 'PATCH',
-        { timeout: getTimeout(15000) }
-      );
       await checkboxes.first().click();
-      await selectionResponsePromise;
+      await page.waitForTimeout(1000);
 
-      // 見積依頼文テキストAPIレスポンスを待機しながらボタンをクリック
-      const textResponsePromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/text') &&
-          response.url().includes('/estimate-requests') &&
-          response.request().method() === 'GET',
-        { timeout: getTimeout(30000) }
-      );
-
+      // 見積依頼文を表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
       await showTextButton.click();
-
-      const textResponse = await textResponsePromise;
 
       // 見積依頼文パネルが表示される
       const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
       await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
 
-      // APIが成功した場合のみ本文を検証（一時的なエラーの場合はリトライ）
-      if (!textResponse.ok()) {
-        // パネルを閉じて再度開く
-        await showTextButton.click();
-        await expect(panel).not.toBeVisible({ timeout: getTimeout(5000) });
-
-        const retryTextResponsePromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/text') &&
-            response.url().includes('/estimate-requests') &&
-            response.request().method() === 'GET',
-          { timeout: getTimeout(30000) }
-        );
-        await showTextButton.click();
-        await retryTextResponsePromise;
-        await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
-      }
-
-      // 本文セクションが表示される（ローディング完了を待機）
-      await expect(panel.getByText('本文')).toBeVisible({ timeout: getTimeout(15000) });
+      // 本文セクションが表示される
+      await expect(panel.getByText('本文')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 本文にプロジェクト名または現場情報が含まれる（物件名など）
       await expect(panel.getByText(/物件名|プロジェクト|お世話になっております/i)).toBeVisible({

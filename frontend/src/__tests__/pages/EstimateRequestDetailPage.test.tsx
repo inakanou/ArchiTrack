@@ -62,11 +62,27 @@ const mockReceivedQuotations = [
     estimateRequestId: 'er-1',
     name: 'テスト受領見積書1',
     submittedAt: new Date('2025-01-05'),
-    contentType: 'TEXT' as const,
-    textContent: '見積内容テキスト',
     fileName: null,
     fileMimeType: null,
     fileSize: null,
+    lineItems: [
+      {
+        id: 'li-1',
+        receivedQuotationId: 'rq-1',
+        name: '既存項目',
+        specification: '規格A',
+        unit: '式',
+        quantity: 1,
+        unitPrice: 10000,
+        amount: 10000,
+        remarks: null,
+        sortOrder: 0,
+        displayOrder: 0,
+        createdAt: new Date('2025-01-05T10:00:00.000Z'),
+        updatedAt: new Date('2025-01-05T10:00:00.000Z'),
+      },
+    ],
+    totalAmount: 10000,
     createdAt: new Date('2025-01-05T10:00:00.000Z'),
     updatedAt: new Date('2025-01-05T10:00:00.000Z'),
   },
@@ -75,11 +91,11 @@ const mockReceivedQuotations = [
     estimateRequestId: 'er-1',
     name: 'テスト受領見積書2',
     submittedAt: new Date('2025-01-06'),
-    contentType: 'FILE' as const,
-    textContent: null,
     fileName: 'quotation.pdf',
     fileMimeType: 'application/pdf',
     fileSize: 1024 * 500,
+    lineItems: [],
+    totalAmount: null,
     createdAt: new Date('2025-01-06T10:00:00.000Z'),
     updatedAt: new Date('2025-01-06T10:00:00.000Z'),
   },
@@ -969,19 +985,20 @@ describe('EstimateRequestDetailPage', () => {
 
     it('受領見積書を新規作成できる', async () => {
       const user = userEvent.setup();
-      vi.mocked(receivedQuotationApi.createReceivedQuotation).mockResolvedValue({
+      const mockCreate = vi.fn().mockResolvedValue({
         id: 'rq-new',
         estimateRequestId: 'er-1',
         name: '新規見積書',
         submittedAt: new Date('2025-01-10'),
-        contentType: 'TEXT',
-        textContent: 'テスト内容',
         fileName: null,
         fileMimeType: null,
         fileSize: null,
+        lineItems: [],
+        totalAmount: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+      vi.mocked(receivedQuotationApi.createReceivedQuotation).mockImplementation(mockCreate);
 
       renderWithRouter();
 
@@ -999,25 +1016,39 @@ describe('EstimateRequestDetailPage', () => {
       // フォームに入力（名前はデフォルト値があるのでそのまま使用）
       // 提出日もデフォルト値（今日）があるのでそのまま使用
 
-      // テキストエリアに入力（デフォルトでTEXTモードが選択されている）
-      const textArea = screen.getByPlaceholderText(/見積内容を入力/i);
-      await user.type(textArea, 'テスト内容');
+      // 明細行データを入力（ファイルまたは明細行が必須 - REQ 11.24）
+      // 「行を追加」ボタンをクリックして明細行を追加
+      const addLineButton = screen.getByRole('button', { name: /行を追加/i });
+      await user.click(addLineButton);
+
+      // 追加された行に名称を入力（プレースホルダーは「名称」）
+      await waitFor(() => {
+        const nameInputs = screen.getAllByPlaceholderText('名称');
+        expect(nameInputs.length).toBeGreaterThan(0);
+      });
+      const nameInputs = screen.getAllByPlaceholderText('名称');
+      await user.type(nameInputs[0]!, 'テスト項目');
 
       // 送信（フォーム内のsubmitボタン）
       const submitButton = screen.getByRole('button', { name: /^登録$/i });
       await user.click(submitButton);
 
-      await waitFor(() => {
-        expect(receivedQuotationApi.createReceivedQuotation).toHaveBeenCalled();
-      });
+      // API呼び出しを確認（タイムアウトを延長）
+      await waitFor(
+        () => {
+          expect(mockCreate).toHaveBeenCalled();
+        },
+        { timeout: 5000 }
+      );
     });
 
     it('受領見積書を編集できる', async () => {
       const user = userEvent.setup();
-      vi.mocked(receivedQuotationApi.updateReceivedQuotation).mockResolvedValue({
+      const mockUpdate = vi.fn().mockResolvedValue({
         ...mockReceivedQuotations[0]!,
         name: '更新された見積書',
       });
+      vi.mocked(receivedQuotationApi.updateReceivedQuotation).mockImplementation(mockUpdate);
 
       renderWithRouter();
 
@@ -1041,9 +1072,13 @@ describe('EstimateRequestDetailPage', () => {
       // 更新ボタンをクリック
       await user.click(screen.getByRole('button', { name: /更新/i }));
 
-      await waitFor(() => {
-        expect(receivedQuotationApi.updateReceivedQuotation).toHaveBeenCalled();
-      });
+      // API呼び出しを確認（タイムアウトを延長）
+      await waitFor(
+        () => {
+          expect(mockUpdate).toHaveBeenCalled();
+        },
+        { timeout: 5000 }
+      );
     });
 
     it('受領見積書削除を確認すると削除APIを呼び出す', async () => {

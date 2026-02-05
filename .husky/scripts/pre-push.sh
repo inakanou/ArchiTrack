@@ -89,10 +89,7 @@ done
 # クリーンアップシステム設定（ログ + テストアーティファクト）
 # ============================================================================
 # ベストプラクティス: テスト実行前に古いアーティファクトを削除してディスク容量を管理
-# 保持ポリシー:
-#   - ログ: 30日保持（圧縮済みで軽量）
-#   - Playwright レポート/テスト結果: 7日保持（ビデオ・トレースで大容量化しやすい）
-#   - blob-report / coverage: 毎回上書きされるため前回分を削除
+# 保持ポリシー: 30日間（一貫性のため全て同じ期間）
 # ============================================================================
 
 echo "🧹 Cleaning up old test artifacts and logs..."
@@ -117,30 +114,17 @@ find .logs -name "pre-push-*.log" -type f -mtime +7 ! -name "pre-push-latest.log
 # 2. Playwright HTMLレポートのクリーンアップ
 # ============================================================================
 
-# 7日以上前のHTMLレポートディレクトリを削除
+# 30日以上前のHTMLレポートディレクトリを削除
 # パターン: playwright-report/YYYY-MM-DD_HH-MM-SS-sssZ/
-find playwright-report -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} \; 2>/dev/null || true
+find playwright-report -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} \; 2>/dev/null || true
 
 # ============================================================================
 # 3. テスト結果（スクリーンショット、ビデオ、トレース）のクリーンアップ
 # ============================================================================
 
-# 7日以上前のテスト結果ディレクトリを削除
+# 30日以上前のテスト結果ディレクトリを削除
 # パターン: test-results/YYYY-MM-DD_HH-MM-SS-sssZ/
-find test-results -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} \; 2>/dev/null || true
-
-# ============================================================================
-# 4. Blob reporter / カバレッジの前回分クリーンアップ
-# ============================================================================
-
-# blob-report: Playwright CI用中間ファイル（毎回上書き）
-rm -rf blob-report/* 2>/dev/null || true
-
-# .vitest-reports: Vitest CI用中間ファイル（毎回上書き）
-rm -rf backend/.vitest-reports/* frontend/.vitest-reports/* 2>/dev/null || true
-
-# coverage: 前回のカバレッジレポートを削除（今回のテスト実行で再生成）
-rm -rf backend/coverage/* frontend/coverage/* 2>/dev/null || true
+find test-results -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} \; 2>/dev/null || true
 
 echo "✅ Cleanup completed"
 echo ""
@@ -206,135 +190,154 @@ else
   echo ""
 fi
 
-# ============================================================================
-# 静的解析（3ワークスペース並列実行）
-# ============================================================================
-# ベストプラクティス: 独立した3ワークスペースの静的解析を並列実行
-# - 各ワークスペース内ではformat→type→lintを順序実行（依存関係あり）
-# - ワークスペース間は完全に独立しているため並列実行で時間を約1/3に短縮
-# - WSL2メモリ制約（6GB）に対し、静的解析は軽量なため3並列でも安全
-# ============================================================================
+echo "🔍 Running format checks before push..."
 
-echo "🔍 Running static analysis (format + type + lint) in parallel..."
+# Backend format check
+if [ -d "backend" ]; then
+  echo "🔍 Checking backend formatting..."
+  npm --prefix backend run format:check
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend format check failed. Push aborted."
+    echo "   Run 'npm --prefix backend run format' to fix formatting issues."
+    exit 1
+  fi
+fi
 
-# 一時ファイルでエラー状態を管理
-STATIC_ANALYSIS_DIR=$(mktemp -d)
+# Frontend format check
+if [ -d "frontend" ]; then
+  echo "🔍 Checking frontend formatting..."
+  npm --prefix frontend run format:check
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend format check failed. Push aborted."
+    echo "   Run 'npm --prefix frontend run format' to fix formatting issues."
+    exit 1
+  fi
+fi
 
-# Backend: format → type → lint
-(
-  echo "🔍 [Backend] Starting static analysis..."
-  npm --prefix backend run format:check 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/backend"; echo "❌ Backend format check failed."; exit 1; }
-  npm --prefix backend run type-check 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/backend"; echo "❌ Backend type check failed."; exit 1; }
-  npm --prefix backend run lint 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/backend"; echo "❌ Backend lint failed."; exit 1; }
-  echo "✅ [Backend] Static analysis passed"
-) &
-BACKEND_SA_PID=$!
-
-# Frontend: format → type → lint
-(
-  echo "🔍 [Frontend] Starting static analysis..."
-  npm --prefix frontend run format:check 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/frontend"; echo "❌ Frontend format check failed."; exit 1; }
-  npm --prefix frontend run type-check 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/frontend"; echo "❌ Frontend type check failed."; exit 1; }
-  npm --prefix frontend run lint 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/frontend"; echo "❌ Frontend lint failed."; exit 1; }
-  echo "✅ [Frontend] Static analysis passed"
-) &
-FRONTEND_SA_PID=$!
-
-# E2E/Root: format → type → lint
-(
-  echo "🔍 [E2E] Starting static analysis..."
-  npm run format:check 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/e2e"; echo "❌ E2E format check failed."; exit 1; }
-  npm run type-check 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/e2e"; echo "❌ E2E type check failed."; exit 1; }
-  npm run lint 2>&1 || { echo "FAILED" > "$STATIC_ANALYSIS_DIR/e2e"; echo "❌ E2E lint failed."; exit 1; }
-  echo "✅ [E2E] Static analysis passed"
-) &
-E2E_SA_PID=$!
-
-# 全ワークスペースの完了を待機
-STATIC_FAILED=0
-wait $BACKEND_SA_PID || STATIC_FAILED=1
-wait $FRONTEND_SA_PID || STATIC_FAILED=1
-wait $E2E_SA_PID || STATIC_FAILED=1
-
-# エラーチェック
-if [ $STATIC_FAILED -ne 0 ]; then
-  echo ""
-  echo "❌ Static analysis failed. Push aborted."
-  [ -f "$STATIC_ANALYSIS_DIR/backend" ] && echo "   - Backend: FAILED"
-  [ -f "$STATIC_ANALYSIS_DIR/frontend" ] && echo "   - Frontend: FAILED"
-  [ -f "$STATIC_ANALYSIS_DIR/e2e" ] && echo "   - E2E: FAILED"
-  rm -rf "$STATIC_ANALYSIS_DIR"
+# E2E format check
+echo "🔍 Checking E2E formatting..."
+npm run format:check
+if [ $? -ne 0 ]; then
+  echo "❌ E2E format check failed. Push aborted."
+  echo "   Run 'npm run format' to fix formatting issues."
   exit 1
 fi
 
-rm -rf "$STATIC_ANALYSIS_DIR"
-echo "✅ All static analysis checks passed"
-echo ""
+echo "🔎 Running type checks before push..."
 
-# ============================================================================
-# ビルド（Backend + Frontend 並列実行）
-# ============================================================================
-# ベストプラクティス: 独立したビルドを並列実行して時間を短縮
-# - Backend: build → ES Module検証（逐次、ESM検証はbuild成果物に依存）
-# - Frontend: build（独立して並列実行可能）
-# - WSL2メモリ制約に配慮し、2並列に制限
-# ============================================================================
+# Backend type check
+if [ -d "backend" ]; then
+  echo "🔍 Checking backend types..."
+  npm --prefix backend run type-check
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend type check failed. Push aborted."
+    exit 1
+  fi
+fi
 
-echo "🔨 Building projects in parallel..."
+# Frontend type check
+if [ -d "frontend" ]; then
+  echo "🔍 Checking frontend types..."
+  npm --prefix frontend run type-check
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend type check failed. Push aborted."
+    exit 1
+  fi
+fi
 
-BUILD_DIR=$(mktemp -d)
+# E2E type check
+echo "🔍 Checking E2E types..."
+npm run type-check
+if [ $? -ne 0 ]; then
+  echo "❌ E2E type check failed. Push aborted."
+  exit 1
+fi
 
-# Backend: build → ESM validation（順序実行）
-(
-  echo "🔨 [Backend] Building..."
-  npm --prefix backend run build 2>&1 || { echo "FAILED" > "$BUILD_DIR/backend"; echo "❌ Backend build failed."; exit 1; }
+echo "🔍 Running full lint checks before push..."
 
+# Backend lint
+if [ -d "backend" ]; then
+  echo "🔍 Linting backend..."
+  npm --prefix backend run lint
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend lint failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# Frontend lint
+if [ -d "frontend" ]; then
+  echo "🔍 Linting frontend..."
+  npm --prefix frontend run lint
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend lint failed. Push aborted."
+    exit 1
+  fi
+fi
+
+# E2E lint
+echo "🔍 Linting E2E tests..."
+npm run lint
+if [ $? -ne 0 ]; then
+  echo "❌ E2E lint failed. Push aborted."
+  exit 1
+fi
+
+echo "🔨 Building projects before push..."
+
+# Backend build
+if [ -d "backend" ]; then
+  echo "🔨 Building backend..."
+  npm --prefix backend run build
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend build failed. Push aborted."
+    exit 1
+  fi
+
+  # ============================================================================
   # ES Module検証（CIと同一: ci.yml build job）
-  echo "🔍 [Backend] Validating ES Module imports..."
-  node --check backend/dist/src/index.js 2>&1 || { echo "FAILED" > "$BUILD_DIR/backend"; echo "❌ ES Module error in entry point."; exit 1; }
+  # ============================================================================
+  # ベストプラクティス: ビルド成果物のimport文を検証
+  # - Node.jsの--checkオプションでシンタックスエラーを検出
+  # - .js拡張子の欠落などESM固有のエラーを早期発見
+  # ============================================================================
+  echo "🔍 Validating ES Module imports with node..."
 
-  ESM_OK=true
+  # エントリーポイントの検証
+  node --check backend/dist/src/index.js
+  if [ $? -ne 0 ]; then
+    echo "❌ ES Module error in entry point: backend/dist/src/index.js"
+    echo "💡 Hint: Check for missing .js extensions in imports"
+    exit 1
+  fi
+
+  # 全ビルド済みJavaScriptファイルの検証
+  ESM_ERROR=0
   find backend/dist -name '*.js' -type f | while read file; do
     node --check "$file" || {
       echo "❌ ES Module error in: $file"
-      echo "FAILED" > "$BUILD_DIR/backend"
+      echo "💡 Hint: Check for missing .js extensions in imports"
+      ESM_ERROR=1
       exit 1
     }
   done
 
-  if [ -f "$BUILD_DIR/backend" ]; then
+  if [ $ESM_ERROR -ne 0 ]; then
     exit 1
   fi
 
-  echo "✅ [Backend] Build and ES Module validation passed"
-) &
-BACKEND_BUILD_PID=$!
-
-# Frontend: build（並列実行）
-(
-  echo "🔨 [Frontend] Building..."
-  npm --prefix frontend run build 2>&1 || { echo "FAILED" > "$BUILD_DIR/frontend"; echo "❌ Frontend build failed."; exit 1; }
-  echo "✅ [Frontend] Build passed"
-) &
-FRONTEND_BUILD_PID=$!
-
-# 両方の完了を待機
-BUILD_FAILED=0
-wait $BACKEND_BUILD_PID || BUILD_FAILED=1
-wait $FRONTEND_BUILD_PID || BUILD_FAILED=1
-
-if [ $BUILD_FAILED -ne 0 ]; then
-  echo ""
-  echo "❌ Build failed. Push aborted."
-  [ -f "$BUILD_DIR/backend" ] && echo "   - Backend: FAILED"
-  [ -f "$BUILD_DIR/frontend" ] && echo "   - Frontend: FAILED"
-  rm -rf "$BUILD_DIR"
-  exit 1
+  echo "✅ All ES modules are valid (no import errors detected)"
 fi
 
-rm -rf "$BUILD_DIR"
-echo "✅ All builds passed"
-echo ""
+# Frontend build
+if [ -d "frontend" ]; then
+  echo "🔨 Building frontend..."
+  npm --prefix frontend run build
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend build failed. Push aborted."
+    exit 1
+  fi
+fi
 
 # ビルド完了後のメモリ解放（ビルドは大量のメモリを消費するため）
 release_memory "ビルド"
@@ -370,78 +373,66 @@ if [ $SECURITY_AUDIT_EXIT -ne 0 ]; then
 fi
 echo ""
 
-# ============================================================================
-# 単体テスト（Backend + Frontend 並列実行）
-# ============================================================================
-# ベストプラクティス: PRE_PUSH=trueでCI同等の並列実行を有効化
-# - 各ワークスペース内: フォーク数=2の制御された並列テスト実行
-# - ワークスペース間: backend/frontendを並列に実行して時間を約1/2に短縮
-# - WSL2メモリ制約（6GB）に配慮し、各ワークスペースのフォーク数は2に制限
-# ============================================================================
-
-echo "🧪 Running unit tests with coverage in parallel (backend + frontend)..."
-
-UNIT_TEST_DIR=$(mktemp -d)
-
-# Backend: unit tests + coverage → coverage gap check
-(
-  echo "🧪 [Backend] Running unit tests with coverage (parallel mode)..."
-  PRE_PUSH=true npm --prefix backend run test:unit:coverage 2>&1 || {
-    echo "FAILED" > "$UNIT_TEST_DIR/backend"
-    echo "❌ Backend unit tests or coverage check failed."
+# Backend unit tests with coverage
+if [ -d "backend" ]; then
+  echo "🧪 Running backend unit tests with coverage..."
+  npm --prefix backend run test:unit:coverage
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend unit tests or coverage check failed. Push aborted."
+    echo "   Coverage thresholds: statements 80%, branches 80%, functions 80%, lines 80%"
+    echo "   Run 'npm --prefix backend run test:unit:coverage' to check coverage locally."
     exit 1
-  }
+  fi
 
-  echo "🔍 [Backend] Checking coverage gaps..."
-  PRE_PUSH=true npm --prefix backend run coverage:check 2>&1 || {
-    echo "FAILED" > "$UNIT_TEST_DIR/backend"
-    echo "❌ Backend coverage below target (80%)."
+  # ============================================================================
+  # Coverage Gap Check（CIと同一: ci.yml test-unit job）
+  # ============================================================================
+  # ベストプラクティス: 目標（80%）未満のファイルがあればブロック
+  # - EXIT_CODE 2: 30%以下のカバレッジ → ブロック（緊急）
+  # - EXIT_CODE 1: 31-79%のカバレッジ → ブロック（目標未達）
+  # ============================================================================
+  echo "🔍 Checking backend coverage gaps..."
+  COVERAGE_EXIT=0
+  npm --prefix backend run coverage:check || COVERAGE_EXIT=$?
+  if [ $COVERAGE_EXIT -ne 0 ]; then
+    echo ""
+    echo "❌ Coverage below target (80%) - blocking push"
+    echo "   Run 'npm --prefix backend run coverage:check' for details"
+    echo ""
+    echo "対応方法:"
+    echo "  1. 該当ファイルのテストを追加してカバレッジを80%以上に改善してください"
+    echo "  2. 詳細は 'npm --prefix backend run coverage:check' で確認できます"
     exit 1
-  }
-
-  echo "✅ [Backend] Unit tests and coverage check passed"
-) &
-BACKEND_TEST_PID=$!
-
-# Frontend: unit tests + coverage → coverage gap check
-(
-  echo "🧪 [Frontend] Running unit tests with coverage (parallel mode)..."
-  PRE_PUSH=true npm --prefix frontend run test:coverage 2>&1 || {
-    echo "FAILED" > "$UNIT_TEST_DIR/frontend"
-    echo "❌ Frontend unit tests or coverage check failed."
-    exit 1
-  }
-
-  echo "🔍 [Frontend] Checking coverage gaps..."
-  PRE_PUSH=true npm --prefix frontend run coverage:check 2>&1 || {
-    echo "FAILED" > "$UNIT_TEST_DIR/frontend"
-    echo "❌ Frontend coverage below target (80%)."
-    exit 1
-  }
-
-  echo "✅ [Frontend] Unit tests and coverage check passed"
-) &
-FRONTEND_TEST_PID=$!
-
-# 両方の完了を待機
-UNIT_TEST_FAILED=0
-wait $BACKEND_TEST_PID || UNIT_TEST_FAILED=1
-wait $FRONTEND_TEST_PID || UNIT_TEST_FAILED=1
-
-if [ $UNIT_TEST_FAILED -ne 0 ]; then
-  echo ""
-  echo "❌ Unit tests failed. Push aborted."
-  [ -f "$UNIT_TEST_DIR/backend" ] && echo "   - Backend: FAILED (run 'npm --prefix backend run test:unit:coverage' for details)"
-  [ -f "$UNIT_TEST_DIR/frontend" ] && echo "   - Frontend: FAILED (run 'npm --prefix frontend run test:coverage' for details)"
-  echo ""
-  echo "   Coverage thresholds: statements 80%, branches 80%, functions 80%, lines 80%"
-  rm -rf "$UNIT_TEST_DIR"
-  exit 1
+  fi
 fi
 
-rm -rf "$UNIT_TEST_DIR"
-echo "✅ All unit tests and coverage checks passed"
-echo ""
+# Frontend unit tests with coverage
+if [ -d "frontend" ]; then
+  echo "🧪 Running frontend unit tests with coverage..."
+  npm --prefix frontend run test:coverage
+  if [ $? -ne 0 ]; then
+    echo "❌ Frontend unit tests or coverage check failed. Push aborted."
+    echo "   Run 'npm --prefix frontend run test:coverage' to check coverage locally."
+    exit 1
+  fi
+
+  # ============================================================================
+  # Coverage Gap Check（CIと同一: ci.yml test-unit job）
+  # ============================================================================
+  echo "🔍 Checking frontend coverage gaps..."
+  COVERAGE_EXIT=0
+  npm --prefix frontend run coverage:check || COVERAGE_EXIT=$?
+  if [ $COVERAGE_EXIT -ne 0 ]; then
+    echo ""
+    echo "❌ Coverage below target (80%) - blocking push"
+    echo "   Run 'npm --prefix frontend run coverage:check' for details"
+    echo ""
+    echo "対応方法:"
+    echo "  1. 該当ファイルのテストを追加してカバレッジを80%以上に改善してください"
+    echo "  2. 詳細は 'npm --prefix frontend run coverage:check' で確認できます"
+    exit 1
+  fi
+fi
 
 # ============================================================================
 # Storybook Tests（CIと同一: ci.yml test-storybook job）
@@ -661,10 +652,9 @@ if [ -d "backend" ]; then
 
   # インテグレーションテストはテスト用Dockerコンテナ内で実行
   # テスト環境コンテナ名: architrack-backend-test
-  # NODE_ENV=test を設定してレート制限を無効化
-  # PRE_PUSH=true を設定してCI同等の並列実行を有効化（singleFork回避）
+  # NODE_ENV=test を設定してレート制限をスキップ
   # DATABASE_URL は docker-compose.test.yml で architrack_test に設定済み
-  docker exec -e NODE_ENV=test -e PRE_PUSH=true architrack-backend-test npm run test:integration
+  docker exec -e NODE_ENV=test architrack-backend-test npm run test:integration
   if [ $? -ne 0 ]; then
     echo "❌ Backend integration tests failed. Push aborted."
     npm run test:docker:down > /dev/null 2>&1
@@ -843,10 +833,10 @@ echo "   ✅ Containers refreshed successfully"
 echo ""
 
 # ============================================================================
-# E2E Tests（CIと同一: ci.yml test-e2e job）
+# E2E Tests（CIと同一: ci.yml test-integration job）
 # ============================================================================
 # ベストプラクティス: CIと同一のシンプルな構成
-# - シャーディングなし（ローカルでは順序実行）
+# - シャーディングなし（CIと同様）
 # - CI=trueフラグを設定してPlaywright環境を明示
 # ============================================================================
 echo "🧪 Running E2E tests..."

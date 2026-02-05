@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { resetTestUser, cleanNonUserData, getPrismaClient } from '../../fixtures/database';
+import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
+import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
+import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 
@@ -64,11 +66,14 @@ test.describe('管理者招待機能', () => {
     // テスト間の状態をクリア
     await context.clearCookies();
 
-    // テストユーザーをリセットし、非ユーザーデータをクリーンアップ
+    // データベースをクリーンアップし、テストユーザーを再作成
     // これにより各テストが独立して実行され、順序に依存しなくなる
-    await resetTestUser('ADMIN_USER');
-    await resetTestUser('REGULAR_USER');
-    await cleanNonUserData();
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
 
     // 管理者でログイン
     await loginAsUser(page, 'ADMIN_USER');
