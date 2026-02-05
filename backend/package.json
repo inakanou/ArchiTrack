@@ -86,7 +86,7 @@
     "swagger-ui-express": "^5.0.1",
     "ua-parser-js": "^2.0.8",
     "xlsx": "^0.18.5",
-    "zod": "^4.1.12"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
