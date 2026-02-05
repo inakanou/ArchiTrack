@@ -24,6 +24,10 @@
  * Requirements (company-info):
  * - REQ-6.6, 6.7, 6.8: 自社情報管理権限の定義
  *   - company_info:read, company_info:update
+ *
+ * Requirements (estimate-creation):
+ * - REQ-11: 見積書管理権限の定義
+ *   - estimate:create, estimate:read, estimate:update, estimate:delete
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -367,6 +371,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'update',
       description: '自社情報の更新',
     },
+
+    // 見積書関連権限（estimate-creation/REQ-11）
+    {
+      resource: 'estimate',
+      action: 'create',
+      description: '見積書の作成',
+    },
+    {
+      resource: 'estimate',
+      action: 'read',
+      description: '見積書の閲覧',
+    },
+    {
+      resource: 'estimate',
+      action: 'update',
+      description: '見積書の更新',
+    },
+    {
+      resource: 'estimate',
+      action: 'delete',
+      description: '見積書の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -470,6 +496,12 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     // 一般ユーザーは自社情報の閲覧・更新が可能
     { resource: 'company_info', action: 'read' },
     { resource: 'company_info', action: 'update' },
+    // 見積書関連権限（estimate-creation/REQ-11）
+    // 一般ユーザーは見積書の作成・閲覧・更新・削除が可能
+    { resource: 'estimate', action: 'create' },
+    { resource: 'estimate', action: 'read' },
+    { resource: 'estimate', action: 'update' },
+    { resource: 'estimate', action: 'delete' },
   ];
 
   // 権限IDを一括取得
