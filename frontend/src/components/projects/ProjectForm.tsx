@@ -44,9 +44,9 @@ export interface ProjectFormData {
   /** 工事担当者ID（UUID、任意） */
   constructionPersonId?: string;
   /** 現場住所（最大500文字、任意） */
-  siteAddress?: string;
+  siteAddress?: string | null;
   /** 概要（最大5000文字、任意） */
-  description?: string;
+  description?: string | null;
 }
 
 /**
@@ -344,8 +344,8 @@ function ProjectForm({
       tradingPartnerId: tradingPartnerId.trim() || undefined,
       salesPersonId,
       constructionPersonId: constructionPersonId || undefined,
-      siteAddress: siteAddress.trim() || undefined,
-      description: description.trim() || undefined,
+      siteAddress: siteAddress.trim() || null,
+      description: description.trim() || null,
     };
 
     await onSubmit(formData);

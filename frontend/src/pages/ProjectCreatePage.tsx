@@ -113,8 +113,8 @@ export default function ProjectCreatePage() {
           tradingPartnerId: data.tradingPartnerId,
           salesPersonId: data.salesPersonId,
           constructionPersonId: data.constructionPersonId,
-          siteAddress: data.siteAddress,
-          description: data.description,
+          siteAddress: data.siteAddress || undefined,
+          description: data.description || undefined,
         });
 
         // トースト通知で成功メッセージを表示
