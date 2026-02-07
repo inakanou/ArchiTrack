@@ -129,6 +129,8 @@ describe('FieldValidatedItemRow', () => {
     canMoveDown: true,
     showValidation: true,
     onValidationChange: vi.fn(),
+    getSuggestions: vi.fn().mockReturnValue([]),
+    onBlurAddCandidate: vi.fn(),
   };
 
   beforeEach(() => {

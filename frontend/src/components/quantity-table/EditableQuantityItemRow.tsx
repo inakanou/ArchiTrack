@@ -14,6 +14,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { QuantityItemDetail, CalculationMethod } from '../../types/quantity-table.types';
 import type { CalculationParams } from '../../types/quantity-edit.types';
 import AutocompleteInput from './AutocompleteInput';
+import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import CalculationMethodSelect from './CalculationMethodSelect';
 import CalculationFields from './CalculationFields';
 import { calculate } from '../../utils/calculation-engine';
@@ -44,20 +45,10 @@ export interface EditableQuantityItemRowProps {
   canMoveDown?: boolean;
   /** バリデーション表示フラグ */
   showValidation?: boolean;
-  /** 未保存の大項目リスト */
-  unsavedMajorCategories?: string[];
-  /** 未保存の中項目リスト */
-  unsavedMiddleCategories?: string[];
-  /** 未保存の小項目リスト */
-  unsavedMinorCategories?: string[];
-  /** 未保存の任意分類リスト */
-  unsavedCustomCategories?: string[];
-  /** 未保存の工種リスト */
-  unsavedWorkTypes?: string[];
-  /** 未保存の単位リスト */
-  unsavedUnits?: string[];
-  /** 未保存の規格リスト */
-  unsavedSpecifications?: string[];
+  /** オートコンプリート候補取得関数（Task 18.1: 必須） */
+  getSuggestions: (field: AutocompleteFieldName, inputText: string) => string[];
+  /** オートコンプリートblur時候補追加関数（Task 18.1: 必須） */
+  onBlurAddCandidate: (field: AutocompleteFieldName, value: string) => void;
 }
 
 // ============================================================================
@@ -297,13 +288,8 @@ export default function EditableQuantityItemRow({
   canMoveUp = false,
   canMoveDown = false,
   showValidation = true,
-  unsavedMajorCategories = [],
-  unsavedMiddleCategories = [],
-  unsavedMinorCategories = [],
-  unsavedCustomCategories = [],
-  unsavedWorkTypes = [],
-  unsavedUnits = [],
-  unsavedSpecifications = [],
+  getSuggestions,
+  onBlurAddCandidate,
 }: EditableQuantityItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // 名称フィールドのローカル状態（REQ-5.3: blur時にバリデーション）
@@ -558,21 +544,6 @@ export default function EditableQuantityItemRow({
     setIsMenuOpen(false);
   }, []);
 
-  // 中項目用の追加パラメータ（大項目でフィルタ）
-  const middleCategoryParams = useMemo(
-    () => ({ majorCategory: item.majorCategory }),
-    [item.majorCategory]
-  );
-
-  // 小項目用の追加パラメータ（大項目・中項目でフィルタ）
-  const minorCategoryParams = useMemo(
-    () => ({
-      majorCategory: item.majorCategory,
-      middleCategory: item.middleCategory || '',
-    }),
-    [item.majorCategory, item.middleCategory]
-  );
-
   return (
     <div
       style={styles.wrapper}
@@ -591,10 +562,11 @@ export default function EditableQuantityItemRow({
             label="大項目"
             value={item.majorCategory}
             onChange={createUpdateHandler('majorCategory')}
-            endpoint="/api/autocomplete/major-categories"
-            unsavedValues={unsavedMajorCategories}
             error={errors.majorCategory}
             placeholder="大項目を入力"
+            field="majorCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -605,10 +577,10 @@ export default function EditableQuantityItemRow({
             label="中項目"
             value={item.middleCategory || ''}
             onChange={createUpdateHandler('middleCategory')}
-            endpoint="/api/autocomplete/middle-categories"
-            additionalParams={middleCategoryParams}
-            unsavedValues={unsavedMiddleCategories}
             placeholder="中項目を入力"
+            field="middleCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -619,10 +591,10 @@ export default function EditableQuantityItemRow({
             label="小項目"
             value={item.minorCategory || ''}
             onChange={createUpdateHandler('minorCategory')}
-            endpoint="/api/autocomplete/minor-categories"
-            additionalParams={minorCategoryParams}
-            unsavedValues={unsavedMinorCategories}
             placeholder="小項目を入力"
+            field="minorCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -633,9 +605,10 @@ export default function EditableQuantityItemRow({
             label="任意分類"
             value={item.customCategory || ''}
             onChange={createUpdateHandler('customCategory')}
-            endpoint="/api/autocomplete/custom-categories"
-            unsavedValues={unsavedCustomCategories}
             placeholder="任意分類を入力"
+            field="customCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -646,11 +619,12 @@ export default function EditableQuantityItemRow({
             label="工種"
             value={item.workType}
             onChange={createUpdateHandler('workType')}
-            endpoint="/api/autocomplete/work-types"
-            unsavedValues={unsavedWorkTypes}
             error={errors.workType}
             required
             placeholder="工種を入力"
+            field="workType"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -689,9 +663,10 @@ export default function EditableQuantityItemRow({
             label="規格"
             value={item.specification || ''}
             onChange={createUpdateHandler('specification')}
-            endpoint="/api/autocomplete/specifications"
-            unsavedValues={unsavedSpecifications}
             placeholder="規格を入力"
+            field="specification"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -745,11 +720,12 @@ export default function EditableQuantityItemRow({
             label="単位"
             value={item.unit}
             onChange={createUpdateHandler('unit')}
-            endpoint="/api/autocomplete/units"
-            unsavedValues={unsavedUnits}
             error={errors.unit}
             required
             placeholder="単位"
+            field="unit"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 

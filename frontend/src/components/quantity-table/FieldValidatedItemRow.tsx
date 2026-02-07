@@ -15,6 +15,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { QuantityItemDetail, CalculationMethod } from '../../types/quantity-table.types';
 import type { CalculationParams } from '../../types/quantity-edit.types';
 import AutocompleteInput from './AutocompleteInput';
+import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import CalculationMethodSelect from './CalculationMethodSelect';
 import CalculationFields from './CalculationFields';
 import { calculate } from '../../utils/calculation-engine';
@@ -65,20 +66,10 @@ export interface FieldValidatedItemRowProps {
   showValidation?: boolean;
   /** バリデーション変更コールバック */
   onValidationChange?: (itemId: string, info: ValidationChangeInfo) => void;
-  /** 未保存の大項目リスト */
-  unsavedMajorCategories?: string[];
-  /** 未保存の中項目リスト */
-  unsavedMiddleCategories?: string[];
-  /** 未保存の小項目リスト */
-  unsavedMinorCategories?: string[];
-  /** 未保存の任意分類リスト */
-  unsavedCustomCategories?: string[];
-  /** 未保存の工種リスト */
-  unsavedWorkTypes?: string[];
-  /** 未保存の単位リスト */
-  unsavedUnits?: string[];
-  /** 未保存の規格リスト */
-  unsavedSpecifications?: string[];
+  /** オートコンプリート候補取得関数（Task 18.1: 必須） */
+  getSuggestions: (field: AutocompleteFieldName, inputText: string) => string[];
+  /** オートコンプリートblur時候補追加関数（Task 18.1: 必須） */
+  onBlurAddCandidate: (field: AutocompleteFieldName, value: string) => void;
 }
 
 // ============================================================================
@@ -307,13 +298,8 @@ export default function FieldValidatedItemRow({
   canMoveDown = false,
   showValidation = true,
   onValidationChange,
-  unsavedMajorCategories = [],
-  unsavedMiddleCategories = [],
-  unsavedMinorCategories = [],
-  unsavedCustomCategories = [],
-  unsavedWorkTypes = [],
-  unsavedUnits = [],
-  unsavedSpecifications = [],
+  getSuggestions,
+  onBlurAddCandidate,
 }: FieldValidatedItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [localName, setLocalName] = useState(item.name);
@@ -680,21 +666,6 @@ export default function FieldValidatedItemRow({
     setIsMenuOpen(false);
   }, []);
 
-  // 中項目用の追加パラメータ
-  const middleCategoryParams = useMemo(
-    () => ({ majorCategory: item.majorCategory }),
-    [item.majorCategory]
-  );
-
-  // 小項目用の追加パラメータ
-  const minorCategoryParams = useMemo(
-    () => ({
-      majorCategory: item.majorCategory,
-      middleCategory: item.middleCategory || '',
-    }),
-    [item.majorCategory, item.middleCategory]
-  );
-
   return (
     <div
       style={styles.wrapper}
@@ -713,10 +684,11 @@ export default function FieldValidatedItemRow({
             label="大項目"
             value={item.majorCategory}
             onChange={createTextUpdateHandler('majorCategory')}
-            endpoint="/api/autocomplete/major-categories"
-            unsavedValues={unsavedMajorCategories}
             error={errors.majorCategory}
             placeholder="大項目を入力"
+            field="majorCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -727,11 +699,11 @@ export default function FieldValidatedItemRow({
             label="中項目"
             value={item.middleCategory || ''}
             onChange={createTextUpdateHandler('middleCategory')}
-            endpoint="/api/autocomplete/middle-categories"
-            additionalParams={middleCategoryParams}
-            unsavedValues={unsavedMiddleCategories}
             error={errors.middleCategory}
             placeholder="中項目を入力"
+            field="middleCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -742,11 +714,11 @@ export default function FieldValidatedItemRow({
             label="小項目"
             value={item.minorCategory || ''}
             onChange={createTextUpdateHandler('minorCategory')}
-            endpoint="/api/autocomplete/minor-categories"
-            additionalParams={minorCategoryParams}
-            unsavedValues={unsavedMinorCategories}
             error={errors.minorCategory}
             placeholder="小項目を入力"
+            field="minorCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -757,10 +729,11 @@ export default function FieldValidatedItemRow({
             label="任意分類"
             value={item.customCategory || ''}
             onChange={createTextUpdateHandler('customCategory')}
-            endpoint="/api/autocomplete/custom-categories"
-            unsavedValues={unsavedCustomCategories}
             error={errors.customCategory}
             placeholder="任意分類を入力"
+            field="customCategory"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -771,11 +744,12 @@ export default function FieldValidatedItemRow({
             label="工種"
             value={item.workType}
             onChange={createTextUpdateHandler('workType')}
-            endpoint="/api/autocomplete/work-types"
-            unsavedValues={unsavedWorkTypes}
             error={errors.workType}
             required
             placeholder="工種を入力"
+            field="workType"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -812,10 +786,11 @@ export default function FieldValidatedItemRow({
             label="規格"
             value={item.specification || ''}
             onChange={createTextUpdateHandler('specification')}
-            endpoint="/api/autocomplete/specifications"
-            unsavedValues={unsavedSpecifications}
             error={errors.specification}
             placeholder="規格を入力"
+            field="specification"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 
@@ -826,11 +801,12 @@ export default function FieldValidatedItemRow({
             label="単位"
             value={item.unit}
             onChange={createTextUpdateHandler('unit')}
-            endpoint="/api/autocomplete/units"
-            unsavedValues={unsavedUnits}
             error={errors.unit}
             required
             placeholder="単位"
+            field="unit"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
           />
         </div>
 

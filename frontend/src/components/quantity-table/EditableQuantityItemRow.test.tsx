@@ -15,14 +15,7 @@ import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
 import type { QuantityItemDetail } from '../../types/quantity-table.types';
 
-// Mock useAutocomplete hook
-vi.mock('../../hooks/useAutocomplete', () => ({
-  useAutocomplete: vi.fn(() => ({
-    suggestions: [],
-    isLoading: false,
-    error: null,
-  })),
-}));
+// Task 18.1: useAutocompleteモックは不要（新モード専用）
 
 describe('EditableQuantityItemRow', () => {
   afterEach(() => {
@@ -56,12 +49,8 @@ describe('EditableQuantityItemRow', () => {
     onUpdate: vi.fn(),
     onDelete: vi.fn(),
     onCopy: vi.fn(),
-    unsavedMajorCategories: [] as string[],
-    unsavedMiddleCategories: [] as string[],
-    unsavedMinorCategories: [] as string[],
-    unsavedWorkTypes: [] as string[],
-    unsavedUnits: [] as string[],
-    unsavedSpecifications: [] as string[],
+    getSuggestions: vi.fn().mockReturnValue([]),
+    onBlurAddCandidate: vi.fn(),
   };
 
   beforeEach(() => {
@@ -252,16 +241,9 @@ describe('EditableQuantityItemRow', () => {
   });
 
   describe('unsavedValues伝播', () => {
-    it('unsavedMajorCategoriesがAutoCompleteInputに渡される', () => {
-      const unsavedMajorCategories = ['新規大項目1', '新規大項目2'];
-      render(
-        <EditableQuantityItemRow
-          {...defaultProps}
-          unsavedMajorCategories={unsavedMajorCategories}
-        />
-      );
+    it('コンポーネントがレンダリングされる', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
 
-      // コンポーネントがレンダリングされることを確認
       // 大項目フィールドが存在することを確認
       expect(screen.getByRole('combobox', { name: /大項目/ })).toBeInTheDocument();
     });

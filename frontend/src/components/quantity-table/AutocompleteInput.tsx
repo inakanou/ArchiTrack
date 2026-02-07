@@ -2,50 +2,51 @@
  * @fileoverview オートコンプリート入力コンポーネント
  *
  * Task 7.1: オートコンプリート入力コンポーネントを実装する
+ * Task 17.1: クライアントサイド候補ストア方式に更新する
+ * Task 18.1: 旧useAutocompleteフックを廃止し新モード専用に統合する
  *
  * Requirements:
  * - 7.1: 入力開始時の候補表示
+ * - 7.3: クライアントサイドでのフィルタリング表示
  * - 7.4: 候補選択時の自動入力
  * - 7.5: 上下キー選択とEnter確定
+ * - 7.6: blur時の候補追加はAPIリクエスト不要
+ * - 7.7: 候補を50音順に表示
  */
 
-import { useState, useRef, useCallback, useId, useEffect } from 'react';
-import { useAutocomplete } from '../../hooks/useAutocomplete';
+import { useState, useRef, useCallback, useId, useEffect, useMemo } from 'react';
+import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 
 // ============================================================================
 // 型定義
 // ============================================================================
 
 /**
- * AutocompleteInputコンポーネントのProps
+ * AutocompleteInputコンポーネントのProps（新モード専用）
  */
 export interface AutocompleteInputProps {
   /** 現在の入力値 */
   value: string;
   /** 値変更時のコールバック */
   onChange: (value: string) => void;
-  /** APIエンドポイント */
-  endpoint: string;
+  /** 対象フィールド名 */
+  field: AutocompleteFieldName;
+  /** 候補を取得する関数（AutocompleteCandidateStoreから注入） */
+  getSuggestions: (field: AutocompleteFieldName, inputText: string) => string[];
+  /** blur時に候補を追加する関数（AutocompleteCandidateStoreから注入） */
+  onBlurAddCandidate: (field: AutocompleteFieldName, value: string) => void;
   /** プレースホルダー */
   placeholder?: string;
   /** ラベル */
   label?: string;
   /** 入力フィールドのID */
   id?: string;
-  /** 追加のクエリパラメータ */
-  additionalParams?: Record<string, string>;
-  /** 未保存の値リスト（画面上で入力された値） */
-  unsavedValues?: string[];
   /** エラーメッセージ */
   error?: string;
   /** 必須フィールドかどうか */
   required?: boolean;
   /** 無効化フラグ */
   disabled?: boolean;
-  /** デバウンス遅延（ミリ秒） */
-  debounceMs?: number;
-  /** オートコンプリート有効化フラグ */
-  autocompleteEnabled?: boolean;
 }
 
 // ============================================================================
@@ -103,18 +104,6 @@ const styles = {
     color: '#9ca3af',
     cursor: 'not-allowed',
   } as React.CSSProperties,
-  loadingIndicator: {
-    position: 'absolute' as const,
-    right: '4px',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    width: '12px',
-    height: '12px',
-    border: '2px solid #e5e7eb',
-    borderTopColor: '#2563eb',
-    borderRadius: '50%',
-    animation: 'spin 0.8s linear infinite',
-  } as React.CSSProperties,
   dropdown: {
     position: 'absolute' as const,
     top: '100%',
@@ -161,26 +150,26 @@ const styles = {
 /**
  * オートコンプリート入力コンポーネント
  *
- * 入力時に過去の入力履歴から候補を表示し、
- * キーボード操作やクリックで選択できる。
+ * クライアントサイド候補ストアベース（getSuggestions関数使用）で
+ * field + getSuggestions + onBlurAddCandidate propsを受け取ります。
  *
  * @param props - コンポーネントProps
  */
-export default function AutocompleteInput({
-  value,
-  onChange,
-  endpoint,
-  placeholder = '',
-  label,
-  id: propId,
-  additionalParams = {},
-  unsavedValues = [],
-  error,
-  required = false,
-  disabled = false,
-  debounceMs = 300,
-  autocompleteEnabled = true,
-}: AutocompleteInputProps) {
+export default function AutocompleteInput(props: AutocompleteInputProps) {
+  const {
+    value,
+    onChange,
+    field,
+    getSuggestions,
+    onBlurAddCandidate,
+    placeholder = '',
+    label,
+    id: propId,
+    error,
+    required = false,
+    disabled = false,
+  } = props;
+
   const generatedId = useId();
   const inputId = propId || generatedId;
   const listboxId = `${inputId}-listbox`;
@@ -193,15 +182,10 @@ export default function AutocompleteInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
 
-  // useAutocomplete hookで候補を取得
-  const { suggestions, isLoading } = useAutocomplete({
-    endpoint,
-    inputValue: value,
-    unsavedValues,
-    additionalParams,
-    debounceMs,
-    enabled: autocompleteEnabled && !disabled,
-  });
+  // getSuggestionsで候補を取得
+  const suggestions = useMemo(() => {
+    return getSuggestions(field, value);
+  }, [field, value, getSuggestions]);
 
   // 候補があり、フォーカス中の場合にドロップダウンを開く
   const shouldShowDropdown = isOpen && suggestions.length > 0;
@@ -244,19 +228,28 @@ export default function AutocompleteInput({
 
   /**
    * ブラー時ハンドラ
+   * blur時にonBlurAddCandidateを呼び出して確定値を候補に追加
    */
-  const handleBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-    // リストボックスへのフォーカス移動の場合は閉じない
-    if (e.relatedTarget && listboxRef.current?.contains(e.relatedTarget as Node)) {
-      return;
-    }
-    setIsFocused(false);
-    // 遅延してドロップダウンを閉じる（クリック処理を先に実行するため）
-    setTimeout(() => {
-      setIsOpen(false);
-      setSelectedIndex(-1);
-    }, 150);
-  }, []);
+  const handleBlur = useCallback(
+    (e: React.FocusEvent<HTMLInputElement>) => {
+      // リストボックスへのフォーカス移動の場合は閉じない
+      if (e.relatedTarget && listboxRef.current?.contains(e.relatedTarget as Node)) {
+        return;
+      }
+      setIsFocused(false);
+      // 遅延してドロップダウンを閉じる（クリック処理を先に実行するため）
+      setTimeout(() => {
+        setIsOpen(false);
+        setSelectedIndex(-1);
+      }, 150);
+
+      // blur時に確定値を候補リストに追加（APIリクエストなし）
+      if (!disabled && value.trim()) {
+        onBlurAddCandidate(field, value);
+      }
+    },
+    [disabled, value, field, onBlurAddCandidate]
+  );
 
   /**
    * キーダウンハンドラ
@@ -381,19 +374,6 @@ export default function AutocompleteInput({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
         />
-
-        {/* ローディングインジケーター */}
-        {isLoading && (
-          <div style={styles.loadingIndicator} aria-label="読み込み中" role="status">
-            <style>
-              {`
-                @keyframes spin {
-                  to { transform: translateY(-50%) rotate(360deg); }
-                }
-              `}
-            </style>
-          </div>
-        )}
       </div>
 
       {/* ドロップダウン候補リスト */}

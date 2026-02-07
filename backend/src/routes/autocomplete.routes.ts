@@ -1,555 +1,221 @@
 /**
  * @fileoverview オートコンプリートAPIルート
  *
+ * Task 18.1: 旧個別エンドポイントを廃止し、一括取得エンドポイントのみを保持
+ *
  * Requirements:
- * - 7.1: 大項目フィールドで2文字以上入力すると、過去の入力履歴からオートコンプリート候補を表示する
- * - 7.2: 中項目フィールドで2文字以上入力すると、選択中の大項目に紐づく過去の中項目からオートコンプリート候補を表示する
- * - 7.3: 小項目フィールドで2文字以上入力すると、選択中の大項目・中項目に紐づく過去の小項目からオートコンプリート候補を表示する
+ * - 7.1-7.7: オートコンプリート候補の表示・フィルタリング・選択
  *
  * @module routes/autocomplete
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { z } from 'zod';
 import getPrismaClient from '../db.js';
-import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
 
-const router = Router();
+// mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
+const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
 
-/**
- * オートコンプリートクエリスキーマ
- */
-const autocompleteQuerySchema = z.object({
-  q: z.string().min(1, '検索文字列は必須です'),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
-});
+// ============================================================================
+// オートコンプリート候補一括取得エンドポイント（Phase 3: 初回一括読み込み方式）
+// ============================================================================
 
 /**
- * 中項目オートコンプリートクエリスキーマ
+ * オートコンプリート対象フィールド名
  */
-const middleCategoryQuerySchema = autocompleteQuerySchema.extend({
-  majorCategory: z.string().min(1, '大項目は必須です'),
-});
+type AutocompleteFieldName =
+  | 'majorCategory'
+  | 'middleCategory'
+  | 'minorCategory'
+  | 'customCategory'
+  | 'workType'
+  | 'name'
+  | 'specification'
+  | 'unit'
+  | 'remarks';
 
 /**
- * 小項目オートコンプリートクエリスキーマ
+ * オートコンプリート対象フィールド一覧
+ *
+ * NULLを許容するフィールド（nullable）はgroupByの結果からnull値を除外する必要がある
  */
-const minorCategoryQuerySchema = middleCategoryQuerySchema.extend({
-  middleCategory: z.string().min(1, '中項目は必須です'),
-});
+const AUTOCOMPLETE_FIELDS: { field: AutocompleteFieldName; nullable: boolean }[] = [
+  { field: 'majorCategory', nullable: false },
+  { field: 'middleCategory', nullable: true },
+  { field: 'minorCategory', nullable: true },
+  { field: 'customCategory', nullable: true },
+  { field: 'workType', nullable: false },
+  { field: 'name', nullable: false },
+  { field: 'specification', nullable: true },
+  { field: 'unit', nullable: false },
+  { field: 'remarks', nullable: true },
+];
 
 /**
  * @swagger
- * /api/autocomplete/major-categories:
+ * /api/projects/{projectId}/quantity-items/autocomplete-candidates:
  *   get:
- *     summary: 大項目オートコンプリート
- *     description: 過去の入力履歴から大項目の候補を取得
+ *     summary: オートコンプリート候補一括取得
+ *     description: |
+ *       プロジェクト単位で対象9フィールドのオートコンプリート候補値を一括取得する。
+ *       各フィールドに対してGROUP BYで重複排除した候補値の配列を返す。
+ *       各配列は50音順（locale: 'ja'）でソート済み。
  *     tags:
  *       - Autocomplete
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: q
+ *       - in: path
+ *         name: projectId
  *         required: true
  *         schema:
  *           type: string
- *         description: 検索文字列
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *           maximum: 50
- *         description: 最大取得件数
+ *         description: プロジェクトID
  *     responses:
  *       200:
- *         description: オートコンプリート候補
+ *         description: オートコンプリート候補一括取得成功
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 suggestions:
- *                   type: array
- *                   items:
- *                     type: string
+ *                 candidates:
+ *                   type: object
+ *                   properties:
+ *                     majorCategory:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     middleCategory:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     minorCategory:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     customCategory:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     workType:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     name:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     specification:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     unit:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     remarks:
+ *                       type: array
+ *                       items:
+ *                         type: string
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない
  */
 router.get(
-  '/major-categories',
+  '/autocomplete-candidates',
   authenticate,
   requirePermission('quantity_table:read'),
-  validate(autocompleteQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { q, limit } = req.validatedQuery as { q: string; limit: number };
+      const { projectId } = req.params;
 
-      const results = await prisma.quantityItem.groupBy({
-        by: ['majorCategory'],
-        where: {
-          majorCategory: {
-            contains: q,
-            mode: 'insensitive',
-          },
-          quantityGroup: {
-            quantityTable: {
-              deletedAt: null,
-            },
-          },
-        },
-        take: limit,
-        orderBy: {
-          _count: {
-            majorCategory: 'desc',
-          },
-        },
+      // プロジェクトの存在チェック
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true },
       });
 
-      const suggestions = results.map((r) => r.majorCategory);
+      if (!project) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/project-not-found',
+          title: 'Project Not Found',
+          status: 404,
+          detail: `プロジェクト（ID: ${projectId}）が見つかりません`,
+          code: 'PROJECT_NOT_FOUND',
+          projectId,
+        });
+        return;
+      }
 
-      logger.debug(
-        { userId: req.user?.userId, query: q, resultCount: suggestions.length },
-        'Major category autocomplete'
+      // 9フィールドのgroupByをPromise.allで並列実行
+      const fieldResults = await Promise.all(
+        AUTOCOMPLETE_FIELDS.map(async ({ field, nullable }) => {
+          // WHERE条件: プロジェクトスコープ、論理削除除外、NULL/空文字除外
+          const whereCondition: Record<string, unknown> = {
+            quantityGroup: {
+              quantityTable: {
+                projectId,
+                deletedAt: null,
+              },
+            },
+          };
+
+          // NULLableフィールドはNOT NULLフィルタを追加
+          if (nullable) {
+            whereCondition[field] = { not: null };
+          }
+
+          const results = await prisma.quantityItem.groupBy({
+            by: [field],
+            where: whereCondition,
+          });
+
+          // 値を抽出し、null/空文字を除外、50音順ソート
+          const values = results
+            .map((r: Record<string, unknown>) => r[field] as string | null)
+            .filter((v): v is string => v !== null && v !== undefined && v.trim() !== '')
+            .sort((a: string, b: string) => a.localeCompare(b, 'ja'));
+
+          return { field, values };
+        })
       );
 
-      res.json({ suggestions });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/autocomplete/middle-categories:
- *   get:
- *     summary: 中項目オートコンプリート
- *     description: 指定された大項目に紐づく過去の中項目から候補を取得
- *     tags:
- *       - Autocomplete
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: q
- *         required: true
- *         schema:
- *           type: string
- *         description: 検索文字列
- *       - in: query
- *         name: majorCategory
- *         required: true
- *         schema:
- *           type: string
- *         description: 大項目
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *           maximum: 50
- *         description: 最大取得件数
- *     responses:
- *       200:
- *         description: オートコンプリート候補
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- */
-router.get(
-  '/middle-categories',
-  authenticate,
-  requirePermission('quantity_table:read'),
-  validate(middleCategoryQuerySchema, 'query'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { q, majorCategory, limit } = req.validatedQuery as {
-        q: string;
-        majorCategory: string;
-        limit: number;
+      // フィールド別候補マップを構築
+      const candidates: Record<AutocompleteFieldName, string[]> = {
+        majorCategory: [],
+        middleCategory: [],
+        minorCategory: [],
+        customCategory: [],
+        workType: [],
+        name: [],
+        specification: [],
+        unit: [],
+        remarks: [],
       };
 
-      const results = await prisma.quantityItem.groupBy({
-        by: ['middleCategory'],
-        where: {
-          majorCategory,
-          middleCategory: {
-            not: null,
-            contains: q,
-            mode: 'insensitive',
-          },
-          quantityGroup: {
-            quantityTable: {
-              deletedAt: null,
-            },
-          },
-        },
-        take: limit,
-        orderBy: {
-          _count: {
-            middleCategory: 'desc',
-          },
-        },
-      });
-
-      const suggestions = results
-        .map((r) => r.middleCategory)
-        .filter((v): v is string => v !== null);
-
-      logger.debug(
-        { userId: req.user?.userId, query: q, majorCategory, resultCount: suggestions.length },
-        'Middle category autocomplete'
-      );
-
-      res.json({ suggestions });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/autocomplete/minor-categories:
- *   get:
- *     summary: 小項目オートコンプリート
- *     description: 指定された大項目・中項目に紐づく過去の小項目から候補を取得
- *     tags:
- *       - Autocomplete
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: q
- *         required: true
- *         schema:
- *           type: string
- *         description: 検索文字列
- *       - in: query
- *         name: majorCategory
- *         required: true
- *         schema:
- *           type: string
- *         description: 大項目
- *       - in: query
- *         name: middleCategory
- *         required: true
- *         schema:
- *           type: string
- *         description: 中項目
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *           maximum: 50
- *         description: 最大取得件数
- *     responses:
- *       200:
- *         description: オートコンプリート候補
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- */
-router.get(
-  '/minor-categories',
-  authenticate,
-  requirePermission('quantity_table:read'),
-  validate(minorCategoryQuerySchema, 'query'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { q, majorCategory, middleCategory, limit } = req.validatedQuery as {
-        q: string;
-        majorCategory: string;
-        middleCategory: string;
-        limit: number;
-      };
-
-      const results = await prisma.quantityItem.groupBy({
-        by: ['minorCategory'],
-        where: {
-          majorCategory,
-          middleCategory,
-          minorCategory: {
-            not: null,
-            contains: q,
-            mode: 'insensitive',
-          },
-          quantityGroup: {
-            quantityTable: {
-              deletedAt: null,
-            },
-          },
-        },
-        take: limit,
-        orderBy: {
-          _count: {
-            minorCategory: 'desc',
-          },
-        },
-      });
-
-      const suggestions = results
-        .map((r) => r.minorCategory)
-        .filter((v): v is string => v !== null);
+      for (const { field, values } of fieldResults) {
+        candidates[field] = values;
+      }
 
       logger.debug(
         {
           userId: req.user?.userId,
-          query: q,
-          majorCategory,
-          middleCategory,
-          resultCount: suggestions.length,
+          projectId,
+          fieldCounts: Object.fromEntries(
+            Object.entries(candidates).map(([k, v]) => [k, v.length])
+          ),
         },
-        'Minor category autocomplete'
+        'Autocomplete candidates bulk fetch'
       );
 
-      res.json({ suggestions });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/autocomplete/work-types:
- *   get:
- *     summary: 工種オートコンプリート
- *     description: 過去の入力履歴から工種の候補を取得
- *     tags:
- *       - Autocomplete
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: q
- *         required: true
- *         schema:
- *           type: string
- *         description: 検索文字列
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *           maximum: 50
- *         description: 最大取得件数
- *     responses:
- *       200:
- *         description: オートコンプリート候補
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- */
-router.get(
-  '/work-types',
-  authenticate,
-  requirePermission('quantity_table:read'),
-  validate(autocompleteQuerySchema, 'query'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { q, limit } = req.validatedQuery as { q: string; limit: number };
-
-      const results = await prisma.quantityItem.groupBy({
-        by: ['workType'],
-        where: {
-          workType: {
-            contains: q,
-            mode: 'insensitive',
-          },
-          quantityGroup: {
-            quantityTable: {
-              deletedAt: null,
-            },
-          },
-        },
-        take: limit,
-        orderBy: {
-          _count: {
-            workType: 'desc',
-          },
-        },
-      });
-
-      const suggestions = results.map((r) => r.workType);
-
-      logger.debug(
-        { userId: req.user?.userId, query: q, resultCount: suggestions.length },
-        'Work type autocomplete'
-      );
-
-      res.json({ suggestions });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/autocomplete/units:
- *   get:
- *     summary: 単位オートコンプリート
- *     description: 過去の入力履歴から単位の候補を取得
- *     tags:
- *       - Autocomplete
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: q
- *         required: true
- *         schema:
- *           type: string
- *         description: 検索文字列
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *           maximum: 50
- *         description: 最大取得件数
- *     responses:
- *       200:
- *         description: オートコンプリート候補
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- */
-router.get(
-  '/units',
-  authenticate,
-  requirePermission('quantity_table:read'),
-  validate(autocompleteQuerySchema, 'query'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { q, limit } = req.validatedQuery as { q: string; limit: number };
-
-      const results = await prisma.quantityItem.groupBy({
-        by: ['unit'],
-        where: {
-          unit: {
-            contains: q,
-            mode: 'insensitive',
-          },
-          quantityGroup: {
-            quantityTable: {
-              deletedAt: null,
-            },
-          },
-        },
-        take: limit,
-        orderBy: {
-          _count: {
-            unit: 'desc',
-          },
-        },
-      });
-
-      const suggestions = results.map((r) => r.unit);
-
-      logger.debug(
-        { userId: req.user?.userId, query: q, resultCount: suggestions.length },
-        'Unit autocomplete'
-      );
-
-      res.json({ suggestions });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/autocomplete/specifications:
- *   get:
- *     summary: 規格オートコンプリート
- *     description: 過去の入力履歴から規格の候補を取得
- *     tags:
- *       - Autocomplete
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: q
- *         required: true
- *         schema:
- *           type: string
- *         description: 検索文字列
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *           maximum: 50
- *         description: 最大取得件数
- *     responses:
- *       200:
- *         description: オートコンプリート候補
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- */
-router.get(
-  '/specifications',
-  authenticate,
-  requirePermission('quantity_table:read'),
-  validate(autocompleteQuerySchema, 'query'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { q, limit } = req.validatedQuery as { q: string; limit: number };
-
-      const results = await prisma.quantityItem.groupBy({
-        by: ['specification'],
-        where: {
-          specification: {
-            not: null,
-            contains: q,
-            mode: 'insensitive',
-          },
-          quantityGroup: {
-            quantityTable: {
-              deletedAt: null,
-            },
-          },
-        },
-        take: limit,
-        orderBy: {
-          _count: {
-            specification: 'desc',
-          },
-        },
-      });
-
-      const suggestions = results
-        .map((r) => r.specification)
-        .filter((v): v is string => v !== null);
-
-      logger.debug(
-        { userId: req.user?.userId, query: q, resultCount: suggestions.length },
-        'Specification autocomplete'
-      );
-
-      res.json({ suggestions });
+      res.json({ candidates });
     } catch (error) {
       next(error);
     }

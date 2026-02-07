@@ -13,9 +13,14 @@
 
 import { useState, useCallback } from 'react';
 import type { QuantityGroupDetail, QuantityItemDetail } from '../../types/quantity-table.types';
+import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import QuantityItemRow from './QuantityItemRow';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
 import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
+
+// デフォルトのオートコンプリート関数（isEditable=false時のフォールバック）
+const defaultGetSuggestions = () => [] as string[];
+const defaultOnBlurAddCandidate = () => {};
 
 // ============================================================================
 // 型定義
@@ -49,6 +54,10 @@ export interface QuantityGroupCardProps {
   onMoveItem?: (itemId: string, direction: 'up' | 'down') => void;
   /** 注釈ビューアを開くコールバック（REQ-4.4） */
   onOpenAnnotationViewer?: (groupId: string) => void;
+  /** オートコンプリート候補取得関数（Task 18.1: isEditable時に必須） */
+  getSuggestions?: (field: AutocompleteFieldName, inputText: string) => string[];
+  /** オートコンプリートblur時候補追加関数（Task 18.1: isEditable時に必須） */
+  onBlurAddCandidate?: (field: AutocompleteFieldName, value: string) => void;
 }
 
 // ============================================================================
@@ -324,6 +333,8 @@ export default function QuantityGroupCard({
   onCopyItem,
   onMoveItem,
   onOpenAnnotationViewer,
+  getSuggestions,
+  onBlurAddCandidate,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
   const hasAnnotations = group.surveyImage?.hasAnnotations ?? false;
@@ -484,6 +495,8 @@ export default function QuantityGroupCard({
                     onMoveDown={(itemId) => onMoveItem?.(itemId, 'down')}
                     canMoveUp={index > 0}
                     canMoveDown={index < items.length - 1}
+                    getSuggestions={getSuggestions || defaultGetSuggestions}
+                    onBlurAddCandidate={onBlurAddCandidate || defaultOnBlurAddCandidate}
                   />
                 ) : (
                   <QuantityItemRow

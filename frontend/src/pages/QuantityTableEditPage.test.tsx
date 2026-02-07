@@ -23,6 +23,21 @@ import type { SurveyImageInfo } from '../types/site-survey.types';
 vi.mock('../api/quantity-tables');
 vi.mock('../api/site-surveys');
 
+// useAutocompleteCandidateStoreフックのモック
+const mockGetSuggestions = vi.fn().mockReturnValue([]);
+const mockAddCandidateOnBlur = vi.fn();
+vi.mock('../hooks/useAutocompleteCandidateStore', () => ({
+  useAutocompleteCandidateStore: vi.fn(() => ({
+    isLoading: false,
+    error: null,
+    getSuggestions: mockGetSuggestions,
+    addCandidateOnBlur: mockAddCandidateOnBlur,
+  })),
+}));
+
+import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
+const mockUseAutocompleteCandidateStore = vi.mocked(useAutocompleteCandidateStore);
+
 const mockGetQuantityTableDetail = vi.mocked(quantityTablesApi.getQuantityTableDetail);
 const mockCreateQuantityGroup = vi.mocked(quantityTablesApi.createQuantityGroup);
 const mockDeleteQuantityGroup = vi.mocked(quantityTablesApi.deleteQuantityGroup);
@@ -1681,6 +1696,60 @@ describe('QuantityTableEditPage', () => {
         // プレースホルダーが消えて、選択した写真のサムネイルが表示される
         expect(screen.queryByTestId('image-placeholder-group-2')).not.toBeInTheDocument();
       });
+    });
+  });
+
+  // ====================================================================
+  // Task 17.2: オートコンプリート候補ストアの統合
+  // ====================================================================
+
+  describe('Task 17.2: オートコンプリート候補ストアの統合', () => {
+    it('マウント時にuseAutocompleteCandidateStoreが初期化される (Req 7.1)', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // useAutocompleteCandidateStoreがprojectIdで呼ばれていること
+      expect(mockUseAutocompleteCandidateStore).toHaveBeenCalledWith({
+        projectId: 'proj-456',
+      });
+    });
+
+    it('候補取得エラー時もオートコンプリート以外は正常に動作する (graceful degradation)', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockUseAutocompleteCandidateStore.mockReturnValue({
+        isLoading: false,
+        error: new Error('Network error'),
+        getSuggestions: mockGetSuggestions,
+        addCandidateOnBlur: mockAddCandidateOnBlur,
+      });
+
+      renderWithRouter();
+
+      // 数量表自体は正常に表示される
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('テスト数量表')).toBeInTheDocument();
+        expect(screen.getByText('グループ1')).toBeInTheDocument();
+      });
+    });
+
+    it('対象9フィールドにfield propsが渡される (Req 7.1)', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // getSuggestions関数が呼ばれていること（AutocompleteInputの新モードで使用）
+      // 各フィールドでgetSuggestionsが呼ばれていることを確認
+      // AutocompleteInputの新モードではマウント時にgetSuggestionsが呼ばれる
+      expect(mockGetSuggestions).toHaveBeenCalled();
     });
   });
 
