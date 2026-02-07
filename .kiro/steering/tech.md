@@ -1,8 +1,8 @@
 # 技術スタック
 
-ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
+ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-02-04（Steering Sync: 見積書作成・自社情報登録機能の実装完了を反映）_
+_最終更新: 2026-02-07（Steering Sync: プロダクト説明を「建設プロジェクト管理・積算支援システム」に更新）_
 
 ## アーキテクチャ
 
