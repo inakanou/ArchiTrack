@@ -2,10 +2,10 @@
 
 # ArchiTrack
 
-**アーキテクチャ決定記録（ADR）管理システム**
+**建設プロジェクト管理・積算支援システム**
 
-[![CI/CD](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/ArchiTrack/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/your-org/ArchiTrack/branch/main/graph/badge.svg)](https://codecov.io/gh/your-org/ArchiTrack)
+[![CI/CD](https://github.com/inakanou/ArchiTrack/actions/workflows/ci.yml/badge.svg)](https://github.com/inakanou/ArchiTrack/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/inakanou/ArchiTrack/branch/main/graph/badge.svg)](https://codecov.io/gh/inakanou/ArchiTrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 [English](README.md) | [日本語](README.ja.md)
@@ -16,13 +16,13 @@
 
 ## 概要
 
-ArchiTrackは、ソフトウェアプロジェクトにおけるアーキテクチャ決定記録（ADR: Architecture Decision Record）を効率的に管理するためのWebアプリケーションです。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
+ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
 ### 主な特徴
 
 - 🤖 **AI支援開発**: Claude Codeによる体系的な開発ワークフロー
 - 📝 **スペック駆動**: 要件定義 → 設計 → タスク分解 → 実装の明確なフェーズ管理
-- 🔗 **要件トレーサビリティ**: コード・テストと要件定義書の自動紐付け・カバレッジ測定
+- 🏗️ **建設プロジェクト管理**: 現場調査・数量拾い出し・内訳書・見積依頼・見積書の一気通貫ワークフロー
 - ⚡ **高速**: Vite 7 + React 19によるモダンなフロントエンド
 - 🔒 **セキュア**: JWT認証（EdDSA）、2FA、RBAC、Argon2ハッシュ化、HIBP漏洩チェック
 - 🗄️ **モダンORM**: Prisma 7（Driver Adapter Pattern）による型安全なデータアクセス
@@ -130,10 +130,13 @@ npm run dev:docker
 - **現場調査**: プロジェクトに紐付く調査管理、画像アップロード（R2連携）、Canvas注釈編集（Fabric.js）、PDF報告書エクスポート
 - **数量表作成**: 現場調査結果に基づく数量拾い出し、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援
 - **内訳書作成**: 数量表項目のピボット集計、分類軸によるグループ化、Excel出力（.xlsx形式）、クリップボードコピー（タブ区切りテキスト）
+- **見積依頼管理**: 協力業者への見積依頼、内訳書項目選択、見積依頼文生成（メール/FAX）、受領見積書登録（OCR構造化データ抽出）、ステータス管理
+- **自社情報登録**: 会社名・住所・連絡先のシングルトン管理、見積依頼文への自動挿入
+- **見積書作成**: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、Excel出力
 - **インフラ**: ヘルスチェックAPI、Swagger、PostgreSQL/Redis統合
 
 ### 開発予定
-- ADR作成・編集、バージョン管理、チーム管理、検索機能などのコア機能
+- ADR管理機能（作成・編集、バージョン管理、検索機能）
 
 詳細な機能リストは[機能一覧](docs/features.md)を参照してください。
 

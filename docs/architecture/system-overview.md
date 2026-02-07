@@ -64,8 +64,8 @@
 - APIクライアント
 
 **技術スタック:**
-- React 18
-- Vite 5
+- React 19
+- Vite 7
 - React Router
 - Axios（APIクライアント）
 
@@ -86,7 +86,7 @@
 - 認証・認可
 
 **技術スタック:**
-- Node.js 20
+- Node.js 22
 - Express
 - Prisma（ORM）
 - JWT（認証）
