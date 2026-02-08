@@ -19,6 +19,7 @@
 - レスポンシブデザインによりデスクトップ・タブレット・モバイルに対応する
 - WCAG 2.1 Level AA準拠のアクセシビリティを確保する
 - **プロジェクト名の一意性を確保し、重複を防止する**（1.15, 1.16, 8.7, 8.8）
+- **顧客選択時に取引先の住所を現場住所に自動入力し、入力効率を向上させる**（1.6, 1.7）
 
 ### Non-Goals
 
@@ -32,8 +33,10 @@
 
 ---
 
-**実装状態（2025-12-15更新）**:
+**実装状態（2026-02-08更新）**:
 - フェーズ: **要件更新対応** - 既存実装は完了済み、要件変更に対応するための差分設計
+- 主要変更（2026-02-08要件更新）:
+  - **顧客選択時の現場住所自動入力**（1.6, 1.7）: 顧客選択時に現場住所フィールドが空欄であれば取引先の住所を自動入力、既に値がある場合は上書きしない
 - 主要変更（2025-12-15 gap analysis結果）:
   - ~~フィールドラベル変更:「取引先」→「顧客名」（TradingPartnerSelect、ProjectDetailPage）~~（実装済み）
   - ~~プロジェクト検索でのひらがな・カタカナ両対応（project.service.ts）~~（実装済み）
@@ -152,7 +155,7 @@ graph TB
 
 ## System Flows
 
-### プロジェクト作成フロー（一意性チェック追加）
+### プロジェクト作成フロー（一意性チェック・住所自動入力対応）
 
 ```mermaid
 sequenceDiagram
@@ -165,6 +168,14 @@ sequenceDiagram
 
     U->>FE: 新規作成ボタンクリック
     FE->>FE: フォーム表示
+
+    U->>FE: 顧客を選択
+    alt 現場住所が空欄
+        FE->>FE: 取引先の住所を現場住所に自動入力
+    else 現場住所に値あり
+        FE->>FE: 既存値を保持
+    end
+
     U->>FE: フォーム入力・送信
     FE->>FE: クライアントバリデーション
     FE->>API: POST /api/projects
@@ -266,7 +277,8 @@ sequenceDiagram
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.14 | プロジェクト作成 | ProjectForm, ProjectService | POST /api/projects | プロジェクト作成フロー |
+| 1.1-1.5, 1.8-1.19 | プロジェクト作成 | ProjectForm, ProjectService | POST /api/projects | プロジェクト作成フロー |
+| 1.6, 1.7 | **顧客選択時の現場住所自動入力**（差分9） | TradingPartnerSelect, ProjectForm | - | 顧客選択時住所自動入力フロー |
 | 1.15, 1.16 | **プロジェクト名一意性チェック（作成時）** | ProjectService | POST /api/projects | プロジェクト作成フロー |
 | 2.1-2.6 | プロジェクト一覧表示（**ID列削除、営業担当者・工事担当者列追加**） | ProjectListPage, ProjectListTable, ProjectService | GET /api/projects | - |
 | 3.1-3.5 | ページネーション | ProjectListPage, ProjectService | GET /api/projects?page,limit | - |
@@ -302,8 +314,8 @@ sequenceDiagram
 | ProjectListTable | UI/Component | **一覧テーブル（ID列削除、営業担当者・工事担当者列追加）** | 2.2 | ProjectListPage (P0) | - |
 | ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず | 7, 8, 9, 10, 11, 21.15, 21.17, 22 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
-| ProjectForm | UI/Component | プロジェクト作成・編集フォーム | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
-| TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応、ラベル「顧客名」**） | 16, 22 | TradingPartnerAPI (P1), kana-converter (P1) | API |
+| ProjectForm | UI/Component | プロジェクト作成・編集フォーム + **顧客選択時の現場住所自動入力** | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
+| TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応、ラベル「顧客名」、onSelectコールバック追加**） | 1.6, 1.7, 16, 22 | TradingPartnerAPI (P1), kana-converter (P1) | API |
 | kana-converter | Frontend/Utility | ひらがな・カタカナ変換ユーティリティ（**差分8で追加**） | 16.3 | - | - |
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
@@ -818,6 +830,155 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
 - ただし、`TradingPartnerSelect`コンポーネントはクライアントサイドでフィルタリングを実行
 - バックエンドから取得した候補一覧をクライアントサイドでフィルタリングする際にも、同じかな変換ロジックが必要
 - バックエンドの`kana-converter.ts`と同一ロジックをフロントエンドに移植
+
+---
+
+### 差分9: 顧客選択時の現場住所自動入力（1.6, 1.7）
+
+**ステータス**: :x: **未実装・要対応**
+
+**変更内容**:
+- プロジェクト作成フォームで顧客を選択した際、現場住所フィールドが空欄であれば、選択された取引先の住所（`address`）を現場住所に自動入力する
+- 現場住所フィールドに既に値が入力されている場合は、上書きしない（既存値を保持する）
+
+**影響ファイル**:
+1. `frontend/src/components/projects/TradingPartnerSelect.tsx`（`onSelect`コールバック追加）
+2. `frontend/src/components/projects/ProjectForm.tsx`（住所自動入力ロジック追加）
+
+**TradingPartnerSelect.tsx の変更**:
+
+現在の`TradingPartnerSelectProps`インターフェース:
+```typescript
+export interface TradingPartnerSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  onBlur?: () => void;
+  disabled?: boolean;
+  error?: string;
+  filterTypes?: TradingPartnerType[];
+}
+```
+
+**変更後**:
+```typescript
+export interface TradingPartnerSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  /**
+   * 取引先選択時のコールバック（取引先オブジェクト全体を返す）
+   * 顧客選択時の住所自動入力等、取引先の詳細情報を参照する場合に使用
+   * Requirements: 1.6, 1.7
+   */
+  onSelect?: (partner: TradingPartnerInfo | null) => void;
+  onBlur?: () => void;
+  disabled?: boolean;
+  error?: string;
+  filterTypes?: TradingPartnerType[];
+}
+```
+
+**selectPartner関数の変更**:
+
+現在:
+```typescript
+const selectPartner = useCallback(
+  (partner: TradingPartnerInfo | null) => {
+    onChange(partner?.id ?? '');
+    setSearchQuery('');
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+  },
+  [onChange]
+);
+```
+
+**変更後**:
+```typescript
+const selectPartner = useCallback(
+  (partner: TradingPartnerInfo | null) => {
+    onChange(partner?.id ?? '');
+    onSelect?.(partner);
+    setSearchQuery('');
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+  },
+  [onChange, onSelect]
+);
+```
+
+**ProjectForm.tsx の変更**:
+
+**顧客選択時の住所自動入力ハンドラを追加**:
+```typescript
+/**
+ * 顧客選択時の住所自動入力ハンドラ
+ *
+ * Requirements:
+ * - 1.6: 顧客を選択し、現場住所が空欄 → 取引先の住所を自動入力
+ * - 1.7: 現場住所に既に値がある場合 → 上書きしない
+ */
+const handleTradingPartnerSelect = useCallback(
+  (partner: TradingPartnerInfo | null) => {
+    if (partner && !siteAddress.trim()) {
+      setSiteAddress(partner.address);
+    }
+  },
+  [siteAddress]
+);
+```
+
+**TradingPartnerSelectコンポーネントへのonSelectプロパティ追加**:
+
+現在:
+```typescript
+<TradingPartnerSelect
+  value={tradingPartnerId}
+  onChange={setTradingPartnerId}
+  onBlur={handleTradingPartnerIdBlur}
+  disabled={isSubmitting}
+  error={errors.tradingPartnerId}
+/>
+```
+
+**変更後**:
+```typescript
+<TradingPartnerSelect
+  value={tradingPartnerId}
+  onChange={setTradingPartnerId}
+  onSelect={handleTradingPartnerSelect}
+  onBlur={handleTradingPartnerIdBlur}
+  disabled={isSubmitting}
+  error={errors.tradingPartnerId}
+/>
+```
+
+**設計根拠**:
+- `onChange`コールバックはID文字列のみを返す既存の契約を維持し、後方互換性を確保する
+- 新しい`onSelect`コールバックはオプショナルとし、取引先オブジェクト全体（`TradingPartnerInfo | null`）を返すことで、住所以外の情報も将来的に利用可能にする
+- 住所自動入力の判定ロジック（`siteAddress.trim()`が空文字列かどうか）は`ProjectForm`側に配置し、`TradingPartnerSelect`は選択イベントの通知に専念する（単一責任原則）
+- 編集画面（`ProjectEditPage`）では通常、現場住所に既に値が入っているため、既存値が保護される動作が自然に適用される
+- `TradingPartnerInfo.address`は必須フィールド（`string`型）であり、取引先マスタに住所が必ず登録されているため、null チェックは不要
+
+**フロー図**:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant TP as TradingPartnerSelect
+    participant PF as ProjectForm
+
+    U->>TP: 顧客を選択
+    TP->>PF: onChange(partnerId)
+    TP->>PF: onSelect(partner)
+    PF->>PF: siteAddress が空欄か判定
+
+    alt siteAddress が空欄
+        PF->>PF: setSiteAddress(partner.address)
+        Note right of PF: 取引先の住所を自動入力
+    else siteAddress に値あり
+        Note right of PF: 既存値を保持（上書きしない）
+    end
+```
 
 ---
 
@@ -1467,8 +1628,8 @@ const COLUMNS: Array<{
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクト作成・編集フォームを提供 |
-| Requirements | 1.1-1.16, 8.1-8.8, 13.1-13.11, 16.1-16.13, 17.1-17.12 |
+| Intent | プロジェクト作成・編集フォームを提供 + **顧客選択時の現場住所自動入力** |
+| Requirements | 1.1-1.19, 8.1-8.12, 13.1-13.11, 16.1-16.13, 17.1-17.12 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
@@ -1477,10 +1638,11 @@ const COLUMNS: Array<{
 - 担当者デフォルト値の設定
 - 送信処理とエラーハンドリング
 - **プロジェクト名重複エラーの表示**（1.15, 8.7）
+- **顧客選択時に現場住所フィールドが空欄であれば取引先の住所を自動入力し、既に値がある場合は上書きしない**（1.6, 1.7）
 
 **Dependencies**
 - Inbound: ProjectListPage, ProjectDetailPage — フォーム表示 (P0)
-- Outbound: TradingPartnerSelect — 取引先選択 (P1)
+- Outbound: TradingPartnerSelect — 取引先選択（onSelectコールバックで取引先情報を受信） (P1)
 - Outbound: UserSelect — 担当者選択 (P1)
 - Outbound: useAuth — ログインユーザー取得 (P0)
 
@@ -1513,6 +1675,7 @@ interface ProjectFormData {
 - Validation: Zodスキーマでクライアント・サーバー共通バリデーション
 - **409エラー処理**: プロジェクト名重複時はnameフィールドにエラーメッセージを表示
 - TradingPartner連携: TradingPartnerSelectで取引先選択機能を提供（外部キー連携実装済み）
+- **住所自動入力（差分9）**: TradingPartnerSelectの`onSelect`コールバックで取引先オブジェクトを受け取り、`siteAddress`が空欄の場合のみ`partner.address`を自動設定する。`handleTradingPartnerSelect`コールバックで判定ロジックを実装
 
 ---
 
@@ -1520,8 +1683,8 @@ interface ProjectFormData {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 取引先の選択UIを提供（ドロップダウン + オートコンプリート、**ひらがな・カタカナ両対応、ラベル「顧客名」**） |
-| Requirements | 16.1-16.13, 22.1-22.11 |
+| Intent | 取引先の選択UIを提供（ドロップダウン + オートコンプリート、**ひらがな・カタカナ両対応、ラベル「顧客名」、onSelectコールバック追加**） |
+| Requirements | 1.6, 1.7, 16.1-16.13, 22.1-22.11 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
@@ -1529,10 +1692,11 @@ interface ProjectFormData {
 - 取引先管理機能（`trading-partner-management`）との外部キー連携 ✅ 実装済み
 - 取引先種別に「顧客」を含む取引先一覧を候補として表示 ✅ 実装済み
 - 取引先名またはフリガナで部分一致検索（オートコンプリート） ✅ 実装済み
-- **ひらがな入力でもカタカナフリガナを検索（16.3, 22.5）** ❌ **クライアントサイドフィルタリング未対応（差分8で対応）**
+- **ひらがな入力でもカタカナフリガナを検索（16.3, 22.5）** :x: **クライアントサイドフィルタリング未対応（差分8で対応）**
 - 入力文字列に部分一致する取引先を最大10件まで候補表示 ✅ 実装済み
 - 任意選択（null許容） ✅ 実装済み
 - キーボード操作（上下キー選択、Enter確定）とマウス操作の両方に対応 ✅ 実装済み
+- **取引先選択時に`onSelect`コールバックで取引先オブジェクト全体を通知**（1.6, 1.7）:x: **未実装（差分9で対応）**
 
 **Dependencies**
 - Inbound: ProjectForm — 取引先選択 (P0)
@@ -1552,6 +1716,7 @@ interface ProjectFormData {
 - Validation: 選択された取引先IDの存在確認（サーバーサイド）
 - **ひらがな・カタカナ変換**: バックエンドで変換処理（既存実装済み）、**クライアントサイドフィルタリング（差分8で対応）**
 - UX: 500ミリ秒以内のレスポンス、ローディングインジケータ表示、候補なし時のメッセージ表示
+- **onSelectコールバック（差分9）**: `selectPartner`関数内で`onChange`に加えて`onSelect`も呼び出し、取引先オブジェクト全体（`TradingPartnerInfo | null`）を親コンポーネントに通知する。`onSelect`はオプショナルプロパティのため、既存の利用箇所（見積依頼機能の`EstimateRequestSectionCard`等）への影響はない
 
 **アーキテクチャ決定（2025-12-12）**:
 - `customerName`フリーテキストフィールドから`tradingPartnerId`外部キーへ移行完了
@@ -1562,6 +1727,11 @@ interface ProjectFormData {
 - `frontend/src/utils/kana-converter.ts`を新規作成（バックエンドから移植）
 - `matchesSearchQuery`関数にかな変換ロジックを追加
 - 詳細は「差分8: TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応」を参照
+
+**2026-02-08 要件追加対応（差分9）**:
+- `onSelect`コールバックプロパティを追加（オプショナル）
+- `selectPartner`関数で`onSelect?.(partner)`を呼び出し
+- 詳細は「差分9: 顧客選択時の現場住所自動入力」を参照
 
 ---
 
@@ -2033,8 +2203,8 @@ enum TransitionType {
 
 - ProjectService: CRUD操作、バリデーション、エラーハンドリング、**プロジェクト名一意性チェック**（1.15, 1.16, 8.7, 8.8）
 - ProjectStatusService: ステータス遷移ロジック（順方向・差し戻し・終端）、遷移種別判定、履歴記録、差し戻し理由検証
-- ProjectForm: フォームバリデーション、送信処理、**プロジェクト名重複エラー表示**
-- TradingPartnerSelect: 取引先検索ロジック、候補表示、**ひらがな・カタカナ変換（差分8）、ラベル「顧客名」**
+- ProjectForm: フォームバリデーション、送信処理、**プロジェクト名重複エラー表示**、**顧客選択時の住所自動入力（空欄時のみ、既存値保持確認）**（差分9）
+- TradingPartnerSelect: 取引先検索ロジック、候補表示、**ひらがな・カタカナ変換（差分8）、ラベル「顧客名」**、**onSelectコールバック呼び出し確認**（差分9）
 - kana-converter（フロントエンド版）: toKatakana/toHiragana関数のテスト（差分8）
 - UserSelect: ユーザー一覧取得、フィルタリング
 - StatusTransitionUI: 遷移種別の視覚的区別、差し戻し理由入力ダイアログ
@@ -2051,7 +2221,7 @@ enum TransitionType {
 
 ### E2E/UI Tests
 
-- プロジェクト作成フロー: フォーム入力 → 送信 → 詳細画面遷移、**重複名でのエラー表示**
+- プロジェクト作成フロー: フォーム入力 → 送信 → 詳細画面遷移、**重複名でのエラー表示**、**顧客選択時の住所自動入力（空欄時のみ、既存値保持確認）**（差分9）
 - プロジェクト一覧操作: 検索（**営業担当者・工事担当者含む、ひらがな・カタカナ両対応**） → フィルタ → ソート → ページ遷移
 - **一覧表示列確認**: ID列なし、営業担当者・工事担当者列あり
 - **ラベル表示確認**: TradingPartnerSelectとProjectDetailPageで「顧客名」ラベル表示（実装済み）

@@ -618,4 +618,118 @@ describe('TradingPartnerSelect', () => {
       });
     });
   });
+
+  describe('onSelectコールバック (1.6, 1.7)', () => {
+    it('取引先を選択した際にonSelectコールバックが取引先オブジェクト付きで呼び出される', async () => {
+      const user = userEvent.setup();
+      const handleChange = vi.fn();
+      const handleSelect = vi.fn();
+
+      render(<TradingPartnerSelect value="" onChange={handleChange} onSelect={handleSelect} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      // 取引先をクリックして選択
+      const listbox = screen.getByRole('listbox');
+      await user.click(within(listbox).getByText('山田建設株式会社'));
+
+      // onChangeがIDで呼ばれる
+      expect(handleChange).toHaveBeenCalledWith('1');
+      // onSelectが取引先オブジェクト全体で呼ばれる
+      expect(handleSelect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: '1',
+          name: '山田建設株式会社',
+          address: '東京都千代田区1-1-1',
+        })
+      );
+    });
+
+    it('選択解除時にonSelectコールバックがnull付きで呼び出される', async () => {
+      const user = userEvent.setup();
+      const handleChange = vi.fn();
+      const handleSelect = vi.fn();
+
+      render(<TradingPartnerSelect value="1" onChange={handleChange} onSelect={handleSelect} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      // クリアボタンをクリック
+      const clearButton = screen.getByLabelText('選択をクリア');
+      await user.click(clearButton);
+
+      // onChangeが空文字で呼ばれる
+      expect(handleChange).toHaveBeenCalledWith('');
+      // onSelectがnullで呼ばれる
+      expect(handleSelect).toHaveBeenCalledWith(null);
+    });
+
+    it('onSelectが未指定の場合でも正常に動作する（後方互換性）', async () => {
+      const user = userEvent.setup();
+      const handleChange = vi.fn();
+
+      // onSelectを渡さない
+      render(<TradingPartnerSelect value="" onChange={handleChange} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      // 取引先をクリックして選択（エラーが発生しないことを確認）
+      const listbox = screen.getByRole('listbox');
+      await user.click(within(listbox).getByText('鈴木工業株式会社'));
+
+      // onChangeは正常に呼ばれる
+      expect(handleChange).toHaveBeenCalledWith('2');
+    });
+
+    it('キーボード操作でEnterキーで選択した際にもonSelectが呼ばれる', async () => {
+      const handleChange = vi.fn();
+      const handleSelect = vi.fn();
+
+      render(<TradingPartnerSelect value="" onChange={handleChange} onSelect={handleSelect} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      // 下キーで最初の取引先を選択してEnter
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      // onSelectが取引先オブジェクトで呼ばれる
+      expect(handleSelect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: '1',
+          name: '山田建設株式会社',
+          address: '東京都千代田区1-1-1',
+        })
+      );
+    });
+  });
 });

@@ -1,9 +1,10 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2025-12-15T17:00:00Z",
+  "updated_at": "2026-02-08T16:00:00Z",
   "language": "ja",
   "phase": "tasks-generated",
+  "description": "プロジェクト新規作成画面の現場住所について、顧客名を選択したタイミングで、現場住所フィールドが空欄であるなら、選択された取引先の住所を現場住所に設定するよう修正する。",
   "approvals": {
     "requirements": {
       "generated": true,

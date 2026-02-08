@@ -30,6 +30,7 @@ import { useState, useCallback, useId, useMemo, FormEvent, ChangeEvent, FocusEve
 import TradingPartnerSelect from './TradingPartnerSelect';
 import UserSelect from './UserSelect';
 import { isDuplicateProjectNameErrorResponse } from '../../types/project.types';
+import type { TradingPartnerInfo } from '../../types/trading-partner.types';
 
 /**
  * プロジェクトフォームデータ
@@ -306,6 +307,22 @@ function ProjectForm({
   }, [tradingPartnerId, validateTradingPartnerId]);
 
   /**
+   * 顧客選択時の住所自動入力ハンドラ
+   *
+   * Requirements:
+   * - 1.6: 顧客を選択し、現場住所が空欄 → 取引先の住所を自動入力
+   * - 1.7: 現場住所に既に値がある場合 → 上書きしない
+   */
+  const handleTradingPartnerSelect = useCallback(
+    (partner: TradingPartnerInfo | null) => {
+      if (partner && !siteAddress.trim()) {
+        setSiteAddress(partner.address);
+      }
+    },
+    [siteAddress]
+  );
+
+  /**
    * 営業担当者のblurイベントハンドラ
    */
   const handleSalesPersonBlur = useCallback(() => {
@@ -460,6 +477,7 @@ function ProjectForm({
       <TradingPartnerSelect
         value={tradingPartnerId}
         onChange={setTradingPartnerId}
+        onSelect={handleTradingPartnerSelect}
         onBlur={handleTradingPartnerIdBlur}
         disabled={isSubmitting}
         error={errors.tradingPartnerId}
