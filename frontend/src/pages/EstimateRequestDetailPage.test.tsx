@@ -307,7 +307,7 @@ describe('EstimateRequestDetailPage', () => {
     await waitFor(() => {
       // 項目テーブルのヘッダーが表示される
       expect(screen.getByText('選択')).toBeInTheDocument();
-      expect(screen.getByText('カテゴリ')).toBeInTheDocument();
+      expect(screen.getByText('任意分類')).toBeInTheDocument();
     });
   });
 
