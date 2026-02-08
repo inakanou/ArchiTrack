@@ -1,23 +1,27 @@
 /**
- * @fileoverview 項目選択パネルコンポーネント
+ * @fileoverview 項目選択パネルコンポーネント（改訂版: Task 30）
  *
  * Task 5.4: ItemSelectionPanelコンポーネントを実装する
+ * Task 30: クライアントサイド状態管理・保存ボタン方式への改修
  *
  * Requirements:
  * - 4.2: 見積依頼詳細画面に内訳書項目の一覧を表示する
  * - 4.3: 各項目行にチェックボックスを表示する
- * - 4.4: チェックボックス変更時に自動保存する
- * - 4.5: debounce処理を適用する（500ms）
- * - 4.6: チェックボックスのデフォルト状態は選択済みとする
- * - 4.7: 「内訳書を本文に含める」チェックボックスを表示する
- * - 4.8: 見積依頼方法（メール/FAX）ラジオボタンを表示する
- * - 4.9: 項目が存在しない場合のメッセージを表示する
+ * - 4.4: チェックボックス変更時にクライアントサイドの状態のみを更新する
+ * - 4.5: チェックボックス変更時にサーバーへのリクエストを送信しない
+ * - 4.6: 項目選択セクションに「保存」ボタンを表示する
+ * - 4.7: 保存ボタンクリック時に全項目の選択状態をサーバーに一括送信する
+ * - 4.8: 保存成功時のフィードバックを表示し未保存フラグをリセットする
+ * - 4.9: 保存失敗時にエラーメッセージを表示し選択状態をサーバー状態に復元する
  * - 4.10: 他の見積依頼で選択済みの項目の背景色を変更する（bg-orange-50）
  * - 4.11: 他の見積依頼の依頼先取引先名を表示する
  * - 4.12: 複数の見積依頼で選択されている場合の取引先名をカンマ区切りで表示する
+ * - 4.14: 見積依頼方法ラジオボタンのクライアントサイド管理
+ * - 4.19: 未保存の変更がある場合に保存ボタンを視覚的に強調表示する
+ * - 4.20: 未保存の変更がある状態でのページ離脱確認ダイアログ
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type {
   ItemWithSelectionInfo,
   EstimateRequestMethod,
@@ -38,9 +42,9 @@ export interface ItemSelectionPanelProps {
   method: EstimateRequestMethod;
   /** 内訳書を本文に含める */
   includeBreakdownInBody: boolean;
-  /** 項目選択変更時のコールバック */
+  /** 項目選択変更時のコールバック（保存ボタンクリック時に呼ばれる） */
   onItemSelectionChange: (items: ItemSelectionInput[]) => Promise<void> | void;
-  /** 見積依頼方法変更時のコールバック */
+  /** 見積依頼方法変更時のコールバック（保存ボタンクリック時に呼ばれる） */
   onMethodChange: (method: EstimateRequestMethod) => void;
   /** 内訳書を本文に含める変更時のコールバック */
   onIncludeBreakdownChange: (value: boolean) => void;
@@ -144,6 +148,44 @@ const styles = {
   checkboxDisabled: {
     cursor: 'not-allowed',
   },
+  saveButtonSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  saveButton: {
+    padding: '8px 20px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: 'none',
+    transition: 'background-color 0.2s',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+  } as React.CSSProperties,
+  saveButtonHighlight: {
+    backgroundColor: '#1d4ed8',
+    boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.3)',
+  } as React.CSSProperties,
+  saveButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  saveButtonSaving: {
+    backgroundColor: '#6b7280',
+    cursor: 'wait',
+  } as React.CSSProperties,
+  feedbackMessage: {
+    fontSize: '13px',
+    fontWeight: 500,
+  } as React.CSSProperties,
+  feedbackSuccess: {
+    color: '#059669',
+  } as React.CSSProperties,
+  feedbackError: {
+    color: '#dc2626',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -151,23 +193,11 @@ const styles = {
 // ============================================================================
 
 /**
- * 項目選択パネル
+ * 項目選択パネル（改訂版）
  *
- * 見積依頼詳細画面で内訳書項目の選択状態を管理するコンポーネント。
- * チェックボックスによる項目選択、見積依頼方法の選択、
- * 内訳書を本文に含めるオプションを提供します。
- *
- * @example
- * ```tsx
- * <ItemSelectionPanel
- *   items={items}
- *   method="EMAIL"
- *   includeBreakdownInBody={false}
- *   onItemSelectionChange={handleSelectionChange}
- *   onMethodChange={handleMethodChange}
- *   onIncludeBreakdownChange={handleIncludeBreakdownChange}
- * />
- * ```
+ * 見積依頼詳細画面で内訳書項目の選択状態をクライアントサイドで管理するコンポーネント。
+ * チェックボックスによる項目選択は即時にはサーバーに送信されず、
+ * 「保存」ボタンクリック時に一括送信されます。
  */
 export function ItemSelectionPanel({
   items,
@@ -178,6 +208,15 @@ export function ItemSelectionPanel({
   onIncludeBreakdownChange,
   loading = false,
 }: ItemSelectionPanelProps) {
+  // サーバーから取得した選択状態を保持（復元用）
+  const [serverSelections, setServerSelections] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    items.forEach((item) => {
+      initial[item.estimateRequestItemId] = item.selected;
+    });
+    return initial;
+  });
+
   // ローカル選択状態（UI用）
   const [localSelections, setLocalSelections] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
@@ -187,11 +226,18 @@ export function ItemSelectionPanel({
     return initial;
   });
 
-  // debounceタイマー参照
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ローカル見積依頼方法状態
+  const [localMethod, setLocalMethod] = useState<EstimateRequestMethod>(method);
 
-  // items変更時にローカル状態を同期（レンダリング中のstate更新パターン）
-  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  // 保存中状態
+  const [isSaving, setIsSaving] = useState(false);
+
+  // フィードバックメッセージ
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
+    null
+  );
+
+  // items変更時にサーバー状態とローカル状態を同期
   const [prevItems, setPrevItems] = useState(items);
   if (items !== prevItems) {
     setPrevItems(items);
@@ -199,50 +245,69 @@ export function ItemSelectionPanel({
     items.forEach((item) => {
       newSelections[item.estimateRequestItemId] = item.selected;
     });
+    setServerSelections(newSelections);
     setLocalSelections(newSelections);
   }
 
-  // クリーンアップ
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
+  // method変更時にローカル状態を同期
+  const [prevMethod, setPrevMethod] = useState(method);
+  if (method !== prevMethod) {
+    setPrevMethod(method);
+    setLocalMethod(method);
+  }
+
+  // 未保存の変更を検出
+  const hasUnsavedChanges = useMemo(() => {
+    // 選択状態の変更検出
+    for (const itemId of Object.keys(serverSelections)) {
+      if (localSelections[itemId] !== serverSelections[itemId]) {
+        return true;
       }
+    }
+    // 見積依頼方法の変更検出
+    if (localMethod !== method) {
+      return true;
+    }
+    return false;
+  }, [localSelections, serverSelections, localMethod, method]);
+
+  // ページ離脱確認（beforeunload）
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
     };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  // フィードバック自動消去（3秒後）
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = setTimeout(() => setFeedback(null), 3000);
+    return () => clearTimeout(timer);
+  }, [feedback]);
+
+  // 項目選択変更（ローカル状態のみ更新）
+  const handleItemSelectionChange = useCallback((itemId: string, selected: boolean) => {
+    setLocalSelections((prev) => ({
+      ...prev,
+      [itemId]: selected,
+    }));
+    setFeedback(null);
   }, []);
 
-  // 項目選択変更（debounce付き）
-  const handleItemSelectionChange = useCallback(
-    (itemId: string, selected: boolean) => {
-      // ローカル状態を即座に更新（UI反映）
-      setLocalSelections((prev) => ({
-        ...prev,
-        [itemId]: selected,
-      }));
+  // 見積依頼方法変更（ローカル状態のみ更新）
+  const handleMethodChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalMethod(e.target.value as EstimateRequestMethod);
+    setFeedback(null);
+  }, []);
 
-      // 既存のタイマーをキャンセル
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-
-      // debounce処理（500ms）
-      debounceTimerRef.current = setTimeout(() => {
-        const changes: ItemSelectionInput[] = [{ itemId, selected }];
-        onItemSelectionChange(changes);
-      }, 500);
-    },
-    [onItemSelectionChange]
-  );
-
-  // 見積依頼方法変更
-  const handleMethodChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onMethodChange(e.target.value as EstimateRequestMethod);
-    },
-    [onMethodChange]
-  );
-
-  // 内訳書を本文に含める変更
+  // 内訳書を本文に含める変更（即座にサーバーに反映）
   const handleIncludeBreakdownChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       onIncludeBreakdownChange(e.target.checked);
@@ -250,56 +315,145 @@ export function ItemSelectionPanel({
     [onIncludeBreakdownChange]
   );
 
+  // 保存処理
+  const handleSave = useCallback(async () => {
+    if (isSaving) return;
+
+    setIsSaving(true);
+    setFeedback(null);
+
+    try {
+      // 全項目の選択状態を一括送信
+      const changes: ItemSelectionInput[] = Object.entries(localSelections).map(
+        ([itemId, selected]) => ({
+          itemId,
+          selected,
+        })
+      );
+
+      await onItemSelectionChange(changes);
+
+      // 見積依頼方法が変更されていれば送信
+      if (localMethod !== method) {
+        onMethodChange(localMethod);
+      }
+
+      // サーバー状態を更新
+      setServerSelections({ ...localSelections });
+
+      setFeedback({ type: 'success', message: '保存しました' });
+    } catch {
+      // エラー時はサーバー状態に復元
+      setLocalSelections({ ...serverSelections });
+      setLocalMethod(method);
+      setFeedback({ type: 'error', message: '保存に失敗しました。元の状態に戻しました。' });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    isSaving,
+    localSelections,
+    localMethod,
+    method,
+    onItemSelectionChange,
+    onMethodChange,
+    serverSelections,
+  ]);
+
   // 他の見積依頼の取引先名を取得
   const getOtherRequestsText = useCallback((item: ItemWithSelectionInfo): string => {
     if (item.otherRequests.length === 0) return '';
     return item.otherRequests.map((r) => r.tradingPartnerName).join(', ');
   }, []);
 
+  // 保存ボタンのスタイル算出
+  const getSaveButtonStyle = (): React.CSSProperties => {
+    if (isSaving) {
+      return { ...styles.saveButton, ...styles.saveButtonSaving };
+    }
+    if (!hasUnsavedChanges) {
+      return { ...styles.saveButton, ...styles.saveButtonDisabled };
+    }
+    return { ...styles.saveButton, ...styles.saveButtonHighlight };
+  };
+
+  // オプションセクション（共通）
+  const optionsSection = (
+    <div style={styles.optionsSection}>
+      <div style={styles.optionRow}>
+        <label style={styles.label}>
+          <input
+            type="checkbox"
+            checked={includeBreakdownInBody}
+            onChange={handleIncludeBreakdownChange}
+            style={styles.checkbox}
+          />
+          内訳書を本文に含める
+        </label>
+      </div>
+      <div style={styles.optionRow}>
+        <span style={{ fontSize: '14px', color: '#374151' }}>見積依頼方法:</span>
+        <div style={styles.radioGroup}>
+          <label style={styles.radioLabel}>
+            <input
+              type="radio"
+              name="method"
+              value="EMAIL"
+              checked={localMethod === 'EMAIL'}
+              onChange={handleMethodChange}
+            />
+            メール
+          </label>
+          <label style={styles.radioLabel}>
+            <input
+              type="radio"
+              name="method"
+              value="FAX"
+              checked={localMethod === 'FAX'}
+              onChange={handleMethodChange}
+            />
+            FAX
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+
+  // 保存ボタンセクション
+  const saveButtonSection = (
+    <div style={styles.saveButtonSection}>
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={isSaving || !hasUnsavedChanges}
+        style={getSaveButtonStyle()}
+        aria-label={isSaving ? '保存中' : '選択状態を保存'}
+        data-testid="save-selection-button"
+      >
+        {isSaving ? '保存中...' : '保存'}
+      </button>
+      {feedback && (
+        <span
+          style={{
+            ...styles.feedbackMessage,
+            ...(feedback.type === 'success' ? styles.feedbackSuccess : styles.feedbackError),
+          }}
+          role="status"
+          aria-live="polite"
+          data-testid="save-feedback"
+        >
+          {feedback.message}
+        </span>
+      )}
+    </div>
+  );
+
   // 項目がない場合
   if (items.length === 0) {
     return (
       <div style={styles.container}>
-        {/* オプションセクション */}
-        <div style={styles.optionsSection}>
-          <div style={styles.optionRow}>
-            <label style={styles.label}>
-              <input
-                type="checkbox"
-                checked={includeBreakdownInBody}
-                onChange={handleIncludeBreakdownChange}
-                style={styles.checkbox}
-              />
-              内訳書を本文に含める
-            </label>
-          </div>
-          <div style={styles.optionRow}>
-            <span style={{ fontSize: '14px', color: '#374151' }}>見積依頼方法:</span>
-            <div style={styles.radioGroup}>
-              <label style={styles.radioLabel}>
-                <input
-                  type="radio"
-                  name="method"
-                  value="EMAIL"
-                  checked={method === 'EMAIL'}
-                  onChange={handleMethodChange}
-                />
-                メール
-              </label>
-              <label style={styles.radioLabel}>
-                <input
-                  type="radio"
-                  name="method"
-                  value="FAX"
-                  checked={method === 'FAX'}
-                  onChange={handleMethodChange}
-                />
-                FAX
-              </label>
-            </div>
-          </div>
-        </div>
-
+        {optionsSection}
+        {saveButtonSection}
         <div style={styles.emptyMessage}>項目がありません</div>
       </div>
     );
@@ -307,52 +461,15 @@ export function ItemSelectionPanel({
 
   return (
     <div style={styles.container}>
-      {/* オプションセクション */}
-      <div style={styles.optionsSection}>
-        <div style={styles.optionRow}>
-          <label style={styles.label}>
-            <input
-              type="checkbox"
-              checked={includeBreakdownInBody}
-              onChange={handleIncludeBreakdownChange}
-              style={styles.checkbox}
-            />
-            内訳書を本文に含める
-          </label>
-        </div>
-        <div style={styles.optionRow}>
-          <span style={{ fontSize: '14px', color: '#374151' }}>見積依頼方法:</span>
-          <div style={styles.radioGroup}>
-            <label style={styles.radioLabel}>
-              <input
-                type="radio"
-                name="method"
-                value="EMAIL"
-                checked={method === 'EMAIL'}
-                onChange={handleMethodChange}
-              />
-              メール
-            </label>
-            <label style={styles.radioLabel}>
-              <input
-                type="radio"
-                name="method"
-                value="FAX"
-                checked={method === 'FAX'}
-                onChange={handleMethodChange}
-              />
-              FAX
-            </label>
-          </div>
-        </div>
-      </div>
+      {optionsSection}
+      {saveButtonSection}
 
       {/* 項目テーブル */}
       <table style={styles.table} aria-label="内訳書項目一覧">
         <thead>
           <tr>
             <th style={{ ...styles.th, ...styles.thCheckbox }}>選択</th>
-            <th style={styles.th}>カテゴリ</th>
+            <th style={styles.th}>任意分類</th>
             <th style={styles.th}>工種</th>
             <th style={styles.th}>名称</th>
             <th style={styles.th}>規格</th>
@@ -376,10 +493,10 @@ export function ItemSelectionPanel({
                     onChange={(e) =>
                       handleItemSelectionChange(item.estimateRequestItemId, e.target.checked)
                     }
-                    disabled={loading}
+                    disabled={loading || isSaving}
                     style={{
                       ...styles.checkbox,
-                      ...(loading ? styles.checkboxDisabled : {}),
+                      ...(loading || isSaving ? styles.checkboxDisabled : {}),
                     }}
                     aria-label={`${item.name}を選択`}
                   />

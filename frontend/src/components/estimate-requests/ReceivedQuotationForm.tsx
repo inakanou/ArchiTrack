@@ -43,6 +43,25 @@ import { FileInlinePreview } from './FileInlinePreview';
 const OcrDataExtractor = lazy(() => import('./OcrDataExtractor'));
 
 // ============================================================================
+// 一括転記用の型定義
+// ============================================================================
+
+/**
+ * 一括転記用の選択済み項目データ
+ *
+ * Requirements: 15.2
+ */
+export interface SelectedItemForTranscription {
+  customCategory: string | null;
+  workType: string | null;
+  name: string | null;
+  specification: string | null;
+  unit: string | null;
+  quantity: number;
+  remarks: string | null;
+}
+
+// ============================================================================
 // 定数定義
 // ============================================================================
 
@@ -97,6 +116,8 @@ export interface ReceivedQuotationFormProps {
   onCancel: () => void;
   /** 送信中フラグ */
   isSubmitting?: boolean;
+  /** 項目選択セクションの選択済み項目データ（一括転記用） */
+  selectedItems?: SelectedItemForTranscription[];
 }
 
 /**
@@ -266,6 +287,95 @@ const styles = {
   lineItemsSection: {
     marginTop: '16px',
   },
+  transcriptionSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '8px',
+  } as React.CSSProperties,
+  transcriptionButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#ffffff',
+    backgroundColor: '#7c3aed',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  } as React.CSSProperties,
+  transcriptionButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  transcriptionMessage: {
+    fontSize: '13px',
+    fontWeight: 500,
+  } as React.CSSProperties,
+  transcriptionSuccess: {
+    color: '#059669',
+  } as React.CSSProperties,
+  transcriptionError: {
+    color: '#dc2626',
+  } as React.CSSProperties,
+  confirmDialog: {
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2000,
+  } as React.CSSProperties,
+  confirmDialogContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    padding: '24px',
+    maxWidth: '400px',
+    width: '100%',
+  } as React.CSSProperties,
+  confirmDialogTitle: {
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#1f2937',
+    marginBottom: '12px',
+  } as React.CSSProperties,
+  confirmDialogMessage: {
+    fontSize: '14px',
+    color: '#6b7280',
+    marginBottom: '20px',
+  } as React.CSSProperties,
+  confirmDialogButtons: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '8px',
+  } as React.CSSProperties,
+  confirmDialogCancel: {
+    padding: '8px 16px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: 500,
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    border: '1px solid #d1d5db',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  confirmDialogConfirm: {
+    padding: '8px 16px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: 500,
+    backgroundColor: '#7c3aed',
+    color: '#ffffff',
+    border: 'none',
+    cursor: 'pointer',
+  } as React.CSSProperties,
   suspenseFallback: {
     display: 'flex',
     alignItems: 'center',
@@ -336,6 +446,8 @@ function convertToLineItemInput(items: LineItemFormData[]): LineItemInput[] {
     .filter((item) => item.name.trim() !== '')
     .map((item, index) => ({
       name: item.name.trim(),
+      customCategory: item.customCategory.trim() || undefined,
+      workType: item.workType.trim() || undefined,
       specification: item.specification.trim() || undefined,
       unit: item.unit.trim() || undefined,
       quantity: item.quantity ? parseFloat(item.quantity) : undefined,
@@ -357,6 +469,8 @@ function convertToLineItemFormData(
   }
   return items.map((item) => ({
     id: item.id,
+    customCategory: item.customCategory ?? '',
+    workType: item.workType ?? '',
     name: item.name,
     specification: item.specification ?? '',
     unit: item.unit ?? '',
@@ -423,6 +537,7 @@ export function ReceivedQuotationForm({
   onSubmit,
   onCancel,
   isSubmitting = false,
+  selectedItems,
 }: ReceivedQuotationFormProps) {
   // フォーム状態
   // Requirement 11.3.1: 受領見積書名のデフォルト値を「見積書」とする
@@ -601,6 +716,89 @@ export function ReceivedQuotationForm({
     setErrors((prev) => ({ ...prev, content: undefined }));
   }, []);
 
+  // 転記関連状態
+  const [transcriptionMessage, setTranscriptionMessage] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [showTranscriptionConfirm, setShowTranscriptionConfirm] = useState(false);
+
+  // 既存明細行データが有効か判定（空の1行のみでない場合）
+  const hasExistingLineItemData = useCallback((): boolean => {
+    if (lineItems.length === 0) return false;
+    if (lineItems.length === 1) {
+      const item = lineItems[0];
+      if (!item) return false;
+      return (
+        item.name.trim() !== '' || item.customCategory.trim() !== '' || item.workType.trim() !== ''
+      );
+    }
+    return true;
+  }, [lineItems]);
+
+  // 転記実行
+  const executeTranscription = useCallback(() => {
+    if (!selectedItems || selectedItems.length === 0) return;
+
+    const selectedOnly = selectedItems;
+    let idCtr = 0;
+    const newLineItems: LineItemFormData[] = selectedOnly.map((item) => {
+      idCtr++;
+      return {
+        id: `transcription-${Date.now()}-${idCtr}`,
+        customCategory: item.customCategory ?? '',
+        workType: item.workType ?? '',
+        name: item.name ?? '',
+        specification: item.specification ?? '',
+        unit: item.unit ?? '',
+        quantity:
+          item.quantity !== undefined && item.quantity !== null ? String(item.quantity) : '',
+        unitPrice: '', // 転記時に単価は空欄
+        amount: null,
+        remarks: item.remarks ?? '',
+      };
+    });
+
+    setLineItems(newLineItems);
+    setErrors((prev) => ({ ...prev, content: undefined }));
+    setTranscriptionMessage({
+      type: 'success',
+      message: `${newLineItems.length}件の項目を転記しました。内容を確認し、必要に応じて修正してください。`,
+    });
+    setShowTranscriptionConfirm(false);
+  }, [selectedItems]);
+
+  // 転記ボタンクリックハンドラ
+  const handleTranscriptionClick = useCallback(() => {
+    setTranscriptionMessage(null);
+
+    if (!selectedItems || selectedItems.length === 0) {
+      setTranscriptionMessage({
+        type: 'error',
+        message: '選択された項目がありません',
+      });
+      return;
+    }
+
+    if (hasExistingLineItemData()) {
+      // 既存データがある場合は確認ダイアログ表示
+      setShowTranscriptionConfirm(true);
+    } else {
+      // 既存データがない場合は直接転記
+      executeTranscription();
+    }
+  }, [selectedItems, hasExistingLineItemData, executeTranscription]);
+
+  // 確認ダイアログキャンセル
+  const handleTranscriptionCancel = useCallback(() => {
+    setShowTranscriptionConfirm(false);
+  }, []);
+
+  // 確認ダイアログ確認
+  const handleTranscriptionConfirm = useCallback(() => {
+    executeTranscription();
+  }, [executeTranscription]);
+
   const submitButtonText = mode === 'create' ? '登録' : '更新';
   const submitButtonLoadingText = mode === 'create' ? '登録中...' : '更新中...';
 
@@ -760,6 +958,40 @@ export function ReceivedQuotationForm({
       {/* 構造化データ入力エリア（明細行エディタ） (11.9) */}
       <div style={styles.lineItemsSection}>
         <div style={styles.sectionTitle}>明細行</div>
+
+        {/* 項目選択から転記ボタン (15.1) */}
+        {selectedItems && (
+          <div style={styles.transcriptionSection}>
+            <button
+              type="button"
+              onClick={handleTranscriptionClick}
+              disabled={isSubmitting}
+              style={{
+                ...styles.transcriptionButton,
+                ...(isSubmitting ? styles.transcriptionButtonDisabled : {}),
+              }}
+              data-testid="transcription-button"
+            >
+              項目選択から転記
+            </button>
+            {transcriptionMessage && (
+              <span
+                style={{
+                  ...styles.transcriptionMessage,
+                  ...(transcriptionMessage.type === 'success'
+                    ? styles.transcriptionSuccess
+                    : styles.transcriptionError),
+                }}
+                role="status"
+                aria-live="polite"
+                data-testid="transcription-message"
+              >
+                {transcriptionMessage.message}
+              </span>
+            )}
+          </div>
+        )}
+
         <LineItemEditor
           lineItems={lineItems}
           onLineItemsChange={handleLineItemsChange}
@@ -807,6 +1039,43 @@ export function ReceivedQuotationForm({
           )}
         </button>
       </div>
+
+      {/* 転記上書き確認ダイアログ (15.8) */}
+      {showTranscriptionConfirm && (
+        <div
+          style={styles.confirmDialog}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="transcription-confirm-title"
+          data-testid="transcription-confirm-dialog"
+        >
+          <div style={styles.confirmDialogContent}>
+            <h3 id="transcription-confirm-title" style={styles.confirmDialogTitle}>
+              明細行の上書き確認
+            </h3>
+            <p style={styles.confirmDialogMessage}>
+              既存の明細行データが上書きされます。続行しますか？
+            </p>
+            <div style={styles.confirmDialogButtons}>
+              <button
+                type="button"
+                onClick={handleTranscriptionCancel}
+                style={styles.confirmDialogCancel}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleTranscriptionConfirm}
+                style={styles.confirmDialogConfirm}
+                data-testid="transcription-confirm-button"
+              >
+                続行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

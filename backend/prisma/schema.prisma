@@ -992,6 +992,8 @@ model ReceivedQuotationLineItem {
   id                  String   @id @default(uuid())
   receivedQuotationId String
   sortOrder           Int // 表示順序（0始まり）
+  customCategory      String?  @db.VarChar(500) // 任意分類
+  workType            String?  @db.VarChar(500) // 工種
   name                String // 名称（必須）
   specification       String? // 規格
   unit                String? // 単位

@@ -92,6 +92,8 @@ export interface FileInfo {
 export interface LineItemInput {
   name: string;
   sortOrder: number;
+  customCategory?: string | null;
+  workType?: string | null;
   specification?: string | null;
   unit?: string | null;
   quantity?: number | null;
@@ -108,6 +110,8 @@ export interface LineItemInfo {
   id: string;
   receivedQuotationId: string;
   sortOrder: number;
+  customCategory: string | null;
+  workType: string | null;
   name: string;
   specification: string | null;
   unit: string | null;
@@ -372,6 +376,8 @@ export class ReceivedQuotationService {
           data: correctedLineItems.map((item) => ({
             receivedQuotationId: quotation.id,
             sortOrder: item.sortOrder,
+            customCategory: item.customCategory ?? null,
+            workType: item.workType ?? null,
             name: item.name,
             specification: item.specification ?? null,
             unit: item.unit ?? null,
@@ -406,6 +412,8 @@ export class ReceivedQuotationService {
               id: `temp-${index}`, // IDはDB生成値だがcreateManyでは取得不可
               receivedQuotationId: quotation.id,
               sortOrder: item.sortOrder,
+              customCategory: item.customCategory ?? null,
+              workType: item.workType ?? null,
               name: item.name,
               specification: item.specification ?? null,
               unit: item.unit ?? null,
@@ -576,6 +584,8 @@ export class ReceivedQuotationService {
             data: correctedLineItems.map((item) => ({
               receivedQuotationId: id,
               sortOrder: item.sortOrder,
+              customCategory: item.customCategory ?? null,
+              workType: item.workType ?? null,
               name: item.name,
               specification: item.specification ?? null,
               unit: item.unit ?? null,
@@ -697,6 +707,8 @@ export class ReceivedQuotationService {
     id: string;
     receivedQuotationId: string;
     sortOrder: number;
+    customCategory: string | null;
+    workType: string | null;
     name: string;
     specification: string | null;
     unit: string | null;
@@ -709,6 +721,8 @@ export class ReceivedQuotationService {
       id: lineItem.id,
       receivedQuotationId: lineItem.receivedQuotationId,
       sortOrder: lineItem.sortOrder,
+      customCategory: lineItem.customCategory,
+      workType: lineItem.workType,
       name: lineItem.name,
       specification: lineItem.specification,
       unit: lineItem.unit,

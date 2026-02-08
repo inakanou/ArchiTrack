@@ -1013,6 +1013,17 @@ export default function EstimateRequestDetailPage() {
               onSubmit={handleQuotationSubmit}
               onCancel={handleQuotationCancel}
               isSubmitting={isQuotationSubmitting}
+              selectedItems={items
+                .filter((item) => item.selected)
+                .map((item) => ({
+                  customCategory: item.customCategory,
+                  workType: item.workType,
+                  name: item.name,
+                  specification: item.specification,
+                  unit: item.unit,
+                  quantity: item.quantity,
+                  remarks: null,
+                }))}
             />
           </div>
         </div>

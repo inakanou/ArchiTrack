@@ -525,6 +525,8 @@ describe('ReceivedQuotationForm', () => {
             id: 'li-1',
             receivedQuotationId: 'rq-123',
             sortOrder: 0,
+            customCategory: null,
+            workType: null,
             name: '既存品目',
             specification: '既存規格',
             unit: '個',
@@ -646,6 +648,192 @@ describe('ReceivedQuotationForm', () => {
       await userEvent.click(cancelButton);
 
       expect(mockOnCancel).toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // Task 36.3: 一括転記機能のテスト (Requirements: 15.1-15.11)
+  // ==========================================================================
+  describe('一括転記機能 (Task 36.3)', () => {
+    const mockSelectedItems = [
+      {
+        customCategory: '躯体工事',
+        workType: '鉄筋工事',
+        name: '鉄筋D10',
+        specification: 'SD295A',
+        unit: 'kg',
+        quantity: 1500,
+        remarks: '基礎部分',
+      },
+      {
+        customCategory: '躯体工事',
+        workType: 'コンクリート工事',
+        name: 'コンクリート',
+        specification: '21-8-20',
+        unit: 'm3',
+        quantity: 50,
+        remarks: '',
+      },
+    ];
+
+    it('selectedItemsが提供されている場合、「項目選択から転記」ボタンが表示される (Requirements: 15.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={mockSelectedItems}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /項目選択から転記/ })).toBeInTheDocument();
+    });
+
+    it('selectedItemsが提供されていない場合、転記ボタンが表示されない', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      expect(screen.queryByRole('button', { name: /項目選択から転記/ })).not.toBeInTheDocument();
+    });
+
+    it('選択済み項目が0件の場合、エラーメッセージを表示する (Requirements: 15.4)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={[]}
+        />
+      );
+
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/選択された項目がありません/)).toBeInTheDocument();
+      });
+    });
+
+    it('転記実行後に明細行データが反映される (Requirements: 15.6, 15.7)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={mockSelectedItems}
+        />
+      );
+
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      // 転記データが明細行に反映される
+      await waitFor(() => {
+        const nameInputs = screen.getAllByPlaceholderText(/名称/) as HTMLInputElement[];
+        expect(nameInputs.some((input) => input.value === '鉄筋D10')).toBe(true);
+      });
+    });
+
+    it('転記時に単価フィールドが空欄になる (Requirements: 15.8)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={mockSelectedItems}
+        />
+      );
+
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      // 単価が空であることを確認
+      await waitFor(() => {
+        const unitPriceInputs = screen.getAllByPlaceholderText(/単価/) as HTMLInputElement[];
+        unitPriceInputs.forEach((input) => {
+          expect(input.value).toBe('');
+        });
+      });
+    });
+
+    it('転記完了メッセージが表示される (Requirements: 15.9)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={mockSelectedItems}
+        />
+      );
+
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/2件.*転記/)).toBeInTheDocument();
+      });
+    });
+
+    it('既存明細行がある場合、確認ダイアログを表示する (Requirements: 15.5)', async () => {
+      const initialDataWithLineItems = {
+        id: 'rq-existing',
+        estimateRequestId,
+        name: '既存見積書',
+        submittedAt: new Date('2025-01-15'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-existing',
+            receivedQuotationId: 'rq-existing',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            name: '既存データ',
+            specification: null,
+            unit: '式',
+            quantity: 1,
+            unitPrice: 10000,
+            amount: 10000,
+            remarks: null,
+          },
+        ],
+        totalAmount: 10000,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithLineItems}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={mockSelectedItems}
+        />
+      );
+
+      // 転記ボタンをクリック
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      // 確認ダイアログが表示される
+      await waitFor(() => {
+        expect(screen.getByText('明細行の上書き確認')).toBeInTheDocument();
+      });
     });
   });
 });

@@ -95,7 +95,7 @@ function ExcelIcon() {
  */
 function convertItemsToExcelData(items: ItemWithSelectionInfo[]) {
   return items.map((item) => ({
-    カテゴリ: item.customCategory ?? '',
+    任意分類: item.customCategory ?? '',
     工種: item.workType ?? '',
     名称: item.name ?? '',
     規格: item.specification ?? '',

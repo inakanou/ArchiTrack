@@ -6,7 +6,7 @@
 
 **Users**: 営業担当者および工事担当者が、協力業者への見積依頼作成・管理・送信準備、および受領見積書の登録・管理に使用する。
 
-**Impact**: プロジェクト管理機能に見積依頼セクションを追加し、内訳書・取引先・プロジェクトエンティティと連携する新規機能を実装する。受領見積書はファイルアップロードと構造化明細行データの共存モデルへ移行し、OCR/データパースによる入力支援機能を追加する。
+**Impact**: プロジェクト管理機能に見積依頼セクションを追加し、内訳書・取引先・プロジェクトエンティティと連携する新規機能を実装する。受領見積書はファイルアップロードと構造化明細行データの共存モデルへ移行し、OCR/データパースによる入力支援機能を追加する。項目選択セクションの保存方式をクライアントサイド状態管理+保存ボタン方式に変更し、受領見積書への項目選択一括転記機能を追加する。
 
 ### Goals
 
@@ -19,6 +19,8 @@
 - アップロードファイルのインラインプレビューとOCR/データパースによる入力支援を提供する
 - 受領見積書の明細行データをデータベースに永続化し、比較検討の基盤を構築する
 - 見積依頼のステータスを管理し、進捗状況を把握できる
+- 項目選択セクションでの選択操作をクライアントサイドで管理し、保存ボタンで一括永続化する
+- 項目選択セクションで選択した内訳書項目の内容を受領見積書の明細行に一括転記できる
 
 ### Non-Goals
 
@@ -129,7 +131,7 @@ graph TB
 - Selected pattern: レイヤードアーキテクチャ（既存パターン踏襲）
 - Domain boundaries: 見積依頼はプロジェクトドメインの拡張として配置
 - Existing patterns preserved: サービス層パターン、論理削除、楽観的排他制御
-- New components rationale: OCR/データパース処理はフロントエンド側で実行し、サーバー負荷を回避。明細行データはバックエンドで永続化
+- New components rationale: OCR/データパース処理はフロントエンド側で実行し、サーバー負荷を回避。明細行データはバックエンドで永続化。項目選択の状態管理はクライアントサイドで行い、保存ボタンで一括送信
 - Steering compliance: TypeScript strict mode、Prisma 7 Driver Adapter
 
 ### Technology Stack
@@ -173,6 +175,30 @@ sequenceDiagram
     UI->>UI: 詳細画面へ遷移
 ```
 
+### 項目選択・保存フロー（改訂版）
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant UI as 見積依頼詳細画面
+    participant State as クライアント状態
+    participant API as Backend API
+
+    UI->>API: GET /api/estimate-requests/:id/items-with-status
+    API-->>UI: 項目一覧（選択状態 + 他依頼情報）
+    UI->>State: サーバー状態を初期値として設定
+    User->>UI: チェックボックス変更
+    UI->>State: 選択状態をローカル更新
+    UI->>UI: 保存ボタンを強調表示（未保存変更あり）
+    User->>UI: 追加のチェックボックス変更
+    UI->>State: 選択状態をローカル更新
+    User->>UI: 保存ボタンクリック
+    UI->>API: PATCH /api/estimate-requests/:id/items
+    API-->>UI: 更新完了
+    UI->>UI: 保存完了フィードバック表示
+    UI->>State: 未保存変更フラグをリセット
+```
+
 ### 見積依頼文生成・コピーフロー
 
 ```mermaid
@@ -182,9 +208,6 @@ sequenceDiagram
     participant API as Backend API
     participant Clipboard as Clipboard API
 
-    User->>UI: 項目チェックボックス選択
-    UI->>API: PATCH /api/estimate-requests/:id/items
-    API-->>UI: 更新完了
     User->>UI: 見積依頼文表示ボタンクリック
     UI->>API: GET /api/estimate-requests/:id/text
     API-->>UI: 宛先、表題、本文
@@ -226,6 +249,35 @@ sequenceDiagram
     API-->>Form: 201 Created
 ```
 
+### 項目選択一括転記フロー（新規）
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Form as 受領見積書登録フォーム
+    participant Detail as 見積依頼詳細画面
+    participant Editor as LineItemEditor
+
+    User->>Form: 「項目選択から転記」ボタンクリック
+    Form->>Detail: 選択済み項目データを要求
+    Detail-->>Form: 選択済み内訳書項目一覧
+    alt 選択済み項目が0件
+        Form->>Form: エラーメッセージ「選択された項目がありません」
+    else 既存明細行データあり
+        Form->>Form: 確認ダイアログ「既存の明細行データが上書きされます。続行しますか？」
+        alt ユーザーが「キャンセル」
+            Form->>Form: 転記中止、既存データ保持
+        else ユーザーが「続行」
+            Form->>Editor: 選択項目を明細行に一括転記（単価は空欄）
+            Editor->>Editor: 転記完了メッセージ表示
+        end
+    else 既存明細行データなし
+        Form->>Editor: 選択項目を明細行に一括転記（単価は空欄）
+        Editor->>Editor: 転記完了メッセージ表示
+    end
+    User->>Editor: 転記結果を確認・修正
+```
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -233,8 +285,13 @@ sequenceDiagram
 | 1.1-1.5 | 見積依頼セクション表示 | ProjectDetailPage, EstimateRequestSectionCard | - | プロジェクト詳細表示 |
 | 2.1-2.7 | 見積依頼一覧画面 | EstimateRequestListPage, EstimateRequestListTable | GET /api/projects/:id/estimate-requests | 一覧取得 |
 | 3.1-3.9 | 見積依頼新規作成 | EstimateRequestCreatePage, EstimateRequestForm | POST /api/projects/:id/estimate-requests | 作成フロー |
-| 4.1-4.9 | 見積依頼詳細画面 - 項目選択（基本） | EstimateRequestDetailPage, ItemSelectionPanel | GET/PATCH /api/estimate-requests/:id | 項目選択 |
+| 4.1-4.3 | 見積依頼詳細画面 - 項目表示 | EstimateRequestDetailPage, ItemSelectionPanel | GET /api/estimate-requests/:id/items-with-status | 項目表示 |
+| 4.4-4.9 | 項目選択 - クライアントサイド状態管理・保存ボタン | ItemSelectionPanel | PATCH /api/estimate-requests/:id/items | 項目選択・保存フロー |
 | 4.10-4.12 | 見積依頼詳細画面 - 他依頼選択状態表示 | ItemSelectionPanel | GET /api/estimate-requests/:id/items-with-status | 項目選択状態表示 |
+| 4.13 | 見積依頼方法ラジオボタン | ItemSelectionPanel | - | - |
+| 4.14-4.15 | 見積依頼方法クライアントサイド管理 | ItemSelectionPanel | - | - |
+| 4.15-4.17 | 他の見積依頼での選択状態表示 | ItemSelectionPanel | GET /api/estimate-requests/:id/items-with-status | 項目選択状態表示 |
+| 4.19-4.20 | 未保存変更検知・ページ離脱確認 | ItemSelectionPanel | - | 項目選択・保存フロー |
 | 5.1-5.3 | 内訳書Excel出力 | ExcelExportButton, export-excel.ts | - | Excel生成 |
 | 6.1-6.10 | 見積依頼文表示 | EstimateRequestTextPanel | GET /api/estimate-requests/:id/text | テキスト生成 |
 | 7.1-7.6 | クリップボードコピー機能 | ClipboardCopyButton, copy-to-clipboard.ts | - | クリップボード操作 |
@@ -257,6 +314,7 @@ sequenceDiagram
 | 13.10-13.13 | 一括取り込み | OcrDataExtractor, LineItemEditor | - | データ取り込み |
 | 13.14 | OCRエラーハンドリング | OcrDataExtractor | - | エラー処理 |
 | 14.1-14.6 | 受領見積書データ管理 | ReceivedQuotationService, ReceivedQuotationLineItem Model | CRUD APIs | データ永続化 |
+| 15.1-15.11 | 項目選択一括転記 | ReceivedQuotationForm, ItemSelectionPanel, LineItemEditor | クライアントサイドデータフロー | 項目選択一括転記フロー |
 
 ## Components and Interfaces
 
@@ -270,13 +328,13 @@ sequenceDiagram
 | EstimateRequestSectionCard | Frontend | プロジェクト詳細セクション | 1.1-1.5 | - | - |
 | EstimateRequestListPage | Frontend | 一覧画面 | 2.1-2.7 | EstimateRequestListTable (P0) | - |
 | EstimateRequestForm | Frontend | 作成・編集フォーム | 3.1-3.9 | TradingPartnerSelect (P0), ItemizedStatementSelect (P1) | - |
-| EstimateRequestDetailPage | Frontend | 詳細画面 | 4.1-4.12, 5.1-5.3, 6.1-6.10, 7.1-7.6, 11.1-11.30, 12.1-12.10, 13.1-13.14 | ItemSelectionPanel (P0), EstimateRequestTextPanel (P0), ReceivedQuotationList (P0), StatusBadge (P0), StatusTransitionButton (P0) | - |
+| EstimateRequestDetailPage | Frontend | 詳細画面 | 4.1-4.20, 5.1-5.3, 6.1-6.10, 7.1-7.6, 11.1-11.30, 12.1-12.10, 13.1-13.14, 15.1-15.11 | ItemSelectionPanel (P0), EstimateRequestTextPanel (P0), ReceivedQuotationList (P0), StatusBadge (P0), StatusTransitionButton (P0) | - |
 | ReceivedQuotation (Model) | Data | 受領見積書データの永続化 | 11.1-11.30, 14.1-14.6 | EstimateRequest (P0), StorageProvider (P1) | State |
 | ReceivedQuotationLineItem (Model) | Data | 受領見積書明細行データの永続化 | 11.9-11.13, 14.2 | ReceivedQuotation (P0) | State |
 | EstimateRequestStatusHistory (Model) | Data | ステータス変更履歴の永続化 | 12.11 | EstimateRequest (P0) | State |
 | ReceivedQuotationService | Backend | 受領見積書CRUD操作（明細行を含む） | 11.1-11.30, 14.1-14.6 | Prisma (P0), StorageProvider (P0), SignedUrlService (P1) | Service, API |
 | EstimateRequestStatusService | Backend | ステータス遷移管理 | 12.1-12.11 | Prisma (P0), AuditLogService (P1) | Service |
-| ReceivedQuotationForm | Frontend | 受領見積書登録フォーム（ファイル + 明細行） | 11.1-11.30 | FileInlinePreview (P0), LineItemEditor (P0), OcrDataExtractor (P1) | State |
+| ReceivedQuotationForm | Frontend | 受領見積書登録フォーム（ファイル + 明細行 + 項目選択転記） | 11.1-11.30, 15.1-15.11 | FileInlinePreview (P0), LineItemEditor (P0), OcrDataExtractor (P1) | State |
 | FileInlinePreview | Frontend | ファイルインラインプレビュー | 13.1-13.4 | react-pdf (P0), xlsx (P0) | - |
 | OcrDataExtractor | Frontend | OCR/データパース処理と結果表示 | 13.5-13.14 | Tesseract.js (P0), xlsx (P0) | State |
 | LineItemEditor | Frontend | 構造化明細行入力エディタ | 11.9-11.21 | - | State |
@@ -299,10 +357,10 @@ sequenceDiagram
 - 楽観的排他制御（updatedAt）による同時更新防止
 
 **Dependencies**
-- Inbound: EstimateRequestService — CRUD操作 (P0)
-- Outbound: Project — プロジェクト参照 (P0)
-- Outbound: TradingPartner — 宛先取引先参照 (P0)
-- Outbound: ItemizedStatement — 参照内訳書 (P0)
+- Inbound: EstimateRequestService -- CRUD操作 (P0)
+- Outbound: Project -- プロジェクト参照 (P0)
+- Outbound: TradingPartner -- 宛先取引先参照 (P0)
+- Outbound: ItemizedStatement -- 参照内訳書 (P0)
 
 **Contracts**: State [x]
 
@@ -395,10 +453,10 @@ enum EstimateRequestStatus {
 - 楽観的排他制御（updatedAt）による同時更新防止
 
 **Dependencies**
-- Inbound: ReceivedQuotationService — CRUD操作 (P0)
-- Outbound: EstimateRequest — 見積依頼参照 (P0)
-- Outbound: ReceivedQuotationLineItem — 明細行リレーション (P0)
-- External: StorageProvider — ファイルストレージ (P1)
+- Inbound: ReceivedQuotationService -- CRUD操作 (P0)
+- Outbound: EstimateRequest -- 見積依頼参照 (P0)
+- Outbound: ReceivedQuotationLineItem -- 明細行リレーション (P0)
+- External: StorageProvider -- ファイルストレージ (P1)
 
 **Contracts**: State [x]
 
@@ -442,7 +500,7 @@ model ReceivedQuotation {
 - 既存データのcontentType='FILE'レコード: ファイル情報をそのまま保持。明細行は0件で保存
 - contentType列およびtextContent列はマイグレーションで削除
 
-#### ReceivedQuotationLineItem (Prisma Model) - 新規
+#### ReceivedQuotationLineItem (Prisma Model) - 改訂
 
 | Field | Detail |
 |-------|--------|
@@ -451,24 +509,26 @@ model ReceivedQuotation {
 
 **Responsibilities & Constraints**
 - 受領見積書に紐付く明細行データの管理
-- 名称、規格、単位、数量、単価、金額、備考の各フィールドを保持
+- 任意分類、工種、名称、規格、単位、数量、単価、金額、備考の各フィールドを保持
 - 金額は単価と数量の積として自動計算（フロントエンド側）し、永続化する
 - 表示順序（sortOrder）を保持
 
 **Dependencies**
-- Inbound: ReceivedQuotationService — CRUD操作 (P0)
-- Outbound: ReceivedQuotation — 受領見積書参照 (P0)
+- Inbound: ReceivedQuotationService -- CRUD操作 (P0)
+- Outbound: ReceivedQuotation -- 受領見積書参照 (P0)
 
 **Contracts**: State [x]
 
 ##### State Management
 
-**Prisma Schema Definition**:
+**Prisma Schema Definition（改訂版）**:
 ```prisma
 model ReceivedQuotationLineItem {
   id                    String  @id @default(uuid())
   receivedQuotationId   String
   sortOrder             Int     // 表示順序（0始まり）
+  customCategory        String? // 任意分類
+  workType              String? // 工種
   name                  String  // 名称（必須）
   specification         String? // 規格
   unit                  String? // 単位
@@ -487,6 +547,7 @@ model ReceivedQuotationLineItem {
 
 **Business Rules**:
 - 明細行のnameフィールドは必須
+- customCategory（任意分類）およびworkType（工種）はオプショナル
 - quantity、unitPrice、amountはDecimal型で精度を保証
 - amountはフロントエンドで quantity * unitPrice として自動計算し、サーバーサイドでも検証・保存
 - sortOrderは0始まりの連番で、表示順序を制御
@@ -503,9 +564,9 @@ model ReceivedQuotationLineItem {
 - 変更者と変更日時の追跡
 
 **Dependencies**
-- Inbound: EstimateRequestStatusService — 履歴記録 (P0)
-- Outbound: EstimateRequest — 見積依頼参照 (P0)
-- Outbound: User — 変更者参照 (P0)
+- Inbound: EstimateRequestStatusService -- 履歴記録 (P0)
+- Outbound: EstimateRequest -- 見積依頼参照 (P0)
+- Outbound: User -- 変更者参照 (P0)
 
 **Contracts**: State [x]
 
@@ -569,9 +630,9 @@ model EstimateRequest {
 - 監査ログの記録
 
 **Dependencies**
-- Inbound: estimate-requests.routes — API呼び出し (P0)
-- Outbound: Prisma — データアクセス (P0)
-- Outbound: AuditLogService — 監査ログ記録 (P1)
+- Inbound: estimate-requests.routes -- API呼び出し (P0)
+- Outbound: Prisma -- データアクセス (P0)
+- Outbound: AuditLogService -- 監査ログ記録 (P1)
 - External: - (外部依存なし)
 
 **Contracts**: Service [x]
@@ -661,6 +722,11 @@ interface EstimateRequestService {
 - 履歴レコード: `{ fromStatus: null, toStatus: 'BEFORE_REQUEST', changedById: actorId }`
 - EstimateRequestStatusServiceは呼び出さず、create()内で直接EstimateRequestStatusHistoryを作成する（サービス間の循環依存を回避するため）
 
+**updateItemSelection 改訂事項**:
+- 既存の実装はチェックボックス変更のたびに個別にAPI呼び出しを行う設計であったが、改訂版ではクライアントサイドで選択状態を管理し、保存ボタン押下時に選択状態の全量を一括送信する
+- updateItemSelectionメソッドのitemSelectionsパラメータに全項目の選択状態（itemId + selected）を一括で受け取る設計は変更なし
+- クライアントサイドの変更のみで対応可能であり、バックエンドAPIの契約変更は不要
+
 #### EstimateRequestTextService
 
 | Field | Detail |
@@ -675,10 +741,10 @@ interface EstimateRequestService {
 - 内訳書項目の成形（チェック有無で出力内容を切り替え）
 
 **Dependencies**
-- Inbound: estimate-requests.routes — API呼び出し (P0)
-- Outbound: EstimateRequestService — 見積依頼データ取得 (P0)
-- Outbound: Project — プロジェクト情報取得 (P1)
-- Outbound: TradingPartner — 取引先情報取得 (P0)
+- Inbound: estimate-requests.routes -- API呼び出し (P0)
+- Outbound: EstimateRequestService -- 見積依頼データ取得 (P0)
+- Outbound: Project -- プロジェクト情報取得 (P1)
+- Outbound: TradingPartner -- 取引先情報取得 (P0)
 
 **Contracts**: Service [x]
 
@@ -724,10 +790,10 @@ interface EstimateRequestTextService {
 - ファイルまたは明細行データのいずれか一方は必須の検証
 
 **Dependencies**
-- Inbound: estimate-requests.routes — API呼び出し (P0)
-- Outbound: Prisma — データアクセス (P0)
-- Outbound: StorageProvider — ファイルストレージ (P0)
-- Outbound: SignedUrlService — 署名付きURL生成 (P1)
+- Inbound: estimate-requests.routes -- API呼び出し (P0)
+- Outbound: Prisma -- データアクセス (P0)
+- Outbound: StorageProvider -- ファイルストレージ (P0)
+- Outbound: SignedUrlService -- 署名付きURL生成 (P1)
 - External: - (外部依存なし)
 
 **Contracts**: Service [x], API [x]
@@ -741,6 +807,8 @@ interface ReceivedQuotationServiceDependencies {
 }
 
 interface LineItemInput {
+  customCategory?: string;  // 任意分類（改訂: 追加）
+  workType?: string;        // 工種（改訂: 追加）
   name: string;
   specification?: string;
   unit?: string;
@@ -781,6 +849,8 @@ interface LineItemInfo {
   id: string;
   receivedQuotationId: string;
   sortOrder: number;
+  customCategory: string | null;  // 任意分類（改訂: 追加）
+  workType: string | null;        // 工種（改訂: 追加）
   name: string;
   specification: string | null;
   unit: string | null;
@@ -842,7 +912,7 @@ interface ReceivedQuotationService {
 - `submittedAt` (string, ISO8601, 必須): 提出日
 - `file` (File, 任意): アップロードファイル
 - `removeFile` (string, "true"/"false", 任意): 既存ファイル削除フラグ（更新時のみ）
-- `lineItems` (string, JSON配列, 任意): 明細行データ（JSON.stringify済み）
+- `lineItems` (string, JSON配列, 任意): 明細行データ（JSON.stringify済み）。各要素にcustomCategory、workTypeフィールドを含む
 - `expectedUpdatedAt` (string, ISO8601, 更新時必須): 楽観的排他制御用
 
 **Implementation Notes**
@@ -851,8 +921,8 @@ interface ReceivedQuotationService {
 - **Transaction Management**: 明細行の全量置換（DELETE + INSERT）およびReceivedQuotation本体の更新は、Prismaの`$transaction()`（interactive transaction）内で実行し、部分更新によるデータ不整合を防止する。ファイルアップロード（StorageProvider）はトランザクション外で先行実行し、DB更新失敗時はアップロード済みファイルをロールバック（削除）する
 - LineItem Update Strategy: 更新時は既存明細行を全削除（DELETE）し、新しい明細行を一括作成（INSERT）する。全量置換により差分管理の複雑さを回避。DELETE + INSERTはinteractive transaction内で原子的に実行される
 - File Deletion Strategy:
-  - 削除時: DBレコード論理削除（deletedAt設定）→ StorageProvider.delete()でファイル物理削除
-  - 更新時（ファイル変更）: 新ファイルアップロード → DB更新（interactive transaction内）→ 旧ファイル物理削除
+  - 削除時: DBレコード論理削除（deletedAt設定）-> StorageProvider.delete()でファイル物理削除
+  - 更新時（ファイル変更）: 新ファイルアップロード -> DB更新（interactive transaction内）-> 旧ファイル物理削除
   - **エラー時リカバリスコープ（初期リリース）**: DB更新成功・ファイル削除失敗の場合はログ記録（`logger.error`）のみとし、孤立ファイルは定期的な手動クリーンアップで対応する。バックグラウンドジョブによる自動リトライは将来の拡張として検討し、初期リリースのスコープには含めない
 - Risks: ファイル削除時のストレージとDBの整合性（DB更新を先に実行し、ファイル削除失敗は許容。初期リリースではログ記録+手動クリーンアップで対応）
 
@@ -870,9 +940,9 @@ interface ReceivedQuotationService {
 - 監査ログの記録
 
 **Dependencies**
-- Inbound: estimate-requests.routes — API呼び出し (P0)
-- Outbound: Prisma — データアクセス (P0)
-- Outbound: AuditLogService — 監査ログ記録 (P1)
+- Inbound: estimate-requests.routes -- API呼び出し (P0)
+- Outbound: Prisma -- データアクセス (P0)
+- Outbound: AuditLogService -- 監査ログ記録 (P1)
 
 **Contracts**: Service [x]
 
@@ -977,7 +1047,7 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 
 **Implementation Notes**
 - Integration: authenticate + requirePermission ミドルウェアで認証・認可を実装
-- Validation: Zodスキーマによるリクエストバリデーション。lineItemsフィールドはJSON文字列としてmultipart内で送信し、バックエンドでパース・検証
+- Validation: Zodスキーマによるリクエストバリデーション。lineItemsフィールドはJSON文字列としてmultipart内で送信し、バックエンドでパース・検証。lineItemsの各要素にcustomCategory、workTypeフィールドを含むZodスキーマに更新
 - Risks: 権限管理はプロジェクトの閲覧/編集権限に基づく（10.1-10.4）
 
 ### Frontend Components
@@ -1014,8 +1084,8 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 | Requirements | 3.1-3.9, 9.3, 9.6 |
 
 **Dependencies**
-- Outbound: TradingPartnerSelect — 取引先選択 (P0)
-- Outbound: ItemizedStatementSelect — 内訳書選択 (P1)
+- Outbound: TradingPartnerSelect -- 取引先選択 (P0)
+- Outbound: ItemizedStatementSelect -- 内訳書選択 (P1)
 
 **Implementation Notes**
 - Integration: TradingPartnerSelectを再利用し、`filterTypes`プロパティに`['SUBCONTRACTOR']`を指定して協力業者のみをフィルタリング
@@ -1029,36 +1099,44 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 | Field | Detail |
 |-------|--------|
 | Intent | 見積依頼詳細画面（項目選択、テキスト表示、各種アクション）を提供 |
-| Requirements | 4.1-4.13, 5.1-5.3, 6.1-6.10, 7.1-7.6, 9.1, 9.2, 9.4, 9.5 |
+| Requirements | 4.1-4.20, 5.1-5.3, 6.1-6.10, 7.1-7.6, 9.1, 9.2, 9.4, 9.5, 15.1-15.11 |
 
 **Dependencies**
-- Outbound: ItemSelectionPanel — 項目選択UI (P0)
-- Outbound: EstimateRequestTextPanel — テキスト表示UI (P0)
-- Outbound: ExcelExportButton — Excel出力 (P1)
-- Outbound: ClipboardCopyButton — クリップボードコピー (P1)
+- Outbound: ItemSelectionPanel -- 項目選択UI (P0)
+- Outbound: EstimateRequestTextPanel -- テキスト表示UI (P0)
+- Outbound: ExcelExportButton -- Excel出力 (P1)
+- Outbound: ClipboardCopyButton -- クリップボードコピー (P1)
 
 **Implementation Notes**
-- Integration: 項目選択の自動保存（チェックボックス変更時にPATCH API呼び出し）
+- Integration: 項目選択の状態管理をクライアントサイドで行い、保存ボタン押下時にPATCH API呼び出しで一括保存（4.4-4.9）
 - Integration: GET /api/estimate-requests/:id/items-with-status で他の見積依頼での選択状態を取得
+- Integration: 受領見積書登録フォームに選択済み項目データを提供し、一括転記機能をサポート（15.1-15.11）
 - Validation: 項目未選択時のExcel出力エラー
-- Risks: ネットワークエラー時の自動保存失敗に対するリトライ
+- Risks: 未保存変更がある状態でのページ離脱に対する確認ダイアログ（4.20）
 
-#### ItemSelectionPanel
+#### ItemSelectionPanel - 改訂
 
 | Field | Detail |
 |-------|--------|
-| Intent | 内訳書項目の選択UIを提供（他の見積依頼での選択状態表示を含む） |
-| Requirements | 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 4.13 |
+| Intent | 内訳書項目の選択UIを提供（クライアントサイド状態管理・保存ボタン方式、他の見積依頼での選択状態表示を含む） |
+| Requirements | 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 4.13, 4.14, 4.15, 4.16, 4.17, 4.18, 4.19, 4.20 |
 
 **Responsibilities & Constraints**
 - 内訳書項目の一覧表示とチェックボックスによる選択
+- チェックボックス変更時はクライアントサイドの状態のみ更新し、サーバーへのリクエストは送信しない（4.4, 4.5）
+- 「保存」ボタンの表示と、クリック時にサーバーへ選択状態を一括送信（4.6, 4.7）
+- 保存成功時のフィードバック表示、失敗時のエラーメッセージ表示とサーバー状態への復元（4.8, 4.9）
+- 未保存の変更が存在する場合、保存ボタンを視覚的に強調表示（4.19）
+- 未保存の変更がある状態でページを離脱しようとした場合、確認ダイアログを表示（4.20）
+- 見積依頼方法（メール/FAX）ラジオボタンのクライアントサイド管理（4.14）
 - 他の見積依頼で選択済みの項目の視覚的な区別（背景色変更）
 - 他の見積依頼の依頼先取引先名の表示（一番右の列）
 - 複数の見積依頼で選択されている場合は全ての取引先名を表示
+- 列ヘッダーの「カテゴリ」を「任意分類」に名称変更
 
 **Dependencies**
-- Inbound: EstimateRequestDetailPage — 項目選択UI埋め込み (P0)
-- Outbound: estimate-requests API — 項目選択状態・他依頼情報取得 (P0)
+- Inbound: EstimateRequestDetailPage -- 項目選択UI埋め込み (P0)
+- Outbound: estimate-requests API -- 項目選択状態・他依頼情報取得 (P0)
 
 **Contracts**: State [x]
 
@@ -1070,7 +1148,7 @@ interface ItemWithOtherRequestStatus {
   itemizedStatementItemId: string;
   itemizedStatementItem: {
     id: string;
-    category: string | null;
+    customCategory: string | null;  // 改訂: category -> customCategory（任意分類）
     workType: string;
     name: string;
     specification: string | null;
@@ -1091,17 +1169,47 @@ interface ItemWithOtherRequestStatus {
 interface ItemSelectionPanelProps {
   estimateRequestId: string;
   items: ItemWithOtherRequestStatus[];
-  onSelectionChange: (itemId: string, selected: boolean) => void;
+  onSaveSelection: (itemSelections: Array<{ itemId: string; selected: boolean }>) => Promise<void>;
+  onMethodChange?: (method: EstimateRequestMethod) => void;
+  method?: EstimateRequestMethod;
   disabled?: boolean;
+}
+
+interface ItemSelectionPanelState {
+  /** クライアントサイドの選択状態（サーバー状態との差分を管理） */
+  localSelections: Map<string, boolean>;
+  /** サーバーから取得した初期選択状態（復元用） */
+  serverSelections: Map<string, boolean>;
+  /** 未保存の変更が存在するか */
+  hasUnsavedChanges: boolean;
+  /** 保存中フラグ */
+  isSaving: boolean;
 }
 ```
 
 **Implementation Notes**
-- Integration: チェックボックス変更時にdebounceしてAPI呼び出し
+- Integration: チェックボックス変更時はlocalSelectionsのみ更新し、hasUnsavedChangesフラグをtrueに設定する。保存ボタンクリック時にonSaveSelectionコールバックを呼び出し、全項目の選択状態を一括送信する。従来のdebounce処理は削除する
+- Integration: 保存失敗時はlocalSelectionsをserverSelectionsから復元する（4.9）
+- Integration: useEffect内でbeforeunloadイベントを監視し、hasUnsavedChanges=trueの場合にブラウザ離脱確認ダイアログを表示する（4.20）
+- Integration: React Router のuseBlocker/usePromptを使用してSPA内ナビゲーション時の離脱確認を実装する
 - Validation: 項目が存在しない場合のメッセージ表示
-- Risks: 大量項目時のパフォーマンス（仮想スクロール検討）
 - Visual: 他の見積依頼で選択済みの項目は背景色を薄いオレンジ（bg-orange-50）で区別
+- Visual: 未保存変更がある場合、保存ボタンにprimary色（bg-blue-600等）を適用し、通常時はsecondary色で表示
+- Visual: 列ヘッダー「カテゴリ」を「任意分類」に変更
 - Display: 依頼先取引先名はカンマ区切りで表示（複数の場合）
+- Risks: 大量項目時のパフォーマンス（仮想スクロール検討）
+
+#### ExcelExportButton - 改訂
+
+| Field | Detail |
+|-------|--------|
+| Intent | 選択した内訳書項目のExcelファイル出力を提供 |
+| Requirements | 5.1, 5.2, 5.3 |
+
+**Implementation Notes**
+- Integration: SheetJSを使用してExcelファイルを生成
+- Visual: Excel列ヘッダー「カテゴリ」を「任意分類」に名称変更
+- Validation: 項目が1つも選択されていない場合のエラーメッセージ表示
 
 #### EstimateRequestTextPanel
 
@@ -1119,8 +1227,8 @@ interface ItemSelectionPanelProps {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 受領見積書の登録・編集フォームを提供（ファイルアップロード + 構造化データ入力） |
-| Requirements | 11.1-11.30 |
+| Intent | 受領見積書の登録・編集フォームを提供（ファイルアップロード + 構造化データ入力 + 項目選択一括転記） |
+| Requirements | 11.1-11.30, 15.1-15.11 |
 
 **Responsibilities & Constraints**
 - 受領見積書名、提出日の入力
@@ -1128,14 +1236,16 @@ interface ItemSelectionPanelProps {
 - ファイルインラインプレビュー表示（FileInlinePreview）
 - OCR/データパース処理と結果表示（OcrDataExtractor）
 - 構造化明細行データ入力（LineItemEditor）
+- 「項目選択から転記」ボタンによる一括転記機能（15.1）
 - ファイル形式とサイズのバリデーション
 - ファイルまたは明細行データのいずれか必須の検証
 
 **Dependencies**
-- Inbound: ReceivedQuotationList — フォーム呼び出し (P0)
-- Outbound: FileInlinePreview — ファイルプレビュー (P0)
-- Outbound: OcrDataExtractor — OCR/データパース (P1)
-- Outbound: LineItemEditor — 明細行入力 (P0)
+- Inbound: ReceivedQuotationList -- フォーム呼び出し (P0)
+- Outbound: FileInlinePreview -- ファイルプレビュー (P0)
+- Outbound: OcrDataExtractor -- OCR/データパース (P1)
+- Outbound: LineItemEditor -- 明細行入力 (P0)
+- Inbound: EstimateRequestDetailPage -- 選択済み項目データの提供 (P0)
 
 **Contracts**: State [x]
 
@@ -1149,6 +1259,19 @@ interface ReceivedQuotationFormProps {
   onSubmit: (data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput) => Promise<void>;
   onCancel: () => void;
   isSubmitting?: boolean;
+  /** 項目選択セクションの選択済み項目データ（一括転記用） */
+  selectedItems?: SelectedItemForTranscription[];
+}
+
+/** 一括転記用の選択済み項目データ */
+interface SelectedItemForTranscription {
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  quantity: number;
+  remarks: string | null;
 }
 
 interface ReceivedQuotationFormState {
@@ -1167,6 +1290,24 @@ interface ReceivedQuotationFormState {
 }
 ```
 
+**一括転記ロジック（15.1-15.11）**:
+- 「項目選択から転記」ボタンクリック時、selectedItemsプロパティから選択済み項目を取得（15.2）
+- selectedItemsが空の場合、エラーメッセージ「選択された項目がありません」を表示（15.7）
+- 既存の明細行データが存在する場合（空の1行のみでない場合）、確認ダイアログを表示（15.8）
+- ユーザーが「キャンセル」を選択した場合、転記を中止し既存データを保持（15.9）
+- 転記実行時、各選択済み項目からLineItemFormDataを生成（15.3, 15.4）:
+  - customCategory: 項目のcustomCategory
+  - workType: 項目のworkType
+  - name: 項目のname
+  - specification: 項目のspecification
+  - unit: 項目のunit
+  - quantity: 項目のquantity（文字列変換）
+  - unitPrice: 空欄（15.10）
+  - amount: null（単価が空のため計算不可）
+  - remarks: 項目のremarks
+- 転記完了後、転記された行数を含む完了メッセージを表示（15.5, 15.6）
+- 転記後もユーザーが各フィールドを自由に編集可能（15.11）
+
 **Validation Rules（改訂版）**:
 - 受領見積書名: 必須、最大200文字（11.3）
 - 提出日: 必須（11.4）
@@ -1176,6 +1317,7 @@ interface ReceivedQuotationFormState {
 
 **Implementation Notes**
 - Integration: ファイルアップロードのドラッグ&ドロップ対応（11.6）。ファイル選択時にFileInlinePreviewとOcrDataExtractorを起動
+- Integration: 「項目選択から転記」ボタンはLineItemEditorの上部に配置し、selectedItemsプロパティが提供されている場合のみ表示する
 - Validation: 必須項目チェック、ファイル形式・サイズチェック、コンテンツ存在チェック
 - Visual: フォーム内にファイルプレビュー、OCR結果、明細行エディタを統合表示
 
@@ -1193,9 +1335,9 @@ interface ReceivedQuotationFormState {
 - ファイルタイプに応じたプレビュー方法の自動選択
 
 **Dependencies**
-- Inbound: ReceivedQuotationForm — プレビュー表示 (P0)
-- External: react-pdf 10.3.0 — PDFレンダリング (P0)
-- External: xlsx 0.20.3 — Excelパース (P0)
+- Inbound: ReceivedQuotationForm -- プレビュー表示 (P0)
+- External: react-pdf 10.3.0 -- PDFレンダリング (P0)
+- External: xlsx 0.20.3 -- Excelパース (P0)
 
 **Contracts**: State [x]
 
@@ -1242,10 +1384,10 @@ interface FileInlinePreviewState {
 - OCR/パースエラー時のフォールバック（13.14）
 
 **Dependencies**
-- Inbound: ReceivedQuotationForm — 抽出処理呼び出し (P0)
-- Outbound: LineItemEditor — 抽出データの一括取り込み (P0)
-- External: Tesseract.js 7.0.0 — OCR処理 (P0)
-- External: xlsx 0.20.3 — Excelデータパース (P0)
+- Inbound: ReceivedQuotationForm -- 抽出処理呼び出し (P0)
+- Outbound: LineItemEditor -- 抽出データの一括取り込み (P0)
+- External: Tesseract.js 7.0.0 -- OCR処理 (P0)
+- External: xlsx 0.20.3 -- Excelデータパース (P0)
 
 **Contracts**: State [x]
 
@@ -1275,10 +1417,10 @@ interface OcrDataExtractorState {
 6. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行
 7. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
 
-**テキストから構造化データへの変換ロジック**:
+**テキストから構造化データへの変換ロジック（改訂版）**:
 - OCRテキストをタブ区切りまたはスペース区切りで行分割
-- 各行から名称、規格、単位、数量、単価を推定（パターンマッチング）
-- Excelデータはヘッダー行検出後、列マッピングにより自動変換
+- 各行から任意分類、工種、名称、規格、単位、数量、単価を推定（パターンマッチング）
+- Excelデータはヘッダー行検出後、列マッピングにより自動変換（任意分類、工種列を含む）
 - 変換精度は完璧でないため、手動修正を前提とする設計
 
 **Implementation Notes**
@@ -1292,7 +1434,7 @@ interface OcrDataExtractorState {
   - OCR処理の初回実行時にWASMバイナリとトレーニングデータのダウンロードが発生するため、プリフェッチ中はUI上に「OCR準備中...」のインジケーターを表示し、ユーザーの待機体験を改善する
   - `React.Suspense`のfallbackにはスケルトンUIを表示し、コンポーネント遅延ロード中の視覚的フィードバックを提供する
 
-#### LineItemEditor - 新規
+#### LineItemEditor - 改訂
 
 | Field | Detail |
 |-------|--------|
@@ -1301,7 +1443,7 @@ interface OcrDataExtractorState {
 
 **Responsibilities & Constraints**
 - 明細行の追加・削除・編集UI
-- フィールド: 名称、規格、単位、数量、単価、金額（自動計算）、備考（11.10）
+- フィールド: 任意分類、工種、名称、規格、単位、数量、単価、金額（自動計算）、備考（11.10 改訂）
 - 金額の自動計算: 数量 x 単価（11.11, 11.12）
 - 全明細行の金額合計の自動計算（11.13）
 - 初期表示時に1行の空明細行を表示（11.14）
@@ -1310,8 +1452,8 @@ interface OcrDataExtractorState {
 - Tab キーによるフィールド間移動（11.20, 11.21）
 
 **Dependencies**
-- Inbound: ReceivedQuotationForm — エディタ埋め込み (P0)
-- Inbound: OcrDataExtractor — 一括取り込みデータ受信 (P1)
+- Inbound: ReceivedQuotationForm -- エディタ埋め込み (P0)
+- Inbound: OcrDataExtractor -- 一括取り込みデータ受信 (P1)
 
 **Contracts**: State [x]
 
@@ -1320,6 +1462,8 @@ interface OcrDataExtractorState {
 ```typescript
 interface LineItemFormData {
   id: string; // クライアントサイド一時ID（uuid or nanoid）
+  customCategory: string;  // 任意分類（改訂: 追加）
+  workType: string;        // 工種（改訂: 追加）
   name: string;
   specification: string;
   unit: string;
@@ -1334,6 +1478,18 @@ interface LineItemEditorProps {
   onLineItemsChange: (items: LineItemFormData[]) => void;
   disabled?: boolean;
 }
+
+// フィールド順序（Tabキー移動用）- 改訂: customCategory, workTypeを先頭に追加
+const FIELD_ORDER: (keyof LineItemFormData)[] = [
+  'customCategory',
+  'workType',
+  'name',
+  'specification',
+  'unit',
+  'quantity',
+  'unitPrice',
+  'remarks',
+];
 
 // 金額計算ロジック
 function calculateAmount(quantity: string, unitPrice: string): number | null {
@@ -1353,7 +1509,7 @@ function calculateTotalAmount(items: LineItemFormData[]): number {
 - Integration: 各フィールドのonChangeで数量・単価変更時に金額を自動再計算。合計金額はuseMemoで算出
 - Integration: Tabキーフォーカス移動はtabIndexの適切な設定とonKeyDownハンドラで実装。最終フィールドTab時は次行の最初のフィールドへ移動（11.21）
 - Validation: 明細行が1行のみの場合は削除ボタン非活性（11.19）
-- Visual: テーブル形式レイアウト。各行にNo列、名称、規格、単位、数量、単価、金額（読み取り専用）、備考、操作列（削除ボタン）を表示。末尾に合計行を表示
+- Visual: テーブル形式レイアウト。各行にNo列、任意分類、工種、名称、規格、単位、数量、単価、金額（読み取り専用）、備考、操作列（削除ボタン）を表示。末尾に合計行を表示
 - Risks: 大量行入力時のレンダリングパフォーマンス（50行超で仮想スクロール検討）
 
 #### ReceivedQuotationList - 改訂
@@ -1371,9 +1527,9 @@ function calculateTotalAmount(items: LineItemFormData[]): number {
 - 編集・削除アクションの提供
 
 **Dependencies**
-- Inbound: EstimateRequestDetailPage — 一覧埋め込み (P0)
-- Outbound: ReceivedQuotationForm — 登録/編集フォーム (P1)
-- Outbound: estimate-requests API — 一覧取得 (P0)
+- Inbound: EstimateRequestDetailPage -- 一覧埋め込み (P0)
+- Outbound: ReceivedQuotationForm -- 登録/編集フォーム (P1)
+- Outbound: estimate-requests API -- 一覧取得 (P0)
 
 **Contracts**: State [x]
 
@@ -1408,8 +1564,8 @@ interface ReceivedQuotationListProps {
 - ステータスごとに異なる色で視覚的に区別
 
 **Dependencies**
-- Inbound: EstimateRequestDetailPage — ステータス表示 (P0)
-- Inbound: EstimateRequestListTable — 一覧ステータス表示 (P0)
+- Inbound: EstimateRequestDetailPage -- ステータス表示 (P0)
+- Inbound: EstimateRequestListTable -- 一覧ステータス表示 (P0)
 
 **Contracts**: State [x]
 
@@ -1446,8 +1602,8 @@ const STATUS_DISPLAY: Record<EstimateRequestStatus, { label: string; color: stri
 - 遷移実行とフィードバック表示
 
 **Dependencies**
-- Inbound: EstimateRequestDetailPage — 遷移ボタン表示 (P0)
-- Outbound: EstimateRequestStatusService — ステータス更新 (P0)
+- Inbound: EstimateRequestDetailPage -- 遷移ボタン表示 (P0)
+- Outbound: EstimateRequestStatusService -- ステータス更新 (P0)
 
 **Contracts**: State [x]
 
@@ -1486,7 +1642,7 @@ interface StatusTransitionButtonProps {
 - EstimateRequest: id, name, method, includeBreakdownInBody, status
 - EstimateRequestItem: id, selected
 - ReceivedQuotation: id, name, submittedAt, filePath, fileName, fileMimeType, fileSize
-- ReceivedQuotationLineItem: id, sortOrder, name, specification, unit, quantity, unitPrice, amount, remarks
+- ReceivedQuotationLineItem: id, sortOrder, customCategory, workType, name, specification, unit, quantity, unitPrice, amount, remarks
 
 **Business Rules & Invariants**:
 - 見積依頼は必ず1つのプロジェクト、1つの取引先、1つの内訳書に紐付く
@@ -1595,13 +1751,15 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - content_type: 廃止（ファイルと明細行の共存モデルへ移行）
 - text_content: 廃止（明細行データに移行）
 
-**Table: received_quotation_line_items（新規）**
+**Table: received_quotation_line_items（改訂版）**
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | UUID | PK, NOT NULL | 主キー |
 | received_quotation_id | UUID | FK, NOT NULL | 受領見積書参照 |
 | sort_order | INT | NOT NULL | 表示順序（0始まり） |
+| custom_category | VARCHAR(500) | NULL | 任意分類（改訂: 追加） |
+| work_type | VARCHAR(500) | NULL | 工種（改訂: 追加） |
 | name | VARCHAR(500) | NOT NULL | 名称 |
 | specification | VARCHAR(500) | NULL | 規格 |
 | unit | VARCHAR(50) | NULL | 単位 |
@@ -1664,41 +1822,46 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - EstimateRequestService: 作成、取得、更新、削除、項目選択更新
 - EstimateRequestService.findItemsWithOtherRequestStatus: 他の見積依頼での選択状態取得
 - EstimateRequestTextService: テキスト生成（メール/FAX、内訳書含む/含まない）
-- ReceivedQuotationService: CRUD操作（明細行データ含む）、ファイルアップロード、プレビューURL生成、明細行全量置換
+- ReceivedQuotationService: CRUD操作（明細行データ含む、customCategory・workTypeフィールド検証）、ファイルアップロード、プレビューURL生成、明細行全量置換
 - EstimateRequestStatusService: ステータス遷移、許可遷移取得、履歴記録
-- Zodスキーマ: バリデーションルールのテスト（受領見積書、ステータス、明細行データ含む）
+- Zodスキーマ: バリデーションルールのテスト（受領見積書、ステータス、明細行データ含む、customCategory・workTypeフィールド検証）
 - エラークラス: カスタムエラーのテスト
-- ItemSelectionPanel: 他依頼選択状態の背景色表示、取引先名表示
-- ReceivedQuotationForm: フォームバリデーション、ファイル選択、コンテンツ存在検証
-- LineItemEditor: 明細行追加・削除、金額自動計算、合計計算、Tab移動、最終行削除不可
+- ItemSelectionPanel: クライアントサイド状態管理テスト、保存ボタン動作テスト、未保存変更検知テスト、ページ離脱確認テスト、他依頼選択状態の背景色表示、取引先名表示、列ヘッダー「任意分類」表示
+- ReceivedQuotationForm: フォームバリデーション、ファイル選択、コンテンツ存在検証、項目選択一括転記（空選択エラー、確認ダイアログ、転記結果）
+- LineItemEditor: 明細行追加・削除、金額自動計算、合計計算、Tab移動（customCategory・workType含む）、最終行削除不可
 - FileInlinePreview: PDF/画像/Excelプレビュー表示、ファイルタイプ判定
-- OcrDataExtractor: OCR処理実行、Excelパース、一括取り込み、エラーハンドリング
+- OcrDataExtractor: OCR処理実行、Excelパース（customCategory・workType列マッピング含む）、一括取り込み、エラーハンドリング
 - StatusBadge: ステータス表示、色分け
 - StatusTransitionButton: 遷移ボタン表示制御
+- ExcelExportButton: 列ヘッダー「任意分類」表示
 
 ### Integration Tests
 
 - API統合テスト: 認証・認可フロー、CRUD操作
 - データベーストランザクション: 見積依頼作成時の項目自動初期化
 - 楽観的排他制御: 同時更新時の409エラー
-- 受領見積書API統合テスト: ファイルアップロード + 明細行データの同時送信、プレビューURL
-- 受領見積書明細行テスト: 明細行の作成・更新（全量置換）・削除
+- 受領見積書API統合テスト: ファイルアップロード + 明細行データ（customCategory・workType含む）の同時送信、プレビューURL
+- 受領見積書明細行テスト: 明細行の作成・更新（全量置換、customCategory・workType含む）・削除
 - ステータス遷移API統合テスト: 遷移実行、履歴取得、無効遷移拒否
 - ストレージ統合テスト: ファイルアップロード・削除の整合性
 
 ### E2E Tests
 
 - 見積依頼作成フロー: フォーム入力->保存->詳細画面遷移
-- 項目選択・テキスト表示: チェックボックス操作->自動保存->テキスト生成
+- 項目選択・保存フロー: チェックボックス操作->保存ボタンクリック->保存成功フィードバック
+- 未保存変更検知: チェックボックス変更->保存ボタン強調表示->ページ離脱確認ダイアログ
 - 他依頼選択状態表示: 複数の見積依頼作成->項目選択->背景色・取引先名の確認
-- Excel出力: 項目選択->ダウンロード
+- Excel出力: 項目選択->ダウンロード->列ヘッダー「任意分類」確認
 - クリップボードコピー: 各項目のコピー操作
-- 受領見積書登録フロー: ボタンクリック->フォーム入力->ファイルアップロード->明細行入力->保存
+- 受領見積書登録フロー: ボタンクリック->フォーム入力->ファイルアップロード->明細行入力（任意分類・工種含む）->保存
 - 受領見積書インラインプレビュー: ファイルアップロード->プレビュー表示確認（PDF/画像/Excel）
-- 受領見積書OCR/パース: ファイルアップロード->OCR実行->結果表示->一括取り込み->明細行確認
+- 受領見積書OCR/パース: ファイルアップロード->OCR実行->結果表示->一括取り込み->明細行確認（任意分類・工種フィールド含む）
 - 受領見積書明細行操作: 行追加->数値入力->金額自動計算->合計確認->行削除
 - 受領見積書一覧表示: 登録済み見積書の確認、ファイルプレビュー、明細行数・合計金額表示
 - 受領見積書編集・削除: 編集->保存、削除確認->削除
+- 項目選択一括転記: 項目選択->「項目選択から転記」ボタン->明細行確認（任意分類・工種・名称・規格・単位・数量・備考転記、単価空欄）
+- 項目選択一括転記（空選択）: 項目未選択状態->「項目選択から転記」ボタン->エラーメッセージ確認
+- 項目選択一括転記（上書き確認）: 既存明細行あり->「項目選択から転記」ボタン->確認ダイアログ表示->キャンセル/続行
 - ステータス遷移フロー: 依頼前->依頼済->見積受領済の遷移
 - ステータス表示: 詳細画面・一覧画面でのステータスバッジ確認
 
@@ -1731,3 +1894,14 @@ User 1--* EstimateRequestStatusHistory (changedBy)
    - ReceivedQuotationContentType Enumを削除
 
 **Rollback Strategy**: Phase 1, 2は個別にロールバック可能。Phase 3実行前にデータ整合性を検証
+
+### ReceivedQuotationLineItem列追加（改訂: 追加）
+
+received_quotation_line_itemsテーブルへのcustom_category列およびwork_type列の追加:
+
+1. **Phase 1: 列追加マイグレーション**
+   - `custom_category VARCHAR(500) NULL`列を追加
+   - `work_type VARCHAR(500) NULL`列を追加
+   - 既存データへの影響なし（両列ともNULLABLE）
+
+**Rollback Strategy**: 列削除マイグレーションで即座にロールバック可能

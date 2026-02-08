@@ -34,6 +34,10 @@ import { useCallback, useMemo, useRef, type KeyboardEvent, type ChangeEvent } fr
 export interface LineItemFormData {
   /** クライアントサイド一時ID */
   id: string;
+  /** 任意分類 */
+  customCategory: string;
+  /** 工種 */
+  workType: string;
   /** 名称 */
   name: string;
   /** 規格 */
@@ -71,6 +75,8 @@ export interface LineItemEditorProps {
  * 金額フィールドは読み取り専用のため含めない
  */
 const FIELD_ORDER: (keyof LineItemFormData)[] = [
+  'customCategory',
+  'workType',
   'name',
   'specification',
   'unit',
@@ -130,6 +136,8 @@ export function calculateTotalAmount(items: LineItemFormData[]): number {
 export function createEmptyLineItem(): LineItemFormData {
   return {
     id: generateId(),
+    customCategory: '',
+    workType: '',
     name: '',
     specification: '',
     unit: '',
@@ -176,6 +184,12 @@ const styles = {
   thNo: {
     width: '40px',
     textAlign: 'center' as const,
+  },
+  thCustomCategory: {
+    minWidth: '80px',
+  },
+  thWorkType: {
+    minWidth: '80px',
   },
   thName: {
     minWidth: '120px',
@@ -414,6 +428,12 @@ export function LineItemEditor({
             <th scope="col" style={{ ...styles.th, ...styles.thNo }}>
               No
             </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thCustomCategory }}>
+              任意分類
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thWorkType }}>
+              工種
+            </th>
             <th scope="col" style={{ ...styles.th, ...styles.thName }}>
               名称
             </th>
@@ -445,6 +465,42 @@ export function LineItemEditor({
             <tr key={item.id}>
               {/* No */}
               <td style={{ ...styles.td, ...styles.tdNo }}>{index + 1}</td>
+
+              {/* 任意分類 */}
+              <td style={styles.td}>
+                <input
+                  type="text"
+                  value={item.customCategory}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    handleFieldChange(item.id, 'customCategory', e.target.value)
+                  }
+                  onKeyDown={(e) => handleKeyDown(e, index, 'customCategory')}
+                  placeholder="任意分類"
+                  disabled={disabled}
+                  style={styles.input}
+                  data-row={index}
+                  data-field="customCategory"
+                  aria-label={`行${index + 1} 任意分類`}
+                />
+              </td>
+
+              {/* 工種 */}
+              <td style={styles.td}>
+                <input
+                  type="text"
+                  value={item.workType}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    handleFieldChange(item.id, 'workType', e.target.value)
+                  }
+                  onKeyDown={(e) => handleKeyDown(e, index, 'workType')}
+                  placeholder="工種"
+                  disabled={disabled}
+                  style={styles.input}
+                  data-row={index}
+                  data-field="workType"
+                  aria-label={`行${index + 1} 工種`}
+                />
+              </td>
 
               {/* 名称 */}
               <td style={styles.td}>

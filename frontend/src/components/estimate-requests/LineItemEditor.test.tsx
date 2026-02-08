@@ -440,9 +440,11 @@ describe('LineItemEditor', () => {
       // Tabキーを押す
       fireEvent.keyDown(firstRowRemarks, { key: 'Tab', code: 'Tab' });
 
-      // 2行目の名称フィールドにフォーカスが移動していることを確認
-      const nameInputs = screen.getAllByPlaceholderText('名称');
-      expect(document.activeElement).toBe(nameInputs[1]);
+      // 2行目の最初のフィールド（任意分類）にフォーカスが移動していることを確認
+      // Task 32改修: FIELD_ORDERの先頭がcustomCategoryに変更されたため、
+      // 次の行の最初のフィールドは「任意分類」になる
+      const customCategoryInputs = screen.getAllByPlaceholderText('任意分類');
+      expect(document.activeElement).toBe(customCategoryInputs[1]);
     });
 
     it('最終行の最終フィールドでTabを押しても正常に動作する', () => {

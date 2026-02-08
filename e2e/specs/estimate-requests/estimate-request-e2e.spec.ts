@@ -24,6 +24,18 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
 /**
+ * 保存ボタンをクリックして保存完了を待機するヘルパー
+ * Task 30改修: debounce自動保存から保存ボタン方式に変更
+ */
+async function clickSaveSelectionButton(page: import('@playwright/test').Page) {
+  const saveButton = page.getByTestId('save-selection-button');
+  await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+  await saveButton.click();
+  // 保存完了フィードバックを待機
+  await expect(page.getByText('保存しました')).toBeVisible({ timeout: getTimeout(10000) });
+}
+
+/**
  * 見積依頼機能のE2Eテスト
  */
 test.describe('見積依頼機能', () => {
@@ -256,12 +268,14 @@ test.describe('見積依頼機能', () => {
       const groupBody = await groupResponse.json();
       const groupId = groupBody.id;
 
-      // 項目を作成
+      // 項目を作成（customCategory含む: Task 37.2対応）
+      const categories = ['躯体工事', '仕上工事', '設備工事'];
       for (let i = 0; i < 3; i++) {
         await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
           headers: { Authorization: `Bearer ${accessToken}` },
           data: {
             name: `テスト項目${i + 1}`,
+            customCategory: categories[i],
             workType: '工種A',
             specification: '規格A',
             unit: '式',
@@ -779,6 +793,30 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
+     * Task 37.2: 項目選択セクションの列ヘッダーが「任意分類」であることの確認
+     * @requirement estimate-request/REQ-4.2
+     */
+    test('Task 37.2: 項目選択テーブルの列ヘッダーに「任意分類」が表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 項目テーブルが表示される
+      const table = page.locator('table[aria-label="内訳書項目一覧"]');
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 列ヘッダーに「任意分類」が表示される（Task 31.1改修: 「分類」→「任意分類」）
+      await expect(table.locator('th', { hasText: '任意分類' })).toBeVisible();
+
+      // テストデータのcustomCategoryが表示されていることを確認
+      await expect(table.getByText('躯体工事')).toBeVisible();
+    });
+
+    /**
      * @requirement estimate-request/REQ-4.3
      * 各項目に選択用のチェックボックスを表示する
      */
@@ -877,8 +915,8 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // Task 30改修: 保存ボタンで一括保存
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -1509,9 +1547,12 @@ test.describe('見積依頼機能', () => {
     /**
      * @requirement estimate-request/REQ-4.4
      * @requirement estimate-request/REQ-4.5
-     * チェックボックスを変更したとき、該当項目を見積依頼対象として記録し、選択状態を自動的に保存する
+     * Task 30改修: チェックボックス変更時はクライアントサイド状態のみ更新し、保存ボタンで一括保存する
+     * Task 37.1: 保存ボタン方式E2Eテスト
      */
-    test('REQ-4.4, REQ-4.5: チェックボックス変更で自動保存される', async ({ page }) => {
+    test('REQ-4.4, REQ-4.5: チェックボックス変更後に保存ボタンで一括保存される', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdTradingPartnerId).toBeTruthy();
       expect(createdItemizedStatementId).toBeTruthy();
@@ -1558,8 +1599,13 @@ test.describe('見積依頼機能', () => {
       const initialState = await firstCheckbox.isChecked();
       await firstCheckbox.click();
 
-      // debounce待機（500ms + 余裕）
-      await page.waitForTimeout(1000);
+      // Task 37.1: チェックボックス変更直後はサーバーにリクエストが発生しない（クライアントサイド管理）
+      // 保存ボタンが有効になっていることを確認（未保存変更あり）
+      const saveButton = page.getByTestId('save-selection-button');
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
+
+      // 保存ボタンをクリックして一括保存
+      await clickSaveSelectionButton(page);
 
       // ページをリロードして状態が保存されていることを確認
       await page.reload();
@@ -1680,8 +1726,8 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // 自動保存のdebounce待機（500ms + 余裕）
-      await page.waitForTimeout(1000);
+      // Task 30改修: 保存ボタンで一括保存
+      await clickSaveSelectionButton(page);
 
       // Excel出力ボタンが有効になるのを待機
       const excelButton = page.locator('button:has-text("Excelでエクスポート")');
@@ -1753,8 +1799,8 @@ test.describe('見積依頼機能', () => {
         }
       }
 
-      // debounce待機
-      await page.waitForTimeout(1000);
+      // Task 30改修: 保存ボタンで一括保存
+      await clickSaveSelectionButton(page);
 
       // 項目未選択時はExcel出力ボタンが無効化され、「項目を選択してください」と表示される
       const excelButton = page.locator('button:has-text("Excelでエクスポート")');
@@ -1821,15 +1867,15 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 「内訳書を本文に含める」チェックボックスをチェック
       const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
       await includeBreakdownCheckbox.click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // includeBreakdownオプション反映待機
+      await page.waitForTimeout(500);
 
       // 見積依頼文表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -1895,15 +1941,15 @@ test.describe('見積依頼機能', () => {
       await expect(itemCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await itemCheckboxes.first().click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 「内訳書を本文に含める」がチェックされていないことを確認し、チェックされている場合は外す
       const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
       const isChecked = await includeBreakdownCheckbox.isChecked().catch(() => false);
       if (isChecked) {
         await includeBreakdownCheckbox.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(500);
       }
 
       // 見積依頼文表示ボタンをクリック
@@ -2192,12 +2238,9 @@ test.describe('見積依頼機能', () => {
 
       await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
 
-      // 最初の見積依頼で項目を選択状態にする
+      // 最初の見積依頼で項目一覧が表示されていることを確認
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
-
-      // debounce待機
-      await page.waitForTimeout(1000);
 
       // 2つ目の見積依頼を作成
       await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
@@ -2287,7 +2330,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // メール選択時にメールアドレス未登録エラーが表示される
       const emailRadio = page.getByRole('radio', { name: /メール/i });
@@ -2350,12 +2395,13 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
 
       // FAXを選択
       const faxRadio = page.getByRole('radio', { name: /FAX/i });
       await faxRadio.click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択とメソッド変更を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -2412,7 +2458,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -2484,7 +2532,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -2771,7 +2821,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });

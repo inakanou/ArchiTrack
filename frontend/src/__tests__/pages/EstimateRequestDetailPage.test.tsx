@@ -69,6 +69,8 @@ const mockReceivedQuotations = [
       {
         id: 'li-1',
         receivedQuotationId: 'rq-1',
+        customCategory: null,
+        workType: null,
         name: '既存項目',
         specification: '規格A',
         unit: '式',
@@ -624,7 +626,7 @@ describe('EstimateRequestDetailPage', () => {
   });
 
   describe('見積依頼方法変更', () => {
-    it('FAXラジオボタンをクリックするとメソッドを変更する', async () => {
+    it('FAXラジオボタンをクリックするとクライアントサイドの状態のみ変更する（Task 30改修）', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -636,16 +638,12 @@ describe('EstimateRequestDetailPage', () => {
       const faxRadio = screen.getByRole('radio', { name: /FAX/i });
       await user.click(faxRadio);
 
-      await waitFor(() => {
-        expect(estimateRequestApi.updateEstimateRequest).toHaveBeenCalledWith(
-          'er-1',
-          { method: 'FAX' },
-          mockEstimateRequest.updatedAt
-        );
-      });
+      // Task 30改修: ラジオボタンクリック時はクライアントサイドのみ変更
+      // サーバーへの送信は保存ボタンクリック時に行われる
+      expect(faxRadio).toBeChecked();
     });
 
-    it('メソッド変更後にテキストパネルが開いている場合テキストを再取得する', async () => {
+    it('保存ボタンクリック時にメソッド変更がサーバーに送信される（Task 30改修）', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -653,24 +651,16 @@ describe('EstimateRequestDetailPage', () => {
         expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
       });
 
-      // まずテキストパネルを開く
-      await user.click(screen.getByRole('button', { name: /見積依頼文を表示/ }));
-
-      await waitFor(() => {
-        expect(estimateRequestApi.getEstimateRequestText).toHaveBeenCalledTimes(1);
-      });
-
       // FAXラジオボタンをクリック
       const faxRadio = screen.getByRole('radio', { name: /FAX/i });
       await user.click(faxRadio);
+
+      // 保存ボタンをクリック
+      const saveButton = screen.getByRole('button', { name: /保存/ });
+      await user.click(saveButton);
 
       await waitFor(() => {
         expect(estimateRequestApi.updateEstimateRequest).toHaveBeenCalled();
-      });
-
-      // テキストが再取得される
-      await waitFor(() => {
-        expect(estimateRequestApi.getEstimateRequestText).toHaveBeenCalledTimes(2);
       });
     });
   });

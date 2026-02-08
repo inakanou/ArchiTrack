@@ -18,6 +18,8 @@ const mockInitialData = {
     {
       id: 'li-1',
       receivedQuotationId: 'rq-1',
+      customCategory: null,
+      workType: null,
       name: '鉄筋工事',
       specification: 'D10',
       unit: 'kg',
@@ -32,6 +34,8 @@ const mockInitialData = {
     {
       id: 'li-2',
       receivedQuotationId: 'rq-1',
+      customCategory: null,
+      workType: null,
       name: 'コンクリート工事',
       specification: 'C24-15',
       unit: 'm3',

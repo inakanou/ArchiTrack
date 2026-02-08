@@ -30,6 +30,8 @@ export interface LineItemInfo {
   id: string;
   receivedQuotationId: string;
   sortOrder: number;
+  customCategory: string | null;
+  workType: string | null;
   name: string;
   specification: string | null;
   unit: string | null;
@@ -46,6 +48,8 @@ export interface LineItemInfo {
  */
 export interface LineItemInput {
   name: string;
+  customCategory?: string;
+  workType?: string;
   specification?: string;
   unit?: string;
   quantity?: number;

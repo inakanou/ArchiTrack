@@ -71,6 +71,8 @@ describe('LineItemEditor', () => {
         const items: LineItemFormData[] = [
           {
             id: '1',
+            customCategory: '',
+            workType: '',
             name: '項目1',
             specification: '',
             unit: '',
@@ -81,6 +83,8 @@ describe('LineItemEditor', () => {
           },
           {
             id: '2',
+            customCategory: '',
+            workType: '',
             name: '項目2',
             specification: '',
             unit: '',
@@ -91,6 +95,8 @@ describe('LineItemEditor', () => {
           },
           {
             id: '3',
+            customCategory: '',
+            workType: '',
             name: '項目3',
             specification: '',
             unit: '',
@@ -107,6 +113,8 @@ describe('LineItemEditor', () => {
         const items: LineItemFormData[] = [
           {
             id: '1',
+            customCategory: '',
+            workType: '',
             name: '項目1',
             specification: '',
             unit: '',
@@ -117,6 +125,8 @@ describe('LineItemEditor', () => {
           },
           {
             id: '2',
+            customCategory: '',
+            workType: '',
             name: '項目2',
             specification: '',
             unit: '',
@@ -234,6 +244,8 @@ describe('LineItemEditor', () => {
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
+          customCategory: '',
+          workType: '',
           name: '項目1',
           specification: '',
           unit: '',
@@ -244,6 +256,8 @@ describe('LineItemEditor', () => {
         },
         {
           id: '2',
+          customCategory: '',
+          workType: '',
           name: '項目2',
           specification: '',
           unit: '',
@@ -265,6 +279,8 @@ describe('LineItemEditor', () => {
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
+          customCategory: '',
+          workType: '',
           name: '項目1',
           specification: '',
           unit: '',
@@ -275,6 +291,8 @@ describe('LineItemEditor', () => {
         },
         {
           id: '2',
+          customCategory: '',
+          workType: '',
           name: '項目2',
           specification: '',
           unit: '',
@@ -313,6 +331,8 @@ describe('LineItemEditor', () => {
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
+          customCategory: '',
+          workType: '',
           name: '項目1',
           specification: '',
           unit: '',
@@ -323,6 +343,8 @@ describe('LineItemEditor', () => {
         },
         {
           id: '2',
+          customCategory: '',
+          workType: '',
           name: '項目2',
           specification: '',
           unit: '',
@@ -347,6 +369,8 @@ describe('LineItemEditor', () => {
       // 初期状態: quantity='', unitPrice='1000' -> amount=null（数量未入力）
       const lineItem: LineItemFormData = {
         id: '1',
+        customCategory: '',
+        workType: '',
         name: '項目1',
         specification: '',
         unit: '',
@@ -380,6 +404,8 @@ describe('LineItemEditor', () => {
       // 初期状態: quantity='10', unitPrice='' -> amount=null（単価未入力）
       const lineItem: LineItemFormData = {
         id: '1',
+        customCategory: '',
+        workType: '',
         name: '項目1',
         specification: '',
         unit: '',
@@ -414,6 +440,8 @@ describe('LineItemEditor', () => {
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
+          customCategory: '',
+          workType: '',
           name: '項目1',
           specification: '',
           unit: '',
@@ -424,6 +452,8 @@ describe('LineItemEditor', () => {
         },
         {
           id: '2',
+          customCategory: '',
+          workType: '',
           name: '項目2',
           specification: '',
           unit: '',
@@ -445,6 +475,8 @@ describe('LineItemEditor', () => {
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
+          customCategory: '',
+          workType: '',
           name: '項目1',
           specification: '',
           unit: '',
@@ -455,6 +487,8 @@ describe('LineItemEditor', () => {
         },
         {
           id: '2',
+          customCategory: '',
+          workType: '',
           name: '項目2',
           specification: '',
           unit: '',
@@ -476,6 +510,8 @@ describe('LineItemEditor', () => {
     it('金額フィールドは入力不可（読み取り専用）である', () => {
       const lineItem: LineItemFormData = {
         id: '1',
+        customCategory: '',
+        workType: '',
         name: '項目1',
         specification: '',
         unit: '',
@@ -504,6 +540,8 @@ describe('LineItemEditor', () => {
       const user = userEvent.setup();
       const lineItem: LineItemFormData = {
         id: '1',
+        customCategory: '',
+        workType: '',
         name: '',
         specification: '',
         unit: '',
@@ -515,12 +553,22 @@ describe('LineItemEditor', () => {
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
 
-      // 名称フィールドにフォーカス
+      // 任意分類フィールドにフォーカス（フィールド順序: 任意分類 -> 工種 -> 名称 -> 規格 -> ...）
+      const customCategoryInput = screen.getByPlaceholderText('任意分類');
+      await user.click(customCategoryInput);
+      expect(document.activeElement).toBe(customCategoryInput);
+
+      // Tabキーで次のフィールド（工種）に移動
+      await user.tab();
+      const workTypeInput = screen.getByPlaceholderText('工種');
+      expect(document.activeElement).toBe(workTypeInput);
+
+      // Tabキーで次のフィールド（名称）に移動
+      await user.tab();
       const nameInput = screen.getByPlaceholderText('名称');
-      await user.click(nameInput);
       expect(document.activeElement).toBe(nameInput);
 
-      // Tabキーで次のフィールドに移動
+      // Tabキーで次のフィールド（規格）に移動
       await user.tab();
       const specInput = screen.getByPlaceholderText('規格');
       expect(document.activeElement).toBe(specInput);
@@ -531,6 +579,8 @@ describe('LineItemEditor', () => {
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
+          customCategory: '',
+          workType: '',
           name: '項目1',
           specification: '',
           unit: '',
@@ -541,6 +591,8 @@ describe('LineItemEditor', () => {
         },
         {
           id: '2',
+          customCategory: '',
+          workType: '',
           name: '',
           specification: '',
           unit: '',
@@ -562,9 +614,9 @@ describe('LineItemEditor', () => {
       // Tabキーを押す
       await user.tab();
 
-      // 2行目の名称フィールドにフォーカスが移動していることを確認
-      const nameInputs = screen.getAllByPlaceholderText('名称');
-      expect(document.activeElement).toBe(nameInputs[1]);
+      // 2行目の任意分類フィールド（最初のフィールド）にフォーカスが移動していることを確認
+      const customCategoryInputs = screen.getAllByPlaceholderText('任意分類');
+      expect(document.activeElement).toBe(customCategoryInputs[1]);
     });
   });
 
@@ -572,6 +624,8 @@ describe('LineItemEditor', () => {
     it('disabled=trueの場合、すべての入力フィールドが非活性になる', () => {
       const lineItem: LineItemFormData = {
         id: '1',
+        customCategory: '',
+        workType: '',
         name: '項目1',
         specification: '',
         unit: '',
@@ -602,6 +656,118 @@ describe('LineItemEditor', () => {
       // 削除ボタンもdisabled
       const deleteButton = screen.getByRole('button', { name: /削除/ });
       expect(deleteButton).toBeDisabled();
+    });
+  });
+
+  // ==========================================================================
+  // Task 36.2: 任意分類・工種列テスト (Requirements: 11.10)
+  // ==========================================================================
+  describe('任意分類・工種列テスト (Task 36.2)', () => {
+    it('ヘッダー行に任意分類列と工種列が表示される', () => {
+      const emptyLineItem = createEmptyLineItem();
+      render(
+        <LineItemEditor lineItems={[emptyLineItem]} onLineItemsChange={mockOnLineItemsChange} />
+      );
+
+      expect(screen.getByText('任意分類')).toBeInTheDocument();
+      expect(screen.getByText('工種')).toBeInTheDocument();
+    });
+
+    it('任意分類フィールドへの入力が正常に動作する', async () => {
+      const emptyLineItem = createEmptyLineItem();
+      render(
+        <LineItemEditor lineItems={[emptyLineItem]} onLineItemsChange={mockOnLineItemsChange} />
+      );
+
+      const customCategoryInput = screen.getByPlaceholderText('任意分類');
+      fireEvent.change(customCategoryInput, { target: { value: '躯体工事' } });
+
+      await waitFor(() => {
+        expect(mockOnLineItemsChange).toHaveBeenCalled();
+      });
+
+      const lastCall =
+        mockOnLineItemsChange.mock.calls[mockOnLineItemsChange.mock.calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const updatedItems = lastCall![0] as LineItemFormData[];
+      expect(updatedItems[0]?.customCategory).toBe('躯体工事');
+    });
+
+    it('工種フィールドへの入力が正常に動作する', async () => {
+      const emptyLineItem = createEmptyLineItem();
+      render(
+        <LineItemEditor lineItems={[emptyLineItem]} onLineItemsChange={mockOnLineItemsChange} />
+      );
+
+      const workTypeInput = screen.getByPlaceholderText('工種');
+      fireEvent.change(workTypeInput, { target: { value: '鉄筋工事' } });
+
+      await waitFor(() => {
+        expect(mockOnLineItemsChange).toHaveBeenCalled();
+      });
+
+      const lastCall =
+        mockOnLineItemsChange.mock.calls[mockOnLineItemsChange.mock.calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const updatedItems = lastCall![0] as LineItemFormData[];
+      expect(updatedItems[0]?.workType).toBe('鉄筋工事');
+    });
+
+    it('createEmptyLineItemで任意分類と工種が空文字列で初期化される', () => {
+      const item = createEmptyLineItem();
+      expect(item.customCategory).toBe('');
+      expect(item.workType).toBe('');
+    });
+
+    it('Tabキーフォーカス移動順序が任意分類、工種、名称、規格、単位、数量、単価、備考になっている', async () => {
+      const user = userEvent.setup();
+      const lineItem: LineItemFormData = {
+        id: '1',
+        customCategory: '',
+        workType: '',
+        name: '',
+        specification: '',
+        unit: '',
+        quantity: '',
+        unitPrice: '',
+        amount: null,
+        remarks: '',
+      };
+
+      render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
+
+      // 任意分類にフォーカス
+      const customCategoryInput = screen.getByPlaceholderText('任意分類');
+      await user.click(customCategoryInput);
+      expect(document.activeElement).toBe(customCategoryInput);
+
+      // Tab: 工種
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('工種'));
+
+      // Tab: 名称
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('名称'));
+
+      // Tab: 規格
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('規格'));
+
+      // Tab: 単位
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('単位'));
+
+      // Tab: 数量
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('数量'));
+
+      // Tab: 単価
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('単価'));
+
+      // Tab: 備考
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('備考'));
     });
   });
 });

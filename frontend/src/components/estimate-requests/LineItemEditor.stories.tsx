@@ -9,6 +9,8 @@ import { LineItemEditor, createEmptyLineItem, type LineItemFormData } from './Li
 const mockLineItems: LineItemFormData[] = [
   {
     id: 'line-1',
+    customCategory: '躯体工事',
+    workType: '鉄筋工事',
     name: '鉄筋',
     specification: 'D10',
     unit: 'kg',
@@ -19,6 +21,8 @@ const mockLineItems: LineItemFormData[] = [
   },
   {
     id: 'line-2',
+    customCategory: '躯体工事',
+    workType: 'コンクリート工事',
     name: 'コンクリート',
     specification: 'C24-15',
     unit: 'm3',
@@ -29,6 +33,8 @@ const mockLineItems: LineItemFormData[] = [
   },
   {
     id: 'line-3',
+    customCategory: '躯体工事',
+    workType: '型枠工事',
     name: '型枠',
     specification: 'コンパネ',
     unit: 'm2',
