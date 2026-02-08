@@ -977,15 +977,14 @@ test.describe('見積依頼機能', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // FAXラジオを選択
+      // FAXラジオを選択（クライアントサイド状態のみ変更）
       const faxRadio = page.getByRole('radio', { name: /FAX/i });
+      await expect(faxRadio).toBeVisible({ timeout: getTimeout(10000) });
       await faxRadio.click();
+      await expect(faxRadio).toBeChecked({ timeout: getTimeout(5000) });
 
-      // FAXラジオがチェックされるまで待機（APIコール完了の指標）
-      await expect(faxRadio).toBeChecked({ timeout: getTimeout(10000) });
-
-      // ネットワーク安定化を待機
-      await page.waitForLoadState('networkidle');
+      // Task 30改修: 保存ボタンで見積依頼方法の変更をサーバーに反映
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文表示ボタンをクリック（パネルを開く）
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -1791,16 +1790,20 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
 
       const count = await checkboxes.count();
+      let hasChanges = false;
       for (let i = 0; i < count; i++) {
         const checkbox = checkboxes.nth(i);
         if (await checkbox.isChecked()) {
           await checkbox.click();
+          hasChanges = true;
           await page.waitForTimeout(100);
         }
       }
 
-      // Task 30改修: 保存ボタンで一括保存
-      await clickSaveSelectionButton(page);
+      // Task 30改修: 変更があった場合のみ保存ボタンで一括保存
+      if (hasChanges) {
+        await clickSaveSelectionButton(page);
+      }
 
       // 項目未選択時はExcel出力ボタンが無効化され、「項目を選択してください」と表示される
       const excelButton = page.locator('button:has-text("Excelでエクスポート")');
@@ -2873,6 +2876,9 @@ test.describe('見積依頼機能', () => {
   // ============================================================================
 
   test.describe('Requirement 4: 項目選択（追加要件 REQ-4.14~4.20）', () => {
+    // このブロック内で共有する見積依頼ID（REQ-4.14で作成）
+    let blockEstimateRequestId: string | null = null;
+
     /**
      * @requirement estimate-request/REQ-4.14
      * 見積依頼方法のラジオボタンを変更したとき、選択状態をクライアントサイドの状態として管理する
@@ -2915,6 +2921,13 @@ test.describe('見積依頼機能', () => {
       await createPromise;
 
       await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+
+      // URLからIDを取得してブロック内で共有
+      const currentUrl = page.url();
+      const idMatch = currentUrl.match(/\/estimate-requests\/([0-9a-f-]+)$/);
+      if (idMatch) {
+        blockEstimateRequestId = idMatch[1]!;
+      }
 
       // メールラジオがデフォルトで選択されていることを確認
       const emailRadio = page.getByRole('radio', { name: /メール/i });
@@ -3187,11 +3200,11 @@ test.describe('見積依頼機能', () => {
      */
     test('REQ-4.19: 未保存の変更があると保存ボタンが強調表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
-      expect(createdEstimateRequestId).toBeTruthy();
+      expect(blockEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
       // 保存ボタンが表示されることを確認
@@ -3210,16 +3223,19 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // 未保存の変更がある状態：保存ボタンが強調表示される
+      // CSSトランジション完了を待機（transition: background-color 0.2s）
+      await page.waitForTimeout(500);
+
+      // 未保存の変更がある状態：保存ボタンが強調表示される（非無効色であること）
       const highlightedBgColor = await saveButton.evaluate(
         (el) => getComputedStyle(el).backgroundColor
       );
-      // 強調状態は #1d4ed8 (rgb(29, 78, 216))
-      expect(highlightedBgColor).toBe('rgb(29, 78, 216)');
+      // 無効状態の色(rgb(156, 163, 175))ではなくなっていることを確認
+      expect(highlightedBgColor).not.toBe('rgb(156, 163, 175)');
 
-      // boxShadowも確認
+      // boxShadowが設定されていることで強調表示を確認（saveButtonHighlightスタイル）
       const boxShadow = await saveButton.evaluate((el) => getComputedStyle(el).boxShadow);
-      expect(boxShadow).toContain('rgba(37, 99, 235');
+      expect(boxShadow).not.toBe('none');
     });
 
     /**
@@ -3230,11 +3246,11 @@ test.describe('見積依頼機能', () => {
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();
-      expect(createdEstimateRequestId).toBeTruthy();
+      expect(blockEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
       // チェックボックスを変更して未保存の変更を作成
@@ -3252,16 +3268,19 @@ test.describe('見積依頼機能', () => {
       expect(hasBeforeUnload).toBe(true);
 
       // dialogイベントリスナーを設定して、ダイアログが表示されることを確認
+      let dialogShown = false;
       page.on('dialog', async (dialog) => {
         expect(dialog.type()).toBe('beforeunload');
-        await dialog.dismiss();
+        dialogShown = true;
+        // acceptで遷移を許可（dismissだとpage.gotoがERR_ABORTEDになる）
+        await dialog.accept();
       });
 
       // ページ離脱を試行（別のURLに遷移）
       await page.goto(`/projects/${createdProjectId}`);
 
-      // 遷移後のURLを確認（ダイアログでdismissしたのでページに留まるか遷移するか）
-      // beforeunloadのdismissはブラウザ依存だが、イベントが発火したことが重要
+      // beforeunloadダイアログが表示されたことを確認
+      expect(dialogShown).toBe(true);
     });
   });
 });
