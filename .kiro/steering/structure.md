@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-02-07（Steering Sync: プロダクト説明を「建設プロジェクト管理・積算支援システム」に更新）_
+_最終更新: 2026-02-08（Steering Sync: estimate-requests/estimate/コンポーネント追加、ItemSelectionPanel改修反映、ProjectForm現場住所自動入力反映）_
 
 ## ルートディレクトリ構成
 
@@ -220,7 +220,7 @@ git config core.hooksPath .husky
 
 - `.kiro/specs/project-management/` - プロジェクト管理機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
-  - 内容: プロジェクトCRUD、ステータス遷移管理（12種類のステータス）、担当者割り当て、検索・フィルタリング・ページネーション
+  - 内容: プロジェクトCRUD、ステータス遷移管理（12種類のステータス）、担当者割り当て、検索・フィルタリング・ページネーション、取引先選択時の現場住所自動入力
 
 - `.kiro/specs/trading-partner-management/` - 取引先管理機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全15タスク完了）
@@ -240,7 +240,7 @@ git config core.hooksPath .husky
 
 - `.kiro/specs/estimate-request/` - 見積依頼機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全24タスク完了）
-  - 内容: 見積依頼CRUD、内訳書項目選択、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（OCR構造化データ抽出）、ステータス管理（依頼前/依頼済/見積受領済）
+  - 内容: 見積依頼CRUD、内訳書項目選択（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（OCR構造化データ抽出、項目選択からの一括転記、customCategory・workTypeフィールド対応）、ステータス管理（依頼前/依頼済/見積受領済）
 
 - `.kiro/specs/company-info/` - 自社情報登録機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全22タスク完了）
@@ -404,7 +404,7 @@ frontend/
 │   │   ├── ToastContainer.tsx      # トースト通知コンテナ
 │   │   ├── NetworkErrorDisplay.tsx # ネットワークエラー表示コンポーネント
 │   │   └── projects/              # プロジェクト管理コンポーネント
-│   │       ├── ProjectForm.tsx     # プロジェクト作成・編集フォーム
+│   │       ├── ProjectForm.tsx     # プロジェクト作成・編集フォーム（現場住所フィールド、取引先選択時の住所自動入力）
 │   │       ├── CustomerNameInput.tsx # 顧客名入力
 │   │       ├── UserSelect.tsx      # 担当者選択
 │   │       ├── StatusTransitionUI.tsx # ステータス遷移UI
@@ -415,8 +415,9 @@ frontend/
 │   │       ├── ProjectSearchFilter.tsx # 検索・フィルタUI
 │   │       ├── PaginationUI.tsx    # ページネーションUI
 │   │       ├── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
-│   │       ├── TradingPartnerSelect.tsx # 取引先選択（オートコンプリート）
-│   │       └── QuantityTableSectionCard.tsx # 数量表セクションカード
+│   │       ├── TradingPartnerSelect.tsx # 取引先選択（オートコンプリート、onSelectコールバック対応）
+│   │       ├── QuantityTableSectionCard.tsx # 数量表セクションカード
+│   │       └── EstimateRequestSectionCard.tsx # 見積依頼セクションカード
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
 │   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
@@ -483,12 +484,29 @@ frontend/
 │   │       └── ItemizedStatementDeleteDialog.stories.tsx # Storybook
 │   │   ├── estimate-request/        # 見積依頼コンポーネント（10+ファイル）
 │   │       ├── EstimateRequestForm.tsx # 見積依頼フォーム
-│   │       ├── ItemSelectionPanel.tsx # 内訳書項目選択パネル
+│   │       ├── ItemSelectionPanel.tsx # 内訳書項目選択パネル（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）
 │   │       ├── EstimateRequestTextPanel.tsx # 見積依頼文表示パネル
 │   │       ├── ClipboardCopyButton.tsx # クリップボードコピーボタン
 │   │       ├── ExcelExportButton.tsx # Excel出力ボタン
 │   │       ├── StatusBadge.tsx       # ステータスバッジ
 │   │       ├── StatusTransitionButton.tsx # ステータス遷移ボタン
+│   │       └── index.ts              # エクスポート集約
+│   │   ├── estimate-requests/       # 受領見積書コンポーネント（5+ファイル）
+│   │       ├── ReceivedQuotationForm.tsx # 受領見積書フォーム（一括転記対応）
+│   │       ├── ReceivedQuotationList.tsx # 受領見積書一覧
+│   │       ├── LineItemEditor.tsx    # 明細行エディタ（customCategory・workTypeフィールド対応）
+│   │       ├── OcrDataExtractor.tsx  # OCR構造化データ抽出
+│   │       ├── FileInlinePreview.tsx # ファイルインラインプレビュー
+│   │       └── index.ts              # エクスポート集約
+│   │   ├── estimate/                # 見積書コンポーネント（8+ファイル）
+│   │       ├── EstimateCard.tsx      # 見積書カード
+│   │       ├── EstimateItemRow.tsx   # 見積項目行
+│   │       ├── EstimateItemTable.tsx # 見積項目テーブル
+│   │       ├── TransferQuotationDialog.tsx # 受領見積書転記ダイアログ
+│   │       ├── NetCalculationPanel.tsx # NET金額案分パネル
+│   │       ├── OverheadCostPanel.tsx # 諸経費パネル
+│   │       ├── ProfitRatePanel.tsx   # 利益率パネル
+│   │       ├── EstimateExportDialog.tsx # 見積書Excel出力ダイアログ
 │   │       └── index.ts              # エクスポート集約
 │   │   ├── company-info/            # 自社情報コンポーネント
 │   │       └── CompanyInfoForm.tsx   # 自社情報設定フォーム
@@ -655,7 +673,8 @@ frontend/src/
 │   ├── itemized-statements.ts # 内訳書API
 │   ├── estimate-requests.ts # 見積依頼API
 │   ├── estimate-request-status.ts # 見積依頼ステータスAPI
-│   └── received-quotations.ts # 受領見積書API
+│   ├── received-quotations.ts # 受領見積書API
+│   └── estimates.ts # 見積書API
 ├── hooks/             # カスタムフック（useMediaQuery.ts、useAuth.ts）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts等）
@@ -757,7 +776,9 @@ backend/
 │   │   ├── itemized-statements.routes.ts # 内訳書ルート（CRUD、ピボット集計）
 │   │   ├── estimate-requests.routes.ts # 見積依頼ルート（CRUD、項目選択）
 │   │   ├── estimate-request-status.routes.ts # 見積依頼ステータスルート
-│   │   └── received-quotation.routes.ts # 受領見積書ルート（ファイルアップロード）
+│   │   ├── received-quotation.routes.ts # 受領見積書ルート（ファイルアップロード）
+│   │   ├── company-info.routes.ts # 自社情報ルート（シングルトンCRUD）
+│   │   └── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、Excel出力）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
