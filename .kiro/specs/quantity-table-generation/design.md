@@ -1378,3 +1378,104 @@ enum CalculationMethod {
 - バッチ処理: 複数項目の一括操作をトランザクションで実行
 - 入力制御の最適化: 文字幅計算のキャッシュ
 - オートコンプリート最適化: 初回一括取得によりテキスト入力中のAPIリクエストを完全排除。9フィールドのgroupByを`Promise.all`で並列実行。候補フィルタリングはuseMemoで最適化
+
+## Phase 4: フォーカス時入力値全選択
+
+### 概要
+
+数量表編集画面の対象フィールド（大項目、中項目、小項目、任意分類、工種、名称、規格、数量、単位、備考）にフォーカスが当たった際に、既存の入力値を全選択状態にする機能を追加する。これにより、上書き入力を効率的に行えるようにする。
+
+### 影響範囲分析
+
+#### 対象コンポーネントとフィールドの対応
+
+| フィールド | コンポーネント | 入力要素タイプ | 現在のonFocus動作 | 変更方針 |
+|-----------|--------------|--------------|------------------|---------|
+| 大項目 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 中項目 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 小項目 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 任意分類 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 工種 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 規格 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 単位 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 名称 | FieldValidatedItemRow直接 | `<input type="text">` | なし | `onFocus`で`select()`を追加 |
+| 数量 | FieldValidatedItemRow直接 | `<input type="number">` | なし | `onFocus`で`select()`を追加 |
+| 備考 | FieldValidatedItemRow直接 | `<input type="text">` | なし | `onFocus`で`select()`を追加 |
+
+### 設計方針
+
+#### AutocompleteInputコンポーネントの変更
+
+`AutocompleteInput.tsx`の`handleFocus`コールバック内で`inputRef.current?.select()`を呼び出す。`select()`はブラウザ標準のHTMLInputElement.select()メソッドであり、入力フィールドの全テキストを選択する。
+
+```typescript
+/**
+ * フォーカス時ハンドラ（変更後）
+ */
+const handleFocus = useCallback(() => {
+  setIsFocused(true);
+  // フォーカス時に既存の入力値を全選択
+  inputRef.current?.select();
+  if (value && suggestions.length > 0) {
+    setIsOpen(true);
+  }
+}, [value, suggestions.length]);
+```
+
+**オートコンプリートとの共存**: `select()`はテキスト選択状態を設定するだけであり、ドロップダウンの開閉とは独立して動作する。全選択状態でユーザーが文字を入力すると選択範囲が置換されるが、これはブラウザ標準動作であり、入力値の変更→`handleInputChange`→候補フィルタリングの既存フローがそのまま機能する。
+
+#### FieldValidatedItemRowコンポーネントの変更
+
+名称・数量・備考の直接入力フィールドに`onFocus`ハンドラを追加し、`e.target.select()`を呼び出す。
+
+```typescript
+/**
+ * フォーカス時に全選択するハンドラ
+ */
+const handleSelectOnFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+  e.target.select();
+}, []);
+```
+
+各`<input>`要素に`onFocus={handleSelectOnFocus}`を追加する。
+
+### コンポーネント設計詳細
+
+#### AutocompleteInput変更
+
+- **変更点**: `handleFocus`コールバック内に`inputRef.current?.select()`を1行追加
+- **影響**: 全てのAutocompleteInputフィールド（大項目、中項目、小項目、任意分類、工種、規格、単位）に一括適用される
+- **副作用なし**: `select()`はDOMのテキスト選択状態のみ変更し、React状態やイベントフローに影響しない
+
+#### FieldValidatedItemRow変更
+
+| フィールド | 現在の`onFocus` | 変更後の`onFocus` |
+|-----------|----------------|------------------|
+| 名称 | なし | `handleSelectOnFocus` |
+| 数量 | なし | `handleSelectOnFocus` |
+| 備考 | なし | `handleSelectOnFocus` |
+
+### テスト設計
+
+#### 単体テスト
+
+- AutocompleteInputのフォーカス時に`select()`が呼ばれることを検証
+- FieldValidatedItemRowの名称・数量・備考フィールドでフォーカス時に`select()`が呼ばれることを検証
+- 全選択状態で候補ドロップダウンが正常に表示されることを検証
+
+#### E2Eテスト
+
+- 対象10フィールドそれぞれにフォーカスして全選択状態になることを確認
+- 全選択状態で新しい文字を入力すると既存値が置換されることを確認
+- オートコンプリート対象フィールドで全選択とドロップダウンが共存することを確認
+
+### Requirements Traceability（追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 16.1-16.7 | オートコンプリート対象テキストフィールドのフォーカス時全選択 | AutocompleteInput | - | - |
+| 16.6 | 名称フィールドのフォーカス時全選択 | FieldValidatedItemRow | - | - |
+| 16.8 | 数量フィールドのフォーカス時全選択 | FieldValidatedItemRow | - | - |
+| 16.10 | 備考フィールドのフォーカス時全選択 | FieldValidatedItemRow | - | - |
+| 16.11 | 全選択状態での上書き入力 | ブラウザ標準動作 | - | - |
+| 16.12 | オートコンプリートとの共存 | AutocompleteInput | - | - |

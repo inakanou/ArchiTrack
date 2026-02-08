@@ -476,3 +476,33 @@
   - 候補が50音順で表示されることの確認
   - 候補取得エラー時に数量表編集機能自体は正常に動作することの確認
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
+
+## Phase 4: フォーカス時入力値全選択
+
+- [x] 19. フォーカス時全選択機能の実装
+- [x] 19.1 (P) AutocompleteInputコンポーネントにフォーカス時全選択を実装する
+  - AutocompleteInput.tsxのhandleFocusコールバック内にinputRef.current?.select()を追加する
+  - オートコンプリートのドロップダウン表示と全選択が競合しないことを確認する
+  - 対象フィールド：大項目、中項目、小項目、任意分類、工種、規格、単位（AutocompleteInput使用フィールドすべてに自動適用）
+  - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.7, 16.9, 16.12_
+
+- [x] 19.2 (P) FieldValidatedItemRowの直接入力フィールドにフォーカス時全選択を実装する
+  - FieldValidatedItemRow.tsx内にhandleSelectOnFocusコールバックを追加する（e.target.select()）
+  - 名称フィールドのinput要素にonFocus={handleSelectOnFocus}を追加する
+  - 数量フィールドのinput要素にonFocus={handleSelectOnFocus}を追加する
+  - 備考フィールドのinput要素にonFocus={handleSelectOnFocus}を追加する
+  - _Requirements: 16.6, 16.8, 16.10, 16.11_
+
+- [x] 19.3 (P) フォーカス時全選択の単体テストを実装する
+  - AutocompleteInputのフォーカス時にselectメソッドが呼ばれることを検証するテストを追加する
+  - AutocompleteInputのフォーカス時に全選択とドロップダウン表示が共存することを検証するテストを追加する
+  - FieldValidatedItemRowの名称フィールドでフォーカス時にselectが呼ばれることを検証するテストを追加する
+  - FieldValidatedItemRowの数量フィールドでフォーカス時にselectが呼ばれることを検証するテストを追加する
+  - FieldValidatedItemRowの備考フィールドでフォーカス時にselectが呼ばれることを検証するテストを追加する
+  - _Requirements: 16.1, 16.6, 16.8, 16.10, 16.11, 16.12_
+
+- [x] 19.4 フォーカス時全選択のE2Eテストを実装する
+  - 対象10フィールドそれぞれにフォーカスして全選択状態になることを確認するテストを追加する
+  - 全選択状態で新しい文字を入力すると既存値が置換されることを確認するテストを追加する
+  - オートコンプリート対象フィールドで全選択とドロップダウンが共存することを確認するテストを追加する
+  - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10, 16.11, 16.12_

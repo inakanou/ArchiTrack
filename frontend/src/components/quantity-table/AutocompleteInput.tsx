@@ -218,9 +218,12 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
 
   /**
    * フォーカス時ハンドラ
+   * Task 19.1: フォーカス時に既存の入力値を全選択する
    */
   const handleFocus = useCallback(() => {
     setIsFocused(true);
+    // フォーカス時に既存の入力値を全選択（上書き入力の効率化）
+    inputRef.current?.select();
     if (value && suggestions.length > 0) {
       setIsOpen(true);
     }

@@ -387,6 +387,14 @@ export default function FieldValidatedItemRow({
     onValidationChange,
   ]);
 
+  /**
+   * フォーカス時に全選択するハンドラ
+   * Task 19.2: 名称・数量・備考フィールドのフォーカス時全選択
+   */
+  const handleSelectOnFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  }, []);
+
   // 負の値警告状態
   const negativeQuantityWarning = useMemo(
     () => localQuantity < 0 && item.calculationMethod === 'STANDARD',
@@ -766,6 +774,7 @@ export default function FieldValidatedItemRow({
                 value={localName}
                 onChange={handleNameChange}
                 onBlur={handleNameBlur}
+                onFocus={handleSelectOnFocus}
                 style={{
                   ...styles.input,
                   ...(errors.name ? styles.inputError : {}),
@@ -905,6 +914,7 @@ export default function FieldValidatedItemRow({
                 type="number"
                 value={localQuantity}
                 onChange={handleQuantityChange}
+                onFocus={handleSelectOnFocus}
                 className="hide-spinner"
                 style={{
                   ...styles.input,
@@ -941,6 +951,7 @@ export default function FieldValidatedItemRow({
                 id={`${item.id}-remarks`}
                 type="text"
                 value={item.remarks || ''}
+                onFocus={handleSelectOnFocus}
                 onChange={(e) => {
                   const value = e.target.value;
                   const result = validateTextLength(value, 'remarks');
