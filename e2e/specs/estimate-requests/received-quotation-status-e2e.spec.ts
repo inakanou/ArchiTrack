@@ -1644,8 +1644,9 @@ test.describe('受領見積書・ステータス管理機能', () => {
         timeout: getTimeout(5000),
       });
 
-      // 「キャンセル」ボタンをクリック
-      await page.getByRole('button', { name: /キャンセル/i }).click();
+      // 確認ダイアログ内の「キャンセル」ボタンをクリック
+      const confirmDialog = page.getByTestId('transcription-confirm-dialog');
+      await confirmDialog.getByRole('button', { name: /キャンセル/i }).click();
 
       // 確認ダイアログが閉じる
       await expect(page.getByText('明細行の上書き確認')).not.toBeVisible({
@@ -1655,8 +1656,11 @@ test.describe('受領見積書・ステータス管理機能', () => {
       // 既存データが保持されていることを確認
       await expect(nameInput).toHaveValue(existingDataValue);
 
-      // キャンセルしてフォームを閉じる
-      await page.getByRole('button', { name: /キャンセル/i }).click();
+      // フォームのキャンセルボタンでフォームを閉じる
+      await page
+        .getByRole('button', { name: /キャンセル/i })
+        .first()
+        .click();
     });
 
     /**
