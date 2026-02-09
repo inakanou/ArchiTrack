@@ -4389,3 +4389,317 @@ sequenceDiagram
         FE-->>User: エラーメッセージと再申請リンク表示
     end
 ```
+
+---
+
+## 要件30: セッション切れモーダル再認証設計
+
+_追加日: 2026-02-09_
+
+### 概要
+
+操作中にセッションが切れた場合（アクセストークン期限切れ＋リフレッシュトークン失敗）、ログイン画面へリダイレクトするのではなく、現在のページ上にモーダルダイアログを表示してインプレース再認証を行う機能を追加する。これにより、フォーム入力データの損失を防ぎ、ユーザーは再認証後にシームレスに作業を続行できる。
+
+### 設計方針
+
+#### 既存動作との共存ポリシー
+
+| シナリオ | 挙動 | 方式 |
+|---|---|---|
+| ページ初期ロード時にセッション切れを検知 | ログイン画面にリダイレクト | 既存（変更なし） |
+| 操作中（API呼び出し時）にセッション切れを検知 | セッション切れモーダルを表示 | **新規** |
+| ユーザーが明示的にログアウト | ログイン画面にリダイレクト | 既存（変更なし） |
+
+区別の基準: `AuthContext.isInitialized` が `true` の状態（= ユーザーが既に認証済みで操作中）でリフレッシュが失敗した場合にモーダル方式を適用する。
+
+### コンポーネント設計
+
+#### 1. SessionExpiredModal コンポーネント
+
+**ファイルパス:** `frontend/src/components/SessionExpiredModal.tsx`
+
+```typescript
+interface SessionExpiredModalProps {
+  isOpen: boolean;
+  userEmail: string;          // 前回ログインメールアドレス（自動入力用）
+  onReauthSuccess: () => void; // 再認証成功時コールバック
+  onNavigateToLogin: () => void; // ログイン画面遷移時コールバック
+}
+```
+
+**UI構成:**
+- オーバーレイ背景（`bg-black/50`、クリック無効）
+- 中央配置のモーダルカード
+- タイトル: 「セッションの有効期限が切れました」
+- メールアドレスフィールド（前回のメールで自動入力、読み取り専用）
+- パスワード入力フィールド（自動フォーカス）
+- 再ログインボタン
+- ローディング状態表示
+- エラーメッセージ表示領域
+- 3回連続失敗後: 「ログイン画面へ移動」ボタンを追加表示
+- 2FA対応: 2FA要求時にTOTPコード入力フィールドを追加表示
+
+**レスポンシブ対応:**
+- デスクトップ: `max-w-md mx-auto` 中央配置
+- モバイル（< 768px）: `w-full h-full` フルスクリーンに近いレイアウト
+
+**アクセシビリティ:**
+- `role="dialog"`, `aria-modal="true"`, `aria-labelledby="session-expired-title"`
+- フォーカストラップ実装（Tab/Shift+Tab がモーダル内で循環）
+- Escキー無効化（意図しないデータ損失防止）
+- セッション切れメッセージ: `aria-live="assertive"`
+- 入力フィールド: 適切な `autocomplete` 属性
+
+#### 2. AuthContext の変更
+
+**ファイルパス:** `frontend/src/contexts/AuthContext.tsx`
+
+**新しい状態と区別ロジック:**
+
+```typescript
+interface AuthContextValue {
+  // 既存
+  sessionExpired: boolean;
+  // 新規追加
+  sessionExpiredDuringOperation: boolean;  // 操作中のセッション切れ（モーダル表示用）
+  handleReauthSuccess: () => void;         // 再認証成功時のハンドラー
+  navigateToLogin: () => void;             // ログイン画面遷移ハンドラー
+}
+```
+
+**セッション切れの区別:**
+
+```
+isInitialized === false の状態でリフレッシュ失敗
+  → sessionExpired = true（既存: リダイレクト方式）
+
+isInitialized === true の状態でリフレッシュ失敗
+  → sessionExpiredDuringOperation = true（新規: モーダル方式）
+```
+
+**handleReauthSuccess の処理:**
+1. ログインAPI呼び出し（既存の `login` と同等）
+2. 新しいトークンの保存
+3. TokenRefreshManager の再初期化
+4. `sessionExpiredDuringOperation = false` に設定
+5. `apiClient` のトークンを更新
+
+#### 3. API Client の変更
+
+**ファイルパス:** `frontend/src/api/client.ts`
+
+**新しいコールバック: `onSessionExpired`**
+
+```typescript
+class ApiClient {
+  // 既存
+  private tokenRefreshCallback: TokenRefreshCallback | null = null;
+  // 新規追加
+  private sessionExpiredCallback: (() => void) | null = null;
+
+  setSessionExpiredCallback(callback: (() => void) | null): void {
+    this.sessionExpiredCallback = callback;
+  }
+}
+```
+
+**401レスポンス処理フローの変更:**
+
+```
+401レスポンス受信
+  ↓
+tokenRefreshCallback が存在する？
+  ├─ YES → トークンリフレッシュ試行
+  │         ├─ 成功 → 元のリクエストをリトライ（既存動作）
+  │         └─ 失敗 → sessionExpiredCallback を呼び出し（★新規）
+  │                    → ApiError をスロー
+  └─ NO → sessionExpiredCallback を呼び出し（★新規）
+           → ApiError をスロー
+```
+
+**変更箇所（`client.ts` 200-214行付近）:**
+
+```typescript
+} catch (refreshError) {
+  // リフレッシュ失敗時のエラーログ
+  logger.debug('Token refresh failed after all retry attempts', { ... });
+
+  // ★新規: セッション切れコールバックを呼び出し
+  if (this.sessionExpiredCallback) {
+    this.sessionExpiredCallback();
+  }
+
+  // 既存: エラーをスロー
+  throw new ApiError(response.status, errorMessage, data);
+}
+```
+
+#### 4. ProtectedRoute の変更
+
+**ファイルパス:** `frontend/src/components/ProtectedRoute.tsx`
+
+**変更内容:** `sessionExpiredDuringOperation === true` の場合、`!isAuthenticated` であってもリダイレクトを抑制し、childrenを表示し続ける。これにより、操作中のセッション切れ時にモーダルが表示されている間、ページ遷移が発生しない。
+
+```typescript
+// 既存: !isAuthenticated の場合にリダイレクト
+// 変更: sessionExpiredDuringOperation の場合はリダイレクトを抑制
+if (!isAuthenticated && !sessionExpiredDuringOperation) {
+  // ログイン画面へリダイレクト（既存動作）
+  return <Navigate to={redirectPath} state={{ from: currentPath, sessionExpired }} replace />;
+}
+
+// sessionExpiredDuringOperation === true の場合はchildrenを返す
+// → モーダルがオーバーレイ表示され、フォームデータが保持される
+```
+
+**理由:** `sessionExpiredCallback` 呼び出し時に `user` が `null` にリセットされるケース（例: 別タブからのlogoutイベント）で、ProtectedRouteのリダイレクトが発動し、モーダル表示中にページ遷移してしまうリスクを防止するため。
+
+#### 5. SessionExpiredModal の配置
+
+**ファイルパス:** `frontend/src/App.tsx` または `frontend/src/layouts/AuthenticatedLayout.tsx`
+
+認証済みユーザーのレイアウト内にグローバルに配置する:
+
+```tsx
+function AuthenticatedLayout({ children }) {
+  const { sessionExpiredDuringOperation, user, handleReauthSuccess, navigateToLogin } = useAuth();
+
+  return (
+    <>
+      {children}
+      <SessionExpiredModal
+        isOpen={sessionExpiredDuringOperation}
+        userEmail={user?.email ?? ''}
+        onReauthSuccess={handleReauthSuccess}
+        onNavigateToLogin={navigateToLogin}
+      />
+    </>
+  );
+}
+```
+
+### 設計判断: 再認証後の手動リトライ方式
+
+再認証成功後、元のAPIリクエストを自動的にリトライする「Promise suspension方式」と、ユーザーに手動で操作を再実行させる「手動リトライ方式」の2つのアプローチが考えられる。
+
+**採用: 手動リトライ方式**
+
+| 方式 | メリット | デメリット |
+|---|---|---|
+| Promise suspension（自動リトライ） | 完全にシームレス | ApiClientの制御フローが大幅に複雑化、全API呼び出しに影響、リグレッションリスク大 |
+| **手動リトライ（採用）** | シンプル、影響範囲が限定的、Auth0/Firebaseの一般的パターンと整合 | ユーザーが再度保存ボタンを押す必要がある |
+
+**根拠:** Promise suspensionは全てのAPI呼び出しの制御フローに影響を与え、テスト・デバッグの複雑性が大幅に増加する。手動リトライ方式でも要件30.10（入力データが保持されていることを保証）は満たされる。フォームデータはDOMに保持されたまま、ユーザーは再度保存ボタンをクリックするだけで操作を完了できる。
+
+### 複数同時APIリクエスト時の動作
+
+ダッシュボード等で複数のAPIリクエストが同時に発行されている場合のセッション切れ処理:
+
+1. **TokenRefreshManagerのPromise共有**: 複数の401レスポンスが同時発生しても、`TokenRefreshManager.refreshToken()` のPromise共有パターンにより、リフレッシュ試行は1回に集約される（既存動作）
+2. **sessionExpiredCallback の冪等性**: リフレッシュ失敗時、`sessionExpiredCallback` は `sessionExpiredDuringOperation = true` を設定する。Reactの状態更新バッチングにより、複数回の呼び出しがあっても状態更新とモーダル表示は1回のみ
+3. **各APIリクエストのエラー伝播**: `sessionExpiredCallback` 呼び出し後、各APIリクエストは個別に `ApiError` を受け取る。呼び出し元コンポーネントのcatchブロックでエラーハンドリングが必要だが、モーダルが表示されているためUIへのエラー表示は抑制される（モーダル閉じ後に操作を再実行するため）
+
+```
+API呼び出しA ─→ 401 ─→ refreshToken() ─┐
+API呼び出しB ─→ 401 ─→ refreshToken() ─┤ Promise共有（1回のみ実行）
+API呼び出しC ─→ 401 ─→ refreshToken() ─┘
+                                          ↓ リフレッシュ失敗
+                                    sessionExpiredCallback() ← 冪等（モーダル1回表示）
+                                          ↓
+                              各リクエストにApiErrorスロー
+```
+
+### データフロー
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Form as フォーム画面
+    participant API as API Client
+    participant TRM as TokenRefreshManager
+    participant Auth as AuthContext
+    participant Modal as SessionExpiredModal
+    participant BE as Backend
+
+    User->>Form: 保存ボタンクリック
+    Form->>API: PUT /api/v1/xxx (アクセストークン付き)
+    API->>BE: リクエスト送信
+    BE-->>API: 401 TOKEN_EXPIRED
+
+    API->>TRM: tokenRefreshCallback()
+    TRM->>BE: POST /api/v1/auth/refresh
+    BE-->>TRM: 401 REFRESH_TOKEN_EXPIRED
+
+    TRM-->>API: リフレッシュ失敗（Error）
+    API->>Auth: sessionExpiredCallback()
+    Auth->>Auth: sessionExpiredDuringOperation = true
+
+    Auth->>Modal: モーダル表示
+
+    Note over Form: フォームデータはDOM上に保持される
+
+    User->>Modal: パスワード入力 + 再ログインボタン
+    Modal->>BE: POST /api/v1/auth/login
+    BE-->>Modal: 200 OK (accessToken + refreshToken)
+
+    Modal->>Auth: handleReauthSuccess()
+    Auth->>Auth: トークン更新、TRM再初期化
+    Auth->>Auth: sessionExpiredDuringOperation = false
+    Auth->>Modal: モーダルを閉じる
+
+    Note over Form: ユーザーは元の画面で作業続行
+    User->>Form: 再度保存ボタンクリック
+    Form->>API: PUT /api/v1/xxx (新しいアクセストークン)
+    BE-->>API: 200 OK
+    API-->>Form: 保存成功
+```
+
+### 2FA対応フロー
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Modal as SessionExpiredModal
+    participant BE as Backend
+
+    User->>Modal: パスワード入力 + 再ログインボタン
+    Modal->>BE: POST /api/v1/auth/login
+    BE-->>Modal: 200 OK { requires2FA: true }
+
+    Modal->>Modal: 2FAフィールドを表示
+    User->>Modal: TOTPコード入力
+    Modal->>BE: POST /api/v1/auth/verify-2fa
+    BE-->>Modal: 200 OK (accessToken + refreshToken)
+    Modal->>Modal: 再認証成功 → モーダルを閉じる
+```
+
+### テスト設計
+
+#### 単体テスト
+
+| テスト対象 | テストファイル | テスト内容 |
+|---|---|---|
+| SessionExpiredModal | `__tests__/components/SessionExpiredModal.test.tsx` | 表示/非表示、フォーム入力、再認証成功/失敗、2FA対応、3回連続失敗後のフォールバック、アクセシビリティ |
+| API Client変更 | `__tests__/api/client.test.ts` | sessionExpiredCallbackの呼び出しタイミング、リフレッシュ失敗時の動作 |
+| AuthContext変更 | `__tests__/contexts/AuthContext.test.tsx` | sessionExpiredDuringOperationの状態管理、handleReauthSuccess、初期ロード vs 操作中の区別 |
+
+#### E2Eテスト
+
+| テストシナリオ | テストファイル |
+|---|---|
+| フォーム入力中にセッション切れ → モーダル表示 → 再認証 → データ保持 | `e2e/specs/auth/session-expired-modal.spec.ts` |
+| 再認証3回連続失敗 → ログイン画面遷移 | 同上 |
+| 2FAユーザーのモーダル再認証 | 同上 |
+
+### 要件トレーサビリティ
+
+| 要件ID | 設計要素 |
+|---|---|
+| 30.1-30.3 | API Client `sessionExpiredCallback` + AuthContext `sessionExpiredDuringOperation` |
+| 30.4-30.7 | SessionExpiredModal コンポーネント UI構成 |
+| 30.8-30.11 | SessionExpiredModal 再認証フロー |
+| 30.12 | SessionExpiredModal 2FA対応フロー |
+| 30.13-30.15 | API Client + AuthContext コールバック機構設計 |
+| 30.16-30.17 | SessionExpiredModal エラーハンドリング |
+| 30.18-30.20 | SessionExpiredModal アクセシビリティ設計 |
+| 30.21 | SessionExpiredModal レスポンシブ対応 |
