@@ -147,8 +147,10 @@ export function useAutocompleteCandidateStore(
 
   /**
    * 初回マウント時にAPIから候補値を一括取得
+   * projectIdが空の場合はフェッチをスキップし、有効なIDが渡された時点でフェッチする
    */
   useEffect(() => {
+    if (!projectId) return; // projectIdが空の場合はフェッチしない（fetchedRefも設定しない）
     if (fetchedRef.current) return;
     fetchedRef.current = true;
 
