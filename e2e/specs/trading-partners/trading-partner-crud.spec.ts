@@ -1088,9 +1088,10 @@ test.describe('取引先CRUD操作', () => {
       // 一覧画面に遷移することを確認
       await expect(page).toHaveURL(/\/trading-partners$/, { timeout: getTimeout(15000) });
 
-      // 削除した取引先が一覧に表示されないことを確認
-      await page.waitForLoadState('networkidle');
-      await expect(page.getByText(partnerName)).not.toBeVisible({
+      // 削除した取引先が一覧テーブルに表示されないことを確認
+      const listTable = page.getByRole('table', { name: '取引先一覧' });
+      await expect(listTable).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(listTable.getByText(partnerName)).not.toBeVisible({
         timeout: getTimeout(5000),
       });
     });

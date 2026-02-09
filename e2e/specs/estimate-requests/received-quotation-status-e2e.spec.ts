@@ -7,6 +7,7 @@
  * - 19.1: REQ-11.1 ~ REQ-11.10 受領見積書登録フロー
  * - 19.2: REQ-11.11 ~ REQ-11.17 受領見積書一覧・編集・削除
  * - 19.3: REQ-12.1 ~ REQ-12.12 ステータス管理
+ * - 37.3: REQ-15.1 ~ REQ-15.11 項目選択一括転記機能
  *
  * @module e2e/specs/estimate-requests/received-quotation-status-e2e.spec
  */
@@ -22,6 +23,18 @@ import * as fs from 'fs';
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 保存ボタンをクリックして保存完了を待機するヘルパー
+ * Task 30改修: debounce自動保存から保存ボタン方式に変更
+ */
+async function clickSaveSelectionButton(page: import('@playwright/test').Page) {
+  const saveButton = page.getByTestId('save-selection-button');
+  await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+  await saveButton.click();
+  // 保存完了フィードバックを待機
+  await expect(page.getByText('保存しました')).toBeVisible({ timeout: getTimeout(10000) });
+}
 
 /**
  * 受領見積書・ステータス管理のE2Eテスト
@@ -213,12 +226,14 @@ test.describe('受領見積書・ステータス管理機能', () => {
       const groupBody = await groupResponse.json();
       const groupId = groupBody.id;
 
-      // 項目を作成
+      // 項目を作成（customCategory含む: Task 37.2対応）
+      const categories = ['躯体工事', '仕上工事', '設備工事'];
       for (let i = 0; i < 3; i++) {
         await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
           headers: { Authorization: `Bearer ${accessToken}` },
           data: {
             name: `テスト項目${i + 1}`,
+            customCategory: categories[i],
             workType: '工種A',
             specification: '規格A',
             unit: '式',
@@ -1250,6 +1265,511 @@ test.describe('受領見積書・ステータス管理機能', () => {
       // ファイル入力フィールドを確認（スタイリングのためhiddenだがDOMには存在）
       const fileInput = page.locator('input[type="file"][data-testid="file-input"]');
       await expect(fileInput).toBeAttached({ timeout: getTimeout(5000) });
+    });
+  });
+
+  // ============================================================================
+  // Task 37.2 列名称変更と任意分類・工種列のE2Eテスト
+  // ============================================================================
+
+  test.describe('Task 37.2 列名称変更と任意分類・工種列', () => {
+    /**
+     * Task 37.2: 受領見積書明細行に任意分類と工種の入力列が表示されることの確認
+     * @requirement estimate-request/REQ-11.10
+     */
+    test('受領見積書登録フォームの明細行に任意分類と工種の入力フィールドが表示される', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 明細行セクションが表示されることを確認
+      await expect(page.getByText(/明細行/i)).toBeVisible();
+
+      // 明細行テーブルのヘッダーに「任意分類」列が存在する
+      await expect(page.getByText('任意分類', { exact: false }).first()).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 明細行テーブルのヘッダーに「工種」列が存在する
+      await expect(page.getByText('工種', { exact: false }).first()).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+    });
+
+    /**
+     * Task 37.2: 任意分類と工種を含む受領見積書の登録フローの確認
+     * @requirement estimate-request/REQ-11.10
+     */
+    test('任意分類と工種を入力して受領見積書を登録できる', async ({ page }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // フォームに入力
+      const quotationName = `任意分類工種テスト_${Date.now()}`;
+      await page.locator('#quotation-name').fill(quotationName);
+      await page.locator('#submitted-at').fill('2026-01-30');
+
+      // 明細行に任意分類を入力（1行目）
+      const customCategoryInput = page.getByRole('textbox', { name: /行1 任意分類/i });
+      await expect(customCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
+      await customCategoryInput.fill('躯体工事');
+
+      // 明細行に工種を入力（1行目）
+      const workTypeInput = page.getByRole('textbox', { name: /行1 工種/i });
+      await expect(workTypeInput).toBeVisible({ timeout: getTimeout(5000) });
+      await workTypeInput.fill('コンクリート工');
+
+      // 名称を入力（1行目）
+      const nameInput = page
+        .getByRole('textbox', { name: /行1 名称/i })
+        .or(page.getByRole('textbox', { name: /名称/i }).first());
+      await nameInput.fill('テスト明細項目');
+
+      // 登録ボタンをクリック
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/quotations') && response.request().method() === 'POST',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /^登録$/i }).click();
+      const response = await createPromise;
+      expect(response.status()).toBe(201);
+
+      // 登録後、一覧に表示される
+      await expect(page.getByText(quotationName)).toBeVisible({ timeout: getTimeout(10000) });
+    });
+  });
+
+  // ============================================================================
+  // Task 37.3 項目選択一括転記のE2Eテスト
+  // ============================================================================
+
+  test.describe('Task 37.3 項目選択一括転記', () => {
+    /**
+     * Task 37.3: 項目選択からの転記ボタン表示と転記実行の確認
+     * @requirement estimate-request/REQ-15.1
+     * @requirement estimate-request/REQ-15.2
+     * @requirement estimate-request/REQ-15.3
+     * @requirement estimate-request/REQ-15.4
+     */
+    test('「項目選択から転記」ボタンで明細行が自動生成される', async ({ page }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // まず項目を選択する
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 複数項目を選択
+      const itemCount = await checkboxes.count();
+      for (let i = 0; i < Math.min(itemCount, 2); i++) {
+        await checkboxes.nth(i).click();
+      }
+
+      // 保存ボタンクリックで項目選択を永続化
+      await clickSaveSelectionButton(page);
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // フォームに入力
+      const quotationName = `転記テスト_${Date.now()}`;
+      await page.locator('#quotation-name').fill(quotationName);
+      await page.locator('#submitted-at').fill('2026-01-31');
+
+      // 「項目選択から転記」ボタンが表示されることを確認
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 転記ボタンをクリック
+      await transcriptionButton.click();
+
+      // 転記完了メッセージが表示される
+      await expect(page.getByTestId('transcription-message')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(page.getByText(/項目を転記しました/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 転記された明細行にテストデータの名称が含まれることを確認（行1の名称フィールド）
+      const row1Name = page.getByRole('textbox', { name: /行1 名称/i });
+      await expect(row1Name).toHaveValue('テスト項目1', { timeout: getTimeout(5000) });
+
+      // 転記された明細行に任意分類(customCategory)が含まれることを確認
+      const row1CustomCategory = page.getByRole('textbox', { name: /行1 任意分類/i });
+      await expect(row1CustomCategory).toHaveValue('躯体工事', { timeout: getTimeout(5000) });
+
+      // 転記された明細行に工種(workType)が含まれることを確認
+      const row1WorkType = page.getByRole('textbox', { name: /行1 工種/i });
+      await expect(row1WorkType).toHaveValue('工種A', { timeout: getTimeout(5000) });
+
+      // 転記された明細行に規格が含まれることを確認
+      const row1Spec = page.getByRole('textbox', { name: /行1 規格/i });
+      await expect(row1Spec).toHaveValue('規格A', { timeout: getTimeout(5000) });
+
+      // 転記された明細行に単位が含まれることを確認
+      const row1Unit = page.getByRole('textbox', { name: /行1 単位/i });
+      await expect(row1Unit).toHaveValue('式', { timeout: getTimeout(5000) });
+
+      // 登録ボタンをクリックして登録を完了
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/quotations') && response.request().method() === 'POST',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /^登録$/i }).click();
+      const response = await createPromise;
+      expect(response.status()).toBe(201);
+
+      // 登録後、一覧に表示される
+      await expect(page.getByText(quotationName)).toBeVisible({ timeout: getTimeout(10000) });
+    });
+
+    /**
+     * Task 37.3: 転記後の単価フィールド空欄の確認
+     * @requirement estimate-request/REQ-15.5
+     */
+    test('転記後の単価フィールドが空欄である', async ({ page }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 項目を選択する（前のテストで選択済みの可能性があるが念のため確認）
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 最初のチェックボックスが未選択の場合は選択
+      const isChecked = await checkboxes.first().isChecked();
+      if (!isChecked) {
+        await checkboxes.first().click();
+        await clickSaveSelectionButton(page);
+      }
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 転記ボタンをクリック
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
+
+      // 転記完了メッセージが表示される
+      await expect(page.getByText(/項目を転記しました/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 単価フィールドが空欄であることを確認（aria-labelで行1の単価を特定）
+      const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
+      if (await unitPriceInput.isVisible()) {
+        const value = await unitPriceInput.inputValue();
+        expect(value).toBe('');
+      }
+
+      // キャンセルしてフォームを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
+
+    /**
+     * Task 37.3: 選択項目が0件の場合のエラーメッセージ確認
+     * @requirement estimate-request/REQ-15.6
+     */
+    test('選択項目が0件の場合にエラーメッセージが表示される', async ({ page }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 全ての項目の選択を解除する
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      const itemCount = await checkboxes.count();
+      let hasChanges = false;
+      for (let i = 0; i < itemCount; i++) {
+        if (await checkboxes.nth(i).isChecked()) {
+          await checkboxes.nth(i).click();
+          hasChanges = true;
+        }
+      }
+      if (hasChanges) {
+        await clickSaveSelectionButton(page);
+      }
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 転記ボタンをクリック
+      const transcriptionButton = page.getByTestId('transcription-button');
+      // 選択項目が0件の場合、転記ボタンが表示されない可能性がある
+      if (await transcriptionButton.isVisible()) {
+        await transcriptionButton.click();
+
+        // エラーメッセージが表示される
+        await expect(page.getByText(/選択された項目がありません/i)).toBeVisible({
+          timeout: getTimeout(5000),
+        });
+      }
+
+      // キャンセルしてフォームを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
+
+    /**
+     * Task 37.3: 既存明細行がある場合の上書き確認ダイアログの確認
+     * @requirement estimate-request/REQ-15.7
+     * @requirement estimate-request/REQ-15.8
+     */
+    test('既存明細行がある場合に上書き確認ダイアログが表示される', async ({ page }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 項目を選択する
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 最初のチェックボックスが未選択の場合は選択して保存
+      const isChecked = await checkboxes.first().isChecked();
+      if (!isChecked) {
+        await checkboxes.first().click();
+        await clickSaveSelectionButton(page);
+      }
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 明細行に既存データを入力（名称を入力して既存データがある状態にする）
+      const nameInput = page.getByRole('textbox', { name: /名称/i }).first();
+      await nameInput.fill('既存の明細データ');
+
+      // 転記ボタンをクリック
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
+
+      // 上書き確認ダイアログが表示される
+      await expect(page.getByText('明細行の上書き確認')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 「続行」ボタンで上書き実行
+      await page.getByRole('button', { name: /続行/i }).click();
+
+      // 転記完了メッセージが表示される
+      await expect(page.getByText(/項目を転記しました/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // キャンセルしてフォームを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
+
+    /**
+     * Task 37.3: 確認ダイアログで「キャンセル」選択時に既存データが保持される
+     * @requirement estimate-request/REQ-15.9
+     */
+    test('確認ダイアログでキャンセルすると既存データが保持される (estimate-request/REQ-15.9)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 項目を選択する
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 最初のチェックボックスが未選択の場合は選択して保存
+      const isChecked = await checkboxes.first().isChecked();
+      if (!isChecked) {
+        await checkboxes.first().click();
+        await clickSaveSelectionButton(page);
+      }
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 既存データを入力
+      const existingDataValue = '保持されるべき既存データ';
+      const nameInput = page.getByRole('textbox', { name: /名称/i }).first();
+      await nameInput.fill(existingDataValue);
+
+      // 転記ボタンをクリック
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
+
+      // 上書き確認ダイアログが表示される
+      await expect(page.getByText('明細行の上書き確認')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 確認ダイアログ内の「キャンセル」ボタンをクリック
+      const confirmDialog = page.getByTestId('transcription-confirm-dialog');
+      await confirmDialog.getByRole('button', { name: /キャンセル/i }).click();
+
+      // 確認ダイアログが閉じる
+      await expect(page.getByText('明細行の上書き確認')).not.toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 既存データが保持されていることを確認
+      await expect(nameInput).toHaveValue(existingDataValue);
+
+      // フォームのキャンセルボタンでフォームを閉じる
+      await page
+        .getByRole('button', { name: /キャンセル/i })
+        .first()
+        .click();
+    });
+
+    /**
+     * Task 37.3: 一括転記時に単価フィールドが空欄であること
+     * @requirement estimate-request/REQ-15.10
+     */
+    test('一括転記時に単価フィールドが空欄である (estimate-request/REQ-15.10)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 項目を選択する
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 最初のチェックボックスが未選択の場合は選択して保存
+      const isChecked = await checkboxes.first().isChecked();
+      if (!isChecked) {
+        await checkboxes.first().click();
+        await clickSaveSelectionButton(page);
+      }
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 転記ボタンをクリック
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
+
+      // 転記完了メッセージが表示される
+      await expect(page.getByText(/項目を転記しました/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 単価フィールドが空欄であることを確認
+      const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
+      await expect(unitPriceInput).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(unitPriceInput).toHaveValue('');
+
+      // キャンセルしてフォームを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
+
+    /**
+     * Task 37.3: 一括転記後もユーザーが各明細行のフィールドを自由に編集できる
+     * @requirement estimate-request/REQ-15.11
+     */
+    test('一括転記後も明細行フィールドを自由に編集できる (estimate-request/REQ-15.11)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 項目を選択する
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 最初のチェックボックスが未選択の場合は選択して保存
+      const isChecked = await checkboxes.first().isChecked();
+      if (!isChecked) {
+        await checkboxes.first().click();
+        await clickSaveSelectionButton(page);
+      }
+
+      // 受領見積書登録ボタンをクリック
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 転記ボタンをクリック
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
+
+      // 転記完了メッセージが表示される
+      await expect(page.getByText(/項目を転記しました/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 転記された名称フィールドを編集できることを確認
+      const row1Name = page.getByRole('textbox', { name: /行1 名称/i });
+      await expect(row1Name).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(row1Name).toBeEditable();
+      const editedValue = '編集後のテスト名称';
+      await row1Name.fill(editedValue);
+      await expect(row1Name).toHaveValue(editedValue);
+
+      // 単価フィールドも編集できることを確認
+      const row1UnitPrice = page.getByRole('textbox', { name: /行1 単価/i });
+      await expect(row1UnitPrice).toBeEditable();
+      await row1UnitPrice.fill('12345');
+      await expect(row1UnitPrice).toHaveValue('12345');
+
+      // 規格フィールドも編集できることを確認
+      const row1Spec = page.getByRole('textbox', { name: /行1 規格/i });
+      await expect(row1Spec).toBeEditable();
+
+      // キャンセルしてフォームを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
   });
 

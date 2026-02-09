@@ -20,6 +20,8 @@ const mockQuotations: ReceivedQuotationInfo[] = [
       {
         id: 'li-1',
         receivedQuotationId: 'rq-1',
+        customCategory: null,
+        workType: null,
         name: '鉄筋工事',
         specification: 'D10',
         unit: 'kg',
@@ -46,6 +48,8 @@ const mockQuotations: ReceivedQuotationInfo[] = [
       {
         id: 'li-2',
         receivedQuotationId: 'rq-2',
+        customCategory: null,
+        workType: null,
         name: '基礎工事',
         specification: '一式',
         unit: '式',
@@ -58,6 +62,8 @@ const mockQuotations: ReceivedQuotationInfo[] = [
       {
         id: 'li-3',
         receivedQuotationId: 'rq-2',
+        customCategory: null,
+        workType: null,
         name: '配筋工事',
         specification: '一式',
         unit: '式',
@@ -84,6 +90,8 @@ const mockQuotations: ReceivedQuotationInfo[] = [
       {
         id: 'li-4',
         receivedQuotationId: 'rq-3',
+        customCategory: null,
+        workType: null,
         name: '電気工事',
         specification: '一式',
         unit: '式',

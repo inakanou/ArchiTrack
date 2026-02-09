@@ -136,6 +136,12 @@ e2e/
 │   ├── trading-partners/  # 取引先管理テスト
 │   ├── site-surveys/      # 現場調査テスト
 │   ├── quantity-tables/   # 数量表テスト
+│   ├── itemized-statements/ # 内訳書テスト
+│   ├── estimate-requests/ # 見積依頼テスト
+│   ├── estimate/          # 見積書テスト
+│   ├── company-info/      # 自社情報テスト
+│   ├── integration/       # 統合テスト
+│   ├── ui/                # UIテスト
 │   ├── navigation/        # ナビゲーションテスト
 │   ├── performance/       # パフォーマンステスト
 │   └── security/          # セキュリティテスト
@@ -200,13 +206,15 @@ AI支援開発のためのスペック管理。
     │   ├── spec.json      # スペックメタデータ
     │   ├── requirements.md # 要件定義
     │   ├── design.md      # 技術設計
-    │   ├── tasks.md       # 実装タスク
-    │   └── validation/    # 検証レポート
+    │   └── tasks.md       # 実装タスク
     ├── project-management/    # プロジェクト管理機能 ✅
     ├── trading-partner-management/  # 取引先管理機能 ✅
     ├── site-survey/           # 現場調査機能 ✅
     ├── quantity-table-generation/  # 数量表作成機能 ✅
-    └── ...
+    ├── itemized-statement-generation/  # 内訳書作成機能 ✅
+    ├── estimate-request/      # 見積依頼機能 ✅
+    ├── company-info/          # 自社情報登録機能 ✅
+    └── estimate-creation/     # 見積書作成機能 ✅
 ```
 
 **ワークフロー:**
@@ -221,7 +229,7 @@ Claude Codeのプロジェクト固有設定。
 
 ```
 .claude/
-├── CLAUDE.md              # AI運用6原則
+├── CLAUDE.md              # AI運用7原則
 └── commands/              # カスタムスラッシュコマンド
 ```
 

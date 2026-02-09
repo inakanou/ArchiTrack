@@ -2025,4 +2025,227 @@ describe('ReceivedQuotationService', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 36.4: 任意分類・工種フィールドテスト (Requirements: 11.10, 14.2)
+  // ==========================================================================
+  describe('任意分類・工種フィールドテスト (Task 36.4)', () => {
+    describe('create - 任意分類・工種を含む明細行の作成', () => {
+      it('customCategoryとworkTypeフィールドを含む明細行を正常に作成する', async () => {
+        const lineItems = [
+          {
+            name: '鉄筋D10',
+            sortOrder: 0,
+            customCategory: '躯体工事',
+            workType: '鉄筋工事',
+            specification: 'SD295A',
+            unit: 'kg',
+            quantity: 1500,
+            unitPrice: 120,
+            amount: 180000,
+          },
+          {
+            name: 'コンクリート',
+            sortOrder: 1,
+            customCategory: '躯体工事',
+            workType: 'コンクリート工事',
+            specification: '21-8-20',
+            unit: 'm3',
+            quantity: 50,
+            unitPrice: 15000,
+            amount: 750000,
+          },
+        ];
+
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '見積書（任意分類・工種あり）',
+          submittedAt: new Date('2026-02-01'),
+          lineItems,
+        };
+
+        const mockCreated = {
+          id: 'rq-custom-1',
+          estimateRequestId: 'er-001',
+          name: '見積書（任意分類・工種あり）',
+          submittedAt: new Date('2026-02-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          fileStorageKey: null,
+          deletedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lineItems: [
+            {
+              id: 'li-c1',
+              receivedQuotationId: 'rq-custom-1',
+              sortOrder: 0,
+              customCategory: '躯体工事',
+              workType: '鉄筋工事',
+              name: '鉄筋D10',
+              specification: 'SD295A',
+              unit: 'kg',
+              quantity: { toNumber: () => 1500 },
+              unitPrice: { toNumber: () => 120 },
+              amount: { toNumber: () => 180000 },
+              remarks: null,
+            },
+            {
+              id: 'li-c2',
+              receivedQuotationId: 'rq-custom-1',
+              sortOrder: 1,
+              customCategory: '躯体工事',
+              workType: 'コンクリート工事',
+              name: 'コンクリート',
+              specification: '21-8-20',
+              unit: 'm3',
+              quantity: { toNumber: () => 50 },
+              unitPrice: { toNumber: () => 15000 },
+              amount: { toNumber: () => 750000 },
+              remarks: null,
+            },
+          ],
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue({ id: 'er-001', deletedAt: null }),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreated),
+            },
+            receivedQuotationLineItem: {
+              createMany: vi.fn().mockResolvedValue({ count: 2 }),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        const result = await service.create(input);
+
+        expect(result.lineItems).toHaveLength(2);
+        expect(result.lineItems[0]?.customCategory).toBe('躯体工事');
+        expect(result.lineItems[0]?.workType).toBe('鉄筋工事');
+        expect(result.lineItems[1]?.customCategory).toBe('躯体工事');
+        expect(result.lineItems[1]?.workType).toBe('コンクリート工事');
+      });
+
+      it('customCategoryとworkTypeがnull/undefinedの場合もエラーにならない', async () => {
+        const lineItems = [
+          {
+            name: '工事A',
+            sortOrder: 0,
+            quantity: 1,
+            unitPrice: 10000,
+            amount: 10000,
+            // customCategoryとworkTypeを指定しない
+          },
+        ];
+
+        const input = {
+          estimateRequestId: 'er-001',
+          name: '見積書（任意分類・工種なし）',
+          submittedAt: new Date('2026-02-01'),
+          lineItems,
+        };
+
+        const mockCreated = {
+          id: 'rq-custom-2',
+          estimateRequestId: 'er-001',
+          name: '見積書（任意分類・工種なし）',
+          submittedAt: new Date('2026-02-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          fileStorageKey: null,
+          deletedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lineItems: [
+            {
+              id: 'li-c3',
+              receivedQuotationId: 'rq-custom-2',
+              sortOrder: 0,
+              customCategory: null,
+              workType: null,
+              name: '工事A',
+              specification: null,
+              unit: null,
+              quantity: { toNumber: () => 1 },
+              unitPrice: { toNumber: () => 10000 },
+              amount: { toNumber: () => 10000 },
+              remarks: null,
+            },
+          ],
+        };
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            estimateRequest: {
+              findUnique: vi.fn().mockResolvedValue({ id: 'er-001', deletedAt: null }),
+            },
+            receivedQuotation: {
+              create: vi.fn().mockResolvedValue(mockCreated),
+            },
+            receivedQuotationLineItem: {
+              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        const result = await service.create(input);
+
+        expect(result.lineItems).toHaveLength(1);
+        expect(result.lineItems[0]?.customCategory).toBeNull();
+        expect(result.lineItems[0]?.workType).toBeNull();
+      });
+    });
+
+    describe('findById - 任意分類・工種を含む取得', () => {
+      it('取得レスポンスにcustomCategoryとworkTypeが含まれる', async () => {
+        const mockQuotation = {
+          id: 'rq-custom-3',
+          estimateRequestId: 'er-001',
+          name: '見積書テスト',
+          submittedAt: new Date('2026-02-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          fileStorageKey: null,
+          deletedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lineItems: [
+            {
+              id: 'li-c4',
+              receivedQuotationId: 'rq-custom-3',
+              sortOrder: 0,
+              customCategory: '仕上工事',
+              workType: '塗装工事',
+              name: '塗装',
+              specification: '2回塗り',
+              unit: 'm2',
+              quantity: { toNumber: () => 200 },
+              unitPrice: { toNumber: () => 3000 },
+              amount: { toNumber: () => 600000 },
+              remarks: null,
+            },
+          ],
+        };
+
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          mockQuotation as never
+        );
+
+        const result = await service.findById('rq-custom-3');
+
+        expect(result).not.toBeNull();
+        expect(result!.lineItems[0]?.customCategory).toBe('仕上工事');
+        expect(result!.lineItems[0]?.workType).toBe('塗装工事');
+      });
+    });
+  });
 });

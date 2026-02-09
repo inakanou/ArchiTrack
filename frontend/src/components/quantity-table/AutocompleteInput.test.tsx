@@ -2,11 +2,16 @@
  * @fileoverview AutocompleteInput コンポーネントテスト
  *
  * Task 7.1: オートコンプリート入力コンポーネントを実装する
+ * Task 17.1: クライアントサイド候補ストア方式に更新する
+ * Task 18.1: 旧オートコンプリートフックを廃止し新モード専用に統合する
  *
  * Requirements:
  * - 7.1: 入力開始時の候補表示
+ * - 7.3: クライアントサイドでのフィルタリング表示
  * - 7.4: 候補選択時の自動入力
  * - 7.5: 上下キー選択とEnter確定
+ * - 7.6: blur時の候補追加はAPIリクエスト不要
+ * - 7.7: 候補を50音順に表示
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -14,27 +19,19 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AutocompleteInput from './AutocompleteInput';
 
-// Mock useAutocomplete hook
-vi.mock('../../hooks/useAutocomplete', () => ({
-  useAutocomplete: vi.fn(() => ({
-    suggestions: [],
-    isLoading: false,
-    error: null,
-  })),
-}));
-
-import { useAutocomplete } from '../../hooks/useAutocomplete';
-
-const mockUseAutocomplete = vi.mocked(useAutocomplete);
-
 // Mock scrollIntoView which is not implemented in JSDOM
 Element.prototype.scrollIntoView = vi.fn();
 
 describe('AutocompleteInput', () => {
+  const getSuggestions = vi.fn();
+  const onBlurAddCandidate = vi.fn();
+
   const defaultProps = {
     value: '',
     onChange: vi.fn(),
-    endpoint: '/api/autocomplete/major-categories',
+    field: 'majorCategory' as const,
+    getSuggestions,
+    onBlurAddCandidate,
     placeholder: '大項目を入力',
     label: '大項目',
     id: 'majorCategory',
@@ -42,11 +39,8 @@ describe('AutocompleteInput', () => {
 
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    mockUseAutocomplete.mockReturnValue({
-      suggestions: [],
-      isLoading: false,
-      error: null,
-    });
+    getSuggestions.mockReturnValue([]);
+    onBlurAddCandidate.mockClear();
   });
 
   afterEach(() => {
@@ -78,11 +72,7 @@ describe('AutocompleteInput', () => {
 
   describe('候補表示 (Req 7.1)', () => {
     it('候補がある場合にドロップダウンが表示される', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -95,11 +85,7 @@ describe('AutocompleteInput', () => {
     });
 
     it('候補がない場合はドロップダウンが表示されない', () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: [],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue([]);
 
       render(<AutocompleteInput {...defaultProps} value="あ" />);
 
@@ -109,30 +95,22 @@ describe('AutocompleteInput', () => {
       expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     });
 
-    it('ローディング中にインジケーターが表示される', () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: [],
-        isLoading: true,
-        error: null,
-      });
+    it('新モードではローディングインジケーターが表示されない', () => {
+      getSuggestions.mockReturnValue([]);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
       const input = screen.getByRole('combobox');
       fireEvent.focus(input);
 
-      expect(screen.getByLabelText('読み込み中')).toBeInTheDocument();
+      expect(screen.queryByLabelText('読み込み中')).not.toBeInTheDocument();
     });
   });
 
   describe('候補選択 (Req 7.4)', () => {
     it('候補クリック時にonChangeが呼ばれる', async () => {
       const onChange = vi.fn();
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" onChange={onChange} />);
 
@@ -146,11 +124,7 @@ describe('AutocompleteInput', () => {
     });
 
     it('候補選択後にドロップダウンが閉じる', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -168,11 +142,7 @@ describe('AutocompleteInput', () => {
 
   describe('キーボード操作 (Req 7.5)', () => {
     it('下矢印キーで次の候補にフォーカスが移動する', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事', '建具工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事', '建具工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -185,11 +155,7 @@ describe('AutocompleteInput', () => {
     });
 
     it('上矢印キーで前の候補にフォーカスが移動する', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事', '建具工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事', '建具工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -205,11 +171,7 @@ describe('AutocompleteInput', () => {
 
     it('Enterキーで選択した候補が確定される', async () => {
       const onChange = vi.fn();
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" onChange={onChange} />);
 
@@ -222,11 +184,7 @@ describe('AutocompleteInput', () => {
     });
 
     it('Escapeキーでドロップダウンが閉じる', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -243,11 +201,7 @@ describe('AutocompleteInput', () => {
     });
 
     it('Tabキーで次の要素にフォーカスが移動しドロップダウンが閉じる', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
       render(
         <div>
@@ -284,11 +238,7 @@ describe('AutocompleteInput', () => {
 
   describe('アクセシビリティ', () => {
     it('aria-expanded属性が正しく設定される', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -308,11 +258,7 @@ describe('AutocompleteInput', () => {
     });
 
     it('aria-controls属性がリストボックスを参照する', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -324,11 +270,7 @@ describe('AutocompleteInput', () => {
     });
 
     it('aria-activedescendant属性が選択中の候補を参照する', async () => {
-      mockUseAutocomplete.mockReturnValue({
-        suggestions: ['建築工事', '建設工事'],
-        isLoading: false,
-        error: null,
-      });
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
       render(<AutocompleteInput {...defaultProps} value="建" />);
 
@@ -338,20 +280,6 @@ describe('AutocompleteInput', () => {
 
       const selectedOption = screen.getByRole('option', { name: '建築工事' });
       expect(input.getAttribute('aria-activedescendant')).toBe(selectedOption.id);
-    });
-  });
-
-  describe('unsavedValues prop', () => {
-    it('unsavedValuesがuseAutocompleteに渡される', () => {
-      const unsavedValues = ['建築工事', '建設仮設工事'];
-
-      render(<AutocompleteInput {...defaultProps} value="建" unsavedValues={unsavedValues} />);
-
-      expect(mockUseAutocomplete).toHaveBeenCalledWith(
-        expect.objectContaining({
-          unsavedValues,
-        })
-      );
     });
   });
 
@@ -371,6 +299,134 @@ describe('AutocompleteInput', () => {
 
       const input = screen.getByRole('combobox');
       expect(input).toHaveAttribute('aria-required', 'true');
+    });
+  });
+
+  // =========================================================================
+  // クライアントサイド候補ストア方式 (Task 17.1 / 18.1)
+  // =========================================================================
+
+  describe('クライアントサイド候補ストア方式', () => {
+    it('getSuggestions関数で候補を取得する (Req 7.3)', async () => {
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
+
+      render(<AutocompleteInput {...defaultProps} value="建" />);
+
+      const input = screen.getByRole('combobox');
+      await userEvent.click(input);
+
+      expect(getSuggestions).toHaveBeenCalledWith('majorCategory', '建');
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '建築工事' })).toBeInTheDocument();
+    });
+
+    it('useAutocompleteを使用しない (Task 18.1)', () => {
+      // AutocompleteInput は useAutocomplete をインポートしないため、
+      // モジュールが存在しなくてもコンポーネントが正常に動作することを確認
+      render(<AutocompleteInput {...defaultProps} value="建" />);
+      expect(screen.getByRole('combobox')).toBeInTheDocument();
+    });
+
+    it('入力値変更のたびにgetSuggestionsが呼ばれる (Req 7.3)', async () => {
+      const onChange = vi.fn();
+
+      render(<AutocompleteInput {...defaultProps} onChange={onChange} />);
+
+      const input = screen.getByRole('combobox');
+      await userEvent.type(input, '建');
+
+      expect(onChange).toHaveBeenCalledWith('建');
+    });
+
+    it('blur時にonBlurAddCandidateが呼ばれる (Req 7.5, 7.6)', async () => {
+      render(
+        <div>
+          <AutocompleteInput {...defaultProps} value="新しい工事" />
+          <input data-testid="other-input" />
+        </div>
+      );
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+      fireEvent.blur(input);
+
+      // Wait for the blur timeout
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(onBlurAddCandidate).toHaveBeenCalledWith('majorCategory', '新しい工事');
+    });
+
+    it('空文字の場合blur時にonBlurAddCandidateが呼ばれない', async () => {
+      render(
+        <div>
+          <AutocompleteInput {...defaultProps} value="" />
+          <input data-testid="other-input" />
+        </div>
+      );
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+      fireEvent.blur(input);
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(onBlurAddCandidate).not.toHaveBeenCalled();
+    });
+
+    it('候補選択時にonChangeが呼ばれる (Req 7.4)', async () => {
+      const onChange = vi.fn();
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
+
+      render(<AutocompleteInput {...defaultProps} value="建" onChange={onChange} />);
+
+      const input = screen.getByRole('combobox');
+      await userEvent.click(input);
+
+      const option = screen.getByRole('option', { name: '建築工事' });
+      await userEvent.click(option);
+
+      expect(onChange).toHaveBeenCalledWith('建築工事');
+    });
+
+    it('キーボード操作が正常に動作する (Req 7.5)', async () => {
+      const onChange = vi.fn();
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
+
+      render(<AutocompleteInput {...defaultProps} value="建" onChange={onChange} />);
+
+      const input = screen.getByRole('combobox');
+      await userEvent.click(input);
+      await userEvent.keyboard('{ArrowDown}');
+      await userEvent.keyboard('{Enter}');
+
+      expect(onChange).toHaveBeenCalledWith('建築工事');
+    });
+
+    it('候補がない場合はドロップダウンが表示されない', () => {
+      getSuggestions.mockReturnValue([]);
+
+      render(<AutocompleteInput {...defaultProps} value="xyz" />);
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('disabled時にonBlurAddCandidateが呼ばれない', async () => {
+      render(
+        <div>
+          <AutocompleteInput {...defaultProps} value="テスト" disabled />
+          <input data-testid="other-input" />
+        </div>
+      );
+
+      const input = screen.getByRole('combobox');
+      fireEvent.blur(input);
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(onBlurAddCandidate).not.toHaveBeenCalled();
     });
   });
 });

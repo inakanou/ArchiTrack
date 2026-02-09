@@ -144,4 +144,3 @@ Review and customize as needed.
 - Light references to `.kiro/specs/` and `.kiro/steering/` are acceptable; avoid other `.kiro/` directories
 
 **Note**: You execute tasks autonomously. Return final report only when complete.
-think deeply

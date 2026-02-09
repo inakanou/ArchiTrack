@@ -48,6 +48,7 @@ graph TB
         QIC[QuantityItemComponent]
         CE[CalculationEngine]
         FV[FieldValidator]
+        ACS[AutocompleteCandidateStore]
     end
 
     subgraph Backend
@@ -56,6 +57,7 @@ graph TB
         QGSV[QuantityGroupService]
         QISV[QuantityItemService]
         QVS[QuantityValidationService]
+        ACSV[AutocompleteCandidatesEndpoint]
     end
 
     subgraph Database
@@ -70,11 +72,14 @@ graph TB
     QTS --> QTL
     QTL --> QTE
     QTE --> QGC
+    QTE --> ACS
     QGC --> QIC
     QIC --> CE
     QIC --> FV
+    QIC --> ACS
 
     QTE --> QTR
+    QTE --> ACSV
     QTR --> QTSV
     QTSV --> QGSV
     QGSV --> QISV
@@ -85,6 +90,7 @@ graph TB
     QISV --> QI
     QG --> SI
     QT --> PJ
+    ACSV --> QI
 ```
 
 **Architecture Integration**:
@@ -92,7 +98,7 @@ graph TB
 - 選択パターン: 階層型サービス（QuantityTable → QuantityGroup → QuantityItem）
 - ドメイン境界: 数量表管理は独立したドメインとして分離、プロジェクトとの関連はIDリレーションのみ
 - 既存パターン: SiteSurveyパターンを継承（CRUD、一覧、詳細、楽観的排他制御）
-- 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）、フィールドバリデーター
+- 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）、フィールドバリデーター、AutocompleteCandidateStore（フロントエンド初回一括読み込み＋クライアントサイド管理）
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -142,6 +148,34 @@ sequenceDiagram
     end
 ```
 
+### オートコンプリート候補取得・利用フロー（初回一括読み込み方式）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant QTE as QuantityTableEditPage
+    participant ACS as AutocompleteCandidateStore
+    participant API
+    participant DB as PostgreSQL
+
+    Note over QTE: 数量表編集画面を初回表示
+    QTE->>API: GET /api/projects/:projectId/quantity-items/autocomplete-candidates
+    API->>DB: GROUP BY 各対象フィールドで重複排除取得
+    DB-->>API: フィールド別の候補値マップ
+    API-->>QTE: AutocompleteCandidatesResponse
+    QTE->>ACS: 候補値マップをステートに保持
+
+    Note over User: テキストフィールドに入力開始
+    User->>QTE: 対象フィールドに文字入力
+    QTE->>ACS: クライアントサイドでフィルタリング
+    ACS-->>QTE: 一致候補リスト（50音順）
+    QTE->>QTE: ドロップダウンで候補表示
+
+    User->>QTE: 候補を選択 or 直接入力後にフォーカスを外す
+    QTE->>ACS: blur時に確定値を候補リストに追加（重複排除）
+    Note over ACS: APIリクエストは発生しない
+```
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -152,7 +186,13 @@ sequenceDiagram
 | 4.1-4.5 | 数量グループの作成・管理 | QuantityGroupComponent, PhotoSelector | QuantityGroupService | - |
 | 5.1-5.4 | 数量項目の追加・編集 | QuantityItemComponent, QuantityItemRow | QuantityItemService | - |
 | 6.1-6.5 | 数量項目のコピー・移動 | QuantityItemComponent, DragDropContext | QuantityItemService | - |
-| 7.1-7.5 | 入力支援・オートコンプリート | AutocompleteInput | useAutocomplete Hook | - |
+| 7.1 | 初回表示時に候補値を一括取得 | QuantityTableEditPage, AutocompleteCandidateStore | GET /api/projects/:projectId/quantity-items/autocomplete-candidates | オートコンプリートフロー |
+| 7.2 | APIリクエストは初回表示時の1回のみ | AutocompleteCandidateStore | - | オートコンプリートフロー |
+| 7.3 | クライアントサイドでのフィルタリング表示 | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |
+| 7.4 | 候補選択時の自動入力 | AutocompleteInput | - | オートコンプリートフロー |
+| 7.5 | blur時にクライアントサイドで候補追加 | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |
+| 7.6 | blur時の候補追加はAPIリクエスト不要 | AutocompleteCandidateStore | - | オートコンプリートフロー |
+| 7.7 | 候補を50音順に表示 | AutocompleteInput | - | - |
 | 8.1-8.11 | 計算方法の選択 | CalculationMethodSelector, CalculationFields | CalculationEngine | 数量計算フロー |
 | 9.1-9.7 | 調整係数 | AdjustmentFactorInput | CalculationEngine, FieldValidator | - |
 | 10.1-10.7 | 丸め設定 | RoundingSettingInput | CalculationEngine, FieldValidator | - |
@@ -221,9 +261,12 @@ sequenceDiagram
 | QuantityGroupService | Backend/Service | 数量グループのCRUD操作と画像紐付け | 3.1-3.3, 4.1-4.5 | PrismaClient (P0) | Service, API |
 | QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.7, 10.1-10.7 | PrismaClient (P0), CalculationEngine (P0), QuantityValidationService (P0) | Service, API |
 | QuantityValidationService | Backend/Service | フィールドバリデーション | 8.3, 8.4, 8.7, 8.10, 9.3-9.5, 10.3-10.5, 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
+| AutocompleteCandidatesEndpoint | Backend/Route | プロジェクト単位のオートコンプリート候補一括取得 | 7.1, 7.2 | PrismaClient (P0) | API |
 | CalculationEngine | Shared/Utility | 数量計算ロジック | 8.1-8.11, 9.1-9.7, 10.1-10.7 | decimal.js (P0) | Service |
-| QuantityTableEditPage | Frontend/Page | 数量表編集画面 | 3.1-3.3 | QuantityGroupComponent (P0) | State |
+| QuantityTableEditPage | Frontend/Page | 数量表編集画面 | 3.1-3.3, 7.1 | QuantityGroupComponent (P0), AutocompleteCandidateStore (P0) | State |
 | QuantityTableSectionCard | Frontend/Component | プロジェクト詳細の数量表セクション | 1.1-1.7 | - | - |
+| AutocompleteCandidateStore | Frontend/State | オートコンプリート候補のクライアントサイド管理 | 7.1, 7.2, 7.3, 7.5, 7.6 | - | State |
+| AutocompleteInput | Frontend/Component | オートコンプリート対応テキスト入力 | 7.3, 7.4, 7.5, 7.6, 7.7 | AutocompleteCandidateStore (P0) | - |
 | FieldValidator | Frontend/Utility | フィールド入力制御・書式 | 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
 
 ### Backend Services
@@ -347,48 +390,17 @@ interface ProjectQuantityTableSummary {
 
 ```typescript
 interface QuantityGroupService {
-  /**
-   * 数量グループを作成
-   */
   create(input: CreateQuantityGroupInput): Promise<QuantityGroupInfo>;
-
-  /**
-   * IDで数量グループを取得（項目を含む）
-   */
   findById(id: string): Promise<QuantityGroupDetail | null>;
-
-  /**
-   * 数量表IDで数量グループ一覧を取得
-   */
   findByQuantityTableId(quantityTableId: string): Promise<QuantityGroupInfo[]>;
-
-  /**
-   * 数量グループを更新
-   */
   update(
     id: string,
     input: UpdateQuantityGroupInput,
     expectedUpdatedAt: Date
   ): Promise<QuantityGroupInfo>;
-
-  /**
-   * 数量グループを削除（配下の項目も削除）
-   */
   delete(id: string): Promise<void>;
-
-  /**
-   * 現場調査画像を紐付け
-   */
   linkSurveyImage(id: string, surveyImageId: string): Promise<QuantityGroupInfo>;
-
-  /**
-   * 現場調査画像の紐付けを解除
-   */
   unlinkSurveyImage(id: string): Promise<QuantityGroupInfo>;
-
-  /**
-   * 表示順序を更新
-   */
   reorder(quantityTableId: string, orderedIds: string[]): Promise<QuantityGroupInfo[]>;
 }
 
@@ -632,72 +644,14 @@ interface BatchOperation {
 
 ```typescript
 interface QuantityValidationService {
-  /**
-   * テキストフィールドの文字数検証
-   * @param value 検証対象の文字列
-   * @param maxZenkaku 全角最大文字数
-   * @param maxHankaku 半角最大文字数
-   * @returns 検証結果（trueで有効）
-   */
   validateTextLength(value: string, maxZenkaku: number, maxHankaku: number): boolean;
-
-  /**
-   * 数値フィールドの範囲検証
-   * @param value 検証対象の数値
-   * @param min 最小値
-   * @param max 最大値
-   * @returns 検証結果
-   */
   validateNumericRange(value: number, min: number, max: number): ValidationResult;
-
-  /**
-   * 調整係数の検証
-   * @param value 調整係数値（-9.99～9.99）
-   * @returns 検証結果
-   */
   validateAdjustmentFactor(value: number): ValidationResult;
-
-  /**
-   * 丸め設定の検証
-   * @param value 丸め設定値（-99.99～99.99）
-   * @returns 検証結果
-   */
   validateRoundingUnit(value: number): ValidationResult;
-
-  /**
-   * 数量の検証
-   * @param value 数量値（-999999.99～9999999.99）
-   * @returns 検証結果
-   */
   validateQuantity(value: number): ValidationResult;
-
-  /**
-   * 寸法・ピッチ計算フィールドの検証
-   * @param value 寸法値（0.01～9999999.99または空白）
-   * @returns 検証結果
-   */
   validateDimensionField(value: number | null): ValidationResult;
-
-  /**
-   * 計算方法と入力値の整合性検証
-   * @param method 計算方法
-   * @param params 計算パラメータ
-   * @returns 検証結果
-   */
   validateCalculationParams(method: CalculationMethod, params: CalculationParams): ValidationResult;
-
-  /**
-   * 数値を小数2桁表示用に書式設定
-   * @param value 数値
-   * @returns 書式設定された文字列（例: 1 → "1.00"）
-   */
   formatDecimal2(value: number): string;
-
-  /**
-   * 空白または数値を条件付き書式設定
-   * @param value 数値またはnull
-   * @returns 空白時は空文字、数値時は小数2桁
-   */
   formatConditionalDecimal2(value: number | null): string;
 }
 
@@ -717,11 +671,7 @@ interface ValidationWarning {
   message: string;
 }
 
-/**
- * フィールド仕様定数
- */
 const FIELD_CONSTRAINTS = {
-  // テキストフィールド（全角/半角）
   MAJOR_CATEGORY: { zenkaku: 25, hankaku: 50 },
   MIDDLE_CATEGORY: { zenkaku: 25, hankaku: 50 },
   MINOR_CATEGORY: { zenkaku: 25, hankaku: 50 },
@@ -732,13 +682,9 @@ const FIELD_CONSTRAINTS = {
   UNIT: { zenkaku: 3, hankaku: 6 },
   CALCULATION_METHOD: { zenkaku: 25, hankaku: 50 },
   REMARKS: { zenkaku: 25, hankaku: 50 },
-
-  // 数値フィールド
   ADJUSTMENT_FACTOR: { min: -9.99, max: 9.99, default: 1.00 },
   ROUNDING_UNIT: { min: -99.99, max: 99.99, default: 0.01 },
   QUANTITY: { min: -999999.99, max: 9999999.99, default: 0 },
-
-  // 寸法・ピッチフィールド
   DIMENSION: { min: 0.01, max: 9999999.99 },
 } as const;
 ```
@@ -748,6 +694,82 @@ const FIELD_CONSTRAINTS = {
 - Integration: 既存のQuantityValidationServiceを拡張
 - Validation: 全角/半角の文字幅を正しくカウント（全角は2、半角は1として計算）
 - Risks: 文字幅計算の正確性（Unicode文字の取り扱い）
+
+---
+
+#### AutocompleteCandidatesEndpoint
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト単位でオートコンプリート対象フィールドの候補値を一括取得するエンドポイント |
+| Requirements | 7.1, 7.2 |
+
+**Responsibilities & Constraints**
+
+- 同一プロジェクト内の全数量項目から対象フィールドのユニーク値をGROUP BYで取得
+- 9フィールド（大項目、中項目、小項目、任意分類、工種、名称、規格、単位、備考）の候補を1回のAPIリクエストで返却
+- 論理削除済み数量表の項目は除外
+- レスポンスはフィールド名をキーとするマップ構造
+
+**Dependencies**
+
+- Inbound: QuantityTableEditPage (P0)
+- External: PrismaClient (P0)
+
+**Contracts**: API [x]
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/projects/:projectId/quantity-items/autocomplete-candidates | - | AutocompleteCandidatesResponse | 404 |
+
+```typescript
+/**
+ * オートコンプリート対象フィールド名
+ */
+type AutocompleteFieldName =
+  | 'majorCategory'
+  | 'middleCategory'
+  | 'minorCategory'
+  | 'customCategory'
+  | 'workType'
+  | 'name'
+  | 'specification'
+  | 'unit'
+  | 'remarks';
+
+/**
+ * オートコンプリート候補一括取得レスポンス
+ *
+ * 各フィールドに対してGROUP BYで重複排除した候補値の配列を返す。
+ * 各配列は50音順（locale: 'ja'）でソート済み。
+ */
+interface AutocompleteCandidatesResponse {
+  candidates: Record<AutocompleteFieldName, string[]>;
+}
+```
+
+**実装方針**:
+
+バックエンドは対象9フィールドそれぞれに対してPrisma `groupBy`を実行し、フィールド別の候補値マップを構築する。NULL値および空文字は除外する。
+
+```typescript
+// 実装概要（設計意図の説明）
+// 9フィールドに対してgroupByを並列実行し、1レスポンスで返却
+// 各フィールドのgroupByは以下のWHERE条件を使用:
+//   - quantityGroup.quantityTable.projectId = :projectId
+//   - quantityGroup.quantityTable.deletedAt IS NULL
+//   - 当該フィールドがNOT NULLかつ空文字でない
+// ソートはlocaleCompare('ja')による50音順
+```
+
+**Implementation Notes**
+
+- Integration: 既存の `autocomplete.routes.ts` を置換または拡張。現行の個別エンドポイント（`/api/autocomplete/major-categories` 等）は廃止し、新エンドポイントに統合
+- Validation: projectIdの存在チェック
+- Performance: 9フィールドのgroupByを`Promise.all`で並列実行し、レスポンスタイムを最小化
+- Risks: プロジェクト内の数量項目が極端に多い場合のクエリパフォーマンス。ただし通常の積算業務では1プロジェクトあたり数百〜数千項目程度であり問題ない
 
 ---
 
@@ -776,32 +798,10 @@ const FIELD_CONSTRAINTS = {
 
 ```typescript
 interface CalculationEngine {
-  /**
-   * 面積・体積計算
-   * 入力された値のみを掛け算（未入力は無視）
-   */
   calculateAreaVolume(params: AreaVolumeParams): Decimal;
-
-  /**
-   * ピッチ計算
-   * 本数 = ((範囲長 - 端長1 - 端長2) / ピッチ長) + 1
-   * 結果 = 本数 * 長さ * 重量（任意項目は1として扱う）
-   */
   calculatePitch(params: PitchParams): Decimal;
-
-  /**
-   * 調整係数を適用
-   */
   applyAdjustmentFactor(value: Decimal, factor: Decimal): Decimal;
-
-  /**
-   * 丸め処理（指定単位で切り上げ）
-   */
   applyRounding(value: Decimal, unit: Decimal): Decimal;
-
-  /**
-   * 完全な計算を実行
-   */
   calculate(input: CalculationInput): CalculationResult;
 }
 
@@ -831,7 +831,7 @@ interface PitchParams {
 | Field | Detail |
 |-------|--------|
 | Intent | 数量表の編集画面を提供 |
-| Requirements | 3.1, 3.2, 3.3 |
+| Requirements | 3.1, 3.2, 3.3, 7.1 |
 
 **Contracts**: State [x]
 
@@ -848,10 +848,18 @@ interface QuantityTableEditState {
   validationErrors: ValidationError[];
   selectedItems: string[];
   expandedGroups: string[];
+  /** オートコンプリート候補値マップ（初回API取得 + blur時のクライアント追加） */
+  autocompleteCandidates: Record<AutocompleteFieldName, string[]>;
+  /** オートコンプリート候補の読み込み状態 */
+  isAutocompleteCandidatesLoading: boolean;
 }
 
 interface QuantityTableEditActions {
   loadQuantityTable(id: string): Promise<void>;
+  /** 初回表示時にオートコンプリート候補を一括取得 */
+  loadAutocompleteCandidates(projectId: string): Promise<void>;
+  /** blur時にフィールド別候補リストへ値を追加（クライアントサイドのみ） */
+  addAutocompleteCandidateOnBlur(field: AutocompleteFieldName, value: string): void;
   addGroup(): void;
   removeGroup(groupId: string): void;
   addItem(groupId: string): void;
@@ -866,7 +874,7 @@ interface QuantityTableEditActions {
 
 **Implementation Notes**
 
-- Integration: useAutoSaveフックで1500msデバウンス自動保存
+- Integration: useAutoSaveフックで1500msデバウンス自動保存。ページマウント時に`loadAutocompleteCandidates`を呼び出し、候補値をステートに保持
 - Validation: 保存前に必須フィールドと計算整合性を検証
 - Risks: 大量項目での再レンダリングパフォーマンス（react-windowで対応）
 
@@ -906,44 +914,23 @@ interface QuantityTableEditActions {
 
 ```typescript
 interface FieldValidator {
-  /**
-   * テキストフィールドの文字数チェック（入力中）
-   * 最大文字数を超える入力を防止
-   */
   validateTextInput(
     value: string,
     maxZenkaku: number,
     maxHankaku: number
   ): { isValid: boolean; truncated: string };
 
-  /**
-   * 数値フィールドの範囲チェック
-   */
   validateNumericInput(
     value: number,
     min: number,
     max: number
   ): { isValid: boolean; error?: string };
 
-  /**
-   * 数値を小数2桁表示に書式設定
-   */
   formatDecimal2(value: number): string;
-
-  /**
-   * 条件付き書式設定（空白または小数2桁）
-   */
   formatConditionalDecimal2(value: number | null): string;
-
-  /**
-   * 文字幅計算（全角=2、半角=1）
-   */
   calculateStringWidth(value: string): number;
 }
 
-/**
- * フィールド書式設定用React Hook
- */
 interface UseFieldFormatterOptions {
   type: 'text' | 'numeric' | 'conditional-numeric';
   maxZenkaku?: number;
@@ -974,103 +961,191 @@ function useFieldFormatter(options: UseFieldFormatterOptions): {
 
 ---
 
-#### AutocompleteInput
+#### AutocompleteCandidateStore
 
 | Field | Detail |
 |-------|--------|
-| Intent | 同一プロジェクト内のデータに基づくオートコンプリート候補を表示 |
-| Requirements | 7.1, 7.2, 7.3, 7.4, 7.5 |
+| Intent | オートコンプリート候補値のクライアントサイド管理を担当 |
+| Requirements | 7.1, 7.2, 7.3, 7.5, 7.6 |
 
 **Responsibilities & Constraints**
 
-- 同一プロジェクト内のDB保存済みデータから当該列の値を取得
-- 画面上の未保存入力データを含めた候補リストを生成
-- 重複を除去した一意のリストとして提供
+- 初回表示時にAPIから取得した候補値マップをReactステートとして保持
+- テキスト入力時にクライアントサイドでフィルタリングして候補を返却
+- blur時に確定値をクライアントサイドの候補リストに追加（重複排除、APIリクエストなし）
+- APIリクエストは数量表編集画面の初回表示時の1回のみ
 
 **Dependencies**
 
-- Inbound: QuantityItemComponent (P0)
-- External: QuantityItemService API (P0)
+- Inbound: AutocompleteInput (P0), QuantityTableEditPage (P0)
+- External: -
 
-**Contracts**: Hook [x]
+**Contracts**: State [x]
 
-##### useAutocomplete Hook Interface
-
-```typescript
-interface UseAutocompleteOptions {
-  projectId: string;
-  column: AutocompleteColumn;
-  unsavedValues: string[];
-}
-
-type AutocompleteColumn =
-  | 'majorCategory'
-  | 'middleCategory'
-  | 'minorCategory'
-  | 'customCategory'
-  | 'workType'
-  | 'name'
-  | 'specification'
-  | 'unit'
-  | 'remarks';
-
-interface UseAutocompleteResult {
-  suggestions: string[];
-  isLoading: boolean;
-  error: Error | null;
-  refresh: () => void;
-}
-
-function useAutocomplete(options: UseAutocompleteOptions): UseAutocompleteResult;
-```
-
-##### API Contract
-
-| Method | Endpoint | Request | Response | Errors |
-|--------|----------|---------|----------|--------|
-| GET | /api/projects/:projectId/quantity-items/autocomplete/:column | - | { values: string[] } | 400, 404 |
-
-##### Autocomplete Logic
+##### State Management / Hook Interface
 
 ```typescript
 /**
- * オートコンプリート候補の生成ロジック
+ * オートコンプリート候補ストアのカスタムフック
  *
- * 1. APIから同一プロジェクト内のDB保存済み値を取得
- * 2. 画面上の未保存入力値を追加
- * 3. 重複を除去して一意のリストを生成
- * 4. 入力中のテキストでフィルタリング
+ * 初回マウント時にAPIから候補を一括取得し、以降はクライアントサイドで管理する。
+ * テキスト入力時のフィルタリングとblur時の候補追加はすべてクライアントサイドで実行。
  */
-function generateSuggestions(
-  dbValues: string[],
-  unsavedValues: string[],
+interface UseAutocompleteCandidateStoreOptions {
+  /** プロジェクトID */
+  projectId: string;
+}
+
+interface UseAutocompleteCandidateStoreResult {
+  /** 候補の読み込み状態 */
+  isLoading: boolean;
+  /** 読み込みエラー */
+  error: Error | null;
+
+  /**
+   * 指定フィールドの候補を入力値でフィルタリングして返す
+   * @param field 対象フィールド名
+   * @param inputText 入力中のテキスト
+   * @returns フィルタリング済み候補リスト（50音順）
+   */
+  getSuggestions(field: AutocompleteFieldName, inputText: string): string[];
+
+  /**
+   * blur時に確定値をフィールドの候補リストに追加する
+   * 既に存在する値の場合は重複追加しない。APIリクエストは発行しない。
+   * @param field 対象フィールド名
+   * @param value 確定された入力値
+   */
+  addCandidateOnBlur(field: AutocompleteFieldName, value: string): void;
+}
+
+function useAutocompleteCandidateStore(
+  options: UseAutocompleteCandidateStoreOptions
+): UseAutocompleteCandidateStoreResult;
+```
+
+##### フィルタリングロジック
+
+```typescript
+/**
+ * クライアントサイドでの候補フィルタリング
+ *
+ * 1. 候補リストから入力テキストに前方一致する値を抽出
+ * 2. 空文字を除外
+ * 3. 50音順（locale: 'ja'）でソート
+ * 4. 完全一致する入力値自体は候補から除外（入力中の値を重複表示しない）
+ */
+function filterCandidates(
+  candidates: string[],
   inputText: string
 ): string[] {
-  // 全候補を結合
-  const allValues = [...dbValues, ...unsavedValues];
+  if (!inputText.trim()) return [];
 
-  // 重複除去（大文字小文字を区別）
-  const uniqueValues = [...new Set(allValues)];
+  return candidates
+    .filter((v) => v.trim() !== '')
+    .filter((v) => v.toLowerCase().startsWith(inputText.toLowerCase()))
+    .filter((v) => v !== inputText)
+    .sort((a, b) => a.localeCompare(b, 'ja'));
+}
+```
 
-  // 空文字を除外
-  const nonEmptyValues = uniqueValues.filter(v => v.trim() !== '');
+##### blur時の候補追加ロジック
 
-  // 入力テキストでフィルタリング（前方一致）
-  const filtered = nonEmptyValues.filter(v =>
-    v.toLowerCase().startsWith(inputText.toLowerCase())
-  );
+```typescript
+/**
+ * blur時の候補追加処理
+ *
+ * 対象フィールドの候補リストに確定値を追加する。
+ * - 空文字・空白のみの値は追加しない
+ * - 既に候補リストに存在する値は重複追加しない
+ * - APIリクエストは一切発行しない（クライアントサイドのみの操作）
+ */
+function addCandidateOnBlur(
+  currentCandidates: Record<AutocompleteFieldName, string[]>,
+  field: AutocompleteFieldName,
+  value: string
+): Record<AutocompleteFieldName, string[]> {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) return currentCandidates;
 
-  // 50音順（日本語対応）でソート
-  return filtered.sort((a, b) => a.localeCompare(b, 'ja'));
+  const fieldCandidates = currentCandidates[field];
+  if (fieldCandidates.includes(trimmedValue)) return currentCandidates;
+
+  return {
+    ...currentCandidates,
+    [field]: [...fieldCandidates, trimmedValue],
+  };
 }
 ```
 
 **Implementation Notes**
 
-- Integration: APIは初回フォーカス時にフェッチ、結果はキャッシュ（5分間有効）
+- Integration: QuantityTableEditPageのマウント時に`useAutocompleteCandidateStore`を初期化。各AutocompleteInputコンポーネントに`getSuggestions`と`addCandidateOnBlur`をpropsまたはContextで渡す
+- Performance: 候補値はReactステートに保持し、フィルタリングはuseMemoで最適化。フィールドごとの候補数は通常数十〜数百件程度であり、クライアントサイドでの処理に十分な規模
+- Risks: ページリロードなしで長時間編集した場合、他ユーザーが追加した値は反映されない。ただし数量表編集は個人作業が主であり、実運用上の問題は小さい
+
+---
+
+#### AutocompleteInput（更新）
+
+| Field | Detail |
+|-------|--------|
+| Intent | クライアントサイド候補ストアに基づくオートコンプリート対応テキスト入力 |
+| Requirements | 7.3, 7.4, 7.5, 7.6, 7.7 |
+
+**Responsibilities & Constraints**
+
+- `AutocompleteCandidateStore`から候補をフィルタリングして取得（APIリクエストなし）
+- キーボード操作（上下キー選択、Enter確定、Escape閉じ）によるアクセシブルな候補選択
+- blur時に確定値をストアに追加（APIリクエストなし）
+- 50音順で候補を表示
+
+**Dependencies**
+
+- Inbound: QuantityItemComponent (P0)
+- External: AutocompleteCandidateStore (P0)
+
+**Contracts**: -（Props-based UI component）
+
+```typescript
+/**
+ * AutocompleteInput Props（更新版）
+ *
+ * 従来のendpointベースの逐次API呼び出しから、
+ * クライアントサイド候補ストアベースに変更
+ */
+interface AutocompleteInputProps {
+  /** 現在の入力値 */
+  value: string;
+  /** 値変更時のコールバック */
+  onChange: (value: string) => void;
+  /** 対象フィールド名 */
+  field: AutocompleteFieldName;
+  /** 候補を取得する関数（AutocompleteCandidateStoreから注入） */
+  getSuggestions: (field: AutocompleteFieldName, inputText: string) => string[];
+  /** blur時に候補を追加する関数（AutocompleteCandidateStoreから注入） */
+  onBlurAddCandidate: (field: AutocompleteFieldName, value: string) => void;
+  /** プレースホルダー */
+  placeholder?: string;
+  /** ラベル */
+  label?: string;
+  /** 入力フィールドのID */
+  id?: string;
+  /** エラーメッセージ */
+  error?: string;
+  /** 必須フィールドかどうか */
+  required?: boolean;
+  /** 無効化フラグ */
+  disabled?: boolean;
+}
+```
+
+**Implementation Notes**
+
+- Integration: 従来の`useAutocomplete`フック（逐次API方式）を使用せず、親コンポーネントから注入された`getSuggestions`関数で候補を取得。入力値が変更されるたびに`getSuggestions`を呼び出してクライアントサイドでフィルタリング
 - Validation: 入力値の最大長チェック（列ごとの制約に準拠）
-- Performance: 候補リストは最大100件に制限
-- UX: 2文字以上入力で候補表示、上下キーで選択、Enterで確定
+- blur時処理: `onBlur`イベントで`onBlurAddCandidate(field, value)`を呼び出し、確定値をクライアントサイドの候補リストに追加。APIリクエストは発行しない
+- UX: 入力開始時に候補表示（最小文字数制限なし）、上下キーで選択、Enterで確定
 
 ## Data Models
 
@@ -1213,7 +1288,7 @@ enum CalculationMethod {
 **User Errors (4xx)**:
 
 - `400 BAD_REQUEST`: 入力バリデーションエラー（必須フィールド未入力、計算方法と入力値の不整合、範囲外入力、文字数超過）
-- `404 NOT_FOUND`: 数量表・グループ・項目が存在しない
+- `404 NOT_FOUND`: 数量表・グループ・項目が存在しない、またはオートコンプリート候補取得時にプロジェクトが存在しない
 - `409 CONFLICT`: 楽観的排他制御エラー（他ユーザーによる更新との競合）
 - `422 UNPROCESSABLE_ENTITY`: ビジネスロジックエラー
 
@@ -1224,12 +1299,17 @@ enum CalculationMethod {
 - 範囲外入力エラー: 各フィールドの入力可能範囲を超えた値
 - 文字数超過エラー: テキストフィールドの最大文字数超過
 
+**オートコンプリート関連エラー**:
+
+- 初回候補取得失敗: オートコンプリート候補の読み込みエラーが発生しても、数量表編集機能自体は正常に動作する（graceful degradation）。エラー時はオートコンプリート機能を無効化し、手入力のみで運用可能
+
 ### Monitoring
 
 - 保存エラー率の監視
 - 自動保存の成功率
 - 計算エラー発生頻度
 - バリデーションエラー分布
+- オートコンプリート候補取得APIのレスポンスタイム
 
 ## Testing Strategy
 
@@ -1243,6 +1323,10 @@ enum CalculationMethod {
   - テキストフィールド文字数制限（全角/半角）
   - 数値フィールド範囲検証
   - 表示書式変換
+- AutocompleteCandidateStore: クライアントサイドフィルタリングのテスト
+  - `filterCandidates`: 前方一致フィルタリング、50音順ソート、空文字除外
+  - `addCandidateOnBlur`: 重複排除、空文字拒否、既存候補との統合
+  - 候補取得APIレスポンスの正しいステート格納
 
 ### Integration Tests
 
@@ -1250,6 +1334,7 @@ enum CalculationMethod {
 - 計算方法の切り替えと数量再計算の正確性テスト
 - 楽観的排他制御の競合シナリオ
 - フィールドバリデーションエラー時の保存阻止
+- オートコンプリート候補一括取得API: プロジェクト内の複数数量表・項目からフィールド別にGROUP BYで重複排除された候補値が返却されることの検証
 
 ### E2E Tests
 
@@ -1261,18 +1346,26 @@ enum CalculationMethod {
   - テキストフィールドの最大文字数入力防止
   - 数値フィールドの範囲外入力エラー表示
   - 小数2桁表示の自動書式設定
+- オートコンプリート操作
+  - 数量表編集画面表示時に候補が一括取得されること
+  - テキスト入力時に候補がフィルタリング表示されること
+  - 候補選択時にフィールドに値が自動入力されること
+  - blur時に入力値がクライアントサイドの候補リストに追加されること
+  - 候補追加後に同じフィールドで再入力すると追加された値が候補に表示されること
 
 ### Performance Tests
 
 - 100項目以上の数量表での操作レスポンス
 - 自動保存のデバウンス動作
-- オートコンプリート候補生成の応答時間
+- オートコンプリート候補一括取得APIのレスポンスタイム（数百項目規模のプロジェクト）
+- クライアントサイドフィルタリングの応答時間（数百候補での前方一致フィルタリング）
 - 計算エンジンの大量項目での処理時間
 
 ## Security Considerations
 
 - 認証済みユーザーのみアクセス可能（既存のProtectedRoute使用）
 - プロジェクトへのアクセス権限チェック（既存のRBAC使用）
+- オートコンプリート候補一括取得APIは`quantity_table:read`権限を要求
 - 入力値のサニタイズ（Zodスキーマ）
 - 数値範囲の厳格なバリデーション（オーバーフロー防止）
 
@@ -1284,3 +1377,105 @@ enum CalculationMethod {
 - デバウンス: 自動保存は1500msデバウンス
 - バッチ処理: 複数項目の一括操作をトランザクションで実行
 - 入力制御の最適化: 文字幅計算のキャッシュ
+- オートコンプリート最適化: 初回一括取得によりテキスト入力中のAPIリクエストを完全排除。9フィールドのgroupByを`Promise.all`で並列実行。候補フィルタリングはuseMemoで最適化
+
+## Phase 4: フォーカス時入力値全選択
+
+### 概要
+
+数量表編集画面の対象フィールド（大項目、中項目、小項目、任意分類、工種、名称、規格、数量、単位、備考）にフォーカスが当たった際に、既存の入力値を全選択状態にする機能を追加する。これにより、上書き入力を効率的に行えるようにする。
+
+### 影響範囲分析
+
+#### 対象コンポーネントとフィールドの対応
+
+| フィールド | コンポーネント | 入力要素タイプ | 現在のonFocus動作 | 変更方針 |
+|-----------|--------------|--------------|------------------|---------|
+| 大項目 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 中項目 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 小項目 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 任意分類 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 工種 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 規格 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 単位 | AutocompleteInput | `<input type="text">` | ドロップダウン開放 | `select()`を追加 |
+| 名称 | FieldValidatedItemRow直接 | `<input type="text">` | なし | `onFocus`で`select()`を追加 |
+| 数量 | FieldValidatedItemRow直接 | `<input type="number">` | なし | `onFocus`で`select()`を追加 |
+| 備考 | FieldValidatedItemRow直接 | `<input type="text">` | なし | `onFocus`で`select()`を追加 |
+
+### 設計方針
+
+#### AutocompleteInputコンポーネントの変更
+
+`AutocompleteInput.tsx`の`handleFocus`コールバック内で`inputRef.current?.select()`を呼び出す。`select()`はブラウザ標準のHTMLInputElement.select()メソッドであり、入力フィールドの全テキストを選択する。
+
+```typescript
+/**
+ * フォーカス時ハンドラ（変更後）
+ */
+const handleFocus = useCallback(() => {
+  setIsFocused(true);
+  // フォーカス時に既存の入力値を全選択
+  inputRef.current?.select();
+  if (value && suggestions.length > 0) {
+    setIsOpen(true);
+  }
+}, [value, suggestions.length]);
+```
+
+**オートコンプリートとの共存**: `select()`はテキスト選択状態を設定するだけであり、ドロップダウンの開閉とは独立して動作する。全選択状態でユーザーが文字を入力すると選択範囲が置換されるが、これはブラウザ標準動作であり、入力値の変更→`handleInputChange`→候補フィルタリングの既存フローがそのまま機能する。
+
+#### FieldValidatedItemRowコンポーネントの変更
+
+名称・数量・備考の直接入力フィールドに`onFocus`ハンドラを追加し、`e.target.select()`を呼び出す。
+
+```typescript
+/**
+ * フォーカス時に全選択するハンドラ
+ */
+const handleSelectOnFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+  e.target.select();
+}, []);
+```
+
+各`<input>`要素に`onFocus={handleSelectOnFocus}`を追加する。
+
+### コンポーネント設計詳細
+
+#### AutocompleteInput変更
+
+- **変更点**: `handleFocus`コールバック内に`inputRef.current?.select()`を1行追加
+- **影響**: 全てのAutocompleteInputフィールド（大項目、中項目、小項目、任意分類、工種、規格、単位）に一括適用される
+- **副作用なし**: `select()`はDOMのテキスト選択状態のみ変更し、React状態やイベントフローに影響しない
+
+#### FieldValidatedItemRow変更
+
+| フィールド | 現在の`onFocus` | 変更後の`onFocus` |
+|-----------|----------------|------------------|
+| 名称 | なし | `handleSelectOnFocus` |
+| 数量 | なし | `handleSelectOnFocus` |
+| 備考 | なし | `handleSelectOnFocus` |
+
+### テスト設計
+
+#### 単体テスト
+
+- AutocompleteInputのフォーカス時に`select()`が呼ばれることを検証
+- FieldValidatedItemRowの名称・数量・備考フィールドでフォーカス時に`select()`が呼ばれることを検証
+- 全選択状態で候補ドロップダウンが正常に表示されることを検証
+
+#### E2Eテスト
+
+- 対象10フィールドそれぞれにフォーカスして全選択状態になることを確認
+- 全選択状態で新しい文字を入力すると既存値が置換されることを確認
+- オートコンプリート対象フィールドで全選択とドロップダウンが共存することを確認
+
+### Requirements Traceability（追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 16.1-16.7 | オートコンプリート対象テキストフィールドのフォーカス時全選択 | AutocompleteInput | - | - |
+| 16.6 | 名称フィールドのフォーカス時全選択 | FieldValidatedItemRow | - | - |
+| 16.8 | 数量フィールドのフォーカス時全選択 | FieldValidatedItemRow | - | - |
+| 16.10 | 備考フィールドのフォーカス時全選択 | FieldValidatedItemRow | - | - |
+| 16.11 | 全選択状態での上書き入力 | ブラウザ標準動作 | - | - |
+| 16.12 | オートコンプリートとの共存 | AutocompleteInput | - | - |

@@ -45,6 +45,12 @@ export interface TradingPartnerSelectProps {
   value: string;
   /** 値変更時のコールバック */
   onChange: (value: string) => void;
+  /**
+   * 取引先選択時のコールバック（取引先オブジェクト全体を返す）
+   * 顧客選択時の住所自動入力等、取引先の詳細情報を参照する場合に使用
+   * Requirements: 1.6, 1.7
+   */
+  onSelect?: (partner: TradingPartnerInfo | null) => void;
   /** blurイベントハンドラ */
   onBlur?: () => void;
   /** 無効状態 */
@@ -179,6 +185,7 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
 export default function TradingPartnerSelect({
   value,
   onChange,
+  onSelect,
   onBlur,
   disabled = false,
   error,
@@ -286,11 +293,12 @@ export default function TradingPartnerSelect({
   const selectPartner = useCallback(
     (partner: TradingPartnerInfo | null) => {
       onChange(partner?.id ?? '');
+      onSelect?.(partner);
       setSearchQuery('');
       setIsOpen(false);
       setHighlightedIndex(-1);
     },
-    [onChange]
+    [onChange, onSelect]
   );
 
   /**

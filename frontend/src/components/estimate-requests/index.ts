@@ -11,6 +11,7 @@ export type {
   ReceivedQuotationInfo,
   CreateReceivedQuotationInput,
   UpdateReceivedQuotationInput,
+  SelectedItemForTranscription,
 } from './ReceivedQuotationForm';
 
 export { ReceivedQuotationList } from './ReceivedQuotationList';

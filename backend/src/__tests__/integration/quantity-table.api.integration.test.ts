@@ -99,21 +99,13 @@ describe('Quantity Table API Integration Tests', () => {
     });
 
     if (userRole && permissions.length > 0) {
-      for (const permission of permissions) {
-        await prisma.rolePermission.upsert({
-          where: {
-            roleId_permissionId: {
-              roleId: userRole.id,
-              permissionId: permission.id,
-            },
-          },
-          update: {},
-          create: {
-            roleId: userRole.id,
-            permissionId: permission.id,
-          },
-        });
-      }
+      await prisma.rolePermission.createMany({
+        data: permissions.map((permission) => ({
+          roleId: userRole.id,
+          permissionId: permission.id,
+        })),
+        skipDuplicates: true,
+      });
     }
 
     // ログインしてトークンを取得
@@ -591,38 +583,42 @@ describe('Quantity Table API Integration Tests', () => {
       });
     });
 
-    describe('GET /api/autocomplete/major-categories', () => {
-      it('大項目の候補を取得できる (Req 7.1)', async () => {
+    describe('GET /api/projects/:projectId/quantity-items/autocomplete-candidates', () => {
+      it('大項目の候補を一括取得できる (Req 7.1)', async () => {
         const response = await request(app)
-          .get('/api/autocomplete/major-categories')
-          .query({ q: '建' })
+          .get(`/api/projects/${testProjectId}/quantity-items/autocomplete-candidates`)
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(200);
-        expect(response.body.suggestions).toBeInstanceOf(Array);
-        expect(response.body.suggestions.some((item: string) => item.includes('建'))).toBe(true);
+        expect(response.body.candidates.majorCategory).toBeInstanceOf(Array);
+        expect(
+          response.body.candidates.majorCategory.some((item: string) => item.includes('建'))
+        ).toBe(true);
       });
 
-      it('limitパラメータで件数を制限できる', async () => {
+      it('単位の候補を一括取得できる', async () => {
         const response = await request(app)
-          .get('/api/autocomplete/major-categories')
-          .query({ q: '建', limit: 50 })
+          .get(`/api/projects/${testProjectId}/quantity-items/autocomplete-candidates`)
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(200);
-        expect(response.body.suggestions.length).toBeLessThanOrEqual(50);
+        expect(response.body.candidates.unit).toBeInstanceOf(Array);
+        expect(response.body.candidates.unit.length).toBeGreaterThan(0);
       });
-    });
 
-    describe('GET /api/autocomplete/units', () => {
-      it('単位の候補を取得できる', async () => {
+      it('全フィールドの候補が返却される', async () => {
         const response = await request(app)
-          .get('/api/autocomplete/units')
-          .query({ q: 'm' })
+          .get(`/api/projects/${testProjectId}/quantity-items/autocomplete-candidates`)
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(200);
-        expect(response.body.suggestions).toBeInstanceOf(Array);
+        const { candidates } = response.body;
+        expect(candidates).toHaveProperty('majorCategory');
+        expect(candidates).toHaveProperty('middleCategory');
+        expect(candidates).toHaveProperty('minorCategory');
+        expect(candidates).toHaveProperty('workType');
+        expect(candidates).toHaveProperty('name');
+        expect(candidates).toHaveProperty('unit');
       });
     });
   });

@@ -106,7 +106,7 @@ export class ItemizedStatementPivotService {
       throw new QuantityTableNotFoundForItemizedStatementError(quantityTableId);
     }
 
-    // 2. 数量表に紐づく全ての数量項目を取得
+    // 2. 数量表に紐づく全ての数量項目を取得（グループ表示順→項目表示順で安定ソート）
     const quantityItems = await this.prisma.quantityItem.findMany({
       where: {
         quantityGroup: {
@@ -123,6 +123,7 @@ export class ItemizedStatementPivotService {
         unit: true,
         quantity: true,
       },
+      orderBy: [{ quantityGroup: { displayOrder: 'asc' } }, { displayOrder: 'asc' }],
     });
 
     // 3. 項目がない場合は空の結果を返す

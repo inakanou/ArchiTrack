@@ -61,7 +61,9 @@ const OCR_TIMEOUT_MS = 30000;
  * ヘッダー検出用キーワード
  */
 const HEADER_KEYWORDS = {
-  name: ['名称', '品名', '品目', '摘要', '工種', '項目'],
+  customCategory: ['任意分類', 'カテゴリ', '分類'],
+  workType: ['工種'],
+  name: ['名称', '品名', '品目', '摘要', '項目'],
   specification: ['規格', '仕様', 'スペック', '寸法', '形状'],
   unit: ['単位'],
   quantity: ['数量', '数', '個数', '本数'],
@@ -170,6 +172,8 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
 
     const item: LineItemFormData = {
       id: generateId(),
+      customCategory: '',
+      workType: '',
       name: '',
       specification: '',
       unit: '',
@@ -188,6 +192,12 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
 
         const strValue = String(cellValue).trim();
         switch (fieldName) {
+          case 'customCategory':
+            item.customCategory = strValue;
+            break;
+          case 'workType':
+            item.workType = strValue;
+            break;
           case 'name':
             item.name = strValue;
             break;
@@ -206,7 +216,7 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
           case 'remarks':
             item.remarks = strValue;
             break;
-          // amount, amountは自動計算のため入力しない
+          // amountは自動計算のため入力しない
         }
       }
     } else {
@@ -278,6 +288,8 @@ function convertOcrTextToLineItems(text: string): LineItemFormData[] {
 
       const item: LineItemFormData = {
         id: generateId(),
+        customCategory: '',
+        workType: '',
         name: '',
         specification: '',
         unit: '',

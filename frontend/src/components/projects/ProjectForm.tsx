@@ -30,6 +30,7 @@ import { useState, useCallback, useId, useMemo, FormEvent, ChangeEvent, FocusEve
 import TradingPartnerSelect from './TradingPartnerSelect';
 import UserSelect from './UserSelect';
 import { isDuplicateProjectNameErrorResponse } from '../../types/project.types';
+import type { TradingPartnerInfo } from '../../types/trading-partner.types';
 
 /**
  * プロジェクトフォームデータ
@@ -44,9 +45,9 @@ export interface ProjectFormData {
   /** 工事担当者ID（UUID、任意） */
   constructionPersonId?: string;
   /** 現場住所（最大500文字、任意） */
-  siteAddress?: string;
+  siteAddress?: string | null;
   /** 概要（最大5000文字、任意） */
-  description?: string;
+  description?: string | null;
 }
 
 /**
@@ -306,6 +307,22 @@ function ProjectForm({
   }, [tradingPartnerId, validateTradingPartnerId]);
 
   /**
+   * 顧客選択時の住所自動入力ハンドラ
+   *
+   * Requirements:
+   * - 1.6: 顧客を選択し、現場住所が空欄 → 取引先の住所を自動入力
+   * - 1.7: 現場住所に既に値がある場合 → 上書きしない
+   */
+  const handleTradingPartnerSelect = useCallback(
+    (partner: TradingPartnerInfo | null) => {
+      if (partner && !siteAddress.trim()) {
+        setSiteAddress(partner.address);
+      }
+    },
+    [siteAddress]
+  );
+
+  /**
    * 営業担当者のblurイベントハンドラ
    */
   const handleSalesPersonBlur = useCallback(() => {
@@ -344,8 +361,8 @@ function ProjectForm({
       tradingPartnerId: tradingPartnerId.trim() || undefined,
       salesPersonId,
       constructionPersonId: constructionPersonId || undefined,
-      siteAddress: siteAddress.trim() || undefined,
-      description: description.trim() || undefined,
+      siteAddress: siteAddress.trim() || null,
+      description: description.trim() || null,
     };
 
     await onSubmit(formData);
@@ -460,6 +477,7 @@ function ProjectForm({
       <TradingPartnerSelect
         value={tradingPartnerId}
         onChange={setTradingPartnerId}
+        onSelect={handleTradingPartnerSelect}
         onBlur={handleTradingPartnerIdBlur}
         disabled={isSubmitting}
         error={errors.tradingPartnerId}

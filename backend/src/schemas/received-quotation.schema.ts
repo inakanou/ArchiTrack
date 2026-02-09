@@ -213,6 +213,8 @@ export const LINE_ITEM_VALIDATION_MESSAGES = {
 export const lineItemSchema = z.object({
   name: z.string().min(1, LINE_ITEM_VALIDATION_MESSAGES.NAME_REQUIRED),
   sortOrder: z.number().int().min(0, LINE_ITEM_VALIDATION_MESSAGES.SORT_ORDER_MIN),
+  customCategory: z.string().nullish(),
+  workType: z.string().nullish(),
   specification: z.string().nullish(),
   unit: z.string().nullish(),
   quantity: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.QUANTITY_INVALID }).nullish(),

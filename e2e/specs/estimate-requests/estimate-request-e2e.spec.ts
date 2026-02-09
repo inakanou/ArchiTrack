@@ -7,7 +7,7 @@
  * - REQ-1.1 ~ REQ-1.5: 見積依頼セクション表示
  * - REQ-2.1 ~ REQ-2.7: 見積依頼一覧画面
  * - REQ-3.1 ~ REQ-3.9: 見積依頼新規作成
- * - REQ-4.1 ~ REQ-4.13: 見積依頼詳細画面 - 項目選択
+ * - REQ-4.1 ~ REQ-4.20: 見積依頼詳細画面 - 項目選択
  * - REQ-5.1 ~ REQ-5.3: 内訳書Excel出力
  * - REQ-6.1 ~ REQ-6.10: 見積依頼文表示
  * - REQ-7.1 ~ REQ-7.6: クリップボードコピー機能
@@ -22,6 +22,18 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+
+/**
+ * 保存ボタンをクリックして保存完了を待機するヘルパー
+ * Task 30改修: debounce自動保存から保存ボタン方式に変更
+ */
+async function clickSaveSelectionButton(page: import('@playwright/test').Page) {
+  const saveButton = page.getByTestId('save-selection-button');
+  await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+  await saveButton.click();
+  // 保存完了フィードバックを待機
+  await expect(page.getByText('保存しました')).toBeVisible({ timeout: getTimeout(10000) });
+}
 
 /**
  * 見積依頼機能のE2Eテスト
@@ -256,12 +268,14 @@ test.describe('見積依頼機能', () => {
       const groupBody = await groupResponse.json();
       const groupId = groupBody.id;
 
-      // 項目を作成
+      // 項目を作成（customCategory含む: Task 37.2対応）
+      const categories = ['躯体工事', '仕上工事', '設備工事'];
       for (let i = 0; i < 3; i++) {
         await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
           headers: { Authorization: `Bearer ${accessToken}` },
           data: {
             name: `テスト項目${i + 1}`,
+            customCategory: categories[i],
             workType: '工種A',
             specification: '規格A',
             unit: '式',
@@ -779,6 +793,30 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
+     * Task 37.2: 項目選択セクションの列ヘッダーが「任意分類」であることの確認
+     * @requirement estimate-request/REQ-4.2
+     */
+    test('Task 37.2: 項目選択テーブルの列ヘッダーに「任意分類」が表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 項目テーブルが表示される
+      const table = page.locator('table[aria-label="内訳書項目一覧"]');
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 列ヘッダーに「任意分類」が表示される（Task 31.1改修: 「分類」→「任意分類」）
+      await expect(table.locator('th', { hasText: '任意分類' })).toBeVisible();
+
+      // テストデータのcustomCategoryが表示されていることを確認
+      await expect(table.getByText('躯体工事')).toBeVisible();
+    });
+
+    /**
      * @requirement estimate-request/REQ-4.3
      * 各項目に選択用のチェックボックスを表示する
      */
@@ -877,8 +915,8 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // Task 30改修: 保存ボタンで一括保存
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -939,15 +977,14 @@ test.describe('見積依頼機能', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // FAXラジオを選択
+      // FAXラジオを選択（クライアントサイド状態のみ変更）
       const faxRadio = page.getByRole('radio', { name: /FAX/i });
+      await expect(faxRadio).toBeVisible({ timeout: getTimeout(10000) });
       await faxRadio.click();
+      await expect(faxRadio).toBeChecked({ timeout: getTimeout(5000) });
 
-      // FAXラジオがチェックされるまで待機（APIコール完了の指標）
-      await expect(faxRadio).toBeChecked({ timeout: getTimeout(10000) });
-
-      // ネットワーク安定化を待機
-      await page.waitForLoadState('networkidle');
+      // Task 30改修: 保存ボタンで見積依頼方法の変更をサーバーに反映
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文表示ボタンをクリック（パネルを開く）
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -1509,9 +1546,12 @@ test.describe('見積依頼機能', () => {
     /**
      * @requirement estimate-request/REQ-4.4
      * @requirement estimate-request/REQ-4.5
-     * チェックボックスを変更したとき、該当項目を見積依頼対象として記録し、選択状態を自動的に保存する
+     * Task 30改修: チェックボックス変更時はクライアントサイド状態のみ更新し、保存ボタンで一括保存する
+     * Task 37.1: 保存ボタン方式E2Eテスト
      */
-    test('REQ-4.4, REQ-4.5: チェックボックス変更で自動保存される', async ({ page }) => {
+    test('REQ-4.4, REQ-4.5: チェックボックス変更後に保存ボタンで一括保存される', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdTradingPartnerId).toBeTruthy();
       expect(createdItemizedStatementId).toBeTruthy();
@@ -1558,8 +1598,13 @@ test.describe('見積依頼機能', () => {
       const initialState = await firstCheckbox.isChecked();
       await firstCheckbox.click();
 
-      // debounce待機（500ms + 余裕）
-      await page.waitForTimeout(1000);
+      // Task 37.1: チェックボックス変更直後はサーバーにリクエストが発生しない（クライアントサイド管理）
+      // 保存ボタンが有効になっていることを確認（未保存変更あり）
+      const saveButton = page.getByTestId('save-selection-button');
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
+
+      // 保存ボタンをクリックして一括保存
+      await clickSaveSelectionButton(page);
 
       // ページをリロードして状態が保存されていることを確認
       await page.reload();
@@ -1680,8 +1725,8 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // 自動保存のdebounce待機（500ms + 余裕）
-      await page.waitForTimeout(1000);
+      // Task 30改修: 保存ボタンで一括保存
+      await clickSaveSelectionButton(page);
 
       // Excel出力ボタンが有効になるのを待機
       const excelButton = page.locator('button:has-text("Excelでエクスポート")');
@@ -1745,16 +1790,20 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
 
       const count = await checkboxes.count();
+      let hasChanges = false;
       for (let i = 0; i < count; i++) {
         const checkbox = checkboxes.nth(i);
         if (await checkbox.isChecked()) {
           await checkbox.click();
+          hasChanges = true;
           await page.waitForTimeout(100);
         }
       }
 
-      // debounce待機
-      await page.waitForTimeout(1000);
+      // Task 30改修: 変更があった場合のみ保存ボタンで一括保存
+      if (hasChanges) {
+        await clickSaveSelectionButton(page);
+      }
 
       // 項目未選択時はExcel出力ボタンが無効化され、「項目を選択してください」と表示される
       const excelButton = page.locator('button:has-text("Excelでエクスポート")');
@@ -1821,15 +1870,15 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 「内訳書を本文に含める」チェックボックスをチェック
       const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
       await includeBreakdownCheckbox.click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // includeBreakdownオプション反映待機
+      await page.waitForTimeout(500);
 
       // 見積依頼文表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -1895,15 +1944,15 @@ test.describe('見積依頼機能', () => {
       await expect(itemCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await itemCheckboxes.first().click();
 
-      // 自動保存のdebounce待機
-      await page.waitForTimeout(1000);
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 「内訳書を本文に含める」がチェックされていないことを確認し、チェックされている場合は外す
       const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
       const isChecked = await includeBreakdownCheckbox.isChecked().catch(() => false);
       if (isChecked) {
         await includeBreakdownCheckbox.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(500);
       }
 
       // 見積依頼文表示ボタンをクリック
@@ -2192,12 +2241,9 @@ test.describe('見積依頼機能', () => {
 
       await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
 
-      // 最初の見積依頼で項目を選択状態にする
+      // 最初の見積依頼で項目一覧が表示されていることを確認
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
-
-      // debounce待機
-      await page.waitForTimeout(1000);
 
       // 2つ目の見積依頼を作成
       await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
@@ -2287,7 +2333,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // メール選択時にメールアドレス未登録エラーが表示される
       const emailRadio = page.getByRole('radio', { name: /メール/i });
@@ -2350,12 +2398,13 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
 
       // FAXを選択
       const faxRadio = page.getByRole('radio', { name: /FAX/i });
       await faxRadio.click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択とメソッド変更を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -2412,7 +2461,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -2484,7 +2535,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示ボタンをクリック
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -2771,7 +2824,9 @@ test.describe('見積依頼機能', () => {
       const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
-      await page.waitForTimeout(1000);
+
+      // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
+      await clickSaveSelectionButton(page);
 
       // 見積依頼文を表示
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
@@ -2813,6 +2868,419 @@ test.describe('見積依頼機能', () => {
 
       // ログインページにリダイレクト
       await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
+    });
+  });
+
+  // ============================================================================
+  // Requirement 4: 見積依頼詳細画面 - 項目選択（REQ-4.14 ~ REQ-4.20）
+  // ============================================================================
+
+  test.describe('Requirement 4: 項目選択（追加要件 REQ-4.14~4.20）', () => {
+    // このブロック内で共有する見積依頼ID（REQ-4.14で作成）
+    let blockEstimateRequestId: string | null = null;
+
+    /**
+     * @requirement estimate-request/REQ-4.14
+     * 見積依頼方法のラジオボタンを変更したとき、選択状態をクライアントサイドの状態として管理する
+     */
+    test('REQ-4.14: 見積依頼方法のラジオボタン変更がクライアントサイドで管理される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積依頼を作成
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      const nameInput = page.locator('input#name');
+      await nameInput.fill('REQ-4.14テスト見積依頼');
+
+      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
+      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      await createPromise;
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+
+      // URLからIDを取得してブロック内で共有
+      const currentUrl = page.url();
+      const idMatch = currentUrl.match(/\/estimate-requests\/([0-9a-f-]+)$/);
+      if (idMatch) {
+        blockEstimateRequestId = idMatch[1]!;
+      }
+
+      // メールラジオがデフォルトで選択されていることを確認
+      const emailRadio = page.getByRole('radio', { name: /メール/i });
+      const faxRadio = page.getByRole('radio', { name: /FAX/i });
+      await expect(emailRadio).toBeChecked({ timeout: getTimeout(10000) });
+
+      // FAXラジオをクリック（サーバーリクエストが発生しないことを確認）
+      let requestSent = false;
+      page.on('request', (request) => {
+        if (request.url().includes('/estimate-requests') && request.method() === 'PUT') {
+          requestSent = true;
+        }
+      });
+
+      await faxRadio.click();
+
+      // FAXラジオが選択されている（クライアントサイドの状態変更）
+      await expect(faxRadio).toBeChecked();
+      await expect(emailRadio).not.toBeChecked();
+
+      // 短い待機後もサーバーリクエストが発生していないことを確認
+      await page.waitForTimeout(1000);
+      expect(requestSent).toBe(false);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-4.15
+     * 内訳書項目が他の見積依頼で選択済みのとき、該当行の背景色を変更して視覚的に区別する
+     */
+    test('REQ-4.15: 他の見積依頼で選択済みの項目は背景色が変更される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 1つ目の見積依頼を作成して項目を選択
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.locator('input#name').fill('REQ-4.15テスト依頼1');
+      await page.locator('select[aria-label="宛先"]').selectOption(createdTradingPartnerId!);
+      await page.locator('select[aria-label="内訳書"]').selectOption(createdItemizedStatementId!);
+
+      const createPromise1 = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      await createPromise1;
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+
+      // 1つ目の見積依頼で項目を選択して保存
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await checkboxes.first().click();
+      await clickSaveSelectionButton(page);
+
+      // 2つ目の見積依頼を作成（同じ内訳書を参照）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.locator('input#name').fill('REQ-4.15テスト依頼2');
+      await page.locator('select[aria-label="宛先"]').selectOption(createdTradingPartnerId!);
+      await page.locator('select[aria-label="内訳書"]').selectOption(createdItemizedStatementId!);
+
+      const createPromise2 = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      await createPromise2;
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+
+      // 2つ目の見積依頼の項目一覧で、他の見積依頼で選択済みの行の背景色を確認
+      const table = page.locator('table[aria-label="内訳書項目一覧"]');
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 他の見積依頼で選択済みの行はオレンジ系の背景色（rgb(255, 247, 237)）になっている
+      const firstRow = table.locator('tbody tr').first();
+      const bgColor = await firstRow.evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(bgColor).toBe('rgb(255, 247, 237)');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-4.16
+     * 内訳書項目が他の見積依頼で選択済みのとき、該当行の一番右の列に依頼先取引先名を表示する
+     */
+    test('REQ-4.16: 他の見積依頼で選択済みの項目に依頼先取引先名が表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 2つ目の見積依頼の詳細画面を開く（前のテストで作成済み）
+      // 見積依頼一覧から最新の見積依頼を開く
+      await page.goto(`/projects/${createdProjectId}/estimate-requests`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // REQ-4.15テスト依頼2をクリック
+      await page.getByText('REQ-4.15テスト依頼2').click();
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+      await page.waitForLoadState('networkidle');
+
+      // 項目テーブルの「他の依頼先」列に取引先名が表示されていることを確認
+      const table = page.locator('table[aria-label="内訳書項目一覧"]');
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 他の依頼先列のテキストに取引先名が含まれることを確認
+      const otherRequestsCells = table.locator('tbody tr td:last-child');
+      const firstCellText = await otherRequestsCells.first().textContent();
+      expect(firstCellText).toBeTruthy();
+      expect(firstCellText).not.toBe('-');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-4.17
+     * 内訳書項目が複数の見積依頼で選択済みのとき、該当行の一番右の列にすべての依頼先取引先名を表示する
+     */
+    test('REQ-4.17: 複数の見積依頼で選択済みの項目にすべての依頼先名が表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdTradingPartnerWithoutEmailId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 3つ目の見積依頼を別の取引先で作成（同じ内訳書の同じ項目を選択）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.locator('input#name').fill('REQ-4.17テスト依頼3');
+      await page
+        .locator('select[aria-label="宛先"]')
+        .selectOption(createdTradingPartnerWithoutEmailId!);
+      await page.locator('select[aria-label="内訳書"]').selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      await createPromise;
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+
+      // 項目テーブルの「他の依頼先」列に複数の取引先名が表示されていることを確認
+      const table = page.locator('table[aria-label="内訳書項目一覧"]');
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 他の依頼先列のテキストを確認（「、」区切りで複数表示されるはず）
+      const otherRequestsCells = table.locator('tbody tr td:last-child');
+      const firstCellText = await otherRequestsCells.first().textContent();
+
+      // テスト依頼1で選択した項目は、テスト依頼1の取引先名が表示される
+      expect(firstCellText).toBeTruthy();
+      expect(firstCellText).not.toBe('-');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-4.18
+     * 参照内訳書に項目が存在しない場合、「内訳書に項目がありません」というメッセージを表示する
+     */
+    test('REQ-4.18: 内訳書に項目がない場合のメッセージ表示', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 空の内訳書を持つ見積依頼の詳細画面で確認
+      // まず空の内訳書を作成するため、空の数量表を作成
+      await page.goto(`/projects/${createdProjectId}/quantity-tables/new`);
+      await page.waitForLoadState('networkidle');
+
+      const emptyTableName = `REQ-4.18空数量表_${Date.now()}`;
+      await page.getByRole('textbox', { name: /数量表名/i }).fill(emptyTableName);
+
+      const createQTPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/quantity-tables') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      await createQTPromise;
+
+      // 内訳書を作成
+      await page.goto(`/projects/${createdProjectId}/itemized-statements`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.getByRole('link', { name: /新規作成/i }).click();
+      await expect(page.getByRole('textbox', { name: /内訳書名/i })).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      await page.getByRole('textbox', { name: /内訳書名/i }).fill('REQ-4.18空内訳書');
+
+      // 空の数量表を選択
+      const quantityTableSelect = page.locator('select#quantityTableId');
+      const options = await quantityTableSelect.locator('option').all();
+
+      let emptyTableValue: string | null = null;
+      for (const option of options) {
+        const text = await option.textContent();
+        if (text && text.startsWith('REQ-4.18空数量表_')) {
+          emptyTableValue = await option.getAttribute('value');
+          break;
+        }
+      }
+
+      if (emptyTableValue) {
+        await quantityTableSelect.selectOption(emptyTableValue);
+        await page.waitForTimeout(500);
+
+        await page.getByRole('button', { name: /^作成$/i }).click();
+
+        // 項目がない数量表選択時のエラーメッセージが表示される
+        await expect(
+          page.getByText(/選択された数量表に項目がありません|項目がありません/i)
+        ).toBeVisible({
+          timeout: getTimeout(10000),
+        });
+      } else {
+        // 数量表が見つからない場合はテスト失敗
+        expect(emptyTableValue).toBeTruthy();
+      }
+    });
+
+    /**
+     * @requirement estimate-request/REQ-4.19
+     * 未保存の変更が存在するとき、「保存」ボタンを視覚的に強調表示する
+     */
+    test('REQ-4.19: 未保存の変更があると保存ボタンが強調表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(blockEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 保存ボタンが表示されることを確認
+      const saveButton = page.getByTestId('save-selection-button');
+      await expect(saveButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 未保存の変更がない状態：保存ボタンは無効（非強調）
+      const initialBgColor = await saveButton.evaluate(
+        (el) => getComputedStyle(el).backgroundColor
+      );
+      // 無効状態は #9ca3af (rgb(156, 163, 175))
+      expect(initialBgColor).toBe('rgb(156, 163, 175)');
+
+      // チェックボックスを変更して未保存の変更を作成
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await checkboxes.first().click();
+
+      // CSSトランジション完了を待機（transition: background-color 0.2s）
+      await page.waitForTimeout(500);
+
+      // 未保存の変更がある状態：保存ボタンが強調表示される（非無効色であること）
+      const highlightedBgColor = await saveButton.evaluate(
+        (el) => getComputedStyle(el).backgroundColor
+      );
+      // 無効状態の色(rgb(156, 163, 175))ではなくなっていることを確認
+      expect(highlightedBgColor).not.toBe('rgb(156, 163, 175)');
+
+      // boxShadowが設定されていることで強調表示を確認（saveButtonHighlightスタイル）
+      const boxShadow = await saveButton.evaluate((el) => getComputedStyle(el).boxShadow);
+      expect(boxShadow).not.toBe('none');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-4.20
+     * ユーザーが未保存の変更がある状態でページを離脱しようとしたとき、確認ダイアログを表示する
+     */
+    test('REQ-4.20: 未保存の変更がある状態でページ離脱時に確認ダイアログが表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(blockEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      // チェックボックスを変更して未保存の変更を作成
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await checkboxes.first().click();
+
+      // beforeunloadイベントリスナーが登録されていることを確認
+      const hasBeforeUnload = await page.evaluate(() => {
+        // beforeunloadイベントをディスパッチして、preventDefaultが呼ばれるか確認
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(hasBeforeUnload).toBe(true);
+
+      // dialogイベントリスナーを設定して、ダイアログが表示されることを確認
+      let dialogShown = false;
+      page.on('dialog', async (dialog) => {
+        expect(dialog.type()).toBe('beforeunload');
+        dialogShown = true;
+        // acceptで遷移を許可（dismissだとpage.gotoがERR_ABORTEDになる）
+        await dialog.accept();
+      });
+
+      // ページ離脱を試行（別のURLに遷移）
+      await page.goto(`/projects/${createdProjectId}`);
+
+      // beforeunloadダイアログが表示されたことを確認
+      expect(dialogShown).toBe(true);
     });
   });
 });

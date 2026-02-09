@@ -249,9 +249,9 @@ export interface UpdateProjectInput {
   /** 工事担当者ID（UUID） */
   constructionPersonId?: string;
   /** 現場住所（最大500文字） */
-  siteAddress?: string;
+  siteAddress?: string | null;
   /** 概要（最大5000文字） */
-  description?: string;
+  description?: string | null;
 }
 
 /**

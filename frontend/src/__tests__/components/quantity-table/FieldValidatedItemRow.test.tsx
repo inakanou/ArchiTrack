@@ -129,6 +129,8 @@ describe('FieldValidatedItemRow', () => {
     canMoveDown: true,
     showValidation: true,
     onValidationChange: vi.fn(),
+    getSuggestions: vi.fn().mockReturnValue([]),
+    onBlurAddCandidate: vi.fn(),
   };
 
   beforeEach(() => {
@@ -768,6 +770,47 @@ describe('FieldValidatedItemRow', () => {
           expect.objectContaining({ name: '' })
         );
       });
+    });
+  });
+
+  describe('フォーカス時全選択（Task 19.3）', () => {
+    it('名称フィールドにフォーカスするとselectが呼ばれる', () => {
+      render(<FieldValidatedItemRow {...defaultProps} />);
+
+      const nameInput = screen.getByLabelText(/名称/) as HTMLInputElement;
+      const selectSpy = vi.spyOn(nameInput, 'select');
+
+      fireEvent.focus(nameInput);
+
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+
+      selectSpy.mockRestore();
+    });
+
+    it('数量フィールドにフォーカスするとselectが呼ばれる', () => {
+      render(<FieldValidatedItemRow {...defaultProps} />);
+
+      const quantityInput = screen.getByLabelText(/数量/) as HTMLInputElement;
+      const selectSpy = vi.spyOn(quantityInput, 'select');
+
+      fireEvent.focus(quantityInput);
+
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+
+      selectSpy.mockRestore();
+    });
+
+    it('備考フィールドにフォーカスするとselectが呼ばれる', () => {
+      render(<FieldValidatedItemRow {...defaultProps} />);
+
+      const remarksInput = screen.getByLabelText(/備考/) as HTMLInputElement;
+      const selectSpy = vi.spyOn(remarksInput, 'select');
+
+      fireEvent.focus(remarksInput);
+
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+
+      selectSpy.mockRestore();
     });
   });
 

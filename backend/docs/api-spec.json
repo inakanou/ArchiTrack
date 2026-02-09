@@ -2150,10 +2150,10 @@
         }
       }
     },
-    "/api/autocomplete/major-categories": {
+    "/api/projects/{projectId}/quantity-items/autocomplete-candidates": {
       "get": {
-        "summary": "大項目オートコンプリート",
-        "description": "過去の入力履歴から大項目の候補を取得",
+        "summary": "オートコンプリート候補一括取得",
+        "description": "プロジェクト単位で対象9フィールドのオートコンプリート候補値を一括取得する。\n各フィールドに対してGROUP BYで重複排除した候補値の配列を返す。\n各配列は50音順（locale: 'ja'）でソート済み。\n",
         "tags": [
           "Autocomplete"
         ],
@@ -2164,37 +2164,80 @@
         ],
         "parameters": [
           {
-            "in": "query",
-            "name": "q",
+            "in": "path",
+            "name": "projectId",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "検索文字列"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer",
-              "default": 10,
-              "maximum": 50
-            },
-            "description": "最大取得件数"
+            "description": "プロジェクトID"
           }
         ],
         "responses": {
           "200": {
-            "description": "オートコンプリート候補",
+            "description": "オートコンプリート候補一括取得成功",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "suggestions": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
+                    "candidates": {
+                      "type": "object",
+                      "properties": {
+                        "majorCategory": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "middleCategory": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "minorCategory": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "customCategory": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "workType": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "name": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "specification": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "unit": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "remarks": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
                       }
                     }
                   }
@@ -2207,269 +2250,9 @@
           },
           "403": {
             "description": "権限不足"
-          }
-        }
-      }
-    },
-    "/api/autocomplete/middle-categories": {
-      "get": {
-        "summary": "中項目オートコンプリート",
-        "description": "指定された大項目に紐づく過去の中項目から候補を取得",
-        "tags": [
-          "Autocomplete"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "q",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "検索文字列"
           },
-          {
-            "in": "query",
-            "name": "majorCategory",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "大項目"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer",
-              "default": 10,
-              "maximum": 50
-            },
-            "description": "最大取得件数"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "オートコンプリート候補"
-          },
-          "400": {
-            "description": "バリデーションエラー"
-          },
-          "401": {
-            "description": "認証エラー"
-          },
-          "403": {
-            "description": "権限不足"
-          }
-        }
-      }
-    },
-    "/api/autocomplete/minor-categories": {
-      "get": {
-        "summary": "小項目オートコンプリート",
-        "description": "指定された大項目・中項目に紐づく過去の小項目から候補を取得",
-        "tags": [
-          "Autocomplete"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "q",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "検索文字列"
-          },
-          {
-            "in": "query",
-            "name": "majorCategory",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "大項目"
-          },
-          {
-            "in": "query",
-            "name": "middleCategory",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "中項目"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer",
-              "default": 10,
-              "maximum": 50
-            },
-            "description": "最大取得件数"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "オートコンプリート候補"
-          },
-          "400": {
-            "description": "バリデーションエラー"
-          },
-          "401": {
-            "description": "認証エラー"
-          },
-          "403": {
-            "description": "権限不足"
-          }
-        }
-      }
-    },
-    "/api/autocomplete/work-types": {
-      "get": {
-        "summary": "工種オートコンプリート",
-        "description": "過去の入力履歴から工種の候補を取得",
-        "tags": [
-          "Autocomplete"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "q",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "検索文字列"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer",
-              "default": 10,
-              "maximum": 50
-            },
-            "description": "最大取得件数"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "オートコンプリート候補"
-          },
-          "401": {
-            "description": "認証エラー"
-          },
-          "403": {
-            "description": "権限不足"
-          }
-        }
-      }
-    },
-    "/api/autocomplete/units": {
-      "get": {
-        "summary": "単位オートコンプリート",
-        "description": "過去の入力履歴から単位の候補を取得",
-        "tags": [
-          "Autocomplete"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "q",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "検索文字列"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer",
-              "default": 10,
-              "maximum": 50
-            },
-            "description": "最大取得件数"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "オートコンプリート候補"
-          },
-          "401": {
-            "description": "認証エラー"
-          },
-          "403": {
-            "description": "権限不足"
-          }
-        }
-      }
-    },
-    "/api/autocomplete/specifications": {
-      "get": {
-        "summary": "規格オートコンプリート",
-        "description": "過去の入力履歴から規格の候補を取得",
-        "tags": [
-          "Autocomplete"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "q",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "検索文字列"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer",
-              "default": 10,
-              "maximum": 50
-            },
-            "description": "最大取得件数"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "オートコンプリート候補"
-          },
-          "401": {
-            "description": "認証エラー"
-          },
-          "403": {
-            "description": "権限不足"
+          "404": {
+            "description": "プロジェクトが見つからない"
           }
         }
       }

@@ -32,6 +32,7 @@ import type { SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb } from '../components/common';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
+import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
 
 // ============================================================================
 // スタイル定義
@@ -422,6 +423,11 @@ export default function QuantityTableEditPage() {
 
   // データ状態
   const [quantityTable, setQuantityTable] = useState<QuantityTableDetail | null>(null);
+
+  // オートコンプリート候補ストア（Task 17.2: Req 7.1）
+  const { getSuggestions, addCandidateOnBlur } = useAutocompleteCandidateStore({
+    projectId: quantityTable?.projectId || '',
+  });
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -1233,6 +1239,8 @@ export default function QuantityTableEditPage() {
                 onCopyItem={handleCopyItem}
                 onMoveItem={handleMoveItem}
                 onOpenAnnotationViewer={handleOpenAnnotationViewer}
+                getSuggestions={getSuggestions}
+                onBlurAddCandidate={addCandidateOnBlur}
               />
             </div>
           ))}

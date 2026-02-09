@@ -15,9 +15,9 @@
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
-  "ready_for_implementation": false,
+  "ready_for_implementation": true,
   "revision_notes": "タスク更新: 設計検証フィードバック反映（専用作成画面ItemizedStatementCreatePage追加、表示メッセージ文言更新、キャンセル時遷移先ロジック、デフォルト名対応）、Task 17-19追加"
 }

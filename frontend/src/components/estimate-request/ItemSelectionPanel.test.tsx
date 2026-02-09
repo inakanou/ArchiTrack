@@ -4,12 +4,14 @@
  * TDD: RED phase - テストを先に書く
  *
  * Task 5.4: ItemSelectionPanelコンポーネントを実装する
+ * Task 30: クライアントサイド状態管理・保存ボタン方式への改修
+ * Task 36.1: ItemSelectionPanelの改修テスト
  *
  * Requirements:
  * - 4.2: 見積依頼詳細画面に内訳書項目の一覧を表示する
  * - 4.3: 各項目行にチェックボックスを表示する
- * - 4.4: チェックボックス変更時に自動保存する
- * - 4.5: debounce処理を適用する（500ms）
+ * - 4.4: チェックボックス変更時にクライアントサイド状態のみ更新する
+ * - 4.5: 保存ボタンクリック時に一括送信する
  * - 4.6: チェックボックスのデフォルト状態は選択済みとする
  * - 4.7: 「内訳書を本文に含める」チェックボックスを表示する
  * - 4.8: 見積依頼方法（メール/FAX）ラジオボタンを表示する
@@ -17,6 +19,9 @@
  * - 4.10: 他の見積依頼で選択済みの項目の背景色を変更する（bg-orange-50）
  * - 4.11: 他の見積依頼の依頼先取引先名を表示する
  * - 4.12: 複数の見積依頼で選択されている場合の取引先名をカンマ区切りで表示する
+ * - 4.14: 見積依頼方法ラジオボタンのクライアントサイド管理
+ * - 4.19: 未保存変更時の保存ボタン強調表示
+ * - 4.20: ページ離脱時の確認ダイアログ
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -166,9 +171,8 @@ describe('ItemSelectionPanel', () => {
     });
   });
 
-  describe('チェックボックス変更', () => {
-    it('チェックボックス変更時にonItemSelectionChangeが呼ばれる（Requirements: 4.4）', async () => {
-      vi.useRealTimers(); // debounceテストでは実タイマーを使用
+  describe('チェックボックス変更（Task 30: クライアントサイド状態管理）', () => {
+    it('チェックボックス変更時にonItemSelectionChangeが呼ばれない（Requirements: 4.4）', () => {
       const mockOnChange = vi.fn();
       render(<ItemSelectionPanel {...defaultProps} onItemSelectionChange={mockOnChange} />);
 
@@ -176,34 +180,28 @@ describe('ItemSelectionPanel', () => {
       expect(checkboxes[0]).toBeDefined();
       fireEvent.click(checkboxes[0]!);
 
-      // debounce処理待ち
-      await waitFor(
-        () => {
-          expect(mockOnChange).toHaveBeenCalled();
-        },
-        { timeout: 1000 }
-      );
+      // クライアントサイド管理のため、APIコールバックは呼ばれない
+      expect(mockOnChange).not.toHaveBeenCalled();
     });
 
-    it('debounce処理が適用される（Requirements: 4.5）', async () => {
+    it('チェックボックス変更後に保存ボタンで一括送信する（Requirements: 4.5, 4.6）', async () => {
       vi.useRealTimers();
-      const mockOnChange = vi.fn();
+      const mockOnChange = vi.fn().mockResolvedValue(undefined);
       render(<ItemSelectionPanel {...defaultProps} onItemSelectionChange={mockOnChange} />);
 
       const checkboxes = screen.getAllByRole('checkbox', { name: /選択/ });
-      expect(checkboxes.length).toBeGreaterThanOrEqual(1);
-
-      // 複数回連続でクリック
-      fireEvent.click(checkboxes[0]!);
-      fireEvent.click(checkboxes[0]!);
+      // チェックボックスを変更
       fireEvent.click(checkboxes[0]!);
 
-      // 少し待ってから確認
+      // 保存ボタンをクリック
+      const saveButton = screen.getByTestId('save-selection-button');
+      fireEvent.click(saveButton);
+
       await waitFor(
         () => {
           expect(mockOnChange).toHaveBeenCalledTimes(1);
         },
-        { timeout: 1000 }
+        { timeout: 2000 }
       );
     });
   });
@@ -231,15 +229,43 @@ describe('ItemSelectionPanel', () => {
     });
   });
 
-  describe('メソッド変更', () => {
-    it('見積依頼方法変更時にonMethodChangeが呼ばれる', () => {
+  describe('メソッド変更（Task 30: クライアントサイド管理）', () => {
+    it('見積依頼方法変更時にonMethodChangeが直接呼ばれない（Requirements: 4.14）', () => {
       const mockOnMethodChange = vi.fn();
       render(<ItemSelectionPanel {...defaultProps} onMethodChange={mockOnMethodChange} />);
 
       const faxRadio = screen.getByLabelText('FAX');
       fireEvent.click(faxRadio);
 
-      expect(mockOnMethodChange).toHaveBeenCalledWith('FAX');
+      // クライアントサイド管理のため、直接呼ばれない
+      expect(mockOnMethodChange).not.toHaveBeenCalled();
+    });
+
+    it('見積依頼方法変更後に保存ボタンクリックでonMethodChangeが呼ばれる', async () => {
+      vi.useRealTimers();
+      const mockOnMethodChange = vi.fn();
+      const mockOnChange = vi.fn().mockResolvedValue(undefined);
+      render(
+        <ItemSelectionPanel
+          {...defaultProps}
+          onMethodChange={mockOnMethodChange}
+          onItemSelectionChange={mockOnChange}
+        />
+      );
+
+      const faxRadio = screen.getByLabelText('FAX');
+      fireEvent.click(faxRadio);
+
+      // 保存ボタンをクリック
+      const saveButton = screen.getByTestId('save-selection-button');
+      fireEvent.click(saveButton);
+
+      await waitFor(
+        () => {
+          expect(mockOnMethodChange).toHaveBeenCalledWith('FAX');
+        },
+        { timeout: 2000 }
+      );
     });
 
     it('現在の見積依頼方法がラジオボタンで選択状態', () => {
@@ -323,6 +349,92 @@ describe('ItemSelectionPanel', () => {
       checkboxes.forEach((checkbox) => {
         expect(checkbox).toBeDisabled();
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 36.1: 保存ボタン方式の改修テスト
+  // ==========================================================================
+  describe('保存ボタン方式 (Task 36.1)', () => {
+    it('保存ボタンが表示される（Requirements: 4.6）', () => {
+      render(<ItemSelectionPanel {...defaultProps} />);
+
+      expect(screen.getByTestId('save-selection-button')).toBeInTheDocument();
+      expect(screen.getByText('保存')).toBeInTheDocument();
+    });
+
+    it('未保存の変更がない場合、保存ボタンが無効化される（Requirements: 4.19）', () => {
+      render(<ItemSelectionPanel {...defaultProps} />);
+
+      const saveButton = screen.getByTestId('save-selection-button');
+      expect(saveButton).toBeDisabled();
+    });
+
+    it('未保存の変更がある場合、保存ボタンが有効になる（Requirements: 4.19）', () => {
+      render(<ItemSelectionPanel {...defaultProps} />);
+
+      // チェックボックスを変更して未保存状態にする
+      const checkboxes = screen.getAllByRole('checkbox', { name: /選択/ });
+      fireEvent.click(checkboxes[0]!);
+
+      const saveButton = screen.getByTestId('save-selection-button');
+      expect(saveButton).not.toBeDisabled();
+    });
+
+    it('保存成功時にフィードバックメッセージを表示する（Requirements: 4.8）', async () => {
+      vi.useRealTimers();
+      const mockOnChange = vi.fn().mockResolvedValue(undefined);
+      render(<ItemSelectionPanel {...defaultProps} onItemSelectionChange={mockOnChange} />);
+
+      // チェックボックスを変更
+      const checkboxes = screen.getAllByRole('checkbox', { name: /選択/ });
+      fireEvent.click(checkboxes[0]!);
+
+      // 保存ボタンをクリック
+      const saveButton = screen.getByTestId('save-selection-button');
+      fireEvent.click(saveButton);
+
+      await waitFor(
+        () => {
+          expect(screen.getByText('保存しました')).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
+    });
+
+    it('保存失敗時にエラーメッセージを表示しサーバー状態に復元する（Requirements: 4.9）', async () => {
+      vi.useRealTimers();
+      const mockOnChange = vi.fn().mockRejectedValue(new Error('保存失敗'));
+      render(<ItemSelectionPanel {...defaultProps} onItemSelectionChange={mockOnChange} />);
+
+      // チェックボックスを変更（選択解除）
+      const checkboxes = screen.getAllByRole('checkbox', { name: /選択/ });
+      fireEvent.click(checkboxes[0]!);
+
+      // 保存ボタンをクリック
+      const saveButton = screen.getByTestId('save-selection-button');
+      fireEvent.click(saveButton);
+
+      await waitFor(
+        () => {
+          expect(screen.getByText(/保存に失敗しました/)).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
+
+      // サーバー状態に復元されるため、チェックボックスが元の状態に戻る
+      expect(checkboxes[0]).toBeChecked();
+    });
+  });
+
+  // ==========================================================================
+  // Task 36.1: 列ヘッダー「任意分類」の表示テスト (Task 31.1)
+  // ==========================================================================
+  describe('列ヘッダー表示 (Task 36.1)', () => {
+    it('列ヘッダーに「任意分類」が表示される（Requirements: 4.2）', () => {
+      render(<ItemSelectionPanel {...defaultProps} />);
+
+      expect(screen.getByText('任意分類')).toBeInTheDocument();
     });
   });
 });

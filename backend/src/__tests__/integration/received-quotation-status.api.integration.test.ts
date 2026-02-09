@@ -106,21 +106,13 @@ describe('Received Quotation & Status API Integration Tests', () => {
     });
 
     if (userRole && permissions.length > 0) {
-      for (const permission of permissions) {
-        await prisma.rolePermission.upsert({
-          where: {
-            roleId_permissionId: {
-              roleId: userRole.id,
-              permissionId: permission.id,
-            },
-          },
-          update: {},
-          create: {
-            roleId: userRole.id,
-            permissionId: permission.id,
-          },
-        });
-      }
+      await prisma.rolePermission.createMany({
+        data: permissions.map((permission) => ({
+          roleId: userRole.id,
+          permissionId: permission.id,
+        })),
+        skipDuplicates: true,
+      });
     }
 
     // ログインしてトークンを取得

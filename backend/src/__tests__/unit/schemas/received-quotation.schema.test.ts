@@ -464,6 +464,96 @@ describe('received-quotation.schema', () => {
 
         expect(result.success).toBe(true);
       });
+
+      // ================================================================
+      // Task 36.4: 任意分類・工種フィールドのバリデーションテスト
+      // Requirements: 11.10, 14.2
+      // ================================================================
+      it('customCategoryフィールドを文字列として受け入れること (Task 36.4)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          customCategory: '仮設工事',
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.customCategory).toBe('仮設工事');
+        }
+      });
+
+      it('workTypeフィールドを文字列として受け入れること (Task 36.4)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          workType: '鉄筋工事',
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.workType).toBe('鉄筋工事');
+        }
+      });
+
+      it('customCategoryとworkTypeがnullの場合を受け入れること (Task 36.4)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          customCategory: null,
+          workType: null,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.customCategory).toBeNull();
+          expect(result.data.workType).toBeNull();
+        }
+      });
+
+      it('customCategoryとworkTypeが未指定の場合を受け入れること (Task 36.4)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.customCategory).toBeUndefined();
+          expect(result.data.workType).toBeUndefined();
+        }
+      });
+
+      it('customCategoryとworkTypeを含む完全な明細行を受け入れること (Task 36.4)', () => {
+        const input = {
+          name: '鉄筋D10',
+          sortOrder: 0,
+          customCategory: '躯体',
+          workType: '鉄筋工事',
+          specification: 'D10',
+          unit: 'kg',
+          quantity: 500,
+          unitPrice: 120,
+          amount: 60000,
+          remarks: null,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.customCategory).toBe('躯体');
+          expect(result.data.workType).toBe('鉄筋工事');
+          expect(result.data.name).toBe('鉄筋D10');
+        }
+      });
     });
 
     describe('lineItemsArraySchema', () => {

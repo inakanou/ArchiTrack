@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProjectForm from '../../../components/projects/ProjectForm';
 import type { ProjectFormData } from '../../../components/projects/ProjectForm';
@@ -57,6 +57,58 @@ vi.mock('../../../api/client', () => ({
     setAccessToken: vi.fn(),
   },
 }));
+
+// 取引先APIモック（TradingPartnerSelectが使用）
+vi.mock('../../../api/trading-partners', () => ({
+  getTradingPartners: vi.fn().mockResolvedValue({
+    data: [
+      {
+        id: 'partner-1',
+        name: '山田建設株式会社',
+        nameKana: 'ヤマダケンセツカブシキガイシャ',
+        branchName: '東京支店',
+        branchNameKana: 'トウキョウシテン',
+        representativeName: '山田太郎',
+        representativeNameKana: 'ヤマダタロウ',
+        types: ['CUSTOMER'],
+        address: '東京都千代田区1-1-1',
+        phoneNumber: null,
+        faxNumber: null,
+        email: null,
+        billingClosingDay: null,
+        paymentMonthOffset: null,
+        paymentDay: null,
+        notes: null,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 'partner-2',
+        name: '鈴木工業株式会社',
+        nameKana: 'スズキコウギョウカブシキガイシャ',
+        branchName: null,
+        branchNameKana: null,
+        representativeName: '鈴木花子',
+        representativeNameKana: 'スズキハナコ',
+        types: ['CUSTOMER'],
+        address: '大阪府大阪市2-2-2',
+        phoneNumber: null,
+        faxNumber: null,
+        email: null,
+        billingClosingDay: null,
+        paymentMonthOffset: null,
+        paymentDay: null,
+        notes: null,
+        createdAt: '2024-01-02T00:00:00Z',
+        updatedAt: '2024-01-02T00:00:00Z',
+      },
+    ],
+    pagination: { page: 1, limit: 100, total: 2, totalPages: 1 },
+  }),
+}));
+
+// scrollIntoViewモック（jsdomでは未実装）
+Element.prototype.scrollIntoView = vi.fn();
 
 describe('ProjectForm', () => {
   const mockOnSubmit = vi.fn();
@@ -726,6 +778,154 @@ describe('ProjectForm', () => {
       await waitFor(() => {
         expect(constructionSelect.value).toBe('current-user-id');
       });
+    });
+  });
+
+  describe('顧客選択時の住所自動入力 (1.6, 1.7)', () => {
+    it('現場住所が空欄の状態で顧客を選択すると、取引先の住所が現場住所に自動入力される', async () => {
+      const user = userEvent.setup();
+      render(
+        <ProjectForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // 現場住所が空であることを確認
+      const siteAddressInput = screen.getByLabelText(/現場住所/) as HTMLInputElement;
+      expect(siteAddressInput.value).toBe('');
+
+      // 顧客名フィールドをフォーカスしてドロップダウンを開く
+      const combobox = screen.getByRole('combobox', { name: '顧客名' });
+      fireEvent.focus(combobox);
+
+      // ドロップダウンが開いて候補が表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      // 山田建設株式会社を選択
+      const listbox = screen.getByRole('listbox');
+      await user.click(within(listbox).getByText('山田建設株式会社'));
+
+      // 現場住所に取引先の住所が自動入力される
+      await waitFor(() => {
+        expect(siteAddressInput.value).toBe('東京都千代田区1-1-1');
+      });
+    });
+
+    it('現場住所に既に値が入力されている状態で顧客を選択すると、既存値が保持される', async () => {
+      const user = userEvent.setup();
+      render(
+        <ProjectForm
+          mode="create"
+          initialData={{ siteAddress: '神奈川県横浜市' }}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // 現場住所に既に値があることを確認
+      const siteAddressInput = screen.getByLabelText(/現場住所/) as HTMLInputElement;
+      expect(siteAddressInput.value).toBe('神奈川県横浜市');
+
+      // 顧客名フィールドをフォーカスしてドロップダウンを開く
+      const combobox = screen.getByRole('combobox', { name: '顧客名' });
+      fireEvent.focus(combobox);
+
+      // ドロップダウンが開いて候補が表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      // 山田建設株式会社を選択
+      const listbox = screen.getByRole('listbox');
+      await user.click(within(listbox).getByText('山田建設株式会社'));
+
+      // 現場住所は既存値を保持し、上書きされない
+      expect(siteAddressInput.value).toBe('神奈川県横浜市');
+    });
+
+    it('スペースのみの現場住所は空欄として扱い、自動入力が行われる', async () => {
+      const user = userEvent.setup();
+      render(
+        <ProjectForm
+          mode="create"
+          initialData={{ siteAddress: '   ' }}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // 現場住所がスペースのみであることを確認
+      const siteAddressInput = screen.getByLabelText(/現場住所/) as HTMLInputElement;
+      expect(siteAddressInput.value).toBe('   ');
+
+      // 顧客名フィールドをフォーカスしてドロップダウンを開く
+      const combobox = screen.getByRole('combobox', { name: '顧客名' });
+      fireEvent.focus(combobox);
+
+      // ドロップダウンが開いて候補が表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      // 鈴木工業株式会社を選択
+      const listbox = screen.getByRole('listbox');
+      await user.click(within(listbox).getByText('鈴木工業株式会社'));
+
+      // スペースのみは空欄扱いなので、取引先の住所が自動入力される
+      await waitFor(() => {
+        expect(siteAddressInput.value).toBe('大阪府大阪市2-2-2');
+      });
+    });
+
+    it('顧客をクリア（選択解除）しても現場住所は変更されない', async () => {
+      const user = userEvent.setup();
+      render(
+        <ProjectForm
+          mode="create"
+          initialData={{ tradingPartnerId: 'partner-1', siteAddress: '東京都千代田区1-1-1' }}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      // ローディング完了を待つ
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      // 現場住所に値があることを確認
+      const siteAddressInput = screen.getByLabelText(/現場住所/) as HTMLInputElement;
+      expect(siteAddressInput.value).toBe('東京都千代田区1-1-1');
+
+      // クリアボタンをクリック
+      const clearButton = screen.getByLabelText('選択をクリア');
+      await user.click(clearButton);
+
+      // 現場住所は変更されない
+      expect(siteAddressInput.value).toBe('東京都千代田区1-1-1');
     });
   });
 });

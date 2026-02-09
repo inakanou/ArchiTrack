@@ -47,9 +47,11 @@ test.describe('プロジェクト名一意性チェック（Task 25.1）', () =>
      * @requirement project-management/REQ-1.15
      * @requirement project-management/REQ-1.16
      * @requirement project-management/REQ-1.17
+     * @requirement project-management/REQ-1.18
+     * @requirement project-management/REQ-1.19
      * 既存のプロジェクトと同一のプロジェクト名で作成を試みた際のエラーメッセージ表示を検証
      */
-    test('同一のプロジェクト名で作成するとエラーが表示される (project-management/REQ-1.15, REQ-1.16, REQ-1.17)', async ({
+    test('同一のプロジェクト名で作成するとエラーが表示される (project-management/REQ-1.15, REQ-1.16, REQ-1.17, REQ-1.18, REQ-1.19)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

@@ -15,14 +15,7 @@ import FieldValidatedItemRow from './FieldValidatedItemRow';
 import type { QuantityItemDetail } from '../../types/quantity-table.types';
 import { validateQuantityItemFields } from '../../utils/field-validation';
 
-// Mock useAutocomplete hook
-vi.mock('../../hooks/useAutocomplete', () => ({
-  useAutocomplete: vi.fn(() => ({
-    suggestions: [],
-    isLoading: false,
-    error: null,
-  })),
-}));
+// Task 18.1: useAutocompleteモックは不要（新モード専用）
 
 describe('FieldValidatedItemRow - Task 14.1', () => {
   const mockItem: QuantityItemDetail = {
@@ -53,12 +46,8 @@ describe('FieldValidatedItemRow - Task 14.1', () => {
     onDelete: vi.fn(),
     onCopy: vi.fn(),
     onValidationChange: vi.fn(),
-    unsavedMajorCategories: [] as string[],
-    unsavedMiddleCategories: [] as string[],
-    unsavedMinorCategories: [] as string[],
-    unsavedWorkTypes: [] as string[],
-    unsavedUnits: [] as string[],
-    unsavedSpecifications: [] as string[],
+    getSuggestions: vi.fn().mockReturnValue([]),
+    onBlurAddCandidate: vi.fn(),
   };
 
   beforeEach(() => {

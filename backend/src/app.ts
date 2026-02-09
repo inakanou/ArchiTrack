@@ -337,8 +337,8 @@ app.use('/api/quantity-groups', quantityGroupsRoutes);
 app.use('/api/quantity-groups/:groupId/items', quantityItemsRoutes);
 app.use('/api/quantity-items', quantityItemsRoutes);
 
-// Autocomplete routes
-app.use('/api/autocomplete', autocompleteRoutes);
+// Autocomplete candidates bulk fetch route (Phase 3: project-scoped)
+app.use('/api/projects/:projectId/quantity-items', autocompleteRoutes);
 
 // Itemized statement management routes
 app.use('/api/projects/:projectId/itemized-statements', itemizedStatementsRoutes);
