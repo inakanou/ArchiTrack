@@ -183,23 +183,29 @@ class ApiClient {
         if (response.status === 401 && this.tokenRefreshCallback) {
           // 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
           logger.debug('Access token expired or invalid, attempting refresh...');
+
+          // リフレッシュ中は tokenRefreshCallback を null にして、
+          // リフレッシュAPI自体が401を返した場合の再帰的リフレッシュ（デッドロック）を防ぐ
+          const originalCallback = this.tokenRefreshCallback;
+          this.tokenRefreshCallback = null;
+
           try {
             // トークンをリフレッシュ（TokenRefreshManagerがリトライを処理）
-            const newAccessToken = await this.tokenRefreshCallback();
+            const newAccessToken = await originalCallback();
 
             // 新しいアクセストークンを設定
             this.setAccessToken(newAccessToken);
 
-            // 元のリクエストをリトライ（リフレッシュコールバックをnullにして無限ループを防ぐ）
-            const originalCallback = this.tokenRefreshCallback;
-            this.tokenRefreshCallback = null;
-
+            // 元のリクエストをリトライ（リフレッシュコールバックはまだnull状態で無限ループを防ぐ）
             try {
               return await this.request<T>(path, { ...options, disableRetry: true });
             } finally {
               this.tokenRefreshCallback = originalCallback;
             }
           } catch (refreshError) {
+            // リフレッシュ失敗時にコールバックを復元
+            this.tokenRefreshCallback = originalCallback;
+
             // リフレッシュ失敗時のエラーログ
             logger.debug('Token refresh failed after all retry attempts', {
               error: refreshError instanceof Error ? refreshError.message : 'Unknown error',
