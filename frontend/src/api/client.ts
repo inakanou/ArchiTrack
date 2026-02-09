@@ -101,6 +101,8 @@ class ApiClient {
   private defaultTimeout: number = 30000; // 30秒
   private accessToken: string | null = null;
   private tokenRefreshCallback: TokenRefreshCallback | null = null;
+  /** セッション切れ時のコールバック（要件30.13: AuthContextへの通知用） */
+  private sessionExpiredCallback: (() => void) | null = null;
   private retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG;
 
   constructor() {
@@ -202,6 +204,12 @@ class ApiClient {
             logger.debug('Token refresh failed after all retry attempts', {
               error: refreshError instanceof Error ? refreshError.message : 'Unknown error',
             });
+
+            // 要件30.13: セッション切れコールバックを呼び出し
+            if (this.sessionExpiredCallback) {
+              this.sessionExpiredCallback();
+            }
+
             // RFC 7807 Problem Details形式のdetailフィールド、または従来のerrorフィールドを優先的に使用
             const errorMessage =
               (data && typeof data === 'object'
@@ -213,6 +221,11 @@ class ApiClient {
                 : null) || response.statusText;
             throw new ApiError(response.status, errorMessage, data);
           }
+        }
+
+        // 要件30.13: tokenRefreshCallbackがnullの場合の401エラーでもsessionExpiredCallbackを呼び出し
+        if (response.status === 401 && !this.tokenRefreshCallback && this.sessionExpiredCallback) {
+          this.sessionExpiredCallback();
         }
 
         // エラーレスポンスの処理
@@ -363,6 +376,14 @@ class ApiClient {
    */
   setTokenRefreshCallback(callback: TokenRefreshCallback | null): void {
     this.tokenRefreshCallback = callback;
+  }
+
+  /**
+   * セッション切れコールバックを設定
+   * 要件30.13: トークンリフレッシュ失敗時にAuthContextへ通知するためのコールバック
+   */
+  setSessionExpiredCallback(callback: (() => void) | null): void {
+    this.sessionExpiredCallback = callback;
   }
 }
 

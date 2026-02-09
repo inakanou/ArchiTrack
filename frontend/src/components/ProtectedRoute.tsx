@@ -63,7 +63,14 @@ export function ProtectedRoute({
   requireAuth = true,
   requiredRole,
 }: ProtectedRouteProps): ReactElement {
-  const { isAuthenticated, isLoading, isInitialized, user, sessionExpired } = useAuth();
+  const {
+    isAuthenticated,
+    isLoading,
+    isInitialized,
+    user,
+    sessionExpired,
+    sessionExpiredDuringOperation,
+  } = useAuth();
   const location = useLocation();
 
   // requireAuth=true: 認証が必要なルート
@@ -83,6 +90,12 @@ export function ProtectedRoute({
           </div>
         </div>
       );
+    }
+
+    // 要件30.2, 30.3: 操作中のセッション切れ時はリダイレクトを抑制し、childrenを表示し続ける
+    // モーダルがオーバーレイ表示され、フォームデータが保持される
+    if (!isAuthenticated && sessionExpiredDuringOperation) {
+      return children;
     }
 
     if (!isAuthenticated) {

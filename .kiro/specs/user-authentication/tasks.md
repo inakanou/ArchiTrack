@@ -626,14 +626,14 @@ _追加日: 2026-02-09_
 
 #### 26. API Client にセッション切れコールバック機構を追加
 
-- [ ] 26.1 sessionExpiredCallback の追加
+- [x] 26.1 sessionExpiredCallback の追加
   - `frontend/src/api/client.ts` に `sessionExpiredCallback` プロパティと `setSessionExpiredCallback()` メソッドを追加
   - 401レスポンスでトークンリフレッシュが失敗した場合に `sessionExpiredCallback` を呼び出す
   - `tokenRefreshCallback` が null の場合にも `sessionExpiredCallback` を呼び出す
   - _Requirements: 30.13_
   - _Test: `frontend/src/__tests__/api/client.test.ts` に追加テスト_
 
-- [ ] 26.2 既存テストの更新
+- [x] 26.2 既存テストの更新
   - `client.test.ts` の既存401テストケースが `sessionExpiredCallback` を考慮するよう更新
   - リフレッシュ失敗時に `sessionExpiredCallback` が呼ばれることを検証
   - `sessionExpiredCallback` が null の場合に既存動作が維持されることを検証
@@ -641,7 +641,7 @@ _追加日: 2026-02-09_
 
 #### 27. AuthContext のセッション切れ状態管理を拡張
 
-- [ ] 27.1 sessionExpiredDuringOperation 状態の追加
+- [x] 27.1 sessionExpiredDuringOperation 状態の追加
   - `AuthContext.tsx` に `sessionExpiredDuringOperation` 状態を追加
   - `isInitialized === true` の場合のみモーダル方式を適用する条件分岐を実装
   - `handleReauthSuccess` 関数を実装（トークン更新、TRM再初期化、状態リセット）
@@ -650,13 +650,13 @@ _追加日: 2026-02-09_
   - _Requirements: 30.14, 30.15_
   - _Test: `frontend/src/__tests__/contexts/AuthContext.test.tsx` に追加テスト_
 
-- [ ] 27.2 AuthContextValue インターフェースの更新
+- [x] 27.2 AuthContextValue インターフェースの更新
   - `sessionExpiredDuringOperation`, `handleReauthSuccess`, `navigateToLogin` を公開インターフェースに追加
   - `useAuth` フックのエクスポート型に反映
   - 既存テストが新しいインターフェースと互換であることを確認
   - _Requirements: 30.14, 30.15_
 
-- [ ] 27.3 ProtectedRoute のリダイレクト抑制
+- [x] 27.3 ProtectedRoute のリダイレクト抑制
   - `ProtectedRoute.tsx` に `sessionExpiredDuringOperation` の参照を追加
   - `!isAuthenticated && !sessionExpiredDuringOperation` の条件でリダイレクトを制御
   - 操作中セッション切れ時にはchildrenを表示し続け、モーダルがオーバーレイで動作することを保証
@@ -666,14 +666,14 @@ _追加日: 2026-02-09_
 
 #### 28. SessionExpiredModal コンポーネントの実装
 
-- [ ] 28.1 基本コンポーネント構造の実装
+- [x] 28.1 基本コンポーネント構造の実装
   - `frontend/src/components/SessionExpiredModal.tsx` を新規作成
   - Props定義: `isOpen`, `userEmail`, `onReauthSuccess`, `onNavigateToLogin`
   - オーバーレイ（クリック無効）＋中央配置モーダルカードのレイアウト
   - Tailwind CSSによるスタイリング
   - _Requirements: 30.2, 30.3, 30.5_
 
-- [ ] 28.2 再認証フォームの実装
+- [x] 28.2 再認証フォームの実装
   - メールアドレスフィールド（自動入力、読み取り専用）
   - パスワード入力フィールド（自動フォーカス、`autocomplete="current-password"`）
   - 再ログインボタン（ローディング状態対応）
@@ -681,7 +681,7 @@ _追加日: 2026-02-09_
   - フォームバリデーション（パスワード必須）
   - _Requirements: 30.4, 30.7, 30.8, 30.11_
 
-- [ ] 28.3 再認証APIの呼び出しロジック
+- [x] 28.3 再認証APIの呼び出しロジック
   - `apiClient.post('/api/v1/auth/login', ...)` を呼び出し
   - 成功時: `onReauthSuccess` コールバックを呼び出し、トークンを返す
   - 失敗時: モーダル内にエラーメッセージを表示
@@ -689,28 +689,28 @@ _追加日: 2026-02-09_
   - ネットワークエラー時のメッセージ表示とリトライボタン
   - _Requirements: 30.8, 30.9, 30.10, 30.11, 30.16, 30.17_
 
-- [ ] 28.4 2FA対応
+- [x] 28.4 2FA対応
   - ログインレスポンスの `requires2FA` フィールドを検知
   - 2FA要求時にTOTPコード入力フィールドを追加表示（6桁入力）
   - 「バックアップコードを使用する」リンクの表示
   - 2FA検証APIの呼び出し（`/api/v1/auth/verify-2fa`、`/api/v1/auth/verify-2fa/backup`）
   - _Requirements: 30.12_
 
-- [ ] 28.5 アクセシビリティ実装
+- [x] 28.5 アクセシビリティ実装
   - `role="dialog"`, `aria-modal="true"`, `aria-labelledby="session-expired-title"`
   - フォーカストラップ実装（Tab/Shift+Tab循環）
   - Escキー無効化
   - `aria-live="assertive"` でセッション切れメッセージをスクリーンリーダーに通知
   - _Requirements: 30.6, 30.18, 30.19, 30.20_
 
-- [ ] 28.6 レスポンシブ対応
+- [x] 28.6 レスポンシブ対応
   - デスクトップ: `max-w-md` 中央配置
   - モバイル（< 768px）: フルスクリーンに近いレイアウト
   - _Requirements: 30.21_
 
 #### 29. グローバルレイアウトへの統合
 
-- [ ] 29.1 SessionExpiredModal のグローバル配置
+- [x] 29.1 SessionExpiredModal のグローバル配置
   - `App.tsx` または認証済みレイアウトにSessionExpiredModalを配置
   - `useAuth()` から `sessionExpiredDuringOperation`, `user`, `handleReauthSuccess`, `navigateToLogin` を取得して Props に渡す
   - 全ての認証済み画面で一貫してモーダルが表示されることを保証
@@ -718,7 +718,7 @@ _追加日: 2026-02-09_
 
 #### 30. 単体テスト・Storybook
 
-- [ ] 30.1 SessionExpiredModal 単体テスト
+- [x] 30.1 SessionExpiredModal 単体テスト
   - `frontend/src/__tests__/components/SessionExpiredModal.test.tsx` を新規作成
   - テストケース:
     - `isOpen=false` 時にモーダルが表示されないこと
@@ -735,14 +735,14 @@ _追加日: 2026-02-09_
     - レスポンシブレイアウトの検証
   - _Requirements: 30.1-30.21_
 
-- [ ] 30.2 Storybook ストーリー作成
+- [x] 30.2 Storybook ストーリー作成
   - `frontend/src/components/SessionExpiredModal.stories.tsx` を新規作成
   - ストーリー: Default, WithError, With2FA, ConsecutiveFailures, NetworkError, Mobile
   - _Requirements: 30.4, 30.12, 30.16, 30.17, 30.21_
 
 #### 31. E2Eテスト
 
-- [ ] 31.1 セッション切れモーダルE2Eテスト
+- [x] 31.1 セッション切れモーダルE2Eテスト
   - `e2e/specs/auth/session-expired-modal.spec.ts` を新規作成
   - テストシナリオ:
     - フォーム入力中にトークン期限切れ → モーダル表示 → 再認証 → 入力データ保持確認

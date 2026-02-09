@@ -51,11 +51,17 @@ export interface AuthContextValue {
   isLoading: boolean;
   isInitialized: boolean;
   sessionExpired: boolean;
+  /** 要件30.14: 操作中のセッション切れ（モーダル表示用） */
+  sessionExpiredDuringOperation: boolean;
   twoFactorState: TwoFactorState | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<string>;
   clearSessionExpired: () => void;
+  /** 要件30.15: 再認証成功時のハンドラー */
+  handleReauthSuccess: () => void;
+  /** 要件30.15: ログイン画面遷移ハンドラー */
+  navigateToLogin: () => void;
   verify2FA: (code: string) => Promise<void>;
   verifyBackupCode: (code: string) => Promise<void>;
   cancel2FA: () => void;
@@ -90,6 +96,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const [sessionExpired, setSessionExpired] = useState<boolean>(false);
   const [tokenRefreshManager, setTokenRefreshManager] = useState<TokenRefreshManager | null>(null);
   const [twoFactorState, setTwoFactorState] = useState<TwoFactorState | null>(null);
+  /** 要件30.14: 操作中にセッションが切れた場合のモーダル表示フラグ */
+  const [sessionExpiredDuringOperation, setSessionExpiredDuringOperation] =
+    useState<boolean>(false);
 
   // React 18 StrictModeでの重複実行を防ぐためのフラグ
   const initializeStartedRef = useRef<boolean>(false);
@@ -179,6 +188,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
       // APIクライアントのトークンリフレッシュコールバックを設定
       apiClient.setTokenRefreshCallback(() => manager.refreshToken());
+
+      // 要件30.13: セッション切れコールバックを設定
+      apiClient.setSessionExpiredCallback(() => {
+        setSessionExpiredDuringOperation(true);
+      });
 
       // 自動リフレッシュをスケジュール（expiresInが提供されている場合）
       /* v8 ignore next 3 */
@@ -447,6 +461,38 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   }, []);
 
   /**
+   * 要件30.15: 再認証成功時のハンドラー
+   * モーダルでの再認証成功後にsessionExpiredDuringOperationをリセット
+   */
+  const handleReauthSuccess = useCallback(() => {
+    setSessionExpiredDuringOperation(false);
+  }, []);
+
+  /**
+   * 要件30.15: ログイン画面遷移ハンドラー
+   * セッション切れモーダルから「ログイン画面へ移動」を選択した場合
+   */
+  const navigateToLogin = useCallback(() => {
+    // トークンをクリア
+    apiClient.setAccessToken(null);
+    apiClient.setTokenRefreshCallback(null);
+    apiClient.setSessionExpiredCallback(null);
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('accessToken');
+
+    // TokenRefreshManagerをクリーンアップ
+    if (tokenRefreshManager) {
+      tokenRefreshManager.cleanup();
+      setTokenRefreshManager(null);
+    }
+
+    // 状態をリセット
+    setUser(null);
+    setSessionExpiredDuringOperation(false);
+    setSessionExpired(true);
+  }, [tokenRefreshManager]);
+
+  /**
    * コンポーネントマウント時の初期化処理
    */
   useEffect(() => {
@@ -538,6 +584,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         // APIクライアントのトークンリフレッシュコールバックを設定
         apiClient.setTokenRefreshCallback(() => manager.refreshToken());
 
+        // 要件30.13: セッション切れコールバックを設定（セッション復元後）
+        apiClient.setSessionExpiredCallback(() => {
+          setSessionExpiredDuringOperation(true);
+        });
+
         // 他のタブからのトークン更新を監視
         manager.onTokenRefreshed((newAccessToken) => {
           apiClient.setAccessToken(newAccessToken);
@@ -610,11 +661,14 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       isLoading,
       isInitialized,
       sessionExpired,
+      sessionExpiredDuringOperation,
       twoFactorState,
       login,
       logout,
       refreshToken,
       clearSessionExpired,
+      handleReauthSuccess,
+      navigateToLogin,
       verify2FA,
       verifyBackupCode,
       cancel2FA,
@@ -624,11 +678,14 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       isLoading,
       isInitialized,
       sessionExpired,
+      sessionExpiredDuringOperation,
       twoFactorState,
       login,
       logout,
       refreshToken,
       clearSessionExpired,
+      handleReauthSuccess,
+      navigateToLogin,
       verify2FA,
       verifyBackupCode,
       cancel2FA,

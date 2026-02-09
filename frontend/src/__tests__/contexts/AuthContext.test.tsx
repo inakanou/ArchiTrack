@@ -808,4 +808,52 @@ describe('AuthContext', () => {
       });
     });
   });
+
+  /**
+   * 要件30.14, 30.15: sessionExpiredDuringOperation状態管理
+   * AuthContextがonSessionExpiredコールバックを受信した場合の状態遷移をテスト
+   */
+  describe('sessionExpiredDuringOperation（操作中セッション切れ）', () => {
+    it('初期状態でsessionExpiredDuringOperationがfalseであること', async () => {
+      localStorage.clear();
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+
+      expect(result.current.sessionExpiredDuringOperation).toBe(false);
+    });
+
+    it('handleReauthSuccess関数が公開されていること', async () => {
+      localStorage.clear();
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+
+      expect(typeof result.current.handleReauthSuccess).toBe('function');
+    });
+
+    it('navigateToLogin関数が公開されていること', async () => {
+      localStorage.clear();
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+
+      expect(typeof result.current.navigateToLogin).toBe('function');
+    });
+  });
 });

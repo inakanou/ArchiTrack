@@ -24,13 +24,21 @@ const mockUser: UserProfile = {
   updatedAt: '2025-01-01T00:00:00Z',
 };
 
+const mockHandleReauthSuccess = vi.fn();
+const mockNavigateToLogin = vi.fn();
+
+const mockUseAuth = vi.fn(() => ({
+  user: mockUser,
+  isLoading: false,
+  error: null,
+  logout: vi.fn(),
+  sessionExpiredDuringOperation: false,
+  handleReauthSuccess: mockHandleReauthSuccess,
+  navigateToLogin: mockNavigateToLogin,
+}));
+
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: vi.fn(() => ({
-    user: mockUser,
-    isLoading: false,
-    error: null,
-    logout: vi.fn(),
-  })),
+  useAuth: () => mockUseAuth(),
 }));
 
 // ロガーを無効化
@@ -40,6 +48,23 @@ vi.mock('../../utils/logger', () => ({
     error: vi.fn(),
     warn: vi.fn(),
     debug: vi.fn(),
+  },
+}));
+
+// apiClientをモック（SessionExpiredModalが使用）
+vi.mock('../../api/client', () => ({
+  apiClient: {
+    post: vi.fn(),
+  },
+  ApiError: class ApiError extends Error {
+    statusCode: number;
+    response?: unknown;
+    constructor(statusCode: number, message: string, response?: unknown) {
+      super(message);
+      this.name = 'ApiError';
+      this.statusCode = statusCode;
+      this.response = response;
+    }
   },
 }));
 
@@ -99,6 +124,63 @@ describe('ProtectedLayout', () => {
       // ルート要素のクラスを確認（min-h-screen）
       const container = screen.getByRole('main').parentElement;
       expect(container).toHaveClass('min-h-screen');
+    });
+  });
+
+  /**
+   * 要件30.1, 30.2, 30.3: SessionExpiredModalのグローバル配置
+   */
+  describe('SessionExpiredModal統合', () => {
+    it('sessionExpiredDuringOperation=trueの場合にモーダルが表示されること', () => {
+      mockUseAuth.mockReturnValue({
+        user: mockUser,
+        isLoading: false,
+        error: null,
+        logout: vi.fn(),
+        sessionExpiredDuringOperation: true,
+        handleReauthSuccess: mockHandleReauthSuccess,
+        navigateToLogin: mockNavigateToLogin,
+      });
+
+      renderWithRouter();
+
+      // SessionExpiredModalが表示されること
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText('セッションの有効期限が切れました')).toBeInTheDocument();
+    });
+
+    it('sessionExpiredDuringOperation=falseの場合にモーダルが表示されないこと', () => {
+      mockUseAuth.mockReturnValue({
+        user: mockUser,
+        isLoading: false,
+        error: null,
+        logout: vi.fn(),
+        sessionExpiredDuringOperation: false,
+        handleReauthSuccess: mockHandleReauthSuccess,
+        navigateToLogin: mockNavigateToLogin,
+      });
+
+      renderWithRouter();
+
+      // SessionExpiredModalが表示されないこと
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('ユーザーのメールアドレスがモーダルに渡されること', () => {
+      mockUseAuth.mockReturnValue({
+        user: mockUser,
+        isLoading: false,
+        error: null,
+        logout: vi.fn(),
+        sessionExpiredDuringOperation: true,
+        handleReauthSuccess: mockHandleReauthSuccess,
+        navigateToLogin: mockNavigateToLogin,
+      });
+
+      renderWithRouter();
+
+      // メールアドレスが自動入力されていること
+      expect(screen.getByDisplayValue('test@example.com')).toBeInTheDocument();
     });
   });
 });

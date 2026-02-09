@@ -21,11 +21,14 @@ function createMockAuthContextValue(overrides: Partial<AuthContextValue> = {}): 
     isLoading: false,
     isInitialized: true,
     sessionExpired: false,
+    sessionExpiredDuringOperation: false,
     twoFactorState: null,
     login: vi.fn(),
     logout: vi.fn(),
     refreshToken: vi.fn(),
     clearSessionExpired: vi.fn(),
+    handleReauthSuccess: vi.fn(),
+    navigateToLogin: vi.fn(),
     verify2FA: vi.fn(),
     verifyBackupCode: vi.fn(),
     cancel2FA: vi.fn(),
@@ -584,6 +587,86 @@ describe('ProtectedRoute - user-authentication/REQ-28: 遷移先state保存', ()
     );
 
     // ログインページにリダイレクトされていることを確認
+    expect(screen.getByTestId('login-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * 要件30.2, 30.3: sessionExpiredDuringOperation時のリダイレクト抑制
+ */
+describe('ProtectedRoute - user-authentication/REQ-30: sessionExpiredDuringOperationリダイレクト抑制', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * @requirement user-authentication/REQ-30.2: セッション切れモーダル表示中はページ遷移しない
+   */
+  it('sessionExpiredDuringOperation=trueの場合、未認証でもリダイレクトせずchildrenを表示すること', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+      sessionExpiredDuringOperation: true,
+      user: null,
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Routes>
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // childrenが表示されること（リダイレクトされない）
+    expect(screen.getByTestId('protected-content')).toBeInTheDocument();
+    // ログインページにリダイレクトされていないこと
+    expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+  });
+
+  /**
+   * @requirement user-authentication/REQ-30.3: sessionExpiredDuringOperation=falseの場合は通常動作
+   */
+  it('sessionExpiredDuringOperation=falseの場合、通常通りリダイレクトすること', () => {
+    const mockAuthValue = createMockAuthContextValue({
+      isLoading: false,
+      isAuthenticated: false,
+      isInitialized: true,
+      sessionExpiredDuringOperation: false,
+      user: null,
+    });
+
+    render(
+      <AuthContext.Provider value={mockAuthValue}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Routes>
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <ProtectedContent />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+
+    // ログインページにリダイレクトされること
     expect(screen.getByTestId('login-page')).toBeInTheDocument();
     expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
   });

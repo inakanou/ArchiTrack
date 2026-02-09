@@ -572,5 +572,131 @@ describe('ApiClient', () => {
         apiClient.setAccessToken(null);
       });
     });
+
+    /**
+     * 要件30.13: sessionExpiredCallback のテスト
+     * API Clientがトークンリフレッシュ失敗を検知した場合、AuthContextに通知するためのコールバックを呼び出す
+     */
+    describe('sessionExpiredCallback（セッション切れコールバック）', () => {
+      afterEach(() => {
+        // クリーンアップ
+        apiClient.setSessionExpiredCallback(null);
+        apiClient.setTokenRefreshCallback(null);
+        apiClient.setAccessToken(null);
+      });
+
+      it('setSessionExpiredCallbackでコールバックを設定できること', () => {
+        const mockCallback = vi.fn();
+        apiClient.setSessionExpiredCallback(mockCallback);
+
+        // 内部プロパティへのアクセスで設定確認
+        expect(apiClient['sessionExpiredCallback']).toBe(mockCallback);
+      });
+
+      it('setSessionExpiredCallbackにnullを渡してコールバックを解除できること', () => {
+        const mockCallback = vi.fn();
+        apiClient.setSessionExpiredCallback(mockCallback);
+        apiClient.setSessionExpiredCallback(null);
+
+        expect(apiClient['sessionExpiredCallback']).toBeNull();
+      });
+
+      it('トークンリフレッシュ失敗時にsessionExpiredCallbackが呼ばれること', async () => {
+        const mockSessionExpiredCallback = vi.fn();
+        const mockRefreshCallback = vi.fn().mockRejectedValue(new Error('Refresh failed'));
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ error: 'TOKEN_EXPIRED' }),
+        });
+
+        await expect(apiClient.get('/api/protected')).rejects.toThrow(ApiError);
+
+        // sessionExpiredCallbackが呼ばれたことを検証
+        expect(mockSessionExpiredCallback).toHaveBeenCalledTimes(1);
+      });
+
+      it('tokenRefreshCallbackがnullの場合にsessionExpiredCallbackが呼ばれること', async () => {
+        const mockSessionExpiredCallback = vi.fn();
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(null);
+        apiClient.setAccessToken('test-token');
+
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ error: 'Unauthorized' }),
+        });
+
+        await expect(apiClient.get('/api/protected')).rejects.toThrow(ApiError);
+
+        // sessionExpiredCallbackが呼ばれたことを検証
+        expect(mockSessionExpiredCallback).toHaveBeenCalledTimes(1);
+      });
+
+      it('sessionExpiredCallbackがnullの場合に既存動作が維持されること（エラーが正常にスローされる）', async () => {
+        const mockRefreshCallback = vi.fn().mockRejectedValue(new Error('Refresh failed'));
+
+        apiClient.setSessionExpiredCallback(null);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ error: 'TOKEN_EXPIRED' }),
+        });
+
+        // エラーが正常にスローされること
+        await expect(apiClient.get('/api/protected')).rejects.toThrow(ApiError);
+      });
+
+      it('トークンリフレッシュ成功時にはsessionExpiredCallbackが呼ばれないこと', async () => {
+        const mockSessionExpiredCallback = vi.fn();
+        const mockRefreshCallback = vi.fn().mockResolvedValue('new-access-token');
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+
+        let callCount = 0;
+        globalThis.fetch = vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return Promise.resolve({
+              ok: false,
+              status: 401,
+              statusText: 'Unauthorized',
+              headers: new Headers({ 'content-type': 'application/json' }),
+              json: async () => ({ error: 'TOKEN_EXPIRED' }),
+            });
+          } else {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              headers: new Headers({ 'content-type': 'application/json' }),
+              json: async () => ({ success: true }),
+            });
+          }
+        });
+
+        await apiClient.get('/api/protected');
+
+        // sessionExpiredCallbackは呼ばれないこと
+        expect(mockSessionExpiredCallback).not.toHaveBeenCalled();
+      });
+    });
   });
 });
