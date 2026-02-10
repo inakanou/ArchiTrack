@@ -1916,4 +1916,375 @@ describe('AnnotationEditor', () => {
       }
     });
   });
+
+  // ==========================================================================
+  // Task 40: 描画ツール使用中のオブジェクト選択防止テスト
+  // ==========================================================================
+  describe('描画ツール使用中のオブジェクト選択防止（要件17）', () => {
+    /**
+     * ヘルパー: mouse:downイベントハンドラを取得する
+     */
+    const getMouseDownHandler = () => {
+      const onCalls = mockCanvasInstance.on.mock.calls;
+      return onCalls.find((call: unknown[]) => call[0] === 'mouse:down')?.[1] as
+        | ((options: { pointer: { x: number; y: number } }) => void)
+        | undefined;
+    };
+
+    /**
+     * ヘルパー: mouse:upイベントハンドラを取得する
+     */
+    const getMouseUpHandler = () => {
+      const onCalls = mockCanvasInstance.on.mock.calls;
+      return onCalls.find((call: unknown[]) => call[0] === 'mouse:up')?.[1] as
+        | ((options: { pointer: { x: number; y: number } }) => void)
+        | undefined;
+    };
+
+    /**
+     * ヘルパー: 既存オブジェクトをキャンバスに配置する（containsPointが常にtrueを返す）
+     */
+    const setupExistingObject = () => {
+      const existingObject = {
+        containsPoint: vi.fn(() => true),
+        set: vi.fn(),
+        setCoords: vi.fn(),
+        selectable: false,
+        evented: false,
+      };
+      mockCanvasInstance.getObjects.mockReturnValue([existingObject] as unknown as ReturnType<
+        typeof mockCanvasInstance.getObjects
+      >);
+      return existingObject;
+    };
+
+    describe('描画ツール使用中に既存オブジェクト上でドラッグ開始しても描画が実行される', () => {
+      it('矢印ツールで既存オブジェクト上からドラッグ開始できる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 矢印ツールに切り替え
+        const arrowButton = screen.getByRole('button', { name: /矢印/i });
+        await user.click(arrowButton);
+
+        // 既存オブジェクトを配置（containsPointがtrueを返す）
+        setupExistingObject();
+
+        // mouse:downハンドラを取得
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+
+        // 既存オブジェクト上でmouse:downを発火
+        // containsPointチェックが除去されていれば、ドラッグが開始される
+        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+
+        // mouse:upを発火して図形が作成されることを確認
+        const mouseUpHandler = getMouseUpHandler();
+        expect(mouseUpHandler).toBeDefined();
+
+        mouseUpHandler!({ pointer: { x: 200, y: 200 } });
+
+        // 図形がcanvas.addで追加されることを確認
+        expect(mockCanvasInstance.add).toHaveBeenCalled();
+      });
+
+      it('円ツールで既存オブジェクト上からドラッグ開始できる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 円ツールに切り替え
+        const circleButton = screen.getByRole('button', { name: /円/i });
+        await user.click(circleButton);
+
+        // 既存オブジェクトを配置
+        setupExistingObject();
+
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+
+        // 既存オブジェクト上でmouse:downを発火
+        mouseDownHandler!({ pointer: { x: 50, y: 50 } });
+
+        const mouseUpHandler = getMouseUpHandler();
+        expect(mouseUpHandler).toBeDefined();
+
+        mouseUpHandler!({ pointer: { x: 150, y: 150 } });
+
+        // 図形が追加されることを確認
+        expect(mockCanvasInstance.add).toHaveBeenCalled();
+      });
+
+      it('四角形ツールで既存オブジェクト上からドラッグ開始できる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 四角形ツールに切り替え
+        const rectButton = screen.getByRole('button', { name: /四角形/i });
+        await user.click(rectButton);
+
+        // 既存オブジェクトを配置
+        setupExistingObject();
+
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+
+        mouseDownHandler!({ pointer: { x: 50, y: 50 } });
+
+        const mouseUpHandler = getMouseUpHandler();
+        expect(mouseUpHandler).toBeDefined();
+
+        mouseUpHandler!({ pointer: { x: 200, y: 200 } });
+
+        expect(mockCanvasInstance.add).toHaveBeenCalled();
+      });
+    });
+
+    describe('描画ツール使用中にマウスアップが既存オブジェクト上でも図形が作成される', () => {
+      it('矢印ツールでマウスアップが既存オブジェクト上でも図形が作成される', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 矢印ツールに切り替え
+        const arrowButton = screen.getByRole('button', { name: /矢印/i });
+        await user.click(arrowButton);
+
+        // mouse:downを発火（オブジェクトがない場所から開始）
+        mockCanvasInstance.getObjects.mockReturnValue([]);
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+        mouseDownHandler!({ pointer: { x: 10, y: 10 } });
+
+        // 既存オブジェクトを配置してマウスアップ位置で検出されるようにする
+        setupExistingObject();
+
+        const mouseUpHandler = getMouseUpHandler();
+        expect(mouseUpHandler).toBeDefined();
+
+        // 既存オブジェクト上でmouse:upを発火
+        mouseUpHandler!({ pointer: { x: 200, y: 200 } });
+
+        // containsPointチェックが除去されていれば、図形が作成される
+        expect(mockCanvasInstance.add).toHaveBeenCalled();
+      });
+    });
+
+    describe('多角形・折れ線ツールで既存オブジェクト上に頂点追加できる', () => {
+      it('多角形ツールで既存オブジェクト上に頂点を追加できる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 多角形ツールに切り替え
+        const polygonButton = screen.getByRole('button', { name: /多角形/i });
+        await user.click(polygonButton);
+
+        // 既存オブジェクトを配置
+        setupExistingObject();
+
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+
+        // 既存オブジェクト上で1つ目の頂点を追加
+        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+        // 2つ目の頂点を追加
+        mouseDownHandler!({ pointer: { x: 200, y: 100 } });
+        // 3つ目の頂点を追加
+        mouseDownHandler!({ pointer: { x: 150, y: 200 } });
+
+        // containsPointチェックが除去されていれば、頂点が追加される
+        // 多角形ツールはmouse:downでreturnせず、頂点を追加するはず
+        // 3回のmouse:downが全て処理されることを確認するため、
+        // mouse:dblclickで多角形を完了させて図形が追加されることを確認
+        const onCalls = mockCanvasInstance.on.mock.calls;
+        const dblClickHandler = onCalls.find(
+          (call: unknown[]) => call[0] === 'mouse:dblclick'
+        )?.[1] as ((options: { pointer: { x: number; y: number } }) => void) | undefined;
+        expect(dblClickHandler).toBeDefined();
+
+        dblClickHandler!({ pointer: { x: 150, y: 200 } });
+
+        // 多角形が追加される
+        expect(mockCanvasInstance.add).toHaveBeenCalled();
+      });
+
+      it('折れ線ツールで既存オブジェクト上に点を追加できる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 折れ線ツールに切り替え
+        const polylineButton = screen.getByRole('button', { name: /折れ線/i });
+        await user.click(polylineButton);
+
+        // 既存オブジェクトを配置
+        setupExistingObject();
+
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+
+        // 既存オブジェクト上で点を追加
+        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+        mouseDownHandler!({ pointer: { x: 200, y: 150 } });
+
+        // mouse:dblclickで折れ線を完了
+        const onCalls = mockCanvasInstance.on.mock.calls;
+        const dblClickHandler = onCalls.find(
+          (call: unknown[]) => call[0] === 'mouse:dblclick'
+        )?.[1] as ((options: { pointer: { x: number; y: number } }) => void) | undefined;
+        expect(dblClickHandler).toBeDefined();
+
+        dblClickHandler!({ pointer: { x: 200, y: 150 } });
+
+        // 折れ線が追加される
+        expect(mockCanvasInstance.add).toHaveBeenCalled();
+      });
+    });
+
+    describe('テキストツールで既存オブジェクト上にテキスト配置できる', () => {
+      it('テキストツールで既存オブジェクト上をクリックしてもmouse:downハンドラがreturnせず処理を継続する', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // テキストツールに切り替え
+        const textButton = screen.getByRole('button', { name: /テキスト/i });
+        await user.click(textButton);
+
+        // 既存オブジェクトを配置
+        setupExistingObject();
+
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+
+        // containsPointチェックが除去されていれば、ハンドラは早期returnせず
+        // テキスト配置処理に到達する。
+        // TextAnnotationのsetupDoubleClickEditingがthis.onを呼ぶためモック環境では
+        // エラーが出るが、それはcontainsPointを通過している証拠である。
+        // canvas.addが呼ばれること（テキストオブジェクト追加）を確認する。
+        try {
+          mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+        } catch (e) {
+          // TextAnnotation.setupDoubleClickEditingがモック環境でthis.onを呼ぶため
+          // TypeErrorが発生するが、これはcontainsPointチェック通過後の処理である
+          expect(String(e)).toContain('this.on is not a function');
+        }
+
+        // containsPointチェックが除去されていれば、canvas.addが呼ばれる
+        // （テキストオブジェクトがキャンバスに追加される）
+        expect(mockCanvasInstance.add).toHaveBeenCalled();
+      });
+    });
+
+    describe('選択ツールでのオブジェクト選択が引き続き正常に動作する', () => {
+      it('選択ツールではmouse:downハンドラが早期returnし、Fabric.jsのデフォルト動作で選択が行われる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 選択ツールに切り替え（デフォルトが選択ツール）
+        const selectButton = screen.getByRole('button', { name: /選択/i });
+        await user.click(selectButton);
+
+        // 既存オブジェクトを配置
+        const existingObject = setupExistingObject();
+
+        const mouseDownHandler = getMouseDownHandler();
+        expect(mouseDownHandler).toBeDefined();
+
+        // 選択ツールでmouse:downを発火
+        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+
+        // 選択ツールは早期returnするため、canvas.addは呼ばれない
+        // (Fabric.jsのデフォルト動作でオブジェクト選択が行われる)
+        expect(mockCanvasInstance.add).not.toHaveBeenCalled();
+
+        // containsPointは呼ばれない（選択ツールは早期returnするため）
+        expect(existingObject.containsPoint).not.toHaveBeenCalled();
+      });
+
+      it('handleToolChangeでselectツール選択時にオブジェクトが選択可能になる', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        // 既存オブジェクトを配置
+        const existingObject = {
+          containsPoint: vi.fn(() => true),
+          set: vi.fn(),
+          setCoords: vi.fn(),
+          selectable: false,
+          evented: false,
+        };
+        mockCanvasInstance.getObjects.mockReturnValue([existingObject] as unknown as ReturnType<
+          typeof mockCanvasInstance.getObjects
+        >);
+
+        // まず矢印ツールに切り替え（オブジェクトのevented/selectableがfalseになる）
+        const arrowButton = screen.getByRole('button', { name: /矢印/i });
+        await user.click(arrowButton);
+
+        // オブジェクトのselectable/eventedがfalseに設定されることを確認
+        expect(existingObject.set).toHaveBeenCalledWith(
+          expect.objectContaining({
+            selectable: false,
+            evented: false,
+          })
+        );
+
+        existingObject.set.mockClear();
+
+        // 選択ツールに戻す
+        const selectButton = screen.getByRole('button', { name: /選択/i });
+        await user.click(selectButton);
+
+        // オブジェクトのselectable/eventedがtrueに設定されることを確認
+        expect(existingObject.set).toHaveBeenCalledWith(
+          expect.objectContaining({
+            selectable: true,
+            evented: true,
+          })
+        );
+      });
+    });
+  });
 });
