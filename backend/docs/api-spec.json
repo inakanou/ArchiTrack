@@ -6674,6 +6674,73 @@
         }
       }
     },
+    "/api/quantity-tables/{id}/copy": {
+      "post": {
+        "summary": "数量表コピー",
+        "description": "既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする",
+        "tags": [
+          "Quantity Tables"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "コピー元の数量表ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "コピー先の数量表名"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "数量表コピー成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "コピー元の数量表が見つからない"
+          },
+          "500": {
+            "description": "コピー処理中のサーバーエラー"
+          }
+        }
+      }
+    },
     "/api/estimate-requests/{id}/quotations": {
       "post": {
         "summary": "受領見積書作成",
