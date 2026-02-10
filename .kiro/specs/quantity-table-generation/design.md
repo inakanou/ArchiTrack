@@ -4,9 +4,9 @@
 
 **Purpose**: 本機能は、積算担当者が現場調査結果に基づいて数量を拾い出し、調査写真と紐づけながら数量表を作成するための機能を提供する。
 
-**Users**: 積算担当者が、プロジェクトに紐付く数量表の作成・編集・管理、および計算機能（面積・体積、ピッチ）を使用して効率的な積算作業を実施する。
+**Users**: 積算担当者が、プロジェクトに紐付く数量表の作成・編集・管理、コピーによる効率的な再利用、および計算機能（面積・体積、ピッチ）を使用して効率的な積算作業を実施する。
 
-**Impact**: プロジェクト詳細画面に数量表セクションを追加し、新たにQuantityTable、QuantityGroup、QuantityItemエンティティを導入する。
+**Impact**: プロジェクト詳細画面に数量表セクションを追加し、新たにQuantityTable、QuantityGroup、QuantityItemエンティティを導入する。数量表コピー機能の追加およびタイトル行表示最適化によるUI改善を含む。
 
 ### Goals
 
@@ -16,6 +16,8 @@
 - オートコンプリートによる入力支援と一貫性確保
 - 自動保存による作業継続性の保証
 - 厳密なフィールド仕様に基づく入力制御と統一された表示書式
+- 数量表コピーによる類似案件での作業効率化
+- タイトル行表示最適化による画面の視認性向上
 
 ### Non-Goals
 
@@ -99,6 +101,7 @@ graph TB
 - ドメイン境界: 数量表管理は独立したドメインとして分離、プロジェクトとの関連はIDリレーションのみ
 - 既存パターン: SiteSurveyパターンを継承（CRUD、一覧、詳細、楽観的排他制御）
 - 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）、フィールドバリデーター、AutocompleteCandidateStore（フロントエンド初回一括読み込み＋クライアントサイド管理）
+- 追加コンポーネント（REQ-17, 18）: コピー機能（QuantityTableService.copy）、CopyQuantityTableDialog、QuantityGroupTitleRow
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -145,6 +148,42 @@ sequenceDiagram
         API->>QuantityItemService: 検証・保存
         QuantityItemService-->>API: 保存結果
         API-->>QuantityItemComponent: 保存完了通知
+    end
+```
+
+### 数量表コピーフロー
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant QTL as QuantityTableListPage
+    participant Dialog as CopyQuantityTableDialog
+    participant API
+    participant QTSV as QuantityTableService
+    participant DB as PostgreSQL
+
+    User->>QTL: 数量表のコピーボタンをクリック
+    QTL->>Dialog: コピーダイアログ表示（デフォルト名「{元の名前}のコピー」）
+    User->>Dialog: 数量表名を入力して作成を確定
+    Dialog->>Dialog: 処理中インジケーター表示・重複操作防止
+    Dialog->>API: POST /api/quantity-tables/:id/copy { name }
+    API->>QTSV: copy(id, name, actorId)
+    QTSV->>DB: BEGIN TRANSACTION
+    QTSV->>DB: 元の数量表を取得（グループ・項目含む）
+    QTSV->>DB: 新しい数量表を作成
+    QTSV->>DB: 全グループを複製（surveyImageIdも維持）
+    QTSV->>DB: 各グループの全項目を複製
+    QTSV->>DB: COMMIT
+    QTSV-->>API: コピーされた数量表の情報
+    API-->>Dialog: 201 Created + QuantityTableInfo
+    Dialog->>QTL: コピー完了
+    QTL->>QTL: コピーされた数量表の編集画面に遷移
+
+    alt エラー発生時
+        QTSV->>DB: ROLLBACK
+        QTSV-->>API: エラー
+        API-->>Dialog: エラーレスポンス
+        Dialog->>Dialog: エラーメッセージ表示・インジケーター解除
     end
 ```
 
@@ -201,6 +240,18 @@ sequenceDiagram
 | 13.1-13.4 | テキストフィールドの入力制御 | FieldValidator, TextFieldConstraints | QuantityValidationService | - |
 | 14.1-14.5 | 数値フィールドの表示書式 | NumericFormatter, QuantityItemRow | - | - |
 | 15.1-15.3 | 数量フィールドの入力制御 | FieldValidator, NumericInputConstraints | QuantityValidationService | - |
+| 17.1 | 数量表コピーダイアログ表示 | QuantityTableListPage, CopyQuantityTableDialog | - | 数量表コピーフロー |
+| 17.2 | 数量表の全データ複製 | QuantityTableService.copy | POST /api/quantity-tables/:id/copy | 数量表コピーフロー |
+| 17.3 | コピー完了後に編集画面遷移 | QuantityTableListPage | - | 数量表コピーフロー |
+| 17.4 | コピーされた数量表の独立性 | QuantityTableService.copy | - | - |
+| 17.5 | コピーエラー時のロールバック | QuantityTableService.copy | - | 数量表コピーフロー |
+| 17.6 | コピー処理中のインジケーター表示 | CopyQuantityTableDialog | - | - |
+| 17.7 | コピー先での写真紐づけ維持 | QuantityTableService.copy | - | - |
+| 18.1 | メインタイトル行をグループ先頭にのみ表示 | QuantityGroupCard, QuantityGroupTitleRow | - | - |
+| 18.2 | 2行目以降のタイトル行非表示 | QuantityGroupCard | - | - |
+| 18.3 | 面積・体積計算用タイトル行は従来通り表示 | EditableQuantityItemRow, CalculationFields | - | - |
+| 18.4 | ピッチ計算用タイトル行は従来通り表示 | EditableQuantityItemRow, CalculationFields | - | - |
+| 18.5 | 再展開時のタイトル行表示ルール維持 | QuantityGroupCard | - | - |
 
 ## Field Specifications
 
@@ -257,7 +308,7 @@ sequenceDiagram
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| QuantityTableService | Backend/Service | 数量表のCRUD操作 | 2.1-2.5, 11.1-11.5 | PrismaClient (P0), AuditLogService (P1) | Service, API |
+| QuantityTableService | Backend/Service | 数量表のCRUD操作・コピー | 2.1-2.5, 11.1-11.5, 17.1-17.7 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | QuantityGroupService | Backend/Service | 数量グループのCRUD操作と画像紐付け | 3.1-3.3, 4.1-4.5 | PrismaClient (P0) | Service, API |
 | QuantityItemService | Backend/Service | 数量項目のCRUD・計算検証 | 5.1-5.4, 6.1-6.5, 8.1-8.11, 9.1-9.7, 10.1-10.7 | PrismaClient (P0), CalculationEngine (P0), QuantityValidationService (P0) | Service, API |
 | QuantityValidationService | Backend/Service | フィールドバリデーション | 8.3, 8.4, 8.7, 8.10, 9.3-9.5, 10.3-10.5, 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
@@ -267,6 +318,8 @@ sequenceDiagram
 | QuantityTableSectionCard | Frontend/Component | プロジェクト詳細の数量表セクション | 1.1-1.7 | - | - |
 | AutocompleteCandidateStore | Frontend/State | オートコンプリート候補のクライアントサイド管理 | 7.1, 7.2, 7.3, 7.5, 7.6 | - | State |
 | AutocompleteInput | Frontend/Component | オートコンプリート対応テキスト入力 | 7.3, 7.4, 7.5, 7.6, 7.7 | AutocompleteCandidateStore (P0) | - |
+| CopyQuantityTableDialog | Frontend/Component | 数量表コピーダイアログ | 17.1, 17.3, 17.6 | - | - |
+| QuantityGroupTitleRow | Frontend/Component | 数量グループのメインタイトル行 | 18.1, 18.2, 18.5 | - | - |
 | FieldValidator | Frontend/Utility | フィールド入力制御・書式 | 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
 
 ### Backend Services
@@ -275,15 +328,16 @@ sequenceDiagram
 
 | Field | Detail |
 |-------|--------|
-| Intent | 数量表のライフサイクル管理とCRUD操作を担当 |
-| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 11.1, 11.2, 11.3, 11.4, 11.5 |
+| Intent | 数量表のライフサイクル管理とCRUD操作、コピー機能を担当 |
+| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 11.1, 11.2, 11.3, 11.4, 11.5, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7 |
 
 **Responsibilities & Constraints**
 
-- 数量表の作成・更新・削除・一覧取得
+- 数量表の作成・更新・削除・一覧取得・コピー
 - プロジェクトとの関連付け検証
 - 楽観的排他制御（updatedAt）
 - トランザクション境界の管理
+- コピー時の全データ（グループ・項目・写真紐づけ）のディープコピー
 
 **Dependencies**
 
@@ -313,6 +367,7 @@ interface QuantityTableService {
     expectedUpdatedAt: Date
   ): Promise<QuantityTableInfo>;
   delete(id: string, actorId: string): Promise<void>;
+  copy(id: string, input: CopyQuantityTableInput, actorId: string): Promise<QuantityTableInfo>;
 }
 
 interface CreateQuantityTableInput {
@@ -322,6 +377,10 @@ interface CreateQuantityTableInput {
 
 interface UpdateQuantityTableInput {
   name?: string;
+}
+
+interface CopyQuantityTableInput {
+  name: string;  // コピー先の数量表名（デフォルト: 「{元の名前}のコピー」）
 }
 
 interface QuantityTableInfo {
@@ -355,12 +414,14 @@ interface ProjectQuantityTableSummary {
 | GET | /api/quantity-tables/:id | - | QuantityTableDetail | 404 |
 | PUT | /api/quantity-tables/:id | UpdateQuantityTableInput | QuantityTableInfo | 400, 404, 409 |
 | DELETE | /api/quantity-tables/:id | - | 204 No Content | 404 |
+| POST | /api/quantity-tables/:id/copy | CopyQuantityTableInput | QuantityTableInfo | 400, 404, 500 |
 
 **Implementation Notes**
 
 - Integration: 既存のSiteSurveyServiceパターンを踏襲
 - Validation: Zodスキーマによる入力検証
-- Risks: 大量のグループ・項目を持つ数量表の取得パフォーマンス
+- Copy: `copy`メソッドは単一トランザクション内で数量表・全グループ・全項目をディープコピーする。写真紐づけ（surveyImageId）はコピー先でも維持する。エラー時はROLLBACKにより不完全なコピーデータが残らないことを保証する
+- Risks: 大量のグループ・項目を持つ数量表の取得パフォーマンス、コピー時の大量データ挿入パフォーマンス
 
 ---
 
@@ -1287,10 +1348,11 @@ enum CalculationMethod {
 
 **User Errors (4xx)**:
 
-- `400 BAD_REQUEST`: 入力バリデーションエラー（必須フィールド未入力、計算方法と入力値の不整合、範囲外入力、文字数超過）
-- `404 NOT_FOUND`: 数量表・グループ・項目が存在しない、またはオートコンプリート候補取得時にプロジェクトが存在しない
+- `400 BAD_REQUEST`: 入力バリデーションエラー（必須フィールド未入力、計算方法と入力値の不整合、範囲外入力、文字数超過、コピー先名前の不正）
+- `404 NOT_FOUND`: 数量表・グループ・項目が存在しない、またはオートコンプリート候補取得時にプロジェクトが存在しない、コピー元の数量表が存在しない
 - `409 CONFLICT`: 楽観的排他制御エラー（他ユーザーによる更新との競合）
 - `422 UNPROCESSABLE_ENTITY`: ビジネスロジックエラー
+- `500 INTERNAL_SERVER_ERROR`: コピー処理中の予期しないエラー（トランザクションROLLBACKにより不完全データは残らない）
 
 **Business Logic Errors**:
 
@@ -1317,6 +1379,7 @@ enum CalculationMethod {
 
 - CalculationEngine: 各計算方法（標準、面積・体積、ピッチ）のテスト
 - QuantityTableService: CRUD操作、楽観的排他制御のテスト
+- QuantityTableService.copy: ディープコピー（全グループ・全項目の複製、写真紐づけ維持、トランザクションROLLBACK）
 - QuantityGroupService: CRUD操作、写真紐付けのテスト
 - QuantityItemService: 計算検証のテスト
 - QuantityValidationService: フィールド仕様バリデーションのテスト
@@ -1327,6 +1390,10 @@ enum CalculationMethod {
   - `filterCandidates`: 前方一致フィルタリング、50音順ソート、空文字除外
   - `addCandidateOnBlur`: 重複排除、空文字拒否、既存候補との統合
   - 候補取得APIレスポンスの正しいステート格納
+- CopyQuantityTableDialog: デフォルト名設定、処理中インジケーター、エラーメッセージ表示
+- QuantityGroupTitleRow: メインタイトル行の全列テキスト表示、グリッドレイアウト一致
+- QuantityGroupCard: タイトル行が項目存在時にのみ1つ表示されること
+- EditableQuantityItemRow: showFieldLabels=falseでラベル非表示、計算用タイトルは影響なし
 
 ### Integration Tests
 
@@ -1335,6 +1402,8 @@ enum CalculationMethod {
 - 楽観的排他制御の競合シナリオ
 - フィールドバリデーションエラー時の保存阻止
 - オートコンプリート候補一括取得API: プロジェクト内の複数数量表・項目からフィールド別にGROUP BYで重複排除された候補値が返却されることの検証
+- 数量表コピーAPI: 全データが正しく複製されること（グループ数、項目数、各フィールド値の一致、写真紐づけの維持）
+- 数量表コピーAPI: コピー先とコピー元が独立していること（一方の編集が他方に影響しない）
 
 ### E2E Tests
 
@@ -1352,6 +1421,16 @@ enum CalculationMethod {
   - 候補選択時にフィールドに値が自動入力されること
   - blur時に入力値がクライアントサイドの候補リストに追加されること
   - 候補追加後に同じフィールドで再入力すると追加された値が候補に表示されること
+- 数量表コピー操作
+  - 数量表一覧画面でコピーボタンクリック → ダイアログ表示 → 名前入力 → コピー実行 → 編集画面遷移の一連フロー
+  - コピーされた数量表のデータが元の数量表と一致することの確認
+  - コピー中の重複操作防止の確認
+  - デフォルトコピー名「{元の名前}のコピー」が設定されていることの確認
+- タイトル行表示最適化
+  - 各グループの先頭にメインタイトル行が1つだけ表示されていること
+  - 2行目以降の数量項目にメインタイトル行が繰り返し表示されないこと
+  - 面積・体積/ピッチ計算用フィールドのタイトル行は各項目に表示されること
+  - グループ折りたたみ/再展開後にタイトル行の表示ルールが維持されること
 
 ### Performance Tests
 
@@ -1479,3 +1558,301 @@ const handleSelectOnFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) 
 | 16.10 | 備考フィールドのフォーカス時全選択 | FieldValidatedItemRow | - | - |
 | 16.11 | 全選択状態での上書き入力 | ブラウザ標準動作 | - | - |
 | 16.12 | オートコンプリートとの共存 | AutocompleteInput | - | - |
+
+## Phase 5: 数量表コピー機能
+
+### 概要
+
+数量表一覧画面から既存の数量表をコピーして新しい数量表を作成する機能を追加する。コピーは全データ（数量グループ、数量項目、各フィールドの値、写真紐づけ）のディープコピーを行い、元の数量表とは完全に独立したデータとして管理される。
+
+### 影響範囲分析
+
+#### バックエンド変更
+
+| 対象 | 変更内容 | 影響度 |
+|------|---------|--------|
+| QuantityTableService | `copy`メソッドの追加 | 中（新規メソッド追加、既存変更なし） |
+| quantity-table.schema.ts | `CopyQuantityTableInput` Zodスキーマ追加 | 小 |
+| quantity-table.routes.ts | `POST /api/quantity-tables/:id/copy` エンドポイント追加 | 小 |
+| quantityTableError.ts | コピー関連エラークラス追加（任意） | 小 |
+
+#### フロントエンド変更
+
+| 対象 | 変更内容 | 影響度 |
+|------|---------|--------|
+| QuantityTableListPage | コピーボタンの追加 | 小 |
+| CopyQuantityTableDialog（新規） | コピーダイアログコンポーネント | 中（新規） |
+| quantity-tables.ts（API） | `copyQuantityTable` API関数追加 | 小 |
+
+### 設計方針
+
+#### QuantityTableService.copy メソッド
+
+```typescript
+/**
+ * 数量表をディープコピーする
+ *
+ * 単一トランザクション内で以下を実行:
+ * 1. 元の数量表を全グループ・全項目含めて取得
+ * 2. 新しい数量表を作成（指定された名前で）
+ * 3. 全グループを複製（displayOrder維持、surveyImageId維持）
+ * 4. 各グループ内の全項目を複製（全フィールド値・displayOrder維持）
+ *
+ * エラー時はトランザクションROLLBACKにより不完全なコピーデータが残らない。
+ *
+ * @param id コピー元の数量表ID
+ * @param input コピー先の名前
+ * @param actorId 実行ユーザーID
+ * @returns コピーされた新しい数量表の情報
+ * @throws QuantityTableNotFoundError コピー元が存在しない場合
+ */
+async copy(
+  id: string,
+  input: CopyQuantityTableInput,
+  actorId: string
+): Promise<QuantityTableInfo>;
+```
+
+**ディープコピー対象データ**:
+
+| レベル | コピー対象フィールド | 新規生成フィールド |
+|--------|--------------------|--------------------|
+| QuantityTable | name（inputから指定）, projectId | id, createdAt, updatedAt |
+| QuantityGroup | name, surveyImageId, displayOrder | id, quantityTableId, createdAt, updatedAt |
+| QuantityItem | majorCategory, middleCategory, minorCategory, customCategory, workType, name, specification, unit, calculationMethod, calculationParams, adjustmentFactor, roundingUnit, quantity, remarks, displayOrder | id, quantityGroupId, createdAt, updatedAt |
+
+**トランザクション設計**:
+
+```typescript
+// 設計意図の説明（擬似コード）
+// prisma.$transaction 内で全操作を実行
+// 1. findById で元の数量表を include: { groups: { include: { items: true } } } で取得
+// 2. 元が見つからない場合は QuantityTableNotFoundError
+// 3. create で新しい数量表を作成
+// 4. 元の各グループに対して create で新グループを作成（surveyImageId維持）
+// 5. 元の各項目に対して create で新項目を作成（全フィールド値をコピー）
+// 6. 監査ログに記録
+```
+
+#### CopyQuantityTableDialog コンポーネント
+
+```typescript
+/**
+ * 数量表コピーダイアログ
+ *
+ * 数量表一覧画面から呼び出されるモーダルダイアログ。
+ * コピー先の数量表名を入力し、コピーを実行する。
+ */
+interface CopyQuantityTableDialogProps {
+  /** ダイアログの表示状態 */
+  isOpen: boolean;
+  /** ダイアログを閉じるコールバック */
+  onClose: () => void;
+  /** コピー元の数量表情報 */
+  sourceTable: {
+    id: string;
+    name: string;
+  };
+  /** コピー完了時のコールバック（コピーされた数量表のIDを受け取る） */
+  onCopyComplete: (copiedTableId: string) => void;
+}
+```
+
+**UI仕様**:
+
+- タイトル: 「数量表をコピー」
+- 数量表名入力フィールド: デフォルト値「{元の数量表名}のコピー」
+- 「キャンセル」ボタンと「コピーを作成」ボタン
+- コピー実行中: ボタンを無効化し、スピナー（処理中インジケーター）を表示
+- エラー時: エラーメッセージをダイアログ内に表示
+- 成功時: `onCopyComplete`でコピー先数量表のIDを返し、呼び出し元がナビゲーションを実行
+
+#### QuantityTableListPage の変更
+
+- 各数量表カードにコピーボタン（アイコン + 「コピー」テキスト）を追加
+- コピーボタンクリック時に`CopyQuantityTableDialog`を表示
+- `onCopyComplete`でコピーされた数量表の編集画面（`/projects/{projectId}/quantity-tables/{copiedTableId}`）に`navigate`で遷移
+
+#### API関数の追加
+
+```typescript
+/**
+ * 数量表をコピーするAPI関数
+ */
+async function copyQuantityTable(
+  tableId: string,
+  input: CopyQuantityTableInput
+): Promise<QuantityTableInfo>;
+```
+
+### Zodスキーマ定義
+
+```typescript
+const copyQuantityTableSchema = z.object({
+  name: z.string().min(1).max(200),
+});
+
+type CopyQuantityTableInput = z.infer<typeof copyQuantityTableSchema>;
+```
+
+### テスト設計
+
+#### 単体テスト
+
+- QuantityTableService.copy: 正常なディープコピー（全グループ・全項目の複製確認）
+- QuantityTableService.copy: 写真紐づけ（surveyImageId）の維持確認
+- QuantityTableService.copy: コピー元が存在しない場合のエラー
+- QuantityTableService.copy: トランザクションROLLBACKの確認
+- CopyQuantityTableDialog: デフォルト名の設定確認
+- CopyQuantityTableDialog: 処理中インジケーターの表示確認
+- CopyQuantityTableDialog: エラーメッセージの表示確認
+
+#### 統合テスト
+
+- コピーAPI: 全データが正しく複製されること（グループ数、項目数、各フィールド値の一致）
+- コピーAPI: コピー先とコピー元が独立していること（一方の編集が他方に影響しない）
+- コピーAPI: 大量データ（50グループ、500項目）のコピーパフォーマンス
+
+#### E2Eテスト
+
+- 数量表一覧画面でコピーボタンをクリック → ダイアログ表示 → 名前入力 → コピー実行 → 編集画面遷移の一連フロー
+- コピーされた数量表のデータが元の数量表と一致することの確認
+- コピー中の重複操作防止の確認
+
+## Phase 6: 数量項目タイトル行の表示最適化
+
+### 概要
+
+数量表編集画面において、メインのタイトル行（大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考）を各数量グループの先頭にのみ表示し、2行目以降の数量項目にはメインのタイトル行を繰り返し表示しないよう最適化する。計算方法固有のフィールドタイトル行（面積・体積用、ピッチ用）は従来通り各項目の計算用フィールド群とセットで表示する。
+
+### 影響範囲分析
+
+#### 現状の実装構造
+
+現在の`EditableQuantityItemRow`は各行内に`fieldLabel`（フィールドラベル）をインラインで持っている。グループレベルでのタイトル行は存在しない。
+
+#### 変更対象コンポーネント
+
+| 対象 | 変更内容 | 影響度 |
+|------|---------|--------|
+| QuantityGroupTitleRow（新規） | グループ先頭のメインタイトル行コンポーネント | 中（新規） |
+| QuantityGroupCard | タイトル行を項目リストの先頭に挿入 | 小 |
+| EditableQuantityItemRow | メインフィールドのラベル表示を抑制 | 中 |
+
+### 設計方針
+
+#### QuantityGroupTitleRow コンポーネント（新規）
+
+```typescript
+/**
+ * 数量グループのメインタイトル行
+ *
+ * 数量グループ内の項目リストの先頭にのみ表示される。
+ * メインの列タイトル（大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考）を表示する。
+ *
+ * 計算方法固有のタイトル行（面積・体積/ピッチ）はこのコンポーネントの対象外であり、
+ * 各EditableQuantityItemRow内のCalculationFieldsコンポーネントが従来通り担当する。
+ */
+interface QuantityGroupTitleRowProps {
+  /** 編集モードかどうか（trueの場合はEditableQuantityItemRowと同じグリッド構造を使用） */
+  isEditable?: boolean;
+}
+```
+
+**表示内容**:
+
+| 列位置 | タイトルテキスト | グリッド幅 |
+|--------|----------------|-----------|
+| 1 | 大項目 | 76px |
+| 2 | 中項目 | 76px |
+| 3 | 小項目 | 76px |
+| 4 | 任意分類 | 76px |
+| 5 | 工種 | 88px |
+| 6 | 名称 | 202px |
+| 7 | 規格 | 202px |
+| 8 | 計算方法 | 90px |
+| 9 | 数量 | 80px |
+| 10 | 単位 | 46px |
+| 11 | 備考 | 76px |
+| 12 | 操作 | 80px |
+
+**スタイル仕様**:
+
+- グリッドレイアウト: `EditableQuantityItemRow`の`row`スタイルと同一の`gridTemplateColumns`を使用
+- 背景色: `#f3f4f6`（薄いグレー）
+- フォント: 11px, fontWeight 600, color `#374151`
+- 下線: 1px solid `#d1d5db`
+
+#### QuantityGroupCard の変更
+
+`QuantityGroupCard`の項目リストレンダリング部分で、`items.map`の前に`QuantityGroupTitleRow`を1つ挿入する。
+
+```typescript
+// 変更後のレンダリングロジック（設計意図の説明）
+<div style={styles.itemList} role="table" aria-label="数量項目一覧">
+  {/* REQ-18.1: メインタイトル行をグループ先頭にのみ表示 */}
+  {items.length > 0 && (
+    <QuantityGroupTitleRow isEditable={isEditable} />
+  )}
+  <div role="rowgroup">
+    {items.map((item, index) =>
+      isEditable ? (
+        <EditableQuantityItemRow
+          key={item.id}
+          item={item}
+          showFieldLabels={false}  // REQ-18.2: 個別行のラベル非表示
+          // ... 既存props
+        />
+      ) : (
+        <QuantityItemRow key={item.id} item={item} />
+      )
+    )}
+  </div>
+</div>
+```
+
+#### EditableQuantityItemRow の変更
+
+新しいprop `showFieldLabels` を追加し、`false`の場合はメインフィールドのラベル（`fieldLabel`スタイルの要素）を非表示にする。
+
+```typescript
+interface EditableQuantityItemRowProps {
+  // ... 既存props
+  /**
+   * メインフィールドのラベル表示フラグ
+   * false の場合、大項目〜備考のフィールドラベルを非表示にする。
+   * 計算用フィールド（面積・体積/ピッチ）のタイトル行は影響を受けない。
+   * @default true（後方互換性のため）
+   */
+  showFieldLabels?: boolean;
+}
+```
+
+**変更の詳細**:
+
+- `showFieldLabels`が`false`の場合: メインの行グリッド内の各フィールドラベル要素をレンダリングしない
+- `showFieldLabels`が`true`（デフォルト）の場合: 従来通りラベルを表示（後方互換性維持）
+- 計算用フィールドのタイトル行（`CalculationFields`コンポーネント内）は`showFieldLabels`の影響を受けず、従来通り各計算用フィールド群とセットで表示される（REQ-18.3, 18.4）
+
+#### 折りたたみ/再展開時の動作（REQ-18.5）
+
+タイトル行表示は`items.length > 0`の条件と`isExpanded`状態に基づいてレンダリングされるため、グループの折りたたみ/再展開時にタイトル行の表示ルールが自動的に維持される。追加のロジックは不要。
+
+### テスト設計
+
+#### 単体テスト
+
+- QuantityGroupTitleRow: メインタイトル行の全11列が正しいテキストで表示されること
+- QuantityGroupTitleRow: グリッドレイアウトがEditableQuantityItemRowと一致すること
+- QuantityGroupCard: 項目が存在する場合にタイトル行が1つだけ表示されること
+- QuantityGroupCard: 項目が存在しない場合にタイトル行が表示されないこと
+- EditableQuantityItemRow: showFieldLabels=falseの場合にメインフィールドラベルが非表示になること
+- EditableQuantityItemRow: showFieldLabels=falseの場合でも計算用フィールドのタイトルは表示されること
+- QuantityGroupCard: 折りたたみ/再展開後にタイトル行が正しく表示されること
+
+#### E2Eテスト
+
+- 数量表編集画面で各グループの先頭にメインタイトル行が1つだけ表示されていること
+- 2行目以降の数量項目にメインタイトル行が繰り返し表示されないこと
+- 面積・体積/ピッチ計算用フィールドのタイトル行は各項目に表示されること
+- グループ折りたたみ/再展開後にタイトル行の表示ルールが維持されること
