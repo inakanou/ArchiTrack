@@ -156,6 +156,45 @@ export async function exportAnnotationJson(imageId: string): Promise<string> {
   return apiClient.get<string>(`/api/site-surveys/images/${imageId}/annotations/export`);
 }
 
+// ============================================================================
+// バッチ注釈取得（要件18対応）
+// ============================================================================
+
+/**
+ * バッチ注釈取得レスポンス
+ *
+ * Requirements: 18.1, 18.8
+ */
+interface BatchAnnotationResponse {
+  annotations: Record<string, AnnotationInfo | null>;
+}
+
+/**
+ * 複数画像の注釈データを一括取得する
+ *
+ * PDF報告書出力時に使用し、個別取得（N回リクエスト）の代わりに
+ * バッチAPI（1回リクエスト）で全画像の注釈データを取得する。
+ *
+ * @param surveyId - 現場調査ID（権限検証用）
+ * @param imageIds - 取得対象の画像IDリスト
+ * @returns 画像IDをキーとする注釈データのRecord（注釈なしの画像はnull）
+ * @throws ApiError
+ *   - 400: imageIdsが空配列または不正
+ *   - 403: 権限不足
+ *
+ * Requirements: 18.1, 18.2
+ */
+export async function getBatchAnnotations(
+  surveyId: string,
+  imageIds: string[]
+): Promise<Record<string, AnnotationInfo | null>> {
+  const response = await apiClient.post<BatchAnnotationResponse>(
+    '/api/site-surveys/annotations/batch',
+    { surveyId, imageIds }
+  );
+  return response.annotations;
+}
+
 /**
  * サムネイル更新レスポンス
  */

@@ -47,9 +47,11 @@ function createMockPrisma() {
   return {
     surveyImage: {
       findUnique: vi.fn(),
+      findMany: vi.fn(),
     },
     imageAnnotation: {
       findUnique: vi.fn(),
+      findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -753,6 +755,145 @@ describe('AnnotationService', () => {
 
       // Act & Assert - エラーがスローされないことを確認
       await expect(service.delete('non-existent')).resolves.toBeUndefined();
+    });
+  });
+
+  // ===========================================================================
+  // findByImageIds テスト（Task 43.1: バッチ注釈取得メソッドの単体テスト）
+  // Requirements: 18.1, 18.3, 18.4, 18.8
+  // ===========================================================================
+
+  describe('findByImageIds', () => {
+    const surveyId = 'survey-123';
+    const imageId1 = 'image-001';
+    const imageId2 = 'image-002';
+    const imageId3 = 'image-003';
+
+    const mockAnnotation1 = {
+      id: 'annotation-001',
+      imageId: imageId1,
+      data: mockAnnotationData,
+      version: '1.0',
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-02'),
+    };
+
+    const mockAnnotation2 = {
+      id: 'annotation-002',
+      imageId: imageId2,
+      data: { ...mockAnnotationData, objects: [{ type: 'circle', left: 50, top: 50 }] },
+      version: '1.0',
+      createdAt: new Date('2024-01-03'),
+      updatedAt: new Date('2024-01-04'),
+    };
+
+    it('正常系: 複数画像IDに対する注釈データを一括取得する（Requirements: 18.1, 18.3）', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findMany = vi
+        .fn()
+        .mockResolvedValue([{ id: imageId1 }, { id: imageId2 }]);
+      mockPrisma.imageAnnotation.findMany = vi
+        .fn()
+        .mockResolvedValue([mockAnnotation1, mockAnnotation2]);
+
+      // Act
+      const result = await service.findByImageIds([imageId1, imageId2], surveyId);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(Object.keys(result)).toHaveLength(2);
+      expect(result[imageId1]).toBeDefined();
+      expect(result[imageId1]!.id).toBe('annotation-001');
+      expect(result[imageId1]!.imageId).toBe(imageId1);
+      expect(result[imageId1]!.data).toEqual(mockAnnotationData);
+      expect(result[imageId2]).toBeDefined();
+      expect(result[imageId2]!.id).toBe('annotation-002');
+      expect(result[imageId2]!.imageId).toBe(imageId2);
+    });
+
+    it('注釈なし画像に対して空データ（null）が返却される（Requirements: 18.4）', async () => {
+      // Arrange: imageId3は注釈なし
+      mockPrisma.surveyImage.findMany = vi
+        .fn()
+        .mockResolvedValue([{ id: imageId1 }, { id: imageId3 }]);
+      mockPrisma.imageAnnotation.findMany = vi.fn().mockResolvedValue([
+        mockAnnotation1,
+        // imageId3の注釈はなし
+      ]);
+
+      // Act
+      const result = await service.findByImageIds([imageId1, imageId3], surveyId);
+
+      // Assert
+      expect(result[imageId1]).toBeDefined();
+      expect(result[imageId1]!.id).toBe('annotation-001');
+      expect(result[imageId3]).toBeNull();
+    });
+
+    it('空の画像ID配列に対して空のオブジェクトを返却する', async () => {
+      // Act
+      const result = await service.findByImageIds([], surveyId);
+
+      // Assert
+      expect(result).toEqual({});
+    });
+
+    it('不正なimageId（surveyに属さない）の場合にエラーをスローする', async () => {
+      // Arrange: surveyに属さないimageIdがある
+      const invalidImageId = 'image-invalid';
+      mockPrisma.surveyImage.findMany = vi.fn().mockResolvedValue([
+        { id: imageId1 },
+        // invalidImageIdはsurveysに属さないので返却されない
+      ]);
+
+      // Act & Assert
+      await expect(service.findByImageIds([imageId1, invalidImageId], surveyId)).rejects.toThrow(
+        AnnotationImageNotFoundError
+      );
+    });
+
+    it('レスポンス形式が個別取得APIと互換である（Requirements: 18.8）', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findMany = vi.fn().mockResolvedValue([{ id: imageId1 }]);
+      mockPrisma.imageAnnotation.findMany = vi.fn().mockResolvedValue([mockAnnotation1]);
+
+      // Act
+      const batchResult = await service.findByImageIds([imageId1], surveyId);
+      const individualResult = await service.findByImageId(imageId1);
+
+      // Assert: バッチ結果の各エントリが個別取得結果と同じ構造を持つ
+      const batchEntry = batchResult[imageId1];
+      // 両方ともAnnotationInfo型（id, imageId, data, version, createdAt, updatedAt）を持つ
+      if (batchEntry && individualResult) {
+        expect(Object.keys(batchEntry).sort()).toEqual(Object.keys(individualResult).sort());
+        expect(batchEntry.imageId).toBe(individualResult.imageId);
+        expect(typeof batchEntry.id).toBe('string');
+        expect(typeof batchEntry.version).toBe('string');
+        expect(batchEntry.data).toBeDefined();
+        expect(batchEntry.createdAt).toBeInstanceOf(Date);
+        expect(batchEntry.updatedAt).toBeInstanceOf(Date);
+      }
+    });
+
+    it('WHERE IN句で一括クエリが実行されることを確認する', async () => {
+      // Arrange
+      mockPrisma.surveyImage.findMany = vi
+        .fn()
+        .mockResolvedValue([{ id: imageId1 }, { id: imageId2 }]);
+      mockPrisma.imageAnnotation.findMany = vi
+        .fn()
+        .mockResolvedValue([mockAnnotation1, mockAnnotation2]);
+
+      // Act
+      await service.findByImageIds([imageId1, imageId2], surveyId);
+
+      // Assert: findManyが1回だけ呼ばれることで一括取得を確認
+      expect(mockPrisma.imageAnnotation.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.imageAnnotation.findMany).toHaveBeenCalledWith({
+        where: {
+          imageId: { in: [imageId1, imageId2] },
+        },
+      });
     });
   });
 });

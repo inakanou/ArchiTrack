@@ -324,6 +324,8 @@ app.use('/api/site-surveys/images', surveyImagesRoutes);
 
 // Annotation management routes
 app.use('/api/site-surveys/images', annotationRoutes);
+// Batch annotation routes (POST /api/site-surveys/annotations/batch)
+app.use('/api/site-surveys', annotationRoutes);
 
 // Quantity table management routes
 app.use('/api/projects/:projectId/quantity-tables', quantityTablesRoutes);

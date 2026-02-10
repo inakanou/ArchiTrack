@@ -96,3 +96,42 @@ export const saveAnnotationBodySchema = z.object({
  * 注釈保存入力の型
  */
 export type SaveAnnotationBodyInput = z.infer<typeof saveAnnotationBodySchema>;
+
+// ============================================================================
+// バッチ注釈取得スキーマ（要件18対応）
+// ============================================================================
+
+/**
+ * バッチ注釈取得用バリデーションメッセージ
+ */
+export const BATCH_ANNOTATION_VALIDATION_MESSAGES = {
+  SURVEY_ID_REQUIRED: '現場調査IDは必須です',
+  SURVEY_ID_INVALID_UUID: '現場調査IDの形式が不正です',
+  IMAGE_IDS_REQUIRED: '画像IDの配列は必須です',
+  IMAGE_IDS_MIN: '画像IDは1件以上必要です',
+  IMAGE_IDS_MAX: '画像IDは100件以下で指定してください',
+  IMAGE_ID_INVALID_UUID: '画像IDの形式が不正です',
+} as const;
+
+/**
+ * バッチ注釈取得リクエストボディスキーマ
+ *
+ * Requirements:
+ * - 18.1: 一括注釈取得エンドポイント
+ * - 18.6: アクセス権限の検証（surveyId使用）
+ */
+export const batchAnnotationBodySchema = z.object({
+  surveyId: z
+    .string()
+    .min(1, BATCH_ANNOTATION_VALIDATION_MESSAGES.SURVEY_ID_REQUIRED)
+    .regex(UUID_REGEX, BATCH_ANNOTATION_VALIDATION_MESSAGES.SURVEY_ID_INVALID_UUID),
+  imageIds: z
+    .array(z.string().regex(UUID_REGEX, BATCH_ANNOTATION_VALIDATION_MESSAGES.IMAGE_ID_INVALID_UUID))
+    .min(1, BATCH_ANNOTATION_VALIDATION_MESSAGES.IMAGE_IDS_MIN)
+    .max(100, BATCH_ANNOTATION_VALIDATION_MESSAGES.IMAGE_IDS_MAX),
+});
+
+/**
+ * バッチ注釈取得リクエストの型
+ */
+export type BatchAnnotationBodyInput = z.infer<typeof batchAnnotationBodySchema>;
