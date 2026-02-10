@@ -18,6 +18,7 @@
 - **写真ごとのコメント管理と報告書出力フラグによる選択的PDF出力を実現する**
 - **プロジェクト詳細画面での現場調査セクション表示を実現する**
 - **画像削除機能をUI上で提供する**
+- **PDF報告書出力時のAPIリクエスト最適化（バッチ注釈取得）を実現する**
 
 ### Non-Goals
 
@@ -346,14 +347,14 @@ sequenceDiagram
 - 既存のDELETE /api/site-surveys/images/:imageIdエンドポイントを利用
 - **画像削除成功時にpendingOrderRef/pendingChangesから該当imageIdをクリア**（未保存変更の整合性確保）
 
-### PDF報告書生成フロー（要件11対応）
+### PDF報告書生成フロー（要件11、18対応）
 
 ```mermaid
 sequenceDiagram
     participant User
     participant SurveyDetailPage
-    participant PdfReportService
     participant AnnotationRendererService
+    participant PdfReportService
     participant jsPDF
     participant Backend
 
@@ -361,13 +362,15 @@ sequenceDiagram
     SurveyDetailPage->>Backend: GET /api/site-surveys/:id/images
     Backend-->>SurveyDetailPage: 画像一覧（includeInReport=true のみフィルタ）
 
-    loop 各画像
-        SurveyDetailPage->>AnnotationRendererService: renderImage(imageInfo)
-        AnnotationRendererService->>Backend: GET /.../annotations
-        Backend-->>AnnotationRendererService: 注釈データ
+    SurveyDetailPage->>AnnotationRendererService: renderImagesForReport(images)
+    AnnotationRendererService->>Backend: POST /api/site-surveys/annotations/batch（全imageIdを一括送信）
+    Backend-->>AnnotationRendererService: 全画像の注釈データ（Map形式）
+
+    loop 各画像（注釈データはメモリ内のMapから取得）
         AnnotationRendererService->>AnnotationRendererService: Fabric.js Canvas生成・レンダリング
-        AnnotationRendererService-->>SurveyDetailPage: 注釈付きdataURL
     end
+
+    AnnotationRendererService-->>SurveyDetailPage: 注釈付きdataURL配列
 
     SurveyDetailPage->>PdfReportService: generateReport(survey, images)
     PdfReportService->>jsPDF: PDF初期化（A4縦）
@@ -389,6 +392,7 @@ sequenceDiagram
 - 1ページあたり3組の画像+コメントを配置
 - 画像は表示順序（displayOrder）の昇順で配置
 - 注釈付き画像はAnnotationRendererServiceでレンダリング（既存実装を拡張）
+- **要件18対応**: 注釈データの取得を個別APIリクエスト（N回）からバッチAPI（1回）に変更し、リクエスト数を大幅に削減
 
 ### 個別画像エクスポートフロー（要件12対応）
 
@@ -466,6 +470,14 @@ sequenceDiagram
 | **15.9** | **プライベートブラウジング検出・自動保存無効化** | **AutoSaveManager** | - | - |
 | **15.10** | **クロスブラウザQuotaExceededError検出** | **AutoSaveManager (isQuotaExceededError)** | - | - |
 | 16.1-16.8 | 非機能要件 | 全コンポーネント | - | - |
+| **18.1** | **バッチ注釈取得エンドポイント提供** | **AnnotationService, SurveyRoutes** | **AnnotationBatchAPI** | **PDF報告書生成フロー** |
+| **18.2** | **PDF出力時にバッチAPIを使用** | **AnnotationRendererService, survey-annotations API** | **AnnotationBatchAPI** | **PDF報告書生成フロー** |
+| **18.3** | **全画像の注釈データをまとめて返却** | **AnnotationService** | **AnnotationBatchAPI** | - |
+| **18.4** | **注釈なし画像に空データ返却** | **AnnotationService** | **AnnotationBatchAPI** | - |
+| **18.5** | **APIリクエスト数の大幅削減** | **AnnotationRendererService** | **AnnotationBatchAPI** | **PDF報告書生成フロー** |
+| **18.6** | **バッチAPI権限検証** | **SurveyRoutes, AuthMiddleware** | **AnnotationBatchAPI** | - |
+| **18.7** | **バッチAPIエラーハンドリング** | **AnnotationRendererService, SurveyRoutes** | **AnnotationBatchAPI** | - |
+| **18.8** | **既存個別APIとのレスポンス互換性** | **AnnotationService** | **AnnotationBatchAPI** | - |
 
 ## Components and Interfaces
 
@@ -475,11 +487,11 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|------------------|-----------|
 | SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | ImageService | Backend/Service | 画像アップロード・処理 | 4 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
-| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9 | PrismaClient (P0) | Service, API |
+| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18 | PrismaClient (P0) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
 | **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
 | ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
-| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14 | All Services (P0) | API |
+| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
 | SurveyListPage | Frontend/Page | 一覧表示 | 2, 3 | SurveyAPI (P0) | State |
 | SurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
@@ -976,7 +988,7 @@ const batchUpdateImageMetadataSchema = z.array(z.object({
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈データ（寸法線、マーキング、コメント）の永続化と復元を管理 |
-| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 18.1, 18.3, 18.4, 18.8 |
 
 **Responsibilities & Constraints**
 - Fabric.js JSON形式の注釈データを保存・復元
@@ -1018,6 +1030,22 @@ interface IAnnotationService {
   findByImageId(imageId: string): Promise<AnnotationInfo | null>;
   exportAsJson(imageId: string): Promise<string>;
   delete(imageId: string): Promise<void>;
+
+  /**
+   * 複数画像の注釈データを一括取得する（要件18対応）
+   *
+   * 指定された画像IDリストに対応する注釈データをまとめて返却する。
+   * 注釈データが存在しない画像IDに対しては、空の注釈データ（data: null）を返却する（18.4）。
+   * レスポンス形式は個別取得APIと互換性を維持する（18.8）。
+   *
+   * @param imageIds - 画像IDの配列
+   * @param surveyId - 現場調査ID（権限検証用）
+   * @returns 画像IDをキーとする注釈データのRecord
+   */
+  findByImageIds(
+    imageIds: string[],
+    surveyId: string
+  ): Promise<Record<string, AnnotationInfo | null>>;
 }
 ```
 
@@ -1029,6 +1057,101 @@ interface IAnnotationService {
 - Integration: Fabric.jsのserialize/deserializeフォーマットに準拠
 - Validation: 注釈オブジェクトの型安全性を検証
 - Risks: 大量の注釈オブジェクトによるJSONサイズ肥大化
+
+##### バッチ注釈取得API（要件18対応）
+
+**バッチ注釈取得エンドポイント**:
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| POST | /api/site-surveys/annotations/batch | BatchAnnotationRequest | BatchAnnotationResponse | 400, 403 |
+
+**Request Schema**:
+```typescript
+// Zodスキーマ
+const batchAnnotationRequestSchema = z.object({
+  surveyId: z.string().uuid(),
+  imageIds: z.array(z.string().uuid()).min(1).max(100),
+});
+
+interface BatchAnnotationRequest {
+  surveyId: string;    // 現場調査ID（権限検証用、18.6対応）
+  imageIds: string[];  // 取得対象の画像ID配列
+}
+```
+
+**Response Schema**:
+```typescript
+/**
+ * バッチ注釈取得レスポンス
+ * 各画像IDに対応する注釈データを返却する。
+ * 注釈データが存在しない画像IDに対しては null を返却する（18.4対応）。
+ * 個別取得API（GET /.../annotations）のレスポンスと互換性を維持する（18.8対応）。
+ */
+interface BatchAnnotationResponse {
+  annotations: Record<string, AnnotationInfo | null>;
+}
+```
+
+**権限検証（18.6対応）**:
+- `surveyId`から現場調査を取得し、紐付くプロジェクトのアクセス権限を検証
+- `imageIds`が当該現場調査に属することを検証（不正なimageIdは400エラー）
+- 既存の`site_survey:read`権限を使用
+
+**エラーハンドリング（18.7対応）**:
+- 400: imageIdsが空配列、100件超過、またはimageIdが当該surveyに属さない場合
+- 403: 現場調査へのアクセス権限がない場合
+
+**データ取得戦略**:
+```typescript
+// Prisma WHERE IN クエリで一括取得
+async findByImageIds(
+  imageIds: string[],
+  surveyId: string
+): Promise<Record<string, AnnotationInfo | null>> {
+  // 1. 画像IDが当該surveyに属することを検証
+  const images = await this.prisma.surveyImage.findMany({
+    where: {
+      id: { in: imageIds },
+      surveyId: surveyId,
+      survey: { deletedAt: null },
+    },
+    select: { id: true },
+  });
+
+  const validImageIds = new Set(images.map(img => img.id));
+
+  // 不正なimageIdが含まれている場合はエラー
+  const invalidIds = imageIds.filter(id => !validImageIds.has(id));
+  if (invalidIds.length > 0) {
+    throw new AnnotationImageNotFoundError(invalidIds[0]);
+  }
+
+  // 2. WHERE IN で注釈データを一括取得
+  const annotations = await this.prisma.imageAnnotation.findMany({
+    where: {
+      imageId: { in: imageIds },
+    },
+  });
+
+  // 3. 結果をRecord形式に変換（注釈なしの画像にはnullを設定: 18.4対応）
+  const result: Record<string, AnnotationInfo | null> = {};
+  const annotationMap = new Map(
+    annotations.map(a => [a.imageId, this.toAnnotationInfo(a)])
+  );
+
+  for (const imageId of imageIds) {
+    result[imageId] = annotationMap.get(imageId) ?? null;
+  }
+
+  return result;
+}
+```
+
+**パフォーマンス改善効果（18.5対応）**:
+- 従来: 画像N枚 → N回のGETリクエスト（個別注釈取得）+ 1回のGETリクエスト（画像一覧）= N+1回
+- 改善後: 1回のPOSTリクエスト（バッチ注釈取得）+ 1回のGETリクエスト（画像一覧）= 2回
+- 画像20枚の場合: 21回 → 2回（約90%削減）
 
 #### ExportService (Frontend)
 
@@ -1247,6 +1370,132 @@ export function initializePdfFonts(doc: jsPDF): void {
 
 **非同期ローディング**: 初回PDF生成時にフォントを遅延読み込みし、以降はメモリキャッシュを使用
 
+#### AnnotationRendererService 拡張（要件18対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | PDF報告書生成時の注釈付き画像レンダリングにバッチ注釈取得を適用 |
+| Requirements | 18.2, 18.5, 18.7 |
+
+**変更概要**:
+- `renderImagesForReport`メソッドを変更し、個別`getAnnotation()`呼び出しからバッチ`getBatchAnnotations()`呼び出しに切り替える
+- 注釈データを事前に一括取得し、各画像のレンダリング時にはメモリ内のMapから取得する
+
+**変更箇所**:
+
+1. **`renderImagesForReport`メソッド**: 画像リストから全imageIdを抽出し、`getBatchAnnotations()`で一括取得後、各画像のレンダリングに使用
+
+2. **`renderImageForReport`メソッド（内部）**: 注釈データを引数で受け取るオーバーロードを追加（バッチ取得済みデータを使用）
+
+**拡張インターフェース**:
+```typescript
+// AnnotationRendererService 拡張（要件18対応）
+
+/**
+ * 報告書用に複数の画像に注釈をレンダリングする（バッチ注釈取得対応）
+ *
+ * 変更前: 各画像ごとに getAnnotation() を個別呼び出し（N回のHTTPリクエスト）
+ * 変更後: getBatchAnnotations() で全画像の注釈を一括取得（1回のHTTPリクエスト）
+ *
+ * @requirement 18.2, 18.5
+ */
+async renderImagesForReport(
+  images: SurveyImageInfo[],
+  options?: RenderOptions
+): Promise<RenderedImage[]> {
+  // 1. 日本語フォントを事前にロード（1回のみ）
+  await loadJapaneseFont();
+
+  // 2. 全画像の注釈データを一括取得（要件18.2対応）
+  const imageIds = images.map(img => img.id);
+  const surveyId = images[0]?.surveyId;
+  let annotationsMap: Record<string, AnnotationInfo | null> = {};
+
+  if (surveyId && imageIds.length > 0) {
+    try {
+      annotationsMap = await getBatchAnnotations(surveyId, imageIds);
+    } catch (error) {
+      // バッチ取得失敗時は個別取得にフォールバック（18.7対応）
+      console.warn('Batch annotation fetch failed, falling back to individual fetch:', error);
+      annotationsMap = {};
+    }
+  }
+
+  // 3. 各画像を順次レンダリング（注釈データはMapから取得）
+  const results: RenderedImage[] = [];
+  for (const imageInfo of images) {
+    const annotationData = annotationsMap[imageInfo.id];
+    const result = await this.renderImageWithAnnotation(
+      imageInfo,
+      annotationData,
+      options
+    );
+    if (result) {
+      results.push(result);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * 事前取得済みの注釈データを使用して画像をレンダリングする
+ * annotationDataがundefined（Mapにキーなし）の場合のみ個別取得にフォールバック
+ */
+private async renderImageWithAnnotation(
+  imageInfo: SurveyImageInfo,
+  annotationData: AnnotationInfo | null | undefined,
+  options?: RenderOptions
+): Promise<RenderedImage | null>;
+```
+
+**フォールバック戦略（18.7対応）**:
+- バッチAPI呼び出しが失敗した場合、従来の個別`getAnnotation()`にフォールバック
+- フォールバック時はconsole.warnでログ出力（Sentryにも送信）
+- ユーザーにはエラーを表示せず、パフォーマンスが低下するのみ
+
+#### survey-annotations APIクライアント拡張（要件18対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | バッチ注釈取得のAPIクライアント関数を提供 |
+| Requirements | 18.1, 18.2, 18.7 |
+
+**追加関数**:
+```typescript
+// frontend/src/api/survey-annotations.ts に追加
+
+/**
+ * 複数画像の注釈データを一括取得する
+ *
+ * PDF報告書出力時に使用し、個別取得（N回リクエスト）の代わりに
+ * バッチAPI（1回リクエスト）で全画像の注釈データを取得する。
+ *
+ * @param surveyId - 現場調査ID（権限検証用）
+ * @param imageIds - 取得対象の画像IDリスト
+ * @returns 画像IDをキーとする注釈データのRecord（注釈なしの画像はnull）
+ * @throws ApiError
+ *   - 400: imageIdsが空配列または不正
+ *   - 403: 権限不足
+ *
+ * @requirement 18.1, 18.2
+ */
+export async function getBatchAnnotations(
+  surveyId: string,
+  imageIds: string[]
+): Promise<Record<string, AnnotationInfo | null>> {
+  const response = await apiClient.post<BatchAnnotationResponse>(
+    '/api/site-surveys/annotations/batch',
+    { surveyId, imageIds }
+  );
+  return response.annotations;
+}
+
+interface BatchAnnotationResponse {
+  annotations: Record<string, AnnotationInfo | null>;
+}
+```
+
 ### Backend / Routes Layer
 
 #### SurveyRoutes
@@ -1254,7 +1503,7 @@ export function initializePdfFonts(doc: jsPDF): void {
 | Field | Detail |
 |-------|--------|
 | Intent | 現場調査関連のHTTPエンドポイントを定義 |
-| Requirements | 1-16 |
+| Requirements | 1-16, 18 |
 
 **Contracts**: Service [ ] / API [x] / Event [ ] / Batch [ ] / State [ ]
 
@@ -1276,6 +1525,7 @@ export function initializePdfFonts(doc: jsPDF): void {
 | **PATCH** | **/api/site-surveys/images/batch** | **BatchUpdateImageMetadataInput[]** | **SurveyImageInfo[]** | **400, 404** |
 | GET | /api/site-surveys/images/:imageId/annotations | - | AnnotationInfo | 404 |
 | PUT | /api/site-surveys/images/:imageId/annotations | AnnotationData | AnnotationInfo | 400, 404, 409 |
+| **POST** | **/api/site-surveys/annotations/batch** | **BatchAnnotationRequest** | **BatchAnnotationResponse** | **400, 403** |
 
 **Note**: 画像エクスポートおよびPDF生成はクライアントサイドで実行（Fabric.js toDataURL + jsPDF）
 
@@ -2363,12 +2613,15 @@ interface FabricSerializedObject {
 - **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
 - **ImageMetadataService**: コメント更新、報告書フラグ更新、**順序更新**、バリデーション、**一括更新（メタデータ+順序）**
 - **ImageDeleteService**: 画像削除、注釈連動削除、R2連携、**孤立ファイルorphaned/移動（4.8）**
-- **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート
+- **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート、**バッチ注釈取得（findByImageIds: 正常系、注釈なし画像、不正imageId、空配列）（18.1, 18.3, 18.4, 18.8）**
 - **PdfReportService**: 3組レイアウト、コメント表示、ページ分割
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
 - **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視、**QuotaExceededError LRUリトライ（15.7）、プライベートブラウジング検出（15.9）、クロスブラウザエラー検出（15.10）**
 - **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation
 - **SurveyDetailPage**: **handleOrderChange（ローカル状態更新）**、**handleSaveMetadata（メタデータ+順序一括保存）**、**pendingOrderRefパターン**
+
+- **AnnotationRendererService**: **バッチ注釈取得統合（renderImagesForReport: バッチAPI使用、フォールバック）（18.2, 18.5, 18.7）**
+- **survey-annotations API**: **getBatchAnnotations関数（正常系、エラーハンドリング）（18.1, 18.7）**
 
 ### Integration Tests
 
@@ -2382,6 +2635,7 @@ interface FabricSerializedObject {
 - **R2孤立ファイル処理**: 削除失敗時のorphaned/移動、Object Lifecycle Ruleテスト（4.8）
 - **localStorage QuotaExceededError処理**: LRUリトライ、警告表示、プライベートブラウジング検出（15.7-15.10）
 - **直近N件取得**: プロジェクト詳細画面での現場調査セクション表示
+- **バッチ注釈取得フロー**: POST /api/site-surveys/annotations/batch → PostgreSQL WHERE IN → レスポンス（18.1, 18.3, 18.4, 18.6）
 
 ### E2E Tests
 
@@ -2398,6 +2652,7 @@ interface FabricSerializedObject {
 - レスポンシブUIの動作確認
 - **localStorage容量不足時のユーザー警告表示（15.8）**
 - **プライベートブラウジングモードでの自動保存無効化警告（15.9）**
+- **PDF報告書出力時のバッチ注釈取得（DevToolsでリクエスト数がN→1に削減されること）（18.2, 18.5）**
 
 ### Performance Tests
 
@@ -2463,6 +2718,7 @@ interface FabricSerializedObject {
 **API最適化**:
 - 注釈データの差分更新（将来）
 - 画像URLのプリサイン付きキャッシュ
+- **バッチ注釈取得（要件18対応）**: PDF報告書出力時の注釈データ取得をN回の個別リクエストから1回のバッチリクエストに削減
 
 ## Migration Strategy
 
@@ -2480,7 +2736,9 @@ interface FabricSerializedObject {
 4. GET /api/projects/:projectId/site-surveys/latest エンドポイントの追加
 5. 画像一覧APIのレスポンスに新フィールドを追加
 6. **ImageDeleteServiceにorphaned/移動ロジックを追加（4.8）**
-7. 単体テスト・統合テストの追加
+7. **AnnotationServiceにfindByImageIdsメソッドを追加（18.1, 18.3, 18.4）**
+8. **POST /api/site-surveys/annotations/batch エンドポイントの追加（18.1, 18.6）**
+9. 単体テスト・統合テストの追加
 
 ### Phase 2.5: R2インフラ設定（要件4.8対応）
 
@@ -2508,7 +2766,11 @@ interface FabricSerializedObject {
    - プライベートブラウジングモード検出
    - クロスブラウザエラー検出ユーティリティ
    - 警告UIコンポーネントの実装
-9. 単体テスト・E2Eテストの追加
+9. **survey-annotations APIにgetBatchAnnotations関数を追加（18.1, 18.2）**
+10. **AnnotationRendererServiceのrenderImagesForReportをバッチ取得方式に変更（18.2, 18.5, 18.7）**
+    - getBatchAnnotationsによる一括注釈取得
+    - フォールバック（個別取得）の実装
+11. 単体テスト・E2Eテストの追加
 
 ### Rollback Triggers
 
