@@ -28,6 +28,11 @@ export interface CalculationMethodSelectProps {
   disabled?: boolean;
   /** 要素ID */
   id?: string;
+  /**
+   * ラベル表示フラグ（Task 23.2: showFieldLabels対応）
+   * @default true
+   */
+  showLabel?: boolean;
 }
 
 // ============================================================================
@@ -105,6 +110,7 @@ export default function CalculationMethodSelect({
   onChange,
   disabled = false,
   id: propId,
+  showLabel = true,
 }: CalculationMethodSelectProps) {
   const generatedId = useId();
   const selectId = propId ?? generatedId;
@@ -123,9 +129,11 @@ export default function CalculationMethodSelect({
 
   return (
     <div style={styles.container}>
-      <label id={labelId} htmlFor={selectId} style={styles.label}>
-        計算方法
-      </label>
+      {showLabel && (
+        <label id={labelId} htmlFor={selectId} style={styles.label}>
+          計算方法
+        </label>
+      )}
       <div style={styles.selectWrapper}>
         <select
           id={selectId}

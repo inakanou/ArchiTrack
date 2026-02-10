@@ -25,6 +25,7 @@ import logger from '../utils/logger.js';
 import {
   createQuantityTableSchema,
   updateQuantityTableSchema,
+  copyQuantityTableSchema,
   quantityTableIdParamSchema,
   projectIdParamSchema,
 } from '../schemas/quantity-table.schema.js';
@@ -730,6 +731,104 @@ router.put(
         return;
       }
       next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/quantity-tables/{id}/copy:
+ *   post:
+ *     summary: 数量表コピー
+ *     description: 既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする
+ *     tags:
+ *       - Quantity Tables
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: コピー元の数量表ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 200
+ *                 description: コピー先の数量表名
+ *     responses:
+ *       201:
+ *         description: 数量表コピー成功
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: コピー元の数量表が見つからない
+ *       500:
+ *         description: コピー処理中のサーバーエラー
+ */
+router.post(
+  '/:id/copy',
+  authenticate,
+  requirePermission('quantity_table:create'),
+  validate(quantityTableIdParamSchema, 'params'),
+  validate(copyQuantityTableSchema, 'body'),
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const actorId = req.user!.userId;
+      const validatedBody = req.validatedBody as { name: string };
+
+      const copiedTable = await quantityTableService.copy(id, validatedBody, actorId);
+
+      logger.info(
+        {
+          userId: actorId,
+          sourceTableId: id,
+          copiedTableId: copiedTable.id,
+          name: copiedTable.name,
+        },
+        'Quantity table copied successfully'
+      );
+
+      res.status(201).json(copiedTable);
+    } catch (error) {
+      if (error instanceof QuantityTableNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/quantity-table-not-found',
+          title: 'Quantity Table Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_NOT_FOUND',
+        });
+        return;
+      }
+      // 予期しないエラー（トランザクションエラー含む）は500として返却
+      logger.error(
+        { error, quantityTableId: (req.validatedParams as { id?: string })?.id },
+        'Failed to copy quantity table'
+      );
+      res.status(500).json({
+        type: 'https://architrack.example.com/problems/internal-server-error',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'コピー処理中にエラーが発生しました',
+        code: 'QUANTITY_TABLE_COPY_ERROR',
+      });
     }
   }
 );

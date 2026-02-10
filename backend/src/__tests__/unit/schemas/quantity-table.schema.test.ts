@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import {
   updateQuantityItemSchema,
   calculationParamsSchema,
+  copyQuantityTableSchema,
   QUANTITY_TABLE_VALIDATION_MESSAGES,
 } from '../../../schemas/quantity-table.schema.js';
 
@@ -253,6 +254,59 @@ describe('quantity-table.schema', () => {
           expect(result.data).toBeNull();
         }
       });
+    });
+  });
+
+  /**
+   * Task 20.2: コピー用Zodスキーマのテスト
+   *
+   * Requirements:
+   * - 17.2: コピーダイアログで数量表名を入力して作成を確定する
+   */
+  describe('copyQuantityTableSchema', () => {
+    it('有効な数量表名を受け入れる', () => {
+      const result = copyQuantityTableSchema.safeParse({ name: 'テスト数量表のコピー' });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.name).toBe('テスト数量表のコピー');
+      }
+    });
+
+    it('1文字の数量表名を受け入れる（最小値）', () => {
+      const result = copyQuantityTableSchema.safeParse({ name: 'a' });
+      expect(result.success).toBe(true);
+    });
+
+    it('200文字の数量表名を受け入れる（最大値）', () => {
+      const name = 'あ'.repeat(200);
+      const result = copyQuantityTableSchema.safeParse({ name });
+      expect(result.success).toBe(true);
+    });
+
+    it('空文字列を拒否する', () => {
+      const result = copyQuantityTableSchema.safeParse({ name: '' });
+      expect(result.success).toBe(false);
+    });
+
+    it('201文字の数量表名を拒否する（最大値超過）', () => {
+      const name = 'あ'.repeat(201);
+      const result = copyQuantityTableSchema.safeParse({ name });
+      expect(result.success).toBe(false);
+    });
+
+    it('nameフィールドが未定義の場合拒否する', () => {
+      const result = copyQuantityTableSchema.safeParse({});
+      expect(result.success).toBe(false);
+    });
+
+    it('nameフィールドがnullの場合拒否する', () => {
+      const result = copyQuantityTableSchema.safeParse({ name: null });
+      expect(result.success).toBe(false);
+    });
+
+    it('空白のみの数量表名を拒否する', () => {
+      const result = copyQuantityTableSchema.safeParse({ name: '   ' });
+      expect(result.success).toBe(false);
     });
   });
 });

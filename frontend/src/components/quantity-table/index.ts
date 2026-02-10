@@ -35,6 +35,15 @@ export { default as EditableQuantityItemRow } from './EditableQuantityItemRow';
 export type { AutocompleteInputProps } from './AutocompleteInput';
 export type { EditableQuantityItemRowProps } from './EditableQuantityItemRow';
 
+// Task 21: 数量表コピー機能
+export { default as CopyQuantityTableDialog } from './CopyQuantityTableDialog';
+export type { CopyQuantityTableDialogProps } from './CopyQuantityTableDialog';
+
+// Task 23: タイトル行表示最適化
+export { default as QuantityGroupTitleRow } from './QuantityGroupTitleRow';
+export type { QuantityGroupTitleRowProps } from './QuantityGroupTitleRow';
+export { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
+
 // Task 12: フィールドバリデーション
 export { default as TextFieldInput } from './TextFieldInput';
 export { default as NumericFieldInput } from './NumericFieldInput';

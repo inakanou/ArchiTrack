@@ -11,10 +11,11 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getQuantityTables, deleteQuantityTable } from '../api/quantity-tables';
 import type { QuantityTableInfo, PaginatedQuantityTables } from '../types/quantity-table.types';
 import { Breadcrumb } from '../components/common';
+import CopyQuantityTableDialog from '../components/quantity-table/CopyQuantityTableDialog';
 
 // ============================================================================
 // スタイル定義
@@ -174,6 +175,19 @@ const styles = {
     alignItems: 'center',
     gap: '8px',
   } as React.CSSProperties,
+  copyButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '36px',
+    height: '36px',
+    border: 'none',
+    borderRadius: '6px',
+    backgroundColor: '#eff6ff',
+    color: '#2563eb',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  } as React.CSSProperties,
   deleteButton: {
     display: 'flex',
     alignItems: 'center',
@@ -304,6 +318,27 @@ function PlusIcon() {
 }
 
 /**
+ * コピーアイコン
+ */
+function CopyIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+/**
  * ゴミ箱アイコン
  */
 function TrashIcon() {
@@ -348,14 +383,22 @@ function EmptyState({ projectId }: { projectId: string }) {
 function TableCard({
   table,
   onDelete,
+  onCopy,
 }: {
   table: QuantityTableInfo;
   onDelete: (id: string) => void;
+  onCopy: (table: QuantityTableInfo) => void;
 }) {
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onDelete(table.id);
+  };
+
+  const handleCopyClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onCopy(table);
   };
 
   return (
@@ -376,6 +419,15 @@ function TableCard({
         </div>
       </Link>
       <div style={styles.cardActions}>
+        <button
+          type="button"
+          style={styles.copyButton}
+          onClick={handleCopyClick}
+          aria-label="コピー"
+          title="コピー"
+        >
+          <CopyIcon />
+        </button>
         <button
           type="button"
           style={styles.deleteButton}
@@ -399,6 +451,7 @@ function TableCard({
  */
 export default function QuantityTableListPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
 
   // データ状態
   const [data, setData] = useState<PaginatedQuantityTables | null>(null);
@@ -408,6 +461,9 @@ export default function QuantityTableListPage() {
   const [error, setError] = useState<string | null>(null);
   const [tableToDelete, setTableToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // コピー状態
+  const [tableToCopy, setTableToCopy] = useState<{ id: string; name: string } | null>(null);
 
   /**
    * 数量表一覧を取得
@@ -477,6 +533,31 @@ export default function QuantityTableListPage() {
   const handleCancelDelete = useCallback(() => {
     setTableToDelete(null);
   }, []);
+
+  /**
+   * コピーダイアログを開く
+   */
+  const handleCopyClick = useCallback((table: QuantityTableInfo) => {
+    setTableToCopy({ id: table.id, name: table.name });
+  }, []);
+
+  /**
+   * コピーダイアログを閉じる
+   */
+  const handleCopyClose = useCallback(() => {
+    setTableToCopy(null);
+  }, []);
+
+  /**
+   * コピー完了時の処理（コピーされた数量表の編集画面に遷移）
+   */
+  const handleCopyComplete = useCallback(
+    (copiedTableId: string) => {
+      setTableToCopy(null);
+      navigate(`/projects/${projectId}/quantity-tables/${copiedTableId}`);
+    },
+    [navigate, projectId]
+  );
 
   // ローディング表示
   if (isLoading) {
@@ -556,9 +637,24 @@ export default function QuantityTableListPage() {
       ) : (
         <div style={styles.tableList}>
           {quantityTables.map((table) => (
-            <TableCard key={table.id} table={table} onDelete={handleDeleteClick} />
+            <TableCard
+              key={table.id}
+              table={table}
+              onDelete={handleDeleteClick}
+              onCopy={handleCopyClick}
+            />
           ))}
         </div>
+      )}
+
+      {/* コピーダイアログ */}
+      {tableToCopy && (
+        <CopyQuantityTableDialog
+          isOpen={!!tableToCopy}
+          onClose={handleCopyClose}
+          sourceTable={tableToCopy}
+          onCopyComplete={handleCopyComplete}
+        />
       )}
 
       {/* 削除確認ダイアログ */}

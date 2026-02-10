@@ -472,6 +472,44 @@ export async function copyQuantityItem(itemId: string): Promise<QuantityItemDeta
 }
 
 // ============================================================================
+// 数量表コピーAPI
+// Task 21.2: コピーAPI呼び出し関数を実装する
+// Requirements: 17.2
+// ============================================================================
+
+/**
+ * 数量表コピー入力型
+ */
+export interface CopyQuantityTableInput {
+  /** コピー先の数量表名（1-200文字） */
+  name: string;
+}
+
+/**
+ * 数量表をコピーする
+ *
+ * 元の数量表の全データ（数量グループ、数量項目、各フィールドの値、写真紐づけ）を
+ * ディープコピーした新しい数量表を作成します。
+ *
+ * @param tableId - コピー元の数量表ID（UUID）
+ * @param input - コピー先の数量表名
+ * @returns コピーされた新しい数量表の情報
+ * @throws ApiError コピー元が見つからない（404）、バリデーションエラー（400）、認証エラー（401）、権限不足（403）、サーバーエラー（500）
+ *
+ * Requirements: 17.2
+ *
+ * @example
+ * const copiedTable = await copyQuantityTable('table-id', { name: '数量表のコピー' });
+ * // copiedTable.id でコピーされた数量表のIDを取得
+ */
+export async function copyQuantityTable(
+  tableId: string,
+  input: CopyQuantityTableInput
+): Promise<QuantityTableInfo> {
+  return apiClient.post<QuantityTableInfo>(`/api/quantity-tables/${tableId}/copy`, input);
+}
+
+// ============================================================================
 // バルク保存API
 // ============================================================================
 

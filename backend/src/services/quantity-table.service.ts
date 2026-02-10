@@ -20,6 +20,7 @@ import type { IAuditLogService } from '../types/audit-log.types.js';
 import type {
   CreateQuantityTableInput,
   UpdateQuantityTableInput,
+  CopyQuantityTableInput,
 } from '../schemas/quantity-table.schema.js';
 import {
   QuantityTableNotFoundError,
@@ -870,6 +871,137 @@ export class QuantityTableService {
         },
         after: null,
       });
+    });
+  }
+
+  /**
+   * 数量表ディープコピー
+   *
+   * 単一トランザクション内で元の数量表を全グループ・全項目含めて取得し、
+   * 新しい数量表としてディープコピーする。
+   *
+   * コピー対象:
+   * - 数量表: name（inputから指定）, projectId
+   * - グループ: name, surveyImageId, displayOrder
+   * - 項目: 全フィールド値（majorCategory, middleCategory, minorCategory,
+   *   customCategory, workType, name, specification, unit, calculationMethod,
+   *   calculationParams, adjustmentFactor, roundingUnit, quantity, remarks, displayOrder）
+   *
+   * Requirements:
+   * - 17.2: コピーダイアログで数量表名を入力して作成を確定する
+   * - 17.4: コピーされた数量表は元の数量表とは独立したデータとして管理する
+   * - 17.5: コピー中にエラーが発生した場合、不完全なコピーデータが残らないようにする
+   * - 17.7: 元の数量表に写真が紐づけられている場合、コピー先でも同じ写真の紐づけを維持する
+   *
+   * @param id - コピー元の数量表ID
+   * @param input - コピー先の名前
+   * @param actorId - 実行ユーザーID
+   * @returns コピーされた新しい数量表の情報
+   * @throws QuantityTableNotFoundError コピー元が存在しない場合
+   */
+  async copy(
+    id: string,
+    input: CopyQuantityTableInput,
+    actorId: string
+  ): Promise<QuantityTableInfo> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. 元の数量表を全グループ・全項目含めて取得
+      const sourceTable = await tx.quantityTable.findUnique({
+        where: {
+          id,
+          deletedAt: null,
+        },
+        include: {
+          groups: {
+            orderBy: { displayOrder: 'asc' },
+            include: {
+              items: {
+                orderBy: { displayOrder: 'asc' },
+              },
+            },
+          },
+        },
+      });
+
+      // コピー元が存在しない場合はエラー
+      if (!sourceTable) {
+        throw new QuantityTableNotFoundError(id);
+      }
+
+      // 2. 新しい数量表を作成（ユーザー指定の名前で）
+      const copiedTable = await tx.quantityTable.create({
+        data: {
+          projectId: sourceTable.projectId,
+          name: input.name.trim(),
+        },
+      });
+
+      // 3. 全グループを複製（displayOrder維持、surveyImageId維持）
+      let totalItemCount = 0;
+
+      for (const sourceGroup of sourceTable.groups) {
+        const copiedGroup = await tx.quantityGroup.create({
+          data: {
+            quantityTableId: copiedTable.id,
+            name: sourceGroup.name,
+            surveyImageId: sourceGroup.surveyImageId,
+            displayOrder: sourceGroup.displayOrder,
+          },
+        });
+
+        // 4. 各グループ内の全項目を複製（全フィールド値・displayOrder維持）
+        for (const sourceItem of sourceGroup.items) {
+          await tx.quantityItem.create({
+            data: {
+              quantityGroupId: copiedGroup.id,
+              majorCategory: sourceItem.majorCategory,
+              middleCategory: sourceItem.middleCategory,
+              minorCategory: sourceItem.minorCategory,
+              customCategory: sourceItem.customCategory,
+              workType: sourceItem.workType,
+              name: sourceItem.name,
+              specification: sourceItem.specification,
+              unit: sourceItem.unit,
+              calculationMethod: sourceItem.calculationMethod,
+              calculationParams: sourceItem.calculationParams ?? undefined,
+              adjustmentFactor: sourceItem.adjustmentFactor,
+              roundingUnit: sourceItem.roundingUnit,
+              quantity: sourceItem.quantity,
+              remarks: sourceItem.remarks,
+              displayOrder: sourceItem.displayOrder,
+            },
+          });
+          totalItemCount++;
+        }
+      }
+
+      // 5. 監査ログに記録
+      await this.auditLogService.createLog({
+        action: 'QUANTITY_TABLE_COPIED',
+        actorId,
+        targetType: QUANTITY_TABLE_TARGET_TYPE,
+        targetId: copiedTable.id,
+        before: {
+          sourceTableId: id,
+          sourceName: sourceTable.name,
+        },
+        after: {
+          name: copiedTable.name,
+          projectId: copiedTable.projectId,
+          groupCount: sourceTable.groups.length,
+          itemCount: totalItemCount,
+        },
+      });
+
+      return {
+        id: copiedTable.id,
+        projectId: copiedTable.projectId,
+        name: copiedTable.name,
+        groupCount: sourceTable.groups.length,
+        itemCount: totalItemCount,
+        createdAt: copiedTable.createdAt,
+        updatedAt: copiedTable.updatedAt,
+      };
     });
   }
 
