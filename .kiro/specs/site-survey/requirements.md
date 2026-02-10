@@ -205,3 +205,14 @@
 6. The Site Survey Service shall 全ての通信をHTTPS/TLSで暗号化する
 7. The Site Survey Service shall 画像データを定期的にバックアップする
 8. The Site Survey Service shall エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する
+
+### Requirement 17: 描画ツール使用中のオブジェクト選択防止
+**Objective:** As a 現場調査担当者, I want 描画ツール使用中に既存オブジェクト上でも描画を継続できること, so that 既存の注釈と重なる位置にも自由に描画できる
+
+#### Acceptance Criteria
+1. When ユーザーが選択ツール以外の描画ツール（寸法線・矢印・円・四角形・多角形・折れ線・フリーハンド・テキスト）を使用中に既存オブジェクト上でマウスダウンする, the Site Survey Service shall 既存オブジェクトの選択を行わず描画操作を開始する
+2. When ユーザーが選択ツールで既存オブジェクトをクリックする, the Site Survey Service shall 従来通りオブジェクトを選択状態にして編集可能にする
+3. When ユーザーが描画ツールで描画中にマウスアップ位置が既存オブジェクト上にある, the Site Survey Service shall 描画した図形を正常に作成・確定する
+4. When ユーザーが多角形・折れ線ツールで既存オブジェクト上の位置に頂点を追加する, the Site Survey Service shall 頂点の追加を正常に実行する
+5. When ユーザーがテキストツールで既存オブジェクト上をクリックする, the Site Survey Service shall テキスト注釈を配置する
+6. The Site Survey Service shall 描画ツール使用中はFabric.jsのオブジェクト選択機能を完全に無効化し、描画操作のみを受け付ける

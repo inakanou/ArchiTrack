@@ -1690,7 +1690,7 @@ interface ImageExportDialogProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像上での注釈編集インターフェースを提供 |
-| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 13.1-13.5 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 13.1-13.5, 17.1-17.6 |
 
 **Responsibilities & Constraints**
 - Fabric.jsキャンバスの初期化と管理
@@ -1748,6 +1748,27 @@ interface ToolOptions {
 - Validation: ツール切り替え時に未保存変更を確認
 - Risks: 大量オブジェクト時のパフォーマンス低下
 - **保存方式変更**: オートセーブから手動保存に変更、isDirtyフラグで変更検出
+
+##### 描画ツール使用中のオブジェクト選択防止（要件17）
+
+**問題**: 現行実装では、描画ツール使用中にmouse:downハンドラ内で`containsPoint()`による既存オブジェクトのヒットテストを実行し、既存オブジェクト上でクリックすると`return`して描画操作を中止している。同様にmouse:upハンドラでも既存オブジェクト上でのマウスアップ時に図形作成を中止している。これにより、既存オブジェクトが存在する領域に新規描画ができない。
+
+**設計方針**: 描画ツール使用中は既存オブジェクトの`containsPoint()`チェックを完全にスキップし、描画操作のみを受け付ける。選択ツールでのみオブジェクト選択を許可する。
+
+**変更箇所**:
+
+1. **`mouse:down`ハンドラ（行671-689）**: 描画ツール使用中の`containsPoint()`ループを削除。`handleToolChange`で既に`evented: false`と`selectable: false`を設定しているため、Fabric.jsレベルでの選択は無効化済み。手動ヒットテストも不要。
+   - `activeObject`チェック（行691-700）も描画ツール時はスキップ（描画ツール切り替え時に`discardActiveObject()`で選択解除済み）
+
+2. **`mouse:up`ハンドラ（行928-942）**: 描画ツール使用中の`containsPoint()`ループを削除。既存オブジェクト上でマウスアップした場合でも、描画した図形を正常に作成・確定する。
+
+3. **`handleToolChange`**: 変更不要。現行実装で`evented: false`、`selectable: false`、`canvas.selection = false`、`discardActiveObject()`を適切に設定済み。
+
+**設計の整合性**:
+- `handleToolChange`で`evented: false`を設定 → Fabric.jsの選択イベントは発生しない
+- `handleToolChange`で`discardActiveObject()` → ツール切り替え時に選択をクリア
+- `containsPoint()`チェック削除 → 手動ヒットテストによる描画阻止を排除
+- 選択ツールでは`evented: true`、`selectable: true` → 従来通りオブジェクト選択可能
 
 #### ImageViewer
 
