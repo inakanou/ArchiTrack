@@ -31,6 +31,7 @@ import { createWorker } from 'tesseract.js';
 import * as XLSX from 'xlsx';
 import type { LineItemFormData } from './LineItemEditor';
 import { extractPdfHybrid } from './pdf-text-extractor';
+import { formatQuantity, formatUnitPrice, calculateFormattedAmount } from './number-format';
 
 // ============================================================================
 // 型定義
@@ -910,7 +911,19 @@ export function OcrDataExtractor({
 
   const handleImport = useCallback(() => {
     if (parsedLineItems && parsedLineItems.length > 0) {
-      onImportLineItems(parsedLineItems);
+      // 18.10: 一括取り込み時に数値フォーマットを適用
+      const formattedItems = parsedLineItems.map((item) => {
+        const formattedQuantity = formatQuantity(item.quantity);
+        const formattedUnitPrice = formatUnitPrice(item.unitPrice);
+        const formattedAmount = calculateFormattedAmount(formattedQuantity, formattedUnitPrice);
+        return {
+          ...item,
+          quantity: formattedQuantity,
+          unitPrice: formattedUnitPrice,
+          amount: formattedAmount,
+        };
+      });
+      onImportLineItems(formattedItems);
       setImportCompleted(true);
     }
   }, [parsedLineItems, onImportLineItems]);

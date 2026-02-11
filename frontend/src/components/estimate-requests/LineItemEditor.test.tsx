@@ -569,4 +569,197 @@ describe('LineItemEditor', () => {
       expect(amountCells[0]).toHaveTextContent('833');
     });
   });
+
+  // --------------------------------------------------------------------------
+  // 数値表示形式と丸め規則テスト (Task 43.2)
+  // --------------------------------------------------------------------------
+
+  describe('数値表示形式と丸め規則 (18.1-18.12)', () => {
+    describe('数量フォーカスアウト時のフォーマット (18.7)', () => {
+      it('数量フィールドのフォーカスアウト時に小数2桁固定表示が適用される', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '1', unitPrice: '1000', amount: 1000 });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const quantityInput = screen.getByPlaceholderText('数量');
+        fireEvent.blur(quantityInput);
+
+        expect(onLineItemsChange).toHaveBeenCalled();
+        const updatedItems = getCallItems(onLineItemsChange, 0);
+        expect(updatedItems[0]?.quantity).toBe('1.00');
+      });
+
+      it('数量「2.5」がフォーカスアウト時に「2.50」にフォーマットされる', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '2.5', unitPrice: '1000', amount: 2500 });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const quantityInput = screen.getByPlaceholderText('数量');
+        fireEvent.blur(quantityInput);
+
+        expect(onLineItemsChange).toHaveBeenCalled();
+        const updatedItems = getCallItems(onLineItemsChange, 0);
+        expect(updatedItems[0]?.quantity).toBe('2.50');
+      });
+
+      it('空の数量フィールドはフォーカスアウト時にそのまま空を維持する', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '', unitPrice: '', amount: null });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const quantityInput = screen.getByPlaceholderText('数量');
+        fireEvent.blur(quantityInput);
+
+        // 空文字の場合はフォーマットしないのでコールバックは呼ばれない（値に変化なし）
+        // もしくは呼ばれても空文字のまま
+        if (onLineItemsChange.mock.calls.length > 0) {
+          const updatedItems = getCallItems(onLineItemsChange, 0);
+          expect(updatedItems[0]?.quantity).toBe('');
+        }
+      });
+
+      it('数量フォーマット適用後に金額が再計算される', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '1', unitPrice: '1000', amount: 1000 });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const quantityInput = screen.getByPlaceholderText('数量');
+        fireEvent.blur(quantityInput);
+
+        expect(onLineItemsChange).toHaveBeenCalled();
+        const updatedItems = getCallItems(onLineItemsChange, 0);
+        // 1.00 * 1000 = 1000
+        expect(updatedItems[0]?.amount).toBe(1000);
+      });
+    });
+
+    describe('単価フォーカスアウト時のフォーマット (18.8)', () => {
+      it('単価フィールドのフォーカスアウト時に整数丸めフォーマットが適用される', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '1.00', unitPrice: '1234.6', amount: 1235 });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const unitPriceInput = screen.getByPlaceholderText('単価');
+        fireEvent.blur(unitPriceInput);
+
+        expect(onLineItemsChange).toHaveBeenCalled();
+        const updatedItems = getCallItems(onLineItemsChange, 0);
+        expect(updatedItems[0]?.unitPrice).toBe('1235');
+      });
+
+      it('単価「999.4」がフォーカスアウト時に「999」にフォーマットされる', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '1.00', unitPrice: '999.4', amount: 999 });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const unitPriceInput = screen.getByPlaceholderText('単価');
+        fireEvent.blur(unitPriceInput);
+
+        expect(onLineItemsChange).toHaveBeenCalled();
+        const updatedItems = getCallItems(onLineItemsChange, 0);
+        expect(updatedItems[0]?.unitPrice).toBe('999');
+      });
+
+      it('空の単価フィールドはフォーカスアウト時にそのまま空を維持する', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '', unitPrice: '', amount: null });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const unitPriceInput = screen.getByPlaceholderText('単価');
+        fireEvent.blur(unitPriceInput);
+
+        if (onLineItemsChange.mock.calls.length > 0) {
+          const updatedItems = getCallItems(onLineItemsChange, 0);
+          expect(updatedItems[0]?.unitPrice).toBe('');
+        }
+      });
+
+      it('単価フォーマット適用後に金額が再計算される', () => {
+        const onLineItemsChange = vi.fn();
+        const item = createLineItem({ quantity: '2.00', unitPrice: '1234.6', amount: 2469 });
+        const props = getDefaultProps({
+          lineItems: [item],
+          onLineItemsChange,
+        });
+
+        render(<LineItemEditor {...props} />);
+
+        const unitPriceInput = screen.getByPlaceholderText('単価');
+        fireEvent.blur(unitPriceInput);
+
+        expect(onLineItemsChange).toHaveBeenCalled();
+        const updatedItems = getCallItems(onLineItemsChange, 0);
+        // 単価がフォーマット後 1235、2.00 * 1235 = 2470
+        expect(updatedItems[0]?.unitPrice).toBe('1235');
+        expect(updatedItems[0]?.amount).toBe(2470);
+      });
+    });
+
+    describe('金額の整数表示 (18.5, 18.6, 18.9)', () => {
+      it('金額の自動計算結果が整数表示である', () => {
+        const item = createLineItem({ quantity: '2.50', unitPrice: '333', amount: 833 });
+        const props = getDefaultProps({
+          lineItems: [item],
+        });
+        render(<LineItemEditor {...props} />);
+
+        const amountCells = screen.getAllByTestId('line-item-amount');
+        // 833は整数表示（小数点なし）
+        expect(amountCells[0]).toHaveTextContent('833');
+        // 小数点が含まれないことを確認
+        expect(amountCells[0]?.textContent).not.toContain('.');
+      });
+    });
+
+    describe('合計金額の整数表示 (18.12)', () => {
+      it('合計金額が整数表示である', () => {
+        const items = [
+          createLineItem({ quantity: '2.50', unitPrice: '333', amount: 833 }),
+          createLineItem({ quantity: '1.00', unitPrice: '1000', amount: 1000 }),
+        ];
+        const props = getDefaultProps({ lineItems: items });
+        render(<LineItemEditor {...props} />);
+
+        const totalAmount = screen.getByTestId('total-amount');
+        expect(totalAmount).toHaveTextContent('1,833');
+        // 小数点が含まれないことを確認
+        expect(totalAmount.textContent).not.toContain('.');
+      });
+    });
+  });
 });

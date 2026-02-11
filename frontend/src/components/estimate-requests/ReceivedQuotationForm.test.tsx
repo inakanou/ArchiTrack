@@ -900,6 +900,189 @@ describe('ReceivedQuotationForm', () => {
         expect(screen.getByText('明細行の上書き確認')).toBeInTheDocument();
       });
     });
+    // --------------------------------------------------------------------------
+    // Task 43.4: 項目選択一括転記時の数量フォーマット適用テスト (18.11)
+    // --------------------------------------------------------------------------
+
+    it('転記後の数量が小数2桁表示であること (Requirements: 18.11)', async () => {
+      const selectedItemsWithDecimal = [
+        {
+          customCategory: '躯体工事',
+          workType: '鉄筋工事',
+          name: '鉄筋D10',
+          specification: 'SD295A',
+          unit: 'kg',
+          quantity: 1500,
+          remarks: '基礎部分',
+        },
+        {
+          customCategory: '躯体工事',
+          workType: 'コンクリート工事',
+          name: 'コンクリート',
+          specification: '21-8-20',
+          unit: 'm3',
+          quantity: 2.5,
+          remarks: '',
+        },
+      ];
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={selectedItemsWithDecimal}
+        />
+      );
+
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      // 転記完了を待機
+      await waitFor(() => {
+        expect(screen.getByText(/2件.*転記/)).toBeInTheDocument();
+      });
+
+      // 数量フィールドを取得
+      const quantityInputs = screen.getAllByLabelText(/数量/);
+      // 1500 -> '1500.00'
+      expect(quantityInputs[0]).toHaveValue('1500.00');
+      // 2.5 -> '2.50'
+      expect(quantityInputs[1]).toHaveValue('2.50');
+    });
+  });
+
+  // ==========================================================================
+  // Task 43.5: 編集画面の既存データ読み込み時のフォーマット適用テスト (42.7)
+  //
+  // Requirements:
+  // - 18.1, 18.2: 数量を小数2桁常時表示
+  // - 18.3, 18.4: 単価を整数表示（小数第1位で四捨五入）
+  // - 18.5, 18.6: 金額を整数表示
+  // ==========================================================================
+
+  describe('編集画面の既存データ数値フォーマット (Task 42.7 / 43.5)', () => {
+    it('編集画面で既存データの数量が小数2桁表示、単価が整数表示であること', () => {
+      const initialDataWithDecimals = {
+        id: 'rq-format-test',
+        estimateRequestId,
+        name: 'フォーマットテスト見積書',
+        submittedAt: new Date('2025-01-15'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-fmt-1',
+            receivedQuotationId: 'rq-format-test',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            name: 'テスト品目A',
+            specification: null,
+            unit: '個',
+            quantity: 5,
+            unitPrice: 2000,
+            amount: 10000,
+            remarks: null,
+          },
+          {
+            id: 'li-fmt-2',
+            receivedQuotationId: 'rq-format-test',
+            sortOrder: 1,
+            customCategory: null,
+            workType: null,
+            name: 'テスト品目B',
+            specification: null,
+            unit: 'm',
+            quantity: 2.5,
+            unitPrice: 1234.6,
+            amount: 3087,
+            remarks: null,
+          },
+        ],
+        totalAmount: 13087,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithDecimals}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 数量フィールド: 整数5 -> '5.00', 小数2.5 -> '2.50'
+      const quantityInputs = screen.getAllByLabelText(/数量/);
+      expect(quantityInputs[0]).toHaveValue('5.00');
+      expect(quantityInputs[1]).toHaveValue('2.50');
+
+      // 単価フィールド: 整数2000 -> '2000', 小数1234.6 -> '1235'
+      const unitPriceInputs = screen.getAllByLabelText(/単価/);
+      expect(unitPriceInputs[0]).toHaveValue('2000');
+      expect(unitPriceInputs[1]).toHaveValue('1235');
+    });
+
+    it('編集画面で既存データの金額が整数表示であること', () => {
+      const initialDataWithDecimalAmount = {
+        id: 'rq-amount-test',
+        estimateRequestId,
+        name: '金額フォーマットテスト',
+        submittedAt: new Date('2025-01-15'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-amt-1',
+            receivedQuotationId: 'rq-amount-test',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            name: '金額テスト品目',
+            specification: null,
+            unit: '式',
+            quantity: 3,
+            unitPrice: 1500,
+            amount: 4500,
+            remarks: null,
+          },
+        ],
+        totalAmount: 4500,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithDecimalAmount}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 数量が小数2桁表示: 3 -> '3.00'
+      const quantityInputs = screen.getAllByLabelText(/数量/);
+      expect(quantityInputs[0]).toHaveValue('3.00');
+
+      // 単価が整数表示: 1500 -> '1500'
+      const unitPriceInputs = screen.getAllByLabelText(/単価/);
+      expect(unitPriceInputs[0]).toHaveValue('1500');
+
+      // 金額が整数で表示されること（小数点を含まない）
+      const amountDisplays = screen.getAllByText('4,500');
+      expect(amountDisplays.length).toBeGreaterThanOrEqual(1);
+      amountDisplays.forEach((el) => {
+        expect(el.textContent).not.toContain('.');
+      });
+    });
   });
 
   // ==========================================================================

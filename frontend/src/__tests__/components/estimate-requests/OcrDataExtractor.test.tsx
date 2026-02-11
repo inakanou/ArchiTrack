@@ -660,4 +660,59 @@ describe('OcrDataExtractor', () => {
       });
     });
   });
+
+  // --------------------------------------------------------------------------
+  // 一括取り込み時の数値フォーマット適用テスト (Task 43.3)
+  // --------------------------------------------------------------------------
+
+  describe('一括取り込み時の数値フォーマット適用 (18.10)', () => {
+    it('一括取り込み後の数量が小数2桁表示、単価が整数表示、金額が正しく計算される', async () => {
+      // Excelファイルモック（パース結果に数値データを含む）
+      const excelFile = new File(['excel-data'], 'quotation.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      mockXlsxRead.mockReturnValue({
+        SheetNames: ['Sheet1'],
+        Sheets: {
+          Sheet1: {},
+        },
+      });
+
+      // ヘッダー行 + データ行を返すモック
+      mockSheetToJson.mockReturnValue([
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['テスト項目', 'A-100', '式', '2.5', '1234.6'],
+      ]);
+
+      render(<OcrDataExtractor file={excelFile} onImportLineItems={mockOnImportLineItems} />);
+
+      // Excel処理完了を待機
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+        },
+        { timeout: 5000 }
+      );
+
+      // 一括取り込みボタンをクリック
+      await userEvent.click(screen.getByTestId('ocr-import-button'));
+
+      // onImportLineItemsが呼ばれたことを確認
+      expect(mockOnImportLineItems).toHaveBeenCalledTimes(1);
+
+      // 取り込まれたデータのフォーマットを確認
+      const importedItems = mockOnImportLineItems.mock.calls[0]?.[0];
+      expect(importedItems).toBeDefined();
+      expect(importedItems.length).toBeGreaterThan(0);
+
+      const firstItem = importedItems[0];
+      // 数量: 小数2桁表示 (2.5 -> 2.50)
+      expect(firstItem.quantity).toBe('2.50');
+      // 単価: 整数表示 (1234.6 -> 1235)
+      expect(firstItem.unitPrice).toBe('1235');
+      // 金額: 再計算 (2.50 * 1235 = 3087.5 -> 3088)
+      expect(firstItem.amount).toBe(3088);
+    });
+  });
 });
