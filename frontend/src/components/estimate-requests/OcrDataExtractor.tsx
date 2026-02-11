@@ -2,18 +2,27 @@
  * @fileoverview OCR/データパース処理と結果表示コンポーネント
  *
  * Task 25.1: OcrDataExtractorコンポーネントの実装
+ * Task 40.1: pdfjs-distベースのPDFテキスト抽出処理を追加
+ * Task 40.2: テキストPDF/スキャンPDF判定とハイブリッド処理フローを実装
+ * Task 40.3: スキャンPDFフォールバック（Canvas→画像→Tesseract OCR）を実装
  *
  * Requirements:
- * - 13.5: PDF/画像ファイルに対してTesseract.jsによるOCR処理を自動的に開始する
+ * - 13.5: PDF/画像ファイルに対してOCR処理を自動的に開始する
  * - 13.6: ExcelファイルにはSheetJS（xlsx）によるデータパース（直接データ読み取り）を実行する
  * - 13.7: 処理中インジケーター（プログレスバー）を表示する
  * - 13.8: 抽出結果をテキストデータとして表示する
  * - 13.9: 抽出テキストを選択・コピー可能な状態で表示する
  * - 13.14: OCR/パース処理失敗時にエラーメッセージを表示し手動入力を促す
+ * - 17.1: pdfjs-distのgetTextContent() APIを使用してPDFからテキストを抽出する
+ * - 17.2: PDFの全ページを対象にテキスト抽出を行う
+ * - 17.3: テキストPDFの場合はpdfjs-dist抽出テキストをそのまま使用する
+ * - 17.4: スキャンPDFの場合はCanvas→Tesseract OCRフォールバックを実行する
+ * - 17.8: PDFテキスト抽出のタイムアウトを30秒とする
  *
  * Design:
  * - React.lazy()による動的インポートで遅延ロード（バンドルサイズ影響回避）
- * - Tesseract.jsワーカーの非同期プリフェッチとOCR準備中インジケーター表示
+ * - PDFはpdfjs-distハイブリッドアプローチ（テキストPDF: 直接抽出、スキャンPDF: Canvas→Tesseract OCR）
+ * - 画像ファイルは従来通りTesseract.jsによるOCR処理
  * - OCR処理のタイムアウト（30秒）
  */
 
@@ -21,6 +30,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
 import * as XLSX from 'xlsx';
 import type { LineItemFormData } from './LineItemEditor';
+import { extractPdfHybrid } from './pdf-text-extractor';
 
 // ============================================================================
 // 型定義
@@ -581,7 +591,76 @@ export function OcrDataExtractor({
   }, []);
 
   // --------------------------------------------------------------------------
-  // OCR処理（PDF/画像ファイル）
+  // PDFテキスト抽出（pdfjs-distハイブリッドアプローチ）
+  // Requirements: 17.1, 17.2, 17.3, 17.4, 17.8
+  // --------------------------------------------------------------------------
+
+  const processPdfHybrid = useCallback(
+    async (targetFile: File) => {
+      setStatus('processing');
+      setProgress(10);
+      setExtractedText(null);
+      setParsedLineItems(null);
+      setErrorMessage(null);
+      setImportCompleted(false);
+      abortedRef.current = false;
+
+      try {
+        // タイムアウト設定（30秒）
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutRef.current = setTimeout(() => {
+            abortedRef.current = true;
+            reject(new Error('PDFテキスト抽出がタイムアウトしました（30秒超過）'));
+          }, OCR_TIMEOUT_MS);
+        });
+
+        // pdfjs-distハイブリッドアプローチ（タイムアウト付き）
+        const result = await Promise.race([
+          extractPdfHybrid(targetFile, (progressValue, _message) => {
+            if (!abortedRef.current) {
+              setProgress(progressValue);
+            }
+          }),
+          timeoutPromise,
+        ]);
+
+        if (abortedRef.current) {
+          await cleanup();
+          return;
+        }
+
+        // タイムアウトタイマークリア
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+
+        setProgress(90);
+
+        const text = result.text;
+        setExtractedText(text);
+
+        // テキストから構造化データへ変換
+        const items = convertOcrTextToLineItems(text);
+        setParsedLineItems(items);
+
+        setProgress(100);
+        setStatus('completed');
+      } catch (err) {
+        if (abortedRef.current && !(err instanceof Error && err.message.includes('タイムアウト'))) {
+          await cleanup();
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'PDFテキスト抽出に失敗しました';
+        setErrorMessage(message);
+        setStatus('error');
+      }
+    },
+    [cleanup]
+  );
+
+  // --------------------------------------------------------------------------
+  // OCR処理（画像ファイル専用 - 従来のTesseract.js直接実行）
   // --------------------------------------------------------------------------
 
   const processOcr = useCallback(
@@ -763,7 +842,9 @@ export function OcrDataExtractor({
       if (!targetFile) return;
 
       const category = detectFileCategory(targetFile.type);
-      if (category === 'pdf' || category === 'image') {
+      if (category === 'pdf') {
+        await processPdfHybrid(targetFile);
+      } else if (category === 'image') {
         await processOcr(targetFile);
       } else if (category === 'excel') {
         await processExcel(targetFile);
@@ -773,7 +854,7 @@ export function OcrDataExtractor({
       setErrorMessage(message);
       setStatus('error');
     }
-  }, [file, fetchFileFromUrl, processOcr, processExcel]);
+  }, [file, fetchFileFromUrl, processPdfHybrid, processOcr, processExcel]);
 
   // --------------------------------------------------------------------------
   // リトライハンドラ
@@ -809,7 +890,9 @@ export function OcrDataExtractor({
 
     const category = detectFileCategory(file.type);
 
-    if (category === 'pdf' || category === 'image') {
+    if (category === 'pdf') {
+      processPdfHybrid(file);
+    } else if (category === 'image') {
       processOcr(file);
     } else if (category === 'excel') {
       processExcel(file);
@@ -819,7 +902,7 @@ export function OcrDataExtractor({
       abortedRef.current = true;
       cleanup();
     };
-  }, [file, autoStart, fileUrl, processOcr, processExcel, cleanup]);
+  }, [file, autoStart, fileUrl, processPdfHybrid, processOcr, processExcel, cleanup]);
 
   // --------------------------------------------------------------------------
   // 一括取り込みハンドラ
@@ -893,9 +976,15 @@ export function OcrDataExtractor({
           <span style={styles.progressText}>
             {fileCategory === 'excel'
               ? 'Excelデータを解析中...'
-              : progress < 30
-                ? 'OCR準備中...'
-                : 'OCR処理中...'}
+              : fileCategory === 'pdf'
+                ? progress < 25
+                  ? 'PDFテキスト抽出中...'
+                  : progress < 90
+                    ? 'PDF処理中...'
+                    : 'テキスト解析中...'
+                : progress < 30
+                  ? 'OCR準備中...'
+                  : 'OCR処理中...'}
           </span>
         </div>
       )}
