@@ -46,6 +46,8 @@ export interface EstimateItemLineEdit {
   unitPrice: string | null;
   amount: string | null;
   remarks: string | null;
+  sourceReceivedQuotationLineItemId?: string | null;
+  sourceVendorName?: string | null;
 }
 
 /**

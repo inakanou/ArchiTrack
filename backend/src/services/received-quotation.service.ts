@@ -489,6 +489,41 @@ export class ReceivedQuotationService {
   }
 
   /**
+   * プロジェクトに紐付く受領見積書一覧を取得する（明細行データ・合計金額を含む）
+   *
+   * EstimateRequest経由でプロジェクトに紐付く受領見積書を取得する。
+   * 見積書作成時の転記機能で使用。
+   *
+   * Requirements: REQ-17.1, REQ-17.2 (estimate-creation)
+   * Task 21.1: プロジェクト単位受領見積書取得APIの実装
+   *
+   * @param projectId - プロジェクトID
+   * @returns 受領見積書一覧
+   */
+  async findByProjectId(projectId: string): Promise<ReceivedQuotationInfo[]> {
+    const quotations = await this.prisma.receivedQuotation.findMany({
+      where: {
+        deletedAt: null,
+        estimateRequest: {
+          projectId: projectId,
+          deletedAt: null,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        lineItems: {
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+
+    return quotations.map((q) => {
+      const lineItemInfos = (q.lineItems || []).map((li) => this.toLineItemInfo(li));
+      return this.toReceivedQuotationInfoWithLineItems(q, lineItemInfos);
+    });
+  }
+
+  /**
    * 受領見積書を更新する（楽観的排他制御付き、明細行全量置換対応）
    *
    * Requirements: 11.15, 11.16, 14.2

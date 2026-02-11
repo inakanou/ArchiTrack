@@ -74,7 +74,7 @@ const styles = {
   } as React.CSSProperties,
   headerRow: {
     display: 'grid',
-    gridTemplateColumns: '60px 1fr 120px 80px 100px 100px 120px 1fr',
+    gridTemplateColumns: '60px 120px 1fr 120px 80px 100px 100px 120px 1fr',
     gap: '8px',
     alignItems: 'center',
     padding: '12px 16px',
@@ -336,6 +336,7 @@ export function EstimateItemTable({
       <div aria-hidden="true">
         <div style={styles.headerRow}>
           <div style={styles.headerCellType}>種別</div>
+          <div style={styles.headerCell}>見積業者</div>
           <div style={styles.headerCell}>名称</div>
           <div style={styles.headerCell}>規格</div>
           <div style={styles.headerCell}>単位</div>

@@ -25,6 +25,9 @@ import { useEstimateEditor } from '../hooks/useEstimateEditor';
 import type { EstimateItemHierarchyEdit } from '../hooks/useEstimateEditor';
 import { EstimateExportDialog } from '../components/estimate/EstimateExportDialog';
 import { TransferQuotationDialog } from '../components/estimate/TransferQuotationDialog';
+import { NetAllocationDialog } from '../components/estimate/NetAllocationDialog';
+import { ProfitRateDialog } from '../components/estimate/ProfitRateDialog';
+import Decimal from 'decimal.js';
 
 // ============================================================================
 // スタイル定義
@@ -102,8 +105,8 @@ const styles = {
     color: '#ffffff',
   } as React.CSSProperties,
   content: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 320px',
+    display: 'flex',
+    flexDirection: 'column' as const,
     gap: '24px',
   } as React.CSSProperties,
   mainSection: {
@@ -111,10 +114,29 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '24px',
   } as React.CSSProperties,
-  sideSection: {
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, 1fr)',
+    gap: '16px',
+  } as React.CSSProperties,
+  summaryItem: {
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '24px',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '12px 8px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '8px',
+  } as React.CSSProperties,
+  summaryLabel: {
+    fontSize: '12px',
+    fontWeight: 500,
+    color: '#6b7280',
+  } as React.CSSProperties,
+  summaryValue: {
+    fontSize: '18px',
+    fontWeight: 700,
+    color: '#1f2937',
   } as React.CSSProperties,
   card: {
     backgroundColor: '#ffffff',
@@ -256,6 +278,30 @@ function formatAmount(amount: string | null | undefined): string {
 }
 
 /**
+ * 行タイプ別の合計金額を計算
+ */
+function calculateTotalByLineType(
+  items: EstimateItemHierarchyEdit[],
+  lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'
+): Decimal {
+  let total = new Decimal(0);
+  for (const item of items) {
+    const line = item.lines.find((l) => l.lineType === lineType);
+    if (line?.amount) {
+      try {
+        total = total.add(new Decimal(line.amount));
+      } catch {
+        // skip
+      }
+    }
+    if (item.children.length > 0) {
+      // 子項目は親の金額に含まれるため、ルートのみ集計
+    }
+  }
+  return total;
+}
+
+/**
  * API形式の見積項目を編集用形式に変換
  */
 function toEditFormat(items: EstimateItemHierarchy[] | undefined): EstimateItemHierarchyEdit[] {
@@ -351,9 +397,8 @@ export default function EstimateDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
-  const [isNetCalculationPanelOpen, setIsNetCalculationPanelOpen] = useState(false);
-  const [isProfitRatePanelOpen, setIsProfitRatePanelOpen] = useState(false);
-  const [profitRate, setProfitRate] = useState<string>('');
+  const [isNetDialogOpen, setIsNetDialogOpen] = useState(false);
+  const [isProfitDialogOpen, setIsProfitDialogOpen] = useState(false);
 
   // 編集用フック
   const editor = useEstimateEditor({
@@ -525,7 +570,21 @@ export default function EstimateDetailPage() {
                 onClick={() => setIsTransferDialogOpen(true)}
                 style={{ ...styles.actionButton, ...styles.secondaryButton }}
               >
-                転記
+                受領見積書を業者金額に転記
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNetDialogOpen(true)}
+                style={{ ...styles.actionButton, ...styles.secondaryButton }}
+              >
+                業者金額を実行金額に転記
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsProfitDialogOpen(true)}
+                style={{ ...styles.actionButton, ...styles.secondaryButton }}
+              >
+                実行金額を見積金額に転記
               </button>
               <button
                 type="button"
@@ -555,171 +614,79 @@ export default function EstimateDetailPage() {
 
       {/* コンテンツ */}
       <div style={styles.content}>
-        {/* メインセクション */}
-        <div style={styles.mainSection}>
-          {/* 基本情報 */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>基本情報</h2>
-            <div style={styles.infoGrid}>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>見積書名</span>
-                <span style={styles.infoValue}>{estimate.name}</span>
-              </div>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>参照内訳書</span>
-                <span style={styles.infoValue}>{estimate.sourceItemizedStatementName || '-'}</span>
-              </div>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>作成日時</span>
-                <span style={styles.infoValue}>{formatDate(estimate.createdAt)}</span>
-              </div>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>更新日時</span>
-                <span style={styles.infoValue}>{formatDate(estimate.updatedAt)}</span>
-              </div>
+        {/* 基本情報 */}
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>基本情報</h2>
+          <div style={styles.infoGrid}>
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>見積書名</span>
+              <span style={styles.infoValue}>{estimate.name}</span>
             </div>
-          </div>
-
-          {/* 見積項目テーブル (REQ-14.9) */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>見積項目</h2>
-            <EstimateItemTable
-              items={editor.items}
-              draggable={isEditMode}
-              onLineChange={isEditMode ? editor.updateLine : undefined}
-              onToggleExpand={editor.toggleExpanded}
-              onDrop={isEditMode ? editor.reorderItems : undefined}
-            />
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>参照内訳書</span>
+              <span style={styles.infoValue}>{estimate.sourceItemizedStatementName || '-'}</span>
+            </div>
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>作成日時</span>
+              <span style={styles.infoValue}>{formatDate(estimate.createdAt)}</span>
+            </div>
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>更新日時</span>
+              <span style={styles.infoValue}>{formatDate(estimate.updatedAt)}</span>
+            </div>
           </div>
         </div>
 
-        {/* サイドセクション */}
-        <div style={styles.sideSection}>
-          {/* 合計金額 (REQ-14.9) */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>合計金額</h2>
-            <div style={styles.infoItem}>
-              <span style={styles.infoLabel}>見積金額合計</span>
-              <span style={styles.totalAmount}>{formatAmount(editor.getTotalAmount())}</span>
-            </div>
-          </div>
-
-          {/* NET金額計算パネル (REQ-5.1-5.3) */}
-          <div style={styles.card} data-testid="net-calculation-panel">
-            <h2 style={styles.sectionTitle}>NET金額計算</h2>
-            <div style={styles.infoItem}>
-              <button
-                type="button"
-                onClick={() => setIsNetCalculationPanelOpen(!isNetCalculationPanelOpen)}
-                style={{ ...styles.actionButton, ...styles.secondaryButton, width: '100%' }}
-              >
-                {isNetCalculationPanelOpen ? '閉じる' : 'NET案分を開く'}
-              </button>
-            </div>
-            {isNetCalculationPanelOpen && (
-              <div style={{ marginTop: '16px' }}>
-                <div style={styles.infoItem}>
-                  <label style={styles.infoLabel} htmlFor="net-amount-input">
-                    NET金額
-                  </label>
-                  <input
-                    id="net-amount-input"
-                    type="text"
-                    aria-label="NET金額"
-                    placeholder="NET金額を入力"
-                    style={{
-                      padding: '8px 12px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '4px',
-                      fontSize: '14px',
-                    }}
-                  />
+        {/* サマリーパネル (REQ-21) */}
+        <div style={styles.card} data-testid="summary-panel">
+          <h2 style={styles.sectionTitle}>サマリー</h2>
+          {(() => {
+            const estimateTotal = calculateTotalByLineType(editor.items, 'ESTIMATE');
+            const executionTotal = calculateTotalByLineType(editor.items, 'EXECUTION');
+            const vendorTotal = calculateTotalByLineType(editor.items, 'VENDOR');
+            const profitRateCalc = executionTotal.isZero()
+              ? '-'
+              : estimateTotal.div(executionTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+            const discountRateCalc = vendorTotal.isZero()
+              ? '-'
+              : executionTotal.div(vendorTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+            return (
+              <div style={styles.summaryGrid}>
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>見積金額合計</span>
+                  <span style={styles.summaryValue}>{formatAmount(estimateTotal.toString())}</span>
                 </div>
-                <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px' }}>
-                  プレビュー: 案分率が計算されます
-                </p>
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>実行金額合計</span>
+                  <span style={styles.summaryValue}>{formatAmount(executionTotal.toString())}</span>
+                </div>
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>業者金額合計</span>
+                  <span style={styles.summaryValue}>{formatAmount(vendorTotal.toString())}</span>
+                </div>
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>利益率</span>
+                  <span style={styles.summaryValue}>{profitRateCalc}</span>
+                </div>
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>値引率</span>
+                  <span style={styles.summaryValue}>{discountRateCalc}</span>
+                </div>
               </div>
-            )}
-          </div>
+            );
+          })()}
+        </div>
 
-          {/* 利益率設定パネル (REQ-6.1-6.6) */}
-          <div style={styles.card} data-testid="profit-rate-panel">
-            <h2 style={styles.sectionTitle}>利益率設定</h2>
-            <div style={styles.infoItem}>
-              <button
-                type="button"
-                onClick={() => setIsProfitRatePanelOpen(!isProfitRatePanelOpen)}
-                style={{ ...styles.actionButton, ...styles.secondaryButton, width: '100%' }}
-              >
-                利益率
-              </button>
-            </div>
-            {isProfitRatePanelOpen && (
-              <div style={{ marginTop: '16px' }}>
-                <div style={styles.infoItem}>
-                  <label style={styles.infoLabel} htmlFor="profit-rate-input">
-                    利益率 (%)
-                  </label>
-                  <input
-                    id="profit-rate-input"
-                    type="number"
-                    aria-label="利益率"
-                    name="profitRate"
-                    value={profitRate}
-                    onChange={(e) => setProfitRate(e.target.value)}
-                    placeholder="10"
-                    style={{
-                      padding: '8px 12px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '4px',
-                      fontSize: '14px',
-                    }}
-                  />
-                </div>
-                <div style={{ marginTop: '12px' }}>
-                  <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
-                    上書きオプション
-                  </p>
-                  <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px' }}>
-                    <input
-                      type="radio"
-                      name="overwrite-option"
-                      data-testid="overwrite-option-all"
-                      defaultChecked
-                    />{' '}
-                    全て上書き
-                  </label>
-                  <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px' }}>
-                    <input
-                      type="radio"
-                      name="overwrite-option"
-                      data-testid="overwrite-option-empty"
-                    />{' '}
-                    空のみ上書き
-                  </label>
-                  <label style={{ display: 'block', fontSize: '13px' }}>
-                    <input
-                      type="radio"
-                      name="overwrite-option"
-                      data-testid="overwrite-option-unitprice"
-                    />{' '}
-                    単価のみ上書き
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  style={{
-                    ...styles.actionButton,
-                    ...styles.primaryButton,
-                    width: '100%',
-                    marginTop: '12px',
-                  }}
-                >
-                  適用
-                </button>
-              </div>
-            )}
-          </div>
+        {/* 見積項目テーブル (REQ-14.9) */}
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>見積項目</h2>
+          <EstimateItemTable
+            items={editor.items}
+            draggable={isEditMode}
+            onLineChange={isEditMode ? editor.updateLine : undefined}
+            onToggleExpand={editor.toggleExpanded}
+            onDrop={isEditMode ? editor.reorderItems : undefined}
+          />
         </div>
       </div>
 
@@ -747,6 +714,24 @@ export default function EstimateDetailPage() {
         estimateItems={editor.items}
         onClose={() => setIsTransferDialogOpen(false)}
         onTransferComplete={handleTransferComplete}
+      />
+
+      {/* NET金額案分ダイアログ (REQ-18) */}
+      <NetAllocationDialog
+        isOpen={isNetDialogOpen}
+        estimateId={estimate.id}
+        items={editor.items}
+        onClose={() => setIsNetDialogOpen(false)}
+        onComplete={handleTransferComplete}
+      />
+
+      {/* 利益率適用ダイアログ (REQ-19) */}
+      <ProfitRateDialog
+        isOpen={isProfitDialogOpen}
+        estimateId={estimate.id}
+        items={editor.items}
+        onClose={() => setIsProfitDialogOpen(false)}
+        onComplete={handleTransferComplete}
       />
     </main>
   );

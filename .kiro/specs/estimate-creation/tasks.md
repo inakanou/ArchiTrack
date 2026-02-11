@@ -446,3 +446,67 @@
   - 空状態表示確認
   - スケルトンローダー表示確認
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10, 16.11, 16.12, 16.13_
+
+- [ ] 21. 受領見積書転記UIの改善（REQ-17対応）
+- [ ] 21.1 バックエンド: プロジェクト単位受領見積書取得APIの実装
+  - ReceivedQuotationServiceにfindByProjectIdメソッドを追加
+  - EstimateRequest経由でプロジェクトに紐付く受領見積書を取得
+  - lineItemsとestimateRequest.tradingPartnerNameをeager load
+  - app.tsに/api/projects/:projectId/quotationsルートを登録
+  - _Requirements: 17.1, 17.2_
+
+- [ ] 21.2 フロントエンド: EstimateItemTableに見積業者列を追加
+  - ヘッダーに「見積業者」列を追加
+  - gridTemplateColumnsを更新（見積業者列分を追加）
+  - EstimateItemRowに見積業者列の表示を追加（業者金額行のsourceVendorNameを表示）
+  - _Requirements: 17.3, 17.4_
+
+- [ ] 21.3 フロントエンド: 転記ボタンラベルの変更
+  - EstimateDetailPageの「転記」ボタンを「受領見積書を業者金額に転記」に変更
+  - _Requirements: 17.5_
+
+- [ ] 22. 業者金額→実行金額転記ダイアログの実装（REQ-18対応）
+- [ ] 22.1 NetAllocationDialogコンポーネントの実装
+  - 対象業者選択ドロップダウン（業者金額行のsourceVendorNameからユニーク値抽出）
+  - 業者金額行一覧（チェックボックス付き）
+  - 案分から除外する諸経費行の指定
+  - NET金額入力フィールド
+  - プレビュー表示（案分率、案分後金額）
+  - 案分実行ボタン（POST /api/estimates/:id/calculate-net API連携）
+  - 処理中インジケーター表示
+  - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9_
+
+- [ ] 22.2 EstimateDetailPageに「業者金額を実行金額に転記」ボタンを追加
+  - ヘッダーにボタンを追加
+  - NetAllocationDialog呼び出し
+  - _Requirements: 18.1, 18.2_
+
+- [ ] 23. 実行金額→見積金額転記ダイアログの実装（REQ-19対応）
+- [ ] 23.1 ProfitRateDialogコンポーネントの実装
+  - 利益率入力フィールド（0.00〜500.00%）
+  - 上書きオプション選択（すべて上書き / 空の場合のみ / 単価のみ）
+  - プレビュー表示（元の単価→新しい単価）
+  - 適用ボタン（POST /api/estimates/:id/apply-profit-rate API連携）
+  - 処理中インジケーター表示
+  - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7_
+
+- [ ] 23.2 EstimateDetailPageに「実行金額を見積金額に転記」ボタンを追加
+  - ヘッダーにボタンを追加
+  - ProfitRateDialog呼び出し
+  - _Requirements: 19.1, 19.2_
+
+- [ ] 24. サマリーパネルとレイアウト改善（REQ-20, 21対応）
+- [ ] 24.1 EstimateDetailPageのレイアウト改善
+  - サイドバーセクション（合計金額パネル、NET金額計算パネル、利益率設定パネル）を廃止
+  - gridTemplateColumnsを'1fr'に変更（1カラムレイアウト）
+  - 見積項目テーブルを画面幅いっぱいに表示
+  - _Requirements: 21.1, 21.2, 21.3_
+
+- [ ] 24.2 サマリーパネルの実装
+  - 基本情報パネルの下にサマリーパネルを追加
+  - 見積金額合計の表示
+  - 実行金額合計の表示
+  - 業者金額合計の表示
+  - 利益率（見積金額合計÷実行金額合計）の百分率表示
+  - 値引率（実行金額合計÷業者金額合計）の百分率表示
+  - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6_

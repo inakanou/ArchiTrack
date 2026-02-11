@@ -41,6 +41,7 @@ import receivedQuotationRoutes from './routes/received-quotation.routes.js';
 import estimateRequestStatusRoutes from './routes/estimate-request-status.routes.js';
 import companyInfoRoutes from './routes/company-info.routes.js';
 import estimatesRoutes from './routes/estimates.routes.js';
+import projectQuotationsRoutes from './routes/project-quotations.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -353,6 +354,9 @@ app.use('/api/estimate-requests', estimateRequestsRoutes);
 // Received quotation management routes (nested under estimate-requests)
 app.use('/api/estimate-requests/:id/quotations', receivedQuotationRoutes);
 app.use('/api/quotations', receivedQuotationRoutes);
+
+// Project-scoped received quotation routes (for estimate transfer feature, REQ-17.1, REQ-17.2)
+app.use('/api/projects/:projectId/quotations', projectQuotationsRoutes);
 
 // Estimate request status management routes
 app.use('/api/estimate-requests', estimateRequestStatusRoutes);

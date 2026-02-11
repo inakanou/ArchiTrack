@@ -1528,3 +1528,133 @@ interface UseEstimateEditorReturn {
 - 大量項目時のページネーション対応（将来拡張）
 - 仮想スクロール対応（100項目以上の場合、react-windowを検討）
 - PDF/Excel生成は非同期処理を検討（将来拡張）
+
+## 追加設計（REQ-17〜21対応）
+
+### バックエンド追加: プロジェクト単位受領見積書取得API（REQ-17.1, 17.2）
+
+#### 新規エンドポイント
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/projects/:projectId/quotations | - | ReceivedQuotationInfo[] | 404 |
+
+**実装方針**:
+- `received-quotation.service.ts`に`findByProjectId(projectId: string)`メソッドを追加
+- EstimateRequest経由でReceivedQuotationを取得（EstimateRequest.projectId → ReceivedQuotation.estimateRequestId）
+- lineItemsを含めてeager load
+- `app.ts`に`/api/projects/:projectId/quotations`ルートを登録
+
+```typescript
+// ReceivedQuotationService追加メソッド
+async findByProjectId(projectId: string): Promise<ReceivedQuotationInfo[]> {
+  const quotations = await this.prisma.receivedQuotation.findMany({
+    where: {
+      deletedAt: null,
+      estimateRequest: {
+        projectId: projectId,
+        deletedAt: null,
+      },
+    },
+    include: {
+      lineItems: { orderBy: { sortOrder: 'asc' } },
+      estimateRequest: { select: { tradingPartnerName: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  return quotations.map(q => this.toInfo(q));
+}
+```
+
+### フロントエンド変更: EstimateItemTable（REQ-17.3, 17.4）
+
+**見積業者列の追加**:
+- ヘッダーに「見積業者」列を追加
+- gridTemplateColumnsを`60px 1fr 120px 80px 100px 100px 120px 120px 1fr`に変更（見積業者列120px追加）
+- 業者金額行（VENDOR）のsourceVendorNameを見積業者列に表示
+- 見積金額行・実行金額行の見積業者列は空欄表示
+
+### フロントエンド変更: EstimateDetailPageレイアウト改善（REQ-20, 21）
+
+**廃止するコンポーネント**:
+- サイドバーセクション全体（合計金額パネル、NET金額計算パネル、利益率設定パネル）
+
+**新規追加: サマリーパネル**（基本情報パネルの下）:
+```typescript
+interface SummaryPanelData {
+  estimateTotal: string;    // 見積金額合計
+  executionTotal: string;   // 実行金額合計
+  vendorTotal: string;      // 業者金額合計
+  profitRate: string;       // 利益率（見積金額合計÷実行金額合計）
+  discountRate: string;     // 値引率（実行金額合計÷業者金額合計）
+}
+```
+
+**レイアウト変更**:
+- `gridTemplateColumns: '1fr 320px'` → `gridTemplateColumns: '1fr'`（1カラムレイアウト）
+- サイドセクション削除
+- サマリーパネルをメインセクションに配置（基本情報の直後）
+
+### フロントエンド変更: ヘッダーボタン（REQ-17.5, 18.1, 19.1）
+
+**ボタン構成変更**:
+- 「転記」→「受領見積書を業者金額に転記」（TransferQuotationDialog呼出）
+- 新規「業者金額を実行金額に転記」（NetAllocationDialogを新規作成、ダイアログ呼出）
+- 新規「実行金額を見積金額に転記」（ProfitRateDialogを新規作成、ダイアログ呼出）
+
+### 新規コンポーネント: NetAllocationDialog（REQ-18）
+
+**ダイアログ形式のNET金額案分機能**:
+
+```typescript
+interface NetAllocationDialogProps {
+  isOpen: boolean;
+  estimateId: string;
+  items: EstimateItemHierarchyEdit[];
+  onClose: () => void;
+  onComplete: () => void;
+}
+```
+
+**UI構成**:
+1. 対象業者選択ドロップダウン（業者金額行のsourceVendorNameからユニーク値抽出）
+2. 業者金額行一覧（チェックボックス付き、除外選択可能）
+3. NET金額入力フィールド
+4. プレビュー表示（案分率、案分後金額）
+5. 案分実行ボタン
+
+**API連携**: `POST /api/estimates/:id/calculate-net`
+
+### 新規コンポーネント: ProfitRateDialog（REQ-19）
+
+**ダイアログ形式の利益率適用機能**:
+
+```typescript
+interface ProfitRateDialogProps {
+  isOpen: boolean;
+  estimateId: string;
+  items: EstimateItemHierarchyEdit[];
+  onClose: () => void;
+  onComplete: () => void;
+}
+```
+
+**UI構成**:
+1. 利益率入力フィールド（0.00〜500.00%）
+2. 上書きオプション（すべて上書き / 空の場合のみ上書き / 単価のみ上書き）
+3. プレビュー表示（元の単価→新しい単価）
+4. 適用ボタン
+
+**API連携**: `POST /api/estimates/:id/apply-profit-rate`
+
+### Requirements Traceability（追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 17.1-17.2 | 受領見積書ドロップダウン修正 | TransferQuotationDialog, ReceivedQuotationService | GET /api/projects/:projectId/quotations | 転記フロー |
+| 17.3-17.4 | 見積業者列追加 | EstimateItemTable, EstimateItemRow | - | 表示 |
+| 17.5 | 転記ボタンラベル変更 | EstimateDetailPage | - | UI |
+| 18.1-18.9 | NET金額案分ダイアログ | NetAllocationDialog | POST /api/estimates/:id/calculate-net | NET計算フロー |
+| 19.1-19.7 | 利益率適用ダイアログ | ProfitRateDialog | POST /api/estimates/:id/apply-profit-rate | 利益率適用 |
+| 20.1-20.6 | サマリーパネル | EstimateDetailPage | - | 表示 |
+| 21.1-21.3 | レイアウト改善 | EstimateDetailPage | - | UI |

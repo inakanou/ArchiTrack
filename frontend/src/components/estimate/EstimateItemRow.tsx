@@ -83,7 +83,7 @@ const styles = {
   },
   lineRow: {
     display: 'grid',
-    gridTemplateColumns: '60px 1fr 120px 80px 100px 100px 120px 1fr',
+    gridTemplateColumns: '60px 120px 1fr 120px 80px 100px 100px 120px 1fr',
     gap: '8px',
     alignItems: 'center',
     padding: '8px 16px',
@@ -206,6 +206,11 @@ function LineRow({ itemId, line, onLineChange }: LineRowProps) {
     <div style={styles.lineRow} data-testid={`line-type-${line.lineType}`}>
       {/* 行タイプラベル */}
       <div style={getLabelStyle(line.lineType)}>{LINE_TYPE_LABELS[line.lineType]}</div>
+
+      {/* 見積業者 (REQ-17.3, REQ-17.4) */}
+      <div style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center' }}>
+        {line.lineType === 'VENDOR' && line.sourceVendorName ? line.sourceVendorName : ''}
+      </div>
 
       {/* 名称 */}
       <div>
