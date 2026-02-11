@@ -28,22 +28,71 @@ import { ReceivedQuotationForm } from './ReceivedQuotationForm';
 
 // FileInlinePreviewとOcrDataExtractorをモック
 vi.mock('./FileInlinePreview', () => ({
-  FileInlinePreview: ({ file }: { file: File | null }) =>
-    file ? <div data-testid="file-inline-preview">{file.name} のプレビュー</div> : null,
-  default: ({ file }: { file: File | null }) =>
-    file ? <div data-testid="file-inline-preview">{file.name} のプレビュー</div> : null,
+  FileInlinePreview: ({
+    file,
+    existingPreviewUrl,
+    fileMimeType,
+  }: {
+    file: File | null;
+    existingPreviewUrl?: string;
+    fileMimeType?: string;
+  }) =>
+    file ? (
+      <div data-testid="file-inline-preview">{file.name} のプレビュー</div>
+    ) : existingPreviewUrl ? (
+      <div
+        data-testid="file-inline-preview"
+        data-preview-url={existingPreviewUrl}
+        data-mime-type={fileMimeType}
+      >
+        既存ファイルのプレビュー
+      </div>
+    ) : null,
+  default: ({
+    file,
+    existingPreviewUrl,
+    fileMimeType,
+  }: {
+    file: File | null;
+    existingPreviewUrl?: string;
+    fileMimeType?: string;
+  }) =>
+    file ? (
+      <div data-testid="file-inline-preview">{file.name} のプレビュー</div>
+    ) : existingPreviewUrl ? (
+      <div
+        data-testid="file-inline-preview"
+        data-preview-url={existingPreviewUrl}
+        data-mime-type={fileMimeType}
+      >
+        既存ファイルのプレビュー
+      </div>
+    ) : null,
 }));
 
 vi.mock('./OcrDataExtractor', () => ({
   OcrDataExtractor: ({
     file,
+    fileUrl,
+    fileMimeType,
+    autoStart,
     onImportLineItems,
   }: {
     file: File | null;
+    fileUrl?: string | null;
+    fileMimeType?: string | null;
+    autoStart?: boolean;
     onImportLineItems: (items: unknown[]) => void;
-  }) =>
-    file ? (
-      <div data-testid="ocr-data-extractor">
+  }) => {
+    const shouldRender = file || fileUrl;
+    if (!shouldRender) return null;
+    return (
+      <div
+        data-testid="ocr-data-extractor"
+        data-file-url={fileUrl ?? undefined}
+        data-file-mime-type={fileMimeType ?? undefined}
+        data-auto-start={String(autoStart ?? true)}
+      >
         <button
           type="button"
           data-testid="mock-import-button"
@@ -65,16 +114,30 @@ vi.mock('./OcrDataExtractor', () => ({
           OCRインポート
         </button>
       </div>
-    ) : null,
+    );
+  },
   default: ({
     file,
+    fileUrl,
+    fileMimeType,
+    autoStart,
     onImportLineItems,
   }: {
     file: File | null;
+    fileUrl?: string | null;
+    fileMimeType?: string | null;
+    autoStart?: boolean;
     onImportLineItems: (items: unknown[]) => void;
-  }) =>
-    file ? (
-      <div data-testid="ocr-data-extractor">
+  }) => {
+    const shouldRender = file || fileUrl;
+    if (!shouldRender) return null;
+    return (
+      <div
+        data-testid="ocr-data-extractor"
+        data-file-url={fileUrl ?? undefined}
+        data-file-mime-type={fileMimeType ?? undefined}
+        data-auto-start={String(autoStart ?? true)}
+      >
         <button
           type="button"
           data-testid="mock-import-button"
@@ -96,7 +159,8 @@ vi.mock('./OcrDataExtractor', () => ({
           OCRインポート
         </button>
       </div>
-    ) : null,
+    );
+  },
 }));
 
 describe('ReceivedQuotationForm', () => {
@@ -786,6 +850,7 @@ describe('ReceivedQuotationForm', () => {
     });
 
     it('既存明細行がある場合、確認ダイアログを表示する (Requirements: 15.5)', async () => {
+      /* test code below */
       const initialDataWithLineItems = {
         id: 'rq-existing',
         estimateRequestId,
@@ -834,6 +899,175 @@ describe('ReceivedQuotationForm', () => {
       await waitFor(() => {
         expect(screen.getByText('明細行の上書き確認')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 39.2: ReceivedQuotationFormの改訂テスト（OCR再実行対応）
+  //
+  // Requirements:
+  // - 16.1: 編集画面でPDF/画像の場合に「OCR実行」ボタンを表示
+  // - 16.2: ボタンクリックで既存ファイルに対してOCR処理を開始
+  // - 16.9: OCR失敗時もファイルアップロードのみで保存可能
+  // - 16.12: 編集画面での既存ファイルプレビュー表示
+  // ==========================================================================
+
+  describe('編集画面OCR/プレビュー対応 (Task 39.2)', () => {
+    const initialDataWithFile = {
+      id: 'rq-existing',
+      estimateRequestId: 'er-123',
+      name: 'テスト見積書',
+      submittedAt: new Date('2025-01-15'),
+      fileName: 'existing.pdf',
+      fileMimeType: 'application/pdf',
+      fileSize: 1024,
+      lineItems: [] as {
+        id: string;
+        receivedQuotationId: string;
+        sortOrder: number;
+        customCategory: string | null;
+        workType: string | null;
+        name: string;
+        specification: string | null;
+        unit: string | null;
+        quantity: number | null;
+        unitPrice: number | null;
+        amount: number | null;
+        remarks: string | null;
+      }[],
+      totalAmount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    it('編集画面で既存ファイルがある場合にOcrDataExtractorが表示される (16.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+    });
+
+    it('existingFilePreviewUrlがOcrDataExtractorのfileUrlに渡される (16.2)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      const ocrExtractor = screen.getByTestId('ocr-data-extractor');
+      expect(ocrExtractor.getAttribute('data-file-url')).toBe('https://example.com/preview.pdf');
+    });
+
+    it('編集画面の既存ファイルでautoStart=falseがOcrDataExtractorに渡される (16.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      const ocrExtractor = screen.getByTestId('ocr-data-extractor');
+      expect(ocrExtractor.getAttribute('data-auto-start')).toBe('false');
+    });
+
+    it('新規アップロード時は従来通りautoStart=trueで動作する', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルをアップロード
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      const ocrExtractor = await screen.findByTestId('ocr-data-extractor');
+      // 新規アップロード時はautoStartがtrue（デフォルト）
+      expect(ocrExtractor.getAttribute('data-auto-start')).toBe('true');
+    });
+
+    it('編集画面で既存ファイルがある場合にFileInlinePreviewが表示される (16.12)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      const preview = screen.getByTestId('file-inline-preview');
+      expect(preview).toBeInTheDocument();
+      expect(preview.getAttribute('data-preview-url')).toBe('https://example.com/preview.pdf');
+    });
+
+    it('existingFilePreviewUrlがnullの場合はOcrDataExtractorが表示されない', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl={null}
+        />
+      );
+
+      expect(screen.queryByTestId('ocr-data-extractor')).not.toBeInTheDocument();
+    });
+
+    it('ファイル削除後は既存ファイルのOcrDataExtractor/Previewが非表示になる', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      // 既存ファイルのOcrDataExtractorが表示されている
+      expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+
+      // ファイル名の横にある削除ボタンをクリック
+      const fileNameElement = screen.getByText('existing.pdf');
+      // ファイル情報のコンテナを上にたどり、同一コンテナ内の削除ボタンを探す
+      const fileContainer = fileNameElement.closest('div')!.parentElement!.parentElement!;
+      const removeButton = fileContainer.querySelector('button')!;
+      expect(removeButton.textContent).toBe('削除');
+      await userEvent.click(removeButton);
+
+      // OcrDataExtractorが非表示になる
+      expect(screen.queryByTestId('ocr-data-extractor')).not.toBeInTheDocument();
     });
   });
 });

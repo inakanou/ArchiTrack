@@ -118,6 +118,8 @@ export interface ReceivedQuotationFormProps {
   isSubmitting?: boolean;
   /** 項目選択セクションの選択済み項目データ（一括転記用） */
   selectedItems?: SelectedItemForTranscription[];
+  /** 既存ファイルのプレビューURL（編集時のOCR再実行用） */
+  existingFilePreviewUrl?: string | null;
 }
 
 /**
@@ -538,6 +540,7 @@ export function ReceivedQuotationForm({
   onCancel,
   isSubmitting = false,
   selectedItems,
+  existingFilePreviewUrl,
 }: ReceivedQuotationFormProps) {
   // フォーム状態
   // Requirement 11.3.1: 受領見積書名のデフォルト値を「見積書」とする
@@ -937,15 +940,28 @@ export function ReceivedQuotationForm({
         )}
       </div>
 
-      {/* ファイルインラインプレビュー (11.5) */}
-      {selectedFile && (
+      {/* ファイルインラインプレビュー (11.5, 16.12) */}
+      {selectedFile ? (
         <div style={styles.previewSection}>
           <FileInlinePreview file={selectedFile} />
         </div>
+      ) : (
+        mode === 'edit' &&
+        existingFileName &&
+        !removeFile &&
+        existingFilePreviewUrl && (
+          <div style={styles.previewSection}>
+            <FileInlinePreview
+              file={null}
+              existingPreviewUrl={existingFilePreviewUrl}
+              fileMimeType={initialData?.fileMimeType ?? undefined}
+            />
+          </div>
+        )
       )}
 
       {/* OcrDataExtractor（遅延ロード） */}
-      {selectedFile && (
+      {selectedFile ? (
         <div style={styles.ocrSection}>
           <Suspense
             fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
@@ -953,6 +969,25 @@ export function ReceivedQuotationForm({
             <OcrDataExtractor file={selectedFile} onImportLineItems={handleImportLineItems} />
           </Suspense>
         </div>
+      ) : (
+        mode === 'edit' &&
+        existingFileName &&
+        !removeFile &&
+        existingFilePreviewUrl && (
+          <div style={styles.ocrSection}>
+            <Suspense
+              fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
+            >
+              <OcrDataExtractor
+                file={null}
+                fileUrl={existingFilePreviewUrl}
+                fileMimeType={initialData?.fileMimeType ?? undefined}
+                autoStart={false}
+                onImportLineItems={handleImportLineItems}
+              />
+            </Suspense>
+          </div>
+        )
       )}
 
       {/* 構造化データ入力エリア（明細行エディタ） (11.9) */}

@@ -459,6 +459,8 @@ export default function EstimateRequestDetailPage() {
   const [showQuotationForm, setShowQuotationForm] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<ReceivedQuotationInfo | null>(null);
   const [isQuotationSubmitting, setIsQuotationSubmitting] = useState(false);
+  const [existingFilePreviewUrl, setExistingFilePreviewUrl] = useState<string | null>(null);
+  const [isLoadingPreviewUrl, setIsLoadingPreviewUrl] = useState(false);
 
   // ステータス関連
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -715,9 +717,24 @@ export default function EstimateRequestDetailPage() {
   /**
    * 受領見積書編集フォーム表示
    */
-  const handleEditQuotationClick = useCallback((quotation: ReceivedQuotationInfo) => {
+  const handleEditQuotationClick = useCallback(async (quotation: ReceivedQuotationInfo) => {
     setEditingQuotation(quotation);
+    setExistingFilePreviewUrl(null);
     setShowQuotationForm(true);
+
+    // ファイルが存在する場合、プレビューURLを取得
+    if (quotation.fileName) {
+      setIsLoadingPreviewUrl(true);
+      try {
+        const previewUrl = await getPreviewUrl(quotation.id);
+        setExistingFilePreviewUrl(previewUrl);
+      } catch {
+        // プレビューURL取得失敗時はnullのまま（OCR機能は利用不可だがフォーム自体は表示される）
+        setExistingFilePreviewUrl(null);
+      } finally {
+        setIsLoadingPreviewUrl(false);
+      }
+    }
   }, []);
 
   /**
@@ -746,6 +763,7 @@ export default function EstimateRequestDetailPage() {
         setQuotations(updatedQuotations);
         setShowQuotationForm(false);
         setEditingQuotation(null);
+        setExistingFilePreviewUrl(null);
       } catch {
         // エラー処理
       } finally {
@@ -792,6 +810,7 @@ export default function EstimateRequestDetailPage() {
   const handleQuotationCancel = useCallback(() => {
     setShowQuotationForm(false);
     setEditingQuotation(null);
+    setExistingFilePreviewUrl(null);
   }, []);
 
   // ローディング表示
@@ -1012,7 +1031,7 @@ export default function EstimateRequestDetailPage() {
               initialData={editingQuotation || undefined}
               onSubmit={handleQuotationSubmit}
               onCancel={handleQuotationCancel}
-              isSubmitting={isQuotationSubmitting}
+              isSubmitting={isQuotationSubmitting || isLoadingPreviewUrl}
               selectedItems={items
                 .filter((item) => item.selected)
                 .map((item) => ({
@@ -1024,6 +1043,7 @@ export default function EstimateRequestDetailPage() {
                   quantity: item.quantity,
                   remarks: null,
                 }))}
+              existingFilePreviewUrl={existingFilePreviewUrl}
             />
           </div>
         </div>

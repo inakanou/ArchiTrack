@@ -32,10 +32,16 @@ import type { LineItemFormData } from './LineItemEditor';
  * design.md OcrDataExtractorProps定義に準拠
  */
 export interface OcrDataExtractorProps {
-  /** 処理対象ファイル */
+  /** 処理対象ファイル（新規アップロード時） */
   file: File | null;
+  /** 処理対象ファイルのURL（編集時の既存ファイル） */
+  fileUrl?: string | null;
+  /** 既存ファイルのMIMEタイプ（fileUrl使用時に必須） */
+  fileMimeType?: string | null;
   /** 一括取り込み時のコールバック */
   onImportLineItems: (items: LineItemFormData[]) => void;
+  /** 自動開始フラグ（デフォルト: true） */
+  autoStart?: boolean;
 }
 
 /**
@@ -468,6 +474,44 @@ const styles = {
     color: '#6b7280',
     textAlign: 'center' as const,
   },
+  actionButtonContainer: {
+    padding: '16px',
+    display: 'flex',
+    justifyContent: 'center',
+  },
+  actionButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#ffffff',
+    backgroundColor: '#2563eb',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  retryButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#ffffff',
+    backgroundColor: '#f59e0b',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+    marginTop: '8px',
+  },
+  buttonDisabled: {
+    backgroundColor: '#9ca3af',
+    cursor: 'not-allowed',
+  },
 };
 
 // ============================================================================
@@ -488,7 +532,13 @@ const styles = {
  * />
  * ```
  */
-export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorProps) {
+export function OcrDataExtractor({
+  file,
+  fileUrl,
+  fileMimeType,
+  onImportLineItems,
+  autoStart = true,
+}: OcrDataExtractorProps) {
   // --------------------------------------------------------------------------
   // 状態管理
   // --------------------------------------------------------------------------
@@ -507,6 +557,9 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   } | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortedRef = useRef(false);
+
+  // 手動トリガーモードで使用するファイルオブジェクトの保持
+  const fetchedFileRef = useRef<File | null>(null);
 
   // --------------------------------------------------------------------------
   // クリーンアップ
@@ -676,17 +729,81 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   }, []);
 
   // --------------------------------------------------------------------------
+  // ファイルURLからFileオブジェクトを取得するヘルパー
+  // --------------------------------------------------------------------------
+
+  const fetchFileFromUrl = useCallback(async (): Promise<File | null> => {
+    if (fetchedFileRef.current) return fetchedFileRef.current;
+    if (!fileUrl || !fileMimeType) return null;
+
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error('ファイルの取得に失敗しました');
+    }
+    const blob = await response.blob();
+    const fetchedFile = new File([blob], 'existing-file', { type: fileMimeType });
+    fetchedFileRef.current = fetchedFile;
+    return fetchedFile;
+  }, [fileUrl, fileMimeType]);
+
+  // --------------------------------------------------------------------------
+  // 手動トリガー実行ハンドラ
+  // --------------------------------------------------------------------------
+
+  const handleManualExecute = useCallback(async () => {
+    try {
+      // fileプロパティが提供されている場合はそれを使用（新規アップロード時のリトライ）
+      let targetFile: File | null = file;
+
+      if (!targetFile) {
+        // fileUrlからファイルを取得
+        targetFile = await fetchFileFromUrl();
+      }
+
+      if (!targetFile) return;
+
+      const category = detectFileCategory(targetFile.type);
+      if (category === 'pdf' || category === 'image') {
+        await processOcr(targetFile);
+      } else if (category === 'excel') {
+        await processExcel(targetFile);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'ファイルの取得に失敗しました';
+      setErrorMessage(message);
+      setStatus('error');
+    }
+  }, [file, fetchFileFromUrl, processOcr, processExcel]);
+
+  // --------------------------------------------------------------------------
+  // リトライハンドラ
+  // --------------------------------------------------------------------------
+
+  const handleRetry = useCallback(async () => {
+    await handleManualExecute();
+  }, [handleManualExecute]);
+
+  // --------------------------------------------------------------------------
   // ファイル変更時の処理開始
   // --------------------------------------------------------------------------
 
   useEffect(() => {
     if (!file) {
+      // autoStart=false（手動トリガーモード）でfileUrlが存在する場合はidleで待機
+      if (!autoStart && fileUrl) {
+        return;
+      }
       setStatus('idle');
       setProgress(0);
       setExtractedText(null);
       setParsedLineItems(null);
       setErrorMessage(null);
       setImportCompleted(false);
+      return;
+    }
+
+    // autoStart=false の場合は自動実行しない
+    if (!autoStart) {
       return;
     }
 
@@ -702,7 +819,7 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
       abortedRef.current = true;
       cleanup();
     };
-  }, [file, processOcr, processExcel, cleanup]);
+  }, [file, autoStart, fileUrl, processOcr, processExcel, cleanup]);
 
   // --------------------------------------------------------------------------
   // 一括取り込みハンドラ
@@ -719,13 +836,24 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   // レンダリング
   // --------------------------------------------------------------------------
 
-  // ファイルがない場合は何も表示しない
-  if (!file) {
+  // ファイルもfileUrlも無い場合は何も表示しない
+  if (!file && !fileUrl) {
     return null;
   }
 
-  const fileCategory = detectFileCategory(file.type);
+  // ファイル種別の判定（fileがある場合はfile.type、ない場合はfileMimeTypeを使用）
+  const effectiveMimeType = file ? file.type : (fileMimeType ?? '');
+  const fileCategory = detectFileCategory(effectiveMimeType);
   const headerTitle = fileCategory === 'excel' ? 'データ抽出（Excelパース）' : 'データ抽出（OCR）';
+
+  // 手動トリガーモード: idleかつautoStart=falseの場合にアクションボタンを表示
+  const showManualTriggerButton = !autoStart && status === 'idle';
+
+  // リトライボタン: エラー時に表示
+  const showRetryButton = status === 'error';
+
+  // 処理中フラグ
+  const isProcessing = status === 'processing';
 
   return (
     <div style={styles.container}>
@@ -733,6 +861,23 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
       <div style={styles.header}>
         <span style={styles.headerTitle}>{headerTitle}</span>
       </div>
+
+      {/* 手動トリガーボタン（autoStart=false時） */}
+      {showManualTriggerButton && (
+        <div style={styles.actionButtonContainer}>
+          <button
+            type="button"
+            onClick={handleManualExecute}
+            disabled={isProcessing}
+            style={{
+              ...styles.actionButton,
+              ...(isProcessing ? styles.buttonDisabled : {}),
+            }}
+          >
+            {fileCategory === 'excel' ? 'データパース実行' : 'OCR実行'}
+          </button>
+        </div>
+      )}
 
       {/* 処理中インジケーター */}
       {status === 'processing' && (
@@ -790,11 +935,24 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
         </div>
       )}
 
-      {/* エラー表示（13.14） */}
+      {/* エラー表示（13.14） + リトライボタン（16.5, 16.6） */}
       {status === 'error' && (
         <div style={styles.errorContainer} data-testid="ocr-error-message">
           <span style={styles.errorMessage}>{errorMessage ?? 'データの抽出に失敗しました'}</span>
           <span style={styles.manualInputHint}>手動で明細行にデータを入力してください。</span>
+          {showRetryButton && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={isProcessing}
+              style={{
+                ...styles.retryButton,
+                ...(isProcessing ? styles.buttonDisabled : {}),
+              }}
+            >
+              OCRリトライ
+            </button>
+          )}
         </div>
       )}
     </div>

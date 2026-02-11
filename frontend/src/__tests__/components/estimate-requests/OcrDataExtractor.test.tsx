@@ -76,8 +76,10 @@ describe('OcrDataExtractor', () => {
 
   afterEach(() => {
     cleanup();
-    vi.useRealTimers();
-    vi.restoreAllMocks();
+    // global.fetchのモックをクリーンアップ
+    if ('fetch' in global && vi.isMockFunction(global.fetch)) {
+      (global.fetch as ReturnType<typeof vi.fn>).mockRestore?.();
+    }
   });
 
   describe('ファイルがnullの場合', () => {
@@ -358,6 +360,303 @@ describe('OcrDataExtractor', () => {
       // 状態がリセットされ、新しいファイルの処理が開始される
       await waitFor(() => {
         expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Task 39.1: OcrDataExtractorの改訂テスト（OCR再実行・リトライ機能）
+  //
+  // Requirements:
+  // - 16.1: 編集画面でPDF/画像の場合に「OCR実行」ボタンを表示
+  // - 16.2: ボタンクリックで既存ファイルに対してOCR処理を開始
+  // - 16.3: OCR処理中にインジケーターを表示
+  // - 16.4: OCR完了後に結果と一括取り込みボタンを表示
+  // - 16.5: OCR失敗時に「OCRリトライ」ボタンを表示
+  // - 16.6: リトライボタンでOCR再実行
+  // - 16.7: Excelの場合に「データパース実行」ボタンを表示
+  // - 16.8: データパース実行ボタンでデータパースを開始
+  // - 16.10: OCR結果から一括取り込み
+  // - 16.11: 処理中にボタンを非活性
+  // ==========================================================================
+
+  describe('autoStart=false時のOCR/パース処理（16.1-16.11）', () => {
+    it('autoStart=false時にOCR/パース処理が自動実行されないこと', async () => {
+      const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+      render(
+        <OcrDataExtractor
+          file={imageFile}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.jpg"
+          fileMimeType="image/jpeg"
+        />
+      );
+
+      // ワーカーが作成されないこと（自動実行されない）
+      await new Promise((r) => setTimeout(r, 100));
+      expect(mockCreateWorker).not.toHaveBeenCalled();
+    });
+
+    it('PDF/画像ファイル時に「OCR実行」ボタンを表示する（16.1）', async () => {
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.pdf"
+          fileMimeType="application/pdf"
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /OCR実行/ })).toBeInTheDocument();
+    });
+
+    it('画像ファイル時に「OCR実行」ボタンを表示する（16.1）', async () => {
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.jpg"
+          fileMimeType="image/jpeg"
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /OCR実行/ })).toBeInTheDocument();
+    });
+
+    it('Excelファイル時に「データパース実行」ボタンを表示する（16.7）', async () => {
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.xlsx"
+          fileMimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /データパース実行/ })).toBeInTheDocument();
+    });
+
+    it('OCR実行ボタンクリック時にfileUrlからファイルを取得しOCR処理を実行する（16.2）', async () => {
+      const user = userEvent.setup();
+      const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(mockBlob),
+      });
+
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.pdf"
+          fileMimeType="application/pdf"
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /OCR実行/ }));
+
+      // fetchが呼ばれてファイルが取得される
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith('https://example.com/file.pdf');
+      });
+
+      // OCRワーカーが作成されて処理が実行される
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+      });
+    });
+
+    it('データパース実行ボタンクリック時にfileUrlからExcelデータをパースする（16.8）', async () => {
+      const user = userEvent.setup();
+      const mockBlob = new Blob(['excel-content'], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(mockBlob),
+      });
+
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.xlsx"
+          fileMimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /データパース実行/ }));
+
+      // fetchが呼ばれてファイルが取得される
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith('https://example.com/file.xlsx');
+      });
+    });
+
+    it('処理中にすべてのアクションボタンを非活性にする（16.11）', async () => {
+      const user = userEvent.setup();
+      // OCR処理が長時間かかるようシミュレート
+      mockWorker.recognize.mockImplementation(() => new Promise(() => {})); // never resolves
+      const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(mockBlob),
+      });
+
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.pdf"
+          fileMimeType="application/pdf"
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /OCR実行/ }));
+
+      // 処理中にボタンが非活性になる
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-progress-indicator')).toBeInTheDocument();
+      });
+
+      // ボタンが非活性であること
+      const buttons = screen.queryAllByRole('button');
+      buttons.forEach((button) => {
+        if (button.textContent?.includes('OCR実行') || button.textContent?.includes('リトライ')) {
+          expect(button).toBeDisabled();
+        }
+      });
+    });
+  });
+
+  describe('OCR失敗時のリトライ機能（16.5, 16.6）', () => {
+    it('OCR処理が失敗した場合に「OCRリトライ」ボタンを表示する（16.5）', async () => {
+      const user = userEvent.setup();
+      mockWorker.recognize.mockRejectedValue(new Error('OCR処理に失敗しました'));
+      const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(mockBlob),
+      });
+
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.pdf"
+          fileMimeType="application/pdf"
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /OCR実行/ }));
+
+      // エラー表示とリトライボタンが表示される
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /OCRリトライ/ })).toBeInTheDocument();
+      });
+    });
+
+    it('新規アップロード時にOCR失敗で「OCRリトライ」ボタンを表示する（16.5）', async () => {
+      mockWorker.recognize.mockRejectedValue(new Error('OCR処理に失敗しました'));
+      const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+      render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
+
+      // エラー表示とリトライボタンが表示される
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /OCRリトライ/ })).toBeInTheDocument();
+      });
+    });
+
+    it('リトライボタンクリック時にOCR処理を再実行する（16.6）', async () => {
+      const user = userEvent.setup();
+      // 最初は失敗、リトライ時は成功
+      mockWorker.recognize
+        .mockRejectedValueOnce(new Error('OCR処理に失敗しました'))
+        .mockResolvedValueOnce({
+          data: { text: '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000' },
+        });
+
+      const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(mockBlob),
+      });
+
+      render(
+        <OcrDataExtractor
+          file={null}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={false}
+          fileUrl="https://example.com/file.pdf"
+          fileMimeType="application/pdf"
+        />
+      );
+
+      // 最初のOCR実行
+      await user.click(screen.getByRole('button', { name: /OCR実行/ }));
+
+      // エラーとリトライボタンが表示される
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /OCRリトライ/ })).toBeInTheDocument();
+      });
+
+      // 2回目のcreateworkerを設定（リトライ用）
+      const retryWorker = {
+        recognize: vi.fn().mockResolvedValue({
+          data: { text: '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000' },
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+      mockCreateWorker.mockResolvedValue(retryWorker);
+
+      // リトライボタンをクリック
+      await user.click(screen.getByRole('button', { name: /OCRリトライ/ }));
+
+      // OCR処理が再実行されて結果が表示される
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('file + autoStart=true（従来動作：後方互換性）テスト', () => {
+    it('fileプロパティ + autoStart=trueで従来通り自動実行する', async () => {
+      const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+      render(
+        <OcrDataExtractor
+          file={imageFile}
+          onImportLineItems={mockOnImportLineItems}
+          autoStart={true}
+        />
+      );
+
+      // OCR処理が自動実行される
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+      });
+    });
+
+    it('autoStartを省略した場合もデフォルトtrueとして自動実行する（後方互換性）', async () => {
+      const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+      render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
+
+      // OCR処理が自動実行される（従来の動作と同じ）
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
       });
     });
   });

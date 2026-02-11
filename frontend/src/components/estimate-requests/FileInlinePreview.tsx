@@ -389,10 +389,36 @@ export function FileInlinePreview({
   // Excelファイルのパース処理
   // --------------------------------------------------------------------------
 
+  /**
+   * ArrayBufferからExcelデータをパースする共通ロジック
+   */
+  const parseExcelArrayBuffer = useCallback((arrayBuffer: ArrayBuffer) => {
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      throw new Error('シートが見つかりません');
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+    if (!worksheet) {
+      throw new Error('ワークシートが見つかりません');
+    }
+    // header: 1 で2次元配列として取得
+    const rows = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1,
+    }) as ExcelRow[];
+
+    setTotalExcelRows(rows.length);
+    setExcelData(rows);
+  }, []);
+
+  // Fileオブジェクトからのパース
   useEffect(() => {
     if (!file || previewType !== 'excel') {
-      setExcelData(null);
-      setTotalExcelRows(0);
+      if (!existingPreviewUrl || previewType !== 'excel') {
+        setExcelData(null);
+        setTotalExcelRows(0);
+      }
       return;
     }
 
@@ -404,27 +430,11 @@ export function FileInlinePreview({
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        if (!data) {
+        if (!data || !(data instanceof ArrayBuffer)) {
           throw new Error('ファイルの読み込みに失敗しました');
         }
 
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        if (!firstSheetName) {
-          throw new Error('シートが見つかりません');
-        }
-
-        const worksheet = workbook.Sheets[firstSheetName];
-        if (!worksheet) {
-          throw new Error('ワークシートが見つかりません');
-        }
-        // header: 1 で2次元配列として取得
-        const rows = XLSX.utils.sheet_to_json(worksheet, {
-          header: 1,
-        }) as ExcelRow[];
-
-        setTotalExcelRows(rows.length);
-        setExcelData(rows);
+        parseExcelArrayBuffer(data);
       } catch {
         setError('プレビューを表示できません。ファイルの読み込みに失敗しました。');
       } finally {
@@ -438,7 +448,44 @@ export function FileInlinePreview({
     };
 
     reader.readAsArrayBuffer(file);
-  }, [file, previewType]);
+  }, [file, previewType, existingPreviewUrl, parseExcelArrayBuffer]);
+
+  // existingPreviewUrlからのExcelフェッチ&パース
+  useEffect(() => {
+    // fileが優先（新規アップロード時）
+    if (file || previewType !== 'excel' || !existingPreviewUrl) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    (async () => {
+      try {
+        const response = await fetch(existingPreviewUrl);
+        if (!response.ok) {
+          throw new Error('ファイルの取得に失敗しました');
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        if (cancelled) return;
+
+        parseExcelArrayBuffer(arrayBuffer);
+      } catch {
+        if (!cancelled) {
+          setError('プレビューを表示できません。ファイルの読み込みに失敗しました。');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file, previewType, existingPreviewUrl, parseExcelArrayBuffer]);
 
   // --------------------------------------------------------------------------
   // プレビューURLの決定（ファイルまたは既存URL）
