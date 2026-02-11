@@ -315,6 +315,11 @@ sequenceDiagram
 | 13.14 | OCRエラーハンドリング | OcrDataExtractor | - | エラー処理 |
 | 14.1-14.6 | 受領見積書データ管理 | ReceivedQuotationService, ReceivedQuotationLineItem Model | CRUD APIs | データ永続化 |
 | 15.1-15.11 | 項目選択一括転記 | ReceivedQuotationForm, ItemSelectionPanel, LineItemEditor | クライアントサイドデータフロー | 項目選択一括転記フロー |
+| 16.1-16.4 | 編集画面OCR実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルOCR実行フロー |
+| 16.5-16.6 | OCRリトライ | OcrDataExtractor | - | OCRリトライフロー |
+| 16.7-16.8 | 編集画面データパース実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルデータパースフロー |
+| 16.9 | OCR失敗時の保存許可 | ReceivedQuotationForm | - | バリデーションフロー |
+| 16.10-16.12 | 編集画面OCR結果取り込み | OcrDataExtractor, LineItemEditor | - | データ取り込みフロー |
 
 ## Components and Interfaces
 
@@ -1223,22 +1228,24 @@ interface ItemSelectionPanelState {
 - Validation: メールアドレス/FAX番号未登録時のエラー表示
 - Risks: Clipboard APIがブラウザで利用不可の場合のフォールバック
 
-#### ReceivedQuotationForm - 改訂
+#### ReceivedQuotationForm - 改訂（OCR再実行対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 受領見積書の登録・編集フォームを提供（ファイルアップロード + 構造化データ入力 + 項目選択一括転記） |
-| Requirements | 11.1-11.30, 15.1-15.11 |
+| Intent | 受領見積書の登録・編集フォームを提供（ファイルアップロード + 構造化データ入力 + 項目選択一括転記 + 既存ファイルOCR再実行） |
+| Requirements | 11.1-11.30, 15.1-15.11, 16.1-16.12 |
 
 **Responsibilities & Constraints**
 - 受領見積書名、提出日の入力
 - ファイルアップロード（ドラッグ&ドロップ対応）
 - ファイルインラインプレビュー表示（FileInlinePreview）
 - OCR/データパース処理と結果表示（OcrDataExtractor）
+- **改訂: 編集画面での既存ファイルOCR/データパース実行**（16.1-16.4, 16.7-16.8）
+- **改訂: 編集画面での既存ファイルのFileInlinePreview表示**（16.12）
 - 構造化明細行データ入力（LineItemEditor）
 - 「項目選択から転記」ボタンによる一括転記機能（15.1）
 - ファイル形式とサイズのバリデーション
-- ファイルまたは明細行データのいずれか必須の検証
+- ファイルまたは明細行データのいずれか必須の検証（16.9: OCR失敗時もファイルアップロードのみで保存可能）
 
 **Dependencies**
 - Inbound: ReceivedQuotationList -- フォーム呼び出し (P0)
@@ -1246,6 +1253,7 @@ interface ItemSelectionPanelState {
 - Outbound: OcrDataExtractor -- OCR/データパース (P1)
 - Outbound: LineItemEditor -- 明細行入力 (P0)
 - Inbound: EstimateRequestDetailPage -- 選択済み項目データの提供 (P0)
+- External: received-quotations API -- 既存ファイルプレビューURL取得 (P0)
 
 **Contracts**: State [x]
 
@@ -1261,6 +1269,8 @@ interface ReceivedQuotationFormProps {
   isSubmitting?: boolean;
   /** 項目選択セクションの選択済み項目データ（一括転記用） */
   selectedItems?: SelectedItemForTranscription[];
+  /** 既存ファイルのプレビューURL（編集時のOCR再実行用） */
+  existingFilePreviewUrl?: string | null;  // 改訂: 追加（16.1, 16.2）
 }
 
 /** 一括転記用の選択済み項目データ */
@@ -1320,6 +1330,12 @@ interface ReceivedQuotationFormState {
 - Integration: 「項目選択から転記」ボタンはLineItemEditorの上部に配置し、selectedItemsプロパティが提供されている場合のみ表示する
 - Validation: 必須項目チェック、ファイル形式・サイズチェック、コンテンツ存在チェック
 - Visual: フォーム内にファイルプレビュー、OCR結果、明細行エディタを統合表示
+- **改訂: 編集画面のOCR再実行対応（16.1-16.12）**:
+  - 編集画面（mode='edit'）で既存ファイルが存在する場合: `existingFilePreviewUrl`プロパティと`initialData.fileMimeType`をOcrDataExtractorに渡す
+  - OcrDataExtractorに`autoStart={false}`を設定し、手動トリガーモードで起動（ユーザーが「OCR実行」ボタンをクリックして開始）
+  - 新規アップロード時（selectedFile !== null）: 従来通りOcrDataExtractorに`file`プロパティで渡し`autoStart={true}`（自動開始）
+  - 既存ファイルの場合もFileInlinePreviewに`existingPreviewUrl`を渡してプレビュー表示する
+  - OCR処理の成功・失敗にかかわらず、ファイルアップロードのみでの保存を許可（16.9）（既存バリデーションで対応済み）
 
 #### FileInlinePreview - 新規
 
@@ -1367,12 +1383,12 @@ interface FileInlinePreviewState {
 - Validation: ファイルタイプの判定はfileMimeTypeを使用
 - Risks: 大容量PDFファイルのレンダリング負荷（最初のページのみ表示で軽減）。大容量Excelの先頭100行のみ表示
 
-#### OcrDataExtractor - 新規
+#### OcrDataExtractor - 改訂（OCR再実行・リトライ対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | OCR/データパースによるテキスト抽出と構造化データ取り込み機能を提供 |
-| Requirements | 13.5-13.14 |
+| Intent | OCR/データパースによるテキスト抽出と構造化データ取り込み機能を提供。編集画面での既存ファイルOCR再実行とリトライ機能を含む |
+| Requirements | 13.5-13.14, 16.1-16.12 |
 
 **Responsibilities & Constraints**
 - PDF/画像ファイル: Tesseract.jsによるOCR処理（13.5）
@@ -1382,6 +1398,9 @@ interface FileInlinePreviewState {
 - 抽出テキストの選択・コピー可能表示（13.9）
 - 一括取り込みボタンによる明細行への自動入力（13.10-13.13）
 - OCR/パースエラー時のフォールバック（13.14）
+- **改訂: 手動トリガーモード**: `autoStart`プロパティがfalseの場合、OCR/パース処理を自動開始せず「OCR実行」/「データパース実行」ボタンを表示する（16.1, 16.7）
+- **改訂: リトライ機能**: OCR/パース処理が失敗した場合に「OCRリトライ」ボタンを表示し、再実行を可能にする（16.5, 16.6）
+- **改訂: ファイルURL対応**: `fileUrl`プロパティで署名付きURLからファイルを取得してOCR処理を実行する（16.2, 16.8）
 
 **Dependencies**
 - Inbound: ReceivedQuotationForm -- 抽出処理呼び出し (P0)
@@ -1395,8 +1414,16 @@ interface FileInlinePreviewState {
 
 ```typescript
 interface OcrDataExtractorProps {
+  /** 処理対象ファイル（新規アップロード時） */
   file: File | null;
+  /** 処理対象ファイルのURL（編集時の既存ファイル） */
+  fileUrl?: string | null;
+  /** 既存ファイルのMIMEタイプ（fileUrl使用時に必須） */
+  fileMimeType?: string | null;
+  /** 一括取り込み時のコールバック */
   onImportLineItems: (items: LineItemFormData[]) => void;
+  /** 自動開始フラグ（デフォルト: true） */
+  autoStart?: boolean;
 }
 
 interface OcrDataExtractorState {
@@ -1405,17 +1432,24 @@ interface OcrDataExtractorState {
   extractedText: string | null;
   parsedLineItems: LineItemFormData[] | null;
   errorMessage: string | null;
+  importCompleted: boolean;
 }
 ```
 
-**OCR/パース処理フロー**:
-1. ファイルタイプ判定（MIMEタイプベース）
-2. PDF/画像 -> Tesseract.js OCR処理開始
-3. Excel -> XLSX.read()によるデータパース開始
-4. 処理中: progressインジケーター表示
-5. 完了: 抽出テキスト表示 + パース済み構造化データ保持
-6. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行
-7. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
+**OCR/パース処理フロー（改訂版）**:
+
+1. **新規アップロード時（autoStart=true）**: 従来通り`file`プロパティのファイル変更をトリガーに自動実行
+2. **編集画面 既存ファイル時（autoStart=false）**:
+   a. 「OCR実行」/「データパース実行」ボタンを表示（16.1, 16.7）
+   b. ユーザーがボタンクリック → `fileUrl`から署名付きURLでファイルをfetch → Blobに変換 → Fileオブジェクト生成
+   c. 生成したFileオブジェクトに対してOCR/パース処理を実行
+3. **OCR失敗時リトライ（16.5, 16.6）**:
+   a. エラー表示エリアに「OCRリトライ」ボタンを追加表示
+   b. リトライボタンクリック → 同一ファイルに対してOCR処理を再実行
+   c. 処理中はリトライボタンを非活性化（16.11）
+4. 完了: 抽出テキスト表示 + パース済み構造化データ保持
+5. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行（16.10）
+6. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
 
 **テキストから構造化データへの変換ロジック（改訂版）**:
 - OCRテキストをタブ区切りまたはスペース区切りで行分割
@@ -1428,6 +1462,8 @@ interface OcrDataExtractorState {
 - Integration: ExcelパースはXLSX.read() + XLSX.utils.sheet_to_jsonで構造化データを抽出
 - Validation: OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示
 - Risks: OCR精度は入力画像品質に依存。テキスト解析は完全自動化ではなく、ユーザー確認・修正を前提とする
+- **改訂: ファイルURL→Fileオブジェクト変換**: `fileUrl`からfetch APIでBlobを取得し、`new File([blob], fileName, { type: mimeType })`でFileオブジェクトを生成する。これにより既存のprocessOcr/processExcelロジックを再利用可能
+- **改訂: リトライ実装**: `retryCount` stateを用いてuseEffectの依存配列に含め、リトライ時にカウントをインクリメントすることで再実行をトリガー
 - **バンドルサイズ・WASM初期化対策**:
   - OcrDataExtractorコンポーネントは`React.lazy()`による動的インポートで遅延ロードし、フロントエンド全体のバンドルサイズへの影響を回避する
   - Tesseract.jsのワーカーおよび日本語OCRモデル（15MB超）は、受領見積書登録フォームの表示時に非同期プリフェッチを開始する（`useEffect`内でワーカー初期化を事前実行）
@@ -1830,7 +1866,7 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - ReceivedQuotationForm: フォームバリデーション、ファイル選択、コンテンツ存在検証、項目選択一括転記（空選択エラー、確認ダイアログ、転記結果）
 - LineItemEditor: 明細行追加・削除、金額自動計算、合計計算、Tab移動（customCategory・workType含む）、最終行削除不可
 - FileInlinePreview: PDF/画像/Excelプレビュー表示、ファイルタイプ判定
-- OcrDataExtractor: OCR処理実行、Excelパース（customCategory・workType列マッピング含む）、一括取り込み、エラーハンドリング
+- OcrDataExtractor: OCR処理実行、Excelパース（customCategory・workType列マッピング含む）、一括取り込み、エラーハンドリング、OCRリトライ、手動トリガーモード、既存ファイルURL経由のOCR実行
 - StatusBadge: ステータス表示、色分け
 - StatusTransitionButton: 遷移ボタン表示制御
 - ExcelExportButton: 列ヘッダー「任意分類」表示
@@ -1856,6 +1892,9 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - 受領見積書登録フロー: ボタンクリック->フォーム入力->ファイルアップロード->明細行入力（任意分類・工種含む）->保存
 - 受領見積書インラインプレビュー: ファイルアップロード->プレビュー表示確認（PDF/画像/Excel）
 - 受領見積書OCR/パース: ファイルアップロード->OCR実行->結果表示->一括取り込み->明細行確認（任意分類・工種フィールド含む）
+- 受領見積書OCR再実行: 編集画面表示->「OCR実行」ボタン->OCR処理->結果表示->一括取り込み->保存（16.1-16.4, 16.10）
+- 受領見積書OCRリトライ: ファイルアップロード->OCR失敗->「OCRリトライ」ボタン->再実行->結果表示（16.5, 16.6）
+- 受領見積書PDFのみ保存→後からOCR: 新規登録（PDF+空明細行）->保存->編集画面表示->「OCR実行」->一括取り込み->保存（16.9, 16.1-16.4, 16.10）
 - 受領見積書明細行操作: 行追加->数値入力->金額自動計算->合計確認->行削除
 - 受領見積書一覧表示: 登録済み見積書の確認、ファイルプレビュー、明細行数・合計金額表示
 - 受領見積書編集・削除: 編集->保存、削除確認->削除

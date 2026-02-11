@@ -778,3 +778,66 @@
   - 既存明細行がある場合の上書き確認ダイアログの確認
   - 選択項目が0件の場合のエラーメッセージ確認
   - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9, 15.10, 15.11_
+
+- [ ] 38. OCR再実行・リトライ機能の実装
+- [ ] 38.1 OcrDataExtractorコンポーネントの改訂（手動トリガーモード・リトライ機能）
+  - OcrDataExtractorPropsに`fileUrl`（string | null）、`fileMimeType`（string | null）、`autoStart`（boolean、デフォルトtrue）プロパティを追加する
+  - `autoStart`がfalseの場合、useEffectでのOCR/パース自動実行をスキップし、代わりに「OCR実行」（PDF/画像）または「データパース実行」（Excel）ボタンを表示する
+  - ボタンクリック時に`fileUrl`からfetch APIでBlobを取得し、`new File([blob], 'existing-file', { type: fileMimeType })`でFileオブジェクトを生成してprocessOcr/processExcelを実行する
+  - OCR/パース処理が失敗した場合にエラー表示エリア内に「OCRリトライ」ボタンを追加表示する
+  - リトライボタンクリック時に同一ファイル（fileまたは生成済みFileオブジェクト）に対してprocessOcr/processExcelを再実行する
+  - 処理中はすべてのアクションボタン（OCR実行/データパース実行/OCRリトライ）を非活性にする
+  - `file`プロパティが提供されている場合かつ`autoStart`がtrue（デフォルト）の場合は従来通り自動実行する（後方互換性を維持）
+  - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.10, 16.11_
+
+- [ ] 38.2 ReceivedQuotationFormの改訂（編集画面OCR/プレビュー対応）
+  - ReceivedQuotationFormPropsに`existingFilePreviewUrl`（string | null）プロパティを追加する
+  - 編集画面（mode='edit'）で既存ファイル（existingFileName）が存在し`removeFile`がfalseの場合:
+    - FileInlinePreviewに`existingPreviewUrl={existingFilePreviewUrl}`と`fileMimeType={initialData.fileMimeType}`を渡してプレビュー表示する
+    - OcrDataExtractorを表示し、`fileUrl={existingFilePreviewUrl}`、`fileMimeType={initialData.fileMimeType}`、`autoStart={false}`を渡す
+  - 新規アップロード時（selectedFile !== null）は従来通りOcrDataExtractorに`file={selectedFile}`を渡し`autoStart`はデフォルト（true）で自動実行する
+  - 既存ファイルの場合のOcrDataExtractor表示条件: `existingFilePreviewUrl`が存在し、ファイルがPDF/画像/Excelの場合
+  - _Requirements: 16.1, 16.2, 16.7, 16.9, 16.12_
+
+- [ ] 38.3 EstimateRequestDetailPageの改訂（プレビューURL取得とフォームへの受け渡し）
+  - 受領見積書の編集フォーム表示時に、対象受領見積書のファイルが存在する場合`getPreviewUrl(quotationId)`でプレビューURLを取得する
+  - 取得したプレビューURLを`ReceivedQuotationForm`の`existingFilePreviewUrl`プロパティに渡す
+  - プレビューURL取得中はローディング状態を管理する
+  - プレビューURL取得失敗時はnullを渡し（OCR機能は利用不可となるが、フォーム自体は表示される）
+  - _Requirements: 16.1, 16.2, 16.12_
+
+- [ ] 38.4 FileInlinePreviewの改訂（既存ファイルプレビュー対応）
+  - FileInlinePreviewに`existingPreviewUrl`（string）プロパティが渡された場合、署名付きURLからファイルコンテンツをfetchしてプレビューを表示する
+  - PDFの場合: react-pdfのDocumentコンポーネントに直接URLを渡す
+  - 画像の場合: `<img src={existingPreviewUrl}>`で表示する
+  - Excelの場合: URLからfetchしてArrayBufferに変換し、XLSX.readでパース後テーブル表示する
+  - `file`プロパティと`existingPreviewUrl`プロパティが両方提供された場合、`file`を優先する（新規アップロード時）
+  - _Requirements: 16.12_
+
+- [ ] 39. OCR再実行・リトライ機能のテスト
+- [ ] 39.1 OcrDataExtractorの改訂テスト
+  - `autoStart=false`時にOCR/パース処理が自動実行されないことのテスト
+  - 「OCR実行」ボタン表示のテスト（PDF/画像ファイル時）
+  - 「データパース実行」ボタン表示のテスト（Excelファイル時）
+  - ボタンクリック時の`fileUrl`からのファイル取得とOCR/パース処理実行のテスト
+  - OCR失敗時の「OCRリトライ」ボタン表示のテスト
+  - リトライボタンクリック時のOCR再実行のテスト
+  - 処理中のボタン非活性テスト
+  - `file`プロパティ+`autoStart=true`での従来動作（後方互換性）テスト
+  - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.10, 16.11_
+
+- [ ] 39.2 ReceivedQuotationFormの改訂テスト
+  - 編集画面で既存ファイルがある場合のOcrDataExtractor表示テスト
+  - `existingFilePreviewUrl`がOcrDataExtractorに渡されることのテスト
+  - `autoStart=false`がOcrDataExtractorに渡されることのテスト
+  - 新規アップロード時は従来通り`autoStart=true`で動作することのテスト
+  - 編集画面で既存ファイルがある場合のFileInlinePreview表示テスト
+  - _Requirements: 16.1, 16.2, 16.9, 16.12_
+
+- [ ] 39.3 OCR再実行・リトライのE2Eテスト
+  - PDFのみアップロード->保存->編集画面表示->「OCR実行」ボタン表示確認
+  - 「OCR実行」ボタンクリック->OCR処理開始->インジケーター表示確認
+  - OCR完了->結果表示->一括取り込み->明細行確認->保存フローの確認
+  - 編集画面での既存ファイルプレビュー表示確認
+  - OCR失敗時の「OCRリトライ」ボタン表示確認
+  - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.9, 16.10, 16.12_
