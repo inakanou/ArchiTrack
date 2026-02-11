@@ -320,6 +320,9 @@ sequenceDiagram
 | 16.7-16.8 | 編集画面データパース実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルデータパースフロー |
 | 16.9 | OCR失敗時の保存許可 | ReceivedQuotationForm | - | バリデーションフロー |
 | 16.10-16.12 | 編集画面OCR結果取り込み | OcrDataExtractor, LineItemEditor | - | データ取り込みフロー |
+| 17.1-17.5 | PDFテキスト抽出ハイブリッドアプローチ | OcrDataExtractor | - | PDFテキスト抽出フロー（pdfjs-dist → Tesseract OCRフォールバック） |
+| 17.6 | PDFプレビューページナビゲーション | FileInlinePreview | - | プレビュー表示 |
+| 17.7-17.8 | 処理中インジケーター・タイムアウト | OcrDataExtractor | - | OCR処理フロー |
 
 ## Components and Interfaces
 
@@ -1337,15 +1340,15 @@ interface ReceivedQuotationFormState {
   - 既存ファイルの場合もFileInlinePreviewに`existingPreviewUrl`を渡してプレビュー表示する
   - OCR処理の成功・失敗にかかわらず、ファイルアップロードのみでの保存を許可（16.9）（既存バリデーションで対応済み）
 
-#### FileInlinePreview - 新規
+#### FileInlinePreview - 改訂（PDFページナビゲーション対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | アップロードされたファイルのインラインプレビューを表示 |
-| Requirements | 13.1, 13.2, 13.3, 13.4 |
+| Intent | アップロードされたファイルのインラインプレビューを表示（PDFはページナビゲーション付き全ページ閲覧に対応） |
+| Requirements | 13.1, 13.2, 13.3, 13.4, 17.6 |
 
 **Responsibilities & Constraints**
-- PDFファイル: react-pdfによるPDFビューア表示（13.2）
+- PDFファイル: react-pdfによるPDFビューア表示 + **ページナビゲーション機能（前ページ/次ページボタン、現在ページ/総ページ数表示）**（13.2, 17.6）
 - 画像ファイル: `<img>`タグによるインライン画像表示（13.3）
 - Excelファイル: SheetJS（xlsx）でパースし、テーブル形式で表示（13.4）
 - ファイルタイプに応じたプレビュー方法の自動選択
@@ -1373,25 +1376,29 @@ interface FileInlinePreviewState {
   excelData: Array<Array<string | number | null>> | null;
   isLoading: boolean;
   error: string | null;
+  // 改訂: PDFページナビゲーション（17.6）
+  currentPage: number;  // 現在表示中のページ番号（1始まり）
+  totalPages: number;   // PDF総ページ数
 }
 ```
 
 **Implementation Notes**
-- Integration: PDFプレビューはreact-pdf の`<Document>` + `<Page>`コンポーネントを使用。PDF.jsのworkerをViteで設定
+- Integration: PDFプレビューはreact-pdfの`<Document>` + `<Page>`コンポーネントを使用。PDF.jsのworkerをViteで設定
+- **改訂: PDFページナビゲーション（17.6）**: `<Document onLoadSuccess={({numPages}) => setTotalPages(numPages)}>`で総ページ数を取得し、`<Page pageNumber={currentPage}>`で現在ページを表示。前ページ/次ページボタンと「ページ X / Y」テキストを表示。1ページ目では「前へ」ボタンを非活性、最終ページでは「次へ」ボタンを非活性にする
 - Integration: ExcelプレビューはXLSX.read()でパース後、sheet_to_jsonで2次元配列に変換し、HTMLテーブルとして表示
 - Integration: 画像プレビューはURL.createObjectURL()でBlobURLを生成し、`<img>`タグで表示
 - Validation: ファイルタイプの判定はfileMimeTypeを使用
-- Risks: 大容量PDFファイルのレンダリング負荷（最初のページのみ表示で軽減）。大容量Excelの先頭100行のみ表示
+- Risks: 大容量PDFファイルのレンダリング負荷（ページナビゲーションにより1ページずつ表示で軽減）。大容量Excelの先頭100行のみ表示
 
-#### OcrDataExtractor - 改訂（OCR再実行・リトライ対応）
+#### OcrDataExtractor - 改訂（PDFテキスト抽出ハイブリッドアプローチ・OCR再実行・リトライ対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | OCR/データパースによるテキスト抽出と構造化データ取り込み機能を提供。編集画面での既存ファイルOCR再実行とリトライ機能を含む |
-| Requirements | 13.5-13.14, 16.1-16.12 |
+| Intent | OCR/データパースによるテキスト抽出と構造化データ取り込み機能を提供。PDFファイルに対してpdfjs-distテキスト抽出+Tesseract OCRフォールバックのハイブリッドアプローチを採用。編集画面での既存ファイルOCR再実行とリトライ機能を含む |
+| Requirements | 13.5-13.14, 16.1-16.12, 17.1-17.8 |
 
 **Responsibilities & Constraints**
-- PDF/画像ファイル: Tesseract.jsによるOCR処理（13.5）
+- PDF/画像ファイル: **PDFはpdfjs-distのgetTextContent() APIによるテキスト抽出を優先し、テキストが不十分な場合（スキャンPDF）のみCanvas→Tesseract OCRフォールバックを実行**（17.1, 17.3, 17.4）。画像ファイルは従来通りTesseract.jsによるOCR処理（13.5）
 - Excelファイル: SheetJS（xlsx）によるデータパース（直接データ読み取り）（13.6）
 - 処理中インジケーター表示（13.7）
 - 抽出結果をテキストデータとして表示（13.8）
@@ -1401,11 +1408,13 @@ interface FileInlinePreviewState {
 - **改訂: 手動トリガーモード**: `autoStart`プロパティがfalseの場合、OCR/パース処理を自動開始せず「OCR実行」/「データパース実行」ボタンを表示する（16.1, 16.7）
 - **改訂: リトライ機能**: OCR/パース処理が失敗した場合に「OCRリトライ」ボタンを表示し、再実行を可能にする（16.5, 16.6）
 - **改訂: ファイルURL対応**: `fileUrl`プロパティで署名付きURLからファイルを取得してOCR処理を実行する（16.2, 16.8）
+- **改訂: PDFテキスト抽出ハイブリッドアプローチ**: PDFファイルに対してpdfjs-distのgetTextContent() APIで全ページからテキストを直接抽出する（17.1, 17.2）。抽出テキストが閾値（50文字）以上の場合はそのまま使用し、閾値未満の場合（スキャンPDF）はCanvas描画→画像変換→Tesseract OCRにフォールバックする（17.3, 17.4）
 
 **Dependencies**
 - Inbound: ReceivedQuotationForm -- 抽出処理呼び出し (P0)
 - Outbound: LineItemEditor -- 抽出データの一括取り込み (P0)
-- External: Tesseract.js 7.0.0 -- OCR処理 (P0)
+- External: pdfjs-dist (react-pdf経由) -- PDFテキスト抽出・Canvas描画 (P0)
+- External: Tesseract.js 7.0.0 -- OCR処理（画像・スキャンPDFフォールバック）(P0)
 - External: xlsx 0.20.3 -- Excelデータパース (P0)
 
 **Contracts**: State [x]
@@ -1436,20 +1445,28 @@ interface OcrDataExtractorState {
 }
 ```
 
-**OCR/パース処理フロー（改訂版）**:
+**OCR/パース処理フロー（改訂版 - ハイブリッドアプローチ）**:
 
-1. **新規アップロード時（autoStart=true）**: 従来通り`file`プロパティのファイル変更をトリガーに自動実行
+1. **新規アップロード時（autoStart=true）**: `file`プロパティのファイル変更をトリガーに自動実行
 2. **編集画面 既存ファイル時（autoStart=false）**:
    a. 「OCR実行」/「データパース実行」ボタンを表示（16.1, 16.7）
    b. ユーザーがボタンクリック → `fileUrl`から署名付きURLでファイルをfetch → Blobに変換 → Fileオブジェクト生成
    c. 生成したFileオブジェクトに対してOCR/パース処理を実行
-3. **OCR失敗時リトライ（16.5, 16.6）**:
+3. **PDFファイルの処理フロー（ハイブリッドアプローチ）**（17.1-17.4）:
+   a. FileオブジェクトからArrayBufferを読み取り、pdfjs-distの`getDocument()`でPDFドキュメントを取得
+   b. 全ページ（1〜numPages）を順に`page.getTextContent()`で処理し、テキストアイテムを結合（17.2）
+   c. 抽出テキスト量の判定: テキスト文字数が閾値（50文字）以上か
+      - **テキストPDF（閾値以上）**: pdfjs-dist抽出テキストをそのまま使用（高速・高精度）（17.3）
+      - **スキャンPDF（閾値未満）**: 各ページをCanvas描画→`canvas.toBlob()`で画像化→Tesseract.jsでOCR実行（17.4）
+   d. スキャンPDFフォールバック時は、pdfjs-distの`page.render()`でCanvas描画し、描画結果をPNG画像に変換してTesseract.jsに渡す
+4. **画像ファイルの処理フロー**: 従来通りTesseract.jsのworker.recognize()で直接OCR実行
+5. **OCR失敗時リトライ（16.5, 16.6）**:
    a. エラー表示エリアに「OCRリトライ」ボタンを追加表示
    b. リトライボタンクリック → 同一ファイルに対してOCR処理を再実行
    c. 処理中はリトライボタンを非活性化（16.11）
-4. 完了: 抽出テキスト表示 + パース済み構造化データ保持
-5. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行（16.10）
-6. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
+6. 完了: 抽出テキスト表示 + パース済み構造化データ保持（17.5）
+7. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行（16.10）
+8. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
 
 **テキストから構造化データへの変換ロジック（改訂版）**:
 - OCRテキストをタブ区切りまたはスペース区切りで行分割
@@ -1458,12 +1475,16 @@ interface OcrDataExtractorState {
 - 変換精度は完璧でないため、手動修正を前提とする設計
 
 **Implementation Notes**
-- Integration: Tesseract.js 7.0.0のcreateWorker()でワーカーを初期化し、worker.recognize()でOCR実行。言語は'jpn'（日本語）を使用
+- Integration: **PDFテキスト抽出**: pdfjs-distの`getDocument()`でPDFを読み込み、各ページの`getTextContent()`でテキストアイテムを取得。テキストアイテムの`str`プロパティを結合してテキストを構築する。pdfjs-distはreact-pdfの依存として既にインストール済みであり、`import { getDocument } from 'pdfjs-dist'`で直接利用可能（17.1）
+- Integration: **スキャンPDFフォールバック**: `page.getViewport()`でビューポートを取得し、Canvas要素を作成して`page.render()`で描画。`canvas.toBlob('image/png')`で画像Blobに変換し、Tesseract.jsの`worker.recognize()`に渡す。全ページの結果を結合する（17.4）
+- Integration: **閾値判定**: 全ページのテキスト結合後、空白を除いた文字数が50文字以上であればテキストPDFと判定。閾値は定数`PDF_TEXT_THRESHOLD = 50`として定義する（17.3）
+- Integration: 画像ファイルは従来通りTesseract.js 7.0.0のcreateWorker()でワーカーを初期化し、worker.recognize()でOCR実行。言語は'jpn'（日本語）を使用
 - Integration: ExcelパースはXLSX.read() + XLSX.utils.sheet_to_jsonで構造化データを抽出
-- Validation: OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示
-- Risks: OCR精度は入力画像品質に依存。テキスト解析は完全自動化ではなく、ユーザー確認・修正を前提とする
+- Validation: テキスト抽出/OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示（17.8）
+- Risks: スキャンPDFのCanvas描画→OCR処理は時間がかかる可能性がある。PDFページ数が多い場合のメモリ使用量に注意
 - **改訂: ファイルURL→Fileオブジェクト変換**: `fileUrl`からfetch APIでBlobを取得し、`new File([blob], fileName, { type: mimeType })`でFileオブジェクトを生成する。これにより既存のprocessOcr/processExcelロジックを再利用可能
 - **改訂: リトライ実装**: `retryCount` stateを用いてuseEffectの依存配列に含め、リトライ時にカウントをインクリメントすることで再実行をトリガー
+- **改訂: pdfjs-dist workerの設定**: react-pdfの`pdfjs.GlobalWorkerOptions.workerSrc`設定を共有する。OcrDataExtractorではpdfjs-distのAPIを直接使用してテキスト抽出するが、workerの初期化はFileInlinePreviewと同じ設定を使用する
 - **バンドルサイズ・WASM初期化対策**:
   - OcrDataExtractorコンポーネントは`React.lazy()`による動的インポートで遅延ロードし、フロントエンド全体のバンドルサイズへの影響を回避する
   - Tesseract.jsのワーカーおよび日本語OCRモデル（15MB超）は、受領見積書登録フォームの表示時に非同期プリフェッチを開始する（`useEffect`内でワーカー初期化を事前実行）

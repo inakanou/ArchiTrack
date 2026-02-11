@@ -841,3 +841,65 @@
   - 編集画面での既存ファイルプレビュー表示確認
   - OCR失敗時の「OCRリトライ」ボタン表示確認
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.9, 16.10, 16.12_
+
+- [ ] 40. PDFテキスト抽出ハイブリッドアプローチの実装
+- [ ] 40.1 (P) OcrDataExtractorにpdfjs-distベースのPDFテキスト抽出処理を追加
+  - pdfjs-distの`getDocument()` APIを使用してPDFドキュメントをロードする関数`extractPdfText(file: File)`を実装する
+  - 全ページ（1〜numPages）を順に`page.getTextContent()`で処理し、テキストアイテムの`str`プロパティを結合してテキストを構築する
+  - ページ間の区切りとして改行を挿入する
+  - pdfjs-dist workerの初期化をコンポーネント外のモジュールレベルで一元管理する共通モジュール `pdf-worker-config.ts` を新規作成する。FileInlinePreview既存のworkerSrc設定（`pdfjs-dist/build/pdf.worker.min.mjs`）を抽出し、OcrDataExtractorとFileInlinePreviewの両方がこのモジュールをimportする形にする。これによりコンポーネントのマウント順序に依存しないworker初期化を保証する
+  - 関数は`Promise<string>`を返す
+  - _Requirements: 17.1, 17.2_
+
+- [ ] 40.2 (P) テキストPDF/スキャンPDF判定とハイブリッド処理フローを実装
+  - PDFファイルの処理時に、まず`extractPdfText()`でpdfjs-distテキスト抽出を試行する
+  - 抽出テキストの空白を除いた文字数が閾値（`PDF_TEXT_THRESHOLD = 50`）以上の場合はテキストPDFと判定し、抽出テキストをそのまま使用する（Tesseract OCRはスキップ）
+  - 閾値未満の場合はスキャンPDFと判定し、スキャンPDFフォールバック処理（Task 40.3）に進む
+  - 処理フロー: `processOcr` → ファイルタイプ判定 → PDFの場合 → `extractPdfText()` → 閾値判定 → テキストPDF: 完了 / スキャンPDF: フォールバック
+  - _Requirements: 17.3, 17.4_
+
+- [ ] 40.3 スキャンPDFフォールバック（Canvas→画像→Tesseract OCR）を実装
+  - pdfjs-distの`page.getViewport({ scale: 2.0 })`でビューポートを取得する（scale 2.0でOCR精度を向上）
+  - Canvas要素を動的に作成し、`page.render({ canvasContext, viewport })`で各ページを描画する
+  - `canvas.toBlob('image/png')`で画像Blobに変換する
+  - 変換した画像をTesseract.jsの`worker.recognize()`に渡してOCR処理を実行する
+  - 全ページの結果テキストを改行で結合して最終テキストとする
+  - 処理中のプログレス表示をページ進捗に基づいて更新する（例: 3/5ページ処理中...）
+  - Canvas描画後は即座にCanvasの参照を解放してメモリを節約する
+  - _Requirements: 17.4, 17.7_
+
+- [ ] 40.4 FileInlinePreviewにPDFページナビゲーション機能を追加
+  - react-pdfの`<Document onLoadSuccess={({numPages}) => ...}>`で総ページ数を取得する
+  - `<Page pageNumber={currentPage}>`で現在のページを表示する（初期値: 1）
+  - 「前へ」「次へ」ボタンと「ページ X / Y」テキストを表示する
+  - 1ページ目では「前へ」ボタンを非活性にする
+  - 最終ページでは「次へ」ボタンを非活性にする
+  - 総ページ数が1の場合はページナビゲーションUIを非表示にする
+  - _Requirements: 17.6_
+
+- [ ] 41. PDFテキスト抽出のテスト
+- [ ] 41.1 (P) pdfjs-distテキスト抽出のユニットテスト
+  - pdfjs-distの`getDocument()`と`getTextContent()`をモックしたテスト
+  - テキストPDF（閾値以上）の場合にpdfjs-distテキストがそのまま返されることのテスト
+  - スキャンPDF（閾値未満）の場合にCanvas→Tesseract OCRフォールバックが実行されることのテスト
+  - 複数ページPDFで全ページのテキストが結合されることのテスト
+  - タイムアウト（30秒）が適用されることのテスト
+  - 画像ファイルでは従来通りTesseract OCRが直接実行されることのテスト（後方互換性）
+  - Excelファイルでは従来通りSheetJSパースが実行されることのテスト（後方互換性）
+  - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.8_
+
+- [ ] 41.2 FileInlinePreviewのページナビゲーションテスト
+  - PDFロード成功時に総ページ数が正しく取得されることのテスト
+  - 「前へ」ボタンクリックでページが減少することのテスト
+  - 「次へ」ボタンクリックでページが増加することのテスト
+  - 1ページ目で「前へ」ボタンが非活性であることのテスト
+  - 最終ページで「次へ」ボタンが非活性であることのテスト
+  - 1ページPDFでナビゲーションUIが非表示であることのテスト
+  - _Requirements: 17.6_
+
+- [ ] 41.3 PDFテキスト抽出のE2Eテスト
+  - 実PDFファイルアップロード後にテキスト抽出が成功し、抽出結果が表示されることの確認
+  - 抽出結果から一括取り込みボタンが表示され、クリックで明細行にデータが転記されることの確認
+  - PDFプレビューでページナビゲーション（前へ/次へボタン、ページ表示）が動作することの確認
+  - 処理中インジケーターが表示されることの確認
+  - _Requirements: 17.1, 17.2, 17.5, 17.6, 17.7_

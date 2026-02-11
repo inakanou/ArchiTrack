@@ -283,3 +283,18 @@
 10. When ユーザーが受領見積書の編集画面でOCR/データパースの結果から一括取り込みを実行したとき, the システム shall 抽出データを明細行フィールドに自動入力する
 11. While OCR処理またはデータパース処理の実行中のとき, the システム shall 「OCR実行」/「データパース実行」/「OCRリトライ」ボタンを非活性にする
 12. When 受領見積書の編集画面でファイルプレビューエリアにOCR/パース対象のファイルが存在するとき, the システム shall ファイルプレビューの下にOCR/データパースのアクションエリアを表示する
+
+### Requirement 17: PDFテキスト抽出（pdfjs-distハイブリッドアプローチ）
+
+**Objective:** As a ユーザー, I want PDFファイルからテキストデータを高速・高精度に抽出し、スキャンPDFにも対応したい, so that 実際の見積書PDFをアップロードした際にOCR/テキスト抽出が確実に成功し、明細行への転記が可能になる
+
+#### Acceptance Criteria
+
+1. When ユーザーがPDFファイルをアップロードまたはOCR実行を行ったとき, the システム shall pdfjs-distのgetTextContent() APIを使用してPDFからテキストを抽出する
+2. The システム shall PDFの全ページ（1ページ目から最終ページ）を対象にテキスト抽出を行う
+3. When pdfjs-distによるテキスト抽出で十分なテキストが得られた場合（テキストPDF）, the システム shall 抽出テキストをそのまま使用する（Tesseract OCRは実行しない）
+4. When pdfjs-distによるテキスト抽出でテキストがほとんど得られない場合（スキャンPDF）, the システム shall PDFの各ページをCanvas経由で画像に変換し、Tesseract.js OCRを実行する
+5. The システム shall PDFテキスト抽出の結果を既存のOCR結果と同様にテキストデータとして表示し、一括取り込みボタンを提供する
+6. The システム shall PDFプレビューで全ページを閲覧可能にするページナビゲーション機能（前ページ/次ページボタン、現在ページ/総ページ数表示）を提供する
+7. While PDFテキスト抽出またはCanvas変換→OCR処理が実行中のとき, the システム shall 処理中インジケーターを表示する
+8. The システム shall PDFテキスト抽出のタイムアウトを既存OCRと同じ30秒とする
