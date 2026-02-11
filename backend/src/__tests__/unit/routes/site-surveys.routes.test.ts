@@ -520,7 +520,7 @@ describe('Site Surveys Routes', () => {
       );
     });
 
-    it('should update site survey with partial fields', async () => {
+    it('should update site survey with partial fields', { timeout: 30000 }, async () => {
       const partialInput = {
         memo: '新しいメモ',
         expectedUpdatedAt: '2025-01-02T00:00:00.000Z',

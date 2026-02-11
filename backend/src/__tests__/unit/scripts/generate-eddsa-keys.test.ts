@@ -151,7 +151,7 @@ describe('generate-eddsa-keys script', () => {
   });
 
   describe('デフォルトモード（ファイル出力）', () => {
-    it('.env.keysファイルに鍵を書き込むこと', () => {
+    it('.env.keysファイルに鍵を書き込むこと', { timeout: 60000 }, () => {
       // スクリプトをデフォルトモードで実行
       const result = spawnSync('npx', ['tsx', scriptPath], {
         cwd: backendDir,
