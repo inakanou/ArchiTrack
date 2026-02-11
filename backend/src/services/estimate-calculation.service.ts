@@ -110,7 +110,7 @@ export class EstimateCalculationService {
 
     const q = new Decimal(quantity);
     const p = new Decimal(unitPrice);
-    return q.mul(p).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    return q.mul(p).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
   }
 
   /**
@@ -227,7 +227,7 @@ export class EstimateCalculationService {
     return targetLines.map((line) => {
       const amount = line.amount ?? new Decimal(0);
       const ratio = amount.div(totalAmount);
-      const allocatedAmount = net.mul(ratio).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      const allocatedAmount = net.mul(ratio).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 
       return {
         lineId: line.id,
@@ -261,7 +261,7 @@ export class EstimateCalculationService {
         };
       }
 
-      const newUnitPrice = line.unitPrice.mul(rate);
+      const newUnitPrice = line.unitPrice.mul(rate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 
       return {
         lineId: line.lineId,

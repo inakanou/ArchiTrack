@@ -204,7 +204,7 @@ export function NetAllocationDialog({
         const ratio = totalAmount.isZero()
           ? new Decimal(0)
           : new Decimal(line.amount || 0).div(totalAmount);
-        const allocated = net.mul(ratio).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+        const allocated = net.mul(ratio).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
         return {
           lineId: line.lineId,
           name: line.name,

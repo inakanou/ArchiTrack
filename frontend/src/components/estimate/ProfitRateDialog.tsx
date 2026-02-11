@@ -190,7 +190,7 @@ export function ProfitRateDialog({
         originalUnitPrice: line.unitPrice,
         newUnitPrice: new Decimal(line.unitPrice || 0)
           .mul(rate)
-          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+          .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
           .toString(),
       }));
     } catch {

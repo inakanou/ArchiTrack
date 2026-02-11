@@ -31,18 +31,18 @@ describe('EstimateCalculator', () => {
       expect(result!.toString()).toBe('15000');
     });
 
-    it('小数点を含む計算で精度を維持する（REQ-13.6）', () => {
-      // 0.1 + 0.2 = 0.3 のような精度問題を回避
+    it('小数点を含む計算で精度を維持しつつ整数に丸める（REQ-13.6, REQ-22）', () => {
+      // 3 * 0.1 = 0.3 -> 0（小数第1位四捨五入→整数）
       const result = EstimateCalculator.calculateAmount('3', '0.1');
       expect(result).not.toBeNull();
-      expect(result!.toString()).toBe('0.3');
+      expect(result!.toString()).toBe('0');
     });
 
-    it('大きな数値でも精度を維持する（REQ-13.6）', () => {
+    it('大きな数値でも精度を維持する（REQ-13.6, REQ-22）', () => {
       const result = EstimateCalculator.calculateAmount('1234567.89', '9876543.21');
       expect(result).not.toBeNull();
-      // Decimal.jsによる高精度計算 (1234567.89 * 9876543.21 = 12193263111263.5269 -> 12193263111263.53)
-      expect(result!.toDecimalPlaces(2).toString()).toBe('12193263111263.53');
+      // Decimal.jsによる高精度計算 (1234567.89 * 9876543.21 = 12193263111263.5269 -> 12193263111264（整数）)
+      expect(result!.toString()).toBe('12193263111264');
     });
 
     it('数量がnullの場合はnullを返す', () => {
@@ -65,11 +65,25 @@ describe('EstimateCalculator', () => {
       expect(result).toBeNull();
     });
 
-    it('結果を小数点以下2桁で丸める（四捨五入）', () => {
+    it('REQ-22: 結果を小数第1位で四捨五入して整数で返す', () => {
       const result = EstimateCalculator.calculateAmount('3', '1.005');
       expect(result).not.toBeNull();
-      // 3 * 1.005 = 3.015 -> 3.02（四捨五入）
-      expect(result!.toString()).toBe('3.02');
+      // 3 * 1.005 = 3.015 -> 3（小数第1位四捨五入→整数）
+      expect(result!.toString()).toBe('3');
+    });
+
+    it('REQ-22: 金額が小数を含む場合に整数に丸める', () => {
+      // 2.5 * 3 = 7.5 -> 8（四捨五入）
+      const result = EstimateCalculator.calculateAmount('2.5', '3');
+      expect(result).not.toBeNull();
+      expect(result!.toString()).toBe('8');
+    });
+
+    it('REQ-22: 金額が.5の場合に切り上げる（ROUND_HALF_UP）', () => {
+      // 1 * 1.5 = 1.5 -> 2
+      const result = EstimateCalculator.calculateAmount('1', '1.5');
+      expect(result).not.toBeNull();
+      expect(result!.toString()).toBe('2');
     });
 
     it('マイナスの値も計算できる', () => {
@@ -303,7 +317,7 @@ describe('EstimateCalculator', () => {
       expect(result[1]!.allocatedAmount).toBe('0');
     });
 
-    it('端数処理を適切に行う', () => {
+    it('REQ-22: 端数処理は整数に丸める', () => {
       const vendorLines: VendorLineInfo[] = [
         { id: 'line-1', amount: '10000' },
         { id: 'line-2', amount: '10000' },
@@ -313,14 +327,22 @@ describe('EstimateCalculator', () => {
 
       const result = EstimateCalculator.previewNetAllocation(vendorLines, [], netAmount);
 
-      // 各行は約3333.33
+      // 各行は 10000/3 = 3333.33... -> 3333（整数に丸め）
       expect(result).toHaveLength(3);
-      // 各行の案分後金額を合計すると元のNET金額に近いことを確認
+      // 各行が整数であることを確認
+      for (const r of result) {
+        expect(r.allocatedAmount).not.toContain('.');
+      }
+      // 各行の案分後金額が整数（3333）であることを確認
+      expect(result[0]!.allocatedAmount).toBe('3333');
+      expect(result[1]!.allocatedAmount).toBe('3333');
+      expect(result[2]!.allocatedAmount).toBe('3333');
+      // 整数丸めのため端数が失われる（9999 vs 10000）ことは許容
       const total = result.reduce(
         (sum, r) => sum.add(new Decimal(r.allocatedAmount)),
         new Decimal(0)
       );
-      expect(total.toNumber()).toBeCloseTo(10000, 0);
+      expect(total.toNumber()).toBe(9999);
     });
 
     it('nullの金額は0として扱う', () => {
@@ -372,14 +394,24 @@ describe('EstimateCalculator', () => {
       expect(result[0]!.newUnitPrice).toBe('2000');
     });
 
-    it('小数点以下2桁で丸める', () => {
+    it('REQ-22: 新しい単価を小数第1位で四捨五入して整数にする', () => {
       const executionLines: ExecutionLineInfo[] = [{ lineId: 'line-1', unitPrice: '1000' }];
       const profitRate = '33.333'; // 33.333%
 
       const result = EstimateCalculator.previewProfitRate(executionLines, profitRate);
 
-      // 1000 * 1.33333 = 1333.33
-      expect(result[0]!.newUnitPrice).toBe('1333.33');
+      // 1000 * 1.33333 = 1333.33 -> 1333（小数第1位四捨五入→整数）
+      expect(result[0]!.newUnitPrice).toBe('1333');
+    });
+
+    it('REQ-22: 新しい単価の.5は切り上げ', () => {
+      const executionLines: ExecutionLineInfo[] = [{ lineId: 'line-1', unitPrice: '100' }];
+      const profitRate = '5'; // 5%
+
+      const result = EstimateCalculator.previewProfitRate(executionLines, profitRate);
+
+      // 100 * 1.05 = 105 -> 105（整数のまま）
+      expect(result[0]!.newUnitPrice).toBe('105');
     });
 
     it('単価がnullの場合はnullを返す', () => {
@@ -408,6 +440,62 @@ describe('EstimateCalculator', () => {
       const result = EstimateCalculator.previewProfitRate(executionLines, profitRate);
 
       expect(result[0]!.originalUnitPrice).toBe('1000');
+    });
+  });
+
+  describe('roundUnitPrice (REQ-22: 単価の丸め)', () => {
+    it('単価を小数第1位で四捨五入して整数にする', () => {
+      expect(EstimateCalculator.roundUnitPrice('1234.5')).toBe('1235');
+      expect(EstimateCalculator.roundUnitPrice('1234.4')).toBe('1234');
+      expect(EstimateCalculator.roundUnitPrice('1234.49')).toBe('1234');
+      expect(EstimateCalculator.roundUnitPrice('1234.50')).toBe('1235');
+    });
+
+    it('整数値はそのまま返す', () => {
+      expect(EstimateCalculator.roundUnitPrice('1000')).toBe('1000');
+      expect(EstimateCalculator.roundUnitPrice('0')).toBe('0');
+    });
+
+    it('nullの場合はnullを返す', () => {
+      expect(EstimateCalculator.roundUnitPrice(null)).toBeNull();
+    });
+
+    it('空文字の場合はnullを返す', () => {
+      expect(EstimateCalculator.roundUnitPrice('')).toBeNull();
+    });
+
+    it('マイナスの単価も正しく丸める', () => {
+      expect(EstimateCalculator.roundUnitPrice('-1234.5')).toBe('-1235');
+      expect(EstimateCalculator.roundUnitPrice('-1234.4')).toBe('-1234');
+    });
+  });
+
+  describe('formatQuantity (REQ-22: 数量フォーマット)', () => {
+    it('数量を小数2桁固定でフォーマットする', () => {
+      expect(EstimateCalculator.formatQuantity('10')).toBe('10.00');
+      expect(EstimateCalculator.formatQuantity('1')).toBe('1.00');
+      expect(EstimateCalculator.formatQuantity('0')).toBe('0.00');
+    });
+
+    it('小数1桁は2桁に揃える', () => {
+      expect(EstimateCalculator.formatQuantity('1.5')).toBe('1.50');
+    });
+
+    it('小数2桁はそのまま', () => {
+      expect(EstimateCalculator.formatQuantity('1.25')).toBe('1.25');
+    });
+
+    it('小数3桁以上は2桁に丸める', () => {
+      expect(EstimateCalculator.formatQuantity('1.255')).toBe('1.26');
+      expect(EstimateCalculator.formatQuantity('1.254')).toBe('1.25');
+    });
+
+    it('nullの場合はnullを返す', () => {
+      expect(EstimateCalculator.formatQuantity(null)).toBeNull();
+    });
+
+    it('空文字の場合はnullを返す', () => {
+      expect(EstimateCalculator.formatQuantity('')).toBeNull();
     });
   });
 

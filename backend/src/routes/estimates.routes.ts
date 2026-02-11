@@ -1271,12 +1271,12 @@ router.post(
           // 案分後の単価を計算（数量がある場合は案分金額÷数量、ない場合は案分金額を単価とする）
           const quantity = vendorLine.quantity ? new Decimal(vendorLine.quantity.toString()) : null;
           const allocatedAmount = allocation.allocatedAmount.toDecimalPlaces(
-            2,
+            0,
             Decimal.ROUND_HALF_UP
           );
           const unitPrice =
             quantity && !quantity.isZero()
-              ? allocatedAmount.div(quantity).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+              ? allocatedAmount.div(quantity).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
               : allocatedAmount;
 
           // 同じ項目のEXECUTION行を更新
@@ -1422,7 +1422,7 @@ router.post(
             if (estimateLine.unitPrice !== null) continue;
           }
 
-          const newUnitPrice = preview.newUnitPrice.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+          const newUnitPrice = preview.newUnitPrice.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 
           if (validatedBody.overwriteOption === 'unit_price_only') {
             // 単価のみ更新（金額は数量×単価で再計算）
@@ -1430,7 +1430,7 @@ router.post(
               estimateLine.quantity && newUnitPrice
                 ? new Decimal(estimateLine.quantity.toString())
                     .mul(newUnitPrice)
-                    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+                    .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
                 : null;
             await tx.estimateItemLine.update({
               where: { id: estimateLine.id },
@@ -1443,7 +1443,7 @@ router.post(
             // all または empty_only: 実行金額行の情報をコピー
             const quantity = execLine.quantity ? new Decimal(execLine.quantity.toString()) : null;
             const amount = quantity
-              ? quantity.mul(newUnitPrice).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+              ? quantity.mul(newUnitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
               : null;
             await tx.estimateItemLine.update({
               where: { id: estimateLine.id },

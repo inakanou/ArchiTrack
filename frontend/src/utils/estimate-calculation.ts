@@ -114,7 +114,47 @@ export class EstimateCalculator {
     try {
       const q = new Decimal(quantity);
       const p = new Decimal(unitPrice);
-      return q.mul(p).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      return q.mul(p).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 単価を丸める（小数第1位で四捨五入して整数にする）
+   *
+   * Requirements: REQ-22.2
+   *
+   * @param unitPrice - 単価（文字列またはnull）
+   * @returns 丸めた単価（文字列）。null/空文字の場合はnull。
+   */
+  static roundUnitPrice(unitPrice: string | null): string | null {
+    if (unitPrice === null || unitPrice === '') {
+      return null;
+    }
+
+    try {
+      return new Decimal(unitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toString();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 数量を小数2桁固定でフォーマットする
+   *
+   * Requirements: REQ-22.1, REQ-22.7
+   *
+   * @param quantity - 数量（文字列またはnull）
+   * @returns フォーマットされた数量（文字列）。null/空文字の場合はnull。
+   */
+  static formatQuantity(quantity: string | null): string | null {
+    if (quantity === null || quantity === '') {
+      return null;
+    }
+
+    try {
+      return new Decimal(quantity).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
     } catch {
       return null;
     }
@@ -263,7 +303,7 @@ export class EstimateCalculator {
       }
 
       const ratio = amount.div(totalAmount);
-      const allocatedAmount = net.mul(ratio).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      const allocatedAmount = net.mul(ratio).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 
       // 比率を%表示用に変換（小数点2桁）
       const ratioPercent = ratio.mul(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
@@ -305,7 +345,7 @@ export class EstimateCalculator {
 
       try {
         const originalPrice = new Decimal(line.unitPrice);
-        const newUnitPrice = originalPrice.mul(rate).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+        const newUnitPrice = originalPrice.mul(rate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 
         return {
           lineId: line.lineId,
