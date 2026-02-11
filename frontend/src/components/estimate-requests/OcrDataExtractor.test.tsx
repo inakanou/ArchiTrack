@@ -454,7 +454,7 @@ describe('OcrDataExtractor', () => {
       expect(firstItem!.name).toBe('コンクリート');
       expect(firstItem!.specification).toBe('C25');
       expect(firstItem!.unit).toBe('m3');
-      expect(firstItem!.quantity).toBe('10');
+      expect(firstItem!.quantity).toBe('10.00');
       expect(firstItem!.unitPrice).toBe('15000');
     });
 

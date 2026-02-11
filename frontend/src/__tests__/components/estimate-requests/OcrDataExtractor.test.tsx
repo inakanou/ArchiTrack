@@ -23,11 +23,14 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // モック関数（vi.mock外でアクセス可能にするためvi.hoistedを使用）
-const { mockCreateWorker, mockXlsxRead, mockSheetToJson } = vi.hoisted(() => ({
-  mockCreateWorker: vi.fn(),
-  mockXlsxRead: vi.fn(),
-  mockSheetToJson: vi.fn(),
-}));
+const { mockCreateWorker, mockXlsxRead, mockSheetToJson, mockExtractPdfHybrid } = vi.hoisted(
+  () => ({
+    mockCreateWorker: vi.fn(),
+    mockXlsxRead: vi.fn(),
+    mockSheetToJson: vi.fn(),
+    mockExtractPdfHybrid: vi.fn(),
+  })
+);
 
 // tesseract.jsをモック（軽量版）
 vi.mock('tesseract.js', () => ({
@@ -40,6 +43,11 @@ vi.mock('xlsx', () => ({
   utils: {
     sheet_to_json: mockSheetToJson,
   },
+}));
+
+// pdf-text-extractorをモック（PDFハイブリッド抽出）
+vi.mock('../../../components/estimate-requests/pdf-text-extractor', () => ({
+  extractPdfHybrid: mockExtractPdfHybrid,
 }));
 
 import { OcrDataExtractor } from '../../../components/estimate-requests/OcrDataExtractor';
@@ -72,6 +80,12 @@ describe('OcrDataExtractor', () => {
       terminate: vi.fn().mockResolvedValue(undefined),
     };
     mockCreateWorker.mockResolvedValue(mockWorker);
+
+    // PDFハイブリッド抽出のデフォルトモック
+    mockExtractPdfHybrid.mockResolvedValue({
+      text: '外壁塗装工事\tシリコン系\tm2\t150\t3500\n防水工事\tウレタン防水\tm2\t50\t8000',
+      method: 'pdfjs',
+    });
   });
 
   afterEach(() => {
@@ -126,7 +140,7 @@ describe('OcrDataExtractor', () => {
       render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
 
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockExtractPdfHybrid).toHaveBeenCalled();
       });
     });
   });
@@ -466,9 +480,9 @@ describe('OcrDataExtractor', () => {
         expect(global.fetch).toHaveBeenCalledWith('https://example.com/file.pdf');
       });
 
-      // OCRワーカーが作成されて処理が実行される
+      // PDFハイブリッド抽出が実行される
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockExtractPdfHybrid).toHaveBeenCalled();
       });
     });
 
@@ -502,8 +516,8 @@ describe('OcrDataExtractor', () => {
 
     it('処理中にすべてのアクションボタンを非活性にする（16.11）', async () => {
       const user = userEvent.setup();
-      // OCR処理が長時間かかるようシミュレート
-      mockWorker.recognize.mockImplementation(() => new Promise(() => {})); // never resolves
+      // PDF処理が長時間かかるようシミュレート
+      mockExtractPdfHybrid.mockImplementation(() => new Promise(() => {})); // never resolves
       const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -540,7 +554,7 @@ describe('OcrDataExtractor', () => {
   describe('OCR失敗時のリトライ機能（16.5, 16.6）', () => {
     it('OCR処理が失敗した場合に「OCRリトライ」ボタンを表示する（16.5）', async () => {
       const user = userEvent.setup();
-      mockWorker.recognize.mockRejectedValue(new Error('OCR処理に失敗しました'));
+      mockExtractPdfHybrid.mockRejectedValue(new Error('OCR処理に失敗しました'));
       const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -582,10 +596,11 @@ describe('OcrDataExtractor', () => {
     it('リトライボタンクリック時にOCR処理を再実行する（16.6）', async () => {
       const user = userEvent.setup();
       // 最初は失敗、リトライ時は成功
-      mockWorker.recognize
+      mockExtractPdfHybrid
         .mockRejectedValueOnce(new Error('OCR処理に失敗しました'))
         .mockResolvedValueOnce({
-          data: { text: '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000' },
+          text: '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000',
+          method: 'pdfjs',
         });
 
       const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
@@ -611,15 +626,6 @@ describe('OcrDataExtractor', () => {
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /OCRリトライ/ })).toBeInTheDocument();
       });
-
-      // 2回目のcreateworkerを設定（リトライ用）
-      const retryWorker = {
-        recognize: vi.fn().mockResolvedValue({
-          data: { text: '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000' },
-        }),
-        terminate: vi.fn().mockResolvedValue(undefined),
-      };
-      mockCreateWorker.mockResolvedValue(retryWorker);
 
       // リトライボタンをクリック
       await user.click(screen.getByRole('button', { name: /OCRリトライ/ }));

@@ -19,7 +19,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import EstimateDetailPage from '../../pages/EstimateDetailPage';
 import * as estimatesApi from '../../api/estimates';
-import type { EstimateDetail } from '../../api/estimates';
+import type { EstimateDetail, EstimateItemHierarchy } from '../../api/estimates';
 
 // APIモック
 vi.mock('../../api/estimates');
@@ -36,7 +36,7 @@ vi.mock('react-router-dom', async () => {
 
 // useEstimateEditorモック
 const mockEditor = {
-  items: [],
+  items: [] as EstimateItemHierarchy[],
   setItems: vi.fn(),
   isDirty: false,
   isSaving: false,
@@ -110,7 +110,7 @@ function renderWithRouter(id: string = 'est-1') {
 describe('EstimateDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockEditor.items = [];
+    mockEditor.items = mockEstimateDetail.items;
     mockEditor.isDirty = false;
     mockEditor.isSaving = false;
   });
@@ -150,7 +150,9 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '出力' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '転記' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: '受領見積書を業者金額に転記' })
+      ).toBeInTheDocument();
     });
 
     it('パンくずナビゲーションが表示されること (REQ-15.4-15.8)', async () => {
@@ -177,7 +179,7 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      expect(screen.getByText('合計金額')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'サマリー' })).toBeInTheDocument();
       expect(screen.getByText('見積金額合計')).toBeInTheDocument();
       expect(screen.getByText('100,000円')).toBeInTheDocument();
     });
@@ -512,7 +514,7 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      const transferButton = screen.getByRole('button', { name: '転記' });
+      const transferButton = screen.getByRole('button', { name: '受領見積書を業者金額に転記' });
       await userEvent.click(transferButton);
 
       // TransferQuotationDialogが表示される（モックされているため存在チェックのみ）
@@ -559,8 +561,18 @@ describe('EstimateDetailPage', () => {
       expect(jan2Dates.length).toBeGreaterThan(0);
     });
 
-    it('金額がnullの場合はハイフンが表示されること', async () => {
-      mockEditor.getTotalAmount.mockReturnValue(null as unknown as string);
+    it('金額がnullの場合は0円が表示されること', async () => {
+      // 金額がnullの項目を設定（calculateTotalByLineTypeで0になる）
+      const baseItem = mockEstimateDetail.items[0]!;
+      mockEditor.items = [
+        {
+          ...baseItem,
+          lines: baseItem.lines.map((line) => ({
+            ...line,
+            amount: null,
+          })),
+        },
+      ];
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
 
       renderWithRouter();
@@ -569,13 +581,13 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 合計金額セクション内のハイフンを確認
+      // 合計金額が0円として表示されること
       const amountSection = screen.getByText('見積金額合計').closest('div');
-      expect(amountSection?.textContent).toContain('-');
+      expect(amountSection?.textContent).toContain('0円');
     });
 
-    it('金額が不正な値の場合はハイフンが表示されること', async () => {
-      mockEditor.getTotalAmount.mockReturnValue('invalid');
+    it('項目が空の場合は0円が表示されること', async () => {
+      mockEditor.items = [];
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
 
       renderWithRouter();
@@ -584,9 +596,9 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 合計金額セクション内のハイフンを確認
+      // 合計金額が0円として表示されること
       const amountSection = screen.getByText('見積金額合計').closest('div');
-      expect(amountSection?.textContent).toContain('-');
+      expect(amountSection?.textContent).toContain('0円');
     });
   });
 
