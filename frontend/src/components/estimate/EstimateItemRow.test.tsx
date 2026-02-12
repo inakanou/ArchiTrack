@@ -415,6 +415,304 @@ describe('EstimateItemRow', () => {
         const amountField = within(estimateRow).getByTestId('amount-field');
         expect(amountField).toHaveTextContent('12,345,678');
       });
+
+      it('金額が空文字の場合はハイフンが表示される', () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-1',
+            estimateItemId: 'item-1',
+            lineType: 'ESTIMATE',
+            name: null,
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: '',
+            remarks: null,
+          },
+        ];
+        render(<EstimateItemRow itemId="item-1" lines={lines} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const amountField = within(estimateRow).getByTestId('amount-field');
+        expect(amountField).toHaveTextContent('-');
+      });
+
+      it('金額が不正な値の場合はハイフンが表示される', () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-1',
+            estimateItemId: 'item-1',
+            lineType: 'ESTIMATE',
+            name: null,
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: 'abc',
+            remarks: null,
+          },
+        ];
+        render(<EstimateItemRow itemId="item-1" lines={lines} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const amountField = within(estimateRow).getByTestId('amount-field');
+        expect(amountField).toHaveTextContent('-');
+      });
+
+      it('金額が小数の場合は四捨五入して整数で表示される (REQ-22)', () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-1',
+            estimateItemId: 'item-1',
+            lineType: 'ESTIMATE',
+            name: 'テスト',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '1000',
+            amount: '1234.6',
+            remarks: null,
+          },
+        ];
+        render(<EstimateItemRow itemId="item-1" lines={lines} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const amountField = within(estimateRow).getByTestId('amount-field');
+        expect(amountField).toHaveTextContent('1,235');
+      });
+    });
+
+    describe('数量フォーカスアウト時フォーマット (REQ-22.7)', () => {
+      it('数量フィールドのフォーカスアウトで小数2桁にフォーマットされる', async () => {
+        const lines = createMockLines();
+        const onLineChange = vi.fn();
+        render(<EstimateItemRow itemId="item-1" lines={lines} onLineChange={onLineChange} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const quantityInput = within(estimateRow).getByLabelText('数量');
+
+        // フォーカスアウト
+        quantityInput.focus();
+        quantityInput.blur();
+
+        // EstimateCalculator.formatQuantity('150.5') = '150.50' なので変更が発火
+        expect(onLineChange).toHaveBeenCalledWith(
+          'item-1',
+          'line-estimate-1',
+          'quantity',
+          '150.50'
+        );
+      });
+
+      it('数量がnullの場合はフォーマットしない', async () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-1',
+            estimateItemId: 'item-1',
+            lineType: 'ESTIMATE',
+            name: null,
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: null,
+            remarks: null,
+          },
+        ];
+        const onLineChange = vi.fn();
+        render(<EstimateItemRow itemId="item-1" lines={lines} onLineChange={onLineChange} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const quantityInput = within(estimateRow).getByLabelText('数量');
+
+        quantityInput.focus();
+        quantityInput.blur();
+
+        // null量なのでonLineChangeは呼ばれない
+        expect(onLineChange).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('単価フォーカスアウト時フォーマット (REQ-22.8)', () => {
+      it('単価フィールドのフォーカスアウトで整数に丸められる', async () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-1',
+            estimateItemId: 'item-1',
+            lineType: 'ESTIMATE',
+            name: 'テスト',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '2500.6',
+            amount: '2501',
+            remarks: null,
+          },
+        ];
+        const onLineChange = vi.fn();
+        render(<EstimateItemRow itemId="item-1" lines={lines} onLineChange={onLineChange} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const priceInput = within(estimateRow).getByLabelText('単価');
+
+        priceInput.focus();
+        priceInput.blur();
+
+        // EstimateCalculator.roundUnitPrice('2500.6') = '2501'
+        expect(onLineChange).toHaveBeenCalledWith('item-1', 'line-1', 'unitPrice', '2501');
+      });
+
+      it('単価がnullの場合はフォーマットしない', async () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-1',
+            estimateItemId: 'item-1',
+            lineType: 'ESTIMATE',
+            name: null,
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: null,
+            remarks: null,
+          },
+        ];
+        const onLineChange = vi.fn();
+        render(<EstimateItemRow itemId="item-1" lines={lines} onLineChange={onLineChange} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const priceInput = within(estimateRow).getByLabelText('単価');
+
+        priceInput.focus();
+        priceInput.blur();
+
+        expect(onLineChange).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('業者名表示 (REQ-17.3, REQ-17.4)', () => {
+      it('VENDOR行にsourceVendorNameが表示される', () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-v-1',
+            estimateItemId: 'item-1',
+            lineType: 'VENDOR',
+            name: '工事',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '1000',
+            amount: '1000',
+            remarks: null,
+            sourceVendorName: '業者X',
+          },
+        ];
+        render(<EstimateItemRow itemId="item-1" lines={lines} />);
+
+        expect(screen.getByText('業者X')).toBeInTheDocument();
+      });
+
+      it('ESTIMATE行にはsourceVendorNameが表示されない', () => {
+        const lines: EstimateItemLineEdit[] = [
+          {
+            id: 'line-e-1',
+            estimateItemId: 'item-1',
+            lineType: 'ESTIMATE',
+            name: '工事',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '1000',
+            amount: '1000',
+            remarks: null,
+            sourceVendorName: '業者Y',
+          },
+        ];
+        render(<EstimateItemRow itemId="item-1" lines={lines} />);
+
+        expect(screen.queryByText('業者Y')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('規格・単位・備考フィールドの変更', () => {
+      it('規格フィールドの変更でonLineChangeが呼ばれる', async () => {
+        const lines = createMockLines();
+        const onLineChange = vi.fn();
+        render(<EstimateItemRow itemId="item-1" lines={lines} onLineChange={onLineChange} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const specInput = within(estimateRow).getByLabelText('規格');
+
+        await userEvent.clear(specInput);
+        await userEvent.type(specInput, '新規格');
+
+        expect(onLineChange).toHaveBeenCalled();
+        const lastCall = onLineChange.mock.calls[onLineChange.mock.calls.length - 1]!;
+        expect(lastCall[2]).toBe('specification');
+      });
+
+      it('単位フィールドの変更でonLineChangeが呼ばれる', async () => {
+        const lines = createMockLines();
+        const onLineChange = vi.fn();
+        render(<EstimateItemRow itemId="item-1" lines={lines} onLineChange={onLineChange} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const unitInput = within(estimateRow).getByLabelText('単位');
+
+        await userEvent.clear(unitInput);
+        await userEvent.type(unitInput, 'kg');
+
+        expect(onLineChange).toHaveBeenCalled();
+        const lastCall = onLineChange.mock.calls[onLineChange.mock.calls.length - 1]!;
+        expect(lastCall[2]).toBe('unit');
+      });
+
+      it('備考フィールドの変更でonLineChangeが呼ばれる', async () => {
+        const lines = createMockLines();
+        const onLineChange = vi.fn();
+        render(<EstimateItemRow itemId="item-1" lines={lines} onLineChange={onLineChange} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const remarksInput = within(estimateRow).getByLabelText('備考');
+
+        await userEvent.clear(remarksInput);
+        await userEvent.type(remarksInput, '新備考');
+
+        expect(onLineChange).toHaveBeenCalled();
+        const lastCall = onLineChange.mock.calls[onLineChange.mock.calls.length - 1]!;
+        expect(lastCall[2]).toBe('remarks');
+      });
+    });
+
+    describe('onLineChange未指定時', () => {
+      it('onLineChangeなしでもフィールド変更がエラーにならない', async () => {
+        const lines = createMockLines();
+        render(<EstimateItemRow itemId="item-1" lines={lines} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const nameInput = within(estimateRow).getByLabelText('名称');
+
+        // onLineChangeなしでもタイプしてエラーにならないこと
+        await userEvent.type(nameInput, 'x');
+
+        // コンポーネントがクラッシュしていないこと
+        expect(nameInput).toBeInTheDocument();
+      });
+
+      it('onLineChangeなしでもblurがエラーにならない', () => {
+        const lines = createMockLines();
+        render(<EstimateItemRow itemId="item-1" lines={lines} />);
+
+        const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+        const quantityInput = within(estimateRow).getByLabelText('数量');
+
+        quantityInput.focus();
+        quantityInput.blur();
+
+        // エラーなく動作すること
+        expect(quantityInput).toBeInTheDocument();
+      });
     });
   });
 });

@@ -283,6 +283,62 @@ describe('SessionExpiredModal', () => {
       );
       expect(focusableElements.length).toBeGreaterThanOrEqual(2);
     });
+
+    it('最後の要素でTabを押すと最初の要素にフォーカスが戻ること', async () => {
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      const dialog = screen.getByRole('dialog');
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      expect(focusableElements.length).toBeGreaterThanOrEqual(2);
+
+      const lastElement = focusableElements[focusableElements.length - 1]!;
+      lastElement.focus();
+      expect(document.activeElement).toBe(lastElement);
+
+      // Tab keydown event をdispatch (capture phase)
+      const tabEvent = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(tabEvent);
+
+      // 最初の要素にフォーカスが移ることを確認
+      expect(document.activeElement).toBe(focusableElements[0]);
+    });
+
+    it('最初の要素でShift+Tabを押すと最後の要素にフォーカスが戻ること', async () => {
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      const dialog = screen.getByRole('dialog');
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      expect(focusableElements.length).toBeGreaterThanOrEqual(2);
+
+      const firstElement = focusableElements[0]!;
+      firstElement.focus();
+      expect(document.activeElement).toBe(firstElement);
+
+      // Shift+Tab keydown event をdispatch (capture phase)
+      const shiftTabEvent = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(shiftTabEvent);
+
+      // 最後の要素にフォーカスが移ることを確認
+      const lastElement = focusableElements[focusableElements.length - 1]!;
+      expect(document.activeElement).toBe(lastElement);
+    });
   });
 
   /**
@@ -326,6 +382,222 @@ describe('SessionExpiredModal', () => {
 
       await waitFor(() => {
         expect(screen.getByText('パスワードを入力してください')).toBeInTheDocument();
+      });
+    });
+  });
+
+  /**
+   * 要件30.12: 2FA完全フロー
+   */
+  describe('2FA完全フロー', () => {
+    it('2FA要求後にTOTPコード送信で認証成功すること', async () => {
+      const user = userEvent.setup();
+      // ログインで2FA要求
+      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true });
+      // 2FA検証で成功
+      mockApiClientPost.mockResolvedValueOnce({ accessToken: 'token' });
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      // パスワード入力→ログイン
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      // TOTPフィールドが表示される
+      await waitFor(() => {
+        expect(screen.getByLabelText('認証コード')).toBeInTheDocument();
+      });
+
+      // TOTPコード入力→送信
+      await user.type(screen.getByLabelText('認証コード'), '123456');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(defaultProps.onReauthSuccess).toHaveBeenCalled();
+      });
+
+      expect(mockApiClientPost).toHaveBeenCalledWith('/api/v1/auth/verify-2fa', {
+        token: '123456',
+        email: 'test@example.com',
+      });
+    });
+
+    it('2FA認証コード未入力でエラーが表示されること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true });
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('認証コード')).toBeInTheDocument();
+      });
+
+      // 空のまま送信
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('認証コードを入力してください')).toBeInTheDocument();
+      });
+    });
+
+    it('2FA認証失敗時にエラーメッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true });
+      mockApiClientPost.mockRejectedValueOnce(new Error('認証コードが無効です'));
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('認証コード')).toBeInTheDocument();
+      });
+
+      await user.type(screen.getByLabelText('認証コード'), '000000');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('認証コードが無効です')).toBeInTheDocument();
+      });
+    });
+
+    it('2FAネットワークエラー時にメッセージが表示されること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true });
+      mockApiClientPost.mockRejectedValueOnce(
+        Object.assign(new Error('Network'), { statusCode: 0 })
+      );
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('認証コード')).toBeInTheDocument();
+      });
+
+      await user.type(screen.getByLabelText('認証コード'), '123456');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('ネットワーク接続を確認してください')).toBeInTheDocument();
+      });
+    });
+  });
+
+  /**
+   * 要件30.16: ログイン画面遷移ボタン
+   */
+  describe('ログイン画面遷移', () => {
+    it('ログイン画面へ移動ボタンクリックでonNavigateToLoginが呼ばれること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost
+        .mockRejectedValueOnce(new Error('失敗'))
+        .mockRejectedValueOnce(new Error('失敗'))
+        .mockRejectedValueOnce(new Error('失敗'));
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      const passwordInput = screen.getByLabelText('パスワード');
+      const loginButton = screen.getByRole('button', { name: '再ログイン' });
+
+      for (let i = 0; i < 3; i++) {
+        await user.clear(passwordInput);
+        await user.type(passwordInput, `wrong${i}`);
+        await user.click(loginButton);
+      }
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'ログイン画面へ移動' })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: 'ログイン画面へ移動' }));
+      expect(defaultProps.onNavigateToLogin).toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * 要件30.17: ネットワークエラーリトライ
+   */
+  describe('ネットワークエラーリトライ', () => {
+    it('リトライボタンクリックでエラー状態がクリアされること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockRejectedValueOnce(
+        Object.assign(new Error('Network'), { statusCode: 0 })
+      );
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('ネットワーク接続を確認してください')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'リトライ' })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: 'リトライ' }));
+
+      // エラーメッセージがクリアされること
+      expect(screen.queryByText('ネットワーク接続を確認してください')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'リトライ' })).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * 送信中の状態テスト
+   */
+  describe('送信中の状態', () => {
+    it('送信中は「認証中...」と表示されボタンが無効になること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockImplementation(() => new Promise(() => {}));
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('認証中...')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /認証中/ })).toBeDisabled();
+      });
+    });
+
+    it('送信中はパスワードフィールドが無効になること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockImplementation(() => new Promise(() => {}));
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('パスワード')).toBeDisabled();
+      });
+    });
+  });
+
+  /**
+   * エラーが非Errorオブジェクトの場合
+   */
+  describe('エラーハンドリング', () => {
+    it('非Errorオブジェクトのエラーでも「認証に失敗しました」と表示されること', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockRejectedValueOnce('string error');
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('認証に失敗しました')).toBeInTheDocument();
       });
     });
   });
