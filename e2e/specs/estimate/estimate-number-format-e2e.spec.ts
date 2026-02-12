@@ -31,8 +31,6 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
   let createdProjectId: string | null = null;
   let createdTradingPartnerId: string | null = null;
   let createdEstimateId: string | null = null;
-  let createdEstimateRequestId: string | null = null;
-  let createdReceivedQuotationId: string | null = null;
   let accessToken: string = '';
 
   test.beforeEach(async ({ context }) => {
@@ -181,70 +179,45 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       const estimateBody = await estimateResponse.json();
       createdEstimateId = estimateBody.id;
       expect(createdEstimateId).toBeTruthy();
-    });
 
-    /**
-     * テスト準備：見積依頼と受領見積書を作成（案分・利益率テスト用）
-     */
-    test('準備4：見積依頼と受領見積書を作成する', async ({ request }) => {
-      expect(createdProjectId).toBeTruthy();
-      expect(createdTradingPartnerId).toBeTruthy();
-      expect(accessToken).toBeTruthy();
-
-      const baseUrl = API_BASE_URL;
-
-      // 見積依頼を作成
-      const estimateRequestResponse = await request.post(
-        `${baseUrl}/api/projects/${createdProjectId}/estimate-requests`,
+      // 見積項目を作成（3行1セット: ESTIMATE, EXECUTION, VENDOR）
+      const itemResponse = await request.post(
+        `${baseUrl}/api/estimates/${createdEstimateId}/items`,
         {
           headers: { Authorization: `Bearer ${accessToken}` },
           data: {
-            tradingPartnerId: createdTradingPartnerId,
-            requestDate: new Date().toISOString(),
+            parentId: null,
+            displayOrder: 0,
+            lines: [
+              {
+                lineType: 'ESTIMATE',
+                name: '数値フォーマットテスト項目',
+                specification: '規格A',
+                unit: '式',
+                quantity: 1,
+                unitPrice: 1000,
+              },
+              {
+                lineType: 'EXECUTION',
+                name: '数値フォーマットテスト項目',
+                specification: '規格A',
+                unit: '式',
+                quantity: 1,
+                unitPrice: 1000,
+              },
+              {
+                lineType: 'VENDOR',
+                name: '数値フォーマットテスト項目',
+                specification: '規格A',
+                unit: '式',
+                quantity: 1,
+                unitPrice: 1000,
+              },
+            ],
           },
         }
       );
-
-      if (estimateRequestResponse.status() === 201) {
-        const estimateRequestBody = await estimateRequestResponse.json();
-        createdEstimateRequestId = estimateRequestBody.id;
-
-        // 受領見積書を作成（小数を含む金額データ）
-        const receivedQuotationResponse = await request.post(
-          `${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/received-quotations`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            data: {
-              quotationNumber: `RQ-NUMFMT-${Date.now()}`,
-              quotationDate: new Date().toISOString(),
-              lineItems: [
-                {
-                  name: '数値フォーマットテスト項目1',
-                  specification: '規格A',
-                  unit: '式',
-                  quantity: 2.5,
-                  unitPrice: 10000,
-                },
-                {
-                  name: '数値フォーマットテスト項目2',
-                  specification: '規格B',
-                  unit: '個',
-                  quantity: 3,
-                  unitPrice: 5000,
-                },
-              ],
-            },
-          }
-        );
-
-        if (receivedQuotationResponse.status() === 201) {
-          const receivedQuotationBody = await receivedQuotationResponse.json();
-          createdReceivedQuotationId = receivedQuotationBody.id;
-        }
-      }
-
-      expect(createdEstimateRequestId).toBeTruthy();
-      expect(createdReceivedQuotationId).toBeTruthy();
+      expect(itemResponse.status()).toBe(201);
     });
   });
 
@@ -277,14 +250,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(5000),
     });
 
-    // 項目追加（項目がない場合）
-    const addButton = page.getByRole('button', { name: /項目追加/i });
-    if (await addButton.isVisible()) {
-      await addButton.click();
-      await page.waitForLoadState('networkidle');
-    }
-
-    // 数量入力フィールドを取得
+    // 数量入力フィールドを取得（項目はAPIで作成済み）
     const quantityInputs = page.locator('input[aria-label="数量"]');
     const quantityCount = await quantityInputs.count();
     expect(quantityCount).toBeGreaterThan(0);
@@ -974,8 +940,6 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       createdProjectId = null;
       createdTradingPartnerId = null;
       createdEstimateId = null;
-      createdEstimateRequestId = null;
-      createdReceivedQuotationId = null;
     });
   });
 });
