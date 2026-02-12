@@ -92,23 +92,18 @@ test.describe('タイトル行表示最適化', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表一覧画面に遷移
-      await page.goto(`/projects/${testProjectId}/quantity-tables`);
+      // 数量表新規作成ページに遷移
+      await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
       await page.waitForLoadState('networkidle');
 
-      // 新規作成ダイアログを開く
-      const createButton = page.getByRole('button', { name: /新規作成/i });
-      await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
-      await createButton.click();
-
-      // ダイアログに名前を入力
-      const nameInput = page.getByRole('textbox', { name: /数量表名/i });
+      // 名前を入力
+      const nameInput = page.getByLabel(/数量表名/i);
       await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
       await nameInput.fill('タイトル行テスト用数量表');
 
       // 作成ボタンをクリック
-      const createConfirmButton = page.getByRole('button', { name: /^作成$/i });
-      await createConfirmButton.click();
+      const createButton = page.getByRole('button', { name: /^作成$/i });
+      await createButton.click();
 
       // 編集画面に遷移
       await page.waitForURL(/\/quantity-tables\/[^/]+\/edit/, { timeout: getTimeout(15000) });
@@ -120,6 +115,25 @@ test.describe('タイトル行表示最適化', () => {
       // 編集画面が表示されることを確認
       const editArea = page.getByTestId('quantity-table-edit-area');
       await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
+
+      // グループを追加する（デフォルトではグループが存在しない）
+      const addGroupButton = page.getByRole('button', { name: /グループを追加/ }).first();
+      await expect(addGroupButton).toBeVisible({ timeout: getTimeout(5000) });
+
+      const groupApiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-tables/') &&
+          response.url().includes('/groups') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(20000) }
+      );
+      await addGroupButton.click();
+      await groupApiPromise;
+
+      // グループが追加されたことを確認
+      await expect(page.getByTestId('quantity-group')).toHaveCount(1, {
+        timeout: getTimeout(10000),
+      });
 
       // 項目を2つ追加する（2行目以降のタイトル行非表示を検証するため）
       const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
@@ -255,11 +269,10 @@ test.describe('タイトル行表示最適化', () => {
         );
       }
 
-      const firstItemRow = itemRows.first();
-
-      // 計算方法のセレクトを見つけて「面積・体積」に変更
-      const calcSelect = firstItemRow.locator('select').first();
-      await calcSelect.selectOption('AREA_VOLUME');
+      // 計算方法セレクトボックスを取得して「面積・体積」に変更
+      const calcMethodSelect = page.getByLabel(/計算方法/).first();
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
 
       // 面積・体積計算用フィールドのラベルが表示されることを確認（REQ-18.3）
       // CalculationFieldsコンポーネントが表示する
@@ -272,9 +285,9 @@ test.describe('タイトル行表示最適化', () => {
 
       // 2つ目の項目がある場合、そちらも「ピッチ」に変更してテスト
       if (itemRowCount >= 2) {
-        const secondItemRow = itemRows.nth(1);
-        const secondCalcSelect = secondItemRow.locator('select').first();
-        await secondCalcSelect.selectOption('PITCH');
+        const secondCalcMethodSelect = page.getByLabel(/計算方法/).nth(1);
+        await expect(secondCalcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+        await secondCalcMethodSelect.selectOption({ value: 'PITCH' });
 
         // ピッチ計算用フィールドのラベルが表示されることを確認（REQ-18.4）
         await expect(page.getByText('範囲長')).toBeVisible({ timeout: getTimeout(5000) });

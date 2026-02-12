@@ -144,7 +144,7 @@ export default function CalculationMethodSelect({
             ...styles.select,
             ...(disabled ? styles.selectDisabled : {}),
           }}
-          aria-labelledby={labelId}
+          {...(showLabel ? { 'aria-labelledby': labelId } : { 'aria-label': '計算方法' })}
         >
           {CALCULATION_METHOD_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
