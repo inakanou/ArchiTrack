@@ -100,8 +100,8 @@ test.describe('数量表コピー機能', () => {
       await page.goto(`/projects/${testProjectId}/quantity-tables`);
       await page.waitForLoadState('networkidle');
 
-      // 新規数量表を作成
-      const createButton = page.getByRole('button', { name: /新規作成/i });
+      // 新規数量表を作成（空状態では<Link>で表示されるためrole='link'を使用）
+      const createButton = page.getByRole('link', { name: /新規作成/i });
       await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
       await createButton.click();
 
@@ -115,18 +115,20 @@ test.describe('数量表コピー機能', () => {
       const createConfirmButton = page.getByRole('button', { name: /^作成$/i });
       await createConfirmButton.click();
 
-      // 編集画面に遷移するのを待つ
-      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+$/, {
+      // 編集画面に遷移するのを待つ（作成後は /quantity-tables/{id}/edit に遷移）
+      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+\/edit$/, {
         timeout: getTimeout(15000),
       });
 
       const editUrl = page.url();
-      const tableMatch = editUrl.match(/\/quantity-tables\/([0-9a-f-]+)$/);
+      const tableMatch = editUrl.match(/\/quantity-tables\/([0-9a-f-]+)\/edit$/);
       sourceQuantityTableId = tableMatch?.[1] ?? null;
       expect(sourceQuantityTableId).toBeTruthy();
 
-      // 数量グループを追加
-      const addGroupButton = page.getByRole('button', { name: /グループ追加|グループを追加/i });
+      // 数量グループを追加（ヘッダーと空状態の2箇所にボタンがあるため.first()で最初のものを選択）
+      const addGroupButton = page
+        .getByRole('button', { name: /グループ追加|グループを追加/i })
+        .first();
       await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
       await addGroupButton.click();
 
@@ -141,24 +143,22 @@ test.describe('数量表コピー機能', () => {
         await addItemButton.click();
         await page.waitForTimeout(1000);
 
-        // 工種を入力
-        const workTypeInputs = page.locator(
-          '[data-field="workType"] input, input[aria-label*="工種"]'
-        );
-        if (await workTypeInputs.first().isVisible({ timeout: 3000 })) {
-          await workTypeInputs.first().fill('テスト工種');
+        // 工種を入力（AutocompleteInput: placeholderで特定）
+        const workTypeInput = page.getByPlaceholder('工種を入力').first();
+        if (await workTypeInput.isVisible({ timeout: 3000 })) {
+          await workTypeInput.fill('テスト工種');
         }
 
-        // 名称を入力
-        const nameInputs = page.locator('[data-field="name"] input, input[aria-label*="名称"]');
-        if (await nameInputs.first().isVisible({ timeout: 3000 })) {
-          await nameInputs.first().fill('テスト名称');
+        // 名称を入力（直接input: placeholderで特定）
+        const nameFieldInput = page.getByPlaceholder('名称を入力').first();
+        if (await nameFieldInput.isVisible({ timeout: 3000 })) {
+          await nameFieldInput.fill('テスト名称');
         }
 
-        // 単位を入力
-        const unitInputs = page.locator('[data-field="unit"] input, input[aria-label*="単位"]');
-        if (await unitInputs.first().isVisible({ timeout: 3000 })) {
-          await unitInputs.first().fill('m2');
+        // 単位を入力（AutocompleteInput: placeholderで特定）
+        const unitInput = page.getByPlaceholder('単位を入力').first();
+        if (await unitInput.isVisible({ timeout: 3000 })) {
+          await unitInput.fill('m2');
         }
 
         // 自動保存を待つ
@@ -241,7 +241,8 @@ test.describe('数量表コピー機能', () => {
       copiedQuantityTableId = responseBody.id;
 
       // コピー完了後に編集画面に遷移することを確認（REQ-17.3）
-      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+$/, {
+      // 中間URL（/projects/{id}/quantity-tables/{id}）または最終URL（/quantity-tables/{id}/edit）にマッチ
+      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+(\/edit)?$/, {
         timeout: getTimeout(15000),
       });
 
@@ -266,29 +267,31 @@ test.describe('数量表コピー機能', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // コピー元の数量表を取得（API経由で確認）
-      const sourceApiResponse = await page.request.get(
-        `/api/quantity-tables/${sourceQuantityTableId}`,
+      // ブラウザコンテキスト内のapiClientを使用してAPI経由でデータを取得
+      // （page.requestはPlaywrightのbaseURLに送信されるため、バックエンドURLを持つapiClientを使用）
+      const apiData = await page.evaluate(
+        async ({ sourceId, copiedId }) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const client = (window as any).__apiClient;
+          if (!client) return null;
+          try {
+            const [source, copied] = await Promise.all([
+              client.get(`/api/quantity-tables/${sourceId}`),
+              client.get(`/api/quantity-tables/${copiedId}`),
+            ]);
+            return { source, copied };
+          } catch {
+            return null;
+          }
+        },
         {
-          headers: {
-            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
-          },
+          sourceId: sourceQuantityTableId!,
+          copiedId: copiedQuantityTableId!,
         }
       );
 
-      // コピー先の数量表を取得
-      const copiedApiResponse = await page.request.get(
-        `/api/quantity-tables/${copiedQuantityTableId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
-          },
-        }
-      );
-
-      if (sourceApiResponse.ok() && copiedApiResponse.ok()) {
-        const sourceData = await sourceApiResponse.json();
-        const copiedData = await copiedApiResponse.json();
+      if (apiData) {
+        const { source: sourceData, copied: copiedData } = apiData;
 
         // グループ数が一致
         expect(copiedData.groups.length).toBe(sourceData.groups.length);
@@ -311,7 +314,7 @@ test.describe('数量表コピー機能', () => {
         // 数量表名はコピー時に指定した名前であること
         expect(copiedData.name).toBe('コピーテスト数量表');
       } else {
-        // APIアクセスが認証切れで失敗した場合はUI経由で検証
+        // APIアクセスが失敗した場合はUI経由で検証
         // コピー先の数量表編集画面に移動
         await page.goto(`/projects/${testProjectId}/quantity-tables/${copiedQuantityTableId}`);
         await page.waitForLoadState('networkidle');
@@ -384,8 +387,8 @@ test.describe('数量表コピー機能', () => {
         timeout: getTimeout(3000),
       });
 
-      // コピー完了を待つ
-      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+$/, {
+      // コピー完了を待つ（中間URLまたは最終URL /edit にマッチ）
+      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+(\/edit)?$/, {
         timeout: getTimeout(30000),
       });
 
@@ -408,28 +411,23 @@ test.describe('数量表コピー機能', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // コピー先の数量表の現在の状態をAPI経由で取得
-      await page.request.get(`/api/quantity-tables/${copiedQuantityTableId}`, {
-        headers: {
-          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
-        },
-      });
-
       // 元の数量表の現在の状態をAPI経由で取得（変更前の状態を記録）
-      const sourceBeforeResponse = await page.request.get(
-        `/api/quantity-tables/${sourceQuantityTableId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
-          },
+      // ブラウザコンテキスト内のapiClientを使用
+      const sourceBeforeData = await page.evaluate(async (sourceId) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const client = (window as any).__apiClient;
+        if (!client) return null;
+        try {
+          return await client.get(`/api/quantity-tables/${sourceId}`);
+        } catch {
+          return null;
         }
-      );
+      }, sourceQuantityTableId!);
 
       let sourceGroupCountBefore: number | null = null;
       let sourceItemCountBefore: number | null = null;
 
-      if (sourceBeforeResponse.ok()) {
-        const sourceBeforeData = await sourceBeforeResponse.json();
+      if (sourceBeforeData) {
         sourceGroupCountBefore = sourceBeforeData.groups?.length ?? null;
         sourceItemCountBefore =
           sourceBeforeData.groups?.reduce(
@@ -451,37 +449,34 @@ test.describe('数量表コピー機能', () => {
         await addItemButton.click();
         await page.waitForTimeout(1000);
 
-        // 追加された項目に値を入力
-        const workTypeInputs = page.locator(
-          '[data-field="workType"] input, input[aria-label*="工種"]'
-        );
-        const lastWorkTypeInput = workTypeInputs.last();
+        // 追加された項目に値を入力（placeholderで特定）
+        const lastWorkTypeInput = page.getByPlaceholder('工種を入力').last();
         if (await lastWorkTypeInput.isVisible({ timeout: 3000 })) {
           await lastWorkTypeInput.fill('独立性テスト工種');
         }
 
-        const nameInputs = page.locator('[data-field="name"] input, input[aria-label*="名称"]');
-        const lastNameInput = nameInputs.last();
+        const lastNameInput = page.getByPlaceholder('名称を入力').last();
         if (await lastNameInput.isVisible({ timeout: 3000 })) {
           await lastNameInput.fill('独立性テスト名称');
         }
 
-        // 自動保存を待つ
+        // 項目作成のAPIレスポンスを待つ
         await page.waitForTimeout(3000);
       }
 
       // 元の数量表のデータが変更されていないことをAPI経由で確認
-      const sourceAfterResponse = await page.request.get(
-        `/api/quantity-tables/${sourceQuantityTableId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
-          },
+      const sourceAfterData = await page.evaluate(async (sourceId) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const client = (window as any).__apiClient;
+        if (!client) return null;
+        try {
+          return await client.get(`/api/quantity-tables/${sourceId}`);
+        } catch {
+          return null;
         }
-      );
+      }, sourceQuantityTableId!);
 
-      if (sourceAfterResponse.ok() && sourceGroupCountBefore !== null) {
-        const sourceAfterData = await sourceAfterResponse.json();
+      if (sourceAfterData && sourceGroupCountBefore !== null) {
         const sourceGroupCountAfter = sourceAfterData.groups?.length ?? 0;
         const sourceItemCountAfter =
           sourceAfterData.groups?.reduce(
