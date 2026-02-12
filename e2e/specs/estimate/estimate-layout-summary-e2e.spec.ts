@@ -34,6 +34,7 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
   let createdProjectId: string | null = null;
   let createdTradingPartnerId: string | null = null;
   let createdEstimateId: string | null = null;
+  let createdItemizedStatementId: string | null = null;
   let createdEstimateRequestId: string | null = null;
   let createdReceivedQuotationId: string | null = null;
   let accessToken: string = '';
@@ -239,67 +240,141 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
     });
 
     /**
-     * テスト準備：見積依頼と受領見積書を作成
+     * テスト準備：数量表と内訳書を作成する（見積依頼作成の前提条件）
      */
-    test('準備5：見積依頼と受領見積書を作成する', async ({ request }) => {
+    test('準備5：テスト用数量表と内訳書を作成する', async ({ request }) => {
       expect(createdProjectId).toBeTruthy();
-      expect(createdTradingPartnerId).toBeTruthy();
       expect(accessToken).toBeTruthy();
 
       const baseUrl = API_BASE_URL;
 
-      // 見積依頼を作成
+      // 数量表を作成
+      const quantityTableResponse = await request.post(
+        `${baseUrl}/api/projects/${createdProjectId}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: `レイアウトテスト用数量表_${Date.now()}`,
+          },
+        }
+      );
+      expect(quantityTableResponse.status()).toBe(201);
+      const quantityTableBody = await quantityTableResponse.json();
+      const quantityTableId = quantityTableBody.id;
+
+      // グループを作成
+      const groupResponse = await request.post(
+        `${baseUrl}/api/quantity-tables/${quantityTableId}/groups`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: 'テストグループ',
+            displayOrder: 0,
+          },
+        }
+      );
+      expect(groupResponse.status()).toBe(201);
+      const groupBody = await groupResponse.json();
+      const groupId = groupBody.id;
+
+      // 項目を作成
+      const itemResponse = await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          name: 'テスト項目1',
+          workType: '工種A',
+          specification: '規格A',
+          unit: '式',
+          quantity: 1.0,
+          displayOrder: 0,
+        },
+      });
+      expect(itemResponse.status()).toBe(201);
+
+      // 内訳書を作成
+      const itemizedStatementResponse = await request.post(
+        `${baseUrl}/api/projects/${createdProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: `レイアウトテスト用内訳書_${Date.now()}`,
+            quantityTableId: quantityTableId,
+          },
+        }
+      );
+      expect(itemizedStatementResponse.status()).toBe(201);
+      const itemizedStatementBody = await itemizedStatementResponse.json();
+      createdItemizedStatementId = itemizedStatementBody.id;
+
+      expect(createdItemizedStatementId).toBeTruthy();
+    });
+
+    /**
+     * テスト準備：見積依頼と受領見積書を作成
+     */
+    test('準備6：見積依頼と受領見積書を作成する', async ({ request }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+      expect(accessToken).toBeTruthy();
+
+      const baseUrl = API_BASE_URL;
+
+      // 見積依頼を作成（必須フィールド: name, tradingPartnerId, itemizedStatementId）
       const estimateRequestResponse = await request.post(
         `${baseUrl}/api/projects/${createdProjectId}/estimate-requests`,
         {
           headers: { Authorization: `Bearer ${accessToken}` },
           data: {
+            name: `レイアウトテスト用見積依頼_${Date.now()}`,
             tradingPartnerId: createdTradingPartnerId,
-            requestDate: new Date().toISOString(),
+            itemizedStatementId: createdItemizedStatementId,
           },
         }
       );
+      expect(estimateRequestResponse.status()).toBe(201);
 
-      if (estimateRequestResponse.status() === 201) {
-        const estimateRequestBody = await estimateRequestResponse.json();
-        createdEstimateRequestId = estimateRequestBody.id;
-
-        // 受領見積書を作成
-        const receivedQuotationResponse = await request.post(
-          `${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/received-quotations`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            data: {
-              quotationNumber: `RQ-LAYOUT-${Date.now()}`,
-              quotationDate: new Date().toISOString(),
-              lineItems: [
-                {
-                  name: 'テスト項目A',
-                  specification: '規格A',
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 100000,
-                },
-                {
-                  name: 'テスト項目B',
-                  specification: '規格B',
-                  unit: '式',
-                  quantity: 2,
-                  unitPrice: 50000,
-                },
-              ],
-            },
-          }
-        );
-
-        if (receivedQuotationResponse.status() === 201) {
-          const receivedQuotationBody = await receivedQuotationResponse.json();
-          createdReceivedQuotationId = receivedQuotationBody.id;
-        }
-      }
-
-      // データ作成確認
+      const estimateRequestBody = await estimateRequestResponse.json();
+      createdEstimateRequestId = estimateRequestBody.id;
       expect(createdEstimateRequestId).toBeTruthy();
+
+      // 受領見積書を作成（multipart/form-data: name, submittedAt, lineItems）
+      const lineItems = JSON.stringify([
+        {
+          name: 'テスト項目A',
+          sortOrder: 0,
+          specification: '規格A',
+          unit: '式',
+          quantity: 1,
+          unitPrice: 100000,
+          amount: 100000,
+        },
+        {
+          name: 'テスト項目B',
+          sortOrder: 1,
+          specification: '規格B',
+          unit: '式',
+          quantity: 2,
+          unitPrice: 50000,
+          amount: 100000,
+        },
+      ]);
+
+      const receivedQuotationResponse = await request.post(
+        `${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/quotations`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          multipart: {
+            name: `受領見積書_レイアウトテスト_${Date.now()}`,
+            submittedAt: new Date().toISOString(),
+            lineItems: lineItems,
+          },
+        }
+      );
+      expect(receivedQuotationResponse.status()).toBe(201);
+
+      const receivedQuotationBody = await receivedQuotationResponse.json();
+      createdReceivedQuotationId = receivedQuotationBody.id;
       expect(createdReceivedQuotationId).toBeTruthy();
     });
   });
