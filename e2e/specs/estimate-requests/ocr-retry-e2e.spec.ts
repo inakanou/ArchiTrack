@@ -58,12 +58,11 @@ test.describe('OCR再実行・リトライ機能', () => {
   let createdQuotationId: string | null = null;
   let accessToken: string = '';
 
-  test.beforeEach(async ({ context }) => {
-    // クッキーからトークンを取得
-    const cookies = await context.cookies();
-    const tokenCookie = cookies.find((c) => c.name === 'access_token');
-    if (tokenCookie) {
-      accessToken = tokenCookie.value;
+  test.beforeEach(async ({ page }) => {
+    // localStorageからトークンを取得
+    const token = await page.evaluate(() => localStorage.getItem('accessToken')).catch(() => null);
+    if (token) {
+      accessToken = token;
     }
   });
 
@@ -71,18 +70,26 @@ test.describe('OCR再実行・リトライ機能', () => {
     // ログイン
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得
-    const cookies = await page.context().cookies();
-    const tokenCookie = cookies.find((c) => c.name === 'access_token');
-    accessToken = tokenCookie?.value ?? '';
+    // 認証トークン取得（localStorageから）
+    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
     expect(accessToken).not.toBe('');
+
+    // 担当者候補を取得（salesPersonIdに必要、admin以外のユーザー）
+    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(assignableRes.ok()).toBeTruthy();
+    const assignableUsers = await assignableRes.json();
+    expect(assignableUsers.length).toBeGreaterThan(0);
+    const salesPersonId = assignableUsers[0].id;
 
     // プロジェクト作成
     const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       data: {
         name: `OCRリトライテスト-${Date.now()}`,
-        address: '東京都千代田区',
+        salesPersonId,
+        siteAddress: '東京都千代田区',
       },
     });
     expect(projectRes.ok()).toBeTruthy();
@@ -95,7 +102,8 @@ test.describe('OCR再実行・リトライ機能', () => {
       data: {
         name: `テスト業者-OCRリトライ-${Date.now()}`,
         nameKana: 'テストギョウシャ',
-        type: 'SUBCONTRACTOR',
+        types: ['SUBCONTRACTOR'],
+        address: '東京都千代田区テスト1-2-3',
         email: 'test-ocr@example.com',
       },
     });
@@ -103,22 +111,52 @@ test.describe('OCR再実行・リトライ機能', () => {
     const partner = await partnerRes.json();
     createdTradingPartnerId = partner.id;
 
-    // 内訳書作成（項目付き）
+    // 数量表作成
+    const qtRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: `テスト数量表-OCRリトライ-${Date.now()}` },
+      }
+    );
+    expect(qtRes.ok()).toBeTruthy();
+    const qt = await qtRes.json();
+
+    // 数量グループ作成
+    const groupRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: '外壁工事グループ', displayOrder: 0 },
+      }
+    );
+    expect(groupRes.ok()).toBeTruthy();
+    const group = await groupRes.json();
+
+    // 数量項目作成
+    const itemRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          workType: '外壁工事',
+          name: '外壁塗装',
+          specification: 'シリコン系',
+          unit: 'm2',
+          quantity: 100,
+        },
+      }
+    );
+    expect(itemRes.ok()).toBeTruthy();
+
+    // 内訳書作成（数量表から生成）
     const statementRes = await page.request.post(
       `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: {
           name: `テスト内訳書-OCRリトライ-${Date.now()}`,
-          items: [
-            {
-              workType: '外壁工事',
-              name: '外壁塗装',
-              specification: 'シリコン系',
-              unit: 'm2',
-              quantity: 100,
-            },
-          ],
+          quantityTableId: qt.id,
         },
       }
     );
@@ -156,7 +194,9 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -179,12 +219,12 @@ test.describe('OCR再実行・リトライ機能', () => {
     await submitButton.click();
 
     // 保存成功を確認（一覧に追加される）
-    await expect(page.getByText(/見積書/)).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page.getByRole('list', { name: /受領見積書一覧/i })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
     // 保存された受領見積書のIDを取得（一覧から）
-    const cookies = await page.context().cookies();
-    const tokenCookie = cookies.find((c) => c.name === 'access_token');
-    accessToken = tokenCookie?.value ?? '';
+    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
 
     const quotationsRes = await page.request.get(
       `${API_BASE_URL}/api/estimate-requests/${createdEstimateRequestId}/quotations`,
@@ -199,8 +239,9 @@ test.describe('OCR再実行・リトライ機能', () => {
       }
     }
 
-    // 編集ボタンをクリック（一覧の最初のアイテム）
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
+    // 編集ボタンをクリック（受領見積書一覧内の編集ボタン）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
@@ -228,11 +269,14 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 編集ボタンをクリック
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
-    await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
+    // 編集ボタンをクリック（受領見積書一覧内）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
@@ -265,11 +309,14 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 編集ボタンをクリック
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
-    await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
+    // 編集ボタンをクリック（受領見積書一覧内）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
@@ -314,11 +361,14 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 編集ボタンをクリック
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
-    await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
+    // 編集ボタンをクリック（受領見積書一覧内）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
@@ -365,11 +415,14 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 編集ボタンをクリック
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
-    await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
+    // 編集ボタンをクリック（受領見積書一覧内）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
@@ -428,9 +481,12 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 受領見積書登録ボタンをクリック（新規登録フォーム）
+    // 新規登録フォームでPDFをアップロードし、OCRが自動実行されることを確認
+    // （新規登録ではautoStart=trueのため「OCR実行」ボタンは表示されず自動処理される）
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
     await expect(registerButton).toBeVisible({ timeout: getTimeout(10000) });
     await registerButton.click();
@@ -438,36 +494,26 @@ test.describe('OCR再実行・リトライ機能', () => {
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // file inputのaccept属性を確認し、Excelファイルの場合のボタン表示を検証
-    // Excelファイル（.xlsx）をアップロードする場合は「データパース実行」ボタンが表示される
-    // ファイル入力要素にExcel用MIMEタイプが受け入れられるか確認
+    // PDFファイルをアップロード
     const fileInput = page.locator('input[type="file"]');
-    await expect(fileInput).toBeVisible({ timeout: getTimeout(5000) });
-
-    // Excelファイルのアップロードをシミュレート
-    // test-file.pdfをアップロード後、ファイルタイプに応じたボタン表示を確認
-    // Excelフィクスチャが無い場合はPDFで検証し、「データパース実行」ではなく「OCR実行」が表示されることを確認
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     await fileInput.setInputFiles(pdfPath);
 
     await expect(page.getByText('test-file.pdf')).toBeVisible({ timeout: getTimeout(5000) });
 
-    // PDFファイルの場合は「OCR実行」が表示され「データパース実行」は表示されないことを確認
-    // これによりファイルタイプに応じたボタン切り替えロジックの存在を検証する
-    // Excelファイルの場合のみ「データパース実行」ボタンが表示される仕様
+    // PDFアップロード時、OCRが自動実行されテキスト抽出結果が表示される
+    // （Excelの場合はデータパースが実行される仕様: REQ-16.7）
+    // autoStart=trueなので進捗インジケーターまたは結果/エラーが表示される
+    await expect(
+      page
+        .locator('[data-testid="ocr-progress-indicator"]')
+        .or(page.locator('[data-testid="ocr-extracted-text"]'))
+        .or(page.locator('[data-testid="ocr-error-message"]'))
+    ).toBeVisible({ timeout: getTimeout(30000) });
+
+    // PDFの場合はOCRとして処理されたことを確認（データパースボタンは表示されない）
     const dataParseButton = page.getByRole('button', { name: /データパース実行/i });
-    const ocrButton = page.getByRole('button', { name: /OCR実行/i });
-
-    // PDFの場合: OCR実行ボタンが表示される（データパースではない）
-    // 新規登録画面ではファイルアップロード直後にボタンが表示される場合がある
-    // 処理完了後またはプレビュー表示後にボタンが出る
-    await expect(ocrButton.or(dataParseButton)).toBeVisible({ timeout: getTimeout(10000) });
-
-    // PDFの場合はデータパースボタンが非表示であるべき
-    if (await ocrButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // PDF->OCR実行が表示されている（正常: Excelではないため）
-      expect(await ocrButton.isVisible()).toBeTruthy();
-    }
+    await expect(dataParseButton).not.toBeVisible({ timeout: getTimeout(3000) });
   });
 
   /**
@@ -482,9 +528,12 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 受領見積書登録ボタンをクリック
+    // 新規登録フォームでPDFをアップロードし、自動OCR処理が完了することを確認
+    // （Excelの場合はデータパースが実行される仕様: REQ-16.8）
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
     await expect(registerButton).toBeVisible({ timeout: getTimeout(10000) });
     await registerButton.click();
@@ -492,37 +541,26 @@ test.describe('OCR再実行・リトライ機能', () => {
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // ファイルアップロード
+    // PDFファイルをアップロード（自動OCR実行: autoStart=true）
     const fileInput = page.locator('input[type="file"]');
-    await expect(fileInput).toBeVisible({ timeout: getTimeout(5000) });
-
-    // PDFファイルをアップロード（Excelフィクスチャが無いため、PDFで代替検証）
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     await fileInput.setInputFiles(pdfPath);
 
     await expect(page.getByText('test-file.pdf')).toBeVisible({ timeout: getTimeout(5000) });
 
-    // 「データパース実行」ボタンまたは「OCR実行」ボタンの表示を確認
-    const dataParseButton = page.getByRole('button', { name: /データパース実行/i });
-    const ocrButton = page.getByRole('button', { name: /OCR実行/i });
+    // OCR処理が自動実行され、結果またはエラーが表示されることを確認
+    await expect(
+      page
+        .locator('[data-testid="ocr-extracted-text"]')
+        .or(page.locator('[data-testid="ocr-error-message"]'))
+    ).toBeVisible({ timeout: getTimeout(30000) });
 
-    // いずれかの処理ボタンが表示されることを確認
-    await expect(dataParseButton.or(ocrButton)).toBeVisible({ timeout: getTimeout(10000) });
-
-    // データパースボタンが表示されている場合（Excelファイル時）は実行を検証
-    if (await dataParseButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await dataParseButton.click();
-
-      // データパース処理の完了を待機（結果またはエラー）
-      await expect(
-        page
-          .locator('[data-testid="ocr-extracted-text"]')
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-      ).toBeVisible({ timeout: getTimeout(60000) });
-    } else {
-      // PDFの場合はOCR実行ボタンが表示されていることで、
-      // ファイルタイプ判別ロジックが動作していることを確認
-      expect(await ocrButton.isVisible()).toBeTruthy();
+    // OCR結果が取得できた場合、抽出テキストが表示されることを確認
+    const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
+    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const textContent = await extractedText.textContent();
+      expect(textContent).toBeTruthy();
+      expect(textContent!.length).toBeGreaterThan(0);
     }
   });
 
@@ -538,11 +576,14 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 編集ボタンをクリック
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
-    await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
+    // 編集ボタンをクリック（受領見積書一覧内）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
@@ -584,6 +625,13 @@ test.describe('OCR再実行・リトライ機能', () => {
 
   /**
    * @requirement estimate-request/REQ-16.11
+   *
+   * REQ-16.11: OCR処理中は「OCR実行」/「データパース実行」/「OCRリトライ」ボタンを非活性にする
+   *
+   * 実装ではボタンを非活性（disabled）ではなく、処理中はレンダリングから除外する（非表示にする）ことで
+   * ユーザーの操作を防止している。テキストPDFではOCR処理が瞬時に完了するため、
+   * MutationObserverを使ってDOM変更を同期的に監視し、処理中にOCR関連ボタンが
+   * 操作不能になった（非表示化された）ことを検証する。
    */
   test('OCR処理中にボタンが非活性になる (estimate-request/REQ-16.11)', async ({ page }) => {
     test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
@@ -592,45 +640,83 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 編集ボタンをクリック
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
-    await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
+    // 編集ボタンをクリック（受領見積書一覧内）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // OCR実行ボタンをクリック
+    // OCR実行ボタンが表示されていることを確認
     const ocrButton = page.getByRole('button', { name: /OCR実行/i });
     await expect(ocrButton).toBeVisible({ timeout: getTimeout(10000) });
+
+    // MutationObserverを設置して、処理中にOCR関連ボタンが非表示になったことを検出する
+    // （テキストPDFではOCR処理が瞬時に完了するため、Playwrightの通常のアサーションでは
+    //   処理中の状態遷移を捕捉できない。MutationObserverはDOM変更と同期的に実行されるため、
+    //   一瞬の状態変化でも確実に検出できる。）
+    await page.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      w.__ocrButtonHiddenDuringProcessing = false;
+      w.__progressIndicatorAppeared = false;
+
+      const observer = new MutationObserver(() => {
+        const progressIndicator = document.querySelector('[data-testid="ocr-progress-indicator"]');
+        if (progressIndicator) {
+          w.__progressIndicatorAppeared = true;
+
+          // 処理中に「OCR実行」ボタンが存在しないことを確認
+          const buttons = Array.from(document.querySelectorAll('button'));
+          const ocrBtn = buttons.find((b) => b.textContent?.includes('OCR実行') && !b.disabled);
+          const retryBtn = buttons.find(
+            (b) => b.textContent?.includes('OCRリトライ') && !b.disabled
+          );
+          const parseBtn = buttons.find(
+            (b) => b.textContent?.includes('データパース実行') && !b.disabled
+          );
+
+          // OCR関連ボタンが操作可能な状態で存在しない = 非活性化されている
+          if (!ocrBtn && !retryBtn && !parseBtn) {
+            w.__ocrButtonHiddenDuringProcessing = true;
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+      w.__ocrObserver = observer;
+    });
+
+    // OCR実行ボタンをクリック
     await ocrButton.click();
 
-    // OCR処理中のインジケーターが表示された時点でボタン状態を確認
-    const progressIndicator = page.locator('[data-testid="ocr-progress-indicator"]');
+    // OCR処理完了を待機（結果またはエラー）
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-
-    // 処理中インジケーターまたは結果/エラーが表示されるまで待機
-    await expect(progressIndicator.or(extractedText).or(errorMessage)).toBeVisible({
+    await expect(extractedText.or(errorMessage)).toBeVisible({
       timeout: getTimeout(60000),
     });
 
-    // 処理中インジケーターが表示されている場合、OCR実行ボタンが非活性であることを確認
-    if (await progressIndicator.isVisible({ timeout: 1000 }).catch(() => false)) {
-      // 処理中はOCR実行ボタンが非活性（disabled）であること
-      const ocrButtonDuringProcess = page.getByRole('button', { name: /OCR実行/i });
-      if (await ocrButtonDuringProcess.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await expect(ocrButtonDuringProcess).toBeDisabled();
-      }
+    // MutationObserverの結果を取得して検証
+    const observerResults = await page.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const observer = w.__ocrObserver as MutationObserver | undefined;
+      observer?.disconnect();
+      return {
+        progressIndicatorAppeared: w.__progressIndicatorAppeared as boolean,
+        ocrButtonHiddenDuringProcessing: w.__ocrButtonHiddenDuringProcessing as boolean,
+      };
+    });
 
-      // 登録/更新ボタンも非活性であることを確認
-      const submitButton = page.getByRole('button', { name: /^(登録|更新)$/i }).first();
-      if (await submitButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await expect(submitButton).toBeDisabled();
-      }
-    }
+    // 処理中インジケーターが表示されたことを確認（OCR処理が実行された証拠）
+    expect(observerResults.progressIndicatorAppeared).toBe(true);
+
+    // 処理中にOCR関連ボタンが操作不能（非表示/非活性）であったことを確認（REQ-16.11）
+    expect(observerResults.ocrButtonHiddenDuringProcessing).toBe(true);
   });
 
   /**
@@ -645,29 +731,29 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 編集ボタンをクリック
-    const editButton = page.getByRole('button', { name: /編集/i }).first();
-    await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
+    // 編集ボタンをクリック（受領見積書一覧内）
+    const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+    await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+    const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
     await editButton.click();
 
     // 編集フォームが表示される
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // ファイルプレビューが表示される（PDFビューアまたはプレビューエリア）
-    // FileInlinePreviewコンポーネントが既存URLでプレビューを表示する
-    await expect(
-      page.locator('[data-testid="file-inline-preview"]').or(page.locator('.react-pdf__Page'))
-    ).toBeVisible({ timeout: getTimeout(15000) });
+    // ファイルプレビューが表示される（PDFプレビュー）（REQ-16.12）
+    // FileInlinePreviewコンポーネントがreact-pdfでPDFをレンダリングする
+    // react-pdfは .react-pdf__Document > .react-pdf__Page を生成する
+    await expect(page.locator('.react-pdf__Document')).toBeVisible({ timeout: getTimeout(15000) });
   });
 
   test('テストデータをクリーンアップする', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    const cookies = await page.context().cookies();
-    const tokenCookie = cookies.find((c) => c.name === 'access_token');
-    accessToken = tokenCookie?.value ?? '';
+    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
 
     // 受領見積書の削除
     if (createdQuotationId) {
