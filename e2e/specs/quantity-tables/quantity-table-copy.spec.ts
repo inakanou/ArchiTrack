@@ -7,6 +7,7 @@
  * - REQ-17.1: 数量表一覧画面でコピー操作、デフォルト値「{元の数量表名}のコピー」
  * - REQ-17.2: 全データ（グループ、項目、フィールド値）の複製
  * - REQ-17.3: コピー完了後に編集画面に遷移
+ * - REQ-17.4: コピーされた数量表は元の数量表とは独立したデータとして管理
  * - REQ-17.5: エラー時のエラーメッセージ表示
  * - REQ-17.6: コピー処理中のインジケーター表示、重複操作防止
  * - REQ-17.7: 写真紐づけの維持
@@ -171,7 +172,10 @@ test.describe('数量表コピー機能', () => {
   // ==========================================================================
   test.describe('数量表コピー操作', () => {
     /**
-     * REQ-17.1, REQ-17.2, REQ-17.3, REQ-17.6
+     * @requirement quantity-table-generation/REQ-17.1
+     * @requirement quantity-table-generation/REQ-17.2
+     * @requirement quantity-table-generation/REQ-17.3
+     * @requirement quantity-table-generation/REQ-17.6
      *
      * 数量表一覧画面でコピーボタンクリックからダイアログ表示、
      * 名前入力、コピー実行、編集画面遷移までの一連フロー確認
@@ -248,7 +252,8 @@ test.describe('数量表コピー機能', () => {
     });
 
     /**
-     * REQ-17.2, REQ-17.7
+     * @requirement quantity-table-generation/REQ-17.2
+     * @requirement quantity-table-generation/REQ-17.7
      *
      * コピーされた数量表のデータが元の数量表と一致することの確認
      */
@@ -319,7 +324,7 @@ test.describe('数量表コピー機能', () => {
     });
 
     /**
-     * REQ-17.6
+     * @requirement quantity-table-generation/REQ-17.6
      *
      * コピー中の重複操作防止の確認
      */
@@ -386,6 +391,123 @@ test.describe('数量表コピー機能', () => {
 
       // ルートインターセプトを解除
       await page.unroute('**/api/quantity-tables/*/copy');
+    });
+
+    /**
+     * @requirement quantity-table-generation/REQ-17.4
+     *
+     * コピーされた数量表は元の数量表とは独立したデータとして管理し、
+     * 一方への変更が他方に影響しないことを確認
+     */
+    test('コピーされた数量表への変更が元の数量表に影響しない (quantity-table-generation/REQ-17.4)', async ({
+      page,
+    }) => {
+      if (!testProjectId || !sourceQuantityTableId || !copiedQuantityTableId) {
+        throw new Error('テスト前提条件が不足しています。コピーテストが正しく実行されていません。');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // コピー先の数量表の現在の状態をAPI経由で取得
+      await page.request.get(`/api/quantity-tables/${copiedQuantityTableId}`, {
+        headers: {
+          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
+        },
+      });
+
+      // 元の数量表の現在の状態をAPI経由で取得（変更前の状態を記録）
+      const sourceBeforeResponse = await page.request.get(
+        `/api/quantity-tables/${sourceQuantityTableId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
+          },
+        }
+      );
+
+      let sourceGroupCountBefore: number | null = null;
+      let sourceItemCountBefore: number | null = null;
+
+      if (sourceBeforeResponse.ok()) {
+        const sourceBeforeData = await sourceBeforeResponse.json();
+        sourceGroupCountBefore = sourceBeforeData.groups?.length ?? null;
+        sourceItemCountBefore =
+          sourceBeforeData.groups?.reduce(
+            (acc: number, g: { items: unknown[] }) => acc + (g.items?.length ?? 0),
+            0
+          ) ?? null;
+      }
+
+      // コピー先の数量表編集画面に移動
+      await page.goto(`/projects/${testProjectId}/quantity-tables/${copiedQuantityTableId}`);
+      await page.waitForLoadState('networkidle');
+
+      // コピー先の数量表に項目を追加する
+      const addItemButton = page
+        .getByRole('button', { name: /行追加|項目追加|項目を追加/i })
+        .first();
+
+      if (await addItemButton.isVisible({ timeout: getTimeout(5000) })) {
+        await addItemButton.click();
+        await page.waitForTimeout(1000);
+
+        // 追加された項目に値を入力
+        const workTypeInputs = page.locator(
+          '[data-field="workType"] input, input[aria-label*="工種"]'
+        );
+        const lastWorkTypeInput = workTypeInputs.last();
+        if (await lastWorkTypeInput.isVisible({ timeout: 3000 })) {
+          await lastWorkTypeInput.fill('独立性テスト工種');
+        }
+
+        const nameInputs = page.locator('[data-field="name"] input, input[aria-label*="名称"]');
+        const lastNameInput = nameInputs.last();
+        if (await lastNameInput.isVisible({ timeout: 3000 })) {
+          await lastNameInput.fill('独立性テスト名称');
+        }
+
+        // 自動保存を待つ
+        await page.waitForTimeout(3000);
+      }
+
+      // 元の数量表のデータが変更されていないことをAPI経由で確認
+      const sourceAfterResponse = await page.request.get(
+        `/api/quantity-tables/${sourceQuantityTableId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
+          },
+        }
+      );
+
+      if (sourceAfterResponse.ok() && sourceGroupCountBefore !== null) {
+        const sourceAfterData = await sourceAfterResponse.json();
+        const sourceGroupCountAfter = sourceAfterData.groups?.length ?? 0;
+        const sourceItemCountAfter =
+          sourceAfterData.groups?.reduce(
+            (acc: number, g: { items: unknown[] }) => acc + (g.items?.length ?? 0),
+            0
+          ) ?? 0;
+
+        // 元の数量表のグループ数が変わっていないこと
+        expect(sourceGroupCountAfter).toBe(sourceGroupCountBefore);
+
+        // 元の数量表の項目数が変わっていないこと
+        if (sourceItemCountBefore !== null) {
+          expect(sourceItemCountAfter).toBe(sourceItemCountBefore);
+        }
+
+        // 元の数量表名が変わっていないこと
+        expect(sourceAfterData.name).toBe('コピー元数量表');
+      } else {
+        // APIが利用できない場合はUI経由で検証
+        await page.goto(`/projects/${testProjectId}/quantity-tables/${sourceQuantityTableId}`);
+        await page.waitForLoadState('networkidle');
+
+        // 元の数量表に「独立性テスト工種」が存在しないことを確認
+        const independenceTestText = page.getByText('独立性テスト工種');
+        await expect(independenceTestText).not.toBeVisible({ timeout: getTimeout(5000) });
+      }
     });
   });
 
