@@ -451,9 +451,10 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
 
     // 既存オブジェクトの外側から描画開始し、既存オブジェクト上でマウスアップ
-    // 開始点: 既存オブジェクトの左上外側
+    // 開始点: 既存オブジェクトの左上外側（キャンバス内に収まる座標）
     // 終了点: 既存オブジェクトの中心（既存オブジェクト上）
-    await performDrag(page, center.x - 100, center.y - 80, center.x, center.y);
+    // 注: テスト画像が100x100pxのため、キャンバスサイズを超えないよう座標を調整
+    await performDrag(page, center.x - 45, center.y - 40, center.x, center.y);
     await page.waitForTimeout(500);
 
     // 新しい図形が正常に作成されたことを確認（オブジェクト数が1つ増加）
@@ -531,17 +532,18 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     await expect(polylineTool).toHaveAttribute('aria-pressed', 'true');
 
     // 既存オブジェクト上を含む位置に点を配置して折れ線を描画
-    // 点1: 既存オブジェクトの左外側
-    await page.mouse.click(center.x - 100, center.y);
+    // 注: テスト画像が100x100pxのため、キャンバスサイズを超えないよう座標を調整
+    // 点1: 既存オブジェクトの左外側（キャンバス内）
+    await page.mouse.click(center.x - 45, center.y);
     await page.waitForTimeout(200);
     // 点2: 既存オブジェクトの中心（オブジェクト上）
     await page.mouse.click(center.x, center.y);
     await page.waitForTimeout(200);
-    // 点3: 既存オブジェクトの右外側
-    await page.mouse.click(center.x + 100, center.y);
+    // 点3: 既存オブジェクトの右外側（キャンバス内）
+    await page.mouse.click(center.x + 45, center.y);
     await page.waitForTimeout(200);
     // ダブルクリックで折れ線を終了
-    await page.mouse.dblclick(center.x + 100, center.y);
+    await page.mouse.dblclick(center.x + 45, center.y);
     await page.waitForTimeout(500);
 
     // 折れ線が正常に作成されたことを確認
