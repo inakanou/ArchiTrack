@@ -459,6 +459,10 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       // 見積書名を入力
       await page.locator('#quotation-name').fill('数量テスト用見積書');
 
+      // 行1の名称を入力（バリデーション必須: 明細行の名称が空だと保存不可）
+      const nameInput = page.getByRole('textbox', { name: /行1 名称/i });
+      await nameInput.fill('テスト名称');
+
       // 行1の数量を入力
       const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
       await quantityInput.fill('5');
@@ -468,14 +472,18 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await unitPriceInput.fill('1000');
 
       // フォーカスを移す
-      await page.getByRole('textbox', { name: /行1 名称/i }).click();
+      await page.getByRole('textbox', { name: /行1 備考/i }).click();
 
       // 登録ボタンをクリック
       const submitButton = page.getByRole('button', { name: /^登録$/i });
       await submitButton.click();
 
-      // 保存成功を確認
-      await expect(page.getByText(/見積書/)).toBeVisible({ timeout: getTimeout(10000) });
+      // 保存成功を確認（フォームが閉じて、受領見積書リストに見積書名が表示される）
+      await expect(page.getByText('数量テスト用見積書').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      // フォームが閉じたことを確認
+      await expect(page.locator('#quotation-name')).not.toBeVisible({ timeout: getTimeout(5000) });
 
       // 保存された受領見積書のIDを取得
       const cookies = await page.context().cookies();
@@ -626,8 +634,8 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
         await page.getByRole('textbox', { name: /行1 名称/i }).click();
 
         // 金額: 3.50 * 1500 = 5250（整数）
-        // 金額が整数で表示されることを確認（小数点なし）
-        await expect(page.getByText('5250').first()).toBeVisible({ timeout: getTimeout(5000) });
+        // 金額が整数で表示されることを確認（カンマ区切りの整数表示: 5,250）
+        await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
       } else {
         // 編集対象がない場合、登録画面で検証
         await page.getByRole('button', { name: /受領見積書登録/i }).click();
@@ -640,7 +648,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
         await unitPriceInput.fill('1500');
         await page.getByRole('textbox', { name: /行1 名称/i }).click();
 
-        await expect(page.getByText('5250').first()).toBeVisible({ timeout: getTimeout(5000) });
+        await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
       }
     });
 
@@ -797,8 +805,8 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       // フォーカスを移して計算を発火
       await page.getByRole('textbox', { name: /行1 名称/i }).click();
 
-      // 金額: 2.50 * 1000 = 2500
-      await expect(page.getByText('2500').first()).toBeVisible({ timeout: getTimeout(5000) });
+      // 金額: 2.50 * 1000 = 2500（カンマ区切り整数表示: 2,500）
+      await expect(page.getByText('2,500').first()).toBeVisible({ timeout: getTimeout(5000) });
 
       // 合計金額エリアを確認
       // 合計金額テキストが表示されている場合
