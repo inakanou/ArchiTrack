@@ -25,6 +25,7 @@ vi.mock('../../utils/logger', () => ({
 vi.mock('../../api/client', () => ({
   apiClient: {
     post: vi.fn(),
+    setAccessToken: vi.fn(),
   },
   ApiError: class ApiError extends Error {
     statusCode: number;
@@ -279,7 +280,7 @@ describe('SessionExpiredModal', () => {
       const dialog = screen.getByRole('dialog');
       // フォーカス可能な要素が存在すること（パスワード入力、再ログインボタン）
       const focusableElements = dialog.querySelectorAll(
-        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
       );
       expect(focusableElements.length).toBeGreaterThanOrEqual(2);
     });
@@ -290,7 +291,7 @@ describe('SessionExpiredModal', () => {
       const dialog = screen.getByRole('dialog');
       const focusableElements = Array.from(
         dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
         )
       );
       expect(focusableElements.length).toBeGreaterThanOrEqual(2);
@@ -317,7 +318,7 @@ describe('SessionExpiredModal', () => {
       const dialog = screen.getByRole('dialog');
       const focusableElements = Array.from(
         dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
         )
       );
       expect(focusableElements.length).toBeGreaterThanOrEqual(2);
