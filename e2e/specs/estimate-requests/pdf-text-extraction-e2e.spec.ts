@@ -58,18 +58,26 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得
-    const cookies = await page.context().cookies();
-    const tokenCookie = cookies.find((c) => c.name === 'access_token');
-    accessToken = tokenCookie?.value ?? '';
+    // 認証トークン取得（localStorageから取得）
+    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
     expect(accessToken).not.toBe('');
+
+    // 担当者候補を取得（salesPersonIdに必要）
+    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(assignableRes.ok()).toBeTruthy();
+    const assignableUsers = await assignableRes.json();
+    expect(assignableUsers.length).toBeGreaterThan(0);
+    const salesPersonId = assignableUsers[0].id;
 
     // プロジェクト作成
     const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       data: {
         name: `PDF抽出E2Eテスト-${Date.now()}`,
-        address: '東京都港区テスト1-1-1',
+        salesPersonId,
+        siteAddress: '東京都港区テスト1-1-1',
       },
     });
     expect(projectRes.ok()).toBeTruthy();
@@ -82,7 +90,8 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
       data: {
         name: `テスト業者-PDF抽出-${Date.now()}`,
         nameKana: 'テストギョウシャ',
-        type: 'SUBCONTRACTOR',
+        types: ['SUBCONTRACTOR'],
+        address: '東京都港区テスト1-1-1',
         email: 'test-pdf-extract@example.com',
       },
     });
@@ -90,22 +99,52 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const partner = await partnerRes.json();
     createdTradingPartnerId = partner.id;
 
-    // 内訳書作成
+    // 数量表作成
+    const qtRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: `テスト数量表-PDF抽出-${Date.now()}` },
+      }
+    );
+    expect(qtRes.ok()).toBeTruthy();
+    const qt = await qtRes.json();
+
+    // 数量グループ作成
+    const groupRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: '土木工事グループ', displayOrder: 0 },
+      }
+    );
+    expect(groupRes.ok()).toBeTruthy();
+    const group = await groupRes.json();
+
+    // 数量項目作成
+    const itemRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          workType: '土木工事',
+          name: 'コンクリート打設',
+          specification: '普通',
+          unit: 'm3',
+          quantity: 50,
+        },
+      }
+    );
+    expect(itemRes.ok()).toBeTruthy();
+
+    // 内訳書作成（数量表から生成）
     const statementRes = await page.request.post(
       `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: {
           name: `テスト内訳書-PDF抽出-${Date.now()}`,
-          items: [
-            {
-              workType: '土木工事',
-              name: 'コンクリート打設',
-              specification: '普通',
-              unit: 'm3',
-              quantity: 50,
-            },
-          ],
+          quantityTableId: qt.id,
         },
       }
     );
@@ -146,7 +185,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -190,7 +231,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -240,7 +283,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -324,7 +369,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -385,7 +432,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -447,7 +496,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -527,7 +578,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // フォームが開いている場合は閉じる
     const cancelButton = page.getByRole('button', { name: /^キャンセル$/i });
@@ -581,7 +634,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await expect(page.getByRole('main')).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     // 受領見積書登録ボタンをクリック
     const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
@@ -638,9 +693,8 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('テストデータをクリーンアップする', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    const cookies = await page.context().cookies();
-    const tokenCookie = cookies.find((c) => c.name === 'access_token');
-    accessToken = tokenCookie?.value ?? '';
+    // 認証トークン取得（localStorageから取得）
+    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
 
     // 見積依頼の削除
     if (createdEstimateRequestId) {
