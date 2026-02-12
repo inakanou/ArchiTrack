@@ -838,18 +838,22 @@ describe('AnnotationService', () => {
       expect(result).toEqual({});
     });
 
-    it('不正なimageId（surveyに属さない）の場合にエラーをスローする', async () => {
+    it('surveyに属さないimageIdに対してnullを返却する（REQ-18.4）', async () => {
       // Arrange: surveyに属さないimageIdがある
       const invalidImageId = 'image-invalid';
       mockPrisma.surveyImage.findMany = vi.fn().mockResolvedValue([
         { id: imageId1 },
         // invalidImageIdはsurveysに属さないので返却されない
       ]);
+      mockPrisma.imageAnnotation.findMany = vi.fn().mockResolvedValue([mockAnnotation1]);
 
-      // Act & Assert
-      await expect(service.findByImageIds([imageId1, invalidImageId], surveyId)).rejects.toThrow(
-        AnnotationImageNotFoundError
-      );
+      // Act
+      const result = await service.findByImageIds([imageId1, invalidImageId], surveyId);
+
+      // Assert: 有効な画像IDには注釈データ、無効な画像IDにはnullが返る
+      expect(result[imageId1]).toBeDefined();
+      expect(result[imageId1]!.id).toBe('annotation-001');
+      expect(result[invalidImageId]).toBeNull();
     });
 
     it('レスポンス形式が個別取得APIと互換である（Requirements: 18.8）', async () => {

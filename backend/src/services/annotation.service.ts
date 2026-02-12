@@ -495,7 +495,7 @@ export class AnnotationService {
    * @param imageIds - 画像IDの配列
    * @param surveyId - 現場調査ID（権限検証用）
    * @returns 画像IDをキーとする注釈データのRecord
-   * @throws {AnnotationImageNotFoundError} 画像IDが当該surveyに属さない場合
+   * surveyに属さない画像IDにはnullを返却（REQ-18.4）
    */
   async findByImageIds(
     imageIds: string[],
