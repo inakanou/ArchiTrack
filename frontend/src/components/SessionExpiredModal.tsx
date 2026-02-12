@@ -35,8 +35,8 @@ function isNetworkError(error: unknown): boolean {
  * フォーカス可能な要素のセレクタ
  */
 const FOCUSABLE_SELECTOR = [
-  'button:not([disabled])',
-  'input:not([disabled])',
+  'button:not([disabled]):not([tabindex="-1"])',
+  'input:not([disabled]):not([tabindex="-1"])',
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
@@ -191,6 +191,15 @@ export function SessionExpiredModal({
           setRequires2FA(true);
           setLoginEmail(userEmail);
           return;
+        }
+
+        // 要件30.9: 再認証成功でトークン更新
+        if (response.accessToken) {
+          apiClient.setAccessToken(response.accessToken);
+          localStorage.setItem('accessToken', response.accessToken);
+        }
+        if (response.refreshToken) {
+          localStorage.setItem('refreshToken', response.refreshToken);
         }
 
         // 再認証成功

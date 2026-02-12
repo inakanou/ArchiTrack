@@ -396,5 +396,11 @@ class ApiClient {
 // シングルトンインスタンスをエクスポート
 export const apiClient = new ApiClient();
 
+// E2Eテスト用: apiClientインスタンスをwindowに公開
+// Playwrightテストからpage.evaluate経由でapiClientの実メソッドを呼び出し可能にする
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__apiClient = apiClient;
+}
+
 // 型定義のエクスポート
 export type { RequestOptions };

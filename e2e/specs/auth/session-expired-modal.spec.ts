@@ -59,15 +59,19 @@ async function triggerSessionExpiredModal(page: import('@playwright/test').Page)
     }
   });
 
-  // APIリクエストをトリガーしてセッション切れを発生させる
+  // apiClient経由でAPIリクエストをトリガーしてセッション切れを発生させる
+  // 直接fetchではなくapiClientを使うことで、tokenRefreshCallback→sessionExpiredCallbackの
+  // 正規フローが実行される
   await page.evaluate(async () => {
-    const token = localStorage.getItem('accessToken');
-    try {
-      await fetch('/api/v1/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      // エラーは無視（セッション切れコールバックが呼ばれる）
+    const apiClient = (window as unknown as Record<string, unknown>).__apiClient as {
+      get: (path: string) => Promise<unknown>;
+    };
+    if (apiClient) {
+      try {
+        await apiClient.get('/api/v1/auth/me');
+      } catch {
+        // エラーは想定内（セッション切れコールバックが呼ばれる）
+      }
     }
   });
 
@@ -174,7 +178,7 @@ test.describe('セッション切れモーダル再認証', () => {
     expect(emailValue).toContain('@');
 
     // パスワードフィールド
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await expect(passwordInput).toBeVisible();
     await expect(passwordInput).toHaveAttribute('type', 'password');
 
@@ -255,7 +259,7 @@ test.describe('セッション切れモーダル再認証', () => {
     await triggerSessionExpiredModal(page);
 
     // パスワードフィールドにフォーカスが当たっていることを確認
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await expect(passwordInput).toBeVisible({ timeout: getTimeout(5000) });
     await expect(passwordInput).toBeFocused({ timeout: getTimeout(5000) });
   });
@@ -296,7 +300,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // パスワードを入力して再ログインボタンをクリック
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
@@ -341,7 +345,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // パスワードを入力して再ログイン
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
@@ -399,7 +403,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // パスワードを入力して再ログイン
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
@@ -447,7 +451,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // 間違ったパスワードで再認証を試みる
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('wrong-password-123');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
@@ -478,6 +482,18 @@ test.describe('セッション切れモーダル再認証', () => {
   test('REQ-30.12: 2FA有効ユーザーで2FA検証フィールドが表示される', async ({ page }) => {
     await createTestUser('TWO_FA_USER');
     await loginAsUser(page, 'TWO_FA_USER');
+    // 2FAユーザーはloginAsUser後に2FA検証を完了させる必要がある
+    // テスト環境では固定コード "123456" でバイパス（分割入力UI対応）
+    await page
+      .getByTestId('totp-digit-0')
+      .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+    await page.getByTestId('totp-digit-0').click();
+    await page.keyboard.type('123456');
+    await page.getByRole('button', { name: /検証/i }).click();
+    await page.waitForURL((url) => !url.pathname.includes('/login'), {
+      timeout: getTimeout(15000),
+    });
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
     await setupAuthenticatedProfilePage(page);
 
     await triggerSessionExpiredModal(page);
@@ -495,7 +511,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // パスワードを入力して再ログイン
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
@@ -542,16 +558,18 @@ test.describe('セッション切れモーダル再認証', () => {
       }
     });
 
-    // API Clientを直接使用してAPIコールをトリガー
-    // sessionExpiredCallbackが呼ばれてモーダルが表示されることを確認
+    // API Client経由でAPIコールをトリガー
+    // apiClientのtokenRefreshCallback→sessionExpiredCallbackフローを検証
     await page.evaluate(async () => {
-      const token = localStorage.getItem('accessToken');
-      try {
-        await fetch('/api/v1/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      } catch {
-        // 無視
+      const apiClient = (window as unknown as Record<string, unknown>).__apiClient as {
+        get: (path: string) => Promise<unknown>;
+      };
+      if (apiClient) {
+        try {
+          await apiClient.get('/api/v1/auth/me');
+        } catch {
+          // エラーは想定内（セッション切れコールバックが呼ばれる）
+        }
       }
     });
 
@@ -597,7 +615,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // 再認証
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
@@ -669,7 +687,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // 3回連続で認証失敗を試行
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     const loginButton = page.getByRole('button', { name: '再ログイン' });
 
     for (let i = 0; i < 3; i++) {
@@ -715,7 +733,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // パスワードを入力して再ログイン
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
@@ -749,7 +767,7 @@ test.describe('セッション切れモーダル再認証', () => {
 
     // モーダル内のフォーカス可能な要素を確認
     // パスワード入力とボタンがモーダル内にあること
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await expect(passwordInput).toBeVisible();
 
     // Tabキーを複数回押してフォーカスを巡回
@@ -840,7 +858,7 @@ test.describe('セッション切れモーダル再認証', () => {
     });
 
     // パスワード入力して再認証を試みる
-    const passwordInput = page.getByLabel('パスワード');
+    const passwordInput = page.getByLabel('パスワード', { exact: true });
     await passwordInput.fill('wrong-password');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
