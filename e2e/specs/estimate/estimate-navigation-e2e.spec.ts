@@ -418,8 +418,11 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       // 見積項目セクションが表示されることを確認
       await expect(page.getByRole('heading', { name: /見積項目/i })).toBeVisible();
 
-      // 合計金額セクションが表示されることを確認
-      await expect(page.getByText(/合計金額/i)).toBeVisible();
+      // サマリーセクション（合計金額等）が表示されることを確認
+      await expect(page.getByRole('heading', { name: /サマリー/i })).toBeVisible();
+
+      // サマリー内の合計金額が表示されることを確認
+      await expect(page.getByText(/見積金額合計/)).toBeVisible();
     });
 
     /**
@@ -449,8 +452,8 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       // 出力ボタンが表示されることを確認
       await expect(page.getByRole('button', { name: /出力/i })).toBeVisible();
 
-      // 転記ボタンも表示されることを確認
-      await expect(page.getByRole('button', { name: /転記/i })).toBeVisible();
+      // 転記ボタンも表示されることを確認（複数存在するため最初の1つで確認）
+      await expect(page.getByRole('button', { name: '受領見積書を業者金額に転記' })).toBeVisible();
     });
   });
 
