@@ -2,11 +2,13 @@
  * @fileoverview オートコンプリート候補ストアのカスタムフック
  *
  * Task 16.1: オートコンプリート候補ストアのカスタムフックを実装する
+ * Task 25.1: getSuggestionsで空入力時に全候補を返すよう修正
  *
  * Requirements:
  * - 7.1: 初回表示時に候補値を一括取得
  * - 7.2: APIリクエストは初回表示時の1回のみ
- * - 7.3: クライアントサイドでのフィルタリング表示
+ * - 7.3: クライアントサイドでのフィルタリング表示（フォーカス時に全候補表示）
+ * - 7.3a: 空フィールドへのフォーカス時に全候補をドロップダウン表示
  * - 7.5: blur時にクライアントサイドで候補追加
  * - 7.6: blur時の候補追加はAPIリクエスト不要
  * - 7.7: 候補を50音順に表示
@@ -104,19 +106,24 @@ function createEmptyCandidates(): Record<AutocompleteFieldName, string[]> {
 /**
  * クライアントサイドでの候補フィルタリング
  *
- * 1. 候補リストから入力テキストに前方一致する値を抽出
- * 2. 空文字を除外
- * 3. 50音順（locale: 'ja'）でソート
+ * 1. 空文字を除外
+ * 2. 入力テキストが空またはホワイトスペースのみの場合は全候補を返す
+ * 3. 入力テキストがある場合は前方一致で候補を抽出
  * 4. 完全一致する入力値自体は候補から除外（入力中の値を重複表示しない）
+ * 5. 50音順（locale: 'ja'）でソート
  */
 function filterCandidates(candidates: string[], inputText: string): string[] {
-  if (!inputText.trim()) return [];
+  const trimmedInput = inputText.trim();
 
-  return candidates
-    .filter((v) => v.trim() !== '')
-    .filter((v) => v.toLowerCase().startsWith(inputText.toLowerCase()))
-    .filter((v) => v !== inputText)
-    .sort((a, b) => a.localeCompare(b, 'ja'));
+  let filtered = candidates.filter((v) => v.trim() !== '');
+
+  if (trimmedInput) {
+    filtered = filtered.filter((v) => v.toLowerCase().startsWith(trimmedInput.toLowerCase()));
+  }
+
+  filtered = filtered.filter((v) => v !== inputText);
+
+  return filtered.sort((a, b) => a.localeCompare(b, 'ja'));
 }
 
 // ============================================================================

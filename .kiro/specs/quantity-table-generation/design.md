@@ -204,11 +204,17 @@ sequenceDiagram
     API-->>QTE: AutocompleteCandidatesResponse
     QTE->>ACS: 候補値マップをステートに保持
 
-    Note over User: テキストフィールドに入力開始
-    User->>QTE: 対象フィールドに文字入力
-    QTE->>ACS: クライアントサイドでフィルタリング
-    ACS-->>QTE: 一致候補リスト（50音順）
+    Note over User: テキストフィールドにフォーカス
+    User->>QTE: 対象フィールドにフォーカス
+    QTE->>ACS: クライアントサイドで候補取得（空入力時は全候補、入力値ありは前方一致フィルタリング）
+    ACS-->>QTE: 候補リスト（50音順）
     QTE->>QTE: ドロップダウンで候補表示
+
+    Note over User: テキスト入力でリアルタイムフィルタリング
+    User->>QTE: 対象フィールドに文字入力
+    QTE->>ACS: 入力値で前方一致フィルタリング
+    ACS-->>QTE: フィルタリング済み候補リスト（50音順）
+    QTE->>QTE: ドロップダウンを更新表示
 
     User->>QTE: 候補を選択 or 直接入力後にフォーカスを外す
     QTE->>ACS: blur時に確定値を候補リストに追加（重複排除）
@@ -227,7 +233,8 @@ sequenceDiagram
 | 6.1-6.5 | 数量項目のコピー・移動 | QuantityItemComponent, DragDropContext | QuantityItemService | - |
 | 7.1 | 初回表示時に候補値を一括取得 | QuantityTableEditPage, AutocompleteCandidateStore | GET /api/projects/:projectId/quantity-items/autocomplete-candidates | オートコンプリートフロー |
 | 7.2 | APIリクエストは初回表示時の1回のみ | AutocompleteCandidateStore | - | オートコンプリートフロー |
-| 7.3 | クライアントサイドでのフィルタリング表示 | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |
+| 7.3 | フォーカス時に候補をドロップダウン表示（空入力時は全候補、入力値ありは前方一致フィルタリング） | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |
+| 7.3a | 入力中にリアルタイムで前方一致フィルタリング更新 | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |
 | 7.4 | 候補選択時の自動入力 | AutocompleteInput | - | オートコンプリートフロー |
 | 7.5 | blur時にクライアントサイドで候補追加 | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |
 | 7.6 | blur時の候補追加はAPIリクエスト不要 | AutocompleteCandidateStore | - | オートコンプリートフロー |
@@ -1091,20 +1098,26 @@ function useAutocompleteCandidateStore(
 /**
  * クライアントサイドでの候補フィルタリング
  *
- * 1. 候補リストから入力テキストに前方一致する値を抽出
- * 2. 空文字を除外
- * 3. 50音順（locale: 'ja'）でソート
- * 4. 完全一致する入力値自体は候補から除外（入力中の値を重複表示しない）
+ * 1. 入力テキストが空の場合は全候補を返す（フォーカス時の全候補表示用）
+ * 2. 入力テキストがある場合は前方一致する値を抽出
+ * 3. 空文字を除外
+ * 4. 50音順（locale: 'ja'）でソート
+ * 5. 完全一致する入力値自体は候補から除外（入力中の値を重複表示しない）
  */
 function filterCandidates(
   candidates: string[],
   inputText: string
 ): string[] {
-  if (!inputText.trim()) return [];
+  const trimmed = inputText.trim();
+  const filtered = candidates.filter((v) => v.trim() !== '');
 
-  return candidates
-    .filter((v) => v.trim() !== '')
-    .filter((v) => v.toLowerCase().startsWith(inputText.toLowerCase()))
+  if (!trimmed) {
+    // 空入力時は全候補を返す（フォーカス時の全候補表示）
+    return filtered.sort((a, b) => a.localeCompare(b, 'ja'));
+  }
+
+  return filtered
+    .filter((v) => v.toLowerCase().startsWith(trimmed.toLowerCase()))
     .filter((v) => v !== inputText)
     .sort((a, b) => a.localeCompare(b, 'ja'));
 }
@@ -1206,7 +1219,7 @@ interface AutocompleteInputProps {
 - Integration: 従来の`useAutocomplete`フック（逐次API方式）を使用せず、親コンポーネントから注入された`getSuggestions`関数で候補を取得。入力値が変更されるたびに`getSuggestions`を呼び出してクライアントサイドでフィルタリング
 - Validation: 入力値の最大長チェック（列ごとの制約に準拠）
 - blur時処理: `onBlur`イベントで`onBlurAddCandidate(field, value)`を呼び出し、確定値をクライアントサイドの候補リストに追加。APIリクエストは発行しない
-- UX: 入力開始時に候補表示（最小文字数制限なし）、上下キーで選択、Enterで確定
+- UX: フォーカス時に候補をドロップダウン表示（空入力時は全候補を表示し、入力値がある場合は前方一致フィルタリング）。入力中はリアルタイムでフィルタリング更新。上下キーで選択、Enterで確定
 
 ## Data Models
 
@@ -1417,7 +1430,8 @@ enum CalculationMethod {
   - 小数2桁表示の自動書式設定
 - オートコンプリート操作
   - 数量表編集画面表示時に候補が一括取得されること
-  - テキスト入力時に候補がフィルタリング表示されること
+  - フォーカス時に候補がドロップダウン表示されること（空入力時は全候補、入力値ありはフィルタリング済み）
+  - テキスト入力時に候補がリアルタイムでフィルタリング更新されること
   - 候補選択時にフィールドに値が自動入力されること
   - blur時に入力値がクライアントサイドの候補リストに追加されること
   - 候補追加後に同じフィールドで再入力すると追加された値が候補に表示されること
@@ -1495,11 +1509,14 @@ const handleFocus = useCallback(() => {
   setIsFocused(true);
   // フォーカス時に既存の入力値を全選択
   inputRef.current?.select();
-  if (value && suggestions.length > 0) {
+  // フォーカス時に常にドロップダウンを開く（候補がある場合）
+  if (suggestions.length > 0) {
     setIsOpen(true);
   }
-}, [value, suggestions.length]);
+}, [suggestions.length]);
 ```
+
+**フォーカス時の候補表示**: フォーカス時に`suggestions.length > 0`であればドロップダウンを開く。`value`の有無に関わらず開くため、空のフィールドにフォーカスした場合も全候補が表示される。`getSuggestions`が空入力時に全候補を返すように変更されているため、空フィールドでも候補リストが表示される。
 
 **オートコンプリートとの共存**: `select()`はテキスト選択状態を設定するだけであり、ドロップダウンの開閉とは独立して動作する。全選択状態でユーザーが文字を入力すると選択範囲が置換されるが、これはブラウザ標準動作であり、入力値の変更→`handleInputChange`→候補フィルタリングの既存フローがそのまま機能する。
 

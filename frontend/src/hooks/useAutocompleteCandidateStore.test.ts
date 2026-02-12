@@ -156,7 +156,7 @@ describe('useAutocompleteCandidateStore', () => {
       expect(suggestions).not.toContain('建築工事');
     });
 
-    it('should return empty array for empty input', async () => {
+    it('should return all candidates (sorted, excluding empty) for empty input (Req 7.3, 7.3a)', async () => {
       const { result } = renderHook(() => useAutocompleteCandidateStore({ projectId }));
 
       await waitFor(() => {
@@ -164,10 +164,17 @@ describe('useAutocompleteCandidateStore', () => {
       });
 
       const suggestions = result.current.getSuggestions('majorCategory', '');
-      expect(suggestions).toEqual([]);
+      // Should return all candidates sorted in Japanese locale order
+      expect(suggestions.length).toBeGreaterThan(0);
+      expect(suggestions).toContain('建築工事');
+      expect(suggestions).toContain('電気工事');
+      expect(suggestions).toContain('あいう工事');
+      // Verify sorted in Japanese locale order
+      const sorted = [...suggestions].sort((a, b) => a.localeCompare(b, 'ja'));
+      expect(suggestions).toEqual(sorted);
     });
 
-    it('should return empty array for whitespace-only input', async () => {
+    it('should return all candidates for whitespace-only input (Req 7.3, 7.3a)', async () => {
       const { result } = renderHook(() => useAutocompleteCandidateStore({ projectId }));
 
       await waitFor(() => {
@@ -175,7 +182,32 @@ describe('useAutocompleteCandidateStore', () => {
       });
 
       const suggestions = result.current.getSuggestions('majorCategory', '   ');
-      expect(suggestions).toEqual([]);
+      // Should return all candidates sorted in Japanese locale order
+      expect(suggestions.length).toBeGreaterThan(0);
+      expect(suggestions).toContain('建築工事');
+      expect(suggestions).toContain('電気工事');
+      expect(suggestions).toContain('あいう工事');
+    });
+
+    it('should exclude empty string candidates when returning all candidates for empty input', async () => {
+      mockApiGet.mockResolvedValue({
+        candidates: {
+          ...mockCandidatesResponse.candidates,
+          majorCategory: ['建築工事', '', '  ', '電気工事'],
+        },
+      });
+
+      const { result } = renderHook(() => useAutocompleteCandidateStore({ projectId }));
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      const suggestions = result.current.getSuggestions('majorCategory', '');
+      expect(suggestions).not.toContain('');
+      expect(suggestions).not.toContain('  ');
+      expect(suggestions).toContain('建築工事');
+      expect(suggestions).toContain('電気工事');
     });
 
     it('should sort results in Japanese locale order (50-on) (Req 7.7)', async () => {

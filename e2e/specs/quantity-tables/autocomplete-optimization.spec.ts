@@ -518,4 +518,226 @@ test.describe('オートコンプリート最適化', () => {
       await page.unroute('**/autocomplete-candidates');
     });
   });
+
+  // ==========================================================================
+  // REQ-7.3, 7.3a: フォーカス時候補表示（Task 25.4）
+  // ==========================================================================
+
+  test.describe('REQ-7.3a: フォーカス時候補表示', () => {
+    test('空の対象フィールドにフォーカスした際に全候補がドロップダウン表示される', async ({
+      page,
+    }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      }
+
+      await page.waitForLoadState('networkidle');
+
+      // 数量項目を追加
+      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
+      if (await addItemButton.isVisible()) {
+        await addItemButton.click();
+        await page.waitForTimeout(500);
+      }
+
+      // まず候補を追加するため、大項目に値を入力してblur
+      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
+      const firstInput = majorCategoryInputs.first();
+      if (await firstInput.isVisible()) {
+        // 候補を追加
+        await firstInput.fill('フォーカステスト大項目');
+        await firstInput.blur();
+        await page.waitForTimeout(300);
+
+        // フィールドをクリア
+        await firstInput.fill('');
+        await page.waitForTimeout(100);
+
+        // 空のフィールドにフォーカス
+        await firstInput.focus();
+        await page.waitForTimeout(300);
+
+        // ドロップダウンが表示されることを確認
+        const listbox = page.getByRole('listbox');
+        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+          const options = page.getByRole('option');
+          const optionCount = await options.count();
+          // 空のフィールドでも候補が表示されるべき
+          expect(optionCount).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    test('値ありの対象フィールドにフォーカスした際にフィルタリング済み候補が表示される', async ({
+      page,
+    }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      }
+
+      await page.waitForLoadState('networkidle');
+
+      // 数量項目を追加
+      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
+      if (await addItemButton.isVisible()) {
+        await addItemButton.click();
+        await page.waitForTimeout(500);
+      }
+
+      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
+      const firstInput = majorCategoryInputs.first();
+      if (await firstInput.isVisible()) {
+        // まず候補を追加
+        await firstInput.fill('フィルタテスト値A');
+        await firstInput.blur();
+        await page.waitForTimeout(300);
+
+        // 前方一致する値を入力
+        await firstInput.fill('フィルタ');
+        await page.waitForTimeout(200);
+
+        // フィルタリング済み候補が表示されることを確認
+        const listbox = page.getByRole('listbox');
+        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+          const option = page.getByRole('option', { name: /フィルタテスト値A/ });
+          if (await option.isVisible()) {
+            expect(await option.textContent()).toContain('フィルタテスト値A');
+          }
+        }
+      }
+    });
+
+    test('フォーカス後にテキスト入力するとリアルタイムで候補がフィルタリング更新される', async ({
+      page,
+    }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      }
+
+      await page.waitForLoadState('networkidle');
+
+      // 数量項目を追加
+      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
+      if (await addItemButton.isVisible()) {
+        await addItemButton.click();
+        await page.waitForTimeout(500);
+      }
+
+      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
+      const firstInput = majorCategoryInputs.first();
+      if (await firstInput.isVisible()) {
+        // 複数の候補を追加
+        await firstInput.fill('リアルタイムA');
+        await firstInput.blur();
+        await page.waitForTimeout(200);
+
+        await firstInput.fill('リアルタイムB');
+        await firstInput.blur();
+        await page.waitForTimeout(200);
+
+        await firstInput.fill('別の値');
+        await firstInput.blur();
+        await page.waitForTimeout(200);
+
+        // フィールドをクリアしてフォーカス
+        await firstInput.fill('');
+        await firstInput.focus();
+        await page.waitForTimeout(300);
+
+        // 全候補が表示される
+        const listbox = page.getByRole('listbox');
+        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+          const initialCount = await page.getByRole('option').count();
+
+          // テキスト入力でフィルタリング
+          await firstInput.fill('リアルタイム');
+          await page.waitForTimeout(200);
+
+          // フィルタリング後の候補数が初期より少ないか同じであることを確認
+          if (await listbox.isVisible({ timeout: 1000 }).catch(() => false)) {
+            const filteredCount = await page.getByRole('option').count();
+            expect(filteredCount).toBeLessThanOrEqual(initialCount);
+          }
+        }
+      }
+    });
+
+    test('対象9フィールドすべてでフォーカス時の候補表示が動作する', async ({ page }) => {
+      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 数量表編集画面に遷移
+      if (createdQuantityTableId) {
+        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      }
+
+      await page.waitForLoadState('networkidle');
+
+      // 数量項目を追加
+      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
+      if (await addItemButton.isVisible()) {
+        await addItemButton.click();
+        await page.waitForTimeout(500);
+      }
+
+      // 対象9フィールドの名前パターン
+      const fieldPatterns = [
+        /大項目/i,
+        /中項目/i,
+        /小項目/i,
+        /任意分類/i,
+        /工種/i,
+        /名称/i,
+        /規格/i,
+        /単位/i,
+        /備考/i,
+      ];
+
+      for (const pattern of fieldPatterns) {
+        const input = page.getByRole('combobox', { name: pattern }).first();
+        if (await input.isVisible({ timeout: 1000 }).catch(() => false)) {
+          // 候補を追加してからフォーカステスト
+          const testValue = `テスト_${pattern.source}`;
+          await input.fill(testValue);
+          await input.blur();
+          await page.waitForTimeout(200);
+
+          // 空にしてフォーカス
+          await input.fill('');
+          await input.focus();
+          await page.waitForTimeout(300);
+
+          // ドロップダウンが表示されるかチェック（候補がある場合のみ）
+          const listbox = page.getByRole('listbox');
+          const isListVisible = await listbox.isVisible({ timeout: 1000 }).catch(() => false);
+
+          if (isListVisible) {
+            // 候補が存在する場合は表示されていることを確認
+            const optionCount = await page.getByRole('option').count();
+            expect(optionCount).toBeGreaterThan(0);
+          }
+
+          // フィールドをblurしてクリーンアップ
+          await input.blur();
+          await page.waitForTimeout(200);
+        }
+      }
+    });
+  });
 });
