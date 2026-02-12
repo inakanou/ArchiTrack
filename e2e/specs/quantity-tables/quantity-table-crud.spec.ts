@@ -1273,21 +1273,22 @@ test.describe('数量表CRUD操作', () => {
       // 要件で指定されている全フィールドが存在することを確認
       // 要件: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・数量・備考
       // 注: REQ-5.5により、計算方法が「標準」の場合、調整係数・丸め設定はメインの行に表示されない
-      await expect(page.getByLabel(/大項目/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/中項目/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/小項目/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/任意分類/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/工種/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/名称/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/規格/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/単位/).first()).toBeVisible({ timeout: 3000 });
+      // 注: showFieldLabels={false} のため label要素はなく、placeholder/aria-labelで検索
+      await expect(page.getByPlaceholder(/大項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/中項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/小項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/任意分類/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/工種/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/名称/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/規格/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/単位/).first()).toBeVisible({ timeout: 3000 });
       await expect(page.getByLabel(/計算方法/).first()).toBeVisible({ timeout: 3000 });
       // REQ-5.5: 計算方法が「標準」の場合、調整係数・丸め設定は表示されない
       // 調整係数・丸め設定のテストはREQ-5.5専用のテストで検証
       await expect(page.locator('input[id$="-quantity"]').first()).toBeVisible({
         timeout: 3000,
       });
-      await expect(page.getByLabel(/備考/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/備考/).first()).toBeVisible({ timeout: 3000 });
     });
 
     test('数量項目フィールドが要件通りの順序で表示される (quantity-table-generation/REQ-5.1)', async ({
