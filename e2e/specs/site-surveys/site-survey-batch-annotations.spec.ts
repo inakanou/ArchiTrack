@@ -23,10 +23,12 @@
  */
 
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +41,12 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
   let createdSurveyId: string | null = null;
   let sharedPage: Page;
   let sharedContext: BrowserContext;
+  let accessToken: string | null = null;
+
+  /** 認証ヘッダーを返すヘルパー */
+  function getAuthHeaders(): Record<string, string> {
+    return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  }
 
   test.beforeAll(async ({ browser }) => {
     sharedContext = await browser.newContext();
@@ -95,15 +103,24 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     createdSurveyId = surveyMatch?.[1] ?? null;
     expect(createdSurveyId).toBeTruthy();
 
-    // テスト画像をアップロード（2枚）
+    // API直接呼び出し用のアクセストークンを取得
+    accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+
+    // テスト画像をAPI経由でアップロード（2枚）
     const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+    const imageBuffer = fs.readFileSync(testImagePath);
 
     for (let i = 0; i < 2; i++) {
-      const fileInput = sharedPage.locator('input[type="file"]');
-      if (await fileInput.isVisible({ timeout: getTimeout(5000) })) {
-        await fileInput.setInputFiles(testImagePath);
-        await sharedPage.waitForTimeout(getTimeout(3000));
-      }
+      await sharedPage.request.post(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`, {
+        headers: getAuthHeaders(),
+        multipart: {
+          images: {
+            name: `test-image-${i + 1}.jpg`,
+            mimeType: 'image/jpeg',
+            buffer: imageBuffer,
+          },
+        },
+      });
     }
   });
 
@@ -214,7 +231,8 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     // 現場調査の画像一覧を取得
     const imagesResponse = await sharedPage.request.get(
-      `/api/site-surveys/${createdSurveyId}/images`
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      { headers: getAuthHeaders() }
     );
 
     if (imagesResponse.ok()) {
@@ -223,12 +241,16 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
       if (imageIds.length > 0) {
         // バッチ注釈取得APIを呼び出し
-        const batchResponse = await sharedPage.request.post('/api/site-surveys/annotations/batch', {
-          data: {
-            surveyId: createdSurveyId,
-            imageIds: imageIds,
-          },
-        });
+        const batchResponse = await sharedPage.request.post(
+          `${API_BASE_URL}/api/site-surveys/annotations/batch`,
+          {
+            headers: getAuthHeaders(),
+            data: {
+              surveyId: createdSurveyId,
+              imageIds: imageIds,
+            },
+          }
+        );
 
         expect(batchResponse.ok()).toBeTruthy();
 
@@ -264,7 +286,8 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     // 現場調査に紐づく実際の画像IDも含めてリクエスト
     const imagesResponse = await sharedPage.request.get(
-      `/api/site-surveys/${createdSurveyId}/images`
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      { headers: getAuthHeaders() }
     );
 
     const imageIds: string[] = [nonExistentImageId];
@@ -274,12 +297,16 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       imageIds.push(...existingIds);
     }
 
-    const batchResponse = await sharedPage.request.post('/api/site-surveys/annotations/batch', {
-      data: {
-        surveyId: createdSurveyId,
-        imageIds: imageIds,
-      },
-    });
+    const batchResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/annotations/batch`,
+      {
+        headers: getAuthHeaders(),
+        data: {
+          surveyId: createdSurveyId,
+          imageIds: imageIds,
+        },
+      }
+    );
 
     expect(batchResponse.ok()).toBeTruthy();
 
@@ -296,22 +323,30 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
    */
   test('バッチ注釈取得APIにバリデーションエラーが正しく返される (site-survey/REQ-18.6)', async () => {
     // surveyIdが不正な場合
-    const invalidResponse = await sharedPage.request.post('/api/site-surveys/annotations/batch', {
-      data: {
-        surveyId: 'invalid-uuid',
-        imageIds: ['also-invalid'],
-      },
-    });
+    const invalidResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/annotations/batch`,
+      {
+        headers: getAuthHeaders(),
+        data: {
+          surveyId: 'invalid-uuid',
+          imageIds: ['also-invalid'],
+        },
+      }
+    );
 
     expect(invalidResponse.status()).toBe(400);
 
     // imageIdsが空配列の場合
-    const emptyResponse = await sharedPage.request.post('/api/site-surveys/annotations/batch', {
-      data: {
-        surveyId: '550e8400-e29b-41d4-a716-446655440000',
-        imageIds: [],
-      },
-    });
+    const emptyResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/annotations/batch`,
+      {
+        headers: getAuthHeaders(),
+        data: {
+          surveyId: '550e8400-e29b-41d4-a716-446655440000',
+          imageIds: [],
+        },
+      }
+    );
 
     expect(emptyResponse.status()).toBe(400);
   });
@@ -322,8 +357,9 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
   test('バッチ注釈取得APIのエラー時にメッセージが返却される (site-survey/REQ-18.7)', async () => {
     // 不正なリクエストボディ（surveyIdなし）
     const noSurveyIdResponse = await sharedPage.request.post(
-      '/api/site-surveys/annotations/batch',
+      `${API_BASE_URL}/api/site-surveys/annotations/batch`,
       {
+        headers: getAuthHeaders(),
         data: {
           imageIds: ['550e8400-e29b-41d4-a716-446655440000'],
         },
@@ -343,8 +379,9 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     // 不正なリクエストボディ（imageIdsなし）
     const noImageIdsResponse = await sharedPage.request.post(
-      '/api/site-surveys/annotations/batch',
+      `${API_BASE_URL}/api/site-surveys/annotations/batch`,
       {
+        headers: getAuthHeaders(),
         data: {
           surveyId: '550e8400-e29b-41d4-a716-446655440000',
         },
@@ -372,7 +409,8 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     // 現場調査の画像一覧を取得
     const imagesResponse = await sharedPage.request.get(
-      `/api/site-surveys/${createdSurveyId}/images`
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      { headers: getAuthHeaders() }
     );
 
     if (!imagesResponse.ok()) {
@@ -392,16 +430,21 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     // 個別エンドポイントで注釈を取得
     const individualResponse = await sharedPage.request.get(
-      `/api/site-surveys/images/${targetImageId}/annotations`
+      `${API_BASE_URL}/api/site-surveys/images/${targetImageId}/annotations`,
+      { headers: getAuthHeaders() }
     );
 
     // バッチエンドポイントで注釈を取得
-    const batchResponse = await sharedPage.request.post('/api/site-surveys/annotations/batch', {
-      data: {
-        surveyId: createdSurveyId,
-        imageIds: [targetImageId],
-      },
-    });
+    const batchResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/annotations/batch`,
+      {
+        headers: getAuthHeaders(),
+        data: {
+          surveyId: createdSurveyId,
+          imageIds: [targetImageId],
+        },
+      }
+    );
 
     expect(batchResponse.ok()).toBeTruthy();
 
@@ -437,14 +480,19 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
   test('テストデータのクリーンアップ', async () => {
     if (createdSurveyId) {
       const deleteResponse = await sharedPage.request.delete(
-        `/api/site-surveys/${createdSurveyId}`
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}`,
+        { headers: getAuthHeaders() }
       );
-      expect([200, 204, 404]).toContain(deleteResponse.status());
+      // 200/204: 削除成功, 403: 権限不足（通常ユーザー）, 404: 既に削除済み
+      expect([200, 204, 403, 404]).toContain(deleteResponse.status());
     }
 
     if (createdProjectId) {
-      const deleteResponse = await sharedPage.request.delete(`/api/projects/${createdProjectId}`);
-      expect([200, 204, 404]).toContain(deleteResponse.status());
+      const deleteResponse = await sharedPage.request.delete(
+        `${API_BASE_URL}/api/projects/${createdProjectId}`,
+        { headers: getAuthHeaders() }
+      );
+      expect([200, 204, 403, 404]).toContain(deleteResponse.status());
     }
   });
 });

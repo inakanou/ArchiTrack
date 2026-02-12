@@ -506,7 +506,7 @@ export class AnnotationService {
       return {};
     }
 
-    // 1. 画像IDが当該surveyに属することを検証
+    // 1. 画像IDが当該surveyに属するものを特定
     const images = await this.prisma.surveyImage.findMany({
       where: {
         id: { in: imageIds },
@@ -518,20 +518,19 @@ export class AnnotationService {
 
     const validImageIds = new Set(images.map((img) => img.id));
 
-    // 不正なimageIdが含まれている場合はエラー
-    const invalidIds = imageIds.filter((id) => !validImageIds.has(id));
-    if (invalidIds.length > 0 && invalidIds[0] !== undefined) {
-      throw new AnnotationImageNotFoundError(invalidIds[0]);
-    }
+    // 存在しないimageIdはnullとして返却（REQ-18.4: 存在しないimageIDに空の注釈データ返却）
 
-    // 2. WHERE IN で注釈データを一括取得
-    const annotations = await this.prisma.imageAnnotation.findMany({
-      where: {
-        imageId: { in: imageIds },
-      },
-    });
+    // 2. WHERE IN で注釈データを一括取得（surveyに属する画像のみ）
+    const annotations =
+      validImageIds.size > 0
+        ? await this.prisma.imageAnnotation.findMany({
+            where: {
+              imageId: { in: [...validImageIds] },
+            },
+          })
+        : [];
 
-    // 3. 結果をRecord形式に変換（注釈なしの画像にはnullを設定: 18.4対応）
+    // 3. 結果をRecord形式に変換（注釈なしまたは存在しない画像にはnullを設定: 18.4対応）
     const result: Record<string, AnnotationInfo | null> = {};
     const annotationMap = new Map(annotations.map((a) => [a.imageId, this.toAnnotationInfo(a)]));
 
