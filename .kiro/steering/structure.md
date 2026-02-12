@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-02-08（Steering Sync: estimate-requests/estimate/コンポーネント追加、ItemSelectionPanel改修反映、ProjectForm現場住所自動入力反映）_
+_最終更新: 2026-02-12（Steering Sync: 見積書NET案分/利益率ダイアログ、PDFテキスト抽出、OCR再実行、数量表コピー・タイトル行、セッション期限切れモーダル、オートコンプリート候補キャッシュ、project-quotations.routes.ts追加）_
 
 ## ルートディレクトリ構成
 
@@ -308,7 +308,7 @@ e2e/
 
 - `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
 - `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
-- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、招待、パスワードリセット等）
+- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、セッション期限切れモーダル、招待、パスワードリセット等）
 - `admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
 - `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
 - `performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作のパフォーマンス等）
@@ -317,9 +317,9 @@ e2e/
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
 - `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
-- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様）
+- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様、数量表コピー、タイトル行最適化、フォーカス全選択、オートコンプリート最適化）
 - `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
-- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ）
+- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ、OCR再実行/リトライ、PDFテキスト抽出、数値表示形式、受領見積書ステータス）
 - `company-info/` - 自社情報テスト（CRUD、アクセス制御、楽観的排他制御）
 - `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
 
@@ -403,6 +403,7 @@ frontend/
 │   │   ├── ToastNotification.tsx   # トースト通知コンポーネント
 │   │   ├── ToastContainer.tsx      # トースト通知コンテナ
 │   │   ├── NetworkErrorDisplay.tsx # ネットワークエラー表示コンポーネント
+│   │   ├── SessionExpiredModal.tsx # セッション期限切れモーダル（自動検出・再ログイン誘導）
 │   │   └── projects/              # プロジェクト管理コンポーネント
 │   │       ├── ProjectForm.tsx     # プロジェクト作成・編集フォーム（現場住所フィールド、取引先選択時の住所自動入力）
 │   │       ├── CustomerNameInput.tsx # 顧客名入力
@@ -417,6 +418,9 @@ frontend/
 │   │       ├── DeleteConfirmationDialog.tsx # 削除確認ダイアログ
 │   │       ├── TradingPartnerSelect.tsx # 取引先選択（オートコンプリート、onSelectコールバック対応）
 │   │       ├── QuantityTableSectionCard.tsx # 数量表セクションカード
+│   │       ├── SiteSurveySectionCard.tsx # 現場調査セクションカード
+│   │       ├── ItemizedStatementSectionCard.tsx # 内訳書セクションカード
+│   │       ├── EstimateSectionCard.tsx # 見積書セクションカード
 │   │       └── EstimateRequestSectionCard.tsx # 見積依頼セクションカード
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
@@ -462,16 +466,18 @@ frontend/
 │   │           ├── TextTool.ts      # テキストツール
 │   │           ├── registerCustomShapes.ts # カスタムシェイプ登録
 │   │           └── index.ts         # エクスポート集約
-│   │   ├── quantity-table/          # 数量表コンポーネント（17ファイル）
+│   │   ├── quantity-table/          # 数量表コンポーネント（20ファイル）
 │   │       ├── QuantityInput.tsx    # 数量入力
 │   │       ├── QuantityGroupCard.tsx # 数量グループカード
+│   │       ├── QuantityGroupTitleRow.tsx # グループタイトル行（最適化表示）
 │   │       ├── QuantityItemRow.tsx  # 数量項目行
 │   │       ├── CalculationFields.tsx # 計算フィールド群
 │   │       ├── CalculationMethodSelect.tsx # 計算方法選択
 │   │       ├── AdjustmentFactorInput.tsx # 調整係数入力
 │   │       ├── RoundingUnitInput.tsx # 丸め単位入力
-│   │       ├── AutocompleteInput.tsx # オートコンプリート入力
+│   │       ├── AutocompleteInput.tsx # オートコンプリート入力（フォーカス時ドロップダウン表示）
 │   │       ├── ItemCopyMoveDialog.tsx # コピー・移動ダイアログ
+│   │       ├── CopyQuantityTableDialog.tsx # 数量表コピーダイアログ
 │   │       ├── NumericFieldInput.tsx # 数値フィールド入力
 │   │       ├── TextFieldInput.tsx   # テキストフィールド入力
 │   │       ├── CalculationNumericInput.tsx # 計算用数値入力
@@ -491,21 +497,26 @@ frontend/
 │   │       ├── StatusBadge.tsx       # ステータスバッジ
 │   │       ├── StatusTransitionButton.tsx # ステータス遷移ボタン
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── estimate-requests/       # 受領見積書コンポーネント（5+ファイル）
+│   │   ├── estimate-requests/       # 受領見積書コンポーネント（8+ファイル）
 │   │       ├── ReceivedQuotationForm.tsx # 受領見積書フォーム（一括転記対応）
 │   │       ├── ReceivedQuotationList.tsx # 受領見積書一覧
-│   │       ├── LineItemEditor.tsx    # 明細行エディタ（customCategory・workTypeフィールド対応）
-│   │       ├── OcrDataExtractor.tsx  # OCR構造化データ抽出
-│   │       ├── FileInlinePreview.tsx # ファイルインラインプレビュー
+│   │       ├── LineItemEditor.tsx    # 明細行エディタ（customCategory・workType・数値表示形式対応）
+│   │       ├── OcrDataExtractor.tsx  # OCR構造化データ抽出（再実行/リトライ機能）
+│   │       ├── FileInlinePreview.tsx # ファイルインラインプレビュー（PDFテキスト抽出対応）
+│   │       ├── pdf-text-extractor.ts # pdfjs-distベースPDFテキスト抽出ロジック
+│   │       ├── pdf-worker-config.ts  # pdfjs-dist worker共通設定モジュール
+│   │       ├── number-format.ts      # 数値表示形式・丸め規則ユーティリティ
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── estimate/                # 見積書コンポーネント（8+ファイル）
+│   │   ├── estimate/                # 見積書コンポーネント（12+ファイル）
 │   │       ├── EstimateCard.tsx      # 見積書カード
 │   │       ├── EstimateItemRow.tsx   # 見積項目行
 │   │       ├── EstimateItemTable.tsx # 見積項目テーブル
 │   │       ├── TransferQuotationDialog.tsx # 受領見積書転記ダイアログ
 │   │       ├── NetCalculationPanel.tsx # NET金額案分パネル
+│   │       ├── NetAllocationDialog.tsx # NET案分ダイアログ（プロジェクト単位受領見積書選択）
 │   │       ├── OverheadCostPanel.tsx # 諸経費パネル
 │   │       ├── ProfitRatePanel.tsx   # 利益率パネル
+│   │       ├── ProfitRateDialog.tsx  # 利益率適用ダイアログ
 │   │       ├── EstimateExportDialog.tsx # 見積書Excel出力ダイアログ
 │   │       └── index.ts              # エクスポート集約
 │   │   ├── company-info/            # 自社情報コンポーネント
@@ -675,11 +686,12 @@ frontend/src/
 │   ├── estimate-request-status.ts # 見積依頼ステータスAPI
 │   ├── received-quotations.ts # 受領見積書API
 │   └── estimates.ts # 見積書API
-├── hooks/             # カスタムフック（useMediaQuery.ts、useAuth.ts）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore等 26ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts等）
 ├── utils/             # ユーティリティ関数
 │   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
+│   ├── estimate-calculation.ts # 見積金額計算ユーティリティ（数値表示形式・丸め規則）
 │   ├── field-validation.ts # フィールドバリデーション
 │   └── numeric-range-validation.ts # 数値範囲バリデーション
 └── assets/            # 静的アセット（今後追加予定）
@@ -753,7 +765,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（23ファイル）
+│   ├── routes/            # ルート定義（26ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -778,13 +790,14 @@ backend/
 │   │   ├── estimate-request-status.routes.ts # 見積依頼ステータスルート
 │   │   ├── received-quotation.routes.ts # 受領見積書ルート（ファイルアップロード）
 │   │   ├── company-info.routes.ts # 自社情報ルート（シングルトンCRUD）
-│   │   └── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、Excel出力）
+│   │   ├── project-quotations.routes.ts # プロジェクト単位受領見積書取得ルート（転記用）
+│   │   └── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、利益率、Excel出力）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
 │   ├── schemas/           # Zodバリデーションスキーマ
 │   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
-│   ├── services/          # ビジネスロジック（40サービス）
+│   ├── services/          # ビジネスロジック（47サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -915,7 +928,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（19ルートファイル）:**
+**実装済みAPI（26ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -1046,6 +1059,9 @@ backend/src/
 - `GET /api/company-info`: 自社情報取得
 - `PUT /api/company-info`: 自社情報更新（楽観的排他制御）
 
+**プロジェクト単位受領見積書API（project-quotations.routes.ts）:**
+- `GET /api/projects/:projectId/received-quotations`: プロジェクトに紐付く受領見積書一覧取得（転記ダイアログ用）
+
 **見積書管理API（estimates.routes.ts）:**
 - `GET /api/projects/:projectId/estimates`: 見積書一覧取得
 - `GET /api/estimates/:id`: 見積書詳細取得（階層構造含む）
@@ -1057,6 +1073,7 @@ backend/src/
 - `DELETE /api/estimates/:id/items/:itemId`: 見積項目削除
 - `POST /api/estimates/:id/items/:itemId/transfer`: 受領見積書転記
 - `POST /api/estimates/:id/prorate`: NET金額案分計算
+- `POST /api/estimates/:id/profit-rate`: 利益率適用
 - `GET /api/estimates/:id/export`: Excel出力
 
 **実装済みミドルウェア:**
@@ -1068,6 +1085,9 @@ backend/src/
 - ロギング: Pino HTTPロギングミドルウェア
 - **JWT認証**: EdDSA署名検証、アクセス/リフレッシュトークン
 - **権限チェック**: RBACによる動的権限検証、キャッシング統合
+- **CSRF保護**: cookie-based double-submit pattern（csrf.middleware.ts）
+- **ファイルアップロード**: multer統合（upload.middleware.ts）
+- **レート制限**: express-rate-limit + RedisRateLimitStore（rateLimit.middleware.ts）
 
 ## Docker構成
 
