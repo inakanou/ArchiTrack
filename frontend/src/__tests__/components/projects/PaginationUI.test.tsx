@@ -288,10 +288,11 @@ describe('PaginationUI', () => {
       const select = screen.getByRole('combobox', { name: /表示件数/i });
       const options = within(select).getAllByRole('option');
 
-      expect(options).toHaveLength(3);
+      expect(options).toHaveLength(4);
       expect(options[0]).toHaveValue('10');
       expect(options[1]).toHaveValue('20');
       expect(options[2]).toHaveValue('50');
+      expect(options[3]).toHaveValue('100');
     });
 
     it('現在の表示件数が選択されている', () => {

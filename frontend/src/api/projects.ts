@@ -26,6 +26,7 @@ import type {
   UpdateProjectInput,
   ProjectFilter,
   StatusChangeInput,
+  StatusCountsResponse,
 } from '../types/project.types';
 
 // ============================================================================
@@ -112,6 +113,10 @@ export async function getProjects(options: GetProjectsOptions = {}): Promise<Pag
   }
   if (filter?.tradingPartnerId) {
     params.append('tradingPartnerId', filter.tradingPartnerId);
+  }
+  // Requirements: 2.7, 2.8 - 終端ステータス除外フラグ
+  if (filter?.excludeTerminalStatuses) {
+    params.append('excludeTerminalStatuses', 'true');
   }
   if (sort) {
     params.append('sort', sort);
@@ -301,4 +306,22 @@ export async function getStatusHistory(id: string): Promise<StatusHistoryRespons
  */
 export async function getAssignableUsers(): Promise<AssignableUser[]> {
   return apiClient.get<AssignableUser[]>('/api/users/assignable');
+}
+
+/**
+ * ステータス別プロジェクト件数を取得する
+ *
+ * Requirements: 23.1-23.6
+ * 全プロジェクト（論理削除を除く）のステータス別件数と合計件数を取得する。
+ * 検索条件・フィルタ条件は適用しない。
+ *
+ * @returns ステータス別件数と合計件数
+ *
+ * @example
+ * const statusCounts = await getProjectStatusCounts();
+ * console.log(statusCounts.counts.PREPARING); // 5
+ * console.log(statusCounts.total); // 22
+ */
+export async function getProjectStatusCounts(): Promise<StatusCountsResponse> {
+  return apiClient.get<StatusCountsResponse>('/api/projects/status-counts');
 }

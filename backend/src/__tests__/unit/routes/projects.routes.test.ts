@@ -26,6 +26,7 @@ const mockProjectService = vi.hoisted(() => ({
   updateProject: vi.fn(),
   deleteProject: vi.fn(),
   getRelatedCounts: vi.fn(),
+  getStatusCounts: vi.fn(),
 }));
 
 const mockAuditLogService = vi.hoisted(() => ({
@@ -652,6 +653,113 @@ describe('Projects Routes', () => {
       expect(mockProjectService.createProject).toHaveBeenCalledWith(
         expect.any(Object),
         'test-user-id'
+      );
+    });
+  });
+
+  // ==========================================================================
+  // Task 43.3: GET /api/projects/status-counts エンドポイントテスト
+  // Requirements: 23.1, 12.1, 12.2
+  // ==========================================================================
+  describe('GET /api/projects/status-counts', () => {
+    const mockStatusCounts = {
+      counts: {
+        PREPARING: 5,
+        SURVEYING: 3,
+        ESTIMATING: 2,
+        APPROVING: 1,
+        CONTRACTING: 0,
+        CONSTRUCTING: 0,
+        DELIVERING: 0,
+        BILLING: 0,
+        AWAITING: 0,
+        COMPLETED: 10,
+        CANCELLED: 1,
+        LOST: 0,
+      },
+      total: 22,
+    };
+
+    it('認証済みユーザーがステータス別件数を取得できること (23.1)', async () => {
+      (mockProjectService.getStatusCounts as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockStatusCounts
+      );
+
+      const response = await request(app).get('/api/projects/status-counts');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockStatusCounts);
+      expect(mockProjectService.getStatusCounts).toHaveBeenCalled();
+    });
+
+    it('レスポンスに全12ステータスの件数と合計が含まれること', async () => {
+      (mockProjectService.getStatusCounts as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockStatusCounts
+      );
+
+      const response = await request(app).get('/api/projects/status-counts');
+
+      expect(response.status).toBe(200);
+      expect(response.body.counts).toBeDefined();
+      expect(response.body.total).toBe(22);
+      // 全12ステータスがキーとして存在すること
+      expect(Object.keys(response.body.counts)).toHaveLength(12);
+    });
+  });
+
+  // ==========================================================================
+  // Task 43.5: デフォルト表示件数変更のテスト（ルートレベル）
+  // Requirements: 3.1
+  // ==========================================================================
+  describe('GET /api/projects - デフォルト表示件数', () => {
+    it('limitパラメータ未指定時にデフォルト100件で取得されること (3.1)', async () => {
+      (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      });
+
+      await request(app).get('/api/projects');
+
+      expect(mockProjectService.getProjects).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ limit: 100 }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  // ==========================================================================
+  // Task 40.1: excludeTerminalStatusesパラメータのテスト
+  // Requirements: 2.7, 2.8
+  // ==========================================================================
+  describe('GET /api/projects - excludeTerminalStatuses', () => {
+    it('excludeTerminalStatuses=trueがサービスに渡されること', async () => {
+      (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      });
+
+      await request(app).get('/api/projects?excludeTerminalStatuses=true');
+
+      expect(mockProjectService.getProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ excludeTerminalStatuses: true }),
+        expect.any(Object),
+        expect.any(Object)
+      );
+    });
+
+    it('excludeTerminalStatuses未指定時はundefinedが渡されること', async () => {
+      (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      });
+
+      await request(app).get('/api/projects');
+
+      expect(mockProjectService.getProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ excludeTerminalStatuses: undefined }),
+        expect.any(Object),
+        expect.any(Object)
       );
     });
   });

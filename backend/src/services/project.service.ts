@@ -42,6 +42,12 @@ import {
 import { toKatakana, toHiragana } from '../utils/kana-converter.js';
 
 /**
+ * 終端ステータスの定義
+ * Requirements: 2.7, 2.8 - デフォルト表示時に除外するステータス
+ */
+const TERMINAL_STATUSES: ProjectStatus[] = ['COMPLETED', 'CANCELLED', 'LOST'];
+
+/**
  * ProjectService依存関係
  */
 export interface ProjectServiceDependencies {
@@ -101,6 +107,23 @@ export interface ProjectFilter {
   createdFrom?: string;
   createdTo?: string;
   tradingPartnerId?: string;
+  /**
+   * 終端ステータス（完了・中止・失注）を除外するフラグ
+   * ステータスフィルタが未指定の場合のみ有効
+   * Requirements: 2.7, 2.8
+   */
+  excludeTerminalStatuses?: boolean;
+}
+
+/**
+ * ステータス別件数レスポンス
+ * Requirements: 23.1-23.6
+ */
+export interface StatusCountsResponse {
+  /** ステータス別件数（全12ステータス） */
+  counts: Record<ProjectStatus, number>;
+  /** 全ステータス合計件数 */
+  total: number;
 }
 
 /**
@@ -324,8 +347,12 @@ export class ProjectService {
     }
 
     // ステータスフィルター
+    // Requirements: 2.7, 2.8 - ステータスフィルタ指定時はそちらを優先、
+    // 未指定かつexcludeTerminalStatuses=trueの場合は終端ステータスを除外
     if (filter.status && filter.status.length > 0) {
       where.status = { in: filter.status };
+    } else if (filter.excludeTerminalStatuses) {
+      where.status = { notIn: TERMINAL_STATUSES };
     }
 
     // 作成日範囲フィルター
@@ -851,6 +878,59 @@ export class ProjectService {
     }
 
     return result;
+  }
+
+  /**
+   * ステータス別プロジェクト件数を取得
+   *
+   * 全プロジェクト（論理削除を除く）のステータス別件数を集計する。
+   * 検索条件・フィルタ条件は一切適用しない。
+   *
+   * Requirements:
+   * - 23.2: カウント対象はDBに登録されている全プロジェクト（論理削除を除く）
+   * - 23.3: 検索条件やフィルタ条件を適用せず、常に全プロジェクトの件数を表示
+   * - 23.4: 全12ステータスごとの件数を表示
+   * - 23.5: 0件のステータスも「0」と表示
+   * - 23.6: 全ステータスの合計件数も併せて表示
+   *
+   * @returns ステータス別件数と合計件数
+   */
+  async getStatusCounts(): Promise<StatusCountsResponse> {
+    // Prisma groupByでステータス別にカウント
+    const groupedCounts = await this.prisma.project.groupBy({
+      by: ['status'],
+      _count: {
+        _all: true,
+      },
+      where: {
+        deletedAt: null,
+      },
+    });
+
+    // 全12ステータスの初期値を0で設定 (23.5)
+    const counts: Record<ProjectStatus, number> = {
+      PREPARING: 0,
+      SURVEYING: 0,
+      ESTIMATING: 0,
+      APPROVING: 0,
+      CONTRACTING: 0,
+      CONSTRUCTING: 0,
+      DELIVERING: 0,
+      BILLING: 0,
+      AWAITING: 0,
+      COMPLETED: 0,
+      CANCELLED: 0,
+      LOST: 0,
+    };
+
+    // groupBy結果をマッピング
+    let total = 0;
+    for (const group of groupedCounts) {
+      counts[group.status as ProjectStatus] = group._count._all;
+      total += group._count._all;
+    }
+
+    return { counts, total };
   }
 
   /**

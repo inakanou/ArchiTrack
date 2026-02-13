@@ -986,3 +986,147 @@
   - 自動入力された住所でプロジェクトが正常に保存されることを確認
   - 37.1、37.2完了後に実施
   - _Requirements: 1.6, 1.7_
+
+---
+
+## 差分実装タスク（2026-02-13要件変更対応）
+
+以下のタスクは、2026-02-13の要件更新に対応するための差分実装です。
+
+### 変更概要
+
+1. **新規APIエンドポイント GET /api/projects/status-counts**: ステータス別プロジェクト件数をDBの全プロジェクト（論理削除を除く）から集計して返却（23.1-23.6）
+2. **excludeTerminalStatusesクエリパラメータ追加**: ステータスフィルタ未指定時に終端ステータス（完了・中止・失注）をデフォルトで除外（2.7, 2.8, 5.5, 5.7, 5.8）
+3. **デフォルト表示件数の変更**: バックエンド・フロントエンド両方で20件から100件に変更（3.1）
+4. **StatsSummaryコンポーネントの変更**: 画面表示中のプロジェクトではなく新規status-counts APIからのデータを使用（23.1-23.6）
+
+---
+
+## Task 39: バックエンド - ステータス別件数集計API
+
+- [x] 39.1 (P) ProjectServiceにgetStatusCountsメソッドを追加
+  - Prisma groupByで全プロジェクト（deletedAt IS NULL）のステータス別件数を集計
+  - 全12ステータスの初期値を0に設定し、groupBy結果で上書き
+  - 合計件数を算出して返却
+  - 検索条件・フィルタ条件は一切適用しない
+  - _Requirements: 23.2, 23.3, 23.4, 23.5, 23.6_
+
+- [x] 39.2 (P) GET /api/projects/status-countsエンドポイントを追加
+  - /api/projects/:id より前にルートを定義してExpressルートマッチング競合を回避
+  - 認証ミドルウェア（authenticate）を適用
+  - 権限チェック（project:read）を適用
+  - Swagger JSDocコメントを追加
+  - _Requirements: 23.1, 12.1, 12.2, 14.7_
+
+## Task 40: バックエンド - 終端ステータス除外とデフォルト件数変更
+
+- [x] 40.1 (P) excludeTerminalStatusesパラメータをバリデーションスキーマに追加
+  - projectFilterSchemaにexcludeTerminalStatusesフィールド（'true'/'false'のenum、booleanへ変換、オプショナル）を追加
+  - _Requirements: 2.7, 2.8_
+
+- [x] 40.2 ProjectServiceのgetProjectsメソッドに終端ステータス除外ロジックを追加
+  - TERMINAL_STATUSES定数（COMPLETED, CANCELLED, LOST）を定義
+  - ステータスフィルタが指定されている場合は既存ロジック（status in）を適用
+  - ステータスフィルタが未指定かつexcludeTerminalStatuses=trueの場合、status notInで終端ステータスを除外
+  - 40.1のスキーマ更新が必要
+  - _Requirements: 2.7, 2.8_
+
+- [x] 40.3 (P) paginationSchemaのデフォルト表示件数を100件に変更
+  - limitフィールドのdefault値を20から100に変更
+  - max(100)の上限は維持
+  - _Requirements: 3.1_
+
+## Task 41: フロントエンド - ステータス別件数APIクライアントと終端ステータス除外
+
+- [x] 41.1 (P) プロジェクトAPIクライアントにステータス別件数取得関数を追加
+  - getProjectStatusCounts関数を実装（GET /api/projects/status-counts）
+  - StatusCountsResponse型（counts: Record<ProjectStatus, number>, total: number）を定義
+  - エラーハンドリングを実装
+  - _Requirements: 23.1_
+
+- [x] 41.2 (P) プロジェクトAPIクライアントにexcludeTerminalStatusesパラメータ送信を追加
+  - getProjects関数のクエリパラメータ構築にexcludeTerminalStatuses対応を追加
+  - ProjectFilter型にexcludeTerminalStatusesフィールドを追加
+  - _Requirements: 2.7, 2.8_
+
+- [x] 41.3 (P) デフォルト表示件数を100件に変更
+  - ProjectListPageのDEFAULT_LIMIT定数を20から100に変更
+  - _Requirements: 3.1_
+
+## Task 42: フロントエンド - ProjectListPageの統合変更
+
+- [x] 42.1 ProjectListPageにステータス別件数取得と終端ステータス除外を統合
+  - statusCounts状態とfetchStatusCounts関数を追加
+  - 初回マウント時にステータス別件数を取得
+  - ステータスフィルタ未指定時にexcludeTerminalStatuses=trueを付与
+  - ステータスフィルタで終端ステータスが明示選択された場合はexcludeTerminalStatusesを送信しない
+  - StatsSummaryコンポーネントのデータソースを画面表示中のプロジェクト配列からstatusCounts APIレスポンスに変更
+  - フィルタクリア時にデフォルト状態（終端ステータス除外）に復帰する動作を確認
+  - 41.1、41.2、41.3の完了が必要
+  - _Requirements: 2.7, 2.8, 3.1, 5.5, 5.7, 5.8, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6_
+
+## Task 43: 差分実装のユニットテスト
+
+- [x] 43.1 (P) getStatusCountsメソッドのユニットテスト
+  - 全12ステータスの件数が正しく集計されることを検証
+  - 論理削除されたプロジェクトがカウント対象外であることを検証
+  - 0件のステータスも0として返却されることを検証
+  - 合計件数が正しく算出されることを検証
+  - _Requirements: 23.2, 23.3, 23.4, 23.5, 23.6_
+
+- [x] 43.2 (P) excludeTerminalStatuses動作のユニットテスト
+  - excludeTerminalStatuses=trueで終端ステータスのプロジェクトが除外されることを検証
+  - ステータスフィルタとexcludeTerminalStatusesの両方が指定された場合、ステータスフィルタが優先されることを検証
+  - excludeTerminalStatuses未指定時は全ステータスのプロジェクトが返却されることを検証
+  - _Requirements: 2.7, 2.8_
+
+- [x] 43.3 (P) status-countsエンドポイントのルートテスト
+  - 認証済みユーザーがステータス別件数を取得できることを検証
+  - 未認証リクエストが401を返却することを検証
+  - 権限不足のリクエストが403を返却することを検証
+  - _Requirements: 23.1, 12.1, 12.2_
+
+- [x] 43.4 (P) フロントエンドStatsSummaryコンポーネントのユニットテスト
+  - APIレスポンスのstatusCountsデータに基づいて全12ステータスの件数が表示されることを検証
+  - 合計件数が表示されることを検証
+  - statusCountsがnullの場合にコンポーネントが非表示になることを検証
+  - _Requirements: 23.1, 23.4, 23.5, 23.6_
+
+- [x] 43.5 (P) デフォルト表示件数変更のユニットテスト
+  - バックエンドpaginationSchemaのデフォルトlimitが100であることを検証
+  - フロントエンドDEFAULT_LIMITが100であることを検証
+  - _Requirements: 3.1_
+
+## Task 44: 差分実装のE2Eテスト
+
+- [x] 44.1 ステータス別件数表示E2Eテスト
+  - プロジェクト一覧画面でステータス別件数が表示されることを確認
+  - 全12ステータスの件数が表示されていることを確認
+  - 合計件数が表示されていることを確認
+  - 検索・フィルタ操作後もステータス別件数が変化しないことを確認
+  - 43.1、43.4完了後に実施
+  - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.6_
+
+- [x] 44.2 終端ステータス除外E2Eテスト
+  - プロジェクト一覧画面のデフォルト表示で完了・中止・失注ステータスのプロジェクトが表示されないことを確認
+  - ステータスフィルタで「完了」を選択した場合に完了ステータスのプロジェクトが表示されることを確認
+  - フィルタクリア後に再び終端ステータスのプロジェクトが非表示になることを確認
+  - 43.2完了後に実施
+  - _Requirements: 2.7, 2.8, 5.5, 5.7, 5.8_
+
+- [x] 44.3 デフォルト表示件数E2Eテスト
+  - プロジェクト一覧画面のデフォルト表示で最大100件まで表示されることを確認
+  - ページネーションのデフォルト表示件数が100件であることを確認
+  - 43.5完了後に実施
+  - _Requirements: 3.1_
+
+## Task 45: 統合テストと動作確認
+
+- [x] 45.1 差分実装の統合テスト
+  - ステータス別件数APIが全プロジェクトの件数を正しく返却することを確認
+  - 終端ステータス除外が一覧取得APIで正しく動作することを確認
+  - デフォルト表示件数100件が正しく反映されていることを確認
+  - StatsSummaryが新規APIからデータを取得して表示していることを確認
+  - 既存機能（検索、ソート、フィルタリング、ページネーション、CRUD）への影響がないことを確認
+  - 44.1〜44.3完了後に実施
+  - _Requirements: 2.7, 2.8, 3.1, 5.5, 5.7, 5.8, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6_

@@ -20,6 +20,9 @@
 - WCAG 2.1 Level AA準拠のアクセシビリティを確保する
 - **プロジェクト名の一意性を確保し、重複を防止する**（1.15, 1.16, 8.7, 8.8）
 - **顧客選択時に取引先の住所を現場住所に自動入力し、入力効率を向上させる**（1.6, 1.7）
+- **デフォルト表示時に終端ステータス（完了・中止・失注）のプロジェクトを除外し、アクティブなプロジェクトに集中できるようにする**（2.7, 2.8, 5.5, 5.7, 5.8）
+- **デフォルト表示件数を100件にし、ページ遷移なしで多くのプロジェクトを一覧表示する**（3.1）
+- **ステータス別件数をDBに登録された全プロジェクトから集計し、プロジェクト全体の分布を正確に把握できるようにする**（23.1-23.6）
 
 ### Non-Goals
 
@@ -33,8 +36,12 @@
 
 ---
 
-**実装状態（2026-02-08更新）**:
+**実装状態（2026-02-13更新）**:
 - フェーズ: **要件更新対応** - 既存実装は完了済み、要件変更に対応するための差分設計
+- 主要変更（2026-02-13要件更新）:
+  - **デフォルト表示時に終端ステータス（完了・中止・失注）のプロジェクトを一覧から除外**（2.7, 2.8, 5.5, 5.7, 5.8）: ステータスフィルタで明示的に選択された場合のみ表示
+  - **デフォルト表示件数を20件から100件に変更**（3.1）: バックエンド・フロントエンド両方のデフォルト値を更新
+  - **ステータス別件数表示を全プロジェクト対象に変更**（23.1-23.6）: 画面表示中のプロジェクトではなく、DBに登録されている全プロジェクト（論理削除を除く）をカウント対象とする新規APIエンドポイントを追加
 - 主要変更（2026-02-08要件更新）:
   - **顧客選択時の現場住所自動入力**（1.6, 1.7）: 顧客選択時に現場住所フィールドが空欄であれば取引先の住所を自動入力、既に値がある場合は上書きしない
 - 主要変更（2025-12-15 gap analysis結果）:
@@ -281,9 +288,11 @@ sequenceDiagram
 | 1.6, 1.7 | **顧客選択時の現場住所自動入力**（差分9） | TradingPartnerSelect, ProjectForm | - | 顧客選択時住所自動入力フロー |
 | 1.15, 1.16 | **プロジェクト名一意性チェック（作成時）** | ProjectService | POST /api/projects | プロジェクト作成フロー |
 | 2.1-2.6 | プロジェクト一覧表示（**ID列削除、営業担当者・工事担当者列追加**） | ProjectListPage, ProjectListTable, ProjectService | GET /api/projects | - |
-| 3.1-3.5 | ページネーション | ProjectListPage, ProjectService | GET /api/projects?page,limit | - |
+| 2.7, 2.8 | **デフォルト表示時に終端ステータスを除外、ステータスフィルタで明示選択時のみ表示**（差分10, 差分12） | ProjectListPage, ProjectService | GET /api/projects?excludeTerminalStatuses | - |
+| 3.1-3.5 | ページネーション（**デフォルト表示件数100件**）（差分11） | ProjectListPage, ProjectService | GET /api/projects?page,limit | - |
 | 4.1a, 4.1b | 検索（**プロジェクト名・顧客名・営業担当者・工事担当者**） | ProjectListPage, ProjectService | GET /api/projects?search | - |
-| 5.1-5.6 | フィルタリング | ProjectListPage, ProjectService | GET /api/projects?status,from,to | - |
+| 5.1-5.4, 5.6 | フィルタリング | ProjectListPage, ProjectService | GET /api/projects?status,from,to | - |
+| 5.5, 5.7, 5.8 | **フィルタクリア時にデフォルト状態（終端ステータス除外）に復帰、終端ステータスの明示選択**（差分12） | ProjectListPage, ProjectSearchFilter | GET /api/projects?excludeTerminalStatuses | - |
 | 6.1-6.5 | ソート（**営業担当者・工事担当者追加**） | ProjectListPage, ProjectService | GET /api/projects?sort,order | - |
 | 7.1-7.6 | 詳細表示 | ProjectDetailPage, ProjectService | GET /api/projects/:id | - |
 | 8.1-8.6 | 編集 | ProjectForm, ProjectService | PUT /api/projects/:id | - |
@@ -303,6 +312,7 @@ sequenceDiagram
 | 21.1-21.13 | ナビゲーション | AppHeader, Dashboard | - | - |
 | 21.14-21.18 | パンくずナビゲーション | Breadcrumb, ProjectListPage, ProjectDetailPage, ProjectCreatePage, ProjectEditPage | - | - |
 | 22.1-22.11 | 取引先連携（**ひらがな・カタカナ両対応、ラベル「顧客名」**） | ProjectForm, TradingPartnerSelect, ProjectDetailPage, ProjectService | GET /api/trading-partners, GET /api/projects | - |
+| 23.1-23.6 | **ステータス別件数表示（全プロジェクト対象、新規APIエンドポイント）**（差分13） | ProjectListPage, ProjectService | GET /api/projects/status-counts | - |
 
 ## Components and Interfaces
 
@@ -310,7 +320,7 @@ sequenceDiagram
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
-| ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず | 2, 3, 4, 5, 6, 21.14 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
+| ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず + **デフォルト終端ステータス除外 + ステータス別件数表示（全プロジェクト対象）** | 2, 3, 4, 5, 6, 21.14, 23 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
 | ProjectListTable | UI/Component | **一覧テーブル（ID列削除、営業担当者・工事担当者列追加）** | 2.2 | ProjectListPage (P0) | - |
 | ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず | 7, 8, 9, 10, 11, 21.15, 21.17, 22 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
@@ -320,7 +330,7 @@ sequenceDiagram
 | UserSelect | UI/Component | 担当者ドロップダウン選択 | 17 | UserAPI (P1) | API |
 | StatusTransitionUI | UI/Component | ステータス遷移・差し戻しUI | 10 | ProjectStatusService (P1) | State, Service |
 | Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
-| ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック + かな検索両対応** | 1-9, 11, 13, 14, 16.3, 22.5 | Prisma (P0), AuditLogService (P1), kana-converter (P1) | Service, API |
+| ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック + かな検索両対応 + デフォルト終端ステータス除外 + ステータス別件数集計** | 1-9, 11, 13, 14, 16.3, 22.5, 23 | Prisma (P0), AuditLogService (P1), kana-converter (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
 | ProjectRoutes | Backend/Route | RESTful APIエンドポイント | 14 | ProjectService (P0), authorize (P0) | API |
 
@@ -982,20 +992,495 @@ sequenceDiagram
 
 ---
 
+### 差分10: デフォルト表示時に終端ステータス（完了・中止・失注）を除外（2.7, 2.8）
+
+**ステータス**: :x: **未実装・要対応**
+
+**変更内容**:
+- プロジェクト一覧APIで、ステータスフィルタが未指定の場合、終端ステータス（COMPLETED, CANCELLED, LOST）のプロジェクトをデフォルトで除外する
+- ステータスフィルタで終端ステータスが明示的に指定された場合は、当該ステータスのプロジェクトを表示する
+
+**影響ファイル**:
+1. `backend/src/services/project.service.ts`（一覧取得クエリの変更）
+2. `backend/src/schemas/project.schema.ts`（`excludeTerminalStatuses`パラメータ追加）
+3. `frontend/src/pages/ProjectListPage.tsx`（デフォルトフィルタ設定）
+4. `frontend/src/api/projects.ts`（APIパラメータ追加）
+
+**設計方針**:
+
+終端ステータスの除外制御はフロントエンドでのフィルタ指定を通じて実現する。バックエンドAPIには新しいクエリパラメータ`excludeTerminalStatuses`を追加し、`true`の場合に終端ステータスを除外するWHERE条件を生成する。これにより、フロントエンドでステータスフィルタが明示的に指定された場合は`excludeTerminalStatuses`を送信せず、フィルタ未指定時のみ`excludeTerminalStatuses=true`を送信する。
+
+**バックエンドの変更**:
+
+`backend/src/schemas/project.schema.ts`に`excludeTerminalStatuses`パラメータを追加:
+```typescript
+export const projectFilterSchema = z.object({
+  search: z.string().min(2, PROJECT_VALIDATION_MESSAGES.SEARCH_TOO_SHORT).optional(),
+  status: statusFilterSchema.optional(),
+  createdFrom: dateStringSchema.optional(),
+  createdTo: dateStringSchema.optional(),
+  tradingPartnerId: z
+    .string()
+    .regex(UUID_REGEX, PROJECT_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID)
+    .optional(),
+  // 新規追加: 終端ステータス（完了・中止・失注）を除外するフラグ
+  // Requirements: 2.7, 2.8
+  excludeTerminalStatuses: z
+    .enum(['true', 'false'])
+    .transform((val) => val === 'true')
+    .optional(),
+});
+```
+
+`backend/src/services/project.service.ts`の`getProjects`メソッドにフィルタ条件を追加:
+```typescript
+// 終端ステータスの定義
+const TERMINAL_STATUSES: ProjectStatus[] = ['COMPLETED', 'CANCELLED', 'LOST'];
+
+// ステータスフィルター
+if (filter.status && filter.status.length > 0) {
+  where.status = { in: filter.status };
+} else if (filter.excludeTerminalStatuses) {
+  // ステータスフィルタが未指定かつexcludeTerminalStatuses=trueの場合、終端ステータスを除外
+  // Requirements: 2.7
+  where.status = { notIn: TERMINAL_STATUSES };
+}
+```
+
+**フロントエンドの変更**:
+
+`frontend/src/pages/ProjectListPage.tsx`のデフォルト状態と`fetchProjects`を更新:
+```typescript
+// ProjectFilter型にexcludeTerminalStatuses追加
+interface ProjectFilter {
+  search?: string;
+  status?: ProjectStatus[];
+  createdFrom?: string;
+  createdTo?: string;
+  excludeTerminalStatuses?: boolean;
+}
+
+// fetchProjects内でステータスフィルタ未指定時にexcludeTerminalStatuses=trueを付与
+const fetchProjects = useCallback(async (state: PageState) => {
+  // ...
+  const options: GetProjectsOptions = {
+    page: state.page,
+    limit: state.limit,
+    sort: state.sortField,
+    order: state.sortOrder,
+    filter: {
+      ...state.filter,
+      // ステータスフィルタが未指定の場合、終端ステータスを除外
+      // Requirements: 2.7, 2.8
+      excludeTerminalStatuses:
+        !state.filter.status || state.filter.status.length === 0
+          ? true
+          : undefined,
+    },
+  };
+  // ...
+}, []);
+```
+
+`frontend/src/api/projects.ts`にクエリパラメータを追加:
+```typescript
+if (filter?.excludeTerminalStatuses) {
+  params.append('excludeTerminalStatuses', 'true');
+}
+```
+
+**設計根拠**:
+- バックエンド側に`excludeTerminalStatuses`パラメータを設けることで、フロントエンドがステータスフィルタの有無に応じてパラメータを制御できる
+- ステータスフィルタで`COMPLETED`等が明示的に指定された場合は`excludeTerminalStatuses`を送信しないため、選択されたステータスのプロジェクトが正しく表示される
+- 既存のステータスフィルタロジック（`status`パラメータ）との干渉を避け、`status`が指定されている場合は`excludeTerminalStatuses`を無視する設計
+
+---
+
+### 差分11: デフォルト表示件数を100件に変更（3.1）
+
+**ステータス**: :x: **未実装・要対応**
+
+**変更内容**:
+- バックエンドのページネーションデフォルト値を20件から100件に変更
+- フロントエンドの`DEFAULT_LIMIT`を20件から100件に変更
+
+**影響ファイル**:
+1. `backend/src/schemas/project.schema.ts`（デフォルト値変更）
+2. `frontend/src/pages/ProjectListPage.tsx`（`DEFAULT_LIMIT`変更）
+
+**バックエンドの変更**:
+
+`backend/src/schemas/project.schema.ts`:
+```typescript
+// 変更前
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1, PROJECT_VALIDATION_MESSAGES.PAGE_MIN).default(1),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1, PROJECT_VALIDATION_MESSAGES.LIMIT_MIN)
+    .max(100, PROJECT_VALIDATION_MESSAGES.LIMIT_MAX)
+    .default(20),
+});
+
+// 変更後
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1, PROJECT_VALIDATION_MESSAGES.PAGE_MIN).default(1),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1, PROJECT_VALIDATION_MESSAGES.LIMIT_MIN)
+    .max(100, PROJECT_VALIDATION_MESSAGES.LIMIT_MAX)
+    .default(100),  // Requirements: 3.1 - デフォルト表示件数を100件に変更
+});
+```
+
+**フロントエンドの変更**:
+
+`frontend/src/pages/ProjectListPage.tsx`:
+```typescript
+// 変更前
+const DEFAULT_LIMIT = 20;
+
+// 変更後
+const DEFAULT_LIMIT = 100;  // Requirements: 3.1 - デフォルト表示件数を100件に変更
+```
+
+**設計根拠**:
+- バックエンドの`max(100)`は維持し、上限は変更しない（既存の制約を保持）
+- フロントエンドとバックエンドの両方でデフォルト値を同期させ、クエリパラメータ省略時も一貫した動作を保証する
+
+---
+
+### 差分12: フィルタクリア時のデフォルト状態復帰と終端ステータスフィルタの動作（5.5, 5.7, 5.8）
+
+**ステータス**: :x: **未実装・要対応**
+
+**変更内容**:
+- フィルタクリア時にデフォルト表示状態（終端ステータス除外）に復帰する
+- ステータスフィルタに全ステータス（終端ステータス含む）を選択肢として提供する
+- ステータスフィルタで終端ステータスを選択した場合は当該プロジェクトを表示する
+
+**影響ファイル**:
+1. `frontend/src/components/projects/ProjectSearchFilter.tsx`（フィルタクリアの動作確認）
+2. `frontend/src/pages/ProjectListPage.tsx`（ステータスフィルタの動作）
+
+**フロントエンドの変更**:
+
+`ProjectSearchFilter.tsx`の`handleClearFilters`は現在、`status: []`（空配列）にクリアしている。この動作は差分10の設計と整合しており、ステータスフィルタが空の場合に`excludeTerminalStatuses=true`が自動付与されるため、変更不要。
+
+**ステータスフィルタの選択肢**:
+
+`ProjectSearchFilter.tsx`のステータスフィルタ選択肢には全12ステータスが既に含まれていることを確認する（5.8）。終端ステータス（完了・中止・失注）が選択肢から除外されている場合は追加が必要。
+
+**動作フロー**:
+
+```mermaid
+flowchart TD
+    A[プロジェクト一覧画面表示] --> B{ステータスフィルタ指定あり?}
+    B -- いいえ --> C[excludeTerminalStatuses=true を送信]
+    C --> D[終端ステータスのプロジェクトを除外して表示]
+    B -- はい --> E{選択されたステータスに終端ステータスが含まれる?}
+    E -- はい --> F[選択されたステータスのプロジェクトを表示]
+    E -- いいえ --> G[選択されたステータスのプロジェクトのみ表示]
+    H[フィルタクリアボタンクリック] --> I[status を空配列にリセット]
+    I --> C
+```
+
+**設計根拠**:
+- フィルタクリア時は`status: []`に戻すだけで、差分10の`excludeTerminalStatuses`制御が自動的にデフォルト除外動作を実現する
+- ステータスフィルタで終端ステータスが選択された場合は`excludeTerminalStatuses`を送信しないため、選択されたステータスのプロジェクトが正しく表示される
+- 既存の`ProjectSearchFilter`のフィルタクリアロジックとの整合性を維持
+
+---
+
+### 差分13: ステータス別件数表示を全プロジェクト対象に変更（23.1-23.6）
+
+**ステータス**: :x: **未実装・要対応**
+
+**変更内容**:
+- 現在、`StatsSummary`コンポーネントは画面に表示されている`projects`配列からステータス別件数を集計している
+- 要件23に基づき、検索条件・フィルタ条件に関わらず、DBに登録されている全プロジェクト（論理削除を除く）のステータス別件数を集計する
+- 新しいAPIエンドポイント`GET /api/projects/status-counts`を追加し、全ステータスの件数と合計件数を返却する
+
+**影響ファイル**:
+1. `backend/src/services/project.service.ts`（`getStatusCounts`メソッド追加）
+2. `backend/src/routes/projects.routes.ts`（新規エンドポイント追加）
+3. `frontend/src/api/projects.ts`（API関数追加）
+4. `frontend/src/pages/ProjectListPage.tsx`（`StatsSummary`コンポーネント変更）
+
+**新規APIエンドポイント**:
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/projects/status-counts | - | StatusCountsResponse | 401, 403 |
+
+**レスポンス型定義**:
+```typescript
+/**
+ * ステータス別件数レスポンス
+ * Requirements: 23.1-23.6
+ */
+interface StatusCountsResponse {
+  /** ステータス別件数（全12ステータス） */
+  counts: Record<ProjectStatus, number>;
+  /** 全ステータス合計件数 */
+  total: number;
+}
+```
+
+**バックエンドの変更**:
+
+`backend/src/services/project.service.ts`に`getStatusCounts`メソッドを追加:
+```typescript
+/**
+ * ステータス別プロジェクト件数を取得
+ *
+ * 全プロジェクト（論理削除を除く）のステータス別件数を集計する。
+ * 検索条件・フィルタ条件は適用しない。
+ *
+ * Requirements:
+ * - 23.2: カウント対象はDBに登録されている全プロジェクト（論理削除を除く）
+ * - 23.3: 検索条件やフィルタ条件を適用せず、常に全プロジェクトの件数を表示
+ * - 23.4: 全12ステータスごとの件数を表示
+ * - 23.5: 0件のステータスも「0」と表示
+ * - 23.6: 全ステータスの合計件数も併せて表示
+ *
+ * @returns ステータス別件数と合計件数
+ */
+async getStatusCounts(): Promise<StatusCountsResponse> {
+  // Prisma groupByでステータス別にカウント
+  const groupedCounts = await this.prisma.project.groupBy({
+    by: ['status'],
+    _count: {
+      _all: true,
+    },
+    where: {
+      deletedAt: null,
+    },
+  });
+
+  // 全12ステータスの初期値を0で設定
+  const counts: Record<ProjectStatus, number> = {
+    PREPARING: 0,
+    SURVEYING: 0,
+    ESTIMATING: 0,
+    APPROVING: 0,
+    CONTRACTING: 0,
+    CONSTRUCTING: 0,
+    DELIVERING: 0,
+    BILLING: 0,
+    AWAITING: 0,
+    COMPLETED: 0,
+    CANCELLED: 0,
+    LOST: 0,
+  };
+
+  // groupBy結果をマッピング
+  let total = 0;
+  for (const group of groupedCounts) {
+    counts[group.status as ProjectStatus] = group._count._all;
+    total += group._count._all;
+  }
+
+  return { counts, total };
+}
+```
+
+`backend/src/routes/projects.routes.ts`にエンドポイントを追加:
+```typescript
+/**
+ * GET /api/projects/status-counts
+ * ステータス別プロジェクト件数を取得
+ *
+ * Requirements: 23.1-23.6
+ *
+ * 注意: このルートは/api/projects/:idより前に定義する必要がある
+ * （Express のルートマッチング順序により、:idパラメータとの競合を回避）
+ */
+router.get(
+  '/status-counts',
+  authenticate,
+  requirePermission('project:read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await projectService.getStatusCounts();
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+```
+
+**フロントエンドの変更**:
+
+`frontend/src/api/projects.ts`にAPI関数を追加:
+```typescript
+/**
+ * ステータス別プロジェクト件数を取得
+ *
+ * Requirements: 23.1-23.6
+ * 全プロジェクト（論理削除を除く）のステータス別件数と合計件数を取得する。
+ *
+ * @returns ステータス別件数と合計件数
+ */
+export async function getProjectStatusCounts(): Promise<StatusCountsResponse> {
+  const response = await fetchWithAuth('/api/projects/status-counts');
+  if (!response.ok) {
+    throw new ApiError(response.status, 'ステータス別件数の取得に失敗しました');
+  }
+  return response.json();
+}
+```
+
+`frontend/src/pages/ProjectListPage.tsx`の`StatsSummary`コンポーネントを変更:
+```typescript
+/**
+ * 統計サマリーセクション（全プロジェクト対象）
+ *
+ * Requirements: 23.1-23.6
+ * - 画面表示中のプロジェクトではなく、DB全体のステータス別件数を表示
+ * - 検索・フィルタ条件に関わらず常に全件数を表示
+ * - 全12ステータスの件数と合計件数を表示
+ */
+function StatsSummary({
+  statusCounts,
+  total,
+  onStatusClick,
+}: {
+  statusCounts: Record<ProjectStatus, number> | null;
+  total: number;
+  onStatusClick: (status: ProjectStatus) => void;
+}) {
+  if (!statusCounts) {
+    return null;
+  }
+
+  // 全ステータスを表示（件数順にソート）
+  const allStatuses = (Object.entries(statusCounts) as [ProjectStatus, number][])
+    .sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">
+          ステータス別件数（全プロジェクト）
+        </h2>
+        <span className="text-sm text-gray-500">
+          全 <span className="font-semibold text-gray-900">{total}</span> 件
+        </span>
+      </div>
+      <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-12 gap-2">
+        {allStatuses.map(([status, count]) => (
+          <StatusSummaryCard key={status} status={status} count={count} onClick={onStatusClick} />
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+**ProjectListPageメインコンポーネントの変更**:
+```typescript
+// ステータス別件数の状態を追加
+const [statusCounts, setStatusCounts] = useState<Record<ProjectStatus, number> | null>(null);
+const [statusCountsTotal, setStatusCountsTotal] = useState(0);
+
+// ステータス別件数の取得（初回ロード時のみ + プロジェクト操作後にリフレッシュ）
+const fetchStatusCounts = useCallback(async () => {
+  try {
+    const result = await getProjectStatusCounts();
+    setStatusCounts(result.counts);
+    setStatusCountsTotal(result.total);
+  } catch {
+    // ステータス件数取得失敗はサイレントに無視（一覧表示に影響しない）
+  }
+}, []);
+
+// 初回マウント時にステータス別件数を取得
+useEffect(() => {
+  fetchStatusCounts();
+}, [fetchStatusCounts]);
+
+// StatsSummaryコンポーネントにstatusCountsを渡す
+<StatsSummary
+  statusCounts={statusCounts}
+  total={statusCountsTotal}
+  onStatusClick={handleStatusClick}
+/>
+```
+
+**設計根拠**:
+- ステータス別件数は検索・フィルタ条件に依存しないため、独立したAPIエンドポイントで取得する（23.3）
+- `Prisma.groupBy`を使用することで、1回のクエリで全ステータスの件数を効率的に取得する
+- 初回ロード時のみ取得し、プロジェクト一覧のフィルタ変更時には再取得しない（検索・フィルタに無関係のため）
+- 0件のステータスも表示する（23.5）ため、全12ステータスの初期値を0で設定し、`groupBy`結果で上書きする
+- 合計件数は`groupBy`結果の合算で計算する（23.6）
+- APIルートは`/api/projects/:id`より前に定義し、Expressのルートマッチング順序による競合を回避する
+- ステータス件数取得失敗時はサイレントに無視し、一覧表示機能への影響を防止する（グレースフルデグラデーション）
+
+**フロー図**:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as ProjectListPage
+    participant API as Backend API
+    participant PS as ProjectService
+    participant DB as PostgreSQL
+
+    Note over FE: 画面初期表示時
+
+    par 一覧取得
+        FE->>API: GET /api/projects?excludeTerminalStatuses=true&limit=100
+        API->>PS: getProjects(filter, pagination, sort)
+        PS->>DB: SELECT projects WHERE deletedAt IS NULL AND status NOT IN (COMPLETED, CANCELLED, LOST)
+        DB-->>PS: Projects
+        PS-->>API: PaginatedProjects
+        API-->>FE: 200 OK (一覧データ)
+    and ステータス件数取得
+        FE->>API: GET /api/projects/status-counts
+        API->>PS: getStatusCounts()
+        PS->>DB: SELECT status, COUNT(*) FROM projects WHERE deletedAt IS NULL GROUP BY status
+        DB-->>PS: StatusCounts
+        PS-->>API: StatusCountsResponse
+        API-->>FE: 200 OK (ステータス別件数)
+    end
+
+    FE->>FE: 一覧表示 + ステータス別件数表示（全12ステータス + 合計）
+
+    Note over U: ステータスフィルタで「完了」を選択
+
+    U->>FE: ステータスフィルタ変更（COMPLETED）
+    FE->>API: GET /api/projects?status=COMPLETED&limit=100
+    Note right of FE: excludeTerminalStatusesは送信しない
+    API->>PS: getProjects(filter={status: [COMPLETED]}, ...)
+    PS->>DB: SELECT projects WHERE deletedAt IS NULL AND status IN (COMPLETED)
+    DB-->>PS: Projects
+    PS-->>API: PaginatedProjects
+    API-->>FE: 200 OK
+    FE->>FE: 完了ステータスのプロジェクトを表示、ステータス件数は変更なし
+```
+
+---
+
 ## Backend / Services
 
 ### ProjectService
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクトのCRUD操作とビジネスロジック + **プロジェクト名一意性チェック + かな検索両対応** |
-| Requirements | 1.1-1.16, 2.1-2.6, 3.1-3.5, 4.1a-4.5, 5.1-5.6, 6.1-6.5, 7.1-7.6, 8.1-8.8, 9.1-9.7, 11.1-11.6, 13.1-13.11, 16.3, 22.5 |
+| Intent | プロジェクトのCRUD操作とビジネスロジック + **プロジェクト名一意性チェック + かな検索両対応 + デフォルト終端ステータス除外 + ステータス別件数集計** |
+| Requirements | 1.1-1.16, 2.1-2.8, 3.1-3.5, 4.1a-4.5, 5.1-5.8, 6.1-6.5, 7.1-7.6, 8.1-8.8, 9.1-9.7, 11.1-11.6, 13.1-13.11, 16.3, 22.5, 23.1-23.6 |
 | Owner / Reviewers | Backend Team |
 
 **Responsibilities & Constraints**
 - プロジェクトの作成・取得・更新・削除のビジネスロジック
 - **プロジェクト名の一意性チェック（作成時・更新時）**（1.15, 1.16, 8.7, 8.8）
 - **検索時のひらがな・カタカナ両対応**（16.3, 22.5）- 取引先名/フリガナ検索でかな変換を適用
+- **デフォルト表示時に終端ステータス（完了・中止・失注）を除外**（2.7, 2.8）
+- **ステータス別件数集計（全プロジェクト対象、Prisma groupBy）**（23.1-23.6）
 - 論理削除の実装（`deletedAt`フィールドによる管理）
 - ページネーション、検索（**営業担当者・工事担当者含む、かな両対応**）、フィルタリング、ソートのサポート
 - 楽観的排他制御（`updatedAt`フィールドによる競合検出）
@@ -1100,6 +1585,14 @@ interface IProjectService {
    * @throws ProjectNotFoundError プロジェクトが存在しない
    */
   getRelatedCounts(id: string): Promise<RelatedCounts>;
+
+  /**
+   * ステータス別プロジェクト件数取得
+   * 全プロジェクト（論理削除を除く）のステータス別件数を集計する。
+   * 検索条件やフィルタ条件は適用しない。
+   * Requirements: 23.1-23.6
+   */
+  getStatusCounts(): Promise<StatusCountsResponse>;
 }
 
 interface CreateProjectInput {
@@ -1126,11 +1619,21 @@ interface ProjectFilter {
   createdFrom?: Date;        // 作成日開始
   createdTo?: Date;          // 作成日終了
   tradingPartnerId?: string; // 取引先ID（外部キー）
+  excludeTerminalStatuses?: boolean; // 終端ステータス（完了・中止・失注）を除外（2.7, 2.8）
 }
 
 interface PaginationInput {
   page: number;    // 1-indexed
-  limit: number;   // デフォルト20
+  limit: number;   // デフォルト100（3.1）
+}
+
+/**
+ * ステータス別件数レスポンス
+ * Requirements: 23.1-23.6
+ */
+interface StatusCountsResponse {
+  counts: Record<ProjectStatus, number>;
+  total: number;
 }
 
 interface SortInput {
@@ -1141,12 +1644,14 @@ interface SortInput {
 
 - Preconditions: 有効なユーザーIDが提供されること
 - Postconditions: 成功時はプロジェクトデータを返却、失敗時は例外をスロー
-- Invariants: 論理削除されたプロジェクトは一覧に表示されない。プロジェクト名は一意（deletedAt=nullの範囲内）
+- Invariants: 論理削除されたプロジェクトは一覧に表示されない。プロジェクト名は一意（deletedAt=nullの範囲内）。ステータスフィルタ未指定時は終端ステータスをデフォルト除外。ステータス別件数は常に全プロジェクト対象
 
 **Implementation Notes**
 - Integration: 既存のPrisma Clientパターンを踏襲、N+1問題回避のためincludeを使用
 - Validation: Zodスキーマによるバリデーション、`validate.middleware.ts`と連携
 - **プロジェクト名一意性**: deletedAt=nullのプロジェクトに対して重複チェックを実行
+- **終端ステータス除外**: `excludeTerminalStatuses`フラグが`true`の場合、`status NOT IN (COMPLETED, CANCELLED, LOST)`条件を追加（2.7, 2.8）
+- **ステータス別件数**: `Prisma.groupBy`で全12ステータスの件数を1クエリで取得（23.1-23.6）
 - Risks: 楽観的排他制御の競合エラー発生時のUX検討が必要
 
 ---
@@ -1312,6 +1817,7 @@ interface ProjectStatusHistory {
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
 | GET | /api/projects | ProjectListQuery | PaginatedProjects | 400, 401, 403 |
+| GET | /api/projects/status-counts | - | StatusCountsResponse | 401, 403 |
 | GET | /api/projects/:id | - | ProjectDetail | 400, 401, 403, 404 |
 | POST | /api/projects | CreateProjectRequest | ProjectInfo | 400, 401, 403, **409** |
 | PUT | /api/projects/:id | UpdateProjectRequest | ProjectInfo | 400, 401, 403, 404, **409** |
@@ -1326,13 +1832,20 @@ interface ProjectStatusHistory {
 // GET /api/projects クエリパラメータ
 interface ProjectListQuery {
   page?: number;        // デフォルト: 1
-  limit?: number;       // デフォルト: 20, 最大: 100
+  limit?: number;       // デフォルト: 100, 最大: 100（3.1）
   search?: string;      // 最小2文字（プロジェクト名・顧客名・営業担当者・工事担当者）
   status?: string;      // カンマ区切り複数指定可
+  excludeTerminalStatuses?: string; // "true" で終端ステータス除外（2.7, 2.8）
   createdFrom?: string; // ISO8601形式
   createdTo?: string;   // ISO8601形式
   sort?: string;        // name|customerName|salesPersonName|constructionPersonName|status|createdAt|updatedAt
   order?: string;       // asc|desc
+}
+
+// GET /api/projects/status-counts レスポンス
+interface StatusCountsResponse {
+  counts: Record<ProjectStatus, number>; // 全12ステータスの件数
+  total: number;                         // 合計件数
 }
 
 // POST /api/projects リクエストボディ
@@ -1431,6 +1944,8 @@ interface DuplicateProjectNameErrorResponse {
 - Integration: 既存の`roles.routes.ts`パターンを踏襲、Swagger JSDocコメント付き
 - Validation: Zodスキーマを使用、`validate.middleware.ts`と連携
 - **409エラー**: プロジェクト名重複時はDuplicateProjectNameErrorResponse形式で返却
+- **status-countsルート配置**: `/api/projects/status-counts`は`/api/projects/:id`より前に定義（Expressルートマッチング順序）
+- **Swaggerドキュメント更新**: limitデフォルト値を100に変更、excludeTerminalStatusesパラメータを追加、status-countsエンドポイントのドキュメントを追加
 - Risks: レート制限の設定が必要（既存の`express-rate-limit`を使用）
 
 ---
@@ -1441,8 +1956,8 @@ interface DuplicateProjectNameErrorResponse {
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクト一覧の表示、検索、フィルタリング、ソート機能を提供 |
-| Requirements | 2.1-2.6, 3.1-3.5, 4.1a-4.5, 5.1-5.6, 6.1-6.5, 15.1-15.5 |
+| Intent | プロジェクト一覧の表示、検索、フィルタリング、ソート機能を提供 + **デフォルト終端ステータス除外 + ステータス別件数表示（全プロジェクト対象）** |
+| Requirements | 2.1-2.8, 3.1-3.5, 4.1a-4.5, 5.1-5.8, 6.1-6.5, 15.1-15.5, 23.1-23.6 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
@@ -1451,10 +1966,14 @@ interface DuplicateProjectNameErrorResponse {
 - ページネーション、検索、フィルタリング、ソートのUI提供
 - URLパラメータによる状態管理
 - ローディング・エラー・空状態の表示
+- **デフォルト表示時に終端ステータス（完了・中止・失注）を除外**（2.7, 2.8）
+- **デフォルト表示件数100件**（3.1）
+- **ステータス別件数を全プロジェクト対象で表示**（23.1-23.6）
 
 **Dependencies**
 - Inbound: Router — ページ遷移 (P0)
 - Outbound: ProjectService API — データ取得 (P0)
+- Outbound: ProjectService API — ステータス別件数取得（`/api/projects/status-counts`）(P0)
 - Outbound: ToastNotification — エラー通知 (P1)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
@@ -1477,18 +1996,25 @@ interface ProjectListState {
     field: SortField;  // 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'createdAt' | 'updatedAt'
     order: 'asc' | 'desc';
   };
+  // 以下、差分13で追加
+  statusCounts: Record<ProjectStatus, number> | null;  // 全プロジェクト対象のステータス別件数（23.1-23.6）
+  statusCountsTotal: number;                            // 全ステータス合計件数（23.6）
 }
 ```
 
 - State model: React useState + useSearchParams（URLパラメータ同期）
 - Persistence: URLパラメータによる状態永続化
 - Concurrency: デバウンスによる連続リクエスト抑制
+- **ステータス別件数**: 初回マウント時に独立APIで取得、フィルタ変更時は再取得しない（23.3）
 
 **Implementation Notes**
 - Integration: 768px未満でカード表示に切り替え（`useMediaQuery`フック使用）
 - Validation: 検索キーワード2文字以上のバリデーション
 - Risks: 大量データ時のパフォーマンス（仮想スクロールの検討が必要な場合あり）
 - Breadcrumb: 既存の`Breadcrumb`コンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）を再利用し、「ダッシュボード > プロジェクト」のパンくずを表示（21.14）
+- **デフォルト終端ステータス除外（差分10）**: ステータスフィルタが空の場合、`excludeTerminalStatuses=true`を自動付与してAPI呼び出し
+- **デフォルト表示件数100件（差分11）**: `DEFAULT_LIMIT`を100に変更
+- **ステータス別件数（差分13）**: 初回マウント時に`getProjectStatusCounts()`を呼び出し、`StatsSummary`に全プロジェクト対象の件数を渡す。フィルタ変更時は再取得しない
 
 ---
 
@@ -2201,7 +2727,7 @@ enum TransitionType {
 
 ### Unit Tests
 
-- ProjectService: CRUD操作、バリデーション、エラーハンドリング、**プロジェクト名一意性チェック**（1.15, 1.16, 8.7, 8.8）
+- ProjectService: CRUD操作、バリデーション、エラーハンドリング、**プロジェクト名一意性チェック**（1.15, 1.16, 8.7, 8.8）、**getStatusCounts: 全プロジェクト対象のステータス別件数集計（23.1-23.6）**、**excludeTerminalStatusesフィルタの適用（2.7, 2.8）**
 - ProjectStatusService: ステータス遷移ロジック（順方向・差し戻し・終端）、遷移種別判定、履歴記録、差し戻し理由検証
 - ProjectForm: フォームバリデーション、送信処理、**プロジェクト名重複エラー表示**、**顧客選択時の住所自動入力（空欄時のみ、既存値保持確認）**（差分9）
 - TradingPartnerSelect: 取引先検索ロジック、候補表示、**ひらがな・カタカナ変換（差分8）、ラベル「顧客名」**、**onSelectコールバック呼び出し確認**（差分9）
@@ -2209,11 +2735,14 @@ enum TransitionType {
 - UserSelect: ユーザー一覧取得、フィルタリング
 - StatusTransitionUI: 遷移種別の視覚的区別、差し戻し理由入力ダイアログ
 - **ProjectListTable: 列構成変更（ID列削除、営業担当者・工事担当者列追加）**
+- **StatsSummary: ステータス別件数の表示（全12ステータス表示、0件表示、合計件数表示）**（差分13）
+- **paginationSchema: デフォルト値100の検証**（差分11）
 
 ### Integration Tests
 
 - POST /api/projects: プロジェクト作成フロー（認証、権限、バリデーション、DB保存、**一意性チェック**）
-- GET /api/projects: 一覧取得（ページネーション、**営業担当者・工事担当者検索、かな検索両対応**、フィルタ、ソート）
+- GET /api/projects: 一覧取得（ページネーション、**営業担当者・工事担当者検索、かな検索両対応**、フィルタ、ソート）、**excludeTerminalStatuses=trueでの終端ステータス除外確認**（差分10）、**デフォルトlimit=100の確認**（差分11）
+- **GET /api/projects/status-counts: ステータス別件数取得（全12ステータス件数、0件ステータス、合計件数、論理削除除外）**（差分13）
 - PUT /api/projects/:id: 更新フロー（楽観的排他制御、監査ログ、**一意性チェック**）
 - PATCH /api/projects/:id/status: ステータス遷移（順方向・差し戻し・終端遷移ルール、差し戻し理由必須チェック、履歴記録）
 - DELETE /api/projects/:id: 削除フロー（論理削除、関連データ確認）
@@ -2226,6 +2755,11 @@ enum TransitionType {
 - **一覧表示列確認**: ID列なし、営業担当者・工事担当者列あり
 - **ラベル表示確認**: TradingPartnerSelectとProjectDetailPageで「顧客名」ラベル表示（実装済み）
 - **TradingPartnerSelectかな検索**: ひらがな入力でカタカナフリガナ候補が表示されることを確認（差分8）
+- **デフォルト表示時の終端ステータス除外確認**（差分10）: 初期表示で完了・中止・失注のプロジェクトが非表示であること
+- **ステータスフィルタで終端ステータス選択時の表示確認**（差分10, 差分12）: 「完了」を選択した場合に完了ステータスのプロジェクトが表示されること
+- **フィルタクリア時のデフォルト状態復帰確認**（差分12）: フィルタクリア後に終端ステータスのプロジェクトが再度除外されること
+- **デフォルト表示件数100件の確認**（差分11）: 初期表示で100件まで表示されること
+- **ステータス別件数表示（全プロジェクト対象）確認**（差分13）: 全12ステータスの件数が表示されること、フィルタ変更後も件数が変わらないこと、合計件数が正しいこと
 - ステータス順方向遷移: ステータスボタン → 順方向遷移選択 → 確認
 - ステータス差し戻し遷移: ステータスボタン → 差し戻し遷移選択 → 理由入力 → 確認
 - ステータス遷移UIの視覚的区別: 順方向（緑）、差し戻し（オレンジ）、終端（赤）の表示確認
@@ -2286,7 +2820,7 @@ enum TransitionType {
 
 ### Optimization Techniques
 
-- ページネーション: 1ページ20件でデータ量制限
+- ページネーション: 1ページ100件でデータ量制限（3.1）
 - インデックス: 検索・フィルタ・ソート対象カラムにインデックス設定
 - N+1防止: Prisma includeによる効率的なクエリ
 - デバウンス: 検索・オートコンプリートのリクエスト抑制（300ms）

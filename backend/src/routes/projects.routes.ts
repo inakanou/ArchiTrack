@@ -165,9 +165,20 @@ router.get(
         status?: import('../types/project.types.js').ProjectStatus[];
         createdFrom?: string;
         createdTo?: string;
+        excludeTerminalStatuses?: boolean;
       };
 
-      const { page, limit, sort, order, search, status, createdFrom, createdTo } = validatedQuery;
+      const {
+        page,
+        limit,
+        sort,
+        order,
+        search,
+        status,
+        createdFrom,
+        createdTo,
+        excludeTerminalStatuses,
+      } = validatedQuery;
 
       const result = await projectService.getProjects(
         {
@@ -175,6 +186,7 @@ router.get(
           status,
           createdFrom,
           createdTo,
+          excludeTerminalStatuses,
         },
         { page, limit },
         { sort, order }
@@ -184,6 +196,56 @@ router.get(
         { userId: req.user?.userId, page, limit, total: result.pagination.total },
         'Projects list retrieved'
       );
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/projects/status-counts:
+ *   get:
+ *     summary: ステータス別プロジェクト件数取得
+ *     description: 全プロジェクト（論理削除を除く）のステータス別件数を取得。検索条件・フィルタ条件は適用しない。
+ *     tags:
+ *       - Projects
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: ステータス別件数
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 counts:
+ *                   type: object
+ *                   description: 全12ステータスの件数
+ *                 total:
+ *                   type: integer
+ *                   description: 全ステータス合計件数
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *
+ * Requirements: 23.1-23.6
+ * 注意: このルートは/api/projects/:idより前に定義する必要がある
+ * （Expressのルートマッチング順序により、:idパラメータとの競合を回避）
+ */
+router.get(
+  '/status-counts',
+  authenticate,
+  requirePermission('project:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await projectService.getStatusCounts();
+
+      logger.debug({ userId: req.user?.userId }, 'Project status counts retrieved');
 
       res.json(result);
     } catch (error) {

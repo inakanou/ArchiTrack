@@ -36,9 +36,9 @@ export interface PaginationUIProps {
 
 /**
  * 表示件数オプション
- * @requirement project-management/REQ-3.5: 10/20/50件から選択可能
+ * Requirements: 3.1, 3.5 - デフォルト100件、表示件数変更可能
  */
-const LIMIT_OPTIONS = [10, 20, 50] as const;
+const LIMIT_OPTIONS = [10, 20, 50, 100] as const;
 
 /**
  * ページ番号表示の最大数
