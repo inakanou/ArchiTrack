@@ -153,12 +153,14 @@ npm run dev:docker
 
 ### Docker Compose構成
 
-| 環境 | 構成ファイル | 用途 |
-|------|-------------|------|
-| **開発環境** | `docker-compose.yml` + `docker-compose.dev.yml` | ローカル画面打鍵・開発作業 |
-| **テスト環境** | `docker-compose.yml` + `docker-compose.test.yml` | ローカル自動テスト実行 |
-| **デバッグ環境** | `+ docker-compose.debug.yml` | Node.jsデバッガ接続 |
-| **CI環境** | `docker-compose.yml` + `docker-compose.ci.yml` | GitHub Actions用 |
+| 環境 | 構成ファイル | 用途 | フロントエンド |
+|------|-------------|------|---------------|
+| **開発環境** | `docker-compose.yml` + `docker-compose.dev.yml` | ローカル画面打鍵・開発作業 | Vite Dev Server（HMR） |
+| **テスト環境** | `docker-compose.yml` + `docker-compose.test.yml` | ローカル自動テスト実行 | nginx（本番相当） |
+| **デバッグ環境** | `+ docker-compose.debug.yml` | Node.jsデバッガ接続 | Vite Dev Server（HMR） |
+| **CI環境** | `docker-compose.yml` + `docker-compose.ci.yml` | GitHub Actions用 | nginx（本番相当） |
+
+> テスト・CI環境のフロントエンドは本番と同じDockerfile（nginx + ビルド済み静的ファイル）を使用し、Dev/prod parity原則に準拠しています。
 
 詳細なディレクトリ構造は[プロジェクト構造](docs/architecture/project-structure.md)を参照してください。
 

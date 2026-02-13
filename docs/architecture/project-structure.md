@@ -305,10 +305,10 @@ scripts/
 | ファイル | 説明 |
 |---------|------|
 | `docker-compose.yml` | Docker Composeベース設定（サービス定義） |
-| `docker-compose.dev.yml` | 開発環境オーバーライド（ポート: 3000, 5173） |
-| `docker-compose.test.yml` | テスト環境オーバーライド（ポート: 3100, 5174、データ揮発） |
+| `docker-compose.dev.yml` | 開発環境オーバーライド（ポート: 3000, 5173、Vite Dev Server） |
+| `docker-compose.test.yml` | テスト環境オーバーライド（ポート: 3100, 5174、nginx本番相当、データ揮発） |
 | `docker-compose.debug.yml` | デバッグ環境オーバーライド（Node.js inspector有効） |
-| `docker-compose.ci.yml` | CI環境オーバーライド（GitHub Actions用、データ揮発） |
+| `docker-compose.ci.yml` | CI環境オーバーライド（GitHub Actions用、nginx本番相当、データ揮発） |
 | `.env.dev` | 開発環境変数（Git管理外） |
 | `.env.test` | テスト環境変数（Git管理外） |
 | `.gitignore` | Git除外設定 |

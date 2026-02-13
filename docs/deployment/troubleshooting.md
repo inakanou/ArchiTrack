@@ -394,6 +394,54 @@ Too many requests from this IP, please try again later.
 
 ---
 
+## フロントエンド関連
+
+### .mjsファイルのMIMEタイプエラー（nginx）
+
+**症状:**
+```
+Setting up fake worker failed: "Failed to fetch dynamically imported module: https://<frontend-url>/assets/pdf.worker.min-XXXX.mjs"
+```
+- PDFアップロード時に「PDFの読み込みに失敗しました」と表示される
+- pdfjs-distのWorkerファイル（`.mjs`）が読み込めない
+
+**原因:**
+- nginxのデフォルト`mime.types`に`.mjs`のMIMEタイプマッピングが含まれていない
+- `X-Content-Type-Options: nosniff`ヘッダーにより、ブラウザがMIMEタイプの推測を行わない
+- ES Modulesとして`.mjs`ファイルを読み込む際、`application/javascript`の`Content-Type`が必須
+
+**解決方法:**
+
+1. **`frontend/nginx.conf`に`.mjs`用のlocationブロックを追加:**
+   ```nginx
+   # .mjsファイル用MIMEタイプ設定（pdfjs-dist workerファイル等）
+   location ~* \.mjs$ {
+       types { }
+       default_type application/javascript;
+       add_header X-Frame-Options "SAMEORIGIN" always;
+       add_header X-Content-Type-Options "nosniff" always;
+       add_header X-XSS-Protection "1; mode=block" always;
+       expires 1y;
+       add_header Cache-Control "public, immutable";
+   }
+   ```
+
+2. **MIMEタイプの確認:**
+   ```bash
+   # nginxコンテナ内でmime.typesを確認
+   docker exec <frontend-container> cat /etc/nginx/mime.types | grep mjs
+
+   # レスポンスヘッダーの確認
+   curl -sI http://localhost:5173/assets/pdf.worker.min-XXXX.mjs | grep Content-Type
+   # 期待値: Content-Type: application/javascript
+   ```
+
+**予防策:**
+- テスト・CI環境は本番相当（nginx）で実行し、MIMEタイプ問題を早期検出する
+- 新しいファイル拡張子（`.mjs`, `.wasm`等）を使用するライブラリ追加時はnginx設定を確認する
+
+---
+
 ## その他
 
 ### 環境変数が反映されない
