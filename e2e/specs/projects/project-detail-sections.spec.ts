@@ -632,16 +632,16 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
         testProjectId = await createTestProject(page);
       }
 
-      // APIリクエストを監視するための準備
-      const detailSummaryRequests: string[] = [];
-      const individualSectionRequests: string[] = [];
+      // detail-summary APIレスポンスを待機する準備
+      const detailSummaryPromise = page.waitForResponse(
+        (response) => response.url().includes('/detail-summary'),
+        { timeout: getTimeout(30000) }
+      );
 
+      // 個別セクションAPI（旧パターン）のリクエスト検出
+      const individualSectionRequests: string[] = [];
       page.on('request', (request) => {
         const url = request.url();
-        if (url.includes('/detail-summary')) {
-          detailSummaryRequests.push(url);
-        }
-        // 個別セクションAPI（旧パターン）のリクエスト検出
         if (
           url.includes('/site-surveys/latest') ||
           url.includes('/quantity-tables/latest') ||
@@ -655,11 +655,13 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
       // プロジェクト詳細画面に遷移
       await page.goto(`/projects/${testProjectId}`);
-      await page.waitForLoadState('networkidle');
-      await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
 
       // detail-summary APIが呼ばれたことを確認
-      expect(detailSummaryRequests.length).toBeGreaterThanOrEqual(1);
+      const detailSummaryResponse = await detailSummaryPromise;
+      expect(detailSummaryResponse).toBeTruthy();
+
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
 
       // 個別セクションAPIが呼ばれていないことを確認（API効率化の検証）
       expect(individualSectionRequests.length).toBe(0);

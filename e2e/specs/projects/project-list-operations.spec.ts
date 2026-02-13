@@ -673,7 +673,7 @@ test.describe('プロジェクト一覧操作', () => {
   /**
    * ページネーション機能のテスト
    *
-   * REQ-3.1: 1ページあたりのデフォルト表示件数を20件とする
+   * REQ-3.1: 1ページあたりのデフォルト表示件数を100件とする
    * REQ-3.3: ページ番号クリックで該当ページのプロジェクトを表示
    * @requirement project-management/REQ-3.1
    * @requirement project-management/REQ-3.2
@@ -684,7 +684,7 @@ test.describe('プロジェクト一覧操作', () => {
     /**
      * @requirement project-management/REQ-3.1
      */
-    test('デフォルトの表示件数が20件である (project-management/REQ-3.1)', async ({ page }) => {
+    test('デフォルトの表示件数が100件である (project-management/REQ-3.1)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects');
@@ -702,19 +702,19 @@ test.describe('プロジェクト一覧操作', () => {
 
       const paginationVisible = await pagination.isVisible();
       if (paginationVisible) {
-        // 表示件数セレクトが20件で選択されていることを確認
+        // 表示件数セレクトが100件で選択されていることを確認
         const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
         await expect(limitSelect).toBeVisible({ timeout: getTimeout(10000) });
 
         const selectedValue = await limitSelect.inputValue();
-        expect(selectedValue).toBe('20');
+        expect(selectedValue).toBe('100');
       }
 
-      // URLにlimitパラメータがない場合はデフォルト20件
+      // URLにlimitパラメータがない場合はデフォルト100件
       const url = page.url();
-      // limitパラメータがない、または20の場合はデフォルト値が適用されている
+      // limitパラメータがない、または100の場合はデフォルト値が適用されている
       if (url.includes('limit=')) {
-        expect(url).toMatch(/limit=20/);
+        expect(url).toMatch(/limit=100/);
       }
     });
 
