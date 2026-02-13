@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-02-12（Steering Sync: pdfjs-distによるPDFテキスト抽出ハイブリッドアプローチ追加、見積書NET案分/利益率ダイアログUI反映）_
+_最終更新: 2026-02-13（Steering Sync: テスト/CI環境のDev/prod parity化、nginx .mjs MIMEタイプ対応、プロジェクト一覧デフォルト表示改善・ステータス別件数API追加を反映）_
 
 ## アーキテクチャ
 
@@ -79,7 +79,7 @@ ArchiTrack/
 - `frontend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `frontend/.storybook/main.ts` - Storybook設定（React-Vite統合）
 - `frontend/.storybook/preview.ts` - Storybookグローバルパラメータ
-- `frontend/nginx.conf` - nginx設定（本番環境）
+- `frontend/nginx.conf` - nginx設定（本番環境、.mjs MIMEタイプ対応、SPA routing、Gzip圧縮、セキュリティヘッダー）
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート
 - `frontend/eslint.config.js` - ESLint設定（Flat Config形式、vitest.config.ts, vite.config.ts除外対応）
@@ -495,9 +495,9 @@ ArchiTrackでは、開発環境の一貫性と再現性を確保するため、�
 ```
 docker-compose.yml       # 基本サービス定義（環境非依存）
 docker-compose.dev.yml   # 開発環境オーバーライド
-docker-compose.test.yml  # テスト環境オーバーライド（ポートオフセット）
+docker-compose.test.yml  # テスト環境オーバーライド（ポートオフセット、nginx本番イメージ）
 docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
-docker-compose.ci.yml    # CI環境オーバーライド
+docker-compose.ci.yml    # CI環境オーバーライド（nginx本番イメージ）
 .env.dev                 # 開発環境変数
 .env.test                # テスト環境変数
 ```
@@ -506,6 +506,7 @@ docker-compose.ci.yml    # CI環境オーバーライド
 - **ベースファイル + オーバーライド方式**: 共通設定をbase、環境固有設定をoverlay
 - **ポートオフセット方式**: テスト環境は+100/+1オフセットで同時実行可能
 - **tmpfs使用**: テスト環境はデータを永続化せずクリーンな状態を維持
+- **Dev/prod parity**: テスト/CI環境のフロントエンドは本番Dockerfile（nginx）でビルド・配信し、本番固有の問題（MIMEタイプ、SPA routing、静的ファイル配信等）を早期検出
 
 #### エントリポイントスクリプトパターン
 
@@ -540,7 +541,7 @@ Node.js inspectorモードによるVSCodeデバッグ統合：
 - **PostgreSQL**: `pg_isready`コマンドで接続可能性を確認
 - **Redis**: `redis-cli ping`でサービス状態を確認
 - **Backend**: `curl http://localhost:3000/health`でAPIの準備状態を確認
-- **Frontend**: `curl http://localhost:5173`でViteサーバーの起動を確認（`start_period: 45s`でnpm install時間を考慮）
+- **Frontend**: 開発環境では`curl http://localhost:5173`でViteサーバーの起動を確認（`start_period: 45s`）、テスト/CI環境では`wget http://127.0.0.1:80`でnginxの起動を確認（`start_period: 10s`）
 
 #### 名前付きボリュームパターン
 
@@ -596,9 +597,9 @@ ArchiTrackでは、**開発環境**と**テスト環境**を分離した複数�
 ```
 docker-compose.yml       # 基本サービス定義（環境非依存）
 docker-compose.dev.yml   # 開発環境オーバーライド
-docker-compose.test.yml  # テスト環境オーバーライド（ポートオフセット）
+docker-compose.test.yml  # テスト環境オーバーライド（ポートオフセット、nginx本番イメージ）
 docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
-docker-compose.ci.yml    # CI環境オーバーライド
+docker-compose.ci.yml    # CI環境オーバーライド（nginx本番イメージ）
 .env.dev                 # 開発環境変数
 .env.test                # テスト環境変数
 ```
@@ -1057,7 +1058,7 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
   - Prisma Client自動生成（ビルド時）
   - マイグレーション自動適用（デプロイ時）
   - HTTPS強制リダイレクト有効（本番環境）
-- **Frontend Service**: `frontend/` ディレクトリからnginx本番イメージをビルド・デプロイ
+- **Frontend Service**: `frontend/` ディレクトリからnginx本番イメージをビルド・デプロイ（テスト/CI環境でも同一Dockerfileを使用し、Dev/prod parityを確保）
 - **PostgreSQL**: RailwayマネージドPostgreSQL 15
 - **Redis**: RailwayマネージドRedis 7
 

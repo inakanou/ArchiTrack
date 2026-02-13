@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-02-12（Steering Sync: 見積書NET案分/利益率ダイアログ、PDFテキスト抽出、OCR再実行、数量表コピー・タイトル行、セッション期限切れモーダル、オートコンプリート候補キャッシュ、project-quotations.routes.ts追加）_
+_最終更新: 2026-02-13（Steering Sync: テスト/CI環境のDev/prod parity化、nginx .mjs MIMEタイプ対応、ステータス別件数API追加を反映）_
 
 ## ルートディレクトリ構成
 
@@ -98,9 +98,9 @@ ArchiTrack/
 │   └── .env.example        # 環境変数テンプレート
 ├── docker-compose.yml      # 基本サービス定義（環境非依存）
 ├── docker-compose.dev.yml  # 開発環境オーバーライド
-├── docker-compose.test.yml # テスト環境オーバーライド（ポートオフセット）
+├── docker-compose.test.yml # テスト環境オーバーライド（ポートオフセット、nginx本番イメージ）
 ├── docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
-├── docker-compose.ci.yml   # CI環境オーバーライド
+├── docker-compose.ci.yml   # CI環境オーバーライド（nginx本番イメージ）
 ├── .env.dev                # 開発環境変数
 ├── .env.test               # テスト環境変数
 ├── package.json            # E2Eテスト依存関係
@@ -974,6 +974,7 @@ backend/src/
 - `PUT /api/projects/:id`: プロジェクト更新（楽観的排他制御）
 - `DELETE /api/projects/:id`: プロジェクト論理削除
 - `PATCH /api/projects/:id/status`: ステータス変更（差し戻し理由必須対応）
+- `GET /api/projects/status-counts`: ステータス別プロジェクト件数取得
 - `GET /api/projects/:id/status-history`: ステータス変更履歴取得
 
 **ユーザー管理API（users.routes.ts）:**
@@ -1101,9 +1102,9 @@ ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔�
 |---------|------|
 | `docker-compose.yml` | 基本サービス定義（環境非依存）|
 | `docker-compose.dev.yml` | 開発環境オーバーライド（永続化、標準ポート）|
-| `docker-compose.test.yml` | テスト環境オーバーライド（tmpfs、ポートオフセット）|
+| `docker-compose.test.yml` | テスト環境オーバーライド（tmpfs、ポートオフセット、nginx本番イメージ）|
 | `docker-compose.debug.yml` | デバッグオーバーライド（Node.js inspector）|
-| `docker-compose.ci.yml` | CI環境オーバーライド（GitHub Actions用）|
+| `docker-compose.ci.yml` | CI環境オーバーライド（GitHub Actions用、nginx本番イメージ）|
 | `.env.dev` | 開発環境変数 |
 | `.env.test` | テスト環境変数 |
 
@@ -1113,16 +1114,16 @@ ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔�
 - `redis`: Redis 7キャッシュ
 - `mailhog`: Mailpit（モックSMTPサーバー）
 - `backend`: Node.js/Expressバックエンド
-- `frontend`: React/Viteフロントエンド
+- `frontend`: React/Viteフロントエンド（開発環境: Vite dev server、テスト/CI環境: nginx本番イメージ）
 
 **環境別特徴:**
 
-| 環境 | データ永続化 | ポート | 用途 |
-|-----|------------|-------|------|
-| 開発 | ボリューム | 標準（3000, 5173等） | 手動テスト・画面打鍵 |
-| テスト | tmpfs（揮発性）| オフセット（+100/+1）| 自動テスト |
-| デバッグ | ボリューム | 標準 + 9229 | VSCodeデバッグ |
-| CI | tmpfs | 標準 | GitHub Actions |
+| 環境 | データ永続化 | ポート | Frontend | 用途 |
+|-----|------------|-------|----------|------|
+| 開発 | ボリューム | 標準（3000, 5173等） | Vite dev server | 手動テスト・画面打鍵 |
+| テスト | tmpfs（揮発性）| オフセット（+100/+1）| nginx（本番Dockerfile）| 自動テスト |
+| デバッグ | ボリューム | 標準 + 9229 | Vite dev server | VSCodeデバッグ |
+| CI | tmpfs | 標準 | nginx（本番Dockerfile）| GitHub Actions |
 
 **開発環境の特徴:**
 
@@ -1136,9 +1137,10 @@ ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔�
 ### Dockerfile構成
 
 **Frontend:**
-- `Dockerfile`: 本番環境用。マルチステージビルドでViteビルド→nginx配信
+- `Dockerfile`: 本番環境用（テスト/CI環境でも使用）。マルチステージビルドでViteビルド→nginx配信。Dev/prod parityにより本番固有の問題を早期検出
 - `Dockerfile.dev`: 開発環境用。Vite dev serverでホットリロード対応
 - `docker-entrypoint.sh`: 起動時にアーキテクチャ固有モジュール（`@rollup/rollup-linux-${arch}-gnu`）をチェックし、不足時のみ再インストール
+- `nginx.conf`: 本番nginx設定（SPA routing、Gzip圧縮、セキュリティヘッダー、.mjs MIMEタイプ対応）
 
 **Backend:**
 - `Dockerfile.dev`: 開発環境用。Node.js --watchでホットリロード対応
