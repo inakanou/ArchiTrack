@@ -28,6 +28,11 @@ import type {
   StatusChangeInput,
   StatusCountsResponse,
 } from '../types/project.types';
+import type { ProjectSurveySummary } from '../types/site-survey.types';
+import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
+import type { ProjectItemizedStatementSummary } from '../types/itemized-statement.types';
+import type { ProjectEstimateRequestSummary } from '../types/estimate-request.types';
+import type { EstimateSummary } from './estimates';
 
 // ============================================================================
 // 型定義（クエリパラメータ用）
@@ -324,4 +329,46 @@ export async function getAssignableUsers(): Promise<AssignableUser[]> {
  */
 export async function getProjectStatusCounts(): Promise<StatusCountsResponse> {
   return apiClient.get<StatusCountsResponse>('/api/projects/status-counts');
+}
+
+// ============================================================================
+// プロジェクト詳細一括取得 (Requirement 29)
+// ============================================================================
+
+/**
+ * プロジェクト詳細サマリー型
+ *
+ * Task 47.1: ProjectDetailSummary型の定義
+ * Requirements: 29.2, 29.6
+ */
+export interface ProjectDetailSummary {
+  /** プロジェクト基本情報 */
+  project: ProjectDetail;
+  /** ステータス変更履歴 */
+  statusHistory: StatusHistoryResponse[];
+  /** 各セクションサマリー */
+  sections: {
+    siteSurveys: ProjectSurveySummary;
+    quantityTables: ProjectQuantityTableSummary;
+    itemizedStatements: ProjectItemizedStatementSummary;
+    estimateRequests: ProjectEstimateRequestSummary;
+    estimates: EstimateSummary;
+  };
+}
+
+/**
+ * プロジェクト詳細サマリーを一括取得する
+ *
+ * Task 47.1: getProjectDetailSummary API関数の追加
+ * Requirements: 29.2, 29.6
+ *
+ * プロジェクト基本情報、ステータス変更履歴、5つのセクションサマリーを
+ * 1リクエストで取得する。従来の7リクエスト（2並列+5逐次）を置換。
+ *
+ * @param id - プロジェクトID（UUID）
+ * @returns プロジェクト詳細サマリー
+ * @throws ApiError プロジェクトが見つからない（404）、認証エラー（401）、権限不足（403）
+ */
+export async function getProjectDetailSummary(id: string): Promise<ProjectDetailSummary> {
+  return apiClient.get<ProjectDetailSummary>(`/api/projects/${id}/detail-summary`);
 }

@@ -1147,20 +1147,20 @@
 
 ## Task 46: バックエンド - プロジェクト詳細一括取得APIエンドポイント
 
-- [ ] 46.1 (P) ProjectDetailSummaryレスポンス型の定義
+- [x] 46.1 (P) ProjectDetailSummaryレスポンス型の定義
   - ProjectDetailSummaryインターフェースを定義し、project（基本情報）、statusHistory（ステータス変更履歴）、sections（5つのセクションサマリー）を含める
   - sectionsオブジェクトの各セクション型（siteSurveys、quantityTables、itemizedStatements、estimateRequests、estimates）を定義
   - 各セクション型にtotalCountとlatest配列を含め、既存の個別APIレスポンス型との互換性を確保
   - _Requirements: 29.3, 29.6_
 
-- [ ] 46.2 (P) getProjectSectionsヘルパー関数の実装
+- [x] 46.2 (P) getProjectSectionsヘルパー関数の実装
   - 5つの既存サービスメソッド（SiteSurveyService.findLatestByProjectId、QuantityTableService.findLatestByProjectId、ItemizedStatementService.findLatestByProjectId、EstimateRequestService.findLatestByProjectId、EstimateService.findLatestByProjectId）をPromise.allSettled()で並列呼び出し
   - 個別セクションの取得エラー時はデフォルト値（totalCount: 0、latest配列: 空配列）にフォールバックし、他セクションの正常返却を妨げない
   - EstimateServiceの返却型のフィールド名をestimatesからlatestEstimatesに変換
   - 46.1の型定義が必要
   - _Requirements: 29.1, 29.4_
 
-- [ ] 46.3 GET /api/projects/:id/detail-summary エンドポイントの実装
+- [x] 46.3 GET /api/projects/:id/detail-summary エンドポイントの実装
   - projects.routes.tsに新規ルートハンドラを追加
   - 認証ミドルウェア（authenticateToken）と権限チェック（project:read）を適用
   - プロジェクト基本情報とステータス履歴をPromise.all()で並列取得（必須データ: 取得失敗時は404/403エラー返却）
@@ -1171,7 +1171,7 @@
 
 ## Task 47: フロントエンド - API統合とProjectDetailPageリファクタリング
 
-- [ ] 47.1 (P) getProjectDetailSummary API関数とProjectDetailSummary型の追加
+- [x] 47.1 (P) getProjectDetailSummary API関数とProjectDetailSummary型の追加
   - APIクライアントにgetProjectDetailSummary関数を追加（GET /api/projects/:id/detail-summary）
   - ProjectDetailSummary型（project、statusHistory、sections）を定義
   - sections内の各セクションサマリー型を定義
@@ -1179,7 +1179,7 @@
   - 46.3の完了が必要
   - _Requirements: 29.2, 29.6_
 
-- [ ] 47.2 ProjectDetailPageのfetchProject関数リファクタリング
+- [x] 47.2 ProjectDetailPageのfetchProject関数リファクタリング
   - 7つの個別APIリクエスト（getProject、getStatusHistory + 5セクション逐次取得）をgetProjectDetailSummaryの1リクエストに置換
   - レスポンスからproject、statusHistory、各セクションサマリーを分解して各状態変数にセット
   - 5つの個別セクション用ローディング状態を1つのisLoading状態に統合
@@ -1187,7 +1187,7 @@
   - 47.1の完了が必要
   - _Requirements: 29.2, 29.5_
 
-- [ ] 47.3 不要なローディング状態の整理
+- [x] 47.3 不要なローディング状態の整理
   - isSurveyLoading、isQuantityTableLoading、isItemizedStatementLoading、isEstimateRequestLoading、isEstimateLoadingの5つの個別ローディング状態を削除
   - 各セクションカードのローディング表示をisLoading（メインのローディング状態）に統一
   - 47.2の完了が必要
@@ -1195,7 +1195,7 @@
 
 ## Task 48: バックエンドユニットテスト - プロジェクト詳細一括取得API
 
-- [ ] 48.1 (P) detail-summaryエンドポイントのルートテスト
+- [x] 48.1 (P) detail-summaryエンドポイントのルートテスト
   - 認証済みユーザーがプロジェクト詳細一括データを取得できることを検証
   - レスポンスにproject、statusHistory、sections（5セクション）が含まれることを検証
   - 未認証リクエストが401を返却することを検証
@@ -1203,7 +1203,7 @@
   - 存在しないプロジェクトIDでの404エラーを検証
   - _Requirements: 29.1, 29.3_
 
-- [ ] 48.2 (P) getProjectSectionsヘルパーのユニットテスト
+- [x] 48.2 (P) getProjectSectionsヘルパーのユニットテスト
   - 全5セクションが正常に取得できた場合のレスポンス構造を検証
   - 個別セクション（例: SiteSurveyService）がエラーをスローした場合、当該セクションがデフォルト値（totalCount: 0、空配列）にフォールバックし、他セクションは正常値を返却することを検証
   - 全セクションがエラーの場合でも全セクションがデフォルト値で返却されることを検証
@@ -1212,13 +1212,13 @@
 
 ## Task 49: フロントエンドユニットテスト - プロジェクト詳細一括取得
 
-- [ ] 49.1 (P) getProjectDetailSummary API関数のテスト
+- [x] 49.1 (P) getProjectDetailSummary API関数のテスト
   - 正常なAPIレスポンスの取得とパースを検証
   - ネットワークエラー時の例外伝播を検証
   - 404/403エラー時のハンドリングを検証
   - _Requirements: 29.2_
 
-- [ ] 49.2 (P) ProjectDetailPageの一括取得動作テスト
+- [x] 49.2 (P) ProjectDetailPageの一括取得動作テスト
   - fetchProject関数がgetProjectDetailSummaryを1回だけ呼び出すことを検証
   - レスポンスのproject、statusHistory、各セクションサマリーが正しく状態変数にセットされることを検証
   - isLoading状態がリクエスト開始時にtrue、完了時にfalseになることを検証
@@ -1227,13 +1227,13 @@
 
 ## Task 50: E2Eテスト - プロジェクト詳細セクション表示とAPI効率化
 
-- [ ] 50.1 現場調査セクション表示E2Eテスト
+- [x] 50.1 現場調査セクション表示E2Eテスト
   - プロジェクト詳細画面に現場調査セクションが表示されることを確認
   - 直近2件の現場調査への参照リンクと総数が表示されることを確認
   - 「すべて表示」リンクをクリックして現場調査一覧画面に遷移することを確認
   - _Requirements: 24.1, 24.2_
 
-- [ ] 50.2 数量表セクション表示E2Eテスト
+- [x] 50.2 数量表セクション表示E2Eテスト
   - プロジェクト詳細画面に数量表セクションが表示されることを確認
   - 数量表の総数とヘッダーが表示されることを確認
   - 数量表が存在する場合、直近の数量表カード（名称・更新日時・数量項目数）が表示されることを確認
@@ -1242,7 +1242,7 @@
   - 数量表が存在しない場合、「数量表はまだありません」メッセージと新規作成ボタンが表示されることを確認
   - _Requirements: 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7_
 
-- [ ] 50.3 内訳書セクション表示E2Eテスト
+- [x] 50.3 内訳書セクション表示E2Eテスト
   - プロジェクト詳細画面に内訳書セクションが数量表セクションの下に表示されることを確認
   - 数量表が存在しない場合、「まず数量表を作成してください」メッセージが表示されることを確認
   - 数量表はあるが内訳書がない場合、「内訳書はまだありません」メッセージが表示されることを確認
@@ -1252,7 +1252,7 @@
   - 一覧画面へのリンクが表示されることを確認
   - _Requirements: 26.1, 26.2, 26.3, 26.4, 26.5, 26.6, 26.7, 26.8, 26.9, 26.10, 26.11_
 
-- [ ] 50.4 見積依頼セクション表示E2Eテスト
+- [x] 50.4 見積依頼セクション表示E2Eテスト
   - プロジェクト詳細画面に見積依頼セクションが内訳書セクションの下に表示されることを確認
   - 見積依頼が存在しない場合、「見積依頼はまだありません」メッセージとメッセージ下の「新規作成」ボタンが表示されることを確認
   - 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンと「すべて見る」リンクが非表示であることを確認
@@ -1261,7 +1261,7 @@
   - 「すべて見る」リンククリックで見積依頼一覧画面に遷移することを確認
   - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7, 27.8_
 
-- [ ] 50.5 見積書セクション表示E2Eテスト
+- [x] 50.5 見積書セクション表示E2Eテスト
   - プロジェクト詳細画面に見積書セクションが見積依頼セクションの下に表示されることを確認
   - セクションタイトル「見積書」と総数が表示されることを確認
   - 見積書が存在する場合、直近の見積書カード（見積書名・作成日時・合計金額）が表示されることを確認
@@ -1271,7 +1271,7 @@
   - ローディング中にスケルトンローダーが表示されることを確認
   - _Requirements: 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.8, 28.9, 28.10, 28.11, 28.12, 28.13_
 
-- [ ] 50.6 プロジェクト詳細API効率化E2Eテスト
+- [x] 50.6 プロジェクト詳細API効率化E2Eテスト
   - プロジェクト詳細画面の初期表示で全セクションが正しく表示されることを確認
   - ネットワークリクエスト数が削減されていることを確認（detail-summary APIが1リクエストで返却）
   - 各セクションのリンク・ボタンが正常に動作することを確認
@@ -1279,7 +1279,7 @@
 
 ## Task 51: 統合テストと動作確認
 
-- [ ] 51.1 差分実装の統合テスト
+- [x] 51.1 差分実装の統合テスト
   - detail-summary APIが全セクションデータを正しく一括返却することを確認
   - 個別セクションエラー時に他セクションが正常に表示されることを確認
   - 既存の個別APIエンドポイント（site-surveys/latest等）が引き続き動作することを確認

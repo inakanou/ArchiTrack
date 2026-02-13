@@ -18,6 +18,7 @@ import { ToastProvider } from '../../components/ToastProvider';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import SiteSurveyListPage from '../../pages/SiteSurveyListPage';
 import * as projectsApi from '../../api/projects';
+import type { ProjectDetailSummary } from '../../api/projects';
 import * as siteSurveysApi from '../../api/site-surveys';
 
 // APIモック
@@ -118,38 +119,47 @@ function renderIntegration(initialEntry: string) {
 describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // getProjectDetailSummaryで一括取得をモック
+    vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue({
+      project: mockProject,
+      statusHistory: mockStatusHistory,
+      sections: {
+        siteSurveys: {
+          totalCount: 2,
+          latestSurveys: [
+            {
+              id: 'survey-1',
+              projectId: 'project-test-123',
+              name: '第1回現場調査',
+              surveyDate: '2024-01-15',
+              memo: 'テストメモ1',
+              thumbnailUrl: null,
+              imageCount: 3,
+              createdAt: '2024-01-15T00:00:00.000Z',
+              updatedAt: '2024-01-15T00:00:00.000Z',
+            },
+            {
+              id: 'survey-2',
+              projectId: 'project-test-123',
+              name: '第2回現場調査',
+              surveyDate: '2024-02-01',
+              memo: 'テストメモ2',
+              thumbnailUrl: null,
+              imageCount: 5,
+              createdAt: '2024-02-01T00:00:00.000Z',
+              updatedAt: '2024-02-01T00:00:00.000Z',
+            },
+          ],
+        },
+        quantityTables: { totalCount: 0, latestTables: [] },
+        itemizedStatements: { totalCount: 0, latestStatements: [] },
+        estimateRequests: { totalCount: 0, latestRequests: [] },
+        estimates: { totalCount: 0, latestEstimates: [] },
+      },
+    } as ProjectDetailSummary);
+    // SiteSurveyListPageで使用されるgetProject（現場調査一覧はgetProjectDetailSummaryを使わない）
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
-    vi.mocked(projectsApi.getStatusHistory).mockResolvedValue(mockStatusHistory);
-    vi.mocked(projectsApi.getAssignableUsers).mockResolvedValue([]);
     vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockSiteSurveys);
-    // SiteSurveySectionCardで使用する現場調査サマリーのモック
-    vi.mocked(siteSurveysApi.getLatestSiteSurveys).mockResolvedValue({
-      totalCount: 2,
-      latestSurveys: [
-        {
-          id: 'survey-1',
-          projectId: 'project-test-123',
-          name: '第1回現場調査',
-          surveyDate: '2024-01-15',
-          memo: 'テストメモ1',
-          thumbnailUrl: null,
-          imageCount: 3,
-          createdAt: '2024-01-15T00:00:00.000Z',
-          updatedAt: '2024-01-15T00:00:00.000Z',
-        },
-        {
-          id: 'survey-2',
-          projectId: 'project-test-123',
-          name: '第2回現場調査',
-          surveyDate: '2024-02-01',
-          memo: 'テストメモ2',
-          thumbnailUrl: null,
-          imageCount: 5,
-          createdAt: '2024-02-01T00:00:00.000Z',
-          updatedAt: '2024-02-01T00:00:00.000Z',
-        },
-      ],
-    });
 
     // window.matchMediaのモック
     Object.defineProperty(window, 'matchMedia', {

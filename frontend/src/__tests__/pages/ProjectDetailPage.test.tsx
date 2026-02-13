@@ -7,6 +7,7 @@
  * Task 19.5: 編集ボタン遷移先更新（/projects/:id/edit へ遷移）
  * Task 27.2: フィールドラベル変更（「取引先」→「顧客名」）
  * Task 10.1 (site-survey): 現場調査への導線追加
+ * Task 49.2: getProjectDetailSummary一括取得への移行
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -19,6 +20,7 @@
  * - 21.21: 編集ボタンクリックで編集ページへ遷移
  * - 22: 顧客情報表示（ラベル「顧客名」）
  * - 2.1, 2.2: 現場調査タブ/セクション表示と遷移
+ * - 29.2, 29.5: プロジェクト詳細API効率化（1リクエスト一括取得）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -28,20 +30,12 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ToastProvider } from '../../components/ToastProvider';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
-import * as tradingPartnersApi from '../../api/trading-partners';
-import * as siteSurveyApi from '../../api/site-surveys';
-import * as quantityTableApi from '../../api/quantity-tables';
-import * as itemizedStatementApi from '../../api/itemized-statements';
-import * as estimateRequestApi from '../../api/estimate-requests';
+import type { ProjectDetailSummary } from '../../api/projects';
+import type { ProjectDetail } from '../../types/project.types';
 import { ApiError } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/projects');
-vi.mock('../../api/trading-partners');
-vi.mock('../../api/site-surveys');
-vi.mock('../../api/quantity-tables');
-vi.mock('../../api/itemized-statements');
-vi.mock('../../api/estimate-requests');
 
 // useAuthフックのモック
 vi.mock('../../hooks/useAuth', () => ({
@@ -92,6 +86,35 @@ const mockStatusHistory = [
   },
 ];
 
+const defaultSections: ProjectDetailSummary['sections'] = {
+  siteSurveys: { totalCount: 0, latestSurveys: [] },
+  quantityTables: { totalCount: 0, latestTables: [] },
+  itemizedStatements: { totalCount: 0, latestStatements: [] },
+  estimateRequests: { totalCount: 0, latestRequests: [] },
+  estimates: { totalCount: 0, latestEstimates: [] },
+};
+
+/**
+ * デフォルトのProjectDetailSummaryモックデータを生成するヘルパー
+ * project / statusHistory / sectionsを部分的に上書き可能
+ */
+function createMockSummary(
+  overrides?: Partial<{
+    project: Partial<ProjectDetail>;
+    statusHistory: typeof mockStatusHistory;
+    sections: Partial<ProjectDetailSummary['sections']>;
+  }>
+): ProjectDetailSummary {
+  return {
+    project: overrides?.project ? { ...mockProject, ...overrides.project } : mockProject,
+    statusHistory: overrides?.statusHistory ?? mockStatusHistory,
+    sections: {
+      ...defaultSections,
+      ...overrides?.sections,
+    },
+  } as ProjectDetailSummary;
+}
+
 /**
  * テストコンポーネントのラッパー
  */
@@ -110,41 +133,11 @@ function renderWithRouter(projectId: string = 'project-1') {
   );
 }
 
-// モックユーザーデータ
-const mockAssignableUsers = [
-  { id: 'user-1', displayName: '営業太郎' },
-  { id: 'user-2', displayName: '工事次郎' },
-  { id: 'user-3', displayName: 'テストユーザー' },
-];
-
 describe('ProjectDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
-    vi.mocked(projectsApi.getStatusHistory).mockResolvedValue(mockStatusHistory);
-    vi.mocked(projectsApi.getAssignableUsers).mockResolvedValue(mockAssignableUsers);
-    // デフォルトでは取引先が見つからない設定
-    vi.mocked(tradingPartnersApi.searchTradingPartners).mockResolvedValue([]);
-    // 現場調査サマリーのデフォルトモック（空の状態）
-    vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
-      totalCount: 0,
-      latestSurveys: [],
-    });
-    // 数量表サマリーのデフォルトモック（空の状態）
-    vi.mocked(quantityTableApi.getLatestQuantityTables).mockResolvedValue({
-      totalCount: 0,
-      latestTables: [],
-    });
-    // 内訳書サマリーのデフォルトモック（空の状態）
-    vi.mocked(itemizedStatementApi.getLatestItemizedStatements).mockResolvedValue({
-      totalCount: 0,
-      latestStatements: [],
-    });
-    // 見積依頼サマリーのデフォルトモック（空の状態）
-    vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
-      totalCount: 0,
-      latestRequests: [],
-    });
+    // Task 49.2: getProjectDetailSummaryの一括取得モック（デフォルト）
+    vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
   });
 
   afterEach(() => {
@@ -175,10 +168,11 @@ describe('ProjectDetailPage', () => {
     });
 
     it('工事担当者がnullの場合「未割当」と表示する', async () => {
-      vi.mocked(projectsApi.getProject).mockResolvedValue({
-        ...mockProject,
-        constructionPerson: undefined,
-      });
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          project: { constructionPerson: undefined },
+        })
+      );
 
       renderWithRouter();
 
@@ -209,7 +203,9 @@ describe('ProjectDetailPage', () => {
 
     it('ローディングインジケータを表示する', () => {
       // 非同期を遅延させる
-      vi.mocked(projectsApi.getProject).mockImplementation(() => new Promise(() => {}));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockImplementation(
+        () => new Promise(() => {})
+      );
 
       renderWithRouter();
 
@@ -224,7 +220,9 @@ describe('ProjectDetailPage', () => {
 
   describe('エラーハンドリング', () => {
     it('404エラー時にエラーページへ遷移する', async () => {
-      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(404, 'Not Found'));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(404, 'Not Found')
+      );
 
       renderWithRouter();
 
@@ -234,7 +232,9 @@ describe('ProjectDetailPage', () => {
     });
 
     it('403エラー時に権限エラーページへ遷移する', async () => {
-      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(403, 'Forbidden'));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(403, 'Forbidden')
+      );
 
       renderWithRouter();
 
@@ -244,7 +244,9 @@ describe('ProjectDetailPage', () => {
     });
 
     it('その他のエラー時にエラーメッセージを表示する', async () => {
-      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(500, 'Server Error'));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(500, 'Server Error')
+      );
 
       renderWithRouter();
 
@@ -257,9 +259,9 @@ describe('ProjectDetailPage', () => {
 
     it('再試行ボタンをクリックするとデータを再取得する', async () => {
       const user = userEvent.setup();
-      vi.mocked(projectsApi.getProject)
+      vi.mocked(projectsApi.getProjectDetailSummary)
         .mockRejectedValueOnce(new ApiError(500, 'Server Error'))
-        .mockResolvedValueOnce(mockProject);
+        .mockResolvedValueOnce(createMockSummary());
 
       renderWithRouter();
 
@@ -560,10 +562,11 @@ describe('ProjectDetailPage', () => {
     });
 
     it('現場住所が未設定の場合はハイフンを表示', async () => {
-      vi.mocked(projectsApi.getProject).mockResolvedValue({
-        ...mockProject,
-        siteAddress: '',
-      });
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          project: { siteAddress: '' },
+        })
+      );
 
       renderWithRouter();
 
@@ -576,10 +579,11 @@ describe('ProjectDetailPage', () => {
     });
 
     it('概要が未設定の場合は表示しない', async () => {
-      vi.mocked(projectsApi.getProject).mockResolvedValue({
-        ...mockProject,
-        description: '',
-      });
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          project: { description: '' },
+        })
+      );
 
       renderWithRouter();
 
@@ -781,13 +785,13 @@ describe('ProjectDetailPage', () => {
         status: 'SURVEYING',
         statusLabel: '調査中',
       });
-      vi.mocked(projectsApi.getProject)
-        .mockResolvedValueOnce(mockProject) // 初回取得
-        .mockResolvedValueOnce({
-          ...mockProject,
-          status: 'SURVEYING',
-          statusLabel: '調査中',
-        }); // 遷移後の再取得
+      vi.mocked(projectsApi.getProjectDetailSummary)
+        .mockResolvedValueOnce(createMockSummary()) // 初回取得
+        .mockResolvedValueOnce(
+          createMockSummary({
+            project: { status: 'SURVEYING' as const, statusLabel: '調査中' },
+          })
+        ); // 遷移後の再取得
 
       renderWithRouter();
 
@@ -804,9 +808,9 @@ describe('ProjectDetailPage', () => {
         });
       });
 
-      // getProjectが再度呼ばれる（遷移後のデータ再取得）
+      // getProjectDetailSummaryが再度呼ばれる（遷移後のデータ再取得）
       await waitFor(() => {
-        expect(projectsApi.getProject).toHaveBeenCalledTimes(2);
+        expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(2);
       });
     });
   });
@@ -862,7 +866,7 @@ describe('ProjectDetailPage', () => {
 
   describe('エラー状態詳細（Task 15.3）', () => {
     it('ネットワークエラー時にエラーメッセージを表示する', async () => {
-      vi.mocked(projectsApi.getProject).mockRejectedValue(new Error('Network Error'));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(new Error('Network Error'));
 
       renderWithRouter();
 
@@ -872,7 +876,9 @@ describe('ProjectDetailPage', () => {
     });
 
     it('エラー時に再試行ボタンが表示される', async () => {
-      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(500, 'Server Error'));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(500, 'Server Error')
+      );
 
       renderWithRouter();
 
@@ -883,9 +889,9 @@ describe('ProjectDetailPage', () => {
 
     it('再試行ボタンクリックでデータを再取得する', async () => {
       const user = userEvent.setup();
-      vi.mocked(projectsApi.getProject)
+      vi.mocked(projectsApi.getProjectDetailSummary)
         .mockRejectedValueOnce(new ApiError(500, 'Server Error'))
-        .mockResolvedValueOnce(mockProject);
+        .mockResolvedValueOnce(createMockSummary());
 
       renderWithRouter();
 
@@ -900,7 +906,7 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      expect(projectsApi.getProject).toHaveBeenCalledTimes(2);
+      expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(2);
     });
 
     // Note: Task 19.5 により編集は /projects/:id/edit ページで行われるため、
@@ -917,7 +923,9 @@ describe('ProjectDetailPage', () => {
     });
 
     it('ローディング時にrole="status"が設定される', () => {
-      vi.mocked(projectsApi.getProject).mockImplementation(() => new Promise(() => {}));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockImplementation(
+        () => new Promise(() => {})
+      );
 
       renderWithRouter();
 
@@ -925,7 +933,9 @@ describe('ProjectDetailPage', () => {
     });
 
     it('エラーメッセージにrole="alert"が設定される', async () => {
-      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(500, 'Server Error'));
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(500, 'Server Error')
+      );
 
       renderWithRouter();
 
@@ -1053,7 +1063,9 @@ describe('ProjectDetailPage', () => {
         ...mockProject,
         name: 'カスタムプロジェクト名',
       };
-      vi.mocked(projectsApi.getProject).mockResolvedValue(customProject);
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({ project: customProject })
+      );
 
       renderWithRouter();
 
@@ -1110,34 +1122,40 @@ describe('ProjectDetailPage', () => {
     });
 
     it('「すべて見る」リンクが表示される', async () => {
-      // モックを現場調査あり状態に設定（totalCount > 0）
-      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
-        totalCount: 3,
-        latestSurveys: [
-          {
-            id: 'survey-1',
-            projectId: 'project-1',
-            name: '現場調査1',
-            surveyDate: '2024-01-15',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 5,
-            createdAt: '2024-01-15T00:00:00.000Z',
-            updatedAt: '2024-01-15T00:00:00.000Z',
+      // モックを現場調査あり状態に設定（detail-summary API経由）
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            siteSurveys: {
+              totalCount: 3,
+              latestSurveys: [
+                {
+                  id: 'survey-1',
+                  projectId: 'project-1',
+                  name: '現場調査1',
+                  surveyDate: '2024-01-15',
+                  memo: null,
+                  thumbnailUrl: null,
+                  imageCount: 5,
+                  createdAt: '2024-01-15T00:00:00.000Z',
+                  updatedAt: '2024-01-15T00:00:00.000Z',
+                },
+                {
+                  id: 'survey-2',
+                  projectId: 'project-1',
+                  name: '現場調査2',
+                  surveyDate: '2024-01-10',
+                  memo: null,
+                  thumbnailUrl: null,
+                  imageCount: 3,
+                  createdAt: '2024-01-10T00:00:00.000Z',
+                  updatedAt: '2024-01-10T00:00:00.000Z',
+                },
+              ],
+            },
           },
-          {
-            id: 'survey-2',
-            projectId: 'project-1',
-            name: '現場調査2',
-            surveyDate: '2024-01-10',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 3,
-            createdAt: '2024-01-10T00:00:00.000Z',
-            updatedAt: '2024-01-10T00:00:00.000Z',
-          },
-        ],
-      });
+        })
+      );
 
       renderWithRouter();
 
@@ -1157,22 +1175,28 @@ describe('ProjectDetailPage', () => {
 
     it('すべて見るリンクをクリックすると現場調査一覧ページへ遷移する', async () => {
       // モックを現場調査あり状態に設定
-      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
-        totalCount: 3,
-        latestSurveys: [
-          {
-            id: 'survey-1',
-            projectId: 'project-1',
-            name: '現場調査1',
-            surveyDate: '2024-01-15',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 5,
-            createdAt: '2024-01-15T00:00:00.000Z',
-            updatedAt: '2024-01-15T00:00:00.000Z',
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            siteSurveys: {
+              totalCount: 3,
+              latestSurveys: [
+                {
+                  id: 'survey-1',
+                  projectId: 'project-1',
+                  name: '現場調査1',
+                  surveyDate: '2024-01-15',
+                  memo: null,
+                  thumbnailUrl: null,
+                  imageCount: 5,
+                  createdAt: '2024-01-15T00:00:00.000Z',
+                  updatedAt: '2024-01-15T00:00:00.000Z',
+                },
+              ],
+            },
           },
-        ],
-      });
+        })
+      );
 
       const user = userEvent.setup();
       renderWithRouter();
@@ -1198,12 +1222,6 @@ describe('ProjectDetailPage', () => {
     });
 
     it('「新規作成」ボタンが表示される（現場調査0件時）', async () => {
-      // モックを現場調査なし状態に設定（totalCount = 0）
-      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
-        totalCount: 0,
-        latestSurveys: [],
-      });
-
       renderWithRouter();
 
       await waitFor(() => {
@@ -1227,22 +1245,28 @@ describe('ProjectDetailPage', () => {
 
     it('現場調査セクションにプロジェクトIDが正しく反映される', async () => {
       // モックを現場調査あり状態に設定
-      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
-        totalCount: 2,
-        latestSurveys: [
-          {
-            id: 'survey-1',
-            projectId: 'project-1',
-            name: '現場調査1',
-            surveyDate: '2024-01-15',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 5,
-            createdAt: '2024-01-15T00:00:00.000Z',
-            updatedAt: '2024-01-15T00:00:00.000Z',
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            siteSurveys: {
+              totalCount: 2,
+              latestSurveys: [
+                {
+                  id: 'survey-1',
+                  projectId: 'project-1',
+                  name: '現場調査1',
+                  surveyDate: '2024-01-15',
+                  memo: null,
+                  thumbnailUrl: null,
+                  imageCount: 5,
+                  createdAt: '2024-01-15T00:00:00.000Z',
+                  updatedAt: '2024-01-15T00:00:00.000Z',
+                },
+              ],
+            },
           },
-        ],
-      });
+        })
+      );
 
       renderWithRouter();
 
@@ -1269,22 +1293,28 @@ describe('ProjectDetailPage', () => {
 
     it('現場調査セクションに件数表示がある', async () => {
       // モックを現場調査あり状態に設定
-      vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
-        totalCount: 5,
-        latestSurveys: [
-          {
-            id: 'survey-1',
-            projectId: 'project-1',
-            name: '現場調査1',
-            surveyDate: '2024-01-15',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 5,
-            createdAt: '2024-01-15T00:00:00.000Z',
-            updatedAt: '2024-01-15T00:00:00.000Z',
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            siteSurveys: {
+              totalCount: 5,
+              latestSurveys: [
+                {
+                  id: 'survey-1',
+                  projectId: 'project-1',
+                  name: '現場調査1',
+                  surveyDate: '2024-01-15',
+                  memo: null,
+                  thumbnailUrl: null,
+                  imageCount: 5,
+                  createdAt: '2024-01-15T00:00:00.000Z',
+                  updatedAt: '2024-01-15T00:00:00.000Z',
+                },
+              ],
+            },
           },
-        ],
-      });
+        })
+      );
 
       renderWithRouter();
 
@@ -1419,12 +1449,6 @@ describe('ProjectDetailPage', () => {
     });
 
     it('見積依頼が0件の場合は空状態メッセージを表示する', async () => {
-      // モックを見積依頼なし状態に設定（totalCount = 0）
-      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
-        totalCount: 0,
-        latestRequests: [],
-      });
-
       renderWithRouter();
 
       await waitFor(() => {
@@ -1438,12 +1462,6 @@ describe('ProjectDetailPage', () => {
     });
 
     it('見積依頼が0件でも「新規作成」リンクが表示される', async () => {
-      // モックを見積依頼なし状態に設定（totalCount = 0）
-      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
-        totalCount: 0,
-        latestRequests: [],
-      });
-
       renderWithRouter();
 
       await waitFor(() => {
@@ -1462,25 +1480,31 @@ describe('ProjectDetailPage', () => {
     });
 
     it('「すべて見る」リンクが表示される（見積依頼あり時）', async () => {
-      // モックを見積依頼あり状態に設定（totalCount > 0）
-      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
-        totalCount: 3,
-        latestRequests: [
-          {
-            id: 'request-1',
-            projectId: 'project-1',
-            tradingPartnerId: 'partner-1',
-            tradingPartnerName: '株式会社ABC工業',
-            itemizedStatementId: 'statement-1',
-            itemizedStatementName: '第1回見積内訳書',
-            name: '見積依頼#1',
-            method: 'EMAIL',
-            includeBreakdownInBody: false,
-            createdAt: '2024-05-15T00:00:00.000Z',
-            updatedAt: '2024-05-15T00:00:00.000Z',
+      // モックを見積依頼あり状態に設定（detail-summary API経由）
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            estimateRequests: {
+              totalCount: 3,
+              latestRequests: [
+                {
+                  id: 'request-1',
+                  projectId: 'project-1',
+                  tradingPartnerId: 'partner-1',
+                  tradingPartnerName: '株式会社ABC工業',
+                  itemizedStatementId: 'statement-1',
+                  itemizedStatementName: '第1回見積内訳書',
+                  name: '見積依頼#1',
+                  method: 'EMAIL',
+                  includeBreakdownInBody: false,
+                  createdAt: '2024-05-15T00:00:00.000Z',
+                  updatedAt: '2024-05-15T00:00:00.000Z',
+                },
+              ],
+            },
           },
-        ],
-      });
+        })
+      );
 
       renderWithRouter();
 
@@ -1500,24 +1524,30 @@ describe('ProjectDetailPage', () => {
 
     it('見積依頼セクションに件数表示がある', async () => {
       // モックを見積依頼あり状態に設定
-      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockResolvedValue({
-        totalCount: 5,
-        latestRequests: [
-          {
-            id: 'request-1',
-            projectId: 'project-1',
-            tradingPartnerId: 'partner-1',
-            tradingPartnerName: '株式会社ABC工業',
-            itemizedStatementId: 'statement-1',
-            itemizedStatementName: '第1回見積内訳書',
-            name: '見積依頼#1',
-            method: 'EMAIL',
-            includeBreakdownInBody: false,
-            createdAt: '2024-05-15T00:00:00.000Z',
-            updatedAt: '2024-05-15T00:00:00.000Z',
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            estimateRequests: {
+              totalCount: 5,
+              latestRequests: [
+                {
+                  id: 'request-1',
+                  projectId: 'project-1',
+                  tradingPartnerId: 'partner-1',
+                  tradingPartnerName: '株式会社ABC工業',
+                  itemizedStatementId: 'statement-1',
+                  itemizedStatementName: '第1回見積内訳書',
+                  name: '見積依頼#1',
+                  method: 'EMAIL',
+                  includeBreakdownInBody: false,
+                  createdAt: '2024-05-15T00:00:00.000Z',
+                  updatedAt: '2024-05-15T00:00:00.000Z',
+                },
+              ],
+            },
           },
-        ],
-      });
+        })
+      );
 
       renderWithRouter();
 
@@ -1562,19 +1592,16 @@ describe('ProjectDetailPage', () => {
       }
     });
 
-    it('見積依頼のAPI取得に失敗しても、他のセクションは表示される', async () => {
-      // 見積依頼APIのみ失敗させる
-      vi.mocked(estimateRequestApi.getLatestEstimateRequests).mockRejectedValue(
-        new ApiError(500, 'Server Error')
-      );
-
+    it('セクションエラー時もフォールバックで他セクションは表示される', async () => {
+      // detail-summary APIはセクションエラーをフォールバック処理するため、
+      // レスポンスに含まれるデフォルト値で表示される（バックエンド側でPromise.allSettledを使用）
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 他のセクションは正常に表示される
+      // 全セクションが表示される
       expect(screen.getByRole('heading', { level: 3, name: '現場調査' })).toBeInTheDocument();
       expect(screen.getByRole('heading', { level: 3, name: '数量表' })).toBeInTheDocument();
       expect(screen.getByRole('heading', { level: 3, name: '内訳書' })).toBeInTheDocument();
@@ -1597,11 +1624,11 @@ describe('ProjectDetailPage', () => {
 
     it('顧客未設定時はハイフンを表示する', async () => {
       // 顧客（取引先）がnullのプロジェクト
-      const projectWithoutTradingPartner = {
-        ...mockProject,
-        tradingPartner: null,
-      };
-      vi.mocked(projectsApi.getProject).mockResolvedValue(projectWithoutTradingPartner);
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          project: { tradingPartner: null },
+        })
+      );
 
       renderWithRouter();
 
@@ -1611,6 +1638,106 @@ describe('ProjectDetailPage', () => {
 
       // 顧客名フィールドのラベルが表示される（Task 27.2: 「取引先」から「顧客名」に変更）
       expect(screen.getByText('顧客名')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 49.2: getProjectDetailSummary一括取得動作テスト
+  // Requirements: 29.2, 29.5
+  // ==========================================================================
+
+  describe('プロジェクト詳細一括取得（Task 49.2, Requirements 29.2, 29.5）', () => {
+    it('fetchProject関数がgetProjectDetailSummaryを1回だけ呼び出す', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(1);
+      expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledWith('project-1');
+    });
+
+    it('レスポンスのproject、statusHistory、各セクションサマリーが正しく状態変数にセットされる', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            siteSurveys: {
+              totalCount: 3,
+              latestSurveys: [
+                {
+                  id: 'survey-1',
+                  projectId: 'project-1',
+                  name: '現場調査1',
+                  surveyDate: '2024-01-15',
+                  memo: null,
+                  thumbnailUrl: null,
+                  imageCount: 5,
+                  createdAt: '2024-01-15T00:00:00.000Z',
+                  updatedAt: '2024-01-15T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+        })
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { level: 1, name: 'テストプロジェクト' })
+        ).toBeInTheDocument();
+      });
+
+      // project情報が表示される
+      expect(screen.getAllByText('営業太郎').length).toBeGreaterThanOrEqual(1);
+      // statusHistoryが表示される
+      expect(screen.getByText('ステータス変更履歴')).toBeInTheDocument();
+      // セクションサマリーが表示される（現場調査: totalCount=3）
+      await waitFor(() => {
+        expect(screen.getByText(/全3件/)).toBeInTheDocument();
+      });
+    });
+
+    it('isLoading状態がリクエスト開始時にtrue、完了時にfalseになる', async () => {
+      // 遅延させてローディング表示を確認
+      let resolvePromise: (value: ProjectDetailSummary) => void;
+      vi.mocked(projectsApi.getProjectDetailSummary).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolvePromise = resolve;
+          })
+      );
+
+      renderWithRouter();
+
+      // ローディング中
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      expect(screen.getByText('読み込み中...')).toBeInTheDocument();
+
+      // データ返却
+      resolvePromise!(createMockSummary());
+
+      // ローディング完了
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+      expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+    });
+
+    it('API失敗時のエラー表示を検証', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(500, 'Internal Server Error')
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText(/Internal Server Error/)).toBeInTheDocument();
     });
   });
 });

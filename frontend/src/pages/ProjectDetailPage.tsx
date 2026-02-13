@@ -25,12 +25,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getProject, getStatusHistory, deleteProject, transitionStatus } from '../api/projects';
-import { getLatestSiteSurveys } from '../api/site-surveys';
-import { getLatestQuantityTables } from '../api/quantity-tables';
-import { getLatestItemizedStatements } from '../api/itemized-statements';
-import { getLatestEstimateRequests } from '../api/estimate-requests';
-import { getEstimatesSummary } from '../api/estimates';
+import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
@@ -297,18 +292,13 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [statusHistory, setStatusHistory] = useState<StatusHistoryResponse[]>([]);
   const [surveySummary, setSurveySummary] = useState<ProjectSurveySummary | null>(null);
-  const [isSurveyLoading, setIsSurveyLoading] = useState(false);
   const [quantityTableSummary, setQuantityTableSummary] =
     useState<ProjectQuantityTableSummary | null>(null);
-  const [isQuantityTableLoading, setIsQuantityTableLoading] = useState(false);
   const [itemizedStatementSummary, setItemizedStatementSummary] =
     useState<ProjectItemizedStatementSummary | null>(null);
-  const [isItemizedStatementLoading, setIsItemizedStatementLoading] = useState(false);
   const [estimateRequestSummary, setEstimateRequestSummary] =
     useState<ProjectEstimateRequestSummary | null>(null);
-  const [isEstimateRequestLoading, setIsEstimateRequestLoading] = useState(false);
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
-  const [isEstimateLoading, setIsEstimateLoading] = useState(false);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -320,81 +310,27 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * プロジェクトデータを取得
+   * プロジェクトデータを一括取得
+   *
+   * Task 47.2: 7つの個別APIリクエストをgetProjectDetailSummaryの1リクエストに置換
+   * Task 47.3: 5つの個別セクション用ローディング状態を1つのisLoadingに統合
+   * Requirements: 29.2, 29.5
    */
   const fetchProject = useCallback(async () => {
     if (!id) return;
 
     setIsLoading(true);
-    setIsSurveyLoading(true);
-    setIsQuantityTableLoading(true);
-    setIsItemizedStatementLoading(true);
-    setIsEstimateRequestLoading(true);
-    setIsEstimateLoading(true);
     setError(null);
 
     try {
-      const [projectData, historyData] = await Promise.all([getProject(id), getStatusHistory(id)]);
-
-      setProject(projectData);
-      setStatusHistory(historyData);
-
-      // 取引先情報は既にprojectDataに含まれている（tradingPartnerフィールド）
-
-      // 現場調査サマリー取得（Task 31.3: Requirements 2.1）
-      try {
-        const summaryData = await getLatestSiteSurveys(id);
-        setSurveySummary(summaryData);
-      } catch {
-        // 現場調査の取得に失敗しても、プロジェクト詳細は表示する
-        setSurveySummary({ totalCount: 0, latestSurveys: [] });
-      } finally {
-        setIsSurveyLoading(false);
-      }
-
-      // 数量表サマリー取得（Task 4.1: Requirements 1.1, 1.2, 1.3）
-      try {
-        const quantityTableData = await getLatestQuantityTables(id);
-        setQuantityTableSummary(quantityTableData);
-      } catch {
-        // 数量表の取得に失敗しても、プロジェクト詳細は表示する
-        setQuantityTableSummary({ totalCount: 0, latestTables: [] });
-      } finally {
-        setIsQuantityTableLoading(false);
-      }
-
-      // 内訳書サマリー取得（Task 6: Requirements 3.1, 3.2, 3.3, 3.4, 11.1）
-      try {
-        const itemizedStatementData = await getLatestItemizedStatements(id);
-        setItemizedStatementSummary(itemizedStatementData);
-      } catch {
-        // 内訳書の取得に失敗しても、プロジェクト詳細は表示する
-        setItemizedStatementSummary({ totalCount: 0, latestStatements: [] });
-      } finally {
-        setIsItemizedStatementLoading(false);
-      }
-
-      // 見積依頼サマリー取得（Task 7.2: Requirements 1.1）
-      try {
-        const estimateRequestData = await getLatestEstimateRequests(id);
-        setEstimateRequestSummary(estimateRequestData);
-      } catch {
-        // 見積依頼の取得に失敗しても、プロジェクト詳細は表示する
-        setEstimateRequestSummary({ totalCount: 0, latestRequests: [] });
-      } finally {
-        setIsEstimateRequestLoading(false);
-      }
-
-      // 見積書サマリー取得（Task 19.3: Requirements 16.1, 16.3, 16.4）
-      try {
-        const estimateData = await getEstimatesSummary(id);
-        setEstimateSummary(estimateData);
-      } catch {
-        // 見積書の取得に失敗しても、プロジェクト詳細は表示する
-        setEstimateSummary({ totalCount: 0, latestEstimates: [] });
-      } finally {
-        setIsEstimateLoading(false);
-      }
+      const data = await getProjectDetailSummary(id);
+      setProject(data.project);
+      setStatusHistory(data.statusHistory);
+      setSurveySummary(data.sections.siteSurveys);
+      setQuantityTableSummary(data.sections.quantityTables);
+      setItemizedStatementSummary(data.sections.itemizedStatements);
+      setEstimateRequestSummary(data.sections.estimateRequests);
+      setEstimateSummary(data.sections.estimates);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -483,14 +419,15 @@ export default function ProjectDetailPage() {
           reason,
         });
 
-        // データ再取得
-        const [projectData, historyData] = await Promise.all([
-          getProject(id),
-          getStatusHistory(id),
-        ]);
-
-        setProject(projectData);
-        setStatusHistory(historyData);
+        // データ再取得（detail-summary APIで一括取得）
+        const data = await getProjectDetailSummary(id);
+        setProject(data.project);
+        setStatusHistory(data.statusHistory);
+        setSurveySummary(data.sections.siteSurveys);
+        setQuantityTableSummary(data.sections.quantityTables);
+        setItemizedStatementSummary(data.sections.itemizedStatements);
+        setEstimateRequestSummary(data.sections.estimateRequests);
+        setEstimateSummary(data.sections.estimates);
 
         // トースト通知で成功メッセージを表示
         const statusLabel = PROJECT_STATUS_LABELS[newStatus];
@@ -665,7 +602,7 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         totalCount={surveySummary?.totalCount ?? 0}
         latestSurveys={surveySummary?.latestSurveys ?? []}
-        isLoading={isSurveyLoading}
+        isLoading={isLoading}
       />
 
       {/* 数量表セクション (Task 4.1, Requirements 1.1, 1.2, 1.3) */}
@@ -673,7 +610,7 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         totalCount={quantityTableSummary?.totalCount ?? 0}
         latestTables={quantityTableSummary?.latestTables ?? []}
-        isLoading={isQuantityTableLoading}
+        isLoading={isLoading}
       />
 
       {/* 内訳書セクション (Task 6, Task 18.1, Requirements 1.8, 3.1, 3.2, 3.3, 3.4, 11.1, 11.2, 11.3, 11.4, 11.5) */}
@@ -683,7 +620,7 @@ export default function ProjectDetailPage() {
         totalCount={itemizedStatementSummary?.totalCount ?? 0}
         latestStatements={itemizedStatementSummary?.latestStatements ?? []}
         quantityTables={quantityTableSummary?.latestTables ?? []}
-        isLoading={isItemizedStatementLoading}
+        isLoading={isLoading}
       />
 
       {/* 見積依頼セクション (Task 7.2, Requirements 1.1) */}
@@ -691,7 +628,7 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         totalCount={estimateRequestSummary?.totalCount ?? 0}
         latestRequests={estimateRequestSummary?.latestRequests ?? []}
-        isLoading={isEstimateRequestLoading}
+        isLoading={isLoading}
       />
 
       {/* 見積書セクション (Task 19.3, Requirements 16.1, 16.3, 16.4, 16.13) */}
@@ -699,7 +636,7 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         totalCount={estimateSummary?.totalCount ?? 0}
         latestEstimates={estimateSummary?.latestEstimates ?? []}
-        isLoading={isEstimateLoading}
+        isLoading={isLoading}
       />
 
       {/* 削除確認ダイアログ */}
