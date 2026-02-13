@@ -422,3 +422,102 @@
 4. The ArchiTrackシステム shall 各ステータス（準備中、調査中、見積中、決裁待ち、契約中、工事中、引渡中、請求中、入金待ち、完了、中止、失注）ごとの件数を表示する
 5. If あるステータスに該当するプロジェクトが0件の場合, then the ArchiTrackシステム shall 当該ステータスの件数を「0」と表示する
 6. The ArchiTrackシステム shall 全ステータスの合計件数も併せて表示する
+
+### Requirement 24: プロジェクト詳細画面の現場調査セクション
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面で現場調査の概要を確認したい, so that 現場調査の最新状況を素早く把握できる
+
+**備考:** 本要件は site-survey/Requirement 2 AC 1-2 から集約。
+
+#### Acceptance Criteria
+
+1. When ユーザーがプロジェクト詳細画面を表示する, the ArchiTrackシステム shall 「現場調査」セクションに直近2件の現場調査への参照リンクと現場調査の総数を表示する
+2. When ユーザーが現場調査セクションで「すべて表示」リンクをクリックする, the ArchiTrackシステム shall 当該プロジェクトの現場調査一覧画面に遷移する
+
+### Requirement 25: プロジェクト詳細画面の数量表セクション
+
+**Objective:** As a 積算担当者, I want プロジェクト詳細画面から数量表へ簡単にアクセスしたい, so that 数量拾い出し作業を効率的に開始できる
+
+**備考:** 本要件は quantity-table-generation/Requirement 1 から集約。
+
+#### Acceptance Criteria
+
+1. When プロジェクト詳細画面を表示する, the ArchiTrackシステム shall 数量表セクションを表示する
+2. While 数量表セクションが表示されている状態で, the ArchiTrackシステム shall 数量表の総数（全N件）とヘッダーを表示する
+3. Where プロジェクトに数量表が存在する場合, the ArchiTrackシステム shall 直近の数量表カード（名称・更新日時・数量項目数）を一覧表示する
+4. When 数量表セクションの「すべて見る」リンクをクリックする, the ArchiTrackシステム shall 数量表一覧画面（/projects/{projectId}/quantity-tables）に遷移する
+5. When 数量表カードをクリックする, the ArchiTrackシステム shall 該当数量表の編集画面（/projects/{projectId}/quantity-tables/{quantityTableId}）に遷移する
+6. Where プロジェクトに数量表が存在しない場合, the ArchiTrackシステム shall 「数量表はまだありません」メッセージと新規作成ボタンを表示する
+7. When 新規作成ボタンをクリックする, the ArchiTrackシステム shall 数量表新規作成画面（/projects/{projectId}/quantity-tables/new）に遷移する
+
+### Requirement 26: プロジェクト詳細画面の内訳書セクション
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面で内訳書の概要を確認したい, so that 内訳書の作成状況を把握し必要な内訳書に素早くアクセスできる
+
+**備考:** 本要件は itemized-statement-generation/Requirement 3 および Requirement 11 から集約。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の数量表セクションの下に内訳書セクションを表示する
+2. The ArchiTrackシステム shall 内訳書セクションに数量表セクションと同様のカードレイアウトを使用する
+3. The ArchiTrackシステム shall 内訳書セクションに作成済み内訳書を作成日時の降順で一覧表示する
+4. When 数量表が存在しない場合, the ArchiTrackシステム shall 内訳書セクションに「まず数量表を作成してください」メッセージを表示する
+5. When 数量表は存在するが内訳書が存在しない場合, the ArchiTrackシステム shall 内訳書セクションに「内訳書はまだありません」メッセージを表示する
+6. The ArchiTrackシステム shall 内訳書一覧の各行に内訳書名、作成日時、集計元数量表名、合計項目数を表示する
+7. When ユーザーが内訳書行をクリックする, the ArchiTrackシステム shall 内訳書詳細画面に遷移する
+8. When 数量表が存在する場合, the ArchiTrackシステム shall 内訳書セクションに新規作成ボタンを表示する
+9. When ユーザーが新規作成ボタンをクリックする, the ArchiTrackシステム shall 内訳書新規作成画面に遷移する
+10. The ArchiTrackシステム shall 内訳書セクションに作成済み内訳書へのリンクをリスト表示する
+11. The ArchiTrackシステム shall 内訳書セクションに一覧画面へのリンクを表示する
+
+### Requirement 27: プロジェクト詳細画面の見積依頼セクション
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面で見積依頼セクションを確認したい, so that 見積依頼の作成・管理にアクセスできる
+
+**備考:** 本要件は estimate-request/Requirement 1 から集約。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の内訳書セクションの下に見積依頼セクションを表示する
+2. If 見積依頼が存在しない場合, then the ArchiTrackシステム shall セクション内に「見積依頼はまだありません」というメッセージを表示する
+3. If 見積依頼が存在しない場合, then the ArchiTrackシステム shall メッセージの下に「新規作成」ボタンを表示する
+4. If 見積依頼が存在しない場合, then the ArchiTrackシステム shall セクション右上の「新規作成」ボタンと「すべて見る」リンクを非表示にする
+5. If 見積依頼が存在する場合, then the ArchiTrackシステム shall セクション内に見積依頼を一覧表示する
+6. If 見積依頼が存在する場合, then the ArchiTrackシステム shall セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する
+7. When ユーザーが「新規作成」ボタンをクリックしたとき, the ArchiTrackシステム shall 見積依頼作成画面に遷移する
+8. When ユーザーが「すべて見る」リンクをクリックしたとき, the ArchiTrackシステム shall 見積依頼一覧画面に遷移する
+
+### Requirement 28: プロジェクト詳細画面の見積書セクション
+
+**Objective:** As a 積算担当者, I want プロジェクト詳細画面から見積書にアクセスしたい, so that プロジェクトに関連する見積書を素早く確認・管理できる
+
+**備考:** 本要件は estimate-creation/Requirement 16 から集約。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の見積依頼セクションの下に見積書セクションを表示する
+2. The ArchiTrackシステム shall 見積書セクションにセクションタイトル「見積書」を表示する
+3. The ArchiTrackシステム shall 見積書セクションに見積書の総数を表示する（例：全5件）
+4. The ArchiTrackシステム shall 見積書セクションに直近の見積書をカード形式で表示する
+5. The ArchiTrackシステム shall 見積書カードに見積書名、作成日時、合計金額を表示する
+6. When ユーザーが見積書カードをクリックした場合, the ArchiTrackシステム shall 見積書画面へ遷移する
+7. The ArchiTrackシステム shall 見積書セクションに「すべて見る」リンクを提供する
+8. When ユーザーが「すべて見る」リンクをクリックした場合, the ArchiTrackシステム shall 見積書一覧画面へ遷移する
+9. The ArchiTrackシステム shall 見積書セクションに新規作成ボタンを提供する
+10. When ユーザーが新規作成ボタンをクリックした場合, the ArchiTrackシステム shall 見積書作成画面へ遷移する
+11. When 見積書が存在しない場合, the ArchiTrackシステム shall 「見積書はまだありません」メッセージと新規作成ボタンを表示する
+12. While 見積書データをロード中の場合, the ArchiTrackシステム shall スケルトンローダーを表示する
+13. The ArchiTrackシステム shall 見積書セクションのUIを既存の見積依頼セクションと同様のスタイルで提供する
+
+### Requirement 29: プロジェクト詳細画面のAPI効率化
+
+**Objective:** As a 開発者, I want プロジェクト詳細画面のAPIリクエスト数を削減したい, so that ページ表示のパフォーマンスを向上し、サーバー負荷を軽減できる
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の初期表示に必要なセクションデータ（現場調査サマリー、数量表サマリー、内訳書サマリー、見積依頼サマリー、見積書サマリー）を一括取得するAPIエンドポイントを提供する
+2. When プロジェクト詳細画面を表示する, the ArchiTrackシステム shall プロジェクト基本情報・ステータス変更履歴・各セクションサマリーを最小限のAPIリクエスト数で取得する
+3. The ArchiTrackシステム shall 一括取得APIエンドポイントのレスポンスに、各セクションの総数（totalCount）と直近データ（latest items）を含める
+4. If 一括取得APIリクエストの個別セクションでエラーが発生した場合, the ArchiTrackシステム shall エラーが発生したセクションのデータをデフォルト値（0件）として返却し、他のセクションのデータは正常に返却する
+5. The ArchiTrackシステム shall 一括取得APIの導入により、プロジェクト詳細画面の初期表示に必要なAPIリクエスト数を従来の7リクエストから大幅に削減する
+6. The ArchiTrackシステム shall 一括取得APIのレスポンス形式を、既存の個別APIと互換性のあるデータ構造で提供する

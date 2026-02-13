@@ -26,8 +26,8 @@
 
 ### Non-Goals
 
-- 現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
-- 見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）
+- ~~現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）~~ → 現場調査セクション表示はproject-management Requirement 24で管理
+- ~~見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）~~ → 見積書セクション表示はproject-management Requirement 28で管理
 - 取引先管理機能の実装（別仕様`trading-partner-management`として定義）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
@@ -280,6 +280,70 @@ sequenceDiagram
     UI->>UI: ステータス更新・履歴反映
 ```
 
+### プロジェクト詳細一括取得フロー（29.1-29.6）
+
+```mermaid
+sequenceDiagram
+    participant FE as ProjectDetailPage
+    participant API as Backend API
+    participant PS as ProjectService
+    participant PSS as ProjectStatusService
+    participant SS as SiteSurveyService
+    participant QT as QuantityTableService
+    participant IS as ItemizedStatementService
+    participant ER as EstimateRequestService
+    participant ES as EstimateService
+    participant DB as PostgreSQL
+
+    FE->>API: GET /api/projects/:id/detail-summary
+    API->>API: JWT認証・権限チェック
+
+    par プロジェクト基本情報とステータス履歴
+        API->>PS: getProject(id)
+        PS->>DB: SELECT project
+        DB-->>PS: Project
+    and
+        API->>PSS: getStatusHistory(id)
+        PSS->>DB: SELECT status_history
+        DB-->>PSS: StatusHistory[]
+    end
+
+    Note over API: Promise.allSettled で5セクション並列取得
+
+    par セクションサマリー並列取得
+        API->>SS: findLatestByProjectId(id)
+        SS->>DB: SELECT site_surveys
+        DB-->>SS: SurveySummary
+    and
+        API->>QT: findLatestByProjectId(id)
+        QT->>DB: SELECT quantity_tables
+        DB-->>QT: QuantityTableSummary
+    and
+        API->>IS: findLatestByProjectId(id)
+        IS->>DB: SELECT itemized_statements
+        DB-->>IS: ItemizedStatementSummary
+    and
+        API->>ER: findLatestByProjectId(id)
+        ER->>DB: SELECT estimate_requests
+        DB-->>ER: EstimateRequestSummary
+    and
+        API->>ES: findLatestByProjectId(id)
+        ES->>DB: SELECT estimates
+        DB-->>ES: EstimateSummary
+    end
+
+    Note over API: 個別セクションエラー時はデフォルト値にフォールバック
+
+    API-->>FE: 200 OK (ProjectDetailSummary)
+    FE->>FE: 全セクション一括レンダリング
+```
+
+**Key Decisions**:
+- プロジェクト基本情報+ステータス履歴は必須データ（取得失敗時は404/403エラー）
+- 5つのセクションサマリーは`Promise.allSettled()`で並列取得（個別エラーはフォールバック）
+- 既存の個別APIエンドポイントは削除せず互換性を維持
+- 7リクエスト（2並列+5逐次）を1リクエストに統合し、レイテンシを大幅削減
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -313,6 +377,12 @@ sequenceDiagram
 | 21.14-21.18 | パンくずナビゲーション | Breadcrumb, ProjectListPage, ProjectDetailPage, ProjectCreatePage, ProjectEditPage | - | - |
 | 22.1-22.11 | 取引先連携（**ひらがな・カタカナ両対応、ラベル「顧客名」**） | ProjectForm, TradingPartnerSelect, ProjectDetailPage, ProjectService | GET /api/trading-partners, GET /api/projects | - |
 | 23.1-23.6 | **ステータス別件数表示（全プロジェクト対象、新規APIエンドポイント）**（差分13） | ProjectListPage, ProjectService | GET /api/projects/status-counts | - |
+| 24.1-24.2 | **現場調査セクション表示**（site-surveyから集約） | ProjectDetailPage, SiteSurveySectionCard | GET /api/projects/:id/detail-summary | - |
+| 25.1-25.7 | **数量表セクション表示**（quantity-table-generationから集約） | ProjectDetailPage, QuantityTableSectionCard | GET /api/projects/:id/detail-summary | - |
+| 26.1-26.11 | **内訳書セクション表示**（itemized-statement-generationから集約） | ProjectDetailPage, ItemizedStatementSectionCard | GET /api/projects/:id/detail-summary | - |
+| 27.1-27.8 | **見積依頼セクション表示**（estimate-requestから集約） | ProjectDetailPage, EstimateRequestSectionCard | GET /api/projects/:id/detail-summary | - |
+| 28.1-28.13 | **見積書セクション表示**（estimate-creationから集約） | ProjectDetailPage, EstimateSectionCard | GET /api/projects/:id/detail-summary | - |
+| 29.1-29.6 | **プロジェクト詳細API効率化（7リクエスト→1リクエスト）**（差分設計2026-02-13） | ProjectRoutes, ProjectDetailPage, SiteSurveyService, QuantityTableService, ItemizedStatementService, EstimateRequestService, EstimateService | GET /api/projects/:id/detail-summary | プロジェクト詳細一括取得フロー |
 
 ## Components and Interfaces
 
@@ -322,7 +392,7 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず + **デフォルト終端ステータス除外 + ステータス別件数表示（全プロジェクト対象）** | 2, 3, 4, 5, 6, 21.14, 23 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
 | ProjectListTable | UI/Component | **一覧テーブル（ID列削除、営業担当者・工事担当者列追加）** | 2.2 | ProjectListPage (P0) | - |
-| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず | 7, 8, 9, 10, 11, 21.15, 21.17, 22 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1) | State |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず + **5セクション統合表示（一括取得API）** | 7, 8, 9, 10, 11, 21.15, 21.17, 22, 24-28, 29 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1), SiteSurveySectionCard (P1), QuantityTableSectionCard (P1), ItemizedStatementSectionCard (P1), EstimateRequestSectionCard (P1), EstimateSectionCard (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
 | ProjectForm | UI/Component | プロジェクト作成・編集フォーム + **顧客選択時の現場住所自動入力** | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
 | TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応、ラベル「顧客名」、onSelectコールバック追加**） | 1.6, 1.7, 16, 22 | TradingPartnerAPI (P1), kana-converter (P1) | API |
@@ -332,7 +402,12 @@ sequenceDiagram
 | Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
 | ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック + かな検索両対応 + デフォルト終端ステータス除外 + ステータス別件数集計** | 1-9, 11, 13, 14, 16.3, 22.5, 23 | Prisma (P0), AuditLogService (P1), kana-converter (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
-| ProjectRoutes | Backend/Route | RESTful APIエンドポイント | 14 | ProjectService (P0), authorize (P0) | API |
+| ProjectRoutes | Backend/Route | RESTful APIエンドポイント + **detail-summary一括取得エンドポイント** | 14, 29 | ProjectService (P0), authorize (P0), SiteSurveyService (P1), QuantityTableService (P1), ItemizedStatementService (P1), EstimateRequestService (P1), EstimateService (P1) | API |
+| SiteSurveySectionCard | UI/Component | 現場調査セクションカード（直近2件・総数・一覧リンク） | 24 | ProjectDetailPage (P0) | - |
+| QuantityTableSectionCard | UI/Component | 数量表セクションカード（直近カード・総数・新規作成・一覧リンク） | 25 | ProjectDetailPage (P0) | - |
+| ItemizedStatementSectionCard | UI/Component | 内訳書セクションカード（降順一覧・数量表依存メッセージ・新規作成・一覧リンク） | 26 | ProjectDetailPage (P0), QuantityTableSectionCard (P1) | - |
+| EstimateRequestSectionCard | UI/Component | 見積依頼セクションカード（一覧・新規作成・すべて見るリンク・空状態表示） | 27 | ProjectDetailPage (P0) | - |
+| EstimateSectionCard | UI/Component | 見積書セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 28 | ProjectDetailPage (P0) | - |
 
 ---
 
@@ -1794,8 +1869,8 @@ interface ProjectStatusHistory {
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクト関連のRESTful APIエンドポイントを提供 |
-| Requirements | 14.1-14.7 |
+| Intent | プロジェクト関連のRESTful APIエンドポイントを提供 + **detail-summary一括取得エンドポイント** |
+| Requirements | 14.1-14.7, 29.1-29.6 |
 | Owner / Reviewers | Backend Team |
 
 **Responsibilities & Constraints**
@@ -1819,6 +1894,7 @@ interface ProjectStatusHistory {
 | GET | /api/projects | ProjectListQuery | PaginatedProjects | 400, 401, 403 |
 | GET | /api/projects/status-counts | - | StatusCountsResponse | 401, 403 |
 | GET | /api/projects/:id | - | ProjectDetail | 400, 401, 403, 404 |
+| **GET** | **/api/projects/:id/detail-summary** | **-** | **ProjectDetailSummary** | **400, 401, 403, 404** |
 | POST | /api/projects | CreateProjectRequest | ProjectInfo | 400, 401, 403, **409** |
 | PUT | /api/projects/:id | UpdateProjectRequest | ProjectInfo | 400, 401, 403, 404, **409** |
 | DELETE | /api/projects/:id | - | - | 400, 401, 403, 404 |
@@ -1846,6 +1922,19 @@ interface ProjectListQuery {
 interface StatusCountsResponse {
   counts: Record<ProjectStatus, number>; // 全12ステータスの件数
   total: number;                         // 合計件数
+}
+
+// GET /api/projects/:id/detail-summary レスポンス（29.1-29.6）
+interface ProjectDetailSummary {
+  project: ProjectDetail;                    // プロジェクト基本情報
+  statusHistory: StatusHistoryResponse[];    // ステータス変更履歴
+  sections: {
+    siteSurveys: ProjectSurveySummary;       // { totalCount, latestSurveys[] } (24.1-24.2)
+    quantityTables: ProjectQuantityTableSummary; // { totalCount, latestTables[] } (25.1-25.7)
+    itemizedStatements: ProjectItemizedStatementSummary; // { totalCount, latestStatements[] } (26.1-26.11)
+    estimateRequests: ProjectEstimateRequestSummary; // { totalCount, latestRequests[] } (27.1-27.8)
+    estimates: EstimateSummary;               // { totalCount, latestEstimates[] } (28.1-28.13)
+  };
 }
 
 // POST /api/projects リクエストボディ
@@ -1945,7 +2034,8 @@ interface DuplicateProjectNameErrorResponse {
 - Validation: Zodスキーマを使用、`validate.middleware.ts`と連携
 - **409エラー**: プロジェクト名重複時はDuplicateProjectNameErrorResponse形式で返却
 - **status-countsルート配置**: `/api/projects/status-counts`は`/api/projects/:id`より前に定義（Expressルートマッチング順序）
-- **Swaggerドキュメント更新**: limitデフォルト値を100に変更、excludeTerminalStatusesパラメータを追加、status-countsエンドポイントのドキュメントを追加
+- **detail-summaryエンドポイント（29.1-29.6）**: `GET /api/projects/:id/detail-summary`で全セクションデータを一括取得。`Promise.allSettled()`で5サービスを並列呼び出し、個別エラー時はデフォルト値にフォールバック。既存サービスメソッド（`findLatestByProjectId`）を再利用
+- **Swaggerドキュメント更新**: limitデフォルト値を100に変更、excludeTerminalStatusesパラメータを追加、status-countsエンドポイントのドキュメントを追加、detail-summaryエンドポイントのドキュメントを追加
 - Risks: レート制限の設定が必要（既存の`express-rate-limit`を使用）
 
 ---
@@ -2022,8 +2112,8 @@ interface ProjectListState {
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクト詳細情報の表示、編集、削除、ステータス変更機能を提供 |
-| Requirements | 7.1-7.6, 8.1-8.8, 9.1-9.7, 10.1-10.16, 11.1-11.6 |
+| Intent | プロジェクト詳細情報の表示、編集、削除、ステータス変更機能を提供 + **5セクション統合表示（一括取得API経由）** |
+| Requirements | 7.1-7.6, 8.1-8.8, 9.1-9.7, 10.1-10.16, 11.1-11.6, 24.1-24.2, 25.1-25.7, 26.1-26.11, 27.1-27.8, 28.1-28.13, 29.1-29.6 |
 | Owner / Reviewers | Frontend Team |
 
 **Responsibilities & Constraints**
@@ -2031,12 +2121,24 @@ interface ProjectListState {
 - 編集ページへの遷移（編集ボタン押下で`/projects/:id/edit`へ遷移）
 - 削除確認ダイアログ
 - ステータス遷移UI（順方向・差し戻しの視覚的区別）
-- 関連データ（現場調査・見積書）の件数表示とリンク（機能フラグで制御）
+- **プロジェクト詳細一括取得APIで全セクションデータを1リクエストで取得**（29.1-29.6）
+- **5つのセクションカードコンポーネントの統合表示**:
+  - 現場調査セクション（SiteSurveySectionCard）: 直近2件・総数・一覧リンク（24.1-24.2）
+  - 数量表セクション（QuantityTableSectionCard）: 直近カード・総数・新規作成・一覧リンク（25.1-25.7）
+  - 内訳書セクション（ItemizedStatementSectionCard）: 降順一覧・数量表依存メッセージ・新規作成（26.1-26.11）
+  - 見積依頼セクション（EstimateRequestSectionCard）: 一覧・新規作成・空状態表示（27.1-27.8）
+  - 見積書セクション（EstimateSectionCard）: 直近カード・総数・スケルトンローダー（28.1-28.13）
 
 **Dependencies**
 - Inbound: Router — ページ遷移 (P0)
-- Outbound: ProjectService API — データ取得・削除 (P0)
+- Outbound: ProjectService API (`/api/projects/:id/detail-summary`) — **一括データ取得** (P0)
+- Outbound: ProjectService API (`DELETE /api/projects/:id`) — 削除 (P0)
 - Outbound: ProjectStatusService API — ステータス遷移 (P1)
+- Outbound: SiteSurveySectionCard — 現場調査セクション表示 (P1)
+- Outbound: QuantityTableSectionCard — 数量表セクション表示 (P1)
+- Outbound: ItemizedStatementSectionCard — 内訳書セクション表示 (P1)
+- Outbound: EstimateRequestSectionCard — 見積依頼セクション表示 (P1)
+- Outbound: EstimateSectionCard — 見積書セクション表示 (P1)
 - Outbound: ToastNotification — 通知 (P1)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
@@ -2050,11 +2152,20 @@ interface ProjectDetailState {
   isLoading: boolean;
   isDeleting: boolean;
   error: string | null;
+  // 以下、差分設計（2026-02-13）で追加: セクションサマリー状態
+  surveySummary: ProjectSurveySummary | null;            // 24.1-24.2
+  quantityTableSummary: ProjectQuantityTableSummary | null; // 25.1-25.7
+  itemizedStatementSummary: ProjectItemizedStatementSummary | null; // 26.1-26.11
+  estimateRequestSummary: ProjectEstimateRequestSummary | null; // 27.1-27.8
+  estimateSummary: EstimateSummary | null;                // 28.1-28.13
 }
 ```
 
 **Implementation Notes**
 - Integration: 削除時の関連データ確認（警告ダイアログ表示）
+- **API効率化（29.1-29.6）**: `getProjectDetailSummary(id)` 1リクエストで全データ取得。従来の7リクエスト（2並列+5逐次）を置換
+- **セクション配置順序**: 現場調査 → 数量表 → 内訳書 → 見積依頼 → 見積書（業務フロー順）
+- **個別セクションエラー時**: デフォルト値（totalCount: 0, latest*: []）でフォールバック、他セクションは正常表示（29.4）
 - Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
 - Breadcrumb: 「ダッシュボード > プロジェクト > [プロジェクト名]」のパンくずを表示（21.15）
 - 設計方針: 取引先管理機能と同様に、詳細ページは読み取り専用とし、編集は独立した`ProjectEditPage`（`/projects/:id/edit`）で行う
@@ -2290,6 +2401,155 @@ interface ProjectFormData {
 - Integration: 既存のUserモデルを活用、adminユーザーを除外
 - Validation: 選択されたユーザーIDの存在確認
 - Risks: ユーザー数が多い場合のパフォーマンス
+
+---
+
+### SiteSurveySectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に現場調査セクションを表示（直近2件・総数・一覧リンク） |
+| Requirements | 24.1, 24.2 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 現場調査の総数と直近2件の参照リンクを表示（24.1）
+- 「すべて表示」リンクで現場調査一覧画面に遷移（24.2）
+- 調査名、調査日、サムネイル画像をカード形式で表示
+- ローディング中はスケルトンローダーを表示
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+**Implementation Notes**
+- Integration: `ProjectDetailSummary.sections.siteSurveys`から受け取ったデータを表示。既存実装済みコンポーネント
+- props: `{ projectId, totalCount, latestSurveys, isLoading }`
+
+---
+
+### QuantityTableSectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に数量表セクションを表示（直近カード・総数・新規作成・一覧リンク） |
+| Requirements | 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 数量表セクションを表示（25.1）、総数・ヘッダー表示（25.2）
+- 直近の数量表カード一覧表示: 名称・更新日時・数量項目数（25.3）
+- 「すべて見る」リンクで数量表一覧画面に遷移（25.4）
+- カードクリックで数量表編集画面に遷移（25.5）
+- 数量表がない場合「数量表はまだありません」メッセージと新規作成ボタンを表示（25.6）
+- 新規作成ボタンクリックで数量表新規作成画面に遷移（25.7）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+**Implementation Notes**
+- Integration: `ProjectDetailSummary.sections.quantityTables`から受け取ったデータを表示。既存実装済みコンポーネント
+- props: `{ projectId, totalCount, latestTables, isLoading }`
+
+---
+
+### ItemizedStatementSectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に内訳書セクションを表示（降順一覧・数量表依存メッセージ・新規作成・一覧リンク） |
+| Requirements | 26.1, 26.2, 26.3, 26.4, 26.5, 26.6, 26.7, 26.8, 26.9, 26.10, 26.11 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 数量表セクションの下に内訳書セクションを表示（26.1）
+- 数量表セクションと同様のカードレイアウトを使用（26.2）
+- 作成済み内訳書を作成日時の降順で一覧表示（26.3）
+- 数量表が存在しない場合「まず数量表を作成してください」メッセージを表示（26.4）
+- 数量表はあるが内訳書がない場合「内訳書はまだありません」メッセージを表示（26.5）
+- 各行に内訳書名、作成日時、集計元数量表名、合計項目数を表示（26.6）
+- 内訳書行クリックで詳細画面に遷移（26.7）
+- 数量表が存在する場合に新規作成ボタンを表示（26.8, 26.9）
+- 一覧画面へのリンクを表示（26.10, 26.11）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+**Implementation Notes**
+- Integration: `ProjectDetailSummary.sections.itemizedStatements`と`quantityTables`から受け取ったデータを表示。既存実装済みコンポーネント
+- props: `{ projectId, totalCount, latestStatements, quantityTables, isLoading }`
+- 数量表の存在判定は`quantityTables.totalCount > 0`で行う
+
+---
+
+### EstimateRequestSectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に見積依頼セクションを表示（一覧・新規作成・すべて見るリンク・空状態表示） |
+| Requirements | 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7, 27.8 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 内訳書セクションの下に見積依頼セクションを表示（27.1）
+- 見積依頼がない場合「見積依頼はまだありません」メッセージ表示（27.2）
+- 見積依頼がない場合、メッセージの下に「新規作成」ボタン表示（27.3）
+- 見積依頼がない場合、セクション右上の「新規作成」ボタンと「すべて見る」リンクを非表示（27.4）
+- 見積依頼がある場合、セクション内に一覧表示（27.5）
+- 見積依頼がある場合、セクション右上に「新規作成」ボタンと「すべて見る」リンク表示（27.6）
+- 「新規作成」クリックで見積依頼作成画面に遷移（27.7）
+- 「すべて見る」クリックで見積依頼一覧画面に遷移（27.8）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+**Implementation Notes**
+- Integration: `ProjectDetailSummary.sections.estimateRequests`から受け取ったデータを表示。既存実装済みコンポーネント
+- props: `{ projectId, totalCount, latestRequests, isLoading }`
+
+---
+
+### EstimateSectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に見積書セクションを表示（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） |
+| Requirements | 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.8, 28.9, 28.10, 28.11, 28.12, 28.13 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 見積依頼セクションの下に見積書セクションを表示（28.1）
+- セクションタイトル「見積書」を表示（28.2）
+- 見積書の総数を表示（28.3）
+- 直近の見積書をカード形式で表示（28.4）
+- カードに見積書名、作成日時、合計金額を表示（28.5）
+- カードクリックで見積書画面に遷移（28.6）
+- 「すべて見る」リンク表示（28.7）、クリックで一覧画面に遷移（28.8）
+- 新規作成ボタン表示（28.9）、クリックで作成画面に遷移（28.10）
+- 見積書がない場合「見積書はまだありません」メッセージと新規作成ボタン表示（28.11）
+- ローディング中はスケルトンローダー表示（28.12）
+- 見積依頼セクションと同様のスタイル使用（28.13）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+**Implementation Notes**
+- Integration: `ProjectDetailSummary.sections.estimates`から受け取ったデータを表示。既存実装済みコンポーネント
+- props: `{ projectId, totalCount, latestEstimates, isLoading }`
 
 ---
 
@@ -2737,6 +2997,11 @@ enum TransitionType {
 - **ProjectListTable: 列構成変更（ID列削除、営業担当者・工事担当者列追加）**
 - **StatsSummary: ステータス別件数の表示（全12ステータス表示、0件表示、合計件数表示）**（差分13）
 - **paginationSchema: デフォルト値100の検証**（差分11）
+- **SiteSurveySectionCard: 直近2件表示、総数表示、すべて表示リンク、ローディング状態**（24.1-24.2）
+- **QuantityTableSectionCard: 直近カード表示、総数表示、空状態メッセージ、新規作成ボタン、一覧リンク**（25.1-25.7）
+- **ItemizedStatementSectionCard: 降順一覧表示、数量表依存メッセージ、新規作成ボタン、一覧リンク**（26.1-26.11）
+- **EstimateRequestSectionCard: 一覧表示、空状態表示・新規作成ボタン切替、すべて見るリンク**（27.1-27.8）
+- **EstimateSectionCard: カード表示、総数、スケルトンローダー、空状態、新規作成ボタン**（28.1-28.13）
 
 ### Integration Tests
 
@@ -2747,6 +3012,7 @@ enum TransitionType {
 - PATCH /api/projects/:id/status: ステータス遷移（順方向・差し戻し・終端遷移ルール、差し戻し理由必須チェック、履歴記録）
 - DELETE /api/projects/:id: 削除フロー（論理削除、関連データ確認）
 - GET /api/projects/:id/status-history: ステータス変更履歴取得（遷移種別・差し戻し理由表示）
+- **GET /api/projects/:id/detail-summary: 一括取得API（プロジェクト基本情報+ステータス履歴+5セクションサマリー、個別セクションエラー時のフォールバック確認、レスポンス形式の互換性）**（29.1-29.6）
 
 ### E2E/UI Tests
 
@@ -2760,6 +3026,13 @@ enum TransitionType {
 - **フィルタクリア時のデフォルト状態復帰確認**（差分12）: フィルタクリア後に終端ステータスのプロジェクトが再度除外されること
 - **デフォルト表示件数100件の確認**（差分11）: 初期表示で100件まで表示されること
 - **ステータス別件数表示（全プロジェクト対象）確認**（差分13）: 全12ステータスの件数が表示されること、フィルタ変更後も件数が変わらないこと、合計件数が正しいこと
+- **プロジェクト詳細画面セクション表示確認**:
+  - 現場調査セクション: 直近2件表示、総数表示、「すべて表示」リンク遷移（24.1-24.2）
+  - 数量表セクション: 直近カード表示、総数表示、空状態メッセージ、新規作成ボタン遷移、一覧リンク遷移（25.1-25.7）
+  - 内訳書セクション: 降順一覧表示、数量表未作成時メッセージ、数量表あり内訳書なし時メッセージ、新規作成ボタン遷移（26.1-26.11）
+  - 見積依頼セクション: 空状態表示、見積依頼あり時一覧表示、新規作成ボタン遷移、すべて見るリンク遷移（27.1-27.8）
+  - 見積書セクション: カード表示、総数、スケルトンローダー、空状態表示、新規作成ボタン遷移（28.1-28.13）
+- **プロジェクト詳細API効率化確認**（29.1-29.6）: 1リクエストで全セクションデータが取得されること、個別セクションエラー時に他セクションが正常表示されること
 - ステータス順方向遷移: ステータスボタン → 順方向遷移選択 → 確認
 - ステータス差し戻し遷移: ステータスボタン → 差し戻し遷移選択 → 理由入力 → 確認
 - ステータス遷移UIの視覚的区別: 順方向（緑）、差し戻し（オレンジ）、終端（赤）の表示確認
@@ -2830,3 +3103,194 @@ enum TransitionType {
 
 - 権限キャッシュ: 既存のRBACキャッシュ（Redis、15分TTL）を活用
 - ユーザー一覧キャッシュ: 担当者選択用（将来検討）
+
+---
+
+## 差分設計（2026-02-13要件変更対応）: プロジェクト詳細セクション集約とAPI効率化
+
+### 背景
+
+プロジェクト詳細画面には、現場調査セクション、数量表セクション、内訳書セクション、見積依頼セクション、見積書セクションの5つのセクションが存在します。これらのセクション要件は各機能specに分散して定義されていましたが、project-management spec（Requirement 24-28）に集約されました。
+
+また、プロジェクト詳細画面の初期表示時に7つの個別APIリクエストが発生しており（プロジェクト詳細、ステータス履歴、現場調査サマリー、数量表サマリー、内訳書サマリー、見積依頼サマリー、見積書サマリー）、リクエスト負荷の軽減が必要です（Requirement 29）。
+
+### 現状のAPI呼び出し構成
+
+`frontend/src/pages/ProjectDetailPage.tsx`（行325-415）の`fetchProject`関数における実際の呼び出し構成:
+
+```
+ProjectDetailPage 初期表示:
+  ├── [並列] Promise.all([
+  │   ├── getProject(id)         → GET /api/projects/:id               ← プロジェクト基本情報
+  │   └── getStatusHistory(id)   → GET /api/projects/:id/status-history ← ステータス変更履歴
+  │ ])
+  ├── [逐次] getLatestSiteSurveys(id)        → GET /api/projects/:id/site-surveys/latest     ← 現場調査サマリー
+  ├── [逐次] getLatestQuantityTables(id)     → GET /api/projects/:id/quantity-tables/summary  ← 数量表サマリー
+  ├── [逐次] getLatestItemizedStatements(id) → GET /api/projects/:id/itemized-statements/latest ← 内訳書サマリー
+  ├── [逐次] getLatestEstimateRequests(id)   → GET /api/projects/:id/estimate-requests/latest   ← 見積依頼サマリー
+  └── [逐次] getEstimatesSummary(id)         → GET /api/projects/:id/estimates/latest           ← 見積書サマリー
+合計: 7リクエスト（2並列 + 5逐次）
+```
+
+**フロントエンドAPI関数の定義元**:
+| API関数 | 定義ファイル |
+|---------|-------------|
+| `getProject` | `frontend/src/api/projects.ts` |
+| `getStatusHistory` | `frontend/src/api/projects.ts` |
+| `getLatestSiteSurveys` | `frontend/src/api/site-surveys.ts` |
+| `getLatestQuantityTables` | `frontend/src/api/quantity-tables.ts` |
+| `getLatestItemizedStatements` | `frontend/src/api/itemized-statements.ts` |
+| `getLatestEstimateRequests` | `frontend/src/api/estimate-requests.ts` |
+| `getEstimatesSummary` | `frontend/src/api/estimates.ts` |
+
+**注記**: 5つのセクションサマリー取得は`await`で逐次実行されており、各取得が個別のtry-catchブロックで囲まれています。これにより1つのセクション取得に失敗しても他のセクションは正常に表示されますが、逐次実行のため合計レイテンシが加算されます。
+
+### 改善設計: 一括取得APIエンドポイント
+
+#### 新規APIエンドポイント
+
+```
+GET /api/projects/:id/detail-summary
+```
+
+**レスポンス構造:**
+
+```typescript
+interface ProjectDetailSummary {
+  project: ProjectDetail;          // 既存 getProject() と同一
+  statusHistory: StatusHistoryResponse[]; // 既存 getStatusHistory() と同一
+  sections: {
+    siteSurveys: ProjectSurveySummary;       // { totalCount, latestSurveys[] }
+    quantityTables: ProjectQuantityTableSummary; // { totalCount, latestTables[] }
+    itemizedStatements: ProjectItemizedStatementSummary; // { totalCount, latestStatements[] }
+    estimateRequests: ProjectEstimateRequestSummary; // { totalCount, latestRequests[] }
+    estimates: EstimateSummary;               // { totalCount, latestEstimates[] }
+  };
+}
+```
+
+**エラーハンドリング:**
+- プロジェクト取得失敗: 404/403エラーをそのまま返却
+- 個別セクション取得失敗: エラーが発生したセクションはデフォルト値（`{ totalCount: 0, latest*: [] }`）を返却し、他のセクションは正常に返却する
+
+#### バックエンド実装
+
+**ファイル**: `backend/src/routes/projects.routes.ts`
+
+```typescript
+// GET /api/projects/:id/detail-summary
+router.get('/:id/detail-summary', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+
+  // プロジェクト基本情報とステータス履歴（必須）
+  const [project, statusHistory] = await Promise.all([
+    projectService.getProject(id),
+    projectStatusService.getStatusHistory(id)
+  ]);
+
+  // 各セクションサマリー（個別にtry-catchで安全に取得）
+  const sections = await getProjectSections(id);
+
+  res.json({ project, statusHistory, sections });
+});
+```
+
+**ヘルパー関数**: `getProjectSections(projectId: string)`
+- 5つのセクションサマリー取得を`Promise.allSettled()`で並列実行
+- 個別のエラーをキャッチしてデフォルト値にフォールバック
+- 全セクション取得を1回のDB I/Oサイクルで完了
+
+**呼び出し対象サービスメソッド（すべて既存メソッドを再利用）**:
+
+| サービス | メソッドシグネチャ | ファイルパス | 返却型 |
+|----------|-------------------|-------------|--------|
+| `SiteSurveyService` | `findLatestByProjectId(projectId: string, limit?: number): Promise<ProjectSurveySummary>` | `backend/src/services/site-survey.service.ts` | `{ totalCount, latestSurveys[] }` |
+| `QuantityTableService` | `findLatestByProjectId(projectId: string, limit?: number): Promise<ProjectQuantityTableSummary>` | `backend/src/services/quantity-table.service.ts` | `{ totalCount, latestTables[] }` |
+| `ItemizedStatementService` | `findLatestByProjectId(projectId: string, limit?: number): Promise<ProjectItemizedStatementSummary>` | `backend/src/services/itemized-statement.service.ts` | `{ totalCount, latestStatements[] }` |
+| `EstimateRequestService` | `findLatestByProjectId(projectId: string, limit?: number): Promise<ProjectEstimateRequestSummary>` | `backend/src/services/estimate-request.service.ts` | `{ totalCount, latestRequests[] }` |
+| `EstimateService` | `findLatestByProjectId(projectId: string, limit?: number): Promise<{ estimates: EstimateInfo[], totalCount: number }>` | `backend/src/services/estimate.service.ts` | `{ totalCount, latestEstimates[] }`（※ルートハンドラでフィールド名を`estimates`→`latestEstimates`に変換） |
+
+**注記**: 全サービスはクラスベースで、コンストラクタにて`PrismaClient`と`AuditLogService`を注入するDIパターン。既存ルートハンドラ（`site-surveys.routes.ts`等）と同一のサービスインスタンスを共有する。`limit`パラメータはデフォルト値2（プロジェクト詳細画面での表示件数）。
+
+```typescript
+// getProjectSections の実装イメージ
+async function getProjectSections(projectId: string) {
+  const results = await Promise.allSettled([
+    siteSurveyService.findLatestByProjectId(projectId),
+    quantityTableService.findLatestByProjectId(projectId),
+    itemizedStatementService.findLatestByProjectId(projectId),
+    estimateRequestService.findLatestByProjectId(projectId),
+    estimateService.findLatestByProjectId(projectId),
+  ]);
+
+  return {
+    siteSurveys: results[0].status === 'fulfilled'
+      ? results[0].value
+      : { totalCount: 0, latestSurveys: [] },
+    quantityTables: results[1].status === 'fulfilled'
+      ? results[1].value
+      : { totalCount: 0, latestTables: [] },
+    itemizedStatements: results[2].status === 'fulfilled'
+      ? results[2].value
+      : { totalCount: 0, latestStatements: [] },
+    estimateRequests: results[3].status === 'fulfilled'
+      ? results[3].value
+      : { totalCount: 0, latestRequests: [] },
+    estimates: results[4].status === 'fulfilled'
+      ? { totalCount: results[4].value.totalCount, latestEstimates: results[4].value.estimates }
+      : { totalCount: 0, latestEstimates: [] },
+  };
+}
+```
+
+#### フロントエンド実装
+
+**ファイル**: `frontend/src/api/projects.ts`
+
+```typescript
+export async function getProjectDetailSummary(id: string): Promise<ProjectDetailSummary> {
+  return apiClient.get<ProjectDetailSummary>(`/api/projects/${id}/detail-summary`);
+}
+```
+
+**ファイル**: `frontend/src/pages/ProjectDetailPage.tsx`
+
+変更前: 7リクエスト（2並列 + 5逐次）
+変更後: 1リクエスト（`getProjectDetailSummary`）
+
+```typescript
+const fetchProject = useCallback(async () => {
+  setIsLoading(true);
+  try {
+    const data = await getProjectDetailSummary(id);
+    setProject(data.project);
+    setStatusHistory(data.statusHistory);
+    setSurveySummary(data.sections.siteSurveys);
+    setQuantityTableSummary(data.sections.quantityTables);
+    setItemizedStatementSummary(data.sections.itemizedStatements);
+    setEstimateRequestSummary(data.sections.estimateRequests);
+    setEstimateSummary(data.sections.estimates);
+  } catch (err) { /* エラーハンドリング */ }
+  finally { setIsLoading(false); }
+}, [id]);
+```
+
+### 改善後のAPI呼び出し構成
+
+```
+ProjectDetailPage 初期表示:
+  └── GET /api/projects/:id/detail-summary ← 全データ一括取得
+合計: 1リクエスト
+```
+
+### 影響範囲
+
+| ファイル | 変更内容 |
+|----------|----------|
+| `backend/src/routes/projects.routes.ts` | 新規エンドポイント追加 |
+| `frontend/src/api/projects.ts` | 新規API関数追加、型定義追加 |
+| `frontend/src/pages/ProjectDetailPage.tsx` | fetchProject関数をリファクタリング |
+
+### 既存API互換性
+
+既存の個別エンドポイント（`/site-surveys/latest`、`/quantity-tables/summary`等）は削除せず、そのまま残す。一括取得エンドポイントは内部的にこれらと同じサービス層メソッドを呼び出すため、レスポンス形式は完全に互換。

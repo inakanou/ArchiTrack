@@ -667,7 +667,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
   test.describe('タスク20.3: プロジェクト詳細画面の見積書セクション', () => {
     /**
-     * @requirement estimate-creation/REQ-16.1
+     * @requirement project-management/REQ-28.1
      * 見積書セクションの表示位置確認（見積依頼セクションの下）
      */
     test('REQ-16.1：見積書セクションが表示される', async ({ page }) => {
@@ -686,7 +686,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.2
+     * @requirement project-management/REQ-28.2
      * セクションタイトル「見積書」を表示する
      */
     test('REQ-16.2：セクションタイトル「見積書」が表示される', async ({ page }) => {
@@ -705,7 +705,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.3
+     * @requirement project-management/REQ-28.3
      * 見積書の総数を表示する
      */
     test('REQ-16.3：総数が表示される', async ({ page }) => {
@@ -728,7 +728,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.4 @requirement estimate-creation/REQ-16.5
+     * @requirement project-management/REQ-28.4 @requirement project-management/REQ-28.5
      * 見積書カードの表示確認（名称、作成日時、合計金額）
      */
     test('REQ-16.4-16.5：見積書カードが表示される', async ({ page }) => {
@@ -769,7 +769,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.6
+     * @requirement project-management/REQ-28.6
      * 見積書カードクリックで見積書画面へ遷移
      */
     test('REQ-16.6：見積書カードクリックで詳細画面へ遷移する', async ({ page }) => {
@@ -813,7 +813,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.7 @requirement estimate-creation/REQ-16.8
+     * @requirement project-management/REQ-28.7 @requirement project-management/REQ-28.8
      * 「すべて見る」リンクで一覧画面へ遷移
      */
     test('REQ-16.7-16.8：「すべて見る」リンクで一覧画面へ遷移する', async ({ page }) => {
@@ -845,7 +845,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.9 @requirement estimate-creation/REQ-16.10
+     * @requirement project-management/REQ-28.9 @requirement project-management/REQ-28.10
      * 新規作成ボタンクリックで作成画面へ遷移
      */
     test('REQ-16.9-16.10：新規作成ボタンで作成画面へ遷移する', async ({ page }) => {
@@ -874,7 +874,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.11
+     * @requirement project-management/REQ-28.11
      * 空状態表示確認
      */
     test('REQ-16.11：見積書がない場合は空状態が表示される', async ({ page, request }) => {
@@ -938,7 +938,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.12
+     * @requirement project-management/REQ-28.12
      * スケルトンローダー表示確認
      * Note: スケルトンはロード中に一瞬だけ表示されるため、ネットワークスロットリングを使用
      */
@@ -974,7 +974,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-16.13
+     * @requirement project-management/REQ-28.13
      * 見積書セクションのUIが見積依頼セクションと同様のスタイル
      * Note: スタイルの一貫性はUIの視覚的確認となるため、構造の確認を行う
      */

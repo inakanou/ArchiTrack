@@ -153,11 +153,11 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-2.1
-   * @requirement site-survey/REQ-2.2
+   * @requirement project-management/REQ-24.1
+   * @requirement project-management/REQ-24.2
    */
   test.describe('プロジェクト詳細から現場調査へのナビゲーション', () => {
-    test('プロジェクト詳細画面に現場調査タブ/セクションが表示される (site-survey/REQ-2.1)', async ({
+    test('プロジェクト詳細画面に現場調査タブ/セクションが表示される (project-management/REQ-24.1)', async ({
       page,
     }) => {
       if (!createdProjectId) {
@@ -182,7 +182,9 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       expect(hasLink || hasTab || hasSection).toBeTruthy();
     });
 
-    test('現場調査タブをクリックすると一覧が表示される (site-survey/REQ-2.2)', async ({ page }) => {
+    test('現場調査タブをクリックすると一覧が表示される (project-management/REQ-24.2)', async ({
+      page,
+    }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }

@@ -151,12 +151,12 @@ test.describe('現場調査 Phase 18 追加要件', () => {
   });
 
   // ============================================================================
-  // REQ-2.1: プロジェクト詳細画面の現場調査セクション表示テスト
+  // REQ-24.1 (project-management): プロジェクト詳細画面の現場調査セクション表示テスト
   // ============================================================================
 
-  test.describe('プロジェクト詳細画面の現場調査セクション (REQ-2.1)', () => {
+  test.describe('プロジェクト詳細画面の現場調査セクション (project-management/REQ-24.1)', () => {
     /**
-     * @requirement site-survey/REQ-2.1
+     * @requirement project-management/REQ-24.1
      */
     test('現場調査セクションが表示される', async ({ page }) => {
       if (!createdProjectId) {
@@ -180,7 +180,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-2.1
+     * @requirement project-management/REQ-24.1
      */
     test('直近の現場調査と総数が表示される', async ({ page }) => {
       if (!createdProjectId) {
@@ -209,7 +209,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-2.1
+     * @requirement project-management/REQ-24.1
      */
     test('「すべて見る」リンクから一覧画面に遷移できる', async ({ page }) => {
       if (!createdProjectId) {
@@ -238,7 +238,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-2.1
+     * @requirement project-management/REQ-24.1
      */
     test('現場調査カードをクリックして詳細画面に遷移できる', async ({ page }) => {
       if (!createdProjectId || !createdSurveyId) {

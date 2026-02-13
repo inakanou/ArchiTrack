@@ -37,16 +37,18 @@
 
 ### Requirement 3: 内訳書一覧表示
 
+~~→ project-management/Requirement 26 に全AC移動~~
+
 **Objective:** As a プロジェクト担当者, I want プロジェクト詳細画面で作成済み内訳書の一覧を確認する, so that 必要な内訳書に素早くアクセスできる
 
 #### Acceptance Criteria
 
-1. The プロジェクト詳細画面 shall 数量表セクションの下に内訳書セクションを表示する
-2. The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
-3. When 数量表が存在しない場合, the 内訳書セクション shall 「まず数量表を作成してください」メッセージを表示する
-4. When 数量表は存在するが内訳書が存在しない場合, the 内訳書セクション shall 「内訳書はまだありません」メッセージを表示する
-5. The 内訳書一覧の各行 shall 内訳書名、作成日時、集計元数量表名、合計項目数を表示する
-6. When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
+1. ~~→ project-management/Requirement 26 AC 1 に移動~~
+2. ~~→ project-management/Requirement 26 AC 3 に移動~~
+3. ~~→ project-management/Requirement 26 AC 4 に移動~~
+4. ~~→ project-management/Requirement 26 AC 5 に移動~~
+5. ~~→ project-management/Requirement 26 AC 6 に移動~~
+6. ~~→ project-management/Requirement 26 AC 7 に移動~~
 
 ### Requirement 4: 内訳書詳細画面
 
@@ -138,16 +140,18 @@
 
 ### Requirement 11: プロジェクト詳細画面への統合
 
+~~→ project-management/Requirement 26 に全AC移動~~
+
 **Objective:** As a ユーザー, I want プロジェクト詳細画面から内訳書機能にアクセスする, so that 数量表機能と同じ操作感で内訳書を管理できる
 
 #### Acceptance Criteria
 
-1. The プロジェクト詳細画面 shall 数量表セクションの下に内訳書セクションを配置する
-2. The 内訳書セクション shall 数量表セクションと同様のカードレイアウトを使用する
-3. When 数量表が存在する場合, the 内訳書セクション shall 新規作成ボタンを表示する
-4. When ユーザーが新規作成ボタンをクリックする, the システム shall 内訳書新規作成画面に遷移する
-5. The 内訳書セクション shall 作成済み内訳書へのリンクをリスト表示する
-6. The 内訳書セクション shall 一覧画面へのリンクを表示する
+1. ~~→ project-management/Requirement 26 AC 1 に移動~~
+2. ~~→ project-management/Requirement 26 AC 2 に移動~~
+3. ~~→ project-management/Requirement 26 AC 8 に移動~~
+4. ~~→ project-management/Requirement 26 AC 9 に移動~~
+5. ~~→ project-management/Requirement 26 AC 10 に移動~~
+6. ~~→ project-management/Requirement 26 AC 11 に移動~~
 
 ### Requirement 12: ローディング表示
 

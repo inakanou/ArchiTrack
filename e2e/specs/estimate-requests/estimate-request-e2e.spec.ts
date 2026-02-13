@@ -311,7 +311,7 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 1: 見積依頼セクション表示', () => {
     /**
-     * @requirement estimate-request/REQ-1.1
+     * @requirement project-management/REQ-27.1
      * プロジェクト詳細画面の内訳書セクションの下に見積依頼セクションを表示する
      */
     test('REQ-1.1: プロジェクト詳細画面に見積依頼セクションが表示される', async ({ page }) => {
@@ -329,7 +329,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-1.2
+     * @requirement project-management/REQ-27.2
      * 見積依頼セクションに「新規作成」ボタンを表示する
      */
     test('REQ-1.2: 見積依頼セクションに「新規作成」ボタンが表示される', async ({ page }) => {
@@ -349,7 +349,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-1.3
+     * @requirement project-management/REQ-27.3
      * 見積依頼が存在しない場合、セクション右上の「すべて見る」リンクを非表示にする（要件4）
      */
     test('REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である', async ({ page }) => {
@@ -369,7 +369,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-1.4
+     * @requirement project-management/REQ-27.4
      * 「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
      */
     test('REQ-1.4: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する', async ({ page }) => {
@@ -392,7 +392,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-1.5
+     * @requirement project-management/REQ-27.5
      * 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンも非表示である（要件4）
      * 注: 「すべて見る」リンクのクリック遷移テストはREQ-1.8（見積依頼存在時）でカバー
      */
@@ -670,10 +670,10 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 1: 見積依頼セクション表示（見積依頼存在時）', () => {
     /**
-     * @requirement estimate-request/REQ-1.6
+     * @requirement project-management/REQ-27.6
      * 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する
      */
-    test('REQ-1.6: 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する (estimate-request/REQ-1.6)', async ({
+    test('REQ-1.6: 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する (project-management/REQ-27.6)', async ({
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();
@@ -698,10 +698,10 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-1.7
+     * @requirement project-management/REQ-27.7
      * ユーザーが「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
      */
-    test('REQ-1.7: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する (estimate-request/REQ-1.7)', async ({
+    test('REQ-1.7: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する (project-management/REQ-27.7)', async ({
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();
@@ -724,10 +724,10 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-1.8
+     * @requirement project-management/REQ-27.8
      * ユーザーが「すべて見る」リンクをクリックしたとき、見積依頼一覧画面に遷移する
      */
-    test('REQ-1.8: 「すべて見る」リンクをクリックで見積依頼一覧画面に遷移する (estimate-request/REQ-1.8)', async ({
+    test('REQ-1.8: 「すべて見る」リンクをクリックで見積依頼一覧画面に遷移する (project-management/REQ-27.8)', async ({
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();

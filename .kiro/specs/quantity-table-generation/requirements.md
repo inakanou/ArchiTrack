@@ -85,16 +85,19 @@
 ## Requirements
 
 ### Requirement 1: プロジェクト詳細画面の数量表セクション
+
+~~→ project-management/Requirement 25 に全AC移動~~
+
 **Objective:** 積算担当者として、プロジェクト詳細画面から数量表へ簡単にアクセスしたい。
 
 #### Acceptance Criteria
-1. When プロジェクト詳細画面を表示する, the 数量表管理システム shall 数量表セクションを表示する
-2. While 数量表セクションが表示されている状態で, the 数量表管理システム shall 数量表の総数（全N件）とヘッダーを表示する
-3. Where プロジェクトに数量表が存在する場合, the 数量表管理システム shall 直近の数量表カード（名称・更新日時・数量項目数）を一覧表示する
-4. When 数量表セクションの「すべて見る」リンクをクリックする, the 数量表管理システム shall 数量表一覧画面（/projects/{projectId}/quantity-tables）に遷移する
-5. When 数量表カードをクリックする, the 数量表管理システム shall 該当数量表の編集画面（/projects/{projectId}/quantity-tables/{quantityTableId}）に遷移する
-6. Where プロジェクトに数量表が存在しない場合, the 数量表管理システム shall 「数量表はまだありません」メッセージと新規作成ボタンを表示する
-7. When 新規作成ボタンをクリックする, the 数量表管理システム shall 数量表新規作成画面（/projects/{projectId}/quantity-tables/new）に遷移する
+1. ~~→ project-management/Requirement 25 AC 1 に移動~~
+2. ~~→ project-management/Requirement 25 AC 2 に移動~~
+3. ~~→ project-management/Requirement 25 AC 3 に移動~~
+4. ~~→ project-management/Requirement 25 AC 4 に移動~~
+5. ~~→ project-management/Requirement 25 AC 5 に移動~~
+6. ~~→ project-management/Requirement 25 AC 6 に移動~~
+7. ~~→ project-management/Requirement 25 AC 7 に移動~~
 
 ### Requirement 2: 数量表の作成・管理
 **Objective:** 積算担当者として、プロジェクトに対して複数の数量表を作成・管理したい。

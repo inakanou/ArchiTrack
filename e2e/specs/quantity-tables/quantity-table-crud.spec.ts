@@ -200,14 +200,14 @@ test.describe('数量表CRUD操作', () => {
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-1.1
-   * @requirement quantity-table-generation/REQ-1.2
-   * @requirement quantity-table-generation/REQ-1.6
+   * @requirement project-management/REQ-25.1
+   * @requirement project-management/REQ-25.2
+   * @requirement project-management/REQ-25.6
    *
-   * REQ-1: プロジェクト詳細画面の数量表セクション（数量表なし時）
+   * project-management/REQ-25: プロジェクト詳細画面の数量表セクション（数量表なし時）
    */
   test.describe('プロジェクト詳細の数量表セクション（数量表なし時）', () => {
-    test('数量表セクションが表示される (quantity-table-generation/REQ-1.1)', async ({ page }) => {
+    test('数量表セクションが表示される (project-management/REQ-25.1)', async ({ page }) => {
       if (!testProjectId) {
         throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -221,7 +221,7 @@ test.describe('数量表CRUD操作', () => {
       await expect(quantityTableSection).toBeVisible({ timeout: getTimeout(10000) });
     });
 
-    test('数量表セクションにヘッダーと総数が表示される (quantity-table-generation/REQ-1.2)', async ({
+    test('数量表セクションにヘッダーと総数が表示される (project-management/REQ-25.2)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -241,7 +241,7 @@ test.describe('数量表CRUD操作', () => {
       });
     });
 
-    test('数量表がない場合は空状態メッセージと新規作成リンクを表示 (quantity-table-generation/REQ-1.6)', async ({
+    test('数量表がない場合は空状態メッセージと新規作成リンクを表示 (project-management/REQ-25.6)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -263,7 +263,7 @@ test.describe('数量表CRUD操作', () => {
       await expect(createLink).toBeVisible({ timeout: getTimeout(5000) });
     });
 
-    test('新規作成ボタンをクリックして数量表新規作成画面に遷移する (quantity-table-generation/REQ-1.7)', async ({
+    test('新規作成ボタンをクリックして数量表新規作成画面に遷移する (project-management/REQ-25.7)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -463,15 +463,15 @@ test.describe('数量表CRUD操作', () => {
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-1.4
-   * @requirement quantity-table-generation/REQ-1.5
-   * @requirement quantity-table-generation/REQ-1.7
+   * @requirement project-management/REQ-25.4
+   * @requirement project-management/REQ-25.5
+   * @requirement project-management/REQ-25.7
    *
-   * REQ-1: プロジェクト詳細画面の数量表セクション（数量表あり時）
+   * project-management/REQ-25: プロジェクト詳細画面の数量表セクション（数量表あり時）
    * 注: これらのテストは数量表作成後に実行する必要がある
    */
   test.describe('プロジェクト詳細の数量表セクション（数量表あり時）', () => {
-    test('直近の数量表カードに名称・更新日時・数量項目数が表示される (quantity-table-generation/REQ-1.3)', async ({
+    test('直近の数量表カードに名称・更新日時・数量項目数が表示される (project-management/REQ-25.3)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -515,7 +515,7 @@ test.describe('数量表CRUD操作', () => {
       expect(metaText).toMatch(/\d+項目/);
     });
 
-    test('「すべて見る」リンクをクリックして数量表一覧画面に遷移する (quantity-table-generation/REQ-1.4)', async ({
+    test('「すべて見る」リンクをクリックして数量表一覧画面に遷移する (project-management/REQ-25.4)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -552,7 +552,7 @@ test.describe('数量表CRUD操作', () => {
       await expect(page.getByText(/404|ページが見つかりません/)).not.toBeVisible({ timeout: 3000 });
     });
 
-    test('数量表カードをクリックして編集画面に遷移する (quantity-table-generation/REQ-1.5)', async ({
+    test('数量表カードをクリックして編集画面に遷移する (project-management/REQ-25.5)', async ({
       page,
     }) => {
       if (!testProjectId) {
