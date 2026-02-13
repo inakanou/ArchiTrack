@@ -467,26 +467,22 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
       await page.waitForLoadState('networkidle');
 
-      // 数量表名を入力して保存
-      const nameInput = page.getByLabel(/名称|名前|数量表名/i);
-      const isVisible = await nameInput.isVisible({ timeout: 5000 }).catch(() => false);
-      if (isVisible) {
-        await nameInput.fill(`REQ-26.5テスト用数量表_${Date.now()}`);
+      // 数量表名を入力して作成
+      await page
+        .getByRole('textbox', { name: /数量表名/i })
+        .fill(`REQ-26.5テスト用数量表_${Date.now()}`);
 
-        // 保存ボタンをクリック
-        const saveButton = page.getByRole('button', { name: /保存/i });
-        if (await saveButton.isVisible()) {
-          const saveResponse = page.waitForResponse(
-            (response) =>
-              response.url().includes('/quantity-tables') &&
-              (response.request().method() === 'POST' || response.request().method() === 'PUT') &&
-              (response.status() === 200 || response.status() === 201),
-            { timeout: getTimeout(15000) }
-          );
-          await saveButton.click();
-          await saveResponse;
-        }
-      }
+      const createQuantityTablePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api') &&
+          response.url().includes('quantity-tables') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(15000) }
+      );
+
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      await createQuantityTablePromise;
 
       // プロジェクト詳細画面に戻る
       await navigateToProjectDetail(page, testProjectId);
