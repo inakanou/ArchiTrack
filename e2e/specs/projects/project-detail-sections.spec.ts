@@ -292,7 +292,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       await expect(isSection).toBeVisible({ timeout: getTimeout(10000) });
 
       // 数量表がないので「まず数量表を作成してください」メッセージが表示される
-      await expect(isSection.getByText(/まず数量表を作成してください|数量表を作成/i)).toBeVisible({
+      await expect(isSection.getByText('まず数量表を作成してください')).toBeVisible({
         timeout: getTimeout(5000),
       });
     });
