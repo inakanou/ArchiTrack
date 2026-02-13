@@ -20,6 +20,7 @@ import express, { type Application, type Request, type Response, type NextFuncti
 const mockAnnotationService = vi.hoisted(() => ({
   save: vi.fn(),
   findByImageId: vi.fn(),
+  findByImageIds: vi.fn(),
   getAnnotationWithValidation: vi.fn(),
   exportAsJson: vi.fn(),
   delete: vi.fn(),
@@ -422,6 +423,126 @@ describe('Annotation Routes', () => {
 
       // 認証モックが適用されているので200を期待
       expect(response.status).toBe(200);
+    });
+  });
+
+  // ===========================================================================
+  // POST /api/site-surveys/annotations/batch テスト
+  // Task 43.2: バッチ注釈取得エンドポイントの単体テスト
+  // Requirements: 18.1, 18.6
+  // ===========================================================================
+
+  describe('POST /api/site-surveys/annotations/batch', () => {
+    const TEST_SURVEY_ID = '550e8400-e29b-41d4-a716-446655440010';
+    const TEST_IMAGE_ID_1 = '550e8400-e29b-41d4-a716-446655440011';
+    const TEST_IMAGE_ID_2 = '550e8400-e29b-41d4-a716-446655440012';
+
+    const batchMockAnnotation1 = {
+      id: '550e8400-e29b-41d4-a716-446655440020',
+      imageId: TEST_IMAGE_ID_1,
+      data: mockAnnotationData,
+      version: '1.0',
+      createdAt: new Date('2025-01-01T00:00:00Z'),
+      updatedAt: new Date('2025-01-02T00:00:00Z'),
+    };
+
+    beforeEach(() => {
+      // バッチルートも同じルーターに含まれるのでapp再構築
+      vi.clearAllMocks();
+
+      app = express();
+      app.use(express.json());
+      // 個別注釈ルートは /api/site-surveys/images にマウント
+      app.use('/api/site-surveys/images', annotationRouter);
+      // バッチ注釈ルートは /api/site-surveys にマウント
+      app.use('/api/site-surveys', annotationRouter);
+      app.use(errorHandler);
+    });
+
+    it('正常系: 複数画像IDに対する注釈データをバッチ取得する（Requirements: 18.1）', async () => {
+      const mockResult = {
+        [TEST_IMAGE_ID_1]: batchMockAnnotation1,
+        [TEST_IMAGE_ID_2]: null,
+      };
+
+      (mockAnnotationService.findByImageIds as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockResult
+      );
+
+      const response = await request(app)
+        .post('/api/site-surveys/annotations/batch')
+        .send({
+          surveyId: TEST_SURVEY_ID,
+          imageIds: [TEST_IMAGE_ID_1, TEST_IMAGE_ID_2],
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('annotations');
+      expect(response.body.annotations[TEST_IMAGE_ID_1]).toMatchObject({
+        id: batchMockAnnotation1.id,
+        imageId: TEST_IMAGE_ID_1,
+        data: mockAnnotationData,
+      });
+      expect(response.body.annotations[TEST_IMAGE_ID_2]).toBeNull();
+      expect(mockAnnotationService.findByImageIds).toHaveBeenCalledWith(
+        [TEST_IMAGE_ID_1, TEST_IMAGE_ID_2],
+        TEST_SURVEY_ID
+      );
+    });
+
+    it('surveyIdが未指定の場合に400エラーを返す（Requirements: 18.6）', async () => {
+      const response = await request(app)
+        .post('/api/site-surveys/annotations/batch')
+        .send({
+          imageIds: [TEST_IMAGE_ID_1],
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('imageIdsが不正な形式の場合に400エラーを返す', async () => {
+      const response = await request(app).post('/api/site-surveys/annotations/batch').send({
+        surveyId: TEST_SURVEY_ID,
+        imageIds: 'not-an-array',
+      });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('imageIdsが空配列の場合に400エラーを返す', async () => {
+      const response = await request(app).post('/api/site-surveys/annotations/batch').send({
+        surveyId: TEST_SURVEY_ID,
+        imageIds: [],
+      });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('imageIdsに不正なUUID形式が含まれる場合に400エラーを返す', async () => {
+      const response = await request(app)
+        .post('/api/site-surveys/annotations/batch')
+        .send({
+          surveyId: TEST_SURVEY_ID,
+          imageIds: ['not-a-uuid'],
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('surveyに属さない画像IDが含まれる場合に404エラーを返す', async () => {
+      (mockAnnotationService.findByImageIds as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new AnnotationImageNotFoundError(TEST_IMAGE_ID_1)
+      );
+
+      const response = await request(app)
+        .post('/api/site-surveys/annotations/batch')
+        .send({
+          surveyId: TEST_SURVEY_ID,
+          imageIds: [TEST_IMAGE_ID_1],
+        });
+
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('ANNOTATION_IMAGE_NOT_FOUND');
     });
   });
 });

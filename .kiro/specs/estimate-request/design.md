@@ -6,7 +6,7 @@
 
 **Users**: 営業担当者および工事担当者が、協力業者への見積依頼作成・管理・送信準備、および受領見積書の登録・管理に使用する。
 
-**Impact**: プロジェクト管理機能に見積依頼セクションを追加し、内訳書・取引先・プロジェクトエンティティと連携する新規機能を実装する。受領見積書はファイルアップロードと構造化明細行データの共存モデルへ移行し、OCR/データパースによる入力支援機能を追加する。項目選択セクションの保存方式をクライアントサイド状態管理+保存ボタン方式に変更し、受領見積書への項目選択一括転記機能を追加する。
+**Impact**: プロジェクト管理機能に見積依頼セクションを追加し、内訳書・取引先・プロジェクトエンティティと連携する新規機能を実装する。受領見積書はファイルアップロードと構造化明細行データの共存モデルへ移行し、OCR/データパースによる入力支援機能を追加する。項目選択セクションの保存方式をクライアントサイド状態管理+保存ボタン方式に変更し、受領見積書への項目選択一括転記機能を追加する。受領見積書の明細行における数値表示形式と丸め規則を統一し、数量は小数2桁常時表示、単価・金額は整数表示とする。
 
 ### Goals
 
@@ -21,6 +21,7 @@
 - 見積依頼のステータスを管理し、進捗状況を把握できる
 - 項目選択セクションでの選択操作をクライアントサイドで管理し、保存ボタンで一括永続化する
 - 項目選択セクションで選択した内訳書項目の内容を受領見積書の明細行に一括転記できる
+- 受領見積書の明細行における数値表示形式と丸め規則を統一する（数量: 小数2桁常時表示、単価: 整数表示、金額: 整数表示）
 
 ### Non-Goals
 
@@ -315,6 +316,23 @@ sequenceDiagram
 | 13.14 | OCRエラーハンドリング | OcrDataExtractor | - | エラー処理 |
 | 14.1-14.6 | 受領見積書データ管理 | ReceivedQuotationService, ReceivedQuotationLineItem Model | CRUD APIs | データ永続化 |
 | 15.1-15.11 | 項目選択一括転記 | ReceivedQuotationForm, ItemSelectionPanel, LineItemEditor | クライアントサイドデータフロー | 項目選択一括転記フロー |
+| 16.1-16.4 | 編集画面OCR実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルOCR実行フロー |
+| 16.5-16.6 | OCRリトライ | OcrDataExtractor | - | OCRリトライフロー |
+| 16.7-16.8 | 編集画面データパース実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルデータパースフロー |
+| 16.9 | OCR失敗時の保存許可 | ReceivedQuotationForm | - | バリデーションフロー |
+| 16.10-16.12 | 編集画面OCR結果取り込み | OcrDataExtractor, LineItemEditor | - | データ取り込みフロー |
+| 17.1-17.5 | PDFテキスト抽出ハイブリッドアプローチ | OcrDataExtractor | - | PDFテキスト抽出フロー（pdfjs-dist → Tesseract OCRフォールバック） |
+| 17.6 | PDFプレビューページナビゲーション | FileInlinePreview | - | プレビュー表示 |
+| 17.7-17.8 | 処理中インジケーター・タイムアウト | OcrDataExtractor | - | OCR処理フロー |
+| 18.1-18.2 | 数量の小数2桁常時表示（登録・編集画面） | LineItemEditor | - | 数値フォーマット |
+| 18.3-18.4 | 単価の整数表示（登録・編集画面） | LineItemEditor | - | 数値フォーマット |
+| 18.5-18.6 | 金額の整数表示（登録・編集画面） | LineItemEditor | - | 金額自動計算 |
+| 18.7 | 数量フォーカスアウト時フォーマット | LineItemEditor | - | 数値フォーマット |
+| 18.8 | 単価フォーカスアウト時フォーマット | LineItemEditor | - | 数値フォーマット |
+| 18.9 | 金額自動計算の丸め規則 | LineItemEditor | - | 金額自動計算 |
+| 18.10 | OCR/データパース取り込み時の丸め適用 | OcrDataExtractor, LineItemEditor | - | データ取り込み |
+| 18.11 | 項目選択転記時の数量フォーマット適用 | ReceivedQuotationForm, LineItemEditor | - | 項目選択一括転記フロー |
+| 18.12 | 合計金額の整数表示 | LineItemEditor | - | 合計計算 |
 
 ## Components and Interfaces
 
@@ -334,10 +352,10 @@ sequenceDiagram
 | EstimateRequestStatusHistory (Model) | Data | ステータス変更履歴の永続化 | 12.11 | EstimateRequest (P0) | State |
 | ReceivedQuotationService | Backend | 受領見積書CRUD操作（明細行を含む） | 11.1-11.30, 14.1-14.6 | Prisma (P0), StorageProvider (P0), SignedUrlService (P1) | Service, API |
 | EstimateRequestStatusService | Backend | ステータス遷移管理 | 12.1-12.11 | Prisma (P0), AuditLogService (P1) | Service |
-| ReceivedQuotationForm | Frontend | 受領見積書登録フォーム（ファイル + 明細行 + 項目選択転記） | 11.1-11.30, 15.1-15.11 | FileInlinePreview (P0), LineItemEditor (P0), OcrDataExtractor (P1) | State |
+| ReceivedQuotationForm | Frontend | 受領見積書登録フォーム（ファイル + 明細行 + 項目選択転記） | 11.1-11.30, 15.1-15.11, 18.11 | FileInlinePreview (P0), LineItemEditor (P0), OcrDataExtractor (P1) | State |
 | FileInlinePreview | Frontend | ファイルインラインプレビュー | 13.1-13.4 | react-pdf (P0), xlsx (P0) | - |
-| OcrDataExtractor | Frontend | OCR/データパース処理と結果表示 | 13.5-13.14 | Tesseract.js (P0), xlsx (P0) | State |
-| LineItemEditor | Frontend | 構造化明細行入力エディタ | 11.9-11.21 | - | State |
+| OcrDataExtractor | Frontend | OCR/データパース処理と結果表示 | 13.5-13.14, 18.10 | Tesseract.js (P0), xlsx (P0) | State |
+| LineItemEditor | Frontend | 構造化明細行入力エディタ | 11.9-11.21, 18.1-18.12 | - | State |
 | ReceivedQuotationList | Frontend | 受領見積書一覧表示 | 11.1, 11.25-11.27 | ReceivedQuotationForm (P1) | - |
 | StatusBadge | Frontend | ステータス表示バッジ | 12.1, 12.4, 12.12 | - | - |
 | StatusTransitionButton | Frontend | ステータス遷移ボタン | 12.5-12.10 | EstimateRequestStatusService (P0) | - |
@@ -1223,22 +1241,24 @@ interface ItemSelectionPanelState {
 - Validation: メールアドレス/FAX番号未登録時のエラー表示
 - Risks: Clipboard APIがブラウザで利用不可の場合のフォールバック
 
-#### ReceivedQuotationForm - 改訂
+#### ReceivedQuotationForm - 改訂（OCR再実行対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 受領見積書の登録・編集フォームを提供（ファイルアップロード + 構造化データ入力 + 項目選択一括転記） |
-| Requirements | 11.1-11.30, 15.1-15.11 |
+| Intent | 受領見積書の登録・編集フォームを提供（ファイルアップロード + 構造化データ入力 + 項目選択一括転記 + 既存ファイルOCR再実行） |
+| Requirements | 11.1-11.30, 15.1-15.11, 16.1-16.12 |
 
 **Responsibilities & Constraints**
 - 受領見積書名、提出日の入力
 - ファイルアップロード（ドラッグ&ドロップ対応）
 - ファイルインラインプレビュー表示（FileInlinePreview）
 - OCR/データパース処理と結果表示（OcrDataExtractor）
+- **改訂: 編集画面での既存ファイルOCR/データパース実行**（16.1-16.4, 16.7-16.8）
+- **改訂: 編集画面での既存ファイルのFileInlinePreview表示**（16.12）
 - 構造化明細行データ入力（LineItemEditor）
 - 「項目選択から転記」ボタンによる一括転記機能（15.1）
 - ファイル形式とサイズのバリデーション
-- ファイルまたは明細行データのいずれか必須の検証
+- ファイルまたは明細行データのいずれか必須の検証（16.9: OCR失敗時もファイルアップロードのみで保存可能）
 
 **Dependencies**
 - Inbound: ReceivedQuotationList -- フォーム呼び出し (P0)
@@ -1246,6 +1266,7 @@ interface ItemSelectionPanelState {
 - Outbound: OcrDataExtractor -- OCR/データパース (P1)
 - Outbound: LineItemEditor -- 明細行入力 (P0)
 - Inbound: EstimateRequestDetailPage -- 選択済み項目データの提供 (P0)
+- External: received-quotations API -- 既存ファイルプレビューURL取得 (P0)
 
 **Contracts**: State [x]
 
@@ -1261,6 +1282,8 @@ interface ReceivedQuotationFormProps {
   isSubmitting?: boolean;
   /** 項目選択セクションの選択済み項目データ（一括転記用） */
   selectedItems?: SelectedItemForTranscription[];
+  /** 既存ファイルのプレビューURL（編集時のOCR再実行用） */
+  existingFilePreviewUrl?: string | null;  // 改訂: 追加（16.1, 16.2）
 }
 
 /** 一括転記用の選択済み項目データ */
@@ -1301,7 +1324,7 @@ interface ReceivedQuotationFormState {
   - name: 項目のname
   - specification: 項目のspecification
   - unit: 項目のunit
-  - quantity: 項目のquantity（文字列変換）
+  - quantity: 項目のquantityに`formatQuantity()`を適用して小数2桁固定表示（15.3, 18.11）
   - unitPrice: 空欄（15.10）
   - amount: null（単価が空のため計算不可）
   - remarks: 項目のremarks
@@ -1320,16 +1343,22 @@ interface ReceivedQuotationFormState {
 - Integration: 「項目選択から転記」ボタンはLineItemEditorの上部に配置し、selectedItemsプロパティが提供されている場合のみ表示する
 - Validation: 必須項目チェック、ファイル形式・サイズチェック、コンテンツ存在チェック
 - Visual: フォーム内にファイルプレビュー、OCR結果、明細行エディタを統合表示
+- **改訂: 編集画面のOCR再実行対応（16.1-16.12）**:
+  - 編集画面（mode='edit'）で既存ファイルが存在する場合: `existingFilePreviewUrl`プロパティと`initialData.fileMimeType`をOcrDataExtractorに渡す
+  - OcrDataExtractorに`autoStart={false}`を設定し、手動トリガーモードで起動（ユーザーが「OCR実行」ボタンをクリックして開始）
+  - 新規アップロード時（selectedFile !== null）: 従来通りOcrDataExtractorに`file`プロパティで渡し`autoStart={true}`（自動開始）
+  - 既存ファイルの場合もFileInlinePreviewに`existingPreviewUrl`を渡してプレビュー表示する
+  - OCR処理の成功・失敗にかかわらず、ファイルアップロードのみでの保存を許可（16.9）（既存バリデーションで対応済み）
 
-#### FileInlinePreview - 新規
+#### FileInlinePreview - 改訂（PDFページナビゲーション対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | アップロードされたファイルのインラインプレビューを表示 |
-| Requirements | 13.1, 13.2, 13.3, 13.4 |
+| Intent | アップロードされたファイルのインラインプレビューを表示（PDFはページナビゲーション付き全ページ閲覧に対応） |
+| Requirements | 13.1, 13.2, 13.3, 13.4, 17.6 |
 
 **Responsibilities & Constraints**
-- PDFファイル: react-pdfによるPDFビューア表示（13.2）
+- PDFファイル: react-pdfによるPDFビューア表示 + **ページナビゲーション機能（前ページ/次ページボタン、現在ページ/総ページ数表示）**（13.2, 17.6）
 - 画像ファイル: `<img>`タグによるインライン画像表示（13.3）
 - Excelファイル: SheetJS（xlsx）でパースし、テーブル形式で表示（13.4）
 - ファイルタイプに応じたプレビュー方法の自動選択
@@ -1357,36 +1386,45 @@ interface FileInlinePreviewState {
   excelData: Array<Array<string | number | null>> | null;
   isLoading: boolean;
   error: string | null;
+  // 改訂: PDFページナビゲーション（17.6）
+  currentPage: number;  // 現在表示中のページ番号（1始まり）
+  totalPages: number;   // PDF総ページ数
 }
 ```
 
 **Implementation Notes**
-- Integration: PDFプレビューはreact-pdf の`<Document>` + `<Page>`コンポーネントを使用。PDF.jsのworkerをViteで設定
+- Integration: PDFプレビューはreact-pdfの`<Document>` + `<Page>`コンポーネントを使用。PDF.jsのworkerをViteで設定
+- **改訂: PDFページナビゲーション（17.6）**: `<Document onLoadSuccess={({numPages}) => setTotalPages(numPages)}>`で総ページ数を取得し、`<Page pageNumber={currentPage}>`で現在ページを表示。前ページ/次ページボタンと「ページ X / Y」テキストを表示。1ページ目では「前へ」ボタンを非活性、最終ページでは「次へ」ボタンを非活性にする
 - Integration: ExcelプレビューはXLSX.read()でパース後、sheet_to_jsonで2次元配列に変換し、HTMLテーブルとして表示
 - Integration: 画像プレビューはURL.createObjectURL()でBlobURLを生成し、`<img>`タグで表示
 - Validation: ファイルタイプの判定はfileMimeTypeを使用
-- Risks: 大容量PDFファイルのレンダリング負荷（最初のページのみ表示で軽減）。大容量Excelの先頭100行のみ表示
+- Risks: 大容量PDFファイルのレンダリング負荷（ページナビゲーションにより1ページずつ表示で軽減）。大容量Excelの先頭100行のみ表示
 
-#### OcrDataExtractor - 新規
+#### OcrDataExtractor - 改訂（PDFテキスト抽出ハイブリッドアプローチ・OCR再実行・リトライ対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | OCR/データパースによるテキスト抽出と構造化データ取り込み機能を提供 |
-| Requirements | 13.5-13.14 |
+| Intent | OCR/データパースによるテキスト抽出と構造化データ取り込み機能を提供。PDFファイルに対してpdfjs-distテキスト抽出+Tesseract OCRフォールバックのハイブリッドアプローチを採用。編集画面での既存ファイルOCR再実行とリトライ機能を含む |
+| Requirements | 13.5-13.14, 16.1-16.12, 17.1-17.8 |
 
 **Responsibilities & Constraints**
-- PDF/画像ファイル: Tesseract.jsによるOCR処理（13.5）
+- PDF/画像ファイル: **PDFはpdfjs-distのgetTextContent() APIによるテキスト抽出を優先し、テキストが不十分な場合（スキャンPDF）のみCanvas→Tesseract OCRフォールバックを実行**（17.1, 17.3, 17.4）。画像ファイルは従来通りTesseract.jsによるOCR処理（13.5）
 - Excelファイル: SheetJS（xlsx）によるデータパース（直接データ読み取り）（13.6）
 - 処理中インジケーター表示（13.7）
 - 抽出結果をテキストデータとして表示（13.8）
 - 抽出テキストの選択・コピー可能表示（13.9）
 - 一括取り込みボタンによる明細行への自動入力（13.10-13.13）
 - OCR/パースエラー時のフォールバック（13.14）
+- **改訂: 手動トリガーモード**: `autoStart`プロパティがfalseの場合、OCR/パース処理を自動開始せず「OCR実行」/「データパース実行」ボタンを表示する（16.1, 16.7）
+- **改訂: リトライ機能**: OCR/パース処理が失敗した場合に「OCRリトライ」ボタンを表示し、再実行を可能にする（16.5, 16.6）
+- **改訂: ファイルURL対応**: `fileUrl`プロパティで署名付きURLからファイルを取得してOCR処理を実行する（16.2, 16.8）
+- **改訂: PDFテキスト抽出ハイブリッドアプローチ**: PDFファイルに対してpdfjs-distのgetTextContent() APIで全ページからテキストを直接抽出する（17.1, 17.2）。抽出テキストが閾値（50文字）以上の場合はそのまま使用し、閾値未満の場合（スキャンPDF）はCanvas描画→画像変換→Tesseract OCRにフォールバックする（17.3, 17.4）
 
 **Dependencies**
 - Inbound: ReceivedQuotationForm -- 抽出処理呼び出し (P0)
 - Outbound: LineItemEditor -- 抽出データの一括取り込み (P0)
-- External: Tesseract.js 7.0.0 -- OCR処理 (P0)
+- External: pdfjs-dist (react-pdf経由) -- PDFテキスト抽出・Canvas描画 (P0)
+- External: Tesseract.js 7.0.0 -- OCR処理（画像・スキャンPDFフォールバック）(P0)
 - External: xlsx 0.20.3 -- Excelデータパース (P0)
 
 **Contracts**: State [x]
@@ -1395,8 +1433,16 @@ interface FileInlinePreviewState {
 
 ```typescript
 interface OcrDataExtractorProps {
+  /** 処理対象ファイル（新規アップロード時） */
   file: File | null;
+  /** 処理対象ファイルのURL（編集時の既存ファイル） */
+  fileUrl?: string | null;
+  /** 既存ファイルのMIMEタイプ（fileUrl使用時に必須） */
+  fileMimeType?: string | null;
+  /** 一括取り込み時のコールバック */
   onImportLineItems: (items: LineItemFormData[]) => void;
+  /** 自動開始フラグ（デフォルト: true） */
+  autoStart?: boolean;
 }
 
 interface OcrDataExtractorState {
@@ -1405,41 +1451,63 @@ interface OcrDataExtractorState {
   extractedText: string | null;
   parsedLineItems: LineItemFormData[] | null;
   errorMessage: string | null;
+  importCompleted: boolean;
 }
 ```
 
-**OCR/パース処理フロー**:
-1. ファイルタイプ判定（MIMEタイプベース）
-2. PDF/画像 -> Tesseract.js OCR処理開始
-3. Excel -> XLSX.read()によるデータパース開始
-4. 処理中: progressインジケーター表示
-5. 完了: 抽出テキスト表示 + パース済み構造化データ保持
-6. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行
-7. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
+**OCR/パース処理フロー（改訂版 - ハイブリッドアプローチ）**:
+
+1. **新規アップロード時（autoStart=true）**: `file`プロパティのファイル変更をトリガーに自動実行
+2. **編集画面 既存ファイル時（autoStart=false）**:
+   a. 「OCR実行」/「データパース実行」ボタンを表示（16.1, 16.7）
+   b. ユーザーがボタンクリック → `fileUrl`から署名付きURLでファイルをfetch → Blobに変換 → Fileオブジェクト生成
+   c. 生成したFileオブジェクトに対してOCR/パース処理を実行
+3. **PDFファイルの処理フロー（ハイブリッドアプローチ）**（17.1-17.4）:
+   a. FileオブジェクトからArrayBufferを読み取り、pdfjs-distの`getDocument()`でPDFドキュメントを取得
+   b. 全ページ（1〜numPages）を順に`page.getTextContent()`で処理し、テキストアイテムを結合（17.2）
+   c. 抽出テキスト量の判定: テキスト文字数が閾値（50文字）以上か
+      - **テキストPDF（閾値以上）**: pdfjs-dist抽出テキストをそのまま使用（高速・高精度）（17.3）
+      - **スキャンPDF（閾値未満）**: 各ページをCanvas描画→`canvas.toBlob()`で画像化→Tesseract.jsでOCR実行（17.4）
+   d. スキャンPDFフォールバック時は、pdfjs-distの`page.render()`でCanvas描画し、描画結果をPNG画像に変換してTesseract.jsに渡す
+4. **画像ファイルの処理フロー**: 従来通りTesseract.jsのworker.recognize()で直接OCR実行
+5. **OCR失敗時リトライ（16.5, 16.6）**:
+   a. エラー表示エリアに「OCRリトライ」ボタンを追加表示
+   b. リトライボタンクリック → 同一ファイルに対してOCR処理を再実行
+   c. 処理中はリトライボタンを非活性化（16.11）
+6. 完了: 抽出テキスト表示 + パース済み構造化データ保持（17.5）
+7. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行（16.10）
+8. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
 
 **テキストから構造化データへの変換ロジック（改訂版）**:
 - OCRテキストをタブ区切りまたはスペース区切りで行分割
 - 各行から任意分類、工種、名称、規格、単位、数量、単価を推定（パターンマッチング）
 - Excelデータはヘッダー行検出後、列マッピングにより自動変換（任意分類、工種列を含む）
 - 変換精度は完璧でないため、手動修正を前提とする設計
+- **改訂: 数値表示形式の適用（18.10）**: 一括取り込み時にLineItemFormDataを生成する際、数量は`formatQuantity()`（小数2桁固定）、単価は`formatUnitPrice()`（整数丸め）を適用し、金額は`calculateAmount()`で再計算する。これにより取り込み直後から統一された表示形式が適用される
 
 **Implementation Notes**
-- Integration: Tesseract.js 7.0.0のcreateWorker()でワーカーを初期化し、worker.recognize()でOCR実行。言語は'jpn'（日本語）を使用
+- Integration: **PDFテキスト抽出**: pdfjs-distの`getDocument()`でPDFを読み込み、各ページの`getTextContent()`でテキストアイテムを取得。テキストアイテムの`str`プロパティを結合してテキストを構築する。pdfjs-distはreact-pdfの依存として既にインストール済みであり、`import { getDocument } from 'pdfjs-dist'`で直接利用可能（17.1）
+- Integration: **スキャンPDFフォールバック**: `page.getViewport()`でビューポートを取得し、Canvas要素を作成して`page.render()`で描画。`canvas.toBlob('image/png')`で画像Blobに変換し、Tesseract.jsの`worker.recognize()`に渡す。全ページの結果を結合する（17.4）
+- Integration: **閾値判定**: 全ページのテキスト結合後、空白を除いた文字数が50文字以上であればテキストPDFと判定。閾値は定数`PDF_TEXT_THRESHOLD = 50`として定義する（17.3）
+- Integration: 画像ファイルは従来通りTesseract.js 7.0.0のcreateWorker()でワーカーを初期化し、worker.recognize()でOCR実行。言語は'jpn'（日本語）を使用
 - Integration: ExcelパースはXLSX.read() + XLSX.utils.sheet_to_jsonで構造化データを抽出
-- Validation: OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示
-- Risks: OCR精度は入力画像品質に依存。テキスト解析は完全自動化ではなく、ユーザー確認・修正を前提とする
+- Validation: テキスト抽出/OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示（17.8）
+- Risks: スキャンPDFのCanvas描画→OCR処理は時間がかかる可能性がある。PDFページ数が多い場合のメモリ使用量に注意
+- **改訂: ファイルURL→Fileオブジェクト変換**: `fileUrl`からfetch APIでBlobを取得し、`new File([blob], fileName, { type: mimeType })`でFileオブジェクトを生成する。これにより既存のprocessOcr/processExcelロジックを再利用可能
+- **改訂: リトライ実装**: `retryCount` stateを用いてuseEffectの依存配列に含め、リトライ時にカウントをインクリメントすることで再実行をトリガー
+- **改訂: pdfjs-dist workerの設定**: react-pdfの`pdfjs.GlobalWorkerOptions.workerSrc`設定を共有する。OcrDataExtractorではpdfjs-distのAPIを直接使用してテキスト抽出するが、workerの初期化はFileInlinePreviewと同じ設定を使用する
 - **バンドルサイズ・WASM初期化対策**:
   - OcrDataExtractorコンポーネントは`React.lazy()`による動的インポートで遅延ロードし、フロントエンド全体のバンドルサイズへの影響を回避する
   - Tesseract.jsのワーカーおよび日本語OCRモデル（15MB超）は、受領見積書登録フォームの表示時に非同期プリフェッチを開始する（`useEffect`内でワーカー初期化を事前実行）
   - OCR処理の初回実行時にWASMバイナリとトレーニングデータのダウンロードが発生するため、プリフェッチ中はUI上に「OCR準備中...」のインジケーターを表示し、ユーザーの待機体験を改善する
   - `React.Suspense`のfallbackにはスケルトンUIを表示し、コンポーネント遅延ロード中の視覚的フィードバックを提供する
 
-#### LineItemEditor - 改訂
+#### LineItemEditor - 改訂（数値表示形式・丸め規則対応）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 受領見積書の構造化明細行データ入力エディタを提供 |
-| Requirements | 11.9-11.21 |
+| Intent | 受領見積書の構造化明細行データ入力エディタを提供（数値表示形式・丸め規則を含む） |
+| Requirements | 11.9-11.21, 18.1-18.12 |
 
 **Responsibilities & Constraints**
 - 明細行の追加・削除・編集UI
@@ -1450,6 +1518,11 @@ interface OcrDataExtractorState {
 - 明細行追加・削除（11.15-11.18）
 - 最終行の削除不可（11.19）
 - Tab キーによるフィールド間移動（11.20, 11.21）
+- **改訂: 数値表示形式と丸め規則（18.1-18.12）**:
+  - 数量: 小数2桁常時表示（例: 1.00、2.50、10.25）。フォーカスアウト時に`toFixed(2)`でフォーマット適用（18.1, 18.2, 18.7）
+  - 単価: 小数第1位で四捨五入して常時整数表示（例: 1234）。フォーカスアウト時に`Math.round()`で丸めた整数値にフォーマット適用（18.3, 18.4, 18.8）
+  - 金額: 数量（小数2桁精度）×単価（整数）の自動計算結果を小数第1位で四捨五入して整数表示（18.5, 18.6, 18.9）
+  - 合計金額: 整数表示（小数第1位で四捨五入）（18.12）
 
 **Dependencies**
 - Inbound: ReceivedQuotationForm -- エディタ埋め込み (P0)
@@ -1491,15 +1564,45 @@ const FIELD_ORDER: (keyof LineItemFormData)[] = [
   'remarks',
 ];
 
-// 金額計算ロジック
+// ============================================================================
+// 数値表示形式・丸め規則（Requirement 18）
+// ============================================================================
+
+/**
+ * 数量を小数2桁固定でフォーマットする（18.1, 18.2, 18.7）
+ * フォーカスアウト時に適用する
+ */
+function formatQuantity(value: string): string {
+  const num = parseFloat(value);
+  if (isNaN(num)) return value;
+  return num.toFixed(2);
+}
+
+/**
+ * 単価を小数第1位で四捨五入して整数にフォーマットする（18.3, 18.4, 18.8）
+ * フォーカスアウト時に適用する
+ */
+function formatUnitPrice(value: string): string {
+  const num = parseFloat(value);
+  if (isNaN(num)) return value;
+  return String(Math.round(num));
+}
+
+/**
+ * 金額を計算する（18.5, 18.6, 18.9 改訂）
+ *
+ * 数量（小数2桁精度）×単価（整数）の計算結果を
+ * 小数第1位で四捨五入して整数で保持する
+ */
 function calculateAmount(quantity: string, unitPrice: string): number | null {
   const q = parseFloat(quantity);
   const p = parseFloat(unitPrice);
   if (isNaN(q) || isNaN(p)) return null;
-  return Math.round(q * p); // 整数丸め（円単位）
+  // 18.9: 数量×単価の結果を小数第1位で四捨五入して整数
+  return Math.round(q * p);
 }
 
-// 合計金額計算
+// 合計金額計算（18.12: 整数表示）
 function calculateTotalAmount(items: LineItemFormData[]): number {
   return items.reduce((sum, item) => sum + (item.amount ?? 0), 0);
 }
@@ -1510,6 +1613,9 @@ function calculateTotalAmount(items: LineItemFormData[]): number {
 - Integration: Tabキーフォーカス移動はtabIndexの適切な設定とonKeyDownハンドラで実装。最終フィールドTab時は次行の最初のフィールドへ移動（11.21）
 - Validation: 明細行が1行のみの場合は削除ボタン非活性（11.19）
 - Visual: テーブル形式レイアウト。各行にNo列、任意分類、工種、名称、規格、単位、数量、単価、金額（読み取り専用）、備考、操作列（削除ボタン）を表示。末尾に合計行を表示
+- **改訂: 数値フォーマット（18.7, 18.8）**: 数量フィールドのonBlurイベントで`formatQuantity()`を適用し小数2桁固定表示にフォーマットする。単価フィールドのonBlurイベントで`formatUnitPrice()`を適用し小数第1位で四捨五入した整数値にフォーマットする。フォーマット適用後に金額を再計算する
+- **改訂: 金額表示（18.5, 18.6, 18.12）**: 金額フィールドおよび合計金額は整数表示（小数点以下なし）。`calculateAmount()`の戻り値がそのまま整数であるため、表示時に追加フォーマットは不要
+- **改訂: 外部データ取り込み時のフォーマット適用（18.10, 18.11）**: OcrDataExtractorからの一括取り込みデータおよびReceivedQuotationFormからの項目選択転記データに対して、数量は`formatQuantity()`、単価は`formatUnitPrice()`を適用してからLineItemFormDataに設定する。金額は`calculateAmount()`で再計算する
 - Risks: 大量行入力時のレンダリングパフォーマンス（50行超で仮想スクロール検討）
 
 #### ReceivedQuotationList - 改訂
@@ -1827,10 +1933,10 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - Zodスキーマ: バリデーションルールのテスト（受領見積書、ステータス、明細行データ含む、customCategory・workTypeフィールド検証）
 - エラークラス: カスタムエラーのテスト
 - ItemSelectionPanel: クライアントサイド状態管理テスト、保存ボタン動作テスト、未保存変更検知テスト、ページ離脱確認テスト、他依頼選択状態の背景色表示、取引先名表示、列ヘッダー「任意分類」表示
-- ReceivedQuotationForm: フォームバリデーション、ファイル選択、コンテンツ存在検証、項目選択一括転記（空選択エラー、確認ダイアログ、転記結果）
-- LineItemEditor: 明細行追加・削除、金額自動計算、合計計算、Tab移動（customCategory・workType含む）、最終行削除不可
+- ReceivedQuotationForm: フォームバリデーション、ファイル選択、コンテンツ存在検証、項目選択一括転記（空選択エラー、確認ダイアログ、転記結果、転記時の数量小数2桁フォーマット適用（18.11））
+- LineItemEditor: 明細行追加・削除、金額自動計算、合計計算、Tab移動（customCategory・workType含む）、最終行削除不可、数量フォーカスアウト時の小数2桁固定フォーマット（18.7）、単価フォーカスアウト時の整数丸めフォーマット（18.8）、金額の整数計算（18.9）、合計金額の整数表示（18.12）
 - FileInlinePreview: PDF/画像/Excelプレビュー表示、ファイルタイプ判定
-- OcrDataExtractor: OCR処理実行、Excelパース（customCategory・workType列マッピング含む）、一括取り込み、エラーハンドリング
+- OcrDataExtractor: OCR処理実行、Excelパース（customCategory・workType列マッピング含む）、一括取り込み、エラーハンドリング、OCRリトライ、手動トリガーモード、既存ファイルURL経由のOCR実行、一括取り込み時の数値表示形式適用（18.10: 数量小数2桁・単価整数・金額再計算）
 - StatusBadge: ステータス表示、色分け
 - StatusTransitionButton: 遷移ボタン表示制御
 - ExcelExportButton: 列ヘッダー「任意分類」表示
@@ -1856,6 +1962,9 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - 受領見積書登録フロー: ボタンクリック->フォーム入力->ファイルアップロード->明細行入力（任意分類・工種含む）->保存
 - 受領見積書インラインプレビュー: ファイルアップロード->プレビュー表示確認（PDF/画像/Excel）
 - 受領見積書OCR/パース: ファイルアップロード->OCR実行->結果表示->一括取り込み->明細行確認（任意分類・工種フィールド含む）
+- 受領見積書OCR再実行: 編集画面表示->「OCR実行」ボタン->OCR処理->結果表示->一括取り込み->保存（16.1-16.4, 16.10）
+- 受領見積書OCRリトライ: ファイルアップロード->OCR失敗->「OCRリトライ」ボタン->再実行->結果表示（16.5, 16.6）
+- 受領見積書PDFのみ保存→後からOCR: 新規登録（PDF+空明細行）->保存->編集画面表示->「OCR実行」->一括取り込み->保存（16.9, 16.1-16.4, 16.10）
 - 受領見積書明細行操作: 行追加->数値入力->金額自動計算->合計確認->行削除
 - 受領見積書一覧表示: 登録済み見積書の確認、ファイルプレビュー、明細行数・合計金額表示
 - 受領見積書編集・削除: 編集->保存、削除確認->削除
@@ -1864,6 +1973,10 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - 項目選択一括転記（上書き確認）: 既存明細行あり->「項目選択から転記」ボタン->確認ダイアログ表示->キャンセル/続行
 - ステータス遷移フロー: 依頼前->依頼済->見積受領済の遷移
 - ステータス表示: 詳細画面・一覧画面でのステータスバッジ確認
+- 数値表示形式（登録画面）: 数量入力->フォーカスアウト->小数2桁表示確認、単価入力->フォーカスアウト->整数表示確認、金額自動計算->整数表示確認、合計金額->整数表示確認（18.1, 18.3, 18.5, 18.7, 18.8, 18.9, 18.12）
+- 数値表示形式（編集画面）: 既存データの数量小数2桁表示確認、単価整数表示確認、金額整数表示確認（18.2, 18.4, 18.6）
+- 数値表示形式（OCR取り込み）: OCR一括取り込み後の数量・単価・金額フォーマット確認（18.10）
+- 数値表示形式（項目転記）: 項目選択転記後の数量小数2桁表示確認（18.11）
 
 ## Security Considerations
 
@@ -1905,3 +2018,64 @@ received_quotation_line_itemsテーブルへのcustom_category列およびwork_t
    - 既存データへの影響なし（両列ともNULLABLE）
 
 **Rollback Strategy**: 列削除マイグレーションで即座にロールバック可能
+
+## Supporting References
+
+### 数値表示形式と丸め規則の設計（Requirement 18対応）
+
+#### 丸め規則の定義
+
+| フィールド | 内部精度 | 表示形式 | 丸め方法 | 適用タイミング | 例 |
+|-----------|---------|---------|---------|--------------|-----|
+| 数量 | Decimal(15, 4) | 小数2桁固定 | toFixed(2) | フォーカスアウト時、外部データ取り込み時 | 1.00、2.50、10.25 |
+| 単価 | Decimal(15, 2) | 整数 | 小数第1位で四捨五入（Math.round） | フォーカスアウト時、外部データ取り込み時 | 1234、5678 |
+| 金額 | Decimal(15, 2) | 整数 | 数量×単価の結果を小数第1位で四捨五入 | 数量・単価変更時の自動計算 | 12345、67890 |
+| 合計金額 | - | 整数 | 各行の金額（整数）の合計 | 明細行変更時の自動計算 | 100000 |
+
+#### 見積書作成機能（estimate-creation REQ-22）との共通パターン
+
+受領見積書の数値表示形式・丸め規則は、見積書作成機能（estimate-creation/design.md REQ-22）で確立されたパターンに準拠する。主な共通点:
+
+- **数量の小数2桁表示**: `toFixed(2)`による固定小数点フォーマット
+- **単価の整数丸め**: `Math.round()`による小数第1位四捨五入
+- **金額の計算式**: 数量 × 単価 → 小数第1位四捨五入 → 整数
+
+ただし、見積書作成機能ではDecimal.jsを使用した高精度計算（`toDecimalPlaces(0, ROUND_HALF_UP)`）を採用しているのに対し、受領見積書ではJavaScriptのネイティブ`Math.round()`を使用する。受領見積書の数値精度要件では`Math.round()`で十分であり、Decimal.jsへの依存追加は不要と判断する。
+
+#### フォーマット適用のフロー
+
+```
+[ユーザー入力]
+  |
+  v
+[onChange] --> 入力値をそのまま保持（フリー入力を許可）
+  |
+  v
+[onBlur（フォーカスアウト）]
+  |-- 数量: formatQuantity(value) --> "1" -> "1.00"、"2.5" -> "2.50"
+  |-- 単価: formatUnitPrice(value) --> "1234.6" -> "1235"、"999.4" -> "999"
+  |
+  v
+[金額再計算] --> calculateAmount(quantity, unitPrice) --> Math.round(q * p)
+  |
+  v
+[合計再計算] --> calculateTotalAmount(items) --> 各行amountの合計
+```
+
+#### 外部データ取り込み時のフォーマット適用
+
+1. **OCR/データパース一括取り込み（18.10）**:
+   - OcrDataExtractorがLineItemFormDataを生成する際に、`formatQuantity()`と`formatUnitPrice()`を適用
+   - 金額は`calculateAmount()`で再計算
+   - 取り込み直後から統一された表示形式が適用される
+
+2. **項目選択一括転記（18.11）**:
+   - ReceivedQuotationFormが転記データを生成する際に、数量に`formatQuantity()`を適用
+   - 単価は空欄（Requirement 15.10）のため`formatUnitPrice()`は不要
+   - 金額はnull（単価が空のため計算不可）
+
+3. **編集画面の既存データ読み込み**:
+   - バックエンドから取得した数量・単価・金額をLineItemFormDataに設定する際にフォーマットを適用
+   - 数量: `formatQuantity(String(quantity))`
+   - 単価: `formatUnitPrice(String(unitPrice))`
+   - 金額: バックエンドの値をそのまま使用（整数として保存済み）

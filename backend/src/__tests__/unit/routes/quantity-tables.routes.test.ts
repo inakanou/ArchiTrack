@@ -54,6 +54,7 @@ describe('QuantityTablesRoutes', () => {
     findLatestByProjectId: Mock;
     update: Mock;
     delete: Mock;
+    copy: Mock;
   };
 
   beforeEach(async () => {
@@ -67,6 +68,7 @@ describe('QuantityTablesRoutes', () => {
       findLatestByProjectId: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+      copy: vi.fn(),
     };
 
     MockQuantityTableService.mockImplementation(() => mockService);
@@ -103,6 +105,7 @@ describe('QuantityTablesRoutes', () => {
         findLatestByProjectId = mockService.findLatestByProjectId;
         update = mockService.update;
         delete = mockService.delete;
+        copy = mockService.copy;
       },
     }));
 
@@ -359,6 +362,96 @@ describe('QuantityTablesRoutes', () => {
       const response = await request(app).delete(`/api/quantity-tables/${tableId}`).expect(404);
 
       expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+    });
+  });
+
+  /**
+   * Task 20.2: 数量表コピーAPIエンドポイントテスト
+   *
+   * Requirements:
+   * - 17.2: コピーダイアログで数量表名を入力して作成を確定する
+   * - 17.5: コピー中にエラーが発生した場合、不完全なコピーデータが残らないようにする
+   */
+  describe('POST /api/quantity-tables/:id/copy', () => {
+    const tableId = '123e4567-e89b-12d3-a456-426614174001';
+
+    it('正常にコピーされた数量表を201レスポンスで返却する（Requirements: 17.2）', async () => {
+      const copiedTable = {
+        id: '123e4567-e89b-12d3-a456-426614174099',
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'コピーされた数量表',
+        groupCount: 2,
+        itemCount: 5,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockService.copy.mockResolvedValue(copiedTable);
+
+      const response = await request(app)
+        .post(`/api/quantity-tables/${tableId}/copy`)
+        .send({ name: 'コピーされた数量表' })
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        id: copiedTable.id,
+        name: 'コピーされた数量表',
+      });
+      expect(mockService.copy).toHaveBeenCalledWith(
+        tableId,
+        { name: 'コピーされた数量表' },
+        'test-user-id'
+      );
+    });
+
+    it('数量表名が空の場合400エラーを返却する（バリデーション）', async () => {
+      await request(app)
+        .post(`/api/quantity-tables/${tableId}/copy`)
+        .send({ name: '' })
+        .expect(400);
+    });
+
+    it('数量表名が200文字を超える場合400エラーを返却する（バリデーション）', async () => {
+      const longName = 'あ'.repeat(201);
+
+      await request(app)
+        .post(`/api/quantity-tables/${tableId}/copy`)
+        .send({ name: longName })
+        .expect(400);
+    });
+
+    it('リクエストボディにnameがない場合400エラーを返却する', async () => {
+      await request(app).post(`/api/quantity-tables/${tableId}/copy`).send({}).expect(400);
+    });
+
+    it('コピー元の数量表が存在しない場合404エラーを返却する（Requirements: 17.5）', async () => {
+      const { QuantityTableNotFoundError } = await import('../../../errors/quantityTableError.js');
+      mockService.copy.mockRejectedValue(new QuantityTableNotFoundError(tableId));
+
+      const response = await request(app)
+        .post(`/api/quantity-tables/${tableId}/copy`)
+        .send({ name: 'コピー名' })
+        .expect(404);
+
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+    });
+
+    it('予期しないエラー時は500エラーを返却する（Requirements: 17.5）', async () => {
+      mockService.copy.mockRejectedValue(new Error('予期しないエラー'));
+
+      const response = await request(app)
+        .post(`/api/quantity-tables/${tableId}/copy`)
+        .send({ name: 'コピー名' })
+        .expect(500);
+
+      expect(response.body).toHaveProperty('status', 500);
+    });
+
+    it('IDがUUID形式でない場合400エラーを返却する', async () => {
+      await request(app)
+        .post(`/api/quantity-tables/invalid-id/copy`)
+        .send({ name: 'コピー名' })
+        .expect(400);
     });
   });
 });

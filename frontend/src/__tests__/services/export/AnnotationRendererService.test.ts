@@ -15,6 +15,7 @@ import type { SurveyImageInfo, AnnotationInfo } from '../../../types/site-survey
 
 // モック関数を定義
 const mockGetAnnotation = vi.fn();
+const mockGetBatchAnnotations = vi.fn();
 
 // JapaneseFontRendererモック関数
 const mockLoadJapaneseFont = vi.fn().mockResolvedValue(undefined);
@@ -22,6 +23,7 @@ const mockApplyJapaneseFontToCanvas = vi.fn();
 
 vi.mock('../../../api/survey-annotations', () => ({
   getAnnotation: (...args: unknown[]) => mockGetAnnotation(...args),
+  getBatchAnnotations: (...args: unknown[]) => mockGetBatchAnnotations(...args),
 }));
 
 vi.mock('../../../components/site-surveys/tools/registerCustomShapes', () => ({}));
@@ -546,6 +548,111 @@ describe('AnnotationRendererService', () => {
       await renderImagesWithAnnotations(images);
 
       expect(mockGetAnnotation).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ===========================================================================
+  // renderImagesForReport バッチ注釈取得対応テスト
+  // Task 43.4: AnnotationRendererServiceバッチ対応の単体テスト
+  // Requirements: 18.2, 18.5, 18.7
+  // ===========================================================================
+
+  describe('renderImagesForReport (batch annotation fetch)', () => {
+    it('バッチAPI使用時に個別リクエストが発行されないことの確認（Requirements: 18.2, 18.5）', async () => {
+      const service = new AnnotationRendererService();
+      const images = [
+        createMockImageInfo({ id: 'image-1', surveyId: 'survey-1' }),
+        createMockImageInfo({ id: 'image-2', surveyId: 'survey-1' }),
+        createMockImageInfo({ id: 'image-3', surveyId: 'survey-1' }),
+      ];
+
+      const batchAnnotations: Record<string, AnnotationInfo | null> = {
+        'image-1': createMockAnnotation({ imageId: 'image-1' }),
+        'image-2': null,
+        'image-3': createMockAnnotation({ imageId: 'image-3' }),
+      };
+
+      mockGetBatchAnnotations.mockResolvedValueOnce(batchAnnotations);
+      vi.mocked(util.enlivenObjects).mockResolvedValue([]);
+
+      const results = await service.renderImagesForReport(images);
+
+      // バッチAPIが1回だけ呼ばれる
+      expect(mockGetBatchAnnotations).toHaveBeenCalledTimes(1);
+      expect(mockGetBatchAnnotations).toHaveBeenCalledWith('survey-1', [
+        'image-1',
+        'image-2',
+        'image-3',
+      ]);
+
+      // 個別のgetAnnotationは呼ばれない
+      expect(mockGetAnnotation).not.toHaveBeenCalled();
+
+      // 3画像全てレンダリングされる
+      expect(results).toHaveLength(3);
+    });
+
+    it('バッチAPI失敗時にフォールバックで個別取得が実行されることの確認（Requirements: 18.7）', async () => {
+      // 警告ログを抑制
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const service = new AnnotationRendererService();
+      const images = [
+        createMockImageInfo({ id: 'image-1', surveyId: 'survey-1' }),
+        createMockImageInfo({ id: 'image-2', surveyId: 'survey-1' }),
+      ];
+
+      // バッチAPIが失敗
+      mockGetBatchAnnotations.mockRejectedValueOnce(new Error('Batch API error'));
+
+      // 個別取得へフォールバック
+      mockGetAnnotation.mockResolvedValue(null);
+
+      const results = await service.renderImagesForReport(images);
+
+      // バッチAPIの呼び出しが試みられた
+      expect(mockGetBatchAnnotations).toHaveBeenCalledTimes(1);
+
+      // フォールバックで個別取得が実行された
+      expect(mockGetAnnotation).toHaveBeenCalled();
+
+      // レンダリング結果は正常に返される
+      expect(results).toHaveLength(2);
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('フォールバック時もレンダリング結果が正しいことの確認（Requirements: 18.7）', async () => {
+      // 警告ログを抑制
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const service = new AnnotationRendererService();
+      const images = [createMockImageInfo({ id: 'image-1', surveyId: 'survey-1' })];
+
+      // バッチAPIが失敗
+      mockGetBatchAnnotations.mockRejectedValueOnce(new Error('Batch API error'));
+
+      // 個別取得で注釈データを返す
+      const mockAnnotation = createMockAnnotation({ imageId: 'image-1' });
+      mockGetAnnotation.mockResolvedValueOnce(mockAnnotation);
+      vi.mocked(util.enlivenObjects).mockResolvedValueOnce([]);
+
+      const results = await service.renderImagesForReport(images);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.imageInfo.id).toBe('image-1');
+      expect(results[0]!.dataUrl).toBeDefined();
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('画像が空配列の場合にバッチAPIが呼ばれないこと', async () => {
+      const service = new AnnotationRendererService();
+
+      const results = await service.renderImagesForReport([]);
+
+      expect(mockGetBatchAnnotations).not.toHaveBeenCalled();
+      expect(results).toEqual([]);
     });
   });
 });

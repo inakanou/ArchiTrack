@@ -16,6 +16,7 @@ import type { QuantityGroupDetail, QuantityItemDetail } from '../../types/quanti
 import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import QuantityItemRow from './QuantityItemRow';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
+import QuantityGroupTitleRow from './QuantityGroupTitleRow';
 import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
 
 // デフォルトのオートコンプリート関数（isEditable=false時のフォールバック）
@@ -482,6 +483,8 @@ export default function QuantityGroupCard({
           <div style={styles.emptyState}>項目がありません</div>
         ) : (
           <div style={styles.itemList} role="table" aria-label="数量項目一覧">
+            {/* REQ-18.1: メインタイトル行をグループ先頭にのみ表示 */}
+            <QuantityGroupTitleRow isEditable={isEditable} />
             <div role="rowgroup">
               {items.map((item, index) =>
                 isEditable ? (
@@ -497,6 +500,7 @@ export default function QuantityGroupCard({
                     canMoveDown={index < items.length - 1}
                     getSuggestions={getSuggestions || defaultGetSuggestions}
                     onBlurAddCandidate={onBlurAddCandidate || defaultOnBlurAddCandidate}
+                    showFieldLabels={false}
                   />
                 ) : (
                   <QuantityItemRow

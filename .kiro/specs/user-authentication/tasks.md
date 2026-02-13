@@ -613,3 +613,156 @@
   - ミドルウェアテスト
   - コンテキスト・コンポーネントテスト
   - _Requirements: 全要件_
+
+---
+
+### Phase 7: セッション切れモーダル再認証（要件30対応）
+
+_追加日: 2026-02-09_
+
+**概要**: 操作中にセッションが切れた場合、ログイン画面へのリダイレクトではなくモーダルダイアログによるインプレース再認証を実装し、フォーム入力データの損失を防止する。
+
+**前提条件**: Phase 1-6の実装が完了していること。
+
+#### 26. API Client にセッション切れコールバック機構を追加
+
+- [x] 26.1 sessionExpiredCallback の追加
+  - `frontend/src/api/client.ts` に `sessionExpiredCallback` プロパティと `setSessionExpiredCallback()` メソッドを追加
+  - 401レスポンスでトークンリフレッシュが失敗した場合に `sessionExpiredCallback` を呼び出す
+  - `tokenRefreshCallback` が null の場合にも `sessionExpiredCallback` を呼び出す
+  - _Requirements: 30.13_
+  - _Test: `frontend/src/__tests__/api/client.test.ts` に追加テスト_
+
+- [x] 26.2 既存テストの更新
+  - `client.test.ts` の既存401テストケースが `sessionExpiredCallback` を考慮するよう更新
+  - リフレッシュ失敗時に `sessionExpiredCallback` が呼ばれることを検証
+  - `sessionExpiredCallback` が null の場合に既存動作が維持されることを検証
+  - _Requirements: 30.13_
+
+#### 27. AuthContext のセッション切れ状態管理を拡張
+
+- [x] 27.1 sessionExpiredDuringOperation 状態の追加
+  - `AuthContext.tsx` に `sessionExpiredDuringOperation` 状態を追加
+  - `isInitialized === true` の場合のみモーダル方式を適用する条件分岐を実装
+  - `handleReauthSuccess` 関数を実装（トークン更新、TRM再初期化、状態リセット）
+  - `navigateToLogin` 関数を実装（トークンクリア、ログイン画面遷移）
+  - `apiClient.setSessionExpiredCallback()` の設定をログイン・セッション復元の各箇所に追加
+  - _Requirements: 30.14, 30.15_
+  - _Test: `frontend/src/__tests__/contexts/AuthContext.test.tsx` に追加テスト_
+
+- [x] 27.2 AuthContextValue インターフェースの更新
+  - `sessionExpiredDuringOperation`, `handleReauthSuccess`, `navigateToLogin` を公開インターフェースに追加
+  - `useAuth` フックのエクスポート型に反映
+  - 既存テストが新しいインターフェースと互換であることを確認
+  - _Requirements: 30.14, 30.15_
+
+- [x] 27.3 ProtectedRoute のリダイレクト抑制
+  - `ProtectedRoute.tsx` に `sessionExpiredDuringOperation` の参照を追加
+  - `!isAuthenticated && !sessionExpiredDuringOperation` の条件でリダイレクトを制御
+  - 操作中セッション切れ時にはchildrenを表示し続け、モーダルがオーバーレイで動作することを保証
+  - 既存のProtectedRouteテストを更新し、新しい条件分岐をカバー
+  - _Requirements: 30.2, 30.3_
+  - _Test: `frontend/src/__tests__/components/ProtectedRoute.test.tsx` に追加テスト_
+
+#### 28. SessionExpiredModal コンポーネントの実装
+
+- [x] 28.1 基本コンポーネント構造の実装
+  - `frontend/src/components/SessionExpiredModal.tsx` を新規作成
+  - Props定義: `isOpen`, `userEmail`, `onReauthSuccess`, `onNavigateToLogin`
+  - オーバーレイ（クリック無効）＋中央配置モーダルカードのレイアウト
+  - Tailwind CSSによるスタイリング
+  - _Requirements: 30.2, 30.3, 30.5_
+
+- [x] 28.2 再認証フォームの実装
+  - メールアドレスフィールド（自動入力、読み取り専用）
+  - パスワード入力フィールド（自動フォーカス、`autocomplete="current-password"`）
+  - 再ログインボタン（ローディング状態対応）
+  - エラーメッセージ表示領域
+  - フォームバリデーション（パスワード必須）
+  - _Requirements: 30.4, 30.7, 30.8, 30.11_
+
+- [x] 28.3 再認証APIの呼び出しロジック
+  - `apiClient.post('/api/v1/auth/login', ...)` を呼び出し
+  - 成功時: `onReauthSuccess` コールバックを呼び出し、トークンを返す
+  - 失敗時: モーダル内にエラーメッセージを表示
+  - 連続失敗カウンターの管理（3回連続失敗で「ログイン画面へ移動」ボタン表示）
+  - ネットワークエラー時のメッセージ表示とリトライボタン
+  - _Requirements: 30.8, 30.9, 30.10, 30.11, 30.16, 30.17_
+
+- [x] 28.4 2FA対応
+  - ログインレスポンスの `requires2FA` フィールドを検知
+  - 2FA要求時にTOTPコード入力フィールドを追加表示（6桁入力）
+  - 「バックアップコードを使用する」リンクの表示
+  - 2FA検証APIの呼び出し（`/api/v1/auth/verify-2fa`、`/api/v1/auth/verify-2fa/backup`）
+  - _Requirements: 30.12_
+
+- [x] 28.5 アクセシビリティ実装
+  - `role="dialog"`, `aria-modal="true"`, `aria-labelledby="session-expired-title"`
+  - フォーカストラップ実装（Tab/Shift+Tab循環）
+  - Escキー無効化
+  - `aria-live="assertive"` でセッション切れメッセージをスクリーンリーダーに通知
+  - _Requirements: 30.6, 30.18, 30.19, 30.20_
+
+- [x] 28.6 レスポンシブ対応
+  - デスクトップ: `max-w-md` 中央配置
+  - モバイル（< 768px）: フルスクリーンに近いレイアウト
+  - _Requirements: 30.21_
+
+#### 29. グローバルレイアウトへの統合
+
+- [x] 29.1 SessionExpiredModal のグローバル配置
+  - `App.tsx` または認証済みレイアウトにSessionExpiredModalを配置
+  - `useAuth()` から `sessionExpiredDuringOperation`, `user`, `handleReauthSuccess`, `navigateToLogin` を取得して Props に渡す
+  - 全ての認証済み画面で一貫してモーダルが表示されることを保証
+  - _Requirements: 30.1, 30.2, 30.3_
+
+#### 30. 単体テスト・Storybook
+
+- [x] 30.1 SessionExpiredModal 単体テスト
+  - `frontend/src/__tests__/components/SessionExpiredModal.test.tsx` を新規作成
+  - テストケース:
+    - `isOpen=false` 時にモーダルが表示されないこと
+    - `isOpen=true` 時にモーダルが表示されること
+    - メールアドレスが自動入力されていること
+    - パスワード入力 → 再ログインボタンクリック → 成功時にコールバックが呼ばれること
+    - 認証失敗時にエラーメッセージが表示されること
+    - 3回連続失敗後に「ログイン画面へ移動」ボタンが表示されること
+    - ネットワークエラー時のメッセージとリトライボタン表示
+    - 2FA要求時にTOTPフィールドが表示されること
+    - Escキーでモーダルが閉じないこと
+    - フォーカストラップが機能すること
+    - aria属性が正しく設定されていること
+    - レスポンシブレイアウトの検証
+  - _Requirements: 30.1-30.21_
+
+- [x] 30.2 Storybook ストーリー作成
+  - `frontend/src/components/SessionExpiredModal.stories.tsx` を新規作成
+  - ストーリー: Default, WithError, With2FA, ConsecutiveFailures, NetworkError, Mobile
+  - _Requirements: 30.4, 30.12, 30.16, 30.17, 30.21_
+
+#### 31. E2Eテスト
+
+- [x] 31.1 セッション切れモーダルE2Eテスト
+  - `e2e/specs/auth/session-expired-modal.spec.ts` を新規作成
+  - テストシナリオ:
+    - フォーム入力中にトークン期限切れ → モーダル表示 → 再認証 → 入力データ保持確認
+    - 再認証3回連続失敗 → ログイン画面遷移ボタン表示
+    - 2FAユーザーのモーダル再認証フロー
+    - モーダル表示中にEscキーで閉じないことの確認
+  - _Requirements: 30.1-30.21_
+
+---
+
+**Phase 7 サマリー**:
+- **メジャータスク数**: 6（タスク26-31）
+- **サブタスク数**: 15
+- **新規ファイル**: 4（SessionExpiredModal.tsx, SessionExpiredModal.test.tsx, SessionExpiredModal.stories.tsx, session-expired-modal.spec.ts）
+- **既存ファイル変更**: 3（client.ts, AuthContext.tsx, App.tsx）
+- **要件カバレッジ**: 要件30（全21受入基準）を完全にカバー
+
+**推奨実装順序**:
+1. タスク26 → タスク27 → タスク28 → タスク29 → タスク30 → タスク31（順次依存）
+
+**並列実行可能タスク**:
+- タスク28.5（アクセシビリティ）と タスク28.6（レスポンシブ）は並列可能
+- タスク30（単体テスト/Storybook）と タスク31（E2E）は並列可能

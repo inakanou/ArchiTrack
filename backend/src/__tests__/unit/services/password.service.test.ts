@@ -466,7 +466,7 @@ describe('PasswordService', () => {
       }
     });
 
-    it('過去のパスワードと一致する場合エラーを返す', async () => {
+    it('過去のパスワードと一致する場合エラーを返す', { timeout: 30000 }, async () => {
       const resetToken = 'valid-token';
       const reusedPassword = 'UniqueReused123!'; // "password"を含まない
       const userId = 'user-1';

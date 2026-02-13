@@ -205,3 +205,27 @@
 6. The Site Survey Service shall 全ての通信をHTTPS/TLSで暗号化する
 7. The Site Survey Service shall 画像データを定期的にバックアップする
 8. The Site Survey Service shall エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する
+
+### Requirement 17: 描画ツール使用中のオブジェクト選択防止
+**Objective:** As a 現場調査担当者, I want 描画ツール使用中に既存オブジェクト上でも描画を継続できること, so that 既存の注釈と重なる位置にも自由に描画できる
+
+#### Acceptance Criteria
+1. When ユーザーが選択ツール以外の描画ツール（寸法線・矢印・円・四角形・多角形・折れ線・フリーハンド・テキスト）を使用中に既存オブジェクト上でマウスダウンする, the Site Survey Service shall 既存オブジェクトの選択を行わず描画操作を開始する
+2. When ユーザーが選択ツールで既存オブジェクトをクリックする, the Site Survey Service shall 従来通りオブジェクトを選択状態にして編集可能にする
+3. When ユーザーが描画ツールで描画中にマウスアップ位置が既存オブジェクト上にある, the Site Survey Service shall 描画した図形を正常に作成・確定する
+4. When ユーザーが多角形・折れ線ツールで既存オブジェクト上の位置に頂点を追加する, the Site Survey Service shall 頂点の追加を正常に実行する
+5. When ユーザーがテキストツールで既存オブジェクト上をクリックする, the Site Survey Service shall テキスト注釈を配置する
+6. The Site Survey Service shall 描画ツール使用中はFabric.jsのオブジェクト選択機能を完全に無効化し、描画操作のみを受け付ける
+
+### Requirement 18: PDF報告書出力時の写真リクエスト最適化
+**Objective:** As a 現場調査担当者, I want PDF報告書出力時のAPIリクエスト数を最小化できること, so that 写真枚数が多い場合でも高速に報告書を生成できる
+
+#### Acceptance Criteria
+1. When フロントエンドが複数画像の注釈データを取得する必要がある, the Site Survey Service shall 一括注釈取得エンドポイント（バッチAPI）を提供し、単一リクエストで複数画像の注釈データを返却する
+2. When ユーザーが調査報告書出力ボタンを押す, the Site Survey Service shall 個別の注釈取得リクエストではなくバッチ注釈取得エンドポイントを使用して注釈データを取得する
+3. The Site Survey Service shall バッチ注釈取得エンドポイントにおいて、リクエストされた全画像IDに対応する注釈データをまとめて返却する
+4. If バッチ注釈取得リクエストに含まれる画像IDに対応する注釈データが存在しない, then the Site Survey Service shall 当該画像IDに対して空の注釈データを返却する
+5. The Site Survey Service shall PDF報告書出力時の合計APIリクエスト数を、従来のN件個別リクエスト方式と比較して大幅に削減する
+6. When バッチ注釈取得エンドポイントにアクセスする, the Site Survey Service shall 当該現場調査に対するアクセス権限を検証する
+7. If バッチ注釈取得リクエストが失敗する, then the Site Survey Service shall エラーメッセージを表示してユーザーに通知する
+8. The Site Survey Service shall バッチ注釈取得エンドポイントの既存の個別注釈取得エンドポイントとのレスポンス形式の互換性を維持する

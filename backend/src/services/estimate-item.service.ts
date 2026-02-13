@@ -151,7 +151,7 @@ export class EstimateItemService {
     }
     const q = new Decimal(quantity);
     const p = new Decimal(unitPrice);
-    return q.mul(p).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+    return q.mul(p).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber();
   }
 
   /**

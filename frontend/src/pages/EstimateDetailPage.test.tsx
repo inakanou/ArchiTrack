@@ -184,7 +184,7 @@ describe('EstimateDetailPage', () => {
 
     await waitFor(() => {
       // 合計金額セクションのタイトルが表示される
-      expect(screen.getByRole('heading', { name: '合計金額' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'サマリー' })).toBeInTheDocument();
       // 金額が複数箇所に表示されるためgetAllByTextを使用
       expect(screen.getAllByText(/100,000/).length).toBeGreaterThan(0);
     });

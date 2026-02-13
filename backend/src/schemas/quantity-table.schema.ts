@@ -136,6 +136,27 @@ export const createQuantityTableSchema = z.object({
 export type CreateQuantityTableInput = z.infer<typeof createQuantityTableSchema>;
 
 /**
+ * 数量表コピー用スキーマ
+ *
+ * Requirements:
+ * - 17.2: コピーダイアログで数量表名を入力して作成を確定する
+ */
+export const copyQuantityTableSchema = z.object({
+  name: z
+    .string()
+    .min(1, QUANTITY_TABLE_VALIDATION_MESSAGES.NAME_REQUIRED)
+    .max(200, QUANTITY_TABLE_VALIDATION_MESSAGES.NAME_TOO_LONG)
+    .refine((val) => val.trim().length > 0, {
+      message: QUANTITY_TABLE_VALIDATION_MESSAGES.NAME_REQUIRED,
+    }),
+});
+
+/**
+ * 数量表コピー入力の型
+ */
+export type CopyQuantityTableInput = z.infer<typeof copyQuantityTableSchema>;
+
+/**
  * 数量表更新用スキーマ
  *
  * Requirements:

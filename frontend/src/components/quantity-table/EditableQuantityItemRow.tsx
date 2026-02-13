@@ -18,6 +18,7 @@ import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidate
 import CalculationMethodSelect from './CalculationMethodSelect';
 import CalculationFields from './CalculationFields';
 import { calculate } from '../../utils/calculation-engine';
+import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
 // ============================================================================
 // 型定義
@@ -49,6 +50,13 @@ export interface EditableQuantityItemRowProps {
   getSuggestions: (field: AutocompleteFieldName, inputText: string) => string[];
   /** オートコンプリートblur時候補追加関数（Task 18.1: 必須） */
   onBlurAddCandidate: (field: AutocompleteFieldName, value: string) => void;
+  /**
+   * メインフィールドのラベル表示フラグ（Task 23.2: REQ-18.2, 18.3, 18.4）
+   * false の場合、大項目〜備考のフィールドラベルを非表示にする。
+   * 計算用フィールド（面積・体積/ピッチ）のタイトル行は影響を受けない。
+   * @default true（後方互換性のため）
+   */
+  showFieldLabels?: boolean;
 }
 
 // ============================================================================
@@ -66,7 +74,7 @@ const styles = {
     // ※調整係数・丸め設定は面積・体積/ピッチ選択時のみ計算用フィールドエリアに表示
     // フィールド幅: 大項目5.5全角(76px)・中項目5.5全角(76px)・小項目5.5全角(76px)・任意分類5.5全角(76px)・工種6.5全角(88px)・
     // 名称15.5全角(202px)・規格15.5全角(202px)・計算方法(90px)・数量10半角(80px)・単位3全角(46px)・備考5.5全角(76px)・アクション(80px)
-    gridTemplateColumns: '76px 76px 76px 76px 88px 202px 202px 90px 80px 46px 76px 80px',
+    gridTemplateColumns: QUANTITY_ITEM_GRID_COLUMNS,
     gap: '2px',
     alignItems: 'start',
     padding: '2px 4px',
@@ -290,6 +298,7 @@ export default function EditableQuantityItemRow({
   showValidation = true,
   getSuggestions,
   onBlurAddCandidate,
+  showFieldLabels = true,
 }: EditableQuantityItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // 名称フィールドのローカル状態（REQ-5.3: blur時にバリデーション）
@@ -559,7 +568,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <AutocompleteInput
             id={`${item.id}-majorCategory`}
-            label="大項目"
+            label={showFieldLabels ? '大項目' : undefined}
             value={item.majorCategory}
             onChange={createUpdateHandler('majorCategory')}
             error={errors.majorCategory}
@@ -574,7 +583,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <AutocompleteInput
             id={`${item.id}-middleCategory`}
-            label="中項目"
+            label={showFieldLabels ? '中項目' : undefined}
             value={item.middleCategory || ''}
             onChange={createUpdateHandler('middleCategory')}
             placeholder="中項目を入力"
@@ -588,7 +597,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <AutocompleteInput
             id={`${item.id}-minorCategory`}
-            label="小項目"
+            label={showFieldLabels ? '小項目' : undefined}
             value={item.minorCategory || ''}
             onChange={createUpdateHandler('minorCategory')}
             placeholder="小項目を入力"
@@ -602,7 +611,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <AutocompleteInput
             id={`${item.id}-customCategory`}
-            label="任意分類"
+            label={showFieldLabels ? '任意分類' : undefined}
             value={item.customCategory || ''}
             onChange={createUpdateHandler('customCategory')}
             placeholder="任意分類を入力"
@@ -616,7 +625,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <AutocompleteInput
             id={`${item.id}-workType`}
-            label="工種"
+            label={showFieldLabels ? '工種' : undefined}
             value={item.workType}
             onChange={createUpdateHandler('workType')}
             error={errors.workType}
@@ -631,9 +640,11 @@ export default function EditableQuantityItemRow({
         {/* 名称 */}
         <div style={styles.fieldGroup} role="cell">
           <div style={styles.directInputContainer}>
-            <label htmlFor={`${item.id}-name`} style={styles.fieldLabel}>
-              名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-            </label>
+            {showFieldLabels && (
+              <label htmlFor={`${item.id}-name`} style={styles.fieldLabel}>
+                名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+              </label>
+            )}
             <div style={styles.inputWrapper}>
               <input
                 id={`${item.id}-name`}
@@ -660,7 +671,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <AutocompleteInput
             id={`${item.id}-specification`}
-            label="規格"
+            label={showFieldLabels ? '規格' : undefined}
             value={item.specification || ''}
             onChange={createUpdateHandler('specification')}
             placeholder="規格を入力"
@@ -676,15 +687,18 @@ export default function EditableQuantityItemRow({
             id={`${item.id}-calculationMethod`}
             value={item.calculationMethod}
             onChange={handleCalculationMethodChange}
+            showLabel={showFieldLabels}
           />
         </div>
 
         {/* 数量 - 要件順序: 計算方法の次 */}
         <div style={styles.fieldGroup} role="cell">
           <div style={styles.directInputContainer}>
-            <label htmlFor={`${item.id}-quantity`} style={styles.fieldLabel}>
-              数量<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-            </label>
+            {showFieldLabels && (
+              <label htmlFor={`${item.id}-quantity`} style={styles.fieldLabel}>
+                数量<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+              </label>
+            )}
             <div style={styles.inputWrapper}>
               <input
                 id={`${item.id}-quantity`}
@@ -717,7 +731,7 @@ export default function EditableQuantityItemRow({
         <div style={styles.fieldGroup} role="cell">
           <AutocompleteInput
             id={`${item.id}-unit`}
-            label="単位"
+            label={showFieldLabels ? '単位' : undefined}
             value={item.unit}
             onChange={createUpdateHandler('unit')}
             error={errors.unit}
@@ -732,9 +746,11 @@ export default function EditableQuantityItemRow({
         {/* 備考 - 要件順序: 単位の次 */}
         <div style={styles.fieldGroup} role="cell">
           <div style={styles.directInputContainer}>
-            <label htmlFor={`${item.id}-remarks`} style={styles.fieldLabel}>
-              備考
-            </label>
+            {showFieldLabels && (
+              <label htmlFor={`${item.id}-remarks`} style={styles.fieldLabel}>
+                備考
+              </label>
+            )}
             <div style={styles.inputWrapper}>
               <input
                 id={`${item.id}-remarks`}

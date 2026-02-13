@@ -31,7 +31,11 @@ type MockPrismaClient = {
     update: Mock;
     count: Mock;
   };
+  quantityGroup: {
+    create: Mock;
+  };
   quantityItem: {
+    create: Mock;
     update: Mock;
   };
   project: {
@@ -55,7 +59,11 @@ describe('QuantityTableService', () => {
         update: vi.fn(),
         count: vi.fn(),
       },
+      quantityGroup: {
+        create: vi.fn(),
+      },
       quantityItem: {
+        create: vi.fn(),
         update: vi.fn(),
       },
       project: {
@@ -1188,6 +1196,533 @@ describe('QuantityTableService', () => {
             workType: '工種',
             name: '名称',
             unit: 'm',
+          }),
+        })
+      );
+    });
+  });
+
+  /**
+   * Task 20.1: 数量表ディープコピーのサービスメソッドテスト
+   *
+   * Requirements:
+   * - 17.2: コピーダイアログで数量表名を入力して作成を確定する
+   * - 17.4: コピーされた数量表は元の数量表とは独立したデータとして管理する
+   * - 17.5: コピー中にエラーが発生した場合、不完全なコピーデータが残らないようにする
+   * - 17.7: 元の数量表に写真が紐づけられている場合、コピー先でも同じ写真の紐づけを維持する
+   */
+  describe('copy', () => {
+    const sourceTableId = '123e4567-e89b-12d3-a456-426614174010';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+    const copyName = 'テスト数量表のコピー';
+
+    // 元の数量表データ（グループ・項目を含む）
+    const sourceTable = {
+      id: sourceTableId,
+      projectId: '123e4567-e89b-12d3-a456-426614174000',
+      name: 'テスト数量表',
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      deletedAt: null,
+      groups: [
+        {
+          id: 'group-1',
+          quantityTableId: sourceTableId,
+          name: 'グループ1',
+          surveyImageId: 'image-1',
+          displayOrder: 0,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          items: [
+            {
+              id: 'item-1',
+              quantityGroupId: 'group-1',
+              majorCategory: '大項目A',
+              middleCategory: '中項目A',
+              minorCategory: '小項目A',
+              customCategory: '任意A',
+              workType: '工種A',
+              name: '名称A',
+              specification: '規格A',
+              unit: 'm',
+              calculationMethod: 'STANDARD',
+              calculationParams: null,
+              adjustmentFactor: { toNumber: () => 1.0 },
+              roundingUnit: { toNumber: () => 0.01 },
+              quantity: { toNumber: () => 10.5 },
+              remarks: '備考A',
+              displayOrder: 0,
+              createdAt: new Date('2026-01-06T00:00:00.000Z'),
+              updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+            },
+            {
+              id: 'item-2',
+              quantityGroupId: 'group-1',
+              majorCategory: null,
+              middleCategory: null,
+              minorCategory: null,
+              customCategory: null,
+              workType: '工種B',
+              name: '名称B',
+              specification: null,
+              unit: 'kg',
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 2.0, depth: 3.0 },
+              adjustmentFactor: { toNumber: () => 1.5 },
+              roundingUnit: { toNumber: () => 0.25 },
+              quantity: { toNumber: () => 9.0 },
+              remarks: null,
+              displayOrder: 1,
+              createdAt: new Date('2026-01-06T00:00:00.000Z'),
+              updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+            },
+          ],
+        },
+        {
+          id: 'group-2',
+          quantityTableId: sourceTableId,
+          name: 'グループ2',
+          surveyImageId: null,
+          displayOrder: 1,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          items: [
+            {
+              id: 'item-3',
+              quantityGroupId: 'group-2',
+              majorCategory: '大項目C',
+              middleCategory: null,
+              minorCategory: null,
+              customCategory: null,
+              workType: '工種C',
+              name: '名称C',
+              specification: '規格C',
+              unit: '本',
+              calculationMethod: 'PITCH',
+              calculationParams: {
+                rangeLength: 10,
+                endLength1: 0.5,
+                endLength2: 0.5,
+                pitchLength: 1.0,
+              },
+              adjustmentFactor: { toNumber: () => 1.0 },
+              roundingUnit: { toNumber: () => 0.01 },
+              quantity: { toNumber: () => 10.0 },
+              remarks: '備考C',
+              displayOrder: 0,
+              createdAt: new Date('2026-01-06T00:00:00.000Z'),
+              updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+            },
+          ],
+        },
+      ],
+    };
+
+    it('正常に数量表をディープコピーできる（Requirements: 17.2, 17.4）', async () => {
+      // Arrange
+      const copiedTableId = 'copied-table-id';
+      const copiedGroup1Id = 'copied-group-1-id';
+      const copiedGroup2Id = 'copied-group-2-id';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(sourceTable);
+
+      // 数量表作成のモック
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: copiedTableId,
+        projectId: sourceTable.projectId,
+        name: copyName,
+        createdAt: new Date('2026-01-07T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-07T00:00:00.000Z'),
+        _count: { groups: 2 },
+      });
+
+      // グループ作成のモック
+      mockPrisma.quantityGroup.create
+        .mockResolvedValueOnce({
+          id: copiedGroup1Id,
+          quantityTableId: copiedTableId,
+          name: 'グループ1',
+          surveyImageId: 'image-1',
+          displayOrder: 0,
+        })
+        .mockResolvedValueOnce({
+          id: copiedGroup2Id,
+          quantityTableId: copiedTableId,
+          name: 'グループ2',
+          surveyImageId: null,
+          displayOrder: 1,
+        });
+
+      // 項目作成のモック
+      mockPrisma.quantityItem.create.mockResolvedValue({});
+
+      // Act
+      const result = await service.copy(sourceTableId, { name: copyName }, actorId);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.id).toBe(copiedTableId);
+      expect(result.name).toBe(copyName);
+      expect(result.projectId).toBe(sourceTable.projectId);
+
+      // 元の数量表の取得が呼ばれたことを確認
+      expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: sourceTableId,
+            deletedAt: null,
+          }),
+        })
+      );
+
+      // 新しい数量表が作成されたことを確認
+      expect(mockPrisma.quantityTable.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            projectId: sourceTable.projectId,
+            name: copyName,
+          }),
+        })
+      );
+
+      // 2つのグループが作成されたことを確認
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalledTimes(2);
+
+      // 3つの項目が作成されたことを確認
+      expect(mockPrisma.quantityItem.create).toHaveBeenCalledTimes(3);
+    });
+
+    it('全グループの表示順序と写真紐づけ（surveyImageId）を維持してコピーする（Requirements: 17.7）', async () => {
+      // Arrange
+      const copiedTableId = 'copied-table-id';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(sourceTable);
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: copiedTableId,
+        projectId: sourceTable.projectId,
+        name: copyName,
+        createdAt: new Date('2026-01-07T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-07T00:00:00.000Z'),
+        _count: { groups: 2 },
+      });
+
+      mockPrisma.quantityGroup.create
+        .mockResolvedValueOnce({
+          id: 'copied-group-1',
+          quantityTableId: copiedTableId,
+          name: 'グループ1',
+          surveyImageId: 'image-1',
+          displayOrder: 0,
+        })
+        .mockResolvedValueOnce({
+          id: 'copied-group-2',
+          quantityTableId: copiedTableId,
+          name: 'グループ2',
+          surveyImageId: null,
+          displayOrder: 1,
+        });
+
+      mockPrisma.quantityItem.create.mockResolvedValue({});
+
+      // Act
+      await service.copy(sourceTableId, { name: copyName }, actorId);
+
+      // Assert - グループ1: surveyImageIdが維持される
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            quantityTableId: copiedTableId,
+            name: 'グループ1',
+            surveyImageId: 'image-1',
+            displayOrder: 0,
+          }),
+        })
+      );
+
+      // Assert - グループ2: surveyImageIdがnullのまま維持される
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            quantityTableId: copiedTableId,
+            name: 'グループ2',
+            surveyImageId: null,
+            displayOrder: 1,
+          }),
+        })
+      );
+    });
+
+    it('各グループ内の全項目について全フィールド値と表示順序を維持してコピーする（Requirements: 17.2, 17.4）', async () => {
+      // Arrange
+      const copiedTableId = 'copied-table-id';
+      const copiedGroup1Id = 'copied-group-1';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(sourceTable);
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: copiedTableId,
+        projectId: sourceTable.projectId,
+        name: copyName,
+        createdAt: new Date('2026-01-07T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-07T00:00:00.000Z'),
+        _count: { groups: 2 },
+      });
+
+      mockPrisma.quantityGroup.create
+        .mockResolvedValueOnce({
+          id: copiedGroup1Id,
+          quantityTableId: copiedTableId,
+          displayOrder: 0,
+        })
+        .mockResolvedValueOnce({
+          id: 'copied-group-2',
+          quantityTableId: copiedTableId,
+          displayOrder: 1,
+        });
+
+      mockPrisma.quantityItem.create.mockResolvedValue({});
+
+      // Act
+      await service.copy(sourceTableId, { name: copyName }, actorId);
+
+      // Assert - 項目作成の呼び出し引数を直接取得して検証
+      const itemCreateCalls = mockPrisma.quantityItem.create.mock.calls;
+
+      // 項目1: 全フィールド値が維持される（グループ1の最初の項目）
+      const item1Data = itemCreateCalls[0]![0].data;
+      expect(item1Data.quantityGroupId).toBe(copiedGroup1Id);
+      expect(item1Data.majorCategory).toBe('大項目A');
+      expect(item1Data.middleCategory).toBe('中項目A');
+      expect(item1Data.minorCategory).toBe('小項目A');
+      expect(item1Data.customCategory).toBe('任意A');
+      expect(item1Data.workType).toBe('工種A');
+      expect(item1Data.name).toBe('名称A');
+      expect(item1Data.specification).toBe('規格A');
+      expect(item1Data.unit).toBe('m');
+      expect(item1Data.calculationMethod).toBe('STANDARD');
+      expect(item1Data.remarks).toBe('備考A');
+      expect(item1Data.displayOrder).toBe(0);
+
+      // 項目2: AREA_VOLUMEの計算パラメータも維持される（グループ1の2番目の項目）
+      const item2Data = itemCreateCalls[1]![0].data;
+      expect(item2Data.quantityGroupId).toBe(copiedGroup1Id);
+      expect(item2Data.workType).toBe('工種B');
+      expect(item2Data.name).toBe('名称B');
+      expect(item2Data.calculationMethod).toBe('AREA_VOLUME');
+      expect(item2Data.calculationParams).toEqual({ width: 2.0, depth: 3.0 });
+      expect(item2Data.displayOrder).toBe(1);
+    });
+
+    it('コピー元が存在しない場合はエラーを返却する（Requirements: 17.5）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.copy(sourceTableId, { name: copyName }, actorId)).rejects.toThrow(
+        '数量表が見つかりません'
+      );
+    });
+
+    it('論理削除されたコピー元はエラーを返却する（Requirements: 17.5）', async () => {
+      // Arrange
+      // Prismaの where: { deletedAt: null } 条件により、論理削除済みレコードは
+      // findUnique が null を返す動作をモックで再現
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.copy(sourceTableId, { name: copyName }, actorId)).rejects.toThrow(
+        '数量表が見つかりません'
+      );
+    });
+
+    it('エラー発生時はトランザクションROLLBACKにより不完全なコピーデータが残らない（Requirements: 17.5）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(sourceTable);
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: 'copied-table-id',
+        projectId: sourceTable.projectId,
+        name: copyName,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { groups: 0 },
+      });
+
+      // グループ作成中にエラーを発生させる
+      mockPrisma.quantityGroup.create.mockRejectedValue(new Error('DB error'));
+
+      // $transactionがcallbackのエラーをそのまま伝播することを確認
+      mockPrisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          return callback(mockPrisma);
+        }
+      );
+
+      // Act & Assert
+      await expect(service.copy(sourceTableId, { name: copyName }, actorId)).rejects.toThrow(
+        'DB error'
+      );
+    });
+
+    it('コピー操作を監査ログに記録する', async () => {
+      // Arrange
+      const copiedTableId = 'copied-table-id';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(sourceTable);
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: copiedTableId,
+        projectId: sourceTable.projectId,
+        name: copyName,
+        createdAt: new Date('2026-01-07T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-07T00:00:00.000Z'),
+        _count: { groups: 2 },
+      });
+      mockPrisma.quantityGroup.create
+        .mockResolvedValueOnce({ id: 'cg-1' })
+        .mockResolvedValueOnce({ id: 'cg-2' });
+      mockPrisma.quantityItem.create.mockResolvedValue({});
+
+      // Act
+      await service.copy(sourceTableId, { name: copyName }, actorId);
+
+      // Assert
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'QUANTITY_TABLE_COPIED',
+          actorId,
+          targetType: 'QuantityTable',
+          targetId: copiedTableId,
+          before: expect.objectContaining({
+            sourceTableId,
+            sourceName: 'テスト数量表',
+          }),
+          after: expect.objectContaining({
+            name: copyName,
+            projectId: sourceTable.projectId,
+          }),
+        })
+      );
+    });
+
+    it('グループや項目が空の数量表もコピーできる', async () => {
+      // Arrange
+      const emptyTable = {
+        id: sourceTableId,
+        projectId: sourceTable.projectId,
+        name: '空の数量表',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        groups: [],
+      };
+
+      const copiedTableId = 'copied-table-id';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(emptyTable);
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: copiedTableId,
+        projectId: emptyTable.projectId,
+        name: copyName,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { groups: 0 },
+      });
+
+      // Act
+      const result = await service.copy(sourceTableId, { name: copyName }, actorId);
+
+      // Assert
+      expect(result.id).toBe(copiedTableId);
+      expect(result.name).toBe(copyName);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+    });
+
+    it('コピーされた数量表が元の数量表と独立していること（Requirements: 17.4）', async () => {
+      // Arrange
+      const copiedTableId = 'copied-table-id';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(sourceTable);
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: copiedTableId,
+        projectId: sourceTable.projectId,
+        name: copyName,
+        createdAt: new Date('2026-01-07T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-07T00:00:00.000Z'),
+        _count: { groups: 2 },
+      });
+
+      mockPrisma.quantityGroup.create
+        .mockResolvedValueOnce({
+          id: 'copied-group-1',
+          quantityTableId: copiedTableId,
+          displayOrder: 0,
+        })
+        .mockResolvedValueOnce({
+          id: 'copied-group-2',
+          quantityTableId: copiedTableId,
+          displayOrder: 1,
+        });
+
+      mockPrisma.quantityItem.create.mockResolvedValue({});
+
+      // Act
+      const result = await service.copy(sourceTableId, { name: copyName }, actorId);
+
+      // Assert - コピーされた数量表のIDが元とは異なること（独立性の証明）
+      expect(result.id).toBe(copiedTableId);
+      expect(result.id).not.toBe(sourceTableId);
+
+      // Assert - 新しい数量表が独自のIDで作成されていること
+      expect(mockPrisma.quantityTable.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            projectId: sourceTable.projectId,
+            name: copyName,
+          }),
+        })
+      );
+
+      // Assert - グループIDが元のグループIDと異なる新しいIDで作成されること
+      const groupCreateCalls = mockPrisma.quantityGroup.create.mock.calls;
+      expect(groupCreateCalls[0]![0].data.quantityTableId).toBe(copiedTableId);
+      expect(groupCreateCalls[0]![0].data.quantityTableId).not.toBe(sourceTableId);
+
+      // Assert - 項目が新しいグループIDに紐づけて作成されること
+      const itemCreateCalls = mockPrisma.quantityItem.create.mock.calls;
+      // グループ1の項目は新しいグループID 'copied-group-1' に紐づく
+      expect(itemCreateCalls[0]![0].data.quantityGroupId).toBe('copied-group-1');
+      expect(itemCreateCalls[0]![0].data.quantityGroupId).not.toBe('group-1');
+      // グループ2の項目は新しいグループID 'copied-group-2' に紐づく
+      expect(itemCreateCalls[2]![0].data.quantityGroupId).toBe('copied-group-2');
+      expect(itemCreateCalls[2]![0].data.quantityGroupId).not.toBe('group-2');
+    });
+
+    it('コピー先の数量表名はユーザー指定の名前で作成される（Requirements: 17.2）', async () => {
+      // Arrange
+      const customName = 'カスタムコピー名';
+      const copiedTableId = 'copied-table-id';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        ...sourceTable,
+        groups: [],
+      });
+      mockPrisma.quantityTable.create.mockResolvedValue({
+        id: copiedTableId,
+        projectId: sourceTable.projectId,
+        name: customName,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { groups: 0 },
+      });
+
+      // Act
+      const result = await service.copy(sourceTableId, { name: customName }, actorId);
+
+      // Assert
+      expect(result.name).toBe(customName);
+      expect(mockPrisma.quantityTable.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            name: customName,
           }),
         })
       );

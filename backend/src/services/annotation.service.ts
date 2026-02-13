@@ -480,6 +480,68 @@ export class AnnotationService {
   }
 
   /**
+   * 複数画像の注釈データを一括取得する（要件18対応）
+   *
+   * 指定された画像IDリストに対応する注釈データをまとめて返却する。
+   * 注釈データが存在しない画像IDに対しては null を返却する（18.4対応）。
+   * レスポンス形式は個別取得APIと互換性を維持する（18.8対応）。
+   *
+   * Requirements:
+   * - 18.1: 一括注釈取得エンドポイントの提供
+   * - 18.3: リクエストされた全画像IDに対応する注釈データをまとめて返却
+   * - 18.4: 注釈データが存在しない画像IDに対して空の注釈データを返却
+   * - 18.8: 個別取得APIとのレスポンス形式の互換性維持
+   *
+   * @param imageIds - 画像IDの配列
+   * @param surveyId - 現場調査ID（権限検証用）
+   * @returns 画像IDをキーとする注釈データのRecord
+   * surveyに属さない画像IDにはnullを返却（REQ-18.4）
+   */
+  async findByImageIds(
+    imageIds: string[],
+    surveyId: string
+  ): Promise<Record<string, AnnotationInfo | null>> {
+    // 空配列の場合は空オブジェクトを返却
+    if (imageIds.length === 0) {
+      return {};
+    }
+
+    // 1. 画像IDが当該surveyに属するものを特定
+    const images = await this.prisma.surveyImage.findMany({
+      where: {
+        id: { in: imageIds },
+        surveyId: surveyId,
+        survey: { deletedAt: null },
+      },
+      select: { id: true },
+    });
+
+    const validImageIds = new Set(images.map((img) => img.id));
+
+    // 存在しないimageIdはnullとして返却（REQ-18.4: 存在しないimageIDに空の注釈データ返却）
+
+    // 2. WHERE IN で注釈データを一括取得（surveyに属する画像のみ）
+    const annotations =
+      validImageIds.size > 0
+        ? await this.prisma.imageAnnotation.findMany({
+            where: {
+              imageId: { in: [...validImageIds] },
+            },
+          })
+        : [];
+
+    // 3. 結果をRecord形式に変換（注釈なしまたは存在しない画像にはnullを設定: 18.4対応）
+    const result: Record<string, AnnotationInfo | null> = {};
+    const annotationMap = new Map(annotations.map((a) => [a.imageId, this.toAnnotationInfo(a)]));
+
+    for (const imageId of imageIds) {
+      result[imageId] = annotationMap.get(imageId) ?? null;
+    }
+
+    return result;
+  }
+
+  /**
    * データベースの結果をAnnotationInfoに変換
    */
   private toAnnotationInfo(annotation: {

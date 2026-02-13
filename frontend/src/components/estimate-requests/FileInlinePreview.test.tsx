@@ -13,10 +13,17 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // ============================================================================
 // モック設定
 // ============================================================================
+
+// pdf-worker-configのモック（workerの初期化を無効化）
+vi.mock('./pdf-worker-config', () => ({}));
+
+// モック用のnumPagesを制御する変数
+let mockNumPages = 3;
 
 // react-pdfのモック
 vi.mock('react-pdf', () => ({
@@ -36,7 +43,7 @@ vi.mock('react-pdf', () => ({
     // ファイルが存在する場合はonLoadSuccessを呼ぶ
     if (file && onLoadSuccess) {
       // 非同期でコールバックを呼ぶ
-      setTimeout(() => onLoadSuccess({ numPages: 3 }), 0);
+      setTimeout(() => onLoadSuccess({ numPages: mockNumPages }), 0);
     }
     if (!file) {
       return <div data-testid="pdf-error">{error}</div>;
@@ -125,6 +132,7 @@ describe('FileInlinePreview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     urlMocks = setupUrlMocks();
+    mockNumPages = 3; // デフォルト3ページ
   });
 
   afterEach(() => {
@@ -403,6 +411,127 @@ describe('FileInlinePreview', () => {
 
       // URL.revokeObjectURLが呼ばれたことを確認
       expect(URL.revokeObjectURL).toHaveBeenCalled();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 41.2: PDFページナビゲーションテスト
+  // Requirement: 17.6
+  // --------------------------------------------------------------------------
+
+  describe('PDFページナビゲーション（17.6）', () => {
+    it('PDFロード成功時に総ページ数が正しく取得される', async () => {
+      mockNumPages = 5;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      // ページナビゲーションUIに総ページ数が表示される
+      await waitFor(() => {
+        expect(screen.getByText(/5/)).toBeInTheDocument();
+      });
+    });
+
+    it('「次へ」ボタンクリックでページが増加する', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      // ナビゲーションUIが表示されるまで待つ
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /次へ/i })).toBeInTheDocument();
+      });
+
+      // 初期状態ではページ1
+      expect(screen.getByTestId('pdf-page')).toHaveAttribute('data-page-number', '1');
+
+      // 「次へ」ボタンをクリック
+      await user.click(screen.getByRole('button', { name: /次へ/i }));
+
+      // ページ2に移動
+      await waitFor(() => {
+        expect(screen.getByTestId('pdf-page')).toHaveAttribute('data-page-number', '2');
+      });
+    });
+
+    it('「前へ」ボタンクリックでページが減少する', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /次へ/i })).toBeInTheDocument();
+      });
+
+      // まず次のページに進む
+      await user.click(screen.getByRole('button', { name: /次へ/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pdf-page')).toHaveAttribute('data-page-number', '2');
+      });
+
+      // 「前へ」ボタンをクリック
+      await user.click(screen.getByRole('button', { name: /前へ/i }));
+
+      // ページ1に戻る
+      await waitFor(() => {
+        expect(screen.getByTestId('pdf-page')).toHaveAttribute('data-page-number', '1');
+      });
+    });
+
+    it('1ページ目で「前へ」ボタンが非活性である', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /前へ/i })).toBeInTheDocument();
+      });
+
+      // 1ページ目では「前へ」ボタンが非活性
+      expect(screen.getByRole('button', { name: /前へ/i })).toBeDisabled();
+    });
+
+    it('最終ページで「次へ」ボタンが非活性である', async () => {
+      mockNumPages = 2;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /次へ/i })).toBeInTheDocument();
+      });
+
+      // 最終ページ（2ページ目）に進む
+      await user.click(screen.getByRole('button', { name: /次へ/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pdf-page')).toHaveAttribute('data-page-number', '2');
+      });
+
+      // 最終ページでは「次へ」ボタンが非活性
+      expect(screen.getByRole('button', { name: /次へ/i })).toBeDisabled();
+    });
+
+    it('1ページPDFでナビゲーションUIが非表示である', async () => {
+      mockNumPages = 1;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pdf-document')).toBeInTheDocument();
+      });
+
+      // 1ページの場合はナビゲーションボタンが表示されない
+      expect(screen.queryByRole('button', { name: /前へ/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /次へ/i })).not.toBeInTheDocument();
     });
   });
 });

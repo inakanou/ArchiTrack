@@ -1418,18 +1418,53 @@ describe('Estimate API Integration Tests', () => {
     });
 
     describe('NET金額計算・案分 POST /api/estimates/:id/calculate-net', () => {
+      const vendorLineIds: string[] = [];
+
+      beforeAll(async () => {
+        // NET金額計算テスト用にVENDOR行を持つ見積項目を3つ作成
+        const items = [
+          { name: 'NET項目A', quantity: 100, unitPrice: 3000 },
+          { name: 'NET項目B', quantity: 200, unitPrice: 4000 },
+          { name: 'NET項目C', quantity: 50, unitPrice: 2000 },
+        ];
+        for (const item of items) {
+          const res = await request(app)
+            .post(`/api/estimates/${calcTestEstimateId}/items`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              displayOrder: 0,
+              lines: [
+                {
+                  lineType: 'ESTIMATE',
+                  name: item.name,
+                  unit: 'm2',
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                },
+                { lineType: 'EXECUTION', name: item.name, unit: 'm2', quantity: item.quantity },
+                {
+                  lineType: 'VENDOR',
+                  name: item.name,
+                  unit: 'm2',
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                },
+              ],
+            });
+          const vendorLine = res.body.lines.find(
+            (line: { lineType: string }) => line.lineType === 'VENDOR'
+          );
+          vendorLineIds.push(vendorLine.id);
+        }
+      });
+
       it('NET金額の案分計算ができる (Req 5.1, 5.2, 5.3)', async () => {
-        // UUIDフォーマットの行IDを使用
         const response = await request(app)
           .post(`/api/estimates/${calcTestEstimateId}/calculate-net`)
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             vendorName: 'テスト業者',
-            targetLineIds: [
-              '11111111-1111-4111-a111-111111111111',
-              '22222222-2222-4222-a222-222222222222',
-              '33333333-3333-4333-a333-333333333333',
-            ],
+            targetLineIds: vendorLineIds,
             excludeLineIds: [],
             netAmount: '1000000',
           });
@@ -1454,12 +1489,8 @@ describe('Estimate API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             vendorName: 'テスト業者',
-            targetLineIds: [
-              '11111111-1111-4111-a111-111111111111',
-              '22222222-2222-4222-a222-222222222222',
-              '33333333-3333-4333-a333-333333333333',
-            ],
-            excludeLineIds: ['11111111-1111-4111-a111-111111111111'],
+            targetLineIds: vendorLineIds,
+            excludeLineIds: [vendorLineIds[0]],
             netAmount: '1000000',
           });
 

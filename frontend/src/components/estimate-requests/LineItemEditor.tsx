@@ -19,7 +19,15 @@
  * - 11.21: 金額フィールドは入力不可（読み取り専用）とする
  */
 
-import { useCallback, useMemo, useRef, type KeyboardEvent, type ChangeEvent } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  type KeyboardEvent,
+  type ChangeEvent,
+  type FocusEvent,
+} from 'react';
+import { formatQuantity, formatUnitPrice, calculateFormattedAmount } from './number-format';
 
 // ============================================================================
 // 型定義
@@ -388,6 +396,41 @@ export function LineItemEditor({
   );
 
   // --------------------------------------------------------------------------
+  // 数量・単価フォーカスアウト時のフォーマット (18.7, 18.8)
+  // --------------------------------------------------------------------------
+
+  const handleBlur = useCallback(
+    (e: FocusEvent<HTMLInputElement>, id: string, field: keyof LineItemFormData) => {
+      const value = e.target.value;
+
+      if (field === 'quantity') {
+        const formatted = formatQuantity(value);
+        if (formatted !== value) {
+          const newItems = lineItems.map((item) => {
+            if (item.id !== id) return item;
+            const updated = { ...item, quantity: formatted };
+            updated.amount = calculateFormattedAmount(formatted, item.unitPrice);
+            return updated;
+          });
+          onLineItemsChange(newItems);
+        }
+      } else if (field === 'unitPrice') {
+        const formatted = formatUnitPrice(value);
+        if (formatted !== value) {
+          const newItems = lineItems.map((item) => {
+            if (item.id !== id) return item;
+            const updated = { ...item, unitPrice: formatted };
+            updated.amount = calculateFormattedAmount(item.quantity, formatted);
+            return updated;
+          });
+          onLineItemsChange(newItems);
+        }
+      }
+    },
+    [lineItems, onLineItemsChange]
+  );
+
+  // --------------------------------------------------------------------------
   // Tabキーフォーカス移動（最終フィールド→次の行の最初のフィールド）
   // --------------------------------------------------------------------------
 
@@ -556,7 +599,7 @@ export function LineItemEditor({
                 />
               </td>
 
-              {/* 数量 */}
+              {/* 数量 (18.7: フォーカスアウト時に小数2桁固定フォーマット) */}
               <td style={styles.td}>
                 <input
                   type="text"
@@ -565,6 +608,7 @@ export function LineItemEditor({
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
                     handleFieldChange(item.id, 'quantity', e.target.value)
                   }
+                  onBlur={(e) => handleBlur(e, item.id, 'quantity')}
                   onKeyDown={(e) => handleKeyDown(e, index, 'quantity')}
                   placeholder="数量"
                   disabled={disabled}
@@ -575,7 +619,7 @@ export function LineItemEditor({
                 />
               </td>
 
-              {/* 単価 */}
+              {/* 単価 (18.8: フォーカスアウト時に整数丸めフォーマット) */}
               <td style={styles.td}>
                 <input
                   type="text"
@@ -584,6 +628,7 @@ export function LineItemEditor({
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
                     handleFieldChange(item.id, 'unitPrice', e.target.value)
                   }
+                  onBlur={(e) => handleBlur(e, item.id, 'unitPrice')}
                   onKeyDown={(e) => handleKeyDown(e, index, 'unitPrice')}
                   placeholder="単価"
                   disabled={disabled}

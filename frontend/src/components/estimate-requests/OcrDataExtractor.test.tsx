@@ -3,6 +3,7 @@
  *
  * Task 25.1: OcrDataExtractorコンポーネントの実装
  * Task 28.3: OcrDataExtractorコンポーネントの単体テスト
+ * Task 41.1: pdfjs-distテキスト抽出のユニットテスト
  *
  * Requirements:
  * - 13.5: PDF/画像ファイルに対してOCR処理を自動的に開始する
@@ -11,6 +12,11 @@
  * - 13.8: 抽出結果をテキストデータとして表示する
  * - 13.9: 抽出テキストを選択・コピー可能な状態で表示する
  * - 13.14: OCR/パース処理失敗時にエラーメッセージを表示し手動入力を促す
+ * - 17.1: pdfjs-distのgetTextContent() APIを使用してPDFからテキストを抽出する
+ * - 17.2: PDFの全ページを対象にテキスト抽出を行う
+ * - 17.3: テキストPDFの場合はpdfjs-dist抽出テキストをそのまま使用する
+ * - 17.4: スキャンPDFの場合はCanvas→Tesseract OCRフォールバックを実行する
+ * - 17.8: PDFテキスト抽出のタイムアウトを30秒とする
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -28,6 +34,14 @@ const mockCreateWorker = vi.fn();
 
 vi.mock('tesseract.js', () => ({
   createWorker: (...args: unknown[]) => mockCreateWorker(...args),
+}));
+
+// pdf-text-extractorのモック
+const mockExtractPdfHybrid = vi.fn();
+
+vi.mock('./pdf-text-extractor', () => ({
+  extractPdfHybrid: (...args: unknown[]) => mockExtractPdfHybrid(...args),
+  PDF_TEXT_THRESHOLD: 50,
 }));
 
 // xlsxのモック
@@ -56,6 +70,47 @@ import * as XLSX from 'xlsx';
 function createMockFile(name: string, type: string, size = 1024): File {
   const buffer = new ArrayBuffer(size);
   return new File([buffer], name, { type });
+}
+
+/**
+ * pdf-text-extractorのextractPdfHybridモックを設定する
+ *
+ * @param options - テキストPDF/スキャンPDFの挙動を制御
+ */
+function setupMockPdfExtractor(options?: {
+  numPages?: number;
+  /** 抽出テキスト結果 */
+  extractedText?: string;
+  /** テキストPDFか */
+  isTextPdf?: boolean;
+  /** エラーを投げるか */
+  error?: Error;
+  /** 永久にresolveしないか（タイムアウトテスト用） */
+  neverResolve?: boolean;
+}) {
+  if (options?.neverResolve) {
+    mockExtractPdfHybrid.mockImplementation(() => new Promise(() => {}));
+    return;
+  }
+
+  if (options?.error) {
+    mockExtractPdfHybrid.mockRejectedValue(options.error);
+    return;
+  }
+
+  const text = options?.extractedText ?? '';
+  const isTextPdf = options?.isTextPdf ?? true;
+  const numPages = options?.numPages ?? 1;
+
+  mockExtractPdfHybrid.mockImplementation(
+    async (_file: File, onProgress?: (progress: number, message?: string) => void) => {
+      if (onProgress) {
+        onProgress(10, 'PDFテキスト抽出中...');
+        onProgress(100, 'テキスト抽出完了');
+      }
+      return { text, isTextPdf, numPages };
+    }
+  );
 }
 
 /**
@@ -114,18 +169,21 @@ describe('OcrDataExtractor', () => {
   // --------------------------------------------------------------------------
 
   describe('OCR処理の自動開始（13.5）', () => {
-    it('PDFファイルがセットされるとOCR処理を自動的に開始する', async () => {
-      setupMockWorker({ recognizeResult: 'PDF OCR結果テキスト' });
+    it('PDFファイルがセットされるとPDFテキスト抽出処理を自動的に開始する', async () => {
+      setupMockPdfExtractor({
+        extractedText: 'PDF OCR結果テキスト',
+        isTextPdf: true,
+      });
       const file = createMockFile('test.pdf', 'application/pdf');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockExtractPdfHybrid).toHaveBeenCalled();
       });
 
       await waitFor(() => {
-        expect(mockRecognize).toHaveBeenCalled();
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
       });
     });
 
@@ -236,7 +294,7 @@ describe('OcrDataExtractor', () => {
       };
       mockCreateWorker.mockResolvedValue(worker);
 
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -248,7 +306,7 @@ describe('OcrDataExtractor', () => {
 
     it('処理完了後にインジケーターが消えて結果が表示される', async () => {
       setupMockWorker({ recognizeResult: '完了テスト' });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -269,7 +327,7 @@ describe('OcrDataExtractor', () => {
   describe('抽出結果テキスト表示（13.8）', () => {
     it('OCR処理完了後に抽出テキストを表示する', async () => {
       setupMockWorker({ recognizeResult: 'OCR処理で抽出されたテキスト' });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -310,7 +368,7 @@ describe('OcrDataExtractor', () => {
   describe('テキスト選択・コピー（13.9）', () => {
     it('抽出テキストが選択可能な要素で表示される', async () => {
       setupMockWorker({ recognizeResult: '選択可能テキスト' });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -332,7 +390,7 @@ describe('OcrDataExtractor', () => {
       const ocrText =
         '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000\n鉄筋\tD13\tkg\t500\t120';
       setupMockWorker({ recognizeResult: ocrText });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
       const onImportLineItems = vi.fn();
 
       render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
@@ -345,7 +403,7 @@ describe('OcrDataExtractor', () => {
     it('数値パターンを含む行から数量・単価を推定する', async () => {
       const ocrText = 'コンクリート打設  C25  m3  10  15000';
       setupMockWorker({ recognizeResult: ocrText });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -396,7 +454,7 @@ describe('OcrDataExtractor', () => {
       expect(firstItem!.name).toBe('コンクリート');
       expect(firstItem!.specification).toBe('C25');
       expect(firstItem!.unit).toBe('m3');
-      expect(firstItem!.quantity).toBe('10');
+      expect(firstItem!.quantity).toBe('10.00');
       expect(firstItem!.unitPrice).toBe('15000');
     });
 
@@ -446,7 +504,7 @@ describe('OcrDataExtractor', () => {
       };
       mockCreateWorker.mockResolvedValue(worker);
 
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -472,7 +530,7 @@ describe('OcrDataExtractor', () => {
   describe('エラーハンドリング（13.14）', () => {
     it('OCR処理失敗時にエラーメッセージと手動入力促進メッセージを表示する', async () => {
       setupMockWorker({ recognizeError: new Error('OCR処理に失敗しました') });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -522,7 +580,7 @@ describe('OcrDataExtractor', () => {
   describe('ワーカークリーンアップ', () => {
     it('コンポーネントアンマウント時にワーカーを終了する', async () => {
       setupMockWorker({ recognizeResult: 'テスト' });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       const { unmount } = render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -551,7 +609,7 @@ describe('OcrDataExtractor', () => {
     it('抽出結果が存在する場合に一括取り込みボタンを表示する（13.10）', async () => {
       const ocrText = '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000';
       setupMockWorker({ recognizeResult: ocrText });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -566,7 +624,7 @@ describe('OcrDataExtractor', () => {
       const ocrText =
         '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000\n鉄筋\tD13\tkg\t500\t120';
       setupMockWorker({ recognizeResult: ocrText });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
       const onImportLineItems = vi.fn();
 
       render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
@@ -627,7 +685,7 @@ describe('OcrDataExtractor', () => {
     it('取り込み完了時に確認・修正を促すメッセージを表示する（13.13）', async () => {
       const ocrText = '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000';
       setupMockWorker({ recognizeResult: ocrText });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
       const onImportLineItems = vi.fn();
 
       render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
@@ -651,7 +709,7 @@ describe('OcrDataExtractor', () => {
     it('一括取り込み後はボタンが「取り込み済み」に変わり非活性になる', async () => {
       const ocrText = '名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000';
       setupMockWorker({ recognizeResult: ocrText });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
       const onImportLineItems = vi.fn();
 
       render(<OcrDataExtractor {...defaultProps({ file, onImportLineItems })} />);
@@ -675,7 +733,7 @@ describe('OcrDataExtractor', () => {
       // fallbackロジックでは数値を含む行のみをデータ行とみなすため、
       // 数値がない場合は構造化データが0件となる
       setupMockWorker({ recognizeResult: '  \n  \n  ' });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -694,7 +752,7 @@ describe('OcrDataExtractor', () => {
 
     it('OCR/パース処理失敗時にエラーメッセージと手動入力促進メッセージを表示する（13.14）', async () => {
       setupMockWorker({ recognizeError: new Error('OCR処理に失敗しました') });
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -758,7 +816,7 @@ describe('OcrDataExtractor', () => {
           )
       );
 
-      const file = createMockFile('test.pdf', 'application/pdf');
+      const file = createMockFile('test.jpg', 'image/jpeg');
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
@@ -767,5 +825,160 @@ describe('OcrDataExtractor', () => {
         expect(screen.getByTestId('ocr-progress-indicator')).toBeInTheDocument();
       });
     });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 41.1: pdfjs-distテキスト抽出のユニットテスト
+  // Requirements: 17.1, 17.2, 17.3, 17.4, 17.8
+  // --------------------------------------------------------------------------
+
+  describe('PDFテキスト抽出ハイブリッドアプローチ（17.1-17.4, 17.8）', () => {
+    it('テキストPDF（閾値以上）の場合にpdfjs-distテキストがそのまま返される（17.1, 17.3）', async () => {
+      // pdfjs-distが十分なテキスト（50文字以上）を返すモック
+      const longText =
+        'コンクリート打設工事の見積書です。以下の明細をご確認ください。\n名称\t規格\t単位\t数量\t単価\nコンクリート\tC25\tm3\t10\t15000';
+      setupMockPdfExtractor({
+        numPages: 1,
+        extractedText: longText,
+        isTextPdf: true,
+      });
+
+      const file = createMockFile('text-pdf.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // extractPdfHybridが呼ばれること
+      await waitFor(() => {
+        expect(mockExtractPdfHybrid).toHaveBeenCalled();
+      });
+
+      // テキストPDFの場合、Tesseract.jsのcreateWorkerは呼ばれない
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+      });
+
+      // Tesseract.jsワーカーは作成されないこと（テキストPDFでは不要）
+      expect(mockCreateWorker).not.toHaveBeenCalled();
+    });
+
+    it('スキャンPDF（閾値未満）の場合にCanvas→Tesseract OCRフォールバックが実行される（17.4）', async () => {
+      // extractPdfHybridがスキャンPDFとしてOCR結果を返すモック
+      setupMockPdfExtractor({
+        numPages: 1,
+        extractedText: 'スキャンPDFからのOCR結果テキスト\n名称\t規格\t数量\t単価',
+        isTextPdf: false,
+      });
+
+      const file = createMockFile('scan-pdf.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // extractPdfHybridが呼ばれること（内部でフォールバックが実行される）
+      await waitFor(() => {
+        expect(mockExtractPdfHybrid).toHaveBeenCalled();
+      });
+
+      // 結果テキストが表示されること
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        expect(screen.getByTestId('ocr-extracted-text').textContent).toContain('スキャンPDF');
+      });
+    });
+
+    it('複数ページPDFで全ページのテキストが結合される（17.2）', async () => {
+      const combinedText =
+        '見積書 1ページ目の内容です。\n2ページ目の明細内容です。\n3ページ目の合計金額です。';
+
+      setupMockPdfExtractor({
+        numPages: 3,
+        extractedText: combinedText,
+        isTextPdf: true,
+      });
+
+      const file = createMockFile('multi-page.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // 全ページのテキストが結合されて表示されること
+      await waitFor(() => {
+        const textElement = screen.getByTestId('ocr-extracted-text');
+        expect(textElement).toBeInTheDocument();
+        expect(textElement.textContent).toContain('1ページ目');
+        expect(textElement.textContent).toContain('2ページ目');
+        expect(textElement.textContent).toContain('3ページ目');
+      });
+
+      // extractPdfHybridが呼ばれたことを確認
+      expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+    });
+
+    it('画像ファイルでは従来通りTesseract OCRが直接実行される（後方互換性）', async () => {
+      setupMockWorker({ recognizeResult: '画像OCR結果テキスト' });
+      const file = createMockFile('photo.jpg', 'image/jpeg');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // 画像ファイルではextractPdfHybridは呼ばれない
+      expect(mockExtractPdfHybrid).not.toHaveBeenCalled();
+
+      // Tesseract.jsが直接呼ばれること
+      await waitFor(() => {
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+      });
+
+      await waitFor(() => {
+        expect(mockRecognize).toHaveBeenCalled();
+      });
+    });
+
+    it('Excelファイルでは従来通りSheetJSパースが実行される（後方互換性）', async () => {
+      const mockWorkbook = {
+        SheetNames: ['Sheet1'],
+        Sheets: { Sheet1: {} },
+      };
+      (XLSX.read as ReturnType<typeof vi.fn>).mockReturnValue(mockWorkbook);
+      (XLSX.utils.sheet_to_json as ReturnType<typeof vi.fn>).mockReturnValue([
+        ['名称', '規格', '単位', '数量', '単価'],
+        ['コンクリート', 'C25', 'm3', '10', '15000'],
+      ]);
+
+      const file = createMockFile(
+        'data.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // ExcelファイルではpdfもTesseractも呼ばれない
+      expect(mockExtractPdfHybrid).not.toHaveBeenCalled();
+      expect(mockCreateWorker).not.toHaveBeenCalled();
+
+      // SheetJSが呼ばれること
+      await waitFor(() => {
+        expect(XLSX.read).toHaveBeenCalled();
+      });
+    });
+
+    it('PDFテキスト抽出のタイムアウト（30秒）が適用される（17.8）', async () => {
+      // extractPdfHybridが永久にresolveしないPromise（タイムアウトテスト）
+      setupMockPdfExtractor({ neverResolve: true });
+
+      const file = createMockFile('slow.pdf', 'application/pdf');
+
+      render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // 処理中のインジケーターが表示されること
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-progress-indicator')).toBeInTheDocument();
+      });
+
+      // タイムアウトエラーが表示されるまで待つ（コンポーネント内部の30秒タイムアウト）
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+        },
+        { timeout: 35000 }
+      );
+    }, 40000); // テスト自体のタイムアウトを40秒に設定
   });
 });

@@ -101,6 +101,8 @@ class ApiClient {
   private defaultTimeout: number = 30000; // 30秒
   private accessToken: string | null = null;
   private tokenRefreshCallback: TokenRefreshCallback | null = null;
+  /** セッション切れ時のコールバック（要件30.13: AuthContextへの通知用） */
+  private sessionExpiredCallback: (() => void) | null = null;
   private retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG;
 
   constructor() {
@@ -181,27 +183,39 @@ class ApiClient {
         if (response.status === 401 && this.tokenRefreshCallback) {
           // 要件16.21: 開発環境ではトークン有効期限切れをコンソールにログ出力
           logger.debug('Access token expired or invalid, attempting refresh...');
+
+          // リフレッシュ中は tokenRefreshCallback を null にして、
+          // リフレッシュAPI自体が401を返した場合の再帰的リフレッシュ（デッドロック）を防ぐ
+          const originalCallback = this.tokenRefreshCallback;
+          this.tokenRefreshCallback = null;
+
           try {
             // トークンをリフレッシュ（TokenRefreshManagerがリトライを処理）
-            const newAccessToken = await this.tokenRefreshCallback();
+            const newAccessToken = await originalCallback();
 
             // 新しいアクセストークンを設定
             this.setAccessToken(newAccessToken);
 
-            // 元のリクエストをリトライ（リフレッシュコールバックをnullにして無限ループを防ぐ）
-            const originalCallback = this.tokenRefreshCallback;
-            this.tokenRefreshCallback = null;
-
+            // 元のリクエストをリトライ（リフレッシュコールバックはまだnull状態で無限ループを防ぐ）
             try {
               return await this.request<T>(path, { ...options, disableRetry: true });
             } finally {
               this.tokenRefreshCallback = originalCallback;
             }
           } catch (refreshError) {
+            // リフレッシュ失敗時にコールバックを復元
+            this.tokenRefreshCallback = originalCallback;
+
             // リフレッシュ失敗時のエラーログ
             logger.debug('Token refresh failed after all retry attempts', {
               error: refreshError instanceof Error ? refreshError.message : 'Unknown error',
             });
+
+            // 要件30.13: セッション切れコールバックを呼び出し
+            if (this.sessionExpiredCallback) {
+              this.sessionExpiredCallback();
+            }
+
             // RFC 7807 Problem Details形式のdetailフィールド、または従来のerrorフィールドを優先的に使用
             const errorMessage =
               (data && typeof data === 'object'
@@ -213,6 +227,11 @@ class ApiClient {
                 : null) || response.statusText;
             throw new ApiError(response.status, errorMessage, data);
           }
+        }
+
+        // 要件30.13: tokenRefreshCallbackがnullの場合の401エラーでもsessionExpiredCallbackを呼び出し
+        if (response.status === 401 && !this.tokenRefreshCallback && this.sessionExpiredCallback) {
+          this.sessionExpiredCallback();
         }
 
         // エラーレスポンスの処理
@@ -364,10 +383,24 @@ class ApiClient {
   setTokenRefreshCallback(callback: TokenRefreshCallback | null): void {
     this.tokenRefreshCallback = callback;
   }
+
+  /**
+   * セッション切れコールバックを設定
+   * 要件30.13: トークンリフレッシュ失敗時にAuthContextへ通知するためのコールバック
+   */
+  setSessionExpiredCallback(callback: (() => void) | null): void {
+    this.sessionExpiredCallback = callback;
+  }
 }
 
 // シングルトンインスタンスをエクスポート
 export const apiClient = new ApiClient();
+
+// E2Eテスト用: apiClientインスタンスをwindowに公開
+// Playwrightテストからpage.evaluate経由でapiClientの実メソッドを呼び出し可能にする
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__apiClient = apiClient;
+}
 
 // 型定義のエクスポート
 export type { RequestOptions };

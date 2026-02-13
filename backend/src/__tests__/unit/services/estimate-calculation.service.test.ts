@@ -40,18 +40,18 @@ describe('EstimateCalculationService', () => {
       expect(result!.toString()).toBe('15000');
     });
 
-    it('小数点を含む計算で精度を維持する', () => {
-      // 0.1 + 0.2 = 0.3 のような精度問題を回避
+    it('REQ-22: 小数点を含む計算結果を整数に丸める', () => {
+      // 3 * 0.1 = 0.3 -> 0（小数第1位四捨五入→整数）
       const result = service.calculateAmount('3', '0.1');
       expect(result).not.toBeNull();
-      expect(result!.toString()).toBe('0.3');
+      expect(result!.toString()).toBe('0');
     });
 
-    it('大きな数値でも精度を維持する', () => {
+    it('REQ-22: 大きな数値でも整数に丸める', () => {
       const result = service.calculateAmount('1234567.89', '9876543.21');
       expect(result).not.toBeNull();
-      // Decimal.jsによる高精度計算 (1234567.89 * 9876543.21 = 12193263111263.5269 -> 12193263111263.53)
-      expect(result!.toDecimalPlaces(2).toString()).toBe('12193263111263.53');
+      // Decimal.jsによる高精度計算 (1234567.89 * 9876543.21 = 12193263111263.5269 -> 12193263111264)
+      expect(result!.toString()).toBe('12193263111264');
     });
 
     it('数量がnullの場合はnullを返す', () => {
@@ -69,11 +69,18 @@ describe('EstimateCalculationService', () => {
       expect(result).toBeNull();
     });
 
-    it('結果を小数点以下2桁で丸める（四捨五入）', () => {
+    it('REQ-22: 結果を小数第1位で四捨五入して整数にする', () => {
       const result = service.calculateAmount('3', '1.005');
       expect(result).not.toBeNull();
-      // 3 * 1.005 = 3.015 -> 3.02（四捨五入）
-      expect(result!.toString()).toBe('3.02');
+      // 3 * 1.005 = 3.015 -> 3（小数第1位四捨五入→整数）
+      expect(result!.toString()).toBe('3');
+    });
+
+    it('REQ-22: .5は切り上げ（ROUND_HALF_UP）', () => {
+      // 1 * 1.5 = 1.5 -> 2
+      const result = service.calculateAmount('1', '1.5');
+      expect(result).not.toBeNull();
+      expect(result!.toString()).toBe('2');
     });
 
     it('マイナスの値も計算できる', () => {
@@ -262,7 +269,7 @@ describe('EstimateCalculationService', () => {
       expect(result[1]!.allocatedAmount.toString()).toBe('0');
     });
 
-    it('端数処理を適切に行う', () => {
+    it('REQ-22: 端数処理は整数に丸める', () => {
       const vendorLines = [
         { id: 'line-1', amount: new Decimal('10000') },
         { id: 'line-2', amount: new Decimal('10000') },
@@ -272,10 +279,18 @@ describe('EstimateCalculationService', () => {
 
       const result = service.previewNetAllocation(vendorLines, [], netAmount);
 
-      // 各行は約3333.33だが、小数点2桁で丸められる
+      // 各行は 10000/3 = 3333.33... -> 3333（整数に丸め）
+      // 各行が整数であることを確認
+      for (const r of result) {
+        expect(r.allocatedAmount.toString()).not.toContain('.');
+      }
+      // 各行が3333であることを確認
+      expect(result[0]!.allocatedAmount.toString()).toBe('3333');
+      expect(result[1]!.allocatedAmount.toString()).toBe('3333');
+      expect(result[2]!.allocatedAmount.toString()).toBe('3333');
+      // 整数丸めのため端数が失われる（9999 vs 10000）
       const total = result.reduce((sum, r) => sum.add(r.allocatedAmount), new Decimal(0));
-      // 合計が元のNET金額に近いことを確認（端数調整により一致しない可能性あり）
-      expect(total.toNumber()).toBeCloseTo(10000, 0);
+      expect(total.toNumber()).toBe(9999);
     });
   });
 
@@ -321,16 +336,16 @@ describe('EstimateCalculationService', () => {
       expect(item!.newUnitPrice!.toString()).toBe('2000');
     });
 
-    it('小数点以下2桁で丸める', () => {
+    it('REQ-22: 新しい単価を小数第1位で四捨五入して整数にする', () => {
       const executionLines = [{ lineId: 'line-1', unitPrice: new Decimal('1000') }];
       const profitRate = '33.333'; // 33.333%
 
       const result = service.previewProfitRate(executionLines, profitRate);
 
-      // 1000 * 1.33333 = 1333.33
+      // 1000 * 1.33333 = 1333.33 -> 1333（小数第1位四捨五入→整数）
       const item = result[0];
       expect(item).toBeDefined();
-      expect(item!.newUnitPrice!.toDecimalPlaces(2).toString()).toBe('1333.33');
+      expect(item!.newUnitPrice!.toString()).toBe('1333');
     });
 
     it('単価がnullの場合はnullを返す', () => {

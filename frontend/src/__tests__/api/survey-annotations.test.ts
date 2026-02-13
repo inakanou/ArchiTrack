@@ -16,6 +16,7 @@ import {
   saveAnnotation,
   exportAnnotationJson,
   updateThumbnail,
+  getBatchAnnotations,
 } from '../../api/survey-annotations';
 import type {
   AnnotationInfo,
@@ -31,6 +32,7 @@ vi.mock('../../api/client', async () => {
     apiClient: {
       get: vi.fn(),
       put: vi.fn(),
+      post: vi.fn(),
       patch: vi.fn(),
     },
   };
@@ -485,6 +487,84 @@ describe('survey-annotations API client', () => {
       await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 403,
       });
+    });
+  });
+
+  // ===========================================================================
+  // getBatchAnnotations テスト
+  // Task 43.3: フロントエンドgetBatchAnnotations関数の単体テスト
+  // Requirements: 18.1, 18.7
+  // ===========================================================================
+
+  describe('getBatchAnnotations', () => {
+    const mockSurveyId = '123e4567-e89b-12d3-a456-426614174100';
+    const mockImageId1 = '123e4567-e89b-12d3-a456-426614174001';
+    const mockImageId2 = '123e4567-e89b-12d3-a456-426614174002';
+
+    it('正常系: バッチ取得成功時のレスポンス変換テスト（Requirements: 18.1）', async () => {
+      // Arrange
+      const mockAnnotation1: AnnotationInfo = {
+        id: '456e7890-e89b-12d3-a456-426614174010',
+        imageId: mockImageId1,
+        data: {
+          version: '1.0',
+          objects: [{ type: 'rect', left: 100, top: 100, width: 200, height: 150 }],
+        },
+        version: '1.0',
+        createdAt: '2025-01-15T00:00:00.000Z',
+        updatedAt: '2025-01-15T12:00:00.000Z',
+      };
+
+      const mockResponse = {
+        annotations: {
+          [mockImageId1]: mockAnnotation1,
+          [mockImageId2]: null,
+        },
+      };
+
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResponse);
+
+      // Act
+      const result = await getBatchAnnotations(mockSurveyId, [mockImageId1, mockImageId2]);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result[mockImageId1]).toEqual(mockAnnotation1);
+      expect(result[mockImageId2]).toBeNull();
+      expect(apiClient.post).toHaveBeenCalledWith('/api/site-surveys/annotations/batch', {
+        surveyId: mockSurveyId,
+        imageIds: [mockImageId1, mockImageId2],
+      });
+    });
+
+    it('エラー系: ネットワークエラー時のハンドリングテスト（Requirements: 18.7）', async () => {
+      // Arrange
+      const error = new ApiError(500, 'Internal Server Error');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(error);
+
+      // Act & Assert
+      await expect(getBatchAnnotations(mockSurveyId, [mockImageId1])).rejects.toThrow(ApiError);
+    });
+
+    it('エラー系: 権限不足（403）の場合にApiErrorをスロー', async () => {
+      // Arrange
+      const error = new ApiError(403, '権限がありません。');
+      vi.mocked(apiClient.post).mockRejectedValue(error);
+
+      // Act & Assert
+      await expect(getBatchAnnotations(mockSurveyId, [mockImageId1])).rejects.toThrow(ApiError);
+      await expect(getBatchAnnotations(mockSurveyId, [mockImageId1])).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
+
+    it('エラー系: バリデーションエラー（400）の場合にApiErrorをスロー', async () => {
+      // Arrange
+      const error = new ApiError(400, 'バリデーションエラー');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(error);
+
+      // Act & Assert
+      await expect(getBatchAnnotations(mockSurveyId, [mockImageId1])).rejects.toThrow(ApiError);
     });
   });
 });

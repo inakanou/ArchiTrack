@@ -18,6 +18,7 @@
 
 import { useCallback } from 'react';
 import type { EstimateItemLineEdit, EstimateItemLineType } from '../../hooks/useEstimateEditor';
+import { EstimateCalculator } from '../../utils/estimate-calculation';
 
 // ============================================================================
 // 型定義
@@ -83,7 +84,7 @@ const styles = {
   },
   lineRow: {
     display: 'grid',
-    gridTemplateColumns: '60px 1fr 120px 80px 100px 100px 120px 1fr',
+    gridTemplateColumns: '60px 120px 1fr 120px 80px 100px 100px 120px 1fr',
     gap: '8px',
     alignItems: 'center',
     padding: '8px 16px',
@@ -142,6 +143,9 @@ const styles = {
 /**
  * 金額をフォーマットする（桁区切り）
  */
+/**
+ * 金額をフォーマットする（桁区切り、REQ-22: 整数表示）
+ */
 const formatAmount = (amount: string | null): string => {
   if (amount === null || amount === '') {
     return '-';
@@ -149,7 +153,7 @@ const formatAmount = (amount: string | null): string => {
   try {
     const num = parseFloat(amount);
     if (isNaN(num)) return '-';
-    return num.toLocaleString('ja-JP');
+    return Math.round(num).toLocaleString('ja-JP');
   } catch {
     return '-';
   }
@@ -202,10 +206,41 @@ function LineRow({ itemId, line, onLineChange }: LineRowProps) {
     [itemId, line.id, onLineChange]
   );
 
+  /**
+   * 数量フィールドのフォーカスアウト時フォーマット（REQ-22.7）
+   * 小数2桁固定でフォーマットする
+   */
+  const handleQuantityBlur = useCallback(() => {
+    if (line.quantity && onLineChange) {
+      const formatted = EstimateCalculator.formatQuantity(line.quantity);
+      if (formatted !== null && formatted !== line.quantity) {
+        onLineChange(itemId, line.id, 'quantity', formatted);
+      }
+    }
+  }, [itemId, line.id, line.quantity, onLineChange]);
+
+  /**
+   * 単価フィールドのフォーカスアウト時フォーマット（REQ-22.8）
+   * 小数第1位で四捨五入して整数にする
+   */
+  const handleUnitPriceBlur = useCallback(() => {
+    if (line.unitPrice && onLineChange) {
+      const rounded = EstimateCalculator.roundUnitPrice(line.unitPrice);
+      if (rounded !== null && rounded !== line.unitPrice) {
+        onLineChange(itemId, line.id, 'unitPrice', rounded);
+      }
+    }
+  }, [itemId, line.id, line.unitPrice, onLineChange]);
+
   return (
     <div style={styles.lineRow} data-testid={`line-type-${line.lineType}`}>
       {/* 行タイプラベル */}
       <div style={getLabelStyle(line.lineType)}>{LINE_TYPE_LABELS[line.lineType]}</div>
+
+      {/* 見積業者 (REQ-17.3, REQ-17.4) */}
+      <div style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center' }}>
+        {line.lineType === 'VENDOR' && line.sourceVendorName ? line.sourceVendorName : ''}
+      </div>
 
       {/* 名称 */}
       <div>
@@ -243,24 +278,26 @@ function LineRow({ itemId, line, onLineChange }: LineRowProps) {
         />
       </div>
 
-      {/* 数量 */}
+      {/* 数量 (REQ-22.7: フォーカスアウト時に小数2桁固定フォーマット) */}
       <div>
         <input
           type="text"
           value={line.quantity ?? ''}
           onChange={handleFieldChange('quantity')}
+          onBlur={handleQuantityBlur}
           style={styles.input}
           aria-label="数量"
           placeholder="数量"
         />
       </div>
 
-      {/* 単価 */}
+      {/* 単価 (REQ-22.8: フォーカスアウト時に整数丸め) */}
       <div>
         <input
           type="text"
           value={line.unitPrice ?? ''}
           onChange={handleFieldChange('unitPrice')}
+          onBlur={handleUnitPriceBlur}
           style={styles.input}
           aria-label="単価"
           placeholder="単価"

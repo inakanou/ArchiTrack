@@ -691,7 +691,7 @@ test.describe('見積書機能', () => {
 
     /**
      * @requirement estimate-creation/REQ-5.1, REQ-5.2, REQ-5.3
-     * NET金額計算パネルの表示と操作
+     * NET金額案分ダイアログへのアクセスと表示
      */
     test('REQ-5.1-5.3：NET金額計算パネルが表示される', async ({ page }) => {
       // 見積書IDが存在しない場合は前提テストが失敗
@@ -708,16 +708,17 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // NET金額計算関連のUI要素を探す
-      const netCalculationPanel = page.locator('[data-testid="net-calculation-panel"]');
-      const netCalculationButton = page.getByRole('button', { name: /NET|案分/i });
+      // NET金額案分の機能を提供する「業者金額を実行金額に転記」ボタンが存在することを確認
+      const netButton = page.getByRole('button', { name: '業者金額を実行金額に転記' });
+      await expect(netButton).toBeVisible({ timeout: getTimeout(10000) });
 
-      // パネルまたはボタンが存在するか確認
-      const panelVisible = await netCalculationPanel.isVisible().catch(() => false);
-      const buttonVisible = await netCalculationButton.isVisible().catch(() => false);
+      // ボタンをクリックしてNET金額案分ダイアログが開くことを確認
+      await netButton.click();
+      await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByText(/NET金額案分/i)).toBeVisible({ timeout: getTimeout(5000) });
 
-      // いずれかが存在すればテスト成功
-      expect(panelVisible || buttonVisible).toBeTruthy();
+      // ダイアログを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
 
     /**
@@ -738,18 +739,42 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // NET金額計算のUIが存在するか確認
-      const netAmountInput = page.locator('input[aria-label*="NET金額"], input[name*="netAmount"]');
-      const inputVisible = await netAmountInput.isVisible().catch(() => false);
+      // NET金額案分ダイアログを開く
+      await page.getByRole('button', { name: '業者金額を実行金額に転記' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (inputVisible) {
-        // NET金額を入力
-        await netAmountInput.fill('150000');
+      // 対象業者選択ドロップダウンが存在することを確認
+      const vendorSelect = page.locator('#vendor-select');
+      await expect(vendorSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-        // プレビューが表示されることを確認
-        const previewText = page.getByText(/プレビュー|案分率/i);
-        await expect(previewText).toBeVisible({ timeout: getTimeout(5000) });
+      // 業者データがある場合はNET金額入力をテスト
+      const vendorOptions = await vendorSelect.locator('option').count();
+      if (vendorOptions > 1) {
+        // 最初の業者を選択
+        const options = await vendorSelect.locator('option').all();
+        if (options[1]) {
+          const value = await options[1].getAttribute('value');
+          if (value) {
+            await vendorSelect.selectOption(value);
+          }
+        }
+
+        // NET金額入力フィールドが表示されることを確認
+        const netAmountInput = page.locator('#net-amount');
+        const inputVisible = await netAmountInput.isVisible().catch(() => false);
+
+        if (inputVisible) {
+          // NET金額を入力
+          await netAmountInput.fill('150000');
+
+          // プレビューが表示されることを確認
+          const previewText = page.getByText(/案分プレビュー|案分率/i);
+          await expect(previewText).toBeVisible({ timeout: getTimeout(5000) });
+        }
       }
+
+      // ダイアログを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
   });
 
@@ -850,13 +875,16 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 転記ボタンをクリック
-      const transferButton = page.getByRole('button', { name: /転記/i });
+      // 受領見積書転記ボタンをクリック
+      const transferButton = page.getByRole('button', { name: '受領見積書を業者金額に転記' });
       await expect(transferButton).toBeVisible({ timeout: getTimeout(10000) });
       await transferButton.click();
 
       // 転記ダイアログが表示されることを確認
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // ダイアログを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
 
     /**
@@ -877,30 +905,26 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 転記ボタンをクリック
-      await page.getByRole('button', { name: /転記/i }).click();
+      // 受領見積書転記ボタンをクリック
+      await page.getByRole('button', { name: '受領見積書を業者金額に転記' }).click();
 
       // 転記ダイアログが表示されることを確認
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 受領見積書選択のUIを確認
-      const quotationSelect = page.locator(
-        'select[aria-label*="受領見積書"], [data-testid="quotation-select"]'
-      );
-      const selectVisible = await quotationSelect.isVisible().catch(() => false);
+      // 受領見積書選択ドロップダウンの存在を確認
+      const quotationSelect = page.locator('#quotation-select');
+      await expect(quotationSelect).toBeVisible({ timeout: getTimeout(10000) });
 
-      // UIが存在する場合は操作
-      if (selectVisible) {
-        // 受領見積書がリストに表示されていることを確認
-        const options = await quotationSelect.locator('option').count();
-        expect(options).toBeGreaterThanOrEqual(1);
-      }
+      // 受領見積書の選択肢が存在することを確認（少なくとも「選択してください」オプション）
+      const options = await quotationSelect.locator('option').count();
+      expect(options).toBeGreaterThanOrEqual(1);
+
+      // 転記先選択ドロップダウンの存在を確認
+      const targetSelect = page.locator('#target-select');
+      await expect(targetSelect).toBeVisible({ timeout: getTimeout(5000) });
 
       // ダイアログを閉じる
-      const closeButton = page.getByRole('button', { name: /閉じる|キャンセル/i });
-      if (await closeButton.isVisible()) {
-        await closeButton.click();
-      }
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
   });
 
@@ -911,7 +935,7 @@ test.describe('見積書機能', () => {
   test.describe('タスク15.5: 利益率適用', () => {
     /**
      * @requirement estimate-creation/REQ-6.1, REQ-6.2
-     * 利益率入力パネルの表示
+     * 利益率適用ダイアログへのアクセスと表示
      */
     test('REQ-6.1-6.2：利益率入力パネルが表示される', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -927,20 +951,21 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 利益率関連のUI要素を探す
-      const profitRatePanel = page.locator('[data-testid="profit-rate-panel"]');
-      const profitRateButton = page.getByRole('button', { name: /利益率/i });
-      const profitRateInput = page.locator(
-        'input[aria-label*="利益率"], input[name*="profitRate"]'
-      );
+      // 利益率適用の機能を提供する「実行金額を見積金額に転記」ボタンが存在することを確認
+      const profitButton = page.getByRole('button', { name: '実行金額を見積金額に転記' });
+      await expect(profitButton).toBeVisible({ timeout: getTimeout(10000) });
 
-      // いずれかのUIが存在するか確認
-      const panelVisible = await profitRatePanel.isVisible().catch(() => false);
-      const buttonVisible = await profitRateButton.isVisible().catch(() => false);
-      const inputVisible = await profitRateInput.isVisible().catch(() => false);
+      // ボタンをクリックして利益率適用ダイアログが開くことを確認
+      await profitButton.click();
+      await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByText(/利益率適用/i)).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 利益率関連のUIが存在するかを確認
-      expect(panelVisible || buttonVisible || inputVisible).toBeTruthy();
+      // 利益率入力フィールドが表示されることを確認
+      const profitRateInput = page.locator('#profit-rate');
+      await expect(profitRateInput).toBeVisible({ timeout: getTimeout(5000) });
+
+      // ダイアログを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
 
     /**
@@ -961,17 +986,22 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 上書きオプションを探す
-      const overwriteOptions = page.locator(
-        'input[type="radio"][name*="overwrite"], [data-testid*="overwrite-option"]'
-      );
-      const optionsCount = await overwriteOptions.count();
+      // 利益率適用ダイアログを開く
+      await page.getByRole('button', { name: '実行金額を見積金額に転記' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // オプションが存在する場合は確認
-      if (optionsCount > 0) {
-        // 3つのオプション（全て上書き、空のみ、単価のみ）があることを期待
-        expect(optionsCount).toBeGreaterThanOrEqual(1);
-      }
+      // 上書きオプション（ラジオボタン）が3つ存在することを確認
+      const overwriteOptions = page.locator('input[type="radio"][name="overwrite"]');
+      const optionsCount = await overwriteOptions.count();
+      expect(optionsCount).toBe(3);
+
+      // 各オプションのテキストを確認
+      await expect(page.getByText(/すべて上書き/i)).toBeVisible();
+      await expect(page.getByText(/空の場合のみ上書き/i)).toBeVisible();
+      await expect(page.getByText(/単価のみ上書き/i)).toBeVisible();
+
+      // ダイアログを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
 
     /**
@@ -992,24 +1022,21 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 利益率入力フィールドを探す
-      const profitRateInput = page.locator(
-        'input[aria-label*="利益率"], input[name*="profitRate"]'
-      );
-      const inputVisible = await profitRateInput.isVisible().catch(() => false);
+      // 利益率適用ダイアログを開く
+      await page.getByRole('button', { name: '実行金額を見積金額に転記' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (inputVisible) {
-        // 利益率を入力
-        await profitRateInput.fill('10');
+      // 利益率入力フィールドに値を入力
+      const profitRateInput = page.locator('#profit-rate');
+      await expect(profitRateInput).toBeVisible({ timeout: getTimeout(5000) });
+      await profitRateInput.fill('10');
 
-        // プレビューまたは適用ボタンが表示されることを確認
-        const applyButton = page.getByRole('button', { name: /適用|プレビュー/i });
-        const buttonVisible = await applyButton.isVisible().catch(() => false);
+      // 適用ボタンが表示されることを確認
+      const applyButton = page.getByRole('dialog').getByRole('button', { name: /適用/i });
+      await expect(applyButton).toBeVisible();
 
-        if (buttonVisible) {
-          expect(buttonVisible).toBeTruthy();
-        }
-      }
+      // ダイアログを閉じる
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
   });
 

@@ -2,18 +2,27 @@
  * @fileoverview OCR/データパース処理と結果表示コンポーネント
  *
  * Task 25.1: OcrDataExtractorコンポーネントの実装
+ * Task 40.1: pdfjs-distベースのPDFテキスト抽出処理を追加
+ * Task 40.2: テキストPDF/スキャンPDF判定とハイブリッド処理フローを実装
+ * Task 40.3: スキャンPDFフォールバック（Canvas→画像→Tesseract OCR）を実装
  *
  * Requirements:
- * - 13.5: PDF/画像ファイルに対してTesseract.jsによるOCR処理を自動的に開始する
+ * - 13.5: PDF/画像ファイルに対してOCR処理を自動的に開始する
  * - 13.6: ExcelファイルにはSheetJS（xlsx）によるデータパース（直接データ読み取り）を実行する
  * - 13.7: 処理中インジケーター（プログレスバー）を表示する
  * - 13.8: 抽出結果をテキストデータとして表示する
  * - 13.9: 抽出テキストを選択・コピー可能な状態で表示する
  * - 13.14: OCR/パース処理失敗時にエラーメッセージを表示し手動入力を促す
+ * - 17.1: pdfjs-distのgetTextContent() APIを使用してPDFからテキストを抽出する
+ * - 17.2: PDFの全ページを対象にテキスト抽出を行う
+ * - 17.3: テキストPDFの場合はpdfjs-dist抽出テキストをそのまま使用する
+ * - 17.4: スキャンPDFの場合はCanvas→Tesseract OCRフォールバックを実行する
+ * - 17.8: PDFテキスト抽出のタイムアウトを30秒とする
  *
  * Design:
  * - React.lazy()による動的インポートで遅延ロード（バンドルサイズ影響回避）
- * - Tesseract.jsワーカーの非同期プリフェッチとOCR準備中インジケーター表示
+ * - PDFはpdfjs-distハイブリッドアプローチ（テキストPDF: 直接抽出、スキャンPDF: Canvas→Tesseract OCR）
+ * - 画像ファイルは従来通りTesseract.jsによるOCR処理
  * - OCR処理のタイムアウト（30秒）
  */
 
@@ -21,6 +30,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
 import * as XLSX from 'xlsx';
 import type { LineItemFormData } from './LineItemEditor';
+import { extractPdfHybrid } from './pdf-text-extractor';
+import { formatQuantity, formatUnitPrice, calculateFormattedAmount } from './number-format';
 
 // ============================================================================
 // 型定義
@@ -32,10 +43,16 @@ import type { LineItemFormData } from './LineItemEditor';
  * design.md OcrDataExtractorProps定義に準拠
  */
 export interface OcrDataExtractorProps {
-  /** 処理対象ファイル */
+  /** 処理対象ファイル（新規アップロード時） */
   file: File | null;
+  /** 処理対象ファイルのURL（編集時の既存ファイル） */
+  fileUrl?: string | null;
+  /** 既存ファイルのMIMEタイプ（fileUrl使用時に必須） */
+  fileMimeType?: string | null;
   /** 一括取り込み時のコールバック */
   onImportLineItems: (items: LineItemFormData[]) => void;
+  /** 自動開始フラグ（デフォルト: true） */
+  autoStart?: boolean;
 }
 
 /**
@@ -468,6 +485,44 @@ const styles = {
     color: '#6b7280',
     textAlign: 'center' as const,
   },
+  actionButtonContainer: {
+    padding: '16px',
+    display: 'flex',
+    justifyContent: 'center',
+  },
+  actionButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#ffffff',
+    backgroundColor: '#2563eb',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  retryButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#ffffff',
+    backgroundColor: '#f59e0b',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+    marginTop: '8px',
+  },
+  buttonDisabled: {
+    backgroundColor: '#9ca3af',
+    cursor: 'not-allowed',
+  },
 };
 
 // ============================================================================
@@ -488,7 +543,13 @@ const styles = {
  * />
  * ```
  */
-export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorProps) {
+export function OcrDataExtractor({
+  file,
+  fileUrl,
+  fileMimeType,
+  onImportLineItems,
+  autoStart = true,
+}: OcrDataExtractorProps) {
   // --------------------------------------------------------------------------
   // 状態管理
   // --------------------------------------------------------------------------
@@ -507,6 +568,9 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   } | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortedRef = useRef(false);
+
+  // 手動トリガーモードで使用するファイルオブジェクトの保持
+  const fetchedFileRef = useRef<File | null>(null);
 
   // --------------------------------------------------------------------------
   // クリーンアップ
@@ -528,7 +592,76 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   }, []);
 
   // --------------------------------------------------------------------------
-  // OCR処理（PDF/画像ファイル）
+  // PDFテキスト抽出（pdfjs-distハイブリッドアプローチ）
+  // Requirements: 17.1, 17.2, 17.3, 17.4, 17.8
+  // --------------------------------------------------------------------------
+
+  const processPdfHybrid = useCallback(
+    async (targetFile: File) => {
+      setStatus('processing');
+      setProgress(10);
+      setExtractedText(null);
+      setParsedLineItems(null);
+      setErrorMessage(null);
+      setImportCompleted(false);
+      abortedRef.current = false;
+
+      try {
+        // タイムアウト設定（30秒）
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutRef.current = setTimeout(() => {
+            abortedRef.current = true;
+            reject(new Error('PDFテキスト抽出がタイムアウトしました（30秒超過）'));
+          }, OCR_TIMEOUT_MS);
+        });
+
+        // pdfjs-distハイブリッドアプローチ（タイムアウト付き）
+        const result = await Promise.race([
+          extractPdfHybrid(targetFile, (progressValue, _message) => {
+            if (!abortedRef.current) {
+              setProgress(progressValue);
+            }
+          }),
+          timeoutPromise,
+        ]);
+
+        if (abortedRef.current) {
+          await cleanup();
+          return;
+        }
+
+        // タイムアウトタイマークリア
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+
+        setProgress(90);
+
+        const text = result.text;
+        setExtractedText(text);
+
+        // テキストから構造化データへ変換
+        const items = convertOcrTextToLineItems(text);
+        setParsedLineItems(items);
+
+        setProgress(100);
+        setStatus('completed');
+      } catch (err) {
+        if (abortedRef.current && !(err instanceof Error && err.message.includes('タイムアウト'))) {
+          await cleanup();
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'PDFテキスト抽出に失敗しました';
+        setErrorMessage(message);
+        setStatus('error');
+      }
+    },
+    [cleanup]
+  );
+
+  // --------------------------------------------------------------------------
+  // OCR処理（画像ファイル専用 - 従来のTesseract.js直接実行）
   // --------------------------------------------------------------------------
 
   const processOcr = useCallback(
@@ -676,11 +809,72 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   }, []);
 
   // --------------------------------------------------------------------------
+  // ファイルURLからFileオブジェクトを取得するヘルパー
+  // --------------------------------------------------------------------------
+
+  const fetchFileFromUrl = useCallback(async (): Promise<File | null> => {
+    if (fetchedFileRef.current) return fetchedFileRef.current;
+    if (!fileUrl || !fileMimeType) return null;
+
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error('ファイルの取得に失敗しました');
+    }
+    const blob = await response.blob();
+    const fetchedFile = new File([blob], 'existing-file', { type: fileMimeType });
+    fetchedFileRef.current = fetchedFile;
+    return fetchedFile;
+  }, [fileUrl, fileMimeType]);
+
+  // --------------------------------------------------------------------------
+  // 手動トリガー実行ハンドラ
+  // --------------------------------------------------------------------------
+
+  const handleManualExecute = useCallback(async () => {
+    try {
+      // fileプロパティが提供されている場合はそれを使用（新規アップロード時のリトライ）
+      let targetFile: File | null = file;
+
+      if (!targetFile) {
+        // fileUrlからファイルを取得
+        targetFile = await fetchFileFromUrl();
+      }
+
+      if (!targetFile) return;
+
+      const category = detectFileCategory(targetFile.type);
+      if (category === 'pdf') {
+        await processPdfHybrid(targetFile);
+      } else if (category === 'image') {
+        await processOcr(targetFile);
+      } else if (category === 'excel') {
+        await processExcel(targetFile);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'ファイルの取得に失敗しました';
+      setErrorMessage(message);
+      setStatus('error');
+    }
+  }, [file, fetchFileFromUrl, processPdfHybrid, processOcr, processExcel]);
+
+  // --------------------------------------------------------------------------
+  // リトライハンドラ
+  // --------------------------------------------------------------------------
+
+  const handleRetry = useCallback(async () => {
+    await handleManualExecute();
+  }, [handleManualExecute]);
+
+  // --------------------------------------------------------------------------
   // ファイル変更時の処理開始
   // --------------------------------------------------------------------------
 
   useEffect(() => {
     if (!file) {
+      // autoStart=false（手動トリガーモード）でfileUrlが存在する場合はidleで待機
+      if (!autoStart && fileUrl) {
+        return;
+      }
       setStatus('idle');
       setProgress(0);
       setExtractedText(null);
@@ -690,9 +884,16 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
       return;
     }
 
+    // autoStart=false の場合は自動実行しない
+    if (!autoStart) {
+      return;
+    }
+
     const category = detectFileCategory(file.type);
 
-    if (category === 'pdf' || category === 'image') {
+    if (category === 'pdf') {
+      processPdfHybrid(file);
+    } else if (category === 'image') {
       processOcr(file);
     } else if (category === 'excel') {
       processExcel(file);
@@ -702,7 +903,7 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
       abortedRef.current = true;
       cleanup();
     };
-  }, [file, processOcr, processExcel, cleanup]);
+  }, [file, autoStart, fileUrl, processPdfHybrid, processOcr, processExcel, cleanup]);
 
   // --------------------------------------------------------------------------
   // 一括取り込みハンドラ
@@ -710,7 +911,19 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
 
   const handleImport = useCallback(() => {
     if (parsedLineItems && parsedLineItems.length > 0) {
-      onImportLineItems(parsedLineItems);
+      // 18.10: 一括取り込み時に数値フォーマットを適用
+      const formattedItems = parsedLineItems.map((item) => {
+        const formattedQuantity = formatQuantity(item.quantity);
+        const formattedUnitPrice = formatUnitPrice(item.unitPrice);
+        const formattedAmount = calculateFormattedAmount(formattedQuantity, formattedUnitPrice);
+        return {
+          ...item,
+          quantity: formattedQuantity,
+          unitPrice: formattedUnitPrice,
+          amount: formattedAmount,
+        };
+      });
+      onImportLineItems(formattedItems);
       setImportCompleted(true);
     }
   }, [parsedLineItems, onImportLineItems]);
@@ -719,13 +932,24 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
   // レンダリング
   // --------------------------------------------------------------------------
 
-  // ファイルがない場合は何も表示しない
-  if (!file) {
+  // ファイルもfileUrlも無い場合は何も表示しない
+  if (!file && !fileUrl) {
     return null;
   }
 
-  const fileCategory = detectFileCategory(file.type);
+  // ファイル種別の判定（fileがある場合はfile.type、ない場合はfileMimeTypeを使用）
+  const effectiveMimeType = file ? file.type : (fileMimeType ?? '');
+  const fileCategory = detectFileCategory(effectiveMimeType);
   const headerTitle = fileCategory === 'excel' ? 'データ抽出（Excelパース）' : 'データ抽出（OCR）';
+
+  // 手動トリガーモード: idleかつautoStart=falseの場合にアクションボタンを表示
+  const showManualTriggerButton = !autoStart && status === 'idle';
+
+  // リトライボタン: エラー時に表示
+  const showRetryButton = status === 'error';
+
+  // 処理中フラグ
+  const isProcessing = status === 'processing';
 
   return (
     <div style={styles.container}>
@@ -733,6 +957,23 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
       <div style={styles.header}>
         <span style={styles.headerTitle}>{headerTitle}</span>
       </div>
+
+      {/* 手動トリガーボタン（autoStart=false時） */}
+      {showManualTriggerButton && (
+        <div style={styles.actionButtonContainer}>
+          <button
+            type="button"
+            onClick={handleManualExecute}
+            disabled={isProcessing}
+            style={{
+              ...styles.actionButton,
+              ...(isProcessing ? styles.buttonDisabled : {}),
+            }}
+          >
+            {fileCategory === 'excel' ? 'データパース実行' : 'OCR実行'}
+          </button>
+        </div>
+      )}
 
       {/* 処理中インジケーター */}
       {status === 'processing' && (
@@ -748,9 +989,15 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
           <span style={styles.progressText}>
             {fileCategory === 'excel'
               ? 'Excelデータを解析中...'
-              : progress < 30
-                ? 'OCR準備中...'
-                : 'OCR処理中...'}
+              : fileCategory === 'pdf'
+                ? progress < 25
+                  ? 'PDFテキスト抽出中...'
+                  : progress < 90
+                    ? 'PDF処理中...'
+                    : 'テキスト解析中...'
+                : progress < 30
+                  ? 'OCR準備中...'
+                  : 'OCR処理中...'}
           </span>
         </div>
       )}
@@ -790,11 +1037,24 @@ export function OcrDataExtractor({ file, onImportLineItems }: OcrDataExtractorPr
         </div>
       )}
 
-      {/* エラー表示（13.14） */}
+      {/* エラー表示（13.14） + リトライボタン（16.5, 16.6） */}
       {status === 'error' && (
         <div style={styles.errorContainer} data-testid="ocr-error-message">
           <span style={styles.errorMessage}>{errorMessage ?? 'データの抽出に失敗しました'}</span>
           <span style={styles.manualInputHint}>手動で明細行にデータを入力してください。</span>
+          {showRetryButton && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={isProcessing}
+              style={{
+                ...styles.retryButton,
+                ...(isProcessing ? styles.buttonDisabled : {}),
+              }}
+            >
+              OCRリトライ
+            </button>
+          )}
         </div>
       )}
     </div>

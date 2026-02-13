@@ -399,6 +399,88 @@ describe('QuantityTableListPage', () => {
     });
   });
 
+  // ==========================================================================
+  // コピー機能 (Task 21.3)
+  // Requirements: 17.1, 17.3
+  // ==========================================================================
+  describe('コピー機能 (Requirements: 17.1, 17.3)', () => {
+    it('各数量表カードにコピーボタンが表示される', async () => {
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        const copyButtons = screen.getAllByRole('button', { name: 'コピー' });
+        expect(copyButtons).toHaveLength(2);
+      });
+    });
+
+    it('コピーボタンクリック時にコピーダイアログが表示される', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const copyButtons = screen.getAllByRole('button', { name: 'コピー' });
+      await user.click(copyButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByText('数量表をコピー')).toBeInTheDocument();
+      });
+    });
+
+    it('コピーダイアログにデフォルト名「{元の数量表名}のコピー」が設定される', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const copyButtons = screen.getAllByRole('button', { name: 'コピー' });
+      await user.click(copyButtons[0]!);
+
+      await waitFor(() => {
+        const input = screen.getByLabelText('数量表名') as HTMLInputElement;
+        expect(input.value).toBe('第1回見積数量表のコピー');
+      });
+    });
+
+    it('コピーダイアログのキャンセルでダイアログが閉じる', async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+
+      const copyButtons = screen.getAllByRole('button', { name: 'コピー' });
+      await user.click(copyButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByText('数量表をコピー')).toBeInTheDocument();
+      });
+
+      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
+      await user.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText('数量表をコピー')).not.toBeInTheDocument();
+      });
+    });
+  });
+
   describe('リトライ機能', () => {
     it('再試行ボタンをクリックするとデータを再取得する', async () => {
       const { userEvent } = await import('@testing-library/user-event');

@@ -29,6 +29,7 @@ vi.mock('../../api/client', () => ({
     get: vi.fn(),
     setAccessToken: vi.fn(),
     setTokenRefreshCallback: vi.fn(),
+    setSessionExpiredCallback: vi.fn(),
   },
 }));
 

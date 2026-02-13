@@ -1,6 +1,8 @@
 import { ReactElement } from 'react';
 import { Outlet } from 'react-router-dom';
 import { AppHeader } from './Navigation/AppHeader';
+import { SessionExpiredModal } from './SessionExpiredModal';
+import { useAuth } from '../hooks/useAuth';
 
 /**
  * ProtectedLayoutコンポーネント
@@ -31,6 +33,8 @@ import { AppHeader } from './Navigation/AppHeader';
  * }
  */
 export function ProtectedLayout(): ReactElement {
+  const { sessionExpiredDuringOperation, user, handleReauthSuccess, navigateToLogin } = useAuth();
+
   return (
     <div className="min-h-screen bg-gray-50">
       <AppHeader />
@@ -39,6 +43,13 @@ export function ProtectedLayout(): ReactElement {
           <Outlet />
         </div>
       </main>
+      {/* 要件30.1, 30.2, 30.3: セッション切れモーダル再認証 */}
+      <SessionExpiredModal
+        isOpen={sessionExpiredDuringOperation}
+        userEmail={user?.email ?? ''}
+        onReauthSuccess={handleReauthSuccess}
+        onNavigateToLogin={navigateToLogin}
+      />
     </div>
   );
 }

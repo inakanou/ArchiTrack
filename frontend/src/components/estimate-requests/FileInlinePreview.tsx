@@ -11,19 +11,11 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Document, Page, pdfjs } from 'react-pdf';
+import { Document, Page } from 'react-pdf';
 import * as XLSX from 'xlsx';
 
-// ============================================================================
-// PDF.jsワーカー設定
-// ============================================================================
-
-// Vite環境でのPDF.jsワーカー設定
-// react-pdf 10.xではimport.meta.urlパターンでワーカーを設定する
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString();
+// PDF.jsワーカー設定を共有モジュールからインポート（副作用インポート）
+import './pdf-worker-config';
 
 // ============================================================================
 // 型定義
@@ -193,6 +185,37 @@ const styles = {
     borderTop: '1px solid #e5e7eb',
     textAlign: 'center' as const,
   },
+  pdfNavigation: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+    padding: '8px 16px',
+    backgroundColor: '#f9fafb',
+    borderTop: '1px solid #e5e7eb',
+  },
+  pdfNavButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '4px 12px',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#374151',
+    backgroundColor: '#ffffff',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  pdfNavButtonDisabled: {
+    color: '#9ca3af',
+    backgroundColor: '#f3f4f6',
+    cursor: 'not-allowed',
+  },
+  pdfNavText: {
+    fontSize: '13px',
+    color: '#6b7280',
+  },
 };
 
 // ============================================================================
@@ -221,27 +244,74 @@ function PreviewSkeleton() {
 // ============================================================================
 
 /**
- * PDFファイルのインラインプレビュー（最初のページのみ）
+ * PDFファイルのインラインプレビュー（ページナビゲーション付き全ページ閲覧対応）
+ *
+ * Task 40.4: PDFページナビゲーション機能
+ * Requirement 17.6: PDFプレビューで全ページを閲覧可能にするページナビゲーション機能
  */
 function PdfPreview({ fileUrl }: { fileUrl: string }) {
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
 
-  const handleLoadSuccess = useCallback(() => {
+  const handleLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
     setIsLoading(false);
+    setTotalPages(numPages);
   }, []);
 
+  const handlePrevPage = useCallback(() => {
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  }, []);
+
+  const handleNextPage = useCallback(() => {
+    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+  }, [totalPages]);
+
   return (
-    <div style={styles.pdfContainer}>
-      {isLoading && <PreviewSkeleton />}
-      <Document
-        file={fileUrl}
-        onLoadSuccess={handleLoadSuccess}
-        loading={<PreviewSkeleton />}
-        error={<div style={styles.errorMessage}>PDFの読み込みに失敗しました</div>}
-      >
-        {/* Requirement 13.2: 最初のページのみ表示 */}
-        <Page pageNumber={1} width={600} />
-      </Document>
+    <div>
+      <div style={styles.pdfContainer}>
+        {isLoading && <PreviewSkeleton />}
+        <Document
+          file={fileUrl}
+          onLoadSuccess={handleLoadSuccess}
+          loading={<PreviewSkeleton />}
+          error={<div style={styles.errorMessage}>PDFの読み込みに失敗しました</div>}
+        >
+          <Page pageNumber={currentPage} width={600} />
+        </Document>
+      </div>
+      {/* ページナビゲーション: 総ページ数が1の場合は非表示 (17.6) */}
+      {totalPages > 1 && (
+        <div style={styles.pdfNavigation}>
+          <button
+            type="button"
+            onClick={handlePrevPage}
+            disabled={currentPage <= 1}
+            style={{
+              ...styles.pdfNavButton,
+              ...(currentPage <= 1 ? styles.pdfNavButtonDisabled : {}),
+            }}
+            aria-label="前へ"
+          >
+            前へ
+          </button>
+          <span style={styles.pdfNavText}>
+            ページ {currentPage} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages}
+            style={{
+              ...styles.pdfNavButton,
+              ...(currentPage >= totalPages ? styles.pdfNavButtonDisabled : {}),
+            }}
+            aria-label="次へ"
+          >
+            次へ
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -389,10 +459,36 @@ export function FileInlinePreview({
   // Excelファイルのパース処理
   // --------------------------------------------------------------------------
 
+  /**
+   * ArrayBufferからExcelデータをパースする共通ロジック
+   */
+  const parseExcelArrayBuffer = useCallback((arrayBuffer: ArrayBuffer) => {
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      throw new Error('シートが見つかりません');
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+    if (!worksheet) {
+      throw new Error('ワークシートが見つかりません');
+    }
+    // header: 1 で2次元配列として取得
+    const rows = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1,
+    }) as ExcelRow[];
+
+    setTotalExcelRows(rows.length);
+    setExcelData(rows);
+  }, []);
+
+  // Fileオブジェクトからのパース
   useEffect(() => {
     if (!file || previewType !== 'excel') {
-      setExcelData(null);
-      setTotalExcelRows(0);
+      if (!existingPreviewUrl || previewType !== 'excel') {
+        setExcelData(null);
+        setTotalExcelRows(0);
+      }
       return;
     }
 
@@ -404,27 +500,11 @@ export function FileInlinePreview({
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        if (!data) {
+        if (!data || !(data instanceof ArrayBuffer)) {
           throw new Error('ファイルの読み込みに失敗しました');
         }
 
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        if (!firstSheetName) {
-          throw new Error('シートが見つかりません');
-        }
-
-        const worksheet = workbook.Sheets[firstSheetName];
-        if (!worksheet) {
-          throw new Error('ワークシートが見つかりません');
-        }
-        // header: 1 で2次元配列として取得
-        const rows = XLSX.utils.sheet_to_json(worksheet, {
-          header: 1,
-        }) as ExcelRow[];
-
-        setTotalExcelRows(rows.length);
-        setExcelData(rows);
+        parseExcelArrayBuffer(data);
       } catch {
         setError('プレビューを表示できません。ファイルの読み込みに失敗しました。');
       } finally {
@@ -438,7 +518,44 @@ export function FileInlinePreview({
     };
 
     reader.readAsArrayBuffer(file);
-  }, [file, previewType]);
+  }, [file, previewType, existingPreviewUrl, parseExcelArrayBuffer]);
+
+  // existingPreviewUrlからのExcelフェッチ&パース
+  useEffect(() => {
+    // fileが優先（新規アップロード時）
+    if (file || previewType !== 'excel' || !existingPreviewUrl) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    (async () => {
+      try {
+        const response = await fetch(existingPreviewUrl);
+        if (!response.ok) {
+          throw new Error('ファイルの取得に失敗しました');
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        if (cancelled) return;
+
+        parseExcelArrayBuffer(arrayBuffer);
+      } catch {
+        if (!cancelled) {
+          setError('プレビューを表示できません。ファイルの読み込みに失敗しました。');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file, previewType, existingPreviewUrl, parseExcelArrayBuffer]);
 
   // --------------------------------------------------------------------------
   // プレビューURLの決定（ファイルまたは既存URL）

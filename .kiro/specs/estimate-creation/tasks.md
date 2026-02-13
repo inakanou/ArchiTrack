@@ -446,3 +446,107 @@
   - 空状態表示確認
   - スケルトンローダー表示確認
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10, 16.11, 16.12, 16.13_
+
+- [x] 21. 受領見積書転記UIの改善（REQ-17対応）
+- [x] 21.1 バックエンド: プロジェクト単位受領見積書取得APIの実装
+  - ReceivedQuotationServiceにfindByProjectIdメソッドを追加
+  - EstimateRequest経由でプロジェクトに紐付く受領見積書を取得
+  - lineItemsとestimateRequest.tradingPartnerNameをeager load
+  - app.tsに/api/projects/:projectId/quotationsルートを登録
+  - _Requirements: 17.1, 17.2_
+
+- [x] 21.2 フロントエンド: EstimateItemTableに見積業者列を追加
+  - ヘッダーに「見積業者」列を追加
+  - gridTemplateColumnsを更新（見積業者列分を追加）
+  - EstimateItemRowに見積業者列の表示を追加（業者金額行のsourceVendorNameを表示）
+  - _Requirements: 17.3, 17.4_
+
+- [x] 21.3 フロントエンド: 転記ボタンラベルの変更
+  - EstimateDetailPageの「転記」ボタンを「受領見積書を業者金額に転記」に変更
+  - _Requirements: 17.5_
+
+- [x] 22. 業者金額→実行金額転記ダイアログの実装（REQ-18対応）
+- [x] 22.1 NetAllocationDialogコンポーネントの実装
+  - 対象業者選択ドロップダウン（業者金額行のsourceVendorNameからユニーク値抽出）
+  - 業者金額行一覧（チェックボックス付き）
+  - 案分から除外する諸経費行の指定
+  - NET金額入力フィールド
+  - プレビュー表示（案分率、案分後金額）
+  - 案分実行ボタン（POST /api/estimates/:id/calculate-net API連携）
+  - 処理中インジケーター表示
+  - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9_
+
+- [x] 22.2 EstimateDetailPageに「業者金額を実行金額に転記」ボタンを追加
+  - ヘッダーにボタンを追加
+  - NetAllocationDialog呼び出し
+  - _Requirements: 18.1, 18.2_
+
+- [x] 23. 実行金額→見積金額転記ダイアログの実装（REQ-19対応）
+- [x] 23.1 ProfitRateDialogコンポーネントの実装
+  - 利益率入力フィールド（0.00〜500.00%）
+  - 上書きオプション選択（すべて上書き / 空の場合のみ / 単価のみ）
+  - プレビュー表示（元の単価→新しい単価）
+  - 適用ボタン（POST /api/estimates/:id/apply-profit-rate API連携）
+  - 処理中インジケーター表示
+  - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7_
+
+- [x] 23.2 EstimateDetailPageに「実行金額を見積金額に転記」ボタンを追加
+  - ヘッダーにボタンを追加
+  - ProfitRateDialog呼び出し
+  - _Requirements: 19.1, 19.2_
+
+- [x] 24. 数値表示形式と丸め規則の実装（REQ-22対応）
+- [x] 24.1 バックエンド: EstimateCalculationServiceの丸め規則適用
+  - calculateNetメソッド: 案分後の単価を小数第1位で四捨五入して整数（toDecimalPlaces(0, ROUND_HALF_UP)）で保存
+  - calculateNetメソッド: 案分後の金額を数量×丸め済み単価として再計算し、小数第1位で四捨五入して整数で保存
+  - applyProfitRateメソッド: 利益率適用後の単価を小数第1位で四捨五入して整数で保存
+  - applyProfitRateメソッド: 利益率適用後の金額を数量×丸め済み単価として再計算し、小数第1位で四捨五入して整数で保存
+  - _Requirements: 22.4, 22.5, 22.6_
+
+- [x] 24.2 バックエンド: EstimateItemServiceのバッチ保存時丸め規則適用
+  - バッチ更新時に単価を小数第1位で四捨五入して整数で保存
+  - バッチ更新時に金額を数量×丸め済み単価として計算し、小数第1位で四捨五入して整数で保存
+  - 個別更新時も同様の丸め規則を適用
+  - _Requirements: 22.2, 22.3, 22.9_
+
+- [x] 24.3 フロントエンド: EstimateCalculatorの丸め規則適用
+  - calculateAmountメソッド: toDecimalPlaces(2)をtoDecimalPlaces(0, ROUND_HALF_UP)に変更
+  - roundUnitPriceメソッドを新規追加: 単価を小数第1位で四捨五入して整数にする
+  - formatQuantityメソッドを新規追加: 数量を小数2桁固定でフォーマット
+  - previewNetAllocationメソッド: 案分後金額・単価をtoDecimalPlaces(0, ROUND_HALF_UP)に変更
+  - previewProfitRateメソッド: 新しい単価をtoDecimalPlaces(0, ROUND_HALF_UP)に変更
+  - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.9_
+
+- [x] 24.4 フロントエンド: EstimateItemRowの数量・単価・金額表示フォーマット適用
+  - 数量フィールド: フォーカスアウト時にEstimateCalculator.formatQuantityで小数2桁固定フォーマットを適用
+  - 単価フィールド: フォーカスアウト時にEstimateCalculator.roundUnitPriceで小数第1位四捨五入→整数フォーマットを適用
+  - 金額フィールド: 表示時に小数第1位四捨五入した整数値で表示
+  - _Requirements: 22.1, 22.2, 22.3, 22.7, 22.8_
+
+- [x] 24.5 フロントエンド: NetAllocationDialog・ProfitRateDialogのプレビュー表示フォーマット適用
+  - NetAllocationDialog: 案分後金額・案分後単価を整数表示
+  - ProfitRateDialog: 新しい単価を整数表示
+  - _Requirements: 22.4, 22.5, 22.6_
+
+- [x] 24.6 テスト: 数値表示形式と丸め規則のテスト
+  - EstimateCalculator単体テスト: calculateAmount、roundUnitPrice、formatQuantityの丸め動作検証
+  - EstimateCalculator単体テスト: previewNetAllocation、previewProfitRateの丸め動作検証
+  - バックエンド計算サービス単体テスト: calculateNet、applyProfitRateの丸め動作検証
+  - 統合テスト: バッチ保存時の丸め規則適用検証
+  - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8, 22.9_
+
+- [x] 25. サマリーパネルとレイアウト改善（REQ-20, 21対応）
+- [x] 25.1 EstimateDetailPageのレイアウト改善
+  - サイドバーセクション（合計金額パネル、NET金額計算パネル、利益率設定パネル）を廃止
+  - gridTemplateColumnsを'1fr'に変更（1カラムレイアウト）
+  - 見積項目テーブルを画面幅いっぱいに表示
+  - _Requirements: 21.1, 21.2, 21.3_
+
+- [x] 25.2 サマリーパネルの実装
+  - 基本情報パネルの下にサマリーパネルを追加
+  - 見積金額合計の表示
+  - 実行金額合計の表示
+  - 業者金額合計の表示
+  - 利益率（見積金額合計÷実行金額合計）の百分率表示
+  - 値引率（実行金額合計÷業者金額合計）の百分率表示
+  - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6_

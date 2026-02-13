@@ -39,28 +39,28 @@ describe('EstimateCalculator', () => {
         expect(result?.toString()).toBe('2500');
       });
 
-      it('小数点を含む単価から金額を計算できること', () => {
+      it('REQ-22: 小数点を含む単価から金額を計算し整数に丸めること', () => {
+        // 10 * 99.99 = 999.9 -> 1000（小数第1位四捨五入→整数）
         const result = EstimateCalculator.calculateAmount('10', '99.99');
 
         expect(result).not.toBeNull();
-        expect(result?.toString()).toBe('999.9');
+        expect(result?.toString()).toBe('1000');
       });
 
-      it('小数点以下2桁で四捨五入されること', () => {
-        // 10 * 3.333 = 33.33 (切り上げ前: 33.33)
+      it('REQ-22: 計算結果を小数第1位で四捨五入して整数にすること', () => {
+        // 10 * 3.333 = 33.33 -> 33（小数第1位四捨五入→整数）
         const result = EstimateCalculator.calculateAmount('10', '3.333');
 
         expect(result).not.toBeNull();
-        expect(result?.toString()).toBe('33.33');
+        expect(result?.toString()).toBe('33');
       });
 
-      it('小数点以下3桁目が5の場合、四捨五入されること（ROUND_HALF_UP）', () => {
-        // 1 * 0.005 = 0.005 → 0.01 (四捨五入)
-        // より明確なケース: 1 * 1.125 = 1.125 → 1.13
+      it('REQ-22: .5以上は切り上げ（ROUND_HALF_UP）', () => {
+        // 1 * 1.125 = 1.125 → 1（小数第1位四捨五入→整数）
         const result = EstimateCalculator.calculateAmount('1', '1.125');
 
         expect(result).not.toBeNull();
-        expect(result?.toString()).toBe('1.13');
+        expect(result?.toString()).toBe('1');
       });
 
       it('大きな数値を正確に計算できること', () => {
@@ -71,13 +71,12 @@ describe('EstimateCalculator', () => {
         expect(result?.toString()).toBe('999999000000');
       });
 
-      it('Decimal精度で浮動小数点誤差を回避できること', () => {
-        // 0.1 + 0.2 = 0.3 (浮動小数点では 0.30000000000000004)
-        // 3 * 0.1 = 0.3
+      it('REQ-22: Decimal精度で浮動小数点誤差を回避しつつ整数に丸めること', () => {
+        // 3 * 0.1 = 0.3 -> 0（小数第1位四捨五入→整数）
         const result = EstimateCalculator.calculateAmount('3', '0.1');
 
         expect(result).not.toBeNull();
-        expect(result?.toString()).toBe('0.3');
+        expect(result?.toString()).toBe('0');
       });
 
       it('ゼロの数量を計算できること', () => {
@@ -484,7 +483,7 @@ describe('EstimateCalculator', () => {
         expect(result[1]!.lineId).toBe('3');
       });
 
-      it('小数点を含む案分計算を正確に行うこと', () => {
+      it('REQ-22: 小数点を含む案分計算で結果が整数に丸められること', () => {
         const vendorLines: VendorLineInfo[] = [
           { id: '1', amount: '1000' },
           { id: '2', amount: '1000' },
@@ -495,10 +494,10 @@ describe('EstimateCalculator', () => {
 
         const result = EstimateCalculator.previewNetAllocation(vendorLines, excludeIds, netAmount);
 
-        // 各行: 10000 / 3 = 3333.33...
+        // 各行: 10000 / 3 = 3333.33... -> 3333（整数に丸め）
         expect(result).toHaveLength(3);
         result.forEach((r) => {
-          expect(r.allocatedAmount).toBe('3333.33');
+          expect(r.allocatedAmount).toBe('3333');
           expect(r.ratio).toBe('33.33%');
         });
       });
@@ -607,13 +606,13 @@ describe('EstimateCalculator', () => {
         expect(result[0]!.newUnitPrice).toBe('1125'); // 1000 * 1.125
       });
 
-      it('小数点以下2桁で四捨五入されること', () => {
+      it('REQ-22: 新しい単価を小数第1位で四捨五入して整数にすること', () => {
         const executionLines: ExecutionLineInfo[] = [{ lineId: '1', unitPrice: '1000' }];
 
-        // 33.333% → 1000 * 1.33333 = 1333.33
+        // 33.333% → 1000 * 1.33333 = 1333.33 -> 1333（整数に丸め）
         const result = EstimateCalculator.previewProfitRate(executionLines, '33.333');
 
-        expect(result[0]!.newUnitPrice).toBe('1333.33');
+        expect(result[0]!.newUnitPrice).toBe('1333');
       });
 
       it('500%の利益率を適用できること（上限）', () => {
@@ -715,18 +714,18 @@ describe('EstimateCalculator', () => {
   // REQ-13.6: 高精度な10進数計算により丸め誤差を最小化する
   // ============================================================================
   describe('Decimal精度検証', () => {
-    it('浮動小数点演算の一般的な誤差ケースを正確に計算できること', () => {
-      // JavaScript: 0.1 + 0.2 = 0.30000000000000004
+    it('REQ-22: 浮動小数点演算結果を整数に丸めること', () => {
+      // 1 * 0.3 = 0.3 -> 0（小数第1位四捨五入→整数）
       const result = EstimateCalculator.calculateAmount('1', '0.3');
 
-      expect(result?.toString()).toBe('0.3');
+      expect(result?.toString()).toBe('0');
     });
 
-    it('大きな数値の乗算で精度を維持できること', () => {
-      // 99999999.99 * 1.01 = 100999999.9899 → 100999999.99
+    it('REQ-22: 大きな数値の乗算結果を整数に丸めること', () => {
+      // 1.01 * 99999999.99 = 100999999.9899 -> 101000000（整数に丸め）
       const result = EstimateCalculator.calculateAmount('1.01', '99999999.99');
 
-      expect(result?.toString()).toBe('100999999.99');
+      expect(result?.toString()).toBe('101000000');
     });
 
     it('非常に小さな数値を正確に計算できること', () => {
@@ -736,14 +735,14 @@ describe('EstimateCalculator', () => {
       expect(result?.toString()).toBe('0');
     });
 
-    it('繰り返し計算でも精度を維持できること', () => {
-      // 1/3 * 3 = 1 (ただしDecimalで1/3を表現すると無限小数)
-      // より実用的なテスト: 1000 / 3 * 3 を段階的に計算
+    it('REQ-22: 繰り返し計算でも整数に丸めること', () => {
+      // 1000 / 3 = 333.33（2桁）
+      // 3 * 333.33 = 999.99 -> 1000（小数第1位四捨五入→整数）
       const thirdPrice = new Decimal('1000').div(3).toDecimalPlaces(2);
       const result = EstimateCalculator.calculateAmount('3', thirdPrice.toString());
 
-      // 333.33 * 3 = 999.99
-      expect(result?.toString()).toBe('999.99');
+      // 333.33 * 3 = 999.99 -> 1000（整数に丸め）
+      expect(result?.toString()).toBe('1000');
     });
   });
 });

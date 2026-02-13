@@ -1233,6 +1233,7 @@ router.post(
   validate(calculateNetSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      const { id } = req.params;
       const validatedBody = req.validatedBody as {
         vendorName: string;
         targetLineIds: string[];
@@ -1240,20 +1241,71 @@ router.post(
         netAmount: string;
       };
 
-      // TODO: 実際のデータベースから業者金額行情報を取得して計算する
-      // 現在はプレビュー計算のみ返す
-      const vendorLines = validatedBody.targetLineIds.map((id) => ({
-        id,
-        amount: new Decimal(10000), // ダミーデータ
+      // データベースから業者金額行を取得
+      const dbVendorLines = await prisma.estimateItemLine.findMany({
+        where: {
+          id: { in: validatedBody.targetLineIds },
+          lineType: 'VENDOR',
+        },
+      });
+
+      // 計算用の情報を構築
+      const vendorLines = dbVendorLines.map((line) => ({
+        id: line.id,
+        amount: new Decimal(line.amount?.toString() || '0'),
       }));
 
+      // NET金額案分計算
       const result = estimateCalculationService.previewNetAllocation(
         vendorLines,
         validatedBody.excludeLineIds,
         validatedBody.netAmount
       );
 
-      // Decimalを文字列に変換して返す
+      // トランザクションで実行金額行を更新
+      await prisma.$transaction(async (tx) => {
+        for (const allocation of result) {
+          const vendorLine = dbVendorLines.find((l) => l.id === allocation.lineId);
+          if (!vendorLine) continue;
+
+          // 案分後の単価を計算（数量がある場合は案分金額÷数量、ない場合は案分金額を単価とする）
+          const quantity = vendorLine.quantity ? new Decimal(vendorLine.quantity.toString()) : null;
+          const allocatedAmount = allocation.allocatedAmount.toDecimalPlaces(
+            0,
+            Decimal.ROUND_HALF_UP
+          );
+          const unitPrice =
+            quantity && !quantity.isZero()
+              ? allocatedAmount.div(quantity).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+              : allocatedAmount;
+
+          // 同じ項目のEXECUTION行を更新
+          await tx.estimateItemLine.update({
+            where: {
+              estimateItemId_lineType: {
+                estimateItemId: vendorLine.estimateItemId,
+                lineType: 'EXECUTION',
+              },
+            },
+            data: {
+              name: vendorLine.name,
+              specification: vendorLine.specification,
+              unit: vendorLine.unit,
+              quantity: vendorLine.quantity,
+              unitPrice: unitPrice.toString(),
+              amount: allocatedAmount.toString(),
+            },
+          });
+        }
+
+        // 見積書のupdatedAtを更新
+        await tx.estimate.update({
+          where: { id },
+          data: { updatedAt: new Date() },
+        });
+      });
+
+      // レスポンスを構築
       const response = result.map((item) => ({
         lineId: item.lineId,
         originalAmount: item.originalAmount?.toString() ?? null,
@@ -1261,7 +1313,7 @@ router.post(
         ratio: item.ratio.toString(),
       }));
 
-      logger.info({ userId: req.user?.userId }, 'NET calculation completed');
+      logger.info({ userId: req.user?.userId }, 'NET calculation and allocation completed');
 
       res.json(response);
     } catch (error) {
@@ -1321,21 +1373,100 @@ router.post(
   validate(applyProfitRateSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      const { id } = req.params;
       const validatedBody = req.validatedBody as {
         profitRate: string;
         overwriteOption: 'all' | 'empty_only' | 'unit_price_only';
       };
 
-      // TODO: 実際のデータベースから実行金額行情報を取得して計算・適用する
-      // 現在はプレビュー計算のみ返す
-      const executionLines = [{ lineId: 'dummy-line-id', unitPrice: new Decimal(10000) }];
+      // データベースから見積書の実行金額行を取得
+      const dbExecutionLines = await prisma.estimateItemLine.findMany({
+        where: {
+          estimateItem: { estimateId: id },
+          lineType: 'EXECUTION',
+          unitPrice: { not: null },
+        },
+      });
 
+      // 計算用の情報を構築
+      const executionLines = dbExecutionLines.map((line) => ({
+        lineId: line.id,
+        unitPrice: new Decimal(line.unitPrice!.toString()),
+      }));
+
+      // 利益率計算
       const result = estimateCalculationService.previewProfitRate(
         executionLines,
         validatedBody.profitRate
       );
 
-      // Decimalを文字列に変換して返す
+      // トランザクションで見積金額行を更新
+      await prisma.$transaction(async (tx) => {
+        for (const preview of result) {
+          const execLine = dbExecutionLines.find((l) => l.id === preview.lineId);
+          if (!execLine || !preview.newUnitPrice) continue;
+
+          // 上書きオプションに基づいてESTIMATE行を取得
+          const estimateLine = await tx.estimateItemLine.findUnique({
+            where: {
+              estimateItemId_lineType: {
+                estimateItemId: execLine.estimateItemId,
+                lineType: 'ESTIMATE',
+              },
+            },
+          });
+          if (!estimateLine) continue;
+
+          // 上書き判定
+          if (validatedBody.overwriteOption === 'empty_only') {
+            if (estimateLine.unitPrice !== null) continue;
+          }
+
+          const newUnitPrice = preview.newUnitPrice.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+
+          if (validatedBody.overwriteOption === 'unit_price_only') {
+            // 単価のみ更新（金額は数量×単価で再計算）
+            const amount =
+              estimateLine.quantity && newUnitPrice
+                ? new Decimal(estimateLine.quantity.toString())
+                    .mul(newUnitPrice)
+                    .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+                : null;
+            await tx.estimateItemLine.update({
+              where: { id: estimateLine.id },
+              data: {
+                unitPrice: newUnitPrice.toString(),
+                amount: amount?.toString() ?? null,
+              },
+            });
+          } else {
+            // all または empty_only: 実行金額行の情報をコピー
+            const quantity = execLine.quantity ? new Decimal(execLine.quantity.toString()) : null;
+            const amount = quantity
+              ? quantity.mul(newUnitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+              : null;
+            await tx.estimateItemLine.update({
+              where: { id: estimateLine.id },
+              data: {
+                name: execLine.name,
+                specification: execLine.specification,
+                unit: execLine.unit,
+                quantity: execLine.quantity,
+                unitPrice: newUnitPrice.toString(),
+                amount: amount?.toString() ?? null,
+              },
+            });
+          }
+        }
+
+        // 見積書のupdatedAtを更新
+        await tx.estimate.update({
+          where: { id },
+          data: { updatedAt: new Date() },
+        });
+      });
+
+      // レスポンスを構築
       const response = result.map((item) => ({
         lineId: item.lineId,
         originalUnitPrice: item.originalUnitPrice?.toString() ?? null,
@@ -1344,7 +1475,7 @@ router.post(
 
       logger.info(
         { userId: req.user?.userId, profitRate: validatedBody.profitRate },
-        'Profit rate applied'
+        'Profit rate calculation and application completed'
       );
 
       res.json(response);

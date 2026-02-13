@@ -28,22 +28,71 @@ import { ReceivedQuotationForm } from './ReceivedQuotationForm';
 
 // FileInlinePreviewとOcrDataExtractorをモック
 vi.mock('./FileInlinePreview', () => ({
-  FileInlinePreview: ({ file }: { file: File | null }) =>
-    file ? <div data-testid="file-inline-preview">{file.name} のプレビュー</div> : null,
-  default: ({ file }: { file: File | null }) =>
-    file ? <div data-testid="file-inline-preview">{file.name} のプレビュー</div> : null,
+  FileInlinePreview: ({
+    file,
+    existingPreviewUrl,
+    fileMimeType,
+  }: {
+    file: File | null;
+    existingPreviewUrl?: string;
+    fileMimeType?: string;
+  }) =>
+    file ? (
+      <div data-testid="file-inline-preview">{file.name} のプレビュー</div>
+    ) : existingPreviewUrl ? (
+      <div
+        data-testid="file-inline-preview"
+        data-preview-url={existingPreviewUrl}
+        data-mime-type={fileMimeType}
+      >
+        既存ファイルのプレビュー
+      </div>
+    ) : null,
+  default: ({
+    file,
+    existingPreviewUrl,
+    fileMimeType,
+  }: {
+    file: File | null;
+    existingPreviewUrl?: string;
+    fileMimeType?: string;
+  }) =>
+    file ? (
+      <div data-testid="file-inline-preview">{file.name} のプレビュー</div>
+    ) : existingPreviewUrl ? (
+      <div
+        data-testid="file-inline-preview"
+        data-preview-url={existingPreviewUrl}
+        data-mime-type={fileMimeType}
+      >
+        既存ファイルのプレビュー
+      </div>
+    ) : null,
 }));
 
 vi.mock('./OcrDataExtractor', () => ({
   OcrDataExtractor: ({
     file,
+    fileUrl,
+    fileMimeType,
+    autoStart,
     onImportLineItems,
   }: {
     file: File | null;
+    fileUrl?: string | null;
+    fileMimeType?: string | null;
+    autoStart?: boolean;
     onImportLineItems: (items: unknown[]) => void;
-  }) =>
-    file ? (
-      <div data-testid="ocr-data-extractor">
+  }) => {
+    const shouldRender = file || fileUrl;
+    if (!shouldRender) return null;
+    return (
+      <div
+        data-testid="ocr-data-extractor"
+        data-file-url={fileUrl ?? undefined}
+        data-file-mime-type={fileMimeType ?? undefined}
+        data-auto-start={String(autoStart ?? true)}
+      >
         <button
           type="button"
           data-testid="mock-import-button"
@@ -65,16 +114,30 @@ vi.mock('./OcrDataExtractor', () => ({
           OCRインポート
         </button>
       </div>
-    ) : null,
+    );
+  },
   default: ({
     file,
+    fileUrl,
+    fileMimeType,
+    autoStart,
     onImportLineItems,
   }: {
     file: File | null;
+    fileUrl?: string | null;
+    fileMimeType?: string | null;
+    autoStart?: boolean;
     onImportLineItems: (items: unknown[]) => void;
-  }) =>
-    file ? (
-      <div data-testid="ocr-data-extractor">
+  }) => {
+    const shouldRender = file || fileUrl;
+    if (!shouldRender) return null;
+    return (
+      <div
+        data-testid="ocr-data-extractor"
+        data-file-url={fileUrl ?? undefined}
+        data-file-mime-type={fileMimeType ?? undefined}
+        data-auto-start={String(autoStart ?? true)}
+      >
         <button
           type="button"
           data-testid="mock-import-button"
@@ -96,7 +159,8 @@ vi.mock('./OcrDataExtractor', () => ({
           OCRインポート
         </button>
       </div>
-    ) : null,
+    );
+  },
 }));
 
 describe('ReceivedQuotationForm', () => {
@@ -786,6 +850,7 @@ describe('ReceivedQuotationForm', () => {
     });
 
     it('既存明細行がある場合、確認ダイアログを表示する (Requirements: 15.5)', async () => {
+      /* test code below */
       const initialDataWithLineItems = {
         id: 'rq-existing',
         estimateRequestId,
@@ -834,6 +899,358 @@ describe('ReceivedQuotationForm', () => {
       await waitFor(() => {
         expect(screen.getByText('明細行の上書き確認')).toBeInTheDocument();
       });
+    });
+    // --------------------------------------------------------------------------
+    // Task 43.4: 項目選択一括転記時の数量フォーマット適用テスト (18.11)
+    // --------------------------------------------------------------------------
+
+    it('転記後の数量が小数2桁表示であること (Requirements: 18.11)', async () => {
+      const selectedItemsWithDecimal = [
+        {
+          customCategory: '躯体工事',
+          workType: '鉄筋工事',
+          name: '鉄筋D10',
+          specification: 'SD295A',
+          unit: 'kg',
+          quantity: 1500,
+          remarks: '基礎部分',
+        },
+        {
+          customCategory: '躯体工事',
+          workType: 'コンクリート工事',
+          name: 'コンクリート',
+          specification: '21-8-20',
+          unit: 'm3',
+          quantity: 2.5,
+          remarks: '',
+        },
+      ];
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={selectedItemsWithDecimal}
+        />
+      );
+
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      // 転記完了を待機
+      await waitFor(() => {
+        expect(screen.getByText(/2件.*転記/)).toBeInTheDocument();
+      });
+
+      // 数量フィールドを取得
+      const quantityInputs = screen.getAllByLabelText(/数量/);
+      // 1500 -> '1500.00'
+      expect(quantityInputs[0]).toHaveValue('1500.00');
+      // 2.5 -> '2.50'
+      expect(quantityInputs[1]).toHaveValue('2.50');
+    });
+  });
+
+  // ==========================================================================
+  // Task 43.5: 編集画面の既存データ読み込み時のフォーマット適用テスト (42.7)
+  //
+  // Requirements:
+  // - 18.1, 18.2: 数量を小数2桁常時表示
+  // - 18.3, 18.4: 単価を整数表示（小数第1位で四捨五入）
+  // - 18.5, 18.6: 金額を整数表示
+  // ==========================================================================
+
+  describe('編集画面の既存データ数値フォーマット (Task 42.7 / 43.5)', () => {
+    it('編集画面で既存データの数量が小数2桁表示、単価が整数表示であること', () => {
+      const initialDataWithDecimals = {
+        id: 'rq-format-test',
+        estimateRequestId,
+        name: 'フォーマットテスト見積書',
+        submittedAt: new Date('2025-01-15'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-fmt-1',
+            receivedQuotationId: 'rq-format-test',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            name: 'テスト品目A',
+            specification: null,
+            unit: '個',
+            quantity: 5,
+            unitPrice: 2000,
+            amount: 10000,
+            remarks: null,
+          },
+          {
+            id: 'li-fmt-2',
+            receivedQuotationId: 'rq-format-test',
+            sortOrder: 1,
+            customCategory: null,
+            workType: null,
+            name: 'テスト品目B',
+            specification: null,
+            unit: 'm',
+            quantity: 2.5,
+            unitPrice: 1234.6,
+            amount: 3087,
+            remarks: null,
+          },
+        ],
+        totalAmount: 13087,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithDecimals}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 数量フィールド: 整数5 -> '5.00', 小数2.5 -> '2.50'
+      const quantityInputs = screen.getAllByLabelText(/数量/);
+      expect(quantityInputs[0]).toHaveValue('5.00');
+      expect(quantityInputs[1]).toHaveValue('2.50');
+
+      // 単価フィールド: 整数2000 -> '2000', 小数1234.6 -> '1235'
+      const unitPriceInputs = screen.getAllByLabelText(/単価/);
+      expect(unitPriceInputs[0]).toHaveValue('2000');
+      expect(unitPriceInputs[1]).toHaveValue('1235');
+    });
+
+    it('編集画面で既存データの金額が整数表示であること', () => {
+      const initialDataWithDecimalAmount = {
+        id: 'rq-amount-test',
+        estimateRequestId,
+        name: '金額フォーマットテスト',
+        submittedAt: new Date('2025-01-15'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-amt-1',
+            receivedQuotationId: 'rq-amount-test',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            name: '金額テスト品目',
+            specification: null,
+            unit: '式',
+            quantity: 3,
+            unitPrice: 1500,
+            amount: 4500,
+            remarks: null,
+          },
+        ],
+        totalAmount: 4500,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithDecimalAmount}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 数量が小数2桁表示: 3 -> '3.00'
+      const quantityInputs = screen.getAllByLabelText(/数量/);
+      expect(quantityInputs[0]).toHaveValue('3.00');
+
+      // 単価が整数表示: 1500 -> '1500'
+      const unitPriceInputs = screen.getAllByLabelText(/単価/);
+      expect(unitPriceInputs[0]).toHaveValue('1500');
+
+      // 金額が整数で表示されること（小数点を含まない）
+      const amountDisplays = screen.getAllByText('4,500');
+      expect(amountDisplays.length).toBeGreaterThanOrEqual(1);
+      amountDisplays.forEach((el) => {
+        expect(el.textContent).not.toContain('.');
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Task 39.2: ReceivedQuotationFormの改訂テスト（OCR再実行対応）
+  //
+  // Requirements:
+  // - 16.1: 編集画面でPDF/画像の場合に「OCR実行」ボタンを表示
+  // - 16.2: ボタンクリックで既存ファイルに対してOCR処理を開始
+  // - 16.9: OCR失敗時もファイルアップロードのみで保存可能
+  // - 16.12: 編集画面での既存ファイルプレビュー表示
+  // ==========================================================================
+
+  describe('編集画面OCR/プレビュー対応 (Task 39.2)', () => {
+    const initialDataWithFile = {
+      id: 'rq-existing',
+      estimateRequestId: 'er-123',
+      name: 'テスト見積書',
+      submittedAt: new Date('2025-01-15'),
+      fileName: 'existing.pdf',
+      fileMimeType: 'application/pdf',
+      fileSize: 1024,
+      lineItems: [] as {
+        id: string;
+        receivedQuotationId: string;
+        sortOrder: number;
+        customCategory: string | null;
+        workType: string | null;
+        name: string;
+        specification: string | null;
+        unit: string | null;
+        quantity: number | null;
+        unitPrice: number | null;
+        amount: number | null;
+        remarks: string | null;
+      }[],
+      totalAmount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    it('編集画面で既存ファイルがある場合にOcrDataExtractorが表示される (16.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+    });
+
+    it('existingFilePreviewUrlがOcrDataExtractorのfileUrlに渡される (16.2)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      const ocrExtractor = screen.getByTestId('ocr-data-extractor');
+      expect(ocrExtractor.getAttribute('data-file-url')).toBe('https://example.com/preview.pdf');
+    });
+
+    it('編集画面の既存ファイルでautoStart=falseがOcrDataExtractorに渡される (16.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      const ocrExtractor = screen.getByTestId('ocr-data-extractor');
+      expect(ocrExtractor.getAttribute('data-auto-start')).toBe('false');
+    });
+
+    it('新規アップロード時は従来通りautoStart=trueで動作する', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルをアップロード
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      const ocrExtractor = await screen.findByTestId('ocr-data-extractor');
+      // 新規アップロード時はautoStartがtrue（デフォルト）
+      expect(ocrExtractor.getAttribute('data-auto-start')).toBe('true');
+    });
+
+    it('編集画面で既存ファイルがある場合にFileInlinePreviewが表示される (16.12)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      const preview = screen.getByTestId('file-inline-preview');
+      expect(preview).toBeInTheDocument();
+      expect(preview.getAttribute('data-preview-url')).toBe('https://example.com/preview.pdf');
+    });
+
+    it('existingFilePreviewUrlがnullの場合はOcrDataExtractorが表示されない', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl={null}
+        />
+      );
+
+      expect(screen.queryByTestId('ocr-data-extractor')).not.toBeInTheDocument();
+    });
+
+    it('ファイル削除後は既存ファイルのOcrDataExtractor/Previewが非表示になる', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+
+      // 既存ファイルのOcrDataExtractorが表示されている
+      expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+
+      // ファイル名の横にある削除ボタンをクリック
+      const fileNameElement = screen.getByText('existing.pdf');
+      // ファイル情報のコンテナを上にたどり、同一コンテナ内の削除ボタンを探す
+      const fileContainer = fileNameElement.closest('div')!.parentElement!.parentElement!;
+      const removeButton = fileContainer.querySelector('button')!;
+      expect(removeButton.textContent).toBe('削除');
+      await userEvent.click(removeButton);
+
+      // OcrDataExtractorが非表示になる
+      expect(screen.queryByTestId('ocr-data-extractor')).not.toBeInTheDocument();
     });
   });
 });

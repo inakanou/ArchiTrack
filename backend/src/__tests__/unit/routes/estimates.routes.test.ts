@@ -21,6 +21,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import Decimal from 'decimal.js';
 
 // Use vi.hoisted to create mock functions that are hoisted along with vi.mock
 const {
@@ -46,6 +47,8 @@ const {
   mockCreateLog,
   mockRequirePermission,
   mockState,
+  mockPrismaEstimateItemLineFindMany,
+  mockPrismaTransaction,
 } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockFindById: vi.fn(),
@@ -69,12 +72,14 @@ const {
   mockCreateLog: vi.fn(),
   mockRequirePermission: vi.fn(),
   mockState: { shouldRejectPermission: false },
+  mockPrismaEstimateItemLineFindMany: vi.fn(),
+  mockPrismaTransaction: vi.fn(),
 }));
 
 // Mock dependencies before importing the routes
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({
-    $transaction: vi.fn(),
+    $transaction: mockPrismaTransaction,
     estimate: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
@@ -90,7 +95,7 @@ vi.mock('../../../db.js', () => ({
       delete: vi.fn(),
     },
     estimateItemLine: {
-      findMany: vi.fn(),
+      findMany: mockPrismaEstimateItemLineFindMany,
       update: vi.fn(),
     },
   })),
@@ -716,14 +721,38 @@ describe('estimates.routes', () => {
 
   describe('POST /api/estimates/:id/calculate-net', () => {
     it('NET金額案分計算ができること', async () => {
+      mockPrismaEstimateItemLineFindMany.mockResolvedValue([
+        {
+          id: estimateItemId,
+          estimateItemId: estimateItemId,
+          lineType: 'VENDOR',
+          name: 'テスト',
+          specification: null,
+          unit: '式',
+          quantity: '1',
+          unitPrice: '10000',
+          amount: '10000',
+        },
+      ]);
+
       mockPreviewNetAllocation.mockReturnValue([
         {
           lineId: estimateItemId,
-          originalAmount: '10000',
-          allocatedAmount: '8000',
-          ratio: '0.8',
+          originalAmount: new Decimal('10000'),
+          allocatedAmount: new Decimal('8000'),
+          ratio: new Decimal('0.8'),
         },
       ]);
+
+      mockPrismaTransaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const txMock = {
+            estimateItemLine: { update: vi.fn().mockResolvedValue({}) },
+            estimate: { update: vi.fn().mockResolvedValue({}) },
+          };
+          return callback(txMock);
+        }
+      );
 
       const response = await request(app)
         .post(`/api/estimates/${validUUID}/calculate-net`)
@@ -740,13 +769,47 @@ describe('estimates.routes', () => {
 
   describe('POST /api/estimates/:id/apply-profit-rate', () => {
     it('利益率を適用できること', async () => {
+      mockPrismaEstimateItemLineFindMany.mockResolvedValue([
+        {
+          id: estimateItemId,
+          estimateItemId: estimateItemId,
+          lineType: 'EXECUTION',
+          name: 'テスト',
+          specification: null,
+          unit: '式',
+          quantity: '1',
+          unitPrice: '10000',
+          amount: '10000',
+        },
+      ]);
+
       mockPreviewProfitRate.mockReturnValue([
         {
           lineId: estimateItemId,
-          originalUnitPrice: '10000',
-          newUnitPrice: '11000',
+          originalUnitPrice: new Decimal('10000'),
+          newUnitPrice: new Decimal('11000'),
         },
       ]);
+
+      mockPrismaTransaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const txMock = {
+            estimateItemLine: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'estimate-line-id',
+                estimateItemId: estimateItemId,
+                lineType: 'ESTIMATE',
+                quantity: '1',
+                unitPrice: null,
+                amount: null,
+              }),
+              update: vi.fn().mockResolvedValue({}),
+            },
+            estimate: { update: vi.fn().mockResolvedValue({}) },
+          };
+          return callback(txMock);
+        }
+      );
 
       const response = await request(app)
         .post(`/api/estimates/${validUUID}/apply-profit-rate`)

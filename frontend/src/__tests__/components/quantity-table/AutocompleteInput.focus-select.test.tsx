@@ -95,4 +95,69 @@ describe('AutocompleteInput - フォーカス時全選択', () => {
 
     selectSpy.mockRestore();
   });
+
+  // =========================================================================
+  // Task 25.3: フォーカス時候補表示の単体テスト
+  // Requirements: 7.3, 7.3a
+  // =========================================================================
+
+  describe('フォーカス時候補表示 (Task 25.3)', () => {
+    it('空フィールドにフォーカスした際にドロップダウンが表示される', () => {
+      const suggestions = ['候補A', '候補B', '候補C'];
+      const getSuggestionsWithResults = vi.fn().mockReturnValue(suggestions);
+
+      render(
+        <AutocompleteInput {...defaultProps} value="" getSuggestions={getSuggestionsWithResults} />
+      );
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+
+      // 空のフィールドでもドロップダウンが表示されるべき
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      expect(screen.getAllByRole('option')).toHaveLength(3);
+    });
+
+    it('値ありフィールドにフォーカスした際にフィルタリング済み候補が表示される', () => {
+      const suggestions = ['候補1', '候補2'];
+      const getSuggestionsWithResults = vi.fn().mockReturnValue(suggestions);
+
+      render(
+        <AutocompleteInput
+          {...defaultProps}
+          value="候補"
+          getSuggestions={getSuggestionsWithResults}
+        />
+      );
+
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+
+      // フィルタリング済み候補が表示されるべき
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      expect(screen.getAllByRole('option')).toHaveLength(2);
+    });
+
+    it('フォーカス時の全選択とドロップダウン表示が共存する（空フィールド）', () => {
+      const suggestions = ['全候補1', '全候補2'];
+      const getSuggestionsWithResults = vi.fn().mockReturnValue(suggestions);
+
+      render(
+        <AutocompleteInput {...defaultProps} value="" getSuggestions={getSuggestionsWithResults} />
+      );
+
+      const input = screen.getByRole('combobox');
+      const selectSpy = vi.spyOn(input as HTMLInputElement, 'select');
+
+      fireEvent.focus(input);
+
+      // selectが呼ばれたことを確認
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+
+      // ドロップダウンが表示されていることを確認
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+      selectSpy.mockRestore();
+    });
+  });
 });

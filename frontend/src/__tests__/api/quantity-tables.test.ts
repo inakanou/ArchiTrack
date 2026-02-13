@@ -25,6 +25,7 @@ import {
   updateQuantityItem,
   deleteQuantityItem,
   copyQuantityItem,
+  copyQuantityTable,
 } from '../../api/quantity-tables';
 import type {
   ProjectQuantityTableSummary,
@@ -1127,6 +1128,93 @@ describe('quantity-tables API client', () => {
       vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
 
       await expect(copyQuantityItem('item-1')).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
+  });
+
+  // ==========================================================================
+  // copyQuantityTable - 数量表コピー
+  // Task 21.2: コピーAPI呼び出し関数を実装する
+  // Requirements: 17.2
+  // ==========================================================================
+  describe('copyQuantityTable', () => {
+    const mockCopiedTable: QuantityTableInfo = {
+      id: 'qt-copied',
+      projectId: 'project-1',
+      name: '第1回見積数量表のコピー',
+      groupCount: 3,
+      itemCount: 15,
+      createdAt: '2025-01-05T00:00:00.000Z',
+      updatedAt: '2025-01-05T00:00:00.000Z',
+    };
+
+    it('数量表をコピーできること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockCopiedTable);
+
+      const result = await copyQuantityTable('qt-1', { name: '第1回見積数量表のコピー' });
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/quantity-tables/qt-1/copy', {
+        name: '第1回見積数量表のコピー',
+      });
+      expect(result).toEqual(mockCopiedTable);
+    });
+
+    it('レスポンスにコピーされた数量表の情報が型安全に含まれること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockCopiedTable);
+
+      const result = await copyQuantityTable('qt-1', { name: 'コピー先名' });
+
+      expect(result.id).toBe('qt-copied');
+      expect(result.projectId).toBe('project-1');
+      expect(result.name).toBe('第1回見積数量表のコピー');
+      expect(result.groupCount).toBe(3);
+      expect(result.itemCount).toBe(15);
+      expect(typeof result.createdAt).toBe('string');
+      expect(typeof result.updatedAt).toBe('string');
+    });
+
+    it('コピー元の数量表が見つからない場合、404エラーがスローされること', async () => {
+      const mockError = new ApiError(404, '数量表が見つかりません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityTable('non-existent', { name: 'コピー' })).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('バリデーションエラーの場合、400エラーがスローされること', async () => {
+      const mockError = new ApiError(400, '数量表名は1文字以上200文字以下で入力してください');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityTable('qt-1', { name: '' })).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it('サーバーエラーの場合、500エラーがスローされること', async () => {
+      const mockError = new ApiError(500, 'コピー処理中に予期しないエラーが発生しました');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityTable('qt-1', { name: 'コピー' })).rejects.toMatchObject({
+        statusCode: 500,
+      });
+    });
+
+    it('認証エラーの場合、401エラーがスローされること', async () => {
+      const mockError = new ApiError(401, '認証が必要です');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityTable('qt-1', { name: 'コピー' })).rejects.toMatchObject({
+        statusCode: 401,
+      });
+    });
+
+    it('権限不足の場合、403エラーがスローされること', async () => {
+      const mockError = new ApiError(403, 'アクセス権限がありません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityTable('qt-1', { name: 'コピー' })).rejects.toMatchObject({
         statusCode: 403,
       });
     });

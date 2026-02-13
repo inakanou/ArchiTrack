@@ -4,10 +4,12 @@
  * Task 7.1: オートコンプリート入力コンポーネントを実装する
  * Task 17.1: クライアントサイド候補ストア方式に更新する
  * Task 18.1: 旧useAutocompleteフックを廃止し新モード専用に統合する
+ * Task 25.2: フォーカス時にvalueの有無に関わらずドロップダウンを開くよう修正
  *
  * Requirements:
  * - 7.1: 入力開始時の候補表示
- * - 7.3: クライアントサイドでのフィルタリング表示
+ * - 7.3: クライアントサイドでのフィルタリング表示（フォーカス時に全候補表示）
+ * - 7.3a: 空フィールドへのフォーカス時に全候補をドロップダウン表示
  * - 7.4: 候補選択時の自動入力
  * - 7.5: 上下キー選択とEnter確定
  * - 7.6: blur時の候補追加はAPIリクエスト不要
@@ -219,15 +221,16 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
   /**
    * フォーカス時ハンドラ
    * Task 19.1: フォーカス時に既存の入力値を全選択する
+   * Task 25.2: フォーカス時にvalueの有無に関わらずドロップダウンを開く
    */
   const handleFocus = useCallback(() => {
     setIsFocused(true);
     // フォーカス時に既存の入力値を全選択（上書き入力の効率化）
     inputRef.current?.select();
-    if (value && suggestions.length > 0) {
+    if (suggestions.length > 0) {
       setIsOpen(true);
     }
-  }, [value, suggestions.length]);
+  }, [suggestions.length]);
 
   /**
    * ブラー時ハンドラ

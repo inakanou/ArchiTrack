@@ -30,7 +30,9 @@ import logger from '../utils/logger.js';
 import {
   imageIdParamSchema,
   saveAnnotationBodySchema,
+  batchAnnotationBodySchema,
   type SaveAnnotationBodyInput,
+  type BatchAnnotationBodyInput,
 } from '../schemas/annotation.schema.js';
 import type { AnnotationData } from '../services/annotation.service.js';
 
@@ -331,6 +333,95 @@ router.get(
         res.status(404).json({
           type: 'https://architrack.example.com/problems/annotation-not-found',
           title: 'Annotation Not Found',
+          status: 404,
+          detail: error.message,
+          code: error.code,
+          imageId: error.imageId,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/site-surveys/annotations/batch:
+ *   post:
+ *     summary: バッチ注釈データ取得
+ *     description: 複数画像の注釈データを一括取得する（要件18対応）
+ *     tags:
+ *       - Annotations
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - surveyId
+ *               - imageIds
+ *             properties:
+ *               surveyId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: 現場調査ID（権限検証用）
+ *               imageIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *                 minItems: 1
+ *                 maxItems: 100
+ *                 description: 取得対象の画像ID配列
+ *     responses:
+ *       200:
+ *         description: バッチ注釈データ取得成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 annotations:
+ *                   type: object
+ *                   additionalProperties:
+ *                     oneOf:
+ *                       - type: object
+ *                       - type: null
+ *       400:
+ *         description: バリデーションエラー（imageIdsが空配列、100件超過、不正UUID等）
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 画像が見つからない（surveyに属さないimageId）
+ */
+router.post(
+  '/annotations/batch',
+  authenticate,
+  requirePermission('site_survey:read'),
+  validate(batchAnnotationBodySchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { surveyId, imageIds } = req.validatedBody as BatchAnnotationBodyInput;
+
+      const annotations = await annotationService.findByImageIds(imageIds, surveyId);
+
+      logger.debug(
+        { userId: req.user?.userId, surveyId, imageIdCount: imageIds.length },
+        'Batch annotations retrieved successfully'
+      );
+
+      res.json({ annotations });
+    } catch (error) {
+      if (error instanceof AnnotationImageNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/annotation-image-not-found',
+          title: 'Image Not Found',
           status: 404,
           detail: error.message,
           code: error.code,

@@ -38,6 +38,7 @@ import type {
 } from '../../api/received-quotations';
 import { LineItemEditor, createEmptyLineItem, type LineItemFormData } from './LineItemEditor';
 import { FileInlinePreview } from './FileInlinePreview';
+import { formatQuantity, formatUnitPrice } from './number-format';
 
 // OcrDataExtractorを遅延ロード（バンドルサイズ影響回避）
 const OcrDataExtractor = lazy(() => import('./OcrDataExtractor'));
@@ -118,6 +119,8 @@ export interface ReceivedQuotationFormProps {
   isSubmitting?: boolean;
   /** 項目選択セクションの選択済み項目データ（一括転記用） */
   selectedItems?: SelectedItemForTranscription[];
+  /** 既存ファイルのプレビューURL（編集時のOCR再実行用） */
+  existingFilePreviewUrl?: string | null;
 }
 
 /**
@@ -467,18 +470,22 @@ function convertToLineItemFormData(
   if (!items || items.length === 0) {
     return [createEmptyLineItem()];
   }
-  return items.map((item) => ({
-    id: item.id,
-    customCategory: item.customCategory ?? '',
-    workType: item.workType ?? '',
-    name: item.name,
-    specification: item.specification ?? '',
-    unit: item.unit ?? '',
-    quantity: item.quantity !== null ? String(item.quantity) : '',
-    unitPrice: item.unitPrice !== null ? String(item.unitPrice) : '',
-    amount: item.amount,
-    remarks: item.remarks ?? '',
-  }));
+  return items.map((item) => {
+    const rawQuantity = item.quantity !== null ? String(item.quantity) : '';
+    const rawUnitPrice = item.unitPrice !== null ? String(item.unitPrice) : '';
+    return {
+      id: item.id,
+      customCategory: item.customCategory ?? '',
+      workType: item.workType ?? '',
+      name: item.name,
+      specification: item.specification ?? '',
+      unit: item.unit ?? '',
+      quantity: formatQuantity(rawQuantity),
+      unitPrice: formatUnitPrice(rawUnitPrice),
+      amount: item.amount,
+      remarks: item.remarks ?? '',
+    };
+  });
 }
 
 // ============================================================================
@@ -538,6 +545,7 @@ export function ReceivedQuotationForm({
   onCancel,
   isSubmitting = false,
   selectedItems,
+  existingFilePreviewUrl,
 }: ReceivedQuotationFormProps) {
   // フォーム状態
   // Requirement 11.3.1: 受領見積書名のデフォルト値を「見積書」とする
@@ -744,6 +752,10 @@ export function ReceivedQuotationForm({
     let idCtr = 0;
     const newLineItems: LineItemFormData[] = selectedOnly.map((item) => {
       idCtr++;
+      // 18.11: 転記時に数量にformatQuantity()を適用して小数2桁固定表示
+      const rawQuantity =
+        item.quantity !== undefined && item.quantity !== null ? String(item.quantity) : '';
+      const formattedQuantity = formatQuantity(rawQuantity);
       return {
         id: `transcription-${Date.now()}-${idCtr}`,
         customCategory: item.customCategory ?? '',
@@ -751,8 +763,7 @@ export function ReceivedQuotationForm({
         name: item.name ?? '',
         specification: item.specification ?? '',
         unit: item.unit ?? '',
-        quantity:
-          item.quantity !== undefined && item.quantity !== null ? String(item.quantity) : '',
+        quantity: formattedQuantity,
         unitPrice: '', // 転記時に単価は空欄
         amount: null,
         remarks: item.remarks ?? '',
@@ -937,15 +948,28 @@ export function ReceivedQuotationForm({
         )}
       </div>
 
-      {/* ファイルインラインプレビュー (11.5) */}
-      {selectedFile && (
+      {/* ファイルインラインプレビュー (11.5, 16.12) */}
+      {selectedFile ? (
         <div style={styles.previewSection}>
           <FileInlinePreview file={selectedFile} />
         </div>
+      ) : (
+        mode === 'edit' &&
+        existingFileName &&
+        !removeFile &&
+        existingFilePreviewUrl && (
+          <div style={styles.previewSection}>
+            <FileInlinePreview
+              file={null}
+              existingPreviewUrl={existingFilePreviewUrl}
+              fileMimeType={initialData?.fileMimeType ?? undefined}
+            />
+          </div>
+        )
       )}
 
       {/* OcrDataExtractor（遅延ロード） */}
-      {selectedFile && (
+      {selectedFile ? (
         <div style={styles.ocrSection}>
           <Suspense
             fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
@@ -953,6 +977,25 @@ export function ReceivedQuotationForm({
             <OcrDataExtractor file={selectedFile} onImportLineItems={handleImportLineItems} />
           </Suspense>
         </div>
+      ) : (
+        mode === 'edit' &&
+        existingFileName &&
+        !removeFile &&
+        existingFilePreviewUrl && (
+          <div style={styles.ocrSection}>
+            <Suspense
+              fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
+            >
+              <OcrDataExtractor
+                file={null}
+                fileUrl={existingFilePreviewUrl}
+                fileMimeType={initialData?.fileMimeType ?? undefined}
+                autoStart={false}
+                onImportLineItems={handleImportLineItems}
+              />
+            </Suspense>
+          </div>
+        )
       )}
 
       {/* 構造化データ入力エリア（明細行エディタ） (11.9) */}

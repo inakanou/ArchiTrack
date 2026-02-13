@@ -1273,21 +1273,22 @@ test.describe('数量表CRUD操作', () => {
       // 要件で指定されている全フィールドが存在することを確認
       // 要件: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・数量・備考
       // 注: REQ-5.5により、計算方法が「標準」の場合、調整係数・丸め設定はメインの行に表示されない
-      await expect(page.getByLabel(/大項目/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/中項目/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/小項目/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/任意分類/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/工種/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/名称/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/規格/).first()).toBeVisible({ timeout: 3000 });
-      await expect(page.getByLabel(/単位/).first()).toBeVisible({ timeout: 3000 });
+      // 注: showFieldLabels={false} のため label要素はなく、placeholder/aria-labelで検索
+      await expect(page.getByPlaceholder(/大項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/中項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/小項目/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/任意分類/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/工種/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/名称/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/規格/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/単位/).first()).toBeVisible({ timeout: 3000 });
       await expect(page.getByLabel(/計算方法/).first()).toBeVisible({ timeout: 3000 });
       // REQ-5.5: 計算方法が「標準」の場合、調整係数・丸め設定は表示されない
       // 調整係数・丸め設定のテストはREQ-5.5専用のテストで検証
       await expect(page.locator('input[id$="-quantity"]').first()).toBeVisible({
         timeout: 3000,
       });
-      await expect(page.getByLabel(/備考/).first()).toBeVisible({ timeout: 3000 });
+      await expect(page.getByPlaceholder(/備考/).first()).toBeVisible({ timeout: 3000 });
     });
 
     test('数量項目フィールドが要件通りの順序で表示される (quantity-table-generation/REQ-5.1)', async ({
@@ -1307,20 +1308,25 @@ test.describe('数量表CRUD操作', () => {
       const itemRow = page.getByTestId('quantity-item-row').first();
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 要件順序（標準計算時）: 大項目・中項目・小項目・任意分類・工種・名称・規格・単位・計算方法・数量・備考
+      // 要件順序（標準計算時）: 大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考
       // 注: REQ-5.5により、計算方法が「標準」の場合、調整係数・丸め設定はメインの行に表示されない
-      // role="cell"の順序で確認
+
+      // データ行のセル数を確認（11フィールド + 操作列 = 12）
       const cells = itemRow.getByRole('cell');
       const cellCount = await cells.count();
-
-      // 12列（11フィールド + アクション）であることを確認
-      // REQ-5.5: 計算方法が「標準」の場合、調整係数・丸め設定は非表示のため11フィールド
+      // REQ-5.5: 計算方法が「標準」の場合、調整係数・丸め設定は非表示のため11フィールド + 操作列
       expect(cellCount).toBe(12);
 
-      // 各セル内のラベルテキストを順に確認
+      // テーブルのcolumnheaderの順序でフィールド順序を検証する
+      // UIではフィールド名はテーブルヘッダー行（columnheader）に表示され、
+      // データセルにはcombobox/textbox等の入力フィールドのみが配置される
       // REQ-5.5: 計算方法が「標準」の場合、調整係数・丸め設定はリストに含まない
-      // 要件の列順序: 大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考
-      const expectedFields = [
+      const table = page.getByRole('table', { name: '数量項目一覧' });
+      await expect(table).toBeVisible({ timeout: 2000 });
+
+      const headers = table.getByRole('columnheader');
+      // 要件の列順序: 大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考 + 操作
+      const expectedHeaders = [
         '大項目',
         '中項目',
         '小項目',
@@ -1332,16 +1338,16 @@ test.describe('数量表CRUD操作', () => {
         '数量',
         '単位',
         '備考',
+        '操作',
       ];
 
-      for (let i = 0; i < expectedFields.length; i++) {
-        const cell = cells.nth(i);
-        const fieldName = expectedFields[i] as string;
-        // セル内にフィールドラベルが存在することを確認
-        // エラーメッセージも同じフィールド名を含む場合があるため、.first()で最初の要素（ラベル）を取得
-        await expect(cell.getByText(fieldName, { exact: false }).first()).toBeVisible({
-          timeout: 2000,
-        });
+      const headerCount = await headers.count();
+      expect(headerCount).toBe(expectedHeaders.length);
+
+      for (let i = 0; i < expectedHeaders.length; i++) {
+        const header = headers.nth(i);
+        const expectedName = expectedHeaders[i] as string;
+        await expect(header).toHaveText(expectedName, { timeout: 2000 });
       }
     });
 
@@ -3475,12 +3481,10 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 名称フィールドを取得（コンボボックスまたはテキスト入力）
-      const nameField = page.getByRole('combobox', { name: /名称/ }).first();
-      const nameFieldAlt = page.getByLabel(/名称/).first();
-
-      const targetField = (await nameField.isVisible({ timeout: 2000 })) ? nameField : nameFieldAlt;
-      await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
+      // 名称フィールドを取得（テキスト入力）
+      const nameField = page.getByRole('textbox', { name: /名称/ }).first();
+      await expect(nameField).toBeVisible({ timeout: getTimeout(5000) });
+      const targetField = nameField;
 
       // 51文字（半角）の文字列を入力（最大は50文字）
       const longText = 'a'.repeat(51);
@@ -3603,11 +3607,8 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 名称フィールドを取得
-      const nameField = page.getByRole('combobox', { name: /名称/ }).first();
-      const nameFieldAlt = page.getByLabel(/名称/).first();
-
-      const targetField = (await nameField.isVisible({ timeout: 2000 })) ? nameField : nameFieldAlt;
+      // 名称フィールドを取得（テキスト入力）
+      const targetField = page.getByRole('textbox', { name: /名称/ }).first();
       await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
 
       // CSSのtext-alignを確認
@@ -3991,9 +3992,10 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 必須フィールドを入力する（各項目に名称、工種、単位を設定）
-      const nameInputs = page.getByLabel(/^名称\*?$/);
-      const workTypeInputs = page.getByLabel(/^工種\*?$/);
-      const unitInputs = page.getByLabel(/^単位\*?$/);
+      // 名称フィールドはtextbox、工種・単位はcomboboxとして実装されている
+      const nameInputs = page.getByRole('textbox', { name: /名称/ });
+      const workTypeInputs = page.getByRole('combobox', { name: /工種/ });
+      const unitInputs = page.getByRole('combobox', { name: /単位/ });
 
       const nameCount = await nameInputs.count();
       for (let i = 0; i < nameCount; i++) {

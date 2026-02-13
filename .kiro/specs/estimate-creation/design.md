@@ -444,9 +444,9 @@ interface EstimateItemLine {
   name: string | null; // 名称（最大200文字）
   specification: string | null; // 規格（最大500文字）
   unit: string | null; // 単位（最大50文字）
-  quantity: Decimal | null; // 数量（Decimal(15, 4)）
-  unitPrice: Decimal | null; // 単価（Decimal(15, 2)）
-  amount: Decimal | null; // 金額（自動計算、Decimal(15, 2)）
+  quantity: Decimal | null; // 数量（Decimal(15, 4)）※表示は小数2桁固定
+  unitPrice: Decimal | null; // 単価（Decimal(15, 2)）※REQ-22により常に整数値（.00）として保存
+  amount: Decimal | null; // 金額（自動計算、Decimal(15, 2)）※REQ-22により常に整数値（.00）として保存
   remarks: string | null; // 備考
   sourceReceivedQuotationLineItemId: string | null; // 転記元の受領見積書明細行ID
   sourceVendorName: string | null; // 転記元業者名（スナップショット）
@@ -1320,6 +1320,8 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 
 金額の自動計算（数量×単価）はフロントエンドでDecimal.jsを使用してローカル計算する。バックエンドAPIは保存時のみ呼び出す。
 
+> **Note（REQ-22適用）**: 以下のコード例はREQ-22（数値表示形式と丸め規則）適用後の仕様です。単価・金額は`toDecimalPlaces(0, ROUND_HALF_UP)`で整数に丸めます。詳細は「数値表示形式と丸め規則の設計（REQ-22対応）」セクションを参照してください。
+
 ```typescript
 // frontend/src/utils/estimate-calculation.ts
 import Decimal from 'decimal.js';
@@ -1327,13 +1329,31 @@ import Decimal from 'decimal.js';
 export class EstimateCalculator {
   /**
    * 金額計算（数量 × 単価）
-   * クライアントサイドで即座に計算し、UI表示を更新
+   * REQ-22.3, 22.9: 計算結果を小数第1位で四捨五入して整数にする
    */
   static calculateAmount(quantity: string | null, unitPrice: string | null): Decimal | null {
     if (!quantity || !unitPrice) return null;
     const q = new Decimal(quantity);
     const p = new Decimal(unitPrice);
-    return q.mul(p).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    return q.mul(p).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  }
+
+  /**
+   * 単価の丸め処理
+   * REQ-22.2: 小数第1位で四捨五入して整数にする
+   */
+  static roundUnitPrice(unitPrice: string | null): Decimal | null {
+    if (!unitPrice) return null;
+    return new Decimal(unitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  }
+
+  /**
+   * 数量のフォーマット
+   * REQ-22.1, 22.7: 小数2桁固定表示
+   */
+  static formatQuantity(quantity: string | null): string {
+    if (!quantity) return '';
+    return new Decimal(quantity).toFixed(2);
   }
 
   /**
@@ -1349,7 +1369,7 @@ export class EstimateCalculator {
 
   /**
    * NET金額案分計算（プレビュー用）
-   * 確定前のプレビュー計算はクライアントサイドで実行
+   * REQ-22.4, 22.5: 案分後金額・単価を小数第1位で四捨五入して整数にする
    */
   static previewNetAllocation(
     targetLines: VendorLineInfo[],
@@ -1366,11 +1386,15 @@ export class EstimateCalculator {
       const ratio = totalAmount.isZero()
         ? new Decimal(0)
         : new Decimal(line.amount || 0).div(totalAmount);
-      const allocatedAmount = net.mul(ratio).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      const allocatedAmount = net.mul(ratio).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+      const allocatedUnitPrice = line.quantity && !new Decimal(line.quantity).isZero()
+        ? allocatedAmount.div(new Decimal(line.quantity)).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+        : new Decimal(0);
       return {
         lineId: line.id,
         originalAmount: line.amount,
         allocatedAmount: allocatedAmount.toString(),
+        allocatedUnitPrice: allocatedUnitPrice.toString(),
         ratio: ratio.mul(100).toDecimalPlaces(2).toString() + '%',
       };
     });
@@ -1378,7 +1402,7 @@ export class EstimateCalculator {
 
   /**
    * 利益率適用プレビュー
-   * 確定前のプレビュー計算はクライアントサイドで実行
+   * REQ-22.6: 新しい単価を小数第1位で四捨五入して整数にする
    */
   static previewProfitRate(
     executionLines: ExecutionLineInfo[],
@@ -1388,7 +1412,7 @@ export class EstimateCalculator {
     return executionLines.map(line => ({
       lineId: line.id,
       originalUnitPrice: line.unitPrice,
-      newUnitPrice: new Decimal(line.unitPrice || 0).mul(rate).toDecimalPlaces(2).toString(),
+      newUnitPrice: new Decimal(line.unitPrice || 0).mul(rate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toString(),
     }));
   }
 }
@@ -1528,3 +1552,313 @@ interface UseEstimateEditorReturn {
 - 大量項目時のページネーション対応（将来拡張）
 - 仮想スクロール対応（100項目以上の場合、react-windowを検討）
 - PDF/Excel生成は非同期処理を検討（将来拡張）
+
+## 追加設計（REQ-17〜21対応）
+
+### バックエンド追加: プロジェクト単位受領見積書取得API（REQ-17.1, 17.2）
+
+#### 新規エンドポイント
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/projects/:projectId/quotations | - | ReceivedQuotationInfo[] | 404 |
+
+**実装方針**:
+- `received-quotation.service.ts`に`findByProjectId(projectId: string)`メソッドを追加
+- EstimateRequest経由でReceivedQuotationを取得（EstimateRequest.projectId → ReceivedQuotation.estimateRequestId）
+- lineItemsを含めてeager load
+- `app.ts`に`/api/projects/:projectId/quotations`ルートを登録
+
+```typescript
+// ReceivedQuotationService追加メソッド
+async findByProjectId(projectId: string): Promise<ReceivedQuotationInfo[]> {
+  const quotations = await this.prisma.receivedQuotation.findMany({
+    where: {
+      deletedAt: null,
+      estimateRequest: {
+        projectId: projectId,
+        deletedAt: null,
+      },
+    },
+    include: {
+      lineItems: { orderBy: { sortOrder: 'asc' } },
+      estimateRequest: { select: { tradingPartnerName: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  return quotations.map(q => this.toInfo(q));
+}
+```
+
+### フロントエンド変更: EstimateItemTable（REQ-17.3, 17.4）
+
+**見積業者列の追加**:
+- ヘッダーに「見積業者」列を追加
+- gridTemplateColumnsを`60px 1fr 120px 80px 100px 100px 120px 120px 1fr`に変更（見積業者列120px追加）
+- 業者金額行（VENDOR）のsourceVendorNameを見積業者列に表示
+- 見積金額行・実行金額行の見積業者列は空欄表示
+
+### フロントエンド変更: EstimateDetailPageレイアウト改善（REQ-20, 21）
+
+**廃止するコンポーネント**:
+- サイドバーセクション全体（合計金額パネル、NET金額計算パネル、利益率設定パネル）
+
+**新規追加: サマリーパネル**（基本情報パネルの下）:
+```typescript
+interface SummaryPanelData {
+  estimateTotal: string;    // 見積金額合計
+  executionTotal: string;   // 実行金額合計
+  vendorTotal: string;      // 業者金額合計
+  profitRate: string;       // 利益率（見積金額合計÷実行金額合計）
+  discountRate: string;     // 値引率（実行金額合計÷業者金額合計）
+}
+```
+
+**レイアウト変更**:
+- `gridTemplateColumns: '1fr 320px'` → `gridTemplateColumns: '1fr'`（1カラムレイアウト）
+- サイドセクション削除
+- サマリーパネルをメインセクションに配置（基本情報の直後）
+
+### フロントエンド変更: ヘッダーボタン（REQ-17.5, 18.1, 19.1）
+
+**ボタン構成変更**:
+- 「転記」→「受領見積書を業者金額に転記」（TransferQuotationDialog呼出）
+- 新規「業者金額を実行金額に転記」（NetAllocationDialogを新規作成、ダイアログ呼出）
+- 新規「実行金額を見積金額に転記」（ProfitRateDialogを新規作成、ダイアログ呼出）
+
+### 新規コンポーネント: NetAllocationDialog（REQ-18）
+
+**ダイアログ形式のNET金額案分機能**:
+
+```typescript
+interface NetAllocationDialogProps {
+  isOpen: boolean;
+  estimateId: string;
+  items: EstimateItemHierarchyEdit[];
+  onClose: () => void;
+  onComplete: () => void;
+}
+```
+
+**UI構成**:
+1. 対象業者選択ドロップダウン（業者金額行のsourceVendorNameからユニーク値抽出）
+2. 業者金額行一覧（チェックボックス付き、除外選択可能）
+3. NET金額入力フィールド
+4. プレビュー表示（案分率、案分後金額）
+5. 案分実行ボタン
+
+**API連携**: `POST /api/estimates/:id/calculate-net`
+
+### 新規コンポーネント: ProfitRateDialog（REQ-19）
+
+**ダイアログ形式の利益率適用機能**:
+
+```typescript
+interface ProfitRateDialogProps {
+  isOpen: boolean;
+  estimateId: string;
+  items: EstimateItemHierarchyEdit[];
+  onClose: () => void;
+  onComplete: () => void;
+}
+```
+
+**UI構成**:
+1. 利益率入力フィールド（0.00〜500.00%）
+2. 上書きオプション（すべて上書き / 空の場合のみ上書き / 単価のみ上書き）
+3. プレビュー表示（元の単価→新しい単価）
+4. 適用ボタン
+
+**API連携**: `POST /api/estimates/:id/apply-profit-rate`
+
+### 数値表示形式と丸め規則の設計（REQ-22対応）
+
+#### 丸め規則の定義
+
+| フィールド | 内部精度 | 表示形式 | 丸め方法 | 例 |
+|-----------|---------|---------|---------|---|
+| 数量 | Decimal(15, 4) | 小数2桁固定 | フォーカスアウト時に小数2桁にフォーマット | 1.00, 2.50, 10.25 |
+| 単価 | Decimal(15, 2) | 整数 | 小数第1位で四捨五入（ROUND_HALF_UP） | 1234, 5678 |
+| 金額 | Decimal(15, 2) | 整数 | 数量×単価の結果を小数第1位で四捨五入 | 12345, 67890 |
+| NET案分後金額 | Decimal(15, 2) | 整数 | 案分計算結果を小数第1位で四捨五入 | 100000 |
+| NET案分後単価 | Decimal(15, 2) | 整数 | 案分計算結果を小数第1位で四捨五入 | 5000 |
+| 利益率適用後単価 | Decimal(15, 2) | 整数 | 利益率適用結果を小数第1位で四捨五入 | 6500 |
+
+#### EstimateCalculator変更（フロントエンド）
+
+```typescript
+// frontend/src/utils/estimate-calculation.ts 変更点
+
+export class EstimateCalculator {
+  /**
+   * 金額計算（数量 × 単価）
+   * REQ-22.3, 22.9: 計算結果を小数第1位で四捨五入して整数にする
+   */
+  static calculateAmount(quantity: string | null, unitPrice: string | null): Decimal | null {
+    if (!quantity || !unitPrice) return null;
+    const q = new Decimal(quantity);
+    const p = new Decimal(unitPrice);
+    // 小数第1位で四捨五入 → 整数
+    return q.mul(p).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  }
+
+  /**
+   * 単価の丸め処理
+   * REQ-22.2: 小数第1位で四捨五入して整数にする
+   */
+  static roundUnitPrice(unitPrice: string | null): Decimal | null {
+    if (!unitPrice) return null;
+    return new Decimal(unitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  }
+
+  /**
+   * 数量のフォーマット
+   * REQ-22.1, 22.7: 小数2桁固定表示
+   */
+  static formatQuantity(quantity: string | null): string {
+    if (!quantity) return '';
+    return new Decimal(quantity).toFixed(2);
+  }
+
+  /**
+   * NET金額案分計算（プレビュー用）- 丸め規則適用版
+   * REQ-22.4, 22.5: 案分後金額・単価を小数第1位で四捨五入して整数にする
+   */
+  static previewNetAllocation(
+    targetLines: VendorLineInfo[],
+    excludeIds: string[],
+    netAmount: string
+  ): AllocationPreview[] {
+    const net = new Decimal(netAmount);
+    const activeLines = targetLines.filter(l => !excludeIds.includes(l.id));
+    const totalAmount = activeLines.reduce(
+      (sum, l) => sum.add(new Decimal(l.amount || 0)), new Decimal(0)
+    );
+
+    return activeLines.map(line => {
+      const ratio = totalAmount.isZero()
+        ? new Decimal(0)
+        : new Decimal(line.amount || 0).div(totalAmount);
+      // REQ-22.4: 案分後金額を小数第1位で四捨五入して整数
+      const allocatedAmount = net.mul(ratio).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+      // REQ-22.5: 案分後単価を小数第1位で四捨五入して整数
+      const allocatedUnitPrice = line.quantity && !new Decimal(line.quantity).isZero()
+        ? allocatedAmount.div(new Decimal(line.quantity)).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+        : new Decimal(0);
+      return {
+        lineId: line.id,
+        originalAmount: line.amount,
+        allocatedAmount: allocatedAmount.toString(),
+        allocatedUnitPrice: allocatedUnitPrice.toString(),
+        ratio: ratio.mul(100).toDecimalPlaces(2).toString() + '%',
+      };
+    });
+  }
+
+  /**
+   * 利益率適用プレビュー - 丸め規則適用版
+   * REQ-22.6: 新しい単価を小数第1位で四捨五入して整数にする
+   */
+  static previewProfitRate(
+    executionLines: ExecutionLineInfo[],
+    profitRate: string
+  ): ProfitRatePreview[] {
+    const rate = new Decimal(profitRate).div(100).add(1);
+    return executionLines.map(line => ({
+      lineId: line.id,
+      originalUnitPrice: line.unitPrice,
+      // REQ-22.6: 小数第1位で四捨五入して整数
+      newUnitPrice: new Decimal(line.unitPrice || 0).mul(rate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toString(),
+    }));
+  }
+}
+```
+
+#### バックエンド計算サービス変更
+
+**EstimateCalculationService変更点**:
+
+```typescript
+// backend/src/services/estimate-calculation.service.ts 変更点
+
+// calculateNet: 案分後の単価を小数第1位で四捨五入して整数で保存
+// REQ-22.4, 22.5
+const allocatedUnitPrice = allocatedAmount.div(quantity).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+const recalculatedAmount = quantity.mul(allocatedUnitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+
+// applyProfitRate: 利益率適用後の単価を小数第1位で四捨五入して整数で保存
+// REQ-22.6
+const newUnitPrice = executionUnitPrice.mul(rate).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+const newAmount = quantity.mul(newUnitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+```
+
+**バッチ保存時の丸め処理（estimate-item.service.ts）**:
+
+```typescript
+// バッチ更新時に単価と金額の丸め規則を適用
+// REQ-22.2, 22.3, 22.9
+const roundedUnitPrice = unitPrice ? new Decimal(unitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP) : null;
+const calculatedAmount = quantity && roundedUnitPrice
+  ? new Decimal(quantity).mul(roundedUnitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+  : null;
+```
+
+#### フロントエンド表示コンポーネント変更
+
+**EstimateItemRow変更点**:
+
+> **データフロー**: onBlurハンドラからフォーマット済み値を`useEstimateEditor`の`updateLine(itemId, lineId, field, formattedValue)`に渡す。`updateLine`はローカルstateを更新し、`pendingChanges`に差分を記録する。保存ボタン押下時のみバッチAPIで送信される。onBlur時のフォーマット適用は表示側の整形であり、`useEstimateEditor.updateLine`の呼び出しによって状態に書き戻される。
+
+```typescript
+// REQ-22.1: 数量フィールド - 小数2桁常時表示
+// フォーカスアウト時にフォーマット適用
+// updateField は useEstimateEditor の updateLine を呼び出すラッパー
+const handleQuantityBlur = (value: string) => {
+  if (value) {
+    const formatted = EstimateCalculator.formatQuantity(value);
+    updateField('quantity', formatted); // → useEstimateEditor.updateLine(itemId, lineId, 'quantity', formatted)
+  }
+};
+
+// REQ-22.2, 22.8: 単価フィールド - 整数表示
+// フォーカスアウト時に小数第1位で四捨五入して整数にフォーマット
+const handleUnitPriceBlur = (value: string) => {
+  if (value) {
+    const rounded = EstimateCalculator.roundUnitPrice(value);
+    if (rounded) updateField('unitPrice', rounded.toString()); // → useEstimateEditor.updateLine(itemId, lineId, 'unitPrice', rounded.toString())
+  }
+};
+
+// REQ-22.3: 金額フィールド - 整数表示
+// 自動計算結果を整数で表示（toLocaleString等によるカンマ区切りは既存のまま）
+const displayAmount = (amount: string | null) => {
+  if (!amount) return '';
+  return new Decimal(amount).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toString();
+};
+```
+
+**NetAllocationDialog変更点**:
+
+```typescript
+// REQ-22.4, 22.5: プレビュー表示時に整数表示
+// 案分後金額と案分後単価を整数で表示
+```
+
+**ProfitRateDialog変更点**:
+
+```typescript
+// REQ-22.6: プレビュー表示時に新しい単価を整数で表示
+```
+
+### Requirements Traceability（追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 17.1-17.2 | 受領見積書ドロップダウン修正 | TransferQuotationDialog, ReceivedQuotationService | GET /api/projects/:projectId/quotations | 転記フロー |
+| 17.3-17.4 | 見積業者列追加 | EstimateItemTable, EstimateItemRow | - | 表示 |
+| 17.5 | 転記ボタンラベル変更 | EstimateDetailPage | - | UI |
+| 18.1-18.9 | NET金額案分ダイアログ | NetAllocationDialog | POST /api/estimates/:id/calculate-net | NET計算フロー |
+| 19.1-19.7 | 利益率適用ダイアログ | ProfitRateDialog | POST /api/estimates/:id/apply-profit-rate | 利益率適用 |
+| 20.1-20.6 | サマリーパネル | EstimateDetailPage | - | 表示 |
+| 21.1-21.3 | レイアウト改善 | EstimateDetailPage | - | UI |
+| 22.1-22.9 | 数値表示形式と丸め規則 | EstimateCalculator, EstimateItemRow, EstimateCalculationService, NetAllocationDialog, ProfitRateDialog | 全計算API | 表示・計算 |
