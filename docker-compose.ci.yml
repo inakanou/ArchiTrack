@@ -78,21 +78,30 @@ services:
         tmpfs:
           mode: 01777
 
-  # Frontend (CI)
+  # Frontend (CI) - 本番相当構成（nginx + ビルド済み静的ファイル）
+  # Dev/prod parity: CI環境でもnginxを使用し、本番固有の問題を早期検出する
   frontend:
     container_name: architrack-frontend
-    # CI環境ではrootで実行して権限問題を回避
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3000
+    # nginx:alpineはroot権限で実行
     user: "0:0"
+    # nginx:alpineにはcurlがないためwgetを使用
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     environment:
-      VITE_API_URL: http://localhost:3000
+      PORT: 80
     ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - frontend_ci_node_modules:/app/node_modules
+      - "5173:80"
+    # 本番Dockerfileはビルド済み静的ファイルを含むため、ソースコードのマウント不要
 
 volumes:
   backend_ci_node_modules:
     name: architrack_backend_ci_node_modules
-  frontend_ci_node_modules:
-    name: architrack_frontend_ci_node_modules
