@@ -6,7 +6,9 @@
  * Requirements:
  * - 12.4: 監査ログ連携（PROJECT_CREATED, PROJECT_UPDATED, PROJECT_DELETED）
  * - 12.6: 監査ログにアクション記録
- * - 19.3: CRUD操作のAPI応答時間（500ミリ秒以内）
+ * - 19.1: プロジェクト一覧画面の初期表示（2秒以内）
+ * - 19.2: プロジェクト詳細画面の初期表示（1秒以内）
+ * - 19.3: CRUD操作（作成・更新・削除）のAPI応答時間（500ミリ秒以内）
  *
  * テストカバレッジ:
  * - プロジェクトCRUDフローの統合テスト
@@ -913,10 +915,10 @@ describe('Project API Integration Tests', () => {
   describe('Performance Requirements', () => {
     /**
      * API応答時間の検証
-     * 要件: 19.3
+     * 要件: 19.1（一覧: 2秒以内）、19.2（詳細: 1秒以内）、19.3（作成・更新・削除: 500ミリ秒以内）
      */
-    it('CRUD操作のAPI応答時間が500ミリ秒以内であること', async () => {
-      // 作成
+    it('CRUD操作のAPI応答時間が要件の閾値以内であること', async () => {
+      // 作成 (REQ-19.3: 500ms以内)
       const createStart = Date.now();
       const createResponse = await request(app)
         .post('/api/projects')
@@ -933,25 +935,25 @@ describe('Project API Integration Tests', () => {
       const projectId = createResponse.body.id;
       const updatedAt = createResponse.body.updatedAt;
 
-      // 詳細取得
+      // 詳細取得 (REQ-19.2: 1秒以内)
       const getStart = Date.now();
       await request(app)
         .get(`/api/projects/${projectId}`)
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
       const getTime = Date.now() - getStart;
-      expect(getTime).toBeLessThan(500);
+      expect(getTime).toBeLessThan(1000);
 
-      // 一覧取得
+      // 一覧取得 (REQ-19.1: 2秒以内)
       const listStart = Date.now();
       await request(app)
         .get('/api/projects')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
       const listTime = Date.now() - listStart;
-      expect(listTime).toBeLessThan(500);
+      expect(listTime).toBeLessThan(2000);
 
-      // 更新
+      // 更新 (REQ-19.3: 500ms以内)
       const updateStart = Date.now();
       await request(app)
         .put(`/api/projects/${projectId}`)
@@ -964,7 +966,7 @@ describe('Project API Integration Tests', () => {
       const updateTime = Date.now() - updateStart;
       expect(updateTime).toBeLessThan(500);
 
-      // 削除
+      // 削除 (REQ-19.3: 500ms以内)
       const deleteStart = Date.now();
       await request(app)
         .delete(`/api/projects/${projectId}`)
