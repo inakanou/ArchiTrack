@@ -203,6 +203,8 @@ test.describe('数量表CRUD操作', () => {
    * @requirement project-management/REQ-25.1
    * @requirement project-management/REQ-25.2
    * @requirement project-management/REQ-25.6
+   * @requirement quantity-table-generation/REQ-1.2
+   * @requirement quantity-table-generation/REQ-1.6
    *
    * project-management/REQ-25: プロジェクト詳細画面の数量表セクション（数量表なし時）
    */
@@ -466,6 +468,9 @@ test.describe('数量表CRUD操作', () => {
    * @requirement project-management/REQ-25.4
    * @requirement project-management/REQ-25.5
    * @requirement project-management/REQ-25.7
+   * @requirement quantity-table-generation/REQ-1.4
+   * @requirement quantity-table-generation/REQ-1.5
+   * @requirement quantity-table-generation/REQ-1.7
    *
    * project-management/REQ-25: プロジェクト詳細画面の数量表セクション（数量表あり時）
    * 注: これらのテストは数量表作成後に実行する必要がある

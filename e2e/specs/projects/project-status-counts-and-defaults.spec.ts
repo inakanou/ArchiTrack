@@ -29,7 +29,10 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
   // ==========================================================================
 
   test.describe('ステータス別件数表示 (Task 44.1)', () => {
-    test('プロジェクト一覧画面でステータス別件数セクションが表示される (23.1)', async ({
+    /**
+     * @requirement project-management/REQ-23.1
+     */
+    test('プロジェクト一覧画面でステータス別件数セクションが表示される (project-management/REQ-23.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -43,7 +46,13 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       });
     });
 
-    test('全12ステータスの件数ボタンが表示される (23.4)', async ({ page }) => {
+    /**
+     * @requirement project-management/REQ-23.4
+     * @requirement project-management/REQ-23.5
+     */
+    test('全12ステータスの件数ボタンが表示される (project-management/REQ-23.4, REQ-23.5)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects');
@@ -80,7 +89,10 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       }
     });
 
-    test('合計件数が表示される (23.6)', async ({ page }) => {
+    /**
+     * @requirement project-management/REQ-23.6
+     */
+    test('合計件数が表示される (project-management/REQ-23.6)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects');
@@ -98,7 +110,13 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       await expect(summarySection.getByText(/全.*件/)).toBeVisible();
     });
 
-    test('検索・フィルタ操作後もステータス別件数が変化しない (23.3)', async ({ page }) => {
+    /**
+     * @requirement project-management/REQ-23.2
+     * @requirement project-management/REQ-23.3
+     */
+    test('検索・フィルタ操作後もステータス別件数が変化しない (project-management/REQ-23.2, REQ-23.3)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects');
@@ -141,7 +159,12 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
   // ==========================================================================
 
   test.describe('終端ステータス除外 (Task 44.2)', () => {
-    test('デフォルト表示で終端ステータスのプロジェクトが表示されない (2.7)', async ({ page }) => {
+    /**
+     * @requirement project-management/REQ-2.7
+     */
+    test('デフォルト表示で終端ステータスのプロジェクトが表示されない (project-management/REQ-2.7)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects');
@@ -168,7 +191,11 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       expect(url).toContain('excludeTerminalStatuses=true');
     });
 
-    test('ステータスフィルタで「完了」を選択すると完了ステータスのプロジェクトが表示される (2.8)', async ({
+    /**
+     * @requirement project-management/REQ-2.8
+     * @requirement project-management/REQ-5.7
+     */
+    test('ステータスフィルタで「完了」を選択すると完了ステータスのプロジェクトが表示される (project-management/REQ-2.8, REQ-5.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -227,6 +254,29 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
 
         // excludeTerminalStatuses=true が再び含まれる
         expect(url).toContain('excludeTerminalStatuses=true');
+      }
+    });
+
+    /**
+     * @requirement project-management/REQ-5.8
+     */
+    test('ステータスフィルタに「完了」「中止」「失注」を含むすべてのステータスが選択肢として存在する (project-management/REQ-5.8)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto('/projects');
+      await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
+
+      // ステータスフィルタの選択肢を確認
+      const statusFilter = page.getByLabel('ステータスフィルタ');
+      await expect(statusFilter).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 終端ステータスを含むすべてのステータスが選択肢として存在することを確認
+      const terminalStatuses = ['COMPLETED', 'CANCELLED', 'LOST'];
+      for (const status of terminalStatuses) {
+        const option = statusFilter.locator(`option[value="${status}"]`);
+        await expect(option).toBeAttached();
       }
     });
   });
