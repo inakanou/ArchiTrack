@@ -372,6 +372,9 @@ test.describe('プロジェクト管理 追加要件', () => {
         }
       }
 
+      // 作成APIと詳細取得APIを同時に監視
+      // SPA: 作成成功後に navigate(`/projects/${id}`) でリダイレクトされ、
+      // その際にGET /api/projects/:id/detail-summary が発行される
       const createPromise = page.waitForResponse(
         (response: Response) =>
           response.url().includes('/api/projects') &&
@@ -380,29 +383,28 @@ test.describe('プロジェクト管理 追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
+      const detailPromise = page.waitForResponse(
+        (response: Response) => {
+          const url = new URL(response.url());
+          // フロントエンドは /api/projects/:id/detail-summary で詳細を取得する
+          const pathMatch = url.pathname.match(/^\/api\/projects\/[0-9a-f-]+\/detail-summary$/);
+          return !!pathMatch && response.request().method() === 'GET';
+        },
+        { timeout: getTimeout(30000) }
+      );
+
       await page.getByRole('button', { name: /^作成$/i }).click();
       const createResponse = await createPromise;
       const createData = await createResponse.json();
       const projectId = createData.id;
 
-      // 詳細取得APIを監視（status-historyを除外）
-      const detailPromise = page.waitForResponse(
-        (response: Response) =>
-          response.url().includes(`/api/projects/${projectId}`) &&
-          !response.url().includes('/status-history') &&
-          response.request().method() === 'GET',
-        { timeout: getTimeout(30000) }
-      );
-
-      await page.goto(`/projects/${projectId}`);
-      await page.waitForLoadState('networkidle');
-
-      // APIレスポンスを確認
+      // APIレスポンスを確認（SPAリダイレクト時に発生したGETリクエスト）
       const response = await detailPromise;
       expect(response.status()).toBe(200);
 
+      // detail-summary APIのレスポンス形式: { project, statusHistory, sections }
       const responseData = await response.json();
-      expect(responseData.id).toBe(projectId);
+      expect(responseData.project.id).toBe(projectId);
     });
 
     /**
