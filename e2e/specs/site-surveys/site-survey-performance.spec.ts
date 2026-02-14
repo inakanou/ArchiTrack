@@ -331,7 +331,9 @@ test.describe('現場調査非機能要件', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // 必須フィールドを空のまま送信してバリデーションエラーを発生させる
+      // 必須フィールドを空にして送信し、バリデーションエラーを発生させる
+      const nameInput = page.getByLabel(/調査名/i);
+      await nameInput.clear();
       const createButton = page.getByRole('button', { name: /^作成$/i });
       await createButton.click();
 

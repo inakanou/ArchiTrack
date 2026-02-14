@@ -511,7 +511,7 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
 
       // プロジェクト一覧画面が表示される
-      await expect(page.getByRole('heading', { name: /プロジェクト/i })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'プロジェクト一覧' })).toBeVisible();
     });
   });
 
