@@ -12,6 +12,7 @@
 import { test, expect, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * プロジェクト管理の追加要件E2Eテスト
@@ -358,7 +359,8 @@ test.describe('プロジェクト管理 追加要件', () => {
         timeout: getTimeout(15000),
       });
 
-      await page.getByLabel(/プロジェクト名/i).fill(`APIテスト_${Date.now()}`);
+      const projectName = `APIテスト_${Date.now()}`;
+      await page.getByLabel(/プロジェクト名/i).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -372,9 +374,7 @@ test.describe('プロジェクト管理 追加要件', () => {
         }
       }
 
-      // 作成APIと詳細取得APIを同時に監視
-      // SPA: 作成成功後に navigate(`/projects/${id}`) でリダイレクトされ、
-      // その際にGET /api/projects/:id/detail-summary が発行される
+      // 作成APIを監視
       const createPromise = page.waitForResponse(
         (response: Response) =>
           response.url().includes('/api/projects') &&
@@ -383,23 +383,27 @@ test.describe('プロジェクト管理 追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
-      const detailPromise = page.waitForResponse(
-        (response: Response) => {
-          const url = new URL(response.url());
-          // フロントエンドは /api/projects/:id/detail-summary で詳細を取得する
-          const pathMatch = url.pathname.match(/^\/api\/projects\/[0-9a-f-]+\/detail-summary$/);
-          return !!pathMatch && response.request().method() === 'GET';
-        },
-        { timeout: getTimeout(30000) }
-      );
-
       await page.getByRole('button', { name: /^作成$/i }).click();
       const createResponse = await createPromise;
       const createData = await createResponse.json();
       const projectId = createData.id;
 
-      // APIレスポンスを確認（SPAリダイレクト時に発生したGETリクエスト）
-      const response = await detailPromise;
+      // SPA遷移後、プロジェクト詳細ページが表示されることを確認
+      await expect(page.getByRole('heading', { name: projectName })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // detail-summary APIをバックエンドに直接呼び出して検証
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const response = await page.request.get(
+        `${API_BASE_URL}/api/projects/${projectId}/detail-summary`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
       expect(response.status()).toBe(200);
 
       // detail-summary APIのレスポンス形式: { project, statusHistory, sections }
