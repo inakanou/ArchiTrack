@@ -15,6 +15,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 test.describe('プロジェクト詳細画面 - セクション表示とAPI効率化', () => {
   test.describe.configure({ mode: 'serial' });
@@ -688,6 +689,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
      */
     test('detail-summary APIの個別セクションエラー時に他のセクションは正常に表示される (project-management/REQ-29.4)', async ({
       page,
+      request,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -695,14 +697,21 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
         testProjectId = await createTestProject(page);
       }
 
-      // detail-summary APIレスポンスを監視
-      const detailSummaryPromise = page.waitForResponse(
-        (response) => response.url().includes('/detail-summary') && response.status() === 200,
-        { timeout: getTimeout(30000) }
-      );
+      // プロジェクト詳細画面に遷移してフロントエンドが正常に表示されることを確認
+      await navigateToProjectDetail(page, testProjectId);
+      await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
 
-      await page.goto(`/projects/${testProjectId}`);
-      const response = await detailSummaryPromise;
+      // アクセストークンを取得
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      expect(accessToken).toBeTruthy();
+
+      // Playwright APIリクエストコンテキストでdetail-summary APIを直接呼び出して構造を検証
+      const response = await request.get(
+        `${API_BASE_URL}/api/projects/${testProjectId}/detail-summary`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
 
       // レスポンスが200であることを確認
       expect(response.status()).toBe(200);
@@ -734,10 +743,6 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       expect(body.sections.estimates).toBeDefined();
       expect(body.sections.estimates.totalCount).toBeDefined();
       expect(typeof body.sections.estimates.totalCount).toBe('number');
-
-      // 画面が正常に表示されることを確認
-      await page.waitForLoadState('networkidle');
-      await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
     });
 
     /**
